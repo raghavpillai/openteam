@@ -85,10 +85,10 @@
   opacity: 1;
   transform: translateY(0);
 }
-.ot-control-stage .dc-handoff-actions button:last-child {
+.ot-control-stage .dc-handoff-actions > span:last-child {
   box-shadow: 0 3px 7px #0002;
 }
-.ot-control-stage .dc-handoff-actions button {
+.ot-control-stage .dc-handoff-actions > span {
   transition:
     background 200ms,
     box-shadow 200ms;
@@ -143,45 +143,6 @@
 .ot-home .ot-faq-trigger:hover {
   color: #38745f;
 }
-.ot-install-steps li {
-  position: relative;
-  transition: opacity 400ms;
-}
-.ot-install-steps li::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 100%;
-  height: 1px;
-  background: #90b6a2;
-  transform: scaleX(0);
-  transform-origin: left;
-}
-.ot-install-card[data-playing="true"] .ot-install-steps li[data-active="true"]::after {
-  animation: polish-save var(--cycle-duration) linear both;
-}
-.ot-install-steps li[data-done="true"]::after {
-  transform: scaleX(1);
-  opacity: 0.35;
-}
-.ot-install-step-number {
-  transition:
-    color 350ms,
-    background 350ms,
-    border-color 350ms,
-    box-shadow 350ms;
-}
-.ot-install-steps li[data-active="true"] .ot-install-step-number {
-  border-color: #8eaa9c;
-  box-shadow: 0 0 0 4px #edf3ee;
-  color: #36644b;
-}
-.ot-install-steps li[data-done="true"] .ot-install-step-number {
-  background: #edf3ee;
-  border-color: #dce8de;
-  color: #42755a;
-}
 @keyframes polish-arrive {
   from {
     opacity: 0;
@@ -231,13 +192,13 @@
   .ot-home .ws-roster {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-  .ot-home .ws-roster button {
+  .ot-home .ws-roster-item {
     min-width: 0;
   }
-  .ot-home .ws-roster button > .robot-avatar {
+  .ot-home .ws-roster-item > .robot-avatar {
     display: block;
   }
-  .ot-home .ws-roster button > span {
+  .ot-home .ws-roster-item > span {
     width: 100%;
     min-height: 2.5em;
     white-space: normal;
@@ -262,14 +223,14 @@
   .ot-home .ws-memory-scene .ot-scene-copy > p {
     color: #716a60;
   }
-  .ot-home .ws-roster button > span {
+  .ot-home .ws-roster-item > span {
     font-size: 14px;
   }
   .ot-home .ws-computer-workers button,
-  .ot-home .ws-provider-options button,
+  .ot-home .ws-provider-option,
   .ot-home .ws-memory-journey button,
   .ot-home .mr-question-options button,
-  .ot-home .dc-handoff-actions button,
+  .ot-home .dc-handoff-actions > span,
   .ot-home .ws-memory-actions button {
     min-height: 44px;
     font-size: 14px;

@@ -1,139 +1,210 @@
+/* A static setup panel: the command and its three steps stay visible together. */
+.landing.ot-home .ot-start {
+  display: block;
+  padding: clamp(28px, 4.5vw, 64px);
+  border: 1px solid #e1e5e1;
+  border-radius: 24px;
+  background: linear-gradient(135deg, #f5f7f3, #fafbf9 65%, #f0f4f0);
+  box-shadow: inset 0 1px 0 #fff;
+}
+.ot-start-heading {
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  align-items: center;
+  gap: 40px;
+  margin-bottom: 40px;
+}
+.landing.ot-home .ot-start h2 {
+  margin: 0;
+  font-size: clamp(38px, 4.4vw, 60px);
+  font-weight: 500;
+  letter-spacing: -2.5px;
+  line-height: 1.08;
+}
+.landing.ot-home .ot-start h2 span { color: #858d84; }
+.ot-start-intro > p {
+  max-width: 420px;
+  margin: 0;
+  color: #626b63;
+  font-size: 17px;
+  line-height: 1.7;
+}
+.ot-start-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 24px;
+  margin-top: 24px;
+}
+.landing .ot-start-actions .ot-button {
+  min-height: 48px;
+  margin: 0;
+  border-radius: 8px;
+  box-shadow: 0 2px 3px #16221b12;
+}
+.landing .ot-start-actions .ot-install-guide {
+  width: fit-content;
+  margin: 0;
+  color: #626b63;
+  font-size: 14px;
+}
+.landing .ot-start-actions .ot-install-guide:hover { color: #151e18; }
 .ot-install-card {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid #d9d9d9;
-  border-radius: 16px;
+  border: 1px solid #d7ded7;
+  border-radius: 14px;
   background: #fff;
-  box-shadow: 0 2px 4px #00000004, 0 20px 48px -24px #00000024;
+  box-shadow: 0 3px 6px -4px #20302726, 0 24px 48px -32px #20302740;
 }
 .ot-install-terminal {
-  padding: 20px 24px 28px;
-  background: radial-gradient(ellipse at 0 0, #303030, transparent 75%), #141414;
-  color: #f7f7f7;
-  box-shadow: inset 0 1px 0 #ffffff1a;
+  background: linear-gradient(120deg, #242c28, #151a17 70%);
+  color: #f7f9f7;
 }
 .ot-install-command-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 25px;
+  gap: 16px;
+  min-height: 53px;
+  padding: 14px 28px;
+  border-bottom: 1px solid #ffffff0c;
+  box-shadow: inset 0 1px 0 #ffffff0c;
+  color: #a5b0a8;
+  font-size: 13px;
 }
-.ot-install-platform {
+.ot-install-terminal-title {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  color: #bcbcbc;
-  font-size: 13px;
+  gap: 18px;
 }
-.ot-install-platform svg { flex-shrink: 0; color: #e0e0e0; }
-.landing .ot-install-copy {
-  width: 94px;
-  min-height: 44px;
-  padding: 0 12px;
-  gap: 8px;
-  border: 1px solid #ffffff26;
-  border-radius: 8px;
-  background: #ffffff0d;
-  color: #f5f5f5;
-  font-size: 13px;
-  font-weight: 500;
-  box-shadow: 0 1px 2px #0002;
-  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+.ot-install-window-dots { display: flex; gap: 6px; }
+.ot-install-window-dots i {
+  width: 9px;
+  height: 9px;
+  border: 1px solid #ffffff12;
+  border-radius: 50%;
+  background: #59645d;
 }
-.landing .ot-install-copy:hover {
-  background: #ffffff1a;
-  border-color: #ffffff4d;
+.ot-install-window-dots i:nth-child(2) { background: #758074; }
+.ot-install-window-dots i:nth-child(3) { background: #a0b19c; }
+.ot-install-platform { color: #98a49b; }
+.ot-install-command-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 30px 28px 34px;
 }
-.landing .ot-install-copy:focus-visible { outline: 2px solid #fff; outline-offset: 4px; }
-.landing .ot-install-copy[data-copied] { background: #f3f3f3; border-color: #f3f3f3; color: #171717; }
 .ot-install-code {
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr);
+  grid-template-columns: 12px minmax(0, 1fr);
   align-items: baseline;
-  gap: 12px;
-  font-family: "Plex Mono", monospace;
-  font-size: 14px;
-  line-height: 1.9;
+  min-width: 0;
+  gap: 14px;
+  font: 16px/1.9 "Plex Mono", monospace;
 }
-.ot-install-prompt { color: #858585; user-select: none; }
+.ot-install-prompt { color: #87b797; user-select: none; }
 .ot-install-code code {
   min-width: 0;
   font: inherit;
-  color: #f5f5f5;
+  color: #e2e8e3;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .ot-install-code code > span { display: inline-block; max-width: 100%; }
+.ot-install-code code > span:nth-child(2) { color: #bbd4b1; }
+.landing .ot-install-copy {
+  flex-shrink: 0;
+  width: 91px;
+  min-height: 42px;
+  padding: 0 12px;
+  gap: 8px;
+  border: 1px solid #ffffff26;
+  border-radius: 7px;
+  background: #ffffff08;
+  color: #dce5df;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 1px 2px #0002;
+}
+.landing .ot-install-copy:hover { background: #ffffff16; border-color: #ffffff4d; }
+.landing .ot-install-copy:focus-visible { outline: 2px solid #d2e5ca; outline-offset: 4px; }
+.landing .ot-install-copy[data-copied] { background: #d7e6d2; border-color: #d7e6d2; color: #17251b; }
 .ot-install-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin: 0;
-  padding: 7px 24px;
+  padding: 30px 0;
   list-style: none;
 }
-.ot-install-steps li {
-  display: grid;
-  grid-template-columns: 32px minmax(0, 1fr);
-  align-items: start;
-  gap: 16px;
-  padding: 22px 0;
-}
-.ot-install-steps li + li { border-top: 1px solid #eeeeee; }
+.ot-install-steps li { min-width: 0; padding: 0 28px; }
+.ot-install-steps li + li { border-left: 1px solid #e9ece7; }
 .ot-install-step-number {
-  display: grid;
-  place-items: center;
-  height: 32px;
-  margin-top: 1px;
-  border: 1px solid #e5e5e5;
-  border-radius: 9px;
-  background: linear-gradient(#fff, #f7f7f7);
-  color: #777;
-  font: 12px/1 "Plex Mono", monospace;
-  box-shadow: 0 1px 2px #00000005;
+  display: block;
+  margin-bottom: 18px;
+  color: #8b9a87;
+  font: 13px/1 "Plex Mono", monospace;
 }
 .ot-install-steps h3 {
   margin: 0;
-  color: #191919;
-  font-size: 16px;
+  color: #273129;
+  font-size: 17px;
   font-weight: 500;
   line-height: 1.4;
-  letter-spacing: -.15px;
+  letter-spacing: -.3px;
 }
 .ot-install-steps p {
-  margin: 6px 0 0;
-  color: #737373;
-  font-size: 14px;
-  line-height: 1.6;
+  margin: 9px 0 0;
+  color: #788077;
+  font-size: 15px;
+  line-height: 1.65;
 }
 .ot-install-requirements {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px 20px;
-  padding: 16px 24px;
-  border-top: 1px solid #e9e9e9;
-  background: #fafafa;
-  color: #727272;
+  gap: 12px 26px;
+  padding: 17px 28px;
+  border-top: 1px solid #e9ece7;
+  background: #fafcf9;
+  color: #7a8478;
 }
 .ot-install-requirements > span {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  font-size: 12px;
+  gap: 8px;
+  font-size: 13px;
   line-height: 1.5;
 }
-.ot-install-requirements svg { flex-shrink: 0; color: #909090; }
+.ot-install-requirements svg { flex-shrink: 0; color: #8e9b8a; }
+@media (max-width: 1000px) {
+  .ot-start-heading { grid-template-columns: 1fr 1fr; gap: 30px; }
+  .ot-install-code { font-size: 14px; }
+  .ot-install-command-line { gap: 16px; }
+  .ot-install-steps li { padding-inline: 22px; }
+}
 @media (max-width: 700px) {
-  .landing .ot-start {
+  .landing.ot-home .ot-start {
     padding: 0;
-    gap: 28px;
-    background: transparent;
     border: 0;
     border-radius: 0;
+    background: transparent;
+    box-shadow: none;
   }
-  .landing .ot-start > .ot-section-bot { top: -38px; }
-  .ot-install-terminal { padding: 16px 18px 24px; }
-  .ot-install-command-toolbar { margin-bottom: 20px; gap: 8px; }
-  .ot-install-code { font-size: 13px; gap: 8px; }
-  .ot-install-steps { padding: 4px 18px; }
-  .ot-install-steps li { gap: 12px; padding: 20px 0; }
-  .ot-install-requirements { padding: 16px 18px; }
+  .ot-start-heading { grid-template-columns: 1fr; gap: 22px; margin-bottom: 28px; }
+  .landing.ot-home .ot-start h2 { font-size: clamp(36px, 9vw, 52px); letter-spacing: -1.6px; }
+  .ot-start-intro > p { max-width: 460px; font-size: 16px; }
+  .ot-start-actions { gap: 20px; margin-top: 22px; }
+  .ot-install-command-toolbar { min-height: 49px; padding: 14px 20px; font-size: 12px; }
+  .ot-install-terminal-title { gap: 12px; }
+  .ot-install-command-line { flex-wrap: wrap; gap: 18px; padding: 22px 20px; }
+  .ot-install-code { flex: 1 1 100%; gap: 10px; font-size: 13px; }
+  .landing .ot-install-copy { min-height: 38px; width: 91px; }
+  .ot-install-steps { grid-template-columns: 1fr; padding: 5px 20px; }
+  .ot-install-steps li { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 14px; padding: 22px 0; }
+  .ot-install-steps li + li { border-left: 0; border-top: 1px solid #e9ece7; }
+  .ot-install-step-number { margin: 5px 0 0; }
+  .ot-install-steps h3 { font-size: 17px; }
+  .ot-install-steps p { margin-top: 6px; }
+  .ot-install-requirements { padding: 16px 20px; gap: 10px 20px; }
 }

@@ -789,7 +789,7 @@
   padding: 12px;
   gap: 8px;
 }
-.ws-provider-options button {
+.ws-provider-option {
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
@@ -799,13 +799,10 @@
   gap: 10px;
   font-size: 13px;
 }
-.ws-provider-options button[aria-pressed="true"] {
+.ws-provider-option[data-selected="true"] {
   background: white;
   border-color: #d8d9d3;
   box-shadow: 0 2px 4px #00000004;
-}
-.ws-provider-options button:hover {
-  background: white;
 }
 .ws-radio {
   display: grid;
@@ -816,7 +813,7 @@
   border-radius: 50%;
   margin-left: auto;
 }
-[aria-pressed="true"] > .ws-radio {
+[data-selected="true"] > .ws-radio {
   background: #272923;
   border-color: #272923;
   color: white;
@@ -977,7 +974,7 @@
     padding: 8px;
     gap: 3px;
   }
-  .ws-provider-options button {
+  .ws-provider-option {
     padding: 16px 10px;
     font-size: 12px;
   }

@@ -215,10 +215,6 @@
   border-color: #d7d7d7;
   box-shadow: 0 1px 3px #0000000d;
 }
-.landing .pd-scenario:hover {
-  color: #111;
-  background: #fff;
-}
 .landing .pd-replay {
   color: #555;
 }

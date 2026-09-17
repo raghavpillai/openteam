@@ -76,28 +76,6 @@
 .ws-studio {
   border-block: 1px solid #e0e3db;
 }
-.ws-studio-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-block: 18px;
-  border-bottom: 1px solid #e0e3db;
-  color: #7d8278;
-  font-size: 12px;
-}
-.ws-studio-top > span,
-.ws-studio-activity {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-.ws-studio-activity i {
-  width: 5px;
-  height: 5px;
-  background: #259383;
-  border-radius: 50%;
-  box-shadow: 0 0 0 4px #25938310;
-}
 .ws-studio-body {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -112,7 +90,7 @@
   display: grid;
   max-width: 430px;
 }
-.ws-roster button {
+.ws-roster-item {
   position: relative;
   display: flex;
   align-items: center;
@@ -126,28 +104,28 @@
     background 0.3s,
     padding 0.3s;
 }
-.ws-roster button[aria-pressed="true"] {
+.ws-roster-item[data-selected="true"] {
   padding-left: 16px;
   background: #f3f5ef;
 }
-.ws-roster button > span {
+.ws-roster-item > span {
   display: block;
   font-size: 15px;
   font-weight: 500;
 }
-.ws-roster button small {
+.ws-roster-item small {
   display: block;
   font-size: 12px;
   color: #90968a;
   font-weight: 400;
   margin-top: 3px;
 }
-.ws-roster button > svg:not(.robot-avatar) {
+.ws-roster-item > svg:not(.robot-avatar) {
   margin-left: auto;
   color: #abb0a4;
   transition: transform 0.3s;
 }
-.ws-roster button[aria-pressed="true"] > svg:not(.robot-avatar) {
+.ws-roster-item[data-selected="true"] > svg:not(.robot-avatar) {
   transform: translateX(3px);
   color: #3c4939;
 }
@@ -1047,32 +1025,6 @@
 .ot-team-stage {
   min-width: 0;
 }
-.ot-team-handoff {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 13px;
-  padding: 0 20px 24px;
-  color: #8fa090;
-  font:
-    12px / 1.4 "Plex Mono",
-    monospace;
-}
-.ot-handoff-line {
-  position: relative;
-  width: 60px;
-  height: 1px;
-  background: #dce7dd;
-  overflow: hidden;
-}
-.ot-handoff-line::after {
-  content: "";
-  display: block;
-  width: 14px;
-  height: 1px;
-  background: #31ae91;
-  animation: handoff-packet 2.5s linear infinite;
-}
 .ot-team-feature .twd-app {
   grid-template-columns: minmax(0, 1fr);
   box-shadow: 0 13px 36px -30px #253e2455;
@@ -1352,7 +1304,6 @@
   }
 }
 html[data-page-hidden] .ot-home *,
-.ot-home section:not([data-scene-visible]) .ot-handoff-line::after,
 .ot-home section:not([data-scene-visible]) .ot-desktop-receipt,
 .ot-home section:not([data-scene-visible]) .ot-device-sync i,
 .ot-home section:not([data-scene-visible]) .ot-control-stamp > span {
@@ -1446,14 +1397,14 @@ html[data-page-hidden] .ot-home *,
     padding: 45px 15px 50px 0;
     grid-template-columns: 0.95fr 1.05fr;
   }
-  .ws-roster button {
+  .ws-roster-item {
     gap: 8px;
     padding-left: 0;
   }
-  .ws-roster button > span {
+  .ws-roster-item > span {
     font-size: 14px;
   }
-  .ws-roster button small {
+  .ws-roster-item small {
     display: none;
   }
   .ws-worker-card {
@@ -1663,12 +1614,6 @@ html[data-page-hidden] .ot-home *,
     line-height: 1.75;
     margin-top: 20px;
   }
-  .ws-studio-top {
-    font-size: 11px;
-  }
-  .ws-studio-activity {
-    gap: 5px;
-  }
   .ws-studio-body {
     grid-template-columns: minmax(0, 1fr);
     padding: 35px 0 45px;
@@ -1681,20 +1626,20 @@ html[data-page-hidden] .ot-home *,
     grid-template-columns: repeat(3, 1fr);
     gap: 5px;
   }
-  .ws-roster button {
+  .ws-roster-item {
     flex-direction: column;
     padding: 12px 5px;
     border: 1px solid #edf0e6;
     border-radius: 6px;
     gap: 8px;
   }
-  .ws-roster button[aria-pressed="true"] {
+  .ws-roster-item[data-selected="true"] {
     padding-left: 5px;
   }
-  .ws-roster button > svg:not(.robot-avatar) {
+  .ws-roster-item > svg:not(.robot-avatar) {
     display: none;
   }
-  .ws-roster button > span {
+  .ws-roster-item > span {
     text-align: center;
     font-size: 11px;
     white-space: nowrap;
@@ -1944,14 +1889,6 @@ html[data-page-hidden] .ot-home *,
   .ot-home .ot-team-copy h2 {
     font-size: 42px;
   }
-  .ot-team-handoff {
-    padding-inline: 5px;
-    gap: 8px;
-    font-size: 11px;
-  }
-  .ot-handoff-line {
-    width: 36px;
-  }
   .ot-team-feature .twd-transcript {
     padding: 15px 12px;
     min-height: 445px;
@@ -2004,7 +1941,7 @@ html[data-page-hidden] .ot-home *,
 .ot-home .ws-machine .ot-scene-copy h2 {
   color: #f0f5ef;
 }
-.ws-roster button {
+.ws-roster-item {
   justify-content: flex-start;
 }
 .ws-memory-scene .ws-memory-recall {

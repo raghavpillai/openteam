@@ -16,3 +16,12 @@ These trademarks identify the services shown in the interactive plugin demo. Ret
 - **Linear:** Official Nordic Gray logomark embedded in the [Linear brand guidelines](https://linear.app/brand). Original 200 × 200 dimensions, 100 × 100 viewBox, path geometry, and #222326 color preserved.
 - **Notion:** Cube mark from the official [Notion developer documentation](https://developers.notion.com/guides/get-started/overview), served in its [light header SVG](https://mintcdn.com/notion-demo/5YdhSbldE14t5Rna/logo/light.svg). Original cube path and black color preserved; accompanying “Developer Docs” text omitted and canvas set to 30 × 30 for the standalone mark.
 - **GitHub:** Existing `GithubMark` path from `components/brand.tsx`, exported unchanged as a standalone 24 × 24 SVG with #24292f fill.
+
+## Worker profile integrations
+
+Copied unchanged from the corresponding plugin's `assets/icon.png` in `packages/plugins`:
+
+- **Gmail, Google Calendar, Google Drive:** Official Google product marks. Source URLs and original rasterization notes are recorded in each plugin's `assets/SOURCES.md`.
+- **Granola:** Official 192 × 192 app mark from [Granola's web app assets](https://www.granola.ai/favicon/web-app-manifest-192x192.png).
+
+Example skills use distinct Lucide icons for meeting preparation, commitments, travel, fares, invoices, and spend analysis.

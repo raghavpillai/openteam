@@ -1,14 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Dialog } from "@base-ui/react/dialog";
+import { useEffect, useRef, useState } from "react";
 import {
-  ArrowDownToLine,
   CalendarClock,
   ChevronsRight,
   PanelLeftClose,
-  PanelLeftOpen,
   Plug,
   Clock3,
   FileText,
@@ -17,12 +14,9 @@ import {
   Search,
   Settings,
   Terminal,
-  X,
 } from "lucide-react";
 import { BotAvatar } from "./bot-avatar";
 import { DesktopPlusIcon, DesktopMicIcon } from "./desktop-demo-controls";
-import { DEMO_TASK_EVENT } from "./demo-task-link";
-import { Button } from "./ui/button";
 import "./desktop-demo.css";
 
 const examples = [
@@ -135,19 +129,14 @@ export function ProductDemo() {
   const playback = useRef<Animation | null>(null);
   const [selected, setSelected] = useState(0);
   const [stage, setStage] = useState(0);
-  const [manualRun, setManualRun] = useState(false);
   const [visible, setVisible] = useState(false);
   const [documentVisible, setDocumentVisible] = useState(false);
   const [runId, setRunId] = useState(0);
-  const [compact, setCompact] = useState(false);
-  const [details, setDetails] = useState(true);
-  const [search, setSearch] = useState("");
-  const [preview, setPreview] = useState<"file" | "computer" | null>(null);
   const scenario = examples[selected];
   const fileBytes = new TextEncoder().encode(sampleFileContent(scenario)).byteLength;
   const fileSize = fileBytes < 1024 ? `${fileBytes} B` : `${(fileBytes / 1024).toFixed(1)} KB`;
   const done = stage >= 4;
-  const active = visible && documentVisible && preview === null;
+  const active = visible && documentVisible;
   const avatarMode = !active ? "still" : done ? "idle" : "thinking";
 
   useEffect(() => {
@@ -156,7 +145,7 @@ export function ProductDemo() {
     document.addEventListener("visibilitychange", syncDocument);
     const observer = new IntersectionObserver(
       ([entry]) => setVisible(entry?.isIntersecting ?? false),
-      { threshold: 0.12 },
+      { threshold: 0.12 }
     );
     if (showcase.current) observer.observe(showcase.current);
     return () => {
@@ -173,7 +162,7 @@ export function ProductDemo() {
         { transform: "scaleX(0)", offset: 0 },
         { transform: "scaleX(1)", offset: 1 },
       ],
-      { duration: DEMO_CYCLE_DURATION, easing: "linear", fill: "forwards" },
+      { duration: DEMO_CYCLE_DURATION, easing: "linear", fill: "forwards" }
     );
     animation.pause();
     playback.current = animation;
@@ -189,7 +178,6 @@ export function ProductDemo() {
     if (!active) return;
 
     const nextTask = () => {
-      setManualRun(false);
       setSelected((index) => (index + 1) % examples.length);
       setStage(0);
       setRunId((id) => id + 1);
@@ -198,7 +186,7 @@ export function ProductDemo() {
       setStage(4);
       nextTask();
     };
-    // Resume a completed timeline after its file preview closes.
+    // Continue the automatic cycle when the demo comes back into view.
     if (Number(animation.currentTime) >= DEMO_CYCLE_DURATION) {
       advanceWhenReady();
       return;
@@ -227,38 +215,6 @@ export function ProductDemo() {
     };
   }, [active, runId]);
 
-  const choose = useCallback((index: number) => {
-    setManualRun(true);
-    setSelected(index);
-    setStage(0);
-    setRunId((count) => count + 1);
-    setPreview(null);
-  }, []);
-  useEffect(() => {
-    const selectTask = (event: Event) => {
-      if (!(event instanceof CustomEvent)) return;
-      const detail: unknown = event.detail;
-      if (!detail || typeof detail !== "object" || !("task" in detail)) return;
-      const task = detail.task;
-      if (task !== "research" && task !== "operations" && task !== "engineering") return;
-      const id = task === "engineering" ? "code" : task;
-      const index = examples.findIndex((example) => example.id === id);
-      if (index >= 0) choose(index);
-    };
-    window.addEventListener(DEMO_TASK_EVENT, selectTask);
-    return () => window.removeEventListener(DEMO_TASK_EVENT, selectTask);
-  }, [choose]);
-  const download = () => {
-    const text = sampleFileContent(scenario);
-    const url = URL.createObjectURL(
-      new Blob([text], { type: scenario.id === "operations" ? "text/csv" : "text/markdown" })
-    );
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = scenario.file;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
   // Presentational adapter of desktop Sidebar, DesktopHeader, MessageContent,
   // PromptInput and Inspector. Only sample data and playback belong to the landing.
   return (
@@ -272,15 +228,9 @@ export function ProductDemo() {
     >
       <div className="pd-scenarios">
         <span className="pd-try-label">Example Bots</span>
-        <div className="pd-scenario-buttons" aria-label="Choose an example bot">
+        <div className="pd-scenario-buttons" aria-label="Example bots">
           {examples.map((item, i) => (
-            <Button
-              variant="ghost"
-              key={item.id}
-              className={`pd-scenario ${selected === i ? "is-selected" : ""}`}
-              aria-pressed={selected === i}
-              onClick={() => choose(i)}
-            >
+            <div key={item.id} className={`pd-scenario ${selected === i ? "is-selected" : ""}`}>
               {i === 0 ? (
                 <Search size={14} />
               ) : i === 1 ? (
@@ -294,77 +244,55 @@ export function ProductDemo() {
                   <span key={runId} ref={progress} />
                 </span>
               )}
-            </Button>
+            </div>
           ))}
         </div>
       </div>
-      <div className={`dt-app ${compact ? "dt-compact" : ""} ${details ? "dt-details-open" : ""}`}>
+      <div className="dt-app dt-details-open">
         <aside className="dt-sidebar" aria-label="Demo conversations">
           <div className="dt-sidebar-toolbar">
             <TrafficLights />
-            <button
-              type="button"
-              className="dt-icon-button"
-              aria-label="Toggle compact sidebar"
-              onClick={() => setCompact(!compact)}
-            >
-              {compact ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
-            </button>
+            <div className="dt-icon-button" aria-hidden="true">
+              <PanelLeftClose size={15} />
+            </div>
             <span className="dt-icon-button dt-new" aria-hidden="true">
               <Plus size={16} />
             </span>
           </div>
-          <label className="dt-search">
+          <div className="dt-search" aria-hidden="true">
             <Search size={14} />
-            <input
-              aria-label="Search demo conversations"
-              placeholder="Search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </label>
+            <span className="dt-search-placeholder">Search</span>
+          </div>
           <div className="dt-conversations">
-            {examples.map(
-              (item, i) =>
-                item.name.toLowerCase().includes(search.toLowerCase()) && (
-                  <button
-                    type="button"
-                    key={item.id}
-                    className={`dt-conversation ${i === selected ? "is-active" : ""}`}
-                    onClick={() => choose(i)}
-                    aria-label={`Open ${item.name} demo`}
-                    aria-pressed={i === selected}
-                  >
-                    <BotAvatar
-                      shape={item.shape}
-                      color={item.color}
-                      size={36}
-                      mode={i === selected ? avatarMode : "still"}
-                    />
-                    <span className="dt-conversation-text">
-                      <span>
-                        <strong>{item.name}</strong>
-                        <time>{i === 0 ? "8:01 AM" : i === 1 ? "8:00 AM" : "Yesterday"}</time>
-                      </span>
-                      <small>
-                        {i === selected && !done ? "Working…" : item.preview}
-                      </small>
-                    </span>
-                  </button>
-                )
-            )}
-            {search &&
-              !examples.some((item) => item.name.toLowerCase().includes(search.toLowerCase())) && (
-                <p className="dt-no-results">No conversations found</p>
-              )}
+            {examples.map((item, i) => (
+              <div
+                key={item.id}
+                className={`dt-conversation ${i === selected ? "is-active" : ""}`}
+                aria-label={`${item.name} example`}
+              >
+                <BotAvatar
+                  shape={item.shape}
+                  color={item.color}
+                  size={36}
+                  mode={i === selected ? avatarMode : "still"}
+                />
+                <span className="dt-conversation-text">
+                  <span>
+                    <strong>{item.name}</strong>
+                    <time>{i === 0 ? "8:01 AM" : i === 1 ? "8:00 AM" : "Yesterday"}</time>
+                  </span>
+                  <small>{i === selected && !done ? "Working…" : item.preview}</small>
+                </span>
+              </div>
+            ))}
           </div>
           <div className="dt-sidebar-footer">
-            <a href="#plugins" aria-label="Explore plugins">
+            <div>
               <span className="dt-footer-icon">
                 <Plug size={14} />
               </span>
               <span className="dt-footer-label">Plugins</span>
-            </a>
+            </div>
             <div>
               <span className="dt-account-avatar">JL</span>
               <span className="dt-footer-label">Jordan Lee</span>
@@ -375,42 +303,38 @@ export function ProductDemo() {
           <header className="dt-chat-header">
             <BotAvatar shape={scenario.shape} color={scenario.color} size={16} mode={avatarMode} />
             <strong>{scenario.name}</strong>
-            <button
-              type="button"
-              className="dt-icon-button dt-open-details"
-              aria-label="Open conversation details"
-              onClick={() => setDetails(true)}
-            >
+            <div className="dt-icon-button dt-open-details" aria-hidden="true">
               <Monitor size={16} />
-            </button>
-            <button
-              type="button"
-              className="dt-icon-button dt-mobile-screen"
-              aria-label="Open computer"
-              onClick={() => setPreview("computer")}
-            >
+            </div>
+            <div className="dt-icon-button dt-mobile-screen" aria-label="Worker computer">
               <Monitor size={16} />
-            </button>
+            </div>
           </header>
           <div
             className="dt-transcript"
             key={`${scenario.id}-${runId}`}
             role="log"
             aria-label="Sample messages"
-            aria-live={manualRun ? "polite" : "off"}
-
+            aria-live="off"
           >
             <p className="dt-date">Today 8:00 AM</p>
             <div className="dt-message dt-message-user">
               <div className="dt-bubble">{scenario.prompt}</div>
             </div>
             <div className="dt-response-slot">
-              <div className="dt-message dt-ack" data-revealed={stage > 0} aria-hidden={stage === 0} inert={stage === 0}>
+              <div
+                className="dt-message dt-ack"
+                data-revealed={stage > 0}
+                aria-hidden={stage === 0}
+                inert={stage === 0}
+              >
                 <div className="dt-bubble">{scenario.acknowledgment}</div>
               </div>
               {stage === 0 && (
                 <div className={`dt-thinking ${!active ? "is-paused" : ""}`} aria-hidden="true">
-                  <span /><span /><span />
+                  <span />
+                  <span />
+                  <span />
                 </div>
               )}
             </div>
@@ -420,16 +344,10 @@ export function ProductDemo() {
                 data-revealed={done}
                 aria-hidden={!done}
                 inert={!done}
-
               >
                 <div className="dt-bubble">{scenario.reply}</div>
                 <article className="dt-file">
-                  <button
-                    type="button"
-                    className="dt-file-open"
-                    onClick={() => setPreview("file")}
-                    aria-label={`Preview ${scenario.file}`}
-                  >
+                  <div className="dt-file-open" aria-label={scenario.file}>
                     <span className="dt-file-icon">
                       <FileText size={17} strokeWidth={1.65} />
                     </span>
@@ -442,25 +360,19 @@ export function ProductDemo() {
                       </strong>
                       <small>{fileSize}</small>
                     </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="dt-icon-button"
-                    aria-label={`Download ${scenario.file}`}
-                    onClick={download}
-                  >
-                    <ArrowDownToLine size={16} />
-                  </button>
+                  </div>
                 </article>
               </div>
               {stage > 0 && !done && (
                 <div
                   className={`dt-thinking ${!active ? "is-paused" : ""}`}
                   role="status"
-                  aria-live={manualRun ? "polite" : "off"}
+                  aria-live="off"
                   aria-label={`${scenario.name} is working`}
                 >
-                  <span /><span /><span />
+                  <span />
+                  <span />
+                  <span />
                 </div>
               )}
             </div>
@@ -482,23 +394,13 @@ export function ProductDemo() {
             <span className="dt-icon-button" aria-hidden="true">
               <Settings size={14} />
             </span>
-            <button
-              type="button"
-              className="dt-icon-button"
-              aria-label="Close details"
-              onClick={() => setDetails(false)}
-            >
+            <div className="dt-icon-button" aria-hidden="true">
               <ChevronsRight size={16} />
-            </button>
+            </div>
           </header>
-          <button
-            type="button"
-            className="dt-screen-preview"
-            aria-label="Open computer"
-            onClick={() => setPreview("computer")}
-          >
+          <div className="dt-screen-preview" aria-label="Worker computer">
             <DesktopScreenCanvas scenario={scenario} />
-          </button>
+          </div>
           <p className="dt-screen-label">{scenario.name}&apos;s screen</p>
           <div className="dt-routines">
             <div className="dt-routines-heading">
@@ -527,116 +429,7 @@ export function ProductDemo() {
           </div>
         </aside>
       </div>
-      <Dialog.Root
-        open={preview !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setPreview(null);
-          }
-        }}
-      >
-        <Dialog.Portal>
-          <Dialog.Backdrop className="dt-preview-backdrop" />
-          <Dialog.Popup
-            className={`dt-preview-dialog ${preview === "computer" ? "dt-computer-dialog" : ""}`}
-          >
-            <header>
-              <Dialog.Title>
-                {preview === "computer" ? `${scenario.name}'s screen` : scenario.file}
-              </Dialog.Title>
-              {preview === "file" && (
-                <button
-                  type="button"
-                  className="dt-icon-button"
-                  aria-label="Download sample file"
-                  onClick={download}
-                >
-                  <ArrowDownToLine size={16} />
-                </button>
-              )}
-              <Dialog.Close
-                className="dt-icon-button"
-                aria-label={preview === "computer" ? "Close computer view" : "Close preview"}
-              >
-                <X size={18} />
-              </Dialog.Close>
-            </header>
-            <Dialog.Description className="dt-visually-hidden">
-              Desktop product recreation with sample data.
-            </Dialog.Description>
-            <div className="dt-preview-content">
-              {preview === "computer" ? (
-                <DesktopScreenCanvas scenario={scenario} />
-              ) : (
-                <DesktopDocument scenario={scenario} />
-              )}
-            </div>
-          </Dialog.Popup>
-        </Dialog.Portal>
-      </Dialog.Root>
     </div>
-  );
-}
-
-function DesktopDocument({ scenario }: { scenario: (typeof examples)[number] }) {
-  if (scenario.id === "operations") {
-    return (
-      <div className="dt-document">
-        <pre>{sampleFileContent(scenario)}</pre>
-      </div>
-    );
-  }
-  return (
-    <article className="dt-document">
-      <h1>{scenario.heading}</h1>
-      <p>{scenario.reply}</p>
-      {scenario.id === "code" ? (
-        <>
-          <pre className="dt-document-diff">
-            <code>{` export function parseDate(input) {
--  return new Date(input);
-+  if (!input?.trim()) return null;
-+  return new Date(input);
- }`}</code>
-          </pre>
-          <p>Validation: 24 tests passed, 0 failed. Includes an empty-input regression test.</p>
-        </>
-      ) : (
-        <>
-          <div className="dt-document-table">
-            <table>
-              <thead>
-                <tr>
-                  {["Provider", "Annual price", "SSO", "Verdict"].map((heading) => (
-                    <th key={heading}>{heading}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {scenario.rows.map((row) => (
-                  <tr key={row[0]}>
-                    {row.map((cell, index) => (
-                      <td key={`${index}-${cell}`}>{cell}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <h2>Why Northstar</h2>
-          <p>
-            The required SSO feature is included. It costs $72 less per year than Acme and $144 less
-            than Orbit. Acme requires an add-on; Orbit exceeds the sample budget.
-          </p>
-          <h2>Sample source notes</h2>
-          <p>
-            Northstar pricing page; Acme plan documentation; Orbit SSO documentation. These are
-            fictional vendors in a product demonstration, not live citations.
-          </p>
-        </>
-      )}
-      <p>Sample output from the OpenTeam interactive product demo. All data is illustrative.</p>
-    </article>
   );
 }
 

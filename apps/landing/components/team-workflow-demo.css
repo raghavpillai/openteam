@@ -160,14 +160,8 @@
   color: #141414;
   font: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: default;
   transition: background-color 180ms ease, border-color 180ms ease, box-shadow 200ms ease;
-}
-
-.twd-file:hover {
-  border-color: #b6b6b6;
-  box-shadow: 0 3px 12px #00000009;
-  background: #f5f5f5;
 }
 
 .twd-file:focus-visible,

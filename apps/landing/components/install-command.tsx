@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Copy, Terminal } from "lucide-react";
+import { Check, Copy } from "lucide-react";
 import { Fragment, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,23 @@ export function InstallCommand() {
   return (
     <div className="ot-install-terminal">
       <div className="ot-install-command-toolbar">
-        <span className="ot-install-platform"><Terminal size={17} aria-hidden="true" /> macOS &amp; Linux</span>
+        <span className="ot-install-terminal-title">
+          <span className="ot-install-window-dots" aria-hidden="true"><i /><i /><i /></span>
+          Terminal
+        </span>
+        <span className="ot-install-platform">macOS &amp; Linux</span>
+      </div>
+      <div className="ot-install-command-line">
+        <div className="ot-install-code">
+          <span aria-hidden="true" className="ot-install-prompt">$</span>
+          <code>
+            {COMMAND_PARTS.map((part, index) => (
+              <Fragment key={part}>
+                {index > 0 ? " " : null}<span>{part}</span>
+              </Fragment>
+            ))}
+          </code>
+        </div>
         <Button
           type="button"
           variant="secondary"
@@ -44,16 +60,6 @@ export function InstallCommand() {
           {copied ? <Check /> : <Copy />}
           <span>{copied ? "Copied" : "Copy"}</span>
         </Button>
-      </div>
-      <div className="ot-install-code">
-        <span aria-hidden="true" className="ot-install-prompt">$</span>
-        <code>
-          {COMMAND_PARTS.map((part, index) => (
-            <Fragment key={part}>
-              {index > 0 ? " " : null}<span>{part}</span>
-            </Fragment>
-          ))}
-        </code>
       </div>
     </div>
   );

@@ -224,9 +224,6 @@
   border-radius: 5px;
   color: #6d6d6d;
 }
-.pd-scenario:hover {
-  background: #e3e3e3;
-}
 .pd-scenario.is-selected {
   background: #fdfdfd;
   color: #353535;

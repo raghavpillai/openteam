@@ -2,26 +2,6 @@
 .ot-home .ws-studio-body {
   gap: clamp(35px, 6vw, 90px);
 }
-.ot-home .ws-presence {
-  display: inline-flex;
-  gap: 4px;
-}
-.ot-home .ws-presence i {
-  width: 4px;
-  height: 4px;
-  box-shadow: none;
-  animation: wp-presence 2.4s ease-in-out infinite;
-  animation-play-state: paused;
-}
-.ot-home .ws-presence i:nth-child(2) {
-  animation-delay: 0.3s;
-}
-.ot-home .ws-presence i:nth-child(3) {
-  animation-delay: 0.6s;
-}
-.ot-home .ws-studio[data-playing="true"] .ws-presence i {
-  animation-play-state: running;
-}
 .ot-home .ws-worker-deck {
   max-width: 490px;
   width: 100%;
@@ -39,6 +19,7 @@
 }
 .ot-home .ws-worker-card {
   min-height: 0;
+  animation-duration: 450ms;
   padding: 24px 29px 0;
   border-color: #e0e3d9;
   box-shadow:
@@ -143,14 +124,14 @@
   gap: 5px;
 }
 .ot-home .ws-task-working {
-  animation: wp-working 8.2s both paused;
+  animation: wp-working var(--cycle-duration) both paused;
 }
 .ot-home .ws-task-finished {
   position: absolute;
   left: 0;
   top: 0;
   color: #6a8955;
-  animation: wp-finished 8.2s both paused;
+  animation: wp-finished var(--cycle-duration) both paused;
 }
 .ot-home .ws-activity-dots,
 .ot-home .ws-live-task-working {
@@ -200,11 +181,6 @@
     transform 0.2s,
     border-color 0.2s,
     box-shadow 0.2s;
-}
-.ot-home .ws-result-file:hover {
-  transform: translateY(-2px);
-  border-color: #b7c6a8;
-  box-shadow: 0 4px 10px #24331a08;
 }
 .ot-home .ws-result-file > span {
   width: 31px;
@@ -582,7 +558,7 @@
   gap: 5px;
   padding: 12px 15px;
 }
-.ot-home .ws-inference .ws-provider-options button {
+.ot-home .ws-inference .ws-provider-option {
   flex-direction: column;
   gap: 9px;
   padding: 12px 3px;
@@ -596,7 +572,7 @@
     border-color 0.3s,
     transform 0.3s;
 }
-.ot-home .ws-inference .ws-provider-options button[aria-pressed="true"] {
+.ot-home .ws-inference .ws-provider-option[data-selected="true"] {
   border-color: color-mix(in srgb, var(--provider-color) 23%, white);
   color: var(--provider-color);
   background: #ffffff;
@@ -612,7 +588,7 @@
   border: 0;
   opacity: 0;
 }
-.ot-home .ws-inference [aria-pressed="true"] > .ws-radio {
+.ot-home .ws-inference [data-selected="true"] > .ws-radio {
   background: var(--provider-color);
   opacity: 1;
 }
@@ -722,15 +698,6 @@
   transform: translateX(3px);
 }
 
-@keyframes wp-presence {
-  0%,
-  100% {
-    opacity: 0.45;
-  }
-  50% {
-    opacity: 1;
-  }
-}
 @keyframes wp-working {
   0%,
   25% {
@@ -900,7 +867,7 @@
     gap: 8px;
     padding: 12px 22px;
   }
-  .ot-home .ws-inference .ws-provider-options button {
+  .ot-home .ws-inference .ws-provider-option {
     flex-direction: row;
     justify-content: center;
     padding: 14px 5px;
@@ -1060,13 +1027,13 @@
     padding-inline: 12px;
     gap: 4px;
   }
-  .ot-home .ws-inference .ws-provider-options button {
+  .ot-home .ws-inference .ws-provider-option {
     flex-direction: column;
     gap: 8px;
     padding: 13px 3px 10px;
     font-size: 12px;
   }
-  .ot-home .ws-inference .ws-provider-options button > svg {
+  .ot-home .ws-inference .ws-provider-option > svg {
     width: 18px;
     height: 18px;
   }
@@ -1153,7 +1120,7 @@
 .ot-home .ws-worker-card .ws-connected > div span,
 .ot-home .ws-memory-scene .ws-memory-file header > span,
 .ot-home .ws-memory-scene .ws-memory-file footer,
-.ot-home .ws-inference .ws-provider-options button,
+.ot-home .ws-inference .ws-provider-option,
 .ot-home .ws-inference .ws-provider-detail p {
   font-size: 12px;
 }
@@ -1166,7 +1133,7 @@
 .ot-home .ws-worker-result > p {
   min-height: 42px;
 }
-.ot-home .ws-provider-options button > span:not(.ws-radio) {
+.ot-home .ws-provider-option > span:not(.ws-radio) {
   line-height: 1.3;
 }
 .ot-home .ws-screen-live-task strong {
@@ -1197,7 +1164,7 @@
   }
 }
 @media (max-width: 600px) {
-  .ot-home .ws-inference .ws-provider-options button {
+  .ot-home .ws-inference .ws-provider-option {
     min-height: 82px;
     justify-content: flex-start;
   }
@@ -1259,7 +1226,7 @@
 }
 
 .ot-home .ws-result-file {
-  animation: wp-result-appear 8.2s both paused;
+  animation: wp-result-appear var(--cycle-duration) both paused;
 }
 .ot-home .ws-studio[data-playing="true"] .ws-result-file {
   animation-play-state: running;
@@ -1329,5 +1296,115 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* Keep the richer profiles steady as tools and instructions rotate. */
+.ot-home .ws-worker-card .ws-worker-instructions p {
+  min-height: 144px;
+}
+.ot-home .ws-worker-card .ws-skills-label {
+  display: block;
+  margin-top: 13px;
+}
+.ot-home .ws-worker-card .ws-connected > div {
+  align-content: flex-start;
+}
+.ot-home .ws-worker-card .ws-connected > div > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ot-home .ws-worker-card .ws-connected > div > span > img,
+.ot-home .ws-worker-card .ws-connected > div > span > svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+.ot-home .ws-worker-card .ws-connected .ws-worker-skills > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #626b55;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px #e2e7d9;
+}
+.ot-home .ws-worker-skills svg {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--worker-color) 70%, #364134);
+}
+.ot-home .ws-result-preview li {
+  align-items: flex-start;
+  line-height: 1.6;
+}
+.ot-home .ws-result-preview li > svg {
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+@media (max-width: 1100px) {
+  .ot-home .ws-worker-card .ws-connected > div {
+    min-height: 58px;
+  }
+  .ot-home .ws-worker-card .ws-worker-instructions p {
+    min-height: 216px;
+  }
+}
+@media (min-width: 601px) and (max-width: 850px) {
+  .ot-home .ws-studio-body {
+    grid-template-columns: minmax(0, 1fr);
+    padding-right: 0;
+    gap: 32px;
+  }
+  .ot-home .ws-studio-copy .ot-scene-copy {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+    gap: 28px;
+  }
+  .ot-home .ws-studio-copy .ot-scene-copy > p {
+    margin-top: 0;
+  }
+  .ot-home .ws-roster {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .ot-home .ws-roster-item {
+    min-width: 0;
+    padding: 14px 8px;
+  }
+  .ot-home .ws-roster-item > svg:not(.robot-avatar) {
+    display: none;
+  }
+  .ot-home .ws-worker-deck {
+    width: calc(100% - 48px);
+    max-width: 580px;
+  }
+  .ot-home .ws-worker-identity {
+    flex-direction: row;
+    align-items: center;
+  }
+  .ot-home .ws-worker-card .ws-connected > div {
+    min-height: 28px;
+  }
+  .ot-home .ws-worker-card .ws-worker-instructions p {
+    min-height: 144px;
+  }
+}
+@media (max-width: 600px) {
+  .ot-home .ws-worker-card .ws-worker-instructions p {
+    min-height: 216px;
+  }
+}
+@media (max-width: 360px) {
+  .ot-home .ws-worker-card .ws-connected > div:not(.ws-worker-skills) {
+    min-height: 90px;
+  }
+  .ot-home .ws-worker-card .ws-worker-instructions p {
+    min-height: 288px;
+  }
+  .ot-home .ws-worker-identity {
+    min-height: 72px;
   }
 }

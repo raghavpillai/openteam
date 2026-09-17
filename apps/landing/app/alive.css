@@ -131,7 +131,7 @@
   .landing .pl-expand,
   .landing .ot-worker-tab,
   .landing .dt-file-open,
-  .landing .dc-handoff-actions button,
+  .landing .dc-handoff-actions > span,
   .landing .dr-actions button:not(.dr-switch),
   .landing .dr-triggers > button,
   .landing .dl-download-button,

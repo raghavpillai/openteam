@@ -5,6 +5,9 @@ import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { LandingEffects } from "@/components/landing-effects";
 import { InstallCard } from "@/components/install-card";
+import { ModelConnections } from "@/components/model-connections";
+import { WorkerMemory } from "@/components/worker-memory";
+import { ComputerWorkspace } from "@/components/computer-workspace";
 import { AppConnections } from "@/components/app-connections";
 import { MeetingRoutine } from "@/components/meeting-routine";
 import { BotAvatar } from "@/components/bot-avatar";
@@ -25,12 +28,8 @@ import "./alive.css";
 import "./features.css";
 import "./live-scenes.css";
 import "./polish.css";
-import {
-  ComputerWorkspace,
-  InferencePicker,
-  WorkerMemory,
-  WorkerProfiles,
-} from "@/components/worker-showcase";
+import "./mobile-polish.css";
+import { WorkerProfiles } from "@/components/worker-showcase";
 
 const GITHUB = "https://github.com/raghavpillai/openteam";
 const questions = [
@@ -123,7 +122,7 @@ export default function Home() {
               <div className="ot-hero-actions">
                 <GetStarted />
                 <a href="#product" className="ot-text-link">
-                  Try the demo <ArrowDown size={15} />
+                  See it in action <ArrowDown size={15} />
                 </a>
               </div>
             </div>
@@ -215,9 +214,9 @@ export default function Home() {
                 <span>how you work.</span>
               </h2>
               <p>
-                Each worker remembers your instructions, preferences, and past work, so you spend
-                less time repeating context. They keep their own memory and can draw on shared
-                knowledge, all stored on compute you control.
+                Workers pick up useful preferences and context as you work together, then bring
+                those details into future conversations. Each has its own memory and can draw on
+                shared knowledge, all stored as readable files on your compute.
               </p>
             </div>
           </WorkerMemory>
@@ -252,13 +251,6 @@ export default function Home() {
             </p>
           </div>
           <div className="ot-team-stage">
-            <div className="ot-team-handoff" aria-hidden="true">
-              <BotAvatar shape="chip" color="#27baae" size={34} ambient />
-              <span className="ot-handoff-line" />
-              <span>trip-budget.md</span>
-              <span className="ot-handoff-line" />
-              <BotAvatar shape="pod" color="#925df2" size={34} ambient />
-            </div>
             <TeamWorkflowDemo />
           </div>
         </section>
@@ -332,7 +324,7 @@ export default function Home() {
               hosted or local model.
             </p>
           </div>
-          <InferencePicker />
+          <ModelConnections />
         </section>
         <section id="faq" className="ot-section ot-container ot-faq ot-bot-section">
           <div>
@@ -355,24 +347,27 @@ export default function Home() {
           </Accordion>
           <SectionBot bot="operations" side="right" />
         </section>
-        <section id="get-started" className="ot-start ot-container ot-bot-section">
-          <div>
+        <section id="get-started" className="ot-start ot-container">
+          <div className="ot-start-heading">
             <h2>
               One command
               <br />
               <span>to get started.</span>
             </h2>
-            <p>
-              Run the installer on a machine with Docker. Guided setup configures your server and
-              model connection.
-            </p>
-            <GetStarted />
-            <a className="ot-install-guide" href="/install/source">
-              Read the install scripts <ArrowUpRight size={14} />
-            </a>
+            <div className="ot-start-intro">
+              <p>
+                Your computer or personal cloud. One installer to set up your server and connect
+                your models.
+              </p>
+              <div className="ot-start-actions">
+                <GetStarted />
+                <a className="ot-install-guide" href="/install/source">
+                  Read the install scripts <ArrowUpRight size={14} />
+                </a>
+              </div>
+            </div>
           </div>
           <InstallCard />
-          <SectionBot bot="research" />
         </section>
       </main>
       <SiteFooter home />

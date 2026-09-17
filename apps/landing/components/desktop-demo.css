@@ -110,7 +110,7 @@ button.dt-icon-button:hover {
   color: #676767;
   pointer-events: none;
 }
-.dt-search input {
+.dt-search-placeholder {
   width: 100%;
   min-width: 0;
   padding: 0 8px 0 26.5px;
@@ -121,7 +121,7 @@ button.dt-icon-button:hover {
   font-size: 13.5px;
   outline-offset: 2px;
 }
-.dt-search input::placeholder {
+.dt-search-placeholder {
   color: #676767;
 }
 .dt-conversations {
@@ -145,9 +145,6 @@ button.dt-icon-button:hover {
   border-radius: 10px;
   background: transparent;
   text-align: left;
-}
-.dt-conversation:hover {
-  background: #e7e7e7;
 }
 .dt-conversation.is-active {
   background: #dadada;
@@ -465,9 +462,6 @@ button.dt-icon-button:hover {
   display: block;
   width: 100%;
   height: 100%;
-}
-.dt-screen-preview:hover {
-  opacity: 0.97;
 }
 .dt-app .dt-screen-label {
   text-align: center;
@@ -867,9 +861,6 @@ button.dt-icon-button:hover {
 .pd-showcase .dt-file {
   transition: background-color 160ms ease, box-shadow 180ms ease;
 }
-.pd-showcase .dt-file:hover {
-  box-shadow: 0 3px 12px #0000000a;
-}
 .pd-showcase[data-demo-motion="false"] .dt-thinking > span {
   animation: none;
 }
@@ -909,3 +900,6 @@ button.dt-icon-button:hover {
   opacity: 0;
   transform: translateY(5px);
 }
+
+.dt-search-placeholder { display: flex; align-items: center; }
+.pd-showcase .pd-scenario { display: inline-flex; align-items: center; justify-content: center; cursor: default; }

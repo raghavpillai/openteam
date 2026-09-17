@@ -43,3 +43,7 @@ Evidence: [screenshots](../../../output/swift-empty-home-0917/review.html), [sig
 ## File/photo follow-up — September 17
 
 [Attachment reference implementation and validation](ATTACHMENT-REFERENCE-0917.md) adds native file previews, the photo gallery and Forward/Share/Save, plus profile notification/template actions. The live backend audit also confirms a separate open issue: possession of a full asset hash permits downloading the file without a session even with authentication required. The route runs before the session guard; mobile client authentication does not close this server-side exposure.
+
+## Left-edge navigation follow-up — September 17
+
+[Navigation/message gesture coordination](EDGE-BACK-0917.md) addresses the reproduced case where dragging right from the left edge over a bot message opens Reply instead of returning to the conversation list. The follow-up records the protected edge region, native interactive transition, cancellation/draft behavior, haptic dispatch and focused regression evidence. This does not close the broader audit or physical-device acceptance above.

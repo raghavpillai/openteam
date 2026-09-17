@@ -180,13 +180,73 @@ struct PrimaryActionStyle: ButtonStyle {
 
 /// Restores UIKit's interactive navigation transition when our compact chrome replaces the bar.
 struct NativeBackGesture: UIViewControllerRepresentable {
-  final class Controller: UIViewController {
+  final class Controller: UIViewController, UIGestureRecognizerDelegate {
+    @MainActor private final class SavedGesture {
+      weak var gesture: UIGestureRecognizer?
+      weak var delegate: (any UIGestureRecognizerDelegate)?
+      let enabled: Bool
+      init(_ gesture: UIGestureRecognizer) {
+        self.gesture = gesture
+        delegate = gesture.delegate
+        enabled = gesture.isEnabled
+      }
+    }
+    private var saved: [SavedGesture] = []
     override func viewDidAppear(_ animated: Bool) {
       super.viewDidAppear(animated)
-      navigationController?.interactivePopGestureRecognizer?.isEnabled = true
-      navigationController?.interactivePopGestureRecognizer?.delegate = nil
+      guard let navigationController else { return }
+      for gesture in NavigationBackPriority.gestures(in: navigationController)
+        where gesture.delegate !== self {
+        saved.append(SavedGesture(gesture))
+        gesture.delegate = self
+        gesture.isEnabled = true
+      }
+    }
+    override func viewDidDisappear(_ animated: Bool) {
+      super.viewDidDisappear(animated)
+      restore()
+    }
+    func restore() {
+      for state in saved {
+        guard let gesture = state.gesture, gesture.delegate === self else { continue }
+        gesture.delegate = state.delegate
+        gesture.isEnabled = state.enabled
+      }
+      saved.removeAll()
+    }
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+      guard let navigationController, navigationController.viewControllers.count > 1,
+        navigationController.transitionCoordinator == nil else { return false }
+      // Native navigation recognizers already classify horizontal motion.
+      return true
+    }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+      guard let navigationController, navigationController.viewControllers.count > 1 else { return false }
+      // iOS 26 supplies a native content-pop recognizer. Limit it to our edge strip
+      // so the transition stays interactive and interior message swipes still reply.
+      return NavigationBackPriority.contains(touch, in: navigationController)
+    }
+    func gestureRecognizer(
+      _ gestureRecognizer: UIGestureRecognizer,
+      shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+      guard let navigationController else { return false }
+      return gestureRecognizer !== navigationController.interactivePopGestureRecognizer
+        && otherGestureRecognizer === navigationController.interactivePopGestureRecognizer
+    }
+    func gestureRecognizer(
+      _ gestureRecognizer: UIGestureRecognizer,
+      shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+      // Give navigation priority over message pans, long presses and attachment
+      // taps. Keep the native edge/content recognizers' own ordering acyclic.
+      guard let navigationController else { return false }
+      return !NavigationBackPriority.gestures(in: navigationController).contains { $0 === otherGestureRecognizer }
     }
   }
   func makeUIViewController(context: Context) -> Controller { Controller() }
   func updateUIViewController(_ controller: Controller, context: Context) {}
+  static func dismantleUIViewController(_ controller: Controller, coordinator: ()) {
+    controller.restore()
+  }
 }

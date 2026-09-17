@@ -171,7 +171,7 @@ struct ChatView: View {
           }
           .onDisappear { if store.activeChannel == channel.id { store.activeChannel = nil } }
       }
-    }.background(NativePalette.background)
+    }.nativeCanvas()
       .floatingBar(edge: .top) { header }
       .floatingBar(edge: .bottom) { ComposerView(channel: channel) }
       .toolbar(.hidden, for: .navigationBar).background(

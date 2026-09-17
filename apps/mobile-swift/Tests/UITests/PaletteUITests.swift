@@ -95,4 +95,53 @@ import XCTest
       app.terminate()
     }
   }
+
+  func testKeyboardCanvasAcrossSignInSearchCreationAndProfile() async throws {
+    for appearance in ["light", "dark"] {
+      try await configure("/__qa/reset", [:])
+      let signIn = XCUIApplication()
+      signIn.launchArguments = [
+        "--ui-testing", "--show-login", "--server", base, "--appearance", appearance,
+      ]
+      signIn.launch()
+      XCTAssertTrue(signIn.buttons["get-started"].waitForExistence(timeout: 15))
+      signIn.buttons["get-started"].tap()
+      let server = signIn.textFields["server-field"]
+      XCTAssertTrue(server.waitForExistence(timeout: 5))
+      server.tap()
+      XCTAssertTrue(signIn.keyboards.firstMatch.waitForExistence(timeout: 5))
+      capture("keyboard-sign-in-" + appearance, signIn)
+      XCTAssertLessThan(server.frame.maxY, signIn.keyboards.firstMatch.frame.minY)
+      signIn.terminate()
+
+      try await configure("/__qa/scene", ["scene": "dark-chat-seven"])
+      let app = launch(appearance)
+      app.buttons["search-button"].tap()
+      XCTAssertTrue(app.textFields["search-input"].waitForExistence(timeout: 5))
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+      capture("keyboard-search-" + appearance, app)
+      app.buttons["sheet-close"].tap()
+      app.buttons["new-button"].tap()
+      app.buttons["New Bot"].tap()
+      let name = app.textFields["new-name"]
+      XCTAssertTrue(name.waitForExistence(timeout: 5))
+      name.tap()
+      name.typeText("Keyboard QA")
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+      capture("keyboard-create-" + appearance, app)
+      XCTAssertEqual(name.value as? String, "Keyboard QA")
+      XCTAssertLessThan(app.buttons["create-confirm"].frame.maxY, app.keyboards.firstMatch.frame.minY)
+      app.buttons["sheet-close"].tap()
+      app.buttons["channel-visual-chat"].tap()
+      XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 5))
+      app.buttons["conversation-details"].tap()
+      let profile = app.textFields["profile-name"]
+      XCTAssertTrue(profile.waitForExistence(timeout: 5))
+      profile.tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+      capture("keyboard-profile-" + appearance, app)
+      XCTAssertLessThan(profile.frame.maxY, app.keyboards.firstMatch.frame.minY)
+      app.terminate()
+    }
+  }
 }

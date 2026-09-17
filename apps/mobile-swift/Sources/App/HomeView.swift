@@ -61,7 +61,7 @@ struct HomeView: View {
               .accessibilityIdentifier("empty-conversations")
           }
         }.padding(.horizontal, 20).padding(.bottom, 30)
-      }.background(NativePalette.background.ignoresSafeArea()).scrollIndicators(.hidden)
+      }.nativeCanvas().scrollIndicators(.hidden)
         .onGeometryChange(for: CGFloat.self) {
           $0.size.width
         } action: {
@@ -505,7 +505,7 @@ struct CreateConversationView: View {
           .accessibilityIdentifier("create-confirm").padding(.horizontal, 28).padding(.bottom, -4)
           .padding(.top, 12)
       }
-    }.background(NativePalette.background)
+    }.nativeCanvas()
       .onAppear { if group { groupSearchFocused = true } }
   }
   func colorRow(_ values: [String]) -> some View {
@@ -601,7 +601,7 @@ struct SearchView: View {
     }.scrollDismissesKeyboard(.interactively)
       .scrollClipDisabled()
       .floatingBar(edge: .top) { header }
-      .background(NativePalette.background)
+      .nativeCanvas()
       .task { focused = true }
       .task(id: query + "\n" + category + "\n" + String(retryID)) {
         results = []

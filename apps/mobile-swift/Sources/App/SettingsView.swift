@@ -122,7 +122,7 @@ struct SettingsView: View {
             }.background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 12))
           }.padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 24)
         }
-      }.background(NativePalette.background).toolbar(.hidden, for: .navigationBar)
+      }.nativeCanvas().toolbar(.hidden, for: .navigationBar)
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         .confirmationDialog(
           "Sign out of this server?", isPresented: $signOut, titleVisibility: .visible
@@ -351,7 +351,7 @@ struct ConversationDetails: View {
         .toolbar(.visible, for: .navigationBar)
         .navigationBarBackButtonHidden()
         .background(NativeBackGesture().frame(width: 0, height: 0))
-        .scrollContentBackground(.hidden).background(NativePalette.background)
+        .scrollContentBackground(.hidden).nativeCanvas()
         .toolbarBackground(.hidden, for: .navigationBar)
         .scrollDismissesKeyboard(.interactively)
         .toolbar {

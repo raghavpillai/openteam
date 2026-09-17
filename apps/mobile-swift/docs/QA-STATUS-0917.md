@@ -2,6 +2,8 @@
 
 This is a triage update, not a rerun or closure of the complete September 16 audit. The native TestFlight app remains a migration beta. Earlier audit tables describe the code at capture time; use the linked follow-ups for fixes made afterward.
 
+The [keyboard background follow-up](KEYBOARD-BACKGROUND-0917.md) fixes black keyboard-corner gaps. Focused native UI checks passed in both themes on chat, sign-in, search, creation and profile screens; all 10 final captures pass the corner-color check.
+
 ## Fix first
 
 | Priority | Finding | Current evidence / next fix |

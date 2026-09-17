@@ -76,7 +76,7 @@ struct SignInView: View {
           .foregroundStyle(NativePalette.muted).multilineTextAlignment(.center)
       }.padding(.horizontal, 28).padding(.bottom, 32).frame(maxWidth: 520)
         .frame(maxWidth: .infinity)
-    }.background(NativePalette.background).navigationTitle("OpenTeam")
+    }.nativeCanvas().navigationTitle("OpenTeam")
       .navigationBarTitleDisplayMode(.inline)
   }
 

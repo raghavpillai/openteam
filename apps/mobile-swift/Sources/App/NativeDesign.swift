@@ -59,7 +59,7 @@ struct NativeForm<Content: View>: View {
     Form {
       content.listRowBackground(NativePalette.surface)
         .listRowSeparatorTint(NativePalette.separator)
-    }.scrollContentBackground(.hidden).background(NativePalette.background)
+    }.scrollContentBackground(.hidden).nativeCanvas()
   }
 }
 
@@ -69,7 +69,7 @@ struct NativeList<Content: View>: View {
     List {
       content.listRowBackground(NativePalette.surface)
         .listRowSeparatorTint(NativePalette.separator)
-    }.scrollContentBackground(.hidden).background(NativePalette.background)
+    }.scrollContentBackground(.hidden).nativeCanvas()
   }
 }
 
@@ -100,6 +100,12 @@ struct NativeGlass: ViewModifier {
   }
 }
 extension View {
+  /// Extend only the page color under the keyboard's transparent rounded corners.
+  /// Content continues to avoid the keyboard, keeping fields and controls reachable.
+  func nativeCanvas() -> some View {
+    background { NativePalette.background.ignoresSafeArea() }
+  }
+
   func nativeGlass(radius: CGFloat = 22) -> some View { modifier(NativeGlass(radius: radius)) }
   @ViewBuilder
   func floatingBar<Content: View>(

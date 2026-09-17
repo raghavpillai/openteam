@@ -113,6 +113,9 @@ public struct Asset: Codable, Sendable, Hashable, Identifiable {
   public var mimeType: String
   public var byteSize: Int
   public var kind: String
+  public var width: Int?
+  public var height: Int?
+  public var alt: String?
   public var id: String { assetId }
 }
 public struct Message: Codable, Identifiable, Sendable, Hashable {
@@ -131,7 +134,21 @@ public struct Message: Codable, Identifiable, Sendable, Hashable {
     let s = metadata["replyTo"].string
     return s.isEmpty ? nil : s
   }
-  public var attachments: [Asset] { (try? metadata["attachments"].decode([Asset].self)) ?? [] }
+  public var attachments: [Asset] {
+    var seen = Set<String>()
+    return (metadata["attachments"].array + [metadata["attachment"]]).compactMap { value in
+      guard let asset = try? value.decode(Asset.self),
+        seen.insert(asset.assetId + ":" + asset.fileName).inserted else { return nil }
+      return asset
+    }
+  }
+  public var displayContent: String {
+    let assets = attachments
+    if assets.count == 1, content == assets[0].fileName,
+      metadata["type"].string == "attachment" || metadata["attachment"] != .null
+    { return "" }
+    return content
+  }
   public var date: Date? {
     ISO8601DateFormatter().date(from: createdAt)
       ?? ISO8601DateFormatter.fractional.date(from: createdAt)

@@ -26,7 +26,17 @@ struct ProfileRoutinesView: View {
         Button {
           onEdit(routine)
         } label: {
-          Label(routine.name, systemImage: routine.enabled ? "clock" : "pause.circle")
+          HStack(spacing: 14) {
+            Image(systemName: "clock.arrow.circlepath").foregroundStyle(NativePalette.destructive)
+              .frame(width: 20)
+            VStack(alignment: .leading, spacing: 3) {
+              Text(routine.name).foregroundStyle(NativePalette.text)
+              Text(routine.scheduleSummary + (routine.enabled ? "" : " · Paused"))
+                .font(.subheadline).foregroundStyle(NativePalette.muted)
+            }
+            Spacer(minLength: 4)
+            Image(systemName: "chevron.right").font(.footnote).foregroundStyle(NativePalette.faint)
+          }.padding(.vertical, 3)
         }
       }
       Button("Add routine", systemImage: "plus", action: onAdd).foregroundStyle(NativePalette.link)

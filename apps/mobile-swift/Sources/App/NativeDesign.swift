@@ -76,6 +76,7 @@ struct NativeList<Content: View>: View {
 struct NativeGlass: ViewModifier {
   @Environment(\.colorScheme) private var scheme
   var radius: CGFloat = 22
+  var darkTint: Double = 0.127
   func body(content: Content) -> some View {
     // Regular glass diffuses the scrolling backdrop. Match the measured dark
     // resting fill (~#333333 over #141414), but let iOS draw its adaptive rim;
@@ -83,7 +84,7 @@ struct NativeGlass: ViewModifier {
     if #available(iOS 26, *) {
       content.glassEffect(
         (scheme == .dark
-          ? Glass.regular.tint(.white.opacity(0.127))
+          ? Glass.regular.tint(.white.opacity(darkTint))
           : Glass.regular.tint(.black.opacity(0.025))).interactive(),
         in: RoundedRectangle(cornerRadius: radius)
       ).overlay {
@@ -106,7 +107,9 @@ extension View {
     background { NativePalette.background.ignoresSafeArea() }
   }
 
-  func nativeGlass(radius: CGFloat = 22) -> some View { modifier(NativeGlass(radius: radius)) }
+  func nativeGlass(radius: CGFloat = 22, darkTint: Double = 0.127) -> some View {
+    modifier(NativeGlass(radius: radius, darkTint: darkTint))
+  }
   @ViewBuilder
   func floatingBar<Content: View>(
     edge: VerticalEdge, @ViewBuilder content: () -> Content
@@ -129,11 +132,12 @@ extension View {
 struct ChromeButton: View {
   var title: String
   var symbol: String
+  var darkTint: Double = 0.127
   var action: () -> Void
   var body: some View {
     Button(action: action) {
       Image(systemName: symbol).font(.system(size: 21, weight: .regular))
-        .frame(width: 44, height: 44).foregroundStyle(NativePalette.text).nativeGlass()
+        .frame(width: 44, height: 44).foregroundStyle(NativePalette.text).nativeGlass(darkTint: darkTint)
         .contentShape(Rectangle())
     }.buttonStyle(.plain).accessibilityLabel(title)
   }

@@ -562,6 +562,16 @@ final class AppStore {
         "Your message was not queued because it could not be saved. \(error.localizedDescription)"
     }
   }
+  /// Forward independently of the recipient's draft, using the durable send queue.
+  func forwardAttachment(_ asset: Asset, to channel: Channel) async throws {
+    guard phase == .ready, let disk else { throw APIError("Connect to your server before forwarding.") }
+    var next = state
+    next.outbox.append(PendingSend(channelId: channel.id, input: SendInput(content: "", attachments: [asset])))
+    try disk.save(next)
+    state = next
+    NativeHaptics.play(.light, source: "attachment.forward-send")
+    await flush()
+  }
   func retry(_ id: String) async {
     if let i = state.outbox.firstIndex(where: { $0.id == id }) {
       #if canImport(UIKit)

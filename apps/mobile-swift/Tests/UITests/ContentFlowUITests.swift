@@ -102,9 +102,9 @@ import XCTest
         $0["authenticated"] as? Bool == true
       })
     app.buttons["Open Fixture image.png"].tap()
-    XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 12))
+    XCTAssertTrue(app.buttons["photo-close"].waitForExistence(timeout: 12))
     capture("native-file-preview", app)
-    app.buttons["Done"].tap()
+    app.buttons["photo-close"].tap()
   }
   func testComputerHandoffDragTypeFailureAndReturnControl() async throws {
     let app = try await launch("handoff")

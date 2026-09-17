@@ -38,6 +38,8 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>OpenTeam uses the camera when you take a photo to attach to a message.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>OpenTeam saves a photo to your library when you choose Save in the photo viewer.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>OpenTeam connects to the self-hosted server you choose on your local network.</string>
 	<key>NSMicrophoneUsageDescription</key>

@@ -265,14 +265,14 @@ struct MessageRow: View {
           if let reply = message.replyTo {
             MessageReplyQuote(replyID: reply, channelID: channel.id, ownerID: message.id)
           }
-          if !message.content.isEmpty {
+          if !message.displayContent.isEmpty {
             Group {
-              if RichMarkdownView.required(message.content) {
-                RichMarkdownView(source: message.content, forceDark: message.isUser).frame(
+              if RichMarkdownView.required(message.displayContent) {
+                RichMarkdownView(source: message.displayContent, forceDark: message.isUser).frame(
                   maxWidth: .infinity)
               } else {
                 BubbleTextLayout {
-                  MarkdownText(source: message.content).font(.body).lineSpacing(1.5)
+                  MarkdownText(source: message.displayContent).font(.body).lineSpacing(1.5)
                 }
               }
             }
@@ -284,7 +284,7 @@ struct MessageRow: View {
                 : NativePalette.assistant,
               in: RoundedRectangle(cornerRadius: 24))
           }
-          ForEach(message.attachments) { AttachmentView(asset: $0) }
+          ForEach(message.attachments, id: \.self) { AttachmentView(asset: $0, channelID: channel.id, messageID: message.id) }
         }.highPriorityGesture(
           LongPressGesture(minimumDuration: 0.45).onEnded { _ in openActions() }
         )
@@ -514,80 +514,6 @@ struct MarkdownText: View {
           }
         }
       }
-    }
-  }
-}
-
-struct AttachmentView: View {
-  @Environment(AppStore.self) private var store
-  let asset: Asset
-  @State private var preview: URL?
-  @State private var loading = false
-  @State private var thumbnail: UIImage?
-  @State private var failure: String?
-  @State private var localFile: URL?
-  var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      if asset.mimeType.hasPrefix("image/") {
-        if let thumbnail {
-          Button {
-            preview = localFile
-          } label: {
-            Image(uiImage: thumbnail).resizable().scaledToFit().frame(maxHeight: 240)
-              .clipShape(RoundedRectangle(cornerRadius: 14))
-          }.buttonStyle(.plain).accessibilityLabel("Open " + asset.fileName)
-        } else if failure == nil {
-          ProgressView().frame(height: 100)
-        }
-      }
-      if let failure { InlineFailure(message: failure) { Task { await download(open: false) } } }
-      Button {
-        Task { await download() }
-      } label: {
-        Label(loading ? "Opening…" : asset.fileName, systemImage: "doc")
-      }.font(.subheadline).disabled(loading)
-    }.sheet(isPresented: Binding(get: { preview != nil }, set: { if !$0 { preview = nil } })) {
-      if let preview { NativeFilePreview(url: preview) }
-    }.task(id: asset.assetId) {
-      if asset.mimeType.hasPrefix("image/") { await download(open: false) }
-    }
-  }
-  func download(open: Bool = true) async {
-    guard !loading, let api = store.api else { return }
-    if let localFile {
-      if open { preview = localFile }
-      return
-    }
-    loading = true
-    defer { loading = false }
-    do {
-      let (data, _) = try await api.raw("/api/v0/assets/\(API.segment(asset.assetId))")
-      guard store.api?.baseURL == api.baseURL, store.api?.token == api.token, !Task.isCancelled
-      else { return }
-      let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-        UUID().uuidString)
-      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-      let url = directory.appendingPathComponent(
-        URL(fileURLWithPath: asset.fileName).lastPathComponent)
-      try data.write(to: url, options: [.atomic, .completeFileProtection])
-      localFile = url
-      if asset.mimeType.hasPrefix("image/"),
-        let source = CGImageSourceCreateWithData(data as CFData, nil),
-        let image = CGImageSourceCreateThumbnailAtIndex(
-          source, 0,
-          [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: 960,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-          ] as CFDictionary)
-      {
-        thumbnail = UIImage(cgImage: image)
-      }
-      failure = nil
-      if open { preview = url }
-    } catch {
-      if !UserFacingError.isCancelled(error) { failure = UserFacingError.message(error) }
-      if (error as? APIError)?.unauthorized == true { store.handle(error) }
     }
   }
 }

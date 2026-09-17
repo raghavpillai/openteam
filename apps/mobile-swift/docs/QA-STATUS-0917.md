@@ -39,3 +39,7 @@ Evidence: [screenshots](../../../output/swift-empty-home-0917/review.html), [sig
 ## Glass, sections and details follow-up
 
 [The latest visual/navigation review](GLASS-SECTIONS-0917.md) verifies the matching flat background colors, refines dark Liquid Glass, removes the extra mobile Memory management screen, hides Unassigned when there are no sections, adds section long-press actions, and replaces modal chat details with native push navigation. Its focused checks do not close the broader findings above.
+
+## File/photo follow-up — September 17
+
+[Attachment reference implementation and validation](ATTACHMENT-REFERENCE-0917.md) adds native file previews, the photo gallery and Forward/Share/Save, plus profile notification/template actions. The live backend audit also confirms a separate open issue: possession of a full asset hash permits downloading the file without a session even with authentication required. The route runs before the session guard; mobile client authentication does not close this server-side exposure.

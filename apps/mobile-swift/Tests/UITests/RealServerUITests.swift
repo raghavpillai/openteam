@@ -276,13 +276,13 @@ import XCTest
     let app = XCUIApplication()
     try await login(app)
     _ = row(originalID, app)
-    let image = app.buttons["Open " + fileName]
+    let image = app.buttons["attachment-" + (asset["assetId"] as? String ?? "")]
     XCTAssertTrue(image.waitForExistence(timeout: 15))
     image.tap()
     XCTAssertTrue(
-      app.buttons["Done"].waitForExistence(timeout: 10), "A quick tap must still open the file")
+      app.buttons["photo-close"].waitForExistence(timeout: 10), "A quick tap must still open the photo")
     capture("attachment-native-preview", app)
-    app.buttons["Done"].tap()
+    app.buttons["photo-close"].tap()
     image.press(forDuration: 0.8)
     XCTAssertTrue(app.buttons["Reply"].waitForExistence(timeout: 5))
     app.buttons["👍"].tap()

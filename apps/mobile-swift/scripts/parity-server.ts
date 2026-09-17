@@ -109,7 +109,12 @@ const server = Bun.serve({
     if(path.endsWith("/screen/frame"))return new Response(Bun.file(new URL("./fixtures/computer.png",import.meta.url)),{headers:{"Content-Type":"image/png"}});
     if(path.endsWith("/screen/takeover")){screen.humanTakeover=input.active;contentReceipts.push({path,active:input.active});return response(screen);}
     if(path.endsWith("/screen/actions")){if(!screen.humanTakeover)return response({message:"Take control first."},409);contentReceipts.push({path,...input});return response(screen);}
-    if(path.startsWith("/api/v0/assets/")){contentReceipts.push({path,authenticated:request.headers.has("authorization")});return new Response(Bun.file(new URL("./fixtures/attachment.png",import.meta.url)),{headers:{"Content-Type":"image/png"}});}
+    if(path.startsWith("/api/v0/assets/")){
+      contentReceipts.push({path,authenticated:request.headers.has("authorization")});
+      const id=path.split('/').at(-1)!;
+      const archive=/^([789])\1{63}$/.test(id), photo=/^([1-6])\1{63}$/.test(id);
+      return new Response(Bun.file(new URL(archive?'./fixtures/media-archive.zip':photo?'./fixtures/media-reference.png':'./fixtures/attachment.png',import.meta.url)),{headers:{'Content-Type':archive?'application/zip':'image/png'}});
+    }
     if(path.endsWith("/user-form/prefill"))return response({email:"fixture@example.invalid"});
     if(path.endsWith("/user-form")||path.endsWith("/computer-handoff")){
       const message:any=snapshot.channelMessages.find(m=>m.id===path.split("/")[4]);if(!message)return response({},404);

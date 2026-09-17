@@ -231,6 +231,9 @@ struct ConversationDetails: View {
   @State private var addingRoutine = false
   @State private var editingRoutine: Routine?
   @State private var routineRefreshID = 0
+  @State private var templateFile: URL?
+  @State private var exportingTemplate = false
+  @State private var changingNotifications = false
   private var routinePath: String {
     "/api/v0/\(channel?.isGroup == true ? "channels" : "bots")/\(API.segment(bot?.id ?? channelID))/routines"
   }
@@ -296,7 +299,11 @@ struct ConversationDetails: View {
                 }.navigationTitle("Instructions").navigationBarTitleDisplayMode(.inline)
                   .scrollDismissesKeyboard(.interactively)
               } label: {
-                Label("Instructions", systemImage: "doc.text")
+                HStack(spacing: 14) {
+                  Image(systemName: "doc.text").font(.system(size: 17))
+                    .foregroundStyle(NativePalette.muted).frame(width: 20)
+                  Text("Instructions")
+                }
               }
             }.listRowBackground(NativePalette.assistant)
           }
@@ -320,34 +327,39 @@ struct ConversationDetails: View {
             ownerID: bot?.id ?? channel.id, isGroup: channel.isGroup,
             refreshID: routineRefreshID, onAdd: { addingRoutine = true },
             onEdit: { editingRoutine = $0 })
-          Section {
-            if let bot {
-              Button("Duplicate bot", systemImage: "plus.square.on.square") {
-                Task {
-                  guard !duplicating else { return }
-                  duplicating = true
-                  defer { duplicating = false }
-                  if let result = await store.mutate(
-                    "/api/v0/bots/\(API.segment(bot.id))/duplicate",
-                    body: .object(["clientRequestId": .string(duplicateID)]))
-                  {
-                    onDuplicate(result["dmChannelId"].string)
-                    dismiss()
+          if let bot {
+            Section {
+              Toggle("Notifications", isOn: Binding(
+                get: { self.bot?.notificationsEnabled ?? false },
+                set: { enabled in
+                  Task {
+                    guard !changingNotifications else { return }
+                    changingNotifications = true
+                    defer { changingNotifications = false }
+                    NativeHaptics.play(.selection, source: "profile.notifications")
+                    await store.mutate("/api/v0/bots/\(API.segment(bot.id))", method: "PATCH",
+                      body: .object(["notificationsEnabled": .bool(enabled)]))
                   }
-                }
-              }
-              if bot.status == "failed" {
-                Button("Retry setup") {
-                  Task { await store.mutate("/api/v0/bots/\(API.segment(bot.id))/retry") }
-                }
-              }
+                })).disabled(changingNotifications).accessibilityIdentifier("profile-notifications")
+            } footer: {
+              Text("Get notified when this Bot finishes or needs input")
+                .font(.subheadline).foregroundStyle(NativePalette.faint)
             }
-            Button(channel.isGroup ? "Delete group" : "Delete bot", role: .destructive) {
-              deleting = true
-            }.foregroundStyle(NativePalette.destructive)
+            Section {
+              Button {
+                Task { await exportTemplate() }
+              } label: {
+                HStack(spacing: 14) {
+                  Image(systemName: "square.and.arrow.up").font(.system(size: 17)).frame(width: 20)
+                  Text(exportingTemplate ? "Preparing template…" : "Share as Template")
+                }
+              }.foregroundStyle(NativePalette.link).disabled(exportingTemplate)
+                .accessibilityIdentifier("profile-share-template")
+            }
           }
         }
-      }.navigationTitle("Details").navigationBarTitleDisplayMode(.inline)
+      }.listSectionSpacing(16)
+        .navigationTitle("Details").navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .navigationBarBackButtonHidden()
         .background(NativeBackGesture().frame(width: 0, height: 0))
@@ -367,7 +379,8 @@ struct ConversationDetails: View {
               Image(systemName: "chevron.left").foregroundStyle(NativePalette.text)
             }.accessibilityLabel("Done").accessibilityIdentifier("profile-back")
           }
-          ToolbarItem(placement: .confirmationAction) {
+          ToolbarItem(placement: .topBarTrailing) {
+            if profileChanged {
             Button(saving ? "Saving…" : "Save") { Task { await save() } }.disabled(
               saving || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || (channel?.isGroup == true && name.count > 80) || title.count > 120
@@ -375,7 +388,39 @@ struct ConversationDetails: View {
                 || (channel?.isGroup == true && (members.isEmpty || members.count > 6))
             )
             .accessibilityIdentifier("profile-save")
+            } else if bot != nil {
+              Button { Task { await exportTemplate() } } label: {
+                Image(systemName: "square.and.arrow.up").foregroundStyle(NativePalette.text)
+              }.disabled(exportingTemplate).accessibilityLabel("Share as Template")
+            }
           }
+          if #available(iOS 26, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
+          ToolbarItem(placement: .topBarTrailing) {
+            Menu {
+              if let bot {
+                Button("Duplicate bot", systemImage: "plus.square.on.square") {
+                  Task {
+                    guard !duplicating else { return }
+                    duplicating = true
+                    defer { duplicating = false }
+                    if let result = await store.mutate("/api/v0/bots/\(API.segment(bot.id))/duplicate",
+                      body: .object(["clientRequestId": .string(duplicateID)])) {
+                      onDuplicate(result["dmChannelId"].string)
+                      dismiss()
+                    }
+                  }
+                }.disabled(duplicating)
+                if bot.status == "failed" {
+                  Button("Retry setup") { Task { await store.mutate("/api/v0/bots/\(API.segment(bot.id))/retry") } }
+                }
+              }
+              Button(channel?.isGroup == true ? "Delete group" : "Delete bot", role: .destructive) { deleting = true }
+            } label: { Image(systemName: "ellipsis").foregroundStyle(NativePalette.text) }
+              .accessibilityLabel("Bot options").accessibilityIdentifier("profile-options")
+          }
+        }
+        .sheet(isPresented: Binding(get: { templateFile != nil }, set: { if !$0 { templateFile = nil } })) {
+          if let templateFile { NativeFileShare(url: templateFile) { failure = UserFacingError.message($0) } }
         }
         .sheet(isPresented: $addingRoutine, onDismiss: { routineRefreshID += 1 }) {
           RoutineEditor(ownerPath: routinePath, routine: nil)
@@ -413,6 +458,27 @@ struct ConversationDetails: View {
           Text("This removes the conversation and its history. This cannot be undone.")
         }
     }
+  }
+  private var profileChanged: Bool {
+    initialized && (name != (channel?.name ?? "") || description != (bot?.description ?? channel?.description ?? "")
+      || instructions != (bot?.instructions ?? "") || title != (bot?.title ?? "")
+      || icon != (bot?.icon ?? "chip") || color != (bot?.color ?? "#A47952")
+      || members != Set(channel?.members.map(\.botId) ?? []))
+  }
+  private func exportTemplate() async {
+    guard let bot, !exportingTemplate else { return }
+    exportingTemplate = true
+    defer { exportingTemplate = false }
+    do {
+      let routines = try await store.fetch(routinePath, as: [Routine].self)
+      let recipe = BotTemplateExport.recipe(bot: bot, routines: routines)
+      let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+      let url = folder.appendingPathComponent("Bot Template.json")
+      try JSONEncoder().encode(recipe).write(to: url, options: [.atomic, .completeFileProtection])
+      NativeHaptics.play(.light, source: "profile.share-template")
+      templateFile = url
+    } catch { failure = UserFacingError.message(error) }
   }
   func save() async {
     guard let channel else { return }

@@ -18,7 +18,7 @@ const providers = [
   },
   {
     provider: "Hosted", model: "Cloud endpoint", icon: Cloud,
-    connection: "Your hosted model endpoint", color: "#8471bd", wash: "#f3effa",
+    connection: "Compatible third-party endpoints", color: "#8471bd", wash: "#f3effa",
   },
   {
     provider: "Self-hosted", model: "Local model", icon: Cpu,
@@ -70,7 +70,7 @@ function InferenceConnection({ mobile = false }: { mobile?: boolean }) {
 }
 
 export function ModelConnections() {
-  const cycle = useDemoCycle(providers.length, 4200);
+  const cycle = useDemoCycle(providers.length, 2800);
   const selected = cycle.index % providers.length;
   const provider = providers[selected];
 

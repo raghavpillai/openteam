@@ -5,28 +5,23 @@ const rosterTimeFormatter = new Intl.DateTimeFormat(undefined, {
   minute: "2-digit",
 });
 
-/** Keep the expanded desktop and compact/native roster's existing date labels. */
+/** Recent conversations use calendar-day labels in every roster. */
 export const formatRosterTimestamp = (
   value: string | undefined,
-  variant: "compact" | "expanded" = "compact",
+  _variant: "compact" | "expanded" = "compact",
   now = new Date()
 ): string => {
   if (!value) return "";
   const date = new Date(value);
-  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const startValue = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  if (variant === "expanded") {
-    // Retain the expanded roster's elapsed-day rule, including its DST behavior.
-    if (startValue === startToday - 86_400_000) return "Yesterday";
-    if (startValue === startToday)
-      return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  } else {
-    const dayDifference = Math.round((startToday - startValue) / 86_400_000);
-    if (dayDifference === 0) return rosterTimeFormatter.format(date);
-    if (dayDifference === 1) return "Yesterday";
-    if (dayDifference > 1 && dayDifference < 7)
-      return date.toLocaleDateString([], { weekday: "long" });
-  }
+  if (!Number.isFinite(date.getTime())) return "";
+  // Compare local calendar dates, so Yesterday also works across DST changes.
+  const calendarDay = (value: Date) =>
+    Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()) / 86_400_000;
+  const dayDifference = calendarDay(now) - calendarDay(date);
+  if (dayDifference === 0) return rosterTimeFormatter.format(date);
+  if (dayDifference === 1) return "Yesterday";
+  if (dayDifference > 1 && dayDifference < 7)
+    return date.toLocaleDateString([], { weekday: "long" });
   return date.toLocaleDateString([], { month: "numeric", day: "numeric" });
 };
 

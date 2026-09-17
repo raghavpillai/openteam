@@ -1733,7 +1733,11 @@ export const ChatPane = memo(function ChatPane({
   );
   return (
     <div
-      className="relative flex size-full min-h-0 flex-col bg-background"
+      className={cn(
+        "relative flex size-full min-h-0 flex-col bg-background",
+        active && channel.kind !== "agent_dm" && !onboardingInProgress && !pendingLocalApproval &&
+          "chat-composer-overlap"
+      )}
       data-chat-drop-target=""
       ref={fileDropTargetRef}
     >
@@ -1742,7 +1746,7 @@ export const ChatPane = memo(function ChatPane({
           <ConversationTopDivider />
           <ConversationContent
             className="max-w-none gap-1 px-4 pt-10"
-            style={{ paddingBottom: 24 }}
+            style={{ paddingBottom: "calc(24px + var(--composer-overlap, 0px))" }}
           >
             {activityTruncated && (
               <div
@@ -1978,7 +1982,11 @@ export const ChatPane = memo(function ChatPane({
           </div>
         </div>
       ) : onboardingInProgress ? null : (
-        <div className="relative z-[3] w-full shrink-0" data-composer-dock="">
+        <div
+          className="relative z-[3] w-full shrink-0"
+          data-composer-dock=""
+          style={{ marginTop: "calc(-1 * var(--composer-overlap, 0px))" }}
+        >
           {pendingLocalApproval ? (
             <div
               className="pointer-events-auto relative z-[3] w-full min-w-0 px-4 pb-2"

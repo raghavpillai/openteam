@@ -360,6 +360,7 @@ export const ConversationScrollButton = ({
       <div
         className="absolute bottom-2 left-1/2 z-10 flex h-7 min-w-36 -translate-x-1/2 transform-gpu overflow-hidden rounded-full border text-sm font-normal transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none"
         style={{
+          bottom: "calc(8px + var(--composer-overlap, 0px))",
           backgroundColor: "#3062bf",
           borderColor: "#2f5eb6",
           boxShadow: "0 2px 5px rgba(0, 0, 0, 0.14)",
@@ -396,6 +397,7 @@ export const ConversationScrollButton = ({
       )}
       onClick={onClick}
       style={{
+        bottom: "calc(8px + var(--composer-overlap, 0px))",
         boxShadow: "0 2px 5px rgba(0, 0, 0, 0.14)",
       }}
       tabIndex={visible ? 0 : -1}

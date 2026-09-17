@@ -90,8 +90,8 @@ describe("OpenTeam-profile UI parity", () => {
       /gridTemplateColumns:\s*"repeat\(auto-fit, minmax\(80px, max-content\)\)"/
     );
     expect(sidebar).toContain('<ChannelAvatar botById={botById} channel={channel} size="lg" />');
-    expect(sidebar.match(/aria-label="Toggle compact sidebar"/g)?.length).toBe(1);
-    expect(sidebar).toContain("<PanelLeftClose");
+    expect(sidebar).not.toContain('aria-label="Toggle compact sidebar"');
+    expect(sidebar).not.toContain("<PanelLeftClose");
     expect(sidebar).not.toContain("<PanelLeftOpen");
     expect(sidebar).toContain("toggleCompactSidebar");
     expect(sidebar).toContain(
@@ -133,10 +133,10 @@ describe("OpenTeam-profile UI parity", () => {
     const sidebar = await componentSource("sidebar");
 
     expect(sidebar).toContain("function UnreadJumpPill({");
-    expect(sidebar).toContain('data-more-unreads="above"');
-    expect(sidebar).not.toContain('data-more-unreads="below"');
-    expect(sidebar).toContain("bg-[#2d63bb] py-1 pl-1 pr-2");
-    expect(sidebar).toContain("transparent 0px, black 28px, black 100%");
+    expect(sidebar).toContain('direction="above"');
+    expect(sidebar).toContain('direction="below"');
+    expect(sidebar).toContain("bg-[#469ffe] py-1 pl-1 pr-2");
+    expect(sidebar).toContain("black calc(100% - 28px), transparent 100%");
     expect(sidebar).toContain("setSidebarTopFade(viewport.scrollTop > 5)");
     expect(sidebar).toContain("sidebarUnreadJumpTargets(metrics");
     expect(sidebar).toContain("viewport.scrollTo({ top });");

@@ -24,12 +24,9 @@ import {
   EyeOff,
   Folder,
   FolderPlus,
-  Grid2X2,
   Info,
   LogOut,
   Megaphone,
-  PanelLeft,
-  PanelLeftClose,
   Pencil,
   Pin,
   PinOff,
@@ -156,25 +153,37 @@ function WorkingAvatar({
 }
 
 function UnreadJumpPill({
+  compact = false,
+  direction,
   target,
   onJump,
 }: {
+  compact?: boolean;
+  direction: "above" | "below";
   target: SidebarUnreadJumpTarget;
   onJump: (target: SidebarUnreadJumpTarget) => void;
 }) {
   return (
     <button
-      aria-label="More unreads above"
-      className="absolute left-1/2 top-2 z-[12] inline-flex -translate-x-1/2 cursor-pointer items-center gap-0.5 whitespace-nowrap rounded-full border-0 bg-[#2d63bb] py-1 pl-1 pr-2 font-[inherit] text-[13px] font-normal leading-[18px] text-[#fcfcfc] shadow-[inset_0_0_0_1px_rgba(20,20,20,0.05),0_2px_8px_rgba(0,0,0,0.12)] outline-none"
-      data-more-unreads="above"
+      aria-label={`More unreads ${direction}`}
+      className={cn(
+        "absolute left-1/2 z-[12] inline-flex -translate-x-1/2 cursor-pointer items-center gap-0.5 whitespace-nowrap rounded-full border-0 bg-[#469ffe] py-1 pl-1 pr-2 font-[inherit] text-[13px] font-normal leading-[18px] text-[#fcfcfc] shadow-[inset_0_0_0_1px_rgba(20,20,20,0.05),0_2px_8px_rgba(0,0,0,0.12)] outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        direction === "above" ? "top-2" : "bottom-2",
+        compact && "size-8 justify-center gap-0 p-0"
+      )}
+      data-more-unreads={direction}
       onClick={() => onJump(target)}
       title={`${target.count} unread message${target.count === 1 ? "" : "s"}`}
       type="button"
     >
       <span className="inline-flex size-5 shrink-0 items-center justify-center">
-        <ArrowUp className="size-4" strokeWidth={1.7} />
+        {direction === "above" ? (
+          <ArrowUp className="size-4" strokeWidth={1.7} />
+        ) : (
+          <ArrowDown className="size-4" strokeWidth={1.7} />
+        )}
       </span>
-      <span className="inline pr-0.5">More unreads</span>
+      <span className={compact ? "sr-only" : "inline pr-0.5"}>More unreads</span>
     </button>
   );
 }
@@ -1000,7 +1009,7 @@ const ChannelRow = memo(function ChannelRow({
   const content = (
     <Button
       className={cn(
-        "group flex h-[54px] w-full items-center gap-2 rounded-[10px] px-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/30",
+        "group flex h-[54px] w-full items-center gap-2 rounded-[10px] px-2 text-left font-normal outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/30",
         selected ? "bg-selected hover:bg-selected" : "hover:bg-hover"
       )}
       onClick={() => onSelect(channel.id)}
@@ -1013,17 +1022,12 @@ const ChannelRow = memo(function ChannelRow({
         ringColor={selected ? "var(--selected)" : "var(--sidebar)"}
         size="md"
       >
-        <ChannelAvatar botById={botById} channel={channel} />
+        <ChannelAvatar botById={botById} channel={channel} roster />
       </WorkingAvatar>
       <span className="min-w-0 flex-1 -translate-y-[0.5px]">
         <span className="flex items-center gap-2">
           <span className="flex min-w-0 flex-1 items-center gap-1.5">
-            <span
-              className={cn(
-                "min-w-0 truncate text-[14px]",
-                unread ? "font-semibold" : "font-medium"
-              )}
-            >
+            <span className="min-w-0 truncate text-[14px] font-normal">
               <BotName name={channel.name} />
             </span>
             {bot?.title ? (
@@ -1035,32 +1039,26 @@ const ChannelRow = memo(function ChannelRow({
               <Pin aria-label="Pinned" className="size-2.5 shrink-0 text-foreground-tertiary" />
             )}
           </span>
-          <span
-            className={cn(
-              "shrink-0 text-[12px] font-normal tabular-nums",
-              needsAttention
-                ? "text-amber-500"
-                : unread
-                  ? "text-blue-500"
+          {(!unread || needsAttention) && (
+            <span
+              className={cn(
+                "shrink-0 text-[12px] font-normal",
+                needsAttention
+                  ? "text-amber-500"
                   : selected
                     ? "text-foreground-secondary dark:text-[#ababab]"
                     : "text-foreground-secondary dark:text-foreground-tertiary"
-            )}
-          >
-            {timeLabel(latest?.createdAt ?? channel.createdAt)}
-          </span>
+              )}
+            >
+              {timeLabel(latest?.createdAt ?? channel.createdAt)}
+            </span>
+          )}
         </span>
         <span className="mt-px flex min-w-0 items-center gap-1.5">
           {needsAttention ? (
             <span
               aria-label="Needs your input"
               className="size-1.5 shrink-0 rounded-full bg-amber-500"
-              role="img"
-            />
-          ) : unread ? (
-            <span
-              aria-label="Unread"
-              className="size-1.5 shrink-0 rounded-full bg-blue-600"
               role="img"
             />
           ) : null}
@@ -1076,6 +1074,9 @@ const ChannelRow = memo(function ChannelRow({
           )}
         </span>
       </span>
+      {unread && !needsAttention ? (
+        <span aria-label="Unread" className="size-2 shrink-0 rounded-full bg-[#469ffe]" role="img" />
+      ) : null}
     </Button>
   );
 
@@ -2116,7 +2117,7 @@ function VirtualizedCompactChannels({
     [groups]
   );
   const estimateSize = useCallback(
-    (index: number) => (entries[index]?.type === "separator" ? 17 : 55),
+    (index: number) => (entries[index]?.type === "separator" ? 17 : 58),
     [entries]
   );
   const getKey = useCallback(
@@ -2261,11 +2262,7 @@ function CompactSidebarContent({
   selectedId,
   onSelect,
   onNewBot,
-  onNewGroup,
-  onOpenAbout,
   onOpenHiddenAgents,
-  onOpenSettings,
-  onToggleCompact,
 }: {
   groups: Array<{ id: string; rows: ChannelRowData[] }>;
   botById: ReadonlyMap<string, BotView>;
@@ -2274,16 +2271,66 @@ function CompactSidebarContent({
   selectedId: string | null;
   onSelect: (id: string) => void;
   onNewBot: () => void;
-  onNewGroup: () => void;
-  onOpenAbout: () => void;
   onOpenHiddenAgents: () => void;
-  onOpenSettings: () => void;
-  onToggleCompact: () => void;
 }) {
-  const auth = useAuthSession();
-  const account = accountPresentation(auth.user, auth.mode);
   const scrollRef = useRef<HTMLElement>(null);
   const channelCount = groups.reduce((count, group) => count + group.rows.length, 0);
+  const metrics = useMemo(() => {
+    let top = 4;
+    return groups.flatMap((group, index) => {
+      if (index > 0) top += 17;
+      return group.rows.map((row) => {
+        const metric = {
+          channelId: row.channel.id,
+          unread: unreadIds.has(row.channel.id),
+          unreadCount: row.channel.unreadCount,
+          top: top + 2,
+          bottom: top + 56,
+        };
+        top += 58;
+        return metric;
+      });
+    });
+  }, [groups, unreadIds]);
+  const [scrollState, setScrollState] = useState({
+    top: false,
+    bottom: false,
+    jumps: { above: null, below: null } as SidebarUnreadJumpTargets,
+  });
+  const measureScroll = useCallback(() => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    const top = viewport.scrollTop > 5;
+    const bottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight > 5;
+    const jumps = sidebarUnreadJumpTargets(
+      metrics,
+      viewport.scrollTop,
+      viewport.scrollTop + viewport.clientHeight
+    );
+    setScrollState((current) =>
+      current.top === top &&
+      current.bottom === bottom &&
+      sameUnreadJumpTargets(current.jumps, jumps)
+        ? current
+        : { top, bottom, jumps }
+    );
+  }, [metrics]);
+  useEffect(() => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    const observer = new ResizeObserver(measureScroll);
+    observer.observe(viewport);
+    measureScroll();
+    return () => observer.disconnect();
+  }, [measureScroll]);
+  const jumpToUnread = (target: SidebarUnreadJumpTarget) => {
+    const viewport = scrollRef.current;
+    const metric = metrics.find((row) => row.channelId === target.channelId);
+    if (viewport && metric)
+      viewport.scrollTo({
+        top: Math.max(0, (metric.top + metric.bottom - viewport.clientHeight) / 2),
+      });
+  };
   return (
     <>
       <div className="electron-drag flex h-[61px] shrink-0 items-end justify-center pb-px">
@@ -2293,91 +2340,96 @@ function CompactSidebarContent({
           data-compact-header-divider=""
         />
       </div>
-      <nav
-        className="bot-scrollbar flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-2 pt-1"
-        ref={scrollRef}
-      >
-        {channelCount > 180 ? (
-          <VirtualizedCompactChannels
-            botById={botById}
-            groups={groups}
-            onSelect={onSelect}
-            scrollRef={scrollRef}
-            selectedId={selectedId}
-            unreadIds={unreadIds}
+      <div className="relative flex min-h-0 flex-1">
+        <nav
+          className="sidebar-roster bot-scrollbar flex min-h-0 flex-1 flex-col items-center overflow-y-auto pl-3 pr-1 pt-1"
+          ref={scrollRef}
+          onScroll={measureScroll}
+          data-scroll-fade-top={scrollState.top}
+          data-scroll-fade-bottom={scrollState.bottom}
+          style={{
+            maskImage: `linear-gradient(to bottom, ${scrollState.top ? "transparent 0px, black 28px" : "black 0px"}, ${scrollState.bottom ? "black calc(100% - 28px), transparent 100%" : "black 100%"})`,
+          }}
+        >
+          {channelCount > 180 ? (
+            <VirtualizedCompactChannels
+              botById={botById}
+              groups={groups}
+              onSelect={onSelect}
+              scrollRef={scrollRef}
+              selectedId={selectedId}
+              unreadIds={unreadIds}
+            />
+          ) : (
+            groups.map((group, groupIndex) => (
+              <div className="w-full" data-compact-group={group.id} key={group.id}>
+                {groupIndex > 0 && (
+                  <div aria-hidden="true" className="mx-auto my-2 h-px w-[54px] bg-border" />
+                )}
+                {group.rows.map((row) => (
+                  <div className="flex justify-center py-0.5" key={row.channel.id}>
+                    <CompactChannelTile
+                      botById={botById}
+                      onSelect={onSelect}
+                      row={row}
+                      selected={row.channel.id === selectedId}
+                      unread={unreadIds.has(row.channel.id)}
+                    />
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
+          {hiddenAgentCount > 0 ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  aria-label={`Hidden Bots (${hiddenAgentCount})`}
+                  className="relative mt-2 grid size-[54px] shrink-0 place-items-center rounded-[11px] text-foreground-tertiary hover:bg-subtle"
+                  onClick={onOpenHiddenAgents}
+                  type="button"
+                >
+                  <EyeOff className="size-4" strokeWidth={1.8} />
+                  <span className="absolute right-1 top-1 grid min-w-4 place-items-center rounded-full bg-foreground px-1 text-[9px] leading-4 text-background">
+                    {hiddenAgentCount}
+                  </span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Hidden Bots</TooltipContent>
+            </Tooltip>
+          ) : null}
+        </nav>
+        {scrollState.jumps.above && (
+          <UnreadJumpPill
+            compact
+            direction="above"
+            target={scrollState.jumps.above}
+            onJump={jumpToUnread}
           />
-        ) : (
-          groups.map((group, groupIndex) => (
-            <div className="w-full" data-compact-group={group.id} key={group.id}>
-              {groupIndex > 0 && (
-                <div aria-hidden="true" className="mx-auto my-2 h-px w-[54px] bg-border" />
-              )}
-              {group.rows.map((row) => (
-                <div className="flex justify-center py-0.5" key={row.channel.id}>
-                  <CompactChannelTile
-                    botById={botById}
-                    onSelect={onSelect}
-                    row={row}
-                    selected={row.channel.id === selectedId}
-                    unread={unreadIds.has(row.channel.id)}
-                  />
-                </div>
-              ))}
-            </div>
-          ))
         )}
-        {hiddenAgentCount > 0 ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                aria-label={`Hidden Bots (${hiddenAgentCount})`}
-                className="relative mt-2 grid size-[54px] shrink-0 place-items-center rounded-[11px] text-foreground-tertiary hover:bg-subtle"
-                onClick={onOpenHiddenAgents}
-                type="button"
-              >
-                <EyeOff className="size-4" strokeWidth={1.8} />
-                <span className="absolute right-1 top-1 grid min-w-4 place-items-center rounded-full bg-foreground px-1 text-[9px] leading-4 text-background">
-                  {hiddenAgentCount}
-                </span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">Hidden Bots</TooltipContent>
-          </Tooltip>
-        ) : null}
-      </nav>
-      <div className="flex shrink-0 flex-col items-center gap-0 pb-2 pt-2">
+        {scrollState.jumps.below && (
+          <UnreadJumpPill
+            compact
+            direction="below"
+            target={scrollState.jumps.below}
+            onJump={jumpToUnread}
+          />
+        )}
+      </div>
+      <div className="flex shrink-0 flex-col items-center gap-0 pt-2">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
-              aria-label="Expand sidebar"
+              aria-label="New chat"
               className="size-7 rounded-[7px] p-0 text-foreground-tertiary hover:bg-subtle hover:text-foreground-secondary"
-              onClick={onToggleCompact}
+              onClick={onNewBot}
               variant="ghost"
             >
-              <PanelLeft className="h-3.5 w-[18px]" strokeWidth={1.8} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="top">Expand sidebar</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button aria-label="New chat" className="size-7 rounded-[7px] p-0 text-foreground-tertiary hover:bg-subtle hover:text-foreground-secondary" onClick={onNewBot} variant="ghost">
               <Plus className="size-5" strokeWidth={1.8} />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="top">New chat</TooltipContent>
         </Tooltip>
-        <AccountMenu compact onOpenAbout={onOpenAbout} onOpenSettings={onOpenSettings}>
-          <Button
-            aria-label={`Account: ${account.name}`}
-            className="mt-1.5 size-[54px] rounded-[11px] p-0 hover:bg-subtle data-[state=open]:bg-subtle"
-            variant="ghost"
-          >
-            <span className="grid size-9 place-items-center rounded-full border-[0.5px] border-[#cbcbcb] bg-[#e6e6e6] text-[13px] font-medium text-[#575757] dark:border-[#393939] dark:bg-[#232323] dark:text-[#a5a5a5]">
-              {account.initials}
-            </span>
-          </Button>
-        </AccountMenu>
       </div>
     </>
   );
@@ -2486,6 +2538,7 @@ export const Sidebar = memo(function Sidebar({
     below: null,
   });
   const [sidebarTopFade, setSidebarTopFade] = useState(false);
+  const [sidebarBottomFade, setSidebarBottomFade] = useState(false);
   const sidebarResizerRef = useRef<HTMLDivElement | null>(null);
   const sidebarWidthRef = useRef(sidebarWidth);
   const lastExpandedWidthRef = useRef(
@@ -2663,6 +2716,7 @@ export const Sidebar = memo(function Sidebar({
     const viewport = sidebarScrollRef.current;
     if (compact || !viewport) {
       setSidebarTopFade(false);
+      setSidebarBottomFade(false);
       setUnreadJumps((current) => {
         const next = { above: null, below: null };
         return sameUnreadJumpTargets(current, next) ? current : next;
@@ -2670,6 +2724,7 @@ export const Sidebar = memo(function Sidebar({
       return;
     }
     setSidebarTopFade(viewport.scrollTop > 5);
+    setSidebarBottomFade(viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight > 5);
     const metrics = unreadMetrics;
     const viewportTop = viewport.scrollTop;
     const viewportBottom = viewportTop + viewport.clientHeight;
@@ -2693,10 +2748,8 @@ export const Sidebar = memo(function Sidebar({
       const metric = unreadMetrics.find((candidate) => candidate.channelId === target.channelId);
       const jumpToEstimatedPosition = () => {
         if (!metric) return;
-        const top =
-          metric.top < viewport.scrollTop
-            ? metric.top
-            : Math.max(0, metric.bottom - viewport.clientHeight);
+        // Keep the target clear of the fades and match virtual-row jumps.
+        const top = Math.max(0, (metric.top + metric.bottom - viewport.clientHeight) / 2);
         viewport.scrollTo({ top });
       };
 
@@ -3045,32 +3098,14 @@ export const Sidebar = memo(function Sidebar({
           groups={compactGroups}
           hiddenAgentCount={hiddenAgentCount}
           onNewBot={onNewBot}
-          onNewGroup={onNewGroup}
-          onOpenAbout={onOpenAbout}
           onOpenHiddenAgents={onOpenHiddenAgents}
-          onOpenSettings={onOpenSettings}
           onSelect={onSelect}
-          onToggleCompact={toggleCompactSidebar}
           selectedId={selectedId}
           unreadIds={preferences.unreadIds}
         />
       ) : (
         <>
           <div className="electron-drag flex h-[47px] shrink-0 items-center justify-end gap-0.5 px-[13px] pt-0.5">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  aria-label="Toggle compact sidebar"
-                  className="electron-no-drag size-7 rounded-[7px] text-foreground-tertiary hover:bg-subtle hover:text-foreground focus-visible:ring-0 dark:text-foreground-secondary"
-                  onClick={toggleCompactSidebar}
-                  size="icon-sm"
-                  variant="ghost"
-                >
-                  <PanelLeftClose className="size-[15px]" strokeWidth={1.7} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Collapse sidebar</TooltipContent>
-            </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button aria-label="New chat" className="electron-no-drag size-7 rounded-[7px] text-foreground-tertiary hover:bg-subtle hover:text-foreground focus-visible:ring-0 dark:text-foreground-secondary" onClick={onNewBot} size="icon-sm" variant="ghost">
@@ -3212,19 +3247,14 @@ export const Sidebar = memo(function Sidebar({
               <ContextMenuTrigger asChild>
                 <div className="relative flex min-h-0 flex-1">
                   <nav
-                    className="bot-scrollbar flex min-h-0 w-full flex-1 flex-col overflow-y-auto px-[12px]"
+                    className="sidebar-roster bot-scrollbar flex min-h-0 w-full flex-1 flex-col overflow-y-auto pl-[12px] pr-1"
                     onScroll={scheduleUnreadJumpMeasure}
                     ref={sidebarScrollRef}
-                    style={
-                      sidebarTopFade
-                        ? {
-                            WebkitMaskImage:
-                              "linear-gradient(to bottom, transparent 0px, black 28px, black 100%)",
-                            maskImage:
-                              "linear-gradient(to bottom, transparent 0px, black 28px, black 100%)",
-                          }
-                        : undefined
-                    }
+                    data-scroll-fade-top={sidebarTopFade}
+                    data-scroll-fade-bottom={sidebarBottomFade}
+                    style={{
+                      maskImage: `linear-gradient(to bottom, ${sidebarTopFade ? "transparent 0px, black 28px" : "black 0px"}, ${sidebarBottomFade ? "black calc(100% - 28px), transparent 100%" : "black 100%"})`,
+                    }}
                   >
                     {!creating && (
                       <div className="grid">
@@ -3433,7 +3463,18 @@ export const Sidebar = memo(function Sidebar({
                     )}
                   </nav>
                   {unreadJumps.above ? (
-                    <UnreadJumpPill onJump={jumpToUnread} target={unreadJumps.above} />
+                    <UnreadJumpPill
+                      direction="above"
+                      onJump={jumpToUnread}
+                      target={unreadJumps.above}
+                    />
+                  ) : null}
+                  {unreadJumps.below ? (
+                    <UnreadJumpPill
+                      direction="below"
+                      onJump={jumpToUnread}
+                      target={unreadJumps.below}
+                    />
                   ) : null}
                 </div>
               </ContextMenuTrigger>
@@ -3474,32 +3515,48 @@ export const Sidebar = memo(function Sidebar({
               }}
             </DragOverlay>
           </DragDropProvider>
-          <div className="flex flex-col gap-0.5 pb-3 pl-[7px] pr-[12px] pt-2">
+          <div className="flex flex-col gap-0.5 pb-0.5 pl-[7px] pr-[12px] pt-2">
             <Button
               className="h-10 w-full justify-start px-[13px] text-[13.5px] font-normal hover:bg-[#eaeaea] dark:hover:bg-[#232323]"
               onClick={onOpenPlugins}
               variant="ghost"
             >
               <span className="grid size-7 shrink-0 place-items-center rounded-full border-[0.5px] border-[#e4e4e4] bg-background dark:border-[#393939] dark:bg-[#181818]">
-                <Grid2X2 className="size-3.5" />
+                <svg
+                  aria-hidden="true"
+                  className="size-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinejoin="round"
+                  strokeWidth="1.8"
+                  viewBox="0 0 24 24"
+                >
+                  <rect x="3" y="3" width="7" height="7" rx="1" />
+                  <rect x="14" y="3" width="7" height="7" rx="1" />
+                  <rect x="3" y="14" width="7" height="7" rx="1" />
+                  <path d="m18 13 4.5 4.5L18 22l-4.5-4.5Z" />
+                </svg>
               </span>
               Marketplace
             </Button>
-            <AccountMenu onOpenAbout={onOpenAbout} onOpenSettings={onOpenSettings}>
-              <Button
-                aria-label="Open account menu"
-                className="group/footer-account h-10 w-full justify-start px-[13px] text-[13.5px] font-normal hover:bg-[#eaeaea] dark:hover:bg-[#232323]"
-                variant="ghost"
-              >
-                <span className="grid size-7 place-items-center rounded-full border-[0.5px] border-[#d5d5d5] bg-[#ebebeb] text-[11px] text-muted-foreground transition-colors group-hover/footer-account:bg-[#e0e0e0] dark:border-[#393939] dark:bg-[#232323] dark:text-[#a5a5a5] dark:group-hover/footer-account:bg-[#2f2f2f]">
-                  {account.initials}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-left">{account.name}</span>
-              </Button>
-            </AccountMenu>
           </div>
         </>
       )}
+
+      <div className="sidebar-account-footer">
+        <AccountMenu compact={compact} onOpenAbout={onOpenAbout} onOpenSettings={onOpenSettings}>
+          <Button
+            aria-label={`Account: ${account.name}`}
+            className="sidebar-account-button group/footer-account relative w-full rounded-[11px] p-0 hover:bg-subtle data-[state=open]:bg-subtle"
+            variant="ghost"
+          >
+            <span className="sidebar-account-avatar" data-sidebar-account-avatar="">
+              {account.initials}
+            </span>
+            <span className="sidebar-account-name">{account.name}</span>
+          </Button>
+        </AccountMenu>
+      </div>
 
       <div
         aria-label="Resize sidebar"

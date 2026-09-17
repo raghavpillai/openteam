@@ -35,7 +35,7 @@ describe("shared helpers preserve the existing desktop and iOS presentation", ()
       "#878787",
     ]);
   });
-  test("compact/native and expanded roster labels retain their date and weekday rules", () => {
+  test("all roster variants show weekdays for recent conversations", () => {
     const now = new Date(2026, 8, 3, 17);
     const today = new Date(2026, 8, 3, 10, 15);
     const yesterday = new Date(2026, 8, 2, 10, 15);
@@ -54,20 +54,28 @@ describe("shared helpers preserve the existing desktop and iOS presentation", ()
       earlier.toLocaleDateString([], { weekday: "long" })
     );
     expect(formatRosterTimestamp(earlier.toISOString(), "expanded", now)).toBe(
-      earlier.toLocaleDateString([], { month: "numeric", day: "numeric" })
+      earlier.toLocaleDateString([], { weekday: "long" })
     );
     expect(formatRosterTimestamp(undefined)).toBe("");
   });
-  test("does not silently change the expanded roster's pre-existing DST rule", () => {
-    const now = new Date(2026, 2, 9, 12);
-    const previous = new Date(2026, 2, 8, 12);
-    const midnight = new Date(2026, 2, 9).getTime();
-    const previousMidnight = new Date(2026, 2, 8).getTime();
-    expect(formatRosterTimestamp(previous.toISOString(), "expanded", now)).toBe(
-      previousMidnight === midnight - 86_400_000
-        ? "Yesterday"
-        : previous.toLocaleDateString([], { month: "numeric", day: "numeric" })
-    );
-    expect(formatRosterTimestamp(previous.toISOString(), "compact", now)).toBe("Yesterday");
+  test("calendar-day labels survive a daylight-saving transition", () => {
+    const originalTimezone = process.env.TZ;
+    try {
+      process.env.TZ = "America/New_York";
+      const now = new Date(2026, 2, 9, 12);
+      const previous = new Date(2026, 2, 8, 12);
+      for (const variant of ["compact", "expanded"] as const) {
+        expect(formatRosterTimestamp(previous.toISOString(), variant, now)).toBe("Yesterday");
+        const sixDaysAgo = new Date(2026, 2, 3, 12);
+        expect(formatRosterTimestamp(sixDaysAgo.toISOString(), variant, now)).toBe("Tuesday");
+        const sevenDaysAgo = new Date(2026, 2, 2, 12);
+        expect(formatRosterTimestamp(sevenDaysAgo.toISOString(), variant, now)).toBe(
+          sevenDaysAgo.toLocaleDateString([], { month: "numeric", day: "numeric" })
+        );
+      }
+    } finally {
+      if (originalTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTimezone;
+    }
   });
 });

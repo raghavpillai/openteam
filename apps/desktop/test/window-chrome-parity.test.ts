@@ -23,7 +23,7 @@ describe("Bot window chrome parity", () => {
     expect(header).toContain(
       '"absolute inset-y-0 right-3 flex items-center transition-opacity duration-150"'
     );
-    expect(sidebar).toContain('className="flex shrink-0 flex-col items-center gap-0 pb-2 pt-2"');
+    expect(sidebar).toContain('className="flex shrink-0 flex-col items-center gap-0 pt-2"');
   });
 
   test("uses Bot's exact compact-sidebar footer controls and geometry", async () => {
@@ -33,15 +33,13 @@ describe("Bot window chrome parity", () => {
       sidebar.indexOf("const SIDEBAR_WIDTH_KEY")
     );
 
-    expect(compactFooter).toContain('aria-label="Expand sidebar"');
-    expect(compactFooter).toContain('<PanelLeft className="h-3.5 w-[18px]" strokeWidth={1.8} />');
+    expect(compactFooter).not.toContain('aria-label="Expand sidebar"');
+    expect(sidebar).not.toContain("<PanelLeft");
     expect(compactFooter).toContain('className="size-7 rounded-[7px] p-0');
     expect(compactFooter).toContain('<Plus className="size-5" strokeWidth={1.8} />');
     expect(compactFooter).not.toContain('aria-label="Plugins"');
-    expect(compactFooter).toContain('className="mt-1.5 size-[54px] rounded-[11px]');
-    expect(compactFooter).toContain(
-      "border-[0.5px] border-[#cbcbcb] bg-[#e6e6e6] text-[13px] font-medium text-[#575757]"
-    );
-    expect(sidebar).toContain("onToggleCompact={toggleCompactSidebar}");
+    expect(sidebar).toContain('data-sidebar-account-avatar=""');
+    expect(sidebar).toContain("toggleCompactSidebar");
+    expect(compactFooter).toContain("<UnreadJumpPill");
   });
 });

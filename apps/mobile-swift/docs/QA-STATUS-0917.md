@@ -20,6 +20,8 @@ The main server responds at `http://100.94.42.50:8787` from this Mac. Use that a
 
 The HTTPS shortcut `https://office-mac-mini.tail658346.ts.net:10000` is now healthy. Its existing proxy targets loopback port 8787; the local installation now publishes that loopback port alongside the original Tailscale binding. Only `openteam-server-1` was recreated, retaining the same image, environment and volumes. Both URLs return ready health and the expected authentication challenge through the actual native API client. Phone connectivity itself still depends on its Tailscale connection. Receipt: `output/swift-destructive-reauth-0917/server-connectivity.json`.
 
+The [live HTTP native-app follow-up](HTTP-CONNECTION-QA-0917.md) found that host API probes had missed an iOS transport-policy conflict. Native builds through 16 blocked HTTP to the Tailscale IP. Build 17 removes the conflicting setting and passes actual iOS UI discovery/authentication-response checks over HTTP and HTTPS. Use build 17 or later for the HTTP address.
+
 ## Screens and empty state
 
 Welcome, server setup/validation, username/password sign-in, and the conversation list are implemented native screens. Existing simulator tests were rerun after the UI change: invalid server input, a server with authentication disabled, rejected credentials, retry, and reaching the conversation list all passed (**2 tests, 0 failures**). These tests use isolated HTTP fixtures, not the main owner's credentials. Earlier real-server sign-in evidence is linked above.

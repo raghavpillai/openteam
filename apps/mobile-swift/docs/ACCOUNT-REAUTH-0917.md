@@ -23,3 +23,5 @@ Release artifacts and TestFlight receipts: `output/testflight-native-16/`.
 Reproduce the isolated legacy-Keychain check with `python3 apps/mobile-swift/scripts/audit-legacy-keychain.py --simulator <owned-simulator-UDID> --output output/keychain-reset-check`. It creates and removes a separate audit app and tests only a unique fixture Keychain service. The initial host-Keychain attempt could not access a user Keychain; accepted coverage runs inside iOS with an app identity.
 
 Released as **TestFlight 0.0.1 (16)** for Team (Expo), Apple state `VALID` / `IN_BETA_TESTING`, build ID `342e1f06-724a-43f3-ae79-55cd8c6edc49`. Updated testing notes were read back from Apple. Intermediate build 15 is withdrawn; previous accepted builds remain available.
+
+HTTP correction: the initial live API probes above ran on the Mac. A subsequent native iOS UI check found a transport-policy regression in build 16. [The HTTP follow-up](HTTP-CONNECTION-QA-0917.md) documents the reproduction and build 17 fix; host probes alone did not establish iOS HTTP connectivity.

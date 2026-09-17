@@ -115,3 +115,9 @@ for scheme in ['OpenTeamNative.xcscheme', 'OpenTeamReference.xcscheme']:
     path = schemes / scheme
     path.write_text(path.read_text().replace('</SkippedTests>', '<Test Identifier="RoutineScheduleUITests"/></SkippedTests>'))
     path.write_text(path.read_text().replace('</SkippedTests>', '<Test Identifier="RealServerUITests"/><Test Identifier="VNCValidationUITests"/><Test Identifier="SevenReferenceUITests"/><Test Identifier="LaunchRobotUITests"/><Test Identifier="PaletteUITests"/><Test Identifier="HapticsUITests"/></SkippedTests>'))
+
+# A real Tailscale address is required to catch HTTP policy bugs hidden by loopback fixtures.
+(schemes / 'LiveHTTP.xcscheme').write_text(visual_scheme.replace('GrokbotVisualTests', 'LiveHTTPUITests'))
+for scheme in ['OpenTeamNative.xcscheme', 'OpenTeamReference.xcscheme']:
+    path = schemes / scheme
+    path.write_text(path.read_text().replace('</SkippedTests>', '<Test Identifier="LiveHTTPUITests"/></SkippedTests>'))

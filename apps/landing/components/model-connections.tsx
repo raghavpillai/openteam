@@ -70,7 +70,7 @@ function InferenceConnection({ mobile = false }: { mobile?: boolean }) {
 }
 
 export function ModelConnections() {
-  const cycle = useDemoCycle(providers.length, 2800);
+  const cycle = useDemoCycle(providers.length, 1750);
   const selected = cycle.index % providers.length;
   const provider = providers[selected];
 

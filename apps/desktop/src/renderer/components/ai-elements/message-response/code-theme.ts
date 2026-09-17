@@ -55,4 +55,3 @@ const botLightTheme = {
 } satisfies ThemeInput;
 
 export const botShikiTheme: [ThemeInput, ThemeInput] = [botLightTheme, "github-dark"];
-

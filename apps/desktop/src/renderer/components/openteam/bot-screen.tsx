@@ -1,3 +1,4 @@
+import { isWindowVisible, WINDOW_VISIBILITY_EVENT } from "../../lib/window-visibility";
 import {
   createHandoffReleaseController,
   createKeyedRequestCoordinator,
@@ -94,15 +95,15 @@ export function BotScreen({
       intervalMs: SCREEN_STATUS_POLL_MS,
       immediate: false,
       task: async () => {
-        if (document.visibilityState === "visible") await refreshStatus();
+        if (isWindowVisible()) await refreshStatus();
       },
     });
     const pollStatus = () => poller.wake();
     poller.start();
-    document.addEventListener("visibilitychange", pollStatus);
+    window.addEventListener(WINDOW_VISIBILITY_EVENT, pollStatus);
     return () => {
       poller.stop();
-      document.removeEventListener("visibilitychange", pollStatus);
+      window.removeEventListener(WINDOW_VISIBILITY_EVENT, pollStatus);
     };
   }, [active, enabled, refreshStatus, screen?.state]);
   useEffect(() => {
@@ -111,7 +112,7 @@ export function BotScreen({
         shouldRefreshScreenFrame({
           enabled,
           inspectorActive: active,
-          documentVisible: document.visibilityState === "visible",
+          documentVisible: isWindowVisible(),
           viewerOpen: open,
           state: screen?.state,
         })
@@ -122,10 +123,10 @@ export function BotScreen({
     refreshFrame();
     if (!enabled || !active || screen?.state !== "ready") return;
     const timer = window.setInterval(refreshFrame, SCREEN_FRAME_REFRESH_MS);
-    document.addEventListener("visibilitychange", refreshFrame);
+    window.addEventListener(WINDOW_VISIBILITY_EVENT, refreshFrame);
     return () => {
       window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", refreshFrame);
+      window.removeEventListener(WINDOW_VISIBILITY_EVENT, refreshFrame);
     };
   }, [active, enabled, open, screen?.state]);
   const finishHandoff = useCallback(
@@ -203,11 +204,11 @@ export function BotScreen({
       },
     });
     poller.start();
-    document.addEventListener("visibilitychange", poller.wake);
+    window.addEventListener(WINDOW_VISIBILITY_EVENT, poller.wake);
     return () => {
       active = false;
       poller.stop();
-      document.removeEventListener("visibilitychange", poller.wake);
+      window.removeEventListener(WINDOW_VISIBILITY_EVENT, poller.wake);
     };
   }, [bot.id, handoff, open]);
   const viewerReady = screen?.state === "ready";

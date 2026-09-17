@@ -43,7 +43,10 @@ describe("desktop shared client controllers", () => {
     const screen = await source("components/openteam/bot-screen.tsx");
     const richMessage = await source("components/openteam/rich-message.tsx");
 
-    expect(richMessage).toContain('api.mutateComputerHandoff(message.id, "start")');
+    expect(richMessage).toContain('onClick={() => void mutate("start")}');
+    expect(richMessage).toContain('const mutate = async (action: "start" | "skip")');
+    expect(richMessage).toContain("api.mutateComputerHandoff(message.id, action)");
+    expect(richMessage).toContain('action === "start" && next === "active" && message.senderBotId');
     expect(richMessage).toContain("Take over the computer");
     expect(screen).toContain("Skip this step");
     expect(screen).toContain("I'm done, continue");

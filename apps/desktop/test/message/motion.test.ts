@@ -44,7 +44,9 @@ test("message entrance and acknowledgement motion match OpenTeam", async () => {
   expect(chatPane).toContain("setEntranceActive(false)");
   expect(chatPane).toContain("sendController.reconcile(messages)");
   expect(chatPane).toContain("projectOutgoingMessages(messages, channelSends)");
-  expect(chatPane).toContain("durableSendStatusLabel");
+  const deliveryFooter = await Bun.file(new URL("../../src/renderer/components/openteam/delivery-footer.tsx", import.meta.url)).text();
+  expect(chatPane).toContain("DeliveryFooter");
+  expect(deliveryFooter).toContain("durableSendStatusLabel");
   expect(chatPane).toContain(
     "knownMessageIds.current = new Set(messages.map((message) => message.id))"
   );
@@ -52,7 +54,7 @@ test("message entrance and acknowledgement motion match OpenTeam", async () => {
   expect(chatPane).not.toContain("content.animate(");
   expect(message).toContain("message-row-content");
   expect(threadTray).toContain("durableSendIsInFlight");
-  expect(threadTray).toContain("durableSendStatusLabel");
+  expect(threadTray).toContain("DeliveryFooter");
   expect(threadTray).toContain("onCancelSend");
   expect(threadTray).toContain("messageDisplayProjection(message)");
   expect(threadTray).toContain("MessageImageGallery");

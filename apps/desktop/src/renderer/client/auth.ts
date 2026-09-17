@@ -10,6 +10,7 @@ import {
 } from "@openteam/client-core";
 import { authErrorMessage } from "@openteam/product-core/auth-feedback";
 import { resolveConfiguredApiBase } from "./runtime-url";
+import { readNativeAuthWithDeadline } from "./native-auth-deadline";
 
 export type {
   OpenTeamAuthConnection,
@@ -79,7 +80,7 @@ const loadAuthToken = (): Promise<string | null> => {
   tokenReadRequest = (async () => {
     let stored: string | null = null;
     const bridge = authBridge();
-    if (bridge) stored = (await bridge.readToken()).token;
+    if (bridge) stored = (await readNativeAuthWithDeadline(bridge.readToken())).token;
     if (generation !== credentialGeneration) return token;
     const next = stored || legacyToken;
     legacyToken = null;

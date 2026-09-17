@@ -145,7 +145,7 @@ export function installPerformanceMonitoring() {
   }
 
   requestAnimationFrame(() => {
-    requestAnimationFrame(() => recordPerformance("startup.first-ui-paint", performance.now()));
+    requestAnimationFrame(() => recordPerformance("startup.animation-frame-ready", performance.now()));
   });
 
   if (!("PerformanceObserver" in window)) return;

@@ -1,15 +1,12 @@
-import githubDark from "@shikijs/themes/github-dark";
+import { highlightAsync, getHighlightEngineStats, clearHighlightEngine } from "./code-worker-client";
 import {
-  createHighlighterCore,
-  type HighlighterCore,
-  type LanguageInput,
   type ThemeRegistrationAny,
   type TokensResult,
 } from "shiki/core";
-import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
-import { bundledLanguages, bundledLanguagesInfo } from "shiki/langs";
+// Metadata only: importing Shiki's registry here also bundles grammar loaders.
+import bundledLanguagesInfo from "./code-languages.json";
 import type { CodeHighlighterPlugin, ThemeInput as StreamdownThemeInput } from "streamdown";
-import { botShikiTheme } from "./config";
+import { botShikiTheme } from "./code-theme";
 
 const TOKEN_CACHE_ENTRY_LIMIT = 192;
 const TOKEN_CACHE_COST_LIMIT = 8 * 1024 * 1024;
@@ -18,14 +15,13 @@ const PENDING_HIGHLIGHT_LIMIT = 128;
 const PENDING_HIGHLIGHT_CHARACTER_LIMIT = 4 * 1024 * 1024;
 const HIGHLIGHT_SOURCE_CHARACTER_LIMIT = 256 * 1024;
 const CALLBACKS_PER_HIGHLIGHT_LIMIT = 128;
-const HIGHLIGHTER_CREATION_CONCURRENCY = 3;
 
 const languageAliases = Object.fromEntries(
   bundledLanguagesInfo.flatMap((language) =>
     (language.aliases ?? []).map((alias) => [alias, language.id])
   )
 ) as Record<string, string>;
-const supportedLanguages = new Set(Object.keys(bundledLanguages));
+const supportedLanguages = new Set(bundledLanguagesInfo.map((language) => language.id));
 
 const normalizeLanguage = (language: string) => {
   const normalized = language.trim().toLowerCase();
@@ -33,7 +29,7 @@ const normalizeLanguage = (language: string) => {
 };
 
 const themeRegistrations = {
-  "github-dark": githubDark,
+  "github-dark": { colors: { "editor.background": "#24292e", "editor.foreground": "#e1e4e8" } },
 } as const;
 
 const customThemeIds = new WeakMap<object, number>();
@@ -186,129 +182,6 @@ const cacheKeyFor = (
   return key;
 };
 
-interface HighlighterCacheEntry {
-  activeLeases: number;
-  disposed: boolean;
-  evicted: boolean;
-  highlighter?: HighlighterCore;
-  promise: Promise<HighlighterCore>;
-}
-
-const highlighterCache = new Map<string, HighlighterCacheEntry>();
-const creationQueue: Array<() => void> = [];
-let activeCreations = 0;
-
-const pumpCreationQueue = () => {
-  while (activeCreations < HIGHLIGHTER_CREATION_CONCURRENCY && creationQueue.length > 0) {
-    creationQueue.shift()?.();
-  }
-};
-
-const scheduleCreation = <Result>(work: () => Promise<Result>) =>
-  new Promise<Result>((resolve, reject) => {
-    creationQueue.push(() => {
-      activeCreations += 1;
-      work()
-        .then(resolve, reject)
-        .finally(() => {
-          activeCreations -= 1;
-          pumpCreationQueue();
-        });
-    });
-    pumpCreationQueue();
-  });
-
-const disposeEntry = (entry: HighlighterCacheEntry) => {
-  if (entry.disposed || !entry.highlighter || entry.activeLeases > 0) return;
-  entry.disposed = true;
-  entry.highlighter.dispose();
-};
-
-const trimHighlighterCache = () => {
-  while (highlighterCache.size > HIGHLIGHTER_CACHE_ENTRY_LIMIT) {
-    const oldestKey = highlighterCache.keys().next().value;
-    if (oldestKey === undefined) break;
-    const entry = highlighterCache.get(oldestKey);
-    highlighterCache.delete(oldestKey);
-    if (entry) {
-      entry.evicted = true;
-      disposeEntry(entry);
-    }
-  }
-};
-
-const acquireHighlighter = (
-  language: string,
-  themes: [StreamdownThemeInput, StreamdownThemeInput]
-) => {
-  const key = `${language}:${themeKey(themes[0])}:${themeKey(themes[1])}`;
-  let entry = highlighterCache.get(key);
-  if (entry) {
-    highlighterCache.delete(key);
-    highlighterCache.set(key, entry);
-  } else {
-    const languageLoader = bundledLanguages[language as keyof typeof bundledLanguages] as
-      | LanguageInput
-      | undefined;
-    if (!languageLoader) throw new Error(`Unsupported bundled code language: ${language}`);
-
-    let nextEntry: HighlighterCacheEntry;
-    const promise = scheduleCreation(async () => {
-      const highlighter = await createHighlighterCore({
-        engine: createJavaScriptRegexEngine({ forgiving: true }),
-        langs: [languageLoader],
-        themes: [resolveTheme(themes[0]), resolveTheme(themes[1])],
-      });
-      nextEntry.highlighter = highlighter;
-      return highlighter;
-    });
-    nextEntry = {
-      activeLeases: 0,
-      disposed: false,
-      evicted: false,
-      promise,
-    };
-    entry = nextEntry;
-    highlighterCache.set(key, entry);
-    trimHighlighterCache();
-    void promise.catch(() => {
-      if (highlighterCache.get(key) === nextEntry) highlighterCache.delete(key);
-      nextEntry.evicted = true;
-      disposeEntry(nextEntry);
-    });
-  }
-
-  entry.activeLeases += 1;
-  return {
-    promise: entry.promise,
-    release: () => {
-      if (!entry) return;
-      entry.activeLeases = Math.max(0, entry.activeLeases - 1);
-      if (entry.evicted) disposeEntry(entry);
-    },
-  };
-};
-
-const highlightAsync = async (
-  source: string,
-  language: string,
-  themes: [StreamdownThemeInput, StreamdownThemeInput]
-) => {
-  const lease = acquireHighlighter(language, themes);
-  try {
-    const highlighter = await lease.promise;
-    return highlighter.codeToTokens(source, {
-      lang: language,
-      themes: {
-        dark: themeName(themes[1]),
-        light: themeName(themes[0]),
-      },
-    });
-  } finally {
-    lease.release();
-  }
-};
-
 const notifyCallbacks = (callbacks: Set<(result: TokensResult) => void>, result: TokensResult) => {
   for (const callback of callbacks) {
     try {
@@ -387,9 +260,7 @@ export const codeHighlighterCacheLimits = {
 } as const;
 
 export const getCodeHighlighterCacheStats = () => ({
-  activeCreations,
-  creationQueue: creationQueue.length,
-  highlighterEntries: highlighterCache.size,
+  ...getHighlightEngineStats(),
   pendingCharacters: pendingHighlightCharacters,
   pendingHighlights: pendingHighlights.size,
   tokenCost: tokenCacheCost,
@@ -399,11 +270,7 @@ export const getCodeHighlighterCacheStats = () => ({
 export const clearCodeHighlighterCaches = () => {
   tokenCache.clear();
   tokenCacheCost = 0;
-  for (const entry of highlighterCache.values()) {
-    entry.evicted = true;
-    disposeEntry(entry);
-  }
-  highlighterCache.clear();
+  clearHighlightEngine();
 };
 
 if (import.meta.hot) {

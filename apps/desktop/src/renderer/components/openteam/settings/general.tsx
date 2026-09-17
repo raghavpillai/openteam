@@ -11,7 +11,7 @@ import {
 } from "../../../lib/theme";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { SectionLabel, SettingsGroup, SettingsRow } from "./ui";
-import { MicrophoneSettings } from "./microphone";
+const MicrophoneSettings = lazy(() => import("./microphone").then(module => ({ default: module.MicrophoneSettings })));
 
 const GeneralBotSettings = lazy(() => import("./general-bot"));
 
@@ -100,7 +100,7 @@ export default function GeneralSettings() {
         />
       </SettingsGroup>
 
-      <MicrophoneSettings />
+      <Suspense fallback={null}><MicrophoneSettings /></Suspense>
 
       <Suspense fallback={null}>
         <GeneralBotSettings />

@@ -109,10 +109,10 @@
   "scripts": {
     "clean": "bun run scripts/clean-build.ts",
     "clean:release": "bun run scripts/clean-release.ts",
-    "build:main": "bun build src/main/index.ts --outdir dist-electron --entry-naming main.js --chunk-naming 'chunks/[name].[ext]' --splitting --target node --format esm --external electron",
-    "build:utility": "bun build src/main/host/utility.ts --outfile dist-electron/host-utility.js --target node --format esm --external electron",
+    "build:main": "bun build src/main/index.ts --outdir dist-electron --entry-naming main.js --chunk-naming 'chunks/[name]-[hash].[ext]' --splitting --target node --format esm --external electron --minify --keep-names",
+    "build:utility": "bun build src/main/host/utility.ts --outfile dist-electron/host-utility.js --target node --format esm --external electron --minify",
     "build:server-updater": "bun build ../cli/src/main.ts --outfile dist-electron/openteam-cli.js --target node --format esm --minify",
-    "build:preload": "bun build src/preload/index.ts --outfile dist-electron/preload.cjs --target node --format cjs --external electron",
+    "build:preload": "bun build src/preload/index.ts --outfile dist-electron/preload.cjs --target node --format cjs --external electron --minify --keep-names",
     "build:electron": "bun run build:main && bun run build:utility && bun run build:server-updater && bun run build:preload",
     "build": "bun run clean && vite build && bun run build:electron",
     "package": "bun run clean:release && bun run build && electron-builder --publish never && bun ../../scripts/performance/check-desktop-budgets.ts --release",
@@ -125,7 +125,9 @@
     "start": "electron .",
     "typecheck": "bun run scripts/check-renderer-boundary.ts && tsc -p tsconfig.json",
     "test": "bun test --pass-with-no-tests",
+    "test:code-rendering": "bun scripts/test-code-rendering.ts",
     "test:conversation-layout": "bun scripts/test-conversation-layout.ts",
+    "test:permission-cards": "bun scripts/test-permission-cards.ts",
     "test:parity-review": "bun scripts/test-parity-review.ts",
     "test:update-ui": "bun scripts/test-desktop-update-ui.ts",
     "test:native:e2e": "bun test/host/fixtures/capability-integration.ts"

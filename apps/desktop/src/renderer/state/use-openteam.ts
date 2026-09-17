@@ -1,3 +1,4 @@
+import { isWindowVisible, WINDOW_VISIBILITY_EVENT } from "../lib/window-visibility";
 import { createKeyedRequestCoordinator } from "@openteam/client-core";
 import type { ChannelMessageView, ClientSnapshot } from "@openteam/contracts";
 import { CLIENT_CAPABILITIES, type ClientCapabilities } from "@openteam/contracts/capabilities";
@@ -849,7 +850,7 @@ export function useOpenTeam() {
     };
     const poll = async () => {
       if (cancelled || polling || runtimeEndpointMissing.current) return;
-      if (document.visibilityState !== "visible") {
+      if (!isWindowVisible()) {
         schedule();
         return;
       }
@@ -872,19 +873,19 @@ export function useOpenTeam() {
       }
     };
     const pollWhenVisible = () => {
-      if (document.visibilityState !== "visible" || Date.now() - lastRuntimePoll.current < 30_000)
+      if (!isWindowVisible() || Date.now() - lastRuntimePoll.current < 30_000)
         return;
       if (timer) clearTimeout(timer);
       void poll();
     };
 
     schedule();
-    document.addEventListener("visibilitychange", pollWhenVisible);
+    window.addEventListener(WINDOW_VISIBILITY_EVENT, pollWhenVisible);
     window.addEventListener("focus", pollWhenVisible);
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
-      document.removeEventListener("visibilitychange", pollWhenVisible);
+      window.removeEventListener(WINDOW_VISIBILITY_EVENT, pollWhenVisible);
       window.removeEventListener("focus", pollWhenVisible);
     };
   }, [publishBootstrap, snapshot !== null]);
@@ -908,7 +909,7 @@ export function useOpenTeam() {
       },
     });
     const syncStreamVisibility = (synchronize = false) => {
-      const visible = document.visibilityState === "visible";
+      const visible = isWindowVisible();
       // Native alerts and remote-read dismissal depend on live state even when
       // the macOS window is hidden or minimized. Browser tabs may still suspend.
       liveSync.setActive(
@@ -918,10 +919,10 @@ export function useOpenTeam() {
     };
     syncStreamVisibility();
     const syncAfterVisibilityChange = () => syncStreamVisibility(true);
-    document.addEventListener("visibilitychange", syncAfterVisibilityChange);
+    window.addEventListener(WINDOW_VISIBILITY_EVENT, syncAfterVisibilityChange);
     window.addEventListener("focus", syncAfterVisibilityChange);
     return () => {
-      document.removeEventListener("visibilitychange", syncAfterVisibilityChange);
+      window.removeEventListener(WINDOW_VISIBILITY_EVENT, syncAfterVisibilityChange);
       window.removeEventListener("focus", syncAfterVisibilityChange);
       liveSync.stop();
     };

@@ -1,3 +1,4 @@
+import { isWindowVisible } from "../../lib/window-visibility";
 import {
   routineExecutionStatusPresentation,
   routineOrdinalLabel,
@@ -976,7 +977,7 @@ export function RoutineEditor({
     let stopped = false;
     let pollTimer: number | null = null;
     const poll = async () => {
-      if (document.hidden) {
+      if (!isWindowVisible()) {
         if (!stopped) pollTimer = window.setTimeout(() => void poll(), 1_500);
         return;
       }

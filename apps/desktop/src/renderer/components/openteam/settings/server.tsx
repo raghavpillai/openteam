@@ -9,7 +9,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react
 import { api } from "../../../client/openteam-api";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { SectionLabel, SettingsGroup, SettingsRow } from "./ui";
-import { TranscriptionSettingsPanel } from "./transcription";
+const TranscriptionSettingsPanel = lazy(() => import("./transcription").then(module => ({ default: module.TranscriptionSettingsPanel })));
 
 const AutomationWebhookSettings = lazy(() => import("./automation-webhooks").then(module => ({default:module.AutomationWebhookSettings})));
 
@@ -443,7 +443,7 @@ export default function ServerSettings() {
       <Suspense fallback={<div className="mt-7 text-[12px] text-foreground-secondary">Loading web search settings…</div>}>
         <WebSearchSettingsPanel /><AutomationWebhookSettings />
       </Suspense>
-      <TranscriptionSettingsPanel />
+      <Suspense fallback={null}><TranscriptionSettingsPanel /></Suspense>
     </>
   );
 }

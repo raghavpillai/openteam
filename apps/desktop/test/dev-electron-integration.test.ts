@@ -33,8 +33,17 @@ test("development supervisor builds, reloads every entry and lazy chunk, and shu
     throw new Error(`Supervisor timed out: ${output}`);
   };
   const starts = () => electronPids.length;
-  const bundleContains = async (path: string, text: string) =>
-    (await readFile(join(desktop, "dist-electron", path), "utf8").catch(() => "")).includes(text);
+  const bundleContains = async (path: string, text: string) => {
+    if (path === "chunks/lazy.js") {
+      // Inspect the chunk referenced by the current entry, not an old hashed
+      // artifact that may still exist during a watch rebuild.
+      const main = await readFile(join(desktop, "dist-electron/main.js"), "utf8");
+      const current = main.match(/chunks\/lazy-[a-z0-9]+\.js/)?.[0];
+      if (!current) return false;
+      path = current;
+    }
+    return (await readFile(join(desktop, "dist-electron", path), "utf8").catch(() => "")).includes(text);
+  };
 
   try {
     await put("package.json", '{"type":"module"}');

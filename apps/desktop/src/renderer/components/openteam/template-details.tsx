@@ -1,3 +1,4 @@
+import "./template-details.css";
 import type { BotRecipe } from "@openteam/contracts";
 import { ChevronLeft, ChevronRight, Globe, LockKeyhole, Plug, X } from "lucide-react";
 import { ScrollArea } from "radix-ui";
@@ -285,46 +286,53 @@ export function TemplateDetails({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         ref={dialog}
+        overlayClassName="template-overlay"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           dialog.current?.focus();
         }}
-        className="template-details flex h-[min(540px,calc(100dvh-40px))] w-[min(400px,calc(100vw-32px))] max-w-none flex-col gap-0 overflow-hidden rounded-[14px] border-black/10 p-0 shadow-xl dark:border-white/10"
+        className="template-details flex h-[min(540px,calc(100dvh-40px))] w-[min(400px,calc(100vw-32px))] max-w-none flex-col gap-0 overflow-hidden rounded-[14px] border-[0.5px] border-[#14141426] p-0 shadow-xl dark:border-white/10"
         showCloseButton={false}
       >
         <header
-          className={`absolute inset-x-0 top-0 z-20 flex h-[52px] items-center justify-center px-12 ${page.kind === "overview" ? "pointer-events-none" : "border-b bg-background"}`}
+          className="template-header absolute inset-x-0 top-0 z-20 flex h-[52px] items-center gap-4 border-b-[0.5px] border-foreground/10 bg-background py-3 pl-4 pr-2.5"
+          data-overview={page.kind === "overview"}
         >
           {page.kind !== "overview" && (
             <button
               ref={back}
               type="button"
               aria-label={page.kind !== "content" ? "Back to template" : `Back to ${page.parent}`}
-              className="absolute left-3 grid size-8 place-items-center rounded-lg text-foreground-secondary hover:bg-subtle"
+              className="grid size-7 shrink-0 place-items-center rounded-lg text-foreground-secondary hover:bg-subtle"
               onClick={() =>
                 navigate({ kind: page.kind === "content" ? page.parent : "overview" }, "pop")
               }
             >
-              <ChevronLeft className="size-4" />
+              <ChevronLeft className="size-4" strokeWidth={1.5} />
             </button>
           )}
-          <DialogTitle
-            className={
-              page.kind === "overview" ? "sr-only" : "truncate text-[14px] font-medium leading-5"
-            }
-          >
-            {title}
-          </DialogTitle>
-          <DialogClose asChild>
-            <button
-              type="button"
-              aria-label="Close template details"
-              className="sr-only pointer-events-auto focus:not-sr-only focus:absolute focus:right-3 focus:grid focus:size-8 focus:place-items-center focus:rounded-lg focus:bg-subtle"
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <DialogTitle
+              className={
+                page.kind === "overview"
+                  ? "sr-only"
+                  : "whitespace-nowrap text-center text-[14px] font-medium leading-5"
+              }
             >
-              <X className="size-4" />
-            </button>
-          </DialogClose>
+              {title}
+            </DialogTitle>
+          </div>
+          {page.kind !== "overview" && <span aria-hidden className="size-7 shrink-0" />}
         </header>
+        <DialogClose asChild>
+          <button
+            type="button"
+            aria-label="Close template details"
+            className="sr-only focus:not-sr-only focus:absolute focus:right-3 focus:top-3 focus:z-30 focus:grid focus:size-7 focus:place-items-center focus:rounded-lg focus:bg-subtle"
+          >
+            <X className="size-4" />
+          </button>
+        </DialogClose>
         <DialogDescription className="sr-only">
           Review version {version} of this Bot template before publishing.
         </DialogDescription>
@@ -333,14 +341,13 @@ export function TemplateDetails({
             ref={scroll}
             className="h-full w-full [&>div]:!grid [&>div]:min-h-full"
           >
-            <div className="template-page-viewport relative min-h-full min-w-0">
+            <div className="template-page-viewport relative flex min-h-full min-w-0 flex-col">
               {page.kind !== "content" && (
-                <div
-                  aria-hidden
-                  className="template-mark pointer-events-none absolute inset-x-0 top-8 z-10 flex justify-center"
-                  data-compact={page.kind !== "overview"}
-                >
-                  <div className="[&>span]:size-20">
+                <div aria-hidden className="relative z-10 shrink-0 px-4 pt-8">
+                  <div
+                    className="template-mark pointer-events-none flex justify-center [&>span]:size-20"
+                    data-compact={page.kind !== "overview"}
+                  >
                     <BotAvatar
                       bot={{
                         color: recipe.profile.avatarColor ?? "#5bc67a",
@@ -351,32 +358,34 @@ export function TemplateDetails({
                   </div>
                 </div>
               )}
-              {transition && (
+              <div className="template-navigation relative isolate min-w-0 grow shrink-0 overflow-hidden bg-background">
+                {transition && (
+                  <div
+                    key={`out-${transition.serial}`}
+                    className="template-page outgoing absolute inset-0 px-4 pb-5"
+                    data-direction={transition.direction}
+                    data-page={transition.from.kind}
+                    aria-hidden
+                    inert
+                  >
+                    {renderPage(transition.from)}
+                  </div>
+                )}
                 <div
-                  key={`out-${transition.serial}`}
-                  className="template-page outgoing absolute inset-0 px-4 pb-5"
-                  data-direction={transition.direction}
-                  data-page={transition.from.kind}
-                  aria-hidden
-                  inert
+                  key={`${page.kind}-${page.kind === "content" ? page.title : ""}`}
+                  ref={pane}
+                  className="template-page relative min-h-full px-4 pb-5"
+                  data-direction={transition?.direction}
+                  data-page={page.kind}
+                  onAnimationEnd={(event) => {
+                    if (event.target === event.currentTarget)
+                      setTransition((current) =>
+                        current?.serial === transition?.serial ? null : current
+                      );
+                  }}
                 >
-                  {renderPage(transition.from)}
+                  {renderPage(page)}
                 </div>
-              )}
-              <div
-                key={`${page.kind}-${page.kind === "content" ? page.title : ""}`}
-                ref={pane}
-                className="template-page relative min-h-full px-4 pb-5"
-                data-direction={transition?.direction}
-                data-page={page.kind}
-                onAnimationEnd={(event) => {
-                  if (event.target === event.currentTarget)
-                    setTransition((current) =>
-                      current?.serial === transition?.serial ? null : current
-                    );
-                }}
-              >
-                {renderPage(page)}
               </div>
             </div>
           </ScrollArea.Viewport>
@@ -392,7 +401,7 @@ export function TemplateDetails({
             {error}
           </p>
         )}
-        <footer className="flex min-h-[54px] shrink-0 items-center justify-between gap-3 border-t px-4 py-2">
+        <footer className="flex min-h-[54px] shrink-0 items-center justify-between gap-2 border-t-[0.5px] border-foreground/10 pb-3 pl-4 pr-3 pt-2.5">
           <span
             className="flex items-center gap-1.5 text-[12px] text-foreground-secondary"
             title={
@@ -413,7 +422,7 @@ export function TemplateDetails({
               type="button"
               disabled={busy}
               onClick={onAction}
-              className="h-8 min-w-[108px] rounded-[9px] bg-foreground px-4 text-[13px] font-medium text-background disabled:opacity-50"
+              className="template-publish h-8 min-w-[108px] rounded-lg px-2.5 text-[14px] font-normal leading-5"
             >
               {busy ? "Working…" : action}
             </button>
@@ -459,7 +468,7 @@ function TemplateRow({
       type={onClick ? "button" : undefined}
       onClick={onClick}
       data-template-target={onClick ? target : undefined}
-      className="flex min-h-[46px] w-full items-center gap-2.5 border-t border-foreground/10 px-2.5 py-2.5 text-left first:border-t-0 hover:text-foreground-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      className="template-row relative flex min-h-[46px] w-full items-center gap-2.5 px-2.5 py-2.5 text-left hover:text-foreground-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
       {icon && <span className="shrink-0 text-foreground-secondary">{icon}</span>}
       <span className="min-w-0 flex-1">

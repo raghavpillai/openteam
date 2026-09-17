@@ -34,6 +34,7 @@ function Fixture() {
   const [activeRecipe, setActiveRecipe] = useState(recipe);
   const [dark, setDark] = useState(true);
   const [action, setAction] = useState("");
+  const [busy, setBusy] = useState(false);
   const [traces, setTraces] = useState<unknown[]>([]);
   useEffect(() => {
     const pending = new Set<number>();
@@ -53,6 +54,7 @@ function Fixture() {
           (element) => {
             const style = getComputedStyle(element),
               rect = element.getBoundingClientRect();
+            const animation = element.getAnimations()[0];
             return {
               page: element.dataset.page,
               outgoing: element.classList.contains("outgoing"),
@@ -61,13 +63,21 @@ function Fixture() {
               opacity: style.opacity,
               duration: style.animationDuration,
               easing: style.animationTimingFunction,
+              animationName: style.animationName,
+              animationTime:
+                typeof animation?.currentTime === "number" ? animation.currentTime : null,
               x: rect.x,
               y: rect.y,
               width: rect.width,
             };
           }
         );
-        frames.push({ elapsed, panes });
+        const header = document.querySelector<HTMLElement>(".template-header");
+        frames.push({
+          elapsed,
+          panes,
+          header: header ? { transform: getComputedStyle(header).transform } : null,
+        });
         if (elapsed < 350) {
           const id = requestAnimationFrame(() => {
             pending.delete(id);
@@ -143,6 +153,9 @@ function Fixture() {
         >
           Open empty template
         </button>
+        <button type="button" onClick={() => setBusy(!busy)}>
+          Pending action: {busy ? "on" : "off"}
+        </button>
         <button
           type="button"
           onClick={() => {
@@ -163,7 +176,7 @@ function Fixture() {
         open={open}
         onOpenChange={setOpen}
         action="Publish"
-        busy={false}
+        busy={busy}
         onAction={() => setAction("Publish intercepted — no mutation")}
         updatedAt="2026-09-14T12:00:00.000Z"
         error=""

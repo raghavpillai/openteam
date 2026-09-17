@@ -34,7 +34,7 @@ const bundleCommands = [
     "--entry-naming",
     "main.js",
     "--chunk-naming",
-    "chunks/[name].[ext]",
+    "chunks/[name]-[hash].[ext]",
     "--splitting",
     "--target",
     "node",

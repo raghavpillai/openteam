@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { Cpu, Server } from "lucide-react";
+import { Cloud, Cpu, Server } from "lucide-react";
 import { BotAvatar } from "./bot-avatar";
 import { ChatGPTLogo, ClaudeLogo } from "./model-provider-logos";
 import { useDemoCycle } from "./use-demo-cycle";
@@ -17,8 +17,12 @@ const providers = [
     connection: "Claude sign-in or API key", color: "#d47b47", wash: "#fdf1e8",
   },
   {
-    provider: "Self-hosted", model: "Your model", icon: Cpu,
-    connection: "Your own model endpoint", color: "#5b9378", wash: "#edf5ef",
+    provider: "Hosted", model: "Cloud endpoint", icon: Cloud,
+    connection: "Your hosted model endpoint", color: "#8471bd", wash: "#f3effa",
+  },
+  {
+    provider: "Self-hosted", model: "Local model", icon: Cpu,
+    connection: "Running on your own compute", color: "#5b9378", wash: "#edf5ef",
   },
 ] as const;
 
@@ -43,7 +47,7 @@ function InferenceConnection({ mobile = false }: { mobile?: boolean }) {
     <div className={`mc-link mc-link-${mobile ? "mobile" : "desktop"}`}>
       <svg viewBox={mobile ? "0 0 300 160" : "0 0 200 240"} preserveAspectRatio="none" aria-hidden="true">
         {routes.map((route, index) => (
-          <g key={index} style={{ "--mc-worker-delay": `${index * -740}ms` } as CSSProperties}>
+          <g key={index} style={{ "--mc-worker-delay": `${index * -1040}ms` } as CSSProperties}>
             <path className="mc-route" d={route.request} />
             <path className="mc-route mc-return-route" d={route.response} />
             <path className="mc-request-packet" d={route.request} pathLength="100" />
@@ -57,7 +61,7 @@ function InferenceConnection({ mobile = false }: { mobile?: boolean }) {
 }
 
 export function ModelConnections() {
-  const cycle = useDemoCycle(providers.length, 2800);
+  const cycle = useDemoCycle(providers.length, 4200);
   const selected = cycle.index % providers.length;
   const provider = providers[selected];
 

@@ -86,7 +86,7 @@ describe("Bot routine UI parity", () => {
     expect(source).toContain("saveContext.dirty && draftValid(saveContext.draft)");
     expect(source).toContain("void persist(saveContext, saveContext.draft)");
     expect(source).toContain("if (!active || !current) return");
-    expect(source).toContain("if (document.hidden)");
+    expect(source).toContain("if (!isWindowVisible())");
     expect(summary).toContain("api.routines(ownerId, ownerKind)");
     expect(summary).toContain("routineSummaryProjectionEqual(current, next) ? current : next");
     expect(summary).toContain('contentVisibility: "auto"');

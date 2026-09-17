@@ -1,3 +1,4 @@
+import { isWindowVisible } from "../../lib/window-visibility";
 import { CalendarClock, CirclePause, LoaderCircle, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../client/openteam-api";
@@ -63,7 +64,7 @@ export function RoutinesSummary({
     };
     void refresh();
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refresh();
+      if (isWindowVisible()) void refresh();
     }, 3_000);
     const onFocus = () => void refresh();
     window.addEventListener("focus", onFocus);

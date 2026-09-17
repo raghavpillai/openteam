@@ -65,7 +65,7 @@ const electronMetrics = await Promise.all(
 );
 const indexHtml = await readFile(resolve(rendererRoot, "index.html"), "utf8");
 const startupPaths = Array.from(
-  indexHtml.matchAll(/(?:src|href)=["']\.\/([^"']+)["']/g),
+  indexHtml.matchAll(/(?:src|href)=[`"']\.\/([^`"']+)[`"']/g),
   (match) => match[1]
 ).filter((path) => path.endsWith(".js") || path.endsWith(".css"));
 const startup = metrics.filter((metric) => startupPaths.includes(metric.path));
@@ -253,6 +253,16 @@ const readLazyClosures = async () => {
     const manifest = JSON.parse(
       await readFile(resolve(rendererRoot, "manifest.json"), "utf8")
     ) as Record<string, ManifestEntry>;
+    const workspaceAssets = new Set(startupPaths);
+    const visitWorkspace = (key: string) => {
+      const entry = manifest[key];
+      if (!entry || workspaceAssets.has(entry.file)) return;
+      workspaceAssets.add(entry.file);
+      for (const path of [...(entry.css ?? []), ...(entry.assets ?? [])]) workspaceAssets.add(path);
+      for (const imported of entry.imports ?? []) visitWorkspace(imported);
+    };
+    visitWorkspace("src/renderer/App.tsx");
+    const workspacePaths = [...workspaceAssets];
     const closureFor = (sourceSuffixes: string[]) => {
       const keys = sourceSuffixes.map((sourceSuffix) =>
         Object.keys(manifest).find((candidate) => candidate.endsWith(sourceSuffix))
@@ -271,7 +281,8 @@ const readLazyClosures = async () => {
         for (const imported of entry.imports ?? []) visit(imported);
       };
       for (const key of keys) visit(key as string);
-      const incrementalPaths = [...assetPaths].filter((path) => !startupPaths.includes(path));
+      const baseline = sourceSuffixes.includes("src/renderer/App.tsx") ? startupPaths : workspacePaths;
+      const incrementalPaths = [...assetPaths].filter((path) => !baseline.includes(path));
       return {
         sources: keys,
         isDynamicEntry: keys.every((key) => manifest[key as string]?.isDynamicEntry === true),
@@ -369,7 +380,49 @@ const readLazyClosures = async () => {
         largest: entryClosures[0] ?? null,
       };
     };
+    const workerLanguageGroup = async () => {
+      const workers = metrics.filter(metric => /^assets\/code\.worker-[^/]+\.js$/.test(metric.path));
+      if (workers.length !== 1) return null;
+      const source = await readFile(resolve(rendererRoot, workers[0]!.path), "utf8");
+      const entries = [...new Set([...source.matchAll(/import\(\s*[`"']\.\/([^`"']+)[`"']/g)].map(match => `assets/${match[1]}`))];
+      const missing = new Set<string>();
+      const imports = new Map<string, string[]>();
+      const pathsFor = async (path: string, visited = new Set<string>()): Promise<Set<string>> => {
+        if (visited.has(path)) return visited;
+        visited.add(path);
+        if (!metricByPath.has(path)) { missing.add(path); return visited; }
+        let dependencies = imports.get(path);
+        if (!dependencies) {
+          const content = await readFile(resolve(rendererRoot, path), "utf8");
+          dependencies = [...content.matchAll(/(?:from\s*|import\s*)[`"']\.\/([^`"']+)[`"']/g)].map(match => `assets/${match[1]}`);
+          imports.set(path, dependencies);
+        }
+        for (const dependency of dependencies) await pathsFor(dependency, visited);
+        return visited;
+      };
+      const closures = await Promise.all(entries.map(async source => ({source, paths: [...await pathsFor(source)]})));
+      const bytesFor = (paths: string[]) => paths.reduce((sum, path) => sum + (metricByPath.get(path)?.bytes ?? 0), 0);
+      const unique = [...new Set(closures.flatMap(closure => closure.paths))];
+      return {
+        entries: entries.length,
+        bytes: bytesFor(unique),
+        largest: closures.map(closure => ({source: closure.source, bytes: bytesFor(closure.paths)})).sort((a,b) => b.bytes - a.bytes)[0] ?? null,
+        missingEntries: [...missing],
+        startupEntries: unique.filter(path => startupPaths.includes(path)),
+      };
+    };
     const boundarySources = {
+      workspace: ["src/renderer/App.tsx"],
+      largeCode: ["src/renderer/components/ai-elements/message-response/large-code.tsx"],
+      botMemory: ["src/renderer/components/openteam/bot-memory.tsx"],
+      pluginDetail: ["src/renderer/components/openteam/plugin-detail-view.tsx"],
+      pluginConnection: ["src/renderer/components/openteam/plugins/connection-configuration.tsx"],
+      pluginStudio: ["src/renderer/components/openteam/plugins/package-studio.tsx"],
+      privateSkills: ["src/renderer/components/openteam/plugins/private-skills.tsx"],
+      settingsMicrophone: ["src/renderer/components/openteam/settings/microphone.tsx"],
+      settingsNative: ["src/renderer/components/openteam/settings/native-capabilities.tsx"],
+      settingsTranscription: ["src/renderer/components/openteam/settings/transcription.tsx"],
+      settingsWebhooks: ["src/renderer/components/openteam/settings/automation-webhooks.tsx"],
       basicMarkdown: ["src/renderer/components/ai-elements/message-response.tsx"],
       advancedRich: ["src/renderer/components/ai-elements/message-response/rich.tsx"],
       cjk: [
@@ -441,6 +494,7 @@ const readLazyClosures = async () => {
       .sort();
     return {
       closures,
+      workspaceStartup: { files: workspacePaths, bytes: workspacePaths.reduce((sum, path) => sum + (metricByPath.get(path)?.bytes ?? 0), 0) },
       audit: {
         coveredSources: [...coveredSources].sort(),
         dynamicSources,
@@ -451,9 +505,7 @@ const readLazyClosures = async () => {
           /@shikijs(?:\+|\/)themes@?/.test(key)
         ).length,
         nestedDynamicGroups: {
-          shikiLanguages: nestedDynamicGroupFor(
-            "src/renderer/components/ai-elements/message-response/code.ts"
-          ),
+          shikiLanguages: await workerLanguageGroup(),
           mermaidDiagrams: nestedDynamicGroupFor(
             "src/renderer/components/ai-elements/message-response/mermaid.ts"
           ),
@@ -574,6 +626,7 @@ const report = {
       .sort((left, right) => right.bytes - left.bytes)
       .slice(0, 20),
     lazyClosures: lazyMeasurements?.closures ?? null,
+    workspaceStartup: lazyMeasurements?.workspaceStartup ?? null,
     lazyBoundaryAudit: lazyMeasurements?.audit ?? null,
     violations: {
       sourceMaps: metrics

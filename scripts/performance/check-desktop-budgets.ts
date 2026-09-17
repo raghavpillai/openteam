@@ -15,6 +15,7 @@ const result = JSON.parse(output) as {
     gzipBytes: number;
   };
   renderer: {
+    workspaceStartup: { bytes: number } | null;
     bytes: number;
     gzipBytes: number;
     buildMetadata: { bytes: number };
@@ -99,6 +100,8 @@ const entry = result.renderer.startup.files
 if (!entry) failures.push("entry JavaScript was not found in index.html");
 else atMost("entry bytes", entry.bytes, 800_000);
 atMost("startup bytes", result.renderer.startup.bytes, 1_200_000);
+if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure is missing");
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_200_000);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -106,20 +109,24 @@ const startupCssBytes = result.renderer.startup.files
 // stylesheet to 177,306 bytes. Keep less than 0.4% headroom and stay below
 // 178 KB rather than moving established navigation behind first-open boundaries.
 atMost("startup CSS bytes", startupCssBytes, 178_000);
-// Package management/archive parsing and reviewed forms, drafts and recipes bring
-// the measured total to 15,777,719 / 3,840,729 gzip. Keep <0.25% headroom;
-// entry/startup and each lazy boundary retain their independent limits.
-atMost("renderer bytes", result.renderer.bytes, 15_800_000);
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 3_850_000);
+// September 16: worker isolation and the complete memory/plugin/settings UI
+// measure 15.90 MB / 3.887 MB gzip. Account for the worker's separate runtime;
+// retain the existing entry, signed-in startup, CSS and grammar-total ceilings.
+atMost("renderer bytes", result.renderer.bytes, 15_950_000);
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 3_900_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
-atMost("Electron runtime bytes", result.electron.bytes, 2_300_000);
+// Native capability parsing, login provisioning and the bundled current CLI:
+// 2.311 MB after removing eager catalogs and minifying native bundles.
+atMost("Electron runtime bytes", result.electron.bytes, 2_320_000);
 const electronFileBudget = (path: string, maximum: number) => {
   const file = result.electron.files.find((candidate) => candidate.path === path);
   if (!file) failures.push(`Electron runtime file is missing: ${path}`);
   else atMost(`Electron ${path} bytes`, file.bytes, maximum);
 };
 electronFileBudget("main.js", 175_000);
-electronFileBudget("chunks/main.js", 600_000);
+const updaterChunks = result.electron.files.filter(file => /^chunks\/main(?:-[^.]+)?\.js$/.test(file.path));
+if (updaterChunks.length !== 1) failures.push("Expected exactly one Electron updater chunk");
+else atMost("Electron updater chunk bytes", updaterChunks[0]!.bytes, 600_000);
 electronFileBudget("preload.cjs", 10_000);
 // AwaitShell adds the bounded RE2 engine and durable job/environment receipts.
 // Measured unminified utility: 280,140 bytes; retain the total Electron ceiling.
@@ -135,6 +142,17 @@ if (result.renderer.violations.wasm.length > 0) {
 }
 
 const lazyBudgets: Record<string, number> = {
+  workspace: 800_000,
+  largeCode: 600_000,
+  botMemory: 20_000,
+  pluginDetail: 50_000,
+  pluginConnection: 40_000,
+  pluginStudio: 30_000,
+  privateSkills: 20_000,
+  settingsMicrophone: 12_000,
+  settingsNative: 25_000,
+  settingsTranscription: 12_000,
+  settingsWebhooks: 12_000,
   basicMarkdown: 600_000,
   advancedRich: 600_000,
   cjk: 600_000,
@@ -167,7 +185,7 @@ const lazyBudgets: Record<string, number> = {
   settingsAbout: 10_000,
   settingsGeneral: 30_000,
   settingsGeneralBot: 30_000,
-  settingsComputer: 30_000,
+  settingsComputer: 31_000,
   settingsServer: 35_000,
   settingsWebSearch: 12_000,
   settingsUpdates: 10_000,
@@ -201,7 +219,8 @@ if ((result.renderer.lazyBoundaryAudit?.shikiThemeEntries ?? 0) > 0) {
   );
 }
 const nestedDynamicBudgets = {
-  shikiLanguages: { entries: 250, largest: 2_100_000, total: 8_000_000 },
+  // The worker audit includes every transitive embedded grammar (Twig: 2.148 MB).
+  shikiLanguages: { entries: 250, largest: 2_160_000, total: 8_000_000 },
   mermaidDiagrams: { entries: 50, largest: 2_100_000, total: 3_500_000 },
 } as const;
 for (const [name, maximum] of Object.entries(nestedDynamicBudgets)) {

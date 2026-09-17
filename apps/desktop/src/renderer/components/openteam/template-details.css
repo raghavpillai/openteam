@@ -1,0 +1,153 @@
+/* Template navigation: the incoming page slides over the outgoing page.
+ * Keep outgoing content inert and clip it to the dialog's content viewport. */
+/* The avatar occupies its own scroll block above the sliding pages. */
+.template-mark,
+.template-header {
+  transform-origin: top;
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.template-header[data-overview="true"] {
+  transform: translateY(-100%);
+  pointer-events: none;
+}
+.template-mark[data-compact="true"] {
+  transform: translateY(36px) scale(0.7);
+}
+.template-page[data-page="overview"] {
+  padding-top: 16px;
+}
+.template-page[data-page="context"],
+.template-page[data-page="routines"],
+.template-page[data-page="integrations"] {
+  padding-top: 28px;
+}
+.template-card {
+  background: #77777717;
+}
+.template-row + .template-row {
+  margin-top: 0.5px;
+}
+.template-row + .template-row::before {
+  content: "";
+  position: absolute;
+  top: -0.5px;
+  inset-inline: 8px;
+  height: 0.5px;
+  background: color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+.template-publish {
+  background: var(--template-action-fill, var(--foreground));
+  color: var(--template-action-text, var(--background));
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
+}
+.template-publish:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--foreground) 85%, var(--background));
+}
+.template-publish:disabled {
+  background: color-mix(in srgb, var(--foreground) 15%, transparent);
+  color: color-mix(in srgb, var(--foreground) 30%, transparent);
+}
+[data-theme="light"] .template-publish {
+  background: #070707;
+  color: #fcfcfc;
+}
+[data-theme="light"] .template-publish:hover:not(:disabled) {
+  background: #2f2f2f;
+}
+[data-theme="light"] .template-publish:disabled {
+  background: #14141426;
+  color: #1414144d;
+}
+[data-theme="dark"] .template-details {
+  --template-action-fill: #fcfcfc;
+  --template-action-text: #141414;
+}
+[data-theme="light"] .template-details {
+  --foreground-secondary: #14141499;
+}
+[data-theme="dark"] .template-card {
+  background: #282828;
+}
+.template-page[data-page="content"] {
+  padding-top: 76px;
+}
+.template-page[data-direction] {
+  animation-duration: 200ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: both;
+}
+.template-page[data-direction="push"] {
+  animation-name: template-page-push-in;
+}
+.template-page.outgoing[data-direction="push"] {
+  animation-name: template-page-push-out;
+}
+.template-page[data-direction="pop"] {
+  animation-name: template-page-pop-in;
+}
+.template-page.outgoing[data-direction="pop"] {
+  animation-name: template-page-pop-out;
+}
+.template-page.outgoing {
+  pointer-events: none;
+  overflow: hidden;
+}
+.template-page[data-direction="push"]:not(.outgoing),
+.template-page.outgoing[data-direction="pop"] {
+  z-index: 1;
+  background: var(--background);
+}
+@keyframes template-page-push-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes template-page-push-out {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-30%);
+    opacity: 0;
+  }
+}
+@keyframes template-page-pop-in {
+  from {
+    transform: translateX(-30%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes template-page-pop-out {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .template-details[data-state],
+  .template-overlay[data-state] {
+    animation: none;
+  }
+  .template-mark,
+  .template-header,
+  .template-publish {
+    transition: none;
+  }
+  .template-page[data-direction] {
+    animation: none;
+  }
+  .template-page.outgoing {
+    display: none;
+  }
+}
+

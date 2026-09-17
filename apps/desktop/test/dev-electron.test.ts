@@ -53,7 +53,7 @@ describe("desktop development Electron supervisor", () => {
     const source = await supervisorSource;
     expect(source).toContain('"--outdir",\n    "dist-electron"');
     expect(source).toContain('"--entry-naming",\n    "main.js"');
-    expect(source).toContain('"--chunk-naming",\n    "chunks/[name].[ext]"');
+    expect(source).toContain('"--chunk-naming",\n    "chunks/[name]-[hash].[ext]"');
     expect(source).toContain('"--splitting"');
     expect(source).toContain("watch(bundleRoot, { recursive: true }");
   });

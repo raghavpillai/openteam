@@ -6,7 +6,8 @@ import { AuthGate } from "../../src/renderer/components/openteam/auth-gate";
 import { signOut } from "../../src/renderer/client/auth";
 
 // Optional startup-only bridge failure. A later attempt uses synthetic in-memory storage.
-if (new URL(window.location.href).searchParams.has("storage-error")) {
+const storageScenario = new URL(window.location.href).searchParams;
+if (storageScenario.has("storage-error") || storageScenario.has("storage-hang")) {
   let failRead = true;
   let token: string | null = null;
   const stored = () => ({ token, persistence: "memory", backend: "qa" });
@@ -22,6 +23,7 @@ if (new URL(window.location.href).searchParams.has("storage-error")) {
       readToken: async () => {
         if (failRead) {
           failRead = false;
+          if (storageScenario.has("storage-hang")) return new Promise<never>(() => {});
           throw new Error("Keychain unavailable: synthetic startup failure");
         }
         return stored();

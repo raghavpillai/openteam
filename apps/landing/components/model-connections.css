@@ -67,7 +67,7 @@
   stroke-linecap: round;
   stroke-dasharray: 6 110;
   opacity: 0;
-  animation: mc-inference-request 2220ms linear infinite paused;
+  animation: mc-inference-request 3120ms linear infinite paused;
   animation-delay: var(--mc-worker-delay);
 }
 .mc-link .mc-response-packet {
@@ -88,7 +88,7 @@
   border: 1px solid #cfd7cc;
   border-radius: 10px;
   background: linear-gradient(#fff, #f7f9f5);
-  box-shadow: 0 3px 9px #33452e0d, 0 0 0 4px #fafbf9;
+  box-shadow: 0 3px 9px #33452e0d;
   color: #63715f;
 }
 .mc-server > span {
@@ -131,12 +131,10 @@
   border-radius: inherit;
   background: linear-gradient(150deg, #fff 40%, var(--mc-card-wash));
   opacity: 0;
-  transform: translateY(7px) scale(.98);
-  filter: blur(2px);
-  transition: opacity 300ms ease, transform 400ms cubic-bezier(.2,.7,.2,1), filter 300ms ease;
+  transition: opacity 450ms ease;
   pointer-events: none;
 }
-.mc-model-card[data-active="true"] { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); transition-delay: 70ms; }
+.mc-model-card[data-active="true"] { opacity: 1; }
 .mc-provider-name { color: var(--mc-card-color); font-size: 11px; }
 .mc-model-mark {
   display: grid;
@@ -151,7 +149,7 @@
 }
 .mc-model-mark > svg:not(.lucide),
 .mc-model-options svg:not(.lucide) { fill: currentColor; }
-.mc-model-card > strong { font-size: 24px; font-weight: 500; line-height: 1.2; letter-spacing: -.5px; color: var(--mc-card-color); }
+.mc-model-card > strong { font-size: 22px; font-weight: 500; line-height: 1.2; letter-spacing: -.5px; color: var(--mc-card-color); text-align: center; }
 .mc-model-connection { max-width: 150px; margin-top: 8px; color: #83907e; font-size: 11px; line-height: 1.5; text-align: center; }
 .mc-model-port { left: -3px; border-color: var(--mc-accent); transition: border-color 300ms; }
 .mc-model-port-request { top: calc(50% - 14.5px); }
@@ -176,8 +174,8 @@
 @container (max-width: 560px) {
   .mc-map { --mc-flow-offset: calc((100cqw - 44px) * .04); grid-template-columns: 1fr; padding: 53px 22px 46px; }
   .mc-team h3 { bottom: calc(100% + 16px); }
-  .mc-workers { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto; height: 108px; gap: 9px; }
-  .mc-worker { display: grid; grid-template-rows: 30px 32px; justify-items: center; align-content: center; padding: 12px 5px; gap: 8px; text-align: center; border-radius: 12px; }
+  .mc-workers { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto; height: 108px; gap: 0; }
+  .mc-worker { display: grid; grid-template-rows: 30px 32px; justify-items: center; align-content: center; margin-inline: 4.5px; padding: 12px 5px; gap: 8px; text-align: center; border-radius: 12px; }
   .mc-worker > span { display: flex; align-items: center; justify-content: center; height: 32px; font-size: 11px; max-width: 70px; }
   .mc-worker-port { right: auto; top: auto; bottom: -3px; left: calc(50% - 2.5px); }
   .mc-link-desktop { display: none; }
@@ -194,5 +192,5 @@
 }
 @container (max-width: 320px) {
   .mc-map { --mc-flow-offset: calc((100cqw - 28px) * .04); padding-inline: 14px; }
-  .mc-workers { gap: 7px; }
+  .mc-worker { margin-inline: 3.5px; }
 }

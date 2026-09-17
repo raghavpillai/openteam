@@ -6,6 +6,8 @@ import {
   getCodeHighlighterCacheStats,
 } from "../../src/renderer/components/ai-elements/message-response/code";
 import { botShikiTheme } from "../../src/renderer/components/ai-elements/message-response/config";
+import languages from "../../src/renderer/components/ai-elements/message-response/code-languages.json";
+import { bundledLanguagesInfo } from "shiki/langs";
 
 type HighlightResult = NonNullable<ReturnType<typeof code.highlight>>;
 
@@ -25,6 +27,9 @@ afterEach(() => {
 });
 
 describe("OpenTeam code highlighter", () => {
+  test("renderer metadata covers the installed worker grammars and aliases", () => {
+    expect(languages).toEqual(bundledLanguagesInfo.map(({ id, aliases }) => ({ id, ...(aliases ? { aliases } : {}) })));
+  });
   test("retains bundled language aliases and the configured light/dark colors", async () => {
     expect(code.supportsLanguage("ts")).toBe(true);
     expect(code.supportsLanguage("PYTHON")).toBe(true);

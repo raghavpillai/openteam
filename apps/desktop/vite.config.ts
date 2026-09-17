@@ -108,5 +108,15 @@ export default defineConfig({
     },
   },
   worker: { format: "es" },
-  build: { manifest: "manifest.json", outDir: "dist" },
+  build: {
+    manifest: "manifest.json",
+    outDir: "dist",
+    // Shared plugin primitives must not pull their parent screens into a detail
+    // chunk. These modules declare components/functions without startup effects.
+    rolldownOptions: { output: { codeSplitting: { groups: [{
+      name: "plugin-common",
+      test: /(?:plugins\/(?:plugin-ui|plugin-mark|plugin-authorization|plugin-copy-button)|product-core\/src\/plugin-authorization|renderer\/lib\/plugin-settings-scale)\.(?:ts|tsx)$/,
+      includeDependenciesRecursively: false,
+    }] } } },
+  },
 });

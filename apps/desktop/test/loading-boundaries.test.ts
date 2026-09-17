@@ -59,8 +59,9 @@ describe("desktop loading and packaging boundaries", () => {
     expect(codeSource).not.toContain("@streamdown/code");
     expect(codeSource).not.toMatch(/from ["']shiki["']/);
     expect(codeSource).toContain('from "shiki/core"');
-    expect(codeSource).toContain('from "shiki/engine/javascript"');
-    expect(codeSource).toContain('from "@shikijs/themes/github-dark"');
+    const engineSource = await readDesktopFile("src/renderer/components/ai-elements/message-response/code-engine.ts");
+    expect(engineSource).toContain('from "shiki/engine/javascript"');
+    expect(engineSource).toContain('from "@shikijs/themes/github-dark"');
     expect(codeSource).not.toContain('from "shiki/themes"');
   });
 
@@ -242,10 +243,12 @@ describe("desktop loading and packaging boundaries", () => {
       readDesktopFile("src/renderer/components/openteam/plugin-settings-detail.tsx"),
     ]);
 
-    expect(settingsSource).toContain('import("./plugin-settings-detail")');
+    expect(settingsSource).toContain('import("./plugin-detail-view")');
     expect(settingsSource).not.toContain('from "../ui/select"');
-    expect(settingsSource).toContain("onOpenChange={setBotAccessExpanded}");
-    expect(settingsSource).toContain("setBotAccessOffset(botAccess.offset +");
+    const pluginView = await readDesktopFile("src/renderer/components/openteam/plugin-detail-view.tsx");
+    expect(pluginView).toContain('import("./plugin-settings-detail")');
+    expect(pluginView).toContain("onOpenChange={setBotAccessExpanded}");
+    expect(pluginView).toContain("setBotAccessOffset(botAccess.offset +");
     expect(settingsSource).not.toContain("loadMoreBotAccess");
     expect(detailSource).toContain('from "../ui/select"');
     expect(detailSource).toContain("PluginPolicySelect");

@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Brain, Folder, Server } from "lucide-react";
+import { Cpu, Server } from "lucide-react";
 import { BotAvatar } from "./bot-avatar";
 import { ChatGPTLogo, ClaudeLogo } from "./model-provider-logos";
 import { useDemoCycle } from "./use-demo-cycle";
@@ -10,15 +10,15 @@ import "./model-connections.css";
 const providers = [
   {
     provider: "OpenAI", model: "GPT", icon: ChatGPTLogo,
-    connection: "ChatGPT sign-in or API key", color: "#527c69", wash: "#edf5ef",
+    connection: "ChatGPT sign-in or API key", color: "#4e82d8", wash: "#edf3fe",
   },
   {
     provider: "Anthropic", model: "Claude", icon: ClaudeLogo,
-    connection: "Claude sign-in or API key", color: "#b4785c", wash: "#faf0e9",
+    connection: "Claude sign-in or API key", color: "#d47b47", wash: "#fdf1e8",
   },
   {
-    provider: "Your endpoint", model: "Your model", icon: Server,
-    connection: "Hosted or running locally", color: "#647fa0", wash: "#edf2f8",
+    provider: "Self-hosted", model: "Your model", icon: Cpu,
+    connection: "Your own model endpoint", color: "#5b9378", wash: "#edf5ef",
   },
 ] as const;
 
@@ -29,29 +29,35 @@ const team = [
 ] as const;
 
 function InferenceConnection({ mobile = false }: { mobile?: boolean }) {
-  const branches = mobile
-    ? ["M50 0 C50 25 135 14 150 38", "M150 0 V38", "M250 0 C250 25 165 14 150 38"]
-    : ["M0 36 C30 36 18 120 48 120", "M0 120 H48", "M0 204 C30 204 18 120 48 120"];
-  const request = mobile ? "M150 38 C150 51 137 49 137 66 V130" : "M48 120 C66 120 62 102 80 102 H160";
-  const response = mobile ? "M163 130 V66 C163 49 150 51 150 38" : "M160 140 H80 C62 140 66 120 48 120";
+  // Continuous paths carry each worker's request through the server to the model,
+  // and the response all the way back. The server card sits over the shared trunk.
+  const routes = (mobile ? [50, 150, 250] : [36, 120, 204]).map((position) => ({
+    request: mobile
+      ? `M${position} 0 C${position} 24 144 24 144 50 V86 C144 104 138 104 138 122 V160`
+      : `M0 ${position} C30 ${position} 28 114 62 114 H106 C120 114 116 108 132 108 H200`,
+    response: mobile
+      ? `M162 160 V122 C162 104 156 104 156 86 V50 C156 24 ${position} 24 ${position} 0`
+      : `M200 132 H132 C116 132 120 126 106 126 H62 C28 126 30 ${position} 0 ${position}`,
+  }));
   return (
     <div className={`mc-link mc-link-${mobile ? "mobile" : "desktop"}`}>
-      <svg viewBox={mobile ? "0 0 300 130" : "0 0 160 240"} preserveAspectRatio="none" aria-hidden="true">
-        {branches.map((path) => <path className="mc-branch" d={path} key={path} />)}
-        <path className="mc-route" d={request} />
-        <path className="mc-route" d={response} />
-        <path className="mc-request-packet" d={request} pathLength="100" />
-        <path className="mc-response-packet" d={response} pathLength="100" />
-        <circle className="mc-junction" cx={mobile ? 150 : 48} cy={mobile ? 38 : 120} r="3" />
+      <svg viewBox={mobile ? "0 0 300 160" : "0 0 200 240"} preserveAspectRatio="none" aria-hidden="true">
+        {routes.map((route, index) => (
+          <g key={index} style={{ "--mc-worker-delay": `${index * -740}ms` } as CSSProperties}>
+            <path className="mc-route" d={route.request} />
+            <path className="mc-route mc-return-route" d={route.response} />
+            <path className="mc-request-packet" d={route.request} pathLength="100" />
+            <path className="mc-response-packet" d={route.response} pathLength="100" />
+          </g>
+        ))}
       </svg>
-      <span className="mc-request-label">Request {mobile ? <ArrowDown size={11} /> : <ArrowRight size={11} />}</span>
-      <span className="mc-response-label">{mobile ? <ArrowUp size={11} /> : <ArrowLeft size={11} />} Response</span>
+      <div className="mc-server"><Server size={23} strokeWidth={1.5} /><span>Your server</span></div>
     </div>
   );
 }
 
 export function ModelConnections() {
-  const cycle = useDemoCycle(providers.length, 6200);
+  const cycle = useDemoCycle(providers.length, 2800);
   const selected = cycle.index % providers.length;
   const provider = providers[selected];
 
@@ -62,7 +68,7 @@ export function ModelConnections() {
       {...cycle.props}
       style={{ ...cycle.props.style, "--mc-accent": provider.color, "--mc-wash": provider.wash } as CSSProperties}
       role="img"
-      aria-label={`Your workers send requests to ${provider.model} through ${provider.provider} and receive responses. The model cycles automatically; your team, memory and workspace stay in place.`}
+      aria-label={`Each worker sends gray requests through your server to ${provider.model} (${provider.provider}). Responses return through the server in the provider’s color. The model cycles automatically.`}
     >
       <div className="mc-map" aria-hidden="true">
         <div className="mc-team">
@@ -85,9 +91,10 @@ export function ModelConnections() {
           <span className="mc-destination-label">Your choice of model</span>
           <div className="mc-model-stack">
             {providers.map((item, index) => (
-              <div className="mc-model-card" key={item.provider} data-active={index === selected}>
+              <div className="mc-model-card" key={item.provider} data-active={index === selected}
+                style={{ "--mc-card-color": item.color, "--mc-card-wash": item.wash } as CSSProperties}>
                 <span className="mc-provider-name">{item.provider}</span>
-                <span className="mc-model-mark"><item.icon size={42} /></span>
+                <span className="mc-model-mark"><item.icon size={34} /></span>
                 <strong>{item.model}</strong>
                 <span className="mc-model-connection">{item.connection}</span>
               </div>
@@ -97,14 +104,10 @@ export function ModelConnections() {
           </div>
           <div className="mc-model-options">
             {providers.map((item, index) => (
-              <span key={item.provider} data-active={index === selected}><item.icon size={13} /></span>
+              <span key={item.provider} data-active={index === selected} style={{ color: item.color }}><item.icon size={13} /></span>
             ))}
           </div>
         </div>
-      </div>
-      <div className="mc-continuity" aria-hidden="true">
-        <span>Switch models. Keep your team.</span>
-        <div><span><Brain size={14} />Memory</span><span><Folder size={14} />Workspace</span></div>
       </div>
     </div>
   );

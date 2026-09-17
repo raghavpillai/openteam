@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const directories: string[] = [];
+const servers: Array<ReturnType<typeof Bun.serve>> = [];
 
 afterEach(() => {
+  for (const server of servers.splice(0)) server.stop(true);
   for (const path of directories.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
@@ -15,13 +17,26 @@ const runProviderCli = async (args: string[], slowReader = false) => {
   writeFileSync(join(directory, "auth.json"), "{}");
   writeFileSync(join(directory, "models-store.json"), "{}");
   if (slowReader) {
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(request) {
+        if (new URL(request.url).pathname !== "/v1/models")
+          return new Response(null, { status: 404 });
+        return Response.json({
+          data: Array.from({ length: 2_000 }, (_, index) => ({ id: `model-${index}` })),
+        });
+      },
+    });
+    servers.push(server);
     writeFileSync(
       join(directory, "models.json"),
       JSON.stringify({
         providers: {
           "output-test": {
-            baseUrl: "https://example.test/v1",
+            baseUrl: `${server.url.origin}/v1`,
             api: "openai-completions",
+            apiKey: "openteam-no-auth",
             models: Array.from({ length: 2_000 }, (_, index) => ({
               id: `model-${index}`,
               name: `Output test ${index} ${"x".repeat(1_024)}`,
@@ -73,7 +88,7 @@ describe("provider CLI JSON output", () => {
     expect(Buffer.byteLength(stdout)).toBeGreaterThan(2_000_000);
     expect(models.filter((model) => model.providerId === "output-test")).toHaveLength(2_000);
     for (const providerId of ["openai", "openai-codex", "anthropic"]) {
-      expect(models.some((model) => model.providerId === providerId)).toBe(true);
+      expect(models.some((model) => model.providerId === providerId)).toBe(false);
     }
     expect(stdout).toEndWith("\n");
   }, 15_000);
@@ -82,20 +97,19 @@ describe("provider CLI JSON output", () => {
     "openai",
     "openai-codex",
     "anthropic",
-  ])("lists only %s models without credentials", async (providerId) => {
-    const models = JSON.parse(await runProviderCli(["models", providerId])) as Array<{
-      providerId: string;
-      modelId: string;
-      input: string[];
-      contextWindow: number;
-    }>;
-    expect(models.length).toBeGreaterThan(0);
-    for (const model of models) {
-      expect(model.providerId).toBe(providerId);
-      expect(model.modelId.length).toBeGreaterThan(0);
-      expect(model.input).toContain("text");
-      expect(model.contextWindow).toBeGreaterThan(0);
-    }
+  ])("keeps %s models unavailable until connected", async (providerId) => {
+    expect(JSON.parse(await runProviderCli(["models", providerId]))).toEqual([]);
+    expect(JSON.parse(await runProviderCli(["catalog", providerId]))).toMatchObject({
+      models: [],
+      providers: expect.arrayContaining([
+        expect.objectContaining({
+          id: providerId,
+          configured: false,
+          models: 0,
+          modelStatus: "disconnected",
+        }),
+      ]),
+    });
   });
 
   test("writes the provider catalog and active selection as JSON", async () => {

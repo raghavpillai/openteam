@@ -323,6 +323,7 @@ describe("local computer approval broker", () => {
     const runtime = runtimeTools() as unknown as {
       processSecrets: () => Promise<Record<string, string>>;
       nativeToolExecutor: {
+        autoReviewAction: (...args: unknown[]) => Promise<void>;
         shell: (...args: unknown[]) => Promise<unknown>;
         externalShell: (...args: unknown[]) => Promise<unknown>;
       };
@@ -335,6 +336,9 @@ describe("local computer approval broker", () => {
       ): Promise<unknown>;
     };
     runtime.processSecrets = async () => ({});
+    runtime.nativeToolExecutor.autoReviewAction = async () => {
+      calls.push("review");
+    };
     runtime.nativeToolExecutor.shell = async () => {
       calls.push("box");
       return { content: [{ type: "text", text: "box" }], details: {} };
@@ -356,7 +360,7 @@ describe("local computer approval broker", () => {
       command: "pwd",
       machineId: "machine-1",
     });
-    expect(calls).toEqual(["box", "host"]);
+    expect(calls).toEqual(["review", "box", "host"]);
   });
 });
 

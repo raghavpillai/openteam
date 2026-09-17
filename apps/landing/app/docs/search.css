@@ -72,17 +72,16 @@
   .docs-search-result-path { font-size: 12px; }
   .docs-search-result-snippet { font-size: 14px; }
 }
-@media (max-height: 500px) {
-  .docs-search-dialog { top: calc(var(--docs-search-top, 0px) + 8px); max-height: calc(var(--docs-search-height, 100dvh) - 16px); }
-  .docs-search-input-row { min-height: 44px; padding-inline: 12px; gap: 10px; }
-  .docs-search-input-row input { height: 44px; font-size: 16px; }
-  .docs-search-close { min-height: 44px; min-width: 44px; margin-right: -8px; padding: 0; border: 0; background: transparent; }
-  .docs-search-close > span { display: none; }
-  .docs-search-close > svg { display: block; }
-  .docs-search-footer, .docs-search-results-label, .docs-search-result-snippet { display: none; }
-  .docs-search-body ul { padding-top: 4px; }
-  .docs-search-result, .docs-search-body ul[data-suggestions] .docs-search-result { padding-block: 7px; }
-}
+/* Use the visible height: tablet keyboards do not change CSS media-query height. */
+.docs-search-dialog[data-compact] { top: calc(var(--docs-search-top, 0px) + 8px); max-height: calc(var(--docs-search-height, 100dvh) - 16px); }
+.docs-search-dialog[data-compact] .docs-search-input-row { min-height: 44px; padding-inline: 12px; gap: 10px; }
+.docs-search-dialog[data-compact] .docs-search-input-row input { height: 44px; font-size: 16px; }
+.docs-search-dialog[data-compact] .docs-search-close { min-height: 44px; min-width: 44px; margin-right: -8px; padding: 0; border: 0; background: transparent; }
+.docs-search-dialog[data-compact] .docs-search-close > span { display: none; }
+.docs-search-dialog[data-compact] .docs-search-close > svg { display: block; }
+.docs-search-dialog[data-compact] .docs-search-footer, .docs-search-dialog[data-compact] .docs-search-results-label, .docs-search-dialog[data-compact] .docs-search-result-snippet { display: none; }
+.docs-search-dialog[data-compact] .docs-search-body ul { padding-top: 4px; }
+.docs-search-dialog[data-compact] .docs-search-result, .docs-search-dialog[data-compact] .docs-search-body ul[data-suggestions] .docs-search-result { padding-block: 7px; }
 @media (max-width: 359px) {
   .docs-header-inner { gap: 8px; }
   .docs-install { padding-inline: 8px; font-size: 12px; }

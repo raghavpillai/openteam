@@ -103,6 +103,7 @@ export function DocsSearchButton() {
       frame = requestAnimationFrame(() => {
         popup.current?.style.setProperty("--docs-search-height", `${viewport.height}px`);
         popup.current?.style.setProperty("--docs-search-top", `${viewport.offsetTop}px`);
+        popup.current?.toggleAttribute("data-compact", viewport.height < 400 || window.innerHeight <= 500);
       });
     };
     update();

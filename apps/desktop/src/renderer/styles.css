@@ -401,6 +401,57 @@ textarea,
   scrollbar-gutter: auto !important;
 }
 
+@property --timestamp-peek {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+@property --timestamp-peek-progress {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+/* Clip the offscreen label at the row, keeping the scrollport's overflow:auto.
+   use-stick-to-bottom needs that shorthand to recognize upward wheel escapes. */
+.timestamp-peek-entry { position: relative; min-width: 0; width: 100%; overflow-x: clip; }
+.timestamp-peek-content { min-width: 0; }
+.timestamp-peek-entry[data-from="user"] > .timestamp-peek-content {
+  transform: translate3d(calc(-1 * var(--timestamp-peek)), 0, 0);
+}
+[dir="rtl"] .timestamp-peek-entry[data-from="user"] > .timestamp-peek-content {
+  transform: translate3d(var(--timestamp-peek), 0, 0);
+}
+.message-timestamp {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-inline-start: 10px;
+  color: var(--foreground-tertiary);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+  opacity: var(--timestamp-peek-progress);
+  transform: translate3d(calc((1 - var(--timestamp-peek-progress)) * 100%), 0, 0);
+}
+[dir="rtl"] .message-timestamp {
+  transform: translate3d(calc((var(--timestamp-peek-progress) - 1) * 100%), 0, 0);
+}
+[data-timestamp-peeking] .message-timestamp,
+[data-timestamp-peeking] .timestamp-peek-entry[data-from="user"] > .timestamp-peek-content {
+  will-change: transform, opacity;
+}
+[data-timestamp-peeking] [data-message-actions] {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 /* Let the transcript continue behind the composer's rounded upper half.
  * The content padding and jump button compensate for this shared overlap. */
 .chat-composer-overlap {

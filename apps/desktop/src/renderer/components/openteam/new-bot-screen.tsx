@@ -204,7 +204,7 @@ export function NewBotScreen({
         </button>
         {resultsOpen && !createdRoom.current && (
           <div
-            className="electron-no-drag absolute left-[33px] top-full z-20 w-[560px] max-w-[calc(100%-48px)] overflow-hidden rounded-[13px] border border-input bg-popover text-popover-foreground shadow-[0_12px_30px_rgba(0,0,0,0.16)]"
+            className="electron-no-drag absolute left-[33px] top-full z-20 w-[560px] max-w-[calc(100%-48px)] overflow-hidden rounded-[13px] border border-input bg-popover text-popover-foreground shadow-[0_12px_30px_rgba(0,0,0,0.16)] dark:bg-[#2f2f2f]"
             id="new-bot-results"
             role="listbox"
             aria-label="Chat recipients"

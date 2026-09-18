@@ -14,7 +14,20 @@ import {
   scorePaletteItem,
   searchSectionDirectionForKey,
   searchTextMatches,
+  searchTimeLabel,
 } from "../src/renderer/lib/search";
+
+test("search ages keep day/month/year units and ignore invalid timestamps", () => {
+  const now = Date.parse("2026-09-18T12:00:00Z");
+  const ago = (days: number) => new Date(now - days * 86_400_000).toISOString();
+  expect(searchTimeLabel(ago(4), now)).toBe("4d ago");
+  expect(searchTimeLabel(ago(22), now)).toBe("22d ago");
+  expect(searchTimeLabel(ago(30), now)).toBe("1mo ago");
+  expect(searchTimeLabel(ago(365), now)).toBe("1y ago");
+  expect(searchTimeLabel(ago(-1), now)).toBe("now");
+  expect(searchTimeLabel("invalid", now)).toBe("");
+  expect(searchTimeLabel("1970-01-01T00:00:00Z", now)).toBe("");
+});
 
 describe("search keyboard navigation", () => {
   test("sections wrap in both directions", () => {

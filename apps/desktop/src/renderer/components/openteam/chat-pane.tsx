@@ -1,3 +1,4 @@
+import { ConversationTimestampPeek, TimestampedEntry } from "../ai-elements/timestamp-peek";
 import type { PromptDraft } from "../ai-elements/prompt-input";
 import { PermissionIcon } from "./permission-icon";
 import { PermissionSpinner } from "./permission-spinner";
@@ -50,7 +51,6 @@ import {
   Reply,
   Smile,
   TriangleAlert,
-  Users,
   X,
 } from "lucide-react";
 import {
@@ -92,7 +92,6 @@ import { deriveThreads, isBranchedMessage } from "../../lib/threads";
 import {
   Conversation,
   ConversationContent,
-  ConversationEmptyState,
   ConversationScrollButton,
   ConversationTopDivider,
   ConversationViewportAnchor,
@@ -138,6 +137,7 @@ const downloadAttachments = async (attachments: readonly AssetRef[]) =>
 type Mutate = <T>(operation: () => Promise<T>) => Promise<T>;
 
 interface ChatPaneProps {
+  composerFocusRequest?: number;
   incomingDraft?: PromptDraft | null;
   onDraftApplied?: () => void;
   active?: boolean;
@@ -198,6 +198,7 @@ const subagentApprovalGroupsEqual = (
   );
 
 const chatPanePropsEqual = (previous: ChatPaneProps, next: ChatPaneProps) =>
+  previous.composerFocusRequest === next.composerFocusRequest &&
   previous.incomingDraft === next.incomingDraft &&
   previous.onDraftApplied === next.onDraftApplied &&
   previous.active === next.active &&
@@ -497,6 +498,7 @@ const MessageRow = memo(function MessageRow({
   }
   const actions = (
     <MessageActions
+      data-message-actions=""
       className={`pointer-events-none shrink-0 opacity-0 transition-opacity duration-150 group-hover/message:pointer-events-auto group-hover/message:opacity-100 group-focus-within/message:pointer-events-auto group-focus-within/message:opacity-100 ${
         from === "user" ? "flex-row-reverse" : ""
       }`}
@@ -1267,6 +1269,7 @@ const A2AActivityRow = memo(function A2AActivityRow({
 });
 
 export const ChatPane = memo(function ChatPane({
+  composerFocusRequest,
   incomingDraft,
   onDraftApplied,
   active = true,
@@ -1752,6 +1755,7 @@ export const ChatPane = memo(function ChatPane({
       {active && (
         <Conversation>
           <ConversationTopDivider />
+          <ConversationTimestampPeek />
           <ConversationContent
             className="max-w-none gap-1 px-4 pt-11"
             style={{ paddingBottom: "calc(24px + var(--composer-overlap, 0px))" }}
@@ -1786,19 +1790,7 @@ export const ChatPane = memo(function ChatPane({
                 <BotThinkingSlot bot={selectedBot} phase="visible" />
               </>
             ) : timeline.length === 0 ? (
-              <ConversationEmptyState
-                description={
-                  channel.kind === "group"
-                    ? "One room, delivered to each bot in order."
-                    : ""
-                }
-                icon={
-                  channel.kind === "group" ? (
-                    <Users className="size-8" />
-                  ) : undefined
-                }
-                title={channel.kind === "group" ? "Start the group" : "No messages yet"}
-              />
+              <span className="sr-only">No messages yet</span>
             ) : (
               <VirtualizedTimeline
                 conversationId={channel.id}
@@ -1844,6 +1836,10 @@ export const ChatPane = memo(function ChatPane({
                             </time>
                           </div>
                         )}
+                      <TimestampedEntry
+                        createdAt={entry.type === "thinking" ? undefined : entry.createdAt}
+                        from={entry.type === "message" && entry.message.sender === "user" ? "user" : "other"}
+                      >
                       {entry.type === "thinking" ? (
                         <BotThinkingSlot bot={entry.bot} phase={entry.phase} />
                       ) : entry.type === "a2a" ? (
@@ -1947,6 +1943,7 @@ export const ChatPane = memo(function ChatPane({
                           threadReplyCount={threads.get(entry.message.id)?.replies.length ?? 0}
                         />
                       )}
+                      </TimestampedEntry>
                     </Fragment>
                   )
                 }
@@ -2007,6 +2004,7 @@ export const ChatPane = memo(function ChatPane({
             </div>
           ) : (
             <PromptInput
+              focusRequest={composerFocusRequest}
               transcriptionConfigured={runtime.transcription === "configured" && !threadState?.open}
               uploadCapabilities={capabilities.uploads}
               disabled={!canSend}

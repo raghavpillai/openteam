@@ -1,5 +1,5 @@
 import { Copy } from "lucide-react";
-import { lazy, Suspense, useState } from "react";
+import { lazy, type PropsWithChildren, Suspense, useState } from "react";
 import { signOut } from "../../../client/auth";
 import { useAuthSession } from "../../../hooks/use-auth-session";
 import { accountPresentation } from "../../../lib/account";
@@ -16,15 +16,24 @@ const MicrophoneSettings = lazy(() => import("./microphone").then(module => ({ d
 
 const GeneralBotSettings = lazy(() => import("./general-bot"));
 
+const SettingsSelectContent = ({ children }: PropsWithChildren) => (
+  <SelectContent
+    align="end"
+    className="w-[200px] max-w-[calc(100vw-16px)] rounded-[12px] border-border/50 shadow-[0_8px_24px_rgba(0,0,0,0.12)] [&_[role=option]]:rounded-[6px] [&_[role=option]]:text-[13px] [&_[role=option]]:leading-5"
+  >
+    {children}
+  </SelectContent>
+);
+
 // Reuse the selector already loaded for Theme; device discovery stays lazy.
 const renderMicrophoneControl = ({ options, ...props }: MicrophoneControlProps) => (
   <Select {...props}>
     <SelectTrigger aria-label="Microphone" className="h-7 w-auto max-w-[220px] rounded-[8px] border-input bg-subtle px-2 text-[12px] shadow-none">
       <SelectValue />
     </SelectTrigger>
-    <SelectContent>
+    <SettingsSelectContent>
       {options.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
-    </SelectContent>
+    </SettingsSelectContent>
   </Select>
 );
 
@@ -102,11 +111,11 @@ export default function GeneralSettings() {
               >
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
+              <SettingsSelectContent>
                 <SelectItem value="system">Follow System</SelectItem>
                 <SelectItem value="light">Light</SelectItem>
                 <SelectItem value="dark">Dark</SelectItem>
-              </SelectContent>
+              </SettingsSelectContent>
             </Select>
           }
           title="Theme"

@@ -235,11 +235,14 @@ export const paletteHighlightSegments = (
   return segments;
 };
 
-export const searchTimeLabel = (value: string) => {
-  const elapsed = Date.now() - new Date(value).getTime();
+export const searchTimeLabel = (value: string, now = Date.now()) => {
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return "";
+  const elapsed = Math.max(0, now - timestamp);
   if (elapsed < 60_000) return "now";
   if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m ago`;
   if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)}h ago`;
-  if (elapsed < 604_800_000) return `${Math.floor(elapsed / 86_400_000)}d ago`;
-  return new Date(value).toLocaleDateString([], { month: "short", day: "numeric" });
+  if (elapsed < 30 * 86_400_000) return `${Math.floor(elapsed / 86_400_000)}d ago`;
+  if (elapsed < 365 * 86_400_000) return `${Math.floor(elapsed / (30 * 86_400_000))}mo ago`;
+  return `${Math.floor(elapsed / (365 * 86_400_000))}y ago`;
 };

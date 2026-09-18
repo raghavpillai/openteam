@@ -109,6 +109,7 @@ export interface PromptInputHandle {
 }
 
 export function PromptInput({
+  focusRequest,
   draftRef,
   incomingDraft,
   onDraftApplied,
@@ -131,6 +132,7 @@ export function PromptInput({
   uploadCapabilities = CLIENT_CAPABILITIES.uploads,
   transcriptionConfigured = false,
 }: {
+  focusRequest?: number;
   draftRef?: RefObject<PromptInputHandle | null>;
   incomingDraft?: PromptDraft | null;
   onDraftApplied?: () => void;
@@ -192,6 +194,10 @@ export function PromptInput({
     setVoiceReadyToSend(sendAfterVoice.current && Boolean(text.trim()));
     sendAfterVoice.current = false;
   });
+  useLayoutEffect(() => {
+    if (focusRequest !== undefined && !disabled) textareaRef.current?.focus({ preventScroll: true });
+  }, [focusRequest, disabled]);
+
   const startVoice = () => {
     if (textareaRef.current) voiceBookmark.current = voiceInsertionRange(textareaRef.current);
     sendAfterVoice.current = false;

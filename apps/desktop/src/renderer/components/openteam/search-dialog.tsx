@@ -36,6 +36,7 @@ import {
   moveSearchSelection,
   paletteHighlightSegments,
   rankPaletteItems,
+  searchTimeLabel,
 } from "../../lib/search";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
 import { BotAvatar, ChannelAvatar } from "./avatar";
@@ -117,8 +118,10 @@ function ResultIcon({
     const channel = channelById.get(result.channelId);
     if (channel) return <ChannelAvatar botById={botById} channel={channel} size="sm" />;
   }
-  if (result.kind === "message" && result.botId) {
-    return <BotAvatar bot={botById.get(result.botId)} size="sm" />;
+  if (result.kind === "message") {
+    const channel = result.channelId ? channelById.get(result.channelId) : undefined;
+    if (channel) return <ChannelAvatar botById={botById} channel={channel} size="sm" />;
+    if (result.botId) return <BotAvatar bot={botById.get(result.botId)} size="sm" />;
   }
   const Icon =
     result.kind === "message"
@@ -339,7 +342,7 @@ export function SearchDialog({
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
-        className="h-[min(456px,calc(100vh-48px))] max-w-[560px] grid-rows-[auto_1fr] gap-0 overflow-hidden rounded-[15px] border-border/80 bg-popover p-0 shadow-[0_24px_80px_rgba(0,0,0,0.28),0_2px_12px_rgba(0,0,0,0.12)]"
+        className="h-[min(456px,calc(100vh-48px))] max-w-[560px] grid-rows-[auto_1fr] gap-0 overflow-hidden rounded-[15px] border-border/80 bg-popover p-0 shadow-none"
         showCloseButton={false}
       >
         <DialogTitle aria-hidden="true" className="sr-only">
@@ -403,11 +406,14 @@ export function SearchDialog({
                 ? channelById.get(result.value.channelId) : undefined;
               const bot = result.type === "document" && result.value.botId
                 ? botById.get(result.value.botId) : undefined;
-              const subtitle = result.type === "document" && result.value.kind === "bot"
+              const description = result.type === "document" && result.value.kind === "bot"
                 ? bot?.description ?? result.value.subtitle
                 : result.type === "document" && result.value.kind === "channel" && channel
                   ? channel.members.map((member) => botById.get(member.botId)?.name).filter(Boolean).join(", ")
                   : result.value.subtitle;
+              const age = result.type === "document" && (result.value.kind === "message" || result.value.kind === "file")
+                ? searchTimeLabel(result.value.createdAt) : "";
+              const subtitle = [description, age].filter(Boolean).join(" · ");
               const unread = result.type === "document" && (result.value.kind === "bot" || result.value.kind === "channel") && (channel?.unreadCount ?? 0) > 0;
               return (
                 <button

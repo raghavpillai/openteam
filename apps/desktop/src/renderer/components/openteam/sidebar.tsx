@@ -616,7 +616,8 @@ const sidebarSensors = [
           ]
         : [new PointerActivationConstraints.Distance({ value: 6 })],
   }),
-  KeyboardSensor,
+  // Enter activates the chat button; Space remains available for keyboard dragging.
+  KeyboardSensor.configure({ keyboardCodes: { ...KeyboardSensor.defaults.keyboardCodes, start: ["Space"] } }),
 ];
 
 function ChannelPreviewTooltipContent({
@@ -640,8 +641,8 @@ function ChannelPreviewTooltipContent({
 
   return (
     <TooltipContent
-      align="start"
-      className="w-[260px] rounded-[12px] border border-border bg-popover px-3 py-2.5 text-popover-foreground shadow-[0_10px_28px_rgba(0,0,0,0.16)]"
+      align="center"
+      className="w-[260px] rounded-[12px] border-[0.5px] border-border bg-popover p-2.5 text-popover-foreground shadow-[0_10px_28px_rgba(0,0,0,0.16)]"
       collisionPadding={8}
       side="right"
       sideOffset={8}
@@ -969,7 +970,7 @@ const ChannelRow = memo(function ChannelRow({
   unread: boolean;
   sections: SidebarSection[];
   currentSectionId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, focusComposer?: boolean) => void;
   onBotAction: (bot: BotView, action: BotRowAction) => void;
   onGroupAction: (channel: ChannelView, action: GroupRowAction) => void;
   onCreateSection: (channelId: string) => void;
@@ -1005,7 +1006,7 @@ const ChannelRow = memo(function ChannelRow({
         "group flex h-[54px] w-full items-center gap-2 rounded-[10px] px-2 text-left font-normal outline-none transition-[transform,width,padding] duration-200 ease-[var(--ease-pane)] focus-visible:ring-2 focus-visible:ring-ring/30",
         selected ? "bg-selected hover:bg-selected" : "hover:bg-hover"
       )}
-      onClick={() => onSelect(channel.id)}
+      onClick={(event) => onSelect(channel.id, event.detail > 0)}
       ref={dragHandleRef}
       type="button"
       variant="ghost"
@@ -1258,7 +1259,7 @@ function DraggablePinnedTile({
   unread: boolean;
   arrival: "first" | "later" | null;
   sections: SidebarSection[];
-  onSelect: (id: string) => void;
+  onSelect: (id: string, focusComposer?: boolean) => void;
   onBotAction: (bot: BotView, action: BotRowAction) => void;
   onGroupAction: (channel: ChannelView, action: GroupRowAction) => void;
   onCreateSection: (channelId: string) => void;
@@ -1280,7 +1281,7 @@ function DraggablePinnedTile({
         "flex h-[106px] w-full touch-none flex-col justify-start gap-1 rounded-[10px] px-1 pt-2 text-center font-normal transition-[background-color,transform]",
         selected ? "bg-selected hover:bg-selected" : "hover:bg-hover"
       )}
-      onClick={() => onSelect(channel.id)}
+      onClick={(event) => onSelect(channel.id, event.detail > 0)}
       ref={(element) => handleRef(element)}
       type="button"
       variant="ghost"
@@ -1386,7 +1387,7 @@ function VirtualizedPinnedTiles({
   onGroupAction: (channel: ChannelView, action: GroupRowAction) => void;
   onCreateSection: (channelId: string) => void;
   onMoveToSection: (channelId: string, sectionId: string | null) => void;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, focusComposer?: boolean) => void;
   rows: ChannelRowData[];
   scrollRef: React.RefObject<HTMLElement | null>;
   sections: SidebarSection[];
@@ -2015,7 +2016,7 @@ function CompactChannelTile({
   botById: ReadonlyMap<string, BotView>;
   selected: boolean;
   unread: boolean;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, focusComposer?: boolean) => void;
   onFocus?: () => void;
   tabIndex?: number;
 }) {
@@ -2033,7 +2034,7 @@ function CompactChannelTile({
             selected ? "bg-selected hover:bg-selected" : "hover:bg-hover"
           )}
           data-compact-channel-id={channel.id}
-          onClick={() => onSelect(channel.id)}
+          onClick={(event) => onSelect(channel.id, event.detail > 0)}
           onFocus={onFocus}
           tabIndex={tabIndex}
           type="button"
@@ -2080,7 +2081,7 @@ function VirtualizedCompactChannels({
   botById: ReadonlyMap<string, BotView>;
   unreadIds: ReadonlySet<string>;
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, focusComposer?: boolean) => void;
   scrollRef: React.RefObject<HTMLElement | null>;
 }) {
   const entries = useMemo<CompactVirtualEntry[]>(
@@ -2268,7 +2269,7 @@ function CompactSidebarContent({
   hiddenAgentCount: number;
   unreadIds: ReadonlySet<string>;
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, focusComposer?: boolean) => void;
   onNewBot: () => void;
   onOpenHiddenAgents: () => void;
   onOpenPlugins: () => void;
@@ -2494,7 +2495,7 @@ export const Sidebar = memo(function Sidebar({
   creating?: boolean;
   onPreloadSearch: () => void;
   onSearch: () => void;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, focusComposer?: boolean) => void;
   onNewBot: () => void;
   onNewGroup: () => void;
   onOpenAbout: () => void;
@@ -3093,6 +3094,23 @@ export const Sidebar = memo(function Sidebar({
       data-sidebar-forced-compact={forcedCompact ? "true" : "false"}
       data-sidebar-snapping={sidebarSnapping ? "true" : "false"}
       data-sidebar-virtualized={virtualizeExpanded ? "true" : "false"}
+      onKeyDown={(event) => {
+        // Virtualized lists handle their own offscreen navigation in capture.
+        if (event.defaultPrevented || dragSourceChannelId || dragSourceSectionId) return;
+        if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+        if (!(event.target instanceof HTMLElement) || event.target.closest("input, textarea, [contenteditable=true]")) return;
+        const selector = "[data-channel-id] button, [data-pinned-channel-id] button, button[data-compact-channel-id]";
+        const current = event.target.closest("button");
+        const rows = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>(selector))
+          .filter((button) => !button.disabled && button.getClientRects().length > 0);
+        const index = rows.findIndex((button) => button === current);
+        if (index < 0) return;
+        const next = event.key === "Home" ? 0 : event.key === "End" ? rows.length - 1
+          : Math.max(0, Math.min(rows.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
+        event.preventDefault();
+        rows[next]?.focus({ preventScroll: true });
+        rows[next]?.scrollIntoView({ block: "nearest" });
+      }}
       ref={sidebarRef}
       style={{ width: compact ? COMPACT_SIDEBAR_WIDTH : Math.min(sidebarWidth, maxExpandedWidth) }}
     >

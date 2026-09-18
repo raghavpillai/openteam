@@ -209,6 +209,7 @@ export default function App() {
   const creatingBot = useRef(false);
   const sidebarPreferences = useSidebarPreferences();
   const previousUnreadSnapshot = useRef(snapshot);
+  const [composerFocus, setComposerFocus] = useState<{ channelId: string; nonce: number } | null>(null);
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
   const readReceipts = useRef(createReadReceiptController());
@@ -596,7 +597,8 @@ export default function App() {
   }, []);
   const openSearch = useCallback(() => setSearchOpen(true), []);
   const selectSidebarChannel = useCallback(
-    (id: string) => {
+    (id: string, focusComposer = false) => {
+      setComposerFocus((previous) => focusComposer ? { channelId: id, nonce: (previous?.nonce ?? 0) + 1 } : null);
       invalidateSearchNavigation(selectedId, searchMessageTarget?.channelId);
       setA2AExchange(null);
       a2aExchangeTrigger.current = null;
@@ -1193,6 +1195,7 @@ export default function App() {
                         approvalsByRun={index.approvalsByRun}
                         botById={index.botById}
                         channel={channel}
+                        composerFocusRequest={composerFocus?.channelId === channelId ? composerFocus.nonce : undefined}
                         incomingDraft={transferredDraft?.channelId === channelId ? transferredDraft.draft : null}
                         onDraftApplied={consumeTransferredDraft}
                         capabilities={capabilities}

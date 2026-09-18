@@ -12,7 +12,7 @@ describe("OpenTeam-profile UI parity", () => {
     expect(header).toMatch(
       /aria-label="View conversation details"[\s\S]*?<BotAvatar[\s\S]*?\{selected\.name\}/
     );
-    expect(header).toMatch(/changeDetails\(true\);\s*onShowSettings\(\);/);
+    expect(header).toMatch(/changeDetails\(true\);\s*showSettings\(\);/);
     expect(header).toContain("aria-label={selected.name}");
     expect(header).toContain("OpenTeam's Computer");
     expect(header).toContain('aria-label="Back to details"');
@@ -95,10 +95,9 @@ describe("OpenTeam-profile UI parity", () => {
     expect(sidebar).not.toContain("<PanelLeftOpen");
     expect(sidebar).toContain("toggleCompactSidebar");
     expect(sidebar).toContain(
-      'className="electron-drag flex h-[61px] shrink-0 items-end justify-center pb-px"'
+      'className="electron-drag h-11 shrink-0"'
     );
-    expect(sidebar).toContain('className="h-[0.5px] w-[54px] bg-[#dddddd] dark:bg-[#3a3a3a]"');
-    expect(sidebar).toContain('data-compact-header-divider=""');
+    expect(sidebar).not.toContain('data-compact-header-divider=""');
   });
 
   test("shows Bot's green presence dot on every working sidebar avatar", async () => {

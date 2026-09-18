@@ -1,3 +1,4 @@
+import type { PromptDraft } from "./components/ai-elements/prompt-input";
 import { BotAvatarActivityProvider } from "./components/openteam/bot-avatar-activity";
 import type { BotView, ChannelView, SearchResultView, UpdateBotInput } from "@openteam/contracts";
 import { createReadReceiptController } from "@openteam/product-core/read-receipts";
@@ -49,6 +50,7 @@ import {
   canShowInspector,
   MIN_INSPECTOR_WIDTH,
   maxInspectorWidthForLayout,
+  maxSidebarWidthForLayout,
   resizeInspector,
   shouldForceCompactSidebar,
 } from "./lib/panel-resize";
@@ -115,10 +117,8 @@ const clampInspectorWidth = (width: number, windowWidth: number, sidebarWidth: n
   );
 const readInspectorWidth = () => {
   const stored = Number(localStorage.getItem(INSPECTOR_WIDTH_KEY));
-  return clampInspectorWidth(
-    Number.isFinite(stored) && stored > 0 ? stored : DEFAULT_INSPECTOR_WIDTH,
-    window.innerWidth,
-    DEFAULT_SIDEBAR_WIDTH
+  return Math.max(MIN_INSPECTOR_WIDTH,
+    Number.isFinite(stored) && stored > 0 ? stored : DEFAULT_INSPECTOR_WIDTH
   );
 };
 
@@ -168,8 +168,9 @@ export default function App() {
     routineId: string;
     nonce: number;
   } | null>(null);
+  const [transferredDraft, setTransferredDraft] = useState<{ channelId: string | null; draft: PromptDraft } | null>(null);
+  const consumeTransferredDraft = useCallback(() => setTransferredDraft(null), []);
   const [newBotPicker, setNewBotPicker] = useState(false);
-  const [newChatGroup, setNewChatGroup] = useState(false);
   const [newChatDraft, setNewChatDraft] = useState(0);
   const [newGroupDialog, setNewGroupDialog] = useState(false);
   const [deleteGroupTarget, setDeleteGroupTarget] = useState<ChannelView | null>(null);
@@ -212,8 +213,9 @@ export default function App() {
   selectedIdRef.current = selectedId;
   const readReceipts = useRef(createReadReceiptController());
   const forcedSidebarCompact = shouldForceCompactSidebar(viewportWidth, sidebarLayout.width);
+  const sidebarMaxWidth = maxSidebarWidthForLayout(viewportWidth, detailsOpen ? inspectorWidth : 0);
   const effectiveSidebarWidth =
-    forcedSidebarCompact || sidebarLayout.compact ? COMPACT_SIDEBAR_WIDTH : sidebarLayout.width;
+    forcedSidebarCompact || sidebarLayout.compact ? COMPACT_SIDEBAR_WIDTH : Math.min(sidebarLayout.width, sidebarMaxWidth);
   const detailsDocked = canShowInspector(viewportWidth, effectiveSidebarWidth);
   const visibleDetailsOpen = detailsOpen;
   const detailsOverlay = detailsOpen && !detailsDocked;
@@ -447,9 +449,10 @@ export default function App() {
     [handleStandardBotRowAction]
   );
 
-  const createNewBot = useCallback(async (requestedName?: string) => {
+  const createNewBot = useCallback(async (requestedName?: string, draft?: PromptDraft) => {
     if (creatingBot.current) return;
     creatingBot.current = true;
+    if (draft) setTransferredDraft({ channelId: null, draft });
     setNewBotPicker(false);
     const name = requestedName?.trim() || "New Bot";
     setPendingBot({ name });
@@ -460,9 +463,11 @@ export default function App() {
       setInspectorMode("summary");
       setDetailsOpen(false);
       setPendingBot({ name: bot.name, dmChannelId: bot.dmChannelId });
+      if (draft) setTransferredDraft({ channelId: bot.dmChannelId, draft });
     } catch {
-      // useOpenTeam exposes mutation failures in the app-level error banner.
+      // Keep the composer draft available when bot creation fails.
       setPendingBot(null);
+      if (draft) setNewBotPicker(true);
     } finally {
       creatingBot.current = false;
     }
@@ -571,7 +576,6 @@ export default function App() {
 
   const openNewBot = useCallback(() => {
     measureUntilNextPaint("view.new-bot-open");
-    setNewChatGroup(false);
     setNewChatDraft((draft) => draft + 1);
     setNewBotPicker(true);
   }, []);
@@ -1041,8 +1045,8 @@ export default function App() {
           botById={index.botById}
           channels={visibleChannels}
           creating={newBotPicker}
-          creatingLabel={newChatGroup ? "New group chat" : "New chat"}
           forcedCompact={forcedSidebarCompact}
+          maxExpandedWidth={sidebarMaxWidth}
           hiddenAgentCount={hiddenAgentCount}
           latestMessageByChannel={index.latestMessageByChannel}
           onBotAction={handleBotRowAction}
@@ -1088,7 +1092,6 @@ export default function App() {
               botById={index.botById}
               detailsOpen={visibleDetailsOpen}
               directPerspectiveBotId={directPerspectiveBotId}
-              inspectorResizing={inspectorResizing}
               inspectorWidth={inspectorWidth}
               inspectorMode={inspectorMode}
               onDetailsOpenChange={(open) => {
@@ -1135,11 +1138,18 @@ export default function App() {
                 key={newChatDraft}
                 botById={index.botById}
                 channels={visibleChannels}
-                onCancel={() => setNewBotPicker(false)}
-                onCreateBot={(name) => void createNewBot(name)}
-                onGroupModeChange={setNewChatGroup}
+                onCancel={() => {
+                  setNewBotPicker(false);
+                  requestAnimationFrame(() => document.querySelector<HTMLElement>('[contenteditable="true"]:not([inert] *)')?.focus());
+                }}
+                incomingDraft={transferredDraft?.channelId === null ? transferredDraft.draft : null}
+                onDraftApplied={consumeTransferredDraft}
+                onCreateBot={(name, draft) => void createNewBot(name, draft)}
                 onCreateGroup={(botIds) => mutate(() => api.createGroup({ name: botIds.map((id) => index.botById.get(id)?.name ?? "Bot").join(", ").slice(0, 120), botIds }))}
-                onSelect={selectSidebarChannel}
+                onSelect={(id, draft) => {
+                  if (draft) setTransferredDraft({ channelId: id, draft });
+                  selectSidebarChannel(id);
+                }}
               />
             </Suspense>
           ) : pendingBot ? (
@@ -1183,6 +1193,8 @@ export default function App() {
                         approvalsByRun={index.approvalsByRun}
                         botById={index.botById}
                         channel={channel}
+                        incomingDraft={transferredDraft?.channelId === channelId ? transferredDraft.draft : null}
+                        onDraftApplied={consumeTransferredDraft}
                         capabilities={capabilities}
                         focusMessage={
                           searchMessageTarget?.channelId === channelId ? searchMessageTarget : null
@@ -1260,7 +1272,6 @@ export default function App() {
                 className={cn(
                   "shrink-0 overflow-hidden bg-inspector opacity-100",
                   detailsOverlay && "absolute inset-y-0 right-0 z-20 shadow-2xl",
-                  !inspectorResizing && "transition-[width,opacity] duration-150 ease-out",
                   !visibleDetailsOpen && "pointer-events-none opacity-0"
                 )}
                 inert={!visibleDetailsOpen}
@@ -1268,7 +1279,7 @@ export default function App() {
                 style={{ width: visibleDetailsOpen ? renderedInspectorWidth : 0 }}
               >
                 <div
-                  className="relative h-full"
+                  className={cn("relative h-full", visibleDetailsOpen ? "[transform:translateX(0)] opacity-100 transition-[transform,opacity] duration-[var(--motion-reveal)] ease-[var(--ease-pane)]" : "[transform:translateX(40px)] opacity-0")}
                   ref={inspectorContentRef}
                   style={{ width: renderedInspectorWidth }}
                 >
@@ -1283,7 +1294,7 @@ export default function App() {
                     data-inspector-resizer=""
                     data-resizing={inspectorResizing ? "true" : "false"}
                     onDoubleClick={() => {
-                      updateInspectorWidth(DEFAULT_INSPECTOR_WIDTH);
+                      setInspectorWidth(DEFAULT_INSPECTOR_WIDTH);
                       localStorage.setItem(INSPECTOR_WIDTH_KEY, String(DEFAULT_INSPECTOR_WIDTH));
                     }}
                     onKeyDown={(event) => {

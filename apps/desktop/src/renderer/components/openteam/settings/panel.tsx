@@ -104,6 +104,10 @@ export function SettingsPanel({
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
+        onCloseAutoFocus={(event) => {
+          const trigger = document.querySelector<HTMLElement>("[data-sidebar-account-trigger]");
+          if (trigger) { event.preventDefault(); trigger.focus(); }
+        }}
         className="grid h-[min(700px,calc(100vh-96px))] w-[min(900px,calc(100vw-40px))] max-w-none grid-cols-[198px_minmax(0,1fr)] gap-0 overflow-hidden rounded-[15px] border-black/10 bg-[#fcfcfc] p-0 shadow-[0_22px_70px_rgba(0,0,0,0.20)] dark:border-[#303030] dark:bg-[#070707] max-[512px]:grid-cols-1 max-[512px]:grid-rows-[auto_minmax(0,1fr)]"
         showCloseButton={false}
         surface="transparent"
@@ -127,9 +131,9 @@ export function SettingsPanel({
                   className={cn(
                     "flex h-7 w-full items-center gap-2 rounded-[7px] px-2 text-left text-[13px] font-normal outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/35 max-[512px]:justify-center",
                     view === item.id
-                      ? "bg-black/[0.1] dark:bg-white/[0.1]"
+                      ? "bg-selected"
                       : item.available
-                        ? "hover:bg-black/[0.045] dark:hover:bg-white/[0.06]"
+                        ? "hover:bg-hover"
                         : "cursor-default"
                   )}
                   key={item.id}

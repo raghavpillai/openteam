@@ -7,26 +7,29 @@ import {
   discardDesktopDeliveryStages,
   stageDesktopDeliveryFile,
 } from "../../lib/durable-sends";
-import { PromptInput } from "../ai-elements/prompt-input";
+import { PromptInput, type PromptDraft, type PromptInputHandle } from "../ai-elements/prompt-input";
 import { BotAvatar, ChannelAvatar } from "./avatar";
 
 export function NewBotScreen({
+  incomingDraft,
+  onDraftApplied,
   channels,
   botById,
   onCreateBot,
   onCreateGroup,
-  onGroupModeChange,
   onCancel,
   onSelect,
 }: {
+  incomingDraft?: PromptDraft | null;
+  onDraftApplied?: () => void;
   channels: ChannelView[];
   botById: ReadonlyMap<string, BotView>;
-  onCreateBot: (name?: string) => void;
+  onCreateBot: (name?: string, draft?: PromptDraft) => void;
   onCreateGroup: (botIds: string[]) => Promise<ChannelView>;
-  onGroupModeChange: (group: boolean) => void;
   onCancel: () => void;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, draft?: PromptDraft) => void;
 }) {
+  const draftRef = useRef<PromptInputHandle>(null);
   const [query, setQuery] = useState("");
   const [resultsOpen, setResultsOpen] = useState(true);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -54,7 +57,10 @@ export function NewBotScreen({
 
   const hasQuery = query.trim().length > 0;
   const actionCount = group ? 0 : hasQuery ? 1 : 2;
-  const createBot = () => onCreateBot(query.trim() || undefined);
+  const createBot = () => {
+    const draft = draftRef.current?.takeDraft();
+    if (draft) onCreateBot(query.trim() || undefined, draft);
+  };
   const matches = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return channels.filter(
@@ -82,7 +88,8 @@ export function NewBotScreen({
   });
   const choose = (channel: ChannelView) => {
     if (!group) {
-      onSelect(channel.id);
+      const draft = draftRef.current?.takeDraft();
+      if (draft) onSelect(channel.id, draft);
       return;
     }
     const botId = channel.members[0]?.botId;
@@ -94,7 +101,6 @@ export function NewBotScreen({
   };
   const startGroup = () => {
     setGroup(true);
-    onGroupModeChange(true);
     setActiveIndex(0);
     searchRef.current?.focus();
   };
@@ -240,7 +246,8 @@ export function NewBotScreen({
               )}
               <div
                 aria-label={`${matches.length} existing Bots`}
-                className="bot-scrollbar max-h-[320px] overflow-y-auto"
+                className="bot-scrollbar overflow-y-auto"
+                style={{ maxHeight: 388 - actionCount * 40 }}
                 ref={resultsRef}
                 role="group"
               >
@@ -292,7 +299,11 @@ export function NewBotScreen({
       <div className="min-h-0 flex-1" onClick={() => setResultsOpen(false)} />
       <div onFocusCapture={() => setResultsOpen(false)}>
         <PromptInput
-          disabled={!group || recipients.length === 0 || submitting}
+          draftRef={draftRef}
+          incomingDraft={incomingDraft}
+          onDraftApplied={onDraftApplied}
+          disabled={submitting}
+          sendDisabled={!group || recipients.length === 0}
           onSubmit={async (content, attachments, options) => {
             if (!group || !recipients.length || submitting) return;
             setSubmitting(true);

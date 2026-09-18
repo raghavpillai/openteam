@@ -144,7 +144,6 @@ if (result.renderer.violations.wasm.length > 0) {
 const lazyBudgets: Record<string, number> = {
   workspace: 800_000,
   largeCode: 600_000,
-  botMemory: 20_000,
   pluginDetail: 50_000,
   pluginConnection: 40_000,
   pluginStudio: 30_000,

@@ -1,3 +1,4 @@
+import type { PromptDraft } from "../ai-elements/prompt-input";
 import { PermissionIcon } from "./permission-icon";
 import { PermissionSpinner } from "./permission-spinner";
 import { NativeApprovalCard, type NativeApprovalPresentation } from "./native-approval-card";
@@ -137,6 +138,8 @@ const downloadAttachments = async (attachments: readonly AssetRef[]) =>
 type Mutate = <T>(operation: () => Promise<T>) => Promise<T>;
 
 interface ChatPaneProps {
+  incomingDraft?: PromptDraft | null;
+  onDraftApplied?: () => void;
   active?: boolean;
   agentNameById: ReadonlyMap<string, string>;
   channel: ChannelView;
@@ -195,6 +198,8 @@ const subagentApprovalGroupsEqual = (
   );
 
 const chatPanePropsEqual = (previous: ChatPaneProps, next: ChatPaneProps) =>
+  previous.incomingDraft === next.incomingDraft &&
+  previous.onDraftApplied === next.onDraftApplied &&
   previous.active === next.active &&
   previous.channel === next.channel &&
   previous.capabilities === next.capabilities &&
@@ -311,6 +316,7 @@ const useDayClock = (active: boolean) => {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     if (!active) return;
+    setNow(new Date());
     let timer = 0;
     const schedule = () => {
       const current = new Date();
@@ -1261,6 +1267,8 @@ const A2AActivityRow = memo(function A2AActivityRow({
 });
 
 export const ChatPane = memo(function ChatPane({
+  incomingDraft,
+  onDraftApplied,
   active = true,
   agentNameById,
   channel,
@@ -1745,7 +1753,7 @@ export const ChatPane = memo(function ChatPane({
         <Conversation>
           <ConversationTopDivider />
           <ConversationContent
-            className="max-w-none gap-1 px-4 pt-10"
+            className="max-w-none gap-1 px-4 pt-11"
             style={{ paddingBottom: "calc(24px + var(--composer-overlap, 0px))" }}
           >
             {activityTruncated && (
@@ -2005,6 +2013,8 @@ export const ChatPane = memo(function ChatPane({
               docked
               dropTargetRef={fileDropTargetRef}
               key={channel.id}
+              incomingDraft={incomingDraft}
+              onDraftApplied={onDraftApplied}
               recovery={composerRecovery}
               onAttachmentsChange={setPendingAttachmentCount}
               onCancelReply={() => setReplyTarget(null)}

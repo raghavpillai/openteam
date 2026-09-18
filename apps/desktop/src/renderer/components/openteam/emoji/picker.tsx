@@ -47,7 +47,7 @@ export function EmojiPicker({
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(!compactFirst);
   const setPickerOpen = (nextOpen: boolean) => {
-    if (nextOpen && !compactFirst) preloadEmojiPanel();
+    if (nextOpen) preloadEmojiPanel();
     setOpen(nextOpen);
     if (nextOpen) setExpanded(!compactFirst);
   };
@@ -58,7 +58,7 @@ export function EmojiPicker({
         <PopoverPrimitive.Content
           align="center"
           className={cn(
-            "z-[110] overflow-hidden border border-input bg-popover text-popover-foreground shadow-[0_14px_35px_rgba(0,0,0,0.2)] outline-none animate-in fade-in-0 zoom-in-95",
+            "floating-surface z-[110] overflow-hidden border border-input bg-popover text-popover-foreground shadow-[0_14px_35px_rgba(0,0,0,0.2)] outline-none",
             expanded ? "w-[296px] rounded-xl" : "w-auto rounded-xl p-2"
           )}
           sideOffset={8}

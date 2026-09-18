@@ -15,7 +15,6 @@ import {
 ChevronDown,
 ChevronLeft,
 LoaderCircle,
-Plug,
 X
 } from "lucide-react";
 import { lazy,Suspense,useCallback,useEffect,useMemo,useRef,useState } from "react";
@@ -37,8 +36,6 @@ const PluginWorkspace = lazy(() => import("./plugins/plugin-workspace"));
 
 type MarketplacePage = "marketplace" | "installed" | "detail" | "custom" | "manage";
 
-const primaryButton =
-  "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 cursor-pointer rounded-full bg-black px-3 text-[13px] font-medium text-white outline-none transition-opacity duration-120 ease-out hover:opacity-80 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-45 dark:bg-white dark:text-black";
 const secondaryButton =
   "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 cursor-pointer rounded-full bg-[#77777717] px-3 text-[13px] text-foreground outline-none transition-colors duration-120 ease-out hover:bg-[#7777772b] focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-45";
 
@@ -102,6 +99,7 @@ export function PluginDialog({
     setPage("manage");
   };
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const followedTarget = useRef<typeof target>(null);
   const [data, setData] = useState<PluginSettingsView | null>(null);
   const [settingsEpoch, setSettingsEpoch] = useState(0);
@@ -306,7 +304,12 @@ export function PluginDialog({
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
         className="flex h-[min(700px,calc(100vh-80px))] w-[min(800px,calc(100vw-40px))] flex-col max-w-none gap-0 overflow-hidden rounded-[13px] border-black/10 bg-background p-0 text-foreground shadow-[0_24px_72px_rgba(0,0,0,0.24)] dark:border-[#303030]"
-        onOpenAutoFocus={(event) => event.preventDefault()}
+        ref={dialogRef}
+        onOpenAutoFocus={(event) => { event.preventDefault(); dialogRef.current?.focus(); }}
+        onCloseAutoFocus={(event) => {
+          const trigger = document.querySelector<HTMLElement>("[data-marketplace-trigger]");
+          if (trigger) { event.preventDefault(); trigger.focus(); }
+        }}
         onEscapeKeyDown={(event) => {
           if (
             event.target instanceof Element &&
@@ -322,7 +325,15 @@ export function PluginDialog({
         <DialogDescription className="sr-only">
           Browse, install, connect, and configure OpenTeam plugins.
         </DialogDescription>
-        <header className="relative flex h-[66px] shrink-0 items-center px-8">
+        <header className="relative flex h-[96px] shrink-0 items-center px-8">
+          <button
+            aria-label="Close plugins"
+            className="absolute right-3.5 top-3.5 grid size-8 place-items-center cursor-pointer rounded-full text-foreground-tertiary outline-none transition-colors duration-120 ease-out hover:bg-foreground/[0.08] hover:text-foreground focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+            onClick={() => onOpenChange(false)}
+            type="button"
+          >
+            <X className="size-4" strokeWidth={1.7} />
+          </button>
           {page === "detail" || page === "custom" || page === "manage" ? (
             <button
               aria-label="Back to Marketplace"
@@ -339,10 +350,6 @@ export function PluginDialog({
             <div className="flex w-full items-center justify-between pr-8">
               <div className="text-[16px] font-semibold">Marketplace</div>
               <div className="flex items-center gap-2">
-                <span className={primaryButton}>
-                  <Plug className="size-3.5" />
-                  Plugins
-                </span>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button type="button" className={secondaryButton} aria-label="Manage plugins">
@@ -374,14 +381,7 @@ export function PluginDialog({
               </div>
             </div>
           )}
-          <button
-            aria-label="Close plugins"
-            className="absolute right-3.5 grid size-8 place-items-center cursor-pointer rounded-full text-foreground-tertiary outline-none transition-colors duration-120 ease-out hover:bg-foreground/[0.08] hover:text-foreground focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-            onClick={() => onOpenChange(false)}
-            type="button"
-          >
-            <X className="size-4" strokeWidth={1.7} />
-          </button>
+
         </header>
 
         {error ? (

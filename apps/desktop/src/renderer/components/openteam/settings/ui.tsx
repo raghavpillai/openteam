@@ -16,8 +16,8 @@ export function InteractiveSwitch({
       aria-checked={checked}
       aria-label={checked ? "On" : "Off"}
       className={cn(
-        "relative inline-flex h-5 w-[34px] shrink-0 rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50",
-        checked ? "bg-black dark:bg-white" : "bg-black/15 dark:bg-white/20"
+        "relative inline-flex h-5 w-[34px] shrink-0 rounded-full outline-none transition-colors duration-120 ease-out focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50",
+        checked ? "bg-[var(--control-accent)]" : "bg-black/15 dark:bg-white/20"
       )}
       disabled={disabled}
       onClick={() => onChange(!checked)}
@@ -26,7 +26,7 @@ export function InteractiveSwitch({
     >
       <span
         className={cn(
-          "absolute top-[2px] size-4 rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.22)] transition-transform dark:bg-[#d9d9d9]",
+          "absolute top-[2px] size-4 rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.22)] transition-transform duration-120 ease-out",
           checked ? "translate-x-4" : "translate-x-0.5"
         )}
       />

@@ -24,7 +24,6 @@ import {
   Puzzle,
   RefreshCw,
   Search,
-  Send,
   Settings2,
   Sun,
   UserRound,
@@ -34,14 +33,9 @@ import { api } from "../../client/openteam-api";
 import { cn } from "../../lib/cn";
 import {
   isDefaultSearchResultKind,
-  moveSearchSection,
   moveSearchSelection,
   paletteHighlightSegments,
   rankPaletteItems,
-  SEARCH_SECTIONS,
-  type SearchSection,
-  searchSectionDirectionForKey,
-  searchTimeLabel,
 } from "../../lib/search";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
 import { BotAvatar, ChannelAvatar } from "./avatar";
@@ -193,7 +187,6 @@ export function SearchDialog({
   onSelectResult: (result: SearchResultView) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [section, setSection] = useState<SearchSection>("all");
   const [documents, setDocuments] = useState<SearchResultView[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [commandHeld, setCommandHeld] = useState(false);
@@ -223,7 +216,6 @@ export function SearchDialog({
   useEffect(() => {
     if (!open) return;
     setQuery("");
-    setSection("all");
     setSelectedIndex(0);
     const frame = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(frame);
@@ -248,12 +240,12 @@ export function SearchDialog({
 
   useEffect(() => {
     requestGate.invalidate();
-    if (!open || section === "actions") {
+    if (!open) {
       setLoading(false);
       setError(null);
       return;
     }
-    const category = section as SearchCategory;
+    const category = "all";
     const normalizedQuery = normalizeSearchQuery(query);
     const key = cacheKey(normalizedQuery, category);
     const cached = freshCachedResults(key);
@@ -295,18 +287,15 @@ export function SearchDialog({
       controller.abort();
       requestGate.invalidate();
     };
-  }, [open, query, requestGate, section]);
+  }, [open, query, requestGate]);
 
   const matchingActions = useMemo(() => rankPaletteItems(actions, query), [actions, query]);
   const hasQuery = query.trim().length > 0;
   const results = useMemo<DisplayResult[]>(() => {
-    if (section === "actions") {
-      return matchingActions.map((value) => ({ type: "action", value }));
-    }
     const documentResults = documents
-      .filter((value) => section !== "all" || hasQuery || isDefaultSearchResultKind(value.kind))
+      .filter((value) => hasQuery || isDefaultSearchResultKind(value.kind))
       .map((value): DisplayResult => ({ type: "document", value }));
-    if (section === "all" && hasQuery) {
+    if (hasQuery) {
       const candidates = [
         ...matchingActions.map((value): DisplayResult => ({ type: "action", value })),
         ...documentResults,
@@ -329,7 +318,7 @@ export function SearchDialog({
       return [...ranked, ...documentResults.filter((result) => !rankedResults.has(result))];
     }
     return documentResults;
-  }, [documents, hasQuery, matchingActions, section]);
+  }, [documents, hasQuery, matchingActions, query]);
 
   useEffect(() => setSelectedIndex(results.length > 0 ? 0 : -1), [results]);
   useEffect(() => {
@@ -346,31 +335,11 @@ export function SearchDialog({
     onOpenChange(false);
   };
 
-  const emptyState = hasQuery
-    ? { title: "No results", description: null, icon: null }
-    : section === "messages"
-      ? {
-          title: "Search messages",
-          description: "Type to find messages across your chats.",
-          icon: Search,
-        }
-      : section === "routines"
-        ? { title: "No routines yet", description: null, icon: Send }
-        : section === "links"
-          ? { title: "No links in this chat yet", description: null, icon: Send }
-          : section === "files"
-            ? { title: "No files yet", description: null, icon: FileText }
-            : section === "channels"
-              ? { title: "No groups yet", description: null, icon: Hash }
-              : section === "bots"
-                ? { title: "No bots yet", description: null, icon: Bot }
-                : { title: "Nothing here yet", description: null, icon: null };
-  const EmptyIcon = emptyState.icon;
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
-        className="h-[min(456px,calc(100vh-48px))] max-w-[560px] grid-rows-[auto_auto_1fr] gap-0 overflow-hidden rounded-[15px] border-border/80 bg-popover p-0 shadow-[0_24px_80px_rgba(0,0,0,0.28),0_2px_12px_rgba(0,0,0,0.12)]"
+        className="h-[min(456px,calc(100vh-48px))] max-w-[560px] grid-rows-[auto_1fr] gap-0 overflow-hidden rounded-[15px] border-border/80 bg-popover p-0 shadow-[0_24px_80px_rgba(0,0,0,0.28),0_2px_12px_rgba(0,0,0,0.12)]"
         showCloseButton={false}
       >
         <DialogTitle aria-hidden="true" className="sr-only">
@@ -395,16 +364,6 @@ export function SearchDialog({
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing) return;
-              const sectionDirection = searchSectionDirectionForKey({
-                key: event.key,
-                query: event.currentTarget.value,
-                shiftKey: event.shiftKey,
-              });
-              if (sectionDirection !== null) {
-                event.preventDefault();
-                setSection((current) => moveSearchSection(current, sectionDirection));
-                return;
-              }
               if ((event.metaKey || event.ctrlKey) && /^[1-9]$/.test(event.key)) {
                 const index = Number(event.key) - 1;
                 if (results[index]) {
@@ -431,30 +390,6 @@ export function SearchDialog({
         </div>
 
         <div
-          aria-label="Filter results"
-          className="flex min-w-0 items-center gap-1 overflow-x-auto px-2 py-1.5 [scrollbar-width:none]"
-          role="tablist"
-        >
-          {SEARCH_SECTIONS.map((candidate) => (
-            <button
-              aria-selected={section === candidate.id}
-              className={cn(
-                "shrink-0 rounded-[8px] px-2 py-1 text-[12.5px] text-foreground-secondary outline-none transition-colors focus-visible:ring-1 focus-visible:ring-ring",
-                section === candidate.id && "bg-subtle text-foreground"
-              )}
-              key={candidate.id}
-              onClick={() => setSection(candidate.id)}
-              onMouseDown={(event) => event.preventDefault()}
-              role="tab"
-              tabIndex={-1}
-              type="button"
-            >
-              {candidate.label}
-            </button>
-          ))}
-        </div>
-
-        <div
           className="min-h-0 overflow-y-auto p-2"
           id="search-results"
           ref={listRef}
@@ -464,14 +399,24 @@ export function SearchDialog({
           {results.length > 0 ? (
             results.map((result, index) => {
               const key = result.type === "action" ? `action:${result.value.id}` : result.value.id;
+              const channel = result.type === "document" && result.value.channelId
+                ? channelById.get(result.value.channelId) : undefined;
+              const bot = result.type === "document" && result.value.botId
+                ? botById.get(result.value.botId) : undefined;
+              const subtitle = result.type === "document" && result.value.kind === "bot"
+                ? bot?.description ?? result.value.subtitle
+                : result.type === "document" && result.value.kind === "channel" && channel
+                  ? channel.members.map((member) => botById.get(member.botId)?.name).filter(Boolean).join(", ")
+                  : result.value.subtitle;
+              const unread = result.type === "document" && (result.value.kind === "bot" || result.value.kind === "channel") && (channel?.unreadCount ?? 0) > 0;
               return (
                 <button
                   aria-selected={selectedIndex === index}
                   className={cn(
                     "group flex min-h-[51px] w-full items-center gap-2.5 rounded-[10px] px-2.5 py-1.5 text-left outline-none",
                     selectedIndex === index
-                      ? "bg-[#e5e5e5] dark:bg-selected"
-                      : "hover:bg-[#f0f0f0] dark:hover:bg-hover"
+                      ? "bg-selected"
+                      : "hover:bg-hover"
                   )}
                   data-search-result-index={index}
                   id={`search-result-${index}`}
@@ -487,7 +432,7 @@ export function SearchDialog({
                     <ResultIcon botById={botById} channelById={channelById} result={result.value} />
                   )}
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-medium leading-[18px]">
+                    <span className="block truncate text-[14px] font-medium leading-[18px]">
                       {paletteHighlightSegments(result.value.title, query).map((segment) =>
                         segment.isMatch ? (
                           <span className="font-semibold" key={segment.start}>
@@ -498,16 +443,9 @@ export function SearchDialog({
                         )
                       )}
                     </span>
-                    <span className="block truncate text-[12px] leading-[17px] text-foreground-secondary">
-                      {result.value.subtitle}
-                      {result.type === "document" && (
-                        <span className="text-foreground-tertiary">
-                          {result.value.subtitle ? " · " : ""}
-                          {searchTimeLabel(result.value.createdAt)}
-                        </span>
-                      )}
-                    </span>
+                    {subtitle && <span className="block truncate text-[12px] leading-[17px] text-foreground-secondary">{subtitle}</span>}
                   </span>
+                  {unread && <span aria-label="Unread" className="size-1.5 shrink-0 rounded-full bg-[var(--control-accent)]" />}
                   {commandHeld && index < 9 ? (
                     <kbd className="h-[19px] min-w-[26px] shrink-0 rounded-[5px] bg-[#f3f3f3] px-[5px] py-0 text-center font-sans text-[10px] font-normal leading-[19px] text-[#626262] dark:bg-subtle dark:text-foreground-tertiary">
                       ⌘{index + 1}
@@ -517,11 +455,11 @@ export function SearchDialog({
                       aria-label="Current"
                       className="size-3.5 shrink-0 text-foreground-secondary"
                     />
-                  ) : section === "all" ? (
-                    <span className="shrink-0 text-[12px] font-normal text-foreground-tertiary">
+                  ) : (
+                    <span className="sr-only">
                       {resultTypeLabel(result)}
                     </span>
-                  ) : null}
+                  )}
                 </button>
               );
             })
@@ -539,19 +477,7 @@ export function SearchDialog({
           ) : (
             <div className="grid h-full place-items-center px-8 text-center">
               <div>
-                {EmptyIcon && <EmptyIcon className="mx-auto size-5 text-foreground-tertiary/60" />}
-                <p
-                  className={cn(
-                    "text-[12px] font-normal text-foreground-secondary",
-                    EmptyIcon && "mt-2",
-                    emptyState.description && "text-sm font-medium"
-                  )}
-                >
-                  {emptyState.title}
-                </p>
-                {emptyState.description && (
-                  <p className="mt-1 text-xs text-foreground-tertiary">{emptyState.description}</p>
-                )}
+                <p className="text-[12px] text-foreground-secondary">{hasQuery ? "No results" : "Nothing here yet"}</p>
               </div>
             </div>
           )}

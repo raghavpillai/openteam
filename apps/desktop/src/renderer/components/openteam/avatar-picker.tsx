@@ -62,13 +62,21 @@ export function AvatarPicker({
   onChange: (next: { color: string; icon: string }) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [tooltipOpen, setTooltipOpen] = useState(false);
+  const [draft, setDraft] = useState({ color, icon });
+  const changeOpen = (next: boolean) => {
+    if (next) setDraft({ color, icon });
+    setTooltipOpen(false);
+    setOpen(next);
+  };
   const activityMode = useBotAvatarMode(botId);
   const previewMode = activityMode === "still" ? "idle" : activityMode;
-  const selectedShape = normalizeRobotAvatarShape(icon);
+  const selectedShape = normalizeRobotAvatarShape(draft.icon);
+  const savedShape = normalizeRobotAvatarShape(icon);
 
   return (
-    <PopoverPrimitive.Root onOpenChange={setOpen} open={open}>
-      <Tooltip open={open ? false : undefined}>
+    <PopoverPrimitive.Root onOpenChange={changeOpen} open={open}>
+      <Tooltip open={!open && tooltipOpen} onOpenChange={setTooltipOpen}>
         <TooltipTrigger asChild>
           <PopoverPrimitive.Trigger asChild>
             <button
@@ -83,7 +91,7 @@ export function AvatarPicker({
                   open ? "opacity-100" : "group-hover:opacity-0 group-focus-visible:opacity-0"
                 )}
                 color={color}
-                shape={selectedShape}
+                shape={savedShape}
               />
               <BotAvatarGlyph
                 mode={previewMode}
@@ -95,7 +103,7 @@ export function AvatarPicker({
                 eyeColor="#a7a7a7"
                 outlineColor="#a7a7a7"
                 outlineWidth={3}
-                shape={selectedShape}
+                shape={savedShape}
               />
               <span
                 className={cn(
@@ -120,7 +128,7 @@ export function AvatarPicker({
         <PopoverPrimitive.Content
           align="center"
           aria-label="Avatar selector"
-          className="z-[110] w-[248px] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto rounded-2xl border border-[#e4e4e4] bg-[#fcfcfc] text-foreground shadow-[0_8px_24px_rgba(0,0,0,0.10)] outline-none animate-in fade-in-0 zoom-in-95 dark:border-[#393939] dark:bg-[#181818] dark:shadow-[0_10px_30px_rgba(0,0,0,0.45)]"
+          className="floating-surface z-[110] w-[248px] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto rounded-2xl border border-[#e4e4e4] bg-[#fcfcfc] text-foreground shadow-[0_8px_24px_rgba(0,0,0,0.10)] outline-none dark:border-[#393939] dark:bg-[#181818] dark:shadow-[0_10px_30px_rgba(0,0,0,0.45)]"
           collisionPadding={8}
           side="bottom"
           sideOffset={6}
@@ -133,7 +141,7 @@ export function AvatarPicker({
               className="px-1.5 py-1 text-[13px] leading-[18px] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:underline"
               onClick={() => {
                 const dealt = resolveBotAvatarMark({ agentId: botId });
-                onChange({ icon: dealt.shape, color: dealt.color });
+                setDraft({ icon: normalizeRobotAvatarShape(dealt.shape), color: dealt.color });
               }}
               type="button"
             >
@@ -151,10 +159,10 @@ export function AvatarPicker({
                     aria-pressed={selected}
                     className="group grid size-11 place-items-center outline-none"
                     key={shape}
-                    onClick={() => onChange({ color, icon: shape })}
+                    onClick={() => setDraft((current) => ({ ...current, icon: shape }))}
                     type="button"
                   >
-                    <PickerShape color={color} selected={selected} shape={shape} />
+                    <PickerShape color={draft.color} selected={selected} shape={shape} />
                   </button>
                 );
               })}
@@ -162,7 +170,7 @@ export function AvatarPicker({
 
             <div className="mt-7 grid grid-cols-[repeat(5,32px)] justify-center justify-items-center gap-x-2 gap-y-2">
               {BOT_AVATAR_COLORS.map((candidate, index) => {
-                const selected = color.toLowerCase() === candidate.toLowerCase();
+                const selected = draft.color.toLowerCase() === candidate.toLowerCase();
                 return (
                   <button
                     aria-label={`${candidate} avatar color`}
@@ -175,7 +183,7 @@ export function AvatarPicker({
                       index === BOT_AVATAR_COLORS.length - 1 && "col-start-3"
                     )}
                     key={candidate}
-                    onClick={() => onChange({ color: candidate, icon: selectedShape })}
+                    onClick={() => setDraft((current) => ({ ...current, color: candidate }))}
                     type="button"
                   >
                     <span
@@ -188,6 +196,13 @@ export function AvatarPicker({
                 );
               })}
             </div>
+          </div>
+          <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+            <button className="rounded-lg px-3 py-1.5 text-[13px] outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring" onClick={() => changeOpen(false)} type="button">Cancel</button>
+            <button className="rounded-lg bg-primary px-3 py-1.5 text-[13px] text-primary-foreground outline-none hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring" onClick={() => {
+              onChange(draft);
+              changeOpen(false);
+            }} type="button">Set avatar</button>
           </div>
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>

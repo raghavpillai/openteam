@@ -414,7 +414,6 @@ const readLazyClosures = async () => {
     const boundarySources = {
       workspace: ["src/renderer/App.tsx"],
       largeCode: ["src/renderer/components/ai-elements/message-response/large-code.tsx"],
-      botMemory: ["src/renderer/components/openteam/bot-memory.tsx"],
       pluginDetail: ["src/renderer/components/openteam/plugin-detail-view.tsx"],
       pluginConnection: ["src/renderer/components/openteam/plugins/connection-configuration.tsx"],
       pluginStudio: ["src/renderer/components/openteam/plugins/package-studio.tsx"],

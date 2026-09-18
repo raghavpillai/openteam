@@ -11,7 +11,7 @@ import type { DurableStagedAttachment } from "@openteam/product-core/durable-del
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { File, Paperclip, X } from "lucide-react";
 import type { ClipboardEvent, FormEvent, DragEvent as ReactDragEvent, RefObject } from "react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../../lib/cn";
 import { useVoiceNote } from "../../hooks/use-voice-note";
@@ -96,7 +96,23 @@ interface PendingAttachment {
   recoveryOwned?: boolean;
 }
 
+export interface PromptDraft {
+  id: string;
+  content: string;
+  richText?: string;
+  attachments: PendingAttachment[];
+}
+
+export interface PromptInputHandle {
+  // undefined means attachment staging is still in flight; keep the picker mounted.
+  takeDraft: () => PromptDraft | undefined;
+}
+
 export function PromptInput({
+  draftRef,
+  incomingDraft,
+  onDraftApplied,
+  sendDisabled = false,
   docked,
   disabled,
   placeholder,
@@ -115,6 +131,10 @@ export function PromptInput({
   uploadCapabilities = CLIENT_CAPABILITIES.uploads,
   transcriptionConfigured = false,
 }: {
+  draftRef?: RefObject<PromptInputHandle | null>;
+  incomingDraft?: PromptDraft | null;
+  onDraftApplied?: () => void;
+  sendDisabled?: boolean;
   docked?: boolean;
   disabled?: boolean;
   placeholder?: string;
@@ -154,6 +174,7 @@ export function PromptInput({
   const [submitting, setSubmitting] = useState(false);
   const submitInFlight = useRef(false);
   const [staging, setStaging] = useState(false);
+  const stagingInFlight = useRef(false);
   const [retainedReply, setRetainedReply] = useState(reply);
   const [autoExpanded, setAutoExpanded] = useState(false);
   const [textareaHeight, setTextareaHeight] = useState(20);
@@ -219,6 +240,29 @@ export function PromptInput({
     attachmentsRef.current = next;
     setAttachments(next);
   }, []);
+  const adoptedDraftId = useRef<string | null>(null);
+  useImperativeHandle(draftRef, () => ({
+    takeDraft: () => {
+      if (stagingInFlight.current || submitInFlight.current) return undefined;
+      const draft = { id: crypto.randomUUID(), content: value, richText, attachments: attachmentsRef.current };
+      // The receiving composer now owns staged files and their preview URLs.
+      attachmentsRef.current = [];
+      previewUrls.current.clear();
+      return draft;
+    },
+  }), [value, richText]);
+  useLayoutEffect(() => {
+    if (!incomingDraft || adoptedDraftId.current === incomingDraft.id) return;
+    adoptedDraftId.current = incomingDraft.id;
+    setValue((current) => [current, incomingDraft.content].filter(Boolean).join("\n"));
+    setRichText((current) => [current ?? value, incomingDraft.richText ?? incomingDraft.content].filter(Boolean).join("\n") || undefined);
+    for (const attachment of incomingDraft.attachments) {
+      if (attachment.previewUrl) previewUrls.current.add(attachment.previewUrl);
+    }
+    replaceAttachments([...attachmentsRef.current, ...incomingDraft.attachments]);
+    onDraftApplied?.();
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [incomingDraft, onDraftApplied, replaceAttachments, value]);
   const consumeEmptyRecovery = useCallback(
     (nextText: string, nextAttachmentCount: number) => {
       const nonce = appliedRecoveryNonce.current;
@@ -367,6 +411,7 @@ export function PromptInput({
       if (selected.length === 0) return;
 
       try {
+        stagingInFlight.current = true;
         setStaging(true);
         const retained = await mapWithConcurrency(selected, MAX_PARALLEL_UPLOADS, async (file) => {
           try {
@@ -415,6 +460,7 @@ export function PromptInput({
             : "One of the files could not be retained."
         );
       } finally {
+        stagingInFlight.current = false;
         if (mounted.current) setStaging(false);
       }
     },
@@ -500,7 +546,7 @@ export function PromptInput({
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     const content = value.trim();
-    if ((!content && attachments.length === 0) || blocked || submitInFlight.current) return;
+    if ((!content && attachments.length === 0) || blocked || sendDisabled || submitInFlight.current) return;
     submitInFlight.current = true;
     const pendingAttachments = attachmentsRef.current;
     let recoverableAttachments = pendingAttachments;
@@ -828,7 +874,7 @@ export function PromptInput({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   align="start"
-                  className="w-[200px] rounded-[12px] border-[#dedede] bg-background p-1.5 text-[13px] leading-[18px] shadow-[0_8px_24px_rgba(0,0,0,0.14)]"
+                  className="w-[200px] rounded-[12px] border-input bg-popover p-1.5 text-[13px] leading-[18px] shadow-[0_8px_24px_rgba(0,0,0,0.14)]"
                   side="top"
                   sideOffset={8}
                 >
@@ -861,6 +907,7 @@ export function PromptInput({
                 setRichText(nextRichText);
                 consumeEmptyRecovery(plainText, attachmentsRef.current.length);
               }}
+              onEscape={reply ? onCancelReply : undefined}
               onPaste={onPaste}
               onSubmit={() => void submit()}
               options={mentionOptions}
@@ -966,7 +1013,7 @@ export function PromptInput({
                           : undefined
                     }
                     className="relative size-7 rounded-full bg-[#070707] text-[#fcfcfc] shadow-none transition-opacity hover:bg-[#070707] hover:opacity-90 disabled:bg-[#070707] disabled:opacity-40 dark:bg-[#fafafa] dark:text-[#141414] dark:hover:bg-[#fafafa]"
-                    disabled={blocked || (!hasPayload && !voice.available)}
+                    disabled={blocked || (hasPayload && sendDisabled) || (!hasPayload && !voice.available)}
                     onClick={!hasPayload ? startVoice : undefined}
                     onMouseDown={!hasPayload ? (event) => event.preventDefault() : undefined}
                     size="icon"

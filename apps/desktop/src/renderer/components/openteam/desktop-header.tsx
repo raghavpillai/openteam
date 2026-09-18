@@ -8,6 +8,7 @@ import {
   Monitor,
   Settings,
 } from "lucide-react";
+import { useRef } from "react";
 import type { A2AExchangePhase } from "../../lib/a2a-exchange";
 import { cn } from "../../lib/cn";
 import { measureUntilNextPaint } from "../../lib/performance";
@@ -21,7 +22,6 @@ export function DesktopHeader({
   detailsOpen,
   directPerspectiveBotId,
   exchange,
-  inspectorResizing,
   inspectorWidth,
   inspectorMode,
   selected,
@@ -39,7 +39,6 @@ export function DesktopHeader({
     perspectiveBotId: string;
     phase: A2AExchangePhase;
   };
-  inspectorResizing: boolean;
   inspectorWidth: number;
   inspectorMode: "summary" | "settings" | "routine";
   selected: ChannelView | null;
@@ -48,9 +47,16 @@ export function DesktopHeader({
   onShowSettings: () => void;
   onShowSummary: () => void;
 }) {
+  const computerRef = useRef<HTMLButtonElement>(null);
+  const settingsRef = useRef<HTMLButtonElement>(null);
+  const backRef = useRef<HTMLButtonElement>(null);
+  const focusNext = (ref: { current: HTMLButtonElement | null }) => requestAnimationFrame(() => ref.current?.focus({ preventScroll: true }));
+  const showSummary = () => { onShowSummary(); focusNext(settingsRef); };
+  const showSettings = () => { onShowSettings(); focusNext(backRef); };
   const changeDetails = (open: boolean) => {
     measureUntilNextPaint("view.details-toggle", { opening: open });
     onDetailsOpenChange(open);
+    focusNext(open ? (inspectorMode === "summary" ? settingsRef : backRef) : computerRef);
   };
   const directChannel = exchange?.channel ?? (selected?.kind === "agent_dm" ? selected : undefined);
   const directNameFallbacks = directChannel?.name.split(" ↔ ") ?? [];
@@ -81,7 +87,7 @@ export function DesktopHeader({
   );
 
   return (
-    <header className="pointer-events-none absolute inset-x-0 top-0 z-30 flex h-10 items-center bg-background">
+    <header className="pointer-events-none absolute inset-x-0 top-0 z-30 flex h-11 items-center bg-background">
       {selected ? (
         <>
           <div className="flex h-full min-w-0 flex-1 items-center px-4">
@@ -117,7 +123,7 @@ export function DesktopHeader({
                   className="electron-no-drag inline-flex min-w-0 items-center gap-1.5 rounded-[5px] outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                   onClick={() => {
                     changeDetails(true);
-                    onShowSettings();
+                    showSettings();
                   }}
                   type="button"
                 >
@@ -144,7 +150,6 @@ export function DesktopHeader({
           <div
             className={cn(
               "electron-no-drag pointer-events-auto relative h-full shrink-0 overflow-hidden",
-              !inspectorResizing && "transition-[width] duration-150 ease-out",
               !detailsOpen && !selectedBot && selected.kind !== "group" && "w-0"
             )}
             style={{
@@ -158,8 +163,8 @@ export function DesktopHeader({
             <div
               aria-hidden={!detailsOpen}
               className={cn(
-                "absolute inset-y-0 left-0 grid grid-cols-[40px_1fr_40px] items-center px-1 transition-opacity duration-150",
-                detailsOpen ? "opacity-100 delay-100" : "pointer-events-none opacity-0"
+                "absolute inset-y-0 left-0 grid grid-cols-[40px_1fr_40px] items-center px-1 transition-opacity duration-[var(--motion-reveal)] ease-[var(--ease-pane)]",
+                detailsOpen ? "opacity-100" : "pointer-events-none opacity-0"
               )}
               inert={!detailsOpen}
               style={{ width: inspectorWidth }}
@@ -168,8 +173,9 @@ export function DesktopHeader({
                 <>
                   <Button
                     aria-label="Back to details"
+                    ref={backRef}
                     className="rounded-full text-foreground-tertiary"
-                    onClick={onShowSummary}
+                    onClick={showSummary}
                     size="icon-sm"
                     variant="ghost"
                   >
@@ -183,8 +189,9 @@ export function DesktopHeader({
                 <>
                   <Button
                     aria-label="Back to Routines"
+                    ref={backRef}
                     className="rounded-full text-foreground-tertiary"
-                    onClick={onShowSummary}
+                    onClick={showSummary}
                     size="icon-sm"
                     variant="ghost"
                   >
@@ -205,13 +212,14 @@ export function DesktopHeader({
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
+                        ref={settingsRef}
                         aria-label={
                           selected.kind === "group" ? "Conversation settings" : "Bot settings"
                         }
                         className="rounded-full text-foreground-tertiary"
                         onClick={() => {
                           measureUntilNextPaint("view.inspector-mode", { mode: "settings" });
-                          onShowSettings();
+                          showSettings();
                         }}
                         size="icon-sm"
                         variant="ghost"
@@ -244,8 +252,8 @@ export function DesktopHeader({
               <div
                 aria-hidden={detailsOpen}
                 className={cn(
-                  "absolute inset-y-0 right-3 flex items-center transition-opacity duration-150",
-                  detailsOpen ? "pointer-events-none opacity-0" : "opacity-100 delay-100"
+                  "absolute inset-y-0 right-3 flex items-center transition-opacity duration-[var(--motion-reveal)] ease-[var(--ease-pane)]",
+                  detailsOpen ? "pointer-events-none opacity-0" : "opacity-100"
                 )}
                 inert={detailsOpen}
               >
@@ -258,6 +266,7 @@ export function DesktopHeader({
                           : "OpenTeam's Computer"
                       }
                       className="rounded-full text-foreground-tertiary"
+                      ref={computerRef}
                       onClick={() => changeDetails(true)}
                       size="icon-sm"
                       variant="ghost"

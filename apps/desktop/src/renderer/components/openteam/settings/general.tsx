@@ -10,10 +10,23 @@ import {
   type ThemePreference,
 } from "../../../lib/theme";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
+import type { MicrophoneControlProps } from "./microphone";
 import { SectionLabel, SettingsGroup, SettingsRow } from "./ui";
 const MicrophoneSettings = lazy(() => import("./microphone").then(module => ({ default: module.MicrophoneSettings })));
 
 const GeneralBotSettings = lazy(() => import("./general-bot"));
+
+// Reuse the selector already loaded for Theme; device discovery stays lazy.
+const renderMicrophoneControl = ({ options, ...props }: MicrophoneControlProps) => (
+  <Select {...props}>
+    <SelectTrigger aria-label="Microphone" className="h-7 w-auto max-w-[220px] rounded-[8px] border-input bg-subtle px-2 text-[12px] shadow-none">
+      <SelectValue />
+    </SelectTrigger>
+    <SelectContent>
+      {options.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+    </SelectContent>
+  </Select>
+);
 
 export default function GeneralSettings() {
   const auth = useAuthSession();
@@ -100,7 +113,7 @@ export default function GeneralSettings() {
         />
       </SettingsGroup>
 
-      <Suspense fallback={null}><MicrophoneSettings /></Suspense>
+      <Suspense fallback={null}><MicrophoneSettings renderControl={renderMicrophoneControl} /></Suspense>
 
       <Suspense fallback={null}>
         <GeneralBotSettings />

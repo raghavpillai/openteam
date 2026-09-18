@@ -9,7 +9,6 @@ import {
 } from "@dnd-kit/react";
 import { isSortable, useSortable } from "@dnd-kit/react/sortable";
 import type { BotView, ChannelMessageView, ChannelView, RunView } from "@openteam/contracts";
-import { formatRosterTimestamp } from "@openteam/product-core/timestamps";
 import {
   ArrowDown,
   ArrowUp,
@@ -620,9 +619,6 @@ const sidebarSensors = [
   KeyboardSensor,
 ];
 
-const timeLabel = (value: string) => formatRosterTimestamp(value, "expanded");
-const compactTimeLabel = (value: string) => formatRosterTimestamp(value);
-
 function ChannelPreviewTooltipContent({
   row,
   botById,
@@ -655,9 +651,6 @@ function ChannelPreviewTooltipContent({
           <ChannelAvatar botById={botById} channel={channel} size="sm" />
         </WorkingAvatar>
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{channel.name}</span>
-        <span className="shrink-0 text-[12px] font-normal text-foreground-secondary">
-          {compactTimeLabel(latest?.createdAt ?? channel.createdAt)}
-        </span>
       </div>
       <p className="mt-1 line-clamp-2 text-[13px] font-normal leading-[18px] text-foreground-secondary">
         {description}
@@ -1009,7 +1002,7 @@ const ChannelRow = memo(function ChannelRow({
   const content = (
     <Button
       className={cn(
-        "group flex h-[54px] w-full items-center gap-2 rounded-[10px] px-2 text-left font-normal outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/30",
+        "group flex h-[54px] w-full items-center gap-2 rounded-[10px] px-2 text-left font-normal outline-none transition-[transform,width,padding] duration-200 ease-[var(--ease-pane)] focus-visible:ring-2 focus-visible:ring-ring/30",
         selected ? "bg-selected hover:bg-selected" : "hover:bg-hover"
       )}
       onClick={() => onSelect(channel.id)}
@@ -1027,7 +1020,7 @@ const ChannelRow = memo(function ChannelRow({
       <span className="min-w-0 flex-1 -translate-y-[0.5px]">
         <span className="flex items-center gap-2">
           <span className="flex min-w-0 flex-1 items-center gap-1.5">
-            <span className="min-w-0 truncate text-[14px] font-normal">
+            <span className="min-w-0 truncate text-[14px] font-medium">
               <BotName name={channel.name} />
             </span>
             {bot?.title ? (
@@ -1039,20 +1032,6 @@ const ChannelRow = memo(function ChannelRow({
               <Pin aria-label="Pinned" className="size-2.5 shrink-0 text-foreground-tertiary" />
             )}
           </span>
-          {(!unread || needsAttention) && (
-            <span
-              className={cn(
-                "shrink-0 text-[12px] font-normal",
-                needsAttention
-                  ? "text-amber-500"
-                  : selected
-                    ? "text-foreground-secondary dark:text-[#ababab]"
-                    : "text-foreground-secondary dark:text-foreground-tertiary"
-              )}
-            >
-              {timeLabel(latest?.createdAt ?? channel.createdAt)}
-            </span>
-          )}
         </span>
         <span className="mt-px flex min-w-0 items-center gap-1.5">
           {needsAttention ? (
@@ -2254,6 +2233,25 @@ function VirtualizedCompactChannels({
   );
 }
 
+function MarketplaceIcon() {
+  return (
+                <svg
+                  aria-hidden="true"
+                  className="size-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinejoin="round"
+                  strokeWidth="1.8"
+                  viewBox="0 0 24 24"
+                >
+                  <rect x="3" y="3" width="7" height="7" rx="1" />
+                  <rect x="14" y="3" width="7" height="7" rx="1" />
+                  <rect x="3" y="14" width="7" height="7" rx="1" />
+                  <path d="m18 13 4.5 4.5L18 22l-4.5-4.5Z" />
+                </svg>
+  );
+}
+
 function CompactSidebarContent({
   groups,
   botById,
@@ -2263,6 +2261,7 @@ function CompactSidebarContent({
   onSelect,
   onNewBot,
   onOpenHiddenAgents,
+  onOpenPlugins,
 }: {
   groups: Array<{ id: string; rows: ChannelRowData[] }>;
   botById: ReadonlyMap<string, BotView>;
@@ -2272,6 +2271,7 @@ function CompactSidebarContent({
   onSelect: (id: string) => void;
   onNewBot: () => void;
   onOpenHiddenAgents: () => void;
+  onOpenPlugins: () => void;
 }) {
   const scrollRef = useRef<HTMLElement>(null);
   const channelCount = groups.reduce((count, group) => count + group.rows.length, 0);
@@ -2333,13 +2333,7 @@ function CompactSidebarContent({
   };
   return (
     <>
-      <div className="electron-drag flex h-[61px] shrink-0 items-end justify-center pb-px">
-        <div
-          aria-hidden="true"
-          className="h-[0.5px] w-[54px] bg-[#dddddd] dark:bg-[#3a3a3a]"
-          data-compact-header-divider=""
-        />
-      </div>
+      <div className="electron-drag h-11 shrink-0" />
       <div className="relative flex min-h-0 flex-1">
         <nav
           className="sidebar-roster bot-scrollbar flex min-h-0 flex-1 flex-col items-center overflow-y-auto pl-3 pr-1 pt-1"
@@ -2430,6 +2424,14 @@ function CompactSidebarContent({
           </TooltipTrigger>
           <TooltipContent side="top">New chat</TooltipContent>
         </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button aria-label="Marketplace" data-marketplace-trigger="" className="size-7 rounded-[7px] p-0 text-foreground-tertiary hover:bg-hover" onClick={onOpenPlugins} variant="ghost">
+              <MarketplaceIcon />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">Marketplace</TooltipContent>
+        </Tooltip>
       </div>
     </>
   );
@@ -2463,7 +2465,6 @@ export const Sidebar = memo(function Sidebar({
   activeTaskChannelIds,
   selectedId,
   creating,
-  creatingLabel = "New chat",
   onPreloadSearch,
   onSearch,
   onSelect,
@@ -2478,6 +2479,7 @@ export const Sidebar = memo(function Sidebar({
   onEditChannel,
   onHideChannel,
   forcedCompact = false,
+  maxExpandedWidth = MAX_SIDEBAR_WIDTH,
   onLayoutChange,
   pendingBot,
   preferences,
@@ -2490,7 +2492,6 @@ export const Sidebar = memo(function Sidebar({
   activeTaskChannelIds: ReadonlySet<string>;
   selectedId: string | null;
   creating?: boolean;
-  creatingLabel?: string;
   onPreloadSearch: () => void;
   onSearch: () => void;
   onSelect: (id: string) => void;
@@ -2505,6 +2506,7 @@ export const Sidebar = memo(function Sidebar({
   onEditChannel: (channelId: string) => void;
   onHideChannel: (channel: ChannelView) => void;
   forcedCompact?: boolean;
+  maxExpandedWidth?: number;
   onLayoutChange?: (layout: { compact: boolean; width: number }) => void;
   pendingBot?: { name: string } | null;
   preferences: SidebarPreferencesController;
@@ -2834,7 +2836,7 @@ export const Sidebar = memo(function Sidebar({
     }, 270);
   }, []);
   const applySidebarWidth = useCallback((width: number) => {
-    const next = clampSidebarWidth(width);
+    const next = Math.min(maxExpandedWidth, clampSidebarWidth(width));
     if (resizeSessionRef.current) resizeSessionRef.current.width = next;
     sidebarWidthRef.current = next;
     if (next >= MIN_EXPANDED_SIDEBAR_WIDTH) lastExpandedWidthRef.current = next;
@@ -2847,7 +2849,7 @@ export const Sidebar = memo(function Sidebar({
       );
     }
     return next;
-  }, []);
+  }, [maxExpandedWidth]);
   const updateSidebarWidth = useCallback(
     (width: number) => {
       const next = applySidebarWidth(width);
@@ -2857,15 +2859,17 @@ export const Sidebar = memo(function Sidebar({
   );
   const animateSidebarWidth = useCallback(
     (width: number) => {
+      // Commit the transition before changing the inline width during a drag.
+      flushSync(() => setSidebarSnapping(true));
+      sidebarRef.current?.getBoundingClientRect();
       updateSidebarWidth(width);
-      setSidebarSnapping(true);
       if (sidebarSnapTimerRef.current !== null) {
         window.clearTimeout(sidebarSnapTimerRef.current);
       }
       sidebarSnapTimerRef.current = window.setTimeout(() => {
         sidebarSnapTimerRef.current = null;
         setSidebarSnapping(false);
-      }, 150);
+      }, 200);
     },
     [updateSidebarWidth]
   );
@@ -3080,8 +3084,8 @@ export const Sidebar = memo(function Sidebar({
   return (
     <aside
       className={cn(
-        "relative flex min-w-0 shrink-0 flex-col overflow-hidden bg-sidebar [&_button]:duration-75",
-        (!sidebarResizing || sidebarSnapping) && "transition-[width] duration-150 ease-out",
+        "relative flex min-w-0 shrink-0 flex-col overflow-hidden bg-sidebar",
+        (!sidebarResizing || sidebarSnapping) && "transition-[width] duration-[var(--motion-pane)] ease-[var(--ease-pane)]",
         forcedCompact && "!w-[88px]"
       )}
       data-sidebar=""
@@ -3090,7 +3094,7 @@ export const Sidebar = memo(function Sidebar({
       data-sidebar-snapping={sidebarSnapping ? "true" : "false"}
       data-sidebar-virtualized={virtualizeExpanded ? "true" : "false"}
       ref={sidebarRef}
-      style={{ width: sidebarWidth }}
+      style={{ width: compact ? COMPACT_SIDEBAR_WIDTH : Math.min(sidebarWidth, maxExpandedWidth) }}
     >
       {compact ? (
         <CompactSidebarContent
@@ -3098,6 +3102,7 @@ export const Sidebar = memo(function Sidebar({
           groups={compactGroups}
           hiddenAgentCount={hiddenAgentCount}
           onNewBot={onNewBot}
+          onOpenPlugins={onOpenPlugins}
           onOpenHiddenAgents={onOpenHiddenAgents}
           onSelect={onSelect}
           selectedId={selectedId}
@@ -3108,7 +3113,7 @@ export const Sidebar = memo(function Sidebar({
           <div className="electron-drag flex h-[47px] shrink-0 items-center justify-end gap-0.5 px-[13px] pt-0.5">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button aria-label="New chat" className="electron-no-drag size-7 rounded-[7px] text-foreground-tertiary hover:bg-subtle hover:text-foreground focus-visible:ring-0 dark:text-foreground-secondary" onClick={onNewBot} size="icon-sm" variant="ghost">
+                <Button aria-label="New chat" className="electron-no-drag size-7 rounded-[7px] text-foreground-tertiary hover:bg-subtle hover:text-foreground dark:text-foreground-secondary" onClick={onNewBot} size="icon-sm" variant="ghost">
                   <Plus className="size-4" />
                 </Button>
               </TooltipTrigger>
@@ -3116,10 +3121,10 @@ export const Sidebar = memo(function Sidebar({
             </Tooltip>
           </div>
           <div className="relative px-[12px] pb-[9px]">
-            <Search className="pointer-events-none absolute left-5 top-[10px] z-10 size-[14px] text-[#676767] dark:text-[#9d9d9d]" />
+            <Search className="pointer-events-none absolute left-5 top-[10px] z-10 size-[14px] text-foreground-secondary" />
             <button
               aria-label="Search"
-              className="relative top-px flex h-[32px] w-full items-center rounded-[8px] bg-field pl-[26.5px] pr-2 text-left text-[13.5px] text-[#676767] shadow-[inset_0_0_0_0.5px_var(--input)] outline-none focus-visible:shadow-[inset_0_0_0_0.5px_var(--ring)] dark:text-[#9d9d9d]"
+              className="relative top-px flex h-[32px] w-full items-center rounded-[8px] bg-field pl-[26.5px] pr-2 text-left text-[13.5px] text-foreground-secondary shadow-[inset_0_0_0_0.5px_var(--input)] outline-none focus-visible:shadow-[inset_0_0_0_0.5px_var(--ring)]"
               onClick={onSearch}
               onFocus={onPreloadSearch}
               onPointerEnter={onPreloadSearch}
@@ -3330,14 +3335,6 @@ export const Sidebar = memo(function Sidebar({
                         )}
                       </div>
                     )}
-                    {creating && (
-                      <div className="flex h-[53px] w-full items-center gap-2.5 rounded-[9px] bg-selected px-2 text-[13px] font-medium">
-                        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-subtle text-foreground-tertiary">
-                          <Plus className="size-4" />
-                        </span>
-                        {creatingLabel}
-                      </div>
-                    )}
                     {pendingBot && (
                       <div
                         aria-current="page"
@@ -3517,25 +3514,13 @@ export const Sidebar = memo(function Sidebar({
           </DragDropProvider>
           <div className="flex flex-col gap-0.5 pb-0.5 pl-[7px] pr-[12px] pt-2">
             <Button
-              className="h-10 w-full justify-start px-[13px] text-[13.5px] font-normal hover:bg-[#eaeaea] dark:hover:bg-[#232323]"
+              className="h-10 w-full justify-start px-[13px] text-[13.5px] font-normal hover:bg-hover"
+              data-marketplace-trigger=""
               onClick={onOpenPlugins}
               variant="ghost"
             >
               <span className="grid size-7 shrink-0 place-items-center rounded-full border-[0.5px] border-[#e4e4e4] bg-background dark:border-[#393939] dark:bg-[#181818]">
-                <svg
-                  aria-hidden="true"
-                  className="size-3.5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeLinejoin="round"
-                  strokeWidth="1.8"
-                  viewBox="0 0 24 24"
-                >
-                  <rect x="3" y="3" width="7" height="7" rx="1" />
-                  <rect x="14" y="3" width="7" height="7" rx="1" />
-                  <rect x="3" y="14" width="7" height="7" rx="1" />
-                  <path d="m18 13 4.5 4.5L18 22l-4.5-4.5Z" />
-                </svg>
+                <MarketplaceIcon />
               </span>
               Marketplace
             </Button>
@@ -3547,6 +3532,7 @@ export const Sidebar = memo(function Sidebar({
         <AccountMenu compact={compact} onOpenAbout={onOpenAbout} onOpenSettings={onOpenSettings}>
           <Button
             aria-label={`Account: ${account.name}`}
+            data-sidebar-account-trigger=""
             className="sidebar-account-button group/footer-account relative w-full rounded-[11px] p-0 hover:bg-subtle data-[state=open]:bg-subtle"
             variant="ghost"
           >
@@ -3561,7 +3547,7 @@ export const Sidebar = memo(function Sidebar({
       <div
         aria-label="Resize sidebar"
         aria-orientation="vertical"
-        aria-valuemax={maxSidebarWidth()}
+        aria-valuemax={Math.min(maxSidebarWidth(), maxExpandedWidth)}
         aria-valuemin={COMPACT_SIDEBAR_WIDTH}
         className={cn(
           "electron-no-drag group absolute inset-y-0 right-0 z-40 w-2 cursor-col-resize touch-none outline-none"
@@ -3586,7 +3572,7 @@ export const Sidebar = memo(function Sidebar({
                 ? MIN_EXPANDED_SIDEBAR_WIDTH
                 : sidebarWidth + 16;
           } else if (event.key === "Home") next = COMPACT_SIDEBAR_WIDTH;
-          else if (event.key === "End") next = maxSidebarWidth();
+          else if (event.key === "End") next = Math.min(maxSidebarWidth(), maxExpandedWidth);
           else return;
           event.preventDefault();
           if (next === COMPACT_SIDEBAR_WIDTH || sidebarWidth === COMPACT_SIDEBAR_WIDTH) {
@@ -3604,7 +3590,7 @@ export const Sidebar = memo(function Sidebar({
           resizeSessionRef.current = {
             pointerId: event.pointerId,
             startX: event.clientX,
-            startWidth: sidebarWidthRef.current,
+            startWidth: Math.min(sidebarWidthRef.current, maxExpandedWidth),
             width: sidebarWidthRef.current,
             mode: compact ? "compact" : "expanded",
             cursor: document.body.style.cursor,
@@ -3620,12 +3606,12 @@ export const Sidebar = memo(function Sidebar({
           const next = moveSnappedSidebar(session, event.clientX);
           const snapped = next.mode !== session.mode;
           Object.assign(session, next);
-          if (snapped && next.mode === "compact") animateSidebarWidth(next.width);
+          if (snapped) animateSidebarWidth(next.width);
           else {
-            if (next.mode === "expanded" && sidebarSnapTimerRef.current !== null) {
+            if (next.mode === "expanded" && next.width > MIN_EXPANDED_SIDEBAR_WIDTH && sidebarSnapTimerRef.current !== null) {
               window.clearTimeout(sidebarSnapTimerRef.current);
               sidebarSnapTimerRef.current = null;
-              setSidebarSnapping(false);
+              flushSync(() => setSidebarSnapping(false));
             }
             const appliedWidth = applySidebarWidth(next.width);
             if (snapped) setSidebarWidth(appliedWidth);

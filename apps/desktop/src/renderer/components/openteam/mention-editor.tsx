@@ -79,6 +79,7 @@ export function MentionEditor({
   onHeightChange,
   onPaste,
   onSubmit,
+  onEscape,
 }: {
   className?: string;
   style?: CSSProperties;
@@ -91,6 +92,7 @@ export function MentionEditor({
   onHeightChange?: (height: number) => void;
   onPaste?: (event: ClipboardEvent<HTMLDivElement>) => void;
   onSubmit: () => void;
+  onEscape?: () => void;
 }) {
   const [trigger, setTrigger] = useState<"@" | "/">("@");
   const [query, setQuery] = useState<string | null>(null);
@@ -273,6 +275,7 @@ export function MentionEditor({
   }, [activeIndex, filtered.length, listboxId, query]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.nativeEvent.isComposing) return;
     if (query !== null && filtered.length > 0) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
@@ -298,6 +301,11 @@ export function MentionEditor({
       setQuery(null);
       queryRef.current = null;
       mentionRange.current = null;
+      return;
+    }
+    if (event.key === "Escape" && onEscape) {
+      event.preventDefault();
+      onEscape();
       return;
     }
     if (event.key === "Enter" && !event.shiftKey) {

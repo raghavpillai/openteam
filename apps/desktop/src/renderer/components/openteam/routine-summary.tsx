@@ -1,5 +1,5 @@
 import { isWindowVisible } from "../../lib/window-visibility";
-import { CalendarClock, CirclePause, LoaderCircle, Plus } from "lucide-react";
+import { CalendarClock, CirclePause, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../client/openteam-api";
 import {
@@ -12,7 +12,6 @@ import {
   routineScheduleDrafts,
   routineSummaryProjectionEqual,
 } from "../../lib/routines";
-import { Button } from "../ui/button";
 
 const cloneDefaultSchedule = (): RoutineScheduleDraft => ({
   ...DEFAULT_ROUTINE_SCHEDULE,
@@ -97,15 +96,9 @@ export function RoutinesSummary({
       <div className="flex flex-1 items-center justify-center px-4 py-4">
         <div className="grid max-w-64 gap-3 text-center">
           <p className="text-[13px] leading-[17px] text-muted-foreground">
-            Routines are recurring tasks this Bot runs on a schedule.
+            Routines are recurring tasks this Bot runs on a schedule. Ask it in chat to set one up.
           </p>
-          <Button
-            className="mx-auto h-8 rounded-[7px] border border-[#d9d9d9] bg-[#f0f0f0] px-3 text-[14px] font-normal text-foreground shadow-none dark:border-[#323232] dark:bg-[#1b1b1b] dark:text-[#fcfcfc]"
-            onClick={() => onOpen(null)}
-            variant="secondary"
-          >
-            Create Routine
-          </Button>
+
         </div>
       </div>
     );
@@ -115,15 +108,7 @@ export function RoutinesSummary({
     <div className="mt-5 min-h-0 flex-1 overflow-y-auto" data-routines-list="">
       <div className="flex items-center px-1">
         <h2 className="text-[13px] font-medium">Routines</h2>
-        <Button
-          aria-label="Create Routine"
-          className="ml-auto size-7 rounded-full text-muted-foreground"
-          onClick={() => onOpen(null)}
-          size="icon-sm"
-          variant="ghost"
-        >
-          <Plus className="size-4" />
-        </Button>
+
       </div>
       <ul aria-label="Routines" className="mt-1 grid gap-1">
         {sorted.map((routine) => {

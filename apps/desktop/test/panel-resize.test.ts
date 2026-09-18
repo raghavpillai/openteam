@@ -6,6 +6,7 @@ import {
   MIN_EXPANDED_SIDEBAR_WIDTH,
   MIN_INSPECTOR_WIDTH,
   maxInspectorWidthForLayout,
+  maxSidebarWidthForLayout,
   moveSnappedSidebar,
   resizeInspector,
   type SnappedSidebarResizeState,
@@ -22,8 +23,8 @@ describe("panel resize snapping", () => {
     };
 
     expect(moveSnappedSidebar(session, 230).width).toBe(MIN_EXPANDED_SIDEBAR_WIDTH);
-    expect(moveSnappedSidebar(session, 209).mode).toBe("expanded");
-    expect(moveSnappedSidebar(session, 207)).toEqual({
+    expect(moveSnappedSidebar(session, 210).mode).toBe("expanded");
+    expect(moveSnappedSidebar(session, 209)).toEqual({
       startX: 300,
       startWidth: 300,
       width: COMPACT_SIDEBAR_WIDTH,
@@ -31,7 +32,7 @@ describe("panel resize snapping", () => {
     });
   });
 
-  test("left sidebar stays compact until the pointer reaches the expanded minimum", () => {
+  test("left sidebar stays compact until the pointer reaches the 220px reopening threshold", () => {
     const session: SnappedSidebarResizeState = {
       startX: 88,
       startWidth: COMPACT_SIDEBAR_WIDTH,
@@ -40,8 +41,8 @@ describe("panel resize snapping", () => {
     };
 
     expect(moveSnappedSidebar(session, 120).width).toBe(COMPACT_SIDEBAR_WIDTH);
-    expect(moveSnappedSidebar(session, 239).width).toBe(COMPACT_SIDEBAR_WIDTH);
-    expect(moveSnappedSidebar(session, 240)).toEqual({
+    expect(moveSnappedSidebar(session, 219).width).toBe(COMPACT_SIDEBAR_WIDTH);
+    expect(moveSnappedSidebar(session, 220)).toEqual({
       startX: 88,
       startWidth: COMPACT_SIDEBAR_WIDTH,
       width: MIN_EXPANDED_SIDEBAR_WIDTH,
@@ -75,10 +76,10 @@ describe("panel resize snapping", () => {
       mode: "expanded",
     };
 
-    const compact = moveSnappedSidebar(session, 207);
+    const compact = moveSnappedSidebar(session, 209);
     expect(compact.mode).toBe("compact");
-    expect(moveSnappedSidebar(compact, 239).width).toBe(COMPACT_SIDEBAR_WIDTH);
-    expect(moveSnappedSidebar(compact, 240).width).toBe(MIN_EXPANDED_SIDEBAR_WIDTH);
+    expect(moveSnappedSidebar(compact, 219).width).toBe(COMPACT_SIDEBAR_WIDTH);
+    expect(moveSnappedSidebar(compact, 220).width).toBe(MIN_EXPANDED_SIDEBAR_WIDTH);
   });
 
   test("right sidebar stops at minimum and only arms closing beyond its buffer", () => {
@@ -86,11 +87,11 @@ describe("panel resize snapping", () => {
       width: MIN_INSPECTOR_WIDTH,
       shouldClose: false,
     });
-    expect(resizeInspector(320, 960, 1032)).toEqual({
+    expect(resizeInspector(320, 960, 1036)).toEqual({
       width: MIN_INSPECTOR_WIDTH,
       shouldClose: false,
     });
-    expect(resizeInspector(320, 960, 1033)).toEqual({
+    expect(resizeInspector(320, 960, 1037)).toEqual({
       width: MIN_INSPECTOR_WIDTH,
       shouldClose: true,
     });
@@ -112,6 +113,13 @@ describe("panel resize snapping", () => {
     expect(maxInspectorWidthForLayout(1_024, 280)).toBe(320);
     expect(maxInspectorWidthForLayout(984, 280)).toBe(MIN_INSPECTOR_WIDTH);
     expect(maxInspectorWidthForLayout(800, COMPACT_SIDEBAR_WIDTH)).toBe(288);
+  });
+
+  test("reserves the details width before shrinking the roster, without exceeding its minimum", () => {
+    expect(maxSidebarWidthForLayout(984, 320)).toBe(240);
+    expect(maxSidebarWidthForLayout(984, 280)).toBe(280);
+    expect(maxSidebarWidthForLayout(1200, 320)).toBe(400);
+    expect(maxSidebarWidthForLayout(800, 320)).toBe(376); // details overlay
   });
 
   test("keeps details usable as an overlay below the dock threshold", async () => {

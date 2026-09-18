@@ -102,6 +102,6 @@ test("message bubble geometry and grouping match OpenTeam", async () => {
   expect(styles).toContain("border-end-start-radius: 6px;");
   expect(styles).not.toContain("margin-inline-start: auto;");
   expect(chatPane).toContain("data-group-position={groupPosition}");
-  expect(chatPane).toContain('className="max-w-none gap-1 px-4 pt-10"');
+  expect(chatPane).toContain('className="max-w-none gap-1 px-4 pt-11"');
   expect(message).toContain("data-role={from}");
 });

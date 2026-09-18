@@ -21,7 +21,7 @@ describe("Bot window chrome parity", () => {
     ]);
 
     expect(header).toContain(
-      '"absolute inset-y-0 right-3 flex items-center transition-opacity duration-150"'
+      '"absolute inset-y-0 right-3 flex items-center transition-opacity duration-[var(--motion-reveal)] ease-[var(--ease-pane)]"'
     );
     expect(sidebar).toContain('className="flex shrink-0 flex-col items-center gap-0 pt-2"');
   });

@@ -121,6 +121,7 @@ export default function EmojiPanel({ onSelect, selectedEmojis }: EmojiPanelProps
         <Search className="size-4 text-muted-foreground" />
         <input
           aria-label="Search emoji"
+          autoFocus
           className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search emoji"

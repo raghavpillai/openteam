@@ -1,6 +1,7 @@
 export const COMPACT_SIDEBAR_WIDTH = 88;
 export const MIN_EXPANDED_SIDEBAR_WIDTH = 240;
-export const SIDEBAR_SNAP_DISTANCE = 32;
+export const SIDEBAR_SNAP_DISTANCE = 30;
+export const SIDEBAR_EXPAND_THRESHOLD = 220;
 export const CHAT_MIN_WIDTH = 424;
 
 export type SnappedSidebarResizeState = {
@@ -30,10 +31,10 @@ export function moveSnappedSidebar(
     };
   }
 
-  if (rawWidth >= MIN_EXPANDED_SIDEBAR_WIDTH) {
+  if (rawWidth >= SIDEBAR_EXPAND_THRESHOLD) {
     return {
       ...session,
-      width: rawWidth,
+      width: Math.max(MIN_EXPANDED_SIDEBAR_WIDTH, rawWidth),
       mode: "expanded",
     };
   }
@@ -41,7 +42,7 @@ export function moveSnappedSidebar(
 }
 
 export const MIN_INSPECTOR_WIDTH = 280;
-export const INSPECTOR_CLOSE_DISTANCE = 32;
+export const INSPECTOR_CLOSE_DISTANCE = 36;
 
 export function shouldForceCompactSidebar(windowWidth: number, sidebarWidth: number) {
   return sidebarWidth !== COMPACT_SIDEBAR_WIDTH && windowWidth < sidebarWidth + CHAT_MIN_WIDTH;
@@ -61,4 +62,10 @@ export function resizeInspector(startWidth: number, startX: number, pointerX: nu
     width: Math.max(MIN_INSPECTOR_WIDTH, rawWidth),
     shouldClose: rawWidth < MIN_INSPECTOR_WIDTH - INSPECTOR_CLOSE_DISTANCE,
   };
+}
+
+// Reserve the preferred details width before shrinking it, down to the roster minimum.
+export function maxSidebarWidthForLayout(windowWidth: number, inspectorWidth = 0) {
+  const docked = inspectorWidth > 0 && canShowInspector(windowWidth, MIN_EXPANDED_SIDEBAR_WIDTH);
+  return Math.max(MIN_EXPANDED_SIDEBAR_WIDTH, Math.min(400, windowWidth - CHAT_MIN_WIDTH - (docked ? inspectorWidth : 0)));
 }

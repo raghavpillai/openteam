@@ -2,6 +2,8 @@
 
 A SwiftUI iPhone/iPad client for the existing OpenTeam HTTP API. This is a **migration beta**; Release builds update the existing iOS TestFlight app. Android remains in `apps/mobile`.
 
+[React Native sign-in restoration](docs/AUTH-RESTORATION-0917.md) restores the animated bot field and glass welcome/server/account flow.
+
 [Live remote-desktop/VNC validation](docs/VNC-QA-0916.md) includes three reference comparisons and the remaining native gesture and refresh-rate limitations.
 
 The [full-app QA audit](docs/QA-AUDIT-0916.md) and [settings/plugin follow-up](docs/SETTINGS-PLUGIN-AUDIT-0916.md) originally recorded 22 findings and their evidence. The [native push follow-up](docs/NATIVE-PUSH.md) implements QA-01 and fixes the QA-08 read payload. [Live-server gesture QA](docs/LIVE-SERVER-QA.md) fixes QA-02 and verifies real model replies, held/swiped inline replies, attachments and relaunch persistence. The [September 17 triage](docs/QA-STATUS-0917.md) identifies the remaining priorities and the main worker’s missing APNs configuration. Earlier audit counts reflect their capture dates. The optional `QAAudit` scheme retains the original audit cases on independent fixtures at ports 20010/20011; its two attachment gesture checks now pass. `SettingsPluginAudit` adds the ten-screen comparison and four failing checks, using independent fixtures at 20013/20014. Both are excluded from the default suite; default passes do not mean the open audit findings are resolved.

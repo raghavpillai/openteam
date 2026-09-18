@@ -58,7 +58,7 @@ private struct RobotSurface: UIViewRepresentable {
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
   func configure(
     color: UIColor, shape: RobotShape, mode: RobotAvatarMode, reduced: Bool, active: Bool,
-    sampleTime: Double?
+    sampleTime: Double?, faceColor: UIColor? = nil
   ) {
     let changedShape = motion.shape != shape
     motion.setShape(shape)
@@ -78,7 +78,7 @@ private struct RobotSurface: UIViewRepresentable {
     resolved.getRed(&r, green: &g, blue: &b, alpha: &a)
     let rgb =
       (Int((r * 255).rounded()) << 16) | (Int((g * 255).rounded()) << 8) | Int((b * 255).rounded())
-    let face = UIColor(Color(hex: rgb == 0 || rgb == 0x242424 ? "F2F2F2" : "1B1B1D"))
+    let face = faceColor ?? UIColor(Color(hex: rgb == 0 || rgb == 0x242424 ? "F2F2F2" : "1B1B1D"))
     func paint(_ key: String) -> CGColor? {
       if key == "none" { return nil }
       return (key == "currentColor" ? resolved : face).cgColor

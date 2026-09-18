@@ -31,12 +31,23 @@ final class AuthFlowUITests: XCTestCase {
     return app
   }
   func capture(_ name: String, _ app: XCUIApplication) {
+    // Capture settled cards rather than a frame inside the original AuthGate slide.
+    Thread.sleep(forTimeInterval: 0.5)
     let a = XCTAttachment(screenshot: app.screenshot())
     a.name = "parity-" + name
     a.lifetime = .keepAlways
     add(a)
   }
+  func waitForArrival(_ element: XCUIElement) {
+    let ready = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "hittable == true"), object: element)
+    XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 15), .completed)
+    // SwiftUI reports destination frames before its slide finishes. Do not tap coordinates
+    // from the end of the transition while the control is still moving toward them.
+    Thread.sleep(forTimeInterval: 0.5)
+  }
   func replace(_ element: XCUIElement, _ text: String) {
+    waitForArrival(element)
     let app = XCUIApplication()
     if element.identifier == "server-field", app.buttons["clear-server"].exists {
       app.buttons["clear-server"].tap()
@@ -49,10 +60,12 @@ final class AuthFlowUITests: XCTestCase {
   }
   func credentials(_ app: XCUIApplication) {
     app.buttons["get-started"].tap()
+    waitForArrival(app.textFields["server-field"])
     app.buttons["connect-button"].tap()
     XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 20))
   }
   func signIn(_ app: XCUIApplication, password: String = "fixture-only") {
+    waitForArrival(app.textFields["username-field"])
     app.textFields["username-field"].tap()
     app.textFields["username-field"].typeText("fixture")
     app.secureTextFields["password-field"].tap()
@@ -84,6 +97,7 @@ final class AuthFlowUITests: XCTestCase {
     let app = try await launch()
     capture("welcome", app)
     app.buttons["get-started"].tap()
+    waitForArrival(app.textFields["server-field"])
     capture("server", app)
     replace(app.textFields["server-field"], "not a URL")
     app.buttons["connect-button"].tap()
@@ -138,6 +152,7 @@ final class AuthFlowUITests: XCTestCase {
   func testUnreachableIncompatibleAndCancelledServerCheck() async throws {
     let app = try await launch(required: true)
     app.buttons["get-started"].tap()
+    waitForArrival(app.textFields["server-field"])
     replace(app.textFields["server-field"], "http://127.0.0.1:1")
     app.buttons["connect-button"].tap()
     assertError("Could not reach", app)
@@ -154,7 +169,12 @@ final class AuthFlowUITests: XCTestCase {
     XCTAssertTrue(app.buttons["Cancel connection"].waitForExistence(timeout: 3))
     app.buttons["Cancel connection"].tap()
     XCTAssertTrue(app.buttons["connect-button"].isEnabled)
-    XCTAssertFalse(app.textFields["username-field"].waitForExistence(timeout: 4))
+    // AuthGate retains its offscreen panels so glass never fades through an opaque ancestor.
+    // Cancellation must keep credentials offscreen, even when the late response arrives.
+    let lateCredentials = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "hittable == true"), object: app.textFields["username-field"])
+    XCTAssertEqual(XCTWaiter.wait(for: [lateCredentials], timeout: 4), .timedOut)
+    XCTAssertTrue(app.textFields["server-field"].isHittable)
     app.buttons["connect-button"].tap()
     XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 10))
   }
@@ -289,13 +309,76 @@ final class AuthFlowUITests: XCTestCase {
     XCTAssertTrue(app.buttons["get-started"].isHittable)
     capture("welcome-dark-large-text", app)
     app.buttons["get-started"].tap()
+    waitForArrival(app.textFields["server-field"])
     for _ in 0..<6 {
       if app.buttons["connect-button"].isHittable { break }
       app.swipeUp()
     }
     app.buttons["connect-button"].tap()
     XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 15))
+    waitForArrival(app.textFields["username-field"])
     capture("signin-dark-large-text", app)
+    app.textFields["username-field"].tap()
+    app.textFields["username-field"].typeText("fixture")
+    let password = app.secureTextFields["password-field"]
+    let form = app.scrollViews.containing(.textField, identifier: "username-field").firstMatch
+    for _ in 0..<4 {
+      if password.isHittable { break }
+      form.swipeUp()
+    }
+    XCTAssertTrue(password.isHittable)
+    password.tap()
+    password.typeText("fixture-only")
+    XCTAssertTrue(app.buttons["sign-in-button"].isHittable)
+    app.buttons["sign-in-button"].tap()
+    XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 15))
+  }
+
+  func testRestoredAnimatedAuthPresentationInBothAppearances() async throws {
+    continueAfterFailure = false
+    for appearance in ["light", "dark"] {
+      try await control("/__qa/reset")
+      try await control("/__qa/control", ["authRequired": true])
+      let app = XCUIApplication()
+      app.launchArguments = [
+        "--ui-testing", "--show-login", "--server", base, "--appearance", appearance,
+      ]
+      app.launch()
+      XCTAssertTrue(app.buttons["get-started"].waitForExistence(timeout: 8))
+      XCTAssertEqual(app.buttons["get-started"].label, "Log In")
+      XCTAssertTrue(app.staticTexts["OpenTeam"].exists)
+      capture("restored-welcome-" + appearance + "-motion-a", app)
+      try await Task.sleep(for: .milliseconds(850))
+      capture("restored-welcome-" + appearance + "-motion-b", app)
+      app.buttons["get-started"].tap()
+      waitForArrival(app.textFields["server-field"])
+      XCTAssertTrue(app.textFields["server-field"].isHittable)
+      capture("restored-server-" + appearance, app)
+      app.textFields["server-field"].tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+      XCTAssertTrue(app.buttons["connect-button"].isHittable)
+      capture("restored-server-keyboard-" + appearance, app)
+      app.buttons["auth-back-endpoint"].tap()
+      waitForArrival(app.buttons["get-started"])
+      XCTAssertTrue(app.buttons["get-started"].isHittable)
+      XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+      app.buttons["get-started"].tap()
+      waitForArrival(app.textFields["server-field"])
+      app.buttons["connect-button"].tap()
+      XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 10))
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+      XCTAssertTrue(app.secureTextFields["password-field"].isHittable)
+      capture("restored-credentials-keyboard-" + appearance, app)
+      app.textFields["username-field"].typeText("fixture")
+      app.secureTextFields["password-field"].tap()
+      app.secureTextFields["password-field"].typeText("unsent-password")
+      app.buttons["auth-back-credentials"].tap()
+      waitForArrival(app.textFields["server-field"])
+      app.buttons["connect-button"].tap()
+      XCTAssertTrue(app.secureTextFields["password-field"].waitForExistence(timeout: 10))
+      XCTAssertFalse(app.buttons["sign-in-button"].isEnabled, "Back must clear the password")
+      app.terminate()
+    }
   }
 
   func testSavedSessionDoesNotReturnAfterReauthenticationAndRelaunch() async throws {
@@ -311,6 +394,7 @@ final class AuthFlowUITests: XCTestCase {
       app.buttons["re-auth"].tap()
     } else if app.buttons["get-started"].exists {
       app.buttons["get-started"].tap()
+      waitForArrival(app.textFields["server-field"])
     }
     XCTAssertTrue(app.textFields["server-field"].waitForExistence(timeout: 10))
     replace(app.textFields["server-field"], base)
@@ -332,6 +416,7 @@ final class AuthFlowUITests: XCTestCase {
     XCTAssertTrue(app.buttons["get-started"].waitForExistence(timeout: 15))
     XCTAssertFalse(app.buttons["settings-button"].exists)
     app.buttons["get-started"].tap()
+    waitForArrival(app.textFields["server-field"])
     XCTAssertFalse(app.buttons["clear-server"].exists)
     capture("re-auth-cold-launch-cleared", app)
   }

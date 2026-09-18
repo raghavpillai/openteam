@@ -56,10 +56,18 @@ final class FunctionalFlowUITests: XCTestCase {
     XCTAssertTrue(element.isHittable, element.debugDescription)
   }
   func replace(_ field: XCUIElement, _ text: String) {
+    waitForArrival(field)
     field.tap()
     field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
     let value = field.value as? String ?? ""
     field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count) + text)
+  }
+  func waitForArrival(_ element: XCUIElement) {
+    let ready = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "hittable == true"), object: element)
+    XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 15), .completed)
+    // The restored sign-in panels move into their final frames before accepting input.
+    Thread.sleep(forTimeInterval: 0.5)
   }
   func error(_ app: XCUIApplication, _ fragment: String = "try again shortly") {
     XCTAssertTrue(
@@ -266,11 +274,94 @@ final class FunctionalFlowUITests: XCTestCase {
       (sourceState["sources"] as? [[String: Any]])?.first?["name"] as? String, "Native source"
     )
   }
+  func testAdvancedConfigurationPreservesThenExplicitlyClearsSavedMaps() async throws {
+    let app = try await launch()
+    try await fixture("/__qa/control", ["configuration": [
+      "headers": ["X-Tenant": "synthetic"], "env": ["QA_REGION": "test"],
+      "headerNames": ["X-Tenant"], "environmentNames": ["QA_REGION"]]])
+    plugins(app)
+    app.buttons.containing(NSPredicate(format: "label BEGINSWITH %@", "Fixture Notes")).firstMatch.tap()
+    app.buttons["Install plugin"].tap()
+    XCTAssertTrue(app.buttons["Connection settings"].waitForExistence(timeout: 12))
+    app.buttons["Connection settings"].tap()
+    XCTAssertTrue(app.textFields["Account alias"].waitForExistence(timeout: 8))
+    find(app.buttons["Save configuration"], app)
+    app.buttons["Save configuration"].tap()
+    var snapshot = try await state()
+    var config = try XCTUnwrap(snapshot["configuration"] as? [String: Any])
+    XCTAssertEqual((config["headers"] as? [String: String])?["X-Tenant"], "synthetic")
+    app.buttons["Advanced connection settings"].tap()
+    let headers = app.switches["connection-clear-headers"]
+    find(headers, app)
+    (headers.switches.firstMatch.exists ? headers.switches.firstMatch : headers).tap()
+    XCTAssertEqual(headers.value as? String, "1")
+    let environment = app.switches["connection-clear-environment"]
+    find(environment, app)
+    (environment.switches.firstMatch.exists ? environment.switches.firstMatch : environment).tap()
+    XCTAssertEqual(environment.value as? String, "1")
+    find(app.buttons["Save configuration"], app)
+    app.buttons["Save configuration"].tap()
+    snapshot = try await state()
+    config = try XCTUnwrap(snapshot["configuration"] as? [String: Any])
+    XCTAssertEqual((config["headers"] as? [String: String])?.count, 0)
+    XCTAssertEqual((config["env"] as? [String: String])?.count, 0)
+  }
+
+  func testGroupProfileEditPreservesMemberOrder() async throws {
+    let app = try await launch()
+    try await fixture("/api/v0/channels", ["name": "Ordered QA group", "botIds": ["bot-research", "bot-ops"], "clientId": UUID().uuidString])
+    let before = try await state()
+    let group = try XCTUnwrap((before["channels"] as? [[String: Any]])?.first { $0["kind"] as? String == "group" })
+    let id = try XCTUnwrap(group["id"] as? String)
+    let members = try XCTUnwrap(group["members"] as? [[String: Any]])
+    XCTAssertTrue(app.buttons["channel-" + id].waitForExistence(timeout: 10))
+    app.buttons["channel-" + id].tap()
+    app.buttons["conversation-details"].tap()
+    XCTAssertTrue(app.textFields["profile-name"].waitForExistence(timeout: 8))
+    replace(app.textFields["profile-name"], "Renamed without reordering")
+    app.buttons["profile-save"].tap()
+    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 8))
+    let after = try await state()
+    let saved = try XCTUnwrap((after["channels"] as? [[String: Any]])?.first { $0["id"] as? String == id })
+    XCTAssertEqual((saved["members"] as? [[String: Any]])?.compactMap { $0["botId"] as? String }, members.compactMap { $0["botId"] as? String })
+    XCTAssertFalse((after["requests"] as? [[String: Any]] ?? []).contains { $0["path"] as? String == "/api/v0/channels/\(id)/members" && $0["method"] as? String == "PUT" })
+  }
+
+  func testCustomBotAndGroupAvatarsRefreshAndReset() async throws {
+    let app = try await launch()
+    try await fixture("/api/v0/channels", ["name": "Custom photo QA group", "botIds": ["bot-research", "bot-ops"], "clientId": UUID().uuidString])
+    try await fixture("/__qa/control", ["customAvatarRevision": "2026-09-18T00:00:00.000Z"])
+    let photo = app.images["channel-photo-channel-research"].firstMatch
+    XCTAssertTrue(photo.waitForExistence(timeout: 12))
+    let snapshot = try await state()
+    let group = try XCTUnwrap((snapshot["channels"] as? [[String: Any]])?.first { $0["kind"] as? String == "group" })
+    XCTAssertTrue(app.images["channel-photo-" + (group["id"] as! String)].waitForExistence(timeout: 10))
+    let count = (snapshot["requests"] as? [[String: Any]] ?? []).filter { $0["path"] as? String == "/api/v0/bots/bot-research/avatar" }.count
+    try await fixture("/__qa/control", ["customAvatarRevision": "2026-09-18T00:01:00.000Z"])
+    let refreshed = expectation(description: "Refetch changed avatar revision")
+    Task {
+      for _ in 0..<30 {
+        let requests = try await state()["requests"] as? [[String: Any]] ?? []
+        if requests.filter({ $0["path"] as? String == "/api/v0/bots/bot-research/avatar" }).count > count { refreshed.fulfill(); return }
+        try await Task.sleep(for: .milliseconds(300))
+      }
+    }
+    await fulfillment(of: [refreshed], timeout: 12)
+    details(app)
+    XCTAssertTrue(photo.waitForExistence(timeout: 5))
+    find(app.buttons["Reset to default"], app)
+    app.buttons["Reset to default"].tap()
+    XCTAssertTrue(app.buttons["profile-save"].isEnabled)
+    app.buttons["profile-save"].tap()
+    let bots = try await state()["bots"] as? [[String: Any]] ?? []
+    XCTAssertEqual(bots.first { $0["id"] as? String == "bot-research" }?["hasAvatar"] as? Bool, false)
+  }
   func testReauthenticationInvalidServerRetryAndSidebarSaveRetries() async throws {
     let app = try await launch()
     app.buttons["settings-button"].tap()
     app.buttons["account-settings"].tap()
     app.buttons["re-auth"].tap()
+    waitForArrival(app.textFields["server-field"])
     app.textFields["server-field"].tap()
     app.textFields["server-field"].typeText("http://127.0.0.1:1")
     app.buttons["connect-button"].tap()

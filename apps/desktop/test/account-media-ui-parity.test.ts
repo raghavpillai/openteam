@@ -78,7 +78,7 @@ describe("Bot account and media UI parity guards", () => {
     expect(docxParser).toContain('import("mammoth")');
     expect(tableParser).toContain('import("xlsx")');
     expect(attachment).toContain("<audio className");
-    expect(attachment).toContain("<video className");
+    expect(attachment).toMatch(/<video\s+className/);
     expect(chat).toContain("Download all");
     expect(chat).toContain("downloadAttachments(attachments)");
     expect(image).toContain('aria-label="Previous media"');

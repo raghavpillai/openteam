@@ -244,10 +244,6 @@ const server = Bun.serve({
           runtime.server === "ready" ? 200 : 503
         );
       }
-      const publicAssetMatch = path.match(/^\/api\/assets\/([a-f0-9]{64})$/i);
-      if (["GET", "HEAD"].includes(request.method) && publicAssetMatch?.[1]) {
-        return assetResponse(app.assets, app.agentData, request, url, publicAssetMatch[1]);
-      }
       const publicCallback = request.method === "GET" && path === "/api/plugin-oauth/callback";
       let authenticatedSessionId: string | null = null;
       if (authMode === "required" && !publicCallback) {
@@ -259,6 +255,12 @@ const server = Bun.serve({
           );
         }
         authenticatedSessionId = session.session.id;
+      }
+      // Attachments follow the account's authentication mode just like messages.
+      // Knowing a content hash does not grant access to a private conversation.
+      const assetMatch = path.match(/^\/api\/assets\/([a-f0-9]{64})$/i);
+      if (["GET", "HEAD"].includes(request.method) && assetMatch?.[1]) {
+        return assetResponse(app.assets, app.agentData, request, url, assetMatch[1]);
       }
       const context: RouteContext = { app, request, url, path, authMode, authenticatedSessionId };
       for (const route of [

@@ -1,4 +1,7 @@
-import { attachmentTextPreview, ATTACHMENT_CODE_PREVIEW_CHAR_LIMIT } from "@openteam/product-core/attachments";
+import {
+  attachmentTextPreview,
+  ATTACHMENT_CODE_PREVIEW_CHAR_LIMIT,
+} from "@openteam/product-core/attachments";
 import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 import type { AssetRef } from "@openteam/contracts";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
@@ -18,6 +21,9 @@ import {
 } from "lucide-react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import { authHeaders } from "../../client/auth";
+import { useAuthenticatedResource } from "../../hooks/use-authenticated-resource";
 import { api } from "../../client/openteam-api";
 import { useVirtualWindow } from "../../hooks/use-virtual-window";
 import {
@@ -42,9 +48,13 @@ export const downloadAttachments = async (attachments: readonly AssetRef[]) => {
   if (window.openteam?.files?.downloadAll) return window.openteam.files.downloadAll(files);
   for (const file of files) {
     const anchor = document.createElement("a");
-    anchor.href = file.url;
+    const response = await fetch(file.url, { headers: authHeaders(), redirect: "error" });
+    if (!response.ok) throw new Error(`File request failed (${response.status})`);
+    const objectUrl = URL.createObjectURL(await response.blob());
+    anchor.href = objectUrl;
     anchor.download = file.fileName;
     anchor.click();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
   }
   return { canceled: false, saved: files.length, directory: null };
 };
@@ -234,7 +244,10 @@ function PdfPreview({ url }: { url: string }) {
       .then(async ([pdfjs, worker]) => {
         const pdfWorkerUrl = worker.default;
         pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-        const currentTask = pdfjs.getDocument({ url });
+        const currentTask = pdfjs.getDocument({
+          url,
+          httpHeaders: authHeaders() as Record<string, string>,
+        });
         task = currentTask;
         const loaded = await currentTask.promise;
         if (active) setDocument(loaded);
@@ -319,13 +332,20 @@ function LoadedDocumentPreview({
     | { kind: "error"; message: string }
   >({ kind: "idle" });
   const url = api.assetUrl(attachment);
+  const mediaSource = useAuthenticatedResource(
+    open && (kind === "audio" || kind === "video") ? url : null
+  );
 
   useEffect(() => {
     if (!open || !["markdown", "text", "json", "table", "docx"].includes(kind)) return;
     const controller = new AbortController();
     setState({ kind: "loading" });
     void (async () => {
-      const response = await fetch(url, { signal: controller.signal });
+      const response = await fetch(url, {
+        headers: authHeaders(),
+        signal: controller.signal,
+        redirect: "error",
+      });
       if (!response.ok) throw new Error(`File request failed (${response.status})`);
       const maximum = CLIENT_CAPABILITIES.uploads.maxRegularBytes;
       const loaded = await readBoundedResponse(
@@ -353,7 +373,11 @@ function LoadedDocumentPreview({
           : decoded;
       if (controller.signal.aborted) return;
       const preview = attachmentTextPreview(value);
-      setState({ kind: "text", value: preview.content, truncated: loaded.truncated || preview.truncated });
+      setState({
+        kind: "text",
+        value: preview.content,
+        truncated: loaded.truncated || preview.truncated,
+      });
     })().catch((cause) => {
       if (controller.signal.aborted) return;
       setState({ kind: "error", message: clientErrorMessage(cause, "Preview unavailable") });
@@ -366,7 +390,12 @@ function LoadedDocumentPreview({
     return (
       <div className="grid h-full min-h-[360px] place-items-center bg-black">
         {/* biome-ignore lint/a11y/useMediaCaption: Attachments do not include a separate captions asset. */}
-        <video className="max-h-full max-w-full" controls preload="metadata" src={url} />
+        <video
+          className="max-h-full max-w-full"
+          controls
+          preload="metadata"
+          src={mediaSource ?? undefined}
+        />
       </div>
     );
   }
@@ -376,7 +405,7 @@ function LoadedDocumentPreview({
         <div className="w-full max-w-[560px] rounded-[18px] border border-black/[0.07] bg-background p-7 shadow-sm dark:border-white/[0.09]">
           <Music2 className="mx-auto mb-6 size-12 text-foreground-tertiary" strokeWidth={1.25} />
           {/* biome-ignore lint/a11y/useMediaCaption: Attachments do not include a separate captions asset. */}
-          <audio className="w-full" controls preload="metadata" src={url} />
+          <audio className="w-full" controls preload="metadata" src={mediaSource ?? undefined} />
         </div>
       </div>
     );
@@ -454,6 +483,12 @@ export function FileAttachmentCard({ attachment }: { attachment: AssetRef }) {
           className="grid size-8 shrink-0 place-items-center rounded-[8px] text-foreground-tertiary opacity-75 outline-none transition hover:bg-black/[0.045] hover:text-foreground group-hover/file:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/35 dark:hover:bg-white/[0.07]"
           download={attachment.fileName}
           href={api.assetUrl(attachment, true)}
+          onClick={(event) => {
+            event.preventDefault();
+            void downloadAttachments([attachment]).catch((error) =>
+              toast.error(clientErrorMessage(error, "Couldn’t download file"))
+            );
+          }}
         >
           <Download className="size-4" strokeWidth={1.75} />
         </a>
@@ -479,6 +514,12 @@ export function FileAttachmentCard({ attachment }: { attachment: AssetRef }) {
               className="grid size-8 place-items-center rounded-full text-foreground-secondary hover:bg-black/[0.05] dark:hover:bg-white/[0.07]"
               download={attachment.fileName}
               href={api.assetUrl(attachment, true)}
+              onClick={(event) => {
+                event.preventDefault();
+                void downloadAttachments([attachment]).catch((error) =>
+                  toast.error(clientErrorMessage(error, "Couldn’t download file"))
+                );
+              }}
             >
               <Download className="size-4" />
             </a>

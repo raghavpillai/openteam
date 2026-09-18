@@ -56,6 +56,30 @@ final class ProtocolTests: XCTestCase {
     }
     XCTAssertEqual(API.segment("a/b?c"), "a%2Fb%3Fc")
   }
+  func testTimelineTimestampsIgnoreBranchedRepliesAndRefreshEditedMessages() throws {
+    var first = try fixture().latestMessages[0]
+    first.id = "first"
+    first.metadata = .object([:])
+    first.createdAt = "2026-09-17T12:00:00.000Z"
+    var nested = first
+    nested.id = "nested"
+    nested.metadata = .object(["branched": .bool(true), "replyTo": .string(first.id)])
+    nested.createdAt = "2026-09-17T12:08:00.000Z"
+    var next = first
+    next.id = "next"
+    next.createdAt = "2026-09-17T12:05:00.000Z"
+    var later = first
+    later.id = "later"
+    later.createdAt = "2026-09-17T12:10:01.000Z"
+    let projection = MessageTimeline([first, nested, next, later])
+    XCTAssertEqual(projection.entries.map(\.id), ["first", "next", "later"])
+    XCTAssertNotNil(projection.entries[0].timestamp)
+    XCTAssertNil(projection.entries[1].timestamp)
+    XCTAssertNotNil(projection.entries[2].timestamp)
+    XCTAssertEqual(projection.replyCounts, ["first": 1])
+    next.content = "Edited in place"
+    XCTAssertEqual(MessageTimeline([first, next]).entries[1].message.content, "Edited in place")
+  }
   func testProductionUUIDRoutesPreserveIdentifiersAndEscapeReservedCharacters() throws {
     let api = try API(server: "http://127.0.0.1:20007")
     let id = "eb954d92-c40a-48a9-847c-c362d0ca5073"

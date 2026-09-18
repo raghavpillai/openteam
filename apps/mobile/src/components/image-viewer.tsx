@@ -40,7 +40,7 @@ function ViewerImage({ item }: { item: ImageViewerItem }) {
         onLoadEnd={() => setLoading(false)}
         onError={() => setFailed(true)}
         resizeMode="contain"
-        source={{ uri: item.uri }}
+        source={{ uri: item.uri, headers: authHeadersForUrl(item.uri) }}
         style={styles.image}
       />
       {loading ? <ActivityIndicator color="rgba(255,255,255,0.72)" style={styles.loader} /> : null}

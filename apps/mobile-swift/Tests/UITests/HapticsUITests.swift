@@ -247,9 +247,8 @@ import XCTest
     try await expect("form.result", "error")
     try await clear()
     app.buttons["Install plugin"].tap()
-    XCTAssertTrue(plugin.waitForExistence(timeout: 8))
+    XCTAssertTrue(app.buttons["Connection settings"].waitForExistence(timeout: 8))
     try await expect("form.result", "success")
-    plugin.tap()
     app.buttons["Connection settings"].tap()
     XCTAssertTrue(app.textFields["Account alias"].waitForExistence(timeout: 8))
     let final = try await events()
@@ -360,8 +359,12 @@ import XCTest
     let attachment = app.buttons["Open Fixture image.png"]
     XCTAssertTrue(attachment.waitForExistence(timeout: 8))
     attachment.tap()
+    XCTAssertTrue(app.buttons["photo-options"].waitForExistence(timeout: 8))
+    app.buttons["photo-options"].tap()
     let share = app.buttons["Share"].firstMatch
     XCTAssertTrue(share.waitForExistence(timeout: 8))
+    let ready = expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: share)
+    await fulfillment(of: [ready], timeout: 10)
     try await clear()
     share.tap()
     try await expect("attachment.share", "light")
@@ -410,7 +413,6 @@ import XCTest
   }
   func testPluginSignInKeepsConfigurationAndAuthorizationErrorsAudible() async throws {
     let app = try await launch(home: true, visual: false)
-    _ = try await request("/__qa/control", body: ["pluginCanAuthenticate": true])
     app.buttons["settings-button"].tap()
     app.buttons.containing(NSPredicate(format: "label BEGINSWITH %@", "Plugins")).firstMatch.tap()
     let plugin = app.buttons.containing(NSPredicate(format: "label BEGINSWITH %@", "Fixture Notes"))
@@ -418,8 +420,8 @@ import XCTest
     XCTAssertTrue(plugin.waitForExistence(timeout: 8))
     plugin.tap()
     app.buttons["Install plugin"].tap()
-    XCTAssertTrue(plugin.waitForExistence(timeout: 8))
-    plugin.tap()
+    XCTAssertTrue(app.buttons["Connection settings"].waitForExistence(timeout: 8))
+    _ = try await request("/__qa/control", body: ["pluginCanAuthenticate": true])
     app.buttons["Connection settings"].tap()
     XCTAssertTrue(app.textFields["Account alias"].waitForExistence(timeout: 8))
     scrollTo(app.buttons["Sign in"], app)

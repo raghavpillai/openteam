@@ -7,6 +7,7 @@ import {
   type MermaidOptions,
   type UrlTransform,
 } from "streamdown";
+import { useAuthenticatedResource } from "../../../hooks/use-authenticated-resource";
 import { OPENTEAM_DEEP_LINK_EVENT } from "../../../lib/app-deep-links";
 
 export { OPENTEAM_DEEP_LINK_EVENT } from "../../../lib/app-deep-links";
@@ -139,4 +140,22 @@ function MessageLink({ children, className, href, node: _node, ...props }: Markd
   );
 }
 
-export const messageComponents: Components = { a: MessageLink };
+function MessageImage({
+  src,
+  alt,
+  node: _node,
+  ...props
+}: ComponentProps<"img"> & { node?: unknown }) {
+  const source = useAuthenticatedResource(typeof src === "string" ? src : null);
+  return (
+    <img
+      {...props}
+      alt={alt ?? ""}
+      src={source ?? undefined}
+      loading="lazy"
+      data-streamdown="image"
+    />
+  );
+}
+
+export const messageComponents: Components = { a: MessageLink, img: MessageImage };

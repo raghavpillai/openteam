@@ -18,6 +18,11 @@ import XCTest
     -> XCUIApplication
   {
     continueAfterFailure = false
+    addUIInterruptionMonitor(withDescription: "Password autofill") { alert in
+      guard alert.buttons["Not Now"].exists else { return false }
+      alert.buttons["Not Now"].tap()
+      return true
+    }
     try await control("/__qa/reset")
     try await control("/__qa/content", ["scene": scene])
     try await control("/__qa/control", ["authRequired": required])
@@ -38,6 +43,15 @@ import XCTest
       app.buttons["sign-in-button"].tap()
     }
     XCTAssertTrue(app.buttons["channel-channel-research"].waitForExistence(timeout: 15))
+    if required {
+      let prompt = app.buttons["Not Now"]
+      for _ in 0..<3 {
+        guard prompt.waitForExistence(timeout: 2) else { break }
+        prompt.tap()
+        if prompt.waitForNonExistence(timeout: 3) { break }
+      }
+      XCTAssertFalse(prompt.exists, "iOS password prompt did not dismiss")
+    }
     app.buttons["channel-channel-research"].tap()
     return app
   }

@@ -46,8 +46,9 @@ import XCTest
       app.buttons[appearance.capitalized].tap()
       capture("settings-" + appearance, app)
       app.buttons["account-settings"].tap()
-      XCTAssertTrue(app.textFields["account-server"].waitForExistence(timeout: 5))
-      XCTAssertEqual(app.textFields["account-server"].value as? String, base)
+      let server = app.descendants(matching: .any).matching(identifier: "account-server").firstMatch
+      XCTAssertTrue(server.waitForExistence(timeout: 5))
+      XCTAssertTrue([server.label, server.value as? String ?? ""].joined(separator: " ").contains(base))
       capture("account-" + appearance, app)
       app.navigationBars.buttons.firstMatch.tap()
       app.buttons["sheet-close"].tap()

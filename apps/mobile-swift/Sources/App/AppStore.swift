@@ -332,7 +332,9 @@ final class AppStore {
   }
   private func apply(_ bootstrap: Bootstrap) {
     state.bootstrap = bootstrap
-    for message in bootstrap.latestMessages { merge([message], channel: message.channelId) }
+    for (channel, messages) in Dictionary(grouping: bootstrap.latestMessages, by: \.channelId) {
+      merge(messages, channel: channel)
+    }
     #if canImport(UIKit)
       NativeNotifications.shared.apply(channels: bootstrap.channels)
     #endif

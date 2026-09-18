@@ -228,6 +228,7 @@ struct ConversationDetails: View {
   @State private var description = ""
   @State private var instructions = ""
   @State private var members: Set<String> = []
+  @State private var resetAvatar = false
   @State private var deleting = false
   @State private var saving = false
   @State private var duplicateID = UUID().uuidString
@@ -255,7 +256,8 @@ struct ConversationDetails: View {
           Section {
             HStack {
               Spacer()
-              if bot != nil {
+              if let bot, !bot.hasAvatar || resetAvatar || icon != bot.icon
+                || color.lowercased() != bot.color.lowercased() {
                 BotGlyph(color: Color(hex: color), kind: icon, size: 80)
               } else {
                 ChannelAvatar(channel: channel, size: 80)
@@ -283,6 +285,7 @@ struct ConversationDetails: View {
               Button("Reset to default") {
                 icon = "classic"
                 color = "#A47952"
+                resetAvatar = true
               }
               .foregroundStyle(NativePalette.link)
             } header: {
@@ -505,7 +508,7 @@ struct ConversationDetails: View {
         || description != (bot?.description ?? channel?.description ?? "")
         || instructions != (bot?.instructions ?? "") || title != (bot?.title ?? "")
         || icon != (bot?.icon ?? "chip") || color != (bot?.color ?? "#A47952")
-        || members != Set(channel?.members.map(\.botId) ?? []))
+        || resetAvatar || members != Set(channel?.members.map(\.botId) ?? []))
   }
   private func exportTemplate() async {
     guard let bot, !exportingTemplate else { return }
@@ -532,7 +535,7 @@ struct ConversationDetails: View {
         "description": .string(description), "instructions": .string(instructions),
         "title": .string(title),
       ]
-      if icon != bot.icon || color.lowercased() != bot.color.lowercased() {
+      if resetAvatar || icon != bot.icon || color.lowercased() != bot.color.lowercased() {
         fields["icon"] = .string(icon)
         fields["color"] = .string(color)
       }
@@ -553,10 +556,19 @@ struct ConversationDetails: View {
             "clientId": .string(UUID().uuidString),
           ])) != nil
       else { return }
+      // A name/description edit must not rewrite membership or its ordinals.
+      if members == Set(channel.members.map(\.botId)) {
+        NativeHaptics.play(.success, source: "profile.save")
+        dismiss()
+        return
+      }
+      let ordered = channel.members.sorted { $0.ordinal < $1.ordinal }.map(\.botId)
+        .filter { members.contains($0) }
+      let additions = store.bots.map(\.id).filter { members.contains($0) && !ordered.contains($0) }
       if await store.mutate(
         "/api/v0/channels/\(API.segment(channel.id))/members", method: "PUT",
         body: .object([
-          "botIds": .array(members.sorted().map(JSON.string)),
+          "botIds": .array((ordered + additions).map(JSON.string)),
           "clientId": .string(UUID().uuidString),
         ])) != nil
       {

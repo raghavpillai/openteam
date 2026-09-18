@@ -467,7 +467,13 @@ const writeUniqueDownload = async (directory: string, name: string, url: string)
     let file: Awaited<ReturnType<typeof open>> | null = null;
     try {
       file = await open(candidate, "wx", 0o600);
-      const response = await net.fetch(url);
+      // Requests reach this path only after canonical asset/origin validation.
+      // Native sign-in stores a bearer token, not a renderer session cookie.
+      const token = (await authTokenStore?.read())?.token;
+      const response = await net.fetch(url, {
+        headers: token ? { authorization: `Bearer ${token}` } : {},
+        redirect: "error",
+      });
       if (!response.ok) throw new Error(`request failed (${response.status})`);
       if (!response.body) throw new Error("request returned an empty body");
       for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {

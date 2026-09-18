@@ -1,5 +1,7 @@
 # Native iOS QA status — September 17, 2026
 
+**September 18 audit:** [Full iPhone QA and performance](FULL-QA-0918.md) supersedes the avatar/group, advanced connection, asset authorization and local APNs deployment status below. Historical captures remain unchanged.
+
 **Later fixes:** [Swift backlog fixes and validation](BACKLOG-FIXES-0917.md) supersede the delivery, plugin access/OAuth, approvals, thread/search and computer-gesture findings described below. Historical captures remain unchanged.
 
 This status includes focused follow-up fixes and reruns; it is not closure of the complete September 16 audit. The native TestFlight app remains a migration beta. Earlier audit tables describe the code at capture time; use the linked follow-ups for fixes made afterward.

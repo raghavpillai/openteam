@@ -73,6 +73,7 @@ struct ChannelAvatar: View {
       if let photo {
         Image(uiImage: photo).resizable().scaledToFill().frame(width: size, height: size).clipShape(
           Circle())
+          .accessibilityIdentifier("channel-photo-" + channel.id)
       } else if channel.isGroup {
         ZStack {
           ForEach(Array(channel.members.prefix(2).enumerated()), id: \.offset) { index, member in
@@ -100,11 +101,13 @@ struct ChannelAvatar: View {
       }
     }.task(
       id:
-        "\(bot?.id ?? channel.id)-\(bot?.hasAvatar ?? channel.hasAvatar)-\(bot?.icon ?? "")-\(bot?.color ?? "")"
+        "\(bot?.id ?? channel.id)-\(bot?.hasAvatar ?? channel.hasAvatar)-\(bot?.updatedAt ?? channel.updatedAt)-\(bot?.icon ?? "")-\(bot?.color ?? "")"
     ) {
       photo = nil
-      guard let bot, bot.hasAvatar, let api = store.api else { return }
-      if let (data, _) = try? await api.raw("/api/v0/bots/\(API.segment(bot.id))/avatar") {
+      guard bot?.hasAvatar ?? channel.hasAvatar, let api = store.api else { return }
+      let path = bot.map { "/api/v0/bots/\(API.segment($0.id))/avatar" }
+        ?? "/api/v0/channels/\(API.segment(channel.id))/avatar"
+      if let (data, _) = try? await api.raw(path), !Task.isCancelled {
         photo = UIImage(data: data)
       }
     }

@@ -160,7 +160,8 @@ import XCTest
     let app = try await launch("approval")
     let site = app.switches["approval-site-Profile 2-example.com"]
     XCTAssertTrue(site.waitForExistence(timeout: 10))
-    site.tap()
+    (site.switches.firstMatch.exists ? site.switches.firstMatch : site).tap()
+    XCTAssertEqual(site.value as? String, "0")
     app.buttons["approve-qa-chrome"].tap()
     XCTAssertTrue(app.staticTexts["Running"].waitForExistence(timeout: 10))
     let receipt = try await control("/__audit/receipt")

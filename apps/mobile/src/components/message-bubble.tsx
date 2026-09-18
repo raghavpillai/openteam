@@ -16,6 +16,7 @@ import {
 } from "@openteam/product-core/messages";
 import { formatOfflineDeliveryLabel } from "@openteam/product-core/timestamps";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
+import { authHeadersForUrl } from "../auth";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "../haptics";
 import { ReplySwipe } from "../reply-swipe";
@@ -579,7 +580,7 @@ export function MessageBubble({
                           : [styles.gridImage, { backgroundColor: theme.surfacePressed }]
                       }
                     >
-                      <Image resizeMode="cover" source={{ uri: url }} style={styles.galleryImage} />
+                      <Image resizeMode="cover" source={{ uri: url, headers: authHeadersForUrl(url) }} style={styles.galleryImage} />
                     </Pressable>
                   ))}
                   {stagedImages.map((image, index) => (

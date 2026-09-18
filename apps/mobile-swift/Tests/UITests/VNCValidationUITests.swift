@@ -56,6 +56,11 @@ import XCTest
   }
   private func launch(starting: Bool = false) async throws -> XCUIApplication {
     continueAfterFailure = false
+    addUIInterruptionMonitor(withDescription: "Password autofill") { alert in
+      guard alert.buttons["Not Now"].exists else { return false }
+      alert.buttons["Not Now"].tap()
+      return true
+    }
     executionTimeAllowance = 240
     _ = try await request("/__qa/reset", [:])
     let config = try await request("/__qa/config")
@@ -70,6 +75,13 @@ import XCTest
     app.buttons["sign-in-button"].tap()
     let chat = app.buttons["channel-" + (try XCTUnwrap(config["channel"] as? String))]
     XCTAssertTrue(chat.waitForExistence(timeout: 20))
+    let prompt = app.buttons["Not Now"]
+    for _ in 0..<3 {
+      guard prompt.waitForExistence(timeout: 2) else { break }
+      prompt.tap()
+      if prompt.waitForNonExistence(timeout: 3) { break }
+    }
+    XCTAssertFalse(prompt.exists, "iOS password prompt did not dismiss")
     chat.tap()
     if starting {
       _ = try await request("/__qa/control", ["statusDelay": 4500])
@@ -165,8 +177,10 @@ import XCTest
     let click = (tapped["events"] as? [[String: Any]])?.last(where: {
       $0["type"] as? String == "click"
     })
-    XCTAssertEqual(click?["screenX"] as? Int, 640)
-    XCTAssertEqual(click?["screenY"] as? Int, 560)
+    // XCTest rounds the phone coordinate to a screen pixel before the remote
+    // transform. A one-pixel host difference is expected across iPhone sizes.
+    XCTAssertEqual(Double(try XCTUnwrap(click?["screenX"] as? Int)), 640, accuracy: 2)
+    XCTAssertEqual(Double(try XCTUnwrap(click?["screenY"] as? Int)), 560, accuracy: 2)
     for count in 1...5 {
       target.press(forDuration: 0.8)
       _ = try await eventually { $0["rightClicks"] as? Int == count }

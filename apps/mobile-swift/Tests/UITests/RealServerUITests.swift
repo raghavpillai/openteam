@@ -38,6 +38,11 @@ import XCTest
     _ app: XCUIApplication, server: String? = nil, notifications: Bool = false,
     openChat: Bool = true
   ) async throws {
+    addUIInterruptionMonitor(withDescription: "Password autofill") { alert in
+      guard alert.buttons["Not Now"].exists else { return false }
+      alert.buttons["Not Now"].tap()
+      return true
+    }
     let config = try await request("/config")
     app.launchArguments = [
       "--ui-testing", "--server", try server ?? XCTUnwrap(config["base"] as? String),
@@ -63,6 +68,13 @@ import XCTest
       if allow.waitForExistence(timeout: 3) { allow.tap() }
     }
     XCTAssertTrue(app.buttons["channel-" + channel].waitForExistence(timeout: 25))
+    let prompt = app.buttons["Not Now"]
+    for _ in 0..<3 {
+      guard prompt.waitForExistence(timeout: 2) else { break }
+      prompt.tap()
+      if prompt.waitForNonExistence(timeout: 3) { break }
+    }
+    XCTAssertFalse(prompt.exists, "iOS password prompt did not dismiss")
     guard openChat else { return }
     app.buttons["channel-" + channel].tap()
     XCTAssertTrue(
@@ -109,21 +121,30 @@ import XCTest
   }
   private func row(_ id: String, _ app: XCUIApplication) -> XCUIElement {
     let row = app.otherElements["message-" + id].firstMatch
-    XCTAssertTrue(row.waitForExistence(timeout: 15))
-    for _ in 0..<12 {
-      let frame = row.frame
-      if row.isHittable && frame.midY > 175
-        && frame.midY < (app.keyboards.firstMatch.exists ? 540 : 790)
-      {
-        return row
+    reveal(row, app)
+    return row
+  }
+  private func reveal(_ row: XCUIElement, _ app: XCUIApplication) {
+    for _ in 0..<24 {
+      let top = app.buttons["conversation-details"].frame.maxY + 20
+      let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+      let bottom = input.frame.minY - 20
+      // Lazy history intentionally omits offscreen rows from accessibility.
+      // These targets are earlier messages, so reveal them before reading their frame.
+      let start = app.coordinate(withNormalizedOffset: .zero)
+        .withOffset(CGVector(dx: app.frame.width * 0.8, dy: (top + bottom) / 2))
+      guard row.exists else {
+        start.press(forDuration: 0.05,
+          thenDragTo: start.withOffset(CGVector(dx: 0, dy: min(180, (bottom - top) / 2))))
+        continue
       }
-      let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.48))
+      let frame = row.frame
+      if row.isHittable && frame.midY > top && frame.midY < bottom { return }
       start.press(
         forDuration: 0.05,
-        thenDragTo: start.withOffset(CGVector(dx: 0, dy: frame.midY < 175 ? 220 : -220)))
+        thenDragTo: start.withOffset(CGVector(dx: 0, dy: frame.midY < top ? 180 : -180)))
     }
     XCTAssertTrue(row.isHittable)
-    return row
   }
   private func send(_ text: String, _ app: XCUIApplication) {
     let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
@@ -305,6 +326,7 @@ import XCTest
     send(held, app)
     _ = try await verifyReply(held, parent: originalID, app)
     _ = row(originalID, app)
+    reveal(image, app)
     let start = image.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5))
     start.press(
       forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 145, dy: 0)),

@@ -473,8 +473,7 @@ struct CustomMCPView: View {
             var body: [String: JSON] = ["name": .string(name), "auth": .string(auth)]
             if !alias.isEmpty { body["alias"] = .string(alias) }
             if transport == "http" {
-              _ = try API.normalize(endpoint)
-              body["url"] = .string(endpoint)
+              body["url"] = .string(try FormValidation.endpoint(endpoint))
               body["headers"] = try FormValidation.stringMap(headers, label: "Headers")
             } else {
               let arguments = try FormValidation.json(args, label: "Arguments", object: false)

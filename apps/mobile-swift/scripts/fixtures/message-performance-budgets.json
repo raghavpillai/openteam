@@ -1,0 +1,14 @@
+{
+  "environment": "Apple M4 Pro, iPhone 16 Pro Max / iOS 26.5 simulator, Debug, idle host",
+  "note": "Initial acceptance targets for the 6-drag XCTest workload, not a previously achieved production baseline. Both baseline and September 18 builds exceed them. Reassess explicitly for hardware, OS, build or fixture changes; these are not device FPS targets.",
+  "tests": {
+    "testThousandMessageScrolling": {
+      "CPU Time (swift), s": 6,
+      "Memory Peak Physical (swift), kB": 180000
+    },
+    "testMixedDocumentScrolling": {
+      "CPU Time (swift), s": 6,
+      "Memory Peak Physical (swift), kB": 180000
+    }
+  }
+}

@@ -18,6 +18,8 @@ struct PluginConnectionView: View {
   @State private var cwd = ""
   @State private var env = "{}"
   @State private var headers = "{}"
+  @State private var clearHeaders = false
+  @State private var clearEnvironment = false
   @State private var method = "none"
   @State private var operation = FormOperation()
   @State private var remove = false
@@ -104,9 +106,19 @@ struct PluginConnectionView: View {
               Text("HTTP Basic").tag("client_secret_basic")
             }
             JSONTextEditor(text: $headers, label: "Replacement headers")
+              .disabled(clearHeaders)
+            Text("Saved headers: " + configuration["headerNames"].array.map(\.string).joined(separator: ", "))
+              .font(.footnote).foregroundStyle(NativePalette.muted)
+            Toggle("Clear all saved headers", isOn: $clearHeaders)
+              .accessibilityIdentifier("connection-clear-headers")
             JSONTextEditor(text: $env, label: "Replacement environment variables")
+              .disabled(clearEnvironment)
+            Text("Saved environment variables: " + configuration["environmentNames"].array.map(\.string).joined(separator: ", "))
+              .font(.footnote).foregroundStyle(NativePalette.muted)
+            Toggle("Clear all saved environment variables", isOn: $clearEnvironment)
+              .accessibilityIdentifier("connection-clear-environment")
             Text(
-              "Leave these objects empty to preserve saved values. Saved secrets are never displayed."
+              "Leave these objects empty to preserve saved values, or select Clear all to remove them when saving. Saved values are never displayed."
             ).font(.footnote).foregroundStyle(NativePalette.muted)
           }
           Button("Save configuration") { Task { await save() } }
@@ -124,7 +136,7 @@ struct PluginConnectionView: View {
           NavigationLink("Tool permissions") { PluginToolPoliciesView(connection: connection) }
           NavigationLink("Test a tool") { PluginToolTestView(connection: connection) }
           PluginConnectionActions(
-            connection: $connection, beforeSignIn: { await save(successEffect: nil) })
+            connection: $connection, beforeSignIn: { await save(feedback: false) })
           Button("Restart connection") { perform("/restart", success: "Connection restarted.") }
         }
       }
@@ -172,8 +184,8 @@ struct PluginConnectionView: View {
       }
     }
   }
-  @discardableResult private func save(successEffect: HapticEffect? = .success) async -> Bool {
-    await operation.run(success: "Configuration saved.", successEffect: successEffect) {
+  @discardableResult private func save(feedback: Bool = true) async -> Bool {
+    await operation.run(success: "Configuration saved.", feedback: feedback) {
       var validation = values
       for (key, value) in secrets where !value.isEmpty { validation[key] = .string(value) }
       try FormValidation.fields(
@@ -191,10 +203,7 @@ struct PluginConnectionView: View {
         "tokenEndpointAuthMethod": .string(method),
       ]
       if connection["transport"].string == "http" {
-        guard let url = URL(string: endpoint), ["http", "https"].contains(url.scheme),
-          url.host != nil
-        else { throw APIError("Enter a valid HTTP or HTTPS endpoint.") }
-        body["endpoint"] = .string(endpoint)
+        body["endpoint"] = .string(try FormValidation.endpoint(endpoint))
       }
       if connection["transport"].string == "stdio" {
         let parsed = try FormValidation.json(args, label: "Arguments", object: false)
@@ -208,15 +217,17 @@ struct PluginConnectionView: View {
         body["args"] = parsed
         body["cwd"] = .string(cwd)
       }
-      let headerMap = try FormValidation.stringMap(headers, label: "Headers")
-      let environment = try FormValidation.stringMap(env, label: "Environment")
-      if !headerMap.object.isEmpty { body["headers"] = headerMap }
-      if !environment.object.isEmpty { body["env"] = environment }
+      let headerMap = clearHeaders ? JSON.object([:]) : try FormValidation.stringMap(headers, label: "Headers")
+      let environment = clearEnvironment ? JSON.object([:]) : try FormValidation.stringMap(env, label: "Environment")
+      if clearHeaders || !headerMap.object.isEmpty { body["headers"] = headerMap }
+      if clearEnvironment || !environment.object.isEmpty { body["env"] = environment }
       _ = try await store.request(path + "/configuration", method: "PUT", body: .object(body))
       secrets = [:]
       cleared = []
       headers = "{}"
       env = "{}"
+      clearHeaders = false
+      clearEnvironment = false
       configuration = try await store.request(path + "/configuration")
     }
   }

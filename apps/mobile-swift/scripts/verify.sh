@@ -32,7 +32,7 @@ xcodebuild -project apps/mobile-swift/OpenTeamNative.xcodeproj -scheme OpenTeamN
   -destination "platform=iOS Simulator,id=$simulator_id" \
   -derivedDataPath apps/mobile-swift/.build-ios \
   -parallel-testing-enabled NO -resultBundlePath "$result_dir/Native.xcresult" \
-  CODE_SIGNING_ALLOWED=NO test > "$result_dir/simulator-tests.log" 2>&1
+  test > "$result_dir/simulator-tests.log" 2>&1
 xcrun xcresulttool get test-results summary --path "$result_dir/Native.xcresult" > "$result_dir/summary.json"
 python3 - "$result_dir/summary.json" <<'PY'
 import json,sys

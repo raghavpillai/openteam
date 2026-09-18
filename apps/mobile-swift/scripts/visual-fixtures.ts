@@ -73,7 +73,19 @@ export function visualFixture(base: any, scene: string) {
       date.setHours(14,40,0,0);
       rows.forEach(([sender,content],i)=>{ if(content==="Hi")date.setHours(14,52,0,0); message(channel.id,sender,content,i+1); });
     } else
-    if(scene==="history") {
+    if(scene === "history-pages") {
+      for (let i = 1; i <= 180; i++) message(channel.id, i % 2 ? "user" : "agent", `Page message ${i}`, i);
+    } else if(scene === "performance-text" || scene === "performance-rich") {
+      // Already-loaded histories, as after pagination or restoring the local cache.
+      // Bounded, deterministic workloads shared by the before/after UI benchmark.
+      const count = scene === "performance-text" ? 1000 : 200;
+      for (let i = 1; i <= count; i++) {
+        const content = scene === "performance-rich" && i % 10 === 0
+          ? `History item ${i}.\n\n| Item | Status |\n| --- | --- |\n| Rendered table | Ready |\n| Formula | $x^2 + y^2$ |\n\n> A longer quoted message to exercise variable-height document layout.`
+          : `History item ${i}.\n\nA multiline conversation with **emphasis** and \`inline code\`. ${"Keep the conversation responsive. ".repeat(1 + i % 4)}`;
+        message(channel.id, i % 2 ? "user" : "agent", content, i);
+      }
+    } else if(scene==="history") {
       for(let i=1;i<=200;i++) message(channel.id,i%2?"user":"agent",`History item ${i}.\n\nA multiline conversation with **emphasis** and \`inline code\`. Keep the text responsive while scrolling, entering a draft, and returning home.`,i);
     } else if(isLong) {
       message(channel.id,"user",'Use RecallMemory twice, with scope agent and limit 50: query "MPAIR-914-A Zephyr" and query "MPAIR-914-A Helios". Report both raw tool resultThis is the disposable compaction test CEDAR-QUARTZ-913. Name this bot Compaction Ten 0913. We are planning a fictional release, not performing it. Project CEDAR-QUARTZ has owner Lena Ortiz. Initial port 6201 and region us-west-1 are provisional. Deployment requires reviewer approval. For each numbered update in this test, keep the current decisions in conversational context and acknowledge with ACK plus the update number. Do not write project notes or use retrieval during these ten updates. Update 1: acknowledge ACK1.ts verbatim, not what you recall from this chat. Do not write memory or read transcripts.',1);

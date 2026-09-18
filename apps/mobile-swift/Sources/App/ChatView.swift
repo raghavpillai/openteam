@@ -12,8 +12,11 @@ struct ChatView: View {
   @State private var details = false
   @State private var duplicatedChannel: String?
   @State private var computer = false
-  @State private var scrollFeedback = ScrollEdgeFeedback()
+  @State private var scrollFeedback = ChatScrollFeedback()
+  @State private var timelineCache = ChatTimelineCache()
   @State private var bottomVisible = true
+  @State private var followsLatest = true
+  @State private var paginationAnchor: ChatPageAnchor?
   @State private var thread: Message?
   @State private var threadFocus: String?
   @State private var unreadBoundary: String?
@@ -23,24 +26,44 @@ struct ChatView: View {
     store.messages(channel.id).filter { !$0.metadata["branched"].bool }
   }
   var body: some View {
+    let timeline = timelineCache.project(store.messages(channel.id))
     GeometryReader { geometry in
       ScrollViewReader { proxy in
         ScrollView {
-          // Mixed-font message heights must remain stable as history scrolls. A lazy
-          // stack can repeatedly invalidate its estimates during glass/scroll layout.
           VStack(alignment: .leading, spacing: 12) {
             if store.histories[channel.id]?.hasMore == true {
               Button("Load earlier messages") {
-                Task { await store.loadHistory(channel.id, older: true) }
+                if let first = timeline.entries.first {
+                  followsLatest = false
+                  paginationAnchor = ChatPageAnchor(
+                    id: first.id, frame: scrollFeedback.firstRowFrame,
+                    timestampHeight: first.timestamp == nil
+                      ? 0 : scrollFeedback.firstTimestampHeight + 12)
+                }
+                Task {
+                  await store.loadHistory(channel.id, older: true)
+                  if store.messages(channel.id).first?.id == paginationAnchor?.id {
+                    paginationAnchor = nil
+                  }
+                }
               }.font(.footnote).frame(maxWidth: .infinity).disabled(
                 store.busy.contains("history-" + channel.id))
             }
-            let replyCounts = ThreadProjection.replyCounts(in: store.messages(channel.id))
-            ForEach(Array(rows.enumerated()), id: \.element.id) { index, message in
+            ForEach(timeline.entries) { entry in
+              let message = entry.message
               VStack(alignment: .leading, spacing: 12) {
-                if needsTimestamp(index), let date = message.date {
-                  Text(timestamp(date)).font(.system(size: 13)).foregroundStyle(NativePalette.faint)
-                    .frame(maxWidth: .infinity).padding(.bottom, 2)
+                if let date = entry.timestamp {
+                  Text(timestamp(date)).font(.system(size: 13)).foregroundStyle(
+                    NativePalette.faint
+                  )
+                  .frame(maxWidth: .infinity).padding(.bottom, 2)
+                  .onGeometryChange(for: CGFloat.self) { geometry in
+                    store.histories[channel.id]?.hasMore == true
+                      && entry.id == timeline.entries.first?.id
+                      ? geometry.size.height : 0
+                  } action: { _, height in
+                    if height > 0 { scrollFeedback.firstTimestampHeight = height }
+                  }
                 }
                 if unreadBoundary == message.id {
                   HStack(spacing: 10) {
@@ -52,17 +75,27 @@ struct ChatView: View {
                 }
                 if message.metadata["event"]["type"].string == "name-changed" {
                   Label(
-                    "Renamed to " + message.metadata["event"]["to"].string, systemImage: "pencil"
+                    "Renamed to " + message.metadata["event"]["to"].string,
+                    systemImage: "pencil"
                   )
                   .font(.system(size: 12)).foregroundStyle(NativePalette.muted).frame(
                     maxWidth: .infinity)
                 } else {
                   MessageRow(
                     message: message, channel: channel, onReply: { reply(message) },
-                    onThread: { thread = message }, threadReplyCount: replyCounts[message.id] ?? 0
+                    onThread: { thread = message },
+                    threadReplyCount: timeline.replyCounts[message.id] ?? 0
                   )
                 }
               }.id(message.id)
+                .onGeometryChange(for: CGRect.self) { geometry in
+                  store.histories[channel.id]?.hasMore == true
+                    && entry.id == timeline.entries.first?.id
+                    ? geometry.frame(in: .named("chat-history")) : .zero
+                } action: { _, frame in
+                  if frame != .zero { scrollFeedback.firstRowFrame = frame }
+                }
+
             }
             ForEach(
               store.state.outbox.filter { $0.channelId == channel.id && $0.input.isFork != true }
@@ -84,51 +117,93 @@ struct ChatView: View {
               } else if !store.activeRuns(channel.id).isEmpty {
                 ProgressView().frame(height: 54).padding(.bottom, 12)
               }
-              Color.clear.frame(height: 1).id("bottom")
-                .onScrollVisibilityChange(threshold: 0.5) { visible in
-                  bottomVisible = visible
-                  if visible { Task { await store.markRead(channel.id) } }
-                }
-            }
-          }.padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
-        }.defaultScrollAnchor(.bottom, for: .initialOffset)
-          // Let the scroll view align short content. A minimum height on LazyVStack
-          // feeds its estimated height back into layout while rows are materialized.
+              Color.clear.frame(height: 1)
+            }.padding(.bottom, 10).id("bottom")
+          }
+          .padding(.horizontal, 16).padding(.top, 14)
+        }.coordinateSpace(name: "chat-history")
+          // Keep stable eager layout for variable-height text/WebKit content.
+          // iOS 26 lazy stacks can loop layout when tall rows enter the viewport.
+          .defaultScrollAnchor(.bottom, for: .initialOffset)
           .defaultScrollAnchor(.bottom, for: .alignment)
           .onScrollPhaseChange { _, phase in
             if phase == .interacting {
-              scrollFeedback.begin()
+              scrollFeedback.interacting = true
+              followsLatest = false
+              scrollFeedback.value.begin()
+              if scrollFeedback.band == 2 {
+                _ = scrollFeedback.value.observe(remaining: 24, scrollable: true)
+              }
             } else if phase != .decelerating {
-              scrollFeedback.end()
+              scrollFeedback.interacting = false
+              if scrollFeedback.band == 0 {
+                followsLatest = true
+                Task { await store.markRead(channel.id) }
+              }
+              scrollFeedback.value.end()
             }
           }
-          .onScrollGeometryChange(for: [Double].self) { geometry in
-            [
-              ScrollEdgeFeedback.remaining(
-                content: Double(geometry.contentSize.height),
-                viewport: Double(geometry.containerSize.height),
-                offset: Double(geometry.contentOffset.y),
-                topInset: Double(geometry.contentInsets.top)),
-              Double(geometry.contentSize.height - geometry.containerSize.height),
-            ]
-          } action: { _, metrics in
-            if scrollFeedback.observe(remaining: metrics[0], scrollable: metrics[1] > 0) {
+          .onScrollGeometryChange(for: CGFloat.self) {
+            $0.contentSize.height
+          } action: { _, _ in
+            guard followsLatest, !scrollFeedback.interacting else { return }
+            scrollFeedback.followTask?.cancel()
+            scrollFeedback.followTask = Task { @MainActor in
+              await Task.yield()
+              guard !Task.isCancelled, followsLatest, !scrollFeedback.interacting else { return }
+              proxy.scrollTo("bottom", anchor: .bottom)
+            }
+          }
+          .onScrollGeometryChange(for: Int.self) { geometry in
+            let remaining = ScrollEdgeFeedback.remaining(
+              content: Double(geometry.contentSize.height),
+              viewport: Double(geometry.containerSize.height),
+              offset: Double(geometry.contentOffset.y),
+              topInset: Double(geometry.contentInsets.top))
+            // Only the haptic thresholds matter. Observing every pixel used to
+            // invalidate the whole history during each scroll animation frame.
+            return geometry.contentSize.height <= geometry.containerSize.height
+              ? -1
+              : remaining <= 2 ? 0 : remaining < 24 ? 1 : 2
+          } action: { _, band in
+            scrollFeedback.band = band
+            bottomVisible = band <= 0
+            if bottomVisible, followsLatest { Task { await store.markRead(channel.id) } }
+            if scrollFeedback.value.observe(
+              remaining: band == 2 ? 24 : band == 1 ? 12 : 0,
+              scrollable: band >= 0)
+            {
               NativeHaptics.play(.selection, source: "chat.latest-scroll")
             }
           }
           .scrollDismissesKeyboard(.interactively)
           .scrollClipDisabled()
           .onChange(of: geometry.size.height) { old, new in
-            if new < old, bottomVisible { proxy.scrollTo("bottom", anchor: .bottom) }
+            if new < old, followsLatest { proxy.scrollTo("bottom", anchor: .bottom) }
           }
-          .onChange(of: rows.last?.id) { _, _ in
-            if bottomVisible {
+          .onChange(of: timeline.entries.last?.id) { _, _ in
+            if followsLatest {
               proxy.scrollTo("bottom", anchor: .bottom)
               Task { await store.markRead(channel.id) }
             }
           }
+          .onChange(of: timeline.entries.first?.id) { _, _ in
+            guard let anchor = paginationAnchor,
+              let entry = timeline.entries.first(where: { $0.id == anchor.id })
+            else { return }
+            // A formerly first message can lose its date separator when older
+            // messages arrive. Preserve the message's bottom, not that separator.
+            let height = anchor.frame.height - (entry.timestamp == nil ? anchor.timestampHeight : 0)
+            let available = geometry.size.height - height
+            let fraction = available > 0 ? (anchor.frame.maxY - height) / available : 0
+            proxy.scrollTo(anchor.id, anchor: UnitPoint(x: 0, y: fraction))
+            paginationAnchor = nil
+          }
           .onChange(of: store.state.outbox.count) { old, new in
-            if new > old { proxy.scrollTo("bottom", anchor: .bottom) }
+            if new > old {
+              followsLatest = true
+              proxy.scrollTo("bottom", anchor: .bottom)
+            }
           }
           .onChange(of: store.focusedMessage) { _, id in
             if let id, thread == nil { focus(id, proxy: proxy) }
@@ -137,6 +212,7 @@ struct ChatView: View {
             if !bottomVisible {
               Button {
                 NativeHaptics.play(.selection, source: "chat.latest-button")
+                followsLatest = true
                 withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
               } label: {
                 Image(systemName: "chevron.down").font(.system(size: 16, weight: .medium)).frame(
@@ -167,7 +243,10 @@ struct ChatView: View {
             didPositionHistory = true
             if store.focusedRoutine != nil { details = true }
           }
-          .onDisappear { if store.activeChannel == channel.id { store.activeChannel = nil } }
+          .onDisappear {
+            scrollFeedback.followTask?.cancel()
+            if store.activeChannel == channel.id { store.activeChannel = nil }
+          }
       }
     }.nativeCanvas()
       .floatingBar(edge: .top) { header }
@@ -193,6 +272,7 @@ struct ChatView: View {
       }
   }
   private func focus(_ id: String, proxy: ScrollViewProxy) {
+    followsLatest = false
     if let message = store.messages(channel.id).first(where: { $0.id == id }),
       message.metadata["branched"].bool
     {
@@ -228,12 +308,6 @@ struct ChatView: View {
       }
     }.padding(.horizontal, 18).padding(.vertical, 6).foregroundStyle(NativePalette.text)
   }
-  func needsTimestamp(_ index: Int) -> Bool {
-    guard index > 0, let date = rows[index].date, let previous = rows[index - 1].date else {
-      return index == 0
-    }
-    return date.timeIntervalSince(previous) > 300
-  }
   func timestamp(_ date: Date) -> String {
     let formatter = DateFormatter()
     formatter.dateFormat = "h:mm a"
@@ -249,6 +323,33 @@ struct ChatView: View {
     draft.replyTo = message.id
     draft.isFork = false
     store.saveDraft(draft, channel: channel.id)
+  }
+}
+
+/// These caches are deliberately not observable: changing transient measurement
+/// state must not trigger another layout of the conversation.
+@MainActor private final class ChatScrollFeedback {
+  var value = ScrollEdgeFeedback()
+  var band = -1
+  var interacting = false
+  var firstRowFrame = CGRect.zero
+  var firstTimestampHeight: CGFloat = 0
+  var followTask: Task<Void, Never>?
+}
+private struct ChatPageAnchor {
+  let id: String
+  let frame: CGRect
+  let timestampHeight: CGFloat
+}
+@MainActor private final class ChatTimelineCache {
+  private var source: [Message] = []
+  private var value = MessageTimeline([])
+  func project(_ messages: [Message]) -> MessageTimeline {
+    if source != messages {
+      source = messages
+      value = MessageTimeline(messages)
+    }
+    return value
   }
 }
 
@@ -622,11 +723,14 @@ struct ThreadPage: View {
   let channel: Channel
   var initialFocus: String?
   let onThread: (Message) -> Void
+  @State private var timelineCache = ChatTimelineCache()
   private var draftKey: String { channel.id + ":thread:" + root.id }
   private var messages: [Message] {
     ThreadProjection.messages(root: root, in: store.messages(channel.id))
   }
   var body: some View {
+    let replyCounts = timelineCache.project(store.messages(channel.id)).replyCounts
+    let messages = self.messages
     ScrollViewReader { proxy in
       ScrollView {
         VStack(spacing: 16) {
@@ -640,7 +744,6 @@ struct ThreadPage: View {
             Text("Some earlier replies are not loaded yet.").font(.footnote).foregroundStyle(
               NativePalette.muted)
           }
-          let replyCounts = ThreadProjection.replyCounts(in: store.messages(channel.id))
           ForEach(messages) { message in
             MessageRow(
               message: message, channel: channel, onReply: { setReply(message.id) },
@@ -648,6 +751,7 @@ struct ThreadPage: View {
                 if message.id != root.id { onThread(message) } else { setReply(root.id) }
               }, threadReplyCount: replyCounts[message.id] ?? 0
             ).id(message.id)
+
           }
           let messageIDs = Set(messages.map(\.id))
           ForEach(
@@ -658,28 +762,33 @@ struct ThreadPage: View {
             }
           ) { PendingMessageView(pending: $0) }
         }.padding()
-      }.defaultScrollAnchor(.bottom).navigationTitle("Thread").navigationBarTitleDisplayMode(
-        .inline
-      )
-      .safeAreaInset(edge: .bottom) {
-        ComposerView(channel: channel, draftKey: draftKey, threadRootID: root.id)
-      }
-      .background(NativeBackGesture().frame(width: 0, height: 0))
-      .onAppear {
-        if store.draft(draftKey).replyTo == nil { setReply(root.id) }
-        if let initialFocus { proxy.scrollTo(initialFocus, anchor: .center) }
-      }
-      .onChange(of: store.focusedMessage) { _, id in
-        guard let id else { return }
-        if messages.contains(where: { $0.id == id }) {
-          proxy.scrollTo(id, anchor: .center)
-        } else if let message = store.messages(channel.id).first(where: { $0.id == id }),
-          let target = ThreadProjection.root(for: message, in: store.messages(channel.id))
-        {
-          onThread(target)
+      }.navigationTitle("Thread")
+        .navigationBarTitleDisplayMode(
+          .inline
+        )
+        .safeAreaInset(edge: .bottom) {
+          ComposerView(channel: channel, draftKey: draftKey, threadRootID: root.id)
         }
-        store.focusedMessage = nil
-      }
+        .background(NativeBackGesture().frame(width: 0, height: 0))
+        .onAppear {
+          if store.draft(draftKey).replyTo == nil { setReply(root.id) }
+          if let initialFocus {
+            proxy.scrollTo(initialFocus, anchor: .center)
+          } else if let latest = messages.last {
+            proxy.scrollTo(latest.id, anchor: .bottom)
+          }
+        }
+        .onChange(of: store.focusedMessage) { _, id in
+          guard let id else { return }
+          if messages.contains(where: { $0.id == id }) {
+            proxy.scrollTo(id, anchor: .center)
+          } else if let message = store.messages(channel.id).first(where: { $0.id == id }),
+            let target = ThreadProjection.root(for: message, in: store.messages(channel.id))
+          {
+            onThread(target)
+          }
+          store.focusedMessage = nil
+        }
     }
   }
   private func setReply(_ id: String) {

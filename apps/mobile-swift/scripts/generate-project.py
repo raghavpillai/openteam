@@ -125,6 +125,7 @@ for scheme in ['OpenTeamNative.xcscheme', 'OpenTeamReference.xcscheme']:
 (schemes / 'GlassSections.xcscheme').write_text(visual_scheme.replace('GrokbotVisualTests', 'GlassSectionsUITests'))
 (schemes / 'AttachmentReference.xcscheme').write_text(visual_scheme.replace('GrokbotVisualTests', 'AttachmentReferenceUITests'))
 (schemes / 'EdgeBack.xcscheme').write_text(visual_scheme.replace('GrokbotVisualTests', 'EdgeBackUITests'))
+(schemes / 'MessagePerformance.xcscheme').write_text(visual_scheme.replace('GrokbotVisualTests', 'MessagePerformanceUITests'))
 for scheme in ['OpenTeamNative.xcscheme', 'OpenTeamReference.xcscheme']:
     path = schemes / scheme
-    path.write_text(path.read_text().replace('</SkippedTests>', '<Test Identifier="GlassSectionsUITests"/><Test Identifier="AttachmentReferenceUITests"/><Test Identifier="EdgeBackUITests"/></SkippedTests>'))
+    path.write_text(path.read_text().replace('</SkippedTests>', '<Test Identifier="GlassSectionsUITests"/><Test Identifier="AttachmentReferenceUITests"/><Test Identifier="EdgeBackUITests"/><Test Identifier="MessagePerformanceUITests"/></SkippedTests>'))

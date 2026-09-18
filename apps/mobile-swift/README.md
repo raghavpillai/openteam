@@ -2,6 +2,8 @@
 
 A SwiftUI iPhone/iPad client for the existing OpenTeam HTTP API. This is a **migration beta**; Release builds update the existing iOS TestFlight app. Android remains in `apps/mobile`.
 
+[September 18 full iPhone QA and performance](docs/FULL-QA-0918.md) is the current status, including the deployed local server/APNs configuration and remaining performance, VNC, visual and device acceptance work.
+
 [React Native sign-in restoration](docs/AUTH-RESTORATION-0917.md) restores the animated bot field and glass welcome/server/account flow.
 
 [Live remote-desktop/VNC validation](docs/VNC-QA-0916.md) includes three reference comparisons and the remaining native gesture and refresh-rate limitations.
@@ -20,8 +22,7 @@ From the repository root:
 xcodebuild -project apps/mobile-swift/OpenTeamNative.xcodeproj \
   -scheme OpenTeamNative -sdk iphonesimulator \
   -destination 'generic/platform=iOS Simulator' \
-  -derivedDataPath apps/mobile-swift/.build-ios \
-  CODE_SIGNING_ALLOWED=NO build
+  -derivedDataPath apps/mobile-swift/.build-ios build
 
 swift test --package-path apps/mobile-swift
 ```

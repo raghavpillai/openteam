@@ -32,6 +32,16 @@ final class FormValidationTests: XCTestCase {
       try FormValidation.json(#"["--port","3000"]"#, label: "Arguments", object: false))
     XCTAssertThrowsError(try FormValidation.json("{}", label: "Arguments", object: false))
   }
+  func testMCPEndpointPreservesQueryWithoutWeakeningServerValidation() throws {
+    let endpoint = "https://example.invalid/team/mcp?tenant=qa&scope=a%2Fb"
+    XCTAssertEqual(try FormValidation.endpoint(" \(endpoint)\n"), endpoint)
+    XCTAssertEqual(try FormValidation.endpoint("http://127.0.0.1:8787/mcp?q=x"),
+                   "http://127.0.0.1:8787/mcp?q=x")
+    XCTAssertThrowsError(try API.normalize(endpoint))
+    for invalid in ["", "example.invalid/mcp", "file:///tmp", "https://", "https://user:secret@example.invalid/mcp", "https://example.invalid/mcp#fragment"] {
+      XCTAssertThrowsError(try FormValidation.endpoint(invalid))
+    }
+  }
   func testUserFormRejectsStaleOptionsUnknownKeysAndUncheckedConsent() throws {
     let form = try json(
       #"{"fields":[{"id":"consent","label":"Consent","type":"checkbox","required":true},{"id":"place","label":"Place","type":"select","required":true,"options":[{"value":"NY"}]}]}"#

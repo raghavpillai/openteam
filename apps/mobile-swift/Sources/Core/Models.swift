@@ -88,6 +88,7 @@ public struct Bot: Codable, Identifiable, Sendable, Hashable {
   public var status: String
   public var conversationId: String
   public var dmChannelId: String
+  public var updatedAt: String?
 }
 public struct Channel: Codable, Identifiable, Sendable, Hashable {
   public struct Member: Codable, Sendable, Hashable {

@@ -1,6 +1,17 @@
 import Foundation
 
 public enum FormValidation {
+  /// An MCP endpoint is a resource URL, not the server base URL. Its query is
+  /// significant and must survive validation and saving unchanged.
+  public static func endpoint(_ text: String) throws -> String {
+    let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let parts = URLComponents(string: value),
+      ["http", "https"].contains(parts.scheme?.lowercased() ?? ""),
+      let host = parts.host, !host.isEmpty, parts.user == nil, parts.password == nil,
+      parts.fragment == nil, parts.url != nil
+    else { throw APIError("Enter a valid HTTP or HTTPS endpoint without embedded credentials or a fragment.") }
+    return value
+  }
   public static func userForm(_ form: JSON, values: [String: JSON]) throws {
     let fields = form["fields"].array
     guard Set(values.keys).isSubset(of: Set(fields.map { $0["id"].string })) else { throw APIError("The form changed. Reload it before submitting.") }

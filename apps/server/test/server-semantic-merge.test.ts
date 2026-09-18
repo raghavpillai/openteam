@@ -77,7 +77,7 @@ describe("server semantic merge guard", () => {
     }
     expect(main).toContain("assetUploadByteLimit");
     expect(main).toContain("requireAssetBody");
-    expect(main).toContain("publicAssetMatch");
+    expect(main).toContain("assetMatch");
   });
 
   test("keeps auth minimal and makes malformed or future SSE cursors recoverable", async () => {

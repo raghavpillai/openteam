@@ -25,6 +25,7 @@ let authExpired = false;
 let invalidServer = false;
 let missingToken = false;
 let memories: any[] = [];
+let pagedHistory = false;
 let failures: Record<string, {status?: number; message?: string; count?: number; delayMs?: number}> = {};
 let functionality = new FunctionalFixtures();
 let screen = {state:"ready",width:1280,height:800,humanTakeover:false,apps:["chromium","thunar","terminal"]};
@@ -38,6 +39,7 @@ function reset() {
   snapshot.runtime.transcription = "configured";
   sequence = 14; events = []; deliveries.clear(); routines = []; offline = false; dropNextSend = false; authRequired = false;
   dropNextRoutineRun = false;
+  pagedHistory = false;
   requestLog.length = 0;
   failures = {}; authExpired = false; invalidServer = false; missingToken = false;
   functionality = new FunctionalFixtures(); screen.humanTakeover=false; screen.state="ready"; contentReceipts=[]; routineExecutions=[];
@@ -51,7 +53,7 @@ function emit(topic = "channel.message.created", entityId: string | null = null)
 }
 function bootstrap(): ClientBootstrapView {
   return { cursor: String(sequence), workspace: snapshot.workspace, bots: snapshot.bots, channels: snapshot.channels,
-    latestMessages: snapshot.channelMessages, activeRuns: snapshot.runs, pendingApprovals: snapshot.approvals.filter(a => a.status === "pending"),
+    latestMessages: pagedHistory ? snapshot.channelMessages.slice(-60) : snapshot.channelMessages, activeRuns: snapshot.runs, pendingApprovals: snapshot.approvals.filter(a => a.status === "pending"),
     channelRounds: [], subagents: [], runtime: snapshot.runtime, capabilities: { } as any };
 }
 const response = (data: unknown, status = 200) => Response.json(data, { status });
@@ -62,13 +64,22 @@ const server = Bun.serve({
     let input: any = {};
     if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) { try { input = await request.json(); } catch {} }
     if (path === "/__qa/reset" && method === "POST") { reset(); emit("snapshot.reset"); return response({ ok: true }); }
-    if (path === "/__qa/scene" && method === "POST") { reset(); const visual=visualFixture(snapshot,input.scene); snapshot=visual.snapshot; settings=visual.sidebar; sequence=100; emit("snapshot.reset"); return response({ok:true}); }
+    if (path === "/__qa/scene" && method === "POST") { reset(); const visual=visualFixture(snapshot,input.scene); snapshot=visual.snapshot; settings=visual.sidebar; pagedHistory=input.scene==="history-pages"; sequence=Math.max(100,...snapshot.channelMessages.map(m=>Number(m.sequence))); emit("snapshot.reset"); return response({ok:true}); }
     if (path === "/__qa/content" && method === "POST") { snapshot=contentScene(snapshot,input.scene); sequence=400; emit("snapshot.reset"); return response({ok:true}); }
     if (path === "/__qa/control" && method === "POST") {
       offline = input.offline ?? offline; dropNextSend = input.dropNextSend ?? dropNextSend; authRequired = input.authRequired ?? authRequired;
       dropNextRoutineRun = input.dropNextRoutineRun ?? dropNextRoutineRun;
       if (input.screenState) screen.state = input.screenState;
       if (input.pluginCanAuthenticate !== undefined) functionality.connection.canAuthenticate = input.pluginCanAuthenticate;
+      if (input.configuration) Object.assign(functionality.configuration, input.configuration);
+      if (input.customAvatarRevision) {
+        snapshot.bots[0]!.hasAvatar = true;
+        snapshot.bots[0]!.icon = "classic";
+        snapshot.bots[0]!.color = "#A47952";
+        snapshot.bots[0]!.updatedAt = input.customAvatarRevision;
+        const group = snapshot.channels.find(c => c.kind === "group");
+        if (group) { group.hasAvatar = true; group.updatedAt = input.customAvatarRevision; }
+      }
       if (input.expireTakeover) screen.humanTakeover = false;
       authExpired = input.authExpired ?? authExpired; invalidServer = input.invalidServer ?? invalidServer; missingToken = input.missingToken ?? missingToken;
       if (input.failures) failures = input.failures;
@@ -106,6 +117,7 @@ const server = Bun.serve({
     }
     if(path === "/api/v0/transcriptions" && method === "POST") return response({text:"Native voice QA transcription"});
     if(path.endsWith("/screen"))return response(screen);
+    if(path.endsWith("/avatar"))return new Response(Bun.file(new URL("./fixtures/attachment.png",import.meta.url)),{headers:{"Content-Type":"image/png"}});
     if(path.endsWith("/screen/frame"))return new Response(Bun.file(new URL("./fixtures/computer.png",import.meta.url)),{headers:{"Content-Type":"image/png"}});
     if(path.endsWith("/screen/takeover")){screen.humanTakeover=input.active;contentReceipts.push({path,active:input.active});return response(screen);}
     if(path.endsWith("/screen/actions")){if(!screen.humanTakeover)return response({message:"Take control first."},409);contentReceipts.push({path,...input});return response(screen);}
@@ -142,7 +154,8 @@ const server = Bun.serve({
     if (path.endsWith("/history")) {
       const channelId = path.split("/")[4]; const before = url.searchParams.get("before");
       const messages = snapshot.channelMessages.filter(m => m.channelId === channelId && (!before || Number(m.sequence) < Number(before)));
-      return response({ channelId, messages, threadContext: [], threadContextTruncated: false, beforeSequence: messages[0]?.sequence ?? null, hasMore: false, revision: String(sequence) });
+      const page = pagedHistory ? messages.slice(-60) : messages;
+      return response({ channelId, messages: page, threadContext: [], threadContextTruncated: false, beforeSequence: page[0]?.sequence ?? null, hasMore: pagedHistory && messages.length > page.length, revision: String(sequence) });
     }
     if (path.endsWith("/client-state")) return response({ channelId: path.split("/")[4], revision: String(sequence), channelRounds: [], runs: snapshot.runs, runItems: [], approvals: snapshot.approvals, subagents: [], truncated: { channelRounds:false, runs:false, runItems:false, approvals:false, subagents:false } });
     if (path.includes("/message-deliveries/")) {

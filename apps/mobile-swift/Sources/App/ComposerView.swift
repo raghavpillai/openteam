@@ -68,10 +68,13 @@ struct ComposerView: View {
               let access = url.startAccessingSecurityScopedResource()
               defer { if access { url.stopAccessingSecurityScopedResource() } }
               do {
-                try await upload(
-                  Data(contentsOf: url), name: url.lastPathComponent,
-                  mime: UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
-                    ?? "application/octet-stream")
+                let mime =
+                  UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
+                  ?? "application/octet-stream"
+                if let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+                  try AttachmentLimits.validate(byteCount: size, mimeType: mime)
+                }
+                try await upload(Data(contentsOf: url), name: url.lastPathComponent, mime: mime)
               } catch {
                 NativeHaptics.failure(error, source: "composer.error")
                 store.handle(error)

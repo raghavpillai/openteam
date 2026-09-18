@@ -185,7 +185,7 @@ struct ComputerView: View {
           }.pickerStyle(.segmented)
           Text(
             trackpad
-              ? "Move the pointer by dragging. Tap to click."
+              ? "Move the pointer by dragging. Tap to click; tap then drag to drag remotely."
               : "Tap to click, drag to move, and hold to right-click."
           )
           .font(.footnote).foregroundStyle(.secondary)

@@ -15,6 +15,7 @@ struct ChatView: View {
   @State private var scrollFeedback = ScrollEdgeFeedback()
   @State private var bottomVisible = true
   @State private var thread: Message?
+  @State private var threadFocus: String?
   @State private var unreadBoundary: String?
   @State private var didCaptureBoundary = false
   @State private var didPositionHistory = false
@@ -34,6 +35,7 @@ struct ChatView: View {
               }.font(.footnote).frame(maxWidth: .infinity).disabled(
                 store.busy.contains("history-" + channel.id))
             }
+            let replyCounts = ThreadProjection.replyCounts(in: store.messages(channel.id))
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, message in
               VStack(alignment: .leading, spacing: 12) {
                 if needsTimestamp(index), let date = message.date {
@@ -57,7 +59,7 @@ struct ChatView: View {
                 } else {
                   MessageRow(
                     message: message, channel: channel, onReply: { reply(message) },
-                    onThread: { thread = message }
+                    onThread: { thread = message }, threadReplyCount: replyCounts[message.id] ?? 0
                   )
                 }
               }.id(message.id)
@@ -129,11 +131,7 @@ struct ChatView: View {
             if new > old { proxy.scrollTo("bottom", anchor: .bottom) }
           }
           .onChange(of: store.focusedMessage) { _, id in
-            if let id {
-              proxy.scrollTo(id, anchor: .center)
-              didPositionHistory = true
-              store.focusedMessage = nil
-            }
+            if let id, thread == nil { focus(id, proxy: proxy) }
           }
           .overlay(alignment: .bottomTrailing) {
             if !bottomVisible {
@@ -159,8 +157,7 @@ struct ChatView: View {
             }
             await store.loadHistory(channel.id)
             if let id = store.focusedMessage {
-              proxy.scrollTo(id, anchor: .center)
-              store.focusedMessage = nil
+              focus(id, proxy: proxy)
             } else if !didPositionHistory {
               // Custom system bars settle their safe areas after the first layout.
               // Position once after history loads so the latest bubble stays above
@@ -168,6 +165,7 @@ struct ChatView: View {
               proxy.scrollTo("bottom", anchor: .bottom)
             }
             didPositionHistory = true
+            if store.focusedRoutine != nil { details = true }
           }
           .onDisappear { if store.activeChannel == channel.id { store.activeChannel = nil } }
       }
@@ -190,8 +188,26 @@ struct ChatView: View {
         if let bot = store.bot(for: channel) { ComputerView(bot: bot) }
       }
       .sheet(item: $thread) { message in
-        ThreadView(root: message, channel: channel).referenceSheet()
+        ThreadView(root: message, channel: channel, initialFocus: threadFocus).referenceSheet()
+          .onDisappear { threadFocus = nil }
       }
+  }
+  private func focus(_ id: String, proxy: ScrollViewProxy) {
+    if let message = store.messages(channel.id).first(where: { $0.id == id }),
+      message.metadata["branched"].bool
+    {
+      if let root = ThreadProjection.root(for: message, in: store.messages(channel.id)) {
+        threadFocus = id
+        thread = root
+      } else {
+        store.error =
+          "The start of this thread is unavailable. Load earlier messages and try again."
+      }
+    } else {
+      proxy.scrollTo(id, anchor: .center)
+    }
+    didPositionHistory = true
+    store.focusedMessage = nil
   }
   var header: some View {
     HStack(spacing: 8) {
@@ -244,6 +260,7 @@ struct MessageRow: View {
   let channel: Channel
   var onReply: () -> Void
   var onThread: () -> Void
+  var threadReplyCount = 0
   @State private var actions = false
   @State private var drag: CGFloat = 0
   @State private var swipeFeedback = ReplySwipeFeedback()
@@ -284,7 +301,18 @@ struct MessageRow: View {
                 : NativePalette.assistant,
               in: RoundedRectangle(cornerRadius: 24))
           }
-          ForEach(message.attachments, id: \.self) { AttachmentView(asset: $0, channelID: channel.id, messageID: message.id) }
+          ForEach(message.attachments, id: \.self) {
+            AttachmentView(asset: $0, channelID: channel.id, messageID: message.id)
+          }
+          let replies = threadReplyCount
+          if replies > 0 {
+            Button(
+              "\(replies) \(replies == 1 ? "reply" : "replies")",
+              systemImage: "bubble.left.and.bubble.right", action: onThread
+            )
+            .font(.footnote).padding(.horizontal, 12).padding(.vertical, 4)
+            .accessibilityIdentifier("thread-" + message.id)
+          }
         }.highPriorityGesture(
           LongPressGesture(minimumDuration: 0.45).onEnded { _ in openActions() }
         )
@@ -555,6 +583,7 @@ struct PendingMessageView: View {
           ).foregroundStyle(.white).background(
             NativePalette.user, in: RoundedRectangle(cornerRadius: 24))
         }
+        PendingAttachments(pending: pending)
         if let failure = pending.failure {
           Text(failure).font(.caption).foregroundStyle(NativePalette.destructive)
           HStack {
@@ -571,16 +600,34 @@ struct PendingMessageView: View {
 }
 
 struct ThreadView: View {
-  @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
   let root: Message
   let channel: Channel
+  var initialFocus: String?
+  @State private var path: [Message] = []
+  var body: some View {
+    NavigationStack(path: $path) {
+      ThreadPage(root: root, channel: channel, initialFocus: initialFocus) { path.append($0) }
+        .navigationDestination(for: Message.self) { message in
+          ThreadPage(root: message, channel: channel) { path.append($0) }
+        }
+        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+    }
+  }
+}
+
+struct ThreadPage: View {
+  @Environment(AppStore.self) private var store
+  let root: Message
+  let channel: Channel
+  var initialFocus: String?
+  let onThread: (Message) -> Void
   private var draftKey: String { channel.id + ":thread:" + root.id }
   private var messages: [Message] {
     ThreadProjection.messages(root: root, in: store.messages(channel.id))
   }
   var body: some View {
-    NavigationStack {
+    ScrollViewReader { proxy in
       ScrollView {
         VStack(spacing: 16) {
           if store.histories[channel.id]?.hasMore == true {
@@ -593,9 +640,14 @@ struct ThreadView: View {
             Text("Some earlier replies are not loaded yet.").font(.footnote).foregroundStyle(
               NativePalette.muted)
           }
+          let replyCounts = ThreadProjection.replyCounts(in: store.messages(channel.id))
           ForEach(messages) { message in
             MessageRow(
-              message: message, channel: channel, onReply: { setReply(message.id) }, onThread: {})
+              message: message, channel: channel, onReply: { setReply(message.id) },
+              onThread: {
+                if message.id != root.id { onThread(message) } else { setReply(root.id) }
+              }, threadReplyCount: replyCounts[message.id] ?? 0
+            ).id(message.id)
           }
           let messageIDs = Set(messages.map(\.id))
           ForEach(
@@ -604,21 +656,36 @@ struct ThreadView: View {
                 && ($0.draftKey == draftKey
                   || ($0.draftKey == nil && messageIDs.contains($0.input.replyToMessageId ?? "")))
             }
-          ) { pending in PendingMessageView(pending: pending) }
+          ) { PendingMessageView(pending: $0) }
         }.padding()
-      }
-      .defaultScrollAnchor(.bottom).navigationTitle("Thread").navigationBarTitleDisplayMode(.inline)
+      }.defaultScrollAnchor(.bottom).navigationTitle("Thread").navigationBarTitleDisplayMode(
+        .inline
+      )
       .safeAreaInset(edge: .bottom) {
         ComposerView(channel: channel, draftKey: draftKey, threadRootID: root.id)
       }
-      .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-      .onAppear { if store.draft(draftKey).replyTo == nil { setReply(root.id) } }
+      .background(NativeBackGesture().frame(width: 0, height: 0))
+      .onAppear {
+        if store.draft(draftKey).replyTo == nil { setReply(root.id) }
+        if let initialFocus { proxy.scrollTo(initialFocus, anchor: .center) }
+      }
+      .onChange(of: store.focusedMessage) { _, id in
+        guard let id else { return }
+        if messages.contains(where: { $0.id == id }) {
+          proxy.scrollTo(id, anchor: .center)
+        } else if let message = store.messages(channel.id).first(where: { $0.id == id }),
+          let target = ThreadProjection.root(for: message, in: store.messages(channel.id))
+        {
+          onThread(target)
+        }
+        store.focusedMessage = nil
+      }
     }
   }
-  func setReply(_ id: String) {
-    var d = store.draft(channel.id + ":thread:" + root.id)
-    d.replyTo = id
-    d.isFork = true
-    store.saveDraft(d, channel: channel.id + ":thread:" + root.id)
+  private func setReply(_ id: String) {
+    var draft = store.draft(draftKey)
+    draft.replyTo = id
+    draft.isFork = true
+    store.saveDraft(draft, channel: draftKey)
   }
 }

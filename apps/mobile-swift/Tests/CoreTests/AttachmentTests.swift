@@ -1,22 +1,40 @@
 import XCTest
+
 @testable import OpenTeamCore
 
 final class AttachmentTests: XCTestCase {
+  func testAttachmentLimitsMatchServerAtBoundaries() throws {
+    let mb = 1024 * 1024
+    for mime in ["application/pdf", "image/png", "audio/mpeg"] {
+      XCTAssertNoThrow(try AttachmentLimits.validate(byteCount: 25 * mb, mimeType: mime))
+      XCTAssertThrowsError(try AttachmentLimits.validate(byteCount: 25 * mb + 1, mimeType: mime))
+    }
+    XCTAssertNoThrow(try AttachmentLimits.validate(byteCount: 200 * mb, mimeType: "video/mp4"))
+    XCTAssertThrowsError(
+      try AttachmentLimits.validate(byteCount: 200 * mb + 1, mimeType: "video/mp4"))
+    XCTAssertThrowsError(try AttachmentLimits.validate(byteCount: 0, mimeType: "video/mp4"))
+  }
+
   func testLegacyAndArrayAttachmentsPreserveCaptionsAndSkipMalformedEntries() throws {
     let asset: JSON = .object([
       "assetId": .string(String(repeating: "a", count: 64)), "fileName": .string("Photo.png"),
       "mimeType": .string("image/png"), "kind": .string("image"), "byteSize": .number(4200),
       "width": .number(1600), "height": .number(1000), "alt": .string("Caption from the server"),
     ])
-    let url = Bundle.module.url(forResource: "bootstrap", withExtension: "json", subdirectory: "Fixtures")!
-    var message = try JSONDecoder().decode(Bootstrap.self, from: Data(contentsOf: url)).latestMessages[0]
-    message.metadata = .object(["attachment": asset, "attachments": .array([.null, asset]), "type": .string("attachment")])
+    let url = Bundle.module.url(
+      forResource: "bootstrap", withExtension: "json", subdirectory: "Fixtures")!
+    var message = try JSONDecoder().decode(Bootstrap.self, from: Data(contentsOf: url))
+      .latestMessages[0]
+    message.metadata = .object([
+      "attachment": asset, "attachments": .array([.null, asset]), "type": .string("attachment"),
+    ])
     message.content = "Photo.png"
     XCTAssertEqual(message.attachments.count, 1)
     XCTAssertEqual(message.attachments[0].alt, "Caption from the server")
     XCTAssertEqual(message.attachments[0].width, 1600)
     XCTAssertEqual(message.displayContent, "")
-    let roundTrip = try JSONDecoder().decode(Asset.self, from: JSONEncoder().encode(message.attachments[0]))
+    let roundTrip = try JSONDecoder().decode(
+      Asset.self, from: JSONEncoder().encode(message.attachments[0]))
     XCTAssertEqual(roundTrip.height, 1000)
     XCTAssertEqual(roundTrip.alt, "Caption from the server")
     message.metadata = .object(["attachment": asset])
@@ -27,7 +45,8 @@ final class AttachmentTests: XCTestCase {
   }
 
   func testTemplateExportUsesPortableRecipeWithoutAccountData() throws {
-    let url = Bundle.module.url(forResource: "bootstrap", withExtension: "json", subdirectory: "Fixtures")!
+    let url = Bundle.module.url(
+      forResource: "bootstrap", withExtension: "json", subdirectory: "Fixtures")!
     var bot = try JSONDecoder().decode(Bootstrap.self, from: Data(contentsOf: url)).bots[0]
     bot.instructions = "---\nKeep these exact instructions."
     let recipe = BotTemplateExport.recipe(bot: bot, routines: [])

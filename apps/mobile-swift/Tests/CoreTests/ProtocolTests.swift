@@ -32,6 +32,13 @@ final class ProtocolTests: XCTestCase {
       reply("a", to: "root"),
     ]
     XCTAssertEqual(ThreadProjection.messages(root: root, in: rows).map(\.id), ["root", "a", "b"])
+    XCTAssertEqual(ThreadProjection.replyCounts(in: rows + [root]), ["root": 2, "a": 1])
+    XCTAssertEqual(
+      ThreadProjection.messages(root: reply("a", to: "root"), in: rows + [root]).map(\.id),
+      ["a", "b"])
+    XCTAssertEqual(ThreadProjection.root(for: reply("b", to: "a"), in: rows + [root])?.id, "root")
+    XCTAssertNil(ThreadProjection.root(for: reply("cycle1", to: "cycle2"), in: rows + [root]))
+    XCTAssertNil(ThreadProjection.root(for: reply("missing", to: "gone"), in: rows + [root]))
   }
   func testServerValidationAndSubpathRouting() throws {
     let api = try API(server: " HTTPS://Example.com/team/// ")

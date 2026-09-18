@@ -55,13 +55,7 @@ struct NativePreferencesView: View {
         Text("OpenTeam follows your iPhone’s language, text size and time zone.").font(.footnote)
           .foregroundStyle(NativePalette.muted)
       }
-      Section("Auto-review rules") {
-        Label("Managed on your computer", systemImage: "checkmark.shield")
-        Text(
-          "Auto-review protects actions on the computer running OpenTeam. Manage its permission rules in the desktop app."
-        )
-        .foregroundStyle(NativePalette.muted)
-      }
+      Section { NavigationLink("Auto-review rules") { AutoReviewRulesView() } }
     }.navigationTitle("Preferences").navigationBarTitleDisplayMode(.inline)
   }
 }

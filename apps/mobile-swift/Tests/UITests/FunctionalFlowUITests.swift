@@ -214,9 +214,7 @@ final class FunctionalFlowUITests: XCTestCase {
     error(app)
     capture("plugin-install-error", app)
     app.buttons["Install plugin"].tap()
-    XCTAssertTrue(plugin.waitForExistence(timeout: 12))
-    plugin.tap()
-    XCTAssertTrue(app.buttons["Connection settings"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.buttons["Connection settings"].waitForExistence(timeout: 12))
     capture("plugin-installed", app)
     app.buttons["Connection settings"].tap()
     let alias = app.textFields["Account alias"]

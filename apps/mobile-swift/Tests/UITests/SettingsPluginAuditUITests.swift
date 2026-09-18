@@ -29,19 +29,27 @@ import XCTest
   }
   func capture(_ name: String, _ app: XCUIApplication) {
     let image = XCTAttachment(screenshot: app.screenshot())
-    image.name = "settings-audit-" + name; image.lifetime = .keepAlways; add(image)
+    image.name = "settings-audit-" + name
+    image.lifetime = .keepAlways
+    add(image)
     let tree = XCTAttachment(string: app.debugDescription)
-    tree.name = "settings-audit-" + name + "-accessibility"; tree.lifetime = .keepAlways; add(tree)
+    tree.name = "settings-audit-" + name + "-accessibility"
+    tree.lifetime = .keepAlways
+    add(tree)
   }
   func recordState(_ name: String) async throws {
     let snapshot = try await state()
-    let data = try JSONSerialization.data(withJSONObject: snapshot, options: [.prettyPrinted, .sortedKeys])
+    let data = try JSONSerialization.data(
+      withJSONObject: snapshot, options: [.prettyPrinted, .sortedKeys])
     let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
-    attachment.name = "settings-audit-" + name + "-receipts"; attachment.lifetime = .keepAlways
+    attachment.name = "settings-audit-" + name + "-receipts"
+    attachment.lifetime = .keepAlways
     add(attachment)
   }
   func readyStatus(_ app: XCUIApplication) -> XCUIElement {
-    app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Ready' OR value == 'Ready' OR label == 'Status, Ready'")).firstMatch
+    app.descendants(matching: .any).matching(
+      NSPredicate(format: "label == 'Ready' OR value == 'Ready' OR label == 'Status, Ready'")
+    ).firstMatch
   }
   func plugins(_ app: XCUIApplication) {
     app.buttons.containing(NSPredicate(format: "label BEGINSWITH %@", "Plugins")).firstMatch.tap()
@@ -53,7 +61,8 @@ import XCTest
   func find(_ element: XCUIElement, _ app: XCUIApplication) {
     for _ in 0..<6 where !element.isHittable {
       app.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.80)).press(
-        forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.28)))
+        forDuration: 0.05,
+        thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.28)))
     }
     XCTAssertTrue(element.isHittable, element.debugDescription)
   }
@@ -76,7 +85,7 @@ import XCTest
     find(app.buttons["sign-out"], app)
     capture("01-settings-bottom", app)
     app.buttons["More preferences"].tap()
-    XCTAssertTrue(app.staticTexts["Managed on your computer"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.buttons["Auto-review rules"].waitForExistence(timeout: 8))
     capture("preferences", app)
     app.navigationBars.buttons.firstMatch.tap()
     find(haptics, app)
@@ -86,9 +95,12 @@ import XCTest
     app.buttons["appearance-picker"].tap()
     XCTAssertTrue(app.buttons["Light"].waitForExistence(timeout: 5))
     app.buttons["Light"].tap()
-    XCTAssertTrue(app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Day")).firstMatch.waitForExistence(timeout: 5))
+    XCTAssertTrue(
+      app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Day")).firstMatch
+        .waitForExistence(timeout: 5))
     capture("appearance-light", app)
-    app.buttons["appearance-picker"].tap(); app.buttons["Dark"].tap()
+    app.buttons["appearance-picker"].tap()
+    app.buttons["Dark"].tap()
   }
   func testReferenceCatalogLoadingFailureRetryAndAuthorizationStates() async throws {
     var app = try await launch("loading")
@@ -113,7 +125,9 @@ import XCTest
   func testReferenceUninstallCancellationFailureAndRecovery() async throws {
     let app = try await launch("failed")
     openCalendar(app)
-    XCTAssertTrue(app.staticTexts["Didn't finish connecting. Try signing in again."].waitForExistence(timeout: 8))
+    XCTAssertTrue(
+      app.staticTexts["Didn't finish connecting. Try signing in again."].waitForExistence(
+        timeout: 8))
     capture("06-failed-connection", app)
     let uninstall = app.buttons["Uninstall plugin"]
     find(uninstall, app)
@@ -121,17 +135,26 @@ import XCTest
     uninstall.tap()
     XCTAssertTrue(app.buttons["Uninstall"].waitForExistence(timeout: 5))
     capture("04-uninstall-confirmation", app)
-    if app.buttons["Cancel"].exists { app.buttons["Cancel"].tap() }
-    else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.55)).tap() }
+    if app.buttons["Cancel"].exists {
+      app.buttons["Cancel"].tap()
+    } else {
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.55)).tap()
+    }
     var snapshot = try await state()
-    XCTAssertEqual((snapshot["requests"] as? [[String: Any]] ?? []).filter { $0["method"] as? String == "DELETE" }.count, 0)
+    XCTAssertEqual(
+      (snapshot["requests"] as? [[String: Any]] ?? []).filter {
+        $0["method"] as? String == "DELETE"
+      }.count, 0)
     try await post(["failures": ["DELETE /api/v0/plugins/qa-calendar": 1]])
-    uninstall.tap(); app.buttons["Uninstall"].tap()
-    XCTAssertTrue(app.alerts.buttons["OK"].waitForExistence(timeout: 8))
+    uninstall.tap()
+    app.buttons["Uninstall"].tap()
+    XCTAssertTrue(
+      app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] %@", "try again shortly"))
+        .firstMatch.waitForExistence(timeout: 8))
     capture("uninstall-error", app)
-    app.alerts.buttons["OK"].tap()
     XCTAssertTrue(uninstall.exists)
-    uninstall.tap(); app.buttons["Uninstall"].tap()
+    uninstall.tap()
+    app.buttons["Uninstall"].tap()
     XCTAssertTrue(app.navigationBars["Plugins"].waitForExistence(timeout: 8))
     capture("03-after-removal", app)
     snapshot = try await state()
@@ -146,16 +169,26 @@ import XCTest
     plugin("Google Calendar", app).tap()
     try await post(["failures": ["POST /api/v0/plugins/install": 1]])
     app.buttons["Install plugin"].tap()
-    XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] %@", "try again shortly")).firstMatch.waitForExistence(timeout: 8))
+    XCTAssertTrue(
+      app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] %@", "try again shortly"))
+        .firstMatch.waitForExistence(timeout: 8))
     capture("install-error", app)
     app.buttons["Install plugin"].tap()
-    XCTAssertTrue(app.navigationBars["Plugins"].waitForExistence(timeout: 8))
-    plugin("Google Calendar", app).tap()
-    XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 8))
+    let backgrounded = expectation(
+      for: NSPredicate(format: "state != %d", XCUIApplication.State.runningForeground.rawValue),
+      evaluatedWith: app)
+    await fulfillment(of: [backgrounded], timeout: 12)
+    app.activate()
+    XCTAssertTrue(app.buttons["Reopen sign-in"].waitForExistence(timeout: 8))
+    let installedState = try await state()
+    XCTAssertEqual(installedState["authCount"] as? Int, 1)
     try await post(["holdConnect": true])
-    app.buttons["Connect"].tap(); app.buttons["Connect"].tap()
+    app.buttons["Connect"].tap()
+    app.buttons["Connect"].tap()
     let snapshot = try await state()
-    let connections = (snapshot["requests"] as? [[String: Any]] ?? []).filter { $0["path"] as? String == "/api/v0/plugin-connections/qa-calendar-connection/connect" }
+    let connections = (snapshot["requests"] as? [[String: Any]] ?? []).filter {
+      $0["path"] as? String == "/api/v0/plugin-connections/qa-calendar-connection/connect"
+    }
     try await post(["holdConnect": false])
     XCTAssertEqual(connections.count, 1)
     XCTAssertTrue(readyStatus(app).waitForExistence(timeout: 8))
@@ -166,7 +199,9 @@ import XCTest
     let app = try await launch("authorize", strict: false)
     openCalendar(app)
     app.buttons["Sign in"].tap()
-    let backgrounded = expectation(for: NSPredicate(format: "state != %d", XCUIApplication.State.runningForeground.rawValue), evaluatedWith: app)
+    let backgrounded = expectation(
+      for: NSPredicate(format: "state != %d", XCUIApplication.State.runningForeground.rawValue),
+      evaluatedWith: app)
     await fulfillment(of: [backgrounded], timeout: 12)
     let browser = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
     if browser.state == .runningForeground { capture("external-authorization-browser", browser) }
@@ -175,24 +210,31 @@ import XCTest
     XCTAssertTrue(app.buttons["Sign in"].waitForExistence(timeout: 8))
     capture("07-authorization-return", app)
     try await recordState("authorization-return")
-    XCTAssertTrue(readyStatus(app).waitForExistence(timeout: 3), "QA-15: Returning from authorization leaves the plugin detail at its old status.")
+    XCTAssertTrue(
+      readyStatus(app).waitForExistence(timeout: 3),
+      "QA-15: Returning from authorization leaves the plugin detail at its old status.")
   }
   func testAccessErrorClearsAfterSuccessfulReload() async throws {
     let app = try await launch("access")
     openCalendar(app)
-    let failure = app.staticTexts["limit is outside the supported range"]
-    XCTAssertTrue(failure.waitForExistence(timeout: 8))
-    // Bypass the separately reproduced page-limit bug solely to exercise error recovery.
-    try await post(["strictAccess": false])
     let search = app.textFields["Search bots"]
-    find(search, app); search.tap(); search.typeText("Memory")
-    XCTAssertTrue(app.switches["Memory Box 914"].waitForExistence(timeout: 8))
+    find(search, app)
+    try await post(["failures": ["GET /api/v0/plugins/qa-calendar/bot-access": 1]])
+    search.tap()
+    search.typeText("Memory\n")
+    let failure = app.staticTexts.containing(
+      NSPredicate(format: "label CONTAINS[c] %@", "try again shortly")
+    ).firstMatch
+    XCTAssertTrue(failure.waitForExistence(timeout: 8))
+    app.buttons["Retry bot access"].tap()
+    XCTAssertTrue(app.switches["Enable for Memory Box 914"].waitForExistence(timeout: 8))
     // Form rows are virtualized; bring the prior error back into view before asserting absence.
     app.collectionViews.firstMatch.swipeDown()
     app.collectionViews.firstMatch.swipeDown()
     capture("stale-access-error", app)
     try await recordState("stale-access-error")
-    XCTAssertFalse(failure.exists, "QA-20: A successful bot-access reload never clears the earlier error.")
+    XCTAssertFalse(
+      failure.exists, "QA-20: A successful bot-access reload never clears the earlier error.")
   }
   func testNoMatchingPluginsHasAnEmptySearchExplanation() async throws {
     let app = try await launch()
@@ -200,9 +242,17 @@ import XCTest
     XCTAssertTrue(plugin("Gmail", app).waitForExistence(timeout: 8))
     let search = app.searchFields.firstMatch
     XCTAssertTrue(search.exists)
-    search.tap(); search.typeText("NoSuchPluginForAudit")
+    search.tap()
+    search.typeText("NoSuchPluginForAudit")
     capture("search-no-results", app)
-    XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] 'no results' OR label CONTAINS[c] 'no plugins' OR label CONTAINS[c] 'no matching'")).firstMatch.exists, "QA-21: Empty filtered results display no explanation or recovery guidance.")
+    XCTAssertTrue(
+      app.staticTexts.containing(
+        NSPredicate(
+          format:
+            "label CONTAINS[c] 'no results' OR label CONTAINS[c] 'no plugins' OR label CONTAINS[c] 'no matching'"
+        )
+      ).firstMatch.exists,
+      "QA-21: Empty filtered results display no explanation or recovery guidance.")
   }
   func testUninstallReconcilesAfterLostSuccessResponse() async throws {
     let app = try await launch("failed", strict: false)
@@ -210,17 +260,87 @@ import XCTest
     let uninstall = app.buttons["Uninstall plugin"]
     find(uninstall, app)
     try await post(["loseDeleteResponse": true])
-    uninstall.tap(); app.buttons["Uninstall"].tap()
-    XCTAssertTrue(app.alerts.buttons["OK"].waitForExistence(timeout: 8))
-    app.alerts.buttons["OK"].tap()
+    uninstall.tap()
+    app.buttons["Uninstall"].tap()
+    XCTAssertTrue(app.navigationBars["Plugins"].waitForExistence(timeout: 8))
     let snapshot = try await state()
     let installs = (snapshot["settings"] as? [String: Any])?["installs"] as? [[String: Any]] ?? []
     XCTAssertFalse(installs.contains { $0["pluginKey"] as? String == "qa-calendar" })
-    uninstall.tap(); app.buttons["Uninstall"].tap()
-    XCTAssertTrue(app.alerts.buttons["OK"].waitForExistence(timeout: 8))
-    capture("uninstall-lost-acknowledgment", app)
     try await recordState("uninstall-lost-acknowledgment")
-    app.alerts.buttons["OK"].tap()
-    XCTAssertTrue(app.navigationBars["Plugins"].waitForExistence(timeout: 3), "QA-22: A committed uninstall with a lost response leaves the detail stuck; retry returns 404 without reconciling removal.")
+
   }
+  func testAuthorizationReopenCancelExpiryAndLostResponse() async throws {
+    let app = try await launch("authorize")
+    openCalendar(app)
+    try await post(["loseAuthResponse": true])
+    app.buttons["Sign in"].tap()
+    let backgrounded = expectation(
+      for: NSPredicate(format: "state != %d", XCUIApplication.State.runningForeground.rawValue),
+      evaluatedWith: app)
+    await fulfillment(of: [backgrounded], timeout: 12)
+    app.activate()
+    XCTAssertTrue(app.buttons["Reopen sign-in"].waitForExistence(timeout: 8))
+    var snapshot = try await state()
+    XCTAssertEqual(snapshot["authCount"] as? Int, 1)
+    app.buttons["Reopen sign-in"].tap()
+    let reopened = expectation(
+      for: NSPredicate(format: "state != %d", XCUIApplication.State.runningForeground.rawValue),
+      evaluatedWith: app)
+    await fulfillment(of: [reopened], timeout: 12)
+    app.activate()
+    snapshot = try await state()
+    XCTAssertEqual(snapshot["authCount"] as? Int, 1)
+    try await post(["expired": true])
+    XCTAssertTrue(app.staticTexts["Sign-in expired"].waitForExistence(timeout: 8))
+    app.buttons["Try again"].tap()
+    let restarted = expectation(
+      for: NSPredicate(format: "state != %d", XCUIApplication.State.runningForeground.rawValue),
+      evaluatedWith: app)
+    await fulfillment(of: [restarted], timeout: 12)
+    app.activate()
+    XCTAssertTrue(app.buttons["Cancel sign-in"].waitForExistence(timeout: 8))
+    app.buttons["Cancel sign-in"].tap()
+    XCTAssertTrue(app.buttons["Sign in"].waitForExistence(timeout: 8))
+    XCTAssertFalse(app.buttons["Reopen sign-in"].exists)
+    snapshot = try await state()
+    XCTAssertEqual(snapshot["authCount"] as? Int, 2)
+    let requests = snapshot["requests"] as? [[String: Any]] ?? []
+    let cancel = requests.last {
+      ($0["path"] as? String)?.hasSuffix("/authenticate/cancel") == true
+    }
+    XCTAssertEqual((cancel?["input"] as? [String: Any])?["state"] as? String, "session-2")
+    try await recordState("authorization-lifecycle")
+  }
+  func testBotEnablementAndAccountGrantsStaySeparate() async throws {
+    let app = try await launch("access")
+    openCalendar(app)
+    let search = app.textFields["Search bots"]
+    find(search, app)
+    search.tap()
+    search.typeText("Memory\n")
+    let enable = app.switches["Enable for Memory Box 914"]
+    XCTAssertTrue(enable.waitForExistence(timeout: 8))
+    find(enable, app)
+    enable.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+    capture("enable-attempt", app)
+    try await recordState("enable-attempt")
+    let enabled = expectation(for: NSPredicate(format: "value == '1'"), evaluatedWith: enable)
+    await fulfillment(of: [enabled], timeout: 8)
+    let account = app.switches["Allow QA account"]
+    find(account, app)
+    account.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+    capture("account-grant", app)
+    try await recordState("account-grant")
+    let granted = expectation(for: NSPredicate(format: "value == '1'"), evaluatedWith: account)
+    await fulfillment(of: [granted], timeout: 8)
+    enable.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+    let disabled = expectation(for: NSPredicate(format: "value == '0'"), evaluatedWith: enable)
+    await fulfillment(of: [disabled], timeout: 8)
+    let snapshot = try await state()
+    let access = (snapshot["access"] as? [String: Any])?["visual-bot-0"] as? [String: Any]
+    XCTAssertEqual(access?["skillsEnabled"] as? Bool, false)
+    XCTAssertEqual(access?["grantedConnectionIds"] as? [String], ["qa-calendar-connection"])
+    try await recordState("separate-bot-account-access")
+  }
+
 }

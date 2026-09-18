@@ -24,14 +24,16 @@ final class ComputerSurfaceView: UIView, UIScrollViewDelegate, UIGestureRecogniz
   private var controlling = false
   private var trackpad = false
   private var action: ([String: JSON]) -> Void = { _ in }
-  private var path: [CGPoint] = []
   private var remotePointer = CGPoint(x: 640, y: 400)
-  private var lastTranslation = CGPoint.zero
   private var baseSize = CGSize.zero
-  private lazy var tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
-  private lazy var doubleTap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
-  private lazy var drag = UIPanGestureRecognizer(target: self, action: #selector(dragged(_:)))
-  private lazy var hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
+  private var viewportGesture = false
+  private var trackpadStart = CGPoint.zero
+  private lazy var pointerGesture = ComputerPointerGesture(
+    target: self, action: #selector(pointerChanged(_:)))
+  private lazy var twoFingerTap = UITapGestureRecognizer(
+    target: self, action: #selector(twoTapped(_:)))
+  private lazy var twoFingerPan = UIPanGestureRecognizer(
+    target: self, action: #selector(twoPanned(_:)))
   override init(frame: CGRect) {
     super.init(frame: frame)
     backgroundColor = .black
@@ -53,11 +55,11 @@ final class ComputerSurfaceView: UIView, UIScrollViewDelegate, UIGestureRecogniz
     pointer.bounds = CGRect(x: 0, y: 0, width: 14, height: 14)
     pointer.isUserInteractionEnabled = false
     picture.addSubview(pointer)
-    doubleTap.numberOfTapsRequired = 2
-    tap.require(toFail: doubleTap)
-    drag.maximumNumberOfTouches = 1
-    hold.minimumPressDuration = 0.55
-    for recognizer in [tap, doubleTap, drag, hold] {
+    twoFingerTap.numberOfTouchesRequired = 2
+    twoFingerPan.minimumNumberOfTouches = 2
+    twoFingerPan.maximumNumberOfTouches = 2
+    scroll.panGestureRecognizer.require(toFail: twoFingerPan)
+    for recognizer in [pointerGesture, twoFingerTap, twoFingerPan] {
       recognizer.delegate = self
       picture.addGestureRecognizer(recognizer)
     }
@@ -76,13 +78,15 @@ final class ComputerSurfaceView: UIView, UIScrollViewDelegate, UIGestureRecogniz
     self.trackpad = trackpad
     self.action = action
     scroll.panGestureRecognizer.minimumNumberOfTouches = interactive ? 2 : 1
-    for recognizer in [tap, doubleTap, drag, hold] { recognizer.isEnabled = interactive }
+    for recognizer in [pointerGesture, twoFingerTap, twoFingerPan] {
+      if recognizer.isEnabled != interactive { recognizer.isEnabled = interactive }
+    }
     pointer.isHidden = !trackpad
     updatePointer()
     setNeedsLayout()
     picture.accessibilityHint =
       interactive
-      ? "Tap to click, hold to right-click, drag with one finger, and pinch or pan with two fingers."
+      ? "Tap to click, hold or tap with two fingers to right-click, and use two fingers to scroll. Pinch to zoom, then pan with two fingers. In trackpad mode, tap then drag to drag remotely."
       : "Take control to interact. Pinch to zoom."
   }
   override func layoutSubviews() {
@@ -103,7 +107,23 @@ final class ComputerSurfaceView: UIView, UIScrollViewDelegate, UIGestureRecogniz
     updatePointer()
   }
   func viewForZooming(in scrollView: UIScrollView) -> UIView? { picture }
+  func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) {
+    viewportGesture = true
+  }
   func scrollViewDidZoom(_ scrollView: UIScrollView) { center() }
+  override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    if gestureRecognizer === twoFingerPan { return controlling && scroll.zoomScale <= 1.01 }
+    return controlling
+  }
+  func gestureRecognizer(
+    _ gestureRecognizer: UIGestureRecognizer,
+    shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+  ) -> Bool {
+    // A second finger cancels pointer input and can become a scroll, pinch, or right-click.
+    gestureRecognizer === pointerGesture || other === pointerGesture
+      || (gestureRecognizer === twoFingerPan && other === scroll.pinchGestureRecognizer)
+      || (other === twoFingerPan && gestureRecognizer === scroll.pinchGestureRecognizer)
+  }
   private func center() {
     scroll.contentInset = UIEdgeInsets(
       top: max(0, (bounds.height - picture.frame.height) / 2),
@@ -132,37 +152,46 @@ final class ComputerSurfaceView: UIView, UIScrollViewDelegate, UIGestureRecogniz
       "button": .string(right ? "right" : "left"),
     ])
   }
-  @objc private func tapped(_ gesture: UITapGestureRecognizer) {
-    guard controlling, gesture.state == .ended else { return }
-    click(trackpad ? remotePointer : point(gesture), double: gesture.numberOfTapsRequired == 2)
+  private func remotePoint(_ point: CGPoint) -> CGPoint {
+    clamp(
+      CGPoint(
+        x: point.x / max(baseSize.width, 1) * remoteSize.width,
+        y: point.y / max(baseSize.height, 1) * remoteSize.height))
   }
-  @objc private func held(_ gesture: UILongPressGestureRecognizer) {
-    guard controlling, gesture.state == .began else { return }
-    click(trackpad ? remotePointer : point(gesture), right: true)
-  }
-  @objc private func dragged(_ gesture: UIPanGestureRecognizer) {
+  @objc private func pointerChanged(_ gesture: ComputerPointerGesture) {
     guard controlling else { return }
-    if gesture.state == .began {
-      path = [point(gesture)]
-      lastTranslation = .zero
-    }
-    if trackpad {
-      let delta = gesture.translation(in: self)
+    if gesture.state == .began { trackpadStart = remotePointer }
+    if trackpad, gesture.moved {
       remotePointer = clamp(
         CGPoint(
-          x: remotePointer.x + (delta.x - lastTranslation.x) * remoteSize.width
-            / max(baseSize.width * scroll.zoomScale, 1),
-          y: remotePointer.y + (delta.y - lastTranslation.y) * remoteSize.height
-            / max(baseSize.height * scroll.zoomScale, 1)))
-      lastTranslation = delta
+          x: trackpadStart.x + (gesture.current.x - gesture.start.x) * remoteSize.width
+            / max(baseSize.width, 1),
+          y: trackpadStart.y + (gesture.current.y - gesture.start.y) * remoteSize.height
+            / max(baseSize.height, 1)))
       updatePointer()
-      return
     }
-    if gesture.state == .changed || gesture.state == .ended {
-      let p = point(gesture)
-      if path.last != p { path.append(p) }
+    guard gesture.state == .ended else { return }
+    if gesture.moved {
+      if trackpad {
+        if gesture.tapCount >= 2 {
+          sendDrag([trackpadStart, remotePointer])
+        } else {
+          action([
+            "action": .string("move"), "x": .number(remotePointer.x), "y": .number(remotePointer.y),
+          ])
+        }
+      } else {
+        sendDrag(gesture.points.map(remotePoint))
+      }
+    } else {
+      let held = gesture.duration >= 0.55
+      click(
+        trackpad ? remotePointer : remotePoint(gesture.current),
+        double: !held && gesture.tapCount == 2, right: held)
     }
-    if gesture.state == .ended, path.count >= 2 {
+  }
+  private func sendDrag(_ path: [CGPoint]) {
+    if path.count >= 2 {
       let step = max(1, Int(ceil(Double(path.count) / 99)))
       var samples = stride(from: 0, to: path.count, by: step).map { path[$0] }
       if samples.last != path.last { samples.append(path.last!) }
@@ -172,5 +201,15 @@ final class ComputerSurfaceView: UIView, UIScrollViewDelegate, UIGestureRecogniz
           samples.prefix(100).map { .object(["x": .number($0.x), "y": .number($0.y)]) }),
       ])
     }
+  }
+  @objc private func twoTapped(_ gesture: UITapGestureRecognizer) {
+    guard controlling, gesture.state == .ended else { return }
+    click(trackpad ? remotePointer : point(gesture), right: true)
+  }
+  @objc private func twoPanned(_ gesture: UIPanGestureRecognizer) {
+    if gesture.state == .began { viewportGesture = scroll.isZooming || scroll.zoomScale > 1.01 }
+    guard controlling, gesture.state == .ended, !viewportGesture else { return }
+    let delta = max(-20, min(20, Int((gesture.translation(in: self).y / 18).rounded())))
+    if delta != 0 { action(["action": .string("scroll"), "deltaY": .number(Double(delta))]) }
   }
 }

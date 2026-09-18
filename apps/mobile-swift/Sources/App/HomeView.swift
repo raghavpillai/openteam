@@ -9,6 +9,7 @@ struct HomeView: View {
   }
   @State private var creation: CreationKind?
   @State private var search = false
+  @State private var pendingRoutine: String?
   @State private var pendingOpen: (channel: String, message: String?)?
   @State private var contentWidth: CGFloat = 390
   @State private var renamingSection: String?
@@ -115,7 +116,8 @@ struct HomeView: View {
           }.referenceSheet()
         }
         .sheet(isPresented: $search, onDismiss: openSelectedConversation) {
-          SearchView { id, message in
+          SearchView { id, message, routine in
+            pendingRoutine = routine
             pendingOpen = (id, message)
             search = false
           }.referenceSheet()
@@ -125,7 +127,12 @@ struct HomeView: View {
   func openSelectedConversation() {
     guard let target = pendingOpen else { return }
     pendingOpen = nil
-    Task { await store.open(target.channel, messageID: target.message) }
+    let routine = pendingRoutine
+    pendingRoutine = nil
+    Task {
+      store.focusedRoutine = routine
+      await store.open(target.channel, messageID: target.message)
+    }
   }
   var header: some View {
     HStack(spacing: 4) {
@@ -554,7 +561,8 @@ struct CreateConversationView: View {
 struct SearchView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
-  var onSelect: (String, String?) -> Void
+  @Environment(\.openURL) private var openURL
+  var onSelect: (String, String?, String?) -> Void
   @State private var query = ""
   @State private var category = "all"
   @State private var results: [SearchResult] = []
@@ -571,7 +579,7 @@ struct SearchView: View {
           ForEach(store.channels.filter { !store.isHidden($0) }) { channel in
             Button {
               focused = false
-              onSelect(channel.id, nil)
+              onSelect(channel.id, nil, nil)
             } label: {
               searchRow(
                 channel: channel, title: channel.name,
@@ -582,11 +590,21 @@ struct SearchView: View {
         }
         ForEach(results) { result in
           Button {
+            if result.kind == "link", let raw = result.url, let url = URL(string: raw),
+              ["https", "http", "mailto"].contains(url.scheme?.lowercased() ?? "")
+            {
+              openURL(url)
+              return
+            }
             if let channel = result.channelId
               ?? store.bots.first(where: { $0.id == result.botId })?.dmChannelId
             {
               focused = false
-              onSelect(channel, result.messageId)
+              let routine =
+                result.kind == "routine"
+                ? (result.id.hasPrefix("routine:") ? String(result.id.dropFirst(8)) : result.id)
+                : nil
+              onSelect(channel, routine == nil ? result.messageId : nil, routine)
             }
           } label: {
             searchRow(

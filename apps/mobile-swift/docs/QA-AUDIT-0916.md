@@ -1,5 +1,7 @@
 # Native iOS QA audit — September 16, 2026
 
+**Later fixes:** [Swift backlog fixes and validation](BACKLOG-FIXES-0917.md) supersede the delivery, plugin access/OAuth, approvals, thread/search and computer-gesture findings described below. Historical captures remain unchanged.
+
 **Current triage:** [September 17 status](QA-STATUS-0917.md) identifies remaining priorities, the main server's missing APNs setup, and the latest sign-in/main-screen checks. The tables below retain their original audit context.
 
 **VNC follow-up:** [Live native desktop validation](VNC-QA-0916.md) reproduces QA-12 trackpad/two-finger gaps and the QA-18 rapid tap/hold failure against the real desktop. It also verifies typing, retry, direct drag/zoom, reconnect and lease return, with three new reference comparisons. These findings remain open.

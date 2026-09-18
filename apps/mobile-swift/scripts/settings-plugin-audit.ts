@@ -10,6 +10,12 @@ const catalog = [
 ].map(p => ({ ...p, publisher: "OpenTeam QA", version: "1.0.0", setupFields: [], hasSkills: false }));
 let installed = new Set<string>();
 let status = "needs_auth";
+let authorizationUrl: string | null = null;
+let authorizationExpiresAt: string | null = null;
+let authCount = 0;
+let loseAuthResponse = false;
+let access = new Map<string, { skillsEnabled: boolean; grantedConnectionIds: string[] }>();
+const bots = Array.from({length:64}, (_,i) => ({id: i ? `access-bot-${i}` : "visual-bot-0", name: i ? `QA Bot ${i}` : "Memory Box 914"}));
 let strictAccess = true;
 let holdCatalog = false;
 let holdConnect = false;
@@ -19,7 +25,7 @@ let requests: { method: string; path: string; query: string; input: unknown }[] 
 const connection = (key: string) => ({
   id: key + "-connection", revision: "1", pluginKey: key, connectorKey: "qa-connector",
   name: key === "qa-calendar" ? "Google Calendar" : "Gmail", alias: "QA account",
-  transport: "http", auth: "oauth", status,
+  transport: "http", auth: "oauth", status, authorizationUrl, authorizationExpiresAt,
   statusMessage: status === "error" ? "Didn't finish connecting. Try signing in again." : null,
   instructions: "", canAuthenticate: true, configured: true, tools: [],
 });
@@ -41,13 +47,16 @@ const server = Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 40, async f
     installed = new Set(["qa-gmail"]);
     status = ["failed", "catalog-failed"].includes(input.scene) ? "error" : "needs_auth";
     if (["failed", "access", "authorize", "connect"].includes(input.scene)) installed.add("qa-calendar");
+    authorizationUrl = null; authorizationExpiresAt = null; authCount = 0; loseAuthResponse = false; access = new Map();
     strictAccess = input.strictAccess ?? true;
     holdCatalog = input.scene === "loading"; holdConnect = false; loseDeleteResponse = false; failures = {}; requests = [];
     await fetch(upstream + "/__qa/scene", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scene: "dark-home" }) });
     return Response.json({ ok: true });
   }
   if (path === "/__settings/control") {
-    if (input.status) status = input.status;
+    if (input.status) { status = input.status; if (status === "ready") authorizationUrl = null; }
+    if (input.expired) authorizationExpiresAt = "2020-01-01T00:00:00Z";
+    if (input.loseAuthResponse !== undefined) loseAuthResponse = input.loseAuthResponse;
     if (input.strictAccess !== undefined) strictAccess = input.strictAccess;
     if (input.holdCatalog !== undefined) holdCatalog = input.holdCatalog;
     if (input.holdConnect !== undefined) holdConnect = input.holdConnect;
@@ -55,7 +64,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 40, async f
     if (input.failures) failures = input.failures;
     return Response.json({ ok: true });
   }
-  if (path === "/__settings/state") return Response.json({ requests, settings: settings() });
+  if (path === "/__settings/state") return Response.json({ requests, settings: settings(), access: Object.fromEntries(access), authCount });
   if (path === "/__settings/oauth") return new Response("<!doctype html><title>Isolated QA authorization</title><p>Inert authorization handoff. No credentials are requested and no provider is contacted. Return to OpenTeam Swift.</p>", { headers: { "content-type": "text/html" } });
   if (path.startsWith("/api/v0/plugin")) {
     requests.push({ method, path, query: url.search, input });
@@ -69,7 +78,20 @@ const server = Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 40, async f
       if (strictAccess && Number(url.searchParams.get("limit")) > 60) {
         return Response.json({ error: { code: "invalid_query_parameter", message: "limit is outside the supported range" } }, { status: 400 });
       }
-      return Response.json({ pluginKey: "qa-calendar", total: 1, bots: [{ id: "visual-bot-0", name: "Memory Box 914", skillsEnabled: false, grantedConnectionIds: [] }] });
+      const found = bots.filter(b => b.name.toLowerCase().includes((url.searchParams.get("q") || "").toLowerCase()));
+      const offset = Number(url.searchParams.get("offset") || 0), limit = Number(url.searchParams.get("limit") || 60);
+      return Response.json({ pluginKey: "qa-calendar", query:url.searchParams.get("q") || "", offset, total: found.length,
+        bots: found.slice(offset,offset+limit).map(b => ({...b, ...(access.get(b.id) ?? {skillsEnabled:false, grantedConnectionIds:[]})})) });
+    }
+    if (path === "/api/v0/plugin-connections/status") return Response.json({connections: url.searchParams.getAll("id").map(id => connection(id.replace(/-connection$/, "")))});
+    if (path.endsWith("/enablement") || path.endsWith("/grant")) {
+      const current = access.get(input.botId) ?? {skillsEnabled:false, grantedConnectionIds:[]};
+      if (path.endsWith("/enablement")) current.skillsEnabled = input.skillsEnabled;
+      else {
+        const id = path.split("/").at(-2)!;
+        current.grantedConnectionIds = [...new Set([...current.grantedConnectionIds.filter(v => v !== id), ...(input.enabled ? [id] : [])])];
+      }
+      access.set(input.botId, current); return Response.json({ok:true});
     }
     if (path === "/api/v0/plugins/install") {
       installed.add(input.pluginKey); return Response.json({ ok: true });
@@ -84,7 +106,17 @@ const server = Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 40, async f
       }
       return Response.json({ uninstalled: true });
     }
-    if (path.endsWith("/authenticate")) return Response.json({ authorizationUrl: `http://127.0.0.1:${port}/__settings/oauth`, status: "needs_auth" });
+    if (path.endsWith("/authenticate/cancel")) {
+      if (!authorizationUrl || new URL(authorizationUrl).searchParams.get("state") !== input.state) return Response.json({message:"Session changed"},{status:409});
+      authorizationUrl = null; authorizationExpiresAt = null; status = "needs_auth"; return Response.json({ok:true});
+    }
+    if (path.endsWith("/authenticate")) {
+      authCount++;
+      authorizationUrl = `http://127.0.0.1:${port}/__settings/oauth?state=session-${authCount}`;
+      authorizationExpiresAt = new Date(Date.now()+15*60*1000).toISOString(); status = "needs_auth";
+      if (loseAuthResponse) { loseAuthResponse = false; return Response.json({message:"Lost authorization response"},{status:503}); }
+      return Response.json({ authorizationUrl, authorizationExpiresAt, status });
+    }
     if (path.endsWith("/connect")) {
       while (holdConnect) await Bun.sleep(30);
       status = "ready"; return Response.json({ ok: true });

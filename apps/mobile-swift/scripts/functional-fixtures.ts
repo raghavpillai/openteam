@@ -6,6 +6,7 @@ export class FunctionalFixtures {
   installs: any[] = [];
   policies: any[] = [];
   access = new Set<string>();
+  grants = new Set<string>();
   configuration: any = { connectionId: "fixture-connection", namespace: "fixture", endpoint: "https://fixture.invalid/mcp", command: null, args: [], cwd: null, values: {region:"east"}, fields: [{key:"region",label:"Region",type:"string",required:true,secret:false},{key:"token",label:"API token",required:true,secret:true}], configuredSecrets:["token"], headerNames:[],environmentNames:[], setup:null,callbackUrl:"",tokenEndpointAuthMethod:"none" };
   catalog = [{key:"fixture-notes",name:"Fixture Notes",description:"An isolated notes plugin for native contract tests.",publisher:"OpenTeam QA",version:"1.0.0",installed:false,setupFields:[],connections:[],hasSkills:true}];
   connection = {id:"fixture-connection",revision:"1",pluginKey:"fixture-notes",connectorKey:"notes",name:"Notes",alias:"Main",transport:"http",auth:"token",status:"ready",statusMessage:null,instructions:"Keep notes concise.",canAuthenticate:false,configured:true,command:null,tools:[{name:"list_notes",description:"List fixture notes.",risk:"read",defaultDecision:"prompt"}]};
@@ -20,11 +21,14 @@ export class FunctionalFixtures {
     }
     if(path === "/api/v0/plugins/fixture-notes" && method === "DELETE") {this.installs=[];this.catalog[0]!.installed=false;return reply({ok:true});}
     if(path.endsWith("/bot-access")) {
-      const offset=Number(url.searchParams.get("offset") || 0),limit=Number(url.searchParams.get("limit") || 100),q=url.searchParams.get("q") || "";
-      const rows=bots.filter(b=>b.name.toLowerCase().includes(q.toLowerCase())).map(b=>({...b,skillsEnabled:this.access.has(b.id),grantedConnectionIds:this.access.has(b.id)?[this.connection.id]:[]}));
+      const offset=Number(url.searchParams.get("offset") || 0),limit=Number(url.searchParams.get("limit") || 60),q=url.searchParams.get("q") || "";
+      if(limit < 1 || limit > 60) return reply({message:"limit is outside the supported range"},400);
+      const rows=bots.filter(b=>b.name.toLowerCase().includes(q.toLowerCase())).map(b=>({...b,skillsEnabled:this.access.has(b.id),grantedConnectionIds:this.grants.has(b.id)?[this.connection.id]:[]}));
       return reply({pluginKey:"fixture-notes",query:q,offset,total:rows.length,bots:rows.slice(offset,offset+limit)});
     }
     if(path.endsWith("/enablement")) {if(input.enabled)this.access.add(input.botId);else this.access.delete(input.botId);return reply({ok:true});}
+    if(path.endsWith("/grant")) {if(input.enabled)this.grants.add(input.botId);else this.grants.delete(input.botId);return reply({ok:true});}
+    if(path === "/api/v0/plugin-connections/status") return reply({connections:[this.connection]});
     if(path.includes("/plugin-connections/")) {
       if(path.endsWith("/configuration")) {
         if(method==="PUT") {

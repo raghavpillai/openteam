@@ -201,6 +201,7 @@ import XCTest
     takeControl(app)
     app.buttons["Computer options"].tap()
     app.buttons["Input controls"].tap()
+    XCTAssertTrue(app.buttons["Trackpad"].waitForExistence(timeout: 8))
     app.buttons["Trackpad"].tap()
     app.buttons["Close input controls"].tap()
     let before = try await remote()
@@ -211,6 +212,27 @@ import XCTest
       withVelocity: .slow, thenHoldForDuration: 0)
     capture("trackpad-movement", app)
     _ = try await eventually { ($0["moves"] as? Int ?? 0) > (before["moves"] as? Int ?? 0) }
+  }
+  func testTrackpadTapThenDragReachesDesktop() async throws {
+    let app = try await launch()
+    takeControl(app)
+    app.buttons["Computer options"].tap()
+    app.buttons["Input controls"].tap()
+    XCTAssertTrue(app.buttons["Trackpad"].waitForExistence(timeout: 8))
+    app.buttons["Trackpad"].tap()
+    app.buttons["Close input controls"].tap()
+    let target = app.images["computer-screen"].coordinate(
+      withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+    target.tap()
+    target.press(
+      forDuration: 0.05, thenDragTo: target.withOffset(CGVector(dx: 65, dy: 12)),
+      withVelocity: .slow, thenHoldForDuration: 0)
+    _ = try await eventually { value in
+      (value["events"] as? [[String: Any]] ?? []).contains {
+        $0["type"] as? String == "pointermove" && $0["buttons"] as? Int == 1
+      }
+    }
+    capture("trackpad-remote-drag", app)
   }
   func testForegroundRecoveryPauseAndLeaseReturn() async throws {
     let app = try await launch()

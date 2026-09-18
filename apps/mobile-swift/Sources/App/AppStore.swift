@@ -24,6 +24,7 @@ final class AppStore {
   var connecting = false
   var busy: Set<String> = []
   var navigation: [String] = []
+  var focusedRoutine: String?
   var focusedMessage: String?
   var activeChannel: String?
   var histories: [String: History] = [:]
@@ -68,11 +69,14 @@ final class AppStore {
   }
   func approvals(_ channel: Channel) -> [Approval] {
     let runIDs = Set(activeRuns(channel.id).map(\.id))
-    return (state.bootstrap?.pendingApprovals ?? []).filter {
-      $0.status == "pending"
-        && (runIDs.contains($0.runId)
-          || $0.ownerConversationId == bot(for: channel)?.conversationId)
+    let pending = (state.bootstrap?.pendingApprovals ?? []).filter {
+      runIDs.contains($0.runId) || $0.ownerConversationId == bot(for: channel)?.conversationId
+        || $0.ownerConversationId == channel.id
     }
+    var result = Dictionary(
+      (state.approvals?[channel.id] ?? []).map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
+    for approval in pending where result[approval.id] == nil { result[approval.id] = approval }
+    return result.values.sorted { $0.id < $1.id }
   }
 
   func start() async {
@@ -468,6 +472,11 @@ final class AppStore {
     guard epoch == generation, !Task.isCancelled else { return }
     merge(page.threadContext + page.messages, channel: id)
     if before != nil || histories[id] == nil { histories[id] = page }
+    let snapshot = try await api.get(
+      "/api/v0/channels/\(API.segment(id))/client-state", as: ChannelState.self)
+    guard epoch == generation, !Task.isCancelled else { return }
+    if state.approvals == nil { state.approvals = [:] }
+    state.approvals?[id] = snapshot.approvals
     persist()
   }
   func merge(_ incoming: [Message], channel: String) {
@@ -564,12 +573,17 @@ final class AppStore {
   }
   /// Forward independently of the recipient's draft, using the durable send queue.
   func forwardAttachment(_ asset: Asset, to channel: Channel) async throws {
-    guard phase == .ready, let disk else { throw APIError("Connect to your server before forwarding.") }
+    guard phase == .ready, let disk else {
+      throw APIError("Connect to your server before forwarding.")
+    }
     var next = state
-    next.outbox.append(PendingSend(channelId: channel.id, input: SendInput(content: "", attachments: [asset])))
+    next.outbox.append(
+      PendingSend(channelId: channel.id, input: SendInput(content: "", attachments: [asset])))
     try disk.save(next)
     state = next
-    NativeHaptics.play(.light, source: "attachment.forward-send")
+    #if canImport(UIKit)
+      NativeHaptics.play(.light, source: "attachment.forward-send")
+    #endif
     await flush()
   }
   func retry(_ id: String) async {
@@ -597,6 +611,39 @@ final class AppStore {
       handle(error)
     }
   }
+  /// Recover into an existing draft without sending or losing that draft's content.
+  @discardableResult func recoverPending(_ id: String, to channelID: String) -> Bool {
+    guard channel(channelID) != nil,
+      let pending = state.outbox.first(where: { $0.id == id }),
+      channel(pending.channelId) == nil, let disk
+    else { return false }
+    var next = state
+    var draft = next.drafts[channelID] ?? Draft()
+    guard
+      draft.attachments.count + (draft.stagedFiles?.count ?? 0) + pending.input.attachments.count
+        + (pending.stagedFiles?.count ?? 0) <= 6
+    else {
+      error =
+        "This draft would have more than 6 attachments. Choose another conversation or remove an attachment from its draft first."
+      return false
+    }
+    if !pending.input.content.isEmpty {
+      draft.text = [draft.text, pending.input.content].filter { !$0.isEmpty }.joined(
+        separator: "\n\n")
+    }
+    draft.attachments += pending.input.attachments
+    draft.stagedFiles = (draft.stagedFiles ?? []) + (pending.stagedFiles ?? [])
+    next.drafts[channelID] = draft
+    next.outbox.removeAll { $0.id == id }
+    do {
+      try disk.save(next)
+      state = next
+      return true
+    } catch {
+      handle(error)
+      return false
+    }
+  }
   func flush() async {
     guard !sending, let api, online else { return }
     sending = true
@@ -604,8 +651,14 @@ final class AppStore {
     defer { if epoch == generation { sending = false } }
     // One request per nonce at a time; after a timeout, reconcile before resubmitting that same nonce.
     for pending in state.outbox where pending.failure == nil {
-      guard epoch == generation, !Task.isCancelled, let channel = channel(pending.channelId) else {
-        return
+      guard epoch == generation, !Task.isCancelled else { return }
+      guard let channel = channel(pending.channelId) else {
+        if let index = state.outbox.firstIndex(where: { $0.id == pending.id }) {
+          state.outbox[index].failure =
+            "This conversation is no longer available. Recover this message from Queued messages in Settings."
+          persist()
+        }
+        continue
       }
       do {
         let delivery = try await api.get(
@@ -842,6 +895,7 @@ final class AppStore {
     navigation = []
     activeChannel = nil
     focusedMessage = nil
+    focusedRoutine = nil
     pendingDeepLink = nil
     busy = []
     sending = false
@@ -868,7 +922,9 @@ final class AppStore {
       try LocalDataReset.erase(directories: directories)
       URLCache.shared.removeAllCachedResponses()
       HTTPCookieStorage.shared.cookies?.forEach { HTTPCookieStorage.shared.deleteCookie($0) }
-      if let domain = Bundle.main.bundleIdentifier { defaults.removePersistentDomain(forName: domain) }
+      if let domain = Bundle.main.bundleIdentifier {
+        defaults.removePersistentDomain(forName: domain)
+      }
       defaults.removeObject(forKey: LocalDataReset.pendingKey)
     } catch {
       // A failed wipe never restores the old session, including after a relaunch.

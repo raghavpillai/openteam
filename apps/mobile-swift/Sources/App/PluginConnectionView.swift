@@ -4,7 +4,6 @@ struct PluginConnectionView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
   @Environment(\.openURL) private var openURL
-  @Environment(\.scenePhase) private var scenePhase
   @State var connection: JSON
   @State private var configuration: JSON = .null
   @State private var values: [String: JSON] = [:]
@@ -23,7 +22,6 @@ struct PluginConnectionView: View {
   @State private var operation = FormOperation()
   @State private var remove = false
   @State private var loaded = false
-  @State private var awaitingAuthorization = false
   var path: String { "/api/v0/plugin-connections/\(API.segment(connection["id"].string))" }
   var body: some View {
     NativeForm {
@@ -125,38 +123,14 @@ struct PluginConnectionView: View {
         Section {
           NavigationLink("Tool permissions") { PluginToolPoliciesView(connection: connection) }
           NavigationLink("Test a tool") { PluginToolTestView(connection: connection) }
-          Button("Connect") { perform("/connect", success: "Connection started.") }
-          if connection["canAuthenticate"].bool {
-            Button("Sign in") {
-              Task {
-                guard await save(successEffect: nil) else { return }
-                await operation.run(successEffect: nil) {
-                  let result = try await store.request(
-                    path + "/authenticate", method: "POST", body: .object(["force": .bool(false)]))
-                  guard let url = URL(string: result["authorizationUrl"].string),
-                    ["http", "https"].contains(url.scheme)
-                  else {
-                    throw APIError(
-                      "The server did not return a sign-in link. Try connecting again.")
-                  }
-                  awaitingAuthorization = true
-                  openURL(url)
-                }
-              }
-            }
-          }
+          PluginConnectionActions(
+            connection: $connection, beforeSignIn: { await save(successEffect: nil) })
           Button("Restart connection") { perform("/restart", success: "Connection restarted.") }
-          Button("Disconnect") { perform("/disconnect", success: "Disconnected.") }
         }
       }
     }.navigationTitle("Connection").navigationBarTitleDisplayMode(.inline).disabled(operation.busy)
       .task { if !loaded { await load() } }
-      .onChange(of: scenePhase) { _, phase in
-        if phase == .active, awaitingAuthorization {
-          awaitingAuthorization = false
-          Task { await refreshStatus() }
-        }
-      }.onDisappear {
+      .onDisappear {
         secrets = [:]
         env = "{}"
         headers = "{}"
@@ -172,19 +146,6 @@ struct PluginConnectionView: View {
           }
         }
       }
-  }
-  private func refreshStatus() async {
-    do {
-      let root = try await store.request("/api/v0/plugins")
-      if let latest = root["installs"].array.flatMap({ $0["connections"].array }).first(where: {
-        $0["id"] == connection["id"]
-      }) {
-        connection = latest
-        operation.success =
-          latest["status"].string == "ready"
-          ? "Connected." : "Connection status: " + latest["status"].string
-      }
-    } catch { operation.failure = UserFacingError.message(error) }
   }
   private func load() async {
     await operation.run(feedback: false) {

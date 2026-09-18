@@ -3,6 +3,16 @@ import SwiftUI
 struct ApprovalCard: View {
   @Environment(AppStore.self) private var store
   let approval: Approval
+  @State private var excluded: Set<String> = []
+  private var items: [JSON] { approval.details["presentation"]["items"].array }
+  private var cookieImport: Bool {
+    approval.details["presentation"]["kind"].string == "cookie-import"
+  }
+  private var pending: Bool { ApprovalPresentation.isPending(approval) }
+  private func key(_ item: JSON) -> String {
+    ApprovalPresentation.siteKey(profileID: item["profileId"].string, origin: item["origin"].string)
+  }
+  private var selected: [String] { items.map(key).filter { !excluded.contains($0) } }
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
       Label(title, systemImage: "checkmark.shield").font(.headline)
@@ -12,40 +22,108 @@ struct ApprovalCard: View {
           Text(detail[key].string).font(.subheadline).foregroundStyle(NativePalette.muted)
         }
       }
+      if cookieImport {
+        let profiles = Array(Set(items.map { $0["profileId"].string })).sorted()
+        ForEach(profiles, id: \.self) { profile in
+          let group = items.filter { $0["profileId"].string == profile }
+          VStack(alignment: .leading, spacing: 10) {
+            let name = group.first?["profileDisplayName"].string ?? profile
+            if pending {
+              Toggle(
+                name,
+                isOn: Binding(
+                  get: { group.allSatisfy { !excluded.contains(key($0)) } },
+                  set: { value in
+                    for item in group {
+                      if value { excluded.remove(key(item)) } else { excluded.insert(key(item)) }
+                    }
+                  })
+              ).fontWeight(.semibold).tint(NativePalette.toggle)
+            } else {
+              Text(name).font(.headline)
+            }
+            ForEach(group, id: \.self) { item in
+              if pending {
+                Toggle(
+                  item["origin"].string,
+                  isOn: Binding(
+                    get: { !excluded.contains(key(item)) },
+                    set: { value in
+                      if value { excluded.remove(key(item)) } else { excluded.insert(key(item)) }
+                    })
+                ).tint(NativePalette.toggle).accessibilityIdentifier(
+                  "approval-site-" + item["profileId"].string + "-" + item["origin"].string)
+              } else if detail["selectedItems"] == .null
+                || detail["selectedItems"].array.contains(.string(key(item)))
+              {
+                Label(item["origin"].string, systemImage: "globe")
+              }
+            }
+          }
+        }
+        if pending {
+          Text("\(selected.count) sites selected · up to 32 per approval").font(.caption)
+            .foregroundStyle(NativePalette.muted)
+        }
+      }
       if detail["arguments"] != .null {
         DisclosureGroup("Action details") {
           Text(detail["arguments"].pretty).font(.system(.caption, design: .monospaced))
             .textSelection(.enabled)
         }
       }
-      HStack {
-        Button("Deny", role: .destructive) { act("decline") }.buttonStyle(.bordered)
-        Spacer()
-        Button("Approve once") { act("accept") }.buttonStyle(PrimaryActionStyle())
-          .accessibilityIdentifier("approve-" + approval.id)
-      }
-      if detail["supportsAlwaysAllow"].bool {
-        if !detail["proposedRule"].string.isEmpty {
-          Text("Always allow: " + detail["proposedRule"].string).font(.caption)
+      if pending {
+        HStack {
+          Button("Deny", role: .destructive) { act("decline") }.buttonStyle(.bordered)
+          Spacer()
+          Button("Approve once") { act("accept") }.buttonStyle(PrimaryActionStyle())
+            .accessibilityIdentifier("approve-" + approval.id)
+            .disabled(cookieImport && (selected.isEmpty || selected.count > 32))
         }
-        Button("Always allow") { act("always_allow") }
+        if detail["supportsAlwaysAllow"].bool {
+          if !detail["proposedRule"].string.isEmpty {
+            Text("Always allow: " + detail["proposedRule"].string).font(.caption)
+          }
+          Button("Always allow") { act("always_allow") }.disabled(
+            cookieImport && (selected.isEmpty || selected.count > 32))
+        }
+        if detail["supportsNever"].bool {
+          Button("Never allow", role: .destructive) { act("never") }
+        }
+      } else {
+        let status = ApprovalPresentation.status(approval)
+        HStack {
+          if status == "Running" { ProgressView() }
+          Label(
+            status,
+            systemImage: status == "Failed"
+              ? "exclamationmark.circle"
+              : status == "Completed" ? "checkmark.circle" : "checkmark.shield")
+        }.foregroundStyle(status == "Failed" ? NativePalette.destructive : NativePalette.muted)
+          .accessibilityIdentifier("approval-receipt-" + approval.id)
+        if !detail["actionError"].string.isEmpty {
+          Text(UserFacingError.message(APIError(detail["actionError"].string))).font(.footnote)
+        }
       }
-      if detail["supportsNever"].bool { Button("Never allow", role: .destructive) { act("never") } }
-    }.padding(18).background(
-      NativePalette.surface, in: RoundedRectangle(cornerRadius: 20)
-    )
-    .disabled(store.busy.contains(path))
+    }.padding(18).background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 20))
+      .disabled(store.busy.contains(path))
   }
   var title: String {
-    [approval.details["title"].string, approval.details["toolName"].string, "Approval required"]
-      .first { !$0.isEmpty }!
+    [
+      approval.details["title"].string, approval.details["toolName"].string,
+      cookieImport ? "Chrome site access" : "Approval required",
+    ].first { !$0.isEmpty }!
   }
   var path: String { "/api/v0/approvals/\(API.segment(approval.id))/resolve" }
   func act(_ decision: String) {
     Task {
+      var body: [String: JSON] = ["decision": .string(decision)]
+      if cookieImport, ["accept", "always_allow"].contains(decision) {
+        body["selectedItems"] = .array(selected.map(JSON.string))
+      }
       await store.mutate(
-        path, body: .object(["decision": .string(decision)]), successFeedback: .success,
-        feedbackSource: "approval.resolve")
+        path, body: .object(body), successFeedback: .success, feedbackSource: "approval.resolve")
+      if let id = store.activeChannel { await store.loadHistory(id) }
     }
   }
 }

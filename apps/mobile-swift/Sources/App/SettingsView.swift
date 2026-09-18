@@ -54,6 +54,15 @@ struct SettingsView: View {
                 }.buttonStyle(.plain)
                 separator
                 NavigationLink {
+                  OutboxView().toolbar(.visible, for: .navigationBar)
+                } label: {
+                  row("Queued messages") {
+                    Text(String(store.state.outbox.count))
+                    chevron
+                  }
+                }.buttonStyle(.plain).accessibilityIdentifier("outbox-settings")
+                separator
+                NavigationLink {
                   HiddenConversationsView().toolbar(.visible, for: .navigationBar)
                 } label: {
                   row("Hidden conversations") { chevron }
@@ -329,18 +338,22 @@ struct ConversationDetails: View {
             onEdit: { editingRoutine = $0 })
           if let bot {
             Section {
-              Toggle("Notifications", isOn: Binding(
-                get: { self.bot?.notificationsEnabled ?? false },
-                set: { enabled in
-                  Task {
-                    guard !changingNotifications else { return }
-                    changingNotifications = true
-                    defer { changingNotifications = false }
-                    NativeHaptics.play(.selection, source: "profile.notifications")
-                    await store.mutate("/api/v0/bots/\(API.segment(bot.id))", method: "PATCH",
-                      body: .object(["notificationsEnabled": .bool(enabled)]))
-                  }
-                })).disabled(changingNotifications).accessibilityIdentifier("profile-notifications")
+              Toggle(
+                "Notifications",
+                isOn: Binding(
+                  get: { self.bot?.notificationsEnabled ?? false },
+                  set: { enabled in
+                    Task {
+                      guard !changingNotifications else { return }
+                      changingNotifications = true
+                      defer { changingNotifications = false }
+                      NativeHaptics.play(.selection, source: "profile.notifications")
+                      await store.mutate(
+                        "/api/v0/bots/\(API.segment(bot.id))", method: "PATCH",
+                        body: .object(["notificationsEnabled": .bool(enabled)]))
+                    }
+                  })
+              ).disabled(changingNotifications).accessibilityIdentifier("profile-notifications")
             } footer: {
               Text("Get notified when this Bot finishes or needs input")
                 .font(.subheadline).foregroundStyle(NativePalette.faint)
@@ -375,21 +388,25 @@ struct ConversationDetails: View {
             Button("Done") { focusedProfile = nil }.accessibilityLabel("Hide keyboard")
           }
           ToolbarItem(placement: .cancellationAction) {
-            Button { dismiss() } label: {
+            Button {
+              dismiss()
+            } label: {
               Image(systemName: "chevron.left").foregroundStyle(NativePalette.text)
             }.accessibilityLabel("Done").accessibilityIdentifier("profile-back")
           }
           ToolbarItem(placement: .topBarTrailing) {
             if profileChanged {
-            Button(saving ? "Saving…" : "Save") { Task { await save() } }.disabled(
-              saving || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || (channel?.isGroup == true && name.count > 80) || title.count > 120
-                || description.count > 2_000 || instructions.count > 20_000
-                || (channel?.isGroup == true && (members.isEmpty || members.count > 6))
-            )
-            .accessibilityIdentifier("profile-save")
+              Button(saving ? "Saving…" : "Save") { Task { await save() } }.disabled(
+                saving || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                  || (channel?.isGroup == true && name.count > 80) || title.count > 120
+                  || description.count > 2_000 || instructions.count > 20_000
+                  || (channel?.isGroup == true && (members.isEmpty || members.count > 6))
+              )
+              .accessibilityIdentifier("profile-save")
             } else if bot != nil {
-              Button { Task { await exportTemplate() } } label: {
+              Button {
+                Task { await exportTemplate() }
+              } label: {
                 Image(systemName: "square.and.arrow.up").foregroundStyle(NativePalette.text)
               }.disabled(exportingTemplate).accessibilityLabel("Share as Template")
             }
@@ -403,30 +420,53 @@ struct ConversationDetails: View {
                     guard !duplicating else { return }
                     duplicating = true
                     defer { duplicating = false }
-                    if let result = await store.mutate("/api/v0/bots/\(API.segment(bot.id))/duplicate",
-                      body: .object(["clientRequestId": .string(duplicateID)])) {
+                    if let result = await store.mutate(
+                      "/api/v0/bots/\(API.segment(bot.id))/duplicate",
+                      body: .object(["clientRequestId": .string(duplicateID)]))
+                    {
                       onDuplicate(result["dmChannelId"].string)
                       dismiss()
                     }
                   }
                 }.disabled(duplicating)
                 if bot.status == "failed" {
-                  Button("Retry setup") { Task { await store.mutate("/api/v0/bots/\(API.segment(bot.id))/retry") } }
+                  Button("Retry setup") {
+                    Task { await store.mutate("/api/v0/bots/\(API.segment(bot.id))/retry") }
+                  }
                 }
               }
-              Button(channel?.isGroup == true ? "Delete group" : "Delete bot", role: .destructive) { deleting = true }
-            } label: { Image(systemName: "ellipsis").foregroundStyle(NativePalette.text) }
-              .accessibilityLabel("Bot options").accessibilityIdentifier("profile-options")
+              Button(channel?.isGroup == true ? "Delete group" : "Delete bot", role: .destructive) {
+                deleting = true
+              }
+            } label: {
+              Image(systemName: "ellipsis").foregroundStyle(NativePalette.text)
+            }
+            .accessibilityLabel("Bot options").accessibilityIdentifier("profile-options")
           }
         }
-        .sheet(isPresented: Binding(get: { templateFile != nil }, set: { if !$0 { templateFile = nil } })) {
-          if let templateFile { NativeFileShare(url: templateFile) { failure = UserFacingError.message($0) } }
+        .sheet(
+          isPresented: Binding(get: { templateFile != nil }, set: { if !$0 { templateFile = nil } })
+        ) {
+          if let templateFile {
+            NativeFileShare(url: templateFile) { failure = UserFacingError.message($0) }
+          }
         }
         .sheet(isPresented: $addingRoutine, onDismiss: { routineRefreshID += 1 }) {
           RoutineEditor(ownerPath: routinePath, routine: nil)
         }
         .sheet(item: $editingRoutine, onDismiss: { routineRefreshID += 1 }) { routine in
           RoutineEditor(ownerPath: routinePath, routine: routine)
+        }
+        .task(id: store.focusedRoutine) {
+          guard let id = store.focusedRoutine else { return }
+          do {
+            let routines = try await store.fetch(routinePath, as: [Routine].self)
+            guard let routine = routines.first(where: { $0.id == id }) else {
+              throw APIError("This routine is no longer available.")
+            }
+            editingRoutine = routine
+          } catch { failure = UserFacingError.message(error) }
+          store.focusedRoutine = nil
         }
         .onAppear {
           guard !initialized else { return }
@@ -460,10 +500,12 @@ struct ConversationDetails: View {
     }
   }
   private var profileChanged: Bool {
-    initialized && (name != (channel?.name ?? "") || description != (bot?.description ?? channel?.description ?? "")
-      || instructions != (bot?.instructions ?? "") || title != (bot?.title ?? "")
-      || icon != (bot?.icon ?? "chip") || color != (bot?.color ?? "#A47952")
-      || members != Set(channel?.members.map(\.botId) ?? []))
+    initialized
+      && (name != (channel?.name ?? "")
+        || description != (bot?.description ?? channel?.description ?? "")
+        || instructions != (bot?.instructions ?? "") || title != (bot?.title ?? "")
+        || icon != (bot?.icon ?? "chip") || color != (bot?.color ?? "#A47952")
+        || members != Set(channel?.members.map(\.botId) ?? []))
   }
   private func exportTemplate() async {
     guard let bot, !exportingTemplate else { return }

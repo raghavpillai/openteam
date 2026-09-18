@@ -32,6 +32,7 @@ public struct SavedState: Codable, Sendable {
   public var messages: [String: [Message]] = [:]
   public var drafts: [String: Draft] = [:]
   public var outbox: [PendingSend] = []
+  public var approvals: [String: [Approval]]?
   public init() {}
 }
 
@@ -74,9 +75,7 @@ public struct DiskStore: Sendable {
     url.deletingPathExtension().appendingPathExtension("attachments")
   }
   public func stage(_ data: Data, fileName: String, mimeType: String) throws -> StagedFile {
-    guard !data.isEmpty, data.count <= 200 * 1024 * 1024 else {
-      throw APIError("Choose a file between 1 byte and 200 MB.")
-    }
+    try AttachmentLimits.validate(byteCount: data.count, mimeType: mimeType)
     let file = StagedFile(
       id: UUID().uuidString, fileName: fileName, mimeType: mimeType, byteSize: data.count)
     try FileManager.default.createDirectory(
@@ -112,4 +111,17 @@ public struct StagedFile: Codable, Sendable, Equatable, Identifiable {
   public var fileName: String
   public var mimeType: String
   public var byteSize: Int
+}
+
+/// Keep staging consistent with the production asset endpoint.
+public enum AttachmentLimits {
+  public static func maximumBytes(mimeType: String) -> Int {
+    (mimeType.lowercased().hasPrefix("video/") ? 200 : 25) * 1024 * 1024
+  }
+  public static func validate(byteCount: Int, mimeType: String) throws {
+    let limit = maximumBytes(mimeType: mimeType)
+    guard byteCount > 0, byteCount <= limit else {
+      throw APIError("Choose a file between 1 byte and \(limit / 1024 / 1024) MB.")
+    }
+  }
 }

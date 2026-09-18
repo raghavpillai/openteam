@@ -1,5 +1,7 @@
 # Settings and plugins — ten-screen QA follow-up
 
+**Later fixes:** [Swift backlog fixes and validation](BACKLOG-FIXES-0917.md) supersede the delivery, plugin access/OAuth, approvals, thread/search and computer-gesture findings described below. Historical captures remain unchanged.
+
 **Push follow-up:** [Native push implementation and acceptance](NATIVE-PUSH.md) addresses the QA-01 implementation gap and fixes QA-08. Signed-device APNs delivery remains unverified; the other 20 findings are unchanged. The audit evidence below describes the pre-fix state.
 
 The Swift screens do not yet match these references. The main differences are component choice, grouping, sheet size, interaction states and missing controls, not just Liquid Glass opacity. This is an audit of current behavior; application implementation was not changed during this pass.

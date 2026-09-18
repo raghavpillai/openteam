@@ -22,7 +22,9 @@ struct PluginListView: View {
         Button("Retry") { Task { await load() } }
       }
       Section("Installed") {
-        ForEach(filtered(settings["installs"].array), id: \.self) { plugin in
+        ForEach(filtered(settings["installs"].array).map { $0["pluginKey"].string }, id: \.self) {
+          key in
+          let plugin = settings["installs"].array.first { $0["pluginKey"].string == key } ?? .null
           NavigationLink {
             PluginDetailView(plugin: plugin, installed: true, onChange: load)
           } label: {
@@ -116,93 +118,94 @@ struct PluginListView: View {
 struct PluginDetailView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
-  @Environment(\.openURL) private var openURL
   @State var plugin: JSON
   let installed: Bool
   let onChange: () async -> Void
+  @State private var newlyInstalled = false
+  @State private var autoConnectID: String?
   @State private var access: JSON = .null
+  @State private var accessFailure: String?
+  @State private var accessLoading = false
+  @State private var accessGeneration = UUID()
   @State private var removal = false
   @State private var setup: [String: JSON] = [:]
   @State private var operation = FormOperation()
   @State private var botQuery = ""
-  private var key: String { installed ? plugin["pluginKey"].string : plugin["key"].string }
+  @FocusState private var botSearchFocused: Bool
+  private var isInstalled: Bool { installed || newlyInstalled }
+  private var key: String {
+    plugin["pluginKey"].string.isEmpty ? plugin["key"].string : plugin["pluginKey"].string
+  }
   var body: some View {
     NativeForm {
-      FormStatus(operation: operation)
+      if !isInstalled { FormStatus(operation: operation) }
       Section {
         Text(plugin["description"].string)
         LabeledContent("Publisher", value: plugin["publisher"].string)
         LabeledContent("Version", value: plugin["version"].string)
       }
-      if installed {
-        ForEach(plugin["connections"].array, id: \.self) { connection in
-          Section(connection["name"].string) {
-            LabeledContent(
-              "Status",
-              value: connection["status"].string.replacingOccurrences(of: "_", with: " ")
-                .capitalized)
-            if !connection["statusMessage"].string.isEmpty {
-              Text(connection["statusMessage"].string).font(.caption).foregroundStyle(
-                NativePalette.muted)
+      if isInstalled {
+        ForEach(plugin["connections"].array.map { $0["id"].string }, id: \.self) { id in
+          let connection = connectionBinding(id)
+          Section(connection.wrappedValue["name"].string) {
+            NavigationLink("Connection settings") {
+              PluginConnectionView(connection: connection.wrappedValue)
             }
-            NavigationLink("Connection settings") { PluginConnectionView(connection: connection) }
-            Button("Connect") {
-              Task {
-                await store.mutate(
-                  "/api/v0/plugin-connections/\(API.segment(connection["id"].string))/connect",
-                  successFeedback: .success, feedbackSource: "plugin.connect")
-                await reload()
-              }
-            }
-            if connection["canAuthenticate"].bool {
-              Button("Sign in") {
-                Task {
-                  if let result = await store.mutate(
-                    "/api/v0/plugin-connections/\(API.segment(connection["id"].string))/authenticate",
-                    body: .object(["force": .bool(false)])),
-                    let url = URL(string: result["authorizationUrl"].string),
-                    ["https", "http"].contains(url.scheme)
-                  {
-                    openURL(url)
-                  }
-                }
-              }
-            }
-            Button("Disconnect") {
-              Task {
-                await store.mutate(
-                  "/api/v0/plugin-connections/\(API.segment(connection["id"].string))/disconnect",
-                  successFeedback: .success, feedbackSource: "plugin.disconnect")
-                await reload()
-              }
-            }
+            PluginConnectionActions(connection: connection, startAutomatically: autoConnectID == id)
           }
+        }
+        Section { NavigationLink("Package and updates") { InstalledPackageView(key: key) } }
+        Section {
+          FormStatus(operation: operation)
+          Button("Uninstall plugin", role: .destructive) { removal = true }.disabled(operation.busy)
         }
         Section("Bot access") {
           TextField("Search bots", text: $botQuery).textInputAutocapitalization(.never)
             .autocorrectionDisabled()
-          ForEach(access["bots"].array, id: \.self) { bot in
-            Toggle(
-              bot["name"].string,
-              isOn: Binding(
-                get: { bot["skillsEnabled"].bool || !bot["grantedConnectionIds"].array.isEmpty },
-                set: { value in
-                  Task {
-                    await store.mutate(
-                      "/api/v0/plugins/\(API.segment(key))/enablement",
-                      body: .object([
-                        "botId": bot["id"], "enabled": .bool(value), "skillsEnabled": .bool(value),
-                      ]))
-                    await loadAccess()
-                  }
-                }))
+            .focused($botSearchFocused).submitLabel(.done).onSubmit { botSearchFocused = false }
+          if let accessFailure {
+            InlineFailure(message: accessFailure)
+            Button("Retry bot access") { Task { await loadAccess() } }
           }
+          if accessLoading { ProgressView("Loading bots…") }
+          if !accessLoading, accessFailure == nil, access["bots"].array.isEmpty {
+            Text(botQuery.isEmpty ? "No bots available." : "No bots match your search.")
+              .foregroundStyle(NativePalette.muted)
+          }
+          ForEach(access["bots"].array.map { $0["id"].string }, id: \.self) { botID in
+            let bot = access["bots"].array.first { $0["id"].string == botID } ?? .null
+            Group {
+              Toggle(
+                "Enable for " + bot["name"].string,
+                isOn: Binding(
+                  get: { bot["skillsEnabled"].bool },
+                  set: { value in Task { await setAccess(bot: bot, enabled: value) } }))
+              ForEach(plugin["connections"].array, id: \.self) { account in
+                Toggle(
+                  "Allow "
+                    + (account["alias"].string.isEmpty
+                      ? account["name"].string : account["alias"].string),
+                  isOn: Binding(
+                    get: { bot["grantedConnectionIds"].array.contains(account["id"]) },
+                    set: { value in
+                      Task {
+                        await setAccess(bot: bot, enabled: value, account: account["id"].string)
+                      }
+                    })
+                )
+                .font(.subheadline)
+              }
+            }.tint(NativePalette.toggle).disabled(operation.busy || accessLoading)
+          }
+          Text(
+            "Enable the plugin and choose which accounts this bot may use. Account access is saved separately."
+          )
+          .font(.footnote).foregroundStyle(NativePalette.muted)
           if access["bots"].array.count < access["total"].int {
-            Button("Load more bots") { Task { await loadAccess(more: true) } }
+            Button("Load more bots") { Task { await loadAccess(more: true) } }.disabled(
+              accessLoading)
           }
         }
-        Section { NavigationLink("Package and updates") { InstalledPackageView(key: key) } }
-        Section { Button("Uninstall plugin", role: .destructive) { removal = true } }
       } else {
         if !plugin["setupFields"].array.isEmpty {
           Section("Setup") {
@@ -214,25 +217,14 @@ struct PluginDetailView: View {
             }
           }
         }
-        Button("Install plugin") {
-          Task {
-            if await operation.run({
-              try FormValidation.fields(plugin["setupFields"].array, values: setup)
-              _ = try await store.request(
-                "/api/v0/plugins/install", method: "POST",
-                body: .object(["pluginKey": .string(key), "values": .object(setup)]))
-            }) {
-              setup = [:]
-              await onChange()
-              dismiss()
-            }
-          }
-        }.disabled(operation.busy)
+        Button("Install plugin") { Task { await install() } }.disabled(operation.busy)
       }
-    }.navigationTitle(plugin["name"].string).navigationBarTitleDisplayMode(.inline)
-      .task { if installed { await loadAccess() } }
+    }.scrollDismissesKeyboard(.interactively).navigationTitle(plugin["name"].string)
+      .navigationBarTitleDisplayMode(.inline)
       .task(id: botQuery) {
-        guard installed else { return }
+        guard isInstalled else { return }
+        access = .null
+        accessFailure = nil
         do {
           try await Task.sleep(for: .milliseconds(250))
           await loadAccess()
@@ -242,39 +234,107 @@ struct PluginDetailView: View {
       .confirmationDialog(
         "Uninstall \(plugin["name"].string)?", isPresented: $removal, titleVisibility: .visible
       ) {
-        Button("Uninstall", role: .destructive) {
-          Task {
-            if await store.mutate(
-              "/api/v0/plugins/\(API.segment(key))", method: "DELETE", successFeedback: .success,
-              feedbackSource: "plugin.uninstall") != nil
-            {
-              await onChange()
-              dismiss()
-            }
-          }
-        }
+        Button("Uninstall", role: .destructive) { Task { await uninstall() } }
       }
   }
-  func reload() async {
-    await onChange()
-    do {
-      let root = try await store.request("/api/v0/plugins")
-      if let latest = root["installs"].array.first(where: { $0["pluginKey"].string == key }) {
-        plugin = latest
-      }
-    } catch { operation.failure = UserFacingError.message(error) }
+  private func connectionBinding(_ id: String) -> Binding<JSON> {
+    Binding(
+      get: { plugin["connections"].array.first(where: { $0["id"].string == id }) ?? .null },
+      set: { value in
+        plugin["connections"] = .array(
+          plugin["connections"].array.map { $0["id"].string == id ? value : $0 })
+      })
   }
-  func loadAccess(more: Bool = false) async {
+  private func latestInstallation() async throws -> JSON? {
+    let root = try await store.request("/api/v0/plugins")
+    return root["installs"].array.first { $0["pluginKey"].string == key }
+  }
+  private func install() async {
+    await operation.run(successEffect: nil) {
+      try FormValidation.fields(plugin["setupFields"].array, values: setup)
+      var responseError: Error?
+      do {
+        _ = try await store.request(
+          "/api/v0/plugins/install", method: "POST",
+          body: .object(["pluginKey": .string(key), "values": .object(setup)]))
+      } catch { responseError = error }
+      guard let latest = try await latestInstallation() else {
+        throw responseError ?? APIError("Installation could not be confirmed. Try again.")
+      }
+      let needsSetup = !plugin["setupFields"].array.isEmpty
+      plugin = latest
+      newlyInstalled = true
+      setup = [:]
+      // Retain the detail page and continue with the newly created account.
+      if let account = latest["connections"].array.first,
+        account["configured"].bool || (account["auth"].string == "oauth" && !needsSetup)
+      {
+        autoConnectID = account["id"].string
+      }
+      await loadAccess()
+    }
+  }
+  private func uninstall() async {
+    if await operation.run({
+      var responseError: Error?
+      do {
+        _ = try await store.request("/api/v0/plugins/" + API.segment(key), method: "DELETE")
+      } catch { responseError = error }
+      // An acknowledged deletion and a lost response both reconcile against the server.
+      guard try await latestInstallation() == nil else {
+        throw responseError ?? APIError("The plugin is still installed. Try again.")
+      }
+    }) {
+      dismiss()
+      await onChange()
+    }
+  }
+  private func setAccess(bot: JSON, enabled: Bool, account: String? = nil) async {
+    await operation.run {
+      let path =
+        account.map { "/api/v0/plugin-connections/" + API.segment($0) + "/grant" }
+        ?? "/api/v0/plugins/\(API.segment(key))/enablement"
+      var body: [String: JSON] = ["botId": bot["id"], "enabled": .bool(enabled)]
+      if account == nil { body["skillsEnabled"] = .bool(enabled) }
+      var responseError: Error?
+      do { _ = try await store.request(path, method: "POST", body: .object(body)) } catch {
+        responseError = error
+      }
+      await loadAccess()
+      guard let actual = access["bots"].array.first(where: { $0["id"] == bot["id"] }),
+        accessFailure == nil
+      else {
+        throw responseError ?? APIError("Refresh bot access to confirm this change.")
+      }
+      let actualValue =
+        account.map { actual["grantedConnectionIds"].array.contains(.string($0)) }
+        ?? actual["skillsEnabled"].bool
+      if actualValue != enabled {
+        throw responseError ?? APIError("Access was not updated. Try again.")
+      }
+    }
+  }
+  private func loadAccess(more: Bool = false) async {
+    let token = UUID()
+    let query = botQuery
+    accessGeneration = token
+    accessLoading = true
+    defer { if accessGeneration == token { accessLoading = false } }
     do {
       var next = try await store.request(
         "/api/v0/plugins/\(API.segment(key))/bot-access",
         query: [
-          "limit": "100", "offset": String(more ? access["bots"].array.count : 0), "q": botQuery,
+          "limit": "60", "offset": String(more ? access["bots"].array.count : 0), "q": query,
         ])
+      try Task.checkCancellation()
+      guard accessGeneration == token, query == botQuery else { return }
       if more { next["bots"] = .array(access["bots"].array + next["bots"].array) }
       access = next
+      accessFailure = nil
     } catch {
-      if !UserFacingError.isCancelled(error) { operation.failure = UserFacingError.message(error) }
+      if accessGeneration == token, !UserFacingError.isCancelled(error) {
+        accessFailure = UserFacingError.message(error)
+      }
     }
   }
 }

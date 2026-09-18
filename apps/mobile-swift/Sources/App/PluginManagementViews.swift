@@ -264,8 +264,8 @@ struct PluginImportView: View {
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             guard let api = store.api else { throw APIError("Sign in to import a package.") }
             let bytes = try Data(contentsOf: url)
-            guard bytes.count <= 25 * 1024 * 1024 else {
-              throw APIError("Choose a ZIP archive smaller than 25 MB.")
+            guard bytes.count <= 20 * 1024 * 1024 else {
+              throw APIError("Choose a ZIP archive no larger than 20 MB.")
             }
             let (data, _) = try await api.raw(
               "/api/v0/plugin-drafts/archive", method: "POST", data: bytes,

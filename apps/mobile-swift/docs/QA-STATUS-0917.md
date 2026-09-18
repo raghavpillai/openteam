@@ -1,18 +1,20 @@
 # Native iOS QA status — September 17, 2026
 
-This is a triage update, not a rerun or closure of the complete September 16 audit. The native TestFlight app remains a migration beta. Earlier audit tables describe the code at capture time; use the linked follow-ups for fixes made afterward.
+**Later fixes:** [Swift backlog fixes and validation](BACKLOG-FIXES-0917.md) supersede the delivery, plugin access/OAuth, approvals, thread/search and computer-gesture findings described below. Historical captures remain unchanged.
+
+This status includes focused follow-up fixes and reruns; it is not closure of the complete September 16 audit. The native TestFlight app remains a migration beta. Earlier audit tables describe the code at capture time; use the linked follow-ups for fixes made afterward.
 
 The [keyboard background follow-up](KEYBOARD-BACKGROUND-0917.md) fixes black keyboard-corner gaps. Focused native UI checks passed in both themes on chat, sign-in, search, creation and profile screens; all 10 final captures pass the corner-color check.
 
-## Fix first
+## Current backlog status
 
-| Priority | Finding | Current evidence / next fix |
+| Status | Finding | Current evidence / next fix |
 | --- | --- | --- |
-| P1 | QA-07: a queued send to a deleted conversation stops unrelated sends | The current `AppStore.flush()` still returns when a pending entry's channel is absent. Isolate that entry, preserve its contents, expose recovery/discard, and continue eligible sends. |
-| P1 | QA-09/10: plugin access fails or misrepresents permissions | `loadAccess()` still requests 100 rows against the API's maximum of 60. The Bot access toggle still changes enablement without granting a connected account and can remain on after disabling. Correct pagination and add real per-account access controls. |
+| Fixed | QA-07: a queued send to a deleted conversation stops unrelated sends | The unavailable item is isolated, unrelated sends continue, file identity remains visible, and Settings provides draft recovery/discard. The actual AppStore acceptance program passes. See [backlog validation](BACKLOG-FIXES-0917.md). |
+| Fixed | QA-09/10: plugin access fails or misrepresents permissions | Requests use 60-row pages. Plugin enablement and each account grant are separate and reconciled with server state. Production API and native UI checks pass. See [backlog validation](BACKLOG-FIXES-0917.md). |
 | P1 acceptance/deployment | Native push on the main installation | The running `openteam-worker-1` has none of the `OPENTEAM_APNS_*` settings. The current transport requires a signing key, key ID and team ID; TestFlight also requires topic `dev.openbot.mobile`. Deploy compatible server/worker/schema changes, configure APNs, then verify signed-iPhone delivery and background removal after desktop reads. A signed IPA alone does not close this. |
 
-The next group includes thread entry/nested-thread actions and search destinations (QA-03–06), attachment limits/queued previews (QA-11/17), VNC gestures and intermittent right-click (QA-12/18), avatar/group editing (QA-13/14), OAuth return/cancellation and plugin recovery (QA-15/16/19–22).
+The [backlog follow-up](BACKLOG-FIXES-0917.md) also addresses thread entry/nested actions and search destinations (QA-03–06), attachment limits/queued identities (QA-11/17), computer gestures (QA-12/18), OAuth lifecycle and removal recovery (QA-15/20/22), Chrome selection/execution receipts, and native Auto Review rules. Separate open findings include avatar/group editing (QA-13/14), advanced connection clear-all/query-URL behavior (QA-16/19), complete reference-screen parity, and physical-device/provider acceptance.
 
 QA-02 attachment/rich-message gestures and QA-08 notification read cursors were addressed by the [live-server follow-up](LIVE-SERVER-QA.md). The latest-message button and scroll geometry were changed during [haptic validation](HAPTICS-VALIDATION-0916.md); the earlier QA-23 screenshot failure should not be presented as a fresh reproduction without rerunning that exact case. Physical haptic feel and APNs/background acceptance remain separate device checks.
 

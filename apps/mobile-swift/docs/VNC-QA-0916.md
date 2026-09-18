@@ -1,5 +1,7 @@
 # Native remote desktop / VNC validation — September 16, 2026
 
+**Later fixes:** [Swift backlog fixes and validation](BACKLOG-FIXES-0917.md) supersede the delivery, plugin access/OAuth, approvals, thread/search and computer-gesture findings described below. Historical captures remain unchanged.
+
 **The desktop is functional, but the native viewer is not ready for sign-off.** The live backend accepts real input, and the underlying VNC connection works. Native gesture gaps and visual differences remain. This was an audit: no application gesture or viewer implementation was changed.
 
 [Three reference comparisons and evidence](../../../output/swift-vnc-qa-0916/review.html).

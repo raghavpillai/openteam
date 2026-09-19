@@ -138,7 +138,7 @@ struct SignInView: View {
     VStack(spacing: 13) {
       Text("OpenTeam").font(.system(size: 34, weight: .semibold)).tracking(-0.8)
         .accessibilityAddTraits(.isHeader)
-      Text("Your team of always-on Bots\nthat finish the work")
+      Text("Digital workers that run on your compute and work in your apps.")
         .font(.system(size: 16)).lineSpacing(2).foregroundStyle(secondary).multilineTextAlignment(
           .center)
     }
@@ -217,7 +217,6 @@ struct SignInView: View {
         Text("Use the server address from your OpenTeam setup.").font(.caption).foregroundStyle(
           secondary)
       }.padding(.horizontal, 4).padding(.bottom, 2)
-      fieldLabel("SERVER ADDRESS")
       HStack {
         TextField(
           "https://openteam.example.com", text: $store.server,

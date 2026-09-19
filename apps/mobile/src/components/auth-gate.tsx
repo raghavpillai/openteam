@@ -692,7 +692,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
               OpenTeam
             </Text>
             <Text style={[styles.tagline, { color: glassSecondary }]}>
-              Your team of always-on Bots{"\n"}that finish the work
+              Digital workers that run on your compute and work in your apps.
             </Text>
           </GlassSurface>
         </Animated.View>
@@ -795,9 +795,6 @@ export function AuthGate({ children }: { children: ReactNode }) {
                         Use the server address from your OpenTeam setup.
                       </Text>
                     </View>
-                    <Text style={[styles.endpointLabel, { color: glassLabel }]}>
-                      SERVER ADDRESS
-                    </Text>
                     <TextInput
                       accessibilityHint="Enter the HTTP or HTTPS address this device can use to reach your self-hosted OpenTeam server"
                       accessibilityLabel="Server address"

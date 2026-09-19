@@ -33,11 +33,7 @@ function AuthBrand() {
         </span>
       </div>
       <h1 id="openteam-auth-heading">OpenTeam</h1>
-      <p>
-        Your team of always-on Bots.
-        <br />
-        Ready to finish the work.
-      </p>
+      <p>Digital workers that run on your compute and work in your apps.</p>
     </header>
   );
 }

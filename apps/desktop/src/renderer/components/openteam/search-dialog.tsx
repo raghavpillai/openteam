@@ -342,8 +342,7 @@ export function SearchDialog({
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
-        className="search-dialog h-[min(456px,calc(100vh-48px))] max-w-[560px] grid-rows-[auto_1fr] gap-0 overflow-hidden rounded-[15px] border-border/80 bg-popover p-0 shadow-none"
-        overlayClassName="search-dialog-backdrop"
+        className="h-[min(456px,calc(100vh-48px))] max-w-[560px] grid-rows-[auto_1fr] gap-0 overflow-hidden rounded-[15px] border-border/80 bg-popover p-0 shadow-none"
         showCloseButton={false}
       >
         <DialogTitle aria-hidden="true" className="sr-only">

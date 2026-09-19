@@ -55,23 +55,6 @@
   to { opacity: 0; transform: translate(var(--floating-x), var(--floating-y)) scale(.98); }
 }
 
-.search-dialog[data-state="closed"] {
-  animation: search-dialog-close 300ms cubic-bezier(.165, .84, .44, 1) forwards;
-  pointer-events: none;
-}
-.search-dialog-backdrop[data-state="closed"] {
-  animation: search-backdrop-close 300ms cubic-bezier(.165, .84, .44, 1) forwards;
-  pointer-events: none;
-}
-@keyframes search-dialog-close {
-  from { opacity: 1; transform: scale(1); }
-  to { opacity: 0; transform: scale(.97); }
-}
-@keyframes search-backdrop-close {
-  from { opacity: 1; }
-  to { opacity: 0; }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .rich-message-card {
     animation: rich-message-card-enter 120ms ease-out backwards;

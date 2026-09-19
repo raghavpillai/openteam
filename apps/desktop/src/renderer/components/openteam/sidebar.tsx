@@ -2439,6 +2439,7 @@ function CompactSidebarContent({
 }
 
 const SIDEBAR_WIDTH_KEY = "openteam:sidebar-width";
+const COMPACT_SIDEBAR_CONTENT_WIDTH = 130;
 const DEFAULT_SIDEBAR_WIDTH = 280;
 const MAX_SIDEBAR_WIDTH = 400;
 const maxSidebarWidth = () =>
@@ -2610,7 +2611,8 @@ export const Sidebar = memo(function Sidebar({
       .filter((group) => group.rows.length > 0);
   }, [groups, preferences.sections]);
   const storedCompact = sidebarWidth === COMPACT_SIDEBAR_WIDTH;
-  const compact = forcedCompact || storedCompact;
+  const targetCompact = forcedCompact || storedCompact;
+  const [compact, setCompact] = useState(targetCompact);
   useEffect(() => {
     onLayoutChange?.({ compact: storedCompact, width: sidebarWidth });
   }, [onLayoutChange, sidebarWidth, storedCompact]);
@@ -2618,17 +2620,20 @@ export const Sidebar = memo(function Sidebar({
     const sidebar = sidebarRef.current;
     const resizer = sidebarResizerRef.current;
     if (!sidebar || !resizer) return;
-    const syncAccessibleWidth = () => {
+    const syncVisibleWidth = () => {
       const visibleWidth = Math.round(sidebar.getBoundingClientRect().width);
+      // Keep the expanded search field shrinking with the pane until its rendered
+      // width reaches the compact layout threshold, including interrupted snaps.
+      setCompact(sidebar.clientWidth <= COMPACT_SIDEBAR_CONTENT_WIDTH);
       resizer.setAttribute("aria-valuenow", String(visibleWidth));
       resizer.setAttribute(
         "aria-valuetext",
         visibleWidth === COMPACT_SIDEBAR_WIDTH ? "Compact" : `${visibleWidth} pixels`
       );
     };
-    const observer = new ResizeObserver(syncAccessibleWidth);
+    const observer = new ResizeObserver(syncVisibleWidth);
     observer.observe(sidebar);
-    syncAccessibleWidth();
+    syncVisibleWidth();
     return () => observer.disconnect();
   }, []);
   const allSidebarAgentsHidden =
@@ -3112,7 +3117,7 @@ export const Sidebar = memo(function Sidebar({
         rows[next]?.scrollIntoView({ block: "nearest" });
       }}
       ref={sidebarRef}
-      style={{ width: compact ? COMPACT_SIDEBAR_WIDTH : Math.min(sidebarWidth, maxExpandedWidth) }}
+      style={{ width: targetCompact ? COMPACT_SIDEBAR_WIDTH : Math.min(sidebarWidth, maxExpandedWidth) }}
     >
       {compact ? (
         <CompactSidebarContent
@@ -3610,7 +3615,7 @@ export const Sidebar = memo(function Sidebar({
             startX: event.clientX,
             startWidth: Math.min(sidebarWidthRef.current, maxExpandedWidth),
             width: sidebarWidthRef.current,
-            mode: compact ? "compact" : "expanded",
+            mode: targetCompact ? "compact" : "expanded",
             cursor: document.body.style.cursor,
             userSelect: document.body.style.userSelect,
           };

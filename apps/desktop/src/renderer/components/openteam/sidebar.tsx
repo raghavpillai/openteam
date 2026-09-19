@@ -2620,18 +2620,26 @@ export const Sidebar = memo(function Sidebar({
     const sidebar = sidebarRef.current;
     const resizer = sidebarResizerRef.current;
     if (!sidebar || !resizer) return;
-    const syncVisibleWidth = () => {
+    let previousCompact: boolean | undefined;
+    const syncVisibleWidth = (beforePaint = false) => {
       const visibleWidth = Math.round(sidebar.getBoundingClientRect().width);
       // Keep the expanded search field shrinking with the pane until its rendered
       // width reaches the compact layout threshold, including interrupted snaps.
-      setCompact(sidebar.clientWidth <= COMPACT_SIDEBAR_CONTENT_WIDTH);
+      const nextCompact = sidebar.clientWidth <= COMPACT_SIDEBAR_CONTENT_WIDTH;
+      if (nextCompact !== previousCompact) {
+        previousCompact = nextCompact;
+        // ResizeObserver runs before paint. Commit the layout handoff in that
+        // frame so search neither lingers below nor appears late above 130px.
+        if (beforePaint) flushSync(() => setCompact(nextCompact));
+        else setCompact(nextCompact);
+      }
       resizer.setAttribute("aria-valuenow", String(visibleWidth));
       resizer.setAttribute(
         "aria-valuetext",
         visibleWidth === COMPACT_SIDEBAR_WIDTH ? "Compact" : `${visibleWidth} pixels`
       );
     };
-    const observer = new ResizeObserver(syncVisibleWidth);
+    const observer = new ResizeObserver(() => syncVisibleWidth(true));
     observer.observe(sidebar);
     syncVisibleWidth();
     return () => observer.disconnect();

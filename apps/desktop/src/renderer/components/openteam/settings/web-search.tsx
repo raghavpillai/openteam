@@ -17,9 +17,7 @@ function ProviderSettingsPanel({ kind }: { kind: "search" | "fetch" }) {
   const label = kind === "search" ? "Search" : "Fetch";
   const providers = kind === "search" ? SEARCH_PROVIDERS : FETCH_PROVIDERS;
   const [saved, setSaved] = useState<WebSearchSettingsView | WebFetchSettingsView | null>(null);
-  const [provider, setProvider] = useState<SearchProvider | FetchProvider | null>(
-    kind === "fetch" ? "builtin" : null
-  );
+  const [provider, setProvider] = useState<SearchProvider | FetchProvider | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [removeKey, setRemoveKey] = useState(false);
   const [busy, setBusy] = useState(true);
@@ -63,7 +61,10 @@ function ProviderSettingsPanel({ kind }: { kind: "search" | "fetch" }) {
               ...input,
               provider: provider as SearchProvider | null,
             })
-          : await api.updateWebFetchSettings({ ...input, provider: provider as FetchProvider });
+          : await api.updateWebFetchSettings({
+              ...input,
+              provider: provider as FetchProvider | null,
+            });
       setSaved(value);
       setProvider(value.provider);
       setApiKey("");
@@ -71,7 +72,7 @@ function ProviderSettingsPanel({ kind }: { kind: "search" | "fetch" }) {
       setMessage(
         value.configured
           ? `Saved. The next ${kind} will use these settings.`
-          : `Saved. Web ${kind} will show setup guidance until a provider and key are saved.`
+          : `Saved. Web ${kind} is not configured. Select a provider and save its required settings.`
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : `Could not save web ${kind} settings.`);
@@ -111,7 +112,7 @@ function ProviderSettingsPanel({ kind }: { kind: "search" | "fetch" }) {
                   setMessage("");
                 }}
               >
-                {kind === "search" ? <option value="">Not configured</option> : null}
+                <option value="">Not configured</option>
                 {Object.entries(providers).map(([id, label]) => (
                   <option key={id} value={id}>
                     {label}

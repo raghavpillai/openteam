@@ -12,7 +12,7 @@ The main-agent runtime exposes the thirteen optional capabilities added in the S
 - Transfers are bounded to 64 MiB; Gmail draft MIME is bounded to 25 MiB. Account grants, enablement and file-tool policies are checked at execution. Review binds the connection, arguments, file size and SHA-256. Durable receipts prevent automatic replay of uncertain uploads. Bytes and OAuth tokens travel only on authenticated supervisor connections and do not enter model tool results.
 - Concurrent OpenTeam edits to the same Gmail draft are serialized across server processes. A second read detects intervening changes. Gmail's API does not offer an atomic compare-and-swap for the complete draft replacement, so concurrent edits in another client can still race the final PUT.
 
-External `SendToUser` images/attachments use native Slack uploads or Gmail MIME attachments. The existing account send policies apply, including one-time review. Review binds the target, text, account and actual file hashes; a changed file cannot reuse the review. Other connectors need their own binary delivery adapter. Host-to-box copy tools remain separate.
+External `SendToUser` images/attachments use native Slack uploads or Gmail MIME attachments. The existing account send policies apply, including one-time review. Review binds the target, text, account and actual file hashes; a changed file cannot reuse the review. Other connectors need their own binary delivery adapter. Host-to-box copy tools remain separate. Streaming writes verify the byte count and SHA-256 before replacing the destination; interrupted or altered transfers preserve the previous file.
 
 ## Mac Contacts and Messages
 
@@ -60,6 +60,12 @@ Credential values stay on the private bridge/browser path. Browser text results 
 `request_cookie_origin_approval` first lists Chrome profile IDs and cookie hosts. Request the exact profile/host pairs to import. Native review identifies every selected profile and site and can remember the bot-specific grants. Computer settings can revoke remembered access.
 
 The adapter reads only selected Mac Chrome cookie databases, obtains Chrome Safe Storage from Keychain after approval, supports the inspected v10 encryption format and v24 host-hash verification, and preserves cookie scope, flags, expiry and partition metadata. Cookie values are delivered privately to the bot browser; the model sees import counts and granted origins. Unknown encryption formats fail explicitly. Chrome on Windows/Linux and other browsers are not implemented by this Mac adapter.
+
+## Native computer viewer
+
+The Swift viewer receives a continuous JPEG stream through the authenticated server connection. The computer encodes up to 15 frames per second, limits each desktop to three viewers, and stops an encoder when its viewer disconnects. The client bounds frame sizes and retains only the latest complete frame. Pausing or backgrounding closes the stream; reconnecting starts a fresh one. Older servers without the stream endpoint retain the PNG fallback.
+
+Screen status and the human-control lease refresh independently. A healthy video stream cannot hide a failed status request or enable input without the current lease. Returning control, dismissal and backgrounding retain the existing lease-release behavior. This transport is an OpenTeam implementation, not Grok's private screen protocol.
 
 ## Verification and setup
 

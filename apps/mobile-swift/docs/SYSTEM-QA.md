@@ -16,7 +16,7 @@ All state is synthetic and disposable. These tests do not use personal accounts 
 
 ## Optional live checks
 
-`scripts/live-screen-bridge.ts` must run inside a disposable OpenTeam computer image with `SWIFT_QA_DISPOSABLE_COMPUTER=1`. Copy the current `apps/computer/src` and test sources into the image before running; the image's prebuilt runtime is not sufficient evidence of the edited source. Expose its port 8790 only on host loopback port 20003. The bridge launches its own inert browser page and destroys its own desktop on termination.
+`apps/computer/test/fixtures/native-viewer-bridge.ts` (from the repository root) must run inside a disposable OpenTeam computer image with `SWIFT_QA_DISPOSABLE_COMPUTER=1`. Copy the current `apps/computer/src` and test sources into the image before running; the image's prebuilt runtime is not sufficient evidence of the edited source. Expose its port 8790 only on host loopback port 20003. The bridge launches its own inert browser page and destroys its own desktop on termination. It lives with the computer runtime so the native app's scripts do not import another application's implementation.
 
 Start the native forwarding fixture on the host:
 

@@ -104,9 +104,18 @@ async function save() {
   const fetchButton = fetchFieldset.querySelector<HTMLButtonElement>("button")!;
   await until(() => !fetchFieldset.disabled);
   assert(
-    fetchSelect.options.length === 3 && fetchSelect.value === "builtin",
-    "fetch defaults to built-in and offers two extraction providers"
+    fetchSelect.options.length === 4 && fetchSelect.value === "",
+    "fetch starts unconfigured and offers three explicit providers"
   );
+  assert(fetchKey.disabled, "unconfigured fetch does not request a key");
+  assert(!(await client.webFetchSettings()).configured, "no implicit fetch fallback");
+  fetchSelect.value = "builtin";
+  fetchSelect.dispatchEvent(new Event("change", { bubbles: true }));
+  await wait();
+  fetchButton.click();
+  await wait();
+  await until(() => !fetchFieldset.disabled && fetchButton.disabled);
+  assert((await client.webFetchSettings()).configured, "built-in fetch requires explicit save");
   assert(fetchKey.disabled, "built-in fetch needs no key");
   fetchSelect.value = "exa";
   fetchSelect.dispatchEvent(new Event("change", { bubbles: true }));
@@ -133,6 +142,13 @@ async function save() {
   await wait();
   await until(() => !fetchFieldset.disabled && fetchButton.disabled);
   assert(!(await client.webFetchSettings()).hasApiKey, "switching to built-in removes fetch key");
+  fetchSelect.value = "";
+  fetchSelect.dispatchEvent(new Event("change", { bubbles: true }));
+  await wait();
+  fetchButton.click();
+  await wait();
+  await until(() => !fetchFieldset.disabled && fetchButton.disabled);
+  assert((await client.webFetchSettings()).provider === null, "fetch can be disabled again");
   (window as any).searchResults = { passed: checks, realServer: true, realDatabase: true };
 })().catch((error) => {
   (window as any).searchResults = { error: String(error), stack: error.stack };

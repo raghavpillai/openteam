@@ -48,12 +48,27 @@ export class ScreenService {
     private readonly computerFetch: ComputerFetch
   ) {}
 
-  async userFormAction(botId: string, formId: string, action: "prepare" | "prefill" | "submit" | "dismiss", input: unknown) {
+  async userFormAction(
+    botId: string,
+    formId: string,
+    action: "prepare" | "prefill" | "submit" | "dismiss",
+    input: unknown
+  ) {
     await this.requireActiveBot(botId);
-    const response = await this.computerFetch(`/v1/user-forms/${encodeURIComponent(botId)}/${encodeURIComponent(formId)}/${action}`, {
-      method: "POST", body: JSON.stringify(input), signal: AbortSignal.timeout(60_000),
-    });
-    if (!response.ok) throw new ApiError(409, "form_host_unavailable", "The form could not be processed on the computer. No values were put in the conversation. Check the browser and retry.");
+    const response = await this.computerFetch(
+      `/v1/user-forms/${encodeURIComponent(botId)}/${encodeURIComponent(formId)}/${action}`,
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+        signal: AbortSignal.timeout(60_000),
+      }
+    );
+    if (!response.ok)
+      throw new ApiError(
+        409,
+        "form_host_unavailable",
+        "The form could not be processed on the computer. No values were put in the conversation. Check the browser and retry."
+      );
     return response.json();
   }
 
@@ -142,6 +157,33 @@ export class ScreenService {
           throw new ApiError(404, "avatar_not_found", "Bot avatar is unavailable");
         }
         return { bytes, contentType };
+      },
+      catch: ScreenService.toError,
+    });
+
+  stream = (botId: string, signal: AbortSignal) =>
+    Effect.tryPromise({
+      try: async () => {
+        const bot = await this.requireActiveBot(botId);
+        const startup = new AbortController();
+        const deadline = setTimeout(() => startup.abort(), 20_000);
+        try {
+          const response = await this.computerFetch(
+            `/v1/screens/${bot.id}/stream?cwd=${encodeURIComponent(bot.defaultDirectory)}`,
+            { method: "GET", signal: AbortSignal.any([signal, startup.signal]) }
+          );
+          if (!response.ok || !response.body) {
+            await response.body?.cancel();
+            throw new ApiError(
+              response.status === 404 ? 501 : 503,
+              "screen_unavailable",
+              "Computer video is unavailable"
+            );
+          }
+          return response.body;
+        } finally {
+          clearTimeout(deadline);
+        }
       },
       catch: ScreenService.toError,
     });

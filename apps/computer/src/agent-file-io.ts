@@ -17,7 +17,7 @@ const cancellation = new AbortController();
 process.stdin.on('error', () => {});
 process.on('SIGTERM', () => { cancellation.abort(); process.stdin.destroy(new Error('File transfer cancelled')); });
 (async () => {
- const [mode, target, limitText] = process.argv.slice(1); const limit = Number(limitText);
+ const [mode, target, limitText, integrity] = process.argv.slice(1); const limit = Number(limitText);
  if (mode === 'read') {
    const file = await fs.open(target, 'r');
    try { const stat = await file.stat(); if (!stat.isFile() || stat.size > limit) throw Error('Source must be a regular file within the transfer size limit');
@@ -30,10 +30,12 @@ process.on('SIGTERM', () => { cancellation.abort(); process.stdin.destroy(new Er
    const temporary = path.join(path.dirname(target), '.openteam-transfer-' + crypto.randomUUID());
    try {
      const file = await fs.open(temporary, 'wx', 0o600); let size = 0;
+     const digest = crypto.createHash('sha256');
      try {
        // Drain the final partial pipe chunk and verify the file before publishing it.
        const output = new Writable({ write(chunk, _encoding, done) {
          size += chunk.length;
+         digest.update(chunk);
          if (size > limit) { done(Error('File exceeds transfer limit')); return; }
          (async () => {
            let offset = 0;
@@ -46,6 +48,18 @@ process.on('SIGTERM', () => { cancellation.abort(); process.stdin.destroy(new Er
        } });
        await pipeline(process.stdin, output, { signal: cancellation.signal }); await file.sync();
        if ((await file.stat()).size !== size) throw Error('Incomplete file transfer');
+       if (integrity === 'verify') {
+         // A separate, bounded control pipe authenticates the end of the byte
+         // stream before publication; an early pipe EOF must preserve the old file.
+         let receipt = '';
+         for await (const part of require('node:fs').createReadStream(null, { fd: 3, signal: cancellation.signal })) {
+           receipt += part.toString('utf8');
+           if (receipt.length > 256) throw Error('Invalid file transfer receipt');
+         }
+         const expected = JSON.parse(receipt);
+         if (expected.bytes !== size || expected.sha256 !== digest.digest('hex'))
+           throw Error('File transfer integrity check failed');
+       }
      }
      finally { await file.close(); }
      cancellation.signal.throwIfAborted(); await fs.rename(temporary, target);

@@ -22,6 +22,19 @@ export async function botRoutes(context: RouteContext): Promise<Response | undef
     });
   }
 
+  const screenStreamMatch = path.match(/^\/api\/bots\/([^/]+)\/screen\/stream$/);
+  if (request.method === "GET" && screenStreamMatch?.[1]) {
+    const stream = await run(app.screenStream(screenStreamMatch[1], request.signal));
+    return new Response(stream, {
+      headers: {
+        ...corsHeaders,
+        "content-type": "multipart/x-mixed-replace; boundary=openteam-frame",
+        "cache-control": "no-store",
+        "x-accel-buffering": "no",
+      },
+    });
+  }
+
   const screenFrameMatch = path.match(/^\/api\/bots\/([^/]+)\/screen\/frame$/);
   if (request.method === "GET" && screenFrameMatch?.[1]) {
     const frame = await run(app.screenFrame(screenFrameMatch[1]));

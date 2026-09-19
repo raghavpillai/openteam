@@ -120,10 +120,10 @@ const server = Bun.serve({
     if (path === "/api/auth/get-session") return response({ session: { id: "fixture" }, user: { id: "fixture-owner", name: "Fixture owner", username: "fixture", email: "fixture@example.invalid" } });
     const invalid = validateFixtureRequest(path,method,input); if(invalid)return response({message:invalid},400);
     requestLog.push({ method, path, ...(input.clientId ? { clientId: input.clientId } : {}) });
-    if (process.env.SWIFT_QA_LIVE_SCREEN_URL && /\/screen(?:\/(?:frame|takeover|actions))?$/.test(path)) {
+    if (process.env.SWIFT_QA_LIVE_SCREEN_URL && /\/screen(?:\/(?:frame|stream|takeover|actions))?$/.test(path)) {
       const target = new URL(path, process.env.SWIFT_QA_LIVE_SCREEN_URL);
       if (!["127.0.0.1", "localhost"].includes(target.hostname)) throw new Error("Live QA screen must be loopback-only");
-      return fetch(target, {method, headers:{"Content-Type":"application/json"}, body:method === "GET" ? undefined : JSON.stringify(input)});
+      return fetch(target, {method, signal:request.signal, headers:{"Content-Type":"application/json"}, body:method === "GET" ? undefined : JSON.stringify(input)});
     }
     if(path === "/api/v0/transcriptions" && method === "POST") return response({text:"Native voice QA transcription"});
     if(path.endsWith("/screen"))return response(screen);

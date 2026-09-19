@@ -95,7 +95,13 @@ export class AppService {
     this.prisma = createPrismaClient(databaseUrl);
     this.webSearchSettings = new WebSearchSettingsService(this.prisma);
     this.savedLogins = new SavedLoginService(this.prisma);
-    this.machines = new MachineService(this.prisma, process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me", undefined, undefined, authMode === "disabled");
+    this.machines = new MachineService(
+      this.prisma,
+      process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me",
+      undefined,
+      undefined,
+      authMode === "disabled"
+    );
     this.webFetchSettings = new WebFetchSettingsService(this.prisma);
     this.boss = new PgBoss(databaseUrl ?? "");
     this.eventWakeup = new EventWakeup(databaseUrl ?? "");
@@ -139,9 +145,11 @@ export class AppService {
       this.computerUrl,
       async () => {
         if (!this.queueReady) return false;
-        const result = await this.boss.getDb().executeSql(
-          "SELECT count(*)::int AS count FROM pgboss.queue WHERE name IN ('bot-wake','bot-provision','transcript-project','outbox-delivery','maintenance')"
-        );
+        const result = await this.boss
+          .getDb()
+          .executeSql(
+            "SELECT count(*)::int AS count FROM pgboss.queue WHERE name IN ('bot-wake','bot-provision','transcript-project','outbox-delivery','maintenance')"
+          );
         return result.rows[0]?.count === 5;
       },
       2_500,
@@ -171,7 +179,7 @@ export class AppService {
     this.autoReview = new AutoReviewService(
       (path, init) => this.computerFetch(path, init),
       () => this.agentData.loadInferenceSettings(),
-      context => loadAutoReviewContext(this.prisma, context)
+      (context) => loadAutoReviewContext(this.prisma, context)
     );
     this.reviewPolicy = new ReviewPolicyService(this.prisma, this.autoReview);
     this.runs = new RunService(
@@ -203,7 +211,9 @@ export class AppService {
       this.agentData
     );
     this.routines = new RoutineService(this.prisma, this.messaging, this.agentData);
-    this.automationWebhooks = new AutomationWebhooksService(this.prisma,(owner,event)=>this.routines.dispatchEvent(owner,event));
+    this.automationWebhooks = new AutomationWebhooksService(this.prisma, (owner, event) =>
+      this.routines.dispatchEvent(owner, event)
+    );
     this.durableState = new DurableStateService(
       this.prisma,
       this.workspaceRoot,
@@ -244,7 +254,9 @@ export class AppService {
       await this.eventWakeup.start();
       await this.snapshots.pruneEvents();
       this.eventPruneTimer = setInterval(() => {
-        void this.automationWebhooks.renew().catch(() => console.warn("Automation subscription renewal failed"));
+        void this.automationWebhooks
+          .renew()
+          .catch(() => console.warn("Automation subscription renewal failed"));
         void this.snapshots.pruneEvents().catch((error) => console.error("event retention", error));
       }, 5 * 60_000);
       this.eventPruneTimer.unref?.();
@@ -259,7 +271,11 @@ export class AppService {
       this.queueReady = true;
       await this.recover();
       await this.richMessages.recoverPendingReviews();
-      this.reviewRecoveryTimer = setInterval(() => { void this.richMessages.recoverPendingReviews().catch((error) => console.error("review recovery", error)); }, 30_000);
+      this.reviewRecoveryTimer = setInterval(() => {
+        void this.richMessages
+          .recoverPendingReviews()
+          .catch((error) => console.error("review recovery", error));
+      }, 30_000);
       this.reviewRecoveryTimer.unref?.();
       this.approvalExpiryTimer = setInterval(() => {
         void this.expirePendingApprovals().catch((error) =>
@@ -319,7 +335,10 @@ export class AppService {
 
   close = () =>
     Effect.promise(async () => {
-      if (this.reviewRecoveryTimer) { clearInterval(this.reviewRecoveryTimer); this.reviewRecoveryTimer = null; }
+      if (this.reviewRecoveryTimer) {
+        clearInterval(this.reviewRecoveryTimer);
+        this.reviewRecoveryTimer = null;
+      }
       if (this.approvalExpiryTimer) {
         clearInterval(this.approvalExpiryTimer);
         this.approvalExpiryTimer = null;
@@ -449,6 +468,8 @@ export class AppService {
 
   screenFrame = forwardServiceMethod(() => this.screens.frame);
 
+  screenStream = forwardServiceMethod(() => this.screens.stream);
+
   botAvatar = forwardServiceMethod(() => this.screens.avatar);
 
   screenAction = forwardServiceMethod(() => this.screens.action);
@@ -487,7 +508,8 @@ export class AppService {
 
   respondToWidget = forwardServiceMethod(() => this.richMessages.respondToWidget);
   mutateReviewAction = forwardServiceMethod(() => this.richMessages.reviewActions.mutate);
-  reviewRecipe = (id: string, publicOnly = false) => this.richMessages.reviewActions.recipe(id, publicOnly);
+  reviewRecipe = (id: string, publicOnly = false) =>
+    this.richMessages.reviewActions.recipe(id, publicOnly);
   mutateExternalDraft = forwardServiceMethod(() => this.richMessages.externalDrafts.mutate);
   submitUserForm = forwardServiceMethod(() => this.richMessages.submitUserForm);
   userFormPrefill = forwardServiceMethod(() => this.richMessages.formPrefill);

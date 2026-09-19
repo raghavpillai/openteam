@@ -33,11 +33,11 @@ export function isFetchProvider(value: unknown): value is FetchProvider {
   return typeof value === "string" && Object.hasOwn(FETCH_PROVIDERS, value);
 }
 export interface WebFetchSettingsView {
-  provider: FetchProvider;
+  provider: FetchProvider | null;
   hasApiKey: boolean;
   configured: boolean;
 }
 export interface WebFetchSettingsInput {
-  provider: FetchProvider;
+  provider: FetchProvider | null;
   apiKey?: string | null;
 }

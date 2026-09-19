@@ -2,11 +2,11 @@ import { FETCH_PROVIDERS, type FetchProvider } from "@openteam/contracts/web-sea
 import { boundedJson, type SearchFetch } from "./search-provider";
 import { publicWebUrl, validatePublicWebUrl } from "./public-web-url";
 export interface FetchConfiguration {
-  provider: FetchProvider;
+  provider?: FetchProvider | null;
   apiKey?: string;
 }
 type FetchResult =
-  | { configured: false; provider: FetchProvider; message: string }
+  | { configured: false; provider: FetchProvider | null; message: string }
   | { configured: true; provider: "builtin" }
   | { configured: true; provider: "exa" | "tavily"; url: string; text: string };
 const record = (v: unknown): Record<string, unknown> =>
@@ -16,7 +16,7 @@ export class FetchProviderClient {
   constructor(
     private readonly configuration: (
       signal?: AbortSignal
-    ) => FetchConfiguration | Promise<FetchConfiguration> = () => ({ provider: "builtin" }),
+    ) => FetchConfiguration | Promise<FetchConfiguration> = () => ({}),
     private readonly request: SearchFetch = fetch,
     private readonly validate = validatePublicWebUrl
   ) {}
@@ -28,11 +28,11 @@ export class FetchProviderClient {
     const { provider, apiKey } = await this.configuration(signal);
     signal?.throwIfAborted();
     if (provider === "builtin") return { configured: true, provider };
-    if (!apiKey)
+    if (!provider || !apiKey)
       return {
         configured: false,
-        provider,
-        message: `WebFetch is not configured: ${FETCH_PROVIDERS[provider]} needs an API key in Settings → Server → Web fetch. No page was fetched. Select built-in HTTP fetch to read public pages without a key. Never paste API keys into chat.`,
+        provider: provider ?? null,
+        message: `No fetch configured. ${provider ? `${FETCH_PROVIDERS[provider]} needs a saved API key. ` : ""}Configure it in Settings → Server → Web fetch. Select and save built-in HTTP fetch to read public pages without a key, or save an Exa Contents/Tavily Extract key. No page was fetched. Never paste API keys into chat.`,
       };
     const url = (await this.validate(value, signal)).href;
     const isExa = provider === "exa";

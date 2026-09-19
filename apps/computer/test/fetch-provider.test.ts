@@ -67,13 +67,18 @@ for (const provider of ["exa", "tavily"] as const) {
     }
   });
 }
-test("built-in fetch is the default, while missing extraction keys give setup guidance", async () => {
+test("missing fetch configuration makes no request; built-in requires explicit selection", async () => {
   let requests = 0;
   const request = async () => {
     requests++;
     throw new Error("unexpected request");
   };
-  expect(await new FetchProviderClient(undefined, request).fetch(url)).toEqual({
+  const missing = await new FetchProviderClient(undefined, request).fetch(url);
+  expect(missing).toMatchObject({ configured: false, provider: null });
+  expect("message" in missing && missing.message).toContain("No fetch configured");
+  expect(
+    await new FetchProviderClient(() => ({ provider: "builtin" }), request).fetch(url)
+  ).toEqual({
     configured: true,
     provider: "builtin",
   });
@@ -126,7 +131,7 @@ test("external fetch sanitizes failures and honors cancellation and response bou
     await expect(failed.fetch(invalid)).rejects.toThrow();
 });
 test("runtime fetch configuration defaults from server and observes provider changes", async () => {
-  let value = { provider: "builtin", apiKey: null as string | null };
+  let value = { provider: null as string | null, apiKey: null as string | null };
   let reads = 0;
   const configuration = serverFetchConfiguration(
     "http://server",
@@ -138,26 +143,39 @@ test("runtime fetch configuration defaults from server and observes provider cha
       return Response.json(value);
     }
   );
+  expect(await configuration()).toEqual({ provider: undefined, apiKey: undefined });
+  value = { provider: "builtin", apiKey: null };
   expect(await configuration()).toEqual({ provider: "builtin", apiKey: undefined });
   value = { provider: "exa", apiKey: key };
-  expect(await configuration()).toEqual({provider: "exa", apiKey: key});
-  expect(reads).toBe(2);
+  expect(await configuration()).toEqual({ provider: "exa", apiKey: key });
+  expect(reads).toBe(3);
   value = { provider: "brave", apiKey: key };
   await expect(configuration()).rejects.toThrow("settings could not be loaded");
 });
 
-test('oversized extraction spills redacted full content to an actual file', async () => {
-  const { mkdtemp, readFile, rm } = await import('node:fs/promises');
-  const { tmpdir } = await import('node:os');
-  const { join } = await import('node:path');
-  const cwd = await mkdtemp(join(tmpdir(), 'web-fetch-spill-'));
+test("oversized extraction spills redacted full content to an actual file", async () => {
+  const { mkdtemp, readFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const cwd = await mkdtemp(join(tmpdir(), "web-fetch-spill-"));
   try {
-    const client = new FetchProviderClient(() => ({provider: 'exa', apiKey: key}), async () => Response.json({results: [{url, text: 'Start\n' + 'text '.repeat(25000) + key + '\nEnd'}]}), validate);
+    const client = new FetchProviderClient(
+      () => ({ provider: "exa", apiKey: key }),
+      async () =>
+        Response.json({
+          results: [{ url, text: "Start\n" + "text ".repeat(25000) + key + "\nEnd" }],
+        }),
+      validate
+    );
     const result = await new WebTools(new SearchProviderClient(), client).fetch(url, cwd);
-    expect(result.content[0]!.text).toContain('Content written to file:');
-    const outputPath = 'outputPath' in result.details ? result.details.outputPath : undefined;
+    expect(result.content[0]!.text).toContain("Content written to file:");
+    const outputPath = "outputPath" in result.details ? result.details.outputPath : undefined;
     expect(outputPath).toBeDefined();
-    const full = await readFile(outputPath!, 'utf8');
-    expect(full).toContain('End'); expect(full).toContain('[redacted]'); expect(full).not.toContain(key);
-  } finally { await rm(cwd, {recursive: true, force: true}); }
+    const full = await readFile(outputPath!, "utf8");
+    expect(full).toContain("End");
+    expect(full).toContain("[redacted]");
+    expect(full).not.toContain(key);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });

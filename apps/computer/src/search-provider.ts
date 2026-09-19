@@ -173,13 +173,13 @@ export class SearchProviderClient {
     signal?.throwIfAborted();
     if (!provider || !apiKey) {
       const text = provider
-        ? `WebSearch is not configured: ${SEARCH_PROVIDERS[provider]} is selected but an API key is missing. Add it in Settings → Server → Web search.`
-        : "WebSearch is not configured. Choose Exa, Tavily, Brave Search, or Bing via SerpApi and save an API key in Settings → Server → Web search.";
+        ? `No search configured. ${SEARCH_PROVIDERS[provider]} is selected but an API key is missing. Add it in Settings → Server → Web search.`
+        : "No search configured. Choose Exa, Tavily, Brave Search, or Bing via SerpApi and save an API key in Settings → Server → Web search.";
       return {
         content: [
           {
             type: "text" as const,
-            text: `${text} Configure the key privately; never ask the user to paste it into chat. No search was performed. WebFetch can read known public URLs; its built-in provider needs no key.`,
+            text: `${text} Configure the key privately; never ask the user to paste it into chat. No search was performed. WebFetch has separate settings and also requires an explicitly saved provider.`,
           },
         ],
         details: { configured: false, provider: provider ?? null, results: [] as SearchResult[] },
@@ -224,7 +224,12 @@ export class SearchProviderClient {
       content: [
         {
           type: "text" as const,
-          text: results.map(result => `Title: ${result.title}${result.url ? `\nURL: ${result.url}` : ""}\nContent: ${result.description}\n---\n`).join("\n"),
+          text: results
+            .map(
+              (result) =>
+                `Title: ${result.title}${result.url ? `\nURL: ${result.url}` : ""}\nContent: ${result.description}\n---\n`
+            )
+            .join("\n"),
         },
       ],
       details: { configured: true, provider, query, results },

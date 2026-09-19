@@ -31,9 +31,10 @@ function serverWebConfiguration(
         !value ||
         typeof value !== "object" ||
         Array.isArray(value) ||
-        (kind === "fetch"
-          ? !isFetchProvider(value.provider)
-          : value.provider !== null && !isSearchProvider(value.provider)) ||
+        (value.provider !== null &&
+          (kind === "fetch"
+            ? !isFetchProvider(value.provider)
+            : !isSearchProvider(value.provider))) ||
         (value.apiKey !== null &&
           (typeof value.apiKey !== "string" || !value.apiKey || value.apiKey.length > 20_000))
       )

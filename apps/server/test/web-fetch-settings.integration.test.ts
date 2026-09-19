@@ -7,13 +7,14 @@ test("fetch settings only allow implemented providers and bounded keys", () => {
   for (const value of [
     null,
     { provider: "brave" },
-    { provider: null },
+    { provider: null, apiKey: "key" },
     { provider: "builtin", apiKey: "key" },
     { provider: "exa", apiKey: "\n" },
     { provider: "exa", apiKey: 12 },
   ])
     expect(() => parseWebFetchSettings(value)).toThrow();
   expect(parseWebFetchSettings({ provider: "builtin" })).toEqual({ provider: "builtin" });
+  expect(parseWebFetchSettings({ provider: null })).toEqual({ provider: null });
   expect(parseWebFetchSettings({ provider: "tavily", apiKey: " key " })).toEqual({
     provider: "tavily",
     apiKey: "key",
@@ -21,7 +22,7 @@ test("fetch settings only allow implemented providers and bounded keys", () => {
 });
 const db = process.env.OPENTEAM_TEST_DATABASE_URL;
 test.skipIf(!db)(
-  "fetch settings use plain DB storage, default to built-in, and never return keys publicly",
+  "fetch settings require explicit selection, support disabling, and never return keys publicly",
   async () => {
     const prisma = createPrismaClient(db!);
     const service = new WebFetchSettingsService(prisma);
@@ -44,11 +45,11 @@ test.skipIf(!db)(
     try {
       await prisma.webFetchSettings.deleteMany();
       expect(await request("GET")).toEqual({
-        provider: "builtin",
+        provider: null,
         hasApiKey: false,
-        configured: true,
+        configured: false,
       });
-      expect(await service.credentials()).toEqual({ provider: "builtin", apiKey: null });
+      expect(await service.credentials()).toEqual({ provider: null, apiKey: null });
       expect(await request("PATCH", { provider: "exa", apiKey: key })).toEqual({
         provider: "exa",
         hasApiKey: true,
@@ -72,6 +73,17 @@ test.skipIf(!db)(
       await service.save({ provider: "builtin" });
       expect(await service.credentials()).toEqual({ provider: "builtin", apiKey: null });
       expect(await prisma.webFetchSettings.count()).toBe(1);
+      await request("PATCH", { provider: null });
+      expect(await new WebFetchSettingsService(prisma).credentials()).toEqual({
+        provider: null,
+        apiKey: null,
+      });
+      expect(await prisma.webFetchSettings.count()).toBe(0);
+      expect(await request("PATCH", { provider: "builtin" })).toEqual({
+        provider: "builtin",
+        hasApiKey: false,
+        configured: true,
+      });
     } finally {
       await prisma.webFetchSettings.deleteMany();
       await prisma.$disconnect();

@@ -4,9 +4,13 @@ import XCTest
 /// after a change. Simulator results are comparative, not an iPhone FPS guarantee.
 @MainActor
 final class MessagePerformanceUITests: XCTestCase {
+  private var server: String {
+    ProcessInfo.processInfo.environment["MESSAGE_PERFORMANCE_SERVER"] ?? "http://127.0.0.1:19996"
+  }
+
   func history(_ scene: String) async throws -> XCUIApplication {
     continueAfterFailure = false
-    let base = "http://127.0.0.1:19996"
+    let base = server
     var request = URLRequest(url: URL(string: base + "/__qa/scene")!)
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -29,10 +33,10 @@ final class MessagePerformanceUITests: XCTestCase {
     attachment.name = scene + "-readiness.json"
     attachment.lifetime = .keepAlways
     add(attachment)
-    if scene == "performance-rich" {
-      // The bundled document renderers publish their heights asynchronously.
-      // Settle before the measured interval so an initial transient Latest
-      // button cannot disappear between XCTest's existence check and tap.
+    if scene.hasPrefix("performance-") {
+      // Initial history positioning and document heights settle asynchronously.
+      // Keep this outside the measured interval so a transient Latest button
+      // cannot disappear between XCTest's existence check and tap.
       try await Task.sleep(for: .seconds(3))
       XCTAssertFalse(app.buttons["Latest messages"].exists)
     }
@@ -104,7 +108,7 @@ final class MessagePerformanceUITests: XCTestCase {
     let app = try await history("performance-text")
     let targetID = "visual-message-visual-chat-11"
     var request = URLRequest(
-      url: URL(string: "http://127.0.0.1:19996/api/v0/channels/visual-chat/messages")!)
+      url: URL(string: server + "/api/v0/channels/visual-chat/messages")!)
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.httpBody = try JSONSerialization.data(withJSONObject: [
@@ -146,7 +150,7 @@ final class MessagePerformanceUITests: XCTestCase {
     let identifier = anchor.identifier
     let y = anchor.frame.minY
     var request = URLRequest(
-      url: URL(string: "http://127.0.0.1:19996/api/v0/channels/visual-chat/messages")!)
+      url: URL(string: server + "/api/v0/channels/visual-chat/messages")!)
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.httpBody = try JSONSerialization.data(withJSONObject: [

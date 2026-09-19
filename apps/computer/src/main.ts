@@ -33,14 +33,26 @@ const port = Number(process.env.OPENTEAM_COMPUTER_PORT ?? 8790);
 const controlToken = process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me";
 const workspaceRoot = resolve(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace");
 const readiness = new ComputerReadiness(() => checkAgentWorkspace(workspaceRoot));
-let displayCache:{width:number;height:number;until:number}|undefined;
-const screens = new ScreenBroker(undefined,async()=>{
-  if(displayCache && displayCache.until>Date.now())return displayCache;
-  const response=await fetch(`${process.env.OPENTEAM_SERVER_URL ?? "http://127.0.0.1:8787"}/api/v0/internal/computer-display`,{headers:{authorization:`Bearer ${controlToken}`},signal:AbortSignal.timeout(5_000)});
-  if(!response.ok)throw new Error("Computer display settings are unavailable");
-  const value=await response.json() as {width:number;height:number};
-  if(!Number.isInteger(value.width)||!Number.isInteger(value.height)||value.width<640||value.width>7680||value.height<480||value.height>4320)throw new Error("Invalid computer display dimensions");
-  displayCache={...value,until:Date.now()+30_000};return displayCache;
+let displayCache: { width: number; height: number; until: number } | undefined;
+const screens = new ScreenBroker(undefined, async () => {
+  if (displayCache && displayCache.until > Date.now()) return displayCache;
+  const response = await fetch(
+    `${process.env.OPENTEAM_SERVER_URL ?? "http://127.0.0.1:8787"}/api/v0/internal/computer-display`,
+    { headers: { authorization: `Bearer ${controlToken}` }, signal: AbortSignal.timeout(5_000) }
+  );
+  if (!response.ok) throw new Error("Computer display settings are unavailable");
+  const value = (await response.json()) as { width: number; height: number };
+  if (
+    !Number.isInteger(value.width) ||
+    !Number.isInteger(value.height) ||
+    value.width < 640 ||
+    value.width > 7680 ||
+    value.height < 480 ||
+    value.height > 4320
+  )
+    throw new Error("Invalid computer display dimensions");
+  displayCache = { ...value, until: Date.now() + 30_000 };
+  return displayCache;
 });
 const agentStores = new BotAgentStore();
 const boxStore = new BoxStoreSync({
@@ -198,7 +210,11 @@ const server = Bun.serve({
       if (request.method === "GET" && url.pathname === "/v1/task-capabilities") {
         return json({
           boxAvailable: await readiness.check(),
-          desktopAvailable: process.platform === "linux" && ["Xvfb", "x11vnc", "xfce4-session", "google-chrome"].every(command => Bun.which(command) !== null),
+          desktopAvailable:
+            process.platform === "linux" &&
+            ["Xvfb", "x11vnc", "xfce4-session", "google-chrome"].every(
+              (command) => Bun.which(command) !== null
+            ),
         });
       }
       if (request.method === "PUT" && url.pathname === "/v1/directories") {
@@ -455,14 +471,31 @@ const server = Bun.serve({
         return json(result);
       }
 
-      const formMatch = url.pathname.match(/^\/v1\/user-forms\/([^/]+)\/([^/]+)\/(prepare|submit|dismiss|prefill)$/);
+      const formMatch = url.pathname.match(
+        /^\/v1\/user-forms\/([^/]+)\/([^/]+)\/(prepare|submit|dismiss|prefill)$/
+      );
       if (request.method === "POST" && formMatch) {
         const [, botId, formId, action] = formMatch;
-        const input = await request.json() as { form?: unknown; values?: unknown; saveToVault?: boolean; mode?: string };
-        if (action === "prepare") return json(await runtime.userForms.prepare(botId!, formId!, input.form));
+        const input = (await request.json()) as {
+          form?: unknown;
+          values?: unknown;
+          saveToVault?: boolean;
+          mode?: string;
+        };
+        if (action === "prepare")
+          return json(await runtime.userForms.prepare(botId!, formId!, input.form));
         if (action === "prefill") return json(await runtime.userForms.prefill(botId!, formId!));
-        if (action === "dismiss") return json(await runtime.userForms.dismiss(botId!, formId!, input.mode === "escalated" ? "escalated" : "dismissed"));
-        return json(await runtime.userForms.submit(botId!, formId!, input.values, input.saveToVault === true));
+        if (action === "dismiss")
+          return json(
+            await runtime.userForms.dismiss(
+              botId!,
+              formId!,
+              input.mode === "escalated" ? "escalated" : "dismissed"
+            )
+          );
+        return json(
+          await runtime.userForms.submit(botId!, formId!, input.values, input.saveToVault === true)
+        );
       }
 
       const screenMatch = url.pathname.match(/^\/v1\/screens\/([^/]+)$/);
@@ -475,6 +508,18 @@ const server = Bun.serve({
         await agentStores.closeAgent(screenMatch[1]);
         boxStore.scheduleSnapshot(5_000, { chrome: true, agentIds: [screenMatch[1]] });
         return json({ ok: true });
+      }
+
+      const streamMatch = url.pathname.match(/^\/v1\/screens\/([^/]+)\/stream$/);
+      if (request.method === "GET" && streamMatch?.[1]) {
+        const cwd = safePath(url.searchParams.get("cwd") ?? workspaceRoot);
+        return new Response(await screens.stream(streamMatch[1], cwd, request.signal), {
+          headers: {
+            "content-type": "multipart/x-mixed-replace; boundary=openteam-frame",
+            "cache-control": "no-store",
+            "x-accel-buffering": "no",
+          },
+        });
       }
 
       const frameMatch = url.pathname.match(/^\/v1\/screens\/([^/]+)\/frame$/);

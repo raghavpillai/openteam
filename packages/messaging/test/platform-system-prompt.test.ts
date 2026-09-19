@@ -28,8 +28,13 @@ const mainAgent = (id: string) => {
         modelId: "gpt-5.5",
         reasoning: "high",
       }),
-      preparePlatformSections: async (_bot: string, _context: string, epoch: number, live: Record<string, string>) => preparePromptSections({}, epoch, live),
-        promptContext: async () => ({
+      preparePlatformSections: async (
+        _bot: string,
+        _context: string,
+        epoch: number,
+        live: Record<string, string>
+      ) => preparePromptSections({}, epoch, live),
+      promptContext: async () => ({
         compactionEpoch: 4,
         profileSection: profileSnapshot.profileSection,
         profileSnapshot,
@@ -66,11 +71,49 @@ const mainAgent = (id: string) => {
 };
 
 describe("Grok-derived platform prompt integration", () => {
+  test("all feature combinations retain supported media and explicit provider setup guidance", () => {
+    const flags = [
+      "managedSkills",
+      "forms",
+      "drafts",
+      "feedback",
+      "sharing",
+      "eventRoutines",
+    ] as const;
+    for (let mask = 0; mask < 64; mask++) {
+      const features = Object.fromEntries(
+        flags.map((name, bit) => [name, Boolean(mask & (1 << bit))])
+      );
+      const prompt = renderPlatformBaseSystemPrompt(features);
+      expect(prompt).toContain("download it to your computer and attach the saved file");
+      expect(prompt).toContain("No search configured");
+      expect(prompt).toContain("No fetch configured");
+      expect(prompt).not.toContain("Use watchVideo");
+      expect(prompt).not.toContain("GenerateImage");
+      expect(prompt).not.toContain("request_scm_connect");
+      expect(prompt.length).toBeLessThan(40_000);
+      if (!features.managedSkills) {
+        expect(prompt).toContain("## Managing plugins and connectors");
+        expect(prompt).toContain("## Reaching services that have no connector");
+        expect(prompt).toContain("## Code changes");
+        expect(prompt).not.toContain("## Flight booking");
+        expect(prompt).not.toContain("## Managed workflows");
+      }
+    }
+  });
   test("a run's Task configuration snapshot wins over current deployment settings", async () => {
     const { messaging } = mainAgent("alpha");
     const prompt = await messaging.platformPrompt("alpha", "alpha-context", "", undefined, {
       combinedComputerUse: false,
-      executorProfiles: [{ name: "quick", description: "Small jobs", providerId: "openai", modelId: "fixture", reasoning: "low" }],
+      executorProfiles: [
+        {
+          name: "quick",
+          description: "Small jobs",
+          providerId: "openai",
+          modelId: "fixture",
+          reasoning: "low",
+        },
+      ],
     });
     expect(prompt.instructions).toContain("browserUse: structured browser interaction");
     expect(prompt.instructions).toContain("quick: Small jobs");
@@ -80,9 +123,15 @@ describe("Grok-derived platform prompt integration", () => {
     const previous = process.env.OPENTEAM_TEMPLATE_SHARING;
     process.env.OPENTEAM_TEMPLATE_SHARING = "false";
     try {
-      expect(renderPlatformBaseSystemPrompt({ managedSkills: true })).not.toContain("export-bot-template");
-      expect(renderPlatformBaseSystemPrompt({ managedSkills: false })).not.toContain("create_bot_share_json");
-      expect(renderPlatformBaseSystemPrompt({ managedSkills: true, sharing: true })).toContain("export-bot-template");
+      expect(renderPlatformBaseSystemPrompt({ managedSkills: true })).not.toContain(
+        "export-bot-template"
+      );
+      expect(renderPlatformBaseSystemPrompt({ managedSkills: false })).not.toContain(
+        "create_bot_share_json"
+      );
+      expect(renderPlatformBaseSystemPrompt({ managedSkills: true, sharing: true })).toContain(
+        "export-bot-template"
+      );
     } finally {
       if (previous === undefined) delete process.env.OPENTEAM_TEMPLATE_SHARING;
       else process.env.OPENTEAM_TEMPLATE_SHARING = previous;
@@ -96,7 +145,9 @@ describe("Grok-derived platform prompt integration", () => {
     ] as const) {
       const fixture = mainAgent(id);
       const prompt = await fixture.messaging.platformPrompt(id, `${id}-context`);
-      expect(prompt.instructions).toStartWith(`${renderPlatformBaseSystemPrompt()}\n\nYou are ${id}.`);
+      expect(prompt.instructions).toStartWith(
+        `${renderPlatformBaseSystemPrompt()}\n\nYou are ${id}.`
+      );
       expect(prompt.instructions).toContain(`Follow ${id}'s preferences.`);
       expect(prompt.instructions).toContain(`Only ${id} knows this fact.`);
       expect(prompt.instructions).not.toContain(`Only ${otherId} knows this fact.`);

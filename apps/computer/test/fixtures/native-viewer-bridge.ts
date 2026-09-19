@@ -1,13 +1,14 @@
 /** Run only inside a disposable computer container. Real X11/Chromium, synthetic page. */
-import { chromium } from "playwright-core";
-import { ScreenBroker } from "../../computer/src/screen-broker";
+import { outOfProcessPlaywright } from "../../src/browser/playwright-driver";
+import { ScreenBroker } from "../../src/screen-broker";
 
 if (process.env.SWIFT_QA_DISPOSABLE_COMPUTER !== "1")
   throw new Error("Disposable computer opt-in required");
 const id = "swift-native-live-screen";
 const broker = new ScreenBroker("/tmp/swift-native-live-screen");
 await broker.ensure(id, "/workspace");
-const browser = await chromium.launch({
+const driver = await outOfProcessPlaywright();
+const browser = await driver.playwright.chromium.launch({
   executablePath: "/usr/local/bin/google-chrome",
   headless: false,
   env: (await broker.commandEnvironment(id, "/workspace")) as Record<string, string>,
@@ -53,6 +54,13 @@ const server = Bun.serve({
         }))
       );
     try {
+      if (path.endsWith("/screen/stream"))
+        return new Response(await broker.stream(id, "/workspace", request.signal), {
+          headers: {
+            "Content-Type": "multipart/x-mixed-replace; boundary=openteam-frame",
+            "Cache-Control": "no-store",
+          },
+        });
       if (path.endsWith("/screen/frame"))
         return new Response(await broker.screenshot(id, "/workspace"), {
           headers: { "Content-Type": "image/png" },
@@ -76,5 +84,6 @@ for (const signal of ["SIGTERM", "SIGINT"] as const)
     server.stop(true);
     await browser.close();
     await broker.destroy(id);
+    await driver.stop();
     process.exit(0);
   });

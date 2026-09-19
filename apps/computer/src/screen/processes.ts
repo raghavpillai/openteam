@@ -8,6 +8,7 @@ import type { ScreenSession } from "./types";
 export const SCREEN_HEALTH_CHECK_INTERVAL_MS = 2_000;
 
 export const ENDPOINT_PROBE_TIMEOUT_MS = 1_000;
+const endpointFailures = new WeakMap<ScreenSession, number>();
 
 export const processError = (command: string, stderr: string, code: number | null) =>
   new Error(`${command} exited ${code ?? "without a code"}${stderr ? `: ${stderr.trim()}` : ""}`);
@@ -125,15 +126,20 @@ export async function refreshSessionHealth(session: ScreenSession): Promise<void
   if (Date.now() - session.lastHealthCheckAt < SCREEN_HEALTH_CHECK_INTERVAL_MS) return;
   if (!session.healthCheckPromise) {
     session.lastHealthCheckAt = Date.now();
-    const probe = sessionEndpointsReady(session);
+    const probe = sessionEndpointsReady(session).then((healthy) => {
+      const failures = healthy ? 0 : (endpointFailures.get(session) ?? 0) + 1;
+      // A single slow HEAD request must not destroy the user's desktop/browser.
+      // Process exits still fail immediately through the process listeners.
+      endpointFailures.set(session, failures >= 2 ? 0 : failures);
+      if (failures >= 2) failSession(session, "The VNC or noVNC endpoint stopped responding");
+      return healthy;
+    });
     session.healthCheckPromise = probe;
     void probe.finally(() => {
       if (session.healthCheckPromise === probe) session.healthCheckPromise = null;
     });
   }
-  if (!(await session.healthCheckPromise)) {
-    failSession(session, "The VNC or noVNC endpoint stopped responding");
-  }
+  await session.healthCheckPromise;
 }
 
 export async function sessionEndpointsReady(session: ScreenSession): Promise<boolean> {

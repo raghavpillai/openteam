@@ -20,6 +20,7 @@ import {
   viewerHttpResponds,
 } from "./screen/processes";
 import type { ScreenSession, ScreenStatus } from "./screen/types";
+import { streamScreenFrames } from "./screen/frame-stream";
 
 const WIDTH = 1280;
 
@@ -62,7 +63,13 @@ export class ScreenBroker {
   private readonly activeAgentInput = new WeakMap<ScreenSession, AbortController>();
   private readonly readySessions = new Map<string, Promise<ScreenSession>>();
 
-  constructor(private readonly home = process.env.HOME ?? "/home/box", private readonly displayDimensions:()=>Promise<{width:number;height:number}> = async()=>({width:WIDTH,height:HEIGHT})) {
+  constructor(
+    private readonly home = process.env.HOME ?? "/home/box",
+    private readonly displayDimensions: () => Promise<{
+      width: number;
+      height: number;
+    }> = async () => ({ width: WIDTH, height: HEIGHT })
+  ) {
     this.stateRoot = join(home, ".openteam");
     this.mappingPath = join(home, ".sand-window-assignments.json");
     this.browserBroker = new BrowserBroker(home);
@@ -87,8 +94,8 @@ export class ScreenBroker {
         session = {
           botId,
           cwd,
-          width:dimensions.width,
-          height:dimensions.height,
+          width: dimensions.width,
+          height: dimensions.height,
           slot,
           display: DISPLAY_BASE + slot,
           rfbPort: RFB_PORT_BASE + slot,
@@ -137,6 +144,14 @@ export class ScreenBroker {
       env: environment(this.home, session),
       captureStdout: true,
     });
+  }
+
+  async stream(
+    botId: string,
+    cwd: string,
+    signal: AbortSignal
+  ): Promise<ReadableStream<Uint8Array>> {
+    return streamScreenFrames(this.home, await this.readySession(botId, cwd), signal);
   }
 
   async act(
@@ -226,7 +241,11 @@ export class ScreenBroker {
     return environment(this.home, session);
   }
 
-  async withAgentBrowserInput<T>(botId: string, cwd: string, operation: (signal?: AbortSignal) => Promise<T>): Promise<T> {
+  async withAgentBrowserInput<T>(
+    botId: string,
+    cwd: string,
+    operation: (signal?: AbortSignal) => Promise<T>
+  ): Promise<T> {
     return this.withInput(await this.readySession(botId, cwd), "agent", operation);
   }
 
@@ -403,7 +422,15 @@ export class ScreenBroker {
       const display = `:${session.display}`;
       const xvfb = this.spawnLongLived(
         "Xvfb",
-        [display, "-screen", "0", `${session.width ?? WIDTH}x${session.height ?? HEIGHT}x24`, "-nolisten", "tcp", "-ac"],
+        [
+          display,
+          "-screen",
+          "0",
+          `${session.width ?? WIDTH}x${session.height ?? HEIGHT}x24`,
+          "-nolisten",
+          "tcp",
+          "-ac",
+        ],
         session,
         environment(this.home, session),
         "/workspace",

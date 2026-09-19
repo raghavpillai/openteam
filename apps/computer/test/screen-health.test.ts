@@ -20,11 +20,12 @@ describe("screen endpoint health", () => {
     }
   });
 
-  test("a failed endpoint transitions a ready screen to failed", async () => {
+  test("transient endpoint failures recover; two separate failures mark the desktop failed", async () => {
+    let status = 503;
     const server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
-      fetch: () => new Response("unavailable", { status: 503 }),
+      fetch: () => new Response("viewer", { status }),
     });
     try {
       const session = {
@@ -36,6 +37,17 @@ describe("screen endpoint health", () => {
         stopping: false,
         error: null,
       } as ScreenSession;
+      await Promise.all([refreshSessionHealth(session), refreshSessionHealth(session)]);
+      expect(session.state).toBe("ready");
+      status = 200;
+      session.lastHealthCheckAt = 0;
+      await refreshSessionHealth(session);
+      expect(session.state).toBe("ready");
+      status = 503;
+      session.lastHealthCheckAt = 0;
+      await refreshSessionHealth(session);
+      expect(session.state).toBe("ready");
+      session.lastHealthCheckAt = 0;
       await refreshSessionHealth(session);
       expect(session.state).toBe("failed");
       expect(session.error).toBe("The VNC or noVNC endpoint stopped responding");

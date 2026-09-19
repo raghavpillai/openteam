@@ -9,16 +9,20 @@ struct ComputerView: View {
   @State private var finishedHandoff = false
   @State private var finishRequestID = UUID().uuidString
   @State private var status: JSON = .null
-  @State private var frame: UIImage?
+  @State private var frames = ComputerFrames()
+  @State private var hasFrame = false
   @State private var text = ""
   @State private var busy = false
   @State private var failure: String?
+  @State private var statusFailure: String?
   @State private var frameFailure: String?
   @State private var paused = false
   @State private var trackpad = false
   @State private var heartbeat = Date.distantPast
   @State private var controlRevision = 0
   @State private var refreshing = false
+  @State private var legacyFrames = false
+  @State private var streamRevision = 0
   @State private var inputTask: Task<Bool, Never>?
   @State private var pendingInputs = 0
   @State private var inputEpoch = UUID()
@@ -26,6 +30,7 @@ struct ComputerView: View {
   @State private var clipboard = false
   @State private var inputControls = false
   @State private var help = false
+  private var viewerFailure: String? { statusFailure ?? frameFailure }
   private var takeover: Bool { status["humanTakeover"].bool }
   private var working: Bool { busy || pendingInputs > 0 }
   private var path: String { "/api/v0/bots/\(API.segment(bot.id))/screen" }
@@ -39,7 +44,7 @@ struct ComputerView: View {
           .accessibilityValue(takeover ? "You have control" : "Watching")
         Spacer(minLength: 0)
         ChromeButton(title: "Computer help", symbol: "questionmark") { help = true }
-        if frame != nil {
+        if hasFrame {
           Menu {
             Button(
               takeover ? "Give back control" : "Take control",
@@ -62,36 +67,25 @@ struct ComputerView: View {
           }.buttonStyle(.plain).accessibilityLabel("Computer options").disabled(working)
         }
       }.padding(.horizontal, 18).padding(.top, 6).padding(.bottom, 10)
-      GeometryReader { geometry in
-        ZStack {
-          if let frame {
-            let ratio = CGFloat(max(1, status["width"].int)) / CGFloat(max(1, status["height"].int))
-            ComputerSurface(
-              image: frame,
-              remoteSize: CGSize(
-                width: max(1, status["width"].int), height: max(1, status["height"].int)),
-              interactive: takeover && !busy && frameFailure == nil && !paused, trackpad: trackpad
-            ) { body in Task { await action(body) } }
-            .frame(
-              width: min(geometry.size.width, geometry.size.height * ratio),
-              height: min(geometry.size.height, geometry.size.width / ratio))
-          } else if failure == nil && frameFailure == nil {
-            VStack(spacing: 14) {
-              ProgressView().tint(.gray)
-              Text("Starting desktop…").font(.subheadline)
-            }
-          }
-        }.frame(width: geometry.size.width, height: geometry.size.height)
-      }
-      if let frameFailure {
+      ComputerVideo(
+        frames: frames,
+        remoteSize: CGSize(
+          width: max(1, status["width"].int), height: max(1, status["height"].int)),
+        interactive: takeover && !busy && viewerFailure == nil && !paused,
+        trackpad: trackpad, showStarting: failure == nil && viewerFailure == nil
+      ) { body in Task { await action(body) } }
+      if let viewerFailure {
         VStack(alignment: .leading, spacing: 8) {
-          if frame != nil { Text("Showing the last received screen").font(.caption) }
-          InlineFailure(message: frameFailure) { Task { await refreshFrame() } }
+          if hasFrame { Text("Showing the last received screen").font(.caption) }
+          InlineFailure(message: viewerFailure) {
+            streamRevision += 1
+            Task { await refreshFrame() }
+          }
         }.padding(16).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
           .padding(.horizontal, 18)
       }
       if let failure { InlineFailure(message: failure).padding(18) }
-      if frame != nil {
+      if hasFrame {
         HStack {
           ChromeButton(title: "Clipboard", symbol: "list.clipboard") {
             keyboard = false
@@ -107,12 +101,12 @@ struct ComputerView: View {
               if !takeover { await setTakeover(true) }
               if takeover { keyboard.toggle() }
             }
-          }.disabled(working || paused || frameFailure != nil)
+          }.disabled(working || paused || viewerFailure != nil)
         }.padding(.horizontal, keyboard ? 18 : 30).padding(.top, 14).padding(.bottom, 12)
       }
     }.background(Color.black.ignoresSafeArea()).foregroundStyle(.white).preferredColorScheme(.dark)
       .background {
-        ComputerKeyboard(active: keyboard && takeover && !paused && frameFailure == nil) { body in
+        ComputerKeyboard(active: keyboard && takeover && !paused && viewerFailure == nil) { body in
           Task { await action(body) }
         }.frame(width: 1, height: 1).accessibilityHidden(true)
       }
@@ -136,8 +130,37 @@ struct ComputerView: View {
           if !working, takeover, Date().timeIntervalSince(heartbeat) >= 20 {
             await setTakeover(true)
           }
-          if !paused, !working { await refreshFrame() }
+          if !paused { await refreshFrame(includeImage: legacyFrames) }
           do { try await Task.sleep(for: .seconds(1)) } catch { return }
+        }
+      }
+      .task(id: "\(scenePhase)-\(paused)-\(streamRevision)") {
+        guard scenePhase == .active, !paused, !legacyFrames, let api = store.api else { return }
+        while !Task.isCancelled {
+          do {
+            for try await data in api.computerFrames(path + "/stream") {
+              try Task.checkCancellation()
+              guard let image = UIImage(data: data) else {
+                throw APIError("The computer did not return an image.")
+              }
+              frames.image = image
+              if !hasFrame { hasFrame = true }
+              if frameFailure != nil { frameFailure = nil }
+            }
+          } catch {
+            guard !Task.isCancelled else { return }
+            if let error = error as? APIError, error.status == 404 || error.status == 501 {
+              legacyFrames = true
+              await refreshFrame()
+              return
+            }
+            frameFailure = UserFacingError.message(error)
+            if (error as? APIError)?.unauthorized == true {
+              store.handle(error)
+              return
+            }
+          }
+          do { try await Task.sleep(for: .seconds(2)) } catch { return }
         }
       }
       .onDisappear {
@@ -169,7 +192,7 @@ struct ComputerView: View {
               }
             }
           }.disabled(
-            text.isEmpty || text.count > 10_000 || working || paused || frameFailure != nil)
+            text.isEmpty || text.count > 10_000 || working || paused || viewerFailure != nil)
         }
       }.navigationTitle("Clipboard").navigationBarTitleDisplayMode(.inline)
         .toolbar { Button("Close clipboard") { clipboard = false }.disabled(working) }
@@ -196,7 +219,7 @@ struct ComputerView: View {
               Task { await action(["action": .string("key"), "keys": .array([.string(key)])]) }
             }
           }
-        }.disabled(!takeover || working || frameFailure != nil || paused)
+        }.disabled(!takeover || working || viewerFailure != nil || paused)
         Section("Apps and scrolling") {
           ForEach(["chromium", "thunar", "terminal"], id: \.self) { app in
             let title: String =
@@ -209,7 +232,7 @@ struct ComputerView: View {
           Button("Scroll down") {
             Task { await action(["action": .string("scroll"), "deltaY": .number(3)]) }
           }
-        }.disabled(!takeover || working || frameFailure != nil || paused)
+        }.disabled(!takeover || working || viewerFailure != nil || paused)
       }.navigationTitle("Input controls").navigationBarTitleDisplayMode(.inline)
         .toolbar { Button("Close input controls") { inputControls = false } }
     }.presentationDetents([.medium, .large])
@@ -253,34 +276,42 @@ struct ComputerView: View {
       return false
     }
   }
-  func refreshFrame() async {
+  func refreshFrame(includeImage: Bool = true) async {
     guard !refreshing, let api = store.api else { return }
     refreshing = true
     let revision = controlRevision
     defer { refreshing = false }
     do {
       let next = try await store.request(path)
+      statusFailure = nil
       if next["state"].string == "starting" || next["state"].string == "creating" {
         if revision == controlRevision { status = next }
         frameFailure = nil
         return
       }
-      let (data, _) = try await api.raw(
-        path + "/frame", query: ["v": String(Date().timeIntervalSince1970)])
-      try Task.checkCancellation()
-      guard let image = UIImage(data: data) else {
-        throw APIError("The computer did not return an image.")
+      var image: UIImage?
+      if includeImage {
+        let (data, _) = try await api.raw(
+          path + "/frame", query: ["v": String(Date().timeIntervalSince1970)])
+        try Task.checkCancellation()
+        guard let decoded = UIImage(data: data) else {
+          throw APIError("The computer did not return an image.")
+        }
+        image = decoded
       }
       // A frame started before a control action must not overwrite its newer lease.
       if revision == controlRevision {
         if takeover && !next["humanTakeover"].bool { inputEpoch = UUID() }
-        status = next
+        if status != next { status = next }
       }
-      frame = image
-      frameFailure = nil
+      if let image {
+        frames.image = image
+        hasFrame = true
+        frameFailure = nil
+      }
     } catch {
       if !Task.isCancelled {
-        frameFailure = UserFacingError.message(error)
+        statusFailure = UserFacingError.message(error)
         if (error as? APIError)?.unauthorized == true { store.handle(error) }
       }
     }
@@ -310,7 +341,7 @@ struct ComputerView: View {
     return !takeover
   }
   @discardableResult func action(_ body: [String: JSON]) async -> Bool {
-    guard takeover, !busy, frameFailure == nil, !paused, store.api != nil else { return false }
+    guard takeover, !busy, viewerFailure == nil, !paused, store.api != nil else { return false }
     let previous = inputTask
     let epoch = inputEpoch
     controlRevision += 1
@@ -319,11 +350,11 @@ struct ComputerView: View {
     // A failed input or a control change invalidates the rest of the queue.
     let task = Task { @MainActor in
       if let previous { _ = await previous.value }
-      guard epoch == inputEpoch, takeover, !paused, frameFailure == nil else { return false }
+      guard epoch == inputEpoch, takeover, !paused, viewerFailure == nil else { return false }
       do {
         let next = try await store.request(path + "/actions", method: "POST", body: .object(body))
         guard epoch == inputEpoch else { return false }
-        status = next
+        if status != next { status = next }
         failure = nil
         return true
       } catch {
@@ -339,5 +370,41 @@ struct ComputerView: View {
     pendingInputs -= 1
     if pendingInputs == 0 { inputTask = nil }
     return accepted
+  }
+}
+
+@MainActor @Observable private final class ComputerFrames {
+  var image: UIImage?
+}
+
+/// Frame observation stays inside the surface. Menus, sheets and controls do not
+/// participate in the 15fps image update cycle.
+private struct ComputerVideo: View {
+  let frames: ComputerFrames
+  let remoteSize: CGSize
+  let interactive: Bool
+  let trackpad: Bool
+  let showStarting: Bool
+  let action: ([String: JSON]) -> Void
+  var body: some View {
+    GeometryReader { geometry in
+      ZStack {
+        if let image = frames.image {
+          let ratio = remoteSize.width / remoteSize.height
+          ComputerSurface(
+            image: image, remoteSize: remoteSize,
+            interactive: interactive, trackpad: trackpad, action: action
+          )
+          .frame(
+            width: min(geometry.size.width, geometry.size.height * ratio),
+            height: min(geometry.size.height, geometry.size.width / ratio))
+        } else if showStarting {
+          VStack(spacing: 14) {
+            ProgressView().tint(.gray)
+            Text("Starting desktop…").font(.subheadline)
+          }
+        }
+      }.frame(width: geometry.size.width, height: geometry.size.height)
+    }
   }
 }

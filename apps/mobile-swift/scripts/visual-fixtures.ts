@@ -56,10 +56,22 @@ export function visualFixture(base: any, scene: string) {
     }
   } else {
     const isLong=scene==="long",isActions=scene==="actions",isDark=scene.startsWith("dark-");
-    const name=isLong?"Compaction Ten 0913":isActions?"Memory Deep 914 Box":isDark?"Memory Deep 914 Server":"New Bot";
-    const {channel}=bot("visual-chat",name,isDark?"#FA2AA4":isLong||isActions?"#00B8A9":"#FF6600",isDark||isLong||isActions?"cloud":"hexagon");
+    const isMotion = scene === "motion-reference";
+    const name=isMotion?"Memory Deep 914 Box copy":isLong?"Compaction Ten 0913":isActions?"Memory Deep 914 Box":isDark?"Memory Deep 914 Server":"New Bot";
+    const {channel}=bot("visual-chat",name,isDark?"#FA2AA4":isLong||isActions||isMotion?"#00B8A9":"#FF6600",isDark||isLong||isActions||isMotion?"cloud":"hexagon");
     if (isDark) { snapshot.bots[0].title=""; snapshot.bots[0].instructions=""; }
-    if (isDark) {
+    if (isMotion) {
+      // Inert text from the supplied recording, for matched animation captures.
+      date.setDate(date.getDate()-1);
+      const rows: ["user"|"agent",string][] = [
+        ["user", "Without looking anything up or using tools except sending the reply, what was the puzzle nonce I gave earlier? If it is not in your context, return UNKNOWN. Do not guess."],
+        ["agent", "UNKNOWN"],
+        ["user", 'Call RecallMemory query "LANTERN914", scope agent, limit 50. Return the exact result. Do not read files or contact other bots.'],
+        ["agent", "Looking up LANTERN914 in agent memory."],
+        ["agent", 'No facts in your memory match "LANTERN914" (0 searched). Try different words, or a shorter literal fragment.'],
+      ];
+      rows.forEach(([sender,content],i)=>message(channel.id,sender,content,i+1));
+    } else if (isDark) {
       const rows:["user"|"agent",string][]=[
         ["user", 'Call update_state target memory action forget with exact fact "MDEEP914S stable key is APRICOT-8136.". Return the exact tool result.'],
         ["agent", "Forgetting that memory now."],

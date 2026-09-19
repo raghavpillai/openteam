@@ -19,7 +19,7 @@ enum NativePalette {
   static let muted = color("8E8E8E", "8E8E93")
   static let faint = color("BFBFBF", "666666")
   static let assistant = surface
-  static let user = color("0A0A0A", "5C5C5C")
+  static let user = color("0A0A0A", "545454")
   static let separator = color("E4E4E4", "343434")
   static let code = color("E5E5E5", "2C2C2C")
   static let selection = code
@@ -76,10 +76,10 @@ struct NativeList<Content: View>: View {
 struct NativeGlass: ViewModifier {
   @Environment(\.colorScheme) private var scheme
   var radius: CGFloat = 22
-  var darkTint: Double = 0.127
+  var darkTint: Double = 0.11
   func body(content: Content) -> some View {
     // Regular glass diffuses the scrolling backdrop. Match the measured dark
-    // resting fill (~#333333 over #141414), but let iOS draw its adaptive rim;
+    // resting fill over #141414, but let iOS draw its adaptive rim;
     // an extra white outline makes dark controls look flat and too bright.
     if #available(iOS 26, *) {
       content.glassEffect(
@@ -101,13 +101,20 @@ struct NativeGlass: ViewModifier {
   }
 }
 extension View {
+  func dismissKeyboardOnTap() -> some View {
+    simultaneousGesture(
+      TapGesture().onEnded {
+        UIApplication.shared.sendAction(
+          #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+      })
+  }
   /// Extend only the page color under the keyboard's transparent rounded corners.
   /// Content continues to avoid the keyboard, keeping fields and controls reachable.
   func nativeCanvas() -> some View {
     background { NativePalette.background.ignoresSafeArea() }
   }
 
-  func nativeGlass(radius: CGFloat = 22, darkTint: Double = 0.127) -> some View {
+  func nativeGlass(radius: CGFloat = 22, darkTint: Double = 0.11) -> some View {
     modifier(NativeGlass(radius: radius, darkTint: darkTint))
   }
   @ViewBuilder
@@ -132,12 +139,14 @@ extension View {
 struct ChromeButton: View {
   var title: String
   var symbol: String
-  var darkTint: Double = 0.127
+  var darkTint: Double = 0.11
   var action: () -> Void
   var body: some View {
     Button(action: action) {
       Image(systemName: symbol).font(.system(size: 21, weight: .regular))
-        .frame(width: 44, height: 44).foregroundStyle(NativePalette.text).nativeGlass(darkTint: darkTint)
+        .frame(width: 44, height: 44).foregroundStyle(NativePalette.text).nativeGlass(
+          darkTint: darkTint
+        )
         .contentShape(Rectangle())
     }.buttonStyle(.plain).accessibilityLabel(title)
   }
@@ -196,7 +205,7 @@ struct NativeBackGesture: UIViewControllerRepresentable {
       super.viewDidAppear(animated)
       guard let navigationController else { return }
       for gesture in NavigationBackPriority.gestures(in: navigationController)
-        where gesture.delegate !== self {
+      where gesture.delegate !== self {
         saved.append(SavedGesture(gesture))
         gesture.delegate = self
         gesture.isEnabled = true
@@ -216,12 +225,17 @@ struct NativeBackGesture: UIViewControllerRepresentable {
     }
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
       guard let navigationController, navigationController.viewControllers.count > 1,
-        navigationController.transitionCoordinator == nil else { return false }
+        navigationController.transitionCoordinator == nil
+      else { return false }
       // Native navigation recognizers already classify horizontal motion.
       return true
     }
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-      guard let navigationController, navigationController.viewControllers.count > 1 else { return false }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch)
+      -> Bool
+    {
+      guard let navigationController, navigationController.viewControllers.count > 1 else {
+        return false
+      }
       // iOS 26 supplies a native content-pop recognizer. Limit it to our edge strip
       // so the transition stays interactive and interior message swipes still reply.
       return NavigationBackPriority.contains(touch, in: navigationController)
@@ -241,7 +255,9 @@ struct NativeBackGesture: UIViewControllerRepresentable {
       // Give navigation priority over message pans, long presses and attachment
       // taps. Keep the native edge/content recognizers' own ordering acyclic.
       guard let navigationController else { return false }
-      return !NavigationBackPriority.gestures(in: navigationController).contains { $0 === otherGestureRecognizer }
+      return !NavigationBackPriority.gestures(in: navigationController).contains {
+        $0 === otherGestureRecognizer
+      }
     }
   }
   func makeUIViewController(context: Context) -> Controller { Controller() }

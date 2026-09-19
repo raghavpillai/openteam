@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 struct ComposerView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let channel: Channel
   var draftKey: String? = nil
   var threadRootID: String? = nil
@@ -41,6 +42,11 @@ struct ComposerView: View {
         messageControls
       }
     }.padding(.horizontal, focused ? 18 : 30).padding(.top, 4).padding(.bottom, focused ? 18 : -4)
+      .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: focused)
+      .animation(
+        reduceMotion ? nil : .timingCurve(0.23, 1, 0.32, 1, duration: 0.24),
+        value: draft.text.isEmpty
+      )
       .task(id: channel.id) {
         if let botID = store.bot(for: channel)?.id ?? channel.members.first?.botId {
           do {

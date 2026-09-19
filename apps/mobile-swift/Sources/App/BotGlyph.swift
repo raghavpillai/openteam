@@ -255,30 +255,20 @@ private struct RobotSurface: UIViewRepresentable {
 struct BotActivityRow: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let bot: Bot
-  let state: RobotAvatarMode?
-  @State private var displayed: RobotAvatarMode = .still
-  @State private var visible = false
+  let mode: RobotAvatarMode
+  let visible: Bool
   var body: some View {
     HStack {
-      BotGlyph(color: Color(hex: bot.color), kind: bot.icon, size: 32, mode: displayed)
+      BotGlyph(color: Color(hex: bot.color), kind: bot.icon, size: 32, mode: mode)
+        .scaleEffect(visible || reduceMotion ? 1 : 0.3)
+        .opacity(visible ? 1 : 0)
+        .animation(
+          reduceMotion ? nil : .easeOut(duration: visible ? 0.18 : 0.12), value: visible)
       Spacer()
-    }.frame(height: visible ? 54 : 0).padding(.top, visible ? 2 : 0)
+    }.frame(height: visible ? 50 : 0).padding(.top, visible ? 2 : 0)
       .padding(.bottom, visible ? 12 : 0)
-      .opacity(visible ? 1 : 0).clipped()
-      .accessibilityElement(children: .ignore).accessibilityLabel("Bot is \(displayed.rawValue)")
+      .clipped()
+      .accessibilityElement(children: .ignore).accessibilityLabel("Bot is \(mode.rawValue)")
       .accessibilityIdentifier("bot-activity").accessibilityHidden(!visible)
-      .task(id: state) {
-        if let state {
-          displayed = state
-          visible = true
-        } else {
-          displayed = .still
-          if visible && !reduceMotion {
-            try? await Task.sleep(for: .seconds(RobotMotion.transitionDuration))
-          }
-          guard !Task.isCancelled else { return }
-          visible = false
-        }
-      }
   }
 }

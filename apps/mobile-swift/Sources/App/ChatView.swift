@@ -16,17 +16,27 @@ struct ChatView: View {
   @State private var timelineCache = ChatTimelineCache()
   @State private var bottomVisible = true
   @State private var followsLatest = true
+  private var showsLatestButton: Bool { !bottomVisible && !followsLatest }
   @State private var paginationAnchor: ChatPageAnchor?
   @State private var thread: Message?
   @State private var threadFocus: String?
   @State private var unreadBoundary: String?
   @State private var didCaptureBoundary = false
   @State private var didPositionHistory = false
+  @State private var activityVisible = false
+  @State private var activityMode: RobotAvatarMode = .still
+  private var activity: RobotAvatarMode? {
+    let runs = store.activeRuns(channel.id)
+    return runs.isEmpty
+      ? nil : runs.contains { $0.status == "waiting_approval" } ? .idle : .thinking
+  }
   private var rows: [Message] {
     store.messages(channel.id).filter { !$0.metadata["branched"].bool }
   }
   var body: some View {
     let timeline = timelineCache.project(store.messages(channel.id))
+    let renderedRows = timelineCache.present(
+      timeline, pending: pendingMessages, animateNew: didPositionHistory)
     GeometryReader { geometry in
       ScrollViewReader { proxy in
         ScrollView {
@@ -49,58 +59,60 @@ struct ChatView: View {
               }.font(.footnote).frame(maxWidth: .infinity).disabled(
                 store.busy.contains("history-" + channel.id))
             }
-            ForEach(timeline.entries) { entry in
-              let message = entry.message
-              VStack(alignment: .leading, spacing: 12) {
-                if let date = entry.timestamp {
-                  Text(timestamp(date)).font(.system(size: 13)).foregroundStyle(
-                    NativePalette.faint
-                  )
-                  .frame(maxWidth: .infinity).padding(.bottom, 2)
-                  .onGeometryChange(for: CGFloat.self) { geometry in
-                    store.histories[channel.id]?.hasMore == true
-                      && entry.id == timeline.entries.first?.id
-                      ? geometry.size.height : 0
-                  } action: { _, height in
-                    if height > 0 { scrollFeedback.firstTimestampHeight = height }
+            ForEach(renderedRows) { row in
+              MessageArrival(animate: row.animatesArrival, isUser: row.isUser) {
+                VStack(alignment: .leading, spacing: 12) {
+                  if let date = row.timestamp {
+                    Text(timestamp(date)).font(.system(size: 13)).foregroundStyle(
+                      NativePalette.faint
+                    )
+                    .frame(maxWidth: .infinity).padding(.top, 14).padding(.bottom, 2)
+                    .onGeometryChange(for: CGFloat.self) { geometry in
+                      store.histories[channel.id]?.hasMore == true
+                        && row.scrollID == timeline.entries.first?.id
+                        ? geometry.size.height : 0
+                    } action: { _, height in
+                      if height > 0 { scrollFeedback.firstTimestampHeight = height }
+                    }
                   }
-                }
-                if unreadBoundary == message.id {
-                  HStack(spacing: 10) {
-                    NativePalette.link.opacity(0.55).frame(height: 0.5)
-                    Text("NEW").font(.system(size: 10, weight: .semibold)).tracking(1)
-                      .foregroundStyle(NativePalette.link)
-                    NativePalette.link.opacity(0.55).frame(height: 0.5)
-                  }.padding(.vertical, 6).accessibilityLabel("New messages")
-                }
-                if message.metadata["event"]["type"].string == "name-changed" {
-                  Label(
-                    "Renamed to " + message.metadata["event"]["to"].string,
-                    systemImage: "pencil"
-                  )
-                  .font(.system(size: 12)).foregroundStyle(NativePalette.muted).frame(
-                    maxWidth: .infinity)
-                } else {
-                  MessageRow(
-                    message: message, channel: channel, onReply: { reply(message) },
-                    onThread: { thread = message },
-                    threadReplyCount: timeline.replyCounts[message.id] ?? 0
-                  )
-                }
-              }.id(message.id)
-                .onGeometryChange(for: CGRect.self) { geometry in
-                  store.histories[channel.id]?.hasMore == true
-                    && entry.id == timeline.entries.first?.id
-                    ? geometry.frame(in: .named("chat-history")) : .zero
-                } action: { _, frame in
-                  if frame != .zero { scrollFeedback.firstRowFrame = frame }
-                }
+                  switch row.content {
+                  case .confirmed(let entry):
+                    let message = entry.message
+                    if unreadBoundary == message.id {
+                      HStack(spacing: 10) {
+                        NativePalette.link.opacity(0.55).frame(height: 0.5)
+                        Text("NEW").font(.system(size: 10, weight: .semibold)).tracking(1)
+                          .foregroundStyle(NativePalette.link)
+                        NativePalette.link.opacity(0.55).frame(height: 0.5)
+                      }.padding(.vertical, 6).accessibilityLabel("New messages")
+                    }
+                    if message.metadata["event"]["type"].string == "name-changed" {
+                      Label(
+                        "Renamed to " + message.metadata["event"]["to"].string,
+                        systemImage: "pencil"
+                      )
+                      .font(.system(size: 12)).foregroundStyle(NativePalette.muted).frame(
+                        maxWidth: .infinity)
+                    } else {
+                      MessageRow(
+                        message: message, channel: channel, onReply: { reply(message) },
+                        onThread: { thread = message },
+                        threadReplyCount: timeline.replyCounts[message.id] ?? 0
+                      )
+                    }
+                  case .pending(let pending):
+                    PendingMessageView(pending: pending)
+                  }
+                }.id(row.scrollID)
+                  .onGeometryChange(for: CGRect.self) { geometry in
+                    store.histories[channel.id]?.hasMore == true
+                      && row.scrollID == timeline.entries.first?.id
+                      ? geometry.frame(in: .named("chat-history")) : .zero
+                  } action: { _, frame in
+                    if frame != .zero { scrollFeedback.firstRowFrame = frame }
+                  }
 
-            }
-            ForEach(
-              store.state.outbox.filter { $0.channelId == channel.id && $0.input.isFork != true }
-            ) { pending in
-              PendingMessageView(pending: pending)
+              }
             }
             ForEach(store.approvals(channel)) { approval in ApprovalCard(approval: approval) }
             VStack(spacing: 0) {
@@ -109,11 +121,7 @@ struct ChatView: View {
                 ?? store.bot(for: channel)
               {
                 BotActivityRow(
-                  bot: bot,
-                  state: runs.isEmpty
-                    ? nil
-                    : runs.contains { $0.status == "waiting_approval" }
-                      ? .idle : .thinking)
+                  bot: bot, mode: activityMode, visible: activityVisible)
               } else if !store.activeRuns(channel.id).isEmpty {
                 ProgressView().frame(height: 54).padding(.bottom, 12)
               }
@@ -122,10 +130,32 @@ struct ChatView: View {
           }
           .padding(.horizontal, 16).padding(.top, 14)
         }.coordinateSpace(name: "chat-history")
+          .animation(
+            reduceMotion ? nil : .easeInOut(duration: 0.32),
+            value: timelineCache.arrivalRevision
+          )
+          .animation(
+            reduceMotion ? nil
+              : activityVisible ? .easeInOut(duration: 0.28) : .easeOut(duration: 0.24),
+            value: activityVisible)
+          .task(id: activity) {
+            if let activity {
+              activityMode = activity
+              activityVisible = true
+            } else {
+              activityMode = .still
+              if activityVisible && !reduceMotion {
+                try? await Task.sleep(for: .seconds(RobotMotion.transitionDuration))
+              }
+              guard !Task.isCancelled else { return }
+              activityVisible = false
+            }
+          }
           // Keep stable eager layout for variable-height text/WebKit content.
           // iOS 26 lazy stacks can loop layout when tall rows enter the viewport.
           .defaultScrollAnchor(.bottom, for: .initialOffset)
           .defaultScrollAnchor(.bottom, for: .alignment)
+          .defaultScrollAnchor(followsLatest ? .bottom : nil, for: .sizeChanges)
           .onScrollPhaseChange { _, phase in
             if phase == .interacting {
               scrollFeedback.interacting = true
@@ -141,17 +171,6 @@ struct ChatView: View {
                 Task { await store.markRead(channel.id) }
               }
               scrollFeedback.value.end()
-            }
-          }
-          .onScrollGeometryChange(for: CGFloat.self) {
-            $0.contentSize.height
-          } action: { _, _ in
-            guard followsLatest, !scrollFeedback.interacting else { return }
-            scrollFeedback.followTask?.cancel()
-            scrollFeedback.followTask = Task { @MainActor in
-              await Task.yield()
-              guard !Task.isCancelled, followsLatest, !scrollFeedback.interacting else { return }
-              proxy.scrollTo("bottom", anchor: .bottom)
             }
           }
           .onScrollGeometryChange(for: Int.self) { geometry in
@@ -178,12 +197,9 @@ struct ChatView: View {
           }
           .scrollDismissesKeyboard(.interactively)
           .scrollClipDisabled()
-          .onChange(of: geometry.size.height) { old, new in
-            if new < old, followsLatest { proxy.scrollTo("bottom", anchor: .bottom) }
-          }
+          .contentShape(Rectangle()).dismissKeyboardOnTap()
           .onChange(of: timeline.entries.last?.id) { _, _ in
             if followsLatest {
-              proxy.scrollTo("bottom", anchor: .bottom)
               Task { await store.markRead(channel.id) }
             }
           }
@@ -201,26 +217,43 @@ struct ChatView: View {
           }
           .onChange(of: store.state.outbox.count) { old, new in
             if new > old {
+              let wasFollowing = followsLatest
               followsLatest = true
-              proxy.scrollTo("bottom", anchor: .bottom)
+              if !wasFollowing {
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.24)) {
+                  proxy.scrollTo("bottom", anchor: .bottom)
+                }
+              }
             }
           }
           .onChange(of: store.focusedMessage) { _, id in
             if let id, thread == nil { focus(id, proxy: proxy) }
           }
           .overlay(alignment: .bottomTrailing) {
-            if !bottomVisible {
-              Button {
-                NativeHaptics.play(.selection, source: "chat.latest-button")
-                followsLatest = true
-                withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
-              } label: {
-                Image(systemName: "chevron.down").font(.system(size: 16, weight: .medium)).frame(
-                  width: 36, height: 36
-                ).nativeGlass().contentShape(Rectangle())
-              }.buttonStyle(.plain).accessibilityLabel("Latest messages").padding(.trailing, 30)
-                .padding(.bottom, 12)
+            ZStack {
+              if showsLatestButton {
+                Button {
+                  NativeHaptics.play(.selection, source: "chat.latest-button")
+                  followsLatest = true
+                  withAnimation(reduceMotion ? nil : .default) {
+                    proxy.scrollTo("bottom", anchor: .bottom)
+                  }
+                } label: {
+                  Image(systemName: "chevron.down").font(.system(size: 16, weight: .medium)).frame(
+                    width: 36, height: 36
+                  ).nativeGlass().contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityLabel("Latest messages")
+                  .transition(
+                    reduceMotion
+                      ? .opacity
+                      : .opacity.combined(with: .offset(y: 8)).combined(with: .scale(scale: 0.9)))
+              }
             }
+            .frame(width: 36, height: 36)
+            .padding(.trailing, 30).padding(.bottom, 12)
+            .allowsHitTesting(showsLatestButton)
+            // Animate the floating control without animating the message layout.
+            .animation(.easeInOut(duration: reduceMotion ? 0.15 : 0.22), value: showsLatestButton)
           }
           .task(id: channel.id) {
             store.activeChannel = channel.id
@@ -232,6 +265,11 @@ struct ChatView: View {
               didCaptureBoundary = true
             }
             await store.loadHistory(channel.id)
+            if !didPositionHistory {
+              _ = timelineCache.present(
+                timelineCache.project(store.messages(channel.id)),
+                pending: pendingMessages, animateNew: false)
+            }
             if let id = store.focusedMessage {
               focus(id, proxy: proxy)
             } else if !didPositionHistory {
@@ -244,7 +282,6 @@ struct ChatView: View {
             if store.focusedRoutine != nil { details = true }
           }
           .onDisappear {
-            scrollFeedback.followTask?.cancel()
             if store.activeChannel == channel.id { store.activeChannel = nil }
           }
       }
@@ -270,6 +307,9 @@ struct ChatView: View {
         ThreadView(root: message, channel: channel, initialFocus: threadFocus).referenceSheet()
           .onDisappear { threadFocus = nil }
       }
+  }
+  private var pendingMessages: [PendingSend] {
+    store.state.outbox.filter { $0.channelId == channel.id && $0.input.isFork != true }
   }
   private func focus(_ id: String, proxy: ScrollViewProxy) {
     followsLatest = false
@@ -334,7 +374,6 @@ struct ChatView: View {
   var interacting = false
   var firstRowFrame = CGRect.zero
   var firstTimestampHeight: CGFloat = 0
-  var followTask: Task<Void, Never>?
 }
 private struct ChatPageAnchor {
   let id: String
@@ -344,12 +383,49 @@ private struct ChatPageAnchor {
 @MainActor private final class ChatTimelineCache {
   private var source: [Message] = []
   private var value = MessageTimeline([])
+  private var presentation = MessagePresentation()
+  var arrivalRevision: Int { presentation.arrivalRevision }
+  func present(_ timeline: MessageTimeline, pending: [PendingSend], animateNew: Bool)
+    -> [MessagePresentation.Row]
+  {
+    presentation.project(timeline, pending: pending, animateNew: animateNew)
+  }
   func project(_ messages: [Message]) -> MessageTimeline {
     if source != messages {
       source = messages
       value = MessageTimeline(messages)
     }
     return value
+  }
+}
+
+/// Keep this wrapper's identity across queued -> confirmed content. Only the new
+/// bubble animates; loading history and updates to an existing bubble do not.
+private struct MessageArrival<Content: View>: View {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var visible: Bool
+  let isUser: Bool
+  let content: Content
+  init(animate: Bool, isUser: Bool, @ViewBuilder content: () -> Content) {
+    _visible = State(initialValue: !animate)
+    self.isUser = isUser
+    self.content = content()
+  }
+  var body: some View {
+    content
+      .opacity(visible ? 1 : 0)
+      .animation(
+        .timingCurve(0.23, 1, 0.32, 1, duration: reduceMotion ? 0.12 : 0.132), value: visible
+      )
+      .offset(y: visible || reduceMotion ? 0 : 12)
+      .scaleEffect(
+        visible || reduceMotion ? 1 : 0.94, anchor: isUser ? .bottomTrailing : .bottomLeading
+      )
+      .animation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.24), value: visible)
+      .onAppear { visible = true }
+      // The arrival owns its fade; SwiftUI's implicit insertion fade otherwise
+      // compounds it and keeps the bubble invisible until the scroll settles.
+      .transition(.identity)
   }
 }
 
@@ -669,30 +745,43 @@ struct MessageReplyQuote: View {
 }
 
 struct PendingMessageView: View {
+  @AppStorage("accent") private var accent = "black"
   @Environment(AppStore.self) private var store
   let pending: PendingSend
   var body: some View {
-    HStack {
+    HStack(alignment: .bottom, spacing: 0) {
       Spacer(minLength: 44)
-      VStack(alignment: .trailing, spacing: 6) {
+      VStack(alignment: .trailing, spacing: 5) {
         if let reply = pending.input.replyToMessageId {
           MessageReplyQuote(replyID: reply, channelID: pending.channelId, ownerID: pending.id)
         }
         if !pending.input.content.isEmpty {
-          Text(pending.input.content).font(.body).padding(.horizontal, 14).padding(
+          Group {
+            if RichMarkdownView.required(pending.input.content) {
+              RichMarkdownView(source: pending.input.content, forceDark: true).frame(
+                maxWidth: .infinity)
+            } else {
+              BubbleTextLayout {
+                MarkdownText(source: pending.input.content).font(.body).lineSpacing(1.5)
+              }
+            }
+          }.padding(.horizontal, 14).padding(
             .vertical, 9
           ).foregroundStyle(.white).background(
-            NativePalette.user, in: RoundedRectangle(cornerRadius: 24))
+            accent == "blue" ? NativePalette.link : NativePalette.user,
+            in: RoundedRectangle(cornerRadius: 24))
         }
-        PendingAttachments(pending: pending)
+        if !(pending.stagedFiles ?? []).isEmpty || !pending.input.attachments.isEmpty {
+          PendingAttachments(pending: pending)
+        }
         if let failure = pending.failure {
           Text(failure).font(.caption).foregroundStyle(NativePalette.destructive)
           HStack {
             Button("Retry") { Task { await store.retry(pending.id) } }
             Button("Discard", role: .destructive) { store.discard(pending.id) }
           }.font(.caption)
-        } else {
-          Label(store.online ? "Sending…" : "Queued · offline", systemImage: "clock")
+        } else if !store.online {
+          Text("Queued · offline")
             .font(.caption).foregroundStyle(NativePalette.muted)
         }
       }
@@ -762,7 +851,9 @@ struct ThreadPage: View {
             }
           ) { PendingMessageView(pending: $0) }
         }.padding()
-      }.navigationTitle("Thread")
+      }.scrollDismissesKeyboard(.interactively)
+        .contentShape(Rectangle()).dismissKeyboardOnTap()
+        .navigationTitle("Thread")
         .navigationBarTitleDisplayMode(
           .inline
         )

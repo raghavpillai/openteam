@@ -68,6 +68,14 @@ const server = Bun.serve({
     if (path === "/__qa/reset" && method === "POST") { reset(); emit("snapshot.reset"); return response({ ok: true }); }
     if (path === "/__qa/scene" && method === "POST") { reset(); const visual=visualFixture(snapshot,input.scene); snapshot=visual.snapshot; settings=visual.sidebar; pagedHistory=input.scene==="history-pages"; sequence=Math.max(100,...snapshot.channelMessages.map(m=>Number(m.sequence))); emit("snapshot.reset"); return response({ok:true}); }
     if (path === "/__qa/content" && method === "POST") { snapshot=contentScene(snapshot,input.scene); sequence=400; emit("snapshot.reset"); return response({ok:true}); }
+    if (path === "/__qa/motion" && method === "POST") {
+      const channel = snapshot.channels.find(c => c.id === "visual-chat");
+      const bot = snapshot.bots.find(b => b.dmChannelId === channel?.id);
+      if (!channel || !bot) return response({error: "Load a visual chat scene first"}, 400);
+      snapshot.runs = input.active ? [{...mobileFixture.runs[0]!, id:"motion-run", botId:bot.id, conversationId:bot.conversationId, channelId:channel.id, status:"running"}] : [];
+      if (input.content) snapshot.channelMessages.push({id:randomUUID(),clientId:null,sequence:String(++sequence),channelId:channel.id,sender:"agent",senderBotId:bot.id,sourceRunId:"motion-run",content:input.content,metadata:{type:"text"},createdAt:new Date().toISOString()});
+      emit("snapshot.reset"); return response({ok:true});
+    }
     if (path === "/__qa/control" && method === "POST") {
       offline = input.offline ?? offline; dropNextSend = input.dropNextSend ?? dropNextSend; authRequired = input.authRequired ?? authRequired;
       dropNextRoutineRun = input.dropNextRoutineRun ?? dropNextRoutineRun;

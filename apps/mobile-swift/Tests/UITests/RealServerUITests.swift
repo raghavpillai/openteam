@@ -36,7 +36,7 @@ import XCTest
   }
   private func login(
     _ app: XCUIApplication, server: String? = nil, notifications: Bool = false,
-    openChat: Bool = true
+    openChat: Bool = true, voiceSource: String? = nil
   ) async throws {
     addUIInterruptionMonitor(withDescription: "Password autofill") { alert in
       guard alert.buttons["Not Now"].exists else { return false }
@@ -48,6 +48,10 @@ import XCTest
       "--ui-testing", "--server", try server ?? XCTUnwrap(config["base"] as? String),
       "--appearance", "light",
     ]
+    if let voiceSource {
+      app.launchArguments += ["--qa-synthetic-voice"]
+      app.launchEnvironment["OPENTEAM_QA_VOICE_SOURCE"] = control + voiceSource
+    }
     if notifications {
       app.launchArguments += [
         "--qa-native-push", "--qa-push-reset", "--qa-push-token",
@@ -151,6 +155,100 @@ import XCTest
     input.tap()
     input.typeText(text)
     app.buttons["send-button"].tap()
+  }
+  private func requireVoiceSource(_ path: String) async throws {
+    let (_, response) = try await URLSession.shared.data(from: URL(string: control + path)!)
+    try XCTSkipUnless((response as? HTTPURLResponse)?.statusCode == 200,
+      "Set SWIFT_REAL_QA_TRANSCRIPTION_CONTAINER and speech WAV paths for real ASR verification")
+  }
+  private func recordVoice(_ app: XCUIApplication, seconds: Int = 5, hasDraft: Bool = false)
+    async throws
+  {
+    if hasDraft { app.buttons["attach-button"].tap() }
+    app.buttons["Record voice note"].tap()
+    XCTAssertTrue(app.buttons["Stop recording"].waitForExistence(timeout: 10))
+    let recording = app.descendants(matching: .any).matching(identifier: "Recording voice note")
+      .firstMatch
+    let elapsed = expectation(for: NSPredicate { _, _ in
+      let value = recording.value as? String ?? ""
+      return (Int(value.split(separator: " ").first ?? "") ?? 0) >= seconds
+    }, evaluatedWith: recording)
+    await fulfillment(of: [elapsed], timeout: TimeInterval(seconds + 8))
+    app.buttons["Stop recording"].tap()
+    XCTAssertTrue(app.buttons["Discard recording"].waitForExistence(timeout: 5))
+  }
+  private func assertSpeech(_ value: String, file: StaticString = #filePath, line: UInt = #line) {
+    let words = value.lowercased().split { !$0.isLetter && !$0.isNumber }
+      .map { $0 == "9" ? "nine" : String($0) }.joined(separator: " ")
+    XCTAssertTrue(words.contains("please remind me to bring the blue notebook to our meeting tomorrow at nine"),
+      "Actual ASR output: \(value)", file: file, line: line)
+  }
+
+  /// Real AAC upload, authenticated production route, configured ASR provider,
+  /// composer insertion, and durable send. Only microphone samples are injected.
+  func testLiveVoiceTranscriptionAndDraftPreservation() async throws {
+    continueAfterFailure = false
+    try await requireVoiceSource("/voice.wav")
+    try await createBot("Live speech transcription QA")
+    let app = XCUIApplication()
+    try await login(app, voiceSource: "/voice.wav")
+    try await recordVoice(app)
+    let started = Date()
+    app.buttons["Transcribe voice note"].tap()
+    let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    XCTAssertTrue(field.waitForExistence(timeout: 130))
+    let transcript = try XCTUnwrap(field.value as? String)
+    assertSpeech(transcript)
+    let evidence = XCTAttachment(string: "Live ASR took \(Date().timeIntervalSince(started)) seconds.\nTranscript: \(transcript)")
+    evidence.name = "real-speech-transcript"
+    evidence.lifetime = .keepAlways
+    add(evidence)
+    capture("voice-transcribed", app)
+    let beforeSend = try await messages()
+    XCTAssertFalse(beforeSend.contains { $0["sender"] as? String == "user" },
+      "Transcription must remain a draft until Send is pressed")
+    app.buttons["send-button"].tap()
+    _ = try await saved(transcript, sender: "user", timeout: 20)
+
+    let prefix = "Draft introduction. "
+    field.tap()
+    field.typeText(prefix)
+    try await recordVoice(app, hasDraft: true)
+    app.buttons["Discard recording"].tap()
+    XCTAssertTrue(field.waitForExistence(timeout: 5))
+    XCTAssertEqual(field.value as? String, prefix)
+    try await recordVoice(app, hasDraft: true)
+    app.buttons["Transcribe voice note"].tap()
+    XCTAssertTrue(field.waitForExistence(timeout: 130))
+    let combined = try XCTUnwrap(field.value as? String)
+    XCTAssertTrue(combined.hasPrefix(prefix), "Voice insertion must preserve the typed draft")
+    assertSpeech(combined)
+    capture("voice-existing-draft", app)
+  }
+
+  func testLiveSilentRecordingCanRetryAndDiscard() async throws {
+    continueAfterFailure = false
+    try await requireVoiceSource("/silence.wav")
+    try await createBot("Live silence transcription QA")
+    let app = XCUIApplication()
+    try await login(app, voiceSource: "/silence.wav")
+    try await recordVoice(app, seconds: 3)
+    for attempt in 1...2 {
+      app.buttons["Transcribe voice note"].tap()
+      XCTAssertTrue(app.alerts.firstMatch.waitForExistence(timeout: 130))
+      XCTAssertTrue(app.alerts.staticTexts.containing(
+        NSPredicate(format: "label CONTAINS[c] %@", "No speech")).firstMatch.exists)
+      capture("silence-retry-\(attempt)", app)
+      app.alerts.buttons["OK"].tap()
+      XCTAssertTrue(app.buttons["Discard recording"].exists)
+    }
+    app.buttons["Discard recording"].tap()
+    let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    XCTAssertTrue(field.waitForExistence(timeout: 5))
+    field.tap()
+    field.typeText("Typing after a silent recording still works.")
+    XCTAssertTrue(app.buttons["send-button"].isEnabled)
+    capture("silence-discard-restores-composer", app)
   }
   private func verifyReply(_ text: String, parent: String, _ app: XCUIApplication) async throws
     -> String

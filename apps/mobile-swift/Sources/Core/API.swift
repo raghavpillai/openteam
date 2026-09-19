@@ -105,7 +105,7 @@ public struct API: Sendable {
   public func raw(
     _ path: String, method: String = "GET", data: Data? = nil,
     contentType: String = "application/json", query: [String: String] = [:],
-    headers: [String: String] = [:]
+    headers: [String: String] = [:], timeout: TimeInterval? = nil
   ) async throws -> (Data, HTTPURLResponse) {
     var request = URLRequest(url: url(path, query: query))
     request.httpMethod = method
@@ -114,7 +114,19 @@ public struct API: Sendable {
     if data != nil { request.setValue(contentType, forHTTPHeaderField: "Content-Type") }
     if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
     for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
-    let (result, response) = try await session.data(for: request)
+    // ASR allows 120 seconds on the server. Both URLSession deadlines need an
+    // override; changing only URLRequest still hits the ordinary resource limit.
+    var dedicatedSession: URLSession?
+    if let timeout {
+      let configuration = session.configuration
+      configuration.timeoutIntervalForRequest = timeout
+      configuration.timeoutIntervalForResource = timeout
+      request.timeoutInterval = timeout
+      dedicatedSession = URLSession(
+        configuration: configuration, delegate: RedirectPolicy(), delegateQueue: nil)
+    }
+    defer { dedicatedSession?.finishTasksAndInvalidate() }
+    let (result, response) = try await (dedicatedSession ?? session).data(for: request)
     guard let http = response as? HTTPURLResponse else {
       throw APIError("The server returned an invalid response.")
     }

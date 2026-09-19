@@ -6,6 +6,8 @@ Evidence: `output/swift-qa-pass2-0918/`. The [comparison report](../../../output
 
 ## New findings and corrections
 
+Follow-up: [live mobile transcription QA](QA-TRANSCRIPTION-0918.md) now verifies real speech recognition and fixes cancellation/deadline bugs. Physical iPhone microphone capture remains unverified.
+
 **Plugin authorization could stop refreshing on a smaller iPhone.** Two previously passing lifecycle tests failed on the fresh iPhone 16: authorization completion did not refresh after returning from Safari, and an expired session did not change to “Sign-in expired.” `PluginConnectionActions` attached its polling task to a zero-height footer inside a lazy `Form`. Adding authorization controls pushed that footer offscreen, removing the task. The task is now attached to the visible status row. All **10 plugin/settings follow-up cases and two targeted plugin haptic cases passed**. The original failed screenshots/logs are retained; follow-up results are recorded separately.
 
 **Two tests assumed permissions were already granted.** The photo-save test expected the old “Allow Access to Add Photos” button, while iOS 26 displayed “Allow.” The microphone-unavailable test waited for the app error while the first system permission prompt was still open. Both tests now handle the specific system prompt. Both follow-ups passed after resetting the respective permission, so an already-authorized simulator cannot hide this gap. These are test corrections, not two additional product fixes.

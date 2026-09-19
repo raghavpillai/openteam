@@ -167,4 +167,54 @@ import XCTest
     XCTAssertTrue(app.buttons["send-button"].isEnabled)
   }
 
+  func testLeavingChatWhileTranscribingDoesNotChangeDraft() async throws {
+    let original = "Keep this draft"
+    let app = try await launch("dark-chat", draft: original, syntheticVoice: true)
+    app.buttons["attach-button"].tap()
+    app.buttons["Record voice note"].tap()
+    XCTAssertTrue(app.buttons["Stop recording"].waitForExistence(timeout: 5))
+    app.buttons["Stop recording"].tap()
+    try await post("/__qa/control", [
+      "failures": ["POST /api/v0/transcriptions": ["delayMs": 8_000]],
+    ])
+    app.buttons["Transcribe voice note"].tap()
+    XCTAssertTrue(app.buttons["Transcribing"].waitForExistence(timeout: 5))
+    app.buttons["chat-back"].tap()
+    XCTAssertTrue(app.buttons["channel-visual-chat"].waitForExistence(timeout: 5))
+    // Wait for the deliberately delayed response, then inspect the saved draft.
+    // This exercises the race with a deterministic provider response, not ASR quality.
+    let deadline = Date().addingTimeInterval(15)
+    var completed = false
+    while Date() < deadline {
+      let (data, _) = try await URLSession.shared.data(from: URL(string: base + "/__qa/state")!)
+      let state = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+      let requests = state["requests"] as? [[String: Any]] ?? []
+      if requests.contains(where: { $0["path"] as? String == "/api/v0/transcriptions" }) {
+        completed = true
+        break
+      }
+      try await Task.sleep(for: .milliseconds(250))
+    }
+    XCTAssertTrue(completed)
+    app.buttons["channel-visual-chat"].tap()
+    let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    XCTAssertTrue(field.waitForExistence(timeout: 5))
+    XCTAssertEqual(field.value as? String, original)
+  }
+
+  func testTranscriptionCanOutlastOrdinaryRequestTimeout() async throws {
+    let app = try await launch("dark-chat", syntheticVoice: true)
+    app.buttons["Record voice note"].tap()
+    XCTAssertTrue(app.buttons["Stop recording"].waitForExistence(timeout: 5))
+    app.buttons["Stop recording"].tap()
+    try await post("/__qa/control", [
+      "failures": ["POST /api/v0/transcriptions": ["delayMs": 70_000]],
+    ])
+    app.buttons["Transcribe voice note"].tap()
+    let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    XCTAssertTrue(field.waitForExistence(timeout: 90))
+    XCTAssertEqual(field.value as? String, "Native voice QA transcription")
+    XCTAssertFalse(app.alerts.firstMatch.exists)
+  }
+
 }

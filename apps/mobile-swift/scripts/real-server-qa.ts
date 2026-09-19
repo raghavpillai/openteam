@@ -4,7 +4,7 @@
  * The control endpoint is loopback-only and exists only for this test process.
  */
 import { randomBytes } from "node:crypto";
-import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { createPrismaClient } from "../../../packages/db/src/index";
 
@@ -53,6 +53,7 @@ const cleanup = async () => {
   for (const p of children) p.kill();
   if (serverStarted) await run(["docker", "stop", "-t", "5", serverName]).catch(() => {});
   if (computerStarted) await run(["docker", "stop", "-t", "5", computerName]).catch(() => {});
+  await rm(join(env.OPENTEAM_AGENT_DATA_ROOT, "transcription.json"), { force: true });
   await prisma.$disconnect();
 };
 process.on("SIGINT", () => void cleanup().then(() => process.exit(0)));
@@ -120,6 +121,29 @@ try {
   if (!login.ok) throw new Error(`QA owner login failed (${login.status})`);
   const token = login.headers.get("set-auth-token")!;
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+  // Opt-in real ASR: reuse the configured provider without changing the live
+  // server. Credentials stay inside subprocess pipes and encrypted QA storage.
+  const transcriptionContainer = process.env.SWIFT_REAL_QA_TRANSCRIPTION_CONTAINER;
+  if (transcriptionContainer) {
+    const settings = await run(["docker", "exec", transcriptionContainer, "bun", "-e", `
+      const { createHash, createDecipheriv } = require("node:crypto");
+      const settings = await Bun.file(process.env.OPENTEAM_AGENT_DATA_ROOT + "/transcription.json").json();
+      let apiKey = null;
+      if (settings.encryptedApiKey) {
+        const secret = process.env.OPENTEAM_AUTH_SECRET ?? process.env.BETTER_AUTH_SECRET;
+        const key = createHash("sha256").update("openteam-transcription-v1:" + secret).digest();
+        const bytes = Buffer.from(settings.encryptedApiKey, "base64");
+        const decipher = createDecipheriv("aes-256-gcm", key, bytes.subarray(0, 12));
+        decipher.setAuthTag(bytes.subarray(12, 28));
+        apiKey = Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString("utf8");
+      }
+      const { version, encryptedApiKey, ...input } = settings;
+      process.stdout.write(JSON.stringify({ ...input, apiKey }));
+    `]);
+    const configured = await fetch(base + "/api/v0/server-settings/transcription", { method: "PUT", headers, body: settings });
+    if (!configured.ok) throw new Error(`QA transcription configuration failed (${configured.status})`);
+    await writeFile(join(root, "transcription-provider.json"), JSON.stringify(await configured.json(), null, 2));
+  }
   const model = await fetch(base + "/api/v0/server-settings/inference", { method: "PATCH", headers, body: JSON.stringify({ providerId: "openai-codex", modelId: "gpt-5.5", reasoning: "low" }), signal: AbortSignal.timeout(45_000) });
   if (!model.ok) throw new Error(`Model selection failed (${model.status}): ${await model.text()}`);
   await writeFile(join(root, "environment.json"), JSON.stringify({ base, auth: "required", database: databaseName, server: serverImage ?? "current workspace", worker: "current workspace", computer: "current workspace bundle on existing Linux runtime image", computerImage: "openteam-memory-computer:20260913", model: "openai-codex/gpt-5.5", inferenceStub: false, apnsDeliveryConfigured: false }, null, 2));
@@ -127,6 +151,12 @@ try {
     const url = new URL(request.url);
     if (request.headers.has("origin")) return new Response(null, { status: 403 });
     if (url.pathname === "/config") return Response.json({ base, username, password }, { headers: { "cache-control": "no-store" } });
+    if (url.pathname === "/voice.wav" && process.env.SWIFT_REAL_QA_VOICE_WAV) {
+      return new Response(Bun.file(process.env.SWIFT_REAL_QA_VOICE_WAV), { headers: { "content-type": "audio/wav" } });
+    }
+    if (url.pathname === "/silence.wav" && process.env.SWIFT_REAL_QA_SILENCE_WAV) {
+      return new Response(Bun.file(process.env.SWIFT_REAL_QA_SILENCE_WAV), { headers: { "content-type": "audio/wav" } });
+    }
     if (url.pathname === "/state") return Response.json({
       bots: await prisma.bot.findMany({ select: { id: true, name: true, status: true } }),
       messages: await prisma.channelMessage.findMany({ select: { id: true, clientId: true, channelId: true, sender: true, senderBotId: true, content: true, metadata: true, sequence: true }, orderBy: { sequence: "asc" } }).then(rows => rows.map(row => ({ ...row, sequence: row.sequence.toString() }))),

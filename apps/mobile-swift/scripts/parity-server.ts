@@ -59,8 +59,10 @@ function bootstrap(): ClientBootstrapView {
 const response = (data: unknown, status = 200) => Response.json(data, { status });
 const server = Bun.serve({
   hostname: "127.0.0.1", port, idleTimeout: 40,
-  async fetch(request) {
+  async fetch(request, server) {
     const url = new URL(request.url), path = decodeURIComponent(url.pathname), method = request.method;
+    // Slow-ASR regression tests must exceed the app's ordinary HTTP deadlines.
+    if (path === "/api/v0/transcriptions") server.timeout(request, 150);
     let input: any = {};
     if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) { try { input = await request.json(); } catch {} }
     if (path === "/__qa/reset" && method === "POST") { reset(); emit("snapshot.reset"); return response({ ok: true }); }

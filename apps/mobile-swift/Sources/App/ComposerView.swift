@@ -17,6 +17,7 @@ struct ComposerView: View {
   @State private var uploading = false
   @State private var voice = VoiceRecorder()
   @State private var transcribing = false
+  @State private var transcriptionTask: Task<Void, Never>?
   @State private var voiceText = ""
   @State private var voiceRange: Range<String.Index>?
   @State private var pluginMentions: [JSON] = []
@@ -120,7 +121,11 @@ struct ComposerView: View {
         }
       }
       .onChange(of: scenePhase) { _, phase in if phase != .active { _ = voice.stop() } }
-      .onDisappear { voice.cancel() }
+      .onDisappear {
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
+        voice.cancel()
+      }
   }
   private var messageControls: some View {
     HStack(alignment: .bottom, spacing: 10) {
@@ -247,7 +252,7 @@ struct ComposerView: View {
           }
         }
       Button {
-        Task { await transcribe() }
+        transcriptionTask = Task { await transcribe() }
       } label: {
         Group {
           if transcribing {
@@ -359,8 +364,11 @@ struct ComposerView: View {
     do {
       let data = try Data(contentsOf: url)
       let (response, _) = try await api.raw(
-        "/api/v0/transcriptions", method: "POST", data: data, contentType: "audio/mp4")
-      guard store.api?.baseURL == api.baseURL, store.api?.token == api.token else { return }
+        "/api/v0/transcriptions", method: "POST", data: data, contentType: "audio/mp4",
+        timeout: 135)
+      guard !Task.isCancelled, voice.pendingURL == url,
+        store.api?.baseURL == api.baseURL, store.api?.token == api.token
+      else { return }
       let value = try JSONDecoder().decode(JSON.self, from: response)["text"].string
       guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
         throw APIError(
@@ -373,6 +381,9 @@ struct ComposerView: View {
       }
       voice.cancel()
     } catch {
+      guard !Task.isCancelled, voice.pendingURL == url,
+        store.api?.baseURL == api.baseURL, store.api?.token == api.token
+      else { return }
       NativeHaptics.failure(error, source: "composer.error")
       store.handle(error)
     }
@@ -402,7 +413,20 @@ final class VoiceRecorder {
       if ProcessInfo.processInfo.arguments.contains("--ui-testing"),
         ProcessInfo.processInfo.arguments.contains("--qa-synthetic-voice")
       {
-        let capture = try SimulatorVoiceFixture()
+        var sourceURL: URL?
+        if let raw = ProcessInfo.processInfo.environment["OPENTEAM_QA_VOICE_SOURCE"] {
+          guard let source = URL(string: raw), source.scheme == "http",
+            source.host == "127.0.0.1"
+          else { throw APIError("QA speech source must be on loopback.") }
+          let (download, response) = try await URLSession.shared.download(from: source)
+          guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw APIError("QA speech could not be loaded.")
+          }
+          sourceURL = download
+        }
+        defer { if let sourceURL { try? FileManager.default.removeItem(at: sourceURL) } }
+        guard attempt == generation, !Task.isCancelled else { return }
+        let capture = try SimulatorVoiceFixture(sourceURL: sourceURL)
         fixture = capture
         recording = true
         elapsed = 0

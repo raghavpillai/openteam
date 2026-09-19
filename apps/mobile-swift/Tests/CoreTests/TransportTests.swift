@@ -53,6 +53,21 @@ private final class MockProtocol: URLProtocol, @unchecked Sendable {
 }
 
 final class TransportTests: XCTestCase, @unchecked Sendable {
+  func testLongTranscriptionRequestPreservesAuthenticationAndBinaryAudio() async throws {
+    let audio = Data([0, 1, 2, 3, 255])
+    MockProtocol.stub.set { request in
+      XCTAssertEqual(request.url?.path, "/team/api/v0/transcriptions")
+      XCTAssertEqual(request.httpMethod, "POST")
+      XCTAssertEqual(request.timeoutInterval, 135)
+      XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-session")
+      XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "audio/mp4")
+      XCTAssertEqual(try requestBody(request), audio)
+      return (200, [:], Data(#"{"text":"Spoken words"}"#.utf8))
+    }
+    let (data, _) = try await api(token: "fixture-session").raw(
+      "/api/v0/transcriptions", method: "POST", data: audio, contentType: "audio/mp4", timeout: 135)
+    XCTAssertEqual(try JSONDecoder().decode(JSON.self, from: data)["text"].string, "Spoken words")
+  }
   func testNativeSignInFailureMessagesAndRequiredHeader() async throws {
     for (status, fragment) in [(401, "username or password"), (403, "cannot sign in"), (429, "Too many sign-in attempts"), (503, "try again shortly")] {
       MockProtocol.stub.set { _ in (status, [:], Data("{}".utf8)) }

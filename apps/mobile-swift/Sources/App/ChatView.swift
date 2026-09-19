@@ -64,7 +64,7 @@ struct ChatView: View {
                 VStack(alignment: .leading, spacing: 12) {
                   if let date = row.timestamp {
                     Text(timestamp(date)).font(.system(size: 13)).foregroundStyle(
-                      NativePalette.faint
+                      NativePalette.chatFaint
                     )
                     .frame(maxWidth: .infinity).padding(.top, 14).padding(.bottom, 2)
                     .onGeometryChange(for: CGFloat.self) { geometry in
@@ -135,9 +135,11 @@ struct ChatView: View {
             value: timelineCache.arrivalRevision
           )
           .animation(
-            reduceMotion ? nil
+            reduceMotion
+              ? nil
               : activityVisible ? .easeInOut(duration: 0.28) : .easeOut(duration: 0.24),
-            value: activityVisible)
+            value: activityVisible
+          )
           .task(id: activity) {
             if let activity {
               activityMode = activity
@@ -241,7 +243,7 @@ struct ChatView: View {
                 } label: {
                   Image(systemName: "chevron.down").font(.system(size: 16, weight: .medium)).frame(
                     width: 36, height: 36
-                  ).nativeGlass().contentShape(Rectangle())
+                  ).nativeChatGlass().contentShape(Rectangle())
                 }.buttonStyle(.plain).accessibilityLabel("Latest messages")
                   .transition(
                     reduceMotion
@@ -286,8 +288,7 @@ struct ChatView: View {
           }
       }
     }.nativeCanvas()
-      .floatingBar(edge: .top) { header }
-      .floatingBar(edge: .bottom) { ComposerView(channel: channel) }
+      .chatFloatingBars(top: { header }, bottom: { ComposerView(channel: channel) })
       .toolbar(.hidden, for: .navigationBar).background(
         NativeBackGesture().frame(width: 0, height: 0)
       )
@@ -331,8 +332,9 @@ struct ChatView: View {
   }
   var header: some View {
     HStack(spacing: 8) {
-      ChromeButton(title: "Back", symbol: "chevron.left") { dismiss() }.accessibilityIdentifier(
-        "chat-back")
+      ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 16) { dismiss() }
+        .accessibilityIdentifier(
+          "chat-back")
       Button {
         details = true
       } label: {
@@ -340,11 +342,11 @@ struct ChatView: View {
           ChannelAvatar(channel: channel, size: 27)
           Text(store.channel(channel.id)?.name ?? channel.name).font(.body.weight(.medium))
             .lineLimit(1)
-        }.padding(.leading, 10).padding(.trailing, 14).frame(height: 44).nativeGlass()
+        }.padding(.leading, 10).padding(.trailing, 14).frame(height: 44).nativeChatGlass()
       }.buttonStyle(.plain).accessibilityIdentifier("conversation-details")
       Spacer(minLength: 4)
       if store.bot(for: channel) != nil {
-        ChromeButton(title: "Computer", symbol: "desktopcomputer") { computer = true }
+        ChatChromeButton(title: "Computer", symbol: "display", symbolSize: 16) { computer = true }
       }
     }.padding(.horizontal, 18).padding(.vertical, 6).foregroundStyle(NativePalette.text)
   }

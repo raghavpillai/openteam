@@ -142,7 +142,7 @@ struct ComposerView: View {
         color: NativePalette.text,
         photos: { photoLibrary = true }, files: { files = true }, camera: { camera = true },
         voice: startRecording
-      ).frame(width: 44, height: 44).nativeGlass()
+      ).frame(width: 44, height: 44).nativeChatGlass()
       VStack(spacing: 0) {
         if let reply = draft.replyTo {
           HStack(spacing: 7) {
@@ -202,7 +202,7 @@ struct ComposerView: View {
         }
         TextField(
           "", text: text,
-          prompt: Text("Ask " + channel.name).foregroundStyle(NativePalette.muted),
+          prompt: Text("Ask " + channel.name).foregroundStyle(NativePalette.chatFaint),
           axis: .vertical
         )
         .font(.body).lineLimit(1...8).focused($focused)
@@ -212,7 +212,9 @@ struct ComposerView: View {
           threadRootID == nil ? "message-input" : "thread-message-input"
         )
         .overlay(alignment: .bottomTrailing) {
-          trailingAction.padding(.trailing, 9).padding(.bottom, 8)
+          // The visible pill is 36 × 28; its separate 44-point hit area keeps
+          // sending/recording reachable without changing the reference inset.
+          trailingAction.padding(.trailing, 5)
         }
         if uploading || transcribing {
           HStack {
@@ -221,7 +223,7 @@ struct ComposerView: View {
             Spacer()
           }.padding(8)
         }
-      }.nativeGlass().foregroundStyle(NativePalette.text)
+      }.nativeChatGlass().foregroundStyle(NativePalette.text)
     }
   }
   private var recordingControls: some View {
@@ -316,8 +318,10 @@ struct ComposerView: View {
         Task { await store.enqueue(channel, draftKey: key, threadRootID: threadRootID) }
       } label: {
         Image(systemName: "arrow.up").font(.system(size: 17, weight: .semibold))
-          .foregroundStyle(NativePalette.onPrimary).frame(width: 28, height: 28).background(
-            NativePalette.text, in: Circle())
+          .foregroundStyle(NativePalette.onPrimary).frame(width: 36, height: 28).background(
+            NativePalette.text, in: Capsule()
+          )
+          .frame(width: 44, height: 44).contentShape(Rectangle())
       }.buttonStyle(.plain).disabled(uploading).accessibilityLabel("Send").accessibilityIdentifier(
         threadRootID == nil ? "send-button" : "thread-send-button")
     } else if !store.activeRuns(channel.id).isEmpty {
@@ -331,13 +335,19 @@ struct ComposerView: View {
         Image(systemName: "stop.fill").font(.system(size: 10)).foregroundStyle(
           NativePalette.onPrimary
         ).frame(width: 28, height: 28).background(NativePalette.text, in: Circle())
+          .frame(width: 44, height: 44).contentShape(Rectangle())
       }.buttonStyle(.plain).accessibilityLabel("Stop")
     } else {
       Button {
         startRecording()
       } label: {
-        Image(systemName: "mic.fill").font(.system(size: 17)).foregroundStyle(NativePalette.muted)
-          .frame(width: 36, height: 28).background(NativePalette.muted.opacity(0.15), in: Capsule())
+        Image(systemName: "mic.fill").font(.system(size: 16)).foregroundStyle(
+          NativePalette.chatMuted
+        )
+        .frame(width: 36, height: 28).background(
+          Color(red: 118 / 255, green: 118 / 255, blue: 128 / 255).opacity(0.24), in: Capsule()
+        )
+        .frame(width: 44, height: 44).contentShape(Rectangle())
       }.buttonStyle(.plain).disabled(
         transcribing || voice.pendingURL != nil
           || store.state.bootstrap?.runtime["transcription"].string != "configured"
@@ -551,7 +561,7 @@ private struct NativeAttachmentMenu: UIViewRepresentable {
     button.setImage(
       UIImage(
         systemName: "plus",
-        withConfiguration: UIImage.SymbolConfiguration(pointSize: 24, weight: .regular)),
+        withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)),
       for: .normal)
     button.showsMenuAsPrimaryAction = true
     button.accessibilityLabel = "Attach"

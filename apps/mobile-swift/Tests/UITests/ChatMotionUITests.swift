@@ -125,6 +125,9 @@ import XCTest
     input.tap()
     input.typeText("Okay testing")
     try await Task.sleep(for: .seconds(1))
+    XCTAssertGreaterThanOrEqual(
+      app.keyboards.firstMatch.frame.minY - app.buttons["attach-button"].frame.maxY, 12,
+      "The focused composer must retain its spacing above the keyboard")
     capture("reference-before-send", app)
     mark("reference-send")
     app.buttons["send-button"].tap()
@@ -154,5 +157,36 @@ import XCTest
     timing.name = "reference-timestamps"
     timing.lifetime = .keepAlways
     add(timing)
+  }
+
+  func testComposerHitAreasInBothAppearances() async throws {
+    continueAfterFailure = false
+    for appearance in ["dark", "light"] {
+      try await control("__qa/scene", ["scene": "motion-reference"])
+      let app = XCUIApplication()
+      app.launchArguments = [
+        "--ui-testing", "--server", base.absoluteString,
+        "--appearance", appearance, "--open-channel", "visual-chat",
+      ]
+      app.launch()
+      let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+      XCTAssertTrue(input.waitForExistence(timeout: 15))
+      input.tap()
+      input.typeText("Okay testing")
+      let send = app.buttons["send-button"]
+      let attach = app.buttons["attach-button"]
+      XCTAssertGreaterThanOrEqual(send.frame.width, 44)
+      XCTAssertGreaterThanOrEqual(send.frame.height, 44)
+      XCTAssertGreaterThanOrEqual(attach.frame.width, 44)
+      XCTAssertGreaterThanOrEqual(attach.frame.height, 44)
+      capture("composer-" + appearance, app)
+      // Tap outside the smaller visual pill, but inside the promised hit target.
+      send.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
+      XCTAssertTrue(app.staticTexts["Okay testing"].waitForExistence(timeout: 5))
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+      capture("composer-" + appearance + "-keyboard-closed", app)
+      app.terminate()
+    }
   }
 }

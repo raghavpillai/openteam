@@ -18,6 +18,18 @@ enum NativePalette {
   static let onPrimary = color("FFFFFF", "000000")
   static let muted = color("8E8E8E", "8E8E93")
   static let faint = color("BFBFBF", "666666")
+  // Chat labels are translucent in the reference, so their color follows the
+  // glass beneath them rather than staying the same grey on every surface.
+  static let chatMuted = chatLabel(alpha: 0.6, light: "8E8E8E")
+  static let chatFaint = chatLabel(alpha: 0.3, light: "BFBFBF")
+  private static func chatLabel(alpha: CGFloat, light: String) -> Color {
+    Color(
+      uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+          ? UIColor(red: 235 / 255, green: 235 / 255, blue: 245 / 255, alpha: alpha)
+          : UIColor(color(light, light))
+      })
+  }
   static let assistant = surface
   static let user = color("0A0A0A", "545454")
   static let separator = color("E4E4E4", "343434")
@@ -100,7 +112,85 @@ struct NativeGlass: ViewModifier {
     }
   }
 }
+
+/// Restore the React Native chat's clear dark material. SwiftUI's tint response
+/// differs from the old UIKit wrapper: 0.042 matches its measured resting fill.
+/// Keep the established light material for legible black labels over dark bubbles.
+struct NativeChatGlass: ViewModifier {
+  @Environment(\.colorScheme) private var scheme
+  var radius: CGFloat = 22
+  func body(content: Content) -> some View {
+    if #available(iOS 26, *), scheme == .dark {
+      content.glassEffect(
+        Glass.clear.tint(.white.opacity(0.042)).interactive(),
+        in: RoundedRectangle(cornerRadius: radius)
+      )
+    } else {
+      content.modifier(NativeGlass(radius: radius))
+    }
+  }
+}
+
+/// The original chat fades the canvas behind the floating controls. Keeping this
+/// separate from the glass avoids changing material opacity as history scrolls.
+private struct ChatChromeFade: View {
+  var edge: VerticalEdge
+  var body: some View {
+    LinearGradient(
+      stops: [
+        .init(color: NativePalette.background, location: 0),
+        .init(
+          color: NativePalette.background.opacity(edge == .top ? 0.85 : 0.9),
+          location: edge == .top ? 0.20 : 0.18),
+        .init(
+          color: NativePalette.background.opacity(edge == .top ? 0.25 : 0.35),
+          location: edge == .top ? 0.55 : 0.65),
+        .init(color: NativePalette.background.opacity(0), location: 1),
+      ],
+      startPoint: edge == .top ? .top : .bottom,
+      endPoint: edge == .top ? .bottom : .top
+    ).allowsHitTesting(false).accessibilityHidden(true)
+  }
+}
+
+private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
+  var top: Top
+  var bottom: Bottom
+  func body(content: Content) -> some View {
+    GeometryReader { viewport in
+      if #available(iOS 26, *) {
+        content
+          .overlay(alignment: .top) {
+            ChatChromeFade(edge: .top)
+              .frame(height: viewport.safeAreaInsets.top + 104)
+              // The chat header is 44 points with six points above and below.
+              .offset(y: -viewport.safeAreaInsets.top - 56)
+          }
+          .safeAreaBar(edge: .top, spacing: 0) {
+            top
+          }
+          .safeAreaBar(edge: .bottom, spacing: 0) {
+            bottom.background {
+              ChatChromeFade(edge: .bottom).ignoresSafeArea(.container, edges: .bottom)
+            }
+          }
+          .scrollEdgeEffectHidden()
+      } else {
+        content.safeAreaInset(edge: .top, spacing: 0) { top }
+          .safeAreaInset(edge: .bottom, spacing: 0) { bottom }
+      }
+    }
+  }
+}
 extension View {
+  func nativeChatGlass(radius: CGFloat = 22) -> some View {
+    modifier(NativeChatGlass(radius: radius))
+  }
+  func chatFloatingBars<Top: View, Bottom: View>(
+    @ViewBuilder top: () -> Top, @ViewBuilder bottom: () -> Bottom
+  ) -> some View {
+    modifier(ChatFloatingBars(top: top(), bottom: bottom()))
+  }
   func dismissKeyboardOnTap() -> some View {
     simultaneousGesture(
       TapGesture().onEnded {
@@ -148,6 +238,20 @@ struct ChromeButton: View {
           darkTint: darkTint
         )
         .contentShape(Rectangle())
+    }.buttonStyle(.plain).accessibilityLabel(title)
+  }
+}
+
+struct ChatChromeButton: View {
+  var title: String
+  var symbol: String
+  var symbolSize: CGFloat = 16
+  var action: () -> Void
+  var body: some View {
+    Button(action: action) {
+      Image(systemName: symbol).font(.system(size: symbolSize, weight: .semibold))
+        .frame(width: 44, height: 44).foregroundStyle(NativePalette.text)
+        .nativeChatGlass().contentShape(Rectangle())
     }.buttonStyle(.plain).accessibilityLabel(title)
   }
 }

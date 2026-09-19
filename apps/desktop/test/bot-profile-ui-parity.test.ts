@@ -63,10 +63,11 @@ describe("OpenTeam-profile UI parity", () => {
     expect(app).not.toContain(
       "setInspectorWidth((width) => clampInspectorWidth(width, viewportWidth, effectiveSidebarWidth))"
     );
-    expect(sidebar).toContain("const compact = forcedCompact || storedCompact");
+    expect(sidebar).toContain("const targetCompact = forcedCompact || storedCompact");
+    expect(sidebar).toContain("sidebar.clientWidth <= COMPACT_SIDEBAR_CONTENT_WIDTH");
     expect(sidebar).toContain('forcedCompact && "!w-[88px]"');
     expect(sidebar).toContain('data-sidebar-forced-compact={forcedCompact ? "true" : "false"}');
-    expect(sidebar).toContain("const observer = new ResizeObserver(syncAccessibleWidth)");
+    expect(sidebar).toMatch(/new ResizeObserver\([^;]*\bsyncVisibleWidth\b/);
     expect(sidebar).toContain('resizer.setAttribute("aria-valuenow", String(visibleWidth))');
     expect(main).toContain("minWidth: 512");
     expect(main).toContain("minHeight: 520");

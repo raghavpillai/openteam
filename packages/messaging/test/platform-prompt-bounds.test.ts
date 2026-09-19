@@ -94,6 +94,7 @@ describe("bounded platform target context", () => {
           modelId: "gpt-5.5",
           reasoning: "high",
         }),
+        loadTaskConfiguration: async () => ({ combinedComputerUse: true, executorProfiles: [] }),
       },
       prisma: {
         $queryRaw: async () => [],

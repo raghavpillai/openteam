@@ -14,7 +14,7 @@ import { NativeToolExecutor } from "../../../computer/src/native-tool-executor";
 import { DesktopMachineEnrollment } from "../../src/main/host/machine-enrollment";
 import { loadMachineIdentity } from "../../src/main/host/machine-identity";
 import { startHostBridge } from "../../src/main/host/bridge";
-import { executeHostJob } from "../../src/main/host/jobs";
+import { executeHostJob, terminateHostChildren } from "../../src/main/host/jobs";
 import { createPermissionSettingsStore } from "../../src/main/permission-settings";
 
 async function eventually(check: () => Promise<boolean>, description: string) {
@@ -174,6 +174,9 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)("two desktops enroll, strea
     await Promise.all(clients.map(client => client.stop()));
     machines.relay.close(); api.stop(true);
     await Promise.all(bridges.map(server => new Promise<void>(resolve => { server.closeAllConnections(); server.close(() => resolve()); })));
+    // Disconnect may leave a dispatched shell completing its private receipt.
+    // Drain the real host-job executor before deleting its output directory.
+    await terminateHostChildren();
     await db.hostMachine.deleteMany({ where: { machineId: { in: machineIds } } });
     await db.channel.deleteMany({where:{id:channelId}});await db.bot.deleteMany({where:{id:botId}});
     await db.user.deleteMany({ where: { id: userId } }); await db.$disconnect();

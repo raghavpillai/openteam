@@ -504,15 +504,15 @@ describe("API contracts", () => {
       "subagent_type",
       "file_attachments",
       "run_in_background",
-      "model",
     ]);
     expect(taskSchema.required).toEqual(["description", "prompt"]);
     expect(taskSchema.properties.description?.description).toBe(
       "A short, user-friendly title for the subagent. This appears in the UI as the subagent's name. Make it concrete and distinct, consider recent titles to avoid reuse. For resumed subagents which you are prompting to work on a separate task, give an updated description based on the latest work the subagent is performing. (Do not rename if the subagent is continuing work on the same high-level task.)"
     );
     expect(taskSchema.properties.prompt?.description).toBe("The task for the agent to perform");
-    expect((taskSchema.properties.subagent_type as any).enum).toContain('browserUse');
-    expect((taskSchema.properties.model as any).type).toBe('string');
+    expect((taskSchema.properties.subagent_type as any).enum).toContain('computerUse');
+    expect((taskSchema.properties.subagent_type as any).enum).not.toContain('browserUse');
+    expect(taskSchema.properties.model).toBeUndefined();
     expect(CURSOR_TOOL_NAMES).not.toContain("AddMcpServer");
     expect(
       Schema.decodeUnknownSync(TaskInput)({

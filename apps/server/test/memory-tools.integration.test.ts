@@ -178,7 +178,7 @@ databaseTest(
       expect(await personalCall({ ...request, scope: "user" })).toBe("Not saved — nothing was saved to shared user memory — the fact was empty or already recorded. Call RecallMemory to see what is already there.");
       expect(await personalCall({ target: "memory", action: "forget", scope: "user", fact: request.fact })).toBe(`Forgot from shared user memory: ${request.fact}`);
       expect(await personalCall({ target: "memory", action: "forget", scope: "user", fact: request.fact })).toBe("Not saved — no fact with exactly that text is recorded in shared user memory. Call RecallMemory for the exact wording first.");
-      await expect(call("RecallMemory", { query: " " })).rejects.toThrow("nonempty");
+      await expect(call("RecallMemory", { query: " " })).rejects.toThrow("String must contain at least 1 character");
       await expect(call("RequestMemory", { query: "COBALT" })).rejects.toThrow("Unknown tool");
       await prisma.run.update({ where: { id: runId }, data: { status: "completed" } });
       await expect(call("RecallMemory", { query: "COBALT" })).rejects.toThrow("not active");

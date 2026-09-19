@@ -3,6 +3,7 @@ import {
   AgentMessaging,
   buildAdminBroadcastWakePrompt,
   MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS,
+  graphicalDelegationInstructions,
   renderAgentSkillsUserInfo,
   renderSubagentRevivalPrompt,
   subagentSpecializationInstructions,
@@ -10,21 +11,26 @@ import {
 import { PLATFORM_BASE_SYSTEM_PROMPT } from "../src/platform-system-prompt";
 
 describe("main-agent graphical delegation instructions", () => {
-  test("routes browser and desktop work to their specialized subagents", () => {
-    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain("subagent_type browserUse");
+  test("routes graphical work to the available combined or split workers", () => {
+    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).not.toContain("subagent_type browserUse");
     expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain("subagent_type computerUse");
     expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain(
       "Do not attempt graphical interaction yourself"
     );
+    const split = graphicalDelegationInstructions({ combinedComputerUse: false, executorProfiles: [] });
+    expect(split).toContain("subagent_type browserUse");
+    expect(split).toContain("subagent_type computerUse");
   });
 
   test("gives computerUse the documented recovery and safety loop", () => {
     const instructions = subagentSpecializationInstructions("computerUse");
-    expect(instructions).toContain("tight see-act-verify loop");
+    expect(instructions).toContain("Inspect a browser_snapshot");
+    expect(instructions).toContain("inspect the fresh final screenshot");
+    expect(instructions).toContain("policy denials never justify changing tools");
     expect(instructions).toContain("OPENTEAM_BROWSER_DEBUG_PORT");
     expect(instructions).toContain("playwright-core");
-    expect(instructions).toContain("Never use `pkill -f`");
-    expect(instructions).toContain("You cannot talk to the user directly");
+    expect(instructions).toContain("Never use pkill -f");
+    expect(instructions).toContain("You cannot communicate with the user");
   });
 
   test("gives browserUse leased-tab, ref, and human-blocker rules", () => {

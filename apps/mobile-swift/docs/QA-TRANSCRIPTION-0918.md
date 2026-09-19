@@ -48,3 +48,5 @@ Provider credentials remain in subprocess pipes and encrypted disposable storage
 ## Remaining device acceptance
 
 No physical iPhone was connected. This proves the mobile AAC/upload/ASR/composer/send flow, not actual iPhone microphone capture, Bluetooth routing, or device audio interruptions. The debug source bypasses physical recording permission/capture. A real-device recording remains required to sign off that hardware path. TestFlight remains **0.0.1 (25)**; this pass does not upload a new build.
+
+Release follow-up: the fixes were subsequently uploaded on September 19 as [TestFlight 0.0.1 (26)](TESTFLIGHT-26.md), verified available to Team (Expo).

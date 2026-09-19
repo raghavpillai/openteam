@@ -115,6 +115,27 @@ final class AuthFlowUITests: XCTestCase {
     XCTAssertFalse(app.textFields["username-field"].exists)
     capture("connected-no-auth", app)
   }
+  func testConnectRecoversAnInterruptedLocalReset() async throws {
+    continueAfterFailure = false
+    try await control("/__qa/reset")
+    try await control("/__qa/control", ["authRequired": true])
+    let app = XCUIApplication()
+    // Model the pending marker left by an interrupted/failed Re-auth. UI-test
+    // startup deliberately leaves it to the Connect action to recover.
+    app.launchArguments = [
+      "--ui-testing", "--show-login", "--server", base,
+      "--qa-interrupted-reset",
+    ]
+    app.launch()
+    XCTAssertTrue(app.buttons["get-started"].waitForExistence(timeout: 10))
+    app.buttons["get-started"].tap()
+    waitForArrival(app.textFields["server-field"])
+    app.buttons["connect-button"].tap()
+    XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 15),
+      "Connect must finish an interrupted reset and advance; it must not silently return")
+    waitForArrival(app.textFields["username-field"])
+    capture("connect-after-interrupted-reset", app)
+  }
   func testCredentialsRejectedThenRetrySucceeds() async throws {
     let app = try await launch(required: true)
     credentials(app)
@@ -419,6 +440,22 @@ final class AuthFlowUITests: XCTestCase {
     waitForArrival(app.textFields["server-field"])
     XCTAssertFalse(app.buttons["clear-server"].exists)
     capture("re-auth-cold-launch-cleared", app)
+    // Reconnect after the real sandbox/Keychain reset, then repeat without a
+    // relaunch. Neither path may silently leave Connect blocked by the marker.
+    for attempt in 0..<2 {
+      replace(app.textFields["server-field"], base)
+      app.buttons["connect-button"].tap()
+      waitForArrival(app.textFields["username-field"])
+      signIn(app)
+      XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 15))
+      dismissPasswordPrompt(app)
+      capture("re-auth-reconnected-\(attempt)", app)
+      app.buttons["settings-button"].tap()
+      app.buttons["account-settings"].tap()
+      app.buttons["re-auth"].tap()
+      waitForArrival(app.textFields["server-field"])
+      XCTAssertFalse(app.buttons["clear-server"].exists)
+    }
   }
 
 }

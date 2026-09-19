@@ -105,6 +105,11 @@ final class AppStore {
         }
       #endif
       testing = args.contains("--ui-testing")
+      #if targetEnvironment(simulator)
+        if testing, args.contains("--qa-interrupted-reset") {
+          UserDefaults.standard.set(true, forKey: LocalDataReset.pendingKey)
+        }
+      #endif
       if let index = args.firstIndex(of: "--server"), args.indices.contains(index + 1) {
         server = args[index + 1]
       }
@@ -169,10 +174,13 @@ final class AppStore {
   func cancelAuthentication() {
     authGeneration = UUID()
     connecting = false
-    authError = nil
+    clearAuthenticationError()
+  }
+  func clearAuthenticationError() {
+    authError = UserDefaults.standard.bool(forKey: LocalDataReset.pendingKey)
+      ? "Couldn't finish clearing local data. Tap Connect to retry, or restart the app." : nil
   }
   func checkServer(feedback: Bool = false) async {
-    guard !UserDefaults.standard.bool(forKey: LocalDataReset.pendingKey) else { return }
     guard !connecting else { return }
     #if canImport(UIKit)
       if feedback { NativeHaptics.play(.light, source: "auth.submit") }
@@ -183,6 +191,7 @@ final class AppStore {
     authError = nil
     defer { if authGeneration == epoch { connecting = false } }
     do {
+      try finishPendingLocalReset()
       let candidate = try API(server: server, timeout: 15)
       let mode = try await candidate.validateServer()
       guard authGeneration == epoch, !Task.isCancelled else { return }
@@ -209,7 +218,6 @@ final class AppStore {
     }
   }
   func connect(username: String, password: String, feedback: Bool = false) async {
-    guard !UserDefaults.standard.bool(forKey: LocalDataReset.pendingKey) else { return }
     guard !connecting else { return }
     #if canImport(UIKit)
       if feedback { NativeHaptics.play(.light, source: "auth.submit") }
@@ -220,6 +228,7 @@ final class AppStore {
     authGeneration = epoch
     defer { if authGeneration == epoch { connecting = false } }
     do {
+      try finishPendingLocalReset()
       let candidate = try API(server: server, timeout: 15)
       let mode = try await candidate.validateServer()
       guard authGeneration == epoch, !Task.isCancelled else { return }
@@ -908,6 +917,17 @@ final class AppStore {
     error = nil
     authPath = [.endpoint]
     do {
+      try finishPendingLocalReset()
+      authError = nil
+    } catch {
+      // A failed wipe never restores the old session, including after a relaunch.
+      authError = UserFacingError.message(error)
+    }
+  }
+  private func finishPendingLocalReset() throws {
+    let defaults = UserDefaults.standard
+    guard defaults.bool(forKey: LocalDataReset.pendingKey) else { return }
+    do {
       if !testing {
         try SecureSession.clear()
         try LegacyInstallation.clear()
@@ -915,7 +935,7 @@ final class AppStore {
       var directories = [testDirectory]
       #if canImport(UIKit)
         if !testing {
-          // These are inside this iOS app's sandbox, including the previous RN app's data.
+          // Clear all accounts, including the previous RN app's sandbox data.
           directories = [.applicationSupportDirectory, .cachesDirectory, .documentDirectory]
             .flatMap { FileManager.default.urls(for: $0, in: .userDomainMask) }
           directories.append(FileManager.default.temporaryDirectory)
@@ -929,8 +949,9 @@ final class AppStore {
       }
       defaults.removeObject(forKey: LocalDataReset.pendingKey)
     } catch {
-      // A failed wipe never restores the old session, including after a relaunch.
-      authError = "Some local data could not be cleared. Restart the app to try again."
+      // Keep the marker until every step succeeds; a new connection must not
+      // reuse any account's data after a partially completed Re-auth.
+      throw APIError("Couldn't finish clearing local data. Tap Connect to retry, or restart the app.")
     }
   }
   func handle(_ error: Error, quiet: Bool = false) {

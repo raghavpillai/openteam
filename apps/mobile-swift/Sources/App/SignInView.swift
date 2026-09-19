@@ -52,7 +52,7 @@ struct SignInView: View {
         VStack(spacing: 8) {
           if stage == 0 { errorNotice }
           authButton("Log In", identifier: "get-started") {
-            store.authError = nil
+            store.clearAuthenticationError()
             NativeHaptics.play(.light, source: "auth.get-started")
             store.authPath = [.endpoint]
           }
@@ -120,10 +120,10 @@ struct SignInView: View {
     .onChange(of: store.server) { _, _ in
       username = ""
       password = ""
-      store.authError = nil
+      store.clearAuthenticationError()
     }
-    .onChange(of: username) { _, _ in store.authError = nil }
-    .onChange(of: password) { _, _ in store.authError = nil }
+    .onChange(of: username) { _, _ in store.clearAuthenticationError() }
+    .onChange(of: password) { _, _ in store.clearAuthenticationError() }
     .onChange(of: store.authError) { _, value in
       guard let value else { return }
       UIAccessibility.post(notification: .announcement, argument: value)

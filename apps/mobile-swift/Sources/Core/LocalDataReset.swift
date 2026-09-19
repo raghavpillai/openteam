@@ -1,6 +1,8 @@
 import Foundation
 
-/// Deletes app-owned data roots, including caches belonging to previous accounts.
+/// Clears app-owned data, including caches belonging to previous accounts.
+/// Keep the sandbox roots themselves: iOS can allow clearing their contents while
+/// denying removal of the system-created directory.
 enum LocalDataReset {
   static let pendingKey = "native-local-reset-pending"
 
@@ -9,7 +11,12 @@ enum LocalDataReset {
     for directory in directories {
       do {
         if FileManager.default.fileExists(atPath: directory.path) {
-          try FileManager.default.removeItem(at: directory)
+          let contents = try FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: nil)
+          for item in contents {
+            do { try FileManager.default.removeItem(at: item) }
+            catch { if failure == nil { failure = error } }
+          }
         }
       } catch { if failure == nil { failure = error } }
     }

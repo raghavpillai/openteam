@@ -8,7 +8,7 @@ import {
   useDroppable,
 } from "@dnd-kit/react";
 import { isSortable, useSortable } from "@dnd-kit/react/sortable";
-import type { BotView, ChannelMessageView, ChannelView, RunView } from "@openteam/contracts";
+import type { BotView, ChannelMessageView, ChannelView, RunItemView, RunView } from "@openteam/contracts";
 import {
   ArrowDown,
   ArrowUp,
@@ -114,18 +114,25 @@ import { Input } from "../ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { BotAvatar, ChannelAvatar } from "./avatar";
 import { BotName, BotRenameContext } from "./bot-name";
+import { SidebarMotion } from "./sidebar-motion";
+import { SidebarActivityProvider, useSidebarComposing } from "./sidebar-activity";
+
+const EMPTY_PINNED_IDS: ReadonlySet<string> = new Set();
 
 function WorkingAvatar({
   active,
+  channelId,
   children,
   ringColor,
   size,
 }: {
   active: boolean;
+  channelId?: string;
   children: React.ReactNode;
   ringColor: string;
   size: "sm" | "md" | "pin";
 }) {
+  const composing = useSidebarComposing(channelId);
   return (
     <span
       className="relative grid shrink-0"
@@ -136,7 +143,7 @@ function WorkingAvatar({
         <span
           aria-hidden="true"
           className={cn(
-            "pointer-events-none absolute z-10 rounded-full bg-[#5bc67a]",
+            "sidebar-status-reveal sidebar-working-dot pointer-events-none absolute z-10 rounded-full bg-[#5bc67a]",
             size === "sm" &&
               "bottom-0 right-0 size-1.5 shadow-[0_0_0_2.5px_var(--working-dot-ring,var(--sidebar))]",
             size === "md" &&
@@ -144,6 +151,7 @@ function WorkingAvatar({
             size === "pin" &&
               "bottom-0.5 right-0.5 size-2.5 shadow-[0_0_0_3.333px_var(--working-dot-ring,var(--sidebar))]"
           )}
+          data-composing={composing || undefined}
           data-working-indicator=""
         />
       ) : null}
@@ -648,7 +656,7 @@ function ChannelPreviewTooltipContent({
       sideOffset={8}
     >
       <div className="flex min-w-0 items-center gap-2">
-        <WorkingAvatar active={working} ringColor="var(--popover)" size="sm">
+        <WorkingAvatar channelId={row.channel.id} active={working} ringColor="var(--popover)" size="sm">
           <ChannelAvatar botById={botById} channel={channel} size="sm" />
         </WorkingAvatar>
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{channel.name}</span>
@@ -684,7 +692,7 @@ function SidebarDragPreview({
       )}
       data-sidebar-drag-preview=""
     >
-      <WorkingAvatar active={working} ringColor="var(--popover)" size="pin">
+      <WorkingAvatar channelId={row.channel.id} active={working} ringColor="var(--popover)" size="pin">
         {bot ? (
           <BotAvatar bot={bot} size="lg" />
         ) : (
@@ -992,9 +1000,7 @@ const ChannelRow = memo(function ChannelRow({
     ? latestPreview
     : needsAttention
       ? "Needs your input"
-      : working
-        ? "Working…"
-        : bot?.status === "provisioning"
+      : bot?.status === "provisioning"
           ? "Starting up…"
           : bot?.status === "failed"
             ? "Setup needs attention"
@@ -1012,6 +1018,7 @@ const ChannelRow = memo(function ChannelRow({
       variant="ghost"
     >
       <WorkingAvatar
+        channelId={row.channel.id}
         active={working}
         ringColor={selected ? "var(--selected)" : "var(--sidebar)"}
         size="md"
@@ -1038,7 +1045,7 @@ const ChannelRow = memo(function ChannelRow({
           {needsAttention ? (
             <span
               aria-label="Needs your input"
-              className="size-1.5 shrink-0 rounded-full bg-amber-500"
+              className="sidebar-status-reveal size-1.5 shrink-0 rounded-full bg-amber-500"
               role="img"
             />
           ) : null}
@@ -1055,7 +1062,7 @@ const ChannelRow = memo(function ChannelRow({
         </span>
       </span>
       {unread && !needsAttention ? (
-        <span aria-label="Unread" className="size-2 shrink-0 rounded-full bg-[#469ffe]" role="img" />
+        <span aria-label="Unread" className="sidebar-status-reveal size-2 shrink-0 rounded-full bg-[#469ffe]" role="img" />
       ) : null}
     </Button>
   );
@@ -1245,7 +1252,6 @@ function DraggablePinnedTile({
   botById,
   selected,
   unread,
-  arrival,
   sections,
   onSelect,
   onBotAction,
@@ -1257,7 +1263,6 @@ function DraggablePinnedTile({
   botById: ReadonlyMap<string, BotView>;
   selected: boolean;
   unread: boolean;
-  arrival: "first" | "later" | null;
   sections: SidebarSection[];
   onSelect: (id: string, focusComposer?: boolean) => void;
   onBotAction: (bot: BotView, action: BotRowAction) => void;
@@ -1287,6 +1292,7 @@ function DraggablePinnedTile({
       variant="ghost"
     >
       <WorkingAvatar
+        channelId={row.channel.id}
         active={working}
         ringColor={selected ? "var(--selected)" : "var(--sidebar)"}
         size="pin"
@@ -1301,10 +1307,10 @@ function DraggablePinnedTile({
         {needsAttention ? (
           <span
             aria-label="Needs your input"
-            className="size-1.5 shrink-0 rounded-full bg-amber-500"
+            className="sidebar-status-reveal size-1.5 shrink-0 rounded-full bg-amber-500"
           />
         ) : unread ? (
-          <span aria-label="Unread" className="size-1.5 shrink-0 rounded-full bg-blue-600" />
+          <span aria-label="Unread" className="sidebar-status-reveal size-1.5 shrink-0 rounded-full bg-blue-600" />
         ) : null}
         <span className="min-w-0 truncate"><BotName name={channel.name} /></span>
       </span>
@@ -1315,13 +1321,8 @@ function DraggablePinnedTile({
     <div
       className={cn(
         "min-w-0",
-        arrival === "first" &&
-          "animate-[pinned-tile-enter_260ms_cubic-bezier(0.16,1,0.3,1)_180ms_both] motion-reduce:animate-none",
-        arrival === "later" &&
-          "animate-[pinned-tile-enter_260ms_cubic-bezier(0.16,1,0.3,1)_both] motion-reduce:animate-none",
         isDragging && "relative z-20 opacity-0"
       )}
-      data-arrival={arrival ?? "none"}
       data-pinned-channel-id={channel.id}
       ref={ref}
     >
@@ -1365,7 +1366,6 @@ function DraggablePinnedTile({
 
 function VirtualizedPinnedTiles({
   activeChannelId,
-  arrival,
   botById,
   onBotAction,
   onGroupAction,
@@ -1381,7 +1381,6 @@ function VirtualizedPinnedTiles({
   onRegisterJumpHandler,
 }: {
   activeChannelId?: string | null;
-  arrival: { channelId: string; first: boolean } | null;
   botById: ReadonlyMap<string, BotView>;
   onBotAction: (bot: BotView, action: BotRowAction) => void;
   onGroupAction: (channel: ChannelView, action: GroupRowAction) => void;
@@ -1537,13 +1536,6 @@ function VirtualizedPinnedTiles({
                   role="listitem"
                 >
                   <DraggablePinnedTile
-                    arrival={
-                      arrival?.channelId === row.channel.id
-                        ? arrival.first
-                          ? "first"
-                          : "later"
-                        : null
-                    }
                     botById={botById}
                     onBotAction={onBotAction}
                     onGroupAction={onGroupAction}
@@ -1610,24 +1602,6 @@ function TransitionDropZone({
           {label}
         </div>
       </div>
-    </div>
-  );
-}
-
-function CollapsingPinnedSpacer({ phase }: { phase: "holding" | "collapsing" | null }) {
-  return (
-    <div
-      aria-hidden="true"
-      className={cn(
-        "pointer-events-none col-start-1 row-start-1 overflow-hidden",
-        phase === "holding" && "h-[110px]",
-        phase === "collapsing" &&
-          "h-0 transition-[height] duration-[170ms] ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none",
-        phase === null && "h-0"
-      )}
-      data-pinned-exit={phase ?? "none"}
-    >
-      <div className="h-[110px]" />
     </div>
   );
 }
@@ -2041,6 +2015,7 @@ function CompactChannelTile({
           variant="ghost"
         >
           <WorkingAvatar
+            channelId={row.channel.id}
             active={working && !(needsAttention || unread)}
             ringColor={selected ? "var(--selected)" : "var(--sidebar)"}
             size="md"
@@ -2051,7 +2026,7 @@ function CompactChannelTile({
             <span
               aria-hidden="true"
               className={cn(
-                "pointer-events-none absolute bottom-[7px] right-[7px] z-20 size-2 rounded-full border-2",
+                "sidebar-status-reveal pointer-events-none absolute bottom-[7px] right-[7px] z-20 size-2 rounded-full border-2",
                 selected ? "border-selected" : "border-sidebar",
                 needsAttention ? "bg-amber-500" : "bg-[#3062bf]"
               )}
@@ -2337,7 +2312,7 @@ function CompactSidebarContent({
       <div className="electron-drag h-11 shrink-0" />
       <div className="relative flex min-h-0 flex-1">
         <nav
-          className="sidebar-roster bot-scrollbar flex min-h-0 flex-1 flex-col items-center overflow-y-auto pl-3 pr-1 pt-1"
+          className="relative sidebar-roster bot-scrollbar flex min-h-0 flex-1 flex-col items-center overflow-y-auto pl-3 pr-1 pt-1"
           ref={scrollRef}
           onScroll={measureScroll}
           data-scroll-fade-top={scrollState.top}
@@ -2346,6 +2321,7 @@ function CompactSidebarContent({
             maskImage: `linear-gradient(to bottom, ${scrollState.top ? "transparent 0px, black 28px" : "black 0px"}, ${scrollState.bottom ? "black calc(100% - 28px), transparent 100%" : "black 100%"})`,
           }}
         >
+          <SidebarMotion pinnedIds={EMPTY_PINNED_IDS}>
           {channelCount > 180 ? (
             <VirtualizedCompactChannels
               botById={botById}
@@ -2393,6 +2369,7 @@ function CompactSidebarContent({
               <TooltipContent side="right">Hidden Bots</TooltipContent>
             </Tooltip>
           ) : null}
+          </SidebarMotion>
         </nav>
         {scrollState.jumps.above && (
           <UnreadJumpPill
@@ -2465,6 +2442,7 @@ export const Sidebar = memo(function Sidebar({
   latestMessageByChannel,
   activeRunByChannel,
   activeTaskChannelIds,
+  itemsByRun,
   selectedId,
   creating,
   onPreloadSearch,
@@ -2492,6 +2470,7 @@ export const Sidebar = memo(function Sidebar({
   latestMessageByChannel: ReadonlyMap<string, ChannelMessageView>;
   activeRunByChannel: ReadonlyMap<string, RunView>;
   activeTaskChannelIds: ReadonlySet<string>;
+  itemsByRun?: ReadonlyMap<string, RunItemView[]>;
   selectedId: string | null;
   creating?: boolean;
   onPreloadSearch: () => void;
@@ -2525,11 +2504,6 @@ export const Sidebar = memo(function Sidebar({
   const [dragSourceChannelId, setDragSourceChannelId] = useState<string | null>(null);
   const [dragSourceSectionId, setDragSourceSectionId] = useState<string | null>(null);
   const [overSectionId, setOverSectionId] = useState<string | null>(null);
-  const [pinArrival, setPinArrival] = useState<{
-    channelId: string;
-    first: boolean;
-  } | null>(null);
-  const [lastUnpinPhase, setLastUnpinPhase] = useState<"holding" | "collapsing" | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const [sidebarSnapping, setSidebarSnapping] = useState(false);
@@ -2549,9 +2523,6 @@ export const Sidebar = memo(function Sidebar({
     sidebarWidth >= MIN_EXPANDED_SIDEBAR_WIDTH ? sidebarWidth : DEFAULT_SIDEBAR_WIDTH
   );
   const sidebarSnapTimerRef = useRef<number | null>(null);
-  const pinArrivalTimerRef = useRef<number | null>(null);
-  const lastUnpinFrameRef = useRef<number | null>(null);
-  const lastUnpinTimerRef = useRef<number | null>(null);
   const rowCacheRef = useRef<Map<string, ChannelRowData>>(new Map());
   const resizeSessionRef = useRef<
     | (SnappedSidebarResizeState & {
@@ -2586,10 +2557,6 @@ export const Sidebar = memo(function Sidebar({
       ),
     [preferences.pinnedIds, preferences.sectionByChannel, preferences.sections, rows]
   );
-  const pinnedIdsRef = useRef(preferences.pinnedIds);
-  const pinnedCountRef = useRef(groups.pinned.length);
-  pinnedIdsRef.current = preferences.pinnedIds;
-  pinnedCountRef.current = groups.pinned.length;
   const compactGroups = useMemo(() => {
     const seen = new Set<string>();
     return [
@@ -2817,38 +2784,6 @@ export const Sidebar = memo(function Sidebar({
     },
     [preferences.createSection]
   );
-  const startPinArrival = useCallback((channelId: string, first: boolean) => {
-    if (pinArrivalTimerRef.current !== null) {
-      window.clearTimeout(pinArrivalTimerRef.current);
-    }
-    setPinArrival({ channelId, first });
-    pinArrivalTimerRef.current = window.setTimeout(
-      () => {
-        pinArrivalTimerRef.current = null;
-        setPinArrival(null);
-      },
-      first ? 480 : 300
-    );
-  }, []);
-  const startLastUnpinCollapse = useCallback(() => {
-    if (lastUnpinFrameRef.current !== null) {
-      window.cancelAnimationFrame(lastUnpinFrameRef.current);
-    }
-    if (lastUnpinTimerRef.current !== null) {
-      window.clearTimeout(lastUnpinTimerRef.current);
-    }
-    flushSync(() => setLastUnpinPhase("holding"));
-    lastUnpinFrameRef.current = window.requestAnimationFrame(() => {
-      lastUnpinFrameRef.current = window.requestAnimationFrame(() => {
-        lastUnpinFrameRef.current = null;
-        setLastUnpinPhase("collapsing");
-      });
-    });
-    lastUnpinTimerRef.current = window.setTimeout(() => {
-      lastUnpinTimerRef.current = null;
-      setLastUnpinPhase(null);
-    }, 270);
-  }, []);
   const applySidebarWidth = useCallback((width: number) => {
     const next = Math.min(maxExpandedWidth, clampSidebarWidth(width));
     if (resizeSessionRef.current) resizeSessionRef.current.width = next;
@@ -2934,15 +2869,6 @@ export const Sidebar = memo(function Sidebar({
       if (sidebarSnapTimerRef.current !== null) {
         window.clearTimeout(sidebarSnapTimerRef.current);
       }
-      if (pinArrivalTimerRef.current !== null) {
-        window.clearTimeout(pinArrivalTimerRef.current);
-      }
-      if (lastUnpinFrameRef.current !== null) {
-        window.cancelAnimationFrame(lastUnpinFrameRef.current);
-      }
-      if (lastUnpinTimerRef.current !== null) {
-        window.clearTimeout(lastUnpinTimerRef.current);
-      }
     };
   }, [toggleCompactSidebar, updateSidebarWidth]);
 
@@ -2965,31 +2891,9 @@ export const Sidebar = memo(function Sidebar({
     []
   );
 
-  const handleSidebarBotAction = useCallback(
-    (bot: BotView, action: BotRowAction) => {
-      if (action === "togglePin") {
-        const channelId = bot.dmChannelId;
-        const pinned = pinnedIdsRef.current.has(channelId);
-        if (pinned && pinnedCountRef.current === 1) {
-          startLastUnpinCollapse();
-        } else if (!pinned) {
-          startPinArrival(channelId, pinnedCountRef.current === 0);
-        }
-      }
-      onBotAction(bot, action);
-    },
-    [onBotAction, startLastUnpinCollapse, startPinArrival]
-  );
-
   const handleSidebarGroupAction = useCallback(
     (channel: ChannelView, action: GroupRowAction) => {
       if (action === "togglePin") {
-        const pinned = pinnedIdsRef.current.has(channel.id);
-        if (pinned && pinnedCountRef.current === 1) {
-          startLastUnpinCollapse();
-        } else if (!pinned) {
-          startPinArrival(channel.id, pinnedCountRef.current === 0);
-        }
         preferences.togglePinned(channel.id);
         return;
       }
@@ -3017,8 +2921,6 @@ export const Sidebar = memo(function Sidebar({
       onHideChannel,
       preferences.togglePinned,
       preferences.toggleUnread,
-      startLastUnpinCollapse,
-      startPinArrival,
     ]
   );
 
@@ -3030,7 +2932,7 @@ export const Sidebar = memo(function Sidebar({
         disabled={dndDisabled}
         group={group}
         key={row.channel.id}
-        onBotAction={handleSidebarBotAction}
+        onBotAction={onBotAction}
         onGroupAction={handleSidebarGroupAction}
         onCreateSection={createSection}
         onMoveToSection={preferences.moveToSection}
@@ -3045,7 +2947,7 @@ export const Sidebar = memo(function Sidebar({
     [
       botById,
       createSection,
-      handleSidebarBotAction,
+      onBotAction,
       handleSidebarGroupAction,
       onSelect,
       preferences.moveToSection,
@@ -3096,6 +2998,7 @@ export const Sidebar = memo(function Sidebar({
   };
 
   return (
+    <SidebarActivityProvider runs={activeRunByChannel} items={itemsByRun}>
     <aside
       className={cn(
         "relative flex min-w-0 shrink-0 flex-col overflow-hidden bg-sidebar",
@@ -3263,16 +3166,6 @@ export const Sidebar = memo(function Sidebar({
               if (targetData.group === PINNED_GROUP_ID && !isPinnableChannel(sourceChannel)) {
                 return;
               }
-              if (targetData.group === PINNED_GROUP_ID) {
-                startPinArrival(sourceData.channelId, groups.pinned.length === 0);
-              }
-              if (
-                sourceData.group === PINNED_GROUP_ID &&
-                targetData.group !== PINNED_GROUP_ID &&
-                groups.pinned.length === 1
-              ) {
-                startLastUnpinCollapse();
-              }
               preferences.moveChannel({
                 channelId: sourceData.channelId,
                 group: targetData.group,
@@ -3283,7 +3176,7 @@ export const Sidebar = memo(function Sidebar({
               <ContextMenuTrigger asChild>
                 <div className="relative flex min-h-0 flex-1">
                   <nav
-                    className="sidebar-roster bot-scrollbar flex min-h-0 w-full flex-1 flex-col overflow-y-auto pl-[12px] pr-1"
+                    className="relative sidebar-roster bot-scrollbar flex min-h-0 w-full flex-1 flex-col overflow-y-auto pl-[12px] pr-1"
                     onScroll={scheduleUnreadJumpMeasure}
                     ref={sidebarScrollRef}
                     data-scroll-fade-top={sidebarTopFade}
@@ -3292,18 +3185,16 @@ export const Sidebar = memo(function Sidebar({
                       maskImage: `linear-gradient(to bottom, ${sidebarTopFade ? "transparent 0px, black 28px" : "black 0px"}, ${sidebarBottomFade ? "black calc(100% - 28px), transparent 100%" : "black 100%"})`,
                     }}
                   >
+                    <SidebarMotion pinnedIds={preferences.pinnedIds} disabled={Boolean(dragSourceChannelId || dragSourceSectionId || sidebarResizing)}>
                     {!creating && (
                       <div className="grid">
                         <TransitionDropZone
                           group={PINNED_GROUP_ID}
                           label="Drag here to pin"
-                          settling={pinArrival?.first === true}
-                          visible={
-                            (pinTargetVisible && groups.pinned.length === 0) ||
-                            pinArrival?.first === true
-                          }
+                          settling={false}
+                          visible={pinTargetVisible && groups.pinned.length === 0}
                         />
-                        <CollapsingPinnedSpacer phase={lastUnpinPhase} />
+                        <div className="col-start-1 row-start-1 relative overflow-x-visible overflow-y-clip [overflow-clip-margin:16px]" data-pinned-shell="">
                         {groups.pinned.length > 0 && (
                           <ChannelGroupSurface
                             active={activeDropGroup === PINNED_GROUP_ID}
@@ -3314,9 +3205,8 @@ export const Sidebar = memo(function Sidebar({
                             {groups.pinned.length > EXPANDED_SIDEBAR_MAX_MOUNTED_ITEMS ? (
                               <VirtualizedPinnedTiles
                                 activeChannelId={dragSourceChannelId}
-                                arrival={pinArrival}
                                 botById={botById}
-                                onBotAction={handleSidebarBotAction}
+                                onBotAction={onBotAction}
                                 onGroupAction={handleSidebarGroupAction}
                                 onCreateSection={createSection}
                                 onMoveToSection={preferences.moveToSection}
@@ -3340,16 +3230,9 @@ export const Sidebar = memo(function Sidebar({
                               >
                                 {groups.pinned.map((row) => (
                                   <DraggablePinnedTile
-                                    arrival={
-                                      pinArrival?.channelId === row.channel.id
-                                        ? pinArrival.first
-                                          ? "first"
-                                          : "later"
-                                        : null
-                                    }
                                     botById={botById}
                                     key={row.channel.id}
-                                    onBotAction={handleSidebarBotAction}
+                                    onBotAction={onBotAction}
                                     onGroupAction={handleSidebarGroupAction}
                                     onCreateSection={createSection}
                                     onMoveToSection={preferences.moveToSection}
@@ -3364,6 +3247,7 @@ export const Sidebar = memo(function Sidebar({
                             )}
                           </ChannelGroupSurface>
                         )}
+                        </div>
                       </div>
                     )}
                     {pendingBot && (
@@ -3489,6 +3373,7 @@ export const Sidebar = memo(function Sidebar({
                         ) : null}
                       </>
                     )}
+                    </SidebarMotion>
                   </nav>
                   {unreadJumps.above ? (
                     <UnreadJumpPill
@@ -3684,5 +3569,6 @@ export const Sidebar = memo(function Sidebar({
         </AlertDialogContent>
       </AlertDialog>
     </aside>
+    </SidebarActivityProvider>
   );
 });

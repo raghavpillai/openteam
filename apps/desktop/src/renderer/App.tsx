@@ -1042,6 +1042,7 @@ export default function App() {
       <main className="flex h-screen overflow-hidden bg-background text-foreground">
         <div aria-hidden="true" className="electron-window-drag-strip" />
         <Sidebar
+          itemsByRun={index.itemsByRun}
           activeRunByChannel={index.activeRunByChannel}
           activeTaskChannelIds={activeTaskChannelIds}
           botById={index.botById}

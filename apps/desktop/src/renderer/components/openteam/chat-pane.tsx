@@ -1,3 +1,5 @@
+import { ThinkingCaption } from "./thinking-caption";
+import { thinkingActivity } from "../../lib/thinking-activity";
 import { ConversationTimestampPeek, TimestampedEntry } from "../ai-elements/timestamp-peek";
 import type { PromptDraft } from "../ai-elements/prompt-input";
 import { PermissionIcon } from "./permission-icon";
@@ -1187,9 +1189,13 @@ function ApprovalDetails({
 const BotThinkingSlot = memo(function BotThinkingSlot({
   bot,
   phase,
+  activity = "Thinking",
+  group = false,
 }: {
   bot?: BotView;
   phase: ThinkingPhase;
+  activity?: string;
+  group?: boolean;
 }) {
   const name = bot?.name ?? "Bot";
   const mounted = phase !== "hidden";
@@ -1204,7 +1210,7 @@ const BotThinkingSlot = memo(function BotThinkingSlot({
     >
       {mounted ? (
         <div
-          aria-label={`${name} is working`}
+          aria-label={`${name}: ${activity}`}
           aria-hidden={phase === "exiting" || undefined}
           className="bot-thinking-content flex min-w-0 items-center gap-2"
           data-bot-thinking=""
@@ -1216,9 +1222,7 @@ const BotThinkingSlot = memo(function BotThinkingSlot({
             <span className="bot-thinking-dot" />
             <span className="bot-thinking-dot" />
           </span>
-          <span className="bot-thinking-label min-w-0 truncate whitespace-nowrap text-[14px] leading-5">
-            {name} is working
-          </span>
+          <ThinkingCaption text={activity} group={group} />
         </div>
       ) : null}
     </div>
@@ -1285,6 +1289,7 @@ export const ChatPane = memo(function ChatPane({
   messages,
   runs,
   subagents,
+  itemsByRun,
   approvalsByRun,
   botById,
   activeRun,
@@ -1706,6 +1711,18 @@ export const ChatPane = memo(function ChatPane({
     activeRun && !hasPendingApproval && !(visibleMessages.length === 0 && onboardingInProgress)
   );
   const thinkingPhase = useThinkingPresence(showThinkingIndicator);
+  const thinkingText = useMemo(() => {
+    if (channel.kind !== "group") return thinkingActivity(activeRun ? itemsByRun.get(activeRun.id) : undefined);
+    const activeRuns = runs.filter(run => run.channelId === channel.id && ["queued", "running"].includes(run.status));
+    if (activeRuns.length < 2) return thinkingActivity(activeRuns[0] ? itemsByRun.get(activeRuns[0].id) : undefined);
+    const names = activeRuns.map(run => botById.get(run.botId)?.name ?? "Bot");
+    const subjects = names.length === 2 ? names.join(" and ") : `${names.slice(0, 2).join(", ")} and ${names.length - 2} others`;
+    return `${subjects} are ${activeRuns.every(run => thinkingActivity(itemsByRun.get(run.id)) === "Typing") ? "typing" : "working"}`;
+  }, [activeRun, botById, channel.id, channel.kind, itemsByRun, runs]);
+  const lastThinkingText = useRef({ channelId: channel.id, text: thinkingText });
+  if (showThinkingIndicator || lastThinkingText.current.channelId !== channel.id) {
+    lastThinkingText.current = { channelId: channel.id, text: thinkingText };
+  }
   const thinkingMounted = thinkingPhase !== "hidden";
   const renderedTimeline = useMemo(() => {
     const transcriptTimeline = timeline.filter(
@@ -1851,7 +1868,7 @@ export const ChatPane = memo(function ChatPane({
                         from={entry.type === "message" && entry.message.sender === "user" ? "user" : "other"}
                       >
                       {entry.type === "thinking" ? (
-                        <BotThinkingSlot bot={entry.bot} phase={entry.phase} />
+                        <BotThinkingSlot bot={entry.bot} phase={entry.phase} activity={lastThinkingText.current.text} group={channel.kind === "group"} />
                       ) : entry.type === "a2a" ? (
                         <A2AActivityRow
                           count={entry.entries.length}

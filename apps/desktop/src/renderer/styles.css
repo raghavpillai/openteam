@@ -636,7 +636,7 @@ textarea,
 }
 
 .bot-thinking-content[data-exiting="true"] {
-  animation: bot-thinking-exit 140ms ease forwards;
+  animation: bot-thinking-exit 140ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .bot-thinking-badge {
@@ -672,6 +672,54 @@ textarea,
   animation-delay: -1s;
   opacity: 1;
 }
+
+@keyframes bot-activity-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+@keyframes bot-activity-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes bot-activity-roll-in {
+  from { transform: translateY(calc(100% + 1px)); }
+  to { transform: translateY(0); }
+}
+@keyframes bot-activity-roll-out {
+  from { transform: translateY(0); }
+  to { transform: translateY(calc(-100% - 1px)); }
+}
+.bot-activity-caption { display: inline-grid; position: relative; vertical-align: bottom; }
+.bot-activity-current { grid-area: 1 / 1; }
+.bot-activity-current {
+  animation: bot-activity-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.bot-thinking-label[data-group] .bot-activity-caption { overflow: hidden; }
+.bot-thinking-label[data-group] .bot-activity-current { animation: none; }
+.bot-thinking-label[data-group] .bot-activity-caption[data-changed] .bot-activity-current {
+  animation: bot-activity-roll-in 300ms cubic-bezier(0.215, 0.61, 0.355, 1) both;
+}
+.bot-activity-previous {
+  position: absolute;
+  inset: 0;
+  animation: bot-activity-roll-out 300ms cubic-bezier(0.215, 0.61, 0.355, 1) both;
+}
+.bot-activity-shimmer {
+  --activity-base: #14141466;
+  --activity-highlight: #141414;
+  background: linear-gradient(90deg, var(--activity-base) 0%, var(--activity-base) 25%, var(--activity-highlight) 60%, var(--activity-base) 75%, var(--activity-base) 100%);
+  background-size: 200% 100%;
+  background-clip: text;
+  color: transparent;
+  animation: bot-activity-shimmer 2.2s steps(60) infinite;
+  animation-play-state: paused;
+}
+.bot-thinking-content:hover .bot-activity-shimmer { animation-play-state: running; }
+:root[data-theme="dark"] .bot-activity-shimmer { --activity-base: rgba(252, 252, 252, 0.4); --activity-highlight: #fcfcfc; }
+@keyframes sidebar-status-reveal { from { opacity: 0; } to { opacity: 1; } }
+.sidebar-status-reveal { animation: sidebar-status-reveal 130ms cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+.sidebar-working-dot { transition: opacity 130ms cubic-bezier(0.22, 1, 0.36, 1); }
+.sidebar-working-dot[data-composing] { opacity: 0; animation: none; }
 
 .bot-thinking-label {
   color: #9f9f9f;
@@ -1289,17 +1337,6 @@ textarea,
   .sidebar-account-avatar,
   .sidebar-account-name {
     transition: none;
-  }
-}
-
-@keyframes pinned-tile-enter {
-  from {
-    opacity: 0;
-    transform: translateY(5px) scale(0.66);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
   }
 }
 

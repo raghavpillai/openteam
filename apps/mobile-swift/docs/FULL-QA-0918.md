@@ -1,5 +1,7 @@
 # iPhone QA and message performance — September 18, 2026
 
+Follow-up: [fresh small-iPhone QA and 32-reference comparison](QA-PASS2-0918.md) records the later clean-simulator pass, newly found plugin lifecycle issue, and current acceptance evidence.
+
 **Result: 145 distinct UI cases passed, one VNC gesture case failed, and one background-push case was skipped. Full app acceptance remains open.** Both message-performance workloads miss their CPU/memory targets.
 
 This is a simulator, source, screenshot, and isolated live-server audit. It is not a claim that every iPhone configuration or external provider has passed. The original Grokbot screenshots and all failed/interrupted attempts remain in the evidence directory.

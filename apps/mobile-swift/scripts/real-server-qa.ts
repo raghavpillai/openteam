@@ -36,10 +36,13 @@ const env = {
 for (const key of Object.keys(env)) if (key.startsWith("OPENTEAM_APNS_")) delete (env as any)[key];
 const children: ReturnType<typeof Bun.spawn>[] = [];
 let computerStarted = false;
+const serverImage = process.env.SWIFT_REAL_QA_SERVER_IMAGE;
+const serverName = "openteam-swift-qa-server";
+let serverStarted = false;
 let control: ReturnType<typeof Bun.serve> | undefined;
 const prisma = createPrismaClient(databaseURL);
-const run = async (cmd: string[], input?: string | Uint8Array, cwd = process.cwd()) => {
-  const p = Bun.spawn(cmd, { cwd, env, stdin: input ? "pipe" : "ignore", stdout: "pipe", stderr: "pipe" });
+const run = async (cmd: string[], input?: string | Uint8Array, cwd = process.cwd(), processEnv = env) => {
+  const p = Bun.spawn(cmd, { cwd, env: processEnv, stdin: input ? "pipe" : "ignore", stdout: "pipe", stderr: "pipe" });
   if (input) { (p.stdin as any).write(input); (p.stdin as any).end(); }
   const [status, stdout, stderr] = await Promise.all([p.exited, new Response(p.stdout).text(), new Response(p.stderr).text()]);
   if (status !== 0) throw new Error(`${cmd[0]} ${cmd[1]} failed: ${stderr.slice(-1800)}`);
@@ -48,6 +51,7 @@ const run = async (cmd: string[], input?: string | Uint8Array, cwd = process.cwd
 const cleanup = async () => {
   control?.stop(true);
   for (const p of children) p.kill();
+  if (serverStarted) await run(["docker", "stop", "-t", "5", serverName]).catch(() => {});
   if (computerStarted) await run(["docker", "stop", "-t", "5", computerName]).catch(() => {});
   await prisma.$disconnect();
 };
@@ -89,7 +93,21 @@ try {
     if (attempt >= 100) throw new Error("Real computer/provider did not become ready");
     await Bun.sleep(300);
   }
-  for (const service of ["server", "worker"]) children.push(Bun.spawn(["bun", `apps/${service}/src/main.ts`], {
+  if (serverImage) {
+    const serverEnv = {
+      ...env,
+      DATABASE_URL: databaseURL.replace("@127.0.0.1:", "@host.docker.internal:"),
+      OPENTEAM_COMPUTER_URL: "http://host.docker.internal:20021",
+    };
+    // Keep credentials in the child environment, never in argv or a checked-in file.
+    const keys = Object.keys(serverEnv).filter(key => key === "DATABASE_URL" || key.startsWith("OPENTEAM_"));
+    await run(["docker", "run", "-d", "--rm", "--name", serverName,
+      "--user", `${process.getuid!()}:${process.getgid!()}`,
+      "-p", "127.0.0.1:20020:20020", "-v", `${runtimeRoot}:${runtimeRoot}`,
+      ...keys.flatMap(key => ["-e", key]), serverImage], undefined, process.cwd(), serverEnv);
+    serverStarted = true;
+  }
+  for (const service of serverImage ? ["worker"] : ["server", "worker"]) children.push(Bun.spawn(["bun", `apps/${service}/src/main.ts`], {
     env, stdout: Bun.file(join(root, `${service}.log`)), stderr: Bun.file(join(root, `${service}-error.log`)),
   }));
   const deadline = Date.now() + 90_000;
@@ -104,7 +122,7 @@ try {
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
   const model = await fetch(base + "/api/v0/server-settings/inference", { method: "PATCH", headers, body: JSON.stringify({ providerId: "openai-codex", modelId: "gpt-5.5", reasoning: "low" }), signal: AbortSignal.timeout(45_000) });
   if (!model.ok) throw new Error(`Model selection failed (${model.status}): ${await model.text()}`);
-  await writeFile(join(root, "environment.json"), JSON.stringify({ base, auth: "required", database: databaseName, server: "current workspace", worker: "current workspace", computer: "current workspace bundle on existing Linux runtime image", computerImage: "openteam-memory-computer:20260913", model: "openai-codex/gpt-5.5", inferenceStub: false, apnsDeliveryConfigured: false }, null, 2));
+  await writeFile(join(root, "environment.json"), JSON.stringify({ base, auth: "required", database: databaseName, server: serverImage ?? "current workspace", worker: "current workspace", computer: "current workspace bundle on existing Linux runtime image", computerImage: "openteam-memory-computer:20260913", model: "openai-codex/gpt-5.5", inferenceStub: false, apnsDeliveryConfigured: false }, null, 2));
   control = Bun.serve({ hostname: "127.0.0.1", port: 20022, async fetch(request) {
     const url = new URL(request.url);
     if (request.headers.has("origin")) return new Response(null, { status: 403 });

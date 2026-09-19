@@ -98,7 +98,14 @@ import XCTest
   }
   private func takeControl(_ app: XCUIApplication) {
     app.buttons["Computer options"].tap()
+    XCTAssertTrue(app.buttons["Take control"].waitForExistence(timeout: 5))
+    capture("takeover-menu", app)
     app.buttons["Take control"].tap()
+    let owned = app.staticTexts.matching(
+      NSPredicate(format: "value == %@", "You have control")
+    ).firstMatch.waitForExistence(timeout: 8)
+    capture("takeover-result", app)
+    XCTAssertTrue(owned, "Take control must acquire the lease before testing remote gestures")
   }
   func testStartupKeyboardClipboardAndInputRetry() async throws {
     let app = try await launch(starting: true)

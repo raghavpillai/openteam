@@ -21,6 +21,9 @@ struct PluginConnectionActions: View {
     LabeledContent(
       "Status",
       value: connection["status"].string.replacingOccurrences(of: "_", with: " ").capitalized)
+      // A Form lazily realizes rows. Keep the lifecycle on the visible status row:
+      // OAuth controls can push an invisible footer offscreen on smaller iPhones.
+      .task(id: scenePhase) { await monitorConnection() }
     if !connection["statusMessage"].string.isEmpty {
       Text(connection["statusMessage"].string).font(.footnote).foregroundStyle(NativePalette.muted)
     }
@@ -51,24 +54,24 @@ struct PluginConnectionActions: View {
     }
     .disabled(operation.busy)
     Button("Disconnect") { Task { await command("/disconnect") } }.disabled(operation.busy)
-    Color.clear.frame(height: 0).task(id: scenePhase) {
-      guard scenePhase == .active else { return }
-      if startAutomatically, !autoStarted {
-        autoStarted = true
-        if connection["canAuthenticate"].bool { await signIn() } else { await command("/connect") }
-      } else {
+  }
+  private func monitorConnection() async {
+    guard scenePhase == .active else { return }
+    if startAutomatically, !autoStarted {
+      autoStarted = true
+      if connection["canAuthenticate"].bool { await signIn() } else { await command("/connect") }
+    } else {
+      try? await refresh()
+    }
+    while !Task.isCancelled {
+      do { try await Task.sleep(for: .seconds(2)) } catch { return }
+      now = Date()
+      if !operation.busy,
+        ["needs_auth", "connecting", "starting", "reconnecting"].contains(
+          connection["status"].string)
+      {
+        // Keep the last known state during a transient poll failure; manual refresh exposes errors.
         try? await refresh()
-      }
-      while !Task.isCancelled {
-        do { try await Task.sleep(for: .seconds(2)) } catch { return }
-        now = Date()
-        if !operation.busy,
-          ["needs_auth", "connecting", "starting", "reconnecting"].contains(
-            connection["status"].string)
-        {
-          // Keep the last known state during a transient poll failure; manual refresh exposes errors.
-          try? await refresh()
-        }
       }
     }
   }

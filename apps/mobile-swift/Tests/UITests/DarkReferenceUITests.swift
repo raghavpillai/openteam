@@ -146,6 +146,13 @@ import XCTest
   func testMicrophoneFailureKeepsComposerUsable() async throws {
     let app = try await launch("dark-chat")
     app.buttons["Record voice note"].tap()
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    let microphonePermission = springboard.alerts.containing(
+      NSPredicate(format: "label CONTAINS[c] %@", "Microphone")
+    ).firstMatch
+    if microphonePermission.waitForExistence(timeout: 3) {
+      microphonePermission.buttons["Allow"].tap()
+    }
     // This optional QA scheme runs on the headless Mac mini, which has no input device.
     XCTAssertTrue(app.alerts.firstMatch.waitForExistence(timeout: 10))
     XCTAssertTrue(app.alerts.staticTexts["The microphone could not start recording."].exists)

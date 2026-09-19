@@ -167,8 +167,16 @@ import XCTest
     app.buttons["photo-options"].tap()
     app.buttons["Save"].tap()
     let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-    if springboard.buttons["Allow Access to Add Photos"].waitForExistence(timeout: 3) {
-      springboard.buttons["Allow Access to Add Photos"].tap()
+    let photosPermission = springboard.alerts.containing(
+      NSPredicate(format: "label CONTAINS[c] %@", "Photos")
+    ).firstMatch
+    if photosPermission.waitForExistence(timeout: 3) {
+      // iOS 26 labels add-only access "Allow"; earlier releases use the longer label.
+      let allow = photosPermission.buttons.matching(
+        NSPredicate(format: "label IN %@", ["Allow", "Allow Access to Add Photos"])
+      ).firstMatch
+      XCTAssertTrue(allow.waitForExistence(timeout: 3))
+      allow.tap()
     }
     XCTAssertTrue(app.alerts["Saved to Photos"].waitForExistence(timeout: 10))
     capture("saved", app)

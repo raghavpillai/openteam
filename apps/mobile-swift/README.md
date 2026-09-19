@@ -2,7 +2,7 @@
 
 A SwiftUI iPhone/iPad client for the existing OpenTeam HTTP API. This is a **migration beta**; Release builds update the existing iOS TestFlight app. Android remains in `apps/mobile`.
 
-[TestFlight 0.0.1 (26)](docs/TESTFLIGHT-26.md) contains the latest transcription and plugin authentication fixes, with signing, upload, and QA evidence.
+[TestFlight 0.0.1 (27)](docs/TESTFLIGHT-27.md) fixes Connect after Re-auth and updates sign-in copy, with signing, upload, and live HTTP QA evidence.
 
 [September 18 full iPhone QA and performance](docs/FULL-QA-0918.md) is the current status, including the deployed local server/APNs configuration and remaining performance, VNC, visual and device acceptance work.
 

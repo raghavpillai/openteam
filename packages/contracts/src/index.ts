@@ -1291,6 +1291,7 @@ export const ComputerTurnRequest = Schema.Struct({
   deliveryId: Schema.NullOr(Schema.String),
   runtimeProfile: Schema.optional(Schema.Literal("agent", "subagent")),
   subagentType: Schema.optional(SubagentType),
+  taskConfiguration: Schema.optional(Schema.Unknown),
   readOnly: Schema.optional(Schema.Boolean),
   model: Schema.String,
   reasoning: Schema.Literal(...PI_REASONING_LEVELS),

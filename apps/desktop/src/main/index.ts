@@ -1,4 +1,5 @@
 import { OnePasswordProvisioning, brokerCredentialCommand, type SavedLoginBackend } from "./host/onepassword-provisioning";
+import { ManagedOnePasswordCli } from "./host/onepassword-cli";
 import { randomBytes } from "node:crypto";
 import { loadMachineIdentity } from "./host/machine-identity";
 import { DesktopMachineEnrollment } from "./host/machine-enrollment";
@@ -856,10 +857,10 @@ const requirePermissionSettings = (event: Electron.IpcMainInvokeEvent) => {
 const nativeSettings = () => new CapabilitySettingsStore(join(app.getPath("userData"), "native-capabilities.json"));
 let capabilitySettings: CapabilitySettingsStore | undefined;
 const sharedCapabilitySettings = () => capabilitySettings ??= nativeSettings();
-const savedLoginBackend: SavedLoginBackend = async (operation, input) => {
+const savedLoginBackend: SavedLoginBackend = async (operation, input, signal) => {
   if (operation === "operation") {
     if (!machineEnrollment) throw new Error("Connect this desktop before using saved logins");
-    return machineEnrollment.savedLoginOperation(input);
+    return machineEnrollment.savedLoginOperation(input, signal);
   }
   const serverUrl = enrollmentServerUrl;
   if (!serverUrl) throw new Error("Connect to your OpenTeam server before setting up saved logins");
@@ -868,28 +869,38 @@ const savedLoginBackend: SavedLoginBackend = async (operation, input) => {
   const response = await net.fetch(`${serverUrl}/api/server-settings/saved-logins${operation === "view" ? "" : `/${operation}`}`, {
     method: operation === "view" ? "GET" : "POST",
     headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-    ...(operation === "view" ? {} : { body: JSON.stringify(input) }), signal: AbortSignal.timeout(60_000),
+    ...(operation === "view" ? {} : { body: JSON.stringify(input) }), signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(30_000)]),
   });
   if (!response.ok) throw new Error("The saved-login server request failed. Check your connection and retry completion if setup was interrupted.");
   return response.json();
 };
 let savedLoginProvisioning: OnePasswordProvisioning | undefined;
+let managedOnePasswordCli: ManagedOnePasswordCli | undefined;
+const onePasswordCli = () => managedOnePasswordCli ??= new ManagedOnePasswordCli({
+  dataDir: app.getPath("userData"),
+  launcherPath: app.isPackaged
+    ? join(process.resourcesPath, "app.asar.unpacked", "dist-electron", "openteam-op-launcher")
+    : join(app.getAppPath(), "dist-electron", "openteam-op-launcher"),
+});
 let provisioningServerUrl: string | null = null;
 const provisioning = () => {
   if (!savedLoginProvisioning || provisioningServerUrl !== enrollmentServerUrl) {
     const serverUrl = enrollmentServerUrl;
     provisioningServerUrl = serverUrl;
-    savedLoginProvisioning = new OnePasswordProvisioning(sharedCapabilitySettings(), (operation, input) => {
+    savedLoginProvisioning = new OnePasswordProvisioning(sharedCapabilitySettings(), (operation, input, signal) => {
       if (!serverUrl || enrollmentServerUrl !== serverUrl) throw new Error("The server changed during 1Password setup. Reconnect to the original server to finish setup.");
-      return savedLoginBackend(operation, input);
-    });
+      return savedLoginBackend(operation, input, signal);
+    }, onePasswordCli().command, signal => onePasswordCli().resolve(signal, true));
   }
   return savedLoginProvisioning;
 };
 const savedLoginCommand = () => brokerCredentialCommand(sharedCapabilitySettings(), savedLoginBackend);
 ipcMain.handle("openteam:capabilities:accounts", event => { requireAuthSender(event); return provisioning().accounts(); });
+ipcMain.handle("openteam:capabilities:cancel-login", event => { requireAuthSender(event); savedLoginProvisioning?.cancel(); });
 ipcMain.handle("openteam:capabilities:connect-login", (event, input) => { requireAuthSender(event); return provisioning().connect(input); });
 ipcMain.handle("openteam:capabilities:finish-login", event => { requireAuthSender(event); return provisioning().finish(); });
+ipcMain.handle("openteam:capabilities:sync-logins", (event, connectionId?: string) => { requireAuthSender(event); return provisioning().sync(connectionId); });
+ipcMain.handle("openteam:capabilities:allow-logins", (event, input: { connectionId: string; alwaysAllow: boolean }) => { requireAuthSender(event); return provisioning().setAlwaysAllow(input.connectionId, input.alwaysAllow); });
 ipcMain.handle("openteam:capabilities:restart-login", event => { requireAuthSender(event); provisioning().acknowledgeUncertainSetup(); });
 
 ipcMain.handle("openteam:capabilities:get", async (event) => {

@@ -5,6 +5,7 @@ import { safePackagePath } from "@openteam/plugin-sdk";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
+import { defaultTaskConfiguration, parseTaskConfiguration, type TaskConfiguration } from "@openteam/contracts/task-configuration";
 import {
   appendFile,
   chmod,
@@ -3424,6 +3425,21 @@ export class AgentDataStore {
     const root = await this.loadRootSettings();
     if (!root.valid) throw new Error(root.error ?? "Server settings are invalid");
     return root.settings.inference;
+  }
+
+  async loadTaskConfiguration(): Promise<TaskConfiguration> {
+    const row = await this.prisma.taskSettings.findUnique({ where: { id: "global" } });
+    return row ? parseTaskConfiguration(row.configuration) : defaultTaskConfiguration();
+  }
+
+  async writeTaskConfiguration(input: unknown): Promise<TaskConfiguration> {
+    const configuration = parseTaskConfiguration(input);
+    await this.prisma.taskSettings.upsert({
+      where: { id: "global" },
+      create: { id: "global", configuration: JSON.parse(JSON.stringify(configuration)) },
+      update: { configuration: JSON.parse(JSON.stringify(configuration)) },
+    });
+    return configuration;
   }
 
   async writeRootSettings(input: Partial<RootSettings>): Promise<RootSettings> {

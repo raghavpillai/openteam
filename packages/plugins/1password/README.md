@@ -24,6 +24,11 @@ No API key, OAuth client registration, service-account token, or user CLI setup 
 required. A browser-only or cloud deployment cannot reach the local app without
 its configured OpenTeam desktop host bridge. Windows is not supported by 1Password.
 
+Saved browser logins are a separate feature in Computer settings. That setup manages
+the signed 1Password CLI automatically and provisions vault-scoped read-only access.
+It does not replace this plugin's official Environments MCP server. See
+[saved-login setup](../../../docs/reference/native-capabilities.md#saved-logins).
+
 ## Capabilities
 
 The official server exposes `authenticate`, `list_environments`,

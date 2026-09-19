@@ -509,6 +509,8 @@ export class AppService {
   rootSettings = forwardServiceMethod(() => this.settings.rootSettings);
 
   serverSettings = forwardServiceMethod(() => this.settings.serverSettings);
+  taskSettings = forwardServiceMethod(() => this.settings.taskSettings);
+  updateTaskSettings = forwardServiceMethod(() => this.settings.updateTaskSettings);
 
   updateInferenceSettings = forwardServiceMethod(() => this.settings.updateInferenceSettings);
 

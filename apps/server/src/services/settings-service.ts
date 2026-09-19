@@ -6,6 +6,7 @@ import {
   type ServerSettingsView,
 } from "@openteam/contracts";
 import type { AgentDataStore } from "@openteam/messaging";
+import { parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 import { serviceEffect } from "./service-utils";
 export class SettingsService {
   constructor(
@@ -13,6 +14,19 @@ export class SettingsService {
     private readonly computerJson: <T = { ok: true }>(path: string, init: RequestInit) => Promise<T>
   ) {}
   rootSettings = () => serviceEffect(() => this.agentData.loadRootSettingsForClient());
+
+  taskSettings = () => serviceEffect(() => this.agentData.loadTaskConfiguration());
+
+  updateTaskSettings = (input: unknown) => serviceEffect(async () => {
+    let configuration;
+    try { configuration = parseTaskConfiguration(input); }
+    catch (error) { throw new ApiError(400, "invalid_task_settings", (error as Error).message); }
+    for (const profile of configuration.executorProfiles)
+      await this.computerJson("/v1/inference/settings/verify", {
+        method: "POST", body: JSON.stringify(profile),
+      });
+    return this.agentData.writeTaskConfiguration(configuration);
+  });
 
   serverSettings = (providerId?: string) =>
     serviceEffect(async (): Promise<ServerSettingsView> => {

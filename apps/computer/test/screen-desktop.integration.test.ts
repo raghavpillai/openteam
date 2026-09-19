@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
-import { type Browser, chromium } from "playwright-core";
+import type { Browser } from "playwright-core";
+import { outOfProcessPlaywright } from "../src/browser/playwright-driver";
 import { ScreenBroker } from "../src/screen-broker";
 
 // This starts the production desktop stack; opt in only in a disposable computer container.
@@ -11,6 +12,8 @@ test.skipIf(process.env.OPENTEAM_CUA_DESKTOP_TESTS !== "1")(
     const broker = new ScreenBroker(home);
     let browser: Browser | undefined;
     let viewerBrowser: Browser | undefined;
+    const driver = await outOfProcessPlaywright();
+    const { chromium } = driver.playwright;
     try {
       const status = await broker.ensure("typing-probe", "/workspace");
       const env = await broker.commandEnvironment("typing-probe", "/workspace");
@@ -92,6 +95,7 @@ test.skipIf(process.env.OPENTEAM_CUA_DESKTOP_TESTS !== "1")(
       await browser?.close();
       await broker.destroy("typing-probe");
       await rm(home, { recursive: true, force: true });
+      await driver.stop();
     }
   },
   60_000

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { ApiError } from "@openteam/contracts";
 import type { PrismaClient } from "@openteam/db";
-import type { Client } from "@1password/sdk";
+import { AuthExpiredError, type Client } from "@1password/sdk";
 
 const invalid = () =>
   new ApiError(400, "saved_login_invalid", "Invalid saved-login connection request");
@@ -32,7 +32,7 @@ export class SavedLoginService {
     private readonly connect: SavedLoginProvider = provider
   ) {}
   async view() {
-    return this.db.savedLoginConnection.findMany({
+    const rows = await this.db.savedLoginConnection.findMany({
       where: { enabled: true },
       orderBy: { id: "asc" },
       select: {
@@ -42,8 +42,68 @@ export class SavedLoginService {
         vaultName: true,
         generation: true,
         expiresAt: true,
+        alwaysAllow: true,
+        permissionRevision: true,
+        itemCount: true,
+        lastSuccessfulSyncAt: true,
+        lastSyncErrorCode: true,
       },
     });
+    return rows.map((row) => ({
+      ...row,
+      lifecycleState:
+        row.expiresAt && row.expiresAt.getTime() <= Date.now()
+          ? "expired"
+          : row.lastSyncErrorCode === "provider-rejected"
+            ? "provider-rejected"
+            : row.expiresAt && row.expiresAt.getTime() - Date.now() <= 7 * 86400_000
+              ? "expiring"
+              : "active",
+    }));
+  }
+  async setAlwaysAllow(input: any) {
+    if (
+      typeof input?.alwaysAllow !== "boolean" ||
+      typeof input.connectionId !== "string" ||
+      !/^1password:[a-zA-Z0-9_.-]{1,256}:[a-zA-Z0-9_.-]{1,256}$/.test(input.connectionId)
+    )
+      throw invalid();
+    const result = await this.db.savedLoginConnection.updateMany({
+      where: { id: input.connectionId, enabled: true },
+      data: { alwaysAllow: input.alwaysAllow, permissionRevision: { increment: 1 } },
+    });
+    if (!result.count)
+      throw new ApiError(
+        404,
+        "saved_login_not_found",
+        "This saved-login connection is unavailable"
+      );
+    return this.view();
+  }
+  async sync(input?: any) {
+    const connectionId = input?.connectionId;
+    if (
+      connectionId !== undefined &&
+      (typeof connectionId !== "string" || connectionId.length > 1024)
+    )
+      throw invalid();
+    const rows = await this.db.savedLoginConnection.findMany({
+      where: { enabled: true, ...(connectionId ? { id: connectionId } : {}) },
+    });
+    if (connectionId && !rows.length)
+      throw new ApiError(
+        404,
+        "saved_login_not_found",
+        "This saved-login connection is unavailable"
+      );
+    for (const row of rows) {
+      try {
+        await this.operation({ operation: "list", accountId: row.accountId, vaultId: row.vaultId });
+      } catch {
+        /* Persisted status explains each failure; other connections still refresh. */
+      }
+    }
+    return this.view();
   }
   async begin(input: any) {
     let accountId = id(input?.accountId),
@@ -53,7 +113,7 @@ export class SavedLoginService {
     const row = await this.db.savedLoginConnection.findUnique({ where: { id: connectionId } });
     if (input.connectionId && input.connectionId !== connectionId) throw invalid();
     const seconds = input.expiresInSeconds === undefined ? 90 * 86400 : input.expiresInSeconds;
-    if (!Number.isInteger(seconds) || seconds < 3600 || seconds > 365 * 86400) throw invalid();
+    if (!Number.isInteger(seconds) || seconds < 60 || seconds > 365 * 86400) throw invalid();
     const mint = await this.db.savedLoginMint.create({
       data: {
         connectionId,
@@ -76,14 +136,14 @@ export class SavedLoginService {
     const mintTicket = id(input?.mintTicket);
     if (
       typeof input?.token !== "string" ||
-      input.token.length < 20 ||
-      input.token.length > 32768 ||
-      /\s/.test(input.token)
+      input.token.length > 16 * 1024 ||
+      !/^ops_[A-Za-z0-9_-]+$/.test(input.token)
     )
       throw invalid();
     const tokenHash = createHash("sha256").update(input.token).digest("hex");
     const ticket = await this.db.savedLoginMint.findUnique({ where: { id: mintTicket } });
     if (!ticket) throw invalid();
+    let itemCount = 0;
     if (!ticket.completedAt) {
       if (ticket.expiresAt.getTime() < Date.now()) throw invalid();
       try {
@@ -91,7 +151,9 @@ export class SavedLoginService {
         const vaults = await client.vaults.list();
         if (vaults.length !== 1 || vaults[0]?.id !== ticket.vaultId) throw invalid();
         // Verify the intended vault is readable before storing a connection.
-        await client.items.list(ticket.vaultId);
+        itemCount = (await client.items.list(ticket.vaultId)).filter(
+          (value) => value.state === "active" && ["Login", "Password"].includes(value.category)
+        ).length;
       } catch {
         throw new ApiError(
           400,
@@ -128,6 +190,9 @@ export class SavedLoginService {
         generation: fresh.expectedGeneration + 1,
         enabled: true,
         expiresAt: fresh.providerExpiresAt,
+        itemCount,
+        lastSuccessfulSyncAt: new Date(),
+        lastSyncErrorCode: null,
       };
       await tx.savedLoginConnection.upsert({
         where: { id: fresh.connectionId },
@@ -146,7 +211,13 @@ export class SavedLoginService {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(742310, 7)::text`;
       await tx.savedLoginConnection.updateMany({
         where: { id: connectionId },
-        data: { token: null, enabled: false, generation: { increment: 1 } },
+        data: {
+          token: null,
+          enabled: false,
+          alwaysAllow: false,
+          permissionRevision: { increment: 1 },
+          generation: { increment: 1 },
+        },
       });
       await tx.savedLoginMint.deleteMany({ where: { connectionId } });
     });
@@ -174,7 +245,12 @@ export class SavedLoginService {
       const current = await this.db.savedLoginConnection.findUnique({
         where: { id: connection.id },
       });
-      if (!current?.enabled || current.generation !== connection.generation) throw invalid();
+      if (
+        !current?.enabled ||
+        current.generation !== connection.generation ||
+        current.permissionRevision !== connection.permissionRevision
+      )
+        throw invalid();
       const item = (value: any, full: boolean) => ({
         id: value.id,
         title: value.title,
@@ -194,14 +270,46 @@ export class SavedLoginService {
             }
           : {}),
       });
-      return Array.isArray(result)
+      const output = Array.isArray(result)
         ? result
             .filter(
               (value) => value.state === "active" && ["Login", "Password"].includes(value.category)
             )
             .map((value) => item(value, false))
         : item(result, true);
-    } catch {
+      if (Array.isArray(output))
+        await this.db.savedLoginConnection.updateMany({
+          where: {
+            id: connection.id,
+            enabled: true,
+            generation: connection.generation,
+            permissionRevision: connection.permissionRevision,
+          },
+          data: {
+            itemCount: output.length,
+            lastSuccessfulSyncAt: new Date(),
+            lastSyncErrorCode: null,
+          },
+        });
+      return output;
+    } catch (error) {
+      const status =
+        (error as { status?: number; statusCode?: number })?.status ??
+        (error as { statusCode?: number })?.statusCode;
+      await this.db.savedLoginConnection.updateMany({
+        where: {
+          id: connection.id,
+          enabled: true,
+          generation: connection.generation,
+          permissionRevision: connection.permissionRevision,
+        },
+        data: {
+          lastSyncErrorCode:
+            error instanceof AuthExpiredError || status === 401 || status === 403
+              ? "provider-rejected"
+              : "provider-unavailable",
+        },
+      });
       throw new ApiError(
         503,
         "saved_login_provider_unavailable",

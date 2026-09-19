@@ -57,6 +57,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     port: 0,
     async fetch(request) {
       const url = new URL(request.url);
+      if (url.pathname === "/v1/task-capabilities") return Response.json({ desktopAvailable: true, boxAvailable: true });
       if (url.pathname === "/health") {
         return Response.json({
           status: "ready",

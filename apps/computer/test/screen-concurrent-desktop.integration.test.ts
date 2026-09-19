@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
-import { type Browser, chromium, type Page } from "playwright-core";
+import type { Browser, Page } from "playwright-core";
+import { outOfProcessPlaywright } from "../src/browser/playwright-driver";
 import { run } from "../src/screen/processes";
 import { ScreenBroker } from "../src/screen-broker";
 
@@ -13,6 +14,8 @@ test.skipIf(process.env.OPENTEAM_CUA_DESKTOP_TESTS !== "1")(
     const browsers: Browser[] = [];
     const pages: Page[] = [];
     const ids = ["concurrent-a", "concurrent-b"];
+    const driver = await outOfProcessPlaywright();
+    const { chromium } = driver.playwright;
     try {
       const statuses = await Promise.all(
         ids.flatMap((id) => Array.from({ length: 6 }, () => broker.ensure(id, "/workspace")))
@@ -164,9 +167,15 @@ test.skipIf(process.env.OPENTEAM_CUA_DESKTOP_TESTS !== "1")(
         "20 concurrent screenshots succeeded; the other desktop retained its exact contents"
       );
     } finally {
-      for (const browser of browsers.reverse()) await browser.close();
+      for (const [index, browser] of browsers.reverse().entries()) {
+        console.info(`Closing fixture browser ${index + 1}`);
+        await browser.close();
+      }
+      console.info("Destroying fixture desktops");
       await Promise.all(ids.map((id) => broker.destroy(id)));
+      console.info("Removing fixture files");
       await rm(home, { recursive: true, force: true });
+      await driver.stop();
     }
   },
   120_000

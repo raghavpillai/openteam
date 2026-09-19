@@ -32,6 +32,7 @@ databaseTest(
       port: 0,
       async fetch(request) {
         const path = new URL(request.url).pathname;
+        if (path === "/v1/task-capabilities") return Response.json({ desktopAvailable: true, boxAvailable: true });
         if (path === "/health")
           return Response.json({
             status: "ready",

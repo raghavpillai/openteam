@@ -78,6 +78,8 @@ import {
 } from "../native-tool-executor";
 import type { ScreenBroker } from "../screen-broker";
 import { dynamicCatalog } from "./dynamic-catalog";
+import { taskToolContract } from "@openteam/contracts/tool-contracts";
+import { taskToolEnabled } from "@openteam/contracts/task-configuration";
 import { WebTools } from "../web-tools";
 import { SearchProviderClient } from "../search-provider";
 import { FetchProviderClient } from "../fetch-provider";
@@ -418,6 +420,10 @@ export class RuntimeTools {
       tool: (typeof NATIVE_TOOLS)[number],
       description: string = tool.description
     ) => {
+      if (tool.name === "Task") {
+        tool = { ...tool, ...taskToolContract(active.taskConfiguration) };
+        description = tool.description;
+      }
       const visibleDescription = description;
       return defineTool({
         name: tool.name,
@@ -462,10 +468,7 @@ export class RuntimeTools {
           ? GRAPHICAL_WORKER_SHELL_DESCRIPTION
           : GRAPHICAL_WORKER_READ_DESCRIPTION
       );
-    if (active.subagentType === "computerUse") {
-      return [
-        ...workerNativeTools.map(workerNative),
-        defineTool({
+    const computerTool = () => defineTool({
           name: COMPUTER_USE_TOOL.name,
           label: COMPUTER_USE_TOOL.name,
           description: COMPUTER_USE_TOOL.description,
@@ -475,13 +478,8 @@ export class RuntimeTools {
             this.reviewGraphicalAction(active, callId, "Computer", args, signal, () =>
               this.callComputerUse(active, args)
             ),
-        }),
-      ];
-    }
-    if (active.subagentType === "browserUse") {
-      return [
-        ...workerNativeTools.map(workerNative),
-        ...BROWSER_USE_TOOLS.map((tool) =>
+        });
+    const browserTools = () => BROWSER_USE_TOOLS.map((tool) =>
           defineTool({
             name: tool.name,
             label: tool.name,
@@ -493,8 +491,13 @@ export class RuntimeTools {
                 this.callBrowserUse(active, tool.name, args)
               ),
           })
-        ),
-      ];
+        );
+    if (active.subagentType === "computerUse" || active.subagentType === "browserUse") {
+      return [
+        ...workerNativeTools.map(workerNative),
+        ...(active.subagentType === "computerUse" ? [computerTool()] : []),
+        ...(active.subagentType === "browserUse" || active.taskConfiguration?.combinedComputerUse !== false ? browserTools() : []),
+      ].filter(tool => taskToolEnabled(active.taskConfiguration, tool.name));
     }
     const availableNativeTools = NATIVE_TOOLS.filter(
       (tool) =>

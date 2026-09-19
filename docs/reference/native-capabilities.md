@@ -28,11 +28,30 @@ Every send requires a native recipient/body review. Text and addresses are passe
 
 ## Saved logins
 
-Computer settings → Saved logins configures one 1Password account and vault. This is independent of the 1Password Environments plugin. Install the 1Password CLI and enable its desktop integration. Only the explicitly configured account/vault is queried.
+Computer settings → Saved logins connects explicitly selected 1Password accounts and vaults. This is independent of the 1Password Environments plugin. Enable CLI integration in the 1Password desktop app; OpenTeam manages the CLI executable when needed. Only the explicitly configured account/vault is queried.
+
+On macOS, setup prefers a verified system 1Password CLI v2.35 or newer. Otherwise it downloads the pinned vendor release (currently 2.35.0, matching the inspected reference), checks the archive, vendor code signature and reported version, and atomically caches it under the desktop app's private data directory. Both Apple Silicon and Intel are supported. Downloads are bounded, concurrent setup shares an installation, cancellation stops unused downloads, and a failed or damaged cache can be retried. Readiness is checked before setup mutations. Metadata commands have a 30-second deadline and 1 MiB output limit; mutations have a 180-second deadline and service-account tokens are bounded to 16 KiB.
+
+Provisioning runs through a bundled native launcher that verifies the vendor signature again, restricts command arguments to account/vault/service-account setup, scrubs inherited 1Password authentication settings, and denies access to OpenTeam's data store. CLI stderr does not enter UI, tool or conversation output. The launcher is built as part of the desktop app and unpacked outside Electron's archive. A development build requires the macOS command-line build tools. Real desktop/biometric approval still belongs to 1Password.
+
+The selected vault receives a read-only service account through the existing mint-ticket/backend registration flow. Setup supports renewal, cancellation and retrying interrupted registration. Disconnect removes this deployment's access; it does not delete the service account at 1Password. The Environments plugin continues to use the vendor app's own MCP executable, which 1Password installs and updates. Packaged box connectors use the box's bundled Bun runtime; they do not depend on a user-installed host CLI.
+
+Each connection has a database-backed **Always allow** permission, off by default, plus Sync,
+item count, last successful sync, expiry and provider error status. Permission changes synchronize
+across enrolled desktops and invalidate in-flight fills and older per-item grants. Turning it on
+allows approved website matching rules; passive filling still requires one matching login.
+Expiry defaults to 90 days in this deployment; the captured Grok client does not establish its
+private server default. The seven-day expiring indicator is a local display policy.
+
+Backend calls have a 30-second deadline. A lost or invalid registration response retains the
+same private token and ticket in the running desktop process for completion retry, without
+minting again. An uncertain mint requires reconciliation in 1Password before restarting.
+Explicit permission/approval failures can be retried normally. Settings shows the recovery
+action appropriate to the actual setup state and static provider guidance rather than raw stderr.
 
 `ListCredentials` returns metadata, target rules and revision identifiers, never passwords. Domain matching uses the Public Suffix List including private suffixes; exact host/port rules apply to loopback and nonstandard-port URLs. The credential request is `SendToUser` with `type: "credential-request"` and the discovered credential ID, connection ID, catalog revision, current site and purpose.
 
-Review binds the live browser document, exact origin, and actual empty login fields. Navigation, replacement fields, changed credentials, revocation, or conflicting usernames invalidate the fill. The tool fills fields without submitting the form. Selecting an item for automatic fill permits use only when it is the sole matching enabled item and the target satisfies its exact-origin rule. Subdomains requiring review are not silently auto-filled.
+Review binds the live browser document, exact origin, and actual empty login fields. Navigation, replacement fields, changed credentials, revocation, or conflicting usernames invalidate the fill. The tool fills fields without submitting the form. Connection-wide permission honors provider website rules, including permitted HTTPS subdomains; it does not implicitly allow other ports or unrelated domains. Legacy per-item permissions remain limited to exact origins. Private sessions continue to restrict CDP, including encoded or transformed reads of filled passwords.
 
 Credential values stay on the private bridge/browser path. Browser text results redact known values, private fields are masked in screenshots, and unrestricted CDP inspection is disabled after private data enters the session. This is a concrete handling boundary, not a guarantee against every derived encoding or behavior of a malicious website.
 

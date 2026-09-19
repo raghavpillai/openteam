@@ -341,6 +341,10 @@ model Subagent {
   prompt           String
   subagentType     String
   model            String?
+  reasoning        String?
+  // Existing rows predate combined workers; new launches always store their selected mode.
+  combinedComputerUse Boolean @default(false)
+  taskConfiguration Json?
   fileAttachments  Json           @default("[]")
   runInBackground  Boolean        @default(true)
   readOnly         Boolean        @default(false)
@@ -848,6 +852,8 @@ model Run {
   runtimeTurnId  String?
   inferenceProvider String?
   inferenceModel String?
+  inferenceReasoning String?
+  taskConfiguration Json?
   origin         RunOrigin    @default(user)
   channelId      String?      @db.Uuid
   channel        Channel?     @relation(fields: [channelId], references: [id], onDelete: SetNull)
@@ -1325,6 +1331,11 @@ model SavedLoginConnection {
   token String?
   generation Int @default(0)
   enabled Boolean @default(true)
+  alwaysAllow Boolean @default(false)
+  permissionRevision Int @default(0)
+  itemCount Int @default(0)
+  lastSuccessfulSyncAt DateTime?
+  lastSyncErrorCode String?
   expiresAt DateTime?
   updatedAt DateTime @updatedAt
   @@unique([accountId, vaultId])
@@ -1349,6 +1360,12 @@ model SavedLoginMint {
   providerExpiresAt DateTime?
   tokenHash String?
   completedAt DateTime?
+}
+
+model TaskSettings {
+  id String @id @default("global")
+  configuration Json
+  updatedAt DateTime @updatedAt
 }
 
 model WebSearchSettings {

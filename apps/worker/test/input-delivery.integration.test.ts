@@ -12,6 +12,7 @@ test('worker replays an unacknowledged user input and clears its watermark only 
  const seen: any[] = []; let failed = false;
  const fake = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
   const path = new URL(request.url).pathname;
+        if (path === "/v1/task-capabilities") return Response.json({ desktopAvailable: true, boxAvailable: true });
   if (path === '/health') return Response.json({ status: 'ready', inference: { ready: true, authenticated: true } });
   if (path === '/v1/agent-stores' && request.method === 'GET') return Response.json({ agents: [] });
   if (path === '/v1/infer') {

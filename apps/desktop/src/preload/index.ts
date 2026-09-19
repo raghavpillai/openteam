@@ -191,6 +191,9 @@ contextBridge.exposeInMainWorld("openteam", {
   },
   permissions: {
     savedLoginAccounts: () => ipcRenderer.invoke("openteam:capabilities:accounts"),
+      cancelSavedLoginSetup: () => ipcRenderer.invoke("openteam:capabilities:cancel-login"),
+      syncSavedLogins: (connectionId?: string) => ipcRenderer.invoke("openteam:capabilities:sync-logins", connectionId),
+      setSavedLoginAlwaysAllow: (connectionId: string, alwaysAllow: boolean) => ipcRenderer.invoke("openteam:capabilities:allow-logins", { connectionId, alwaysAllow }),
     connectSavedLogins: (input: { account: string; vaultName: string; connectionId?: string }) => ipcRenderer.invoke("openteam:capabilities:connect-login", input),
     restartSavedLoginSetup: () => ipcRenderer.invoke("openteam:capabilities:restart-login"),
     finishSavedLoginConnection: () => ipcRenderer.invoke("openteam:capabilities:finish-login"),

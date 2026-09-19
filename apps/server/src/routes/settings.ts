@@ -5,18 +5,24 @@ import { dispatchRoutes, effectRoute } from "./dispatch";
 
 export async function settingsRoutes(context: RouteContext): Promise<Response | undefined> {
   const { app, request, path } = context;
+  if (path === "/api/server-settings/tasks") {
+    if (request.method === "GET") return json(await run(app.taskSettings()));
+    if (request.method === "PATCH") return json(await run(app.updateTaskSettings(await request.json().catch(() => null))));
+  }
   if (path === "/api/server-settings/auto-review") {
     if (request.method === "GET") return json(await app.reviewPolicy.view());
     if (request.method === "PATCH") return json(await app.reviewPolicy.save(await request.json()));
   }
 
   if (path === "/api/server-settings/saved-logins" && request.method === "GET") return json(await app.savedLogins.view());
-  const savedLogin = path.match(/^\/api\/server-settings\/saved-logins\/(begin|complete|disconnect)$/);
+  const savedLogin = path.match(/^\/api\/server-settings\/saved-logins\/(begin|complete|disconnect|sync|always-allow)$/);
   if (savedLogin && request.method === "POST") {
     const input = await request.json();
     const operation = savedLogin[1];
     const result = operation === "begin" ? await app.savedLogins.begin(input)
       : operation === "complete" ? await app.savedLogins.complete(input)
+      : operation === "sync" ? await app.savedLogins.sync(input)
+      : operation === "always-allow" ? await app.savedLogins.setAlwaysAllow(input)
       : await app.savedLogins.disconnect(String((input as any)?.connectionId));
     return json(result, 200, { "cache-control": "no-store" });
   }

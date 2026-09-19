@@ -61,6 +61,7 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
     port: 0,
     async fetch(request) {
       const url = new URL(request.url);
+      if (url.pathname === "/v1/task-capabilities") return Response.json({ desktopAvailable: true, boxAvailable: true });
       if (url.pathname === "/health") {
         return Response.json({ status: "ready", inference: { ready: true, authenticated: true } });
       }

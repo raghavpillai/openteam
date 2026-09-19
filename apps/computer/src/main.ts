@@ -195,6 +195,12 @@ const server = Bun.serve({
     if (!authorized(request)) return json({ error: "unauthorized" }, 401);
 
     try {
+      if (request.method === "GET" && url.pathname === "/v1/task-capabilities") {
+        return json({
+          boxAvailable: await readiness.check(),
+          desktopAvailable: process.platform === "linux" && ["Xvfb", "x11vnc", "xfce4-session", "google-chrome"].every(command => Bun.which(command) !== null),
+        });
+      }
       if (request.method === "PUT" && url.pathname === "/v1/directories") {
         const body = (await request.json()) as { paths?: unknown };
         if (!Array.isArray(body.paths) || body.paths.some((path) => typeof path !== "string")) {

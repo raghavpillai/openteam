@@ -37,6 +37,6 @@ export function matchCredentialRules(
       ? target.protocol === rule.scheme + ":" && host === rule.host && port(target) === rule.port
       : exactOrigin
         ? host === rule.registrableDomain && target.protocol === "https:" && port(target) === 443
-        : getDomain(host, { allowPrivateDomains: true }) === rule.registrableDomain
+        : target.protocol === "https:" && port(target) === 443 && getDomain(host, { allowPrivateDomains: true }) === rule.registrableDomain
   );
 }

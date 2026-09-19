@@ -55,6 +55,62 @@ offer OpenAI-compatible APIs. [Google documents its model-list format and pagina
 - `--no-auth` uses no account credential. The OpenAI SDK sends the nonsecret placeholder
   `openteam-no-auth` on inference requests; discovery sends no Authorization header.
 
+## Delegated Task configuration
+
+Task workers inherit the parent's actual model and reasoning level. Browser and desktop work
+use one `computerUse` worker by default, with structured browser tools, desktop controls,
+Shell and Read. Existing `browserUse` sessions remain resumable. Child workers cannot launch
+nested Tasks. Background execution is the default; `run_in_background: false` waits for the
+result. Resume retains the worker's model, reasoning, session and graphical mode.
+
+The authenticated owner API `GET /api/server-settings/tasks` returns the database-backed
+configuration. `PATCH` replaces it. There is no environment-variable configuration or separate
+Task settings screen. The default is:
+
+```json
+{ "combinedComputerUse": true, "executorProfiles": [] }
+```
+
+With no executor profiles, Task has no model parameter. To offer named effort levels, configure
+profiles using provider/model IDs already available in the deployment:
+
+```json
+{
+  "combinedComputerUse": true,
+  "executorProfiles": [
+    {
+      "name": "quick",
+      "description": "Small, well-defined jobs",
+      "providerId": "YOUR_CONFIGURED_PROVIDER_ID",
+      "modelId": "YOUR_AVAILABLE_MODEL_ID",
+      "reasoning": "low"
+    }
+  ],
+  "defaultExecutorProfile": "quick"
+}
+```
+
+The server checks every profile against the inference service before saving. Task then exposes
+`model` as an enum of profile names. It selects an effort level for new executors only; other
+worker types and resumed workers ignore it. Omitting it selects the configured default profile,
+or inherits the parent model if there is no default. Unknown profile names fail explicitly.
+Configuration is snapshotted for each run, including prompt refresh after compaction; changing
+settings does not change an active parent's advertised profiles or Task selection.
+
+Set `combinedComputerUse` to `false` for separate `browserUse` and `computerUse` workers.
+The Task schema, available-types context, worker prompts and tool surfaces follow that mode.
+The worker also queries the authenticated computer capability endpoint at each run. Graphical
+workers appear only when the desktop stack and box are available. Disabling any `BROWSER_*`,
+`OPENAI_COMPUTER_USE`, `SHELL`, or `READ` identifier selects split mode and removes the disabled
+tools from graphical workers. Optional database settings `graphicalAvailable: false` and
+`disabledToolIdentifiers: ["BROWSER_CDP"]` allow operator overrides. Child records preserve
+their launch configuration across resume; this includes legacy browser workers. Nested tasks
+remain unavailable. Combined workers use browser tools for page interaction and Computer for
+native UI or a demonstrated technical browser limitation; permission denials never justify
+changing tools to bypass a restriction.
+
+Apply the database schema and rebuild server, worker, computer and desktop when updating.
+
 ## Validation
 
 `apps/computer/test/chat-provider-registry.test.ts` covers authentication isolation, disconnected

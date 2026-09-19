@@ -55,7 +55,8 @@
     "executableName": "openteam",
     "asar": true,
     "asarUnpack": [
-      "dist-electron/openteam-cli.js"
+      "dist-electron/openteam-cli.js",
+      "dist-electron/openteam-op-launcher"
     ],
     "npmRebuild": false,
     "directories": {
@@ -113,7 +114,8 @@
     "build:utility": "bun build src/main/host/utility.ts --outfile dist-electron/host-utility.js --target node --format esm --external electron --minify",
     "build:server-updater": "bun build ../cli/src/main.ts --outfile dist-electron/openteam-cli.js --target node --format esm --minify",
     "build:preload": "bun build src/preload/index.ts --outfile dist-electron/preload.cjs --target node --format cjs --external electron --minify --keep-names",
-    "build:electron": "bun run build:main && bun run build:utility && bun run build:server-updater && bun run build:preload",
+    "build:onepassword-launcher": "bun scripts/build-onepassword-launcher.ts",
+    "build:electron": "bun run build:main && bun run build:utility && bun run build:server-updater && bun run build:preload && bun run build:onepassword-launcher",
     "build": "bun run clean && vite build && bun run build:electron",
     "package": "bun run clean:release && bun run build && electron-builder --publish never && bun ../../scripts/performance/check-desktop-budgets.ts --release",
     "package:mac-release": "bun run clean:release && bun run build && bun run scripts/package-macos-release.ts && bun ../../scripts/performance/check-desktop-budgets.ts --release && bun run verify:mac-notifications",

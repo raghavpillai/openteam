@@ -1,5 +1,6 @@
 import reference from "./tool-reference.json";
 import native from "./native-tools.json";
+import { defaultTaskConfiguration, taskTypeNames, type TaskConfiguration } from "./task-configuration";
 
 export interface ToolContract {
   name: string;
@@ -40,11 +41,11 @@ send.inputSchema.properties.type.enum = send.inputSchema.properties.type.enum.fi
 );
 delete send.inputSchema.properties.bcId;
 send.inputSchema.properties.type.description = send.inputSchema.properties.type.description.replace(
-  /cursor-agent to reference a Cursor cloud agent[^.]*\),?\s*/g,
+  /cursor-agent to reference a Cursor cloud agent by its bcId \(renders as a card that opens the agent in Cursor on click\), /,
   ""
 );
 send.description = send.description.replace(
-  /Use \{[^\n]*?"cursor-agent"[^\n]*?(?=Use |Set end_turn|$)/g,
+  /Use \{"type":"cursor-agent"[^}]*\} to reference a Cursor cloud agent:[\s\S]*?(?=Use \{"type":"widget")/,
   ""
 );
 // Retain private connector-key requests and personal scope supported by this deployment.
@@ -61,6 +62,13 @@ send.inputSchema.properties.secret = {
     ),
   },
   required: ["label"],
+  oneOf: [
+    {
+      required: ["name"],
+      not: { anyOf: [{ required: ["connector"] }, { required: ["field"] }] },
+    },
+    { required: ["connector", "field"], not: { required: ["name"] } },
+  ],
 };
 send.description +=
   " OpenTeam also supports secret {label,connector,field} for connector credentials, and scope:bot|personal for named environment secrets.";
@@ -72,14 +80,21 @@ contracts.WebSearch!.description +=
   " The search provider and its API key are configured in Settings and stored in the deployment database. A missing key is reported without silently switching providers.";
 contracts.WebFetch!.description +=
   " OpenTeam supports built-in HTTP, Exa Contents, and Tavily Extract through database configuration; the built-in fetch is limited to 5 MiB and public destinations.";
-// These are supported local extensions, not missing reference functionality.
-contracts.Task!.inputSchema.properties.model = { type: "string" };
-if (!contracts.Task!.inputSchema.properties.subagent_type.enum.includes("browserUse"))
-  contracts.Task!.inputSchema.properties.subagent_type.enum.unshift("browserUse");
-contracts.Task!.inputSchema.properties.subagent_type.description +=
-  " OpenTeam also supports browserUse.";
-contracts.Task!.description +=
-  " browserUse is also available for structured browser interaction. model may select a configured executor model.";
+export function taskToolContract(config: TaskConfiguration = defaultTaskConfiguration()): ToolContract {
+  const tool = structuredClone(contracts.Task!);
+  const types = taskTypeNames(config);
+  tool.inputSchema.properties.subagent_type.enum = types;
+  tool.inputSchema.properties.subagent_type.description = `Subagent type to use for this task. Must be one of: ${types.join(", ")}.`;
+  if (config.executorProfiles.length) {
+    tool.inputSchema.properties.model = {
+      type: "string",
+      enum: config.executorProfiles.map(profile => profile.name),
+      description: "Optional effort level for a new executor. Choose a listed level based on task difficulty, or omit it for the default. It is ignored for other subagent types and resumed executors.",
+    };
+    tool.description += "\n\nAvailable model slugs for subagents are listed in <available_subagent_models> in the initial user-info message at the start of this conversation.";
+  }
+  return tool;
+}
 
 export function referenceTool(name: string): ToolContract {
   const contract = contracts[name];

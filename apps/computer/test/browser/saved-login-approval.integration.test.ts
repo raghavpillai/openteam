@@ -141,6 +141,18 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)(
       expect(events.filter(event => event.type === "approval.action").every(event => event.decision === "accept")).toBe(true);
       const page = await (session as any).ensurePage();
       expect(await page.locator("#password").inputValue()).toBe("SYNTHETIC-PRIVATE-VALUE");
+      // Exercise the combined worker's real model-facing tools, including its review
+      // wrapper, against the same live session that received the private login.
+      const combined = tools.customTools({ ...active, runtimeProfile: "subagent", subagentType: "computerUse",
+        taskConfiguration: { combinedComputerUse: true, executorProfiles: [] } });
+      expect(combined.some(tool => tool.name === "Computer")).toBe(true);
+      const invokeWorker = (name: string, callId: string, args: Record<string, unknown>) =>
+        (combined.find(tool => tool.name === name)!.execute as (callId: string, args: Record<string, unknown>) => Promise<unknown>)(callId, args);
+      const snapshot = await invokeWorker("browser_snapshot", "worker-snapshot", {});
+      expect(JSON.stringify(snapshot)).not.toContain("SYNTHETIC-PRIVATE-VALUE");
+      await expect(invokeWorker("browser_cdp", "worker-private-read", {
+        method: "Runtime.evaluate", params: { expression: 'btoa(document.querySelector("#password").value)', returnByValue: true },
+      })).rejects.toThrow("private login data");
       await page.reload();
       secretReads = 0;
       events.length = 0;
@@ -168,6 +180,7 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)(
       expect(await page.locator("#password").inputValue()).toBe("");
     } finally {
       await browser.close();
+      await driver.stop();
       pageServer.stop(true);
       await new Promise<void>((resolve) => {
         bridge.closeAllConnections();

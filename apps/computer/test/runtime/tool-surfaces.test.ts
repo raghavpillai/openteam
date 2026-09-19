@@ -132,8 +132,19 @@ describe("specialized subagent tool surfaces", () => {
     expect(visible.every((tool) => !("execute" in tool))).toBe(true);
   });
 
-  test("computerUse receives only Shell, Read, and direct Computer", () => {
-    expect(toolNames("computerUse")).toEqual(["Shell", "Read", "Computer"]);
+  test("combined computerUse receives Shell, Read, Computer and the browser tools", () => {
+    expect(toolNames("computerUse")).toEqual(["Shell", "Read", "Computer", ...BROWSER_USE_TOOLS.map(tool => tool.name)]);
+  });
+
+  test("split and resumed graphical workers retain disabled-tool restrictions", () => {
+    const runtime = runtimeTools() as any;
+    const taskConfiguration = { combinedComputerUse: false, executorProfiles: [], disabledToolIdentifiers: ["SHELL", "BROWSER_CDP", "OPENAI_COMPUTER_USE"] };
+    expect(runtime.customTools({ subagentType: "computerUse", taskConfiguration }).map((tool: any) => tool.name)).toEqual(["Read"]);
+    const browser = runtime.customTools({ subagentType: "browserUse", taskConfiguration }).map((tool: any) => tool.name);
+    expect(browser).toContain("browser_snapshot");
+    expect(browser).not.toContain("browser_cdp");
+    expect(browser).not.toContain("Shell");
+    expect(browser).not.toContain("Computer");
   });
 
   test("browserUse receives only Shell, Read, and the direct browser tools", () => {

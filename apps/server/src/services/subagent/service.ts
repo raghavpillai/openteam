@@ -5,7 +5,7 @@ import {
   type ComputerSteerRequest,
   type MessageSubagentInput,
   resolveBotAvatarMark,
-  parsePiModelRef,
+  normalizePiReasoningLevel,
   type StopSubagentInput,
   type SubagentType,
   type TaskInput,
@@ -18,6 +18,7 @@ import { fromPrisma } from "pg-boss";
 import { setTimeout as delay } from "node:timers/promises";
 import type { RunService } from "../run-service";
 import { appendEvent, type ComputerFetch, hashRequest, toJson } from "../service-utils";
+import { taskInference, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 
 const ACTIVE_STATUSES = ["provisioning", "queued", "running"] as const;
 
@@ -324,13 +325,27 @@ export class SubagentService {
   }
 
   private async launch(context: ToolContext, input: TaskInput, restoredId?: string) {
-    const configuredInference = await this.agentData.loadInferenceSettings();
-    const selectedModel = formatPiModelRef(
-      input.model
-        ? parsePiModelRef(input.model, configuredInference.providerId)
-        : configuredInference
-    );
+    const [configuredInference, currentConfig, parentRun] = await Promise.all([
+      this.agentData.loadInferenceSettings(),
+      this.agentData.loadTaskConfiguration(),
+      this.prisma.run.findUnique({ where: { id: context.runId } }),
+    ]);
+    const config = parentRun?.taskConfiguration ? parseTaskConfiguration(parentRun.taskConfiguration) : currentConfig;
     const type = input.subagent_type ?? "executor";
+    if (["computerUse", "browserUse"].includes(type) && config.graphicalAvailable === false)
+      throw new ApiError(409, "graphical_worker_unavailable", "Browser and desktop workers are unavailable on this computer.");
+    if (type === "browserUse" && config.combinedComputerUse && !restoredId)
+      throw new ApiError(400, "subagent_type_retired", "browserUse is available only to resume an existing agent. Use computerUse for new browser or desktop tasks.");
+    const inherited = { ...configuredInference,
+      ...(parentRun?.inferenceProvider && parentRun.inferenceModel ? {
+        providerId: parentRun.inferenceProvider, modelId: parentRun.inferenceModel,
+        reasoning: parentRun.inferenceReasoning ? normalizePiReasoningLevel(parentRun.inferenceReasoning) : configuredInference.reasoning,
+      } : {}),
+    };
+    let selectedInference;
+    try { selectedInference = taskInference(config, input, inherited); }
+    catch (error) { throw new ApiError(400, "invalid_executor_profile", (error as Error).message); }
+    const selectedModel = formatPiModelRef(selectedInference);
     const parent = await this.prisma.bot.findUnique({ where: { id: context.botId } });
     if (!parent || parent.status !== "active") {
       throw new ApiError(409, "parent_not_active", "The parent agent is not active");
@@ -386,6 +401,9 @@ export class SubagentService {
           prompt: input.prompt,
           subagentType: type,
           model: selectedModel,
+          reasoning: selectedInference.reasoning,
+          combinedComputerUse: config.combinedComputerUse,
+          taskConfiguration: toJson(config),
           fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
           runInBackground: input.run_in_background ?? true,
           readOnly: input.read_only ?? false,
@@ -442,16 +460,13 @@ export class SubagentService {
   }
 
   private async resume(context: ToolContext, input: TaskInput) {
-    if (input.model) {
-      throw new ApiError(400, "resume_model_forbidden", "Do not provide model when resuming");
-    }
     if (!input.resume) throw new ApiError(400, "resume_id_required", "resume is required");
     const restoredId = openteamSubagentId(input.resume);
     const subagent = await this.prisma.subagent.findFirst({
       where: { id: restoredId, parentBotId: context.botId },
     });
     if (!subagent) {
-      return this.launch(context, { ...input, resume: undefined }, restoredId);
+      return this.launch(context, { ...input, model: undefined, resume: undefined }, restoredId);
     }
     if (["provisioning", "queued", "running"].includes(subagent.status)) {
       throw new ApiError(
@@ -533,7 +548,7 @@ export class SubagentService {
   private childInstructions(): string {
     return [
       "You are running as a subagent under a parent agent.",
-      "Do not spawn additional subagents unless requested by the user or by your instructions.",
+      "Do not spawn additional subagents. Nested subagents are unavailable.",
       "Do not create Canvas files unless requested by the user or by your instructions.",
     ].join("\n");
   }

@@ -17,6 +17,8 @@ test.skipIf(!databaseUrl)(
       channelId = "";
     let releaseAutomation: () => void = () => {};
     let releaseParent: () => void = () => {};
+    let releaseManagedChild: () => void = () => {};
+    const managedChildGate = new Promise<void>(resolve => { releaseManagedChild = resolve; });
     const automationGate = new Promise<void>(resolve => { releaseAutomation = resolve; });
     const parentGate = new Promise<void>(resolve => { releaseParent = resolve; });
     const turns: ComputerTurnRequest[] = [],
@@ -26,6 +28,7 @@ test.skipIf(!databaseUrl)(
       port: 0,
       async fetch(request) {
         const path = new URL(request.url).pathname;
+        if (path === "/v1/task-capabilities") return Response.json({ desktopAvailable: true, boxAvailable: true });
         if (path === "/health")
           return Response.json({
             status: "ready",
@@ -51,7 +54,7 @@ test.skipIf(!databaseUrl)(
         turns.push(input);
         if (input.content.includes("WP_BLOCK_AUTOMATION")) await automationGate;
         if (input.content.includes("WP_CONCURRENT_PARENT")) await parentGate;
-        const call = (tool: string, args: unknown) =>
+        const call = (tool: string, args: unknown, callId = crypto.randomUUID()) =>
           Effect.runPromise(
             app!.handleDynamicTool({
               runId: input.runId,
@@ -59,7 +62,7 @@ test.skipIf(!databaseUrl)(
               conversationId: input.conversationId,
               channelId: input.channelId,
               deliveryId: input.deliveryId,
-              callId: crypto.randomUUID(),
+              callId,
               tool,
               arguments: args,
             })
@@ -67,6 +70,13 @@ test.skipIf(!databaseUrl)(
         let final = "";
         try {
           if (input.runtimeProfile === "subagent") {
+            await expect(call("Task", { description: "Forbidden nested task", prompt: "Never launch" })).rejects.toThrow("parent-agent only");
+            if (input.content.includes("WP_MANAGED_CHILD")) await managedChildGate;
+            if (input.subagentType === "computerUse") {
+              expect(input.taskConfiguration).toMatchObject({ combinedComputerUse: true });
+              expect(input.instructions).toContain("Computer and browser_* tools");
+              expect(input.model).not.toContain("ignored-model");
+            }
             final = input.content.includes("WP_FOREGROUND_CHILD") ? "WP_FOREGROUND_RESULT" : "WP_CHILD_RESULT: checked the fixture successfully.";
           } else if (input.requestSource === "automation") {
             expect(input.instructions).toContain("WakeParent is the only route");
@@ -84,6 +94,13 @@ test.skipIf(!databaseUrl)(
                 prompt: "Return WP_CHILD_RESULT.",
                 subagent_type: "executor",
               });
+              await call("Task", {
+                description: "Combined computer fixture",
+                prompt: "Verify the combined worker context and return a result.",
+                subagent_type: "computerUse",
+                model: "ignored-model",
+                run_in_background: false,
+              });
             } else if (input.content.includes("WP_ALERT")) {
               const first = await call("WakeParent", {
                 message: "WP_ALERT_RESULT: Notify the user that the check found a change.",
@@ -98,8 +115,33 @@ test.skipIf(!databaseUrl)(
             }
           } else {
             if (input.content.includes("WP_FOREGROUND_PARENT")) {
-              const result=await call("Task",{description:"Foreground fixture",prompt:"WP_FOREGROUND_CHILD",subagent_type:"executor",run_in_background:false,model:"openai-codex/foreground-fixture-model"});
+              // A Settings edit during a run must not change the parent's contract,
+              // refreshed prompt, or the model selected for its subsequent Tasks.
+              await Effect.runPromise(app!.updateTaskSettings({ combinedComputerUse: false, executorProfiles: [] }));
+              const parentContext = await app!.prisma.contextSession.findUniqueOrThrow({ where: { id: input.contextSessionId } });
+              const refreshed = await call("RefreshPromptContext", { contextSessionId: input.contextSessionId, epoch: parentContext.compactionEpoch });
+              expect((refreshed as any).instructions).toContain("quick: Short fixture tasks");
+              expect((refreshed as any).instructions).toContain("computerUse: browser and desktop work");
+              const result=await call("Task",{description:"Foreground fixture",prompt:"WP_FOREGROUND_CHILD",subagent_type:"executor",run_in_background:false,model:"quick"});
               expect(String(result)).toContain("WP_FOREGROUND_RESULT");
+              const id = /Agent ID: (sand-subagent-[\da-f-]+)/.exec(String(result))?.[1];
+              expect(id).toBeDefined();
+              const resumed = await call("Task", { description: "Foreground fixture", prompt: "WP_FOREGROUND_CHILD follow-up", resume: id, model: "ignored-on-resume", run_in_background: false });
+              expect(String(resumed)).toContain("WP_FOREGROUND_RESULT");
+              const launchId = crypto.randomUUID();
+              const task = { description: "Managed background fixture", prompt: "WP_MANAGED_CHILD", subagent_type: "executor", model: "quick" };
+              const background = await call("Task", task, launchId);
+              expect(String(background)).toContain("Subagent is running in the background.");
+              expect(await call("Task", task, launchId)).toEqual(background);
+              await expect(call("Task", { ...task, prompt: "different task" }, launchId)).rejects.toThrow("reused");
+              const backgroundId = /Agent ID: (sand-subagent-[\da-f-]+)/.exec(String(background))![1]!;
+              await until(async () => turns.some(turn => turn.content.includes("WP_MANAGED_CHILD")));
+              expect(await call("CheckSubagent", { subagent_id: backgroundId })).toMatchObject({ status: "running" });
+              await expect(call("Task", { description: "Busy resume", prompt: "continue", resume: backgroundId })).rejects.toThrow("still running");
+              expect(await call("MessageSubagent", { subagent_id: backgroundId, message: "Change the current work" })).toMatchObject({ delivered: true });
+              expect(await call("StopSubagent", { subagent_id: backgroundId })).toMatchObject({ stopped: true });
+              releaseManagedChild();
+              await Effect.runPromise(app!.updateTaskSettings(input.taskConfiguration));
               await call("SendToUser",{type:"text",content:"Foreground child finished.",end_turn:true});
             } else {
             if (input.content.includes("WP_READ_SILENT"))
@@ -182,6 +224,9 @@ test.skipIf(!databaseUrl)(
       });
       app = new AppService();
       await Effect.runPromise(app.boot());
+      await Effect.runPromise(app.updateTaskSettings({ combinedComputerUse: true, executorProfiles: [
+        { name: "quick", description: "Short fixture tasks", providerId: "openai-codex", modelId: "foreground-fixture-model", reasoning: "low" },
+      ] }));
       worker = new WakeWorker();
       await worker.start();
       const bot = await Effect.runPromise(
@@ -214,6 +259,11 @@ test.skipIf(!databaseUrl)(
       const foreground = await app.prisma.subagent.findFirstOrThrow({where:{parentBotId:botId,description:"Foreground fixture"}});
       expect(foreground.runInBackground).toBe(false);
       expect(foreground.model).toContain("foreground-fixture-model");
+      expect(foreground.reasoning).toBe("low");
+      const foregroundTurns = turns.filter(turn => turn.botId === foreground.childBotId);
+      expect(foregroundTurns).toHaveLength(2);
+      expect(foregroundTurns[1]!.sessionPath).not.toBeNull();
+      expect(foregroundTurns.every(turn => turn.model === foreground.model && turn.reasoning === "low")).toBe(true);
       const initialVisible = await app.prisma.channelMessage.count({ where: { channelId } });
       const execute = async (marker: string) => {
         const routine = await Effect.runPromise(
@@ -303,10 +353,13 @@ test.skipIf(!databaseUrl)(
         await app.prisma.channelMessage.count({ where: { content: "Must never appear" } })
       ).toBe(0);
       expect(errors).toEqual([]);
+      expect(turns.some(turn => turn.subagentType === "computerUse")).toBe(true);
     } finally {
-      releaseAutomation(); releaseParent();
+      releaseAutomation(); releaseParent(); releaseManagedChild();
       await worker?.stop();
       if (app) {
+        await app.agentData.stopWatching();
+        await app.prisma.taskSettings.deleteMany({ where: { id: "global" } });
         const children = await app.prisma.subagent.findMany({
           where: { parentBotId: botId },
           select: { childBotId: true },

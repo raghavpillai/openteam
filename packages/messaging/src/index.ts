@@ -8,6 +8,8 @@ import { AUTOMATION_RUN_INSTRUCTIONS, automationContinuationRoute } from "./auto
 import { join } from "node:path";
 import { publishChannelNotification, publishMessageNotification } from "./notifications";
 export { publishChannelNotification, publishMessageNotification, channelNotificationStates } from "./notifications";
+import { defaultTaskConfiguration, taskUserInfo, type TaskConfiguration } from "@openteam/contracts/task-configuration";
+import { COMBINED_GRAPHICAL_WORKER_PROMPT } from "./graphical-worker-prompts";
 import {
   type AdminBroadcastInput,
   type AgentImageInput,
@@ -15,7 +17,6 @@ import {
   ApiError,
   type AssetRef,
   type BotTranscriptView,
-  formatPiModelRef,
   type ReactToMessageInput,
   type RuntimeInlineImage,
   type SendToAgentInput,
@@ -76,11 +77,15 @@ export const toggleMessageReaction = (
   };
 };
 
-export const MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS = [
-  "For browser page interaction, delegate with Task using subagent_type browserUse. For pixel-based browser work or any other desktop-app interaction, delegate with Task using subagent_type computerUse.",
+export const graphicalDelegationInstructions = (config: TaskConfiguration = defaultTaskConfiguration()) => [
+  config.graphicalAvailable === false ? "Browser and desktop workers are unavailable. Do not request graphical Tasks or bypass this limitation through Shell."
+    : config.combinedComputerUse
+    ? "For browser or desktop interaction, delegate with Task using subagent_type computerUse. It uses structured browser tools and desktop controls on the same persistent box. Only one computerUse subagent may run at a time."
+    : "For browser page interaction, delegate with Task using subagent_type browserUse. For pixel-based browser work or any other desktop-app interaction, delegate with Task using subagent_type computerUse.",
   "Do not attempt graphical interaction yourself: the main-agent Screenshot tool is read-only, and graphical Computer control is intentionally available only to a computerUse subagent.",
   "Give the subagent the full goal, exact URLs or app names, inputs, completion criteria, and relevant constraints. Treat its final report as the result of the graphical work.",
 ].join(" ");
+export const MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS = graphicalDelegationInstructions();
 
 export interface PlatformPrompt {
   instructions: string;
@@ -490,13 +495,14 @@ export const A2A_PLATFORM_INSTRUCTIONS = [
 
 const terminalRunStatuses = new Set(["completed", "failed", "cancelled", "interrupted"]);
 
-export const subagentSpecializationInstructions = (type: SubagentType): string => {
+export const subagentSpecializationInstructions = (type: SubagentType, combinedComputerUse = true): string => {
+  if (type === "computerUse" && combinedComputerUse) return COMBINED_GRAPHICAL_WORKER_PROMPT;
   if (type === "computerUse") {
     return [
       "## Your box",
       "You drive your parent agent's own desktop on a persistent Linux box with Computer, plus file reads with Read and a shell with Shell. All three share one filesystem; files, installed tools, browser logins, and the browser profile persist across turns. The box is the only computer you can reach.",
       "## Computer",
-      "You drive the 1280x800 desktop with Computer: screenshot, click, move, drag, type, key, scroll, and wait. Coordinates use pixels from the top-left.",
+      "You drive the desktop with Computer: screenshot, click, move, drag, type, key, scroll, and wait. Coordinates use native pixels from the top-left; use the current screenshot dimensions.",
       "- Stay inside the deliberately narrow task. Do exactly its success criteria, then stop; report ambiguity instead of expanding scope.",
       "- Move bulk or structured data through files and imports instead of typing it field by field.",
       "- Work in a tight see-act-verify loop. Inspect the screen, act, then read the one fresh screenshot returned after the entire Computer call. A then sequence returns only its final screen, so batch only steps that need no intermediate visual decision.",
@@ -1936,7 +1942,7 @@ export class AgentMessaging {
     return { targetDmChannelId };
   }
 
-  async platformPrompt(botId: string, contextSessionId?: string, connectorInstructions = "", memoryConversationId?: string): Promise<PlatformPrompt> {
+  async platformPrompt(botId: string, contextSessionId?: string, connectorInstructions = "", memoryConversationId?: string, taskConfigurationSnapshot?: TaskConfiguration): Promise<PlatformPrompt> {
     const context = contextSessionId ? await this.prisma.contextSession.findFirst({ where: { id: contextSessionId, botId }, select: { scope: true } }) : null;
     const automation = context?.scope === "automation";
     const bot = await this.prisma.bot.findUniqueOrThrow({
@@ -1949,7 +1955,8 @@ export class AgentMessaging {
     const todoContext = bot.todos.map((todo) => `- [${todo.status}] ${todo.id}: ${todo.content}`);
     if (bot.subagentIdentity) {
       const specialization = subagentSpecializationInstructions(
-        bot.subagentIdentity.subagentType as SubagentType
+        bot.subagentIdentity.subagentType as SubagentType,
+        bot.subagentIdentity.combinedComputerUse
       );
       const instructions = [
         `You are OpenTeam running as the ${bot.subagentIdentity.subagentType} subagent.`,
@@ -1982,9 +1989,9 @@ export class AgentMessaging {
         agentProfileUpdate: null,
       };
     }
-    const [agentPrompt, rootSettings] = await Promise.all([
+    const [agentPrompt, taskConfiguration] = await Promise.all([
       this.agentData.promptContext(botId, contextSessionId, memoryConversationId),
-      this.agentData.loadInferenceSettings(),
+      taskConfigurationSnapshot ?? this.agentData.loadTaskConfiguration(),
     ]);
     const projectMemberships = await this.prisma.projectMember.findMany({
       where: { botId },
@@ -2126,8 +2133,9 @@ export class AgentMessaging {
       frozen.sections.agent_instructions,
       "Use GetDynamicTools with namespace cursor to discover SendToAgent, ListAgents/ListGroups, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, and CreateChannel/UpdateChannel. Invoke discovered tools with CallDynamicTool.",
       A2A_PLATFORM_INSTRUCTIONS,
-      MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS,
-      `Available Task subagent types are executor, videoReview, watchVideo, computerUse, and browserUse. The default subagent model is ${formatPiModelRef(rootSettings)}. Set model to a provider-qualified model available on this server for independent selection. Set run_in_background:false to wait for the result; true launches a background task. Installed plugin agent templates are listed separately when available.`,
+      graphicalDelegationInstructions(taskConfiguration),
+      taskUserInfo(taskConfiguration),
+      "Subagents run in the background by default. Set run_in_background:false to wait for the result. Background completion is delivered after your turn ends; continue other work or end your turn instead of polling. Installed plugin agent templates are listed separately when available.",
       todoContext.length > 0
         ? `Durable task queue (reconcile it with TodoWrite on each wake):\n${todoContext.join("\n")}`
         : "The durable task queue is empty.",

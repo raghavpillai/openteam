@@ -79,6 +79,8 @@ export class SavedCredentials {
     ); } catch { signal?.throwIfAborted(); unavailableConnections.push(credentialConnectionId(config)); continue; }
     if (!Array.isArray(raw)) { unavailableConnections.push(credentialConnectionId(config)); continue; }
     const connection_id = `1password:${config.account}:${config.vault}`;
+    const permissions = await this.settings.read();
+    const alwaysAllow = credentialConnections(permissions).find(row => credentialConnectionId(row) === connection_id)?.alwaysAllow === true;
     const credentials = raw.flatMap((item) => {
       const sites = (Array.isArray(item.urls) ? item.urls : []).flatMap((url: any) => {
         try {
@@ -99,7 +101,7 @@ export class SavedCredentials {
         provider_revision: itemRevision(item),
         sites,
         targetRules,
-        autoFill: settings.autoFill.includes(`${connection_id}:${item.id}`),
+        autoFill: alwaysAllow || permissions.autoFill.includes(`${connection_id}:${item.id}`),
       };
       return [
         {
@@ -116,12 +118,11 @@ export class SavedCredentials {
   }
   async automatic(site: string, signal?: AbortSignal) {
     const settings = await this.settings.read();
-    if (!credentialConnections(settings).length || !settings.autoFill.length) return { skipped: true };
+    if (!credentialConnections(settings).length) return { skipped: true };
     const list = await this.list({ site }, signal);
     if (
       list.credentials.length !== 1 ||
-      !list.credentials[0]!.autoFill ||
-      !matchCredentialRules(list.credentials[0]!.targetRules, site, true)
+      !list.credentials[0]!.autoFill
     )
       return { skipped: true };
     return this.use({ ...list.credentials[0], site, automatic: true }, signal);
@@ -141,9 +142,9 @@ export class SavedCredentials {
       throw new Error(
         "The saved login changed, was revoked, or does not match this live origin. List credentials again."
       );
-    const automaticAllowed =
-      item.autoFill && matches.length === 1 && matchCredentialRules(item.targetRules, origin, true);
-    if (args.automatic === true && !automaticAllowed) return { skipped: true };
+    const connectionAlwaysAllow = credentialConnections(await this.settings.read()).find(row => credentialConnectionId(row) === item.connection_id)?.alwaysAllow === true;
+    const automaticAllowed = item.autoFill && matchCredentialRules(item.targetRules, origin, !connectionAlwaysAllow) && (connectionAlwaysAllow || matches.length === 1);
+    if (args.automatic === true && (!automaticAllowed || matches.length !== 1)) return { skipped: true };
     if (args.automatic !== true && !automaticAllowed) {
       const decision = await this.consent({
         title: "Use saved login?",

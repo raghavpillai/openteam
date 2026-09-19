@@ -64,6 +64,6 @@ export const assertGraphicalShellBoundary = (
   const route =
     subagentType === "browserUse"
       ? "Use the direct browser_* tools for page interaction."
-      : "Delegate page interaction to browserUse and pixel desktop interaction to computerUse.";
+      : "Delegate graphical interaction to an available browser or computer Task worker.";
   throw new Error(`Graphical Shell access is unavailable (${violation}). ${route}`);
 };

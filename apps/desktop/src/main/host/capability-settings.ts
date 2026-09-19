@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-export interface CredentialProviderConnection { account: string; vault: string; broker?: boolean; vaultName?: string }
+import type { CredentialProviderConnection } from "@openteam/contracts/saved-logins";
+export type { CredentialProviderConnection } from "@openteam/contracts/saved-logins";
 export const credentialConnectionId = (provider: CredentialProviderConnection) => `1password:${provider.account}:${provider.vault}`;
 export const credentialConnections = (settings: CapabilitySettings): CredentialProviderConnection[] => settings.credentialProviders ?? (settings.credentialProvider ? [settings.credentialProvider] : []);
 export interface CapabilitySettings {

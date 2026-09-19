@@ -9,10 +9,12 @@ import type {
 import type { BotMessage } from "../bot-compaction";
 import type { ComputerEventQueue } from "../computer-event-queue";
 import type { DynamicToolDefinition } from "../dynamic-tool-gateway";
+import type { TaskConfiguration } from "@openteam/contracts/task-configuration";
 
 export type TurnStatus = "completed" | "failed" | "interrupted";
 
 export interface ActiveTurn {
+  taskConfiguration?: TaskConfiguration;
   pluginRuntimePackages?: readonly import("@openteam/plugin-sdk").PluginRuntimePackage[];
   pluginAbortController?: AbortController;
   closePluginSession?: () => Promise<void>;

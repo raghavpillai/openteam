@@ -6,9 +6,38 @@ import { objectToolSchema } from "../src/tool-schema";
 import reference from "../../../packages/contracts/src/tool-reference.json";
 import { referenceTool } from "@openteam/contracts/tool-contracts";
 import { READ_SIBLING_THREAD_TOOL } from "@openteam/contracts/sibling-threads";
+import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
+import { taskToolContract } from "@openteam/contracts/tool-contracts";
+import { enrichUserInfo } from "../src/runtime/prompt-context";
 
 // The baseline is extracted from the captured external tool catalog, not our handlers.
 describe("captured tool contract wiring", () => {
+  test("Task profiles and split/combined worker tools agree with the advertised context", () => {
+    const runtime = new RuntimeTools({} as never, "http://unused.invalid", "test", "/tmp", "/tmp");
+    for (const combinedComputerUse of [true, false]) {
+      const taskConfiguration = { combinedComputerUse, executorProfiles: [
+        { name: "quick", description: "Small jobs", providerId: "openai", modelId: "fixture", reasoning: "low" as const },
+      ] };
+      const active = { runtimeProfile: "agent", pluginNamespaces: [], taskConfiguration } as unknown as ActiveTurn;
+      const task = (runtime as any).dynamicCatalog(active).flatMap((namespace: any) => namespace.tools).find((tool: any) => tool.name === "Task");
+      expect(task.inputSchema).toEqual(taskToolContract(taskConfiguration).inputSchema);
+      const userInfo = enrichUserInfo("<user_info></user_info>", { cwd: "/tmp", transcriptPath: "/tmp/transcript", namespaces: [], taskConfiguration });
+      expect(userInfo.includes("browserUse:")).toBe(!combinedComputerUse);
+      expect(userInfo).toContain("quick: Small jobs");
+      const computer = runtime.customTools({ ...active, runtimeProfile: "subagent", subagentType: "computerUse" });
+      expect(computer.some(tool => tool.name === "browser_snapshot")).toBe(combinedComputerUse);
+      expect(computer.some(tool => tool.name === "Computer")).toBe(true);
+      const legacyBrowser = runtime.customTools({ ...active, runtimeProfile: "subagent", subagentType: "browserUse" });
+      expect(legacyBrowser.some(tool => tool.name === "browser_snapshot")).toBe(true);
+      for (const subagentType of ["executor", "computerUse", "browserUse"] as const) {
+        const worker = { ...active, runtimeProfile: "subagent" as const, subagentType };
+        expect(runtime.customTools(worker).some(tool => tool.name === "Task")).toBe(false);
+        expect((runtime as any).dynamicCatalog(worker).flatMap((namespace: any) => namespace.tools).some((tool: any) => tool.name === "Task")).toBe(false);
+      }
+    }
+  });
   test("exposes all 74 shared contracts through the actual model-facing profiles", () => {
     const runtime = new RuntimeTools({} as never, "http://unused.invalid", "test", "/tmp", "/tmp");
     const base = { runtimeProfile: "agent", pluginNamespaces: [] } as unknown as ActiveTurn;
@@ -46,6 +75,50 @@ describe("captured tool contract wiring", () => {
     expect(reference.browser_mouse_click_xy.inputSchema.properties.holdDurationMs.maximum).toBe(
       30_000
     );
+  });
+
+  test("excluding cloud-agent delivery preserves every other SendToUser instruction", () => {
+    const captured = reference.SendToUser.description;
+    const actual = referenceTool("SendToUser");
+    const identity = (text: string) =>
+      text.replaceAll("Grok Bot", "OpenTeam").replaceAll("grokbot://", "openteam://");
+    const beforeCloudAgent = captured.slice(0, captured.indexOf('Use {"type":"cursor-agent"'));
+    const afterCloudAgent = captured.slice(captured.indexOf('Use {"type":"widget"'));
+    expect(actual.description).toBe(
+      identity(beforeCloudAgent + afterCloudAgent) +
+        " OpenTeam also supports secret {label,connector,field} for connector credentials, and scope:bot|personal for named environment secrets."
+    );
+    expect(actual.description).not.toContain('"cursor-agent"');
+    expect(actual.inputSchema.properties.type.enum).toEqual([
+      "text", "attachment", "widget", "secret-request", "credential-request",
+    ]);
+    expect(actual.inputSchema.properties.type.description).toBe(
+      "text for chat messages, attachment for actual files or standalone media, widget for an interactive question with selectable options, secret-request to ask the user for a credential through a secure masked input (never a chat paste), credential-request to ask the user to approve one-time browser fill of a saved login."
+    );
+    expect(actual.inputSchema.properties).not.toHaveProperty("bcId");
+  });
+
+  test("the advertised secret alternatives agree with the SendToUser parser", () => {
+    const schema = Type.Unsafe<Record<string, unknown>>(referenceTool("SendToUser").inputSchema);
+    const cases: Array<[Record<string, unknown>, boolean]> = [
+      [{ label: "API token", name: "API_TOKEN" }, true],
+      [{ label: "API token", name: "API_TOKEN", scope: "personal" }, true],
+      [{ label: "API token", connector: "search", field: "apiKey" }, true],
+      [{ label: "API token" }, false],
+      [{ label: "API token", connector: "search" }, false],
+      [{ label: "API token", field: "apiKey" }, false],
+      [{ label: "API token", name: "API_TOKEN", connector: "search" }, false],
+      [{ label: "API token", name: "API_TOKEN", field: "apiKey" }, false],
+      [{ label: "API token", name: "API_TOKEN", connector: "search", field: "apiKey" }, false],
+      [{ name: "API_TOKEN" }, false],
+      [{ label: "API token", name: "API_TOKEN", scope: "unknown" }, false],
+    ];
+    for (const [secret, valid] of cases) {
+      const input = { type: "secret-request", secret };
+      expect(Value.Check(schema, input), JSON.stringify(secret)).toBe(valid);
+      if (valid) expect(normalizeMainToolArguments("SendToUser", input)).toMatchObject(input);
+      else expect(() => normalizeMainToolArguments("SendToUser", input)).toThrow();
+    }
   });
 
   test("sibling history is discoverable by parents and absent from subagent catalogs", () => {

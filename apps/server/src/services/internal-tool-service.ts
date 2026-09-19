@@ -1,5 +1,6 @@
 import { readSiblingThread } from "@openteam/messaging";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
+import { parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 import {
   AgentSendToUserInput,
   validateProcessSecretName,
@@ -132,7 +133,8 @@ export class InternalToolService {
           throw new ApiError(409, "context_epoch_invalid", "Context epoch is not the current or next summary");
         }
         await this.prisma.contextSession.updateMany({ where: { id: session.id, compactionEpoch: { lt: args.epoch! } }, data: { compactionEpoch: args.epoch } });
-        return this.messaging.platformPrompt(request.botId, session.id, args.connectorInstructions ?? "", run.memoryConversationId ?? undefined);
+        return this.messaging.platformPrompt(request.botId, session.id, args.connectorInstructions ?? "", run.memoryConversationId ?? undefined,
+          run.taskConfiguration ? parseTaskConfiguration(run.taskConfiguration) : undefined);
       }
       const parentOnlyTools = new Set([
         "DraftExternalMessage", "SendFeedback", "create_bot_share_json",

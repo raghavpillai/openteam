@@ -15,6 +15,8 @@
     "./client-preferences": "./src/client-preferences.ts",
     "./event-protocol": "./src/event-protocol.ts",
     "./inference": "./src/inference.ts",
+    "./task-configuration": "./src/task-configuration.ts",
+    "./saved-logins": "./src/saved-logins.ts",
     "./transcription": "./src/transcription.ts",
     "./model-kind": "./src/model-kind.ts",
     "./notification-content": "./src/notification-content.ts",

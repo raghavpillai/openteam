@@ -22,6 +22,7 @@ const mainAgent = (id: string) => {
     defaultTimeZone: "Asia/Kolkata",
     agentData: {
       root: "/srv/current-agent-data",
+      loadTaskConfiguration: async () => ({ combinedComputerUse: true, executorProfiles: [] }),
       loadInferenceSettings: async () => ({
         providerId: "openai-codex",
         modelId: "gpt-5.5",
@@ -65,6 +66,16 @@ const mainAgent = (id: string) => {
 };
 
 describe("Grok-derived platform prompt integration", () => {
+  test("a run's Task configuration snapshot wins over current deployment settings", async () => {
+    const { messaging } = mainAgent("alpha");
+    const prompt = await messaging.platformPrompt("alpha", "alpha-context", "", undefined, {
+      combinedComputerUse: false,
+      executorProfiles: [{ name: "quick", description: "Small jobs", providerId: "openai", modelId: "fixture", reasoning: "low" }],
+    });
+    expect(prompt.instructions).toContain("browserUse: structured browser interaction");
+    expect(prompt.instructions).toContain("quick: Small jobs");
+    expect(prompt.instructions).not.toContain("computerUse: browser and desktop work");
+  });
   test("deployment-disabled template sharing is omitted from managed and inline workflows", () => {
     const previous = process.env.OPENTEAM_TEMPLATE_SHARING;
     process.env.OPENTEAM_TEMPLATE_SHARING = "false";

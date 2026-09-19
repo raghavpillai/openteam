@@ -20,6 +20,8 @@ test.skipIf(!databaseUrl)(
   "messages and old-message reactions fan out, synchronize reads, and cancel stale alerts",
   async () => {
     const prisma = createPrismaClient(databaseUrl!);
+    // Other integration files may leave durable unread channels in this test DB.
+    const initialBadgeCount = await unreadBadgeCount(prisma);
     const previousAuth = process.env.OPENTEAM_AUTH_MODE;
     process.env.OPENTEAM_AUTH_MODE = "disabled";
     const bot = await prisma.bot.create({
@@ -201,7 +203,7 @@ test.skipIf(!databaseUrl)(
       const reactionState = await sync();
       expect(reactionState.activityUnreadCount).toBe(1);
       expect(reactionState.notifications[0]?.kind).toBe("reaction");
-      expect(await unreadBadgeCount(prisma)).toBe(1);
+      expect(await unreadBadgeCount(prisma)).toBe(initialBadgeCount + 1);
       await drain();
       expect(sent.filter((push) => push.data.kind === "reaction")).toHaveLength(2);
       expect(native.filter(n => n.payload.data.kind === "reaction")).toHaveLength(1);
@@ -223,11 +225,11 @@ test.skipIf(!databaseUrl)(
       expect(read.lastReadSequence).toBe(second.sequence.toString());
       expect(read.lastReadNotificationSequence).toBe(reactionState.notificationCursor);
       expect(read.notifications).toEqual([]);
-      expect(await unreadBadgeCount(prisma)).toBe(0);
+      expect(await unreadBadgeCount(prisma)).toBe(initialBadgeCount);
       expect(dismissed).toEqual(delivered);
       await drain();
       expect(sent.filter((push) => push.data.kind === "badge-sync").at(-1)).toMatchObject({
-        badge: 0,
+        badge: initialBadgeCount,
         data: {
           readState: {
             channelId: channel.id,
@@ -240,7 +242,7 @@ test.skipIf(!databaseUrl)(
       expect(nativeRead.payload.aps).toEqual({ "content-available": 1 });
       expect(nativeRead.payload.data.readState).toMatchObject({ channelId: channel.id, lastReadSequence: second.sequence.toString(), lastReadNotificationSequence: reactionState.notificationCursor });
       const snapshot = await Effect.runPromise(service.snapshot());
-      expect(snapshot.badgeCount).toBe(0);
+      expect(snapshot.badgeCount).toBe(initialBadgeCount);
       expect(snapshot.readStates).toContainEqual(nativeRead.payload.data.readState);
       await messaging.reactToMessage(
         { ...context, callId: crypto.randomUUID() },
@@ -252,7 +254,7 @@ test.skipIf(!databaseUrl)(
       );
       await drain();
       expect(sent.filter((push) => push.data.kind === "reaction")).toHaveLength(2);
-      expect(await unreadBadgeCount(prisma)).toBe(0);
+      expect(await unreadBadgeCount(prisma)).toBe(initialBadgeCount);
     } finally {
       const devices = await prisma.pushDevice.findMany({
         where: { installationId: { in: installationIds } },

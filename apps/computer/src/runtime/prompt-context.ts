@@ -4,6 +4,7 @@ import { platform, release } from "node:os";
 import { join } from "node:path";
 import type { BotMessage } from "../bot-compaction";
 import type { ActiveTurn } from "./types";
+import { taskUserInfo, type TaskConfiguration } from "@openteam/contracts/task-configuration";
 
 const hash = (value: unknown) =>
   createHash("sha256")
@@ -16,6 +17,8 @@ export function enrichUserInfo(
     cwd: string;
     transcriptPath: string;
     namespaces: Array<{ name: string; description?: string; tools: Array<{ name: string }> }>;
+    taskConfiguration?: TaskConfiguration;
+    subagent?: boolean;
   }
 ): string {
   const environment = [
@@ -27,7 +30,7 @@ export function enrichUserInfo(
   return [
     base.replace("<user_info>", `<user_info>\n${environment}`),
     `<agent_transcripts>\nPast conversation transcripts: ${input.transcriptPath}. Read relevant prior context when needed; do not cite internal transcript IDs to the user.\n</agent_transcripts>`,
-    "<available_subagent_types>\nexecutor: general delegated work; computerUse: desktop/pixel interaction; browserUse: browser interaction; videoReview and watchVideo: media review. Give each worker a self-contained task, required inputs, constraints and completion criteria.\n</available_subagent_types>",
+    ...(input.subagent ? [] : [taskUserInfo(input.taskConfiguration)]),
     "<dynamic_tool_catalog>",
     "This catalog is a context snapshot. Use GetDynamicTools for current schemas and availability before calling CallDynamicTool.",
     ...input.namespaces.map(

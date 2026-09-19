@@ -1,6 +1,6 @@
 import { READ_SIBLING_THREAD_TOOL, parseSiblingThreadInput } from "@openteam/contracts/sibling-threads";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
-import { withReferenceContract, FIRST_PARTY_NAMESPACE_DESCRIPTION } from "@openteam/contracts/tool-contracts";
+import { withReferenceContract, taskToolContract, FIRST_PARTY_NAMESPACE_DESCRIPTION } from "@openteam/contracts/tool-contracts";
 import pluginToolSchemas from "../plugin-tool-schemas.json";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import {
@@ -315,6 +315,7 @@ export function dynamicCatalog(
       tools: (active.requestSource === "automation"
         ? cursorTools.filter((tool) => !AUTOMATION_PARENT_ONLY_TOOLS.has(tool.name))
         : cursorTools).map(withReferenceContract).map(tool => {
+          if (tool.name === "Task") return { ...tool, ...taskToolContract(active.taskConfiguration) };
           if (tool.name !== "upload_file" && tool.name !== "download_file") return tool;
           const operation = tool.name === "upload_file" ? "upload" : "download";
           const connections = active.pluginNamespaces.filter(namespace => namespace.fileTransfers?.[operation]);

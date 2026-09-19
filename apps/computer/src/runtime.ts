@@ -50,6 +50,7 @@ import { attachSession, routeEvent } from "./runtime/events";
 import { inferenceReasoningOptions, reasoningExtension } from "./runtime/reasoning";
 import { untrustedResultsExtension } from "./runtime/untrusted-results";
 import { enrichUserInfo } from "./runtime/prompt-context";
+import { defaultTaskConfiguration, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 import { assertSessionPath } from "./runtime/session-path";
 import { RuntimeTools } from "./runtime/tools";
 import { pluginComponentsExtension } from "./runtime/plugin-components";
@@ -219,6 +220,7 @@ export class ComputerRuntime {
 
     const queue = new ComputerEventQueue();
     const active: ActiveTurn = {
+      taskConfiguration: request.taskConfiguration === undefined ? defaultTaskConfiguration() : parseTaskConfiguration(request.taskConfiguration),
       runId: request.runId,
       botId: request.botId,
       contextSessionId: request.contextSessionId,
@@ -330,6 +332,8 @@ export class ComputerRuntime {
         cwd: active.cwd,
         transcriptPath: openedSessionPath,
         namespaces: this.tools.contextCatalog(active),
+        taskConfiguration: active.taskConfiguration,
+        subagent: Boolean(active.subagentType),
       }), request.userInfoEpoch ?? 0);
       active.unsubscribe = session.subscribe((event) => this.routeEvent(active, event));
       const recordedInputIds = new Set(session.sessionManager.getEntries().flatMap((entry) => entry.type === "custom" && entry.customType === "openteam-input-receipt" && typeof (entry.data as { messageId?: unknown })?.messageId === "string" ? [(entry.data as { messageId: string }).messageId] : []));
@@ -677,6 +681,7 @@ export class ComputerRuntime {
         if (active.session) active.session.agent.state.systemPrompt = refreshed.instructions;
         active.userInfoMessage = refreshed.userInfo ? botUserInfoMessage(enrichUserInfo(refreshed.userInfo, {
           cwd: active.cwd, transcriptPath: active.sessionPath ?? "", namespaces: this.tools.contextCatalog(active),
+          taskConfiguration: active.taskConfiguration,
         }), refreshed.userInfoEpoch) : null;
         const note = [refreshed.ambientContext, refreshed.instructionsUpdate].filter(Boolean).join("\n\n");
         if (note && active.session) await active.session.sendCustomMessage({

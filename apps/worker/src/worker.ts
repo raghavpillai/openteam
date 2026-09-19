@@ -10,7 +10,8 @@ import type {
   SubagentType,
 } from "@openteam/contracts";
 import { SEND_TO_USER_REPLY_NUDGE_PROMPT } from "@openteam/contracts";
-import { formatPiModelRef } from "@openteam/contracts";
+import { formatPiModelRef, parsePiModelRef, normalizePiReasoningLevel } from "@openteam/contracts";
+import { selectTaskConfiguration, parseTaskConfiguration, type TaskConfiguration, type TaskCapabilities } from "@openteam/contracts/task-configuration";
 import {
   COMPUTER_API_PATHS,
   parseAgentDirectorySnapshot,
@@ -136,6 +137,9 @@ interface Claimed {
   subagentType: SubagentType | null;
   readOnly: boolean;
   model: string | null;
+  reasoning: string | null;
+  combinedComputerUse: boolean | null;
+  taskConfiguration: TaskConfiguration | null;
   fileAttachments: string[];
 }
 
@@ -1214,6 +1218,9 @@ export class WakeWorker {
             (inbox.bot.subagentIdentity?.subagentType as SubagentType | undefined) ?? null,
           readOnly: inbox.bot.subagentIdentity?.readOnly ?? false,
           model: inbox.bot.subagentIdentity?.model ?? null,
+          reasoning: inbox.bot.subagentIdentity?.reasoning ?? null,
+          combinedComputerUse: inbox.bot.subagentIdentity?.combinedComputerUse ?? null,
+          taskConfiguration: inbox.bot.subagentIdentity?.taskConfiguration ? parseTaskConfiguration(inbox.bot.subagentIdentity.taskConfiguration) : null,
           fileAttachments: Array.isArray(inbox.bot.subagentIdentity?.fileAttachments)
             ? inbox.bot.subagentIdentity.fileAttachments.filter(
                 (value): value is string => typeof value === "string"
@@ -1234,18 +1241,26 @@ export class WakeWorker {
     let completion: Extract<ComputerEvent, { type: "turn.completed" }> | null = null;
     try {
       await this.reconcileContextState(claimed);
-      const [pluginContext, inference] = await Promise.all([
+      const [pluginContext, inference, configuredTasks] = await Promise.all([
         subagentLoadsPluginContext(claimed.subagentType)
           ? pluginRuntimeContext(this.prisma, claimed.pluginBotId)
           : Promise.resolve({ dynamicNamespaces: [], skillInstructions: "", pluginRuntimePackages: [] }),
         this.agentData.loadInferenceSettings(),
+        this.agentData.loadTaskConfiguration(),
       ]);
+      const capabilityResponse = await this.computerFetch("/v1/task-capabilities", { method: "GET" });
+      if (!capabilityResponse.ok) throw new Error("Could not determine Task computer capabilities");
+      const capabilities = await capabilityResponse.json() as TaskCapabilities;
+      if (typeof capabilities.desktopAvailable !== "boolean" || typeof capabilities.boxAvailable !== "boolean") throw new Error("Invalid Task computer capabilities");
+      const selectedTasks = selectTaskConfiguration(claimed.taskConfiguration ?? configuredTasks, capabilities);
+      const taskConfiguration = { ...selectedTasks,
+        combinedComputerUse: claimed.combinedComputerUse ?? selectedTasks.combinedComputerUse };
       // Plugin skills are global/read-only inputs. User workflows are rendered
       // later by platformInstructions and therefore win on conflict.
       const platformPrompt = await this.messaging.platformPrompt(claimed.botId, claimed.contextSessionId, pluginSkillPromptForRuntime(
         claimed.runtimeProfile,
         pluginContext.skillInstructions
-      ), claimed.memoryConversationId);
+      ), claimed.memoryConversationId, taskConfiguration);
       // Replay failed user inputs whose durable-session delivery was never
       // acknowledged. Runtime message IDs prevent duplication after a lost ack.
       const missed = claimed.runtimeProfile === "agent" && claimed.origin !== "routine" ? await this.prisma.inboxEvent.findMany({ where: { botId: claimed.botId, conversationId: claimed.conversationId, deliveryMode: "turn", runId: { not: claimed.runId }, run: { channelId: claimed.channelId, origin: "user", status: { in: ["failed", "interrupted"] }, inputDeliveredAt: null } }, orderBy: { createdAt: "asc" }, take: 20 }) : [];
@@ -1255,6 +1270,16 @@ export class WakeWorker {
         return [(async () => ({ id: `input:${payload.clientId}`, content: `[SAND_HIDDEN_PROMPT]Earlier user input whose delivery was interrupted:\n${payload.content}`, images: await this.messaging.assets.runtimeImages(assetRefs(payload.attachments)) }))()];
       }));
       const instructions = platformPrompt.instructions;
+      const selectedInference = {
+        ...parsePiModelRef(claimed.model ?? formatPiModelRef(inference)),
+        reasoning: claimed.reasoning ? normalizePiReasoningLevel(claimed.reasoning) : inference.reasoning,
+      };
+      await this.prisma.run.update({ where: { id: claimed.runId }, data: {
+        inferenceProvider: selectedInference.providerId,
+        inferenceModel: selectedInference.modelId,
+        inferenceReasoning: selectedInference.reasoning,
+        taskConfiguration: JSON.parse(JSON.stringify(taskConfiguration)),
+      } });
       const turnRequest = {
         runId: claimed.runId,
         botId: claimed.botId,
@@ -1291,9 +1316,10 @@ export class WakeWorker {
         deliveryId: claimed.deliveryId,
         runtimeProfile: claimed.runtimeProfile,
         subagentType: claimed.subagentType ?? undefined,
+        taskConfiguration,
         readOnly: claimed.readOnly,
-        model: claimed.model ?? formatPiModelRef(inference),
-        reasoning: inference.reasoning,
+        model: formatPiModelRef(selectedInference),
+        reasoning: selectedInference.reasoning,
         fileAttachments: claimed.fileAttachments,
         dynamicNamespaces: pluginContext.dynamicNamespaces,
         pluginRuntimePackages: pluginContext.pluginRuntimePackages,

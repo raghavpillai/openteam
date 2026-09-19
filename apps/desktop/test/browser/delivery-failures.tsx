@@ -110,6 +110,7 @@ function Fixture() {
             >
               <p>{record.payload.content}</p>
               <DeliveryFooter
+                sendingSinceMs={record.dispatchStartedAtMs}
                 delivery={record}
                 onCancel={async (nonce) => {
                   const payload = await controller.cancelQueued(nonce);

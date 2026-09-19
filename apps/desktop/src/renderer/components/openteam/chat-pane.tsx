@@ -7,6 +7,7 @@ import "./permission-cards.css";
 import { usePluginMentions } from "../../hooks/use-plugin-mentions";
 import { PluginApprovalNextStep } from "./plugins/plugin-approval-next-step";
 import { DeliveryFooter } from "./delivery-footer";
+import { sendProgressOwner } from "../../lib/send-progress";
 import type {
   ApprovalDecision,
   ApprovalView,
@@ -398,6 +399,7 @@ const MessageRow = memo(function MessageRow({
   animateEntrance,
   pending,
   delivery,
+  sendingSinceMs,
   onCancelSend,
   onDeleteSend,
   onResendSend,
@@ -418,6 +420,7 @@ const MessageRow = memo(function MessageRow({
   animateEntrance: boolean;
   pending: boolean;
   delivery: DurableSendRecord | null;
+  sendingSinceMs: number | null;
   onCancelSend: (nonce: string) => Promise<void>;
   onDeleteSend: (nonce: string) => Promise<void>;
   onResendSend: (nonce: string) => Promise<void>;
@@ -567,6 +570,7 @@ const MessageRow = memo(function MessageRow({
           data-message-id={message.id}
           data-failed={delivery?.phase === "failed" || undefined}
           data-pending={pending || undefined}
+          aria-busy={pending || undefined}
           from={from}
           onAnimationEnd={(event) => {
             if (
@@ -725,6 +729,7 @@ const MessageRow = memo(function MessageRow({
           )}
           <DeliveryFooter
             delivery={delivery}
+            sendingSinceMs={sendingSinceMs}
             onCancel={onCancelSend}
             onDelete={onDeleteSend}
             onResend={onResendSend}
@@ -1481,6 +1486,11 @@ export const ChatPane = memo(function ChatPane({
     () => mainMessageRecords.map(({ message }) => message),
     [mainMessageRecords]
   );
+  const sendProgress = useMemo(
+    () =>
+      sendProgressOwner(mainMessageRecords.flatMap(({ delivery }) => (delivery ? [delivery] : []))),
+    [mainMessageRecords]
+  );
   const visibleContextMessageIds = useMemo(() => {
     const ids = new Set(searchContextMessageIds ?? []);
     for (const message of mainMessages) {
@@ -1896,6 +1906,11 @@ export const ChatPane = memo(function ChatPane({
                           )}
                           message={entry.message}
                           delivery={entry.delivery}
+                          sendingSinceMs={
+                            entry.delivery?.nonce === sendProgress?.nonce
+                              ? sendProgress?.sinceMs ?? null
+                              : null
+                          }
                           pending={entry.pending}
                           onCancelSend={cancelDurableSend}
                           onDeleteSend={deleteDurableSend}

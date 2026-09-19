@@ -25,6 +25,7 @@ import {
 import { api } from "../../client/openteam-api";
 import { useVirtualWindow } from "../../hooks/use-virtual-window";
 import { DeliveryFooter } from "./delivery-footer";
+import { sendProgressOwner } from "../../lib/send-progress";
 import type { MentionOption } from "../../lib/mentions";
 import { MessageContent, MessageResponse } from "../ai-elements/message";
 import { PromptInput } from "../ai-elements/prompt-input";
@@ -38,6 +39,7 @@ const MessageFileAttachments = lazy(() =>
 const ThreadMessage = ({
   botById,
   delivery,
+  sendingSinceMs,
   message,
   onCancelSend,
   onDeleteSend,
@@ -45,6 +47,7 @@ const ThreadMessage = ({
 }: {
   botById: ReadonlyMap<string, BotView>;
   delivery: DurableSendRecord | null;
+  sendingSinceMs: number | null;
   message: ChannelMessageView;
   onCancelSend: (nonce: string) => Promise<unknown>;
   onDeleteSend: (nonce: string) => Promise<unknown>;
@@ -76,10 +79,11 @@ const ThreadMessage = ({
       }`}
       data-failed={delivery?.phase === "failed" || undefined}
       data-pending={pending || undefined}
+      aria-busy={pending || undefined}
       data-thread-message-id={message.id}
     >
       {from !== "user" && <BotAvatar bot={bot} size="sm" />}
-      <div className={`max-w-[82%] ${from === "user" ? "items-end" : "items-start"}`}>
+      <div className={`relative max-w-[82%] ${from === "user" ? "items-end" : "items-start"}`}>
         {from !== "user" && (
           <div className="mb-1 px-1 text-[11px] text-muted-foreground">{bot?.name ?? "Bot"}</div>
         )}
@@ -114,7 +118,13 @@ const ThreadMessage = ({
             <MessageResponse>{display.displayContent}</MessageResponse>
           </MessageContent>
         )}
-        <DeliveryFooter delivery={delivery} onCancel={onCancelSend} onDelete={onDeleteSend} onResend={onResendSend} />
+        <DeliveryFooter
+          delivery={delivery}
+          sendingSinceMs={sendingSinceMs}
+          onCancel={onCancelSend}
+          onDelete={onDeleteSend}
+          onResend={onResendSend}
+        />
       </div>
     </div>
   );
@@ -175,6 +185,16 @@ export function ThreadTray({
     () =>
       new Map(deliveries.map((delivery) => [durableSendMessage(delivery).id, delivery] as const)),
     [deliveries]
+  );
+  const sendProgress = useMemo(
+    () =>
+      sendProgressOwner(
+        messages.flatMap((message) => {
+          const delivery = deliveryByMessageId.get(message.id);
+          return delivery ? [delivery] : [];
+        })
+      ),
+    [deliveryByMessageId, messages]
   );
   const estimateSize = useCallback((index: number) => (index === 0 ? 128 : 76), []);
   const getKey = useCallback(
@@ -292,6 +312,11 @@ export function ThreadTray({
                   <ThreadMessage
                     botById={botById}
                     delivery={deliveryByMessageId.get(message.id) ?? null}
+                    sendingSinceMs={
+                      deliveryByMessageId.get(message.id)?.nonce === sendProgress?.nonce
+                        ? sendProgress?.sinceMs ?? null
+                        : null
+                    }
                     message={message}
                     onCancelSend={cancelSend}
                     onDeleteSend={onDeleteSend}

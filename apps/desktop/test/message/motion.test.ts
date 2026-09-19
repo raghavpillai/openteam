@@ -30,9 +30,7 @@ test("message entrance and acknowledgement motion match OpenTeam", async () => {
   expect(styles).toMatch(
     /\.message-row\[data-enter="new"\] > \.message-row-content\s*\{\s*animation-duration: 120ms !important;/
   );
-  expect(styles).toMatch(
-    /\.message-row\[data-pending\],\s*\.thread-message-row\[data-pending\]\s*\{\s*opacity: 0\.55;\s*transition: opacity 120ms ease;/
-  );
+  expect(styles).not.toMatch(/\.message-row\[data-pending\][^{]*\{[^}]*opacity:/);
   expect(styles).not.toContain("message-send-failed-highlight");
   expect(styles).not.toContain("#ffc000");
   expect(styles).toContain(".sent-while-offline-notice[data-cleared]");
@@ -47,6 +45,7 @@ test("message entrance and acknowledgement motion match OpenTeam", async () => {
   const deliveryFooter = await Bun.file(new URL("../../src/renderer/components/openteam/delivery-footer.tsx", import.meta.url)).text();
   expect(chatPane).toContain("DeliveryFooter");
   expect(deliveryFooter).toContain("durableSendStatusLabel");
+  expect(deliveryFooter).not.toContain("Sending…");
   expect(chatPane).toContain(
     "knownMessageIds.current = new Set(messages.map((message) => message.id))"
   );

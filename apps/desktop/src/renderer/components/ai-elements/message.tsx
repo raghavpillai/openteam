@@ -31,7 +31,7 @@ export function Message({
     >
       <div
         className={cn(
-          "message-row-content flex w-full flex-col gap-0.5",
+          "message-row-content relative flex w-full flex-col gap-0.5",
           from === "user" ? "items-end" : "items-start"
         )}
       >

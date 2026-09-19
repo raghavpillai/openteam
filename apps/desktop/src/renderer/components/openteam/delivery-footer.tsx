@@ -9,14 +9,47 @@ import {
   subscribeDesktopSendTransport,
   desktopSendTransportSnapshot,
 } from "../../lib/durable-sends";
+import { sendProgressRevealDelay } from "../../lib/send-progress";
+
+function SendProgress({ sinceMs }: { sinceMs: number }) {
+  const [reveal, setReveal] = useState(() => {
+    const mountedAtMs = Date.now();
+    return { sinceMs, mountedAtMs, delayMs: sendProgressRevealDelay(sinceMs, mountedAtMs) };
+  });
+  if (reveal.sinceMs !== sinceMs) {
+    setReveal({
+      ...reveal,
+      sinceMs,
+      // Once visible, a change in the oldest pending attempt must not hide it again.
+      delayMs:
+        Date.now() >= reveal.mountedAtMs + reveal.delayMs
+          ? reveal.delayMs
+          : sendProgressRevealDelay(sinceMs, reveal.mountedAtMs),
+    });
+  }
+  return (
+    <div
+      aria-hidden="true"
+      className="send-progress"
+      data-send-progress=""
+      style={{ animationDelay: `${reveal.delayMs}ms` }}
+    >
+      <div className="send-progress-track">
+        <div className="send-progress-segment" />
+      </div>
+    </div>
+  );
+}
 
 export const DeliveryFooter = memo(function DeliveryFooter({
   delivery,
+  sendingSinceMs,
   onCancel,
   onDelete,
   onResend,
 }: {
   delivery: DurableSendRecord | null;
+  sendingSinceMs: number | null;
   onCancel: (nonce: string) => Promise<unknown>;
   onDelete: (nonce: string) => Promise<unknown>;
   onResend: (nonce: string) => Promise<unknown>;
@@ -86,22 +119,25 @@ export const DeliveryFooter = memo(function DeliveryFooter({
       </div>
     );
   }
-  if (delivery?.phase === "queued") {
+  const pending = delivery?.phase === "prepared" || delivery?.phase === "dispatching";
+  if (delivery?.phase === "queued" || (pending && transportDown)) {
     return (
       <div
         className="mt-1 flex flex-wrap items-center justify-end gap-1 self-end text-[11px] leading-4 text-muted-foreground"
         data-queued-send-notice=""
         role="status"
       >
-        <span>{durableSendStatusLabel(delivery.phase, transportDown)}</span>
-        <button
-          className={actionClass}
-          disabled={busy}
-          onClick={() => act(() => onCancel(delivery.nonce))}
-          type="button"
-        >
-          Cancel
-        </button>
+        <span>{durableSendStatusLabel("queued", transportDown)}</span>
+        {delivery?.phase === "queued" && (
+          <button
+            className={actionClass}
+            disabled={busy}
+            onClick={() => act(() => onCancel(delivery.nonce))}
+            type="button"
+          >
+            Cancel
+          </button>
+        )}
         {actionError ? (
           <span role="alert" className="w-full text-right text-destructive">
             {actionError}
@@ -110,31 +146,31 @@ export const DeliveryFooter = memo(function DeliveryFooter({
       </div>
     );
   }
-  if (delivery?.phase === "prepared" || delivery?.phase === "dispatching") {
-    return (
-      <span className="self-end text-[11px] leading-4 text-muted-foreground" role="status">
-        Sending…
-      </span>
-    );
-  }
+  const progress =
+    pending && sendingSinceMs !== null && !transportDown ? (
+      <SendProgress sinceMs={sendingSinceMs} />
+    ) : null;
   const offlineAtMs = currentOfflineAtMs ?? retainedOfflineAtMs;
   if (
     offlineAtMs !== null &&
-    ((delivery?.phase === "accepted-awaiting-echo" && currentOfflineAtMs !== null) ||
+    (((pending || delivery?.phase === "accepted-awaiting-echo") && currentOfflineAtMs !== null) ||
       (delivery === null && retainedOfflineAtMs !== null))
   ) {
     const clearing = delivery === null;
     return (
-      <div
-        aria-hidden={clearing || undefined}
-        className="sent-while-offline-notice self-end text-[11px] leading-4 text-muted-foreground"
-        data-cleared={clearing || undefined}
-        data-sent-while-offline=""
-        role="status"
-      >
-        {formatOfflineDeliveryLabel(offlineAtMs)}
-      </div>
+      <>
+        <div
+          aria-hidden={clearing || undefined}
+          className="sent-while-offline-notice self-end text-[11px] leading-4 text-muted-foreground"
+          data-cleared={clearing || undefined}
+          data-sent-while-offline=""
+          role="status"
+        >
+          {formatOfflineDeliveryLabel(offlineAtMs)}
+        </div>
+        {progress}
+      </>
     );
   }
-  return null;
+  return progress;
 });

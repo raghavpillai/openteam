@@ -174,23 +174,33 @@ function ActionIcon({ action }: { action: SearchAction }) {
   );
 }
 
-export function SearchDialog({
-  open,
-  actions,
-  botById,
-  channelById,
-  onOpenChange,
-  onSelectResult,
-}: {
+interface SearchDialogProps {
   open: boolean;
   actions: SearchAction[];
   botById: ReadonlyMap<string, BotView>;
   channelById: ReadonlyMap<string, ChannelView>;
   onOpenChange: (open: boolean) => void;
   onSelectResult: (result: SearchResultView) => void;
-}) {
+}
+
+export function SearchDialog(props: SearchDialogProps) {
+  // Grok's palette mounts fresh and opens/closes without a surface animation.
+  // Reset before the first paint so reopening never flashes the previous query.
+  return props.open ? <OpenSearchDialog {...props} /> : null;
+}
+
+function OpenSearchDialog({
+  open,
+  actions,
+  botById,
+  channelById,
+  onOpenChange,
+  onSelectResult,
+}: SearchDialogProps) {
   const [query, setQuery] = useState("");
-  const [documents, setDocuments] = useState<SearchResultView[]>([]);
+  const [documents, setDocuments] = useState<SearchResultView[]>(
+    () => freshCachedResults(DEFAULT_SEARCH_KEY) ?? []
+  );
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [commandHeld, setCommandHeld] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -214,14 +224,6 @@ export function SearchDialog({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    setQuery("");
-    setSelectedIndex(0);
-    const frame = requestAnimationFrame(() => inputRef.current?.focus());
-    return () => cancelAnimationFrame(frame);
   }, [open]);
 
   useEffect(() => {
@@ -343,6 +345,10 @@ export function SearchDialog({
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
         className="h-[min(456px,calc(100vh-48px))] max-w-[560px] grid-rows-[auto_1fr] gap-0 overflow-hidden rounded-[15px] border-border/80 bg-popover p-0 shadow-none"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          inputRef.current?.focus({ preventScroll: true });
+        }}
         showCloseButton={false}
       >
         <DialogTitle aria-hidden="true" className="sr-only">

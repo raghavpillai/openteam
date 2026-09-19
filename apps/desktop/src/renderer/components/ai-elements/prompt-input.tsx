@@ -177,9 +177,11 @@ export function PromptInput({
   const submitInFlight = useRef(false);
   const [staging, setStaging] = useState(false);
   const stagingInFlight = useRef(false);
-  const [retainedReply, setRetainedReply] = useState(reply);
   const [autoExpanded, setAutoExpanded] = useState(false);
   const [textareaHeight, setTextareaHeight] = useState(20);
+  const [surfaceHeight, setSurfaceHeight] = useState(44);
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLDivElement>(null);
   const sendAfterVoice = useRef(false);
   const [voiceReadyToSend, setVoiceReadyToSend] = useState(false);
@@ -203,18 +205,18 @@ export function PromptInput({
     sendAfterVoice.current = false;
     setVoiceReadyToSend(false);
     voice.start();
-    textareaRef.current?.focus();
+    textareaRef.current?.focus({ preventScroll: true });
   };
   const cancelVoice = () => {
     voiceBookmark.current = null;
     sendAfterVoice.current = false;
     setVoiceReadyToSend(false);
     voice.cancel();
-    textareaRef.current?.focus();
+    textareaRef.current?.focus({ preventScroll: true });
   };
   const stopVoice = () => {
     voice.stop();
-    textareaRef.current?.focus();
+    textareaRef.current?.focus({ preventScroll: true });
   };
   useEffect(() => {
     const editor = textareaRef.current;
@@ -267,7 +269,7 @@ export function PromptInput({
     }
     replaceAttachments([...attachmentsRef.current, ...incomingDraft.attachments]);
     onDraftApplied?.();
-    requestAnimationFrame(() => textareaRef.current?.focus());
+    requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
   }, [incomingDraft, onDraftApplied, replaceAttachments, value]);
   const consumeEmptyRecovery = useCallback(
     (nextText: string, nextAttachmentCount: number) => {
@@ -278,7 +280,6 @@ export function PromptInput({
     },
     [onRecoveryConsumed]
   );
-  const renderedReply = reply ?? retainedReply;
   const replyOpen = Boolean(reply);
   const hasText = value.trim().length > 0;
   const hasPayload = hasText || attachments.length > 0;
@@ -312,21 +313,11 @@ export function PromptInput({
     ]);
     setAttachmentError(recovery.message ? `Message not sent: ${clientErrorMessage(recovery.message, "Try again.")}` : null);
     onRecoveryApplied?.();
-    window.requestAnimationFrame(() => textareaRef.current?.focus());
+    window.requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
   }, [onRecoveryApplied, recovery, replaceAttachments, value]);
 
   useEffect(() => {
-    if (reply) {
-      setRetainedReply(reply);
-      return;
-    }
-    if (!retainedReply) return;
-    const timer = window.setTimeout(() => setRetainedReply(null), 300);
-    return () => window.clearTimeout(timer);
-  }, [reply, retainedReply]);
-
-  useEffect(() => {
-    if (reply) textareaRef.current?.focus();
+    if (reply) textareaRef.current?.focus({ preventScroll: true });
   }, [reply]);
 
   useEffect(() => {
@@ -354,7 +345,6 @@ export function PromptInput({
     const textarea = textareaRef.current;
     if (!textarea) return;
 
-    const previousHeight = textarea.getBoundingClientRect().height;
     textarea.style.height = "auto";
     const scrollHeight = textarea.scrollHeight;
     const nextAutoExpanded =
@@ -376,13 +366,6 @@ export function PromptInput({
     setTextareaHeight(contentHeight);
     textarea.style.overflowY = scrollHeight > MAX_TEXTAREA_HEIGHT ? "auto" : "hidden";
 
-    if (previousHeight === contentHeight) {
-      textarea.style.height = `${contentHeight}px`;
-      return;
-    }
-
-    textarea.style.height = `${previousHeight}px`;
-    void textarea.offsetHeight;
     textarea.style.height = `${contentHeight}px`;
   }, [
     attachmentError,
@@ -394,6 +377,36 @@ export function PromptInput({
     voice.notice,
     trailingWidth,
   ]);
+
+  // Measure the resting content, then animate only the surrounding frame. The
+  // bottom controls stay attached to that frame throughout growth and collapse.
+  const measureSurface = useCallback(() => {
+    const surface = surfaceRef.current;
+    const content = contentRef.current;
+    if (!surface || !content) return;
+    const style = getComputedStyle(surface);
+    const borders =
+      Number.parseFloat(style.borderTopWidth) + Number.parseFloat(style.borderBottomWidth);
+    setSurfaceHeight(
+      Math.max(44, content.getBoundingClientRect().height + (expanded ? 16 : 8) + borders)
+    );
+  }, [expanded]);
+  useLayoutEffect(measureSurface, [
+    measureSurface,
+    textareaHeight,
+    reply,
+    attachments.length,
+    attachmentError,
+    voice.error,
+    voice.notice,
+  ]);
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    const observer = new ResizeObserver(measureSurface);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [measureSurface]);
 
   const addFiles = useCallback(
     async (files: File[]) => {
@@ -458,7 +471,7 @@ export function PromptInput({
         if (accepted.length < loaded.length) {
           setAttachmentError(`You can attach up to ${maxAttachments} files.`);
         }
-        textareaRef.current?.focus();
+        textareaRef.current?.focus({ preventScroll: true });
       } catch (cause) {
         setAttachmentError(
           cause instanceof Error
@@ -720,326 +733,321 @@ export function PromptInput({
           className={cn(
             "relative box-border flex min-h-11 flex-col rounded-[22px] border-[0.5px] border-solid border-[#14141426] bg-[#fcfcfc] px-1 py-1 shadow-[0_2px_8px_-1px_#0000000d,0_1px_2px_#00000008,0_0_0_1px_#e4e4e40a] hover:border-[#1414144d] focus-within:border-[#1414144d] dark:border-[#fcfcfc26] dark:bg-[#2f2f2f] dark:hover:border-[#fcfcfc4d] dark:focus-within:border-[#fcfcfc4d]",
             expanded ? "rounded-[18px] px-3 pb-[7px] pt-[9px]" : "rounded-[22px] px-1 py-1",
-            "overflow-hidden transition-[border-radius,padding,border-color,background-color,box-shadow,transform] duration-[300ms,300ms,150ms,150ms,150ms,150ms] ease-[cubic-bezier(0.22,1,0.36,1),cubic-bezier(0.22,1,0.36,1),ease,ease,ease,ease] motion-reduce:duration-[120ms,120ms,150ms,150ms,150ms,150ms] motion-reduce:ease-in-out",
+            "overflow-hidden transition-[height,border-radius,padding,border-color,background-color,box-shadow,transform] duration-[300ms,300ms,300ms,150ms,150ms,150ms,150ms] ease-[var(--ease-composer),var(--ease-composer),var(--ease-composer),ease,ease,ease,ease]",
             disabled && "opacity-70",
             dragging && !dropTargetRef && "scale-[1.003]"
           )}
           data-prompt-surface
+          ref={surfaceRef}
+          style={{ height: surfaceHeight }}
         >
-          <div
-            aria-hidden={!replyOpen}
-            className={cn(
-              "grid w-full transition-[grid-template-rows,margin-bottom,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
-              replyOpen
-                ? "mb-1.5 grid-rows-[1fr] opacity-100"
-                : "pointer-events-none mb-0 grid-rows-[0fr] opacity-0"
-            )}
-          >
-            <div className="min-h-0 overflow-hidden">
-              {renderedReply && (
-                <div
-                  className="flex w-full animate-in items-center gap-1.5 rounded-[10px] bg-[#f0f0f0] py-1 pl-2 pr-1 text-[14px] leading-[22px] text-[#747474] fade-in-0 slide-in-from-bottom-1 duration-200 motion-reduce:animate-none dark:bg-[#3b3b3b] dark:text-[rgba(240,240,240,0.74)]"
-                  data-reply-preview-id={renderedReply.id}
-                >
-                  <BotReplyIcon className="size-3 shrink-0 text-[#777] dark:text-[rgba(240,240,240,0.60)]" />
-                  <span className="min-w-0 flex-1 truncate">{renderedReply.content}</span>
-                  <button
-                    aria-label="Cancel reply"
-                    className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-[#777] transition-[background-color,color] duration-[120ms] ease-linear hover:bg-[#dcdcdc] hover:text-[#141414] dark:text-[rgba(240,240,240,0.60)] dark:hover:bg-[rgba(240,240,240,0.14)] dark:hover:text-[#f0f0f0]"
-                    onClick={onCancelReply}
-                    type="button"
-                  >
-                    <BotCloseIcon className="size-3" />
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {attachments.length > 0 && (
-            <div className="flex max-w-full gap-2 overflow-x-auto px-1 pb-1 pt-0.5">
-              {attachments.map((attachment) => {
-                const remove = () => {
-                  if (attachment.staged && !attachment.recoveryOwned) {
-                    void onDiscardStages?.([attachment.staged]);
-                  }
-                  if (attachment.previewUrl) {
-                    URL.revokeObjectURL(attachment.previewUrl);
-                    previewUrls.current.delete(attachment.previewUrl);
-                  }
-                  replaceAttachments(
-                    attachmentsRef.current.filter(({ id }) => id !== attachment.id)
-                  );
-                  consumeEmptyRecovery(
-                    value,
-                    attachmentsRef.current.filter(({ id }) => id !== attachment.id).length
-                  );
-                };
-                return attachment.previewUrl ? (
-                  <ImageAttachment
-                    image={{ url: attachment.previewUrl, alt: attachment.file.name }}
-                    key={attachment.id}
-                    onRemove={remove}
-                  />
-                ) : (
-                  <div
-                    className="group/file relative flex h-[72px] w-[220px] shrink-0 items-center gap-2 rounded-[14px] border border-black/10 bg-background px-3 dark:border-white/15"
-                    key={attachment.id}
-                  >
-                    <File className="size-5 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0">
-                      <div className="truncate text-xs font-medium">{attachment.file.name}</div>
-                      <div className="text-[10px] text-muted-foreground">
-                        {Math.max(
-                          1,
-                          Math.ceil((attachment.asset?.byteSize ?? attachment.file.size) / 1024)
-                        )}{" "}
-                        KB
-                      </div>
-                    </div>
-                    <button
-                      aria-label={`Remove ${attachment.file.name}`}
-                      className="absolute right-1 top-1 grid size-6 place-items-center rounded-full bg-black/85 text-white opacity-0 transition group-hover/file:opacity-100"
-                      onClick={remove}
-                      type="button"
-                    >
-                      <X className="size-4" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {voice.error || voice.notice ? (
-            <div
-              className="flex items-center gap-2 px-2 pb-1 text-[12px]"
-              role="status"
-              aria-live="polite"
-            >
-              <span
-                className={cn(
-                  "min-w-0 flex-1",
-                  voice.error ? "text-destructive" : "text-foreground-secondary"
-                )}
+          <div className="shrink-0" data-prompt-content ref={contentRef}>
+            {reply && (
+              <div
+                className="mb-1.5 flex w-full items-center gap-1.5 rounded-[10px] bg-[#f0f0f0] py-1 pl-2 pr-1 text-[14px] leading-[22px] text-[#747474] dark:bg-[#3b3b3b] dark:text-[rgba(240,240,240,0.74)]"
+                data-reply-preview-id={reply.id}
               >
-                {voice.error ?? voice.notice}
-              </span>
-              {voice.canRetry ? (
-                <button type="button" onClick={voice.retry} className="shrink-0 underline">
-                  Retry transcription
+                <BotReplyIcon className="size-3 shrink-0 text-[#777] dark:text-[rgba(240,240,240,0.60)]" />
+                <span className="min-w-0 flex-1 truncate">{reply.content}</span>
+                <button
+                  aria-label="Cancel reply"
+                  className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-[#777] transition-[background-color,color] duration-[120ms] ease-linear hover:bg-[#dcdcdc] hover:text-[#141414] dark:text-[rgba(240,240,240,0.60)] dark:hover:bg-[rgba(240,240,240,0.14)] dark:hover:text-[#f0f0f0]"
+                  onClick={onCancelReply}
+                  type="button"
+                >
+                  <BotCloseIcon className="size-3" />
                 </button>
-              ) : null}
+              </div>
+            )}
+
+            {attachments.length > 0 && (
+              <div className="flex max-w-full gap-2 overflow-x-auto px-1 pb-1 pt-0.5">
+                {attachments.map((attachment) => {
+                  const remove = () => {
+                    if (attachment.staged && !attachment.recoveryOwned) {
+                      void onDiscardStages?.([attachment.staged]);
+                    }
+                    if (attachment.previewUrl) {
+                      URL.revokeObjectURL(attachment.previewUrl);
+                      previewUrls.current.delete(attachment.previewUrl);
+                    }
+                    replaceAttachments(
+                      attachmentsRef.current.filter(({ id }) => id !== attachment.id)
+                    );
+                    consumeEmptyRecovery(
+                      value,
+                      attachmentsRef.current.filter(({ id }) => id !== attachment.id).length
+                    );
+                  };
+                  return attachment.previewUrl ? (
+                    <ImageAttachment
+                      image={{ url: attachment.previewUrl, alt: attachment.file.name }}
+                      key={attachment.id}
+                      onRemove={remove}
+                    />
+                  ) : (
+                    <div
+                      className="group/file relative flex h-[72px] w-[220px] shrink-0 items-center gap-2 rounded-[14px] border border-black/10 bg-background px-3 dark:border-white/15"
+                      key={attachment.id}
+                    >
+                      <File className="size-5 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0">
+                        <div className="truncate text-xs font-medium">{attachment.file.name}</div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {Math.max(
+                            1,
+                            Math.ceil((attachment.asset?.byteSize ?? attachment.file.size) / 1024)
+                          )}{" "}
+                          KB
+                        </div>
+                      </div>
+                      <button
+                        aria-label={`Remove ${attachment.file.name}`}
+                        className="absolute right-1 top-1 grid size-6 place-items-center rounded-full bg-black/85 text-white opacity-0 transition group-hover/file:opacity-100"
+                        onClick={remove}
+                        type="button"
+                      >
+                        <X className="size-4" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {voice.error || voice.notice ? (
+              <div
+                className="flex items-center gap-2 px-2 pb-1 text-[12px]"
+                role="status"
+                aria-live="polite"
+              >
+                <span
+                  className={cn(
+                    "min-w-0 flex-1",
+                    voice.error ? "text-destructive" : "text-foreground-secondary"
+                  )}
+                >
+                  {voice.error ?? voice.notice}
+                </span>
+                {voice.canRetry ? (
+                  <button type="button" onClick={voice.retry} className="shrink-0 underline">
+                    Retry transcription
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={cancelVoice}
+                  aria-label="Dismiss voice note notice"
+                  className="shrink-0 p-1"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            ) : null}
+            {voice.active ? (
               <button
                 type="button"
                 onClick={cancelVoice}
-                aria-label="Dismiss voice note notice"
-                className="shrink-0 p-1"
+                aria-label="Cancel voice note"
+                className="sr-only focus:not-sr-only focus:self-start focus:rounded-full focus:px-2 focus:py-1 focus:text-xs"
               >
-                <X className="size-3" />
+                Cancel voice note (Esc)
               </button>
-            </div>
-          ) : null}
-          {voice.active ? (
-            <button
-              type="button"
-              onClick={cancelVoice}
-              aria-label="Cancel voice note"
-              className="sr-only focus:not-sr-only focus:self-start focus:rounded-full focus:px-2 focus:py-1 focus:text-xs"
-            >
-              Cancel voice note (Esc)
-            </button>
-          ) : null}
+            ) : null}
 
-          {attachmentError && (
-            <div role="alert" className="px-2 pb-1 text-[11px] text-destructive">
-              {attachmentError}
-            </div>
-          )}
+            {attachmentError && (
+              <div role="alert" className="px-2 pb-1 text-[11px] text-destructive">
+                {attachmentError}
+              </div>
+            )}
 
-          <div
-            className="relative w-full overflow-visible transition-[height] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
-            data-prompt-editor
-            style={{ height: expanded ? `${textareaHeight + 38}px` : "34px" }}
-          >
             <div
-              className={cn("absolute z-10", expanded ? "-left-1 bottom-0" : "bottom-[3px] left-0")}
+              className="w-full"
+              data-prompt-editor
+              style={{ height: expanded ? `${textareaHeight + 38}px` : "34px" }}
             >
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    aria-label="Add attachment"
-                    className={cn(SECONDARY_ACTION_CLASS, !expanded && "ml-1")}
-                    disabled={blocked}
-                    size="icon"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <BotPlusIcon className="size-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="start"
-                  className="w-[200px] rounded-[12px] border-input bg-popover p-1.5 text-[13px] leading-[18px] shadow-[0_8px_24px_rgba(0,0,0,0.14)]"
-                  side="top"
-                  sideOffset={8}
-                >
-                  <DropdownMenuItem
-                    className="h-[30px] gap-1 rounded-[6px] px-2 py-1.5 text-[13px] leading-[18px]"
-                    onSelect={() => fileInputRef.current?.click()}
-                  >
-                    <span className="grid size-[18px] shrink-0 place-items-center">
-                      <Paperclip className="size-3.5" />
-                    </span>
-                    Attach files
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-            <MentionEditor
-              className={cn(
-                "max-h-40 min-h-8 flex-1 resize-none bg-transparent px-1 py-1.5 text-[14px] leading-5 outline-none transition-[height] duration-150 ease-out placeholder:text-[#b7b7b7] motion-reduce:transition-none dark:placeholder:text-[#6d6d6d]",
-                "absolute left-0 w-full",
-                expanded
-                  ? "top-0 min-h-5 px-0 py-0"
-                  : hasPayload
-                    ? "top-px pb-1.5 pl-10 pr-[76px] pt-1.5"
-                    : "top-px px-10 py-1.5"
-              )}
-              disabled={Boolean(disabled) || submitting}
-              editorRef={textareaRef}
-              onChange={(plainText, nextRichText) => {
-                setValue(plainText);
-                setRichText(nextRichText);
-                consumeEmptyRecovery(plainText, attachmentsRef.current.length);
-              }}
-              onEscape={reply ? onCancelReply : undefined}
-              onPaste={onPaste}
-              onSubmit={() => void submit()}
-              options={mentionOptions}
-              placeholder={
-                voice.active
-                  ? voice.state === "processing"
-                    ? "Transcribing…"
-                    : "Listening…"
-                  : attachments.length > 0
-                    ? "Add a message, or hit send."
-                    : reply
-                      ? "Reply…"
-                      : placeholder
-              }
-              style={!expanded ? { paddingRight: `${trailingWidth + 12}px` } : undefined}
-              value={value}
-              onHeightChange={() => {
-                const editor = textareaRef.current;
-                if (!editor) return;
-                const scrollHeight = editor.scrollHeight;
-                setTextareaHeight(
-                  Math.max(20, Math.min(scrollHeight, expanded ? MAX_TEXTAREA_HEIGHT : 32))
-                );
-              }}
-            />
-            <div
-              className={cn(
-                "absolute z-10 flex items-center gap-2",
-                expanded ? "-right-1 bottom-0" : "bottom-[3px] right-1"
-              )}
-              ref={trailingRef}
-            >
-              {voice.state === "recording" || voice.state === "requesting" ? (
-                <>
-                  <VoiceRecordingChip
-                    elapsedMs={voice.elapsedMs}
-                    stream={voice.stream}
-                    onStop={stopVoice}
-                  />
-                  <Button
-                    aria-label="Transcribe and send"
-                    title="Transcribe and send"
-                    className="size-7 rounded-full bg-[#070707] text-[#fcfcfc] shadow-none hover:bg-[#070707] hover:opacity-90 dark:bg-[#fafafa] dark:text-[#141414] dark:hover:bg-[#fafafa]"
-                    onClick={sendVoice}
-                    size="icon"
-                    type="button"
-                  >
-                    <BotArrowUpIcon className="size-3.5" />
-                  </Button>
-                  <span role="status" className="sr-only">
-                    {voice.state === "requesting" ? "Requesting microphone…" : "Listening…"}
-                  </span>
-                </>
-              ) : voice.state === "processing" ? (
-                <span
-                  role="status"
-                  aria-label="Transcribing voice input…"
-                  className="flex size-7 shrink-0 items-center justify-center"
-                >
-                  <span
-                    aria-hidden="true"
-                    className="size-[18px] animate-spin rounded-full border-2 border-[#14141433] border-t-[#141414] dark:border-[#f0f0f033] dark:border-t-[#f0f0f0]"
-                  />
-                </span>
-              ) : (
-                <>
-                  {hasPayload && (
+              <div className="absolute bottom-[7px] left-2 z-10">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
                     <Button
-                      aria-label={
-                        voice.available
-                          ? "Record voice note"
-                          : "Set up transcription in Server settings to use voice notes"
-                      }
-                      title={
-                        voice.available
-                          ? `Click or hold ${/Mac/.test(navigator.platform) ? "⌘D" : "Ctrl+D"} to dictate`
-                          : "Set up transcription in Server settings"
-                      }
-                      className={cn(SECONDARY_ACTION_CLASS, "disabled:opacity-40")}
-                      disabled={!voice.available || blocked}
-                      onClick={startVoice}
-                      onMouseDown={(event) => event.preventDefault()}
+                      aria-label="Add attachment"
+                      className={SECONDARY_ACTION_CLASS}
+                      disabled={blocked}
                       size="icon"
                       type="button"
                       variant="ghost"
                     >
-                      <BotMicIcon className="size-4 animate-in fade-in-0 zoom-in-50 duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:animate-none" />
+                      <BotPlusIcon className="size-3.5" />
                     </Button>
-                  )}
-                  <Button
-                    aria-label={
-                      hasPayload
-                        ? "Send message"
-                        : voice.available
-                          ? "Record voice note"
-                          : "Set up transcription in Server settings to use voice notes"
-                    }
-                    title={
-                      !hasPayload && !voice.available
-                        ? "Set up transcription in Server settings"
-                        : !hasPayload
-                          ? `Click or hold ${/Mac/.test(navigator.platform) ? "⌘D" : "Ctrl+D"} to dictate`
-                          : undefined
-                    }
-                    className="relative size-7 rounded-full bg-[#070707] text-[#fcfcfc] shadow-none transition-opacity hover:bg-[#070707] hover:opacity-90 disabled:bg-[#070707] disabled:opacity-40 dark:bg-[#fafafa] dark:text-[#141414] dark:hover:bg-[#fafafa]"
-                    disabled={blocked || (hasPayload && sendDisabled) || (!hasPayload && !voice.available)}
-                    onClick={!hasPayload ? startVoice : undefined}
-                    onMouseDown={!hasPayload ? (event) => event.preventDefault() : undefined}
-                    size="icon"
-                    type={hasPayload ? "submit" : "button"}
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="start"
+                    className="w-[200px] rounded-[12px] border-input bg-popover p-1.5 text-[13px] leading-[18px] shadow-[0_8px_24px_rgba(0,0,0,0.14)]"
+                    side="top"
+                    sideOffset={8}
                   >
-                    <BotMicIcon
-                      className={cn(
-                        "absolute size-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
-                        hasPayload ? "scale-50 opacity-0" : "scale-100 opacity-100"
-                      )}
+                    <DropdownMenuItem
+                      className="h-[30px] gap-1 rounded-[6px] px-2 py-1.5 text-[13px] leading-[18px]"
+                      onSelect={() => fileInputRef.current?.click()}
+                    >
+                      <span className="grid size-[18px] shrink-0 place-items-center">
+                        <Paperclip className="size-3.5" />
+                      </span>
+                      Attach files
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              <div className="relative">
+                <MentionEditor
+                  className={cn(
+                    "max-h-40 min-h-8 flex-1 resize-none bg-transparent px-1 py-1.5 text-[14px] leading-5 outline-none placeholder:text-[#b7b7b7] dark:placeholder:text-[#6d6d6d]",
+                    "absolute left-0 w-full",
+                    expanded
+                      ? "top-0 min-h-5 px-0 py-0"
+                      : hasPayload
+                        ? "top-px pb-1.5 pl-10 pr-[76px] pt-1.5"
+                        : "top-px px-10 py-1.5"
+                  )}
+                  disabled={Boolean(disabled) || submitting}
+                  editorRef={textareaRef}
+                  onChange={(plainText, nextRichText) => {
+                    setValue(plainText);
+                    setRichText(nextRichText);
+                    consumeEmptyRecovery(plainText, attachmentsRef.current.length);
+                  }}
+                  onEscape={reply ? onCancelReply : undefined}
+                  onPaste={onPaste}
+                  onSubmit={() => void submit()}
+                  options={mentionOptions}
+                  placeholder={
+                    voice.active
+                      ? voice.state === "processing"
+                        ? "Transcribing…"
+                        : "Listening…"
+                      : attachments.length > 0
+                        ? "Add a message, or hit send."
+                        : reply
+                          ? "Reply…"
+                          : placeholder
+                  }
+                  style={!expanded ? { paddingRight: `${trailingWidth + 12}px` } : undefined}
+                  value={value}
+                  onHeightChange={() => {
+                    const editor = textareaRef.current;
+                    if (!editor) return;
+                    const scrollHeight = editor.scrollHeight;
+                    setTextareaHeight(
+                      Math.max(20, Math.min(scrollHeight, expanded ? MAX_TEXTAREA_HEIGHT : 32))
+                    );
+                  }}
+                />
+              </div>
+              <div
+                className="absolute bottom-[7px] right-2 z-10 flex items-center gap-2"
+                ref={trailingRef}
+              >
+                {voice.state === "recording" || voice.state === "requesting" ? (
+                  <>
+                    <VoiceRecordingChip
+                      elapsedMs={voice.elapsedMs}
+                      stream={voice.stream}
+                      onStop={stopVoice}
                     />
-                    <BotArrowUpIcon
-                      className={cn(
-                        "absolute size-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
-                        hasPayload ? "scale-100 opacity-100" : "scale-50 opacity-0"
-                      )}
+                    <Button
+                      aria-label="Transcribe and send"
+                      title="Transcribe and send"
+                      className="size-7 rounded-full bg-[#070707] text-[#fcfcfc] shadow-none hover:bg-[#070707] hover:opacity-90 dark:bg-[#fafafa] dark:text-[#141414] dark:hover:bg-[#fafafa]"
+                      onClick={sendVoice}
+                      size="icon"
+                      type="button"
+                    >
+                      <BotArrowUpIcon className="size-3.5" />
+                    </Button>
+                    <span role="status" className="sr-only">
+                      {voice.state === "requesting" ? "Requesting microphone…" : "Listening…"}
+                    </span>
+                  </>
+                ) : voice.state === "processing" ? (
+                  <span
+                    role="status"
+                    aria-label="Transcribing voice input…"
+                    className="flex size-7 shrink-0 items-center justify-center"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="size-[18px] animate-spin rounded-full border-2 border-[#14141433] border-t-[#141414] dark:border-[#f0f0f033] dark:border-t-[#f0f0f0]"
                     />
-                  </Button>
-                </>
-              )}
+                  </span>
+                ) : (
+                  <>
+                    {hasPayload && (
+                      <Button
+                        aria-label={
+                          voice.available
+                            ? "Record voice note"
+                            : "Set up transcription in Server settings to use voice notes"
+                        }
+                        title={
+                          voice.available
+                            ? `Click or hold ${/Mac/.test(navigator.platform) ? "⌘D" : "Ctrl+D"} to dictate`
+                            : "Set up transcription in Server settings"
+                        }
+                        className={cn(SECONDARY_ACTION_CLASS, "disabled:opacity-40")}
+                        disabled={!voice.available || blocked}
+                        onClick={startVoice}
+                        onMouseDown={(event) => event.preventDefault()}
+                        size="icon"
+                        type="button"
+                        variant="ghost"
+                      >
+                        <BotMicIcon className="size-4 animate-in fade-in-0 zoom-in-50 duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:animate-none" />
+                      </Button>
+                    )}
+                    <Button
+                      aria-label={
+                        hasPayload
+                          ? "Send message"
+                          : voice.available
+                            ? "Record voice note"
+                            : "Set up transcription in Server settings to use voice notes"
+                      }
+                      title={
+                        !hasPayload && !voice.available
+                          ? "Set up transcription in Server settings"
+                          : !hasPayload
+                            ? `Click or hold ${/Mac/.test(navigator.platform) ? "⌘D" : "Ctrl+D"} to dictate`
+                            : undefined
+                      }
+                      className="relative size-7 rounded-full bg-[#070707] text-[#fcfcfc] shadow-none transition-opacity hover:bg-[#070707] hover:opacity-90 disabled:bg-[#070707] disabled:opacity-40 dark:bg-[#fafafa] dark:text-[#141414] dark:hover:bg-[#fafafa]"
+                      disabled={
+                        blocked || (hasPayload && sendDisabled) || (!hasPayload && !voice.available)
+                      }
+                      onClick={!hasPayload ? startVoice : undefined}
+                      onMouseDown={!hasPayload ? (event) => event.preventDefault() : undefined}
+                      size="icon"
+                      type={hasPayload ? "submit" : "button"}
+                    >
+                      <BotMicIcon
+                        className={cn(
+                          "absolute size-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+                          hasPayload
+                            ? "[transform:scale(0.5)] opacity-0"
+                            : "[transform:scale(1)] opacity-100"
+                        )}
+                      />
+                      <BotArrowUpIcon
+                        className={cn(
+                          "absolute size-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+                          hasPayload
+                            ? "[transform:scale(1)] opacity-100"
+                            : "[transform:scale(0.5)] opacity-0"
+                        )}
+                      />
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>

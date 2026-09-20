@@ -548,7 +548,7 @@ private struct NativeAttachmentMenu: UIViewRepresentable {
     button.setImage(
       UIImage(
         systemName: "plus",
-        withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)),
+        withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)),
       for: .normal)
     button.showsMenuAsPrimaryAction = true
     button.accessibilityLabel = "Attach"

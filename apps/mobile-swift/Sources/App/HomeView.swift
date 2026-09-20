@@ -153,7 +153,7 @@ struct HomeView: View {
           creation = .group
         }
       } label: {
-        Image(systemName: "plus").font(.system(size: 23, weight: .regular)).frame(
+        Image(systemName: "plus").font(.system(size: 20, weight: .regular)).frame(
           width: 44, height: 44
         ).nativeGlass()
       }

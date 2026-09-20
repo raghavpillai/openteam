@@ -2,7 +2,7 @@
 
 A SwiftUI iPhone/iPad client for the existing OpenTeam HTTP API. This is a **migration beta**; Release builds update the existing iOS TestFlight app. Android remains in `apps/mobile`.
 
-[TestFlight 0.0.1 (28)](docs/TESTFLIGHT-28.md) updates chat motion and controls, group avatar cutouts and counts, centered headers, and the latest-responder Computer action, with signing and TestFlight delivery evidence.
+[TestFlight 0.0.1 (29)](docs/TESTFLIGHT-29.md) fixes the initial chat scroll jump with a native loading spinner and positions history before revealing it. It includes build 28's chat controls, centered headers, group avatars and latest-responder Computer action.
 
 [September 18 full iPhone QA and performance](docs/FULL-QA-0918.md) is the current status, including the deployed local server/APNs configuration and remaining performance, VNC, visual and device acceptance work.
 

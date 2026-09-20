@@ -28,12 +28,31 @@ import XCTest
         XCTAssertEqual(avatar.label, "\(count) bots")
         XCTAssertEqual(avatar.value as? String, count > 3 ? "+\(count - 3) more" : "")
         XCTAssertGreaterThan(avatar.frame.width, 27)
+        assertHeaderCentered(app)
         try await Task.sleep(for: .seconds(1))
         capture("groups-header-\(count)-" + appearance, app)
         app.buttons["chat-back"].tap()
       }
+      for name in ["short", "long"] {
+        app.buttons["channel-visual-header-\(name)"].tap()
+        XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["Computer"].exists)
+        assertHeaderCentered(app)
+        capture("direct-header-\(name)-" + appearance, app)
+        app.buttons["chat-back"].tap()
+      }
       app.terminate()
     }
+  }
+  func assertHeaderCentered(_ app: XCUIApplication) {
+    let pill = app.buttons["conversation-details"]
+    let back = app.buttons["chat-back"]
+    XCTAssertTrue(pill.isHittable)
+    XCTAssertEqual(
+      pill.frame.midX, app.frame.midX, accuracy: 0.5,
+      "The avatar/title pill must remain centered on the screen")
+    XCTAssertGreaterThanOrEqual(pill.frame.minX, back.frame.maxX + 7.5)
+    XCTAssertLessThanOrEqual(pill.frame.maxX, app.frame.maxX - back.frame.maxX - 7.5)
   }
   func capture(_ name: String, _ app: XCUIApplication) {
     let attachment = XCTAttachment(screenshot: app.screenshot())

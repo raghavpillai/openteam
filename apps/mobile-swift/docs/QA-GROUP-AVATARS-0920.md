@@ -18,3 +18,9 @@ Validation: eight core tests passed (group layout/counts and existing robot-moti
 Evidence is in `output/group-avatar-0920/`: `FinalGroups.xcresult`, `core-tests.log`, full `groups-*.png` captures, and `group-avatar-comparison.jpg`.
 
 The selected robot artwork is retained. The screenshots use legacy hexagon/pill marks while the fixture uses the current desktop chip/terminal robots. This comparison validates the group composition, cutouts, and overflow treatment; it is not a claim that different selected artwork has identical pixels. No TestFlight upload was performed.
+
+## Centered chat headers
+
+The avatar/title pill now occupies a centered middle slot between equal 44-point side slots. A group without a Computer action retains the empty trailing space, so removing that action cannot shift the pill. Long titles truncate within the middle slot. Native thread titles already use the centered inline navigation title.
+
+`output/chat-header-center-0920/Headers.xcresult` passes ten header checks: group sizes 2/5/12 and short/long direct-message titles, in both light and dark mode. Each requires the pill's midpoint to match the screen midpoint within half a point, at least 7.5 points of clearance from the side controls, and a hittable details action. `centered-headers.png` contains crops of the actual simulator screenshots.

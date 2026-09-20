@@ -26,6 +26,10 @@ export function visualFixture(base: any, scene: string) {
       snapshot.channels.push(group);
       message(id,"agent","Group avatar reference.",snapshot.channelMessages.length+1);
     }
+    for (const [id, name] of [["visual-header-short", "Hi"], ["visual-header-long", "An intentionally long conversation title that must truncate safely"]]) {
+      const {channel} = bot(id!, name!, "#00B8A9", "owl");
+      message(channel.id, "agent", "Centered header reference.", snapshot.channelMessages.length + 1);
+    }
   } else if(scene==="home" || scene.startsWith("dark-home")) {
     date.setDate(date.getDate()-(scene.startsWith("dark-home") ? 2 : 1));
     const rows=[

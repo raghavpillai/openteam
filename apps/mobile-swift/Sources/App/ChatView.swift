@@ -354,10 +354,16 @@ struct ChatView: View {
             .lineLimit(1)
         }.padding(.leading, 10).padding(.trailing, 14).frame(height: 44).nativeChatGlass()
       }.buttonStyle(.plain).accessibilityIdentifier("conversation-details")
-      Spacer(minLength: 4)
-      if store.bot(for: channel) != nil {
-        ChatChromeButton(title: "Computer", symbol: "display", symbolSize: 16) { computer = true }
-      }
+        .frame(maxWidth: .infinity)
+      // Equal side slots keep the pill on the screen's center, including groups
+      // without a Computer action. Long names truncate within the middle slot.
+      Group {
+        if store.bot(for: channel) != nil {
+          ChatChromeButton(title: "Computer", symbol: "display", symbolSize: 16) { computer = true }
+        } else {
+          Color.clear.accessibilityHidden(true)
+        }
+      }.frame(width: 44, height: 44)
     }.padding(.horizontal, 18).padding(.vertical, 6).foregroundStyle(NativePalette.text)
   }
   func timestamp(_ date: Date) -> String {

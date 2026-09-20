@@ -47,6 +47,12 @@ bun run desktop
 
 Connect to `http://127.0.0.1:8787` and sign in. Native mobile builds have [separate prerequisites](../../apps/mobile/README.md).
 
+## Package the macOS desktop
+
+From `apps/desktop`, `bun run package:mac-local` creates an ad-hoc signed build for local testing. A rebuild can change the identity macOS uses for Keychain access, so another system approval may be required.
+
+For distribution, use `bun run package:mac-release` with a valid Developer ID Application identity selected by `CSC_NAME` and the notarization credentials required by `scripts/macos-release-utils.ts`. Keep the signing identity consistent across releases. This release path enables hardened runtime, notarization, and signature checks. Do not change Keychain access controls to avoid approval for a differently signed build.
+
 ## Make and check changes
 
 Use `bun run typecheck`, `bun run test`, and `bun run build` for workspace checks, or run the relevant package's checks while working. `bun run check:architecture` validates package boundaries.

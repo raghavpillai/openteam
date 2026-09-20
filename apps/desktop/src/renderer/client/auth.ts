@@ -84,12 +84,13 @@ const loadAuthToken = (): Promise<string | null> => {
     if (generation !== credentialGeneration) return token;
     const next = stored || legacyToken;
     legacyToken = null;
-    token = next;
     if (!stored && next && bridge) {
       // One-time migration from the old renderer localStorage token. It was
       // deleted synchronously above before any network request can use it.
-      await bridge.writeToken(next).catch(() => undefined);
+      await bridge.writeToken(next);
     }
+    if (generation !== credentialGeneration) return token;
+    token = next;
     return token;
   })().finally(() => {
     tokenReadRequest = null;
@@ -99,13 +100,16 @@ const loadAuthToken = (): Promise<string | null> => {
 
 const persistAuthToken = async (next: string | null): Promise<void> => {
   if (!next) desktopMachineId = undefined;
-  credentialGeneration += 1;
+  const generation = ++credentialGeneration;
   legacyToken = null;
-  token = next;
   const bridge = authBridge();
-  if (!bridge) return;
-  if (next) await bridge.writeToken(next).catch(() => undefined);
-  else await bridge.clearToken().catch(() => undefined);
+  if (!next) token = null;
+  if (bridge) {
+    if (next) await bridge.writeToken(next);
+    else await bridge.clearToken().catch(() => undefined);
+  }
+  if (generation !== credentialGeneration) throw new Error("Sign-in was cancelled. Please try again.");
+  token = next;
 };
 
 const removeAuthCredentials = async (): Promise<void> => {

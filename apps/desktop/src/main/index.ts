@@ -1173,10 +1173,10 @@ if (!hasSingleInstanceLock) {
               return "unavailable";
             }
           },
-          decrypt: (value) => safeStorage.decryptString(value),
-          encrypt: (value) => safeStorage.encryptString(value),
-          isAvailable: () => {
-            if (!safeStorage.isEncryptionAvailable()) return false;
+          decrypt: (value) => safeStorage.decryptStringAsync(value),
+          encrypt: (value) => safeStorage.encryptStringAsync(value),
+          isAvailable: async () => {
+            if (!await safeStorage.isAsyncEncryptionAvailable()) return false;
             if (process.platform !== "linux") return true;
             try {
               return safeStorage.getSelectedStorageBackend() !== "basic_text";
@@ -1186,7 +1186,9 @@ if (!hasSingleInstanceLock) {
           },
         }
       );
-      const authStorageWarmup = authTokenStore.read();
+      // The renderer presents a retryable storage error. A denied or stalled
+      // keychain must not prevent the main window and host bridge starting.
+      const authStorageWarmup = authTokenStore.read().catch(() => null);
       await protocol.handle("openteam-staged", async (request) => {
         try {
           const url = new URL(request.url);
@@ -1259,7 +1261,7 @@ if (!hasSingleInstanceLock) {
         },
       });
       const [, authStorage] = await Promise.all([createWindow(), authStorageWarmup]);
-      if (authStorage.persistence === "memory") {
+      if (authStorage?.persistence === "memory") {
         console.warn(
           "OpenTeam OS secure storage is unavailable; the desktop session will remain in memory and will not persist after restart."
         );

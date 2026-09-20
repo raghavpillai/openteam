@@ -3,7 +3,7 @@ import { clientErrorMessage } from "./redaction";
 /** Present auth failures consistently without exposing native bridge or storage diagnostics. */
 export function authErrorMessage(cause: unknown, fallback: string): string {
   const message = clientErrorMessage(cause, fallback)
-    .replace(/^Error invoking remote method ['"]openteam:auth:[^'"]+['"]:\s*(?:Error:\s*)?/, "")
+    .replace(/^Error invoking remote method ['"]openteam:auth(?:-token)?:[^'"]+['"]:\s*(?:Error:\s*)?/, "")
     .trim();
   const code = cause && typeof cause === "object" && "code" in cause ? cause.code : null;
   if (

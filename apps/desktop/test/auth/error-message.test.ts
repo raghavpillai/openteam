@@ -20,6 +20,13 @@ describe("sign-in error presentation", () => {
       )
     ).toBe("Could not reach this OpenTeam server. Check the address and your connection.");
   });
+  test("shows secure storage failures without Electron's IPC wrapper", () => {
+    const message = "Secure sign-in storage did not respond. Check the system permission prompt on this computer, then try again.";
+    expect(authErrorMessage(
+      new Error(`Error invoking remote method 'openteam:auth-token:write': Error: ${message}`),
+      "Could not sign in"
+    )).toBe(message);
+  });
   test("preserves useful server messages and redacts credentials", () => {
     expect(
       authErrorMessage(new Error("Server rejected PASSWORD=private-value"), "Could not sign in")

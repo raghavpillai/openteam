@@ -17,6 +17,7 @@ const storage: Storage = {
 };
 let secureToken: string | null = null;
 let failTokenRead = false;
+let failTokenWrite = false;
 
 Object.defineProperty(globalThis, "localStorage", { configurable: true, value: storage });
 Object.defineProperty(globalThis, "window", {
@@ -38,6 +39,7 @@ Object.defineProperty(globalThis, "window", {
           return { token: secureToken, persistence: "encrypted", backend: "test" };
         },
         writeToken: async (token: string) => {
+          if (failTokenWrite) throw new Error("Secure sign-in storage did not respond");
           secureToken = token;
           return { token, persistence: "encrypted", backend: "test" };
         },
@@ -87,6 +89,19 @@ afterAll(() => {
 });
 
 describe("desktop authenticated session", () => {
+  test("failed secure persistence cannot publish a signed-in session", async () => {
+    await auth.clearAuthCredentialsForServerChange();
+    failTokenWrite = true;
+    try {
+      await expect(auth.signIn("owner", "secret")).rejects.toThrow("Secure sign-in storage did not respond");
+      expect(auth.getAuthToken()).toBeNull();
+      expect(secureToken).toBeNull();
+      expect(auth.getAuthSnapshot().status).toBe("signed-out");
+      expect(localStorage.getItem("openteam:auth-user")).toBeNull();
+    } finally {
+      failTokenWrite = false;
+    }
+  });
   test("publishes the logged-in owner and clears it on sign-out", async () => {
     const connection = await auth.testServerConnection("https://bots.example.test/");
     expect(connection).toEqual({ baseUrl: "https://bots.example.test", mode: "required" });

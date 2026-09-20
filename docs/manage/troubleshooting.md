@@ -32,6 +32,14 @@ Run `openteam status` and use its server URL. On another device, replace a loopb
 
 Check that both devices are on the expected network. Public HTTPS also needs correct DNS and accessible ports 80 and 443. An existing proxy must forward WebSocket traffic. See [remote access](../configuration/remote-access.md).
 
+## Desktop sign-in reports a secure storage error
+
+The desktop encrypts saved sessions with the operating system's secure storage. If access stalls, the app returns an error and keeps the sign-in form usable. Existing encrypted session data is preserved when storage access fails.
+
+On macOS, check for a Keychain access prompt on the computer running OpenTeam, complete it directly, then retry sign-in. A valid server password does not authorize access to the Mac's Keychain. If no prompt appears, check Keychain Access in that Mac's logged-in desktop session. Do not reset the Keychain or delete saved credentials to work around this error.
+
+Locally packaged, ad-hoc signed builds can prompt again after a rebuild because their signing identity changes. Distributed builds should use the same Developer ID signing identity across updates; see [building from source](../development/from-source.md#package-the-macos-desktop).
+
 ## A bot does not respond
 
 Check that a model provider is connected, then run `openteam model list` and `openteam doctor`. A saved sign-in can expire or lack quota.

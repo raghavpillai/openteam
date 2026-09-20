@@ -16,8 +16,6 @@ const storage: Storage = {
   setItem: (key, value) => values.set(key, value),
 };
 let secureToken: string | null = null;
-let temporaryToken: string | null = null;
-let rejectSignIn = false;
 let failTokenRead = false;
 let failTokenWrite = false;
 
@@ -31,28 +29,21 @@ Object.defineProperty(globalThis, "window", {
       auth: {
         signIn: async (serverUrl: string, username: string, password: string) => {
           nativeCalls.push({ method: "signIn", serverUrl, username, password });
-          if (rejectSignIn) throw new Error("Incorrect username or password.");
           return { token: "test-session-token", user };
         },
         signOut: async (serverUrl: string, token: string) => {
           nativeCalls.push({ method: "signOut", serverUrl, token });
         },
         readToken: async () => {
-          if (temporaryToken) return { token: temporaryToken, persistence: "memory", backend: "session" };
           if (failTokenRead) throw new Error("Keychain unavailable: native diagnostic");
           return { token: secureToken, persistence: "encrypted", backend: "test" };
         },
-        writeToken: async (token: string, remember = true) => {
-          if (!remember) {
-            temporaryToken = token;
-            return { token, persistence: "memory", backend: "session" };
-          }
+        writeToken: async (token: string) => {
           if (failTokenWrite) throw new Error("Secure sign-in storage did not respond");
           secureToken = token;
           return { token, persistence: "encrypted", backend: "test" };
         },
         clearToken: async () => {
-          temporaryToken = null;
           secureToken = null;
           return { token: null, persistence: "encrypted", backend: "test" };
         },
@@ -98,33 +89,6 @@ afterAll(() => {
 });
 
 describe("desktop authenticated session", () => {
-  test("explicit temporary sign-in authenticates and verifies with the server without secure persistence", async () => {
-    await auth.clearAuthCredentialsForServerChange();
-    failTokenWrite = true;
-    try {
-      expect((await auth.signIn("owner", "secret", false)).status).toBe("authenticated");
-      expect(nativeCalls.at(-1)).toMatchObject({ method: "signIn", username: "owner", password: "secret" });
-      expect(secureToken).toBeNull();
-      expect(temporaryToken).toBe("test-session-token");
-      expect(localStorage.getItem("openteam:auth-token")).toBeNull();
-      await auth.signOut();
-      expect(temporaryToken).toBeNull();
-      expect(auth.getAuthToken()).toBeNull();
-    } finally {
-      failTokenWrite = false;
-    }
-  });
-  test("temporary mode cannot skip credential validation", async () => {
-    await auth.clearAuthCredentialsForServerChange();
-    rejectSignIn = true;
-    try {
-      await expect(auth.signIn("owner", "wrong", false)).rejects.toThrow("Incorrect username or password");
-      expect(temporaryToken).toBeNull();
-      expect(auth.getAuthSnapshot().status).toBe("signed-out");
-    } finally {
-      rejectSignIn = false;
-    }
-  });
   test("failed secure persistence cannot publish a signed-in session", async () => {
     await auth.clearAuthCredentialsForServerChange();
     failTokenWrite = true;

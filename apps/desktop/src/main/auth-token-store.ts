@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { access, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 const MAX_TOKEN_BYTES = 16 * 1024;
@@ -34,7 +34,6 @@ export class DesktopAuthTokenStore {
   private memoryEncrypted = false;
   private operation: Promise<unknown> = Promise.resolve();
   private generation = 0;
-  private sessionOnly: boolean | null = null;
 
   constructor(
     private readonly path: string,
@@ -89,12 +88,11 @@ export class DesktopAuthTokenStore {
     return {
       token,
       persistence: encryptionAvailable ? "encrypted" : "memory",
-      backend: this.sessionOnly ? "session" : this.encryption.backend(),
+      backend: this.encryption.backend(),
     };
   }
 
   private emptyResult(): AuthTokenReadResult {
-    if (this.sessionOnly) return this.result(null, false);
     const backend = this.encryption.backend();
     return {
       token: null,
@@ -103,45 +101,10 @@ export class DesktopAuthTokenStore {
     };
   }
 
-  private async isSessionOnly(): Promise<boolean> {
-    if (this.sessionOnly !== null) return this.sessionOnly;
-    try {
-      // This empty preference marker contains no credentials. It prevents an
-      // older saved session from being restored after a temporary login quits.
-      await access(`${this.path}.session-only`);
-      return this.sessionOnly = true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      return this.sessionOnly = false;
-    }
-  }
-
-  writeSession(value: string): Promise<AuthTokenReadResult> {
-    const token = normalizedToken(value);
-    if (!token) return Promise.reject(new Error("Authentication token is invalid"));
-    const generation = ++this.generation;
-    this.sessionOnly = true;
-    this.memoryToken = null;
-    this.memoryEncrypted = false;
-    return this.run(async () => {
-      // Keep the explicit preference even if sign-out cancels this login, so
-      // neither sign-out nor a restart can touch the previous saved session.
-      await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
-      await writeFile(`${this.path}.session-only`, "", { mode: 0o600 });
-      this.sessionOnly = true;
-      this.checkGeneration(generation);
-      this.memoryToken = token;
-      return this.result(token, false);
-    });
-  }
-
   read(): Promise<AuthTokenReadResult> {
     const generation = this.generation;
     return this.run(async () => {
       this.checkGeneration(generation);
-      const sessionOnly = await this.isSessionOnly();
-      this.checkGeneration(generation);
-      if (sessionOnly) return this.result(this.memoryToken, false);
       if (this.memoryToken) {
         return this.result(this.memoryToken, this.memoryEncrypted);
       }
@@ -165,7 +128,7 @@ export class DesktopAuthTokenStore {
       if (!encryptionAvailable) {
         // A locked or temporarily unavailable OS keychain must not destroy a
         // session that can be decrypted again after the backend recovers.
-        return this.result(null, false);
+        throw new Error("Secure sign-in storage is unavailable. Enable or unlock the system credential store, then try again.");
       }
       // Denied access and temporary OS failures must not delete an existing
       // encrypted session. A fresh successful sign-in can replace bad data.
@@ -190,22 +153,12 @@ export class DesktopAuthTokenStore {
       const encryptionAvailable = await this.native(() => this.encryption.isAvailable());
       this.checkGeneration(generation);
       if (!encryptionAvailable) {
-        // Keep the existing unsupported-platform behavior, but do not turn
-        // denial of a configured OS keychain into an in-memory sign-in.
-        if (!["unavailable", "basic_text"].includes(this.encryption.backend())) {
-          throw new Error("Secure sign-in storage is unavailable. Check the system permission prompt on this computer, then try again.");
-        }
-        await rm(this.path, { force: true }).catch(() => undefined);
-        this.checkGeneration(generation);
-        this.memoryToken = token;
-        this.memoryEncrypted = false;
-        return this.result(token, false);
+        // Successful sign-in must survive an app restart on every platform.
+        // Never silently replace a saved session with a temporary one.
+        throw new Error("Secure sign-in storage is unavailable. Enable or unlock the system credential store, then try again.");
       }
       await this.persistEncrypted(token, generation);
       this.checkGeneration(generation);
-      await rm(`${this.path}.session-only`, { force: true });
-      this.checkGeneration(generation);
-      this.sessionOnly = false;
       this.memoryToken = token;
       this.memoryEncrypted = true;
       return this.result(token, true);
@@ -218,7 +171,7 @@ export class DesktopAuthTokenStore {
     this.memoryToken = null;
     return this.run(async () => {
       this.memoryToken = null;
-      if (!await this.isSessionOnly()) await rm(this.path, { force: true }).catch(() => undefined);
+      await rm(this.path, { force: true }).catch(() => undefined);
       return this.emptyResult();
     });
   }

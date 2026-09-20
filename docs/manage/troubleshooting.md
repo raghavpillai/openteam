@@ -36,9 +36,9 @@ Check that both devices are on the expected network. Public HTTPS also needs cor
 
 The desktop encrypts saved sessions with the operating system's secure storage. If access stalls, the app returns an error and keeps the sign-in form usable. Existing encrypted session data is preserved when storage access fails.
 
-To sign in for the current app session, uncheck **Remember me on this computer** before submitting your credentials. This still authenticates with the server. The new token stays in memory and is not saved; you must sign in again after quitting OpenTeam. Existing saved credentials are left untouched and are not restored while this mode is selected. Check **Remember me** on a later sign-in to save a new session with secure storage again.
-
 On macOS, check for a Keychain access prompt on the computer running OpenTeam, complete it directly, then retry sign-in. A valid server password does not authorize access to the Mac's Keychain. If no prompt appears, check Keychain Access in that Mac's logged-in desktop session. Do not reset the Keychain or delete saved credentials to work around this error.
+
+Desktop sign-in always saves the session in OS-backed encrypted storage. If that storage is unavailable, sign-in reports an error and preserves any existing saved session; it never silently switches to a temporary session. On Linux, enable or unlock a supported system credential store before signing in.
 
 Locally packaged, ad-hoc signed builds can prompt again after a rebuild because their signing identity changes. Distributed builds should use the same Developer ID signing identity across updates; see [building from source](../development/from-source.md#package-the-macos-desktop).
 

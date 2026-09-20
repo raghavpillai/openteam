@@ -52,104 +52,34 @@ describe("desktop OS-backed authentication storage", () => {
   });
 
   test("persists only encrypted bytes with private file permissions", async () => {
-    const { path, store } = fixture();
+    const { path, encryption, store } = fixture();
     await store.write("session-token-value");
 
     expect(readFileSync(path, "utf8")).not.toContain("session-token-value");
     expect(statSync(path).mode & 0o777).toBe(0o600);
     expect((await store.read()).token).toBe("session-token-value");
+    const restarted = new DesktopAuthTokenStore(path, encryption);
+    expect((await restarted.read()).token).toBe("session-token-value");
   });
 
-  test("an explicit temporary session never accesses Keychain or stores its token", async () => {
-    const { path, encryption, store } = fixture();
-    encryption.isAvailable = async () => { throw new Error("Keychain must not be called"); };
-    encryption.encrypt = async () => { throw new Error("Keychain must not be called"); };
-    encryption.decrypt = async () => { throw new Error("Keychain must not be called"); };
-    encryption.backend = () => { throw new Error("Keychain must not be called"); };
-    expect(await store.writeSession("temporary-token")).toEqual({
-      token: "temporary-token", persistence: "memory", backend: "session",
+  for (const backend of ["unavailable", "basic_text"]) {
+    test(`refuses temporary sign-in when secure storage is ${backend}`, async () => {
+      const { path, encryption, store } = fixture(false);
+      encryption.backend = () => backend;
+      await expect(store.write("unsaved-session")).rejects.toThrow("Secure sign-in storage is unavailable");
+      expect(existsSync(path)).toBe(false);
+      expect((await store.read()).token).toBeNull();
+      writeFileSync(path, "encrypted:recoverable", { mode: 0o600 });
+      await expect(store.write("replacement-session")).rejects.toThrow("Secure sign-in storage is unavailable");
+      expect(readFileSync(path, "utf8")).toBe("encrypted:recoverable");
     });
-    expect((await store.read()).token).toBe("temporary-token");
-    expect(existsSync(path)).toBe(false);
-    expect(readFileSync(`${path}.session-only`, "utf8")).toBe("");
-    expect(statSync(`${path}.session-only`).mode & 0o777).toBe(0o600);
-    expect((await new DesktopAuthTokenStore(path, encryption).read()).token).toBeNull();
-    await store.clear();
-    expect((await store.read()).token).toBeNull();
-  });
-
-  test("temporary login and sign-out preserve saved bytes without restoring them after restart", async () => {
-    const { path, encryption, store } = fixture();
-    writeFileSync(path, "encrypted:previous-session", { mode: 0o600 });
-    encryption.isAvailable = async () => { throw new Error("No access to saved credentials"); };
-    await store.writeSession("new-temporary-token");
-    expect(readFileSync(path, "utf8")).toBe("encrypted:previous-session");
-    await store.clear();
-    expect(readFileSync(path, "utf8")).toBe("encrypted:previous-session");
-    expect((await store.read()).token).toBeNull();
-    expect((await new DesktopAuthTokenStore(path, encryption).read()).token).toBeNull();
-  });
-
-  test("choosing remember again uses encryption and restores the new session", async () => {
-    const { path, encryption, store } = fixture();
-    await store.writeSession("temporary-token");
-    expect((await store.write("remembered-token")).persistence).toBe("encrypted");
-    expect(existsSync(`${path}.session-only`)).toBe(false);
-    expect(readFileSync(path, "utf8")).not.toContain("remembered-token");
-    expect((await new DesktopAuthTokenStore(path, encryption).read()).token).toBe("remembered-token");
-  });
-
-  test("a pending saved-session read cannot replace an explicitly requested temporary session", async () => {
-    const { path, encryption, store } = fixture();
-    writeFileSync(path, "old-encrypted-session");
-    let finish!: (value: { result: string }) => void;
-    let started!: () => void;
-    const decryptStarted = new Promise<void>(resolve => { started = resolve; });
-    encryption.decrypt = () => new Promise(resolve => { finish = resolve; started(); });
-    const read = store.read();
-    await decryptStarted;
-    const temporary = store.writeSession("fresh-login-token");
-    finish({ result: "old-token" });
-    await expect(read).rejects.toThrow("cancelled");
-    await temporary;
-    expect((await store.read()).token).toBe("fresh-login-token");
-    expect(readFileSync(path, "utf8")).toBe("old-encrypted-session");
-  });
-
-  test("temporary sessions reject empty and oversized tokens", async () => {
-    const { path, store } = fixture();
-    await expect(store.writeSession(" ")).rejects.toThrow("invalid");
-    await expect(store.writeSession("x".repeat(16 * 1024 + 1))).rejects.toThrow("invalid");
-    expect(existsSync(`${path}.session-only`)).toBe(false);
-  });
-
-  test("sign-out racing a temporary login preserves saved credentials and cannot revive either session", async () => {
-    const { path, encryption, store } = fixture();
-    writeFileSync(path, "old-encrypted-session");
-    const pending = store.writeSession("cancelled-token");
-    const cleared = store.clear();
-    await expect(pending).rejects.toThrow("cancelled");
-    await cleared;
-    expect(readFileSync(path, "utf8")).toBe("old-encrypted-session");
-    expect((await store.read()).token).toBeNull();
-    expect((await new DesktopAuthTokenStore(path, encryption).read()).token).toBeNull();
-  });
-
-  test("uses memory only and removes stale disk state when encryption is unavailable", async () => {
-    const { path, store } = fixture(false);
-    writeFileSync(path, "old-plaintext-token");
-
-    const saved = await store.write("memory-session");
-    expect(saved).toMatchObject({ token: "memory-session", persistence: "memory" });
-    expect(existsSync(path)).toBe(false);
-    expect((await store.read()).token).toBe("memory-session");
-  });
+  }
 
   test("preserves encrypted disk state while the keychain is temporarily unavailable", async () => {
     const { path, store } = fixture(false);
     writeFileSync(path, "encrypted:recoverable", { mode: 0o600 });
 
-    expect((await store.read()).token).toBeNull();
+    await expect(store.read()).rejects.toThrow("Secure sign-in storage is unavailable");
     expect(readFileSync(path, "utf8")).toBe("encrypted:recoverable");
   });
 

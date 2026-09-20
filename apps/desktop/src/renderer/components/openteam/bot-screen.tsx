@@ -236,7 +236,8 @@ export function BotScreen({
     return () => window.removeEventListener("message", receiveConnectionState);
   }, [liveViewerUrl, open, refreshStatus]);
   const frameSource = useAuthenticatedResource(
-    enabled && screen?.state === "ready" ? api.screenFrameUrl(bot.id, frameRevision) : null
+    enabled && screen?.state === "ready" ? api.screenFrameUrl(bot.id, frameRevision) : null,
+    { retainPreviousFor: bot.id }
   );
   const act = useCallback(
     (input: ScreenActionInput) => {
@@ -433,7 +434,7 @@ export function BotScreen({
               ) : viewerReady && frameSource ? (
                 <div
                   aria-label={`${bot.name}'s interactive Linux computer`}
-                  className="absolute inset-0 size-full cursor-crosshair bg-[#1b1d1f] outline-none"
+                  className="absolute inset-0 size-full cursor-default bg-[#1b1d1f] outline-none"
                   onClick={(event) => {
                     if (suppressNextClick.current) {
                       suppressNextClick.current = false;

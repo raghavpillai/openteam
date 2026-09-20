@@ -40,6 +40,14 @@ try {
     result.reports.some((report: { fullWindow?: boolean }) => !report.fullWindow)
   )
     throw new Error("Computer view must fill the window outside the animated inspector");
+  if (result.frameReports.length !== 2 || result.frameReports.some((report: {
+    error?: string; actionCount: number; cursor: string;
+    reports: { sameSurface: boolean; connecting: boolean; retainedFocus: boolean }[];
+  }) => report.error || report.actionCount !== 3 || report.cursor !== "default" ||
+    report.reports.some((step) => !step.sameSurface || step.connecting || !step.retainedFocus)))
+    throw new Error("Frame refresh must retain the computer, keyboard focus, and normal cursor");
+  if (result.resourceReport.error || result.resourceReport.checks.length !== 11)
+    throw new Error(result.resourceReport.error ?? "Resource lifecycle checks did not complete");
 } finally {
   await server.close();
   await rm(directory, { recursive: true, force: true });

@@ -26,6 +26,7 @@ const [
   { TooltipProvider },
   handoffEvents,
   { DesktopHeader },
+  { API_BASE },
 ] = await Promise.all([
   import("../../src/renderer/client/openteam-api"),
   import("../../src/renderer/components/openteam/bot-screen"),
@@ -33,6 +34,7 @@ const [
   import("../../src/renderer/components/ui/tooltip"),
   import("../../src/renderer/lib/computer-handoff"),
   import("../../src/renderer/components/openteam/desktop-header"),
+  import("../../src/renderer/client/http"),
 ]);
 
 const timestamp = new Date().toISOString();
@@ -106,7 +108,22 @@ const messageFor = (state: RichMessageComputerHandoffState): ChannelMessageView 
 const mutationEvent = "screen-reference:handoff-state";
 api.screenStatus = async () => screen;
 api.screenFrameUrl = () => frameUrl;
-api.screenAction = async () => screen;
+let actionCount = 0;
+api.screenAction = async () => {
+  actionCount += 1;
+  return screen;
+};
+if (new URLSearchParams(location.search).has("frame-refresh")) {
+  // Exercise the authenticated blob path, including a slow frame response.
+  api.screenFrameUrl = (botId, revision) =>
+    `${API_BASE}/api/v0/bots/${botId}/screen/frame?revision=${revision}`;
+  window.fetch = async (input) => {
+    if (!String(input).startsWith(`${API_BASE}/api/v0/bots/${bot.id}/screen/frame?`))
+      throw new Error("Unexpected network request in frame fixture");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    return new Response(frame, { headers: { "content-type": "image/svg+xml" } });
+  };
+}
 api.screenTakeover = async (_botId, active) => {
   screen = { ...screen, humanTakeover: active, agentInputPaused: active };
   return screen;
@@ -241,6 +258,37 @@ document.documentElement.dataset.theme =
 const root = createRoot(document.getElementById("root")!);
 import.meta.hot?.dispose(() => root.unmount());
 root.render(<Reference />);
+
+if (new URLSearchParams(location.search).has("frame-regression")) {
+  const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const surface = () => document.querySelector<HTMLElement>('[role="application"]');
+  const run = async () => {
+    for (let attempt = 0; !surface() && attempt < 100; attempt++) await pause(20);
+    const initial = surface();
+    if (!initial) throw new Error("Frame did not load");
+    const reports = [];
+    for (const interaction of ["click", "key", "scroll"]) {
+      const before = surface()!;
+      before.focus();
+      const bounds = before.getBoundingClientRect();
+      before.dispatchEvent(interaction === "click"
+        ? new MouseEvent("click", { bubbles: true, clientX: bounds.left + 10, clientY: bounds.top + 10 })
+        : interaction === "key"
+          ? new KeyboardEvent("keydown", { bubbles: true, key: "ArrowRight" })
+          : new WheelEvent("wheel", { bubbles: true, deltaY: 24 }));
+      await pause(60);
+      reports.push({ interaction, sameSurface: surface() === before,
+        connecting: document.body.textContent?.includes("Connecting…") ?? false,
+        retainedFocus: document.activeElement === before });
+      await pause(250);
+    }
+    console.log("SCREEN_FRAME_RESULT " + JSON.stringify({
+      theme: document.documentElement.dataset.theme, reports, actionCount,
+      cursor: getComputedStyle(surface()!).cursor,
+    }));
+  };
+  void run().catch((error) => console.log("SCREEN_FRAME_RESULT " + JSON.stringify({ error: String(error) })));
+}
 
 // Self-running Chromium geometry check; normal reference controls remain manual.
 if (new URLSearchParams(location.search).has("regression")) {

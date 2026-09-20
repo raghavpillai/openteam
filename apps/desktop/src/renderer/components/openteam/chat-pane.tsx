@@ -1,5 +1,9 @@
 import { ThinkingCaption } from "./thinking-caption";
 import { thinkingActivity } from "../../lib/thinking-activity";
+import { firstUnreadMessageId, groupChatActivity, type GroupActivity } from "../../lib/group-chat-presentation";
+import { GroupActivityContent } from "./group-activity";
+import { TranscriptSenderAvatar, TranscriptSenderName } from "./transcript-sender";
+import "./group-chat.css";
 import { ConversationTimestampPeek, TimestampedEntry } from "../ai-elements/timestamp-peek";
 import type { PromptDraft } from "../ai-elements/prompt-input";
 import { PermissionIcon } from "./permission-icon";
@@ -181,6 +185,8 @@ interface ChatPaneProps {
   onCloseViewOnly?: () => void;
   onOpenA2A?: (sourceBotId: string, peerId: string, trigger: HTMLButtonElement) => void;
   onOpenRoutine?: (routineId: string) => void;
+  onOpenBotChat?: (botId: string) => void;
+  onOpenBotProfile?: (botId: string) => void;
 }
 
 const runGroupsEqual = <T,>(
@@ -237,6 +243,8 @@ const chatPanePropsEqual = (previous: ChatPaneProps, next: ChatPaneProps) =>
   previous.onCloseViewOnly === next.onCloseViewOnly &&
   previous.onOpenA2A === next.onOpenA2A &&
   previous.onOpenRoutine === next.onOpenRoutine &&
+  previous.onOpenBotChat === next.onOpenBotChat &&
+  previous.onOpenBotProfile === next.onOpenBotProfile &&
   runGroupsEqual(next.runs, previous.itemsByRun, next.itemsByRun) &&
   runGroupsEqual(next.runs, previous.approvalsByRun, next.approvalsByRun) &&
   subagentApprovalGroupsEqual(next.subagents, previous.approvalsByRun, next.approvalsByRun);
@@ -266,10 +274,15 @@ const messagesShareGroup = (
 
 const getMessageGroupPosition = (
   messages: ChannelMessageView[],
-  index: number
+  index: number,
+  unreadMessageId: string | null
 ): MessageGroupPosition => {
-  const groupedWithPrevious = messagesShareGroup(messages[index - 1], messages[index]);
-  const groupedWithNext = messagesShareGroup(messages[index], messages[index + 1]);
+  const groupedWithPrevious =
+    messages[index]?.id !== unreadMessageId &&
+    messagesShareGroup(messages[index - 1], messages[index]);
+  const groupedWithNext =
+    messages[index + 1]?.id !== unreadMessageId &&
+    messagesShareGroup(messages[index], messages[index + 1]);
 
   if (groupedWithPrevious && groupedWithNext) return "middle";
   if (groupedWithPrevious) return "last";
@@ -287,7 +300,7 @@ const appendThinkingIndicatorToGroup = (
   return position;
 };
 
-const useThinkingPresence = (active: boolean): ThinkingPhase => {
+const useThinkingPresence = (active: boolean, exitMs = THINKING_EXIT_MS): ThinkingPhase => {
   const [phase, setPhase] = useState<ThinkingPhase>(active ? "visible" : "hidden");
 
   useEffect(() => {
@@ -302,9 +315,9 @@ const useThinkingPresence = (active: boolean): ThinkingPhase => {
     if (phase !== "exiting") return;
     const timer = window.setTimeout(() => {
       setPhase((current) => (current === "exiting" ? "hidden" : current));
-    }, THINKING_EXIT_MS);
+    }, exitMs);
     return () => window.clearTimeout(timer);
-  }, [phase]);
+  }, [exitMs, phase]);
 
   return active ? "visible" : phase;
 };
@@ -397,6 +410,8 @@ const MessageRow = memo(function MessageRow({
   onReact,
   onOpenThread,
   onOpenRoutine,
+  onOpenBotChat,
+  onOpenBotProfile,
   threadReplyCount,
   animateEntrance,
   pending,
@@ -418,6 +433,8 @@ const MessageRow = memo(function MessageRow({
   onReact: (message: ChannelMessageView, emoji: string) => void;
   onOpenThread: (message: ChannelMessageView) => void;
   onOpenRoutine?: (routineId: string) => void;
+  onOpenBotChat?: (botId: string) => void;
+  onOpenBotProfile?: (botId: string) => void;
   threadReplyCount: number;
   animateEntrance: boolean;
   pending: boolean;
@@ -530,7 +547,7 @@ const MessageRow = memo(function MessageRow({
       >
         <Reply className="size-[15px]" />
       </MessageAction>
-      <DropdownMenu>
+      {channel.kind !== "group" && <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             aria-label="More message actions"
@@ -559,14 +576,15 @@ const MessageRow = memo(function MessageRow({
             </DropdownMenuItem>
           )}
         </DropdownMenuContent>
-      </DropdownMenu>
+      </DropdownMenu>}
     </MessageActions>
   );
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <Message
-          className={`group/message${separatedFromPrevious ? " mt-3" : ""}`}
+          className={`group/message${separatedFromPrevious && !hasAgentGutter ? " mt-3" : ""}`}
+          data-group-author={hasAgentGutter || undefined}
           data-enter={entranceActive ? "new" : undefined}
           data-message-address={channelMessageAddress(message)}
           data-message-id={message.id}
@@ -596,17 +614,12 @@ const MessageRow = memo(function MessageRow({
             channel.kind !== "bot_dm" &&
             groupPosition !== "middle" &&
             groupPosition !== "last" && (
-              <div
-                className="pl-[46px] pt-2 text-xs leading-5 text-muted-foreground"
-                data-message-agent-name=""
-              >
-                <span>{senderName ?? senderBot?.name ?? "Bot"}</span>
-              </div>
+              <TranscriptSenderName bot={senderBot} name={senderName ?? senderBot?.name ?? "Bot"} onOpenChat={onOpenBotChat} />
             )}
           {replyPreview && (
             <div
               className={`flex max-w-[min(88%,640px,calc(100%-82px))] items-center gap-1.5 px-2 pb-0.5 text-xs text-muted-foreground ${
-                from === "user" ? "self-end" : "self-start"
+                from === "user" ? "self-end" : hasAgentGutter ? "ml-[30px] self-start" : "self-start"
               }`}
             >
               <Reply className="size-3 shrink-0" />
@@ -615,7 +628,7 @@ const MessageRow = memo(function MessageRow({
             </div>
           )}
           <div
-            className={`flex w-full max-w-full ${hasAgentGutter ? "gap-[5px]" : "gap-2"} ${
+            className={`group-message-body flex w-full max-w-full gap-2 ${
               images.length > 0 || fileAttachments.length > 0 || stagedFileAttachments.length > 0
                 ? "items-end"
                 : "items-center"
@@ -624,10 +637,10 @@ const MessageRow = memo(function MessageRow({
             {from === "user" && actions}
             {hasAgentGutter && (
               <div
-                className="flex w-6 shrink-0 self-stretch items-end justify-center"
+                className="flex w-[22px] shrink-0 self-stretch items-end justify-center"
                 data-message-agent-gutter=""
               >
-                {showAgentAvatar && <BotAvatar bot={senderBot} size="sm" />}
+                {showAgentAvatar && <TranscriptSenderAvatar bot={senderBot} name={senderName ?? senderBot?.name ?? "Bot"} onOpenChat={onOpenBotChat} onOpenProfile={onOpenBotProfile} />}
               </div>
             )}
             {display.richMessage ? (
@@ -683,7 +696,7 @@ const MessageRow = memo(function MessageRow({
           {(reactionPills.length > 0 || userReactionSet.size > 0) && (
             <div
               className={`relative -mt-2 flex flex-row flex-wrap gap-1 ${
-                from === "user" ? "ml-auto mr-2.5 self-end justify-end" : "ml-2.5 self-start"
+                from === "user" ? "ml-auto mr-2.5 self-end justify-end" : hasAgentGutter ? "ml-[40px] self-start" : "ml-2.5 self-start"
               }`}
             >
               {reactionPills.map(({ emoji, count }) => {
@@ -719,7 +732,7 @@ const MessageRow = memo(function MessageRow({
           {threadReplyCount > 0 && (
             <button
               className={`mt-0.5 inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground ${
-                from === "user" ? "self-end" : "self-start"
+                from === "user" ? "self-end" : hasAgentGutter ? "ml-[30px] self-start" : "self-start"
               }`}
               data-thread-summary-id={message.id}
               onClick={() => onOpenThread(message)}
@@ -1191,18 +1204,22 @@ const BotThinkingSlot = memo(function BotThinkingSlot({
   phase,
   activity = "Thinking",
   group = false,
+  groupActivity,
+  groupStart = false,
 }: {
   bot?: BotView;
   phase: ThinkingPhase;
   activity?: string;
   group?: boolean;
+  groupActivity?: GroupActivity;
+  groupStart?: boolean;
 }) {
   const name = bot?.name ?? "Bot";
   const mounted = phase !== "hidden";
   return (
     <div
       aria-hidden={!mounted}
-      className="flex h-9 shrink-0 items-center"
+      className={cn("flex h-9 shrink-0 items-center", groupStart && "mt-3")}
       data-active={phase === "visible" || undefined}
       data-bot-thinking-slot=""
       data-phase={phase}
@@ -1210,19 +1227,28 @@ const BotThinkingSlot = memo(function BotThinkingSlot({
     >
       {mounted ? (
         <div
-          aria-label={`${name}: ${activity}`}
+          aria-label={group ? activity : `${name}: ${activity}`}
           aria-hidden={phase === "exiting" || undefined}
-          className="bot-thinking-content flex min-w-0 items-center gap-2"
+          className={cn(
+            "bot-thinking-content flex min-w-0 items-center gap-2",
+            group && "group-activity-content"
+          )}
           data-bot-thinking=""
           data-exiting={phase === "exiting" || undefined}
           role="status"
         >
-          <span aria-hidden="true" className="bot-thinking-badge">
-            <span className="bot-thinking-dot" />
-            <span className="bot-thinking-dot" />
-            <span className="bot-thinking-dot" />
-          </span>
-          <ThinkingCaption text={activity} group={group} />
+          {groupActivity ? (
+            <GroupActivityContent activity={groupActivity} />
+          ) : (
+            <>
+              <span aria-hidden="true" className="bot-thinking-badge">
+                <span className="bot-thinking-dot" />
+                <span className="bot-thinking-dot" />
+                <span className="bot-thinking-dot" />
+              </span>
+              <ThinkingCaption text={activity} group={group} />
+            </>
+          )}
         </div>
       ) : null}
     </div>
@@ -1316,8 +1342,24 @@ export const ChatPane = memo(function ChatPane({
   onCloseViewOnly,
   onOpenA2A,
   onOpenRoutine,
+  onOpenBotChat,
+  onOpenBotProfile,
 }: ChatPaneProps) {
   const now = useDayClock(active);
+  // Keep the arrival boundary for this visit even after the read receipt is
+  // acknowledged. Warm, inactive panes capture a fresh boundary on re-entry.
+  const unreadVisit = useRef<{ channelId: string; active: boolean; through: string | null }>({
+    channelId: channel.id,
+    active: false,
+    through: null,
+  });
+  if (unreadVisit.current.channelId !== channel.id || (active && !unreadVisit.current.active)) {
+    unreadVisit.current = {
+      channelId: channel.id,
+      active,
+      through: (channel.unreadCount ?? 0) > 0 ? channel.notificationState?.lastReadSequence ?? null : null,
+    };
+  } else unreadVisit.current.active = active;
   const [replyTarget, setReplyTarget] = useState<{
     channelId: string;
     message: ChannelMessageView;
@@ -1707,18 +1749,33 @@ export const ChatPane = memo(function ChatPane({
   const canSend =
     channel.kind !== "agent_dm" &&
     (channel.kind === "bot_dm" ? Boolean(botCanQueue) : runtime.inference === "ready");
-  const showThinkingIndicator = Boolean(
-    activeRun && !hasPendingApproval && !(visibleMessages.length === 0 && onboardingInProgress)
+  const committedGroupRuns = useRef(new Set<string>());
+  const groupActivity = useMemo(() => {
+    if (channel.kind !== "group") return undefined;
+    const activeRuns = runs.filter(
+      (run) => run.channelId === channel.id && ["queued", "running"].includes(run.status)
+        && !(approvalsByRun.get(run.id) ?? []).some((approval) => approval.status === "pending")
+    );
+    const retained = new Set<string>();
+    for (const run of activeRuns) {
+      if (committedGroupRuns.current.has(run.id) || (itemsByRun.get(run.id) ?? []).some(
+        (item) => ["tool", "command", "file_change"].includes(item.kind)
+      )) retained.add(run.id);
+    }
+    committedGroupRuns.current = retained;
+    return groupChatActivity(activeRuns, botById, itemsByRun, retained);
+  }, [approvalsByRun, botById, channel.id, channel.kind, itemsByRun, runs]);
+  const showThinkingIndicator = groupActivity
+    ? groupActivity.workers.length + groupActivity.readers.length > 0
+    : Boolean(activeRun && !hasPendingApproval && !(visibleMessages.length === 0 && onboardingInProgress));
+  const thinkingPhase = useThinkingPresence(
+    showThinkingIndicator,
+    channel.kind === "group" ? 160 : THINKING_EXIT_MS
   );
-  const thinkingPhase = useThinkingPresence(showThinkingIndicator);
   const thinkingText = useMemo(() => {
-    if (channel.kind !== "group") return thinkingActivity(activeRun ? itemsByRun.get(activeRun.id) : undefined);
-    const activeRuns = runs.filter(run => run.channelId === channel.id && ["queued", "running"].includes(run.status));
-    if (activeRuns.length < 2) return thinkingActivity(activeRuns[0] ? itemsByRun.get(activeRuns[0].id) : undefined);
-    const names = activeRuns.map(run => botById.get(run.botId)?.name ?? "Bot");
-    const subjects = names.length === 2 ? names.join(" and ") : `${names.slice(0, 2).join(", ")} and ${names.length - 2} others`;
-    return `${subjects} are ${activeRuns.every(run => thinkingActivity(itemsByRun.get(run.id)) === "Typing") ? "typing" : "working"}`;
-  }, [activeRun, botById, channel.id, channel.kind, itemsByRun, runs]);
+    return groupActivity?.text ?? thinkingActivity(activeRun ? itemsByRun.get(activeRun.id) : undefined);
+  }, [activeRun, groupActivity, itemsByRun]);
+  const unreadMessageId = firstUnreadMessageId(mainMessages, unreadVisit.current.through);
   const lastThinkingText = useRef({ channelId: channel.id, text: thinkingText });
   if (showThinkingIndicator || lastThinkingText.current.channelId !== channel.id) {
     lastThinkingText.current = { channelId: channel.id, text: thinkingText };
@@ -1784,8 +1841,9 @@ export const ChatPane = memo(function ChatPane({
           <ConversationTopDivider />
           <ConversationTimestampPeek />
           <ConversationContent
+            overlayScrollbars={channel.kind === "group"}
             className="max-w-none gap-1 px-4 pt-11"
-            style={{ paddingBottom: "calc(24px + var(--composer-overlap, 0px))" }}
+            style={{ paddingBottom: `calc(${24 + (channel.kind === "group" && !thinkingMounted && timeline.length > 0 ? (mainMessages.at(-1)?.sender === "agent" ? 40 : 52) : 0)}px + var(--composer-overlap, 0px))` }}
           >
             {activityTruncated && (
               <div
@@ -1816,7 +1874,7 @@ export const ChatPane = memo(function ChatPane({
                 </div>
                 <BotThinkingSlot bot={selectedBot} phase="visible" />
               </>
-            ) : timeline.length === 0 ? (
+            ) : renderedTimeline.length === 0 ? (
               <span className="sr-only">No messages yet</span>
             ) : (
               <VirtualizedTimeline
@@ -1847,6 +1905,7 @@ export const ChatPane = memo(function ChatPane({
                     </div>
                   ) : (
                     <Fragment>
+                      {entry.type === "message" && entry.message.id === unreadMessageId && <div className="chat-unread-divider" role="separator" aria-label="New messages" data-unread-divider="">NEW</div>}
                       {entry.type !== "thinking" &&
                         shouldShowIdleGapTimestamp(
                           renderedTimeline[index - 1]?.createdAt,
@@ -1868,7 +1927,7 @@ export const ChatPane = memo(function ChatPane({
                         from={entry.type === "message" && entry.message.sender === "user" ? "user" : "other"}
                       >
                       {entry.type === "thinking" ? (
-                        <BotThinkingSlot bot={entry.bot} phase={entry.phase} activity={lastThinkingText.current.text} group={channel.kind === "group"} />
+                        <BotThinkingSlot bot={entry.bot} phase={entry.phase} activity={lastThinkingText.current.text} group={channel.kind === "group"} groupStart={channel.kind === "group" && mainMessages.length > 0 && mainMessages.at(-1)?.sender !== "agent"} groupActivity={groupActivity ? { ...groupActivity, text: lastThinkingText.current.text } : undefined} />
                       ) : entry.type === "a2a" ? (
                         <A2AActivityRow
                           count={entry.entries.length}
@@ -1907,12 +1966,13 @@ export const ChatPane = memo(function ChatPane({
                           groupPosition={appendThinkingIndicatorToGroup(
                             getMessageGroupPosition(
                               mainMessages,
-                              mainMessageIndexById.get(entry.message.id) ?? -1
+                              mainMessageIndexById.get(entry.message.id) ?? -1,
+                              unreadMessageId
                             ),
                             (() => {
                               const following = renderedTimeline[index + 1];
                               return Boolean(
-                                thinkingMounted &&
+                                channel.kind === "bot_dm" && thinkingMounted &&
                                   following?.type === "thinking" &&
                                   entry.message.sender === "agent" &&
                                   (!entry.message.senderBotId ||
@@ -1936,6 +1996,8 @@ export const ChatPane = memo(function ChatPane({
                           onResendSend={resendDurableSend}
                           onOpenThread={openThread}
                           onOpenRoutine={onOpenRoutine}
+                          onOpenBotChat={onOpenBotChat}
+                          onOpenBotProfile={onOpenBotProfile}
                           replyPreview={(() => {
                             const preview = replyTargetFor(
                               entry.message,

@@ -114,8 +114,9 @@ import { Input } from "../ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { BotAvatar, ChannelAvatar } from "./avatar";
 import { BotName, BotRenameContext } from "./bot-name";
-import { SidebarMotion } from "./sidebar-motion";
+import { SidebarCollapseMotion, SidebarMotion } from "./sidebar-motion";
 import { SidebarActivityProvider, useSidebarComposing } from "./sidebar-activity";
+import { SidebarUnreadAvatar, SidebarUnreadDot } from "./sidebar-unread";
 
 const EMPTY_PINNED_IDS: ReadonlySet<string> = new Set();
 
@@ -1062,7 +1063,7 @@ const ChannelRow = memo(function ChannelRow({
         </span>
       </span>
       {unread && !needsAttention ? (
-        <span aria-label="Unread" className="sidebar-status-reveal size-2 shrink-0 rounded-full bg-[#469ffe]" role="img" />
+        <SidebarUnreadDot />
       ) : null}
     </Button>
   );
@@ -1291,26 +1292,26 @@ function DraggablePinnedTile({
       type="button"
       variant="ghost"
     >
-      <WorkingAvatar
-        channelId={row.channel.id}
-        active={working}
-        ringColor={selected ? "var(--selected)" : "var(--sidebar)"}
-        size="pin"
-      >
-        {bot ? (
-          <BotAvatar bot={bot} channelId={channel.id} size="lg" />
-        ) : (
-          <ChannelAvatar botById={botById} channel={channel} size="lg" />
-        )}
-      </WorkingAvatar>
+      <SidebarUnreadAvatar pinned unread={unread && !needsAttention}>
+        <WorkingAvatar
+          channelId={row.channel.id}
+          active={working && !(needsAttention || unread)}
+          ringColor={selected ? "var(--selected)" : "var(--sidebar)"}
+          size="pin"
+        >
+          {bot ? (
+            <BotAvatar bot={bot} channelId={channel.id} size="lg" />
+          ) : (
+            <ChannelAvatar botById={botById} channel={channel} size="lg" />
+          )}
+        </WorkingAvatar>
+      </SidebarUnreadAvatar>
       <span className="mt-0.5 flex w-full min-w-0 items-center justify-center gap-1 px-1 text-[12px]">
         {needsAttention ? (
           <span
             aria-label="Needs your input"
             className="sidebar-status-reveal size-1.5 shrink-0 rounded-full bg-amber-500"
           />
-        ) : unread ? (
-          <span aria-label="Unread" className="sidebar-status-reveal size-1.5 shrink-0 rounded-full bg-blue-600" />
         ) : null}
         <span className="min-w-0 truncate"><BotName name={channel.name} /></span>
       </span>
@@ -2014,23 +2015,24 @@ function CompactChannelTile({
           type="button"
           variant="ghost"
         >
-          <WorkingAvatar
-            channelId={row.channel.id}
-            active={working && !(needsAttention || unread)}
-            ringColor={selected ? "var(--selected)" : "var(--sidebar)"}
-            size="md"
-          >
-            <ChannelAvatar botById={botById} channel={channel} />
-          </WorkingAvatar>
-          {(needsAttention || unread) && (
+          <SidebarUnreadAvatar unread={unread && !needsAttention}>
+            <WorkingAvatar
+              channelId={row.channel.id}
+              active={working && !(needsAttention || unread)}
+              ringColor={selected ? "var(--selected)" : "var(--sidebar)"}
+              size="md"
+            >
+              <ChannelAvatar botById={botById} channel={channel} />
+            </WorkingAvatar>
+          </SidebarUnreadAvatar>
+          {needsAttention && (
             <span
               aria-hidden="true"
               className={cn(
                 "sidebar-status-reveal pointer-events-none absolute bottom-[7px] right-[7px] z-20 size-2 rounded-full border-2",
                 selected ? "border-selected" : "border-sidebar",
-                needsAttention ? "bg-amber-500" : "bg-[#3062bf]"
+                "bg-amber-500"
               )}
-              data-unread-indicator={unread && !needsAttention ? "true" : undefined}
             />
           )}
         </Button>
@@ -2107,6 +2109,9 @@ function VirtualizedCompactChannels({
   const { measureElement, scrollToIndex, totalSize, virtualItems } = useVirtualWindow({
     activeIndex,
     count: entries.length,
+    // Collapsing the pane preserves its scroll position. Reveal a tile only
+    // after keyboard navigation or a new selection, not on the layout handoff.
+    revealActiveItem: focusChannelId !== null,
     estimateSize,
     getKey,
     initialViewportSize: 900,
@@ -2190,7 +2195,7 @@ function VirtualizedCompactChannels({
             {entry.type === "separator" ? (
               <div aria-hidden="true" className="mx-auto my-2 h-px w-[54px] bg-border" />
             ) : (
-              <div className="flex justify-center py-0.5">
+              <div className="flex justify-center pb-1">
                 <CompactChannelTile
                   botById={botById}
                   onFocus={() => setFocusChannelId(entry.row.channel.id)}
@@ -2260,8 +2265,8 @@ function CompactSidebarContent({
           channelId: row.channel.id,
           unread: unreadIds.has(row.channel.id),
           unreadCount: row.channel.unreadCount,
-          top: top + 2,
-          bottom: top + 56,
+          top,
+          bottom: top + 54,
         };
         top += 58;
         return metric;
@@ -2338,7 +2343,7 @@ function CompactSidebarContent({
                   <div aria-hidden="true" className="mx-auto my-2 h-px w-[54px] bg-border" />
                 )}
                 {group.rows.map((row) => (
-                  <div className="flex justify-center py-0.5" key={row.channel.id}>
+                  <div className="flex justify-center pb-1" key={row.channel.id}>
                     <CompactChannelTile
                       botById={botById}
                       onSelect={onSelect}
@@ -2356,7 +2361,7 @@ function CompactSidebarContent({
               <TooltipTrigger asChild>
                 <button
                   aria-label={`Hidden Bots (${hiddenAgentCount})`}
-                  className="relative mt-2 grid size-[54px] shrink-0 place-items-center rounded-[11px] text-foreground-tertiary hover:bg-subtle"
+                  className="relative mt-2 grid size-[54px] shrink-0 self-center place-items-center rounded-[11px] text-foreground-tertiary hover:bg-subtle"
                   onClick={onOpenHiddenAgents}
                   type="button"
                 >
@@ -3030,6 +3035,7 @@ export const Sidebar = memo(function Sidebar({
       ref={sidebarRef}
       style={{ width: targetCompact ? COMPACT_SIDEBAR_WIDTH : Math.min(sidebarWidth, maxExpandedWidth) }}
     >
+      <SidebarCollapseMotion compact={compact}>
       {compact ? (
         <CompactSidebarContent
           botById={botById}
@@ -3444,6 +3450,7 @@ export const Sidebar = memo(function Sidebar({
         </>
       )}
 
+      </SidebarCollapseMotion>
       <div className="sidebar-account-footer">
         <AccountMenu compact={compact} onOpenAbout={onOpenAbout} onOpenSettings={onOpenSettings}>
           <Button

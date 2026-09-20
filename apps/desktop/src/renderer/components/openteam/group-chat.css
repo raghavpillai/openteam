@@ -1,0 +1,242 @@
+.message-row[data-group-author] .message-row-content {
+  gap: 0;
+}
+.group-sender-name {
+  display: block;
+  align-self: flex-start;
+  max-width: calc(100% - 36px);
+  margin: 12px 0 4px 36px;
+  padding: 0 6px;
+  border-radius: 6px;
+  color: var(--sender-light);
+  font-size: 12px;
+  line-height: 16px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background-color 120ms ease;
+}
+:root[data-theme="dark"] .group-sender-name {
+  color: var(--sender-dark);
+}
+button.group-sender-name:hover {
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+}
+.group-sender-name:focus-visible,
+.group-sender-avatar:focus-visible,
+.group-sender-profile-action:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.group-sender-avatar {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+}
+.group-sender-profile {
+  z-index: 120;
+  width: 240px;
+  padding: 10px;
+  border: 0.5px solid var(--border);
+  border-radius: 12px;
+  background: var(--popover);
+  color: var(--foreground);
+  box-shadow: 0 6px 24px #0002;
+}
+.group-sender-profile-action {
+  flex: 1;
+  height: 26px;
+  border-radius: 13px;
+  background: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--foreground) 8%, transparent) 82%,
+    var(--background)
+  );
+  font-size: 12px;
+  transition: background-color 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.group-sender-profile-action:hover {
+  background: var(--hover);
+}
+.group-activity-content {
+  position: relative;
+  gap: 0;
+}
+.bot-thinking-content.group-activity-content[data-exiting="true"] {
+  animation: none;
+}
+.group-activity-content[data-exiting="true"] .bot-thinking-label {
+  opacity: 0;
+  transition-duration: 140ms;
+}
+.group-activity-content .bot-thinking-label {
+  font-size: 13px;
+  line-height: 18px;
+}
+.group-activity-mark-seat {
+  position: absolute;
+  left: 0;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+}
+.group-activity-tail {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.group-activity-tail[data-has-mark] {
+  transform: translateX(30px);
+}
+.group-activity-mark {
+  position: absolute;
+  display: grid;
+  width: 22px;
+  height: 22px;
+}
+.group-activity-mark[data-arriving] {
+  animation: group-participant-enter 340ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.group-activity-mark[data-departing] {
+  animation: group-participant-exit 140ms ease-out forwards;
+}
+.group-activity-mark .robot-avatar {
+  transition: color 700ms linear;
+}
+.group-reader-cluster {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  height: 18px;
+  transition: width 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.group-reader-seat {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 18px;
+  height: 18px;
+  opacity: 0.6;
+  transition:
+    transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.group-activity-content:hover .group-reader-seat {
+  opacity: 1;
+}
+.group-reader-disc {
+  display: block;
+  animation: group-participant-enter 220ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.group-reader-seat[data-departing] .group-reader-disc {
+  animation: group-reader-exit 160ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.group-reader-breathe {
+  display: block;
+  animation: group-reader-breathe 2.4s ease-in-out infinite;
+}
+@keyframes group-participant-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes group-participant-exit {
+  to {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+@keyframes group-reader-exit {
+  to {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+@keyframes group-reader-breathe {
+  0%,
+  100% {
+    opacity: 0.72;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.chat-unread-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 14px 0 8px;
+  padding: 2px 0;
+  color: #0c64c1;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+}
+:root[data-theme="dark"] .chat-unread-divider {
+  color: #459ffe;
+}
+.chat-unread-divider::before,
+.chat-unread-divider::after {
+  content: "";
+  flex: 1 1 0;
+  height: 1px;
+  background: color-mix(in srgb, currentColor 20%, transparent);
+}
+
+/* Keep the author-column width independent of hover controls. */
+.message-row[data-group-author] .group-message-body > [data-message-bubble-id] {
+  max-width: min(calc((100% - 30px) * 0.88), 640px, calc(100% - 112px));
+}
+/* Overlay scrollbars preserve the reference transcript's full content width. */
+.conversation-overlay-scroll {
+  overflow: auto !important;
+  scrollbar-width: none;
+}
+.conversation-overlay-scroll::-webkit-scrollbar {
+  display: none;
+}
+.conversation-overlay-scroll > div {
+  display: block !important;
+}
+.conversation-overlay-bar {
+  display: flex;
+  width: 8px;
+  padding: 2px;
+  z-index: 25;
+  touch-action: none;
+  user-select: none;
+}
+.conversation-overlay-thumb {
+  flex: 1;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 17%, transparent);
+}
+.conversation-overlay-bar[data-state="visible"] {
+  animation: group-scrollbar-enter 150ms ease-out;
+}
+.conversation-overlay-bar[data-state="hidden"] {
+  animation: group-scrollbar-exit 150ms ease-out;
+}
+@keyframes group-scrollbar-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes group-scrollbar-exit {
+  to {
+    opacity: 0;
+  }
+}

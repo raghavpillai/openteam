@@ -72,12 +72,31 @@ export const BotAvatar = memo(function BotAvatar({
 function GroupAvatar({
   members,
   size,
+  compact = false,
+  imageUrl,
 }: {
   members: Array<BotView | undefined>;
   size: "sm" | "md" | "lg";
+  compact?: boolean;
+  imageUrl?: string;
 }) {
   const auth = useAuthSession();
   const account = accountPresentation(auth.user, auth.mode);
+  if (compact) {
+    const participants = [
+      <span className="grid size-full place-items-center rounded-full border-[0.5px] border-border bg-subtle text-[7px] leading-none text-foreground-secondary">{account.initials}</span>,
+      ...(imageUrl ? [<img alt="" className="size-full rounded-full object-cover" src={imageUrl} />]
+        : members.map(bot => <BotAvatar bot={bot} className="!size-5" mode="still" />)),
+    ];
+    const visible = participants.length > 4 ? [...participants.slice(0, 3), <span className="grid size-full place-items-center text-[10px] text-foreground-secondary">+{participants.length - 3}</span>] : participants;
+    return <span className="inline-flex h-5 shrink-0" data-group-avatar="" data-group-avatar-compact="">
+      {visible.map((participant, index) => <span key={index === 0 ? "account" : members[index - 1]?.id ?? "group-image"}
+        className="inline-flex size-5 shrink-0"
+        style={index < visible.length - 1 ? { marginRight: -7.5, maskImage: "radial-gradient(circle 12.5px at 22.5px 10px, transparent 99%, #000 100%)" } : undefined}>
+        {participant}
+      </span>)}
+    </span>;
+  }
   const edge = size === "sm" ? 22 : size === "lg" ? 64 : 36;
   const pair = members.length === 1;
   const memberEdge = edge * (pair ? 2 / 3 : 5 / 9);
@@ -120,11 +139,13 @@ export const ChannelAvatar = memo(function ChannelAvatar({
   botById,
   size = "md",
   roster = false,
+  compact = false,
 }: {
   channel: ChannelView;
   botById: ReadonlyMap<string, BotView>;
   size?: "sm" | "md" | "lg";
   roster?: boolean;
+  compact?: boolean;
 }) {
   if (channel.kind === "bot_dm") {
     return (
@@ -132,6 +153,10 @@ export const ChannelAvatar = memo(function ChannelAvatar({
         <BotAvatar bot={botById.get(channel.members[0]?.botId ?? "")} size={size} roster={roster} />
       </AvatarChannelContext.Provider>
     );
+  }
+  if (channel.kind === "group" && compact) {
+    return <GroupAvatar members={channel.members.map(member => botById.get(member.botId))} size={size} compact
+      imageUrl={channel.hasAvatar ? `${API_BASE}/api/v0/channels/${channel.id}/avatar?v=${encodeURIComponent(channel.updatedAt)}` : undefined} />;
   }
   if (channel.hasAvatar) {
     return (

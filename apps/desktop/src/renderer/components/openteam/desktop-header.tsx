@@ -90,7 +90,7 @@ export function DesktopHeader({
     <header className="pointer-events-none absolute inset-x-0 top-0 z-30 flex h-11 items-center bg-background">
       {selected ? (
         <>
-          <div className="flex h-full min-w-0 flex-1 items-center px-4">
+          <div className={cn("flex h-full min-w-0 flex-1 items-center", selected.kind === "group" ? "px-3" : "px-4")}>
             <h2
               aria-label={selected.name}
               className="electron-drag pointer-events-auto inline-flex h-6 max-w-full items-center gap-1.5 overflow-hidden"
@@ -135,14 +135,19 @@ export function DesktopHeader({
                   <span className="truncate text-[13px] font-medium">{selected.name}</span>
                 </button>
               ) : (
-                <>
+                <button
+                  aria-label="View conversation details"
+                  className="electron-no-drag inline-flex min-w-0 items-center gap-1.5 rounded-[5px] outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                  onClick={() => { changeDetails(true); showSummary(); }}
+                  type="button"
+                >
                   {selected.kind === "group" ? (
-                    <ChannelAvatar botById={botById} channel={selected} size="sm" />
+                    <ChannelAvatar botById={botById} channel={selected} size="sm" compact />
                   ) : (
                     <MessageCircle className="size-4 text-violet-500" />
                   )}
                   <span className="truncate text-[13px] font-medium">{selected.name}</span>
-                </>
+                </button>
               )}
             </h2>
           </div>

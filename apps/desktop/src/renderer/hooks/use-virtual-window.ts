@@ -41,6 +41,7 @@ export function useVirtualWindow({
   overscan = 600,
   maxItems = 160,
   activeIndex,
+  revealActiveItem = true,
   initialAlign = "start",
   initialViewportSize = 0,
   scopeRef,
@@ -57,6 +58,8 @@ export function useVirtualWindow({
   overscan?: number;
   maxItems?: number;
   activeIndex?: number;
+  /** Keep the active item mounted without changing a restored scroll position. */
+  revealActiveItem?: boolean;
   initialAlign?: "start" | "end";
   initialViewportSize?: number;
   /** Optional root whose local coordinates should be used inside a shared scrollport. */
@@ -433,7 +436,7 @@ export function useVirtualWindow({
   const followedActiveItem = useRef<string | null>(null);
 
   useLayoutEffect(() => {
-    if (activeIndex === undefined || activeIndex < 0 || activeIndex >= count) {
+    if (!revealActiveItem || activeIndex === undefined || activeIndex < 0 || activeIndex >= count) {
       followedActiveItem.current = null;
       return;
     }
@@ -449,7 +452,7 @@ export function useVirtualWindow({
     else if (end > element.scrollTop + element.clientHeight) {
       element.scrollTop = Math.max(0, end - element.clientHeight);
     }
-  }, [activeIndex, count, measuredSizeAt, getKey, range.offsets, scopeOrigin, scrollRef]);
+  }, [activeIndex, count, measuredSizeAt, getKey, range.offsets, revealActiveItem, scopeOrigin, scrollRef]);
 
   return {
     measureElement,

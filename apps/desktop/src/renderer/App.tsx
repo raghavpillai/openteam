@@ -847,6 +847,13 @@ export default function App() {
     },
     [index.botById, selectSidebarChannel]
   );
+  const openTranscriptBotProfile = useCallback((botId: string) => {
+    const target = index.botById.get(botId);
+    if (!target) return;
+    selectSidebarChannel(target.dmChannelId);
+    setInspectorMode("settings");
+    setDetailsOpen(true);
+  }, [index.botById, selectSidebarChannel]);
   const finishA2AAnimation = useCallback(() => {
     setA2AExchange((current) => {
       if (!current) return current;
@@ -1224,6 +1231,8 @@ export default function App() {
                         }
                         onOpenA2A={channel.kind === "bot_dm" && bot ? openA2AChat : undefined}
                         onOpenRoutine={openRoutineHandlers.get(channelId)}
+                        onOpenBotChat={openInspectorBot}
+                        onOpenBotProfile={openTranscriptBotProfile}
                         runs={index.runsByChannel.get(channelId) ?? []}
                         runtime={snapshot.runtime}
                         selectedBot={bot}
@@ -1256,6 +1265,8 @@ export default function App() {
                         mutate={mutate}
                         onReactMessage={reactToMessage}
                         onCloseViewOnly={closeA2AChat}
+                        onOpenBotChat={openInspectorBot}
+                        onOpenBotProfile={openTranscriptBotProfile}
                         runs={[]}
                         runtime={snapshot.runtime}
                         searchContextMessageIds={searchContextMessageIdsByChannel.get(

@@ -17,6 +17,75 @@ type Snapshot = {
 type Props = { children: ReactNode; pinnedIds: ReadonlySet<string>; disabled?: boolean };
 type Movement = { animation: Animation; x: number; y: number; vx: number; vy: number };
 
+type CollapseProps = { compact: boolean; children: ReactNode };
+type CollapseSnapshot = { top: number; velocity: number; scrollTop: number };
+
+/** The compact and expanded rosters have different React trees. Keep their
+ * search-space movement outside those trees so the layout spring survives the
+ * handoff (and a reversal), instead of remounting at its final position. */
+export class SidebarCollapseMotion extends Component<
+  CollapseProps,
+  Record<string, never>,
+  CollapseSnapshot | null
+> {
+  private root = createRef<HTMLDivElement>();
+  private movement?: { animation: Animation; y: number; velocity: number };
+
+  private roster() {
+    return this.root.current?.querySelector<HTMLElement>("[data-sidebar-motion-roster]");
+  }
+
+  getSnapshotBeforeUpdate(previous: CollapseProps): CollapseSnapshot | null {
+    if (previous.compact === this.props.compact) return null;
+    const roster = this.roster();
+    if (!roster) return null;
+    const motion = this.movement;
+    const scrollTop = roster.parentElement?.scrollTop ?? 0;
+    return {
+      top: roster.getBoundingClientRect().top + scrollTop,
+      scrollTop,
+      velocity: motion
+        ? sidebarSpring(motion.y, motion.velocity, Number(motion.animation.currentTime ?? 0)).velocity
+        : 0,
+    };
+  }
+
+  componentDidUpdate(
+    _previous: CollapseProps,
+    _state: Record<string, never>,
+    snapshot: CollapseSnapshot | null
+  ) {
+    if (!snapshot) return;
+    this.movement?.animation.cancel();
+    this.movement = undefined;
+    const roster = this.roster();
+    if (!roster) return;
+    const viewport = roster.parentElement;
+    if (viewport) viewport.scrollTop = snapshot.scrollTop;
+    // A scrolled list still moves only through the space occupied by Search.
+    // Its scroll offset must not become part of the layout displacement.
+    const y = snapshot.top - (roster.getBoundingClientRect().top + (viewport?.scrollTop ?? 0));
+    if (Math.abs(y) < 0.5 && Math.abs(snapshot.velocity) < 0.1) return;
+    const spring = sidebarSpringFrames(0, y, 0, snapshot.velocity);
+    const animation = roster.animate(spring.frames, {
+      duration: spring.duration,
+      easing: "linear",
+    });
+    this.movement = { animation, y, velocity: snapshot.velocity };
+    animation.onfinish = () => {
+      if (this.movement?.animation === animation) this.movement = undefined;
+    };
+  }
+
+  componentWillUnmount() {
+    this.movement?.animation.cancel();
+  }
+
+  render() {
+    return <div className="contents" ref={this.root}>{this.props.children}</div>;
+  }
+}
+
 /** Capture before React moves keyed rows. Only mounted rows are measured, including
  * virtual rows. Scroll recycling never creates an entrance or a removal animation. */
 export class SidebarMotion extends Component<Props, Record<string, never>, Snapshot | null> {
@@ -267,7 +336,7 @@ export class SidebarMotion extends Component<Props, Record<string, never>, Snaps
   }
   render() {
     return (
-      <div className="contents" ref={this.root}>
+      <div className="relative flex w-full shrink-0 grow flex-col" data-sidebar-motion-roster="" ref={this.root}>
         {this.props.children}
       </div>
     );

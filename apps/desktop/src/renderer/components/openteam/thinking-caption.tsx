@@ -29,7 +29,7 @@ export function ThinkingCaption({ text, group = false }: { text: string; group?:
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, [held.since]);
-  const elapsed = activityElapsedLabel(held.since, now);
+  const elapsed = group ? null : activityElapsedLabel(held.since, now);
   return (
     <span
       className="bot-thinking-label min-w-0 truncate whitespace-nowrap text-[14px] leading-5"

@@ -3,6 +3,7 @@
 import type { ComponentProps, ReactNode } from "react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
+import { ScrollArea } from "radix-ui";
 import { cn } from "../../lib/cn";
 import { recordPerformance } from "../../lib/performance";
 import { Button } from "../ui/button";
@@ -21,13 +22,32 @@ export const ConversationContent = ({
   className,
   children,
   scrollClassName,
+  overlayScrollbars = false,
   ...props
-}: ComponentProps<typeof StickToBottom.Content>) => {
+}: ComponentProps<typeof StickToBottom.Content> & { overlayScrollbars?: boolean }) => {
   const [viewportReady, setViewportReady] = useState(false);
+  const context = useStickToBottomContext();
   // Descendant layout effects run before the scrollport's ref is attached.
   // Mount the transcript in a second commit, still before the first paint, so
   // its virtualizer can measure and position against the real scrollport.
   useLayoutEffect(() => setViewportReady(true), []);
+  if (overlayScrollbars) {
+    return (
+      <ScrollArea.Root type="hover" className="relative h-full w-full overflow-hidden">
+        <ScrollArea.Viewport
+          ref={context.scrollRef}
+          className={cn("conversation-scroll conversation-overlay-scroll h-full w-full", scrollClassName)}
+        >
+          <div {...props} ref={context.contentRef} className={cn("mx-auto flex w-full max-w-4xl flex-col gap-6 py-8", className)}>
+            {viewportReady ? (typeof children === "function" ? children(context) : children) : null}
+          </div>
+        </ScrollArea.Viewport>
+        <ScrollArea.Scrollbar orientation="vertical" className="conversation-overlay-bar">
+          <ScrollArea.Thumb className="conversation-overlay-thumb" />
+        </ScrollArea.Scrollbar>
+      </ScrollArea.Root>
+    );
+  }
   return (
     <StickToBottom.Content
       className={cn("mx-auto flex w-full max-w-4xl flex-col gap-6 py-8", className)}

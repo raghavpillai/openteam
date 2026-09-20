@@ -574,8 +574,7 @@ export class AppService {
 
   configurePluginConnection = forwardServiceMethod(() => this.plugins.configure);
 
-  authenticatePlugin = (connectionId: string, force = false) =>
-    this.plugins.authenticate(connectionId, force);
+  authenticatePlugin = forwardServiceMethod(() => this.plugins.authenticate);
 
   finishPluginAuthentication = forwardServiceMethod(() => this.plugins.finishAuthentication);
 

@@ -38,10 +38,10 @@ const PluginAuthSelect = lazy(() =>
 );
 
 import { AddPluginAccount,PluginAccountRow } from "./plugins/plugin-accounts";
-import { PluginCopyButton } from "./plugins/plugin-copy-button";
 import { PluginMark } from "./plugins/plugin-mark";
 
 type MarketplacePage = "marketplace" | "installed" | "detail" | "custom" | "manage";
+type OAuthCallbackSettings = { oauthCallbackMode: "desktop" | "server"; oauthLoopbackPort: number };
 
 const primaryButton =
   "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 cursor-pointer rounded-full bg-black px-3 text-[13px] font-medium text-white outline-none transition-opacity duration-120 ease-out hover:opacity-80 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-45 dark:bg-white dark:text-black";
@@ -523,7 +523,7 @@ function PluginSetupCard({
             <div className="mt-3 rounded-[8px] border border-black/[0.06] bg-background px-3 py-2.5 dark:border-white/[0.08] dark:bg-black/15">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-[9.5px] font-medium uppercase tracking-[0.04em] text-foreground-tertiary">
-                  Authorized redirect URI
+                  {window.openteam?.pluginOAuth ? "Server redirect URI (optional)" : "Authorized redirect URI"}
                 </span>
                 <button
                   className="inline-flex items-center gap-1 text-[9.5px] text-foreground-secondary hover:text-foreground"
@@ -541,6 +541,9 @@ function PluginSetupCard({
               <code className="mt-1 block select-all break-all text-[10px] text-foreground">
                 {connection.oauthRedirectUrl}
               </code>
+              {window.openteam?.pluginOAuth && <p className="mt-2 text-[10px] leading-4 text-foreground-secondary">
+                Desktop sign-in receives the callback on this computer. For Google, create a Desktop app client; no server redirect is needed. Existing web clients can use Server callback in account settings.
+              </p>}
             </div>
           ) : null}
 
@@ -622,6 +625,7 @@ function ConnectionSettingsRow({
   connection,
   onAuthenticate,
   onConfigureOAuth,
+  onConfigureCallback,
   onConfigureToken,
   onInstructions,
   onRemove,
@@ -632,6 +636,7 @@ function ConnectionSettingsRow({
   connection: PluginConnectionView;
   onAuthenticate: () => void;
   onConfigureOAuth: (input: { clientId: string; clientSecret: string; scope: string }) => void;
+  onConfigureCallback?: (input: OAuthCallbackSettings) => void;
   onConfigureToken: (token: string) => void;
   onInstructions: (instructions: string) => void;
   onRemove: () => void;
@@ -644,10 +649,16 @@ function ConnectionSettingsRow({
   const [oauthClientId, setOauthClientId] = useState("");
   const [oauthClientSecret, setOauthClientSecret] = useState("");
   const [oauthScope, setOauthScope] = useState("");
+  const [callbackMode, setCallbackMode] = useState(connection.oauthCallbackMode ?? "desktop");
+  const [callbackPort, setCallbackPort] = useState(connection.oauthLoopbackPort ?? 0);
   const field =
     "h-8 rounded-[7px] border border-black/[0.08] bg-background px-2 text-[10.5px] outline-none dark:border-white/10 dark:bg-[#1d1d1d]";
   useEffect(() => setAlias(connection.alias), [connection.alias]);
   useEffect(() => setInstructions(connection.instructions), [connection.instructions]);
+  useEffect(() => {
+    setCallbackMode(connection.oauthCallbackMode ?? "desktop");
+    setCallbackPort(connection.oauthLoopbackPort ?? 0);
+  }, [connection.oauthCallbackMode, connection.oauthLoopbackPort]);
   return (
     <div className="border-t border-black/[0.055] px-3 py-3 first:border-t-0 dark:border-white/[0.065]">
       <div className="flex items-center gap-2">
@@ -724,10 +735,25 @@ function ConnectionSettingsRow({
           </button>
         </div>
       ) : null}
+      {connection.auth === "oauth" && onConfigureCallback ? (
+        <div className="mt-3 grid gap-2 text-[10.5px]">
+          <label className="grid gap-1">Sign-in callback
+            <select className={field} aria-label="Sign-in callback" value={callbackMode} onChange={event => setCallbackMode(event.target.value as "desktop" | "server")}>
+              <option value="desktop">Desktop (recommended)</option>
+              <option value="server">Server callback</option>
+            </select>
+          </label>
+          {callbackMode === "desktop" && <label className="grid gap-1">Desktop callback port (0 = automatic)
+            <input className={field} aria-label="Desktop callback port" type="number" min={0} max={65535} value={callbackPort} onChange={event => setCallbackPort(Number(event.target.value))} />
+          </label>}
+          <p className="text-foreground-secondary">Google Desktop app clients receive sign-in on this computer. Existing web clients can use Server callback. Changing this setting requires signing in again.</p>
+          <button className={cn(secondaryButton, "justify-self-start")} type="button" disabled={busy || (callbackMode === (connection.oauthCallbackMode ?? "desktop") && callbackPort === (connection.oauthLoopbackPort ?? 0))} onClick={() => onConfigureCallback({ oauthCallbackMode: callbackMode, oauthLoopbackPort: callbackPort })}>Save callback settings</button>
+        </div>
+      ) : null}
       {connection.auth === "oauth" && connection.status !== "ready" ? (
         <div className="mt-3 rounded-[9px] bg-black/[0.035] p-3 dark:bg-black/20">
           <div className="mb-2 text-[10.5px] leading-4 text-foreground-secondary">
-            Self-hosted OAuth clients must allow this callback URL:
+            {callbackMode === "desktop" && window.openteam?.pluginOAuth ? "Desktop sign-in uses a temporary local callback. This server URL is only needed for Server callback mode:" : "Register this server callback URL with your provider:"}
             <code className="mt-1 block select-all break-all text-[10px] text-foreground">
               {connection.oauthRedirectUrl}
             </code>
@@ -795,6 +821,7 @@ export function PluginDetail({
   onCancelAuthentication,
   onConfigureToken,
   onConfigureOAuth,
+  onConfigureCallback,
   onInstructions,
   onInstall,
   onPolicy,
@@ -822,6 +849,7 @@ export function PluginDetail({
     connection: PluginConnectionView,
     input: { clientId: string; clientSecret: string; scope: string }
   ) => void;
+  onConfigureCallback?: (connection: PluginConnectionView, input: OAuthCallbackSettings) => void;
   onInstructions: (connection: PluginConnectionView, instructions: string) => void;
   onInstall: (plugin: PluginCatalogItemView, values?: Record<string, string>) => void;
   onPolicy: (connectionId: string, toolName: string, decision: "deny" | "prompt" | "allow") => void;
@@ -905,7 +933,6 @@ export function PluginDetail({
         <div className="min-w-0 flex-1 pt-1">
           <div className="flex items-center gap-1.5 text-[14px] font-medium">
             {plugin.name}
-            <PluginCopyButton pluginKey={plugin.key} compact />
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[12px] text-foreground-secondary">
             <span>{plugin.publisher}</span>
@@ -921,7 +948,6 @@ export function PluginDetail({
             ) : null}
           </div>
         </div>
-        <PluginCopyButton pluginKey={plugin.key} />
         {!install ? (
           <button
             className={cn(primaryButton, "h-9 px-4")}
@@ -999,6 +1025,7 @@ export function PluginDetail({
                   connection={connection}
                   onAuthenticate={() => onAuthenticate(connection)}
                   onConfigureOAuth={(input) => onConfigureOAuth(connection, input)}
+                  onConfigureCallback={onConfigureCallback ? input => onConfigureCallback(connection, input) : undefined}
                   onConfigureToken={(token) => onConfigureToken(connection, token)}
                   onInstructions={(instructions) => onInstructions(connection, instructions)}
                   onRemove={() => onRemoveAccount(connection)}

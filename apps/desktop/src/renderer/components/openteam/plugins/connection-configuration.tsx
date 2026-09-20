@@ -30,6 +30,8 @@ export function ConnectionConfiguration({
   const [cwd, setCwd] = useState("");
   const [headers, setHeaders] = useState("");
   const [env, setEnv] = useState("");
+  const [callbackMode, setCallbackMode] = useState<"desktop" | "server">("desktop");
+  const [loopbackPort, setLoopbackPort] = useState(0);
   const [authMethod, setAuthMethod] =
     useState<PluginConfigurationInput["tokenEndpointAuthMethod"]>("none");
   const [testTool, setTestTool] = useState("");
@@ -48,6 +50,8 @@ export function ConnectionConfiguration({
     setCommand(next.command ?? "");
     setArgs(JSON.stringify(next.args, null, 2));
     setCwd(next.cwd ?? "");
+    setCallbackMode(next.oauthCallbackMode ?? "desktop");
+    setLoopbackPort(next.oauthLoopbackPort ?? 0);
     setAuthMethod(
       next.tokenEndpointAuthMethod as PluginConfigurationInput["tokenEndpointAuthMethod"]
     );
@@ -70,7 +74,7 @@ export function ConnectionConfiguration({
           : {}),
       ...(headers.trim() ? { headers: JSON.parse(headers) } : {}),
       ...(env.trim() ? { env: JSON.parse(env) } : {}),
-      ...(connection.auth === "oauth" ? { tokenEndpointAuthMethod: authMethod } : {}),
+      ...(connection.auth === "oauth" ? { tokenEndpointAuthMethod: authMethod, oauthCallbackMode: callbackMode, oauthLoopbackPort: loopbackPort } : {}),
     });
   const connect = async (reauth = false) => {
     await save();
@@ -138,6 +142,17 @@ export function ConnectionConfiguration({
         </section>
       )}
       {connection.auth === "oauth" && (
+        <PluginField label="Sign-in callback" help="Desktop receives sign-in on this computer and sends it to your server. For Google, use a Desktop app OAuth client. Choose Server for an existing web client with a registered server callback.">
+          <select className={inputClass} aria-label="Sign-in callback" value={callbackMode} onChange={event => setCallbackMode(event.target.value as "desktop" | "server")}>
+            <option value="desktop">Desktop (recommended)</option>
+            <option value="server">Server callback</option>
+          </select>
+          {callbackMode === "desktop" && <PluginField label="Desktop callback port" help="Use 0 to select an available port. If your provider requires a fixed URL, register http://127.0.0.1:PORT/callback and enter that port here.">
+            <input className={inputClass} aria-label="Desktop callback port" type="number" min={0} max={65535} value={loopbackPort} onChange={event => setLoopbackPort(Number(event.target.value))} />
+          </PluginField>}
+        </PluginField>
+      )}
+      {connection.auth === "oauth" && (callbackMode === "server" || !window.openteam?.pluginOAuth) && (
         <PluginField
           label="OAuth callback URL"
           help="Copy this exact URL into your provider's application settings."
@@ -327,8 +342,8 @@ export function ConnectionConfiguration({
                 onChange={(event) => setAuthMethod(event.target.value as typeof authMethod)}
               >
                 <option value="none">Public client (PKCE)</option>
-                <option value="client_secret_post">Confidential client (secret in request)</option>
-                <option value="client_secret_basic">Confidential client (HTTP Basic)</option>
+                <option value="client_secret_post">Client secret in request</option>
+                <option value="client_secret_basic">Client secret via HTTP Basic</option>
               </select>
             </PluginField>
           )}

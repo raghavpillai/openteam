@@ -206,7 +206,7 @@ export class PluginTransport {
     const clientInformation: OAuthClientInformationMixed | undefined = clientId
       ? { client_id: clientId, ...(clientSecret ? { client_secret: clientSecret } : {}) }
       : undefined;
-    const callbackUrl = oauthRedirectUrl(this.publicUrl, connection.id);
+    const callbackUrl = oauth.redirectUrl ?? oauthRedirectUrl(this.publicUrl, connection.id);
     const provider = new OpenTeamOAuthProvider({
       redirectUrl: callbackUrl,
       scope: typeof configuration.scope === "string" ? configuration.scope : undefined,

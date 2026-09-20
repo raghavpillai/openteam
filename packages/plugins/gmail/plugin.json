@@ -1,6 +1,6 @@
 {
   "key": "gmail",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "name": "Gmail",
   "description": "Search, read, draft, and manage email.",
   "publisher": "OpenTeam",
@@ -14,13 +14,13 @@
     "kind": "oauth_client",
     "connectionKey": "gmail",
     "title": "Connect Gmail",
-    "description": "Enable the Gmail API and configure a Google OAuth web client, then sign in. No Developer Preview enrollment is required.",
+    "description": "Enable the Gmail API and configure a Google OAuth client, then sign in. No Developer Preview enrollment is required.",
     "documentationUrl": "https://developers.google.com/workspace/guides/create-credentials",
     "steps": [
       "Create or select a Google Cloud project and enable the Gmail API.",
       "Configure an External OAuth consent screen and add your Google accounts as test users while the app is in Testing.",
-      "Create a Web application OAuth client and register the callback URL shown below for each OpenTeam account.",
-      "Save the client ID and secret here, then choose the Google account to authorize."
+      "For OpenTeam desktop, create a Desktop app OAuth client. No public callback URL or HTTPS server is required. For browser-only use, create a Web application client and register the server callback URL.",
+      "Save the client ID and secret here, then authorize your Google account. Existing web clients can select Server callback in account settings."
     ],
     "fields": [
       {
@@ -57,7 +57,7 @@
       "endpoint": "",
       "tools": [],
       "oauth": {
-        "clientType": "confidential",
+        "clientType": "public",
         "registration": "manual",
         "tokenEndpointAuthMethod": "client_secret_post",
         "shareClientCredentials": true,

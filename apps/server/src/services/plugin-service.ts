@@ -1,4 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { equalOAuthState, validateDesktopCallback, type PluginOAuthDesktopContext } from "../plugins/oauth-callback";
+import type { PluginOAuthCallbackInput } from "@openteam/contracts/plugin-management";
 import { cancelPendingPluginWork } from "./plugin/pending-work";
 import { pluginToolArguments } from "./plugin/tool-arguments";
 import { connectionNamespace } from "@openteam/plugin-sdk";
@@ -467,16 +469,20 @@ export class PluginService {
 
   private authenticationStarts = new Map<string, Promise<{ connectionId: string; status: string; authorizationUrl: string }>>();
 
-  authenticate = (connectionId: string, force = false) => serviceEffect(async () => {
+  authenticate = (connectionId: string, force = false, desktop?: PluginOAuthDesktopContext) => serviceEffect(async () => {
+    if (desktop) validateDesktopCallback(desktop.redirectUrl);
     const existing = this.authenticationStarts.get(connectionId);
-    if (existing) return existing;
-    const pending = this.beginAuthentication(connectionId, force);
+    if (existing) {
+      await existing;
+      return this.beginAuthentication(connectionId, force, desktop);
+    }
+    const pending = this.beginAuthentication(connectionId, force, desktop);
     this.authenticationStarts.set(connectionId, pending);
     try { return await pending; }
     finally { if (this.authenticationStarts.get(connectionId) === pending) this.authenticationStarts.delete(connectionId); }
   });
 
-  private beginAuthentication = async (connectionId: string, force: boolean) => {
+  private beginAuthentication = async (connectionId: string, force: boolean, desktop?: PluginOAuthDesktopContext) => {
       const connection = await this.connectionOrThrow(connectionId);
       this.assertAvailable(connection);
       this.validateConfiguration(connection);
@@ -485,7 +491,11 @@ export class PluginService {
       }
       const current = jsonObject(connection.credentials);
       const previousOAuth = jsonObject(current.oauth);
+      const sameCallback = desktop
+        ? previousOAuth.redirectUrl === desktop.redirectUrl && previousOAuth.callbackSessionId === desktop.sessionId
+        : previousOAuth.callbackMode !== "desktop";
       if (!force && connection.status === "needs_auth" &&
+          sameCallback && !previousOAuth.exchangeStarted &&
           previousOAuth.stateGeneration === connection.runtimeGeneration &&
           typeof previousOAuth.stateCreatedAt === "number" &&
           Date.now() - previousOAuth.stateCreatedAt < 15 * 60_000 &&
@@ -493,7 +503,7 @@ export class PluginService {
         return { connectionId, status: "needs_auth", authorizationUrl: previousOAuth.authorizationUrl };
       }
       const oauth =
-        !force && previousOAuth.clientInformation
+        !force && sameCallback && previousOAuth.clientInformation
           ? { clientInformation: previousOAuth.clientInformation }
           : {};
       const state = crypto.randomUUID();
@@ -504,6 +514,7 @@ export class PluginService {
           state,
           stateCreatedAt: Date.now(),
           stateGeneration: connection.runtimeGeneration + 1,
+          ...(desktop ? { redirectUrl: desktop.redirectUrl, callbackMode: "desktop", callbackSessionId: desktop.sessionId } : {}),
         },
       };
       const started = await this.prisma.pluginConnection.updateMany({
@@ -523,6 +534,9 @@ export class PluginService {
           "Connection changed; try authorization again"
         );
       const refreshed = await this.connectionOrThrow(connectionId);
+      if (refreshed.runtimeGeneration !== connection.runtimeGeneration + 1 ||
+          jsonObject(jsonObject(refreshed.credentials).oauth).state !== state)
+        throw new ApiError(409, "plugin_oauth_session_changed", "A newer authorization attempt replaced this session.");
       let result: { authorizationUrl: string };
       try {
         result =
@@ -559,20 +573,56 @@ export class PluginService {
       return { connectionId, status: "needs_auth", authorizationUrl: result.authorizationUrl };
     };
 
-  finishAuthentication = (connectionId: string, code: string, state: string) =>
+  finishDesktopAuthentication = (connectionId: string, input: PluginOAuthCallbackInput, sessionId: string | null) =>
     serviceEffect(async () => {
+      const desktop = { redirectUrl: validateDesktopCallback(input.redirectUrl), sessionId };
       const connection = await this.connectionOrThrow(connectionId);
+      const oauth = jsonObject(jsonObject(connection.credentials).oauth);
+      this.assertDesktopCallback(oauth, desktop);
+      if (Boolean(input.code) === Boolean(input.error))
+        throw new ApiError(400, "plugin_oauth_callback_invalid", "Expected an authorization code or provider error.");
+      if (input.iss && input.iss !== oauth.issuer)
+        throw new ApiError(400, "plugin_oauth_issuer_invalid", "OAuth issuer did not match.");
+      if (input.error) return Effect.runPromise(this.cancelAuthentication(connectionId, input.state, desktop));
+      return Effect.runPromise(this.finishAuthentication(connectionId, input.code!, input.state, desktop));
+    });
+
+  private assertDesktopCallback(oauth: Record<string, unknown>, desktop?: PluginOAuthDesktopContext) {
+    if (oauth.callbackMode === "desktop"
+      ? !desktop || oauth.redirectUrl !== desktop.redirectUrl || oauth.callbackSessionId !== desktop.sessionId
+      : Boolean(desktop))
+      throw new ApiError(400, "plugin_oauth_session_changed", "Authorization belongs to a different desktop session. Start sign-in again.");
+  }
+
+  finishAuthentication = (connectionId: string, code: string, state: string, desktop?: PluginOAuthDesktopContext) =>
+    serviceEffect(async () => {
+      let connection = await this.connectionOrThrow(connectionId);
       this.assertAvailable(connection);
       const oauth = jsonObject(jsonObject(connection.credentials).oauth);
+      this.assertDesktopCallback(oauth, desktop);
       if (
-        !oauth.state ||
-        oauth.state !== state ||
+        !equalOAuthState(oauth.state, state) || oauth.exchangeStarted ||
         oauth.stateGeneration !== connection.runtimeGeneration ||
         (typeof oauth.stateCreatedAt === "number" &&
           Date.now() - oauth.stateCreatedAt > 15 * 60_000)
       ) {
         throw new ApiError(400, "plugin_oauth_state_invalid", "OAuth state did not match");
       }
+      // Claim in the database before redeeming the one-time code, including across server replicas.
+      const claimed = await this.prisma.pluginConnection.updateMany({
+        where: { id: connectionId, runtimeGeneration: connection.runtimeGeneration },
+        data: {
+          runtimeGeneration: { increment: 1 },
+          credentials: toJson({ ...jsonObject(connection.credentials), oauth: {
+            ...oauth, exchangeStarted: true, stateGeneration: connection.runtimeGeneration + 1,
+          } }),
+        },
+      });
+      if (!claimed.count) throw new ApiError(409, "plugin_oauth_session_changed", "This authorization is already completing or has been replaced.");
+      connection = { ...connection, runtimeGeneration: connection.runtimeGeneration + 1,
+        credentials: toJson({ ...jsonObject(connection.credentials), oauth: {
+          ...oauth, exchangeStarted: true, stateGeneration: connection.runtimeGeneration + 1,
+        } }) as Prisma.JsonValue };
       let tools: PluginToolDefinition[];
       try {
         tools =
@@ -587,7 +637,7 @@ export class PluginService {
         ).slice(0, 1500);
         const credentials = jsonObject(latest.credentials);
         const failedOAuth = { ...jsonObject(credentials.oauth) };
-        for (const key of ["state", "stateCreatedAt", "stateGeneration", "authorizationUrl", "codeVerifier"]) delete failedOAuth[key];
+        for (const key of ["state", "stateCreatedAt", "stateGeneration", "authorizationUrl", "codeVerifier", "callbackSessionId", "callbackMode", "exchangeStarted"]) delete failedOAuth[key];
         await this.prisma.pluginConnection.updateMany({
           where: { id: connectionId, runtimeGeneration: connection.runtimeGeneration },
           data: {
@@ -605,18 +655,22 @@ export class PluginService {
       return { connectionId, status: "ready", toolCount: tools.length };
     });
 
-  cancelAuthentication = (connectionId: string, state: string) =>
+  cancelAuthentication = (connectionId: string, state: string, desktop?: PluginOAuthDesktopContext) =>
     serviceEffect(async () => {
       const connection = await this.connectionOrThrow(connectionId);
       const credentials = jsonObject(connection.credentials);
       const oauth = jsonObject(credentials.oauth);
-      if (!state || oauth.state !== state || oauth.stateGeneration !== connection.runtimeGeneration)
+      this.assertDesktopCallback(oauth, desktop);
+      if (!equalOAuthState(oauth.state, state) || oauth.stateGeneration !== connection.runtimeGeneration)
         throw new ApiError(400, "plugin_oauth_state_invalid", "OAuth state did not match");
       delete oauth.state;
       delete oauth.stateCreatedAt;
       delete oauth.stateGeneration;
       delete oauth.authorizationUrl;
       delete oauth.codeVerifier;
+      delete oauth.callbackMode;
+      delete oauth.callbackSessionId;
+      delete oauth.exchangeStarted;
       const cancelled = await this.prisma.pluginConnection.updateMany({
         where: { id: connectionId, runtimeGeneration: connection.runtimeGeneration },
         data: {

@@ -51,6 +51,8 @@ export const PluginConfigurationInput = Schema.Struct({
   tokenEndpointAuthMethod: Schema.optional(
     Schema.Literal("none", "client_secret_post", "client_secret_basic")
   ),
+  oauthCallbackMode: Schema.optional(Schema.Literal("desktop", "server")),
+  oauthLoopbackPort: Schema.optional(Schema.Union(Schema.Literal(0), Schema.Number.pipe(Schema.int(), Schema.between(1024, 65535)))),
 });
 export type PluginConfigurationInput = typeof PluginConfigurationInput.Type;
 export const PluginSkillInput = Schema.Struct({
@@ -83,7 +85,23 @@ export interface PluginConfigurationView {
   setup: PluginSetup | null;
   callbackUrl: string;
   tokenEndpointAuthMethod: string;
+  oauthCallbackMode?: "desktop" | "server";
+  /** Zero selects an available desktop port. Static web clients may require a fixed port. */
+  oauthLoopbackPort?: number;
 }
+
+export const PluginOAuthStartInput = Schema.Struct({
+  force: Schema.optional(Schema.Boolean),
+  redirectUrl: Schema.optional(Schema.String.pipe(Schema.maxLength(2000))),
+});
+export const PluginOAuthCallbackInput = Schema.Struct({
+  redirectUrl: Schema.String.pipe(Schema.maxLength(2000)),
+  state: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(4096)),
+  code: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(8192))),
+  error: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(1000))),
+  iss: Schema.optional(Schema.String.pipe(Schema.maxLength(2000))),
+});
+export type PluginOAuthCallbackInput = typeof PluginOAuthCallbackInput.Type;
 export interface PluginSourceView {
   id: string;
   name: string;

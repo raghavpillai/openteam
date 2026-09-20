@@ -807,6 +807,8 @@ export interface PluginConnectionView {
   authorizationUrl: string | null;
   authorizationExpiresAt?: string | null;
   oauthRedirectUrl: string | null;
+  oauthCallbackMode?: "desktop" | "server";
+  oauthLoopbackPort?: number;
   canAuthenticate: boolean;
   configured: boolean;
   command: string | null;

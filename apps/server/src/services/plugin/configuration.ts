@@ -107,6 +107,8 @@ export class PluginConfiguration {
           connector?.setup ??
           (plugin?.setup?.connectionKey === connection.connectorKey ? plugin.setup : null),
         callbackUrl: oauthRedirectUrl(this.publicUrl, id),
+        oauthCallbackMode: config.oauthCallbackMode === "server" ? "server" : "desktop",
+        oauthLoopbackPort: typeof config.oauthLoopbackPort === "number" ? config.oauthLoopbackPort : 0,
         tokenEndpointAuthMethod: String(
           config.tokenEndpointAuthMethod ??
             connector?.oauth?.tokenEndpointAuthMethod ??
@@ -169,6 +171,8 @@ export class PluginConfiguration {
         args: input.args,
         cwd: input.cwd,
         tokenEndpointAuthMethod: input.tokenEndpointAuthMethod,
+        oauthCallbackMode: input.oauthCallbackMode,
+        oauthLoopbackPort: input.oauthLoopbackPort,
       }))
         if (value !== undefined) config[key] = value;
       for (const key of ["headers", "env"] as const) {

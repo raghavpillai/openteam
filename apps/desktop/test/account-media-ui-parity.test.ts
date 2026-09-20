@@ -51,8 +51,6 @@ describe("Bot account and media UI parity guards", () => {
     expect(plugins).toContain("h-[26px]");
     const pluginDetail = await read("../src/renderer/components/openteam/plugin-detail-view.tsx");
     expect(pluginDetail).toContain("View Source");
-    const pluginCopy = await read("../src/renderer/components/openteam/plugins/plugin-copy-button.tsx");
-    expect(pluginCopy).toContain("Copy link to this plugin");
     expect(attachment).toContain("h-[calc(100vh-80px)]");
     expect(attachment).toContain("w-[min(1100px,calc(100vw-80px))]");
     expect(attachment).toContain("grid-rows-[40px_minmax(0,1fr)]");

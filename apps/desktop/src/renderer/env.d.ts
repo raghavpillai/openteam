@@ -15,6 +15,12 @@ interface Window {
       writeToken: (token: string) => Promise<OpenTeamAuthTokenStorageResult>;
       clearToken: () => Promise<OpenTeamAuthTokenStorageResult>;
     };
+    pluginOAuth?: {
+      start(connectionId: string, force?: boolean): Promise<{ authorizationUrl: string; status: string }>;
+      cancel(connectionId: string, state: string): Promise<boolean>;
+      close(): Promise<void>;
+      onResult(callback: (result: { connectionId: string; status: "ready" | "cancelled" | "error"; message?: string }) => void): () => void;
+    };
     permissions: {
       savedLoginAccounts(): Promise<Array<{id:string;label:string}>>;
       cancelSavedLoginSetup(): Promise<void>;

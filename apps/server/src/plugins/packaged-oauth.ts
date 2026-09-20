@@ -35,6 +35,7 @@ const fetchWithTimeout: FetchLike = (input, init) =>
 
 export async function beginPackagedOAuth(provider: OpenTeamOAuthProvider, oauth: PackagedOAuth) {
   const server = metadata(oauth, provider);
+  await provider.saveIssuer(server.issuer);
   const result = await startAuthorization(server.issuer, {
     metadata: server,
     clientInformation: client(provider),

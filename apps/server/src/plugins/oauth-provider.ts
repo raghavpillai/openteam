@@ -1,4 +1,4 @@
-import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import type { OAuthClientProvider, OAuthDiscoveryState } from "@modelcontextprotocol/sdk/client/auth.js";
 import type {
   OAuthClientInformationMixed,
   OAuthClientMetadata,
@@ -14,6 +14,11 @@ export interface StoredOAuthState {
   clientInformation?: OAuthClientInformationMixed;
   tokens?: OAuthTokens;
   tokensExpireAt?: number;
+  redirectUrl?: string;
+  callbackSessionId?: string | null;
+  callbackMode?: "desktop";
+  exchangeStarted?: boolean;
+  issuer?: string;
 }
 
 export interface OAuthProviderOptions {
@@ -90,6 +95,9 @@ export class OpenTeamOAuthProvider implements OAuthClientProvider {
       stateCreatedAt: undefined,
       stateGeneration: undefined,
       codeVerifier: undefined,
+      callbackSessionId: undefined,
+      callbackMode: undefined,
+      exchangeStarted: undefined,
     });
   }
 
@@ -113,12 +121,24 @@ export class OpenTeamOAuthProvider implements OAuthClientProvider {
     return this.value.codeVerifier;
   }
 
+  async saveDiscoveryState(state: OAuthDiscoveryState): Promise<void> {
+    await this.saveIssuer(state.authorizationServerMetadata?.issuer ?? state.authorizationServerUrl);
+  }
+
+  async saveIssuer(issuer: string): Promise<void> {
+    await this.update({ issuer });
+  }
+
   async invalidateCredentials(scope: "all" | "client" | "tokens" | "verifier"): Promise<void> {
     if (scope === "all") {
       await this.replace({
         state: this.value.state,
         stateCreatedAt: this.value.stateCreatedAt,
         stateGeneration: this.value.stateGeneration,
+        redirectUrl: this.value.redirectUrl,
+        callbackSessionId: this.value.callbackSessionId,
+        callbackMode: this.value.callbackMode,
+        exchangeStarted: this.value.exchangeStarted,
       });
       return;
     }

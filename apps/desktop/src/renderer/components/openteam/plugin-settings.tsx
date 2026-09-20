@@ -157,6 +157,15 @@ export function PluginDialog({
   }, [open, reload]);
   const needsPluginAuthentication = needsAuthConnectionIds.length > 0;
   useEffect(() => {
+    const bridge = window.openteam?.pluginOAuth;
+    if (!open || !bridge) return;
+    const unsubscribe = bridge.onResult(result => {
+      if (result.status === "error") setError(result.message ?? "Plugin sign-in failed. Try again.");
+      void refresh().catch(cause => setError(errorMessage(cause)));
+    });
+    return () => { unsubscribe(); void bridge.close().catch(() => {}); };
+  }, [open, selectedKey, refresh]);
+  useEffect(() => {
     if (!open || !needsPluginAuthentication) return;
     const timer = window.setInterval(() => {
       statusRefresh().catch(() => undefined);
@@ -243,7 +252,7 @@ export function PluginDialog({
       return;
     }
     const session = pluginAuthorization(connection);
-    if (session && !session.expired) {
+    if (session && !session.expired && !window.openteam?.pluginOAuth) {
       window.open(session.url, "_blank", "noopener,noreferrer");
       return;
     }
@@ -516,6 +525,9 @@ export function PluginDialog({
                   return api.connectPlugin(connection.id);
                 })
               }
+              onConfigureCallback={(connection, input) => {
+                void mutate(connection.id, () => api.savePluginConfiguration(connection.id, input));
+              }}
               onConfigureOAuth={(connection, input) =>
                 void mutate(connection.id, async () => {
                   await api.configurePluginConnection(connection.id, input);

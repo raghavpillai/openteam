@@ -415,6 +415,8 @@ export function connectionView(
     authorizationExpiresAt: oauthAuthorizationExpiry(connection.credentials),
     oauthRedirectUrl:
       connection.authType === "oauth" ? oauthRedirectUrl(publicUrl, connection.id) : null,
+    oauthCallbackMode: jsonObject(connection.configuration).oauthCallbackMode === "server" ? "server" : "desktop",
+    oauthLoopbackPort: Number(jsonObject(connection.configuration).oauthLoopbackPort ?? 0),
     canAuthenticate: connection.authType === "oauth" || connection.authType === "token",
     configured: connectionConfigured(connection),
     command:

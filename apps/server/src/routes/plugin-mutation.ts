@@ -1,4 +1,5 @@
 import { pluginManagementRoutes } from "./plugin-management";
+import { PluginOAuthStartInput, PluginOAuthCallbackInput } from "@openteam/contracts/plugin-management";
 import { pluginOAuthPage } from "./plugin-oauth-page";
 import {
   AddCustomMcpInput,
@@ -59,16 +60,25 @@ export async function pluginMutationRoutes(context: RouteContext): Promise<Respo
     /^\/api\/plugin-connections\/([^/]+)\/authenticate$/
   );
   const cancelAuthenticationMatch = path.match(/^\/api\/plugin-connections\/([^/]+)\/authenticate\/cancel$/);
+  const desktopCallbackMatch = path.match(/^\/api\/plugin-connections\/([^/]+)\/authenticate\/callback$/);
+  if (request.method === "POST" && desktopCallbackMatch?.[1]) {
+    const input = await parseBody(request, PluginOAuthCallbackInput);
+    return json(await run(app.plugins.finishDesktopAuthentication(
+      desktopCallbackMatch[1], input, context.authenticatedSessionId
+    )));
+  }
   if (request.method === "POST" && cancelAuthenticationMatch?.[1]) {
-    const input = await request.json().catch(() => null) as { state?: unknown } | null;
+    const input = await request.json().catch(() => null) as { state?: unknown; redirectUrl?: unknown } | null;
     if (typeof input?.state !== "string" || !input.state || input.state.length > 4096)
       throw new ApiError(400, "plugin_oauth_state_invalid", "The authorization session is missing. Refresh and try again.");
-    return json(await run(app.plugins.cancelAuthentication(cancelAuthenticationMatch[1], input.state)));
+    return json(await run(app.plugins.cancelAuthentication(cancelAuthenticationMatch[1], input.state,
+      typeof input.redirectUrl === "string" ? { redirectUrl: input.redirectUrl, sessionId: context.authenticatedSessionId } : undefined)));
   }
   if (request.method === "POST" && connectionAuthenticateMatch?.[1]) {
-    const input = (await request.json().catch(() => ({}))) as { force?: unknown };
+    const input = await parseBody(request, PluginOAuthStartInput);
     return json(
-      await run(app.authenticatePlugin(connectionAuthenticateMatch[1], input.force === true))
+      await run(app.authenticatePlugin(connectionAuthenticateMatch[1], input.force === true,
+        input.redirectUrl ? { redirectUrl: input.redirectUrl, sessionId: context.authenticatedSessionId } : undefined))
     );
   }
 

@@ -38,6 +38,10 @@ export function PluginAuthorization({
           <button className={action} type="button" disabled={busy} onClick={onRetry}>
             Try again
           </button>
+        ) : window.openteam?.pluginOAuth ? (
+          <button className={action} type="button" disabled={busy} onClick={onRetry}>
+            Reopen sign-in
+          </button>
         ) : (
           <a className={action} href={session.url} target="_blank" rel="noopener noreferrer">
             Reopen sign-in

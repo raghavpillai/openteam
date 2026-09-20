@@ -99,10 +99,11 @@ test.skipIf(!databaseUrl)(
       const first = await prisma.pluginConnection.findFirstOrThrow({
         where: { installation: { pluginKey: definition.key } },
       });
-      const configure = async (id: string, basic = false) => {
+      const desktop = { redirectUrl: "http://127.0.0.1:55432/callback", sessionId: "desktop-test-session" };
+      const configure = async (id: string, basic = false, redirectUrl?: string) => {
         const view = await Effect.runPromise(service.configuration.get(id));
         // The fixture registers a separate application per callback, as a real provider can do.
-        fixture.registerClient(id, view.callbackUrl, "fixture-client-secret");
+        fixture.registerClient(id, redirectUrl ?? view.callbackUrl, "fixture-client-secret");
         await Effect.runPromise(
           service.configuration.save(id, {
             values: { clientId: id },
@@ -111,9 +112,10 @@ test.skipIf(!databaseUrl)(
           })
         );
       };
-      const authorize = async (id: string, account: string, expectDiscoveryFailure = false) => {
-        const start = await Effect.runPromise(service.authenticate(id));
+      const authorize = async (id: string, account: string, expectDiscoveryFailure = false, context?: typeof desktop) => {
+        const start = await Effect.runPromise(service.authenticate(id, false, context));
         const url = new URL(start.authorizationUrl);
+        if (context) expect(url.searchParams.get("redirect_uri")).toBe(context.redirectUrl);
         expect(url.searchParams.get("code_challenge_method")).toBe("S256");
         expect(url.searchParams.get("scope")).toBe("read");
         url.pathname = "/approve";
@@ -126,23 +128,23 @@ test.skipIf(!databaseUrl)(
         const code = callback.searchParams.get("code")!,
           state = callback.searchParams.get("state")!;
         await expect(
-          Effect.runPromise(service.finishAuthentication(id, code, "wrong"))
+          Effect.runPromise(service.finishAuthentication(id, code, "wrong", context))
         ).rejects.toThrow("state");
         if (expectDiscoveryFailure) {
           await expect(
-            Effect.runPromise(service.finishAuthentication(id, code, state))
+            Effect.runPromise(service.finishAuthentication(id, code, state, context))
           ).rejects.toThrow("Enable provider MCP access");
           return;
         }
-        await Effect.runPromise(service.finishAuthentication(id, code, state));
+        await Effect.runPromise(service.finishAuthentication(id, code, state, context));
         await expect(
-          Effect.runPromise(service.finishAuthentication(id, code, state))
-        ).rejects.toThrow("state");
+          Effect.runPromise(service.finishAuthentication(id, code, state, context))
+        ).rejects.toThrow();
       };
       const read = (id: string) =>
         Effect.runPromise(service.testTool(id, { toolName: "whoami", arguments: {} }));
-      await configure(first.id);
-      await authorize(first.id, "Account A");
+      await configure(first.id, false, desktop.redirectUrl);
+      await authorize(first.id, "Account A", false, desktop);
       const second = await Effect.runPromise(service.addAccount(first.id, "second"));
       const copied = await prisma.pluginConnection.findUniqueOrThrow({ where: { id: second.id } });
       expect((copied.credentials as any).oauth?.tokens).toBeUndefined();

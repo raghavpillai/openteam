@@ -28,6 +28,8 @@ import {
 } from "electron";
 import type { AppUpdater } from "electron-updater";
 import { desktopSignIn, desktopSignOut } from "./auth-client";
+import { createOpenTeamClient } from "@openteam/client-core";
+import { DesktopPluginOAuth } from "./plugin-oauth";
 import { DesktopAuthTokenStore } from "./auth-token-store";
 import { resolveControlToken } from "./control-token";
 import {
@@ -617,10 +619,13 @@ ipcMain.handle("openteam:auth-token:write", (event, value: unknown) => {
   if (typeof value !== "string" || !value.trim() || value.length > 16 * 1024) {
     throw new Error("Authentication token is invalid");
   }
-  return requireAuthTokenStore(event).write(value);
+  const store = requireAuthTokenStore(event);
+  pluginOAuth.closeAll();
+  return store.write(value);
 });
 ipcMain.handle("openteam:auth-token:clear", async (event) => {
   const store = requireAuthTokenStore(event);
+  pluginOAuth.closeAll();
   enrollmentServerUrl = null;
   await machineEnrollment?.stop();
   return store.clear();
@@ -636,12 +641,42 @@ const requireAuthSender = (event: Electron.IpcMainInvokeEvent) => {
   }
 };
 
+const pluginOAuth = new DesktopPluginOAuth(result => {
+  if (mainWindow && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send("openteam:plugin-oauth:result", result);
+});
+ipcMain.handle("openteam:plugin-oauth:start", async (event, connectionId: unknown, force: unknown) => {
+  requireAuthSender(event);
+  if (typeof connectionId !== "string" || !/^[a-zA-Z0-9-]{1,128}$/.test(connectionId) || typeof force !== "boolean") throw new Error("Invalid plugin sign-in request");
+  const serverUrl = enrollmentServerUrl;
+  if (!serverUrl) throw new Error("Connect to your OpenTeam server before authorizing a plugin.");
+  const generation = pluginOAuth.sessionGeneration;
+  const token = (await requireAuthTokenStore(event).read()).token;
+  if (enrollmentServerUrl !== serverUrl || generation !== pluginOAuth.sessionGeneration) throw new Error("The server or sign-in session changed. Try again.");
+  const client = createOpenTeamClient({ baseUrl: serverUrl, getAuthToken: () => token,
+    fetch: (input, init) => net.fetch(input instanceof Request ? input.url : String(input), {
+      ...init, signal: AbortSignal.timeout(45_000), redirect: "error",
+    }),
+  });
+  return pluginOAuth.start(`${serverUrl}:${token ?? ""}`, connectionId, client, force);
+});
+ipcMain.handle("openteam:plugin-oauth:cancel", (event, connectionId: unknown, state: unknown) => {
+  requireAuthSender(event);
+  if (typeof connectionId !== "string" || connectionId.length > 128 || typeof state !== "string" || state.length > 4096) throw new Error("Invalid plugin cancellation");
+  return pluginOAuth.cancel(connectionId, state);
+});
+ipcMain.handle("openteam:plugin-oauth:close", event => {
+  requireAuthSender(event);
+  pluginOAuth.closeAll();
+});
+
 ipcMain.handle("openteam:machine:connect", (event, serverUrl: unknown) => {
   requireAuthSender(event);
   if (typeof serverUrl !== "string" || serverUrl.length > 8192) throw new Error("Invalid server URL");
   const url = new URL(serverUrl);
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error("Invalid server URL");
-  enrollmentServerUrl = url.href.replace(/\/$/, "");
+  const nextServerUrl = url.href.replace(/\/$/, "");
+  if (enrollmentServerUrl !== nextServerUrl) pluginOAuth.closeAll();
+  enrollmentServerUrl = nextServerUrl;
   machineEnrollment?.configure(enrollmentServerUrl);
   void syncReviewPolicy().catch(() => {});
   return { machineId: localMachine.machineId };
@@ -1065,6 +1100,7 @@ const createWindow = async () => {
     }
   });
   mainWindow.once("closed", () => {
+    pluginOAuth.closeAll();
     mainWindow = null;
   });
 
@@ -1339,6 +1375,7 @@ if (!hasSingleInstanceLock) {
 }
 
 app.on("before-quit", () => {
+  pluginOAuth.closeAll();
   isQuitting = true;
   if (desktopUpdateTimer) clearInterval(desktopUpdateTimer);
   desktopUpdateTimer = null;

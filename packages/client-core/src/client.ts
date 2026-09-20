@@ -10,6 +10,7 @@ import type {
   PluginPackageView,
   PluginSkillInput,
   PluginDraftView,
+  PluginOAuthCallbackInput,
 } from "@openteam/contracts/plugin-management";
 import type {
   AddCustomMcpInput,
@@ -393,14 +394,19 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         `/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/configure`,
         { method: "POST", body: JSON.stringify(input) }
       ),
-    authenticatePlugin: (connectionId: string, force = false) =>
+    authenticatePlugin: (connectionId: string, force = false, redirectUrl?: string) =>
       transport.request<{ authorizationUrl: string; status: string }>(
         `/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/authenticate`,
-        { method: "POST", body: JSON.stringify({ force }) }
+        { method: "POST", body: JSON.stringify({ force, redirectUrl }) }
       ),
-    cancelPluginAuthentication: (connectionId: string, state: string) =>
+    finishPluginAuthentication: (connectionId: string, input: PluginOAuthCallbackInput) =>
+      transport.request<{ status?: string; cancelled?: boolean }>(
+        `/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/authenticate/callback`,
+        { method: "POST", body: JSON.stringify(input) }
+      ),
+    cancelPluginAuthentication: (connectionId: string, state: string, redirectUrl?: string) =>
       transport.request(`/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/authenticate/cancel`, {
-        method: "POST", body: JSON.stringify({ state }),
+        method: "POST", body: JSON.stringify({ state, redirectUrl }),
       }),
     restartPluginConnection: (connectionId: string) =>
       transport.request(`/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/restart`, {

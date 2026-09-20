@@ -19,7 +19,7 @@ Try a small task in chat after connecting. For example, ask the bot to list the 
 
 Use **Add Another Account** or **Add account** to connect a second identity. Give it a name such as Work or Personal, authorize it separately, and check its bot grants.
 
-When a service requires registered callbacks, add the new account's exact callback URL to the provider application. Connecting Gmail does not also connect Google Calendar or Drive.
+Desktop OAuth receives callbacks on your computer and relays them to the selected server. Account settings also offer **Server callback** for web clients and **Desktop callback port** for providers requiring a fixed port. In Server mode, add the new account's exact callback URL to the provider application. Google Desktop app clients do not require a public server callback. Connecting Gmail does not also connect Google Calendar or Drive.
 
 ## Bot access and tool approvals
 

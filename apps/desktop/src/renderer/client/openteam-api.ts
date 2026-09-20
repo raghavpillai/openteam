@@ -16,6 +16,19 @@ export type { ChannelClientState, ClientBootstrapView } from "@openteam/contract
 
 export const api = {
   ...openTeamClient,
+  authenticatePlugin: (connectionId: string, force = false) =>
+    window.openteam?.pluginOAuth
+      ? window.openteam.pluginOAuth.start(connectionId, force)
+      : openTeamClient.authenticatePlugin(connectionId, force),
+  cancelPluginAuthentication: async (connectionId: string, state: string) => {
+    if (await window.openteam?.pluginOAuth?.cancel(connectionId, state)) return { cancelled: true };
+    // A server callback, or an attempt owned by a different desktop, can still be cancelled.
+    const settings = await openTeamClient.pluginConnectionStatuses([connectionId]);
+    const authorizationUrl = settings.connections[0]?.authorizationUrl;
+    const redirect = authorizationUrl ? new URL(authorizationUrl).searchParams.get("redirect_uri") : null;
+    const local = redirect?.startsWith("http://127.0.0.1:") && new URL(redirect).pathname === "/callback";
+    return openTeamClient.cancelPluginAuthentication(connectionId, state, local ? redirect! : undefined);
+  },
   sendMessage: openTeamClient.sendDirectMessage,
   screenTakeover: openTeamClient.setScreenTakeover,
   /** Best-effort unload path; keepalive is a browser lifecycle concern. */

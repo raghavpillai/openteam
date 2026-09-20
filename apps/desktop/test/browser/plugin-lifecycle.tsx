@@ -8,14 +8,16 @@ import {
 import { PluginApprovalNextStep } from "../../src/renderer/components/openteam/plugins/plugin-approval-next-step";
 import "../../src/renderer/styles.css";
 const origin = new URLSearchParams(location.search).get("server");
-if (!origin || new URL(origin).hostname !== "127.0.0.1" || window.openteam)
+const nativeOAuth = new URLSearchParams(location.search).get("nativeOAuth") === "fixture";
+if (!origin || new URL(origin).hostname !== "127.0.0.1" || (window.openteam && !nativeOAuth))
   throw new Error("This fixture requires a disposable local plugin test server in a browser.");
 const [{ api }, { PluginDialog }, { TooltipProvider }] = await Promise.all([
   import("../../src/renderer/client/openteam-api"),
   import("../../src/renderer/components/openteam/plugin-settings"),
   import("../../src/renderer/components/ui/tooltip"),
 ]);
-Object.assign(api, createOpenTeamClient({ baseUrl: origin }));
+const nativeMethods = { authenticatePlugin: api.authenticatePlugin, cancelPluginAuthentication: api.cancelPluginAuthentication };
+Object.assign(api, createOpenTeamClient({ baseUrl: origin }), nativeOAuth ? nativeMethods : {});
 function Fixture() {
   const reviewPlugin = new URLSearchParams(location.search).get("reviewPlugin");
   const [open, setOpen] = useState(!reviewPlugin);

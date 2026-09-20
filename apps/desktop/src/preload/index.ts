@@ -189,6 +189,16 @@ contextBridge.exposeInMainWorld("openteam", {
     clearToken: async () =>
       authTokenStorageResult(await ipcRenderer.invoke("openteam:auth-token:clear")),
   },
+  pluginOAuth: {
+    start: (connectionId: string, force = false) => ipcRenderer.invoke("openteam:plugin-oauth:start", connectionId, force),
+    cancel: (connectionId: string, state: string) => ipcRenderer.invoke("openteam:plugin-oauth:cancel", connectionId, state),
+    close: () => ipcRenderer.invoke("openteam:plugin-oauth:close"),
+    onResult: (callback: (result: { connectionId: string; status: "ready" | "cancelled" | "error"; message?: string }) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, result: Parameters<typeof callback>[0]) => callback(result);
+      ipcRenderer.on("openteam:plugin-oauth:result", listener);
+      return () => ipcRenderer.removeListener("openteam:plugin-oauth:result", listener);
+    },
+  },
   permissions: {
     savedLoginAccounts: () => ipcRenderer.invoke("openteam:capabilities:accounts"),
       cancelSavedLoginSetup: () => ipcRenderer.invoke("openteam:capabilities:cancel-login"),

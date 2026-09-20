@@ -132,7 +132,7 @@ A package's `setup` describes guided setup for its `connectionKey`; a connection
 
 ## OAuth configuration
 
-Use the [Linear package](../../packages/plugins/linear/plugin.json) as a dynamic/public OAuth example and the [Gmail package](../../packages/plugins/gmail/plugin.json) as a manually configured/confidential example.
+Use the [Linear package](../../packages/plugins/linear/plugin.json) as a dynamic/public OAuth example and the [Gmail package](../../packages/plugins/gmail/plugin.json) as a manually configured Google Desktop client example.
 
 | Connection setting | Purpose |
 | --- | --- |
@@ -144,6 +144,10 @@ Use the [Linear package](../../packages/plugins/linear/plugin.json) as a dynamic
 | `oauth.shareClientCredentials` | Explicitly permits copying the provider application's client credentials when adding an account; never its OAuth tokens |
 | `setup.requiredScopes` | Supplies the initial configured scope list and user-facing explanation |
 | `configuration.oauthAuthorizationParameters` | Supplies supported provider authorization extensions: `access_type` and `prompt` |
+| `configuration.oauthCallbackMode` | `desktop` (default in the native app) or `server`; browser-only clients use the server callback |
+| `configuration.oauthLoopbackPort` | `0` selects an available desktop port; `1024`–`65535` selects a provider-registered fixed port |
+
+Desktop OAuth uses an HTTP listener bound only to `127.0.0.1` on the user's computer. The authenticated backend start request supplies its exact `/callback` URL. The backend stores that redirect with state, PKCE verifier, connection generation, and the initiating login session; the desktop relays the code through the authenticated callback API. The server exchanges and stores tokens. Public browser callback routes cannot complete desktop attempts. Client registration must support the selected callback; no arbitrary external redirect URLs are accepted.
 
 Only `access_type` and `prompt` are applied from authorization extensions. State, PKCE, callback URL, and client ID remain controlled by the OAuth flow. Google uses `access_type: "offline"` and `prompt: "consent select_account"` to request refresh tokens and account selection, following [Google's OAuth guidance](https://developers.google.com/identity/protocols/oauth2/web-server).
 

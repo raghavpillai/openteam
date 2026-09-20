@@ -101,7 +101,9 @@ export function visualFixture(base: any, scene: string) {
       date.setHours(14,40,0,0);
       rows.forEach(([sender,content],i)=>{ if(content==="Hi")date.setHours(14,52,0,0); message(channel.id,sender,content,i+1); });
     } else
-    if(scene === "history-pages") {
+    if(scene === "empty-chat") {
+      // No messages: initial positioning must still dismiss the native spinner.
+    } else if(scene === "history-pages") {
       for (let i = 1; i <= 180; i++) message(channel.id, i % 2 ? "user" : "agent", `Page message ${i}`, i);
     } else if(scene === "performance-text" || scene === "performance-rich") {
       // Already-loaded histories, as after pagination or restoring the local cache.

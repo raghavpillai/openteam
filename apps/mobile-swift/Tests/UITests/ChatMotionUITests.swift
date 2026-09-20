@@ -21,6 +21,80 @@ import XCTest
     attachment.lifetime = .keepAlways
     add(attachment)
   }
+  func testOpeningShowsSpinnerThenStableLatestMessage() async throws {
+    continueAfterFailure = false
+    for appearance in ["dark", "light"] {
+      try await control("__qa/scene", ["scene": "history-pages"])
+      try await control(
+        "__qa/control",
+        [
+          "failures": [
+            "GET /api/v0/channels/visual-chat/history": ["delayMs": 7000, "count": 10]
+          ]
+        ])
+      let app = XCUIApplication()
+      app.launchArguments = [
+        "--ui-testing", "--server", base.absoluteString, "--appearance", appearance,
+      ]
+      app.launch()
+      let chat = app.buttons["channel-visual-chat"]
+      XCTAssertTrue(chat.waitForExistence(timeout: 15))
+      mark("open-chat-" + appearance)
+      chat.tap()
+      let spinner = app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
+      XCTAssertTrue(spinner.waitForExistence(timeout: 3))
+      XCTAssertFalse(app.staticTexts["Page message 180"].isHittable)
+      XCTAssertFalse(app.buttons["Latest messages"].exists)
+      capture("opening-spinner-" + appearance, app)
+      XCTAssertTrue(spinner.waitForNonExistence(timeout: 15))
+      let latest = app.staticTexts["Page message 180"]
+      XCTAssertTrue(
+        latest.isHittable, "The first revealed history must already show the latest message")
+      let y = latest.frame.midY
+      for _ in 0..<4 {
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertEqual(
+          latest.frame.midY, y, accuracy: 1, "No delayed scroll after revealing history")
+        XCTAssertFalse(app.buttons["Latest messages"].exists)
+      }
+      capture("opening-latest-" + appearance, app)
+      // A previously loaded page opens immediately while its slow refresh runs.
+      app.buttons["chat-back"].tap()
+      chat.tap()
+      XCTAssertTrue(latest.waitForExistence(timeout: 3))
+      XCTAssertTrue(latest.isHittable)
+      XCTAssertFalse(spinner.exists)
+      capture("opening-cached-" + appearance, app)
+      app.terminate()
+    }
+    let timing = XCTAttachment(
+      data: try JSONSerialization.data(withJSONObject: marks), uniformTypeIdentifier: "public.json")
+    timing.name = "opening-timestamps"
+    timing.lifetime = .keepAlways
+    add(timing)
+  }
+
+  func testEmptyChatFinishesLoadingAndCanSend() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "empty-chat"])
+    let app = XCUIApplication()
+    app.launchArguments = [
+      "--ui-testing", "--server", base.absoluteString, "--open-channel", "visual-chat",
+    ]
+    app.launch()
+    defer { app.terminate() }
+    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 15))
+    XCTAssertTrue(
+      app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
+        .waitForNonExistence(timeout: 8))
+    let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    XCTAssertTrue(input.isEnabled)
+    input.tap()
+    input.typeText("First message")
+    app.buttons["send-button"].tap()
+    XCTAssertTrue(app.staticTexts["First message"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.buttons["Latest messages"].exists)
+  }
   func testKeyboardSendAndActivityTransitions() async throws {
     continueAfterFailure = false
     try await control("__qa/scene", ["scene": "dark-chat-seven"])

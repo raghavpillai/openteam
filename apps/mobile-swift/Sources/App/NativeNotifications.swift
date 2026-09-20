@@ -463,7 +463,6 @@ struct PushNotificationSettings: View {
           Task { await notifications.resume(requestPermission: true) }
         }
       }
-    }.padding(16).background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 12))
-      .task { await notifications.resume() }
+    }.task { await notifications.resume() }
   }
 }

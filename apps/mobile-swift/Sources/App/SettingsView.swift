@@ -9,130 +9,88 @@ struct SettingsView: View {
   @State private var signOut = false
   var body: some View {
     NavigationStack {
-      VStack(spacing: 0) {
-        SheetHeading { dismiss() }
-        ScrollView {
-          VStack(spacing: 28) {
-            NavigationLink {
-              AccountConnectionView().toolbar(.visible, for: .navigationBar)
-            } label: {
-              HStack(spacing: 10) {
-                AccountMark(name: store.accountDisplayName)
-                VStack(alignment: .leading, spacing: 2) {
-                  Text(store.accountDisplayName).font(.body)
-                  Text(store.server).font(.system(size: 13)).foregroundStyle(NativePalette.muted)
-                    .lineLimit(1)
-                  Text("Self-hosted").font(.system(size: 12)).foregroundStyle(NativePalette.muted)
-                }
-                Spacer(minLength: 0)
-                chevron
-              }.padding(16).frame(minHeight: 86)
-            }.accessibilityIdentifier("account-settings").buttonStyle(.plain).background(
-              NativePalette.surface, in: RoundedRectangle(cornerRadius: 12))
-            NavigationLink {
-              PluginListView().toolbar(.visible, for: .navigationBar)
-            } label: {
-              HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                  Text("Plugins").font(.body)
-                  Text("Tools and skills for OpenTeam").font(.system(size: 13)).foregroundStyle(
-                    NativePalette.muted)
-                }
-                Spacer()
-                chevron
-              }.padding(16)
-            }.buttonStyle(.plain).background(
-              NativePalette.surface, in: RoundedRectangle(cornerRadius: 12))
-            VStack(alignment: .leading, spacing: 8) {
-              Text("Bot").font(.system(size: 13)).foregroundStyle(NativePalette.faint).padding(
-                .leading, 16)
-              VStack(spacing: 0) {
-                NavigationLink {
-                  notificationSettings.toolbar(.visible, for: .navigationBar)
-                } label: {
-                  row("Bot notifications") { chevron }
-                }.buttonStyle(.plain)
-                separator
-                NavigationLink {
-                  OutboxView().toolbar(.visible, for: .navigationBar)
-                } label: {
-                  row("Queued messages") {
-                    Text(String(store.state.outbox.count))
-                    chevron
-                  }
-                }.buttonStyle(.plain).accessibilityIdentifier("outbox-settings")
-                separator
-                NavigationLink {
-                  HiddenConversationsView().toolbar(.visible, for: .navigationBar)
-                } label: {
-                  row("Hidden conversations") { chevron }
-                }.buttonStyle(.plain)
-              }.background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 12))
-            }
-            PushNotificationSettings()
-            VStack(spacing: 0) {
-              Menu {
-                Picker("Appearance", selection: $appearance.hapticSelection("settings.appearance"))
-                {
-                  Text("System").tag("system")
-                  Text("Light").tag("light")
-                  Text("Dark").tag("dark")
-                }
-                Picker("Accent", selection: $accent.hapticSelection("settings.accent")) {
-                  Text("Black").tag("black")
-                  Text("Blue").tag("blue")
-                }
-              } label: {
-                row("Appearance") {
-                  Text(
-                    (appearance == "system" ? "System" : appearance == "dark" ? "Night" : "Day")
-                      + " · " + accent.capitalized
-                  ).foregroundStyle(NativePalette.muted)
-                  chevron
-                }
-              }.accessibilityIdentifier("appearance-picker")
-              separator
-              Toggle("App haptics", isOn: $haptics).font(.body).tint(NativePalette.toggle).padding(
-                .horizontal, 16
-              ).frame(minHeight: 50)
-            }.background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 12))
-            VStack(spacing: 0) {
-              NavigationLink {
-                NativePreferencesView().toolbar(.visible, for: .navigationBar)
-              } label: {
-                row("More preferences") { chevron }
-              }.buttonStyle(.plain)
-              separator
-              Link(destination: URL(string: "https://github.com/raghavpillai/openteam#readme")!) {
-                row("Help Center") { Image(systemName: "arrow.up.right") }
+      NativeList {
+        Section {
+          NavigationLink {
+            AccountConnectionView()
+          } label: {
+            HStack(spacing: 10) {
+              AccountMark(name: store.accountDisplayName)
+              VStack(alignment: .leading, spacing: 2) {
+                Text(store.accountDisplayName).font(.body)
+                Text(store.server).font(.system(size: 13)).foregroundStyle(NativePalette.muted)
+                  .lineLimit(1)
+                Text("Self-hosted").font(.system(size: 12)).foregroundStyle(NativePalette.muted)
               }
-              separator
-              ShareLink(
-                item:
-                  "OpenTeam feedback\nVersion \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")\niOS \(UIDevice.current.systemVersion)"
-              ) {
-                row("Send Feedback") { Image(systemName: "square.and.arrow.up") }
-              }
-            }.background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 12))
-            VStack(spacing: 0) {
-              NavigationLink {
-                ServerStatusView().toolbar(.visible, for: .navigationBar)
-              } label: {
-                row("Server status") { chevron }
-              }.buttonStyle(.plain)
-              separator
-              Button {
-                signOut = true
-              } label: {
-                row(store.requiresAuthentication ? "Sign out" : "Disconnect") { EmptyView() }
-                  .foregroundStyle(NativePalette.destructive)
-              }.buttonStyle(.plain).disabled(store.busy.contains("sign-out"))
-                .accessibilityIdentifier("sign-out")
-            }.background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 12))
-          }.padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 24)
+            }.padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
+              .contentShape(Rectangle())
+          }.accessibilityIdentifier("account-settings")
         }
-      }.nativeCanvas().toolbar(.hidden, for: .navigationBar)
-        .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
+        Section {
+          NavigationLink {
+            PluginListView()
+          } label: {
+            VStack(alignment: .leading, spacing: 3) {
+              Text("Plugins").font(.body)
+              Text("Tools and skills for OpenTeam").font(.system(size: 13))
+                .foregroundStyle(NativePalette.muted)
+            }.padding(.vertical, 5).frame(maxWidth: .infinity, alignment: .leading)
+              .contentShape(Rectangle())
+          }.accessibilityIdentifier("plugins-settings")
+        }
+        Section("Bot") {
+          NavigationLink("Bot notifications") { notificationSettings }
+          NavigationLink {
+            OutboxView()
+          } label: {
+            LabeledContent("Queued messages", value: String(store.state.outbox.count))
+          }.accessibilityIdentifier("outbox-settings")
+          NavigationLink("Hidden conversations") { HiddenConversationsView() }
+        }
+        Section { PushNotificationSettings() }
+        Section {
+          Menu {
+            Picker("Appearance", selection: $appearance.hapticSelection("settings.appearance")) {
+              Text("System").tag("system")
+              Text("Light").tag("light")
+              Text("Dark").tag("dark")
+            }
+            Picker("Accent", selection: $accent.hapticSelection("settings.accent")) {
+              Text("Black").tag("black")
+              Text("Blue").tag("blue")
+            }
+          } label: {
+            LabeledContent(
+              "Appearance",
+              value: (appearance == "system" ? "System" : appearance == "dark" ? "Night" : "Day")
+                + " · " + accent.capitalized
+            ).frame(maxWidth: .infinity).contentShape(Rectangle())
+          }.accessibilityIdentifier("appearance-picker").foregroundStyle(NativePalette.text)
+          Toggle("App haptics", isOn: $haptics).tint(NativePalette.toggle)
+        }
+        Section {
+          NavigationLink("More preferences") { NativePreferencesView() }
+          Link("Help Center", destination: URL(string: "https://github.com/raghavpillai/openteam#readme")!)
+          ShareLink(
+            item: "OpenTeam feedback\nVersion \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")\niOS \(UIDevice.current.systemVersion)"
+          ) { Text("Send Feedback") }
+        }
+        Section {
+          NavigationLink("Server status") { ServerStatusView() }
+          Button(store.requiresAuthentication ? "Sign out" : "Disconnect", role: .destructive) {
+            signOut = true
+          }.disabled(store.busy.contains("sign-out")).accessibilityIdentifier("sign-out")
+        }
+      }.listStyle(.insetGrouped)
+        .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+          ToolbarItem(placement: .cancellationAction) {
+            Button { dismiss() } label: {
+              Image(systemName: "xmark").foregroundStyle(.primary)
+            }.accessibilityLabel("Close")
+              .accessibilityIdentifier("sheet-close")
+          }
+        }
         .confirmationDialog(
           "Sign out of this server?", isPresented: $signOut, titleVisibility: .visible
         ) {
@@ -150,18 +108,7 @@ struct SettingsView: View {
           )
         }
     }
-  }
-  var chevron: some View {
-    Image(systemName: "chevron.right").font(.system(size: 12, weight: .medium)).foregroundStyle(
-      NativePalette.faint)
-  }
-  var separator: some View { NativePalette.separator.frame(height: 0.5).padding(.leading, 16) }
-  func row<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-    HStack(spacing: 8) {
-      Text(title)
-      Spacer()
-      content()
-    }.font(.body).padding(.horizontal, 16).frame(minHeight: 50).contentShape(Rectangle())
+    .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
   }
   var notificationSettings: some View {
     NativeList {

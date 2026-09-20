@@ -20,6 +20,7 @@ Evidence: `output/chat-parity-0920/`. The comparison videos align each send, loa
 | Placeholder/timestamps | Opaque gray on every backdrop | Translucent chat labels, so their brightness follows the backdrop |
 | Header symbols | Oversized computer/back controls, then an undersized intermediate port | Measured 16-point back/display symbols; 44-point controls remain unchanged |
 | Loader position during a reply | Footer placement and scroll offset animated in opposite directions; the robot stayed still and overlapped the new bubble | Inserted replies immediately reserve their row space; the existing footer moves with the animated scroll anchor |
+| Empty composer during bot activity | A Stop button replaced voice input | Voice input remains available, matching desktop and the previous React Native composer; audio recording still has its own Stop control |
 
 The old React Native wrapper's clear tint was 0.056. Copying that number into SwiftUI produced a brighter result, so the retained SwiftUI value is calibrated rather than assumed equivalent. A regular-material comparison suppressed too much underlying text. A partially transparent regular-material experiment changed the focused composer's spacing and was rejected. None of those discarded material variants should be mistaken for the final build.
 
@@ -50,7 +51,7 @@ The user was asked whether to restore the cloud or keep the selected bot artwork
 
 ## Other remaining differences
 
-- GrokBot's empty composer has a microphone plus a white waveform pill. OpenTeam retains its functional recording control and, during a run, its Stop action. Only the draft's Send action has been matched in this change; no dummy voice feature was added.
+- GrokBot's empty composer has a microphone plus a white waveform pill. OpenTeam retains its functional recording control, including during bot activity. The bot-run Stop action introduced in the initial Swift port (`e807a6e`) was removed; neither the desktop nor the React Native composer replaces voice input with that action. The extra waveform control remains a visual difference; no dummy voice feature was added.
 - The reference and simulator have different keyboard suggestion/dictation controls and approximately two points of keyboard-height difference. The app keeps the same spacing relative to its actual keyboard.
 - Captures, including the retained loader-flow capture, contain gaps on this shared simulator host. They do not certify smooth physical-device frame pacing. No physical iPhone was available in `devicectl`.
 
@@ -61,6 +62,7 @@ The user was asked whether to restore the cloud or keep the selected bot artwork
 - `Verified.xcresult`: matched control scenario passed, including the new keyboard-clearance assertion.
 - `LoaderFlow.xcresult`: matched scenario passed after correcting loader placement; `loader-flow.mov` is the retained motion capture.
 - `LoaderRegression.xcresult`: keyboard, acknowledgment, multiline sends, loader completion, and latest navigation passed again after that correction.
+- `NoStop.xcresult`: the keyboard/send/activity regression passed after removing bot-run Stop, with explicit checks that voice input remains enabled during bot activity and no Stop button appears. `active-bot-no-stop.png` shows the corrected composer; the earlier motion videos predate this control removal.
 - `robot-motion-tests.log`: five core robot-motion tests passed.
 - The final reference test additionally requires at least 12 points of keyboard clearance for the focused attachment control. This catches the rejected material experiment's spacing regression.
 

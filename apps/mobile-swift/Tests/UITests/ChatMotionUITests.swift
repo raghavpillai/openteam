@@ -83,7 +83,12 @@ import XCTest
     mark("activity-start")
     try await control("__qa/motion", ["active": true])
     XCTAssertTrue(app.otherElements["bot-activity"].waitForExistence(timeout: 8))
+    let recordVoice = app.buttons["Record voice note"]
+    XCTAssertTrue(recordVoice.waitForExistence(timeout: 3))
+    XCTAssertTrue(recordVoice.isEnabled, "Bot activity must not replace or disable voice input")
+    XCTAssertFalse(app.buttons["Stop"].exists, "The composer must not gain a bot-stop control")
     try await Task.sleep(for: .seconds(2))
+    capture("active-bot-keeps-voice-input", app)
     mark("activity-complete-with-reply")
     try await control("__qa/motion", ["active": false, "content": "Motion reply complete."])
     XCTAssertTrue(app.staticTexts["Motion reply complete."].waitForExistence(timeout: 8))

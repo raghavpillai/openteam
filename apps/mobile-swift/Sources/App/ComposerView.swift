@@ -324,19 +324,6 @@ struct ComposerView: View {
           .frame(width: 44, height: 44).contentShape(Rectangle())
       }.buttonStyle(.plain).disabled(uploading).accessibilityLabel("Send").accessibilityIdentifier(
         threadRootID == nil ? "send-button" : "thread-send-button")
-    } else if !store.activeRuns(channel.id).isEmpty {
-      Button {
-        Task {
-          for run in store.activeRuns(channel.id) {
-            await store.mutate("/api/v0/runs/\(API.segment(run.id))/cancel")
-          }
-        }
-      } label: {
-        Image(systemName: "stop.fill").font(.system(size: 10)).foregroundStyle(
-          NativePalette.onPrimary
-        ).frame(width: 28, height: 28).background(NativePalette.text, in: Circle())
-          .frame(width: 44, height: 44).contentShape(Rectangle())
-      }.buttonStyle(.plain).accessibilityLabel("Stop")
     } else {
       Button {
         startRecording()

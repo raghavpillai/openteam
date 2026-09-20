@@ -19,6 +19,7 @@ Evidence: `output/chat-parity-0920/`. The comparison videos align each send, loa
 | Chrome fade | System soft scroll-edge effect | Canvas-colored gradient restored from the previous React Native chat; safe-area bars still handle keyboard resizing |
 | Placeholder/timestamps | Opaque gray on every backdrop | Translucent chat labels, so their brightness follows the backdrop |
 | Header symbols | Oversized computer/back controls, then an undersized intermediate port | Measured 16-point back/display symbols; 44-point controls remain unchanged |
+| Loader position during a reply | Footer placement and scroll offset animated in opposite directions; the robot stayed still and overlapped the new bubble | Inserted replies immediately reserve their row space; the existing footer moves with the animated scroll anchor |
 
 The old React Native wrapper's clear tint was 0.056. Copying that number into SwiftUI produced a brighter result, so the retained SwiftUI value is calibrated rather than assumed equivalent. A regular-material comparison suppressed too much underlying text. A partially transparent regular-material experiment changed the focused composer's spacing and was rejected. None of those discarded material variants should be mistaken for the final build.
 
@@ -43,19 +44,23 @@ The reference uses the legacy cloud-shaped mark with two slanted eyes. The compa
 
 The shared twelve-robot artwork replaced the legacy marks in commit `b7438e5`. The Swift renderer uses that newer artwork and the shared desktop keyframes. The five robot-motion tests pass, including all twelve identities, face transforms, mode transitions, and Reduce Motion. This verifies the selected artwork's implementation, not parity with the cloud animation.
 
+The final frame review also found a separate positional bug, beyond the silhouette difference. Before the footer correction, the detected robot could overlap the arriving reply by 23 points. After suppressing the footer's competing local placement animation on message arrival, the minimum measured clearance is 27 points across detected reply frames. Loader expansion/collapse retain their own animations. `loader-flow.mov` and its frame tracks show this correction; `verified.mov` predates it.
+
 The user was asked whether to restore the cloud or keep the selected bot artwork. Pending that preference, selected identities were preserved. The comparison must therefore not be labeled a one-to-one robot match.
 
 ## Other remaining differences
 
 - GrokBot's empty composer has a microphone plus a white waveform pill. OpenTeam retains its functional recording control and, during a run, its Stop action. Only the draft's Send action has been matched in this change; no dummy voice feature was added.
 - The reference and simulator have different keyboard suggestion/dictation controls and approximately two points of keyboard-height difference. The app keeps the same spacing relative to its actual keyboard.
-- Earlier captures contained gaps on this shared simulator host. The final retained capture has better frame spacing, but one simulator recording does not certify smooth physical-device frame pacing. No physical iPhone was available in `devicectl`.
+- Captures, including the retained loader-flow capture, contain gaps on this shared simulator host. They do not certify smooth physical-device frame pacing. No physical iPhone was available in `devicectl`.
 
 ## Checks
 
 - `Final.xcresult`: all three `ChatMotionUITests` passed—both appearances and edge-of-hit-target sends, keyboard/delayed acknowledgment/multiline/reply/latest behavior, and the matched reference scenario.
 - `LightVerify.xcresult`: both-appearance hit-target test passed again after restoring the light material.
-- `Verified.xcresult`: final matched scenario passed, including the new keyboard-clearance assertion; `verified.mov` is the retained dark capture.
+- `Verified.xcresult`: matched control scenario passed, including the new keyboard-clearance assertion.
+- `LoaderFlow.xcresult`: matched scenario passed after correcting loader placement; `loader-flow.mov` is the retained motion capture.
+- `LoaderRegression.xcresult`: keyboard, acknowledgment, multiline sends, loader completion, and latest navigation passed again after that correction.
 - `robot-motion-tests.log`: five core robot-motion tests passed.
 - The final reference test additionally requires at least 12 points of keyboard clearance for the focused attachment control. This catches the rejected material experiment's spacing regression.
 

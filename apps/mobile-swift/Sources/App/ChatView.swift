@@ -126,7 +126,13 @@ struct ChatView: View {
                 ProgressView().frame(height: 54).padding(.bottom, 12)
               }
               Color.clear.frame(height: 1)
-            }.padding(.bottom, 10).id("bottom")
+            }
+            // A newly inserted reply immediately takes its full row height.
+            // Only the scroll anchor animates this existing footer upward;
+            // animating its local position as well cancels that motion and
+            // leaves the robot overlapping the arriving reply.
+            .animation(nil, value: timelineCache.arrivalRevision)
+            .padding(.bottom, 10).id("bottom")
           }
           .padding(.horizontal, 16).padding(.top, 14)
         }.coordinateSpace(name: "chat-history")

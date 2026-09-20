@@ -54,7 +54,7 @@ Targeted verification covers the recorded send/loader/reply scenario; composer f
 
 All 12 targeted cases have passing results for this pass. The final clean `ReadyComposer.xcresult` run passed all three interaction cases, including six fresh launch/focus cycles. Fresh `VerifiedMotion.xcresult` and `VerifiedMultiline.xcresult` captures also passed after removing the traces. The remaining seven cases cover unchanged settings, file-preview and palette paths from the same visual pass. `review/qa-results.json` records each result, evidence bundle, log hash and final changed-source hashes. Earlier failed runs are preserved alongside the probe results; they are not counted as passes.
 
-This is a local visual/interaction update, not a new TestFlight release, live-provider acceptance run or physical-device performance certification.
+This visual/interaction pass used local fixtures; it is not a live-provider acceptance run or physical-device performance certification. Release follow-up: these verified changes shipped in [TestFlight 0.0.1 (33)](TESTFLIGHT-33.md), with separate signed-package and Apple processing checks.
 
 Reproduce the matched-pixel review with Pillow:
 

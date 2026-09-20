@@ -72,6 +72,7 @@ export async function threadContextFor(
       ancestor AS (
         SELECT
           message."id",
+          message."clientId",
           message."sequence",
           message."channelId",
           message."sender",
@@ -102,6 +103,7 @@ export async function threadContextFor(
 
         SELECT
           parent."id",
+          parent."clientId",
           parent."sequence",
           parent."channelId",
           parent."sender",
@@ -141,6 +143,7 @@ export async function threadContextFor(
       )
       SELECT
         ranked."id",
+        ranked."clientId",
         ranked."sequence",
         ranked."channelId",
         ranked."sender",

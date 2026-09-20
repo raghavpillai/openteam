@@ -1,6 +1,7 @@
 import type {
   BotView,
   ChannelMessageView,
+  ChannelView,
   RichMessageComputerHandoffState,
   ScreenStatusView,
 } from "@openteam/contracts";
@@ -18,14 +19,21 @@ window.fetch = new Proxy(window.fetch, {
 });
 window.open = () => null;
 
-const [{ api }, { BotScreen }, { RichMessage }, { TooltipProvider }, handoffEvents] =
-  await Promise.all([
-    import("../../src/renderer/client/openteam-api"),
-    import("../../src/renderer/components/openteam/bot-screen"),
-    import("../../src/renderer/components/openteam/rich-message"),
-    import("../../src/renderer/components/ui/tooltip"),
-    import("../../src/renderer/lib/computer-handoff"),
-  ]);
+const [
+  { api },
+  { BotScreen },
+  { RichMessage },
+  { TooltipProvider },
+  handoffEvents,
+  { DesktopHeader },
+] = await Promise.all([
+  import("../../src/renderer/client/openteam-api"),
+  import("../../src/renderer/components/openteam/bot-screen"),
+  import("../../src/renderer/components/openteam/rich-message"),
+  import("../../src/renderer/components/ui/tooltip"),
+  import("../../src/renderer/lib/computer-handoff"),
+  import("../../src/renderer/components/openteam/desktop-header"),
+]);
 
 const timestamp = new Date().toISOString();
 const bot: BotView = {
@@ -117,7 +125,10 @@ api.mutateComputerHandoff = async (_id, action) => {
 };
 
 function Reference() {
+  const inspector = new URLSearchParams(window.location.search).has("inspector");
   const initialHandoff = new URLSearchParams(window.location.search).get("state") !== "card";
+  const [detailsOpen, setDetailsOpen] = useState(initialHandoff);
+  const [screenEnabled, setScreenEnabled] = useState(initialHandoff);
   const [handoff, setHandoff] = useState(initialHandoff ? { botId: bot.id, messageId } : null);
   const [handoffState, setHandoffState] = useState<RichMessageComputerHandoffState>(
     initialHandoff ? "active" : "requested"
@@ -134,6 +145,65 @@ function Reference() {
       window.removeEventListener(mutationEvent, receiveState);
     };
   }, []);
+
+  if (inspector) {
+    const channel: ChannelView = {
+      id: bot.dmChannelId,
+      kind: "bot_dm" as const,
+      name: bot.name,
+      description: "",
+      hasAvatar: false,
+      directKey: `bot:${bot.id}`,
+      workingDirectory: bot.defaultDirectory,
+      unreadCount: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      members: [{ botId: bot.id, ordinal: 0 }],
+    };
+    return (
+      <TooltipProvider>
+        <main className="relative flex h-screen flex-col bg-background text-foreground">
+          <DesktopHeader
+            agentNameById={new Map([[bot.id, bot.name]])}
+            botById={new Map([[bot.id, bot]])}
+            detailsOpen={detailsOpen}
+            inspectorWidth={320}
+            inspectorMode="summary"
+            selected={channel}
+            selectedBot={bot}
+            onDetailsOpenChange={setDetailsOpen}
+            onShowSettings={() => {}}
+            onShowSummary={() => {}}
+          />
+          <div className="flex min-h-0 flex-1">
+            <div className="flex-1 p-6">Computer control regression fixture</div>
+            {detailsOpen && (
+              <section
+                aria-label="Conversation details"
+                className="shrink-0 overflow-hidden"
+                style={{ width: 320 }}
+              >
+                {/* Match App's animated inspector: a transform establishes the fixed-position containing block. */}
+                <div className="relative h-full" style={{ width: 320, transform: "translateX(0)" }}>
+                  <aside className="flex size-full flex-col px-4 pb-5 pt-11">
+                    <BotScreen
+                      active
+                      bot={bot}
+                      enabled={screenEnabled}
+                      handoff={handoff}
+                      onEnable={() => setScreenEnabled(true)}
+                      onHandoffFinished={() => setHandoff(null)}
+                    />
+                    <p className="mt-2 text-center text-xs">Research's screen</p>
+                  </aside>
+                </div>
+              </section>
+            )}
+          </div>
+        </main>
+      </TooltipProvider>
+    );
+  }
 
   return (
     <TooltipProvider>
@@ -166,7 +236,42 @@ function Reference() {
   );
 }
 
-document.documentElement.dataset.theme = "light";
+document.documentElement.dataset.theme =
+  new URLSearchParams(location.search).get("theme") ?? "light";
 const root = createRoot(document.getElementById("root")!);
 import.meta.hot?.dispose(() => root.unmount());
 root.render(<Reference />);
+
+// Self-running Chromium geometry check; normal reference controls remain manual.
+if (new URLSearchParams(location.search).has("regression")) {
+  let attempts = 0;
+  const measure = () => {
+    const close = document.querySelector('[aria-label="Close computer view"]');
+    const overlay = close?.closest<HTMLElement>(".fixed");
+    if (!overlay && attempts++ < 180) return requestAnimationFrame(measure);
+    if (!overlay) {
+      console.log("COMPUTER_VIEW_RESULT " + JSON.stringify({ error: "Computer did not open" }));
+      return;
+    }
+    const bounds = overlay.getBoundingClientRect();
+    console.log(
+      "COMPUTER_VIEW_RESULT " +
+        JSON.stringify({
+          theme: document.documentElement.dataset.theme,
+          viewport: { width: innerWidth, height: innerHeight },
+          overlay: {
+            left: bounds.left,
+            top: bounds.top,
+            width: bounds.width,
+            height: bounds.height,
+          },
+          fullWindow:
+            bounds.left === 0 &&
+            bounds.top === 0 &&
+            bounds.width === innerWidth &&
+            bounds.height === innerHeight,
+        })
+    );
+  };
+  requestAnimationFrame(measure);
+}

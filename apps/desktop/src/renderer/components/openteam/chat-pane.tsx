@@ -1781,6 +1781,11 @@ export const ChatPane = memo(function ChatPane({
     lastThinkingText.current = { channelId: channel.id, text: thinkingText };
   }
   const thinkingMounted = thinkingPhase !== "hidden";
+  // Keep the thinking row's space when it exits. Removing that space in a
+  // bottom-locked transcript makes the newly arrived reply jump a second time.
+  const restingThinkingSpace = !thinkingMounted && timeline.length > 0 && channel.kind !== "agent_dm"
+    ? channel.kind === "group" && mainMessages.at(-1)?.sender !== "agent" ? 52 : 40
+    : 0;
   const renderedTimeline = useMemo(() => {
     const transcriptTimeline = timeline.filter(
       (entry) => entry.type !== "approval" || !isPendingLocalApproval(entry.approval)
@@ -1843,7 +1848,7 @@ export const ChatPane = memo(function ChatPane({
           <ConversationContent
             overlayScrollbars={channel.kind === "group"}
             className="max-w-none gap-1 px-4 pt-11"
-            style={{ paddingBottom: `calc(${24 + (channel.kind === "group" && !thinkingMounted && timeline.length > 0 ? (mainMessages.at(-1)?.sender === "agent" ? 40 : 52) : 0)}px + var(--composer-overlap, 0px))` }}
+            style={{ paddingBottom: `calc(${24 + restingThinkingSpace}px + var(--composer-overlap, 0px))` }}
           >
             {activityTruncated && (
               <div

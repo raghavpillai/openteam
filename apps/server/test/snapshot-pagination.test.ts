@@ -55,6 +55,7 @@ describe("snapshot pagination", () => {
     const channelId = "00000000-0000-0000-0000-000000000010";
     const message = (sequence: number, metadata: Record<string, unknown> = {}) => ({
       id: `00000000-0000-0000-0000-${String(sequence).padStart(12, "0")}`,
+      clientId: `send-${sequence}`,
       sequence: BigInt(sequence),
       channelId,
       sender: "user",
@@ -117,6 +118,9 @@ describe("snapshot pagination", () => {
       $queryRaw: async (query: RawQuery) => {
         threadQueries += 1;
         expect(rawSql(query)).toContain("WITH RECURSIVE");
+        for (const alias of ["message", "parent", "ranked"]) {
+          expect(rawSql(query)).toContain(`${alias}."clientId"`);
+        }
         expect(query.values?.[0]).toBe(channelId);
         expect(query.values?.[2]).toEqual([replyMessage.id]);
         return [
@@ -137,6 +141,7 @@ describe("snapshot pagination", () => {
     expect(page.messages.map(({ sequence }) => sequence)).toEqual(["9", "10"]);
     expect(page.beforeSequence).toBe("9");
     expect(page.threadContext.map(({ sequence }) => sequence)).toEqual(["1", "2"]);
+    expect(page.threadContext.map(({ clientId }) => clientId)).toEqual(["send-1", "send-2"]);
     expect(page.threadContextTruncated).toBe(false);
     expect(page.messages.length + page.threadContext.length).toBeLessThanOrEqual(
       2 + MAX_THREAD_CONTEXT_MESSAGES
@@ -464,7 +469,7 @@ describe("snapshot pagination", () => {
     expect(firstBootstrap.cursor).toBe("52");
   });
 
-  test("keeps profile, avatar, read, and unread bootstrap fields with array-backed SQL", async () => {
+  test("keeps profile, read, unread, and message delivery identity in bootstrap SQL", async () => {
     const botId = "00000000-0000-0000-0000-000000000040";
     const channelId = "00000000-0000-0000-0000-000000000041";
     const conversationId = "00000000-0000-0000-0000-000000000042";
@@ -507,12 +512,13 @@ describe("snapshot pagination", () => {
     };
     const latestMessage = {
       id: "00000000-0000-0000-0000-000000000043",
+      clientId: "desktop-send-nonce",
       sequence: 43n,
       channelId,
-      sender: "agent",
-      senderBotId: botId,
+      sender: "user",
+      senderBotId: null,
       sourceRunId: null,
-      content: "Latest visible response",
+      content: "Latest user message",
       metadata: {},
       createdAt: now,
     };
@@ -573,13 +579,15 @@ describe("snapshot pagination", () => {
     });
     expect(bootstrap.latestMessages[0]).toMatchObject({
       id: latestMessage.id,
+      clientId: "desktop-send-nonce",
       sequence: "43",
-      content: "Latest visible response",
+      content: "Latest user message",
     });
 
     const capturedLatestQuery = requireRawQuery(latestQuery, "latest-message");
     const capturedUnreadQuery = requireRawQuery(unreadQuery, "unread-count");
     expect(rawSql(capturedLatestQuery)).toContain("unnest(?::uuid[])");
+    expect(rawSql(capturedLatestQuery)).toContain('message."clientId"');
     expect(rawSql(capturedLatestQuery)).toContain('ORDER BY message."sequence" DESC');
     expect(capturedLatestQuery.values).toEqual([[channelId]]);
     expect(rawSql(capturedUnreadQuery)).toContain('LEFT JOIN "ChannelReadState"');

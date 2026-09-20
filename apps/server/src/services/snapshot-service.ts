@@ -308,6 +308,7 @@ export class SnapshotService {
               CROSS JOIN LATERAL (
                 SELECT
                   message."id",
+                  message."clientId",
                   message."sequence",
                   message."channelId",
                   message."sender",

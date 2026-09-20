@@ -11,6 +11,7 @@ import type { BotView, ScreenActionInput, ScreenStatusView } from "@openteam/con
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { LoaderCircle, Minimize2, Monitor, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { API_BASE } from "../../client/http";
 import { api } from "../../client/openteam-api";
 import { resolveLiveViewerUrl } from "../../client/runtime-url";
@@ -358,7 +359,9 @@ export function BotScreen({
           <RefreshCw className="size-3.5" /> Retry setup
         </Button>
       )}
-      {open && (
+      {/* The inspector is transformed and clips overflow while animating. Keep
+          the full-window computer outside that containing block. */}
+      {open && createPortal(
         <div className="fixed inset-0 z-[70] flex flex-col bg-black/[0.94] text-white">
           <header className="electron-drag flex h-11 shrink-0 items-center justify-end gap-1 border-b border-white/[0.035] px-1">
             {handoff ? (
@@ -551,7 +554,8 @@ export function BotScreen({
               )}
             </div>
           </main>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );

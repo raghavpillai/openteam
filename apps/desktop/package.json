@@ -129,6 +129,8 @@
     "test": "bun test --pass-with-no-tests",
     "test:code-rendering": "bun scripts/test-code-rendering.ts",
     "test:conversation-layout": "bun scripts/test-conversation-layout.ts",
+    "test:message-send-motion": "bun scripts/test-message-send-motion.ts",
+    "test:computer-view": "bun scripts/test-computer-view.ts",
     "test:sidebar-parity": "bun scripts/test-sidebar-parity.ts",
     "test:permission-cards": "bun scripts/test-permission-cards.ts",
     "test:parity-review": "bun scripts/test-parity-review.ts",

@@ -11,11 +11,13 @@ struct BotGlyph: View {
   var mode: RobotAvatarMode = .still
   var forceReducedMotion = false
   var sampleTime: Double? = nil
+  /// A solid, expanded silhouette for transparent group-avatar knockout masks.
+  var cutout: CGFloat? = nil
   var body: some View {
     RobotSurface(
       color: UIColor(color), shape: RobotShape(icon: kind), mode: mode,
       reduced: reduceMotion || forceReducedMotion, active: scenePhase == .active && inViewport,
-      sampleTime: sampleTime
+      sampleTime: sampleTime, outline: cutout.map { $0 * 108 / size }
     )
     .frame(width: size, height: size).accessibilityHidden(true)
     .onScrollVisibilityChange(threshold: 0.01) { inViewport = $0 }
@@ -24,11 +26,12 @@ struct BotGlyph: View {
 private struct RobotSurface: UIViewRepresentable {
   var color: UIColor, shape: RobotShape, mode: RobotAvatarMode, reduced: Bool, active: Bool
   var sampleTime: Double?
+  var outline: CGFloat?
   func makeUIView(context: Context) -> NativeRobotView { NativeRobotView(shape: shape) }
   func updateUIView(_ view: NativeRobotView, context: Context) {
     view.configure(
       color: color, shape: shape, mode: mode, reduced: reduced, active: active,
-      sampleTime: sampleTime)
+      sampleTime: sampleTime, outline: outline)
   }
   static func dismantleUIView(_ view: NativeRobotView, coordinator: ()) { view.stop() }
 }
@@ -40,7 +43,7 @@ private struct RobotSurface: UIViewRepresentable {
   private let root = CALayer()
   private var faceLayers: [(CALayer, RobotNode)] = []
   private var partLayers: [String: CALayer] = [:]
-  private var inkLayers: [(CAShapeLayer, String, String)] = []
+  private var inkLayers: [(CAShapeLayer, String, String, CGFloat)] = []
   private var link: CADisplayLink?, lastFrame: CFTimeInterval?
   private var active = true
   private var requestedMode: RobotAvatarMode = .still
@@ -58,7 +61,7 @@ private struct RobotSurface: UIViewRepresentable {
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
   func configure(
     color: UIColor, shape: RobotShape, mode: RobotAvatarMode, reduced: Bool, active: Bool,
-    sampleTime: Double?, faceColor: UIColor? = nil
+    sampleTime: Double?, faceColor: UIColor? = nil, outline: CGFloat? = nil
   ) {
     let changedShape = motion.shape != shape
     motion.setShape(shape)
@@ -83,9 +86,10 @@ private struct RobotSurface: UIViewRepresentable {
       if key == "none" { return nil }
       return (key == "currentColor" ? resolved : face).cgColor
     }
-    for (layer, fill, stroke) in inkLayers {
-      layer.fillColor = paint(fill)
-      layer.strokeColor = paint(stroke)
+    for (layer, fill, stroke, width) in inkLayers {
+      layer.fillColor = outline != nil && fill != "none" ? UIColor.black.cgColor : paint(fill)
+      layer.strokeColor = outline != nil ? UIColor.black.cgColor : paint(stroke)
+      layer.lineWidth = outline.map { (stroke == "none" ? 0 : width) + 2 * $0 } ?? width
     }
     CATransaction.commit()
     applyPose()
@@ -188,7 +192,8 @@ private struct RobotSurface: UIViewRepresentable {
       shape.lineCap = CAShapeLayerLineCap(rawValue: node.strokeLinecap)
       shape.lineJoin = CAShapeLayerLineJoin(rawValue: node.strokeLinejoin)
       shape.contentsScale = UIScreen.main.scale
-      inkLayers.append((shape, node.tag == "line" ? "none" : node.fill, node.stroke))
+      inkLayers.append(
+        (shape, node.tag == "line" ? "none" : node.fill, node.stroke, node.strokeWidth))
       layer = shape
     }
     layer.bounds = CGRect(x: 0, y: 0, width: 100, height: 100)

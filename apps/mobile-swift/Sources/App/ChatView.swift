@@ -349,7 +349,7 @@ struct ChatView: View {
         details = true
       } label: {
         HStack(spacing: 9) {
-          ChannelAvatar(channel: channel, size: 27)
+          ChannelAvatar(channel: channel, size: 27, groupStyle: .inline)
           Text(store.channel(channel.id)?.name ?? channel.name).font(.body.weight(.medium))
             .lineLimit(1)
         }.padding(.leading, 10).padding(.trailing, 14).frame(height: 44).nativeChatGlass()

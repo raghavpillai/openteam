@@ -14,7 +14,19 @@ export function visualFixture(base: any, scene: string) {
     const row={id:`visual-message-${channel}-${index}`,clientId:null,sequence:String(index),channelId:channel,sender,senderBotId:sender==="agent"?"bot-"+channel:null,sourceRunId:null,content,metadata:{type:"text",...metadata},createdAt:new Date(date.getTime()+index*1000).toISOString()};
     snapshot.channelMessages.push(row); return row;
   }
-  if(scene==="home" || scene.startsWith("dark-home")) {
+  if (scene === "group-avatars") {
+    for (const count of [2, 3, 4, 5, 12]) {
+      const id = `visual-group-${count}`;
+      const group = {...channelTemplate, id, name: count === 5 ? "Hey" : `${count} bots`, kind:"group", members:[], hasAvatar:false};
+      for (let index = 0; index < count; index++) {
+        const memberId = `${id}-bot-${index}`;
+        snapshot.bots.push({...botTemplate, id:memberId, name:`Member ${index + 1}`, dmChannelId:`dm-${memberId}`, color:["#0088FF","#00C875","#FA2AA4"][index % 3], icon:["pod","chip","terminal"][index % 3], hasAvatar:index === 0});
+        group.members.push({botId:memberId,ordinal:index});
+      }
+      snapshot.channels.push(group);
+      message(id,"agent","Group avatar reference.",snapshot.channelMessages.length+1);
+    }
+  } else if(scene==="home" || scene.startsWith("dark-home")) {
     date.setDate(date.getDate()-(scene.startsWith("dark-home") ? 2 : 1));
     const rows=[
       ["Memory Box 914","#00C875","hexagon","",""],

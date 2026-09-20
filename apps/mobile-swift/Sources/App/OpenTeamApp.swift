@@ -58,6 +58,7 @@ struct ChannelAvatar: View {
   @Environment(AppStore.self) private var store
   let channel: Channel
   var size: CGFloat = 48
+  var groupStyle: GroupAvatarLayout.Style = .cluster
   @State private var photo: UIImage?
   var body: some View {
     let bot = store.bot(for: channel)
@@ -75,19 +76,7 @@ struct ChannelAvatar: View {
           Circle())
           .accessibilityIdentifier("channel-photo-" + channel.id)
       } else if channel.isGroup {
-        ZStack {
-          ForEach(Array(channel.members.prefix(2).enumerated()), id: \.offset) { index, member in
-            let memberBot = store.bots.first { $0.id == member.botId }
-            BotGlyph(
-              color: Color(hex: memberBot?.color ?? "7C5CFC"), kind: memberBot?.icon ?? "chip",
-              size: size * 0.67,
-              mode: motion(member.botId)
-            )
-            .offset(
-              x: index == 0 ? -size * 0.16 : size * 0.16, y: index == 0 ? -size * 0.16 : size * 0.16
-            )
-          }
-        }.frame(width: size, height: size)
+        GroupChannelAvatar(channel: channel, size: size, style: groupStyle)
       } else {
         BotGlyph(
           color: Color(hex: bot?.color ?? "7C5CFC"), kind: bot?.icon ?? "chip", size: size,

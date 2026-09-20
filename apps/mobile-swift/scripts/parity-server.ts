@@ -127,7 +127,7 @@ const server = Bun.serve({
     }
     if(path === "/api/v0/transcriptions" && method === "POST") return response({text:"Native voice QA transcription"});
     if(path.endsWith("/screen"))return response(screen);
-    if(path.endsWith("/avatar"))return new Response(Bun.file(new URL("./fixtures/attachment.png",import.meta.url)),{headers:{"Content-Type":"image/png"}});
+    if(path.endsWith("/avatar"))return new Response(Bun.file(new URL(path.includes("visual-group-") && path.includes("-bot-0/") ? "./fixtures/group-blue-avatar.png" : "./fixtures/attachment.png",import.meta.url)),{headers:{"Content-Type":"image/png"}});
     if(path.endsWith("/screen/frame"))return new Response(Bun.file(new URL("./fixtures/computer.png",import.meta.url)),{headers:{"Content-Type":"image/png"}});
     if(path.endsWith("/screen/takeover")){screen.humanTakeover=input.active;contentReceipts.push({path,active:input.active});return response(screen);}
     if(path.endsWith("/screen/actions")){if(!screen.humanTakeover)return response({message:"Take control first."},409);contentReceipts.push({path,...input});return response(screen);}

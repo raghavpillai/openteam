@@ -227,7 +227,7 @@ struct ChatView: View {
   }
   var header: some View {
     HStack(spacing: 8) {
-      ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 16) { dismiss() }
+      ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular) { dismiss() }
         .accessibilityIdentifier(
           "chat-back")
       Button {

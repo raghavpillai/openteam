@@ -1,5 +1,7 @@
 # Critical chat comparison against the September 20 recording
 
+Later material, fade, input-tint and control calibration: [Chat glass and color matching](QA-CHAT-GLASS-0920.md). That report supersedes the retained tint and glyph values below.
+
 This follow-up corrects controls and colors that the earlier motion pass did not match. It does **not** certify complete one-to-one parity. The selected bot artwork, empty-composer controls, system keyboard, and some material diffusion still differ.
 
 ## Reference and method

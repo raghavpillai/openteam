@@ -206,14 +206,23 @@ struct ComposerView: View {
           prompt: Text("Ask " + channel.name).foregroundStyle(NativePalette.chatFaint),
           axis: .vertical
         )
-        .font(.body).lineLimit(1...8).focused($focused)
+        .font(.body).lineLimit(1...8).focused($focused).tint(NativePalette.chatInsertion)
         .padding(.leading, 16).padding(.trailing, 48)
         .padding(.vertical, text.wrappedValue.contains("\n") ? 7 : 11)
         .frame(minHeight: 44).accessibilityIdentifier(
           threadRootID == nil ? "message-input" : "thread-message-input"
         )
         .contentShape(Rectangle())
-        .simultaneousGesture(TapGesture().onEnded { focused = true })
+        // Let the native text control handle its own tap. Only the surrounding
+        // padding needs explicit targets, separate from the editable content and
+        // the trailing send/voice control.
+        .overlay {
+          VStack(spacing: 0) {
+            focusPadding.frame(height: text.wrappedValue.contains("\n") ? 7 : 11)
+            Spacer(minLength: 0).allowsHitTesting(false)
+            focusPadding.frame(height: text.wrappedValue.contains("\n") ? 7 : 11)
+          }.overlay(alignment: .leading) { focusPadding.frame(width: 16) }
+        }
         .overlay(alignment: .bottomTrailing) {
           // The visible pill is 36 × 28; its separate 44-point hit area keeps
           // sending/recording reachable without changing the reference inset.
@@ -228,6 +237,9 @@ struct ComposerView: View {
         }
       }.nativeChatGlass().foregroundStyle(NativePalette.text)
     }
+  }
+  private var focusPadding: some View {
+    Color.clear.contentShape(Rectangle()).onTapGesture { focused = true }
   }
   private var recordingControls: some View {
     HStack(spacing: 10) {
@@ -320,13 +332,14 @@ struct ComposerView: View {
       Button {
         Task { await store.enqueue(channel, draftKey: key, threadRootID: threadRootID) }
       } label: {
-        Image(systemName: "arrow.up").font(.system(size: 17, weight: .semibold))
+        Image(systemName: "arrow.up").font(.system(size: 16, weight: .semibold))
           .foregroundStyle(NativePalette.onPrimary).frame(width: 36, height: 28).background(
             NativePalette.text, in: Capsule()
           )
           .frame(width: 44, height: 44).contentShape(Rectangle())
-      }.buttonStyle(.plain).disabled(uploading).accessibilityLabel("Send").accessibilityIdentifier(
-        threadRootID == nil ? "send-button" : "thread-send-button")
+      }.buttonStyle(ComposerSendStyle()).disabled(uploading).accessibilityLabel("Send")
+        .accessibilityIdentifier(
+          threadRootID == nil ? "send-button" : "thread-send-button")
     } else {
       Button {
         startRecording()
@@ -393,6 +406,18 @@ struct ComposerView: View {
       NativeHaptics.failure(error, source: "composer.error")
       store.handle(error)
     }
+  }
+}
+
+/// The reference dims the entire send pill during a press, including its fill.
+/// Keeping that feedback on the label avoids fading the surrounding glass.
+private struct ComposerSendStyle: ButtonStyle {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label.opacity(configuration.isPressed ? 0.75 : 1)
+      .animation(
+        reduceMotion || configuration.isPressed ? nil : .easeOut(duration: 0.08),
+        value: configuration.isPressed)
   }
 }
 

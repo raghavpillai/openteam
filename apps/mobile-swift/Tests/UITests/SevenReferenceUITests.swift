@@ -20,6 +20,11 @@ import XCTest
     XCTAssertTrue(app.buttons[home ? "settings-button" : "chat-back"].waitForExistence(timeout: 15))
     if !home {
       XCTAssertTrue(app.staticTexts["Got it — here."].waitForExistence(timeout: 10))
+      // Native rows may enter the accessibility tree while the initial history
+      // position is still settling. The composer is disabled until that finishes.
+      XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading")
+        .firstMatch.waitForNonExistence(timeout: 15))
+      XCTAssertTrue(field(app).isEnabled)
     }
     return app
   }
@@ -68,8 +73,8 @@ import XCTest
   func test03MultilineDraft() async throws {
     let app = try await launch()
     field(app).tap()
-    field(app).typeText("Heheh\n\n")
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+    field(app).typeText("Heheh\n\n")
     XCTAssertTrue(app.buttons["send-button"].isEnabled)
     capture(3, app)
     XCTAssertLessThanOrEqual(app.buttons["send-button"].frame.maxY, app.keyboards.firstMatch.frame.minY)

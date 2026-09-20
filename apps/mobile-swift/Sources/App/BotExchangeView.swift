@@ -30,7 +30,7 @@ struct BotExchangeView: View {
   }
   private var header: some View {
     HStack(spacing: 8) {
-      ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 16) { dismiss() }
+      ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular) { dismiss() }
       HStack(spacing: 6) {
         identity(source, name: source?.name ?? channel.name)
         Image(systemName: "arrow.left.arrow.right").font(.caption).foregroundStyle(NativePalette.muted)

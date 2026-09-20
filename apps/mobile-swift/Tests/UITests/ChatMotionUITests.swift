@@ -21,6 +21,37 @@ import XCTest
     attachment.lifetime = .keepAlways
     add(attachment)
   }
+  func testComposerFocusAtTextAndPaddingInBothAppearances() async throws {
+    continueAfterFailure = false
+    for appearance in ["dark", "light"] {
+      for attempt in 0..<3 {
+        try await control("__qa/scene", ["scene": "motion-reference"])
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--server", base.absoluteString,
+          "--appearance", appearance, "--open-channel", "visual-chat"]
+        app.launch()
+        defer { app.terminate() }
+        let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+        XCTAssertTrue(input.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading")
+          .firstMatch.waitForNonExistence(timeout: 15))
+        XCTAssertTrue(input.isEnabled)
+        input.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3),
+          "The first tap must focus the native field (\(appearance), launch \(attempt))")
+        input.typeText("Focus check")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+        // This is inside the 44-point message bar, above the text's AX rectangle.
+        input.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: -0.3)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3),
+          "The message bar's padding must also focus the field")
+        input.typeText(" reopened")
+        XCTAssertTrue(app.buttons["send-button"].isEnabled)
+      }
+    }
+  }
+
   func testOpeningShowsSpinnerThenStableLatestMessage() async throws {
     continueAfterFailure = false
     for appearance in ["dark", "light"] {
@@ -107,6 +138,12 @@ import XCTest
     XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 15))
     let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
     XCTAssertTrue(input.waitForExistence(timeout: 10))
+    // A visible composer stays disabled until the history has reached Latest.
+    // Wait for that state instead of assuming a fixed launch delay is enough.
+    XCTAssertTrue(
+      app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
+        .waitForNonExistence(timeout: 15))
+    XCTAssertTrue(input.isEnabled)
     try await Task.sleep(for: .seconds(2))
     let latestReply = app.staticTexts["Got it — here."]
     let originalBottom = latestReply.frame.maxY
@@ -203,6 +240,7 @@ import XCTest
     XCTAssertTrue(input.waitForExistence(timeout: 10))
     XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch.waitForNonExistence(timeout: 15))
     input.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
     input.typeText("Okay testing")
     try await Task.sleep(for: .seconds(1))
     XCTAssertGreaterThanOrEqual(
@@ -265,6 +303,7 @@ import XCTest
       XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch.waitForNonExistence(timeout: 15))
       XCTAssertTrue(input.isEnabled)
       input.tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
       input.typeText("Okay testing")
       let send = app.buttons["send-button"]
       let attach = app.buttons["attach-button"]

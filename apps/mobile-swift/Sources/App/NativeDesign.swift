@@ -22,6 +22,9 @@ enum NativePalette {
   // glass beneath them rather than staying the same grey on every surface.
   static let chatMuted = chatLabel(alpha: 0.6, light: "8E8E8E")
   static let chatFaint = chatLabel(alpha: 0.3, light: "BFBFBF")
+  // The input caret stays blue even with the app's monochrome chrome accent.
+  // Dark value sampled across idle typing frames in the supplied recording.
+  static let chatInsertion = color("016CEC", "395FF1")
   private static func chatLabel(alpha: CGFloat, light: String) -> Color {
     Color(
       uiColor: UIColor { traits in
@@ -113,8 +116,9 @@ struct NativeGlass: ViewModifier {
   }
 }
 
-/// Restore the React Native chat's clear dark material. SwiftUI's tint response
-/// differs from the old UIKit wrapper: 0.042 matches its measured resting fill.
+/// A neutral tint keeps clear glass from whitening bright messages behind it.
+/// Calibrated against both empty-canvas and scrolling-content reference frames;
+/// tint alpha is not the opacity of the material itself.
 /// Keep the established light material for legible black labels over dark bubbles.
 struct NativeChatGlass: ViewModifier {
   @Environment(\.colorScheme) private var scheme
@@ -122,7 +126,7 @@ struct NativeChatGlass: ViewModifier {
   func body(content: Content) -> some View {
     if #available(iOS 26, *), scheme == .dark {
       content.glassEffect(
-        Glass.clear.tint(.white.opacity(0.042)).interactive(),
+        Glass.clear.tint(Color(white: 55 / 255).opacity(0.5)).interactive(),
         in: RoundedRectangle(cornerRadius: radius)
       )
     } else {
@@ -134,7 +138,9 @@ struct NativeChatGlass: ViewModifier {
 /// The original chat fades the canvas behind the floating controls. Keeping this
 /// separate from the glass avoids changing material opacity as history scrolls.
 private struct ChatChromeFade: View {
+  @Environment(\.colorScheme) private var scheme
   var edge: VerticalEdge
+  private var isDarkHeader: Bool { edge == .top && scheme == .dark }
   var body: some View {
     LinearGradient(
       stops: [
@@ -143,8 +149,14 @@ private struct ChatChromeFade: View {
           color: NativePalette.background.opacity(edge == .top ? 0.85 : 0.9),
           location: edge == .top ? 0.20 : 0.18),
         .init(
-          color: NativePalette.background.opacity(edge == .top ? 0.25 : 0.35),
+          color: NativePalette.background.opacity(
+            edge == .top ? (isDarkHeader ? 0.56 : 0.25) : 0.35),
           location: edge == .top ? 0.55 : 0.65),
+        // Match the recorded fade without changing the known light appearance.
+        // Keeping this outside the glass also preserves the full-width scroll fade.
+        .init(
+          color: NativePalette.background.opacity(isDarkHeader ? 0.10 : 0),
+          location: isDarkHeader ? 0.85 : 1),
         .init(color: NativePalette.background.opacity(0), location: 1),
       ],
       startPoint: edge == .top ? .top : .bottom,
@@ -246,10 +258,11 @@ struct ChatChromeButton: View {
   var title: String
   var symbol: String
   var symbolSize: CGFloat = 16
+  var symbolWeight: Font.Weight = .semibold
   var action: () -> Void
   var body: some View {
     Button(action: action) {
-      Image(systemName: symbol).font(.system(size: symbolSize, weight: .semibold))
+      Image(systemName: symbol).font(.system(size: symbolSize, weight: symbolWeight))
         .frame(width: 44, height: 44).foregroundStyle(NativePalette.text)
         .nativeChatGlass().contentShape(Rectangle())
     }.buttonStyle(.plain).accessibilityLabel(title)

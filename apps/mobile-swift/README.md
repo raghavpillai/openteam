@@ -2,9 +2,11 @@
 
 A SwiftUI iPhone/iPad client for the existing OpenTeam HTTP API. This is a **migration beta**; Release builds update the existing iOS TestFlight app. Android remains in `apps/mobile`.
 
-[TestFlight 0.0.1 (30)](docs/TESTFLIGHT-30.md) refines the home and attachment + icons against the GrokBot reference, preserving full-size tap targets. It includes build 29's native chat-loading spinner and stable initial scroll position.
+[TestFlight 0.0.1 (31)](docs/TESTFLIGHT-31.md) fixes Account and Plugins navigation with a native grouped Settings panel and fully tappable rows. It includes build 30's refined + icons and build 29's native chat-loading spinner and stable initial scroll position.
 
-[September 18 full iPhone QA and performance](docs/FULL-QA-0918.md) is the current status, including the deployed local server/APNs configuration and remaining performance, VNC, visual and device acceptance work.
+[September 20 React Native–Swift comparison](docs/RN-SWIFT-PARITY-0920.md) inventories current functionality and 12 remaining differences, separating intentional product changes from missing interactions and device acceptance work. [Native Settings navigation QA](docs/QA-SETTINGS-NAVIGATION-0920.md) records the Account/Plugins dead-tap regression and its fix.
+
+[September 18 full iPhone QA and performance](docs/FULL-QA-0918.md) records the earlier full simulator pass, deployed local server/APNs configuration, and performance measurements. Its PNG-only computer-viewing description predates the current stream implementation; see the September 20 audit for current status.
 
 [React Native sign-in restoration](docs/AUTH-RESTORATION-0917.md) restores the animated bot field and glass welcome/server/account flow.
 

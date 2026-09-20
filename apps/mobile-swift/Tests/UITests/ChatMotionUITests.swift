@@ -133,6 +133,15 @@ import XCTest
     XCTAssertGreaterThanOrEqual(
       app.keyboards.firstMatch.frame.minY - app.buttons["attach-button"].frame.maxY, 12,
       "The focused composer must retain its spacing above the keyboard")
+    let prompt = app.otherElements["message-visual-message-visual-chat-3"]
+    let lookup = app.otherElements["message-visual-message-visual-chat-4"]
+    let result = app.otherElements["message-visual-message-visual-chat-5"]
+    XCTAssertTrue(prompt.exists && lookup.exists && result.exists)
+    XCTAssertEqual(lookup.frame.minY - prompt.frame.maxY, 12, accuracy: 0.5)
+    XCTAssertEqual(result.frame.minY - lookup.frame.maxY, 8, accuracy: 0.5)
+    XCTAssertEqual(prompt.frame.height, 106, accuracy: 0.5)
+    XCTAssertEqual(lookup.frame.height, 40, accuracy: 0.5)
+    XCTAssertEqual(result.frame.height, 84, accuracy: 0.5)
     capture("reference-before-send", app)
     mark("reference-send")
     app.buttons["send-button"].tap()

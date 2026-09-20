@@ -59,59 +59,63 @@ struct ChatView: View {
               }.font(.footnote).frame(maxWidth: .infinity).disabled(
                 store.busy.contains("history-" + channel.id))
             }
-            ForEach(renderedRows) { row in
-              MessageArrival(animate: row.animatesArrival, isUser: row.isUser) {
-                VStack(alignment: .leading, spacing: 12) {
-                  if let date = row.timestamp {
-                    Text(timestamp(date)).font(.system(size: 13)).foregroundStyle(
-                      NativePalette.chatFaint
-                    )
-                    .frame(maxWidth: .infinity).padding(.top, 14).padding(.bottom, 2)
-                    .onGeometryChange(for: CGFloat.self) { geometry in
+            VStack(alignment: .leading, spacing: 0) {
+              ForEach(renderedRows) { row in
+                MessageArrival(animate: row.animatesArrival, isUser: row.isUser) {
+                  VStack(alignment: .leading, spacing: 12) {
+                    if let date = row.timestamp {
+                      Text(timestamp(date)).font(.system(size: 13)).foregroundStyle(
+                        NativePalette.chatFaint
+                      )
+                      .frame(maxWidth: .infinity).padding(.top, 14).padding(.bottom, 2)
+                      .onGeometryChange(for: CGFloat.self) { geometry in
+                        store.histories[channel.id]?.hasMore == true
+                          && row.scrollID == timeline.entries.first?.id
+                          ? geometry.size.height : 0
+                      } action: { _, height in
+                        if height > 0 { scrollFeedback.firstTimestampHeight = height }
+                      }
+                    }
+                    switch row.content {
+                    case .confirmed(let entry):
+                      let message = entry.message
+                      if unreadBoundary == message.id {
+                        HStack(spacing: 10) {
+                          NativePalette.link.opacity(0.55).frame(height: 0.5)
+                          Text("NEW").font(.system(size: 10, weight: .semibold)).tracking(1)
+                            .foregroundStyle(NativePalette.link)
+                          NativePalette.link.opacity(0.55).frame(height: 0.5)
+                        }.padding(.vertical, 6).accessibilityLabel("New messages")
+                      }
+                      if message.metadata["event"]["type"].string == "name-changed" {
+                        Label(
+                          "Renamed to " + message.metadata["event"]["to"].string,
+                          systemImage: "pencil"
+                        )
+                        .font(.system(size: 12)).foregroundStyle(NativePalette.muted).frame(
+                          maxWidth: .infinity)
+                      } else {
+                        MessageRow(
+                          message: message, channel: channel, onReply: { reply(message) },
+                          onThread: { thread = message },
+                          threadReplyCount: timeline.replyCounts[message.id] ?? 0
+                        )
+                      }
+                    case .pending(let pending):
+                      PendingMessageView(pending: pending)
+                    }
+                  }.id(row.scrollID)
+                    .onGeometryChange(for: CGRect.self) { geometry in
                       store.histories[channel.id]?.hasMore == true
                         && row.scrollID == timeline.entries.first?.id
-                        ? geometry.size.height : 0
-                    } action: { _, height in
-                      if height > 0 { scrollFeedback.firstTimestampHeight = height }
+                        ? geometry.frame(in: .named("chat-history")) : .zero
+                    } action: { _, frame in
+                      if frame != .zero { scrollFeedback.firstRowFrame = frame }
                     }
-                  }
-                  switch row.content {
-                  case .confirmed(let entry):
-                    let message = entry.message
-                    if unreadBoundary == message.id {
-                      HStack(spacing: 10) {
-                        NativePalette.link.opacity(0.55).frame(height: 0.5)
-                        Text("NEW").font(.system(size: 10, weight: .semibold)).tracking(1)
-                          .foregroundStyle(NativePalette.link)
-                        NativePalette.link.opacity(0.55).frame(height: 0.5)
-                      }.padding(.vertical, 6).accessibilityLabel("New messages")
-                    }
-                    if message.metadata["event"]["type"].string == "name-changed" {
-                      Label(
-                        "Renamed to " + message.metadata["event"]["to"].string,
-                        systemImage: "pencil"
-                      )
-                      .font(.system(size: 12)).foregroundStyle(NativePalette.muted).frame(
-                        maxWidth: .infinity)
-                    } else {
-                      MessageRow(
-                        message: message, channel: channel, onReply: { reply(message) },
-                        onThread: { thread = message },
-                        threadReplyCount: timeline.replyCounts[message.id] ?? 0
-                      )
-                    }
-                  case .pending(let pending):
-                    PendingMessageView(pending: pending)
-                  }
-                }.id(row.scrollID)
-                  .onGeometryChange(for: CGRect.self) { geometry in
-                    store.histories[channel.id]?.hasMore == true
-                      && row.scrollID == timeline.entries.first?.id
-                      ? geometry.frame(in: .named("chat-history")) : .zero
-                  } action: { _, frame in
-                    if frame != .zero { scrollFeedback.firstRowFrame = frame }
-                  }
 
+                }
+                .padding(
+                  .top, row.id == renderedRows.first?.id ? 0 : row.groupsWithPrevious ? 8 : 12)
               }
             }
             ForEach(store.approvals(channel)) { approval in ApprovalCard(approval: approval) }
@@ -623,18 +627,24 @@ struct MessageRow: View {
 /// Use a full proposed line width for wrapped text, while keeping short bubbles intrinsic.
 /// SwiftUI otherwise trims a multiline Text's frame to its longest rendered line.
 struct BubbleTextLayout: Layout {
+  @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
   func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
     guard let text = subviews.first else { return .zero }
     let natural = text.sizeThatFits(.unspecified)
     let width = min(proposal.width ?? natural.width, natural.width)
     let wrapped = text.sizeThatFits(ProposedViewSize(width: width, height: nil))
-    return CGSize(width: width, height: max(22, wrapped.height))
+    // Text's natural first line is shorter than the reference's 22-point line box.
+    // Reserve complete line boxes for wrapped bubbles as well as single lines.
+    return CGSize(width: width, height: max(1, ceil(wrapped.height / lineHeight)) * lineHeight)
   }
   func placeSubviews(
     in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
   ) {
-    subviews.first?.place(
-      at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+    guard let text = subviews.first else { return }
+    let wrapped = text.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+    text.place(
+      at: CGPoint(x: bounds.minX, y: bounds.minY + (bounds.height - wrapped.height) / 2),
+      proposal: ProposedViewSize(width: bounds.width, height: wrapped.height))
   }
 }
 

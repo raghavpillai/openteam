@@ -93,6 +93,9 @@ jobs:
           provenance: mode=max
           sbom: true
           labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
+      - name: Verify packaged desktop capabilities
+        if: matrix.image == 'openteam-computer'
+        run: bash scripts/test-computer-image.sh ghcr.io/raghavpillai/openteam-computer@${{ steps.build.outputs.digest }}
       - name: Record immutable image digest
         shell: bash
         run: |

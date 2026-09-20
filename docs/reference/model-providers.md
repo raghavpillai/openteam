@@ -113,6 +113,13 @@ Apply the database schema and rebuild server, worker, computer and desktop when 
 
 ## Validation
 
+After building the computer image, run
+`bash scripts/test-computer-image.sh IMAGE` to check its authenticated capability
+endpoint in an isolated container. The check uses the packaged gateway and desktop
+binaries, without user volumes, credentials, or inference requests. The release
+workflow runs this check against the published computer image before completing
+the release.
+
 `apps/computer/test/chat-provider-registry.test.ts` covers authentication isolation, disconnected
 providers, rejected access, response failures, pagination, retirement, and model-type filtering.
 `provider-registry.integration.test.ts` runs the actual provider CLI and Pi runtime against a local

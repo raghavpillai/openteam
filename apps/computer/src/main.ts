@@ -25,7 +25,7 @@ import { McpRuntimeRouter } from "./mcp-runtime-router";
 import { DesktopMcpClient } from "./desktop-mcp-client";
 import { resolveWorkspacePath } from "./paths";
 import { ComputerRuntime } from "./runtime";
-import { checkAgentWorkspace, ComputerReadiness } from "./readiness";
+import { checkAgentWorkspace, checkDesktopAvailable, ComputerReadiness } from "./readiness";
 import { ScreenBroker } from "./screen-broker";
 import { TranscriptMirror } from "./transcript-mirror";
 
@@ -210,11 +210,7 @@ const server = Bun.serve({
       if (request.method === "GET" && url.pathname === "/v1/task-capabilities") {
         return json({
           boxAvailable: await readiness.check(),
-          desktopAvailable:
-            process.platform === "linux" &&
-            ["Xvfb", "x11vnc", "xfce4-session", "google-chrome"].every(
-              (command) => Bun.which(command) !== null
-            ),
+          desktopAvailable: checkDesktopAvailable(),
         });
       }
       if (request.method === "PUT" && url.pathname === "/v1/directories") {

@@ -1,6 +1,29 @@
 import { spawn } from "node:child_process";
 import { agentProcessIdentity } from "./agent-process";
 
+// ScreenBroker starts these components directly; it does not use xfce4-session.
+// Check installed programs, not running processes: screens start on demand.
+export const checkDesktopAvailable = (
+  platform: NodeJS.Platform = process.platform,
+  which: (command: string) => string | null = (command) => Bun.which(command)
+): boolean =>
+  platform === "linux" &&
+  [
+    "Xvfb",
+    "dbus-daemon",
+    "xsetroot",
+    "xfsettingsd",
+    "xfwm4",
+    "xfdesktop",
+    "xfce4-panel",
+    "x11vnc",
+    "/usr/share/novnc/utils/novnc_proxy",
+    "xfce4-terminal",
+    "google-chrome",
+    "xdotool",
+    "import",
+  ].every((command) => which(command) !== null);
+
 // Verify process launch and workspace access using the intended agent identity.
 // Explicitly drop and verify privileges: some runtimes ignore spawn({ uid }).
 const SCRIPT = String.raw`

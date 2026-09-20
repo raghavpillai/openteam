@@ -58,6 +58,10 @@ final class AppStore {
   var channels: [Channel] { state.bootstrap?.channels ?? [] }
   var pins: [String] { sidebar["pinnedIds"].array.map(\.string) }
   func bot(for channel: Channel) -> Bot? { bots.first { $0.dmChannelId == channel.id } }
+  func computerBot(for channel: Channel) -> Bot? {
+    ConversationComputer.target(
+      channel: self.channel(channel.id) ?? channel, bots: bots, messages: messages(channel.id))
+  }
   func channel(_ id: String) -> Channel? { channels.first { $0.id == id } }
   func messages(_ id: String) -> [Message] { state.messages[id] ?? [] }
   func draft(_ id: String) -> Draft { state.drafts[id] ?? Draft() }

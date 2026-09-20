@@ -24,3 +24,13 @@ The selected robot artwork is retained. The screenshots use legacy hexagon/pill 
 The avatar/title pill now occupies a centered middle slot between equal 44-point side slots. A group without a Computer action retains the empty trailing space, so removing that action cannot shift the pill. Long titles truncate within the middle slot. Native thread titles already use the centered inline navigation title.
 
 `output/chat-header-center-0920/Headers.xcresult` passes ten header checks: group sizes 2/5/12 and short/long direct-message titles, in both light and dark mode. Each requires the pill's midpoint to match the screen midpoint within half a point, at least 7.5 points of clearance from the side controls, and a hittable details action. `centered-headers.png` contains crops of the actual simulator screenshots.
+
+## Group Computer routing
+
+The group header now includes Computer. It opens the desktop of the latest visible bot responder who is still a member, ordered by server message sequence. Later user messages, system events, agent handoffs, and branched thread messages do not replace that target. Before any eligible reply, it uses the first available member by ordinal; an empty group has no Computer action. Direct chats retain their own bot's desktop.
+
+The selected bot is captured when opening the viewer. New group replies update the next Computer action without switching an already-open desktop or its controls.
+
+Five `ConversationComputerTests` cover numeric sequence order, non-response messages, unavailable/removed members, the empty/new-group fallback, and direct chats. The simulator routing scenario checks actual `/bots/{id}/screen` and `/screen/frame` requests for Member 2, injects Member 3's reply over the running HTTP fixture, verifies the existing viewer stays on Member 2, then reopens Member 3's desktop after a newer user message. The light/dark header scenario also checks that each group now exposes Computer while keeping its header centered.
+
+Evidence: `output/group-computer-0920/GroupComputer.xcresult`, `core-tests.log`, and simulator captures. This verifies routing against the local contract fixture, not a new real-device VNC or TestFlight validation.

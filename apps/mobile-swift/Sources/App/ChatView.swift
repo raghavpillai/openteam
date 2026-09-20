@@ -11,7 +11,7 @@ struct ChatView: View {
   let channel: Channel
   @State private var details = false
   @State private var duplicatedChannel: String?
-  @State private var computer = false
+  @State private var computerBot: Bot?
   @State private var scrollFeedback = ChatScrollFeedback()
   @State private var timelineCache = ChatTimelineCache()
   @State private var bottomVisible = true
@@ -311,8 +311,8 @@ struct ChatView: View {
           Task { await store.open(id) }
         }
       }
-      .fullScreenCover(isPresented: $computer) {
-        if let bot = store.bot(for: channel) { ComputerView(bot: bot) }
+      .fullScreenCover(item: $computerBot) { bot in
+        ComputerView(bot: bot)
       }
       .sheet(item: $thread) { message in
         ThreadView(root: message, channel: channel, initialFocus: threadFocus).referenceSheet()
@@ -358,8 +358,11 @@ struct ChatView: View {
       // Equal side slots keep the pill on the screen's center, including groups
       // without a Computer action. Long names truncate within the middle slot.
       Group {
-        if store.bot(for: channel) != nil {
-          ChatChromeButton(title: "Computer", symbol: "display", symbolSize: 16) { computer = true }
+        if let bot = store.computerBot(for: channel) {
+          ChatChromeButton(title: "Computer", symbol: "display", symbolSize: 16) {
+            // Freeze the target for this presentation even if another bot replies.
+            computerBot = bot
+          }.accessibilityValue(bot.name)
         } else {
           Color.clear.accessibilityHidden(true)
         }

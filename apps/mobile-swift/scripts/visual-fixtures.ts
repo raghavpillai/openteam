@@ -24,7 +24,7 @@ export function visualFixture(base: any, scene: string) {
         group.members.push({botId:memberId,ordinal:index});
       }
       snapshot.channels.push(group);
-      message(id,"agent","Group avatar reference.",snapshot.channelMessages.length+1);
+      message(id,"agent","Group avatar reference.",snapshot.channelMessages.length+1).senderBotId = group.members[1].botId;
     }
     for (const [id, name] of [["visual-header-short", "Hi"], ["visual-header-long", "An intentionally long conversation title that must truncate safely"]]) {
       const {channel} = bot(id!, name!, "#00B8A9", "owl");

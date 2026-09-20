@@ -76,6 +76,12 @@ const server = Bun.serve({
       if (input.content) snapshot.channelMessages.push({id:randomUUID(),clientId:null,sequence:String(++sequence),channelId:channel.id,sender:"agent",senderBotId:bot.id,sourceRunId:"motion-run",content:input.content,metadata:{type:"text"},createdAt:new Date().toISOString()});
       emit("snapshot.reset"); return response({ok:true});
     }
+    if (path === "/__qa/group-reply" && method === "POST") {
+      const channel = snapshot.channels.find(c => c.id === input.channelId && c.kind === "group");
+      if (!channel || (input.botId && !channel.members.some(m => m.botId === input.botId))) return response({error:"Unknown group member"},400);
+      snapshot.channelMessages.push({id:randomUUID(),clientId:null,sequence:String(++sequence),channelId:channel.id,sender:input.botId?"agent":"user",senderBotId:input.botId??null,sourceRunId:null,content:input.content,metadata:{type:"text"},createdAt:new Date().toISOString()});
+      emit("channel.message.created",channel.id); return response({ok:true});
+    }
     if (path === "/__qa/control" && method === "POST") {
       offline = input.offline ?? offline; dropNextSend = input.dropNextSend ?? dropNextSend; authRequired = input.authRequired ?? authRequired;
       dropNextRoutineRun = input.dropNextRoutineRun ?? dropNextRoutineRun;

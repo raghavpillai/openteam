@@ -2,7 +2,7 @@
 
 A SwiftUI iPhone/iPad client for the existing OpenTeam HTTP API. This is a **migration beta**; Release builds update the existing iOS TestFlight app. Android remains in `apps/mobile`.
 
-[TestFlight 0.0.1 (31)](docs/TESTFLIGHT-31.md) fixes Account and Plugins navigation with a native grouped Settings panel and fully tappable rows. It includes build 30's refined + icons and build 29's native chat-loading spinner and stable initial scroll position.
+[TestFlight 0.0.1 (32)](docs/TESTFLIGHT-32.md) restores persistent drafts and the selected message-parity features, improves long-chat CPU/memory use, and smooths thinking-loader transitions. It also includes the native Account/Plugins panel, refined + icons and stable initial chat loading from previous builds.
 
 [September 20 React Native–Swift comparison](docs/RN-SWIFT-PARITY-0920.md) records the original 12 audit findings and the selected follow-up scope, separating intentional product changes from missing interactions and device acceptance work. [Native Settings navigation QA](docs/QA-SETTINGS-NAVIGATION-0920.md) records the Account/Plugins dead-tap regression and its fix.
 

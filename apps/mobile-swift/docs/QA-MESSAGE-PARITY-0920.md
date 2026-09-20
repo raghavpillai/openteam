@@ -2,6 +2,8 @@
 
 This follow-up addresses the user's selected RN audit findings. It does not claim blanket physical-device or pixel-perfect app acceptance.
 
+Released in [TestFlight 0.0.1 (32)](TESTFLIGHT-32.md), verified valid and assigned to Team (Expo) on September 20.
+
 ## Changes
 
 | Audit item | Result |

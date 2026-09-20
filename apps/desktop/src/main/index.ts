@@ -615,13 +615,15 @@ const requireAuthTokenStore = (event: Electron.IpcMainInvokeEvent) => {
 };
 
 ipcMain.handle("openteam:auth-token:read", (event) => requireAuthTokenStore(event).read());
-ipcMain.handle("openteam:auth-token:write", (event, value: unknown) => {
+ipcMain.handle("openteam:auth-token:write", (event, value: unknown, remember: unknown = true) => {
+  requireAuthSender(event);
   if (typeof value !== "string" || !value.trim() || value.length > 16 * 1024) {
     throw new Error("Authentication token is invalid");
   }
+  if (typeof remember !== "boolean") throw new Error("Sign-in persistence choice is invalid");
   const store = requireAuthTokenStore(event);
   pluginOAuth.closeAll();
-  return store.write(value);
+  return remember ? store.write(value) : store.writeSession(value);
 });
 ipcMain.handle("openteam:auth-token:clear", async (event) => {
   const store = requireAuthTokenStore(event);
@@ -1261,7 +1263,7 @@ if (!hasSingleInstanceLock) {
         },
       });
       const [, authStorage] = await Promise.all([createWindow(), authStorageWarmup]);
-      if (authStorage?.persistence === "memory") {
+      if (authStorage?.persistence === "memory" && authStorage.backend !== "session") {
         console.warn(
           "OpenTeam OS secure storage is unavailable; the desktop session will remain in memory and will not persist after restart."
         );

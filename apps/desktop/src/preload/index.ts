@@ -180,11 +180,12 @@ contextBridge.exposeInMainWorld("openteam", {
       ipcRenderer.invoke("openteam:auth:sign-out", serverUrl, token),
     readToken: async () =>
       authTokenStorageResult(await ipcRenderer.invoke("openteam:auth-token:read")),
-    writeToken: async (token: string) => {
+    writeToken: async (token: string, remember = true) => {
       if (typeof token !== "string" || !token.trim() || token.length > 16 * 1024) {
         throw new Error("Authentication token is invalid");
       }
-      return authTokenStorageResult(await ipcRenderer.invoke("openteam:auth-token:write", token));
+      if (typeof remember !== "boolean") throw new Error("Sign-in persistence choice is invalid");
+      return authTokenStorageResult(await ipcRenderer.invoke("openteam:auth-token:write", token, remember));
     },
     clearToken: async () =>
       authTokenStorageResult(await ipcRenderer.invoke("openteam:auth-token:clear")),

@@ -12,7 +12,7 @@ interface Window {
       ) => Promise<import("@openteam/client-core").OpenTeamSignInResult>;
       signOut: (serverUrl: string, token: string) => Promise<void>;
       readToken: () => Promise<OpenTeamAuthTokenStorageResult>;
-      writeToken: (token: string) => Promise<OpenTeamAuthTokenStorageResult>;
+      writeToken: (token: string, remember?: boolean) => Promise<OpenTeamAuthTokenStorageResult>;
       clearToken: () => Promise<OpenTeamAuthTokenStorageResult>;
     };
     pluginOAuth?: {

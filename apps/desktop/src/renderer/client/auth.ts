@@ -98,14 +98,14 @@ const loadAuthToken = (): Promise<string | null> => {
   return tokenReadRequest;
 };
 
-const persistAuthToken = async (next: string | null): Promise<void> => {
+const persistAuthToken = async (next: string | null, remember = true): Promise<void> => {
   if (!next) desktopMachineId = undefined;
   const generation = ++credentialGeneration;
   legacyToken = null;
   const bridge = authBridge();
   if (!next) token = null;
   if (bridge) {
-    if (next) await bridge.writeToken(next);
+    if (next) await bridge.writeToken(next, remember);
     else await bridge.clearToken().catch(() => undefined);
   }
   if (generation !== credentialGeneration) throw new Error("Sign-in was cancelled. Please try again.");
@@ -181,9 +181,9 @@ export const refreshAuthSession = (): Promise<OpenTeamAuthSnapshot> => {
   return refreshRequest;
 };
 
-export const signIn = async (username: string, password: string): Promise<OpenTeamAuthSnapshot> => {
+export const signIn = async (username: string, password: string, remember = true): Promise<OpenTeamAuthSnapshot> => {
   const result = await requestSignIn(API_BASE, username, password);
-  await persistAuthToken(result.token);
+  await persistAuthToken(result.token, remember);
   cacheUser(result.user);
   const session = await refreshAuthSession();
   if (session.status !== "authenticated") {
@@ -227,10 +227,11 @@ export const clearAuthCredentialsForServerChange = async (): Promise<void> => {
 export const signInToServer = async (
   serverUrl: string,
   username: string,
-  password: string
+  password: string,
+  remember = true
 ): Promise<void> => {
   const result = await requestSignIn(normalizeBaseUrl(serverUrl), username, password);
-  await persistAuthToken(result.token);
+  await persistAuthToken(result.token, remember);
   cacheUser(result.user);
 };
 

@@ -91,6 +91,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [connectedApiBase, setConnectedApiBase] = useState(API_BASE);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -126,9 +127,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
     setError(null);
     try {
       if (connectedApiBase === API_BASE) {
-        await signIn(username, password);
+        await signIn(username, password, remember);
       } else {
-        await signInToServer(connectedApiBase, username, password);
+        await signInToServer(connectedApiBase, username, password, remember);
         window.location.reload();
       }
       setPassword("");
@@ -346,6 +347,18 @@ export function AuthGate({ children }: { children: ReactNode }) {
           type="password"
           value={password}
         />
+        {window.openteam?.auth && <div className="mt-4 text-sm">
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              checked={remember}
+              disabled={!credentialsVisible || submitting}
+              onChange={(event) => { setRemember(event.target.checked); setError(null); }}
+              type="checkbox"
+            />
+            Remember me on this computer
+          </label>
+          {!remember && <p className="mt-2 text-muted-foreground">Sign in again after quitting OpenTeam.</p>}
+        </div>}
         <AuthFeedback id="credentials-error" message={credentialsVisible ? error : null} />
         <div className="auth-actions">
           <button

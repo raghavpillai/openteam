@@ -24,6 +24,7 @@ import { settingsRoutes } from "./routes/settings";
 import { transcriptionRoutes } from "./routes/transcription";
 import { parseAutoReviewInput } from "./services/auto-review-service";
 import { systemVersion } from "./system-version";
+import { ScreenVncProxy, type VncConnection } from "./screen-vnc";
 
 const port = Number(process.env.OPENTEAM_PORT ?? 8787);
 
@@ -50,6 +51,19 @@ const app = new AppService(authMode);
 
 await Effect.runPromise(app.boot());
 
+const vnc = new ScreenVncProxy({
+  endpoint: (botId) => app.screens.vncEndpoint(botId),
+  authorized: async ({ botId, sessionId }) => {
+    const [bot, session] = await Promise.all([
+      app.prisma.bot.findUnique({ where: { id: botId }, select: { status: true } }),
+      authMode === "disabled" ? Promise.resolve(true) : sessionId
+        ? authPrisma.session.findFirst({ where: { id: sessionId, expiresAt: { gt: new Date() } }, select: { id: true } })
+        : Promise.resolve(null),
+    ]);
+    return bot?.status === "active" && Boolean(session);
+  },
+});
+
 const authorizedInternal = (request: Request): boolean => {
   const supplied = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
   const expectedBytes = Buffer.from(controlToken);
@@ -59,11 +73,12 @@ const authorizedInternal = (request: Request): boolean => {
   );
 };
 
-const server = Bun.serve({
+const server = Bun.serve<VncConnection>({
   hostname: process.env.OPENTEAM_SERVER_HOST ?? "0.0.0.0",
   port,
   idleTimeout: 255,
   maxRequestBodySize: Number.MAX_SAFE_INTEGER,
+  websocket: vnc.websocket,
   async fetch(request, requestServer) {
     if (request.method === "OPTIONS")
       return new Response(null, { status: 204, headers: corsHeaders });
@@ -139,6 +154,7 @@ const server = Bun.serve({
         // reconnect can mint a fresh device credential while sign-out is pending.
         const response = await auth.handler(authRequest);
         if (response.ok && signingOutSession) {
+          vnc.revokeSession(signingOutSession.session.id);
           await run(app.disablePushDevicesForSession(signingOutSession.session.id));
           await app.machines.revokeSession(signingOutSession.session.id);
         }
@@ -245,6 +261,9 @@ const server = Bun.serve({
         );
       }
       const publicCallback = request.method === "GET" && path === "/api/plugin-oauth/callback";
+      const vncMatch = path.match(/^\/api\/bots\/([\da-f-]{36})\/screen\/vnc$/i);
+      if (request.method === "GET" && vncMatch)
+        return await vnc.upgrade(networkRequest, requestServer, vncMatch[1]!);
       let authenticatedSessionId: string | null = null;
       if (authMode === "required" && !publicCallback) {
         const session = await auth.api.getSession({ headers: request.headers });
@@ -255,6 +274,11 @@ const server = Bun.serve({
           );
         }
         authenticatedSessionId = session.session.id;
+      }
+      if (request.method === "POST" && vncMatch) {
+        const response = json(await vnc.issue(vncMatch[1]!, authenticatedSessionId, request.headers.get("origin")));
+        response.headers.set("cache-control", "no-store");
+        return response;
       }
       // Attachments follow the account's authentication mode just like messages.
       // Knowing a content hash does not grant access to a private conversation.
@@ -286,6 +310,7 @@ const server = Bun.serve({
 });
 
 const shutdown = async () => {
+  vnc.stop();
   app.machines.relay.close();
   server.stop();
   await Effect.runPromise(app.close());

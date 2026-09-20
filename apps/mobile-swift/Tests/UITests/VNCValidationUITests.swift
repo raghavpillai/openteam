@@ -84,16 +84,16 @@ import XCTest
     XCTAssertFalse(prompt.exists, "iOS password prompt did not dismiss")
     chat.tap()
     if starting {
-      _ = try await request("/__qa/control", ["statusDelay": 4500])
+      _ = try await request("/__qa/control", ["statusDelay": 4500, "vncDelay": 4500])
       _ = try await request("/__qa/desktop", [:])
     }
     app.buttons["Computer"].tap()
     if starting {
       XCTAssertTrue(app.staticTexts["Starting desktop…"].waitForExistence(timeout: 3))
       capture("starting", app)
-      _ = try await request("/__qa/control", ["statusDelay": 0])
+      _ = try await request("/__qa/control", ["statusDelay": 0, "vncDelay": 0])
     }
-    XCTAssertTrue(app.images["computer-screen"].waitForExistence(timeout: 30))
+    XCTAssertTrue(app.otherElements["computer-screen"].waitForExistence(timeout: 30))
     return app
   }
   private func takeControl(_ app: XCUIApplication) {
@@ -107,12 +107,11 @@ import XCTest
     capture("takeover-result", app)
     XCTAssertTrue(owned, "Take control must acquire the lease before testing remote gestures")
   }
-  func testStartupKeyboardClipboardAndInputRetry() async throws {
+  func testStartupKeyboardClipboardUsesVNC() async throws {
     let app = try await launch(starting: true)
-    let screen = app.images["computer-screen"]
+    let screen = app.otherElements["computer-screen"]
     XCTAssertEqual(screen.frame.width / screen.frame.height, 1.6, accuracy: 0.03)
     capture("keyboard-closed", app)
-    _ = try await request("/__qa/reset", [:])
     app.buttons["Show computer keyboard"].tap()
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
     XCTAssertLessThan(screen.frame.maxY, app.keyboards.firstMatch.frame.minY)
@@ -128,13 +127,6 @@ import XCTest
     let text = app.descendants(matching: .any).matching(identifier: "computer-text").firstMatch
     text.tap()
     text.typeText(" clipboard")
-    _ = try await request("/__qa/control", ["actionFailures": 1])
-    app.buttons["Type"].tap()
-    XCTAssertTrue(
-      app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "QA input failed"))
-        .firstMatch.waitForExistence(timeout: 10))
-    XCTAssertEqual(text.value as? String, " clipboard")
-    capture("clipboard-retry", app)
     app.buttons["Type"].tap()
     _ = try await eventually { $0["text"] as? String == "Native VNC input! clipboard" }
     XCTAssertTrue(app.buttons["Clipboard"].waitForExistence(timeout: 8))
@@ -142,11 +134,17 @@ import XCTest
     XCTAssertTrue(app.buttons["Computer"].waitForExistence(timeout: 10))
     let status = try await request("/__qa/state")
     XCTAssertEqual((status["status"] as? [String: Any])?["humanTakeover"] as? Bool, false)
+    let receipts = status["receipts"] as? [[String: Any]] ?? []
+    XCTAssertTrue(receipts.contains { ($0["path"] as? String)?.hasSuffix("/screen/vnc") == true })
+    XCTAssertFalse(receipts.contains { receipt in
+      let path = receipt["path"] as? String ?? ""
+      return path.hasSuffix("/frame") || path.hasSuffix("/stream") || path.hasSuffix("/actions")
+    }, "Screen updates and user input must use VNC")
   }
   func testTouchClickDoubleClickRepeatedHoldAndDrag() async throws {
     let app = try await launch()
     takeControl(app)
-    let screen = app.images["computer-screen"]
+    let screen = app.otherElements["computer-screen"]
     let target = screen.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
     target.tap()
     target.doubleTap()
@@ -177,7 +175,7 @@ import XCTest
   func testDirectTouchDragZoomAndIdleHold() async throws {
     let app = try await launch()
     takeControl(app)
-    let screen = app.images["computer-screen"]
+    let screen = app.otherElements["computer-screen"]
     let target = screen.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
     target.tap()
     let tapped = try await eventually { $0["clicks"] as? Int == 1 }
@@ -213,7 +211,7 @@ import XCTest
   func testTwoFingerTapRightClick() async throws {
     let app = try await launch()
     takeControl(app)
-    app.images["computer-screen"].twoFingerTap()
+    app.otherElements["computer-screen"].twoFingerTap()
     capture("two-finger-right-click", app)
     _ = try await eventually { $0["rightClicks"] as? Int == 1 }
   }
@@ -226,7 +224,7 @@ import XCTest
     app.buttons["Trackpad"].tap()
     app.buttons["Close input controls"].tap()
     let before = try await remote()
-    let target = app.images["computer-screen"].coordinate(
+    let target = app.otherElements["computer-screen"].coordinate(
       withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
     target.press(
       forDuration: 0.05, thenDragTo: target.withOffset(CGVector(dx: 65, dy: 12)),
@@ -242,7 +240,7 @@ import XCTest
     XCTAssertTrue(app.buttons["Trackpad"].waitForExistence(timeout: 8))
     app.buttons["Trackpad"].tap()
     app.buttons["Close input controls"].tap()
-    let target = app.images["computer-screen"].coordinate(
+    let target = app.otherElements["computer-screen"].coordinate(
       withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
     target.tap()
     target.press(
@@ -261,7 +259,7 @@ import XCTest
     _ = try await request("/__qa/control", ["offline": true])
     XCTAssertTrue(app.staticTexts["Showing the last received screen"].waitForExistence(timeout: 12))
     let before = try await remote()
-    app.images["computer-screen"].tap()
+    app.otherElements["computer-screen"].tap()
     let after = try await remote()
     XCTAssertEqual(after["clicks"] as? Int, before["clicks"] as? Int)
     XCTAssertFalse(app.buttons["Show computer keyboard"].isEnabled)
@@ -275,7 +273,7 @@ import XCTest
     app.buttons["Pause view"].tap()
     XCTAssertTrue(app.staticTexts["View paused"].exists)
     let paused = try await remote()
-    app.images["computer-screen"].tap()
+    app.otherElements["computer-screen"].tap()
     let stillPaused = try await remote()
     XCTAssertEqual(stillPaused["clicks"] as? Int, paused["clicks"] as? Int)
     app.buttons["Computer options"].tap()

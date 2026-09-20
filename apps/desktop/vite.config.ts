@@ -1,6 +1,6 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig, type Plugin, type ProxyOptions } from "vite";
+import { defineConfig, type Plugin } from "vite";
 
 /** Electron's Chromium runtime supports WOFF2; shipping KaTeX's WOFF and TTF
  * fallbacks only adds duplicate font payload to every installer. */
@@ -77,18 +77,6 @@ const bundleModuleAudit = (): Plugin => ({
   },
 });
 
-const noVncProxies = Object.fromEntries(
-  Array.from({ length: 100 }, (_, index) => 6200 + index).map((port) => {
-    const route = `/novnc/${port}`;
-    const options: ProxyOptions = {
-      target: `http://127.0.0.1:${port}`,
-      ws: true,
-      rewrite: (path) => path.slice(route.length) || "/",
-    };
-    return [route, options];
-  })
-);
-
 export default defineConfig({
   base: "./",
   plugins: [
@@ -103,8 +91,7 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      "/api": process.env.OPENTEAM_SERVER_URL ?? "http://127.0.0.1:8787",
-      ...noVncProxies,
+      "/api": { target: process.env.OPENTEAM_SERVER_URL ?? "http://127.0.0.1:8787", ws: true },
     },
   },
   worker: { format: "es" },

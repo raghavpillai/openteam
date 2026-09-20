@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 struct ComputerSurface: UIViewRepresentable {
-  let image: UIImage
+  let vnc: ComputerVNC
   let remoteSize: CGSize
   let interactive: Bool
   let trackpad: Bool
@@ -10,7 +10,7 @@ struct ComputerSurface: UIViewRepresentable {
   func makeUIView(context: Context) -> ComputerSurfaceView { ComputerSurfaceView() }
   func updateUIView(_ view: ComputerSurfaceView, context: Context) {
     view.configure(
-      image: image, remoteSize: remoteSize, interactive: interactive, trackpad: trackpad,
+      vnc: vnc, remoteSize: remoteSize, interactive: interactive, trackpad: trackpad,
       action: action)
   }
 }
@@ -18,7 +18,9 @@ struct ComputerSurface: UIViewRepresentable {
 @MainActor
 final class ComputerSurfaceView: UIView, UIScrollViewDelegate, UIGestureRecognizerDelegate {
   private let scroll = UIScrollView()
-  private let picture = UIImageView()
+  private let picture = UIView()
+  private weak var renderer: UIView?
+  private var dragging = false
   private let pointer = UIView()
   private var remoteSize = CGSize(width: 1280, height: 800)
   private var controlling = false
@@ -69,10 +71,16 @@ final class ComputerSurfaceView: UIView, UIScrollViewDelegate, UIGestureRecogniz
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
   func configure(
-    image: UIImage, remoteSize: CGSize, interactive: Bool, trackpad: Bool,
+    vnc: ComputerVNC, remoteSize: CGSize, interactive: Bool, trackpad: Bool,
     action: @escaping ([String: JSON]) -> Void
   ) {
-    picture.image = image
+    if renderer !== vnc.webView {
+      renderer?.removeFromSuperview()
+      renderer = vnc.webView
+      picture.insertSubview(vnc.webView, at: 0)
+    }
+    if controlling && !interactive { releasePointer() }
+    vnc.setControl(interactive)
     self.remoteSize = remoteSize
     self.controlling = interactive
     self.trackpad = trackpad
@@ -93,16 +101,16 @@ final class ComputerSurfaceView: UIView, UIScrollViewDelegate, UIGestureRecogniz
     super.layoutSubviews()
     let changed = scroll.frame.size != bounds.size
     scroll.frame = bounds
-    guard let image = picture.image else { return }
     let scale = min(
-      bounds.width / max(image.size.width, 1), bounds.height / max(image.size.height, 1))
-    let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+      bounds.width / max(remoteSize.width, 1), bounds.height / max(remoteSize.height, 1))
+    let size = CGSize(width: remoteSize.width * scale, height: remoteSize.height * scale)
     if size != baseSize || changed {
       scroll.zoomScale = 1
       baseSize = size
       picture.frame = CGRect(origin: .zero, size: size)
       scroll.contentSize = size
     }
+    renderer?.frame = picture.bounds
     center()
     updatePointer()
   }
@@ -170,37 +178,37 @@ final class ComputerSurfaceView: UIView, UIScrollViewDelegate, UIGestureRecogniz
             / max(baseSize.height, 1)))
       updatePointer()
     }
-    guard gesture.state == .ended else { return }
+    let p = trackpad ? remotePointer : remotePoint(gesture.current)
+    if !trackpad { remotePointer = p }
+    if gesture.state == .cancelled || gesture.state == .failed {
+      releasePointer()
+      return
+    }
     if gesture.moved {
-      if trackpad {
-        if gesture.tapCount >= 2 {
-          sendDrag([trackpadStart, remotePointer])
-        } else {
-          action([
-            "action": .string("move"), "x": .number(remotePointer.x), "y": .number(remotePointer.y),
-          ])
+      if !trackpad || gesture.tapCount >= 2 {
+        if !dragging {
+          let start = trackpad ? trackpadStart : remotePoint(gesture.start)
+          sendPointer("mousedown", start, buttons: 1)
+          dragging = true
         }
-      } else {
-        sendDrag(gesture.points.map(remotePoint))
-      }
-    } else {
+        sendPointer("mousemove", p, buttons: 1)
+        if gesture.state == .ended { sendPointer("mouseup", p, buttons: 0); dragging = false }
+      } else { action(["action": .string("move"), "x": .number(p.x), "y": .number(p.y)]) }
+    } else if gesture.state == .ended {
       let held = gesture.duration >= 0.55
-      click(
-        trackpad ? remotePointer : remotePoint(gesture.current),
-        double: !held && gesture.tapCount == 2, right: held)
+      // Each completed tap is already sent once. Replaying the second as a
+      // double-click would produce three remote clicks for two physical taps.
+      click(p, right: held)
     }
   }
-  private func sendDrag(_ path: [CGPoint]) {
-    if path.count >= 2 {
-      let step = max(1, Int(ceil(Double(path.count) / 99)))
-      var samples = stride(from: 0, to: path.count, by: step).map { path[$0] }
-      if samples.last != path.last { samples.append(path.last!) }
-      action([
-        "action": .string("drag"),
-        "path": .array(
-          samples.prefix(100).map { .object(["x": .number($0.x), "y": .number($0.y)]) }),
-      ])
-    }
+  private func sendPointer(_ phase: String, _ p: CGPoint, buttons: Int) {
+    action(["action": .string("pointer"), "phase": .string(phase),
+      "x": .number(p.x), "y": .number(p.y), "buttons": .number(Double(buttons))])
+  }
+  private func releasePointer() {
+    guard dragging else { return }
+    dragging = false
+    sendPointer("mouseup", remotePointer, buttons: 0)
   }
   @objc private func twoTapped(_ gesture: UITapGestureRecognizer) {
     guard controlling, gesture.state == .ended else { return }

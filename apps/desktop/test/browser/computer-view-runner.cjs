@@ -4,7 +4,7 @@ const path = require("node:path");
 app.setPath("userData", path.join(process.env.COMPUTER_VIEW_DIR, "profile"));
 app.whenReady().then(async () => {
   const reports = [];
-  const frameReports = [];
+  const vncReports = [];
   const win = new BrowserWindow({
     show: false,
     width: 1100,
@@ -27,13 +27,13 @@ app.whenReady().then(async () => {
   };
   for (const theme of ["light", "dark"]) {
     reports.push(await runScenario(`inspector&regression&theme=${theme}`, "COMPUTER_VIEW_RESULT "));
-    frameReports.push(await runScenario(`inspector&frame-refresh&frame-regression&theme=${theme}`, "SCREEN_FRAME_RESULT "));
+    vncReports.push(await runScenario(`inspector&vnc-required&theme=${theme}`, "VNC_REQUIRED_RESULT "));
   }
   const resourceReport = await runScenario("", "RESOURCE_REFRESH_RESULT ",
     new URL("authenticated-resource-refresh.html", process.env.COMPUTER_VIEW_URL).href);
   fs.writeFileSync(
     path.join(process.env.COMPUTER_VIEW_DIR, "results.json"),
-    JSON.stringify({ reports, frameReports, resourceReport })
+    JSON.stringify({ reports, vncReports, resourceReport })
   );
   app.quit();
 });

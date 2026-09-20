@@ -1048,6 +1048,12 @@ export type ScreenTakeoverInput = typeof ScreenTakeoverInput.Type;
 export const ScreenPauseInput = Schema.Struct({ paused: Schema.Boolean });
 export type ScreenPauseInput = typeof ScreenPauseInput.Type;
 
+export interface ScreenVncSessionView {
+  path: string;
+  protocols: string[];
+  password: string;
+}
+
 export interface ScreenStatusView {
   botId: string;
   state: "starting" | "ready" | "failed";

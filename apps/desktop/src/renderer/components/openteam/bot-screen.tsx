@@ -7,14 +7,13 @@ import {
   SCREEN_STATUS_POLL_MS,
   SCREEN_TAKEOVER_HEARTBEAT_MS,
 } from "@openteam/client-core";
-import type { BotView, ScreenActionInput, ScreenStatusView } from "@openteam/contracts";
+import type { BotView, ScreenStatusView } from "@openteam/contracts";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { LoaderCircle, Minimize2, Monitor, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { API_BASE } from "../../client/http";
 import { api } from "../../client/openteam-api";
-import { resolveLiveViewerUrl } from "../../client/runtime-url";
 import { useAuthenticatedResource } from "../../hooks/use-authenticated-resource";
 import { measureUntilNextPaint, recordPerformance } from "../../lib/performance";
 import {
@@ -25,6 +24,7 @@ import {
 import { Button } from "../ui/button";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+import VncComputer from "./vnc-computer";
 
 const statusRequests = createKeyedRequestCoordinator();
 
@@ -53,10 +53,13 @@ export function BotScreen({
   const [error, setError] = useState<string | null>(null);
   const [frameRevision, setFrameRevision] = useState(Date.now());
   const [open, setOpen] = useState(false);
+  const recordViewerReady = useCallback(() => {
+    if (!viewerOpenedAt.current) return;
+    recordPerformance("view.desktop-ready", performance.now() - viewerOpenedAt.current, { botId: bot.id });
+    viewerOpenedAt.current = 0;
+  }, [bot.id]);
   const [handoffPending, setHandoffPending] = useState(false);
   const viewerOpenedAt = useRef(0);
-  const viewerFrame = useRef<HTMLIFrameElement>(null);
-  const actionTail = useRef(Promise.resolve());
   const handoffMessageId = handoff?.messageId;
   const handoffRelease = useMemo(
     () =>
@@ -67,14 +70,6 @@ export function BotScreen({
       }),
     [handoffMessageId]
   );
-  const pointerGesture = useRef<{
-    moved: boolean;
-    path: Array<{ x: number; y: number }>;
-    pointerId: number;
-    start: { x: number; y: number };
-  } | null>(null);
-  const suppressNextClick = useRef(false);
-
   const refreshStatus = useCallback(async () => {
     try {
       const next = await loadScreenStatus(bot.id);
@@ -108,6 +103,7 @@ export function BotScreen({
     };
   }, [active, enabled, refreshStatus, screen?.state]);
   useEffect(() => {
+    if (open) return;
     const refreshFrame = () => {
       if (
         shouldRefreshScreenFrame({
@@ -213,103 +209,9 @@ export function BotScreen({
     };
   }, [bot.id, handoff, open]);
   const viewerReady = screen?.state === "ready";
-  const liveViewerUrl = useMemo(() => {
-    if (!open || !screen?.viewerUrl) return "";
-    const resolved = resolveLiveViewerUrl(screen.viewerUrl, window.location.href, API_BASE);
-    if (!resolved) return "";
-    const viewer = new URL(resolved);
-    // Fetch the current viewer script when opening or rotating VNC credentials.
-    viewer.searchParams.set("v", String(Date.now()));
-    return viewer.toString();
-  }, [open, screen?.viewerUrl]);
-  useEffect(() => {
-    if (!open || !liveViewerUrl) return;
-    const viewerOrigin = new URL(liveViewerUrl).origin;
-    const receiveConnectionState = (event: MessageEvent) => {
-      if (event.source !== viewerFrame.current?.contentWindow || event.origin !== viewerOrigin)
-        return;
-      if (event.data?.type !== "openteam:screen-connection") return;
-      if (["reconnecting", "authentication-failed"].includes(event.data.state))
-        void refreshStatus();
-    };
-    window.addEventListener("message", receiveConnectionState);
-    return () => window.removeEventListener("message", receiveConnectionState);
-  }, [liveViewerUrl, open, refreshStatus]);
   const frameSource = useAuthenticatedResource(
-    enabled && screen?.state === "ready" ? api.screenFrameUrl(bot.id, frameRevision) : null,
+    enabled && screen?.state === "ready" && !open ? api.screenFrameUrl(bot.id, frameRevision) : null,
     { retainPreviousFor: bot.id }
-  );
-  const act = useCallback(
-    (input: ScreenActionInput) => {
-      const request = actionTail.current
-        .catch(() => undefined)
-        .then(async () => {
-          try {
-            const next = await api.screenAction(bot.id, input);
-            setScreen(next);
-            setFrameRevision(Date.now());
-            setError(null);
-          } catch (cause) {
-            setError(clientErrorMessage(cause, "The computer action failed"));
-          }
-        });
-      actionTail.current = request;
-      return request;
-    },
-    [bot.id]
-  );
-  const remotePoint = useCallback(
-    (element: HTMLElement, clientX: number, clientY: number) => {
-      const bounds = element.getBoundingClientRect();
-      const width = screen?.width || 1280;
-      const height = screen?.height || 800;
-      return {
-        x: Math.max(
-          0,
-          Math.min(width - 1, Math.round(((clientX - bounds.left) / bounds.width) * width))
-        ),
-        y: Math.max(
-          0,
-          Math.min(height - 1, Math.round(((clientY - bounds.top) / bounds.height) * height))
-        ),
-      };
-    },
-    [screen?.height, screen?.width]
-  );
-  const handleRemoteKey = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (["Escape", "Control", "Alt", "Shift", "Meta"].includes(event.key)) return;
-      const names: Record<string, string> = {
-        Enter: "Return",
-        Backspace: "BackSpace",
-        Delete: "Delete",
-        Tab: "Tab",
-        ArrowLeft: "Left",
-        ArrowRight: "Right",
-        ArrowUp: "Up",
-        ArrowDown: "Down",
-        Home: "Home",
-        End: "End",
-        PageUp: "Page_Up",
-        PageDown: "Page_Down",
-      };
-      const key = names[event.key];
-      const modifiers = [
-        event.ctrlKey ? "Control" : "",
-        event.altKey ? "Alt" : "",
-        event.metaKey ? "Super" : "",
-        event.shiftKey && (key || event.ctrlKey || event.altKey || event.metaKey) ? "Shift" : "",
-      ].filter(Boolean);
-      if (key || modifiers.length) {
-        event.preventDefault();
-        const finalKey = key || event.key.toLowerCase();
-        void act({ action: "key", keys: [[...modifiers, finalKey].join("+")] });
-      } else if (event.key.length === 1) {
-        event.preventDefault();
-        void act({ action: "type", text: event.key });
-      }
-    },
-    [act]
   );
   const retryConnection = () => {
     setError(null);
@@ -413,123 +315,10 @@ export function BotScreen({
               className="relative aspect-[16/10] w-full overflow-hidden rounded-[6px] bg-[#1b1d1f]"
               style={{ maxWidth: "calc((100vh - 60px) * 1.6)" }}
             >
-              {viewerReady && liveViewerUrl ? (
-                <iframe
-                  ref={viewerFrame}
-                  className="absolute inset-0 size-full border-0 bg-[#1b1d1f]"
-                  key={liveViewerUrl}
-                  onLoad={() => {
-                    if (!viewerOpenedAt.current) return;
-                    recordPerformance(
-                      "view.desktop-ready",
-                      performance.now() - viewerOpenedAt.current,
-                      { botId: bot.id }
-                    );
-                    viewerOpenedAt.current = 0;
-                  }}
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock"
-                  src={liveViewerUrl}
-                  title={`${bot.name}'s interactive Linux computer`}
-                />
-              ) : viewerReady && frameSource ? (
-                <div
-                  aria-label={`${bot.name}'s interactive Linux computer`}
-                  className="absolute inset-0 size-full cursor-default bg-[#1b1d1f] outline-none"
-                  onClick={(event) => {
-                    if (suppressNextClick.current) {
-                      suppressNextClick.current = false;
-                      return;
-                    }
-                    event.currentTarget.focus();
-                    // The browser already emits both clicks of a double-click.
-                    void act({
-                      action: "click",
-                      ...remotePoint(event.currentTarget, event.clientX, event.clientY),
-                    });
-                  }}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    void act({
-                      action: "click",
-                      ...remotePoint(event.currentTarget, event.clientX, event.clientY),
-                      button: "right",
-                    });
-                  }}
-                  onKeyDown={handleRemoteKey}
-                  onPointerCancel={(event) => {
-                    if (pointerGesture.current?.pointerId === event.pointerId) {
-                      pointerGesture.current = null;
-                    }
-                  }}
-                  onPointerDown={(event) => {
-                    if (event.button !== 0) return;
-                    const start = remotePoint(event.currentTarget, event.clientX, event.clientY);
-                    pointerGesture.current = {
-                      moved: false,
-                      path: [start],
-                      pointerId: event.pointerId,
-                      start,
-                    };
-                    event.currentTarget.setPointerCapture(event.pointerId);
-                  }}
-                  onPointerMove={(event) => {
-                    const gesture = pointerGesture.current;
-                    if (!gesture || gesture.pointerId !== event.pointerId || !(event.buttons & 1)) {
-                      return;
-                    }
-                    const point = remotePoint(event.currentTarget, event.clientX, event.clientY);
-                    if (Math.hypot(point.x - gesture.start.x, point.y - gesture.start.y) >= 4) {
-                      gesture.moved = true;
-                    }
-                    const previous = gesture.path.at(-1);
-                    if (
-                      gesture.path.length < 100 &&
-                      (!previous || Math.hypot(point.x - previous.x, point.y - previous.y) >= 4)
-                    ) {
-                      gesture.path.push(point);
-                    }
-                  }}
-                  onPointerUp={(event) => {
-                    const gesture = pointerGesture.current;
-                    if (!gesture || gesture.pointerId !== event.pointerId) return;
-                    pointerGesture.current = null;
-                    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                      event.currentTarget.releasePointerCapture(event.pointerId);
-                    }
-                    if (!gesture.moved) return;
-                    const end = remotePoint(event.currentTarget, event.clientX, event.clientY);
-                    const previous = gesture.path.at(-1);
-                    if (!previous || previous.x !== end.x || previous.y !== end.y) {
-                      gesture.path.push(end);
-                    }
-                    suppressNextClick.current = true;
-                    if (gesture.path.length >= 2) void act({ action: "drag", path: gesture.path });
-                  }}
-                  onWheel={(event) => {
-                    event.preventDefault();
-                    const deltaY = Math.max(-20, Math.min(20, Math.round(event.deltaY / 24)));
-                    if (deltaY) void act({ action: "scroll", deltaY });
-                  }}
-                  role="application"
-                  // biome-ignore lint/a11y/noNoninteractiveTabindex: The remote desktop application receives keyboard input.
-                  tabIndex={0}
-                >
-                  <img
-                    alt={`${bot.name}'s Linux screen`}
-                    className="pointer-events-none size-full select-none object-contain"
-                    draggable={false}
-                    onLoad={() => {
-                      if (!viewerOpenedAt.current) return;
-                      recordPerformance(
-                        "view.desktop-ready",
-                        performance.now() - viewerOpenedAt.current,
-                        { botId: bot.id }
-                      );
-                      viewerOpenedAt.current = 0;
-                    }}
-                    src={frameSource}
-                  />
-                </div>
+              {viewerReady ? (
+                <VncComputer key={bot.id} botId={bot.id} name={bot.name}
+                  serverUrl={API_BASE} createSession={api.screenVncSession}
+                  onReady={recordViewerReady} onClose={closeViewer} />
               ) : (
                 <div className="absolute inset-0 grid place-items-center text-center">
                   <div>

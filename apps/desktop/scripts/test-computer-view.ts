@@ -40,12 +40,10 @@ try {
     result.reports.some((report: { fullWindow?: boolean }) => !report.fullWindow)
   )
     throw new Error("Computer view must fill the window outside the animated inspector");
-  if (result.frameReports.length !== 2 || result.frameReports.some((report: {
-    error?: string; actionCount: number; cursor: string;
-    reports: { sameSurface: boolean; connecting: boolean; retainedFocus: boolean }[];
-  }) => report.error || report.actionCount !== 3 || report.cursor !== "default" ||
-    report.reports.some((step) => !step.sameSurface || step.connecting || !step.retainedFocus)))
-    throw new Error("Frame refresh must retain the computer, keyboard focus, and normal cursor");
+  if (result.vncReports.length !== 2 || result.vncReports.some((report: {
+    error?: string; actionCount: number; iframeCount: number; updateRequired: boolean;
+  }) => report.error || report.actionCount !== 0 || report.iframeCount !== 0 || !report.updateRequired))
+    throw new Error("Unsupported servers must require VNC instead of using legacy input");
   if (result.resourceReport.error || result.resourceReport.checks.length !== 11)
     throw new Error(result.resourceReport.error ?? "Resource lifecycle checks did not complete");
 } finally {

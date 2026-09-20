@@ -45,8 +45,28 @@ export class ScreenService {
     private readonly prisma: PrismaClient,
     private readonly agentDataRoot: string,
     private readonly screenViewerHost: string,
-    private readonly computerFetch: ComputerFetch
+    private readonly computerFetch: ComputerFetch,
+    private readonly computerUrl = "http://127.0.0.1:8790"
   ) {}
+
+  async vncEndpoint(botId: string): Promise<{ url: string; password: string }> {
+    const bot = await this.requireActiveBot(botId);
+    const response = await this.computerFetch(
+      `/v1/screens/${bot.id}?cwd=${encodeURIComponent(bot.defaultDirectory)}`, { method: "GET" }
+    );
+    if (!response.ok) throw new ApiError(503, "screen_unavailable", "Computer is unavailable");
+    const status = await response.json() as ComputerScreenStatus;
+    if (status.state !== "ready" || !Number.isInteger(status.viewerPort) ||
+      status.viewerPort < 6200 || status.viewerPort > 6299 || !status.viewerPassword)
+      throw new ApiError(503, "screen_unavailable", "Computer is not ready");
+    const url = new URL(this.computerUrl);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    url.port = String(status.viewerPort);
+    url.pathname = "/websockify";
+    url.search = "";
+    url.hash = "";
+    return { url: url.toString(), password: status.viewerPassword };
+  }
 
   async userFormAction(
     botId: string,

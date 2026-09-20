@@ -48,6 +48,7 @@ import type {
   RoutineView,
   ScreenActionInput,
   ScreenStatusView,
+  ScreenVncSessionView,
   SearchCategory,
   SearchResponse,
   SendMessageInput,
@@ -798,6 +799,10 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       transport.request<ScreenStatusView>(
         `/api/v0/bots/${encodeURIComponent(botId)}/screen/pause`,
         { method: "POST", body: JSON.stringify({ paused }) }
+      ),
+    screenVncSession: (botId: string, signal?: AbortSignal) =>
+      transport.request<ScreenVncSessionView>(
+        `/api/v0/bots/${encodeURIComponent(botId)}/screen/vnc`, { method: "POST", signal }
       ),
     screenFrameUrl: (botId: string, revision = Date.now()) =>
       `${transport.baseUrl}/api/v0/bots/${encodeURIComponent(botId)}/screen/frame?v=${revision}`,

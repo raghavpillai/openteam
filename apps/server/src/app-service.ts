@@ -119,7 +119,8 @@ export class AppService {
       this.prisma,
       this.agentData.root,
       this.screenViewerHost,
-      (path, init) => this.computerFetch(path, init)
+      (path, init) => this.computerFetch(path, init),
+      this.computerUrl
     );
     this.searchIndex = new SearchService(this.prisma);
     this.assets = new AssetStore({

@@ -101,7 +101,9 @@ if (!entry) failures.push("entry JavaScript was not found in index.html");
 else atMost("entry bytes", entry.bytes, 800_000);
 atMost("startup bytes", result.renderer.startup.bytes, 1_200_000);
 if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure is missing");
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_200_000);
+// noVNC's new dynamic boundary changes shared chunk layout: 1,205,086 bytes
+// versus 1,192,236 in the previous desktop. The 187 KB RFB client stays lazy.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_215_000);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -111,9 +113,11 @@ const startupCssBytes = result.renderer.startup.files
 atMost("startup CSS bytes", startupCssBytes, 178_000);
 // September 16: worker isolation and the complete memory/plugin/settings UI
 // measure 15.90 MB / 3.887 MB gzip. Account for the worker's separate runtime;
-// retain the existing entry, signed-in startup, CSS and grammar-total ceilings.
-atMost("renderer bytes", result.renderer.bytes, 15_950_000);
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 3_900_000);
+// retain the existing entry, CSS and grammar-total ceilings.
+// The on-demand noVNC client adds ~270 KB / 90 KB gzip, including license notices.
+// It must remain outside both startup closures and has its own limits below.
+atMost("renderer bytes", result.renderer.bytes, 16_250_000);
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_000_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // Native capability parsing, login provisioning and the bundled current CLI:
 // 2.311 MB after removing eager catalogs and minifying native bundles.
@@ -166,6 +170,7 @@ const lazyBudgets: Record<string, number> = {
   inspector: 150_000,
   avatarPicker: 20_000,
   botScreen: 20_000,
+  vncProtocol: 280_000,
   fileAttachment: 20_000,
   pdfPreview: 1_500_000,
   docxPreview: 550_000,

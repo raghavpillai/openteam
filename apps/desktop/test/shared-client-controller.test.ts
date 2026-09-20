@@ -18,27 +18,6 @@ describe("desktop shared client controllers", () => {
     expect(screen).not.toContain("api.releaseScreenTakeover");
   });
 
-  test("uses live local noVNC with authenticated frame and input fallback", async () => {
-    const screen = await source("components/openteam/bot-screen.tsx");
-
-    expect(screen).toContain("api.screenFrameUrl");
-    expect(screen).toContain("api.screenAction");
-    expect(screen).toContain("<iframe");
-    expect(screen).toContain(
-      "resolveLiveViewerUrl(screen.viewerUrl, window.location.href, API_BASE)"
-    );
-  });
-
-  test("keeps human input active alongside agent input", async () => {
-    const screen = await source("components/openteam/bot-screen.tsx");
-
-    expect(screen).toContain('role="application"');
-    expect(screen).toContain('className="absolute inset-0 size-full cursor-crosshair');
-    expect(screen).not.toContain("takeoverRef");
-    expect(screen).not.toContain("Take control");
-    expect(screen).not.toContain("Return to agent");
-  });
-
   test("uses exclusive input only for an explicit agent-requested handoff", async () => {
     const screen = await source("components/openteam/bot-screen.tsx");
     const richMessage = await source("components/openteam/rich-message.tsx");

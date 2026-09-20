@@ -26,7 +26,7 @@ const [
   { TooltipProvider },
   handoffEvents,
   { DesktopHeader },
-  { API_BASE },
+  { ClientError },
 ] = await Promise.all([
   import("../../src/renderer/client/openteam-api"),
   import("../../src/renderer/components/openteam/bot-screen"),
@@ -107,23 +107,14 @@ const messageFor = (state: RichMessageComputerHandoffState): ChannelMessageView 
 });
 const mutationEvent = "screen-reference:handoff-state";
 api.screenStatus = async () => screen;
+// Older servers must show an update requirement, never restore HTTP input.
+api.screenVncSession = async () => { throw new ClientError("Unsupported", "not_found", 404); };
 api.screenFrameUrl = () => frameUrl;
 let actionCount = 0;
 api.screenAction = async () => {
   actionCount += 1;
   return screen;
 };
-if (new URLSearchParams(location.search).has("frame-refresh")) {
-  // Exercise the authenticated blob path, including a slow frame response.
-  api.screenFrameUrl = (botId, revision) =>
-    `${API_BASE}/api/v0/bots/${botId}/screen/frame?revision=${revision}`;
-  window.fetch = async (input) => {
-    if (!String(input).startsWith(`${API_BASE}/api/v0/bots/${bot.id}/screen/frame?`))
-      throw new Error("Unexpected network request in frame fixture");
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    return new Response(frame, { headers: { "content-type": "image/svg+xml" } });
-  };
-}
 api.screenTakeover = async (_botId, active) => {
   screen = { ...screen, humanTakeover: active, agentInputPaused: active };
   return screen;
@@ -259,35 +250,22 @@ const root = createRoot(document.getElementById("root")!);
 import.meta.hot?.dispose(() => root.unmount());
 root.render(<Reference />);
 
-if (new URLSearchParams(location.search).has("frame-regression")) {
-  const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-  const surface = () => document.querySelector<HTMLElement>('[role="application"]');
+if (new URLSearchParams(location.search).has("vnc-required")) {
   const run = async () => {
-    for (let attempt = 0; !surface() && attempt < 100; attempt++) await pause(20);
-    const initial = surface();
-    if (!initial) throw new Error("Frame did not load");
-    const reports = [];
-    for (const interaction of ["click", "key", "scroll"]) {
-      const before = surface()!;
-      before.focus();
-      const bounds = before.getBoundingClientRect();
-      before.dispatchEvent(interaction === "click"
-        ? new MouseEvent("click", { bubbles: true, clientX: bounds.left + 10, clientY: bounds.top + 10 })
-        : interaction === "key"
-          ? new KeyboardEvent("keydown", { bubbles: true, key: "ArrowRight" })
-          : new WheelEvent("wheel", { bubbles: true, deltaY: 24 }));
-      await pause(60);
-      reports.push({ interaction, sameSurface: surface() === before,
-        connecting: document.body.textContent?.includes("Connecting…") ?? false,
-        retainedFocus: document.activeElement === before });
-      await pause(250);
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (document.querySelector('[data-vnc-state="unavailable"]')) {
+        console.log("VNC_REQUIRED_RESULT " + JSON.stringify({
+          theme: document.documentElement.dataset.theme,
+          updateRequired: document.body.textContent?.includes("Update your OpenTeam server"),
+          actionCount, iframeCount: document.querySelectorAll('iframe').length,
+        }));
+        return;
+      }
+      await new Promise(resolve => setTimeout(resolve, 20));
     }
-    console.log("SCREEN_FRAME_RESULT " + JSON.stringify({
-      theme: document.documentElement.dataset.theme, reports, actionCount,
-      cursor: getComputedStyle(surface()!).cursor,
-    }));
+    console.log('VNC_REQUIRED_RESULT ' + JSON.stringify({error: 'Missing VNC requirement'}));
   };
-  void run().catch((error) => console.log("SCREEN_FRAME_RESULT " + JSON.stringify({ error: String(error) })));
+  void run();
 }
 
 // Self-running Chromium geometry check; normal reference controls remain manual.

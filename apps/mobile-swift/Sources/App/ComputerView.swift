@@ -9,19 +9,18 @@ struct ComputerView: View {
   @State private var finishedHandoff = false
   @State private var finishRequestID = UUID().uuidString
   @State private var status: JSON = .null
-  @State private var frames = ComputerFrames()
-  @State private var hasFrame = false
+  @State private var vnc = ComputerVNC()
+  private var hasFrame: Bool { vnc.hasFrame }
   @State private var text = ""
   @State private var busy = false
   @State private var failure: String?
   @State private var statusFailure: String?
-  @State private var frameFailure: String?
   @State private var paused = false
   @State private var trackpad = false
   @State private var heartbeat = Date.distantPast
   @State private var controlRevision = 0
+  @State private var desiredControl: Bool?
   @State private var refreshing = false
-  @State private var legacyFrames = false
   @State private var streamRevision = 0
   @State private var inputTask: Task<Bool, Never>?
   @State private var pendingInputs = 0
@@ -30,7 +29,7 @@ struct ComputerView: View {
   @State private var clipboard = false
   @State private var inputControls = false
   @State private var help = false
-  private var viewerFailure: String? { statusFailure ?? frameFailure }
+  private var viewerFailure: String? { statusFailure ?? vnc.failure }
   private var takeover: Bool { status["humanTakeover"].bool }
   private var working: Bool { busy || pendingInputs > 0 }
   private var path: String { "/api/v0/bots/\(API.segment(bot.id))/screen" }
@@ -68,10 +67,10 @@ struct ComputerView: View {
         }
       }.padding(.horizontal, 18).padding(.top, 6).padding(.bottom, 10)
       ComputerVideo(
-        frames: frames,
+        vnc: vnc,
         remoteSize: CGSize(
           width: max(1, status["width"].int), height: max(1, status["height"].int)),
-        interactive: takeover && !busy && viewerFailure == nil && !paused,
+        interactive: takeover && vnc.connected && !busy && viewerFailure == nil && !paused,
         trackpad: trackpad, showStarting: failure == nil && viewerFailure == nil
       ) { body in Task { await action(body) } }
       if let viewerFailure {
@@ -79,7 +78,7 @@ struct ComputerView: View {
           if hasFrame { Text("Showing the last received screen").font(.caption) }
           InlineFailure(message: viewerFailure) {
             streamRevision += 1
-            Task { await refreshFrame() }
+            Task { await refreshStatus() }
           }
         }.padding(16).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
           .padding(.horizontal, 18)
@@ -119,7 +118,10 @@ struct ComputerView: View {
           "Use the keyboard or choose Take control in the menu to pause the bot and interact. Tap to click, drag to move, or hold to right-click. Use two fingers to scroll. Closing this screen returns control to the bot."
         )
       }
-      .onChange(of: takeover) { _, active in if !active { keyboard = false } }
+      .onChange(of: takeover) { _, active in
+        if !active { keyboard = false }
+        vnc.setControl(active && vnc.connected && !paused && scenePhase == .active)
+      }
       .interactiveDismissDisabled(takeover)
       .task(id: scenePhase) {
         guard scenePhase == .active else {
@@ -128,42 +130,26 @@ struct ComputerView: View {
         }
         while !Task.isCancelled {
           if !working, takeover, Date().timeIntervalSince(heartbeat) >= 20 {
-            await setTakeover(true)
+            await renewTakeover()
           }
-          if !paused { await refreshFrame(includeImage: legacyFrames) }
+          if !paused { await refreshStatus() }
           do { try await Task.sleep(for: .seconds(1)) } catch { return }
         }
       }
       .task(id: "\(scenePhase)-\(paused)-\(streamRevision)") {
-        guard scenePhase == .active, !paused, !legacyFrames, let api = store.api else { return }
-        while !Task.isCancelled {
-          do {
-            for try await data in api.computerFrames(path + "/stream") {
-              try Task.checkCancellation()
-              guard let image = UIImage(data: data) else {
-                throw APIError("The computer did not return an image.")
-              }
-              frames.image = image
-              if !hasFrame { hasFrame = true }
-              if frameFailure != nil { frameFailure = nil }
-            }
-          } catch {
-            guard !Task.isCancelled else { return }
-            if let error = error as? APIError, error.status == 404 || error.status == 501 {
-              legacyFrames = true
-              await refreshFrame()
-              return
-            }
-            frameFailure = UserFacingError.message(error)
-            if (error as? APIError)?.unauthorized == true {
-              store.handle(error)
-              return
-            }
-          }
-          do { try await Task.sleep(for: .seconds(2)) } catch { return }
+        guard scenePhase == .active, !paused, let api = store.api else {
+          vnc.stop()
+          return
         }
+        await vnc.run(api: api, botID: bot.id)
+        if vnc.unauthorized { store.handle(APIError("Sign in again.", status: 401)) }
+      }
+      .onChange(of: vnc.connected) { _, connected in
+        if !connected { inputEpoch = UUID(); keyboard = false }
+        vnc.setControl(connected && takeover && !paused && scenePhase == .active)
       }
       .onDisappear {
+        vnc.stop(clear: true)
         inputEpoch = UUID()
         if handoffID != nil, !finishedHandoff { Task { _ = await finishHandoff("dismiss") } }
         if takeover, let api = store.api {
@@ -276,38 +262,18 @@ struct ComputerView: View {
       return false
     }
   }
-  func refreshFrame(includeImage: Bool = true) async {
-    guard !refreshing, let api = store.api else { return }
+  func refreshStatus() async {
+    guard !refreshing, store.api != nil else { return }
     refreshing = true
     let revision = controlRevision
     defer { refreshing = false }
     do {
       let next = try await store.request(path)
       statusFailure = nil
-      if next["state"].string == "starting" || next["state"].string == "creating" {
-        if revision == controlRevision { status = next }
-        frameFailure = nil
-        return
-      }
-      var image: UIImage?
-      if includeImage {
-        let (data, _) = try await api.raw(
-          path + "/frame", query: ["v": String(Date().timeIntervalSince1970)])
-        try Task.checkCancellation()
-        guard let decoded = UIImage(data: data) else {
-          throw APIError("The computer did not return an image.")
-        }
-        image = decoded
-      }
-      // A frame started before a control action must not overwrite its newer lease.
+      // A status request started before a control action must not overwrite its newer lease.
       if revision == controlRevision {
         if takeover && !next["humanTakeover"].bool { inputEpoch = UUID() }
         if status != next { status = next }
-      }
-      if let image {
-        frames.image = image
-        hasFrame = true
-        frameFailure = nil
       }
     } catch {
       if !Task.isCancelled {
@@ -318,10 +284,15 @@ struct ComputerView: View {
   }
   func setTakeover(_ active: Bool) async {
     guard !busy, let api = store.api else { return }
+    desiredControl = active
     inputEpoch = UUID()
+    vnc.setControl(false)
     controlRevision += 1
     busy = true
-    defer { busy = false }
+    defer {
+      busy = false
+      vnc.setControl(takeover && vnc.connected && !paused && scenePhase == .active)
+    }
     do {
       status = try await store.request(
         path + "/takeover", method: "POST", body: .object(["active": .bool(active)]))
@@ -336,12 +307,31 @@ struct ComputerView: View {
       if (error as? APIError)?.unauthorized == true { store.handle(error) }
     }
   }
+  private func renewTakeover() async {
+    guard let api = store.api, takeover, !busy else { return }
+    let revision = controlRevision
+    do {
+      let next = try await api.request(path + "/takeover", method: "POST", body: .object(["active": .bool(true)]))
+      guard revision == controlRevision, scenePhase == .active else {
+        if desiredControl == false || scenePhase != .active {
+          _ = try? await api.request(path + "/takeover", method: "POST", body: .object(["active": .bool(false)]))
+        }
+        return
+      }
+      status = next
+      heartbeat = Date()
+    } catch {
+      guard revision == controlRevision else { return }
+      statusFailure = UserFacingError.message(error)
+      vnc.setControl(false)
+    }
+  }
   func release() async -> Bool {
     await setTakeover(false)
     return !takeover
   }
   @discardableResult func action(_ body: [String: JSON]) async -> Bool {
-    guard takeover, !busy, viewerFailure == nil, !paused, store.api != nil else { return false }
+    guard takeover, vnc.connected, !busy, viewerFailure == nil, !paused, store.api != nil else { return false }
     let previous = inputTask
     let epoch = inputEpoch
     controlRevision += 1
@@ -352,9 +342,15 @@ struct ComputerView: View {
       if let previous { _ = await previous.value }
       guard epoch == inputEpoch, takeover, !paused, viewerFailure == nil else { return false }
       do {
-        let next = try await store.request(path + "/actions", method: "POST", body: .object(body))
+        if body["action"] == .string("open_app") {
+          // App launch is a server control operation: keep the bot's managed
+          // browser profile and automation connection. All pointer/key/text
+          // input and framebuffer updates travel over the VNC connection.
+          _ = try await store.request(path + "/actions", method: "POST", body: .object(body))
+        } else {
+          try await vnc.input(body)
+        }
         guard epoch == inputEpoch else { return false }
-        if status != next { status = next }
         failure = nil
         return true
       } catch {
@@ -373,14 +369,9 @@ struct ComputerView: View {
   }
 }
 
-@MainActor @Observable private final class ComputerFrames {
-  var image: UIImage?
-}
-
-/// Frame observation stays inside the surface. Menus, sheets and controls do not
-/// participate in the 15fps image update cycle.
+/// The RFB canvas paints inside WebKit; frame updates do not rerender SwiftUI controls.
 private struct ComputerVideo: View {
-  let frames: ComputerFrames
+  let vnc: ComputerVNC
   let remoteSize: CGSize
   let interactive: Bool
   let trackpad: Bool
@@ -388,17 +379,14 @@ private struct ComputerVideo: View {
   let action: ([String: JSON]) -> Void
   var body: some View {
     GeometryReader { geometry in
+      let ratio = remoteSize.width / remoteSize.height
       ZStack {
-        if let image = frames.image {
-          let ratio = remoteSize.width / remoteSize.height
-          ComputerSurface(
-            image: image, remoteSize: remoteSize,
-            interactive: interactive, trackpad: trackpad, action: action
-          )
-          .frame(
-            width: min(geometry.size.width, geometry.size.height * ratio),
+        ComputerSurface(vnc: vnc, remoteSize: remoteSize,
+          interactive: interactive, trackpad: trackpad, action: action)
+          .frame(width: min(geometry.size.width, geometry.size.height * ratio),
             height: min(geometry.size.height, geometry.size.width / ratio))
-        } else if showStarting {
+          .opacity(vnc.hasFrame ? 1 : 0)
+        if !vnc.hasFrame && showStarting {
           VStack(spacing: 14) {
             ProgressView().tint(.gray)
             Text("Starting desktop…").font(.subheadline)

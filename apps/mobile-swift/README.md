@@ -4,7 +4,9 @@ A SwiftUI iPhone/iPad client for the existing OpenTeam HTTP API. This is a **mig
 
 [TestFlight 0.0.1 (31)](docs/TESTFLIGHT-31.md) fixes Account and Plugins navigation with a native grouped Settings panel and fully tappable rows. It includes build 30's refined + icons and build 29's native chat-loading spinner and stable initial scroll position.
 
-[September 20 React Native–Swift comparison](docs/RN-SWIFT-PARITY-0920.md) inventories current functionality and 12 remaining differences, separating intentional product changes from missing interactions and device acceptance work. [Native Settings navigation QA](docs/QA-SETTINGS-NAVIGATION-0920.md) records the Account/Plugins dead-tap regression and its fix.
+[September 20 React Native–Swift comparison](docs/RN-SWIFT-PARITY-0920.md) records the original 12 audit findings and the selected follow-up scope, separating intentional product changes from missing interactions and device acceptance work. [Native Settings navigation QA](docs/QA-SETTINGS-NAVIGATION-0920.md) records the Account/Plugins dead-tap regression and its fix.
+
+[Message parity and performance follow-up](docs/QA-MESSAGE-PARITY-0920.md) records the selected audit fixes, native message virtualization, durable drafts and current validation.
 
 [September 18 full iPhone QA and performance](docs/FULL-QA-0918.md) records the earlier full simulator pass, deployed local server/APNs configuration, and performance measurements. Its PNG-only computer-viewing description predates the current stream implementation; see the September 20 audit for current status.
 

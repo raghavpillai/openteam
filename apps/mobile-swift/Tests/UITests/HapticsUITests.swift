@@ -336,7 +336,7 @@ import XCTest
   }
   func testLatestButtonAndScrollDoNotDoubleSignal() async throws {
     let app = try await launch()
-    let scroll = app.scrollViews.firstMatch
+    let scroll = app.tables["chat-history"]
     scroll.swipeDown()
     let latest = app.buttons["Latest messages"]
     XCTAssertTrue(latest.waitForExistence(timeout: 5))

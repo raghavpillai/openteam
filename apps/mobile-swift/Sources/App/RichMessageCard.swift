@@ -137,6 +137,7 @@ extension JSON {
 }
 
 struct RichMessageCard: View {
+  @Environment(MessageModalPresenter.self) private var modals
   @Environment(AppStore.self) private var store
   let message: Message
   @State private var selected: Set<String> = []
@@ -153,7 +154,6 @@ struct RichMessageCard: View {
   @State private var saveToVault = false
   @State private var requestID = UUID().uuidString
   @State private var lastAction = ""
-  @State private var showComputer = false
   private var meta: JSON { message.metadata }
   private var type: String { meta["type"].string }
   private var state: String {
@@ -212,13 +212,6 @@ struct RichMessageCard: View {
       .onChange(of: cc) { _, _ in requestID = UUID().uuidString }
       .onChange(of: saveToVault) { _, _ in requestID = UUID().uuidString }
       .onChange(of: subject) { _, _ in requestID = UUID().uuidString }
-      .fullScreenCover(isPresented: $showComputer) {
-        if let bot = store.bots.first(where: { $0.id == message.senderBotId })
-          ?? store.channel(message.channelId).flatMap({ store.bot(for: $0) })
-        {
-          ComputerView(bot: bot, handoffID: message.id)
-        }
-      }
       .disabled(busy)
       .onAppear {
         bodyText = meta["draft"]["body"].string
@@ -230,6 +223,13 @@ struct RichMessageCard: View {
         secret = ""
         formValues = [:]
       }
+    }
+  }
+  private func presentComputer() {
+    if let bot = store.bots.first(where: { $0.id == message.senderBotId })
+      ?? store.channel(message.channelId).flatMap({ store.bot(for: $0) }) {
+      modals.fullScreen = .init(content: AnyView(ComputerView(bot: bot,
+        handoffID: type == "computer-handoff" ? message.id : nil)))
     }
   }
   @ViewBuilder var widget: some View {
@@ -279,9 +279,15 @@ struct RichMessageCard: View {
     }
   }
   @ViewBuilder var secretRequest: some View {
-    Text(meta["secret"]["label"].string.isEmpty ? "Secure input" : meta["secret"]["label"].string)
-      .font(.headline)
-    Text(meta["secret"]["description"].string).font(.subheadline)
+    let request = meta["secretRequest"] == .null ? meta["secret"] : meta["secretRequest"]
+    Text(request["label"].string.isEmpty ? "Secure input" : request["label"].string).font(.headline)
+    if !request["description"].string.isEmpty { Text(request["description"].string).font(.subheadline) }
+    if !request["name"].string.isEmpty {
+      Text(request["name"].string).font(.system(.caption, design: .monospaced)).foregroundStyle(NativePalette.muted)
+    }
+    let botSecret = !request["name"].string.isEmpty && request["scope"].string != "personal"
+    Label(botSecret ? "Saved for all users of this Bot" : "Saved securely for you", systemImage: "lock.shield")
+      .font(.footnote).foregroundStyle(NativePalette.muted)
     if meta["secretProvided"].bool {
       Label("Provided securely", systemImage: "checkmark.shield")
     } else {
@@ -304,7 +310,7 @@ struct RichMessageCard: View {
     } else {
       Text(status.capitalized).foregroundStyle(NativePalette.muted)
       if ["active", "started"].contains(status) {
-        Button("Continue on computer") { showComputer = true }
+        Button("Continue on computer") { presentComputer() }
       }
     }
   }
@@ -312,7 +318,18 @@ struct RichMessageCard: View {
     let form = meta["form"]
     Text(form["title"].string).font(.headline)
     if state != "pending" {
-      Text(meta["outcomeText"].string.isEmpty ? state.capitalized : meta["outcomeText"].string)
+      let outcome = UserFormOutcome(meta)
+      Text(outcome.summary).font(.subheadline).foregroundStyle(NativePalette.muted)
+      ForEach(outcome.fields) { field in
+        HStack {
+          Text(field.label)
+          Spacer()
+          Text(field.status).foregroundStyle(NativePalette.muted)
+        }.font(.footnote).accessibilityElement(children: .combine)
+      }
+      if outcome.needsRecovery || state == "escalated" {
+        Button("Open computer", systemImage: "display") { presentComputer() }
+      }
     } else {
       Text(form["instruction"].string).font(.subheadline)
       if !form["domain"].string.isEmpty {
@@ -366,6 +383,9 @@ struct RichMessageCard: View {
         Text("After filling, this presses Enter on \(form["domain"].string).").font(.footnote)
           .foregroundStyle(NativePalette.muted)
       }
+      Button("Do this on the computer", systemImage: "display") {
+        act("user-form", body: ["action": .string("dismiss"), "mode": .string("escalated")], clearSecrets: true)
+      }.accessibilityIdentifier("form-escalate")
       HStack {
         Button("Dismiss") {
           act("user-form", body: ["action": .string("dismiss")], clearSecrets: true)
@@ -475,7 +495,7 @@ struct RichMessageCard: View {
     busy = true
     failure = nil
     var payload = body
-    let action = suffix + ":" + (body["action"]?.string ?? "")
+    let action = suffix + ":" + (body["action"]?.string ?? "") + ":" + (body["mode"]?.string ?? "")
     if lastAction != action {
       lastAction = action
       requestID = UUID().uuidString
@@ -499,7 +519,10 @@ struct RichMessageCard: View {
         if suffix == "computer-handoff" {
           NativeHaptics.play(.light, source: "computer.handoff-start")
         }
-        if suffix == "computer-handoff", body["action"]?.string == "start" { showComputer = true }
+        if (suffix == "computer-handoff" && body["action"]?.string == "start")
+          || (suffix == "user-form" && body["mode"]?.string == "escalated") {
+          presentComputer()
+        }
         if suffix == "secret" || suffix == "secret-submit" || suffix == "secret-request" {
           NativeHaptics.play(.success, source: "secret.submit")
         }

@@ -143,12 +143,19 @@ import XCTest
         continue
       }
       let frame = row.frame
-      if row.isHittable && frame.midY > top && frame.midY < bottom { return }
+      // Hosted message containers are not activation controls. After a cell
+      // reconfiguration XCTest may reject isHittable despite a valid visible
+      // frame; the actual hold/swipe and resulting UI verify interaction below.
+      if frame.width > 0 && frame.height > 0 && frame.midY > top && frame.midY < bottom { return }
       start.press(
         forDuration: 0.05,
         thenDragTo: start.withOffset(CGVector(dx: 0, dy: frame.midY < top ? 180 : -180)))
     }
-    XCTAssertTrue(row.isHittable)
+    XCTAssertTrue(row.exists)
+    XCTAssertGreaterThan(row.frame.height, 0)
+    XCTAssertGreaterThan(row.frame.midY, app.buttons["conversation-details"].frame.maxY)
+    XCTAssertLessThan(row.frame.midY,
+      app.descendants(matching: .any).matching(identifier: "message-input").firstMatch.frame.minY)
   }
   private func send(_ text: String, _ app: XCUIApplication) {
     let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch

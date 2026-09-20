@@ -1,10 +1,16 @@
 # React Native → Swift functional audit — September 20, 2026
 
-**Swift is not yet functionally identical to the React Native app.** Most primary workflows are present, but migration, history navigation, group speaker identity and several message-card interactions still differ. The Account/Plugins navigation failure reported during this audit is fixed separately in build 31.
+**This document records the original RN-to-Swift audit and its follow-up scope.** Most primary workflows were present; the original findings identified migration, history navigation, group speaker identity and message-card differences. The Account/Plugins navigation failure reported during this audit is fixed separately in build 31.
 
 Baseline: `c0f53a3ba7fc0f33b4de8d11d75cebe688e8a4b4`. Compared all nine Expo routes, their reachable components/state operations, shared client/product logic, and the corresponding Swift app/core implementations. This is a source-level functional audit plus focused fresh tests; it is **not** a new full physical-device or pixel-parity sign-off. Earlier reports are historical evidence, not proof that today's implementation passed every scenario.
 
-## Confirmed remaining differences
+## Follow-up implementation
+
+The September 20 message follow-up implements the requested changes to M1–M9, subject to the validation record in [Message parity and performance QA](QA-MESSAGE-PARITY-0920.md). M1 was clarified as durable Swift drafts when switching chats/relaunching, rather than importing the old RN storage. M4 is an internal transport queue only: no user-managed queue screen. M10 remains intentionally unsupported at the user's request. M11/M12 were outside this selected follow-up.
+
+The original findings below preserve the audit baseline; they are not a statement that M1–M9 remain unfixed. Updated implementation and test evidence supersede the corresponding baseline rows.
+
+## Original differences at the audit baseline
 
 Priority describes user impact, not whether a feature should be restored against an explicit product decision. File paths below are repository-relative. Line numbers refer to the audit baseline, except SettingsView which changes in this pass.
 
@@ -23,7 +29,7 @@ Priority describes user impact, not whether a feature should be restored against
 | M11 | P2 | **Empty-query search ignores the selected category.** Swift always lists visible channels when query is empty and never requests category results. RN can browse a category without entering a query. | Swift `HomeView.swift:578,630`; RN `app/search.tsx:309–358`, client search. Acceptance: empty Files, Routines, Bots and Groups categories show the correct result types or empty state. |
 | M12 | P3 | **No per-query/category search result cache.** Returning to a query or category clears results and fetches again. RN reuses results for the current snapshot cursor. | RN search `:288–314,337`; Swift `HomeView.swift:627–651`. RN `searchClientSnapshot` is a fixture helper: this audit does **not** claim RN has general offline full-text search. |
 
-## Performance and acceptance gaps
+## Original performance and acceptance gaps
 
 | Area | What current source/evidence establishes | What remains |
 | --- | --- | --- |
@@ -36,7 +42,7 @@ Priority describes user impact, not whether a feature should be restored against
 | OAuth | Installation/authentication continuation, account permissions, cancellation, reopening, expiry and lost-response recovery exist in current source. | Real Google/other provider consent and callback through the user's deployed server. Fixture authorization is not external-provider QA. |
 | Visual/accessibility | Native light/dark palette, glass, keyboard background, animated robot, message arrival, edge-back exclusion, centered headers and group cutouts have dedicated implementations and prior evidence. | No new blanket 1:1 visual claim. Check original recordings on equivalent OS/display settings, Dynamic Type, VoiceOver and Reduce Motion on hardware. |
 
-## Coverage matrix
+## Coverage matrix at the audit baseline
 
 “Present” means a reachable implementation was found on both sides; it does not certify every device/provider combination. Gaps above qualify the corresponding row.
 

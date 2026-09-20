@@ -120,7 +120,7 @@ import XCTest
     app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
     let dismissed = app.keyboards.firstMatch.waitForNonExistence(timeout: 3)
     XCTAssertTrue(dismissed, "Tapping chat history must dismiss the keyboard")
-    if !dismissed { app.scrollViews.firstMatch.swipeDown() }
+    if !dismissed { app.tables["chat-history"].swipeDown() }
     try await Task.sleep(for: .seconds(1))
     if dismissed { XCTAssertEqual(latestReply.frame.maxY, originalBottom, accuracy: 3) }
     capture("keyboard-closed", app)
@@ -173,7 +173,7 @@ import XCTest
     XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
     try await Task.sleep(for: .seconds(1))
     mark("scroll-away")
-    app.scrollViews.firstMatch.swipeDown()
+    app.tables["chat-history"].swipeDown()
     let latest = app.buttons["Latest messages"]
     XCTAssertTrue(latest.waitForExistence(timeout: 5))
     mark("return-to-latest")
@@ -201,6 +201,7 @@ import XCTest
     XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 15))
     let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
     XCTAssertTrue(input.waitForExistence(timeout: 10))
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch.waitForNonExistence(timeout: 15))
     input.tap()
     input.typeText("Okay testing")
     try await Task.sleep(for: .seconds(1))
@@ -232,6 +233,8 @@ import XCTest
     try await control("__qa/motion", ["active": false])
     try await Task.sleep(for: .seconds(2))
     XCTAssertTrue(app.staticTexts["Got it — ready when you are."].exists)
+    XCTAssertLessThanOrEqual(app.staticTexts["Got it — ready when you are."].frame.maxY,
+      input.frame.minY - 12, "The final reply must stay above the composer after the loader collapses")
     capture("reference-finished", app)
     let history = app.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.23))
     history.press(
@@ -259,6 +262,8 @@ import XCTest
       app.launch()
       let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
       XCTAssertTrue(input.waitForExistence(timeout: 15))
+      XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch.waitForNonExistence(timeout: 15))
+      XCTAssertTrue(input.isEnabled)
       input.tap()
       input.typeText("Okay testing")
       let send = app.buttons["send-button"]

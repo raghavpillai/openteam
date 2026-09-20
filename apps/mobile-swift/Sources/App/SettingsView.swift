@@ -40,11 +40,6 @@ struct SettingsView: View {
         }
         Section("Bot") {
           NavigationLink("Bot notifications") { notificationSettings }
-          NavigationLink {
-            OutboxView()
-          } label: {
-            LabeledContent("Queued messages", value: String(store.state.outbox.count))
-          }.accessibilityIdentifier("outbox-settings")
           NavigationLink("Hidden conversations") { HiddenConversationsView() }
         }
         Section { PushNotificationSettings() }

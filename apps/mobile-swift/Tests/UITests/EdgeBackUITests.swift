@@ -148,7 +148,7 @@ import XCTest
     let before = photo.frame.minY
     let origin = app.coordinate(withNormalizedOffset: .zero)
     origin.withOffset(CGVector(dx: 22, dy: app.frame.height * 0.4)).press(forDuration: 0.05,
-      thenDragTo: origin.withOffset(CGVector(dx: 22, dy: app.frame.height * 0.7)),
+      thenDragTo: origin.withOffset(CGVector(dx: 22, dy: app.frame.height * 0.55)),
       withVelocity: .slow, thenHoldForDuration: 0.3)
     XCTAssertTrue(app.buttons["chat-back"].exists)
     XCTAssertFalse(app.buttons["Cancel reply"].exists)

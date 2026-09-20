@@ -96,7 +96,7 @@ final class GrokbotVisualTests: XCTestCase {
     XCTAssertLessThanOrEqual(input(app).frame.maxY, app.keyboards.firstMatch.frame.minY)
     capture("thinking-keyboard", app)
     app = try await launch("long", appearance: "dark")
-    app.scrollViews.firstMatch.swipeDown()
+    app.tables["chat-history"].swipeDown()
     let scrollFrom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.6))
     scrollFrom.press(
       forDuration: 0.05, thenDragTo: scrollFrom.withOffset(CGVector(dx: 0, dy: -131)),
@@ -220,7 +220,7 @@ final class GrokbotVisualTests: XCTestCase {
   func testScrolledChatKeepsFloatingControlsInBothAppearances() async throws {
     for appearance in ["light", "dark"] {
       let app = try await launch("actions", appearance: appearance)
-      app.scrollViews.firstMatch.swipeDown(velocity: .slow)
+      app.tables["chat-history"].swipeDown(velocity: .slow)
       XCTAssertTrue(app.buttons["chat-back"].isHittable)
       XCTAssertTrue(app.buttons["attach-button"].isHittable)
       capture("chat-scrolled-" + appearance, app)
@@ -232,7 +232,7 @@ final class GrokbotVisualTests: XCTestCase {
   }
   func testLongHistoryRemainsInteractive() async throws {
     let app = try await launch("history")
-    let history = app.scrollViews.firstMatch
+    let history = app.tables["chat-history"]
     history.swipeDown()
     history.swipeDown()
     history.swipeUp()

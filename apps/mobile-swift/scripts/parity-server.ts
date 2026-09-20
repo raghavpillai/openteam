@@ -67,7 +67,7 @@ const server = Bun.serve({
     if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) { try { input = await request.json(); } catch {} }
     if (path === "/__qa/reset" && method === "POST") { reset(); emit("snapshot.reset"); return response({ ok: true }); }
     if (path === "/__qa/scene" && method === "POST") { reset(); const visual=visualFixture(snapshot,input.scene); snapshot=visual.snapshot; settings=visual.sidebar; pagedHistory=input.scene==="history-pages"; sequence=Math.max(100,...snapshot.channelMessages.map(m=>Number(m.sequence))); emit("snapshot.reset"); return response({ok:true}); }
-    if (path === "/__qa/content" && method === "POST") { snapshot=contentScene(snapshot,input.scene); sequence=400; emit("snapshot.reset"); return response({ok:true}); }
+    if (path === "/__qa/content" && method === "POST") { snapshot=contentScene(snapshot,input.scene); if(input.scene==='routine-event')routines=[{id:'routine-event-fixture',name:'Morning summary',prompt:'Summarize the morning',schedule:'0 9 * * 1-5',scheduleKind:'cron',timezone:'America/New_York',enabled:false,revision:1,nextRunAt:null,latestExecution:null}]; sequence=400; emit("snapshot.reset"); return response({ok:true}); }
     if (path === "/__qa/motion" && method === "POST") {
       const channel = snapshot.channels.find(c => c.id === "visual-chat");
       const bot = snapshot.bots.find(b => b.dmChannelId === channel?.id);
@@ -148,7 +148,7 @@ const server = Bun.serve({
       const message:any=snapshot.channelMessages.find(m=>m.id===path.split("/")[4]);if(!message)return response({},404);
       contentReceipts.push({path,...input});
       if(path.endsWith("/user-form") && input.action==="submit"){try{validateUserFormValues(message.metadata.form,input.values)}catch(error){return response({message:String(error)},400)}}
-      if(path.endsWith("/user-form")){message.metadata.cardState=input.action==="submit"?"completed":"dismissed";message.metadata.outcomeText=input.action==="submit"?"Form filled successfully.":"Dismissed";}
+      if(path.endsWith("/user-form")){message.metadata.cardState=input.action==="submit"?"completed":input.mode==="escalated"?"escalated":"dismissed";message.metadata.outcomeText=input.action==="submit"?"Form filled successfully.":"Dismissed";}
       else{message.metadata.computerHandoffState=input.action==="start"?"active":"completed";screen.humanTakeover=input.action==="start";}
       emit("channel.message.updated",message.channelId);return response({accepted:true,message});
     }
@@ -199,12 +199,20 @@ const server = Bun.serve({
     if (path.endsWith("/context")) {
       const message = snapshot.channelMessages.find(m => m.id === path.split("/")[4]);
       if (!message) return response({ error: { message: "Message not found" } },404);
-      const messages = snapshot.channelMessages.filter(m => m.channelId === message.channelId);
-      return response({ channelId:message.channelId, targetMessageId:message.id, messages, threadContext:[], threadContextTruncated:false, beforeSequence:messages[0]?.sequence, afterSequence:messages.at(-1)?.sequence, hasMoreBefore:false, hasMoreAfter:false, revision:String(sequence) });
+      const history = snapshot.channelMessages.filter(m => m.channelId === message.channelId);
+      const index=history.findIndex(m=>m.id===message.id), limit=Math.max(1,Math.min(100,Number(url.searchParams.get("limit")??60)));
+      const direction=url.searchParams.get("direction");
+      const start=direction==='after'?index+1:direction==='before'?Math.max(0,index-limit):Math.max(0,index-20);
+      const end=direction==='before'?index:direction==='after'?Math.min(history.length,start+limit):Math.min(history.length,index+21);
+      const messages=history.slice(start,end);
+      return response({ channelId:message.channelId, targetMessageId:message.id, messages, threadContext:[], threadContextTruncated:false, beforeSequence:messages[0]?.sequence??null, afterSequence:messages.at(-1)?.sequence??null, hasMoreBefore:start>0, hasMoreAfter:end<history.length, revision:String(sequence) });
     }
     if (path.endsWith("/reaction")) {
       const message = snapshot.channelMessages.find(m => m.id === path.split("/")[4])!;
-      message.metadata = { ...(message.metadata as object), reactions: [{ by: "me", emoji: input.emoji }] }; emit("channel.message.updated", message.channelId); return response({ message, messageId: message.id, emoji:input.emoji, reacted:true, removed:false, runId:null });
+      const previous=((message.metadata as any).reactions??[]) as Array<{emoji:string;by:string}>;
+      const own=previous.some(r=>r.emoji===input.emoji&&r.by==='me');
+      const reactions=own?previous.filter(r=>!(r.emoji===input.emoji&&r.by==='me')):[...previous,{by:'me',emoji:input.emoji}];
+      message.metadata = { ...(message.metadata as object), reactions }; emit("channel.message.updated", message.channelId); return response({ message, messageId: message.id, emoji:input.emoji, reacted:!own, removed:own, runId:null });
     }
     if (path.includes("/approvals/") && path.endsWith("/resolve")) { const approval = snapshot.approvals.find(a => a.id === path.split("/")[4])!; approval.status = input.decision === "decline" ? "declined" : "accepted"; snapshot.runs = []; emit("approval.resolved"); return response({ status:approval.status }); }
     if (path === "/api/v0/bots" && method === "POST") {

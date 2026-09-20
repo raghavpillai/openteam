@@ -59,12 +59,13 @@ struct ChannelAvatar: View {
   let channel: Channel
   var size: CGFloat = 48
   var groupStyle: GroupAvatarLayout.Style = .cluster
+  var showsActivity = true
   @State private var photo: UIImage?
   var body: some View {
     let bot = store.bot(for: channel)
     let runs = store.activeRuns(channel.id)
     func motion(_ botID: String?) -> RobotAvatarMode {
-      guard store.activeChannel == channel.id, let botID,
+      guard showsActivity, store.activeChannel == channel.id, let botID,
         channel.members.contains(where: { $0.botId == botID })
       else { return .still }
       return runs.contains { $0.botId == botID && ["running", "queued"].contains($0.status) }
@@ -83,7 +84,7 @@ struct ChannelAvatar: View {
           mode: motion(bot?.id))
       }
     }.overlay(alignment: .bottomTrailing) {
-      if size <= 30, !runs.isEmpty, !channel.isGroup {
+      if showsActivity, size <= 30, !runs.isEmpty, !channel.isGroup {
         Circle().fill(Color(hex: "29A665")).frame(width: 9, height: 9)
           .overlay(Circle().stroke(NativePalette.background, lineWidth: 1))
           .offset(x: 1, y: 1).accessibilityHidden(true)

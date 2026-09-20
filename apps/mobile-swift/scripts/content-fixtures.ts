@@ -26,5 +26,19 @@ export function contentScene(snapshot: ClientSnapshot, scene:string) {
   if(scene==='form')message.metadata={type:'user-form',cardState:'pending',form:{id:'form-fixture',title:'Native details form',instruction:'Confirm the details before filling the form.',domain:'fixture.invalid',fields:[{id:'name',label:'Name',placeholder:'Your name',type:'text',required:true},{id:'email',label:'Email',placeholder:'Email address',type:'email',required:true},{id:'consent',label:'Confirm these details',type:'checkbox',required:true}]}};
   if(scene==='handoff')message.metadata={type:'computer-handoff',computerHandoff:{reason:'Check the fixture desktop and return control.'},computerHandoffState:'requested'};
   if(scene==='attachment')message.metadata={attachments:[{assetId:'private-fixture-image',fileName:'Fixture image.png',mimeType:'image/png',byteSize:6000,kind:'image'}]};
+  if(scene==='reactions') { message.content='Reaction count fixture'; message.metadata={type:'text',reactions:[{emoji:'👍',by:'bot-ops'},{emoji:'👍',by:'me'},{emoji:'❤️',by:'bot-build'}]}; }
+  if(scene==='secret-canonical') message.metadata={type:'secret-request',secretRequest:{label:'Deployment token',description:'Used for the preview worker.',name:'DEPLOY_TOKEN',scope:'personal'}};
+  if(scene==='secret-bot') message.metadata={type:'secret-request',secret:{label:'Shared bot token',description:'Used by this bot.',name:'BOT_TOKEN',scope:'bot'},secretProvided:true};
+  if(scene==='form-receipt') message.metadata={type:'user-form',cardState:'fill_failed',form:{id:'receipt-fixture',title:'Review form result',fields:[{id:'email',label:'Email',type:'email'},{id:'token',label:'Access token',type:'password',secret:true}]},formReceipt:{fields:[{id:'email',status:'filled',value:'NEVER_RENDER_EMAIL'},{id:'token',status:'held',value:'NEVER_RENDER_SECRET'}]}};
+  if(scene==='group-speakers') {
+    const channel=snapshot.channels.find(c=>c.id==='channel-research')!;
+    channel.kind='group';channel.name='Research and Ops';channel.members=[{botId:'bot-research',ordinal:0},{botId:'bot-ops',ordinal:1}];
+    message.sender='agent';message.senderBotId='bot-ops';message.content='Ops is speaking in the group.';
+  }
+  if(scene==='exchange') {
+    const messages=[{...message,id:'exchange-out',sequence:'401',sender:'agent',content:'Outgoing exchange payload',metadata:{toAgent:{id:'bot-ops',name:'Ops'}}},{...message,id:'exchange-in',sequence:'402',sender:'agent',content:'Incoming exchange payload',metadata:{fromAgent:{id:'bot-ops',name:'Ops'}}}];
+    snapshot.channelMessages=snapshot.channelMessages.filter(m=>m.channelId!=='channel-research');snapshot.channelMessages.push(...messages);return snapshot;
+  }
+  if(scene==='routine-event') message.metadata={type:'event',event:{type:'automation-changed',action:'updated',automationId:'routine-event-fixture',automationName:'Morning summary'}};
   snapshot.channelMessages=snapshot.channelMessages.filter(m=>m.channelId!=='channel-research');snapshot.channelMessages.push(message);return snapshot;
 }

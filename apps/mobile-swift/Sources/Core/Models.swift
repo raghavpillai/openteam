@@ -195,6 +195,18 @@ public struct History: Codable, Sendable {
   public var hasMore: Bool
   public var revision: String
 }
+public struct MessageContext: Decodable, Sendable {
+  public var channelId: String
+  public var targetMessageId: String
+  public var messages: [Message]
+  public var threadContext: [Message]
+  public var threadContextTruncated: Bool?
+  public var beforeSequence: String?
+  public var afterSequence: String?
+  public var hasMoreBefore: Bool
+  public var hasMoreAfter: Bool
+  public var revision: String
+}
 public struct ChannelState: Decodable, Sendable {
   public var channelId: String
   public var revision: String

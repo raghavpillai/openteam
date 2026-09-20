@@ -87,7 +87,7 @@ final class MessagePerformanceUITests: XCTestCase {
   func testTallMessageKeyboardScrollingRemainsResponsive() async throws {
     executionTimeAllowance = 90
     let app = try await history("long")
-    app.scrollViews.firstMatch.swipeDown()
+    app.tables["chat-history"].swipeDown()
     let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.6))
     from.press(
       forDuration: 0.05,
@@ -102,6 +102,28 @@ final class MessagePerformanceUITests: XCTestCase {
 
   func testMixedDocumentScrolling() async throws {
     scroll(try await history("performance-rich"))
+  }
+
+  func testComposerTapsAfterRichHistoryWindowChanges() async throws {
+    let app = try await history("performance-rich")
+    let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    for pass in 0..<2 {
+      let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.35))
+      for _ in 0..<6 {
+        from.press(forDuration: 0.02,
+          thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.78)),
+          withVelocity: .fast, thenHoldForDuration: 0)
+      }
+      let latest = app.buttons["Latest messages"]
+      XCTAssertTrue(latest.isHittable)
+      latest.tap()
+      input.tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "The first composer tap must focus")
+      input.typeText("Tap \(pass) ")
+      XCTAssertTrue((input.value as? String)?.contains("Tap \(pass)") == true)
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.3)).tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+    }
   }
 
   func testReplyQuoteNavigatesToDistantHistory() async throws {
@@ -179,17 +201,27 @@ final class MessagePerformanceUITests: XCTestCase {
     let earlier = app.buttons["Load earlier messages"]
     for _ in 0..<12 {
       if earlier.exists && earlier.isHittable { break }
-      app.scrollViews.firstMatch.swipeDown()
+      app.tables["chat-history"].swipeDown()
     }
     XCTAssertTrue(earlier.isHittable)
     let anchor = app.staticTexts["Page message 121"]
-    XCTAssertTrue(anchor.isHittable)
+    XCTAssertTrue(anchor.exists)
+    XCTAssertGreaterThan(anchor.frame.height, 0)
+    XCTAssertTrue(app.tables["chat-history"].frame.intersects(anchor.frame))
     let oldY = anchor.frame.minY
+    let before = XCTAttachment(screenshot: app.screenshot())
+    before.name = "history-before-prepend"; before.lifetime = .keepAlways; add(before)
     earlier.tap()
     try await Task.sleep(for: .seconds(2))
-    XCTAssertTrue(anchor.isHittable)
+    // This is a reading-position assertion, not a tap target. UIKit can report
+    // no activation point for a noninteractive hosted label after reconfiguration.
+    XCTAssertTrue(anchor.exists)
+    XCTAssertGreaterThan(anchor.frame.height, 0)
+    XCTAssertTrue(app.tables["chat-history"].frame.intersects(anchor.frame))
     XCTAssertEqual(
       anchor.frame.minY, oldY, accuracy: 8, "Prepending a page moved the current message")
+    let after = XCTAttachment(screenshot: app.screenshot())
+    after.name = "history-after-prepend"; after.lifetime = .keepAlways; add(after)
     app.buttons["Latest messages"].tap()
     XCTAssertTrue(app.staticTexts["Page message 180"].waitForExistence(timeout: 8))
     XCTAssertFalse(app.buttons["Latest messages"].exists)

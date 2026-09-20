@@ -19,6 +19,9 @@ final class AppStore {
   var accountDisplayName: String { record?.displayName ?? "OpenTeam owner" }
   var accountServer: String { record?.server ?? server }
   var state = SavedState()
+  private var drafts: [String: Draft] = [:]
+  private var persistenceTask: Task<Void, Never>?
+  private var writer: StateWriter?
   var error: String?
   var online = false
   var connecting = false
@@ -28,6 +31,7 @@ final class AppStore {
   var focusedMessage: String?
   var activeChannel: String?
   var histories: [String: History] = [:]
+  var historyWindows: [String: HistoryWindow] = [:]
   var sidebar: JSON {
     get {
       state.sidebar
@@ -52,8 +56,16 @@ final class AppStore {
   private var sending = false
   private var foreground = true
   private var testing = false
-  private let testDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
-    "qa-" + UUID().uuidString)
+  private let testDirectory: URL = {
+    #if targetEnvironment(simulator)
+      let args = ProcessInfo.processInfo.arguments
+      if args.contains("--ui-testing"), let index = args.firstIndex(of: "--qa-session"),
+        args.indices.contains(index + 1), let id = UUID(uuidString: args[index + 1]) {
+        return FileManager.default.temporaryDirectory.appendingPathComponent("qa-" + id.uuidString)
+      }
+    #endif
+    return FileManager.default.temporaryDirectory.appendingPathComponent("qa-" + UUID().uuidString)
+  }()
   var bots: [Bot] { state.bootstrap?.bots ?? [] }
   var channels: [Channel] { state.bootstrap?.channels ?? [] }
   var pins: [String] { sidebar["pinnedIds"].array.map(\.string) }
@@ -64,7 +76,11 @@ final class AppStore {
   }
   func channel(_ id: String) -> Channel? { channels.first { $0.id == id } }
   func messages(_ id: String) -> [Message] { state.messages[id] ?? [] }
-  func draft(_ id: String) -> Draft { state.drafts[id] ?? Draft() }
+  func visibleMessages(_ id: String) -> [Message] {
+    guard let window = historyWindows[id] else { return messages(id) }
+    return messages(id).filter { window.contains($0) }
+  }
+  func draft(_ id: String) -> Draft { drafts[id] ?? Draft() }
   func isHidden(_ channel: Channel) -> Bool {
     bot(for: channel)?.hiddenFromSidebar ?? channel.hiddenFromSidebar ?? false
   }
@@ -324,19 +340,23 @@ final class AppStore {
       directory: testing
         ? testDirectory
         : base, scope: scope)
-    let nextState = try nextDisk.load() ?? SavedState()
+    flushPersistence()
+    let nextState = try nextDisk.load()
     if persistSession { try SecureSession.save(next) }
     lifecycle?.cancel()
     generation = UUID()
     navigation = []
     activeChannel = nil
     histories = [:]
+    historyWindows = [:]
     record = next
     server = next.server
     userName = next.displayName
     api = nextAPI
     disk = nextDisk
+    writer = StateWriter(disk: nextDisk)
     state = nextState
+    drafts = nextState.drafts
     phase = .ready
     #if canImport(UIKit)
       NativeNotifications.shared.bind(next)
@@ -352,15 +372,56 @@ final class AppStore {
       NativeNotifications.shared.apply(channels: bootstrap.channels)
     #endif
   }
+  private var savedSnapshot: SavedState {
+    var snapshot = state
+    snapshot.drafts = drafts
+    return snapshot
+  }
   func persist() {
     guard phase == .ready else { return }
-    do { try disk?.save(state) } catch {
-      self.error = "Could not save data on this iPhone: \(error.localizedDescription)"
+    persistenceTask?.cancel()
+    let epoch = generation
+    persistenceTask = Task { [weak self] in
+      do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+      guard let self, self.phase == .ready, self.generation == epoch, let writer = self.writer else { return }
+      writer.save(self.savedSnapshot) { [weak self] result in
+        if case .failure(let error) = result {
+          Task { @MainActor [weak self] in
+            guard let self, self.generation == epoch else { return }
+            self.error = "Could not save data on this iPhone: \(error.localizedDescription)"
+          }
+        }
+      }
     }
   }
-  func saveDraft(_ value: Draft, channel: String) {
+  func flushPersistence() {
+    persistenceTask?.cancel()
+    persistenceTask = nil
     guard phase == .ready else { return }
-    state.drafts[channel] = value
+    do { try writer?.saveNow(savedSnapshot) }
+    catch { self.error = "Could not save data on this iPhone: \(error.localizedDescription)" }
+  }
+  private func commit(_ next: SavedState) throws {
+    guard let writer else { throw APIError("Connect before saving a message.") }
+    persistenceTask?.cancel()
+    persistenceTask = nil
+    try writer.saveNow(next)
+    state = next
+    drafts = next.drafts
+  }
+  private func stopPersistence() {
+    #if canImport(UIKit)
+      MessageDocuments.clear()
+    #endif
+    persistenceTask?.cancel()
+    persistenceTask = nil
+    writer?.drain()
+    writer = nil
+    drafts = [:]
+  }
+  func saveDraft(_ value: Draft, channel: String) {
+    guard phase == .ready, drafts[channel] != value else { return }
+    drafts[channel] = value
     persist()
   }
   func stage(_ data: Data, name: String, mime: String, channel: String) throws {
@@ -371,22 +432,20 @@ final class AppStore {
     }
     let file = try disk.stage(data, fileName: name, mimeType: mime)
     draft.stagedFiles = (draft.stagedFiles ?? []) + [file]
-    var next = state
+    var next = savedSnapshot
     next.drafts[channel] = draft
     do {
-      try disk.save(next)
-      state = next
+      try commit(next)
     } catch {
       try? disk.removeFile(file)
       throw error
     }
   }
   func removeStagedFile(_ file: StagedFile, channel: String) {
-    var next = state
+    var next = savedSnapshot
     next.drafts[channel]?.stagedFiles?.removeAll { $0.id == file.id }
     do {
-      try disk?.save(next)
-      state = next
+      try commit(next)
       try disk?.removeFile(file)
     } catch { self.error = error.localizedDescription }
   }
@@ -417,7 +476,7 @@ final class AppStore {
     } else {
       lifecycle?.cancel()
       lifecycle = nil
-      persist()
+      flushPersistence()
     }
   }
   private func startEvents() {
@@ -485,8 +544,17 @@ final class AppStore {
     let page = try await api.get(
       "/api/v0/channels/\(API.segment(id))/history", as: History.self, query: query)
     guard epoch == generation, !Task.isCancelled else { return }
-    merge(page.threadContext + page.messages, channel: id)
-    if before != nil || histories[id] == nil { histories[id] = page }
+    if before != nil {
+      state.messages[id] = MessageMerge.merge(messages(id), page.threadContext + page.messages)
+      historyWindows[id]?.extend(page.messages, earlier: true, hasMore: page.hasMore)
+      histories[id] = page
+    } else if histories[id] == nil {
+      install(page)
+    } else {
+      // A search result is a continuous older window, not an invitation to append
+      // a disconnected latest page. Polling may still update rows in that window.
+      merge(page.threadContext + page.messages, channel: id)
+    }
     let snapshot = try await api.get(
       "/api/v0/channels/\(API.segment(id))/client-state", as: ChannelState.self)
     guard epoch == generation, !Task.isCancelled else { return }
@@ -495,9 +563,78 @@ final class AppStore {
     persist()
   }
   func merge(_ incoming: [Message], channel: String) {
-    state.messages[channel] = MessageMerge.merge(state.messages[channel] ?? [], incoming)
+    let existing = messages(channel)
+    let ids = Set(existing.map(\.id))
+    let visible = incoming.filter {
+      ids.contains($0.id) || historyWindows[channel]?.contains($0) != false
+    }
+    state.messages[channel] = MessageMerge.merge(existing, visible)
     let accepted = Set(incoming.compactMap(\.clientId))
     state.outbox.removeAll { accepted.contains($0.id) }
+  }
+  private func install(_ page: History) {
+    histories[page.channelId] = page
+    historyWindows[page.channelId] = HistoryWindow(
+      messages: page.messages, hasEarlier: page.hasMore, hasLater: false)
+    state.messages[page.channelId] = MessageMerge.merge(page.threadContext, page.messages)
+  }
+  @discardableResult
+  func loadContext(_ channelID: String, messageID: String) async -> Bool {
+    guard let api else { return false }
+    let epoch = generation
+    do {
+      let page = try await api.get(
+        "/api/v0/channel-messages/\(API.segment(messageID))/context", as: MessageContext.self)
+      guard epoch == generation else { return false }
+      guard page.channelId == channelID else {
+        throw APIError("This message belongs to another conversation.")
+      }
+      state.messages[channelID] = MessageMerge.merge(page.threadContext, page.messages)
+      historyWindows[channelID] = HistoryWindow(
+        messages: page.messages, hasEarlier: page.hasMoreBefore, hasLater: page.hasMoreAfter)
+      histories[channelID] = History(
+        channelId: channelID, messages: [], threadContext: [], beforeSequence: page.beforeSequence,
+        hasMore: page.hasMoreBefore, revision: page.revision)
+      persist()
+      return true
+    } catch {
+      if epoch == generation { handle(error) }
+      return false
+    }
+  }
+  func loadLater(_ channelID: String) async {
+    let key = "later-" + channelID
+    guard let api, !busy.contains(key), historyWindows[channelID]?.hasLater == true,
+      let last = visibleMessages(channelID).last else { return }
+    busy.insert(key)
+    defer { busy.remove(key) }
+    let epoch = generation
+    do {
+      let page = try await api.get(
+        "/api/v0/channel-messages/\(API.segment(last.id))/context", as: MessageContext.self,
+        query: ["direction": "after", "limit": "60"])
+      guard epoch == generation else { return }
+      guard page.channelId == channelID else { throw APIError("The conversation changed.") }
+      state.messages[channelID] = MessageMerge.merge(messages(channelID), page.threadContext + page.messages)
+      historyWindows[channelID]?.extend(page.messages, earlier: false, hasMore: page.hasMoreAfter)
+      persist()
+    } catch { if epoch == generation { handle(error) } }
+  }
+  @discardableResult
+  func loadLatest(_ channelID: String) async -> Bool {
+    guard let api else { return false }
+    let epoch = generation
+    do {
+      let page = try await api.get(
+        "/api/v0/channels/\(API.segment(channelID))/history", as: History.self, query: ["limit": "60"])
+      guard epoch == generation else { return false }
+      install(page)
+      persist()
+      return true
+    } catch {
+      if epoch == generation { handle(error) }
+      return false
+    }
   }
   func markRead(_ id: String, through sequence: String? = nil) async {
     guard foreground, activeChannel == id, let api,
@@ -566,7 +703,7 @@ final class AppStore {
       content: current.text, attachments: current.attachments,
       replyToMessageId: current.replyTo ?? threadRootID,
       isFork: (current.isFork || threadRootID != nil) ? true : nil)
-    var next = state
+    var next = savedSnapshot
     next.outbox.append(
       PendingSend(
         channelId: channel.id, input: input, stagedFiles: current.stagedFiles ?? [], draftKey: key))
@@ -575,8 +712,7 @@ final class AppStore {
     emptyDraft.isFork = threadRootID != nil
     next.drafts[key] = emptyDraft
     do {
-      try disk?.save(next)
-      state = next
+      try commit(next)
       await flush()
     } catch {
       #if canImport(UIKit)
@@ -591,11 +727,10 @@ final class AppStore {
     guard phase == .ready, let disk else {
       throw APIError("Connect to your server before forwarding.")
     }
-    var next = state
+    var next = savedSnapshot
     next.outbox.append(
       PendingSend(channelId: channel.id, input: SendInput(content: "", attachments: [asset])))
-    try disk.save(next)
-    state = next
+    try commit(next)
     #if canImport(UIKit)
       NativeHaptics.play(.light, source: "attachment.forward-send")
     #endif
@@ -613,11 +748,10 @@ final class AppStore {
   }
   func discard(_ id: String) {
     let files = state.outbox.first(where: { $0.id == id })?.stagedFiles ?? []
-    var next = state
+    var next = savedSnapshot
     next.outbox.removeAll { $0.id == id }
     do {
-      try disk?.save(next)
-      state = next
+      try commit(next)
       for file in files { try? disk?.removeFile(file) }
     } catch {
       #if canImport(UIKit)
@@ -632,7 +766,7 @@ final class AppStore {
       let pending = state.outbox.first(where: { $0.id == id }),
       channel(pending.channelId) == nil, let disk
     else { return false }
-    var next = state
+    var next = savedSnapshot
     var draft = next.drafts[channelID] ?? Draft()
     guard
       draft.attachments.count + (draft.stagedFiles?.count ?? 0) + pending.input.attachments.count
@@ -651,8 +785,7 @@ final class AppStore {
     next.drafts[channelID] = draft
     next.outbox.removeAll { $0.id == id }
     do {
-      try disk.save(next)
-      state = next
+      try commit(next)
       return true
     } catch {
       handle(error)
@@ -670,7 +803,7 @@ final class AppStore {
       guard let channel = channel(pending.channelId) else {
         if let index = state.outbox.firstIndex(where: { $0.id == pending.id }) {
           state.outbox[index].failure =
-            "This conversation is no longer available. Recover this message from Queued messages in Settings."
+            "This conversation is no longer available. Your unsent message remains saved on this iPhone."
           persist()
         }
         continue
@@ -703,11 +836,10 @@ final class AppStore {
             let index = state.outbox.firstIndex(where: { $0.id == pending.id })
           else { return }
           let asset = try JSONDecoder().decode(Asset.self, from: data)
-          var next = state
+          var next = savedSnapshot
           next.outbox[index].input.attachments.append(asset)
           next.outbox[index].stagedFiles?.removeAll { $0.id == file.id }
-          try disk.save(next)
-          state = next
+          try commit(next)
           try? disk.removeFile(file)
         }
         guard let committed = state.outbox.first(where: { $0.id == pending.id }) else { continue }
@@ -811,21 +943,9 @@ final class AppStore {
   }
   func open(_ channelID: String, messageID: String? = nil) async {
     let epoch = generation
-    if let messageID, let api {
-      do {
-        let value = try await api.request(
-          "/api/v0/channel-messages/\(API.segment(messageID))/context")
-        guard epoch == generation else { return }
-        guard value["channelId"].string == channelID else {
-          throw APIError("This message belongs to another conversation.")
-        }
-        merge(
-          try value["threadContext"].decode([Message].self)
-            + value["messages"].decode([Message].self), channel: channelID)
-      } catch {
-        if epoch == generation { handle(error) }
-        return
-      }
+    if let messageID {
+      guard await loadContext(channelID, messageID: messageID) else { return }
+      guard epoch == generation else { return }
     }
     focusedMessage = messageID
     navigation = [channelID]
@@ -865,6 +985,7 @@ final class AppStore {
       #endif
       lifecycle?.cancel()
       generation = UUID()
+      stopPersistence()
       var cleanupFailure: String?
       do { try disk?.clear() } catch {
         cleanupFailure =
@@ -901,12 +1022,14 @@ final class AppStore {
     #if canImport(UIKit)
       NativeNotifications.shared.forgetLocally()
     #endif
+    stopPersistence()
     phase = .signedOut
     record = nil
     api = nil
     disk = nil
     state = SavedState()
     histories = [:]
+    historyWindows = [:]
     navigation = []
     activeChannel = nil
     focusedMessage = nil
@@ -966,6 +1089,8 @@ final class AppStore {
       #endif
       lifecycle?.cancel()
       generation = UUID()
+      flushPersistence()
+      stopPersistence()
       api = nil
       state = SavedState()
       disk = nil

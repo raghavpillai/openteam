@@ -40,6 +40,7 @@ struct GalleryItem: Identifiable {
 }
 
 struct AttachmentView: View {
+  @Environment(MessageModalPresenter.self) private var modals
   @Environment(AppStore.self) private var store
   let asset: Asset
   let channelID: String
@@ -47,8 +48,6 @@ struct AttachmentView: View {
   @State private var loaded: LoadedAttachment?
   @State private var loading = false
   @State private var failure: String?
-  @State private var preview: LoadedAttachment?
-  @State private var galleryPresented = false
   private var isImage: Bool { asset.mimeType.hasPrefix("image/") }
   private var galleryID: String { messageID + ":" + asset.id + ":" + asset.fileName }
   private var gallery: [GalleryItem] {
@@ -65,7 +64,10 @@ struct AttachmentView: View {
       Button {
         NativeHaptics.play(.light, source: "attachment.open")
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        if isImage { galleryPresented = true } else { Task { await load(open: true) } }
+        if isImage {
+          modals.fullScreen = .init(content: AnyView(NativePhotoGallery(
+            items: gallery, initialID: galleryID, initialFile: loaded)))
+        } else { Task { await load(open: true) } }
       } label: {
         if isImage {
           if let image = loaded?.image {
@@ -95,12 +97,6 @@ struct AttachmentView: View {
         .accessibilityLabel("Open " + asset.fileName).accessibilityIdentifier("attachment-" + asset.id)
       if let failure { InlineFailure(message: failure) { Task { await load(open: !isImage) } } }
     }
-    .sheet(item: $preview) { file in
-      NativeFilePreview(url: file.url, mimeType: asset.mimeType)
-    }
-    .fullScreenCover(isPresented: $galleryPresented) {
-      NativePhotoGallery(items: gallery, initialID: galleryID, initialFile: loaded)
-    }
     .task(id: asset.id) { if isImage { await load(open: false) } }
   }
   private var archive: Bool {
@@ -119,9 +115,13 @@ struct AttachmentView: View {
     return Text(name.deletingPathExtension).foregroundColor(NativePalette.text)
       + Text("." + name.pathExtension).foregroundColor(NativePalette.faint)
   }
+  private func presentFile(_ file: LoadedAttachment?) {
+    guard let file else { return }
+    modals.sheet = .init(content: AnyView(NativeFilePreview(url: file.url, mimeType: asset.mimeType)))
+  }
   private func load(open: Bool) async {
     guard !loading else { return }
-    if let loaded { if open { preview = loaded }; return }
+    if let loaded { if open { presentFile(loaded) }; return }
     loading = true
     defer { loading = false }
     do {
@@ -129,7 +129,7 @@ struct AttachmentView: View {
       guard !isImage || file.image != nil else { throw APIError("This image could not be loaded.") }
       loaded = file
       failure = nil
-      if open { preview = loaded }
+      if open { presentFile(loaded) }
     } catch {
       if !UserFacingError.isCancelled(error) { failure = UserFacingError.message(error) }
       if (error as? APIError)?.unauthorized == true { store.handle(error) }

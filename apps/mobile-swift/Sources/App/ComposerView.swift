@@ -128,6 +128,7 @@ struct ComposerView: View {
       }
       .onChange(of: scenePhase) { _, phase in if phase != .active { _ = voice.stop() } }
       .onDisappear {
+        store.flushPersistence()
         transcriptionTask?.cancel()
         transcriptionTask = nil
         voice.cancel()
@@ -211,6 +212,8 @@ struct ComposerView: View {
         .frame(minHeight: 44).accessibilityIdentifier(
           threadRootID == nil ? "message-input" : "thread-message-input"
         )
+        .contentShape(Rectangle())
+        .simultaneousGesture(TapGesture().onEnded { focused = true })
         .overlay(alignment: .bottomTrailing) {
           // The visible pill is 36 × 28; its separate 44-point hit area keeps
           // sending/recording reachable without changing the reference inset.

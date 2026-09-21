@@ -178,6 +178,8 @@ export const createOpenTeamAuthClient = (options: OpenTeamAuthClientOptions) => 
         // which correctly fails the server's cookie-based CSRF protection.
         credentials: "omit",
         headers: { authorization: `Bearer ${token}` },
+        // Better Auth requires JSON on POST even when the endpoint has no fields.
+        body: "{}",
       });
       if (!response.ok)
         throw new OpenTeamClientError(

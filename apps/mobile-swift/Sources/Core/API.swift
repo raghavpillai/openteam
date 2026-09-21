@@ -44,6 +44,11 @@ public struct API: Sendable {
         configuration: configuration, delegate: RedirectPolicy(), delegateQueue: nil)
     }
   }
+  public func signOut() async throws {
+    // Better Auth rejects bodyless POSTs with 415; send an explicit JSON object.
+    _ = try await request("/api/auth/sign-out", method: "POST", body: .object([:]))
+  }
+
   public static func normalize(_ server: String) throws -> URL {
     let s = server.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let c = URLComponents(string: s),

@@ -973,7 +973,7 @@ final class AppStore {
         try await NativeNotifications.shared.retire()
       #endif
       if api.token != nil {
-        do { _ = try await api.request("/api/auth/sign-out", method: "POST") } catch let failure
+        do { try await api.signOut() } catch let failure
           as APIError where [401, 403].contains(failure.status)
         {
           // Already expired.

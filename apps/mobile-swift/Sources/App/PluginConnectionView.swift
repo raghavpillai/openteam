@@ -21,6 +21,7 @@ struct PluginConnectionView: View {
   @State private var clearHeaders = false
   @State private var clearEnvironment = false
   @State private var method = "none"
+  @State private var callbackMode = "desktop"
   @State private var operation = FormOperation()
   @State private var remove = false
   @State private var loaded = false
@@ -47,6 +48,21 @@ struct PluginConnectionView: View {
           Button("Remove account", role: .destructive) { remove = true }
         }
         Section("Configuration") {
+          if connection["auth"].string == "oauth" {
+            Picker("Sign-in method", selection: $callbackMode) {
+              Text("Desktop app").tag("desktop")
+              Text("Server callback").tag("server")
+            }
+            if callbackMode == "desktop" {
+              Text("Connect once in the desktop app using a native OAuth client. Your server stores the connection and makes it available on this device.")
+                .font(.footnote).foregroundStyle(NativePalette.muted)
+            } else {
+              Text("Register this exact callback with your provider’s web OAuth client. Google requires an HTTPS hostname for a remote server callback. A desktop OAuth client cannot be reused for this method.")
+                .font(.footnote).foregroundStyle(NativePalette.muted)
+              Text(configuration["callbackUrl"].string).font(.footnote.monospaced())
+                .textSelection(.enabled)
+            }
+          }
           ForEach(configuration["fields"].array, id: \.self) { field in
             let id = field["key"].string
             if field["secret"].bool {
@@ -172,6 +188,7 @@ struct PluginConnectionView: View {
       method =
         configuration["tokenEndpointAuthMethod"].string.isEmpty
         ? "none" : configuration["tokenEndpointAuthMethod"].string
+      callbackMode = configuration["oauthCallbackMode"].string == "server" ? "server" : "desktop"
       loaded = true
     }
   }
@@ -202,6 +219,7 @@ struct PluginConnectionView: View {
         "values": .object(values), "secrets": .object(actions),
         "tokenEndpointAuthMethod": .string(method),
       ]
+      if connection["auth"].string == "oauth" { body["oauthCallbackMode"] = .string(callbackMode) }
       if connection["transport"].string == "http" {
         body["endpoint"] = .string(try FormValidation.endpoint(endpoint))
       }
@@ -229,6 +247,9 @@ struct PluginConnectionView: View {
       clearHeaders = false
       clearEnvironment = false
       configuration = try await store.request(path + "/configuration")
+      if connection["auth"].string == "oauth" {
+        connection["oauthCallbackMode"] = configuration["oauthCallbackMode"]
+      }
     }
   }
 }

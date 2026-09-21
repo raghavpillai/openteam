@@ -210,7 +210,7 @@ struct JSONTextEditor: View {
       Text(label).font(.caption).foregroundStyle(NativePalette.muted)
       TextEditor(text: $text).font(.system(.body, design: .monospaced)).textInputAutocapitalization(
         .never
-      ).autocorrectionDisabled().frame(minHeight: 150)
+      ).keyboardType(.asciiCapable).autocorrectionDisabled().frame(minHeight: 150)
     }
   }
 }

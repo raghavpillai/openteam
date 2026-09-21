@@ -15,6 +15,7 @@ struct PluginConnectionActions: View {
   private var session: PluginAuthorizationSession? {
     PluginAuthorizationSession(connection, now: now)
   }
+  private var requiresDesktop: Bool { MobilePluginAuthorization.requiresDesktop(connection) }
 
   var body: some View {
     FormStatus(operation: operation)
@@ -27,7 +28,13 @@ struct PluginConnectionActions: View {
     if !connection["statusMessage"].string.isEmpty {
       Text(connection["statusMessage"].string).font(.footnote).foregroundStyle(NativePalette.muted)
     }
-    if let session {
+    if requiresDesktop {
+      if connection["status"].string != "ready" {
+        Text("Sign in on desktop").font(.headline)
+        Text("Open this plugin in the OpenTeam desktop app connected to the same server. Once connected, it works here too; the desktop app can be closed. To sign in from this device, configure a server callback and the provider’s web client in Connection settings.")
+          .font(.footnote).foregroundStyle(NativePalette.muted)
+      }
+    } else if let session {
       Text(session.expired ? "Sign-in expired" : "Waiting for authorization").font(.headline)
       Text(
         session.expired
@@ -59,7 +66,9 @@ struct PluginConnectionActions: View {
     guard scenePhase == .active else { return }
     if startAutomatically, !autoStarted {
       autoStarted = true
-      if connection["canAuthenticate"].bool { await signIn() } else { await command("/connect") }
+      if connection["canAuthenticate"].bool {
+        if !requiresDesktop { await signIn() }
+      } else { await command("/connect") }
     } else {
       try? await refresh()
     }
@@ -86,7 +95,7 @@ struct PluginConnectionActions: View {
     }
   }
   private func signIn() async {
-    guard !operation.busy else { return }
+    guard !operation.busy, !requiresDesktop else { return }
     await operation.run(successEffect: nil) {
       if let beforeSignIn, !(await beforeSignIn()) {
         throw APIError("Save the connection settings before signing in.")

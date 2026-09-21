@@ -3,6 +3,25 @@ import XCTest
 @testable import OpenTeamCore
 
 final class AuthorizationPresentationTests: XCTestCase {
+  func testDesktopAuthorizationCannotBeOpenedOrReplacedFromMobile() {
+    var connection: JSON = .object([
+      "auth": .string("oauth"), "status": .string("needs_auth"),
+      "oauthCallbackMode": .string("desktop"),
+    ])
+    XCTAssertTrue(MobilePluginAuthorization.requiresDesktop(connection))
+    connection["oauthCallbackMode"] = .string("server")
+    XCTAssertFalse(MobilePluginAuthorization.requiresDesktop(connection))
+    for callback in ["http://127.0.0.1:58123/callback", "http://localhost:8787/callback", "http://[::1]:9000/callback"] {
+      var url = URLComponents(string: "https://accounts.example.test/start")!
+      url.queryItems = [URLQueryItem(name: "state", value: "one"), URLQueryItem(name: "redirect_uri", value: callback)]
+      connection["authorizationUrl"] = .string(url.url!.absoluteString)
+      XCTAssertTrue(MobilePluginAuthorization.requiresDesktop(connection))
+    }
+    connection["authorizationUrl"] = .string("https://accounts.example.test/start?state=one&redirect_uri=https%3A%2F%2Fopenteam.example.com%2Fcallback")
+    XCTAssertFalse(MobilePluginAuthorization.requiresDesktop(connection))
+    connection["auth"] = .string("token")
+    XCTAssertFalse(MobilePluginAuthorization.requiresDesktop(connection))
+  }
   func testOAuthSessionRequiresStateAndSafeScheme() {
     var connection: JSON = .object([
       "status": .string("needs_auth"),

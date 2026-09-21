@@ -53,6 +53,17 @@ private final class MockProtocol: URLProtocol, @unchecked Sendable {
 }
 
 final class TransportTests: XCTestCase, @unchecked Sendable {
+  func testSignOutSendsJSONAndExplicitSession() async throws {
+    MockProtocol.stub.set { request in
+      XCTAssertEqual(request.url?.path, "/team/api/auth/sign-out")
+      XCTAssertEqual(request.httpMethod, "POST")
+      XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-session")
+      XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
+      XCTAssertEqual(try requestBody(request), Data("{}".utf8))
+      return (200, [:], Data(#"{"success":true}"#.utf8))
+    }
+    try await api(token: "fixture-session").signOut()
+  }
   func testLongTranscriptionRequestPreservesAuthenticationAndBinaryAudio() async throws {
     let audio = Data([0, 1, 2, 3, 255])
     MockProtocol.stub.set { request in

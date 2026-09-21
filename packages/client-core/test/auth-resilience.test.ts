@@ -9,6 +9,8 @@ describe("session revocation", () => {
       fetch: async (url, init) => {
         expect(url).toBe(`${baseUrl}/api/auth/sign-out`);
         expect(new Headers(init?.headers).get("authorization")).toBe("Bearer test-token");
+        expect(new Headers(init?.headers).get("content-type")).toBe("application/json");
+        expect(init?.body).toBe("{}");
         // Model the native cookie jar: including login cookies without an Origin
         // produces a CSRF rejection before Better Auth can revoke the session.
         return init?.credentials === "omit"

@@ -51,3 +51,5 @@ The 1,000-message workload passed all three measured iterations. Scroll-drag/dec
 The initial glass test assumed the return-to-latest button would remain visible after every drag; the last drag had already reached the bottom. That test assumption was corrected. The regular-material probe and overly dark first fade adjustment remain in the evidence folder so their rejection is reviewable.
 
 All owned fixture processes are stopped after each run. Unrelated servers, devices, source changes and robot artwork are preserved. No release upload is part of this validation pass.
+
+Release follow-up: shipped in [TestFlight 0.0.1 (34)](TESTFLIGHT-34.md), verified valid and available to Team (Expo).

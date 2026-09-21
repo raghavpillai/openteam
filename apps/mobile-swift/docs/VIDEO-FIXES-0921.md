@@ -72,3 +72,5 @@ The computer verification uses the existing `openteam-local-server:vnc-20260919`
 - Original raw Markdown and original attachment bytes were unavailable; source-formatting and every attachment/share variant cannot be declared pixel-identical from this recording.
 - No new physical-iPhone validation of APNs dismissal, OAuth, live ASR, haptic feel, thermal behavior or sustained frame pacing was performed in this pass.
 - No commit, push or TestFlight upload was requested in this turn. Existing unrelated work was preserved.
+
+Release follow-up: shipped in [TestFlight 0.0.1 (34)](TESTFLIGHT-34.md), verified valid and available to Team (Expo).

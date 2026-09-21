@@ -10,10 +10,10 @@ public struct MessageTimeline: Sendable {
   }
   public let entries: [Entry]
   public let replyCounts: [String: Int]
-  public init(_ messages: [Message]) {
+  public init(_ messages: [Message], includeBranched: Bool = false) {
     var previous: Date?
     var first = true
-    let entries = messages.filter { !$0.metadata["branched"].bool }.map {
+    let entries = messages.filter { includeBranched || !$0.metadata["branched"].bool }.map {
       message in
       let date = message.date
       let showsTimestamp =

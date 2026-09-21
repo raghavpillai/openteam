@@ -158,10 +158,11 @@ import XCTest
       app.descendants(matching: .any).matching(identifier: "message-input").firstMatch.frame.minY)
   }
   private func send(_ text: String, _ app: XCUIApplication) {
-    let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    let replying = app.buttons["thread-back"].isHittable
+    let input = app.descendants(matching: .any).matching(identifier: replying ? "thread-message-input" : "message-input").firstMatch
     input.tap()
     input.typeText(text)
-    app.buttons["send-button"].tap()
+    app.buttons[replying ? "thread-send-button" : "send-button"].tap()
   }
   private func requireVoiceSource(_ path: String) async throws {
     let (_, response) = try await URLSession.shared.data(from: URL(string: control + path)!)
@@ -263,11 +264,12 @@ import XCTest
     let message = try await saved(text, sender: "user")
     let metadata = try XCTUnwrap(message["metadata"] as? [String: Any])
     XCTAssertEqual(metadata["replyTo"] as? String, parent)
-    XCTAssertNotEqual(metadata["branched"] as? Bool, true)
+    XCTAssertEqual(metadata["branched"] as? Bool, true)
     let matching = try await messages().filter { $0["content"] as? String == text }
     XCTAssertEqual(matching.count, 1, "Inline reply must be durably accepted once")
     let id = try XCTUnwrap(message["id"] as? String)
-    XCTAssertTrue(app.buttons["reply-quote-" + id].waitForExistence(timeout: 15))
+    if app.buttons["thread-back"].isHittable { app.buttons["thread-back"].tap() }
+    XCTAssertTrue(app.buttons["thread-" + parent].waitForExistence(timeout: 15))
     return id
   }
 
@@ -292,7 +294,7 @@ import XCTest
     XCTAssertTrue(app.buttons["Copy"].exists)
     capture("held-message-actions", app)
     app.buttons["Reply"].tap()
-    XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
     let held = "Held inline reply " + nonce
     send(held, app)
     let heldID = try await verifyReply(held, parent: originalID, app)
@@ -301,15 +303,17 @@ import XCTest
     source.press(
       forDuration: 0.05, thenDragTo: source.withOffset(CGVector(dx: 145, dy: 0)),
       withVelocity: .slow, thenHoldForDuration: 0.1)
-    XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
     let swiped = "Swipe inline reply " + nonce
     send(swiped, app)
     let swipeID = try await verifyReply(swiped, parent: originalID, app)
     capture("swipe-inline-reply-saved", app)
     app.terminate()
     try await login(app)
-    XCTAssertTrue(app.buttons["reply-quote-" + heldID].waitForExistence(timeout: 15))
-    XCTAssertTrue(app.buttons["reply-quote-" + swipeID].exists)
+    XCTAssertTrue(app.buttons["thread-" + originalID].waitForExistence(timeout: 15))
+    app.buttons["thread-" + originalID].tap()
+    XCTAssertTrue(row(heldID, app).waitForExistence(timeout: 15))
+    XCTAssertTrue(row(swipeID, app).exists)
     capture("replies-survive-relaunch", app)
     let persisted = XCTAttachment(string: String(describing: try await messages()))
     persisted.name = "real-server-persisted-replies"
@@ -347,14 +351,14 @@ import XCTest
     XCTAssertTrue(app.buttons["Reply"].waitForExistence(timeout: 5))
     capture("rich-message-actions", app)
     app.buttons["Reply"].tap()
-    XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
-    app.buttons["Cancel reply"].tap()
-    XCTAssertFalse(app.buttons["Cancel reply"].exists)
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
+    app.buttons["thread-back"].tap()
+    XCTAssertFalse(app.buttons["thread-back"].exists)
     let source = row(originalID, app).coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
     source.press(
       forDuration: 0.05, thenDragTo: source.withOffset(CGVector(dx: 145, dy: 0)),
       withVelocity: .slow, thenHoldForDuration: 0.1)
-    XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
     let reply = "Rich swipe reply " + nonce
     send(reply, app)
     _ = try await verifyReply(reply, parent: originalID, app)
@@ -368,7 +372,7 @@ import XCTest
       start.press(
         forDuration: 0.05, thenDragTo: start.withOffset(movement), withVelocity: .slow,
         thenHoldForDuration: 0)
-      XCTAssertFalse(app.buttons["Cancel reply"].exists)
+      XCTAssertFalse(app.buttons["thread-back"].exists)
       if movement.dy != 0 {
         XCTAssertGreaterThan(
           abs(target.frame.minY - previousY), 20,
@@ -436,7 +440,7 @@ import XCTest
     start.press(
       forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 145, dy: 0)),
       withVelocity: .slow, thenHoldForDuration: 0)
-    XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
     let swiped = "Swiped attachment reply " + nonce
     send(swiped, app)
     _ = try await verifyReply(swiped, parent: originalID, app)

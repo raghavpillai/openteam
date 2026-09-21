@@ -8,6 +8,7 @@ struct NativeHistoryItem {
   let scrollID: String
   let version: Int
   var anchorToBottom = false
+  var animatesResize = false
   let content: () -> AnyView
 }
 
@@ -56,6 +57,8 @@ struct NativeMessageList: UIViewControllerRepresentable {
   private var updating = false
   private var needsApply = false
   private var pendingChanges = Set<String>()
+  private var pendingArrival = false
+  private var pendingResize = false
   private var scrollingToTarget = false
   private var dragDirection: CGFloat = 0
   private var readingAnchor: Anchor?
@@ -63,10 +66,19 @@ struct NativeMessageList: UIViewControllerRepresentable {
   private var lastBounds = CGSize.zero
   private var lastContent = CGSize.zero
   private var lastFooterHeight: CGFloat?
+  private var followingResize = false
+  private var resizePinnedOffset: CGPoint?
   private var footerDisplayLink: CADisplayLink?
   private var footerStartTime: CFTimeInterval = 0
   private var footerStartOffset: CGFloat = 0
+  private var footerTargetOffset: CGFloat = 0
   private var footerDuration: CFTimeInterval = 0.28
+  private var footerCollapsing = false
+  #if DEBUG
+  private let recordsMotion = ProcessInfo.processInfo.arguments.contains("--trace-chat-layout")
+  private var motionSamples: [[Double]] = []
+  private var motionRecords: [[String: Any]] = []
+  #endif
   private var settle: DispatchWorkItem?
   private var feedback = ScrollEdgeFeedback()
   var initialTarget = "bottom"
@@ -109,7 +121,12 @@ struct NativeMessageList: UIViewControllerRepresentable {
       cell.backgroundColor = .clear
       cell.selectionStyle = .none
       cell.contentConfiguration = UIHostingConfiguration {
-        item.content().id(id)
+        if item.animatesResize {
+          VStack(spacing: 0) {
+            item.content().id(id)
+            Spacer(minLength: 0)
+          }
+        } else { item.content().id(id) }
       }.margins(.all, 0).minSize(width: 0, height: 0)
       return cell
     }
@@ -144,7 +161,8 @@ struct NativeMessageList: UIViewControllerRepresentable {
     }
     let addedAtEnd = positioned && following && previousIDs != ids
       && previousIDs.last == ids.last
-    applyWindow(changed: changed, animateArrival: addedAtEnd)
+    let resize = positioned && values.contains { changed.contains($0.id) && $0.animatesResize }
+    applyWindow(changed: changed, animateArrival: addedAtEnd, animateResize: resize)
   }
   private var windowIDs: [String] {
     Array(orderedIDs.dropFirst(windowStart).prefix(windowSize))
@@ -155,8 +173,10 @@ struct NativeMessageList: UIViewControllerRepresentable {
       windowStart = min(max(0, index - windowSize / 2), max(0, orderedIDs.count - windowSize))
     }
   }
-  private func applyWindow(changed: Set<String> = [], animateArrival: Bool = false) {
+  private func applyWindow(changed: Set<String> = [], animateArrival: Bool = false, animateResize: Bool = false) {
     pendingChanges.formUnion(changed)
+    pendingArrival = pendingArrival || animateArrival
+    pendingResize = pendingResize || animateResize
     guard !updating else { needsApply = true; return }
     stopFooterFollow()
     let next = windowIDs
@@ -164,6 +184,11 @@ struct NativeMessageList: UIViewControllerRepresentable {
     let changes = pendingChanges
     pendingChanges.removeAll()
     let anchor = positioned ? captureAnchor(forContentUpdate: true) : nil
+    let arrival = pendingArrival
+    let resize = pendingResize && next == displayedIDs && !UIAccessibility.isReduceMotionEnabled
+      && !table.isDragging && !table.isDecelerating
+    pendingArrival = false
+    pendingResize = false
     displayedIDs = next
     bottomAnchoredIDs = Set(next.filter { items[$0]?.anchorToBottom == true })
     measuredHeights = measuredHeights.filter { items[$0.key] != nil }
@@ -172,11 +197,37 @@ struct NativeMessageList: UIViewControllerRepresentable {
     snapshot.appendItems(next)
     snapshot.reconfigureItems(next.filter { changes.contains($0) && oldIDs.contains($0) })
     updating = true
+    let previousHeight = table.contentSize.height
+    let previousFooterHeight = lastFooterHeight
+    followingResize = resize && following
+    resizePinnedOffset = followingResize ? table.contentOffset : nil
     let completed: () -> Void = { [weak self] in
       guard let self else { return }
       self.table.layoutIfNeeded()
+      var deferredFooterChange: CGFloat = 0
+      self.resizePinnedOffset = nil
+      if self.followingResize && self.following {
+        if let previousFooterHeight,
+          let path = self.source.indexPath(for: "bottom"),
+          let height = self.table.cellForRow(at: path)?.bounds.height {
+          deferredFooterChange = height - previousFooterHeight
+          self.lastFooterHeight = height
+        }
+        UIView.performWithoutAnimation {
+          let room = self.table.bounds.height - self.table.safeAreaInsets.top - self.table.safeAreaInsets.bottom
+          self.table.contentInset.top = max(0, room - self.table.contentSize.height)
+          // A working footer can start while the card is still shrinking.
+          // Finish at the card's current visual bottom, then follow the footer
+          // instead of snapping immediately to the combined final geometry.
+          self.table.contentOffset = CGPoint(x: 0, y: self.bottomOffset.y - deferredFooterChange)
+          self.table.layer.removeAnimation(forKey: "widget-bottom-follow")
+        }
+        self.followingResize = false
+      }
       self.updating = false
-      if let anchor {
+      self.followingResize = false
+      self.table.layer.removeAnimation(forKey: "widget-bottom-follow")
+      if let anchor, (!resize || !self.following), !self.table.isDragging, !self.table.isDecelerating {
         self.readingAnchor = self.following ? nil : anchor
         self.restore(anchor)
       }
@@ -184,13 +235,18 @@ struct NativeMessageList: UIViewControllerRepresentable {
       // arrive while UIKit is applying the previous snapshot. Never drop it.
       if self.needsApply {
         self.needsApply = false
-        self.applyWindow(animateArrival: animateArrival)
+        self.applyWindow()
         return
       }
       if self.positioned && self.following {
         let destination = self.bottomOffset
         let oldOffset = self.table.contentOffset
-        if animateArrival && !UIAccessibility.isReduceMotionEnabled {
+        if abs(deferredFooterChange) > 0.5 && !UIAccessibility.isReduceMotionEnabled {
+          self.lastBounds = self.table.bounds.size
+          self.lastContent = self.table.contentSize
+          self.startFooterFollow(duration: deferredFooterChange > 0
+            ? ChatActivityTiming.expansion : ChatActivityTiming.collapse, from: oldOffset.y)
+        } else if arrival && !UIAccessibility.isReduceMotionEnabled {
           self.scrollingToTarget = true
           self.table.contentOffset = oldOffset
           UIView.animate(withDuration: 0.32, delay: 0, options: [.beginFromCurrentState, .curveEaseInOut]) {
@@ -201,7 +257,25 @@ struct NativeMessageList: UIViewControllerRepresentable {
       self.applyPendingRequest()
       self.didLayout()
     }
-    source.apply(snapshot, animatingDifferences: false, completion: completed)
+    if resize {
+      // Reconfigure and resize the hosting cell inside the same UIKit animation
+      // that follows its bottom edge. The old nonanimated snapshot caused a
+      // height jump, followed one frame later by a content-offset jump.
+      UIView.animate(withDuration: 0.24, delay: 0, options: [.beginFromCurrentState, .curveEaseOut]) {
+        self.source.apply(snapshot, animatingDifferences: true, completion: completed)
+        self.table.layoutIfNeeded()
+        if self.followingResize {
+          let movement = CABasicAnimation(keyPath: "transform.translation.y")
+          movement.fromValue = 0
+          movement.toValue = previousHeight - self.table.contentSize.height
+          movement.duration = 0.24
+          movement.timingFunction = CAMediaTimingFunction(name: .easeOut)
+          movement.fillMode = .forwards
+          movement.isRemovedOnCompletion = false
+          self.table.layer.add(movement, forKey: "widget-bottom-follow")
+        }
+      }
+    } else { source.apply(snapshot, animatingDifferences: false, completion: completed) }
   }
   /// Keep UIKit's layout and accessibility working set bounded as well as its
   /// onscreen cells. Crossing either boundary shifts a contiguous overlapping
@@ -232,6 +306,11 @@ struct NativeMessageList: UIViewControllerRepresentable {
 
   private func didLayout() {
     guard !updating, !positioning, table.bounds.height > 0, !orderedIDs.isEmpty else { return }
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    defer { CATransaction.commit() }
+    let previousBottom = max(-table.adjustedContentInset.top,
+      lastContent.height - lastBounds.height + table.adjustedContentInset.bottom)
     let footerHeight = source.indexPath(for: "bottom")
       .flatMap { table.cellForRow(at: $0)?.bounds.height }
     let footerResized = footerHeight.flatMap { height in
@@ -274,7 +353,9 @@ struct NativeMessageList: UIViewControllerRepresentable {
       if footerResized && !viewportResized && !UIAccessibility.isReduceMotionEnabled {
         // Hosting cells report the footer's final intrinsic height. Follow that
         // change with the same timing as the robot instead of jumping 64 points.
-        startFooterFollow(duration: footerGrowing ? 0.28 : 0.24)
+        startFooterFollow(
+          duration: footerGrowing ? ChatActivityTiming.expansion : ChatActivityTiming.collapse,
+          from: previousBottom)
       } else {
         table.setContentOffset(bottomOffset, animated: false)
       }
@@ -349,6 +430,8 @@ struct NativeMessageList: UIViewControllerRepresentable {
   }
   func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
     stopFooterFollow()
+    resizePinnedOffset = nil
+    table.layer.removeAnimation(forKey: "widget-bottom-follow")
     following = false
     scrollingToTarget = false
     readingAnchor = nil
@@ -358,6 +441,16 @@ struct NativeMessageList: UIViewControllerRepresentable {
     reportScroll()
   }
   func scrollViewDidScroll(_ scrollView: UIScrollView) {
+    if !positioning, let pinned = resizePinnedOffset,
+      abs(table.contentOffset.y - pinned.y) > 0.5 {
+      // UITableView may clamp its offset on the final self-sizing frame before
+      // its snapshot completion runs. Keep that model correction from flashing
+      // underneath the presentation-layer bottom-follow animation.
+      positioning = true
+      table.setContentOffset(pinned, animated: false)
+      positioning = false
+      return
+    }
     guard positioned, !updating, !positioning else { return }
     if table.isDragging {
       let velocity = table.panGestureRecognizer.velocity(in: table).y
@@ -394,11 +487,16 @@ struct NativeMessageList: UIViewControllerRepresentable {
     reported = value
     DispatchQueue.main.async { [weak self] in self?.onScroll(value.0, value.1) }
   }
-  private func startFooterFollow(duration: CFTimeInterval) {
+  private func startFooterFollow(duration: CFTimeInterval, from offset: CGFloat) {
     stopFooterFollow()
     footerStartTime = CACurrentMediaTime()
-    footerStartOffset = table.contentOffset.y
+    footerStartOffset = offset
     footerDuration = duration
+    footerCollapsing = bottomOffset.y < offset
+    animateFooterOffset(from: offset, to: bottomOffset.y, duration: duration)
+    #if DEBUG
+    if recordsMotion { motionSamples = [[0, Double(offset), Double(bottomOffset.y)]] }
+    #endif
     scrollingToTarget = true
     let link = CADisplayLink(target: self, selector: #selector(followFooter(_:)))
     let rate = Float(view.window?.screen.maximumFramesPerSecond ?? 60)
@@ -406,27 +504,71 @@ struct NativeMessageList: UIViewControllerRepresentable {
     footerDisplayLink = link
     link.add(to: .main, forMode: .common)
   }
+  private func animateFooterOffset(from start: CGFloat, to target: CGFloat, duration: CFTimeInterval) {
+    footerTargetOffset = target
+    // Animate the scroll layer's presentation, while its model already has the
+    // final offset. Repeated model-offset writes let UIKit expose an intermediate
+    // clamp frame when a self-sizing footer appears or disappears.
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    positioning = true
+    table.setContentOffset(CGPoint(x: 0, y: target), animated: false)
+    positioning = false
+    let movement = CABasicAnimation(keyPath: "bounds.origin.y")
+    movement.fromValue = start
+    movement.toValue = target
+    movement.duration = max(0.001, duration)
+    movement.timingFunction = footerCollapsing
+      ? CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.3, 1)
+      : CAMediaTimingFunction(name: .easeInEaseOut)
+    table.layer.add(movement, forKey: "activity-bottom-follow")
+    CATransaction.commit()
+  }
   @objc private func followFooter(_ link: CADisplayLink) {
     guard following, !table.isDragging else { stopFooterFollow(); return }
-    let progress = min(1, max(0, (link.timestamp - footerStartTime) / footerDuration))
-    let eased = progress * progress * (3 - 2 * progress)
-    // Re-read the destination as hosting cells finish sizing. Animating UIKit's
-    // contentOffset property directly can also animate self-sizing layout and
-    // leave the final reply underneath the composer after the footer collapses.
-    let y = footerStartOffset + (bottomOffset.y - footerStartOffset) * eased
-    positioning = true
-    table.setContentOffset(CGPoint(x: 0, y: y), animated: false)
-    positioning = false
+    let elapsed = max(0, link.timestamp - footerStartTime)
+    let progress = min(1, elapsed / footerDuration)
+    let presented = table.layer.presentation()?.bounds.origin.y ?? table.contentOffset.y
+    if abs(bottomOffset.y - footerTargetOffset) > 0.5 {
+      animateFooterOffset(from: presented, to: bottomOffset.y, duration: footerDuration - elapsed)
+    }
+    #if DEBUG
+    if recordsMotion { motionSamples.append([elapsed, Double(presented), Double(bottomOffset.y)]) }
+    #endif
     if progress >= 1 { stopFooterFollow(); reportScroll() }
   }
   private func stopFooterFollow() {
     guard footerDisplayLink != nil else { return }
+    let presented = table.layer.presentation()?.bounds.origin ?? table.contentOffset
     footerDisplayLink?.invalidate()
     footerDisplayLink = nil
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    table.layer.removeAnimation(forKey: "activity-bottom-follow")
+    positioning = true
+    table.setContentOffset(presented, animated: false)
+    positioning = false
+    CATransaction.commit()
     scrollingToTarget = false
+    #if DEBUG
+    if recordsMotion, !motionSamples.isEmpty {
+      // Optional QA evidence: numeric geometry only, buffered until movement
+      // ends. This distinguishes recorder gaps from missed display-link ticks.
+      motionRecords.append(["duration": footerDuration, "samples": motionSamples,
+        "completed": (motionSamples.last?.first ?? 0) >= footerDuration])
+      if let data = try? JSONSerialization.data(withJSONObject: motionRecords) {
+        try? data.write(to: FileManager.default.temporaryDirectory
+          .appendingPathComponent("chat-motion-diagnostics.json"), options: .atomic)
+      }
+      motionSamples = []
+    }
+    #endif
   }
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    followingResize = false
+    resizePinnedOffset = nil
+    table.layer.removeAnimation(forKey: "widget-bottom-follow")
     stopFooterFollow()
   }
   @objc private func dismissKeyboard(_ gesture: UITapGestureRecognizer) {

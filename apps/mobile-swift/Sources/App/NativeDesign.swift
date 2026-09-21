@@ -42,6 +42,9 @@ enum NativePalette {
   static let link = color("016CEC", "016CEC")
   static let disabledPrimary = color("848484", "9A9A9A")
   static let toggle = Color(uiColor: .systemGreen)
+  static let receiptCheck = color("347D5B", "559978")
+  static let widgetDanger = color("C83A3A", "F48182")
+  static let widgetDisabled = color("E4E4E7", "303033")
   static let destructive = Color(uiColor: .systemRed)
   static let warning = Color(uiColor: .systemOrange)
 
@@ -150,12 +153,12 @@ private struct ChatChromeFade: View {
           location: edge == .top ? 0.20 : 0.18),
         .init(
           color: NativePalette.background.opacity(
-            edge == .top ? (isDarkHeader ? 0.56 : 0.25) : 0.35),
+            edge == .top ? (isDarkHeader ? 0.48 : 0.25) : 0.35),
           location: edge == .top ? 0.55 : 0.65),
         // Match the recorded fade without changing the known light appearance.
         // Keeping this outside the glass also preserves the full-width scroll fade.
         .init(
-          color: NativePalette.background.opacity(isDarkHeader ? 0.10 : 0),
+          color: NativePalette.background.opacity(isDarkHeader ? 0.04 : 0),
           location: isDarkHeader ? 0.85 : 1),
         .init(color: NativePalette.background.opacity(0), location: 1),
       ],
@@ -166,6 +169,7 @@ private struct ChatChromeFade: View {
 }
 
 private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
+  @Environment(\.colorScheme) private var scheme
   var top: Top
   var bottom: Bottom
   func body(content: Content) -> some View {
@@ -181,9 +185,31 @@ private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
           .safeAreaBar(edge: .top, spacing: 0) {
             top
           }
-          .safeAreaBar(edge: .bottom, spacing: 0) {
-            bottom.background {
-              ChatChromeFade(edge: .bottom).ignoresSafeArea(.container, edges: .bottom)
+          // The composer needs a stable native inset while becoming first
+          // responder. The iOS 26 scroll-pocket bar can relinquish its editor
+          // during the first keyboard transition.
+          .safeAreaInset(edge: .bottom, spacing: 0) {
+            bottom.background(alignment: .bottom) {
+              if scheme == .dark {
+                // Fade the transcript before it passes under the composer.
+                // Sizing this to the short bar leaves bright scrolling glyphs
+                // behind the glass; the reference fade begins above the bar.
+                GeometryReader { composer in
+                  ChatChromeFade(edge: .bottom)
+                    .frame(width: composer.size.width, height: max(100, composer.size.height + 56))
+                    .background(alignment: .bottom) {
+                      // Continue the opaque endpoint through the home-indicator
+                      // area so content cannot reappear below the gradient.
+                      NativePalette.background
+                        .frame(height: viewport.safeAreaInsets.bottom)
+                        .offset(y: viewport.safeAreaInsets.bottom)
+                    }
+                    .frame(width: composer.size.width, height: composer.size.height, alignment: .bottom)
+                    .offset(y: min(24, viewport.safeAreaInsets.bottom))
+                }.allowsHitTesting(false)
+              } else {
+                ChatChromeFade(edge: .bottom).ignoresSafeArea(.container, edges: .bottom)
+              }
             }
           }
           .scrollEdgeEffectHidden()
@@ -245,7 +271,7 @@ struct ChromeButton: View {
   var action: () -> Void
   var body: some View {
     Button(action: action) {
-      Image(systemName: symbol).font(.system(size: 21, weight: .regular))
+      Image(systemName: symbol).font(.system(size: symbol == "xmark" ? 18 : 21, weight: .regular))
         .frame(width: 44, height: 44).foregroundStyle(NativePalette.text).nativeGlass(
           darkTint: darkTint
         )
@@ -344,7 +370,10 @@ struct NativeBackGesture: UIViewControllerRepresentable {
       guard let navigationController, navigationController.viewControllers.count > 1,
         navigationController.transitionCoordinator == nil
       else { return false }
-      // Native navigation recognizers already classify horizontal motion.
+      // Resign the outgoing page's editor before UIKit begins the interactive
+      // pop. Keeping its keyboard attached across nested SwiftUI destinations
+      // can leave the returning page with a stale zero keyboard inset.
+      navigationController.view.endEditing(true)
       return true
     }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch)

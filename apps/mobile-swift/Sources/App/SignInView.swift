@@ -4,7 +4,9 @@ struct SignInView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.dynamicTypeSize) private var typeSize
   @ScaledMetric(relativeTo: .title2) private var headingSize = 24
+  @ScaledMetric(relativeTo: .body) private var buttonLineHeight = 22
   @State private var username = ""
   @State private var password = ""
   @State private var showingPassword = false
@@ -35,6 +37,9 @@ struct SignInView: View {
         geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom
       let keyboardInset = keyboardTop.map { max(0, geometry.frame(in: .global).maxY - $0) } ?? 0
       let offstage = geometry.size.width + 24
+      let buttonHeight = max(58, buttonLineHeight + 24)
+      let actionsHeight = typeSize.isAccessibilitySize ? 2 * buttonHeight + 10 : buttonHeight
+      let panelHeight = max(80, geometry.size.height - keyboardInset - actionsHeight - 42)
       ZStack(alignment: .top) {
         AuthBotField(size: CGSize(width: geometry.size.width, height: fullHeight), stage: stage)
         hero
@@ -62,13 +67,13 @@ struct SignInView: View {
         .offset(y: stage == 0 ? 0 : 132)
         .allowsHitTesting(stage == 0 && interactiveStage == 0).accessibilityHidden(
           stage != 0 || interactiveStage != 0)
-        panel(credentials: false, maxHeight: max(120, geometry.size.height - keyboardInset - 100))
+        panel(credentials: false, maxHeight: panelHeight)
           .offset(x: stage == 0 ? offstage : stage == 1 ? 0 : -offstage, y: -keyboardInset)
           .allowsHitTesting(stage == 1 && interactiveStage == 1).accessibilityElement(
             children: .contain
           )
           .accessibilityHidden(stage != 1 || interactiveStage != 1)
-        panel(credentials: true, maxHeight: max(120, geometry.size.height - keyboardInset - 100))
+        panel(credentials: true, maxHeight: panelHeight)
           .offset(x: stage == 2 ? 0 : offstage, y: -keyboardInset)
           .allowsHitTesting(stage == 2 && interactiveStage == 2).accessibilityElement(
             children: .contain
@@ -179,11 +184,13 @@ struct SignInView: View {
       .clipShape(RoundedRectangle(cornerRadius: 30))
       .modifier(AuthGlass(radius: 30))
       .shadow(color: (dark ? Color.black : Color(hex: "74746D")).opacity(0.14), radius: 26, y: 12)
-      HStack(spacing: 10) {
+      let actions = typeSize.isAccessibilitySize
+        ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
+      actions {
         authButton(
           store.connecting ? "Cancel" : "Back",
           identifier: credentials ? "auth-back-credentials" : "auth-back-endpoint", primary: false,
-          expand: false
+          expand: typeSize.isAccessibilitySize
         ) {
           field = nil
           if store.connecting { cancel() } else { store.authPath = credentials ? [.endpoint] : [] }
@@ -293,8 +300,8 @@ struct SignInView: View {
     return Button(action: action) {
       HStack(spacing: 9) {
         if busy { ProgressView().tint(foreground) }
-        Text(title).font(.body.weight(primary ? .semibold : .medium)).multilineTextAlignment(
-          .center)
+        Text(title).font(.body.weight(primary ? .semibold : .medium))
+          .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
       }
       .foregroundStyle(disabled && !busy ? secondary : foreground)
       .padding(.horizontal, primary ? 22 : 18).padding(.vertical, 12)

@@ -25,7 +25,7 @@ final class GrokbotVisualTests: XCTestCase {
     return app
   }
   func input(_ app: XCUIApplication) -> XCUIElement {
-    app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    app.descendants(matching: .any).matching(identifier: app.buttons["thread-back"].isHittable ? "thread-message-input" : "message-input").firstMatch
   }
   func capture(_ name: String, _ app: XCUIApplication) {
     if name.contains("keyboard") || name == "search" {
@@ -119,16 +119,16 @@ final class GrokbotVisualTests: XCTestCase {
     XCTAssertTrue(app.buttons["Start a thread"].waitForExistence(timeout: 5))
     capture("message-actions", app)
     app.buttons["Reply"].tap()
-    XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
     capture("reply-composer", app)
-    app.buttons["Cancel reply"].tap()
+    app.buttons["thread-back"].tap()
     // The keyboard changes which history rows are visible; target a visible bubble.
     let target = app.staticTexts.matching(identifier: "CERULEAN781").allElementsBoundByIndex.first(
       where: { $0.isHittable })!
     let from = target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
     let to = from.withOffset(CGVector(dx: 125, dy: 0))
     from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.6)
-    XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
     capture("reply-after-swipe", app)
   }
   func testReplyDragReferenceState() async throws {
@@ -141,81 +141,47 @@ final class GrokbotVisualTests: XCTestCase {
     from.press(
       forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 125, dy: 0)), withVelocity: .slow,
       thenHoldForDuration: 2)
-    XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
     capture("reply-user-completed", app)
   }
-  func testHeldReplySendsInlineAndQuoteReturnsToOriginal() async throws {
+  func testFocusedReplyRetriesAndKeepsThreadContext() async throws {
+    continueAfterFailure = false
     func control(_ value: [String: Bool]) async throws {
       var request = URLRequest(url: base.appendingPathComponent("__qa/control"))
-      request.httpMethod = "POST"
-      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type")
       request.httpBody = try JSONSerialization.data(withJSONObject: value)
       let (_, response) = try await URLSession.shared.data(for: request)
       XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
     }
     let app = try await launch("actions")
-    let originals = app.staticTexts.matching(identifier: "CERULEAN781").allElementsBoundByIndex
-    XCTAssertLessThanOrEqual(originals.last!.frame.maxY, input(app).frame.minY)
-    // Reply to the earlier duplicate so the later quote must move the history.
-    let original = originals.first!
-    XCTAssertTrue(original.isHittable)
-    original.press(forDuration: 1)
-    XCTAssertTrue(app.buttons["Reply"].waitForExistence(timeout: 5))
-    app.buttons["Reply"].tap()
-    XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
-    input(app).tap()
-    input(app).typeText("Inline reply stays in this conversation")
-    XCTAssertEqual(input(app).value as? String, "Inline reply stays in this conversation")
-    capture("inline-reply-draft", app)
-    try await control(["offline": true])
-    app.buttons["send-button"].tap()
-    XCTAssertTrue(app.staticTexts["Queued · offline"].waitForExistence(timeout: 10))
-    let pendingQuote = app.buttons.matching(
-      NSPredicate(format: "identifier BEGINSWITH %@", "reply-quote-")
-    ).firstMatch
-    XCTAssertTrue(pendingQuote.exists)
-    capture("inline-reply-queued", app)
-    app.buttons["chat-back"].tap()
-    app.buttons["channel-visual-chat"].tap()
-    XCTAssertTrue(app.staticTexts["Queued · offline"].waitForExistence(timeout: 5))
-    XCTAssertTrue(pendingQuote.isHittable)
-    XCTAssertFalse(app.alerts.firstMatch.exists)
-    capture("inline-reply-queued-reopened", app)
+    let original = app.staticTexts.matching(identifier: "CERULEAN781").allElementsBoundByIndex.first!
+    original.press(forDuration: 0.7); app.buttons["Reply"].tap()
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 8))
+    input(app).tap(); input(app).typeText("Focused reply survives retry")
+    try await control(["offline": true]); app.buttons["thread-send-button"].tap()
+    XCTAssertTrue(app.staticTexts["Waiting for connection"].waitForExistence(timeout: 10))
+    app.buttons["thread-back"].tap()
+    XCTAssertFalse(app.staticTexts["Focused reply survives retry"].isHittable)
+    original.press(forDuration: 0.7); app.buttons["Reply"].tap()
+    XCTAssertTrue(app.staticTexts["Focused reply survives retry"].waitForExistence(timeout: 8))
     try await control(["offline": false, "dropNextSend": true])
     var replies: [[String: Any]] = []
-    for _ in 0..<30 {
-      let (data, _) = try await URLSession.shared.data(
-        from: base.appendingPathComponent("__qa/state"))
+    for _ in 0..<40 {
+      let (data, _) = try await URLSession.shared.data(from: base.appendingPathComponent("__qa/state"))
       let state = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-      replies = (state["messages"] as? [[String: Any]] ?? []).filter {
-        $0["content"] as? String == "Inline reply stays in this conversation"
-      }
+      replies = (state["messages"] as? [[String: Any]] ?? []).filter { $0["content"] as? String == "Focused reply survives retry" }
       if !replies.isEmpty { break }
       try await Task.sleep(for: .milliseconds(300))
     }
     XCTAssertEqual(replies.count, 1)
-    let reply = try XCTUnwrap(replies.first)
-    let metadata = try XCTUnwrap(reply["metadata"] as? [String: Any])
+    let metadata = try XCTUnwrap(replies.first?["metadata"] as? [String: Any])
     XCTAssertEqual(metadata["replyTo"] as? String, "visual-message-visual-chat-3")
-    XCTAssertNotEqual(metadata["branched"] as? Bool, true)
-    XCTAssertEqual(reply["channelId"] as? String, "visual-chat")
-    let quote = app.buttons["reply-quote-" + (try XCTUnwrap(reply["id"] as? String))]
-    XCTAssertTrue(quote.waitForExistence(timeout: 10))
-    XCTAssertTrue(app.staticTexts["Inline reply stays in this conversation"].exists)
-    XCTAssertFalse(app.buttons["Cancel reply"].exists)
-    let delivered = expectation(
-      for: NSPredicate(format: "exists == false"),
-      evaluatedWith: app.staticTexts["Queued · offline"])
-    await fulfillment(of: [delivered], timeout: 15)
+    XCTAssertEqual(metadata["branched"] as? Bool, true)
+    XCTAssertTrue(app.staticTexts["Waiting for connection"].waitForNonExistence(timeout: 15))
     XCTAssertFalse(app.alerts.firstMatch.exists)
-    XCTAssertTrue(quote.isHittable)
-    capture("inline-reply-sent", app)
-    quote.tap()
-    XCTAssertLessThan(abs(original.frame.midY - app.frame.height * 0.5), 140)
-    XCTAssertTrue(
-      app.staticTexts.matching(identifier: "CERULEAN781").allElementsBoundByIndex
-        .contains(where: { $0.isHittable }))
-    capture("inline-reply-original", app)
+    capture("focused-reply-recovered", app)
+    app.buttons["thread-back"].tap()
+    XCTAssertTrue(app.buttons["thread-visual-message-visual-chat-3"].waitForExistence(timeout: 8))
   }
   func testScrolledChatKeepsFloatingControlsInBothAppearances() async throws {
     for appearance in ["light", "dark"] {

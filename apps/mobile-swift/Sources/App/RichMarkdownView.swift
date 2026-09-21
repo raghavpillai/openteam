@@ -7,7 +7,7 @@ struct RichMarkdownView: View {
   let source: String
   var forceDark = false
   @Environment(\.colorScheme) private var scheme
-  @Environment(\.dynamicTypeSize) private var typeSize
+  @ScaledMetric(relativeTo: .body) private var fontSize = 17.0
   @State private var height: CGFloat = 40
   @State private var failure = false
   @State private var width: CGFloat = 0
@@ -17,7 +17,7 @@ struct RichMarkdownView: View {
     } else {
       MarkdownDocument(
         source: source, dark: forceDark || scheme == .dark,
-        fontSize: UIFont.preferredFont(forTextStyle: .body).pointSize, height: $height,
+        fontSize: fontSize, height: $height,
         failure: $failure
       )
       .id(Self.usesDiagrams(source))
@@ -25,12 +25,12 @@ struct RichMarkdownView: View {
       .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { _, value in
         width = value
         if let cached = DocumentHeightCache.shared.height(source: source, width: value,
-          dark: forceDark || scheme == .dark, font: UIFont.preferredFont(forTextStyle: .body).pointSize),
+          dark: forceDark || scheme == .dark, font: fontSize),
           abs(cached - height) > 0.5 { height = cached }
       }
       .onChange(of: height) { _, value in
         if width > 0 { DocumentHeightCache.shared.save(value, source: source, width: width,
-          dark: forceDark || scheme == .dark, font: UIFont.preferredFont(forTextStyle: .body).pointSize) }
+          dark: forceDark || scheme == .dark, font: fontSize) }
       }
     }
   }

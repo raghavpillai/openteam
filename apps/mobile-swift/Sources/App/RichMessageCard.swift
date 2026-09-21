@@ -14,12 +14,13 @@ struct ApprovalCard: View {
   }
   private var selected: [String] { items.map(key).filter { !excluded.contains($0) } }
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      Label(title, systemImage: "checkmark.shield").font(.headline)
+    VStack(alignment: .leading, spacing: 12) {
+      Text(title).font(.body.weight(.medium))
       let detail = approval.details
       ForEach(["description", "summary", "reason", "effect", "machineLabel"], id: \.self) { key in
         if !detail[key].string.isEmpty {
-          Text(detail[key].string).font(.subheadline).foregroundStyle(NativePalette.muted)
+          Text(detail[key].string).font(["description", "summary"].contains(key) ? .body : .subheadline)
+            .foregroundStyle(["description", "summary"].contains(key) ? NativePalette.text : NativePalette.muted)
         }
       }
       if cookieImport {
@@ -92,27 +93,31 @@ struct ApprovalCard: View {
         }
       } else {
         let status = ApprovalPresentation.status(approval)
-        HStack {
-          if status == "Running" { ProgressView() }
-          Label(
-            status,
-            systemImage: status == "Failed"
-              ? "exclamationmark.circle"
-              : status == "Completed" ? "checkmark.circle" : "checkmark.shield")
-        }.foregroundStyle(status == "Failed" ? NativePalette.destructive : NativePalette.muted)
-          .accessibilityIdentifier("approval-receipt-" + approval.id)
+        HStack(spacing: 6) {
+          if status == "Running" { ProgressView().tint(receiptColor(status)) }
+          Label(status, systemImage: ["Failed", "Denied", "Cancelled", "Expired"].contains(status)
+            ? "xmark.circle.fill" : "checkmark.circle.fill")
+        }.font(.system(size: 15, weight: .medium)).foregroundStyle(receiptColor(status))
+          .frame(maxWidth: .infinity).frame(minHeight: 38)
+          .background(receiptColor(status).opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
+
         if !detail["actionError"].string.isEmpty {
           Text(UserFacingError.message(APIError(detail["actionError"].string))).font(.footnote)
         }
       }
-    }.padding(18).background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 20))
+    }.padding(14).background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 18))
       .disabled(store.busy.contains(path))
   }
   var title: String {
     [
       approval.details["title"].string, approval.details["toolName"].string,
-      cookieImport ? "Chrome site access" : "Approval required",
+      cookieImport ? "Chrome site access" : "Approval request",
     ].first { !$0.isEmpty }!
+  }
+  private func receiptColor(_ status: String) -> Color {
+    if ["Failed", "Denied", "Cancelled", "Expired"].contains(status) { return NativePalette.widgetDanger }
+    if status == "Running" { return NativePalette.link }
+    return NativePalette.receiptCheck
   }
   var path: String { "/api/v0/approvals/\(API.segment(approval.id))/resolve" }
   func act(_ decision: String) {
@@ -137,11 +142,13 @@ extension JSON {
 }
 
 struct RichMessageCard: View {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(MessageModalPresenter.self) private var modals
   @Environment(AppStore.self) private var store
   let message: Message
-  @State private var selected: Set<String> = []
-  @State private var custom = ""
+  private var selected: Set<String> {
+    Set(store.draft(message.channelId).widgetSelections?[message.id] ?? [])
+  }
   @State private var secret = ""
   @State private var formValues: [String: JSON] = [:]
   @State private var bodyText = ""
@@ -167,7 +174,7 @@ struct RichMessageCard: View {
   }
   var body: some View {
     if supported {
-      VStack(alignment: .leading, spacing: 13) {
+      VStack(alignment: .leading, spacing: type == "widget" ? 12.25 : 13) {
         if let failure { InlineFailure(message: failure) }
         switch type {
         case "widget": widget
@@ -183,9 +190,13 @@ struct RichMessageCard: View {
             NativePalette.muted)
         default: EmptyView()
         }
-      }.padding(16).background(
+      }.padding(type == "widget" ? 14 : 16).background(
         NativePalette.surface, in: RoundedRectangle(cornerRadius: 18)
       )
+      .animation(type == "widget" && !reduceMotion ? .easeOut(duration: 0.24) : nil,
+        value: meta["respondedValue"])
+      .animation(type == "widget" && !reduceMotion ? .easeOut(duration: 0.24) : nil,
+        value: meta["widgetDismissed"])
       .task(id: message.id) {
         if type == "user-form", state == "pending" {
           do {
@@ -206,13 +217,12 @@ struct RichMessageCard: View {
         failure = nil
       }
       .onChange(of: selected) { _, _ in requestID = UUID().uuidString }
-      .onChange(of: custom) { _, _ in requestID = UUID().uuidString }
       .onChange(of: bodyText) { _, _ in requestID = UUID().uuidString }
       .onChange(of: to) { _, _ in requestID = UUID().uuidString }
       .onChange(of: cc) { _, _ in requestID = UUID().uuidString }
       .onChange(of: saveToVault) { _, _ in requestID = UUID().uuidString }
       .onChange(of: subject) { _, _ in requestID = UUID().uuidString }
-      .disabled(busy)
+      .disabled(busy || store.busy.contains("/api/v0/channel-messages/\(API.segment(message.id))/widget-response"))
       .onAppear {
         bodyText = meta["draft"]["body"].string
         subject = meta["draft"]["subject"].string
@@ -234,48 +244,119 @@ struct RichMessageCard: View {
   }
   @ViewBuilder var widget: some View {
     let widget = meta["widget"]
-    Text(widget["prompt"].string).font(.headline)
-    if !widget["helpText"].string.isEmpty {
-      Text(widget["helpText"].string).font(.subheadline).foregroundStyle(NativePalette.muted)
+    HStack(alignment: .top, spacing: 8) {
+      Text(widget["prompt"].string).font(.body.weight(.medium))
+        .fixedSize(horizontal: false, vertical: true)
+      Spacer(minLength: 0)
+      if meta["respondedValue"] == .null && !meta["widgetDismissed"].bool {
+        Button { act("widget-dismiss") } label: {
+          Image(systemName: "xmark").font(.system(size: 15, weight: .regular))
+            .foregroundStyle(NativePalette.chatFaint).frame(width: 20, height: 20)
+            .contentShape(Rectangle().inset(by: -10))
+        }.buttonStyle(.plain).accessibilityLabel("Dismiss")
+          .accessibilityIdentifier("widget-dismiss-" + message.id)
+      }
     }
-    if !meta["respondedValue"].string.isEmpty {
-      Text(meta["respondedValue"].string)
-    } else if meta["widgetDismissed"].bool {
-      Text("Dismissed").foregroundStyle(NativePalette.muted)
+    if !widget["helpText"].string.isEmpty {
+      Text(widget["helpText"].string).font(.system(size: 14))
+        .foregroundStyle(NativePalette.chatFaint).padding(.trailing, 36)
+    }
+    if case .string(let response) = meta["respondedValue"] {
+      let answers = WidgetAnswer.resolve(widget: widget, response: response)
+      VStack(spacing: 0) {
+        ForEach(Array(answers.enumerated()), id: \.offset) { index, answer in
+          if index > 0 { NativePalette.separator.frame(height: 0.5) }
+          HStack(spacing: 12) {
+            Text(answer.label).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Path { path in
+              path.move(to: CGPoint(x: 3, y: 8))
+              path.addLine(to: CGPoint(x: 6, y: 11))
+              path.addLine(to: CGPoint(x: 13, y: 4))
+            }.stroke(NativePalette.receiptCheck,
+              style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+              .frame(width: 16, height: 16).accessibilityHidden(true)
+          }.padding(.horizontal, 10).padding(.vertical, 10)
+            .frame(minHeight: 40).accessibilityElement(children: .combine)
+            .accessibilityValue("Selected")
+            .accessibilityIdentifier("widget-answer-\(message.id)-\(index)")
+        }
+      }.background(NativePalette.background, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(NativePalette.separator, lineWidth: 0.5))
     } else {
-      ForEach(Array(widget["options"].array.enumerated()), id: \.offset) { _, option in
-        let value = option["value"].string.isEmpty ? option["label"].string : option["value"].string
-        Button {
-          if widget["multiSelect"].bool {
-            NativeHaptics.play(.selection, source: "widget.selection")
-            if selected.contains(value) { selected.remove(value) } else { selected.insert(value) }
-          } else {
-            act("widget-response", body: ["value": .string(value)])
-          }
-        } label: {
-          HStack {
-            Text(option["label"].string)
-            Spacer()
-            if selected.contains(value) { Image(systemName: "checkmark") }
-          }.frame(minHeight: 32)
-        }.buttonStyle(.bordered)
-      }
-      if widget["allowCustom"].bool {
-        TextField("Your answer", text: $custom, axis: .vertical).textFieldStyle(.roundedBorder)
-      }
-      if widget["multiSelect"].bool || widget["allowCustom"].bool {
-        Button("Submit") {
-          let values =
-            widget["options"].array.map {
+      let dismissed = meta["widgetDismissed"].bool
+      VStack(spacing: 0) {
+        ForEach(Array(widget["options"].array.enumerated()), id: \.offset) { index, option in
+          if index > 0 { NativePalette.separator.opacity(0.5).frame(height: 0.5) }
+          let value = option["value"].string.isEmpty ? option["label"].string : option["value"].string
+          Button {
+            if widget["multiSelect"].bool {
+              NativeHaptics.play(.selection, source: "widget.selection")
+              var values = selected
+              if values.contains(value) { values.remove(value) } else { values.insert(value) }
+              var draft = store.draft(message.channelId)
+              draft.widgetResponse = nil
+              if draft.widgetSelections == nil { draft.widgetSelections = [:] }
+              draft.widgetSelections?[message.id] = widget["options"].array.map {
+                $0["value"].string.isEmpty ? $0["label"].string : $0["value"].string
+              }.filter(values.contains)
+              store.saveDraft(draft, channel: message.channelId)
+            } else { act("widget-response", body: ["value": .string(value)]) }
+          } label: {
+            HStack(alignment: .top, spacing: 9) {
+              Text(index < 26 ? String(UnicodeScalar(65 + index)!) : String(index + 1))
+                .font(.system(size: 13)).foregroundStyle(NativePalette.chatFaint)
+                .frame(width: 20, height: 20)
+                .background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 5))
+                .accessibilityHidden(true)
+              VStack(alignment: .leading, spacing: 3.5) {
+                Text(option["label"].string).font(.body)
+                  .foregroundStyle(option["style"].string == "danger"
+                    ? NativePalette.widgetDanger : NativePalette.text)
+                if !option["description"].string.isEmpty {
+                  Text(option["description"].string).font(.system(size: 14))
+                    .foregroundStyle(NativePalette.chatMuted)
+                }
+              }.fixedSize(horizontal: false, vertical: true)
+              Spacer(minLength: 0)
+              if selected.contains(value) {
+                Image(systemName: "checkmark").font(.system(size: 14))
+                  .foregroundStyle(NativePalette.receiptCheck)
+              }
+            }.padding(.horizontal, 10).padding(.vertical, 10)
+              .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+              .contentShape(Rectangle())
+          }.buttonStyle(.plain).disabled(dismissed)
+            .accessibilityLabel(option["label"].string)
+            .accessibilityValue(selected.contains(value) ? "Selected" : "")
+        }
+      }.background(NativePalette.background, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(NativePalette.separator.opacity(0.5), lineWidth: 0.5))
+        .opacity(dismissed ? 0.35 : 1)
+      if dismissed {
+        Text("dismissed").font(.system(size: 12)).foregroundStyle(NativePalette.chatFaint)
+          .accessibilityIdentifier("widget-dismissed-" + message.id)
+      } else {
+        if widget["allowCustom"].bool {
+          Text("Or answer in the chat below").font(.system(size: 14))
+            .foregroundStyle(NativePalette.chatFaint)
+        }
+        if widget["multiSelect"].bool {
+          Button {
+            let values = widget["options"].array.map {
               $0["value"].string.isEmpty ? $0["label"].string : $0["value"].string
             }.filter(selected.contains)
-            + (custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-              ? [] : [custom.trimmingCharacters(in: .whitespacesAndNewlines)])
-          act("widget-response", body: ["value": .string(values.joined(separator: "\n"))])
-        }.disabled(selected.isEmpty && custom.isEmpty)
+            act("widget-response", body: ["value": .string(values.joined(separator: "\n"))])
+          } label: {
+            Text("Submit").font(.system(size: 15, weight: .medium))
+              .foregroundStyle(selected.isEmpty ? NativePalette.chatFaint : NativePalette.onPrimary)
+              .frame(maxWidth: .infinity).frame(height: 38)
+              .background(selected.isEmpty ? NativePalette.widgetDisabled : NativePalette.text,
+                in: RoundedRectangle(cornerRadius: 9))
+          }.buttonStyle(WidgetSubmitStyle()).disabled(selected.isEmpty)
+            .accessibilityIdentifier("widget-submit-" + message.id)
+        }
       }
-      Button("Dismiss") { act("widget-dismiss") }.font(.subheadline).foregroundStyle(
-        NativePalette.muted)
     }
   }
   @ViewBuilder var secretRequest: some View {
@@ -496,6 +577,7 @@ struct RichMessageCard: View {
     failure = nil
     var payload = body
     let action = suffix + ":" + (body["action"]?.string ?? "") + ":" + (body["mode"]?.string ?? "")
+      + (suffix == "widget-response" ? ":" + (body["value"]?.string ?? "") : "")
     if lastAction != action {
       lastAction = action
       requestID = UUID().uuidString
@@ -511,7 +593,7 @@ struct RichMessageCard: View {
           store.merge([updated], channel: updated.channelId)
           store.persist()
         }
-        guard result["accepted"] != .bool(false) else {
+        guard WidgetMutationReceipt.accepted(result, action: suffix, clientID: payload["clientId"]?.string ?? "", value: payload["value"] ?? .null) else {
           NativeHaptics.play(.error, source: "rich-action.result")
           failure = "This action is no longer available. The card has been refreshed."
           return
@@ -536,5 +618,11 @@ struct RichMessageCard: View {
         failure = UserFacingError.message(error)
       }
     }
+  }
+}
+
+private struct WidgetSubmitStyle: ButtonStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label.opacity(configuration.isPressed ? 0.8 : 1)
   }
 }

@@ -335,6 +335,11 @@ final class AuthFlowUITests: XCTestCase {
       if app.buttons["connect-button"].isHittable { break }
       app.swipeUp()
     }
+    let connect = app.buttons["connect-button"]
+    let back = app.buttons["auth-back-endpoint"]
+    XCTAssertGreaterThan(connect.frame.minY, back.frame.maxY)
+    XCTAssertGreaterThan(connect.frame.width, 350)
+    capture("endpoint-dark-large-text", app)
     app.buttons["connect-button"].tap()
     XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 15))
     waitForArrival(app.textFields["username-field"])

@@ -36,13 +36,13 @@ struct ComputerView: View {
   var body: some View {
     VStack(spacing: 0) {
       HStack(spacing: 12) {
-        ChromeButton(title: "Done", symbol: "chevron.left") { Task { await close() } }
+        ChatChromeButton(title: "Done", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular) { Task { await close() } }
           .disabled(working)
         BotGlyph(color: Color(hex: bot.color), kind: bot.icon, size: 25)
         Text(bot.name).font(.body.weight(.medium)).lineLimit(1)
           .accessibilityValue(takeover ? "You have control" : "Watching")
         Spacer(minLength: 0)
-        ChromeButton(title: "Computer help", symbol: "questionmark") { help = true }
+        ChatChromeButton(title: "Computer help", symbol: "questionmark", symbolSize: 21) { help = true }
         if hasFrame {
           Menu {
             Button(
@@ -62,7 +62,7 @@ struct ComputerView: View {
             Button("Input controls", systemImage: "slider.horizontal.3") { inputControls = true }
           } label: {
             Image(systemName: "ellipsis").font(.system(size: 21))
-              .frame(width: 44, height: 44).nativeGlass()
+              .frame(width: 44, height: 44).nativeChatGlass()
           }.buttonStyle(.plain).accessibilityLabel("Computer options").disabled(working)
         }
       }.padding(.horizontal, 18).padding(.top, 6).padding(.bottom, 10)
@@ -71,7 +71,8 @@ struct ComputerView: View {
         remoteSize: CGSize(
           width: max(1, status["width"].int), height: max(1, status["height"].int)),
         interactive: takeover && vnc.connected && !busy && viewerFailure == nil && !paused,
-        trackpad: trackpad, showStarting: failure == nil && viewerFailure == nil
+        trackpad: trackpad, showStarting: failure == nil && viewerFailure == nil,
+        desktopReady: status["state"].string == "ready", keyboard: keyboard
       ) { body in Task { await action(body) } }
       if let viewerFailure {
         VStack(alignment: .leading, spacing: 8) {
@@ -86,22 +87,22 @@ struct ComputerView: View {
       if let failure { InlineFailure(message: failure).padding(18) }
       if hasFrame {
         HStack {
-          ChromeButton(title: "Clipboard", symbol: "list.clipboard") {
+          ComputerToolButton(title: "Clipboard", symbol: "list.clipboard") {
             keyboard = false
             clipboard = true
           }
           Spacer()
           if paused { Text("View paused").font(.caption).foregroundStyle(.secondary) }
-          ChromeButton(
+          ComputerToolButton(
             title: keyboard ? "Hide computer keyboard" : "Show computer keyboard",
-            symbol: keyboard ? "keyboard.chevron.compact.down" : "keyboard"
+            symbol: "keyboard"
           ) {
             Task {
               if !takeover { await setTakeover(true) }
               if takeover { keyboard.toggle() }
             }
           }.disabled(working || paused || viewerFailure != nil)
-        }.padding(.horizontal, keyboard ? 18 : 30).padding(.top, 14).padding(.bottom, 12)
+        }.padding(.horizontal, keyboard ? 18 : 30).padding(.top, 14).padding(.bottom, keyboard ? 18 : 12)
       }
     }.background(Color.black.ignoresSafeArea()).foregroundStyle(.white).preferredColorScheme(.dark)
       .background {
@@ -376,6 +377,8 @@ private struct ComputerVideo: View {
   let interactive: Bool
   let trackpad: Bool
   let showStarting: Bool
+  let desktopReady: Bool
+  let keyboard: Bool
   let action: ([String: JSON]) -> Void
   var body: some View {
     GeometryReader { geometry in
@@ -386,13 +389,27 @@ private struct ComputerVideo: View {
           .frame(width: min(geometry.size.width, geometry.size.height * ratio),
             height: min(geometry.size.height, geometry.size.width / ratio))
           .opacity(vnc.hasFrame ? 1 : 0)
+          .offset(y: keyboard ? -min(18, max(0, (geometry.size.height - min(geometry.size.height, geometry.size.width / ratio)) / 2)) : 0)
         if !vnc.hasFrame && showStarting {
           VStack(spacing: 14) {
             ProgressView().tint(.gray)
-            Text("Starting desktop…").font(.subheadline)
+            Text(desktopReady ? "Connecting…" : "Starting desktop…").font(.subheadline)
           }
         }
       }.frame(width: geometry.size.width, height: geometry.size.height)
     }
+  }
+}
+
+private struct ComputerToolButton: View {
+  let title: String
+  let symbol: String
+  let action: () -> Void
+  var body: some View {
+    Button(action: action) {
+      Image(systemName: symbol).font(.system(size: 18))
+        .frame(width: 38, height: 38).nativeChatGlass()
+        .frame(width: 44, height: 44).contentShape(Rectangle())
+    }.buttonStyle(.plain).accessibilityLabel(title)
   }
 }

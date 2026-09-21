@@ -69,6 +69,55 @@ import XCTest
     XCTAssertFalse(app.staticTexts["Unsafe script executed"].exists)
     capture("rich-markdown-light", app)
   }
+  func testCompletedWidgetKeepsLabeledCheckedRowsInBothThemes() async throws {
+    for dark in [true, false] {
+      let app = try await launch("widget-completed", dark: dark)
+      defer { app.terminate() }
+      XCTAssertTrue(app.staticTexts["Choose a route"].waitForExistence(timeout: 10))
+      XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading")
+        .firstMatch.waitForNonExistence(timeout: 15))
+      var previous: CGRect?
+      for (index, label) in ["Alpha", "Beta", "Gamma"].enumerated() {
+        let row = app.descendants(matching: .any)
+          .matching(identifier: "widget-answer-content-fixture-\(index)").firstMatch
+        XCTAssertTrue(row.exists)
+        XCTAssertEqual(row.label, label)
+        XCTAssertEqual(row.value as? String, "Selected")
+        // AX may expose the text bounds rather than the padded row. Measure
+        // the distance between rows, which also catches a collapsed option list.
+        if let previous { XCTAssertGreaterThanOrEqual(row.frame.midY - previous.midY, 40) }
+        previous = row.frame
+      }
+      XCTAssertFalse(app.buttons["Submit"].exists)
+      XCTAssertFalse(app.buttons["Dismiss"].exists)
+      capture("widget-completed-" + (dark ? "dark" : "light"), app)
+    }
+  }
+  func testPlainMessageLineBoxTracksAccessibilityTextSize() async throws {
+    var heights: [CGFloat] = []
+    for category in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryAccessibilityXXXL"] {
+      try await control("/__qa/reset")
+      try await control("/__qa/content", ["scene": "type-size"])
+      let app = XCUIApplication()
+      app.launchArguments = ["--ui-testing", "--server", base, "--appearance", "dark",
+        "--open-channel", "channel-research", "-UIPreferredContentSizeCategoryName", category]
+      app.launch()
+      defer { app.terminate() }
+      let text = app.staticTexts["Hello"]
+      XCTAssertTrue(text.waitForExistence(timeout: 15))
+      XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading")
+        .firstMatch.waitForNonExistence(timeout: 15))
+      let row = app.otherElements["message-content-fixture"]
+      XCTAssertTrue(row.exists)
+      XCTAssertTrue(text.isHittable)
+      XCTAssertGreaterThanOrEqual(row.frame.height, text.frame.height)
+      heights.append(row.frame.height)
+      capture("message-type-size-" + category, app)
+    }
+    XCTAssertEqual(heights[0], 40, accuracy: 0.5)
+    XCTAssertGreaterThan(heights[1], heights[0] * 1.8)
+    XCTAssertLessThan(heights[1], heights[0] * 3, "A single line must not gain a second empty line box")
+  }
   func testUserFormPrefillValidationFailureAndAcceptedReceipt() async throws {
     let app = try await launch("form", dark: true)
     let name = app.descendants(matching: .any).matching(identifier: "form-field-name").firstMatch

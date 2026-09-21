@@ -264,16 +264,23 @@ struct BotActivityRow: View {
   let visible: Bool
   var body: some View {
     HStack {
-      BotGlyph(color: Color(hex: bot.color), kind: bot.icon, size: 32, mode: mode)
+      // Keep the row geometry while giving the desktop artwork the reference's
+      // visual weight; its 108-unit canvas includes padding around the robot.
+      BotGlyph(color: Color(hex: bot.color), kind: bot.icon, size: 36, mode: mode)
+        .frame(width: 32, height: 32).offset(x: -2, y: 1)
         .scaleEffect(visible || reduceMotion ? 1 : 0.3)
         .opacity(visible ? 1 : 0)
         .animation(
           reduceMotion ? nil : .easeOut(duration: visible ? 0.18 : 0.12), value: visible)
+      Text(bot.name + (mode == .idle ? " needs input" : " is working"))
+        .font(.system(size: 12)).foregroundStyle(NativePalette.chatMuted)
+        .lineLimit(1).opacity(visible ? 1 : 0)
       Spacer()
     }.frame(height: visible ? 50 : 0).padding(.top, visible ? 2 : 0)
       .padding(.bottom, visible ? 12 : 0)
       .clipped()
-      .accessibilityElement(children: .ignore).accessibilityLabel("Bot is \(mode.rawValue)")
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel(bot.name + (mode == .idle ? " needs input" : " is working"))
       .accessibilityIdentifier("bot-activity").accessibilityHidden(!visible)
   }
 }

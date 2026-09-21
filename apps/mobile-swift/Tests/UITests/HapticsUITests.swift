@@ -72,7 +72,7 @@ import XCTest
     return app
   }
   func field(_ app: XCUIApplication) -> XCUIElement {
-    app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    app.descendants(matching: .any).matching(identifier: app.buttons["thread-back"].isHittable ? "thread-message-input" : "message-input").firstMatch
   }
   func hold(_ app: XCUIApplication) {
     app.staticTexts["Got it — here."].press(forDuration: 0.7)
@@ -91,11 +91,11 @@ import XCTest
     try await clear()
     hold(app)
     app.buttons["Reply"].tap()
-    XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
     try await expect("message.reply-action", "light")
     field(app).typeText("Haptic send check")
     try await clear()
-    app.buttons["send-button"].tap()
+    app.buttons["thread-send-button"].tap()
     try await expect("message.send", "light")
     XCTAssertTrue(app.staticTexts["Haptic send check"].waitForExistence(timeout: 8))
     let log = try await events()
@@ -109,13 +109,13 @@ import XCTest
     start.press(
       forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 30, dy: 0)), withVelocity: .slow,
       thenHoldForDuration: 0.3)
-    XCTAssertFalse(app.buttons["Cancel reply"].exists)
+    XCTAssertFalse(app.buttons["thread-back"].exists)
     let belowThreshold = try await events()
     XCTAssertTrue(belowThreshold.isEmpty)
     start.press(
       forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 80, dy: 0)), withVelocity: .slow,
       thenHoldForDuration: 0.3)
-    XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
     try await expect("message.reply-swipe", "light")
     let swipeEvents = try await events()
     XCTAssertEqual(swipeEvents.filter(\.emitted).count, 1)
@@ -157,7 +157,7 @@ import XCTest
     app.buttons["Reply"].tap()
     try await expect("message.reply-action", "light", emitted: false)
     field(app).typeText("Silent send")
-    app.buttons["send-button"].tap()
+    app.buttons["thread-send-button"].tap()
     try await expect("message.send", "light", emitted: false)
     let log = try await events()
     XCTAssertTrue(log.allSatisfy { !$0.enabled && !$0.emitted })

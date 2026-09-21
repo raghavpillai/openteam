@@ -689,26 +689,29 @@ final class AppStore {
       persist()
     } catch { if epoch == generation { handle(error, quiet: true) } }
   }
-  func enqueue(_ channel: Channel, draftKey: String? = nil, threadRootID: String? = nil) async {
+  func enqueue(_ channel: Channel, draftKey: String? = nil, threadRootID: String? = nil,
+    replyRootID: String? = nil) async {
     let key = draftKey ?? channel.id
     let current = draft(key)
     guard
       !current.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         || !current.attachments.isEmpty || !(current.stagedFiles ?? []).isEmpty
     else { return }
+    if threadRootID == nil, replyRootID == nil,
+      await answerWidgetFromComposer(channel, draftKey: key) { return }
     #if canImport(UIKit)
       NativeHaptics.play(.light, source: "message.send")
     #endif
     let input = SendInput(
       content: current.text, attachments: current.attachments,
-      replyToMessageId: current.replyTo ?? threadRootID,
+      replyToMessageId: current.replyTo ?? threadRootID ?? replyRootID,
       isFork: (current.isFork || threadRootID != nil) ? true : nil)
     var next = savedSnapshot
     next.outbox.append(
       PendingSend(
         channelId: channel.id, input: input, stagedFiles: current.stagedFiles ?? [], draftKey: key))
     var emptyDraft = Draft()
-    emptyDraft.replyTo = threadRootID
+    emptyDraft.replyTo = threadRootID ?? replyRootID
     emptyDraft.isFork = threadRootID != nil
     next.drafts[key] = emptyDraft
     do {

@@ -72,13 +72,13 @@ import XCTest
     let app = try await launch("exchange")
     XCTAssertFalse(app.staticTexts["Outgoing exchange payload"].exists)
     app.buttons["exchange-exchange-in"].tap()
-    XCTAssertTrue(app.buttons["exchange-close"].waitForExistence(timeout: 8))
-    XCTAssertTrue(app.staticTexts["This chat is view-only"].exists)
+    XCTAssertTrue(app.buttons["exchange-back"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.staticTexts["Read-only"].exists)
     XCTAssertTrue(app.staticTexts["Incoming exchange payload"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.staticTexts["Outgoing exchange payload"].exists)
     XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "message-input").firstMatch.exists)
     capture("bot-exchange-view-only", app)
-    app.buttons["exchange-close"].tap()
+    app.buttons["exchange-back"].tap()
     XCTAssertTrue(app.buttons["exchange-exchange-in"].waitForExistence(timeout: 5))
   }
   func testGroupSpeakerIdentityInBothAppearances() async throws {
@@ -136,9 +136,9 @@ import XCTest
   func testFocusedExchangeMessageOpensTheReadOnlyConversation() async throws {
     let app = try await launch("exchange")
     app.open(URL(string: "openteam-swift://chat/channel-research?messageId=exchange-in")!)
-    XCTAssertTrue(app.buttons["exchange-close"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["exchange-back"].waitForExistence(timeout: 10))
     XCTAssertTrue(app.staticTexts["Incoming exchange payload"].isHittable)
-    XCTAssertTrue(app.staticTexts["This chat is view-only"].exists)
+    XCTAssertTrue(app.staticTexts["Read-only"].exists)
     XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "message-input").firstMatch.exists)
   }
   func testOlderSearchContextLoadsForwardWithoutSkippingPages() async throws {

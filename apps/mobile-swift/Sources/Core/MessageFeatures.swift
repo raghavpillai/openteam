@@ -1,5 +1,24 @@
 import Foundation
 
+/// Resolve the server's newline-separated widget values using the same ordering
+/// and label mapping as desktop. A single custom answer can itself be multiline.
+public struct WidgetAnswer: Equatable, Sendable {
+  public let label: String
+  public static func resolve(widget: JSON, response: String) -> [Self] {
+    let values = widget["multiSelect"].bool
+      ? response.components(separatedBy: "\n").filter { !$0.isEmpty } : [response]
+    var remaining = Set(values)
+    var answers: [Self] = []
+    for option in widget["options"].array {
+      let value = option["value"].string.isEmpty ? option["label"].string : option["value"].string
+      if remaining.remove(value) != nil { answers.append(Self(label: option["label"].string)) }
+    }
+    let custom = values.filter { remaining.contains($0) }.joined(separator: "\n")
+    if !custom.isEmpty { answers.append(Self(label: custom)) }
+    return answers
+  }
+}
+
 public struct MessageReaction: Identifiable, Equatable, Sendable {
   public var id: String { emoji }
   public let emoji: String
@@ -103,5 +122,27 @@ public struct UserFormOutcome: Sendable {
           : "Filled into the page. Secret values were never shown to your Bot."
       }
     }
+  }
+}
+
+/// A retry may return `accepted: false` after the first response was lost. Only
+/// the matching request's durable receipt confirms our own answer/dismissal.
+public enum WidgetMutationReceipt {
+  public static func accepted(_ result: JSON, action: String, clientID: String, value: JSON = .null) -> Bool {
+    guard action == "widget-response" || action == "widget-dismiss" else {
+      return result["accepted"] != .bool(false)
+    }
+    if result["accepted"] == .bool(true) { return true }
+    guard result["accepted"] == .bool(false) else { return false }
+    let metadata = result["message"]["metadata"]
+    if action == "widget-response" {
+      return !clientID.isEmpty && metadata["widgetResponseClientId"].string == clientID
+        && metadata["respondedValue"] == value
+    }
+    if action == "widget-dismiss" {
+      return !clientID.isEmpty && metadata["widgetDismissClientId"].string == clientID
+        && metadata["widgetDismissed"].bool
+    }
+    return false
   }
 }

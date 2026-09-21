@@ -24,7 +24,7 @@ import XCTest
   func testComposerFocusAtTextAndPaddingInBothAppearances() async throws {
     continueAfterFailure = false
     for appearance in ["dark", "light"] {
-      for attempt in 0..<3 {
+      for attempt in 0..<5 {
         try await control("__qa/scene", ["scene": "motion-reference"])
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--server", base.absoluteString,
@@ -125,6 +125,19 @@ import XCTest
     app.buttons["send-button"].tap()
     XCTAssertTrue(app.staticTexts["First message"].waitForExistence(timeout: 5))
     XCTAssertFalse(app.buttons["Latest messages"].exists)
+    try await Task.sleep(for: .milliseconds(500))
+    let bottom = app.staticTexts["First message"].frame.maxY
+    try await control("__qa/motion", ["active": true])
+    XCTAssertTrue(app.otherElements["bot-activity"].waitForExistence(timeout: 8))
+    try await Task.sleep(for: .milliseconds(500))
+    try await control("__qa/motion", ["active": false])
+    let activityHidden = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "hittable == false"), object: app.otherElements["bot-activity"])
+    XCTAssertEqual(XCTWaiter.wait(for: [activityHidden], timeout: 8), .completed)
+    try await Task.sleep(for: .milliseconds(500))
+    XCTAssertEqual(app.staticTexts["First message"].frame.maxY, bottom, accuracy: 1)
+    XCTAssertFalse(app.buttons["Latest messages"].exists)
+    capture("short-chat-after-activity-collapse", app)
   }
   func testKeyboardSendAndActivityTransitions() async throws {
     continueAfterFailure = false
@@ -231,7 +244,7 @@ import XCTest
     try await control("__qa/scene", ["scene": "motion-reference"])
     let app = XCUIApplication()
     app.launchArguments = [
-      "--ui-testing", "--server", base.absoluteString,
+      "--ui-testing", "--trace-chat-layout", "--server", base.absoluteString,
       "--appearance", "dark", "--open-channel", "visual-chat",
     ]
     app.launch()

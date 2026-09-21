@@ -1,5 +1,10 @@
 import SwiftUI
 
+enum ChatActivityTiming {
+  static let expansion = 0.28
+  static let collapse = 0.30
+}
+
 /// Activity state belongs to the one visible footer, not every transcript row.
 struct ChatActivityFooter: View {
   @Environment(AppStore.self) private var store
@@ -23,7 +28,8 @@ struct ChatActivityFooter: View {
       }
       Color.clear.frame(height: 11)
     }.padding(.horizontal, 16).padding(.top, 12)
-      .animation(reduceMotion ? nil : .easeInOut(duration: visible ? 0.28 : 0.24), value: visible)
+      .animation(reduceMotion ? nil : .easeInOut(
+        duration: visible ? ChatActivityTiming.expansion : ChatActivityTiming.collapse), value: visible)
       .task(id: activity) {
         if let activity { mode = activity; visible = true }
         else {

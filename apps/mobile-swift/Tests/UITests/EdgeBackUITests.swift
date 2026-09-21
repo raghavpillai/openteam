@@ -42,7 +42,7 @@ import XCTest
     let home = app.buttons["channel-channel-research"].waitForExistence(timeout: 6)
     capture(name, app)
     XCTAssertTrue(home, "The edge gesture must navigate back instead of claiming the message")
-    XCTAssertFalse(app.buttons["Cancel reply"].exists)
+    XCTAssertFalse(app.buttons["thread-back"].exists)
     XCTAssertFalse(app.buttons["photo-close"].exists)
     XCTAssertFalse(app.buttons["file-preview-close"].exists)
   }
@@ -52,7 +52,7 @@ import XCTest
       drag(app, x: x, y: row(app).frame.midY, endX: app.frame.width * 0.85)
       assertBack(app, name: "text-back-\(Int(x))")
       openChat(app)
-      XCTAssertFalse(app.buttons["Cancel reply"].exists)
+      XCTAssertFalse(app.buttons["thread-back"].exists)
     }
     app.terminate()
   }
@@ -81,12 +81,12 @@ import XCTest
     try await request("/__qa/haptics", method: "DELETE")
     drag(app, x: 22, y: row(app).frame.midY, endX: app.frame.width * 0.24)
     try await Task.sleep(for: .milliseconds(600))
-    XCTAssertFalse(app.buttons["Cancel reply"].exists)
+    XCTAssertFalse(app.buttons["thread-back"].exists)
     let (before, _) = try await URLSession.shared.data(from: URL(string: base + "/__qa/haptics")!)
     let beforeEvents = try XCTUnwrap(JSONSerialization.jsonObject(with: before) as? [[String: Any]])
     XCTAssertFalse(beforeEvents.contains { ($0["source"] as? String ?? "").hasPrefix("message.") })
     drag(app, x: 80, y: row(app).frame.midY, endX: 235)
-    XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
     let (after, _) = try await URLSession.shared.data(from: URL(string: base + "/__qa/haptics")!)
     let afterEvents = try XCTUnwrap(JSONSerialization.jsonObject(with: after) as? [[String: Any]])
     XCTAssertTrue(afterEvents.contains { ($0["source"] as? String) == "message.reply-swipe" && ($0["emitted"] as? Bool) == true })
@@ -104,7 +104,7 @@ import XCTest
         drag(app, x: 22, y: row(app).frame.midY, endX: app.frame.width * 0.95, velocity: .fast)
         assertBack(app, name: scene + (keyboard ? "-keyboard" : "-back"))
         openChat(app)
-        XCTAssertFalse(app.buttons["Cancel reply"].exists)
+        XCTAssertFalse(app.buttons["thread-back"].exists)
         if keyboard { XCTAssertEqual(input.value as? String, "Keep this draft") }
         app.terminate()
       }
@@ -118,7 +118,7 @@ import XCTest
       drag(app, x: 22, y: row(app).frame.midY, endX: app.frame.width * 0.24)
       try await Task.sleep(for: .milliseconds(600))
       XCTAssertTrue(app.buttons["chat-back"].exists)
-      XCTAssertFalse(app.buttons["Cancel reply"].exists)
+      XCTAssertFalse(app.buttons["thread-back"].exists)
       XCTAssertFalse(app.buttons["Reply"].exists)
       if keyboard { XCTAssertEqual(input.value as? String, "Draft survives canceled back") }
       capture(keyboard ? "canceled-with-keyboard" : "canceled", app)
@@ -131,9 +131,9 @@ import XCTest
     for scene in ["edge-text", "edge-photo", "edge-file"] {
       let app = try await launch(scene)
       drag(app, x: 80, y: row(app).frame.midY, endX: 235)
-      XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
+      XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
       capture(scene + "-reply", app)
-      app.buttons["Cancel reply"].tap()
+      app.buttons["thread-back"].tap()
       app.terminate(); app.launch(); openChat(app)
       row(app).press(forDuration: 0.8)
       XCTAssertTrue(app.buttons["Reply"].waitForExistence(timeout: 5))
@@ -151,7 +151,7 @@ import XCTest
       thenDragTo: origin.withOffset(CGVector(dx: 22, dy: app.frame.height * 0.55)),
       withVelocity: .slow, thenHoldForDuration: 0.3)
     XCTAssertTrue(app.buttons["chat-back"].exists)
-    XCTAssertFalse(app.buttons["Cancel reply"].exists)
+    XCTAssertFalse(app.buttons["thread-back"].exists)
     XCTAssertGreaterThan(photo.frame.minY, before + 50)
     capture("vertical-scroll", app)
     app.terminate()

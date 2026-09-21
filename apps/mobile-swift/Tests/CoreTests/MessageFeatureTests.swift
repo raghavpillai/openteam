@@ -3,6 +3,20 @@ import XCTest
 
 final class MessageFeatureTests: XCTestCase {
   private func json(_ source: String) throws -> JSON { try JSONDecoder().decode(JSON.self, from: Data(source.utf8)) }
+  func testWidgetReceiptKeepsOptionLabelsOrderAndCustomAnswer() throws {
+    let widget = try json(#"{"multiSelect":true,"options":[{"label":"Alpha","value":"alpha"},{"label":"Beta","value":"beta"},{"label":"Unused","value":"unused"},{"label":"Label only"}]}"#)
+    XCTAssertEqual(WidgetAnswer.resolve(widget: widget,
+      response: "beta\nalpha\nGamma\nLabel only").map(\.label),
+      ["Alpha", "Beta", "Label only", "Gamma"])
+    XCTAssertEqual(WidgetAnswer.resolve(widget: widget, response: "alpha\nalpha").map(\.label), ["Alpha"])
+    XCTAssertEqual(WidgetAnswer.resolve(widget: widget, response: ""), [])
+  }
+  func testSingleWidgetAnswerPreservesMultilineCustomText() throws {
+    let widget = try json(#"{"options":[{"label":"Alpha","value":"alpha"}]}"#)
+    XCTAssertEqual(WidgetAnswer.resolve(widget: widget, response: "alpha").map(\.label), ["Alpha"])
+    XCTAssertEqual(WidgetAnswer.resolve(widget: widget, response: "First line\nSecond line").map(\.label),
+      ["First line\nSecond line"])
+  }
   func testReactionsPreserveOrderCountOtherUsersAndSelectOwnReaction() throws {
     let metadata = try json(#"{"reactions":[{"emoji":"👍","by":"bot-a"},{"emoji":"❤️","by":"me"},{"emoji":"👍","by":"me"},{"emoji":"👍","by":"bot-b"},{"emoji":"","by":"me"}]}"#)
     let reactions = MessageReaction.project(metadata)

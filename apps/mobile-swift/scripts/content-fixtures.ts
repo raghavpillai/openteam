@@ -2,6 +2,8 @@ import type {ClientSnapshot} from '../../../packages/contracts/src/index';
 export function contentScene(snapshot: ClientSnapshot, scene:string) {
   snapshot.runs=[];snapshot.approvals=[];
   const message:any={id:'content-fixture',sequence:'400',channelId:'channel-research',sender:'bot',senderBotId:'bot-research',sourceRunId:null,content:'',metadata:{},createdAt:'2026-09-16T12:00:00.000Z'};
+  if(scene==='widget-completed')message.metadata={type:'widget',widget:{prompt:'Choose a route',options:[{label:'Alpha',value:'alpha'},{label:'Beta',value:'beta'}],allowCustom:true,multiSelect:true},respondedValue:'alpha\nbeta\nGamma'};
+  if(scene==='type-size')message.content='Hello';
   if(scene==='edge-text')message.content='Swipe from the screen edge to return to your conversations. Swipe inside this message to reply. A canceled back gesture must keep your draft and leave this message alone.';
   if(scene==='edge-photo')message.metadata={attachments:[{assetId:'6'.repeat(64),fileName:'Desktop 6.png',mimeType:'image/png',byteSize:66033,kind:'image',width:545,height:341}]};
   if(scene==='edge-file')message.metadata={attachments:[{assetId:'9'.repeat(64),fileName:'memory-deep-supplement-914.zip',mimeType:'application/zip',byteSize:5000,kind:'file'}]};

@@ -74,10 +74,10 @@ import XCTest
       XCTAssertTrue(app.buttons["Start a thread"].waitForExistence(timeout: 5))
       capture("message-actions-" + appearance, app)
       app.buttons["Reply"].tap()
-      XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
-      let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+      XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
+      let field = app.descendants(matching: .any).matching(identifier: "thread-message-input").firstMatch
       field.typeText("Theme check")
-      XCTAssertTrue(app.buttons["send-button"].isEnabled)
+      XCTAssertTrue(app.buttons["thread-send-button"].isEnabled)
       capture("reply-" + appearance, app)
       XCTAssertEqual(field.value as? String, "Theme check")
       app.terminate()

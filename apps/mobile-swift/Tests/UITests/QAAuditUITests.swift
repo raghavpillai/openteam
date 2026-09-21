@@ -39,7 +39,7 @@ import XCTest
       app.buttons["Reply"].waitForExistence(timeout: 2),
       "QA-02: Attachment hold has no message-action entry point.")
   }
-  func testSwipingAnAttachmentStartsInlineReply() async throws {
+  func testSwipingAnAttachmentOpensFocusedReply() async throws {
     let app = try await launch("attachment")
     let attachment = app.buttons["Open Fixture image.png"]
     XCTAssertTrue(attachment.waitForExistence(timeout: 10))
@@ -47,8 +47,8 @@ import XCTest
     start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 150, dy: 0)))
     capture("attachment-swipe", app)
     XCTAssertTrue(
-      app.buttons["Cancel reply"].waitForExistence(timeout: 2),
-      "QA-02: Attachment swipe cannot select an inline reply.")
+      app.buttons["thread-back"].waitForExistence(timeout: 2),
+      "QA-02: Attachment swipe must open the focused reply page.")
   }
   func testExistingThreadHasVisibleEntryPoint() async throws {
     let app = try await launch("thread")
@@ -63,35 +63,31 @@ import XCTest
   func testStartThreadInsideThreadDoesSomething() async throws {
     let app = try await launch("thread")
     let root = app.staticTexts["QA thread root"]
-    XCTAssertTrue(root.waitForExistence(timeout: 10))
-    root.press(forDuration: 0.7)
+    XCTAssertTrue(root.waitForExistence(timeout: 10)); root.press(forDuration: 0.7)
     app.buttons["Start a thread"].tap()
-    XCTAssertTrue(app.staticTexts["QA hidden thread reply"].waitForExistence(timeout: 5))
-    app.staticTexts["QA hidden thread reply"].press(forDuration: 0.7)
-    app.buttons["Start a thread"].tap()
-    capture("nested-thread-no-op", app)
-    // A nested root quotes its parent, and the underlying chat remains in the accessibility tree.
-    // The pushed thread must have its own back control, then return to the parent thread.
-    let back = app.navigationBars["Thread"].buttons["BackButton"]
-    XCTAssertTrue(back.waitForExistence(timeout: 5))
-    XCTAssertTrue(
-      app.descendants(matching: .any).matching(identifier: "message-audit-reply").firstMatch.exists)
-    // Entering a thread selects its root by default; clear it to prove the swipe changes state.
-    app.buttons["Cancel reply"].tap()
-    XCTAssertFalse(app.buttons["Cancel reply"].exists)
+    let page = app.descendants(matching: .any).matching(identifier: "reply-page-audit-root").firstMatch
+    XCTAssertTrue(page.waitForExistence(timeout: 8))
     let reply = app.staticTexts["QA hidden thread reply"]
-    let interior = reply.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5))
-    interior.press(forDuration: 0.05, thenDragTo: interior.withOffset(CGVector(dx: 110, dy: 0)))
-    XCTAssertTrue(app.buttons["Cancel reply"].waitForExistence(timeout: 5))
-    app.buttons["Cancel reply"].tap()
-    let edge = app.coordinate(withNormalizedOffset: .zero).withOffset(
-      CGVector(dx: 3, dy: reply.frame.midY))
-    edge.press(
-      forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: app.frame.width * 0.92, dy: 0)),
+    XCTAssertTrue(reply.waitForExistence(timeout: 8)); XCTAssertTrue(reply.isHittable)
+    XCTAssertFalse(app.alerts.firstMatch.exists)
+    reply.press(forDuration: 0.7); app.buttons["Start a thread"].tap()
+    let nested = app.descendants(matching: .any).matching(identifier: "reply-page-audit-reply").firstMatch
+    XCTAssertTrue(nested.waitForExistence(timeout: 8)); XCTAssertTrue(nested.isHittable)
+    XCTAssertTrue(app.buttons["thread-back"].isHittable)
+    XCTAssertFalse(app.navigationBars["Thread"].exists)
+    capture("nested-thread", app)
+    let edge = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 3, dy: reply.frame.midY))
+    edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: app.frame.width * 0.92, dy: 0)),
       withVelocity: .slow, thenHoldForDuration: 0)
-    XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 5))
-    XCTAssertTrue(back.waitForNonExistence(timeout: 5))
+    XCTAssertTrue(page.waitForExistence(timeout: 8)); XCTAssertTrue(root.isHittable)
+    XCTAssertFalse(app.alerts.firstMatch.exists)
     capture("nested-thread-edge-back", app)
+    let input = app.descendants(matching: .any).matching(identifier: "thread-message-input").firstMatch
+    XCTAssertTrue(input.isHittable)
+    input.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+    XCTAssertLessThanOrEqual(input.frame.maxY, app.keyboards.firstMatch.frame.minY + 1)
+    capture("nested-thread-refocused", app)
   }
   func testSearchOpensTheMatchingThreadReply() async throws {
     let app = try await launch("thread", openChat: false)
@@ -105,7 +101,11 @@ import XCTest
     XCTAssertTrue(result.waitForExistence(timeout: 10))
     result.tap()
     XCTAssertTrue(app.staticTexts["QA hidden thread reply"].waitForExistence(timeout: 10))
-    capture("thread-search-wrong-destination", app)
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["thread-back"].isHittable)
+    XCTAssertFalse(app.alerts.firstMatch.exists)
+    XCTAssertFalse(app.navigationBars["Thread"].exists)
+    capture("thread-search-destination", app)
     XCTAssertTrue(
       app.staticTexts["QA hidden thread reply"].exists,
       "QA-05: Search scrolls a filtered-out reply ID instead of opening its thread.")

@@ -33,20 +33,20 @@ public enum ThreadProjection {
     }
     return counts
   }
-  public static func messages(root: Message, in messages: [Message]) -> [Message] {
+  public static func messages(root: Message, in messages: [Message], includeInlineReplies: Bool = false) -> [Message] {
     var byID = Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
     byID[root.id] = byID[root.id] ?? root
     guard Self.root(for: root, in: Array(byID.values)) != nil else { return [root] }
     let replies = byID.values.filter { message in
-      guard message.id != root.id, message.metadata["branched"].bool else { return false }
+      guard message.id != root.id, includeInlineReplies || message.metadata["branched"].bool else { return false }
       var current = message
       var visited: Set<String> = []
-      while current.metadata["branched"].bool {
+      while includeInlineReplies || current.metadata["branched"].bool {
         guard visited.insert(current.id).inserted, let id = current.replyTo,
           let parent = byID[id]
         else { return false }
         if parent.id == root.id { return true }
-        if !parent.metadata["branched"].bool { return false }
+        if !includeInlineReplies && !parent.metadata["branched"].bool { return false }
         current = parent
       }
       return false

@@ -10,7 +10,16 @@ struct ComposerView: View {
   let channel: Channel
   var draftKey: String? = nil
   var threadRootID: String? = nil
+  var replyRootID: String? = nil
+  var focusOnAppear = false
+  @State private var hasAppeared = false
+  var focusRequest: UUID? = nil
+  private var focusedReply: Bool { threadRootID != nil || replyRootID != nil }
   private var key: String { draftKey ?? channel.id }
+  private var showsWaveform: Bool {
+    !channel.isGroup && !focusedReply && draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && attachmentCount == 0
+  }
   @State private var photos: [PhotosPickerItem] = []
   @State private var photoLibrary = false
   @State private var files = false
@@ -31,6 +40,7 @@ struct ComposerView: View {
       set: { value in
         var d = draft
         d.text = value
+        d.widgetResponse = nil
         store.saveDraft(d, channel: key)
       })
   }
@@ -55,7 +65,12 @@ struct ComposerView: View {
           } catch { pluginMentions = [] }
         }
       }
-      .onChange(of: draft.replyTo) { _, id in if id != nil { focused = true } }
+      .onChange(of: draft.replyTo) { _, id in if id != nil && !focusOnAppear { focused = true } }
+      .onChange(of: focusRequest) { _, _ in focused = true }
+      .background(ComposerFocusLifecycle {
+        if focusOnAppear && !hasAppeared { focused = true }
+        hasAppeared = true
+      }.frame(width: 0, height: 0))
       .photosPicker(
         isPresented: $photoLibrary, selection: $photos,
         maxSelectionCount: max(1, 6 - attachmentCount), matching: .images
@@ -128,6 +143,7 @@ struct ComposerView: View {
       }
       .onChange(of: scenePhase) { _, phase in if phase != .active { _ = voice.stop() } }
       .onDisappear {
+        focused = false
         store.flushPersistence()
         transcriptionTask?.cancel()
         transcriptionTask = nil
@@ -145,7 +161,7 @@ struct ComposerView: View {
         voice: startRecording
       ).frame(width: 44, height: 44).nativeChatGlass()
       VStack(spacing: 0) {
-        if let reply = draft.replyTo {
+        if !focusedReply, let reply = draft.replyTo {
           HStack(spacing: 7) {
             Image(systemName: "arrowshape.turn.up.left").font(.system(size: 12))
             Text(store.messages(channel.id).first { $0.id == reply }?.content ?? "Message").font(
@@ -203,19 +219,19 @@ struct ComposerView: View {
         }
         TextField(
           "", text: text,
-          prompt: Text("Ask " + channel.name).foregroundStyle(NativePalette.chatFaint),
+          prompt: Text((focusedReply ? "Reply " : channel.isGroup ? "Message " : "Ask ") + channel.name)
+            .foregroundStyle(NativePalette.chatFaint),
           axis: .vertical
         )
         .font(.body).lineLimit(1...8).focused($focused).tint(NativePalette.chatInsertion)
-        .padding(.leading, 16).padding(.trailing, 48)
+        .padding(.leading, 16).padding(.trailing, showsWaveform ? 86 : 48)
         .padding(.vertical, text.wrappedValue.contains("\n") ? 7 : 11)
         .frame(minHeight: 44).accessibilityIdentifier(
-          threadRootID == nil ? "message-input" : "thread-message-input"
+          focusedReply ? "thread-message-input" : "message-input"
         )
         .contentShape(Rectangle())
-        // Let the native text control handle its own tap. Only the surrounding
-        // padding needs explicit targets, separate from the editable content and
-        // the trailing send/voice control.
+        // Padding needs separate targets from the editable content and the
+        // trailing send/voice control.
         .overlay {
           VStack(spacing: 0) {
             focusPadding.frame(height: text.wrappedValue.contains("\n") ? 7 : 11)
@@ -330,7 +346,7 @@ struct ComposerView: View {
   @ViewBuilder var trailingAction: some View {
     if !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || attachmentCount > 0 {
       Button {
-        Task { await store.enqueue(channel, draftKey: key, threadRootID: threadRootID) }
+        Task { await store.enqueue(channel, draftKey: key, threadRootID: threadRootID, replyRootID: replyRootID) }
       } label: {
         Image(systemName: "arrow.up").font(.system(size: 16, weight: .semibold))
           .foregroundStyle(NativePalette.onPrimary).frame(width: 36, height: 28).background(
@@ -339,22 +355,29 @@ struct ComposerView: View {
           .frame(width: 44, height: 44).contentShape(Rectangle())
       }.buttonStyle(ComposerSendStyle()).disabled(uploading).accessibilityLabel("Send")
         .accessibilityIdentifier(
-          threadRootID == nil ? "send-button" : "thread-send-button")
+          focusedReply ? "thread-send-button" : "send-button")
     } else {
-      Button {
-        startRecording()
-      } label: {
-        Image(systemName: "mic.fill").font(.system(size: 16)).foregroundStyle(
-          NativePalette.chatMuted
-        )
-        .frame(width: 36, height: 28).background(
-          Color(red: 118 / 255, green: 118 / 255, blue: 128 / 255).opacity(0.24), in: Capsule()
-        )
-        .frame(width: 44, height: 44).contentShape(Rectangle())
-      }.buttonStyle(.plain).disabled(
-        transcribing || voice.pendingURL != nil
-          || store.state.bootstrap?.runtime["transcription"].string != "configured"
-      ).accessibilityLabel("Record voice note")
+      HStack(spacing: -6) {
+        Button { startRecording() } label: {
+          Image(systemName: "mic.fill").font(.system(size: 16)).foregroundStyle(NativePalette.chatMuted)
+            .frame(width: 36, height: 28)
+            .background(Color(red: 118 / 255, green: 118 / 255, blue: 128 / 255)
+              .opacity(showsWaveform ? 0 : 0.24), in: Capsule())
+            .frame(width: 44, height: 44).contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityLabel("Record voice note")
+        if showsWaveform {
+          Button { startRecording() } label: {
+            Image(systemName: "waveform").font(.system(size: 17, weight: .semibold))
+              .foregroundStyle(NativePalette.onPrimary).frame(width: 36, height: 28)
+              .background(NativePalette.text, in: Capsule())
+              .frame(width: 44, height: 44).contentShape(Rectangle())
+          }.buttonStyle(ComposerSendStyle()).accessibilityLabel("Start voice input")
+            .accessibilityHint("Record and transcribe a voice note")
+            .accessibilityIdentifier("voice-input-button")
+        }
+      }.disabled(transcribing || voice.pendingURL != nil
+        || store.state.bootstrap?.runtime["transcription"].string != "configured")
+
     }
   }
   func startRecording() {
@@ -604,4 +627,21 @@ private struct NativeAttachmentMenu: UIViewRepresentable {
       ) { _ in voice() })
     button.menu = UIMenu(children: actions)
   }
+}
+
+/// Focus only after the native push/pop completes. Focusing a returning page
+/// during an interactive pop can leave SwiftUI's keyboard inset at zero.
+private struct ComposerFocusLifecycle: UIViewControllerRepresentable {
+  var appeared: () -> Void
+  final class Controller: UIViewController {
+    var appeared: () -> Void = {}
+    override func viewDidAppear(_ animated: Bool) {
+      super.viewDidAppear(animated)
+      appeared()
+    }
+  }
+  func makeUIViewController(context: Context) -> Controller {
+    let controller = Controller(); controller.appeared = appeared; return controller
+  }
+  func updateUIViewController(_ controller: Controller, context: Context) { controller.appeared = appeared }
 }

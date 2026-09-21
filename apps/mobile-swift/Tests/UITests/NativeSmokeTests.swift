@@ -35,19 +35,19 @@ final class NativeSmokeTests: XCTestCase {
     let app = try await launch()
     app.buttons["channel-channel-research"].tap()
     let root = app.staticTexts[
-      "The iOS reference capture is organized and ready for the parity pass."]
+      "On it. I’m separating verified behavior from assumptions before writing the mobile shell."]
     XCTAssertTrue(root.waitForExistence(timeout: 10))
     root.press(forDuration: 1)
     app.buttons["Start a thread"].tap()
-    XCTAssertTrue(app.navigationBars["Thread"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
     try await control("__qa/control", body: ["offline": true])
     app.textFields["thread-message-input"].tap()
     app.textFields["thread-message-input"].typeText("First isolated reply")
     XCTAssertEqual(app.textFields["thread-message-input"].value as? String, "First isolated reply")
     app.buttons["thread-send-button"].tap()
-    XCTAssertTrue(app.staticTexts["Queued · offline"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["Waiting for connection"].waitForExistence(timeout: 10))
     capture("native-thread-offline", app)
-    app.buttons["Done"].tap()
+    app.buttons["thread-back"].tap()
     XCTAssertFalse(app.staticTexts["First isolated reply"].exists)
     root.press(forDuration: 1)
     app.buttons["Start a thread"].tap()
@@ -55,7 +55,7 @@ final class NativeSmokeTests: XCTestCase {
     try await control("__qa/control", body: ["offline": false])
     let reconciled = expectation(
       for: NSPredicate(format: "exists == false"),
-      evaluatedWith: app.staticTexts["Queued · offline"])
+      evaluatedWith: app.staticTexts["Waiting for connection"])
     await fulfillment(of: [reconciled], timeout: 20)
     app.textFields["thread-message-input"].tap()
     app.textFields["thread-message-input"].typeText("Second isolated reply")
@@ -76,10 +76,10 @@ final class NativeSmokeTests: XCTestCase {
     for reply in replies {
       let metadata = try XCTUnwrap(reply["metadata"] as? [String: Any])
       XCTAssertEqual(metadata["branched"] as? Bool, true)
-      XCTAssertEqual(metadata["replyTo"] as? String, "message-3a")
+      XCTAssertEqual(metadata["replyTo"] as? String, "message-3")
     }
     capture("native-thread-reconciled", app)
-    app.buttons["Done"].tap()
+    app.buttons["thread-back"].tap()
     XCTAssertFalse(app.staticTexts["First isolated reply"].exists)
     XCTAssertFalse(app.staticTexts["Second isolated reply"].exists)
   }
@@ -161,7 +161,7 @@ final class NativeSmokeTests: XCTestCase {
     input(app).tap()
     input(app).typeText("Offline native recovery")
     app.buttons["send-button"].tap()
-    XCTAssertTrue(app.staticTexts["Queued · offline"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["Waiting for connection"].waitForExistence(timeout: 10))
     capture("native-offline-queued", app)
     try await control("__qa/control", body: ["offline": false])
     var accepted = false
@@ -181,7 +181,7 @@ final class NativeSmokeTests: XCTestCase {
     XCTAssertTrue(accepted)
     let reconciled = expectation(
       for: NSPredicate(format: "exists == false"),
-      evaluatedWith: app.staticTexts["Queued · offline"])
+      evaluatedWith: app.staticTexts["Waiting for connection"])
     await fulfillment(of: [reconciled], timeout: 10)
     capture("native-offline-recovered", app)
   }

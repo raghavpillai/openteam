@@ -25,7 +25,7 @@ Choose **Save and authorize** for browser sign-in, select the intended identity 
 | Notion | `notion-get-users` with `{"user_id":"self"}` | The expected workspace and accessible pages |
 | Granola | `get_account_info` with `{}` | The expected identity and active workspace; available notes depend on plan and sharing permissions |
 
-Grant the account to the intended bot and enable any included skills separately. For a second identity, add an account, name it clearly, and authorize it separately. Google and Slack also need that account's exact callback registered.
+Grant the account to the intended bot and enable any included skills separately. For a second identity, add an account, name it clearly, and authorize it separately. Google web clients and Slack use the stable deployment callback shown in settings.
 
 Granola follows the active workspace selected in Granola. Adding another OpenTeam account does not pin or merge workspaces. If the wrong identity connects, sign out of Granola in the browser before authorizing again.
 
@@ -39,7 +39,7 @@ Follow the [package setup instructions](../../packages/plugins/1password/README.
 
 | Problem | Next step |
 | --- | --- |
-| Callback or redirect mismatch | Register the full callback shown for this account, including its query string; recheck callbacks after changing the server URL |
+| Callback or redirect mismatch | Register the full callback shown for this account, recheck callbacks after changing the server URL or switching between Web and Desktop OAuth client types |
 | Wrong account connected | Reauthorize with the intended browser identity |
 | Sign-in works but a tool fails | Check scopes, workspace access, API enablement, and provider limits |
 | A bot cannot find the tool | Check its account grant, enabled tools, and tool policies |

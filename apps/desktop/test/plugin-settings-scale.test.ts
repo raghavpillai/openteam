@@ -89,6 +89,8 @@ describe("plugin settings scaling", () => {
         {
           id: connection.id,
           revision: "2026-08-31T12:00:01.000Z",
+          setupPhase: "connected",
+          oauthCallbackMode: "manual",
           status: "ready",
           statusMessage: null,
           authorizationUrl: null,
@@ -105,6 +107,8 @@ describe("plugin settings scaling", () => {
     expect(merged.activity).toBe(settings.activity);
     expect(merged.installs[0]?.connections[0]).toMatchObject({
       status: "ready",
+      setupPhase: "connected",
+      oauthCallbackMode: "manual",
       authorizationUrl: null,
       tools: [{ name: "search" }],
     });

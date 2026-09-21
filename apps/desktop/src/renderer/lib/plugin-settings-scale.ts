@@ -36,6 +36,8 @@ const mergeConnectionStatus = (
     statusMessage: status.statusMessage,
     authorizationUrl: status.authorizationUrl,
     authorizationExpiresAt: status.authorizationExpiresAt,
+    oauthCallbackMode: status.oauthCallbackMode ?? connection.oauthCallbackMode,
+    setupPhase: status.setupPhase ?? connection.setupPhase,
     configured: status.configured,
     tools: status.tools,
   };

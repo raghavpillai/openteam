@@ -15,7 +15,7 @@ import {
   PLUGIN_CONNECTION_ID_MAX_LENGTH,
   PLUGIN_CONNECTION_STATUS_MAX_IDS,
 } from "@openteam/contracts";
-import type { Prisma, PrismaClient } from "@openteam/db";
+import { Prisma, type PrismaClient } from "@openteam/db";
 import { connectionNamespace, effectiveToolPolicy, fileTransferCapabilities } from "@openteam/plugin-sdk";
 import type { PluginDefinition } from "../../plugins/catalog";
 import { serviceEffect } from "../service-utils";
@@ -23,6 +23,8 @@ import {
   catalogView,
   canonicalJson,
   connectionConfigured,
+  connectionSetupPhase,
+  connectionCallbackMode,
   connectionView,
   oauthAuthorizationExpiry,
   definitionFromManifest,
@@ -84,7 +86,7 @@ export class PluginQueries {
             installedAt: install.installedAt.toISOString(),
             hasSkills: Boolean(definitionFromManifest(install.manifest)?.components.some(kind=>kind!=="mcp")),
             connections: install.connections.map((connection) =>
-              connectionView(this.publicUrl, install.pluginKey, connection)
+              connectionView(this.publicUrl, install.pluginKey, connection, definitionFromManifest(install.manifest))
             ),
           })
         ),
@@ -123,20 +125,32 @@ export class PluginQueries {
       if (ids.length === 0) return { connections: [] };
       return {
         connections: (
-          await this.prisma.pluginConnection.findMany({
-            where: { id: { in: ids } },
-            select: {
-              id: true,
-              authType: true,
-              status: true,
-              statusMessage: true,
-              configuration: true,
-              credentials: true,
-              toolSnapshot: true,
-              updatedAt: true,
-            },
-            orderBy: { id: "asc" },
-          })
+          // Project only provider setup metadata, never package files/artwork on frequent polls.
+          await this.prisma.$queryRaw<Array<{
+            id: string;
+            authType: string;
+            connectorKey: string;
+            status: PluginConnectionStatusesView["connections"][number]["status"];
+            statusMessage: string | null;
+            configuration: Prisma.JsonValue;
+            credentials: Prisma.JsonValue;
+            toolSnapshot: Prisma.JsonValue;
+            updatedAt: Date;
+            manifest: Prisma.JsonValue;
+          }>>(Prisma.sql`
+            SELECT c."id", c."authType", c."connectorKey", c."status", c."statusMessage",
+              c."configuration", c."credentials", c."toolSnapshot", c."updatedAt",
+              jsonb_build_object(
+                'key', i."pluginKey", 'name', i."name", 'skills', '[]'::jsonb,
+                'setup', i."manifest"->'setup', 'setupFields', i."manifest"->'setupFields',
+                'connections', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                  'key', connector->'key', 'oauth', connector->'oauth', 'setup', connector->'setup'
+                )) FROM jsonb_array_elements(i."manifest"->'connections') connector
+                  WHERE connector->>'key' = c."connectorKey"), '[]'::jsonb)
+              ) AS "manifest"
+            FROM "PluginConnection" c JOIN "PluginInstallation" i ON i."id" = c."installationId"
+            WHERE c."id" IN (${Prisma.join(ids)}) ORDER BY c."id"
+          `)
         ).map((connection) => ({
           id: connection.id,
           revision: connection.updatedAt.toISOString(),
@@ -148,7 +162,9 @@ export class PluginQueries {
               ? String(jsonObject(jsonObject(connection.credentials).oauth).authorizationUrl)
               : null,
           authorizationExpiresAt: oauthAuthorizationExpiry(connection.credentials),
-          configured: connectionConfigured(connection),
+          oauthCallbackMode: connectionCallbackMode(this.publicUrl, connection),
+          setupPhase: connectionSetupPhase(connection, definitionFromManifest(connection.manifest)),
+          configured: connectionConfigured(connection, definitionFromManifest(connection.manifest)),
           tools: publicTools(connection.toolSnapshot),
         })),
       };

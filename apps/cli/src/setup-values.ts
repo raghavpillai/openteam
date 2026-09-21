@@ -354,6 +354,17 @@ export const validatePublicDomain = (value: string): string => {
   return normalized;
 };
 
+export const validateProxyHost = (value: string): string => {
+  const parts = value.split(":");
+  const host = validatePublicDomain(parts[0] ?? "");
+  if (parts.length === 1) return host;
+  const port = parts[1] ?? "";
+  if (parts.length !== 2 || !/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
+    throw new Error("Enter a hostname with an optional HTTPS port from 1 to 65535.");
+  }
+  return Number(port) === 443 ? host : `${host}:${Number(port)}`;
+};
+
 export const configuredAccessMode = (
   current: ReadonlyMap<string, string>,
   fresh: boolean
@@ -372,7 +383,8 @@ export const configuredAccessMode = (
 const hostFromPublicUrl = (value: string | undefined): string | null => {
   if (!value) return null;
   try {
-    return new URL(value).hostname || null;
+    const url = new URL(value);
+    return (url.protocol === "https:" ? url.host : url.hostname) || null;
   } catch {
     return null;
   }

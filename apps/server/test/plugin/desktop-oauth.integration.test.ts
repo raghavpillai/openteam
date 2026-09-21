@@ -25,7 +25,7 @@ async function waitFor(check: () => boolean) {
 test.skipIf(!databaseUrl)(
   "desktop listener → backend routes → provider → database completes and refreshes without desktop",
   async () => {
-    const f = await createPluginFlowFixture(databaseUrl!);
+    const f = await createPluginFlowFixture(databaseUrl!, { callbackMode: "desktop" });
     const client = createOpenTeamClient({ baseUrl: f.server.url.origin });
     const results: PluginOAuthResult[] = [];
     const desktop = new DesktopPluginOAuth((result) => results.push(result));
@@ -109,11 +109,11 @@ test.skipIf(!databaseUrl)(
         code: callback.searchParams.get("code")!,
       };
       await expect(client.finishPluginAuthentication(connection.id, input)).rejects.toThrow(
-        "different desktop session"
+        "different session"
       );
       await expect(
         Effect.runPromise(f.service.finishDesktopAuthentication(connection.id, input, "session-B"))
-      ).rejects.toThrow("different desktop session");
+      ).rejects.toThrow("different session");
       await expect(
         Effect.runPromise(
           f.service.finishDesktopAuthentication(
@@ -122,7 +122,7 @@ test.skipIf(!databaseUrl)(
             "session-A"
           )
         )
-      ).rejects.toThrow("different desktop session");
+      ).rejects.toThrow("different session");
       await expect(
         Effect.runPromise(
           f.service.finishDesktopAuthentication(

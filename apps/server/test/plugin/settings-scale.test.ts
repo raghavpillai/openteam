@@ -40,44 +40,35 @@ describe("bounded plugin settings projections", () => {
     expect(policyQuery).toMatchObject({ where: { botId: null } });
   });
 
-  test("status polling performs one connection-only query", async () => {
+  test("status polling uses one bounded query without package files or artwork", async () => {
     const calls: string[] = [];
     const service = withoutMarketplace({
-      pluginConnection: {
-        findMany: async (args: unknown) => {
-          calls.push("pluginConnection.findMany");
-          expect(args).toMatchObject({
-            where: { id: { in: ["connection-1"] } },
-            select: {
-              id: true,
-              status: true,
-              statusMessage: true,
-              configuration: true,
-              credentials: true,
-              toolSnapshot: true,
-              updatedAt: true,
-            },
-          });
-          return [
-            {
-              id: "connection-1",
-              authType: "none",
-              status: "needs_auth",
-              statusMessage: "Waiting for authentication",
-              configuration: {},
-              credentials: {},
-              toolSnapshot: [],
-              updatedAt: new Date("2026-08-31T12:00:00.000Z"),
-            },
-          ];
-        },
+      $queryRaw: async (query: { sql: string; values: unknown[] }) => {
+        calls.push("poll");
+        expect(query.values).toEqual(["connection-1"]);
+        expect(query.sql).toContain("jsonb_build_object");
+        expect(query.sql).not.toContain('i."manifest" AS');
+        expect(query.sql).not.toContain("binaryFiles");
+        return [
+          {
+            id: "connection-1",
+            connectorKey: "fixture",
+            authType: "none",
+            status: "needs_auth",
+            statusMessage: "Waiting for authentication",
+            configuration: {},
+            credentials: {},
+            toolSnapshot: [],
+            updatedAt: new Date("2026-08-31T12:00:00.000Z"),
+            manifest: {},
+          },
+        ];
       },
     });
-
     const result = await Effect.runPromise(
       service.pollConnectionStatuses(["connection-1", "connection-1"])
     );
-    expect(calls).toEqual(["pluginConnection.findMany"]);
+    expect(calls).toEqual(["poll"]);
     expect(result).toEqual({
       connections: [
         {
@@ -87,6 +78,8 @@ describe("bounded plugin settings projections", () => {
           statusMessage: "Waiting for authentication",
           authorizationUrl: null,
           authorizationExpiresAt: null,
+          oauthCallbackMode: "manual",
+          setupPhase: "ready_to_connect",
           configured: true,
           tools: [],
         },
@@ -95,29 +88,26 @@ describe("bounded plugin settings projections", () => {
   });
 
   test("status polling skips empty work and caps defensive direct callers", async () => {
-    let query: { where?: { id?: { in?: string[] } } } | undefined;
+    let query: { values: unknown[] } | undefined;
     const service = withoutMarketplace({
-      pluginConnection: {
-        findMany: async (args: typeof query) => {
-          query = args;
-          return [];
-        },
+      $queryRaw: async (args: typeof query) => {
+        query = args;
+        return [];
       },
     });
-
     expect(await Effect.runPromise(service.pollConnectionStatuses([]))).toEqual({
       connections: [],
     });
     expect(query).toBeUndefined();
-
     await Effect.runPromise(
       service.pollConnectionStatuses(
-        Array.from({ length: PLUGIN_CONNECTION_STATUS_MAX_IDS + 10 }, (_, index) =>
-          ["connection", index].join("-")
+        Array.from(
+          { length: PLUGIN_CONNECTION_STATUS_MAX_IDS + 10 },
+          (_, index) => `connection-${index}`
         )
       )
     );
-    expect(query?.where?.id?.in).toHaveLength(PLUGIN_CONNECTION_STATUS_MAX_IDS);
+    expect(query?.values).toHaveLength(PLUGIN_CONNECTION_STATUS_MAX_IDS);
   });
 
   test("agent-facing status counts grants in SQL instead of materializing Bot rows", async () => {

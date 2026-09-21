@@ -27,6 +27,7 @@ import { printSetupCancelled, waitForAutomaticSetup } from "./setup-countdown";
 import { checkHealth } from "./health";
 import { SETUP_JOBS_NOTE, waitForStartup } from "./startup";
 import type { CommandRunner } from "./process";
+import { detectTailscaleHttps, ensureTailscaleHttps, tailscaleHttpsHost } from "./tailscale-https";
 import { supportsCredentialImport } from "./provider-capabilities";
 import { inspectPublicReadiness } from "./public-readiness";
 import {
@@ -76,6 +77,7 @@ import {
   validateProviderName,
   validateProviderSelection,
   validatePublicDomain,
+  validateProxyHost,
   validatePublicHost,
   validateThinking,
   validateTimeZone,
@@ -133,6 +135,7 @@ export interface SetupCommandOptions {
   ownerConfigured?: boolean;
   /** Override private-address detection. Primarily useful for deterministic callers and tests. */
   detectedPrivateHost?: string | null;
+  preferredHttpsHost?: string;
   /** Vendor CLI sign-ins to offer for reuse; `undefined` detects them. */
   detectedLogins?: readonly DetectedLogin[];
   /** Where to look for those sign-ins; defaults to this machine. */
@@ -516,7 +519,7 @@ export const collectSetupConfiguration = async (
 ): Promise<SetupConfiguration> => {
   const presentation = options.presentation;
   const advanced = options.advanced ?? false;
-  const currentAccess = configuredAccessMode(current, options.fresh ?? false);
+  const currentAccess = options.preferredHttpsHost ? "proxy" : configuredAccessMode(current, options.fresh ?? false);
   let selectedAccess: SetupConfiguration["accessMode"] = currentAccess;
   if (advanced) {
     presentation?.stage(0);
@@ -541,7 +544,7 @@ export const collectSetupConfiguration = async (
     }
   }
 
-  const existingHost = options.fresh ? null : existingReachableHost(current);
+  const existingHost = options.preferredHttpsHost ?? (options.fresh ? null : existingReachableHost(current));
   const detectedPrivateHost =
     options.detectedPrivateHost === undefined
       ? detectPrivateNetworkHost()
@@ -555,7 +558,7 @@ export const collectSetupConfiguration = async (
             prompter,
             "Public domain (A/AAAA record points to this server)",
             existingHost,
-            validatePublicDomain
+            selectedAccess === "proxy" ? validateProxyHost : validatePublicDomain
           );
   } else if (selectedAccess === "http") {
     reachableHost =
@@ -980,11 +983,22 @@ export const setupCommand = async (
       });
     }
   }
+  const tailscale = detectTailscaleHttps(runner, current.get("OPENTEAM_API_PORT") || String(API_PORT));
+  const accessMode = configuredAccessMode(current, fresh);
+  const privateHost = (fresh ? null : existingReachableHost(current)) ?? detectedPrivateHost;
+  const preferredHttpsHost = tailscale && accessMode === "private" &&
+    (!privateHost || privateHost === tailscale.host || tailscale.addresses.includes(privateHost))
+    ? tailscaleHttpsHost(tailscale) : undefined;
+  if (preferredHttpsHost) notes.push({
+    text: `Tailscale HTTPS: https://${preferredHttpsHost}. Setup will configure a private Serve route for OpenTeam. Keep Tailscale connected on your devices.`,
+    tone: "info",
+  });
   const collectOptions: SetupCommandOptions = {
     ...options,
     fresh,
     ownerConfigured: Boolean(manifest.ownerUsername),
     detectedPrivateHost,
+    preferredHttpsHost,
     detectedLogins,
     loginDetection,
     presentation,
@@ -1006,6 +1020,7 @@ export const setupCommand = async (
         currentOwnerUsername: ownerUsername,
         currentInference,
         detectedPrivateHost: collectOptions.detectedPrivateHost,
+        preferredHttpsHost,
         detectedLogins,
         notes,
       });
@@ -1045,11 +1060,21 @@ export const setupCommand = async (
     presentation.message("Setup cancelled; no configuration was changed.", "muted");
     return;
   }
-  // Ports held by our own running services are fine; a changed API port must be free.
+  // Check the target before exposing it through Serve; an occupied port may belong to another app.
   const ownedPorts = new Set(running);
   if (configuration.apiPort !== (previousApiPort || String(API_PORT))) ownedPorts.delete("server");
   presentation.message("Checking startup ports…", "info");
   await assertPortsAvailable(runner, portRequirementsFromConfiguration(configuration, ownedPorts));
+  if (tailscale && configuration.accessMode === "proxy" && configuration.publicUrl === `https://${tailscaleHttpsHost(tailscale)}`) {
+    presentation.message("Checking Tailscale HTTPS…", "info");
+    if (!ensureTailscaleHttps(runner, tailscale, configuration.apiPort)) {
+      const fallbackHost = privateHost || tailscale.addresses.find(address => !address.includes(":")) || tailscale.host;
+      configuration = { ...configuration, accessMode: "private", ...bindHostsFor("private", fallbackHost),
+        publicUrl: publicUrlFor("private", fallbackHost, configuration.apiPort) };
+      presentation.message(`Tailscale HTTPS could not be configured. Keeping private HTTP at ${configuration.publicUrl}; compatible plugins will use callback paste. Enable HTTPS with Tailscale Serve, then rerun setup to switch.`, "warning");
+      await assertPortsAvailable(runner, portRequirementsFromConfiguration(configuration, ownedPorts));
+    } else presentation.message(`Tailscale HTTPS is ready at ${configuration.publicUrl}.`, "success");
+  }
   let registeredCustomProvider: string | null = null;
   try {
     if (!configuration.skipInference && configuration.customProvider) {

@@ -788,6 +788,7 @@ export interface PluginCatalogItemView {
   sourceUrl: string | null;
   sourceRevision: string | null;
   logoUrl: string | null;
+  installationSteps?: string[];
   setupFields: PluginCatalogSetupFieldView[];
   setup: PluginSetupView | null;
 }
@@ -807,7 +808,8 @@ export interface PluginConnectionView {
   authorizationUrl: string | null;
   authorizationExpiresAt?: string | null;
   oauthRedirectUrl: string | null;
-  oauthCallbackMode?: "desktop" | "server";
+  oauthCallbackMode?: "desktop" | "server" | "manual";
+  setupPhase?: "provider_setup_required" | "ready_to_authorize" | "ready_to_connect" | "authorization_pending" | "validation_failed" | "connected";
   oauthLoopbackPort?: number;
   canAuthenticate: boolean;
   configured: boolean;
@@ -856,6 +858,8 @@ export interface PluginSettingsView {
 }
 
 export interface PluginConnectionStatusView {
+  oauthCallbackMode?: PluginConnectionView["oauthCallbackMode"];
+  setupPhase?: PluginConnectionView["setupPhase"];
   id: string;
   revision: string;
   status: PluginConnectionView["status"];

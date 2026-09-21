@@ -1,6 +1,6 @@
 {
   "key": "slack",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "name": "Slack",
   "description": "Search channels, read threads, send messages, and work with canvases.",
   "publisher": "Slack",
@@ -17,6 +17,7 @@
     "description": "Register an internal or Marketplace Slack app, then authorize a workspace.",
     "documentationUrl": "https://docs.slack.dev/ai/slack-mcp-server",
     "steps": [
+      "Configure an HTTPS OpenTeam address using Tailscale Serve or your own domain. This integration uses a Web application callback; manual callback paste is not available.",
       "Create an internal Slack app in your workspace. In Create New App, choose From a manifest; the package includes a reusable Slack app manifest.",
       "Replace the manifest redirect URL with this account's exact OpenTeam callback URL. Its user-token scopes cover the tools in Slack's MCP server; remove scopes and disable tools you do not need.",
       "In the Slack app dashboard, open Agents and turn on Enable Slack MCP Server. This separate switch is required even after OAuth succeeds.",
@@ -86,10 +87,17 @@
         "clientType": "confidential",
         "registration": "manual",
         "tokenEndpointAuthMethod": "client_secret_post",
-        "shareClientCredentials": true
+        "shareClientCredentials": true,
+        "supportsLoopbackRedirect": false
       }
     }
   ],
   "schemaVersion": 1,
-  "icon": "assets/icon.png"
+  "icon": "assets/icon.png",
+  "installationSteps": [
+    "Install the plugin from the registry.",
+    "Complete the provider app setup in account settings, then save the credentials.",
+    "Authorize the account and wait for tool discovery to confirm Connected.",
+    "Enable the plugin and account for the Bots that need it."
+  ]
 }

@@ -51,6 +51,8 @@ export interface PluginConnectorDefinition {
     registration?: "dynamic" | "manual";
     tokenEndpointAuthMethod?: "none" | "client_secret_post" | "client_secret_basic";
     shareClientCredentials?: boolean;
+    /** False when this integration requires a server HTTPS callback. */
+    supportsLoopbackRedirect?: boolean;
     /** OAuth for packaged MCP servers. The host keeps refresh tokens and client secrets. */
     authorizationServer?: {
       issuer: string;
@@ -79,6 +81,8 @@ export interface PluginDefinition {
   logoUrl?: string | null;
   /** Relative PNG, JPEG or WebP path in binaryFiles; rendered without a network request. */
   icon?: string | null;
+  /** Steps to install and validate this package, separate from provider registration. */
+  installationSteps?: string[];
   setupFields?: PluginField[];
   setup?: PluginSetup | null;
   /** UTF-8 package files, including skill assets. No installed values belong here. */

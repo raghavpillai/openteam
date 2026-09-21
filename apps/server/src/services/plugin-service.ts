@@ -1,5 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { equalOAuthState, validateDesktopCallback, type PluginOAuthDesktopContext } from "../plugins/oauth-callback";
+import { equalOAuthState, validateDesktopCallback, parseManualCallback, oauthCallbackMode, MANUAL_OAUTH_REDIRECT, type PluginOAuthDesktopContext } from "../plugins/oauth-callback";
 import type { PluginOAuthCallbackInput } from "@openteam/contracts/plugin-management";
 import { cancelPendingPluginWork } from "./plugin/pending-work";
 import { pluginToolArguments } from "./plugin/tool-arguments";
@@ -8,7 +8,7 @@ import type { ConfigurePluginConnectionInput, PluginTestInput } from "@openteam/
 import { ApiError } from "@openteam/contracts";
 import type { Prisma, PrismaClient } from "@openteam/db";
 import type { AgentDataStore } from "@openteam/messaging";
-import { Effect } from "effect";
+import { Effect, Either } from "effect";
 import type { PluginDefinition, PluginToolDefinition } from "../plugins/catalog";
 import { McpHttpClientManager } from "../plugins/mcp-client-manager";
 import { OpenTeamMarketplaceSource } from "../plugins/openteam-marketplace";
@@ -35,6 +35,7 @@ import {
   hasPlaceholder,
   definitionFromManifest,
   jsonObject,
+  oauthRedirectUrl,
   redact,
   stringArray,
   stringRecord,
@@ -44,6 +45,12 @@ import {
 } from "./plugin/values";
 import { appendEvent, forwardServiceMethod, serviceEffect, toJson } from "./service-utils";
 import { ConnectorFileTransfers } from "./plugin/file-transfers";
+
+const runAuthentication = async <A>(effect: Effect.Effect<A, Error>): Promise<A> => {
+  const result = await Effect.runPromise(Effect.either(effect));
+  if (Either.isLeft(result)) throw result.left;
+  return result.right;
+};
 
 export class PluginService {
   readonly fileTransfers: ConnectorFileTransfers;
@@ -349,7 +356,7 @@ export class PluginService {
         return Effect.runPromise(
           args.forceReauth === true ? this.restart(connectionId) : this.connect(connectionId)
         );
-      return Effect.runPromise(this.authenticate(connectionId, args.forceReauth === true));
+      return runAuthentication(this.authenticate(connectionId, args.forceReauth === true));
     }
     if (action === "RestartMcpServers") return Effect.runPromise(this.restart(connectionId));
     if (action === "RemoveMcpAccount") return Effect.runPromise(this.removeAccount(connectionId));
@@ -469,7 +476,14 @@ export class PluginService {
 
   private authenticationStarts = new Map<string, Promise<{ connectionId: string; status: string; authorizationUrl: string }>>();
 
-  authenticate = (connectionId: string, force = false, desktop?: PluginOAuthDesktopContext) => serviceEffect(async () => {
+  authenticate = (connectionId: string, force = false, desktop?: PluginOAuthDesktopContext, sessionId: string | null = null) => serviceEffect(async () => {
+    if (!desktop) {
+      const connection = await this.connectionOrThrow(connectionId);
+      const mode = oauthCallbackMode(this.publicUrl, jsonObject(connection.configuration));
+      if (mode === "desktop") throw new ApiError(409, "plugin_oauth_desktop_required", "Open this connection in the desktop app, or select Automatic in account settings to sign in from this device.");
+      if (mode === "manual")
+        desktop = { redirectUrl: MANUAL_OAUTH_REDIRECT, sessionId, mode: "manual" };
+    }
     if (desktop) validateDesktopCallback(desktop.redirectUrl);
     const existing = this.authenticationStarts.get(connectionId);
     if (existing) {
@@ -489,11 +503,15 @@ export class PluginService {
       if (!["http", "stdio"].includes(connection.transport) || connection.authType !== "oauth") {
         throw new ApiError(409, "plugin_oauth_unsupported", "This connection does not use OAuth");
       }
+      const connector = definitionFromManifest(connection.installation.manifest)?.connections.find(row => row.key === connection.connectorKey);
+      if (connector?.oauth?.supportsLoopbackRedirect === false && (desktop || !this.publicUrl.startsWith("https://")))
+        throw new ApiError(409, "plugin_oauth_https_required", "This provider requires an HTTPS server callback. Enable Tailscale Serve or your own HTTPS domain and select Automatic or Server callback.");
       const current = jsonObject(connection.credentials);
       const previousOAuth = jsonObject(current.oauth);
       const sameCallback = desktop
-        ? previousOAuth.redirectUrl === desktop.redirectUrl && previousOAuth.callbackSessionId === desktop.sessionId
-        : previousOAuth.callbackMode !== "desktop";
+        ? previousOAuth.callbackMode === (desktop.mode ?? "desktop") && previousOAuth.redirectUrl === desktop.redirectUrl && previousOAuth.callbackSessionId === desktop.sessionId
+        : !["desktop", "manual"].includes(String(previousOAuth.callbackMode)) &&
+          (!previousOAuth.redirectUrl || previousOAuth.redirectUrl === oauthRedirectUrl(this.publicUrl, connectionId));
       if (!force && connection.status === "needs_auth" &&
           sameCallback && !previousOAuth.exchangeStarted &&
           previousOAuth.stateGeneration === connection.runtimeGeneration &&
@@ -514,7 +532,8 @@ export class PluginService {
           state,
           stateCreatedAt: Date.now(),
           stateGeneration: connection.runtimeGeneration + 1,
-          ...(desktop ? { redirectUrl: desktop.redirectUrl, callbackMode: "desktop", callbackSessionId: desktop.sessionId } : {}),
+          redirectUrl: oauthRedirectUrl(this.publicUrl, connectionId),
+          ...(desktop ? { redirectUrl: desktop.redirectUrl, callbackMode: desktop.mode ?? "desktop", callbackSessionId: desktop.sessionId } : {}),
         },
       };
       const started = await this.prisma.pluginConnection.updateMany({
@@ -523,7 +542,7 @@ export class PluginService {
           credentials: toJson(next),
           runtimeGeneration: { increment: 1 },
           status: "needs_auth",
-          statusMessage: "Waiting for authorization in your browser.",
+          statusMessage: desktop?.mode === "manual" ? "Approve access in your browser, then paste the complete callback URL into OpenTeam." : "Waiting for authorization in your browser.",
           lastCheckedAt: new Date(),
         },
       });
@@ -554,7 +573,7 @@ export class PluginService {
           where: { id: connectionId, runtimeGeneration: refreshed.runtimeGeneration },
           data: {
             credentials: toJson({ ...current, oauth }),
-            status: "needs_auth",
+            status: "error",
             statusMessage: message.includes("dynamic client registration")
               ? "Configure an OAuth client ID for this self-hosted connector."
               : message,
@@ -573,6 +592,50 @@ export class PluginService {
       return { connectionId, status: "needs_auth", authorizationUrl: result.authorizationUrl };
     };
 
+  connectionForOAuthState = (state: string) => serviceEffect(async () => {
+    if (!state || state.length > 4096) throw new ApiError(400, "plugin_oauth_state_invalid", "OAuth state did not match");
+    const matches = await this.prisma.pluginConnection.findMany({
+      where: { credentials: { path: ["oauth", "state"], equals: state } }, select: { id: true }, take: 2,
+    });
+    if (matches.length !== 1) throw new ApiError(400, "plugin_oauth_state_invalid", "OAuth state did not match");
+    return matches[0]!.id;
+  });
+
+  finishServerAuthentication = (connectionId: string, input: { state: string; code?: string; error?: string; iss?: string }) =>
+    serviceEffect(async () => {
+      const connection = await this.connectionOrThrow(connectionId);
+      const oauth = jsonObject(jsonObject(connection.credentials).oauth);
+      if (input.iss && input.iss !== oauth.issuer)
+        throw new ApiError(400, "plugin_oauth_issuer_invalid", "OAuth issuer did not match.");
+      return input.error
+        ? runAuthentication(this.cancelAuthentication(connectionId, input.state))
+        : runAuthentication(this.finishAuthentication(connectionId, input.code!, input.state));
+    });
+
+  finishManualAuthentication = (connectionId: string, callbackUrl: string, sessionId: string | null) =>
+    serviceEffect(async () => {
+      const connection = await this.connectionOrThrow(connectionId);
+      const oauth = jsonObject(jsonObject(connection.credentials).oauth);
+      if (oauth.callbackMode !== "manual" || oauth.callbackSessionId !== sessionId || typeof oauth.redirectUrl !== "string")
+        throw new ApiError(400, "plugin_oauth_session_changed", "Start sign-in from this session before pasting its callback.");
+      const input = parseManualCallback(callbackUrl, oauth.redirectUrl);
+      const context: PluginOAuthDesktopContext = { redirectUrl: oauth.redirectUrl, sessionId, mode: "manual" };
+      if (input.iss && input.iss !== oauth.issuer)
+        throw new ApiError(400, "plugin_oauth_issuer_invalid", "OAuth issuer did not match.");
+      if (input.error) return runAuthentication(this.cancelAuthentication(connectionId, input.state, context));
+      return runAuthentication(this.finishAuthentication(connectionId, input.code!, input.state, context));
+    });
+
+  cancelClientAuthentication = (connectionId: string, state: string, sessionId: string | null, redirectUrl?: string) =>
+    serviceEffect(async () => {
+      const connection = await this.connectionOrThrow(connectionId);
+      const oauth = jsonObject(jsonObject(connection.credentials).oauth);
+      const context: PluginOAuthDesktopContext | undefined = oauth.callbackMode === "manual"
+        ? { redirectUrl: String(oauth.redirectUrl), sessionId, mode: "manual" }
+        : redirectUrl ? { redirectUrl: validateDesktopCallback(redirectUrl), sessionId } : undefined;
+      return runAuthentication(this.cancelAuthentication(connectionId, state, context));
+    });
+
   finishDesktopAuthentication = (connectionId: string, input: PluginOAuthCallbackInput, sessionId: string | null) =>
     serviceEffect(async () => {
       const desktop = { redirectUrl: validateDesktopCallback(input.redirectUrl), sessionId };
@@ -583,15 +646,15 @@ export class PluginService {
         throw new ApiError(400, "plugin_oauth_callback_invalid", "Expected an authorization code or provider error.");
       if (input.iss && input.iss !== oauth.issuer)
         throw new ApiError(400, "plugin_oauth_issuer_invalid", "OAuth issuer did not match.");
-      if (input.error) return Effect.runPromise(this.cancelAuthentication(connectionId, input.state, desktop));
-      return Effect.runPromise(this.finishAuthentication(connectionId, input.code!, input.state, desktop));
+      if (input.error) return runAuthentication(this.cancelAuthentication(connectionId, input.state, desktop));
+      return runAuthentication(this.finishAuthentication(connectionId, input.code!, input.state, desktop));
     });
 
   private assertDesktopCallback(oauth: Record<string, unknown>, desktop?: PluginOAuthDesktopContext) {
-    if (oauth.callbackMode === "desktop"
-      ? !desktop || oauth.redirectUrl !== desktop.redirectUrl || oauth.callbackSessionId !== desktop.sessionId
+    if (["desktop", "manual"].includes(String(oauth.callbackMode))
+      ? !desktop || oauth.callbackMode !== (desktop.mode ?? "desktop") || oauth.redirectUrl !== desktop.redirectUrl || oauth.callbackSessionId !== desktop.sessionId
       : Boolean(desktop))
-      throw new ApiError(400, "plugin_oauth_session_changed", "Authorization belongs to a different desktop session. Start sign-in again.");
+      throw new ApiError(400, "plugin_oauth_session_changed", "Authorization belongs to a different session. Start sign-in again.");
   }
 
   finishAuthentication = (connectionId: string, code: string, state: string, desktop?: PluginOAuthDesktopContext) =>
@@ -603,8 +666,7 @@ export class PluginService {
       if (
         !equalOAuthState(oauth.state, state) || oauth.exchangeStarted ||
         oauth.stateGeneration !== connection.runtimeGeneration ||
-        (typeof oauth.stateCreatedAt === "number" &&
-          Date.now() - oauth.stateCreatedAt > 15 * 60_000)
+        typeof oauth.stateCreatedAt !== "number" || Date.now() - oauth.stateCreatedAt > 15 * 60_000
       ) {
         throw new ApiError(400, "plugin_oauth_state_invalid", "OAuth state did not match");
       }
@@ -634,7 +696,7 @@ export class PluginService {
         const authorized = Boolean(jsonObject(jsonObject(latest.credentials).oauth).tokens);
         const detail = String(
           redactConnectionSecrets(error instanceof Error ? error.message : String(error), latest)
-        ).slice(0, 1500);
+        ).replaceAll(code, "[redacted]").slice(0, 1500);
         const credentials = jsonObject(latest.credentials);
         const failedOAuth = { ...jsonObject(credentials.oauth) };
         for (const key of ["state", "stateCreatedAt", "stateGeneration", "authorizationUrl", "codeVerifier", "callbackSessionId", "callbackMode", "exchangeStarted"]) delete failedOAuth[key];
@@ -643,13 +705,13 @@ export class PluginService {
           data: {
             runtimeGeneration: { increment: 1 },
             credentials: toJson({ ...credentials, oauth: failedOAuth }),
-            status: authorized ? "error" : "needs_auth",
+            status: "error",
             statusMessage: authorized
               ? `Authorization succeeded, but tool discovery failed: ${detail}`
               : `Authorization failed: ${detail}`,
           },
         });
-        throw error;
+        throw new ApiError(409, "plugin_oauth_failed", authorized ? `Authorization succeeded, but tool discovery failed: ${detail}` : `Authorization failed: ${detail}`);
       }
       await this.markReady(connection, tools, "connection.oauth_completed");
       return { connectionId, status: "ready", toolCount: tools.length };
@@ -661,7 +723,7 @@ export class PluginService {
       const credentials = jsonObject(connection.credentials);
       const oauth = jsonObject(credentials.oauth);
       this.assertDesktopCallback(oauth, desktop);
-      if (!equalOAuthState(oauth.state, state) || oauth.stateGeneration !== connection.runtimeGeneration)
+      if (!equalOAuthState(oauth.state, state) || oauth.exchangeStarted || oauth.stateGeneration !== connection.runtimeGeneration)
         throw new ApiError(400, "plugin_oauth_state_invalid", "OAuth state did not match");
       delete oauth.state;
       delete oauth.stateCreatedAt;
@@ -689,14 +751,14 @@ export class PluginService {
       return { cancelled: true };
     });
 
-  connect = (connectionId: string) =>
+  connect = (connectionId: string, sessionId: string | null = null) =>
     serviceEffect(async () => {
       const connection = await this.connectionOrThrow(connectionId);
       this.assertAvailable(connection);
       this.validateConfiguration(connection);
       if (connection.authType === "oauth") {
         const oauth = jsonObject(jsonObject(connection.credentials).oauth);
-        if (!oauth.tokens) return Effect.runPromise(this.authenticate(connectionId));
+        if (!oauth.tokens) return runAuthentication(this.authenticate(connectionId, false, undefined, sessionId));
       }
       if (connection.authType === "token" && !connectionConfigured(connection)) {
         await this.prisma.pluginConnection.update({

@@ -1,3 +1,4 @@
+import { oauthCallbackMode, MANUAL_OAUTH_REDIRECT } from "../../plugins/oauth-callback";
 import {
   ApiError,
   type PluginConfigurationInput,
@@ -16,6 +17,8 @@ import {
 import { serviceEffect, toJson } from "../service-utils";
 import {
   definitionFromManifest,
+  connectionConfigured,
+  connectionSetupPhase,
   jsonObject,
   oauthRedirectUrl,
   stringArray,
@@ -107,7 +110,11 @@ export class PluginConfiguration {
           connector?.setup ??
           (plugin?.setup?.connectionKey === connection.connectorKey ? plugin.setup : null),
         callbackUrl: oauthRedirectUrl(this.publicUrl, id),
-        oauthCallbackMode: config.oauthCallbackMode === "server" ? "server" : "desktop",
+        oauthCallbackMode: (["desktop", "server", "manual"].includes(String(config.oauthCallbackMode)) ? config.oauthCallbackMode : "auto") as PluginConfigurationView["oauthCallbackMode"],
+        resolvedOAuthCallbackMode: oauthCallbackMode(this.publicUrl, config),
+        manualCallbackUrl: MANUAL_OAUTH_REDIRECT,
+        manualCallbackSupported: connector?.oauth?.supportsLoopbackRedirect !== false,
+        setupPhase: connectionSetupPhase(connection, plugin),
         oauthLoopbackPort: typeof config.oauthLoopbackPort === "number" ? config.oauthLoopbackPort : 0,
         tokenEndpointAuthMethod: String(
           config.tokenEndpointAuthMethod ??
@@ -119,7 +126,7 @@ export class PluginConfiguration {
 
   save = (id: string, input: PluginConfigurationInput) =>
     serviceEffect(async () => {
-      const { connection, fields } = await this.connection(id);
+      const { connection, fields, plugin } = await this.connection(id);
       const config = { ...jsonObject(connection.configuration) };
       const credentials = { ...jsonObject(connection.credentials) };
       if (input.values) {
@@ -213,6 +220,6 @@ export class PluginConfiguration {
           },
         });
       }
-      return { id, configured: true };
+      return { id, configured: connectionConfigured({ ...connection, configuration: config, credentials }, plugin) };
     });
 }

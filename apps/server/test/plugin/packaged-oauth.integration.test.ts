@@ -30,7 +30,7 @@ test.skipIf(!databaseUrl)(
       },
       accessTokenEnv: "PROVIDER_ACCESS_TOKEN",
     };
-    connector.configuration = { command: "bun", args: ["${PLUGIN_ROOT}/connector/server.mjs"] };
+    connector.configuration = { oauthCallbackMode: "server", command: "bun", args: ["${PLUGIN_ROOT}/connector/server.mjs"] };
     definition.setup = {
       kind: "oauth_client",
       connectionKey: connector.key,

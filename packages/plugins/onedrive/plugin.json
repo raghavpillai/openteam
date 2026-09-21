@@ -1,6 +1,6 @@
 {
   "key": "onedrive",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "OneDrive",
   "description": "Find files and folders, and transfer files directly between OneDrive and the bot box.",
   "publisher": "OpenTeam",
@@ -17,6 +17,7 @@
     "description": "Configure a Microsoft Entra OAuth application for personal or work accounts, then sign in.",
     "documentationUrl": "https://learn.microsoft.com/en-us/graph/auth-register-app-v2",
     "steps": [
+      "Configure an HTTPS OpenTeam address using Tailscale Serve or your own domain. This integration uses a Web application callback; manual callback paste is not available.",
       "Register a Microsoft Entra application with the supported account types you need.",
       "Add the exact OpenTeam callback URL as a Web redirect URI.",
       "Add delegated Files.ReadWrite, User.Read and offline_access permissions. Save the client ID and secret, then sign in."
@@ -65,7 +66,8 @@
           "authorizationUrl": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
           "tokenUrl": "https://login.microsoftonline.com/common/oauth2/v2.0/token"
         },
-        "accessTokenEnv": "MICROSOFT_ACCESS_TOKEN"
+        "accessTokenEnv": "MICROSOFT_ACCESS_TOKEN",
+        "supportsLoopbackRedirect": false
       },
       "configuration": {
         "oauthAuthorizationParameters": {
@@ -79,5 +81,11 @@
     }
   ],
   "schemaVersion": 1,
-  "icon": "assets/icon.png"
+  "icon": "assets/icon.png",
+  "installationSteps": [
+    "Install the plugin from the registry.",
+    "Complete the provider app setup in account settings, then save the credentials.",
+    "Authorize the account and wait for tool discovery to confirm Connected.",
+    "Enable the plugin and account for the Bots that need it."
+  ]
 }

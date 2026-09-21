@@ -21,7 +21,7 @@ struct PluginConnectionView: View {
   @State private var clearHeaders = false
   @State private var clearEnvironment = false
   @State private var method = "none"
-  @State private var callbackMode = "desktop"
+  @State private var callbackMode = "auto"
   @State private var operation = FormOperation()
   @State private var remove = false
   @State private var loaded = false
@@ -47,15 +47,38 @@ struct PluginConnectionView: View {
           }.disabled(newAlias.count < 2 || newAlias.count > 80)
           Button("Remove account", role: .destructive) { remove = true }
         }
+        if !configuration["setup"]["title"].string.isEmpty {
+          Section("Provider setup") {
+            Text(configuration["setup"]["title"].string).font(.headline)
+            Text(configuration["setup"]["description"].string)
+            ForEach(Array(configuration["setup"]["steps"].array.enumerated()), id: \.offset) { index, step in
+              Text("\(index + 1). " + step.string)
+            }
+            if let url = URL(string: configuration["setup"]["documentationUrl"].string) {
+              Link("Provider setup guide", destination: url)
+            }
+          }
+        }
         Section("Configuration") {
           if connection["auth"].string == "oauth" {
             Picker("Sign-in method", selection: $callbackMode) {
-              Text("Desktop app").tag("desktop")
+              Text("Automatic (recommended)").tag("auto")
+              Text("Paste callback URL").tag("manual")
+              Text("Desktop listener (advanced)").tag("desktop")
               Text("Server callback").tag("server")
             }
             if callbackMode == "desktop" {
               Text("Connect once in the desktop app using a native OAuth client. Your server stores the connection and makes it available on this device.")
                 .font(.footnote).foregroundStyle(NativePalette.muted)
+            } else if callbackMode == "manual" || (callbackMode == "auto" && !configuration["callbackUrl"].string.hasPrefix("https://")) {
+              if configuration["manualCallbackSupported"] == .bool(false) {
+                Text("This provider requires HTTPS. Configure Tailscale Serve or your own HTTPS domain before authorizing.")
+                  .font(.footnote).foregroundStyle(NativePalette.muted)
+              } else {
+                Text("Your server uses manual callback paste. For Google, create a Desktop app OAuth client. After approving access in your browser, copy the full callback address and paste it into OpenTeam. No desktop app is needed.")
+                  .font(.footnote).foregroundStyle(NativePalette.muted)
+                Text(configuration["manualCallbackUrl"].string).font(.footnote.monospaced()).textSelection(.enabled)
+              }
             } else {
               Text("Register this exact callback with your provider’s web OAuth client. Google requires an HTTPS hostname for a remote server callback. A desktop OAuth client cannot be reused for this method.")
                 .font(.footnote).foregroundStyle(NativePalette.muted)
@@ -188,7 +211,7 @@ struct PluginConnectionView: View {
       method =
         configuration["tokenEndpointAuthMethod"].string.isEmpty
         ? "none" : configuration["tokenEndpointAuthMethod"].string
-      callbackMode = configuration["oauthCallbackMode"].string == "server" ? "server" : "desktop"
+      callbackMode = configuration["oauthCallbackMode"].string.isEmpty ? "auto" : configuration["oauthCallbackMode"].string
       loaded = true
     }
   }

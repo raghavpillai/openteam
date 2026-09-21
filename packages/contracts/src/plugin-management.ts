@@ -51,8 +51,10 @@ export const PluginConfigurationInput = Schema.Struct({
   tokenEndpointAuthMethod: Schema.optional(
     Schema.Literal("none", "client_secret_post", "client_secret_basic")
   ),
-  oauthCallbackMode: Schema.optional(Schema.Literal("desktop", "server")),
-  oauthLoopbackPort: Schema.optional(Schema.Union(Schema.Literal(0), Schema.Number.pipe(Schema.int(), Schema.between(1024, 65535)))),
+  oauthCallbackMode: Schema.optional(Schema.Literal("auto", "desktop", "server", "manual")),
+  oauthLoopbackPort: Schema.optional(
+    Schema.Union(Schema.Literal(0), Schema.Number.pipe(Schema.int(), Schema.between(1024, 65535)))
+  ),
 });
 export type PluginConfigurationInput = typeof PluginConfigurationInput.Type;
 export const PluginSkillInput = Schema.Struct({
@@ -85,7 +87,17 @@ export interface PluginConfigurationView {
   setup: PluginSetup | null;
   callbackUrl: string;
   tokenEndpointAuthMethod: string;
-  oauthCallbackMode?: "desktop" | "server";
+  oauthCallbackMode?: "auto" | "desktop" | "server" | "manual";
+  resolvedOAuthCallbackMode?: "desktop" | "server" | "manual";
+  manualCallbackUrl?: string;
+  manualCallbackSupported?: boolean;
+  setupPhase?:
+    | "provider_setup_required"
+    | "ready_to_authorize"
+    | "ready_to_connect"
+    | "authorization_pending"
+    | "validation_failed"
+    | "connected";
   /** Zero selects an available desktop port. Static web clients may require a fixed port. */
   oauthLoopbackPort?: number;
 }
@@ -93,6 +105,9 @@ export interface PluginConfigurationView {
 export const PluginOAuthStartInput = Schema.Struct({
   force: Schema.optional(Schema.Boolean),
   redirectUrl: Schema.optional(Schema.String.pipe(Schema.maxLength(2000))),
+});
+export const PluginOAuthManualInput = Schema.Struct({
+  callbackUrl: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(16_384)),
 });
 export const PluginOAuthCallbackInput = Schema.Struct({
   redirectUrl: Schema.String.pipe(Schema.maxLength(2000)),

@@ -44,6 +44,7 @@ test.skipIf(!databaseUrl)(
         service.addCustomMcp({ name: "OAuth fixture", url: fixture.endpoint, auth: "oauth" })
       );
       key = added.pluginKey;
+      await Effect.runPromise(service.configuration.save(added.connectionId, { oauthCallbackMode: "server" }));
       await authorize(added.connectionId);
       let connection = await prisma.pluginConnection.findUniqueOrThrow({
         where: { id: added.connectionId },
@@ -149,7 +150,8 @@ test.skipIf(!databaseUrl)(
       await expect(authorize(second.id)).rejects.toThrow();
       expect(
         (await prisma.pluginConnection.findUniqueOrThrow({ where: { id: second.id } })).status
-      ).toBe("needs_auth");
+      ).toBe("error");
+      expect((await Effect.runPromise(service.pollConnectionStatuses([second.id]))).connections[0]?.setupPhase).toBe("validation_failed");
       fixture.registerClient("public-client", view.callbackUrl);
       await Effect.runPromise(
         service.configuration.save(second.id, {

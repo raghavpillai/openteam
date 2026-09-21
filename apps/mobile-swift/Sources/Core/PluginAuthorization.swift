@@ -32,6 +32,7 @@ public struct PluginAuthorizationSession: Sendable {
 public enum MobilePluginAuthorization {
   public static func requiresDesktop(_ connection: JSON) -> Bool {
     guard connection["auth"].string == "oauth" else { return false }
+    if connection["oauthCallbackMode"].string == "manual" { return false }
     return connection["oauthCallbackMode"].string != "server"
       || PluginAuthorizationSession(connection)?.usesLoopbackCallback == true
   }

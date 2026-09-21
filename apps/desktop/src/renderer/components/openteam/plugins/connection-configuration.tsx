@@ -30,7 +30,7 @@ export function ConnectionConfiguration({
   const [cwd, setCwd] = useState("");
   const [headers, setHeaders] = useState("");
   const [env, setEnv] = useState("");
-  const [callbackMode, setCallbackMode] = useState<"desktop" | "server">("desktop");
+  const [callbackMode, setCallbackMode] = useState<NonNullable<PluginConfigurationInput["oauthCallbackMode"]>>("auto");
   const [loopbackPort, setLoopbackPort] = useState(0);
   const [authMethod, setAuthMethod] =
     useState<PluginConfigurationInput["tokenEndpointAuthMethod"]>("none");
@@ -38,6 +38,8 @@ export function ConnectionConfiguration({
   const [testArgs, setTestArgs] = useState("{}");
   const [testResult, setTestResult] = useState("");
   const [testArmed, setTestArmed] = useState(false);
+  const automaticCallbackMode = config?.callbackUrl.startsWith("https://") ? "server" : "manual";
+  const resolvedCallbackMode = callbackMode === "auto" ? automaticCallbackMode : callbackMode;
   const [removeArmed, setRemoveArmed] = useState(false);
   const load = useCallback(async () => {
     const next = await api.pluginConfiguration(connection.id);
@@ -50,7 +52,7 @@ export function ConnectionConfiguration({
     setCommand(next.command ?? "");
     setArgs(JSON.stringify(next.args, null, 2));
     setCwd(next.cwd ?? "");
-    setCallbackMode(next.oauthCallbackMode ?? "desktop");
+    setCallbackMode(next.oauthCallbackMode ?? "auto");
     setLoopbackPort(next.oauthLoopbackPort ?? 0);
     setAuthMethod(
       next.tokenEndpointAuthMethod as PluginConfigurationInput["tokenEndpointAuthMethod"]
@@ -142,9 +144,11 @@ export function ConnectionConfiguration({
         </section>
       )}
       {connection.auth === "oauth" && (
-        <PluginField label="Sign-in callback" help="Desktop receives sign-in on this computer and sends it to your server. For Google, use a Desktop app OAuth client. Choose Server for an existing web client with a registered server callback.">
-          <select className={inputClass} aria-label="Sign-in callback" value={callbackMode} onChange={event => setCallbackMode(event.target.value as "desktop" | "server")}>
-            <option value="desktop">Desktop (recommended)</option>
+        <PluginField label="Sign-in callback" help="Automatic uses your HTTPS server callback, or manual callback paste for HTTP. Google needs a Web application client for HTTPS and a Desktop app client for manual paste. Both work independently of the desktop app.">
+          <select className={inputClass} aria-label="Sign-in callback" value={callbackMode} onChange={event => setCallbackMode(event.target.value as NonNullable<PluginConfigurationInput["oauthCallbackMode"]>)}>
+            <option value="auto">Automatic (recommended)</option>
+            <option value="manual" disabled={config.manualCallbackSupported === false}>Paste callback URL</option>
+            <option value="desktop">Desktop listener (advanced)</option>
             <option value="server">Server callback</option>
           </select>
           {callbackMode === "desktop" && <PluginField label="Desktop callback port" help="Use 0 to select an available port. If your provider requires a fixed URL, register http://127.0.0.1:PORT/callback and enter that port here.">
@@ -152,19 +156,22 @@ export function ConnectionConfiguration({
           </PluginField>}
         </PluginField>
       )}
-      {connection.auth === "oauth" && (callbackMode === "server" || !window.openteam?.pluginOAuth) && (
+      {connection.auth === "oauth" && resolvedCallbackMode === "manual" && config.manualCallbackSupported === false && (
+        <p role="status" className="text-sm">This provider requires HTTPS. Configure Tailscale Serve or your own HTTPS domain before authorizing.</p>
+      )}
+      {connection.auth === "oauth" && callbackMode !== "desktop" && (
         <PluginField
           label="OAuth callback URL"
-          help="Copy this exact URL into your provider's application settings."
+          help={resolvedCallbackMode === "manual" ? "Use an OAuth client that permits loopback redirects. For Google, create a Desktop app client. After authorization, paste the full returned URL into OpenTeam." : "Register this exact URL with the provider’s Web application client."}
         >
           <div className="flex gap-2">
             <input
               readOnly
               aria-label="OAuth callback URL"
               className={inputClass}
-              value={config.callbackUrl}
+              value={resolvedCallbackMode === "manual" ? config.manualCallbackUrl : config.callbackUrl}
             />
-            <PluginButton onClick={() => void navigator.clipboard.writeText(config.callbackUrl)}>
+            <PluginButton onClick={() => void navigator.clipboard.writeText((resolvedCallbackMode === "manual" ? config.manualCallbackUrl : config.callbackUrl) ?? "")}>
               Copy
             </PluginButton>
           </div>

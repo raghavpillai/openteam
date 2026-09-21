@@ -78,7 +78,7 @@ export class DesktopPluginOAuth {
     const config = await client.pluginConfiguration(connectionId);
     if (generation !== this.generation)
       throw new Error("The server or sign-in session changed. Try again.");
-    if (config.oauthCallbackMode === "server")
+    if ((config.resolvedOAuthCallbackMode ?? config.oauthCallbackMode ?? "auto") !== "desktop")
       return client.authenticatePlugin(connectionId, force);
     let attempt: Attempt;
     const server = createServer((request, response) => {

@@ -1,10 +1,11 @@
+import { oauthCallbackMode, MANUAL_OAUTH_REDIRECT } from "../../plugins/oauth-callback";
 import { createToolValidator } from "@openteam/plugin-sdk/json-schema";
 import type { PluginConnectionView, PluginDynamicNamespace } from "@openteam/contracts";
 import { ApiError } from "@openteam/contracts";
 import type { Prisma } from "@openteam/db";
 import type { PluginDefinition, PluginToolDefinition } from "../../plugins/catalog";
 import { toJson } from "../service-utils";
-import { pluginIconUrl, substituteConfiguration, type ConfigValue } from "@openteam/plugin-sdk";
+import { pluginIconUrl, substituteConfiguration, fieldsForConnector, validateValues, type ConfigValue } from "@openteam/plugin-sdk";
 
 export function runtimeConfiguration(connection: {
   configuration: Prisma.JsonValue;
@@ -328,6 +329,7 @@ export const catalogView = (
   sourceRevision: plugin.sourceRevision ?? null,
   // Older installed snapshots can use the catalog artwork without updating their package.
   logoUrl: pluginIconUrl(plugin) ?? (iconFallback ? pluginIconUrl(iconFallback) : null),
+  installationSteps: plugin.installationSteps ?? ["Install the plugin from the registry.", ...(plugin.connections.length ? ["Complete any provider setup, then connect your account.", "Confirm the connection is ready and enable access for the Bots that need it."] : ["Enable the plugin for the Bots that need it."])],
   setupFields: plugin.setupFields ?? [],
   setup: plugin.setup ?? null,
   connections: plugin.connections.map(
@@ -352,11 +354,19 @@ export function validAlias(value: string): string {
 
 export function connectionConfigured(connection: {
   authType: string;
-  configuration: Prisma.JsonValue;
-  credentials: Prisma.JsonValue;
-}): boolean {
-  const configuration = runtimeConfiguration(connection);
+  configuration: unknown;
+  credentials: unknown;
+  connectorKey?: string;
+}, plugin?: PluginDefinition): boolean {
+  const configuration = runtimeConfiguration({ configuration: connection.configuration as Prisma.JsonValue, credentials: connection.credentials as Prisma.JsonValue });
   if (hasPlaceholder(configuration)) return false;
+  if (plugin && connection.connectorKey) {
+    const credentials = jsonObject(connection.credentials);
+    const values = { ...jsonObject(configuration.values), ...jsonObject(credentials.values), ...configuration, ...(credentials.bearerToken ? { token: credentials.bearerToken } : {}) };
+    const fields = fieldsForConnector(plugin, connection.connectorKey);
+    try { validateValues(fields, Object.fromEntries(Object.entries(values).filter(([key]) => fields.some(field => field.key === key)))); } catch { return false; }
+    if (connection.authType === "oauth" && plugin.connections.find(c => c.key === connection.connectorKey)?.oauth?.registration !== "manual") return true;
+  }
   if (connection.authType === "none") return true;
   const credentials = jsonObject(connection.credentials);
   if (connection.authType === "token") {
@@ -367,14 +377,30 @@ export function connectionConfigured(connection: {
   }
   const oauth = jsonObject(credentials.oauth);
   return (
-    typeof configuration.clientId === "string" ||
+    (typeof configuration.clientId === "string" && configuration.clientId.trim().length > 0) ||
     typeof jsonObject(oauth.clientInformation).client_id === "string" ||
     Object.keys(jsonObject(oauth.tokens)).length > 0
   );
 }
 
-export function oauthRedirectUrl(publicUrl: string, connectionId: string): string {
-  return `${publicUrl}/api/v0/plugin-oauth/callback?connectionId=${encodeURIComponent(connectionId)}`;
+export function connectionSetupPhase(connection: Parameters<typeof connectionConfigured>[0] & { status: string }, plugin?: PluginDefinition): NonNullable<PluginConnectionView["setupPhase"]> {
+  if (!connectionConfigured(connection, plugin)) return "provider_setup_required";
+  if (connection.status === "ready") return "connected";
+  if (connection.status === "error") return "validation_failed";
+  if (typeof jsonObject(jsonObject(connection.credentials).oauth).authorizationUrl === "string") return "authorization_pending";
+  return connection.authType === "oauth" ? "ready_to_authorize" : "ready_to_connect";
+}
+
+export function connectionCallbackMode(publicUrl: string, connection: { configuration: unknown; credentials: unknown }): NonNullable<PluginConnectionView["oauthCallbackMode"]> {
+  const oauth = jsonObject(jsonObject(connection.credentials).oauth);
+  if (typeof oauth.authorizationUrl === "string") {
+    return oauth.callbackMode === "manual" || oauth.callbackMode === "desktop" ? oauth.callbackMode : "server";
+  }
+  return oauthCallbackMode(publicUrl, jsonObject(connection.configuration));
+}
+
+export function oauthRedirectUrl(publicUrl: string, _connectionId: string): string {
+  return `${publicUrl.replace(/\/$/, "")}/api/v0/plugin-oauth/callback`;
 }
 
 export function connectionView(
@@ -394,7 +420,8 @@ export function connectionView(
     credentials: Prisma.JsonValue;
     toolSnapshot: Prisma.JsonValue;
     updatedAt: Date;
-  }
+  },
+  plugin?: PluginDefinition
 ): PluginConnectionView {
   return {
     id: connection.id,
@@ -414,11 +441,12 @@ export function connectionView(
         : null,
     authorizationExpiresAt: oauthAuthorizationExpiry(connection.credentials),
     oauthRedirectUrl:
-      connection.authType === "oauth" ? oauthRedirectUrl(publicUrl, connection.id) : null,
-    oauthCallbackMode: jsonObject(connection.configuration).oauthCallbackMode === "server" ? "server" : "desktop",
+      connection.authType === "oauth" ? (oauthCallbackMode(publicUrl, jsonObject(connection.configuration)) === "manual" ? MANUAL_OAUTH_REDIRECT : oauthRedirectUrl(publicUrl, connection.id)) : null,
+    oauthCallbackMode: connectionCallbackMode(publicUrl, connection),
+    setupPhase: connectionSetupPhase(connection, plugin),
     oauthLoopbackPort: Number(jsonObject(connection.configuration).oauthLoopbackPort ?? 0),
     canAuthenticate: connection.authType === "oauth" || connection.authType === "token",
-    configured: connectionConfigured(connection),
+    configured: connectionConfigured(connection, plugin),
     command:
       typeof jsonObject(connection.configuration).command === "string"
         ? String(jsonObject(connection.configuration).command)

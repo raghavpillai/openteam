@@ -8,7 +8,7 @@ import { PluginService } from "../../../src/services/plugin-service";
 import { createOAuthMcpFixture } from "./oauth-mcp";
 
 /** Real plugin routes/DB/MCP, with a synthetic catalog and local OAuth provider. */
-export async function createPluginFlowFixture(databaseUrl: string) {
+export async function createPluginFlowFixture(databaseUrl: string, options: { publicUrl?: string; callbackMode?: "auto" | "server" | "desktop" | "manual" } = {}) {
   const db = createPrismaClient(databaseUrl);
   const provider = createOAuthMcpFixture();
   const suffix = crypto.randomUUID();
@@ -16,7 +16,7 @@ export async function createPluginFlowFixture(databaseUrl: string) {
   oauth.name = "Flow OAuth";
   oauth.connections[0]!.endpoint = provider.endpoint;
   oauth.connections[0]!.auth = "oauth";
-  oauth.connections[0]!.configuration = {};
+  oauth.connections[0]!.configuration = { oauthCallbackMode: options.callbackMode ?? "server" };
   oauth.setupFields = [];
   const configured = structuredClone(oauth);
   configured.key = `flow-configured-${suffix}`;
@@ -81,7 +81,7 @@ export async function createPluginFlowFixture(databaseUrl: string) {
     },
   });
   const previousPublicUrl = process.env.OPENTEAM_PUBLIC_URL;
-  process.env.OPENTEAM_PUBLIC_URL = server.url.origin;
+  process.env.OPENTEAM_PUBLIC_URL = options.publicUrl ?? server.url.origin;
   const service = new PluginService(db);
   if (previousPublicUrl === undefined) delete process.env.OPENTEAM_PUBLIC_URL;
   else process.env.OPENTEAM_PUBLIC_URL = previousPublicUrl;

@@ -11,6 +11,7 @@ struct PluginConnectionActions: View {
   @State private var operation = FormOperation()
   @State private var autoStarted = false
   @State private var now = Date()
+  @State private var callbackURL = ""
   private var path: String { "/api/v0/plugin-connections/" + API.segment(connection["id"].string) }
   private var session: PluginAuthorizationSession? {
     PluginAuthorizationSession(connection, now: now)
@@ -21,7 +22,7 @@ struct PluginConnectionActions: View {
     FormStatus(operation: operation)
     LabeledContent(
       "Status",
-      value: connection["status"].string.replacingOccurrences(of: "_", with: " ").capitalized)
+      value: connection["setupPhase"].string.isEmpty ? connection["status"].string.replacingOccurrences(of: "_", with: " ").capitalized : connection["setupPhase"].string.replacingOccurrences(of: "_", with: " ").capitalized)
       // A Form lazily realizes rows. Keep the lifecycle on the visible status row:
       // OAuth controls can push an invisible footer offscreen on smaller iPhones.
       .task(id: scenePhase) { await monitorConnection() }
@@ -42,6 +43,20 @@ struct PluginConnectionActions: View {
           : "Finish in your browser, or reopen the same sign-in."
       )
       .font(.footnote).foregroundStyle(NativePalette.muted)
+      if connection["oauthCallbackMode"].string == "manual", !session.expired {
+        Text("After approving access, the localhost page may not load. Copy its complete address and paste it here. Keep it out of chat.")
+          .font(.footnote).foregroundStyle(NativePalette.muted)
+        SecureField("Complete callback URL", text: $callbackURL)
+          .textInputAutocapitalization(.never).autocorrectionDisabled()
+          .accessibilityIdentifier("plugin-manual-callback")
+          .onChange(of: session.state) { _, _ in callbackURL = "" }
+          .onDisappear { callbackURL = "" }
+        Button("Complete sign-in") {
+          let value = callbackURL
+          callbackURL = ""
+          Task { await command("/authenticate/manual", body: .object(["callbackUrl": .string(value)])) }
+        }.disabled(operation.busy || callbackURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      }
       Button(session.expired ? "Try again" : "Reopen sign-in") {
         Task {
           if session.expired { await signIn() } else { openURL(session.url) }
@@ -125,6 +140,7 @@ struct PluginConnectionActions: View {
         try? await refresh()
         let reconciled =
           (suffix == "/connect" && connection["status"].string == "ready")
+          || (suffix == "/authenticate/manual" && connection["status"].string == "ready")
           || (suffix == "/disconnect" && connection["status"].string == "disconnected")
           || (suffix == "/authenticate/cancel" && session == nil)
         if !reconciled { throw error }

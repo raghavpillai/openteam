@@ -400,6 +400,8 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         `/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/authenticate`,
         { method: "POST", body: JSON.stringify({ force, redirectUrl }) }
       ),
+    finishManualPluginAuthentication: (connectionId: string, callbackUrl: string) =>
+      transport.request(`/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/authenticate/manual`, { method: "POST", body: JSON.stringify({ callbackUrl }) }),
     finishPluginAuthentication: (connectionId: string, input: PluginOAuthCallbackInput) =>
       transport.request<{ status?: string; cancelled?: boolean }>(
         `/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/authenticate/callback`,

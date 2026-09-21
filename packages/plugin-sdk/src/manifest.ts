@@ -136,6 +136,8 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
     const desktopProvider = desktopMcpProvider(connector.configuration);
     if (desktopProvider && (connector.transport !== "stdio" || connector.auth !== "none"))
       throw new Error("Desktop MCP providers use stdio and authenticate in their desktop app");
+    if (connector.oauth?.supportsLoopbackRedirect !== undefined && typeof connector.oauth.supportsLoopbackRedirect !== "boolean")
+      throw new Error("Invalid OAuth loopback redirect support");
     if (connector.transport === "stdio" && connector.auth === "oauth") {
       const oauth = connector.oauth;
       if (!oauth?.authorizationServer || oauth.registration !== "manual")
@@ -189,6 +191,10 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
       throw new Error("Invalid skill content");
     if (skill.path) safePackagePath(skill.path);
   }
+  if (plugin.installationSteps !== undefined) {
+    if (!Array.isArray(plugin.installationSteps) || plugin.installationSteps.length > 30) throw new Error("Invalid installation instructions");
+    for (const step of plugin.installationSteps) requireText(step, "installation step", 4000);
+  }
   validateFields(plugin.setupFields ?? []);
   for (const setup of [plugin.setup, ...plugin.connections.map((connection) => connection.setup)]) {
     if (!setup) continue;
@@ -200,6 +206,7 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
       !Array.isArray(setup.requiredScopes)
     )
       throw new Error("Invalid setup instructions");
+    for (const step of setup.steps) requireText(step, "provider setup step", 4000);
     validateFields(setup.fields);
     if (setup.kind === "token" && !setup.fields.some((field) => field.key === "token"))
       throw new Error(`Token setup must declare a token field: ${plugin.key}`);

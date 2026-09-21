@@ -2,7 +2,7 @@ import type { PluginConnectionView } from "@openteam/contracts";
 import { pluginAuthorization } from "@openteam/product-core/plugin-authorization";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { useEffect, useRef, useState } from "react";
-import { Linking, Text, View } from "react-native";
+import { Linking, Text, TextInput, View } from "react-native";
 import { useOpenTeam } from "../../state/openteam-context";
 import { useTheme } from "../../theme";
 import { NativeActionButton } from "../native-controls";
@@ -19,6 +19,8 @@ export function PluginAuthorization({
   const [now, setNow] = useState(Date.now);
   const [busy, setBusy] = useState(false);
   const active = useRef(false);
+  const [callbackUrl, setCallbackUrl] = useState("");
+  useEffect(() => setCallbackUrl(""), [connection.authorizationUrl]);
   const [error, setError] = useState("");
   useEffect(() => {
     if (!connection.authorizationUrl) return;
@@ -53,6 +55,11 @@ export function PluginAuthorization({
           ? "Start again when you’re ready. Your setup is saved."
           : "Finish in your browser, or reopen the same sign-in."}
       </Text>
+      {connection.oauthCallbackMode === "manual" && !session.expired && <View style={{ gap: 8 }}>
+        <Text style={{ color: theme.textMuted }}>After approving access, copy the full address of the localhost page, even if it did not load, and paste it here.</Text>
+        <TextInput accessibilityLabel="Complete callback URL" placeholder="Paste complete callback URL" value={callbackUrl} onChangeText={setCallbackUrl} secureTextEntry autoCapitalize="none" autoCorrect={false} style={{ color: theme.text, padding: 12 }} />
+        <NativeActionButton title="Complete sign-in" disabled={busy || !callbackUrl.trim()} onPress={() => { const value = callbackUrl; setCallbackUrl(""); void run(() => pluginOperation(api => api.finishManualPluginAuthentication(connection.id, value))); }} />
+      </View>}
       {error ? (
         <Text accessibilityRole="alert" style={{ color: theme.danger }}>
           {error}

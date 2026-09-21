@@ -42,6 +42,14 @@ The marketplace, installed list, plugin details, and package studio show these i
 
 Use the provider's recognizable mark for integrations and original artwork for other packages. Write a short, plain description of what the plugin actually does. Keep provider setup requirements in `setup` and contributor details in the README. Do not imply that a package is published by the provider unless it is.
 
+## Installation and provider setup
+
+Use optional `installationSteps: string[]` for installing, connecting, validating, and granting this plugin. The registry displays these separately from `setup.steps`, which describe provider-side prerequisites such as creating a Google or Slack application. Instructions are validated on package import; missing installation steps receive a generic package-appropriate checklist.
+
+Use `setup.kind: "oauth_client"` and required `setup.fields` for credentials that the self-hoster must create. Dynamic OAuth MCP integrations can use `setup.kind: "oauth"` without asking for an application registration. Set `connections[].oauth.supportsLoopbackRedirect: false` when the supported integration requires an HTTPS server callback; HTTP deployments then get an actionable HTTPS requirement. Google packages support loopback callback paste with a Desktop app client.
+
+Package creation and account setup are separate lifecycles. **Develop** already creates a draft that must pass package validation before installation. Installation does not certify that a provider app exists. Account setup derives `provider_setup_required`, `ready_to_authorize` (or `ready_to_connect`), `authorization_pending`, `validation_failed`, and `connected` from configuration and actual connection results. Saving credentials is local field validation; only successful authorization and tool discovery produce Connected.
+
 ## Manifest example: a skills package
 
 The following is a complete `plugin.json` for the accompanying skill file:

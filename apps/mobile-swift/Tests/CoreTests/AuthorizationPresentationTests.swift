@@ -40,6 +40,15 @@ final class AuthorizationPresentationTests: XCTestCase {
     connection["status"] = .string("ready")
     XCTAssertNil(PluginAuthorizationSession(connection))
   }
+  func testManualLoopbackCanBeCompletedOnMobile() {
+    let connection: JSON = .object([
+      "auth": .string("oauth"), "status": .string("needs_auth"),
+      "oauthCallbackMode": .string("manual"),
+      "authorizationUrl": .string("https://accounts.example.test/start?state=one&redirect_uri=http%3A%2F%2F127.0.0.1%3A42813%2Fcallback"),
+    ])
+    XCTAssertTrue(PluginAuthorizationSession(connection)?.usesLoopbackCallback == true)
+    XCTAssertFalse(MobilePluginAuthorization.requiresDesktop(connection))
+  }
   func testOAuthExpiryHandlesPreciseMalformedAndExpiredDates() throws {
     var connection: JSON = .object([
       "status": .string("needs_auth"), "authorizationUrl": .string("https://a.test/?state=x"),

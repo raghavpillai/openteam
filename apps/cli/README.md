@@ -1,5 +1,11 @@
 # OpenTeam CLI
 
+## Private HTTPS and plugin sign-in
+
+Setup prefers Tailscale Serve HTTPS for a detected Tailscale address when the node is running and certificates are enabled. It reuses a matching private HTTPS route, including its port (such as `:10000`), or creates one on port 443 when that port is free. The review shows the HTTPS address before setup applies it. Other routes and Funnel settings are preserved. If creation or verification fails, setup keeps private HTTP and explains how to enable HTTPS later.
+
+The resulting configuration uses the existing HTTPS proxy mode with loopback backend ports. A custom HTTPS domain remains available. Plugin sign-in follows `OPENTEAM_PUBLIC_URL`: HTTPS uses one stable server callback, HTTP uses manual loopback callback paste for compatible providers. Neither requires an OpenTeam-hosted service. Google registration differs by method; see [Google setup](../../docs/integrations/google.md).
+
 ## First installation and prerequisites
 
 The shell and PowerShell installers install and verify the CLI before starting server setup.
@@ -180,7 +186,7 @@ options. Provider and model subcommands have their own help pages as well.
 `start` and setup check for port conflicts before starting containers, including Tailscale Serve
 listeners that can block Docker's host port forwarding even when Docker reports a running server.
 Loopback servers behind Tailscale Serve are allowed. Conflicts report the affected port and how to
-inspect or change the listener; the CLI does not change Tailscale rules automatically. While waiting
+inspect or change the listener; setup only creates the reviewed OpenTeam HTTPS route. While waiting
 for readiness, the CLI prints the health URL, current failure, and elapsed time. If the server is
 ready inside Docker but remains unreachable from the host, startup reports a forwarding error
 instead of waiting the full three minutes.

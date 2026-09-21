@@ -8,7 +8,7 @@ import { DesktopPluginOAuth } from "../src/main/plugin-oauth";
 
 if (!process.env.OPENTEAM_TEST_DATABASE_URL)
   throw new Error("A disposable test database is required");
-const fixture = await createPluginFlowFixture(process.env.OPENTEAM_TEST_DATABASE_URL);
+const fixture = await createPluginFlowFixture(process.env.OPENTEAM_TEST_DATABASE_URL, { callbackMode: "desktop" });
 const client = createOpenTeamClient({ baseUrl: fixture.server.url.origin });
 const output = resolve("findings/oauth-desktop-implementation-2026-09-20/native-ui");
 await mkdir(output, { recursive: true });
@@ -89,12 +89,12 @@ try {
   await page.screenshot({ path: resolve(output, "waiting.png"), fullPage: true });
   await page.getByRole("button", { name: "Cancel sign-in", exact: true }).click();
   await page
-    .getByText("Authorization was cancelled. You can try again when ready.", { exact: true })
+    .getByText("Ready to authorize", { exact: true })
     .first()
     .waitFor();
   await provider.close();
   provider = await openProvider(() =>
-    page.getByRole("button", { name: "Retry", exact: true }).click()
+    page.getByRole("button", { name: "Authorize", exact: true }).click()
   );
   await provider.getByRole("button", { name: "Authorize Account A" }).click();
   await provider

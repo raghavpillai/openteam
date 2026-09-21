@@ -14,18 +14,25 @@ OpenTeam uses bundled connectors for Google's public APIs. Each plugin account n
 2. In [Google Cloud Console](https://console.cloud.google.com/), create or select a project. Enable the API for each plugin you will use: **Gmail API**, **Google Calendar API**, or **Google Drive API**.
 3. Configure the OAuth application's consent details and audience. If it is in testing, include the identities you intend to authorize as test users.
 4. Add the scopes shown in OpenTeam's **Requested scopes**. When reusing one OAuth client across plugins, include the required scopes for each.
-5. For the desktop app, create an OAuth client with application type **Desktop app**. Keep **Sign-in callback → Desktop** in account settings. You do not need a public hostname or a registered server callback.
-6. Enter the client ID and required client secret in the OpenTeam account's setup form.
+5. Leave **Sign-in callback → Automatic** selected. For an HTTPS OpenTeam address, create a **Web application** OAuth client and register the exact callback shown in account settings: `https://<your-server>/api/v0/plugin-oauth/callback`. This deployment-wide URL works for all accounts.
+6. If the OpenTeam address is HTTP, create a **Desktop app** OAuth client for callback paste. This headless fallback uses `http://127.0.0.1:42813/callback`; it does not need a listener on the phone or laptop. Do not create an iOS OAuth client for this flow.
+7. Save the client ID and secret in the account setup form. The account becomes **Ready to authorize**. It becomes **Connected** only after sign-in and tool discovery succeed.
 
-Google's [credential setup guide](https://developers.google.com/workspace/guides/create-credentials) explains application registration. Google still requires an OAuth client even when the callback is local.
+Google's [credential setup guide](https://developers.google.com/workspace/guides/create-credentials) explains application registration. A Desktop app client and a Web application client are different registrations. When changing callback methods, update the credentials and registered redirect together.
 
-The desktop temporarily listens on `http://127.0.0.1:<available-port>/callback` on the computer running your browser. It sends the authorization code to your selected OpenTeam server, which verifies the session, exchanges the code, and stores tokens in its database. The server can run on a different computer and continues refreshing tokens after you close the desktop app. Protect the desktop-to-server connection with HTTPS, SSH, or an encrypted VPN; Tailscale is optional.
+## Choose the callback route
 
-For **browser-only use or an existing Web application client**, select **Server callback** in account settings and register each exact server callback, including its `connectionId` query parameter. Google requires HTTPS for non-loopback web callbacks; an HTTP private-network IP is not a substitute for localhost. Keep the server address stable. A Desktop app client and a Web application client are different registrations.
+**Tailscale HTTPS is the preferred private setup.** On a running Tailscale node with HTTPS certificates enabled, OpenTeam setup proposes the node's HTTPS name when its private address belongs to that node and Serve can safely proxy OpenTeam. It reuses a matching route or creates a persistent private route. Existing routes for other services, foreground Serve sessions, and Funnel exposure are not replaced. If HTTPS cannot be configured, setup keeps private HTTP and compatible plugins use callback paste. See [Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve).
 
-For other providers that require a fixed desktop callback, set **Desktop callback port** and register `http://127.0.0.1:PORT/callback`. The default `0` chooses an available port. The listener binds only to this computer, closes after completion/cancellation/timeout, and is cancelled when the plugin dialog closes or you switch plugins, server, or login session. Reopen sign-in to restart a cancelled listener. A browser tab closed by itself can be reopened while the listener remains active.
+For a custom domain, use OpenTeam's existing Caddy option or your own HTTPS proxy. Set `OPENTEAM_PUBLIC_URL` to the canonical HTTPS address. Both iOS and desktop open Google in the signing-in device's browser; Google redirects that browser to your server. The browser needs access to the server (including Tailscale when used); no OpenTeam-operated relay is involved.
 
-This desktop listener is not an iOS implementation. Google iOS authorization needs its supported native SDK/server authorization-code flow or a suitable HTTPS flow; Google does not support desktop loopback redirects for iOS clients.
+With **HTTP / callback paste**, approve access, then copy the full address of the localhost page even when the browser reports that it cannot connect. Return to the same OpenTeam app session and paste the URL into **Complete callback URL**. Use this dedicated form, never chat. The backend validates the redirect, state, expiry, and initiating session before exchanging the code with PKCE. Tests cover this protocol with a local provider; Google's real consent and failed-page copy experience on iPhone still require device acceptance testing. This is a loopback redirect, not Google's retired OOB redirect type.
+
+The server keeps and refreshes tokens independently of either app. HTTP access should stay on a trusted private network such as Tailscale. A provider that requires HTTPS will explain that requirement instead of starting callback paste.
+
+**Desktop listener (advanced)** remains available for an explicitly configured connection. It receives the callback on the desktop computer and relays it to the backend. For providers requiring a fixed port, set **Desktop callback port** and register `http://127.0.0.1:PORT/callback`; `0` selects an available port. iOS directs this explicit mode to desktop setup. New connections default to Automatic.
+
+Existing Web clients registered with a per-account `connectionId` query must register the new stable callback before starting a new sign-in. Already-issued tokens are retained; changing saved connection settings clears authorization and requires signing in again.
 
 ## Authorize each account
 
@@ -37,7 +44,7 @@ Choose **Save and authorize** in OpenTeam, select the intended Google identity, 
 | Calendar | `list_calendars` with `{}` |
 | Drive | `list_recent_files` with `{"pageSize":5}` |
 
-Confirm the account and returned data, then grant the account to the intended bots. Repeat for each plugin. For another identity, add an account and authorize it separately. Only the Server callback flow needs a separately registered server callback for each account.
+Confirm the account and returned data, then grant the account to the intended bots. Repeat for each plugin. For another identity, add an account and authorize it separately. All Server callback accounts use the same registered deployment URL; each sign-in has independent state and tokens.
 
 ## What bots can do
 

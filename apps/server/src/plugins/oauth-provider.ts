@@ -16,7 +16,7 @@ export interface StoredOAuthState {
   tokensExpireAt?: number;
   redirectUrl?: string;
   callbackSessionId?: string | null;
-  callbackMode?: "desktop";
+  callbackMode?: "desktop" | "manual";
   exchangeStarted?: boolean;
   issuer?: string;
 }

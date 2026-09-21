@@ -41,7 +41,7 @@ import { AddPluginAccount,PluginAccountRow } from "./plugins/plugin-accounts";
 import { PluginMark } from "./plugins/plugin-mark";
 
 type MarketplacePage = "marketplace" | "installed" | "detail" | "custom" | "manage";
-type OAuthCallbackSettings = { oauthCallbackMode: "desktop" | "server"; oauthLoopbackPort: number };
+type OAuthCallbackSettings = { oauthCallbackMode: "auto" | "desktop" | "server" | "manual"; oauthLoopbackPort: number };
 
 const primaryButton =
   "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 cursor-pointer rounded-full bg-black px-3 text-[13px] font-medium text-white outline-none transition-opacity duration-120 ease-out hover:opacity-80 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-45 dark:bg-white dark:text-black";
@@ -523,7 +523,7 @@ function PluginSetupCard({
             <div className="mt-3 rounded-[8px] border border-black/[0.06] bg-background px-3 py-2.5 dark:border-white/[0.08] dark:bg-black/15">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-[9.5px] font-medium uppercase tracking-[0.04em] text-foreground-tertiary">
-                  {window.openteam?.pluginOAuth ? "Server redirect URI (optional)" : "Authorized redirect URI"}
+                  {connection.oauthCallbackMode === "manual" ? "Manual callback URI" : "Authorized redirect URI"}
                 </span>
                 <button
                   className="inline-flex items-center gap-1 text-[9.5px] text-foreground-secondary hover:text-foreground"
@@ -541,8 +541,8 @@ function PluginSetupCard({
               <code className="mt-1 block select-all break-all text-[10px] text-foreground">
                 {connection.oauthRedirectUrl}
               </code>
-              {window.openteam?.pluginOAuth && <p className="mt-2 text-[10px] leading-4 text-foreground-secondary">
-                Desktop sign-in receives the callback on this computer. For Google, create a Desktop app client; no server redirect is needed. Existing web clients can use Server callback in account settings.
+              {<p className="mt-2 text-[10px] leading-4 text-foreground-secondary">
+                {connection.oauthCallbackMode === "manual" ? "Your server uses HTTP. For Google, create a Desktop app OAuth client. Approve access in your browser, then paste the complete callback URL into OpenTeam on this device." : "Register this exact URL with your provider’s Web application OAuth client. HTTPS sign-in returns automatically on desktop or iOS."}
               </p>}
             </div>
           ) : null}
@@ -649,16 +649,17 @@ function ConnectionSettingsRow({
   const [oauthClientId, setOauthClientId] = useState("");
   const [oauthClientSecret, setOauthClientSecret] = useState("");
   const [oauthScope, setOauthScope] = useState("");
-  const [callbackMode, setCallbackMode] = useState(connection.oauthCallbackMode ?? "desktop");
+  const [callbackMode, setCallbackMode] = useState<OAuthCallbackSettings["oauthCallbackMode"]>("auto");
+  const [manualSupported, setManualSupported] = useState(true);
+  useEffect(() => { let active = true; void api.pluginConfiguration(connection.id).then(config => { if (active) { setCallbackMode(config.oauthCallbackMode ?? "auto"); setManualSupported(config.manualCallbackSupported !== false); } }).catch(() => {}); return () => { active = false; }; }, [connection.id]);
   const [callbackPort, setCallbackPort] = useState(connection.oauthLoopbackPort ?? 0);
   const field =
     "h-8 rounded-[7px] border border-black/[0.08] bg-background px-2 text-[10.5px] outline-none dark:border-white/10 dark:bg-[#1d1d1d]";
   useEffect(() => setAlias(connection.alias), [connection.alias]);
   useEffect(() => setInstructions(connection.instructions), [connection.instructions]);
   useEffect(() => {
-    setCallbackMode(connection.oauthCallbackMode ?? "desktop");
     setCallbackPort(connection.oauthLoopbackPort ?? 0);
-  }, [connection.oauthCallbackMode, connection.oauthLoopbackPort]);
+  }, [connection.oauthLoopbackPort]);
   return (
     <div className="border-t border-black/[0.055] px-3 py-3 first:border-t-0 dark:border-white/[0.065]">
       <div className="flex items-center gap-2">
@@ -738,22 +739,25 @@ function ConnectionSettingsRow({
       {connection.auth === "oauth" && onConfigureCallback ? (
         <div className="mt-3 grid gap-2 text-[10.5px]">
           <label className="grid gap-1">Sign-in callback
-            <select className={field} aria-label="Sign-in callback" value={callbackMode} onChange={event => setCallbackMode(event.target.value as "desktop" | "server")}>
-              <option value="desktop">Desktop (recommended)</option>
+            <select className={field} aria-label="Sign-in callback" value={callbackMode} onChange={event => setCallbackMode(event.target.value as OAuthCallbackSettings["oauthCallbackMode"])}>
+              <option value="auto">Automatic (recommended)</option>
+              <option value="manual" disabled={!manualSupported}>Paste callback URL</option>
+              <option value="desktop">Desktop listener (advanced)</option>
               <option value="server">Server callback</option>
             </select>
           </label>
           {callbackMode === "desktop" && <label className="grid gap-1">Desktop callback port (0 = automatic)
             <input className={field} aria-label="Desktop callback port" type="number" min={0} max={65535} value={callbackPort} onChange={event => setCallbackPort(Number(event.target.value))} />
           </label>}
-          <p className="text-foreground-secondary">Google Desktop app clients receive sign-in on this computer. Existing web clients can use Server callback. Changing this setting requires signing in again.</p>
-          <button className={cn(secondaryButton, "justify-self-start")} type="button" disabled={busy || (callbackMode === (connection.oauthCallbackMode ?? "desktop") && callbackPort === (connection.oauthLoopbackPort ?? 0))} onClick={() => onConfigureCallback({ oauthCallbackMode: callbackMode, oauthLoopbackPort: callbackPort })}>Save callback settings</button>
+          <p className="text-foreground-secondary">Automatic uses HTTPS when your server has it, or callback paste for HTTP. For Google use a Web application client with HTTPS, or a Desktop app client for manual paste. Changing the method may require a new provider client.</p>
+          {!manualSupported && <p className="text-foreground-secondary">This provider requires an HTTPS server callback. Use Tailscale Serve or your own HTTPS domain.</p>}
+          <button className={cn(secondaryButton, "justify-self-start")} type="button" disabled={busy} onClick={() => onConfigureCallback({ oauthCallbackMode: callbackMode, oauthLoopbackPort: callbackPort })}>Save callback settings</button>
         </div>
       ) : null}
       {connection.auth === "oauth" && connection.status !== "ready" ? (
         <div className="mt-3 rounded-[9px] bg-black/[0.035] p-3 dark:bg-black/20">
           <div className="mb-2 text-[10.5px] leading-4 text-foreground-secondary">
-            {callbackMode === "desktop" && window.openteam?.pluginOAuth ? "Desktop sign-in uses a temporary local callback. This server URL is only needed for Server callback mode:" : "Register this server callback URL with your provider:"}
+            {connection.oauthCallbackMode === "manual" ? "Manual sign-in uses a loopback callback. For Google, create a Desktop app client:" : "Current callback URL (save callback settings before registering it):"}
             <code className="mt-1 block select-all break-all text-[10px] text-foreground">
               {connection.oauthRedirectUrl}
             </code>
@@ -983,6 +987,8 @@ export function PluginDetail({
         {plugin.description}
       </p>
 
+      {plugin.installationSteps?.length ? <details className="mt-4 text-[12px]"><summary className="cursor-pointer">Installation steps</summary><ol className="mt-2 list-decimal space-y-1 pl-5">{plugin.installationSteps.map(step => <li key={step}>{step}</li>)}</ol></details> : null}
+      {!install && plugin.setup ? <details className="mt-3 text-[12px]"><summary className="cursor-pointer">Provider setup: {plugin.setup.title}</summary><p className="mt-2">{plugin.setup.description}</p><ol className="mt-2 list-decimal space-y-1 pl-5">{plugin.setup.steps.map(step => <li key={step}>{step}</li>)}</ol>{plugin.setup.documentationUrl && <a href={plugin.setup.documentationUrl} target="_blank" rel="noreferrer" className="underline">Provider setup guide</a>}</details> : null}
       {!install && plugin.setupFields.length ? (
         <div className="mt-5 grid grid-cols-2 gap-2 rounded-[10px] bg-black/[0.035] p-3 dark:bg-white/[0.045] max-sm:grid-cols-1">
           {plugin.setupFields.map((field) => (

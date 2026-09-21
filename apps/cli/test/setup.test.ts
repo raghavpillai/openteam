@@ -1367,6 +1367,38 @@ describe("interactive setup", () => {
     );
   });
 
+  test("Tailscale HTTPS failure saves a usable private HTTP deployment for callback paste", async () => {
+    const fixture = createSetupFixture({ authenticated: true });
+    const runner = new SetupRunner();
+    const originalRun = runner.run.bind(runner);
+    const host = "bot.tail123.ts.net";
+    runner.run = (command, args, options) => {
+      if (command !== "tailscale") return originalRun(command, args, options);
+      runner.calls.push({ command, args, options });
+      return args[0] === "status"
+        ? { status: 0, stdout: JSON.stringify({ BackendState: "Running", Self: { DNSName: `${host}.`, TailscaleIPs: ["100.100.10.5"] }, CertDomains: [host] }), stderr: "" }
+        : args.includes("--bg") ? { status: 1, stdout: "", stderr: "Serve permission denied" }
+        : { status: 0, stdout: "{}", stderr: "" };
+    };
+    const output: string[] = [];
+    const prompter = sessionPrompter({ accessMode: "proxy", publicUrl: `https://${host}`, skipInference: true });
+    const collect = prompter.session!;
+    prompter.session = input => {
+      expect(input.preferredHttpsHost).toBe(host);
+      return collect(input);
+    };
+    await setupCommand(fixture.paths, runner, {
+      fresh: true, detectedPrivateHost: "100.100.10.5", detectedLogins: [],
+      presentation: { ...silentPresentation, message: message => output.push(message) },
+    }, prompter);
+    const saved = parseEnvironment(readFileSync(fixture.paths.environment, "utf8"));
+    expect(saved.get("OPENTEAM_ACCESS_MODE")).toBe("private");
+    expect(saved.get("OPENTEAM_PUBLIC_URL")).toBe(`http://100.100.10.5:${saved.get("OPENTEAM_API_PORT")}`);
+    expect(saved.get("OPENTEAM_AUTH_URL")).toBe(saved.get("OPENTEAM_PUBLIC_URL"));
+    expect(saved.get("COMPOSE_PROFILES")).toBe("direct");
+    expect(output.some(message => message.includes("compatible plugins will use callback paste"))).toBe(true);
+  });
+
   test("cancels setup before provider validation without changing anything", async () => {
     const fixture = createSetupFixture();
     const runner = new SetupRunner();

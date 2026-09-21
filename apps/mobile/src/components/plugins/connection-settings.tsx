@@ -31,6 +31,8 @@ export function ConnectionSettings({ model }: { model: PluginWorkspaceModel }) {
     setEnv,
     method,
     setMethod,
+    callbackMode,
+    setCallbackMode,
     busy,
     run,
     saveConfig,
@@ -96,9 +98,12 @@ export function ConnectionSettings({ model }: { model: PluginWorkspaceModel }) {
           )}
           {connection.auth === "oauth" && (
             <View style={{ gap: 6 }}>
+              <Choices label="Sign-in callback" values={["auto", "server", "manual", "desktop"]} current={callbackMode} onChange={value => setCallbackMode(value as typeof callbackMode)} />
+              {paragraph("Automatic returns to your HTTPS server, or uses callback paste for HTTP. For Google, use a Web application client for HTTPS and a Desktop app client for paste.")}
+              {config.manualCallbackSupported === false && paragraph("This provider requires HTTPS; callback paste is not available.")}
               <Text style={{ color: theme.text, fontWeight: "600" }}>OAuth callback URL</Text>
               <Text selectable style={{ color: theme.textMuted }}>
-                {config.callbackUrl}
+                {(callbackMode === "manual" || (callbackMode === "auto" && !config.callbackUrl.startsWith("https://"))) ? config.manualCallbackUrl : config.callbackUrl}
               </Text>
             </View>
           )}

@@ -34,7 +34,7 @@ export function PluginAccountRow({
   useEffect(() => setAlias(connection.alias), [connection.alias]);
   const ready = connection.status === "ready";
   const authorization = pluginAuthorization(connection);
-  const status = ready
+  const status = connection.setupPhase === "provider_setup_required" ? "Provider setup required" : connection.setupPhase === "authorization_pending" ? "Authorization pending" : connection.setupPhase === "ready_to_authorize" && connection.auth === "oauth" ? "Ready to authorize" : ready
     ? "Connected"
     : connection.status === "needs_auth"
       ? "Needs auth"
@@ -125,7 +125,7 @@ export function PluginAccountRow({
         {!editing && !ready && !authorization && (
           <button className={button} type="button" disabled={busy} onClick={onConnect}>
             {busy ? <LoaderCircle className="size-3 animate-spin" /> : null}
-            {connection.configured ? "Retry" : "Set up"}
+            {connection.configured ? (connection.auth === "oauth" ? "Authorize" : "Connect") : "Set up"}
           </button>
         )}
         {editing && (connection.alias !== "default" || connection.status !== "needs_auth") && (

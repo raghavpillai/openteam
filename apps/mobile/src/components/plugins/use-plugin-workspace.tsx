@@ -44,6 +44,7 @@ export function usePluginWorkspace({
   const [headers, setHeaders] = useState("");
   const [env, setEnv] = useState("");
   const [method, setMethod] = useState("none");
+  const [callbackMode, setCallbackMode] = useState<NonNullable<PluginConfigurationInput["oauthCallbackMode"]>>("auto");
   const [alias, setAlias] = useState("");
   const [newAlias, setNewAlias] = useState("");
   const [instructions, setInstructions] = useState("");
@@ -129,6 +130,7 @@ export function usePluginWorkspace({
           setArgs(JSON.stringify(next.args));
           setCwd(next.cwd ?? "");
           setMethod(next.tokenEndpointAuthMethod);
+          setCallbackMode(next.oauthCallbackMode ?? "auto");
           setHeaders("");
           setEnv("");
           setAlias(connection?.alias ?? "");
@@ -173,6 +175,7 @@ export function usePluginWorkspace({
         ...(env ? { env: JSON.parse(env) } : {}),
         ...(connection?.auth === "oauth"
           ? {
+              oauthCallbackMode: callbackMode,
               tokenEndpointAuthMethod:
                 method as PluginConfigurationInput["tokenEndpointAuthMethod"],
             }
@@ -298,6 +301,8 @@ export function usePluginWorkspace({
     setEnv,
     method,
     setMethod,
+    callbackMode,
+    setCallbackMode,
     alias,
     setAlias,
     newAlias,

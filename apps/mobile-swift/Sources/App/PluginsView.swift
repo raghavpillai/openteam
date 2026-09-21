@@ -144,6 +144,23 @@ struct PluginDetailView: View {
         LabeledContent("Publisher", value: plugin["publisher"].string)
         LabeledContent("Version", value: plugin["version"].string)
       }
+      let catalog = isInstalled ? plugin["catalog"] : plugin
+      if !catalog["installationSteps"].array.isEmpty {
+        Section("Installation steps") {
+          ForEach(Array(catalog["installationSteps"].array.enumerated()), id: \.offset) { index, step in
+            Text("\(index + 1). " + step.string)
+          }
+        }
+      }
+      if !isInstalled, !catalog["setup"]["title"].string.isEmpty {
+        Section("Provider setup") {
+          Text(catalog["setup"]["description"].string)
+          ForEach(Array(catalog["setup"]["steps"].array.enumerated()), id: \.offset) { index, step in
+            Text("\(index + 1). " + step.string)
+          }
+          if let url = URL(string: catalog["setup"]["documentationUrl"].string) { Link("Provider setup guide", destination: url) }
+        }
+      }
       if isInstalled {
         ForEach(plugin["connections"].array.map { $0["id"].string }, id: \.self) { id in
           let connection = connectionBinding(id)
@@ -261,7 +278,7 @@ struct PluginDetailView: View {
       guard let latest = try await latestInstallation() else {
         throw responseError ?? APIError("Installation could not be confirmed. Try again.")
       }
-      let needsSetup = !plugin["setupFields"].array.isEmpty
+      let needsSetup = !plugin["setupFields"].array.isEmpty || plugin["setup"]["kind"].string == "oauth_client"
       plugin = latest
       newlyInstalled = true
       setup = [:]

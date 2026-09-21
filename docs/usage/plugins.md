@@ -13,23 +13,21 @@ Plugins connect bots to services such as GitHub, Gmail, Slack, and Notion. They 
 
 Try a small task in chat after connecting. For example, ask the bot to list the repositories or notes you expect it to access.
 
-**Added** means the package is installed. **Connected** or **Ready** means the account connected and its tools were discovered. Neither means every bot has access or every provider operation is permitted.
+**Added** means the package is installed. **Provider setup required** means required credentials or configuration are missing. **Ready to authorize** means those fields are saved, and **Authorization pending** means browser sign-in has started. A connection error requires validation or retry. **Connected** or **Ready** means the account connected and its tools were discovered. Neither means every bot has access or every provider operation is permitted.
 
 ## Multiple accounts
 
 Use **Add Another Account** or **Add account** to connect a second identity. Give it a name such as Work or Personal, authorize it separately, and check its bot grants.
 
-Desktop OAuth receives callbacks on your computer and relays them to the selected server. Account settings also offer **Server callback** for web clients and **Desktop callback port** for providers requiring a fixed port. In Server mode, add the new account's exact callback URL to the provider application. Google Desktop app clients do not require a public server callback. Connecting Gmail does not also connect Google Calendar or Drive.
+Each account has separate authorization and Bot grants. Server callbacks share one stable deployment URL; adding another account does not require another callback registration. Connecting Gmail does not also connect Calendar or Drive.
 
 ## Self-hosted Google sign-in on desktop and iOS
 
-For a server on another computer, choose **Desktop app** as the sign-in method and configure a Google **Desktop app** OAuth client. OpenTeam opens the system browser on the computer running its desktop app. Google returns to a temporary `127.0.0.1` listener on that same computer; OpenTeam relays the response to your selected server. The server exchanges the code and stores the refresh token. No public callback hostname, Tailscale, or SSH callback tunnel is required for this method. The app must still be able to reach the server; use HTTPS or a trusted encrypted network for that connection.
+Keep **Sign-in callback → Automatic**. With HTTPS, either app opens its local browser and authorization returns to your OpenTeam server. Tailscale Serve is the preferred private HTTPS setup; a custom HTTPS domain works through the same flow. Configure a Google **Web application** OAuth client with the callback shown in account settings.
 
-After connecting, sign into the **same OpenTeam server/account on iOS**. The connection is already available there, and the desktop app can be closed. Provider tokens stay on the server. OpenTeam login sessions remain in each device’s secure storage across app restarts.
+If the server address is HTTP, compatible providers use **Paste callback URL**. For Google, configure a **Desktop app** OAuth client, approve in your browser, and paste the complete returned localhost address into the app's dedicated authorization form. The failed localhost page is expected. The backend checks the session, state, redirect, and expiration. This flow is implemented on desktop and iOS; Google's real iPhone consent/copy experience still needs device acceptance testing.
 
-To perform first-time Google authorization entirely from iOS with the current implementation, use **Server callback** in Connection settings, configure a Google **Web application** OAuth client, and register the displayed callback URL. A remote Google callback requires an HTTPS hostname, reachable by the browser completing sign-in. It does not have to be publicly exposed if that browser can reach it privately with a valid certificate. A raw HTTP LAN/Tailscale IP is not an accepted Google web callback. A Desktop app client is not interchangeable with a Web application client.
-
-iOS does not run the desktop loopback listener. It directs desktop-mode connections to desktop setup and does not reopen a pending desktop callback on the phone. A native Google iOS SDK/custom-scheme flow would be a separate implementation and OAuth client registration; it is not currently provided. See [Google’s installed-app guidance](https://developers.google.com/identity/protocols/oauth2/native-app).
+Tokens stay on your server, which refreshes them independently of either app. No OpenTeam-operated callback service is required. Explicit **Desktop listener (advanced)** settings are preserved and still need the desktop app. See [Google setup](../integrations/google.md) for registration and migration details.
 
 Google applications with an External consent screen in **Testing** normally receive seven-day refresh tokens for Calendar/Gmail scopes. For durable personal use, review the project’s publishing status and Google’s requirements; storing a token successfully cannot override provider expiry or revocation. See [Google’s token expiration rules](https://developers.google.com/identity/protocols/oauth2#expiration).
 

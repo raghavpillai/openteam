@@ -35,6 +35,7 @@ import {
   validateProviderId,
   validateProviderName,
   validatePublicDomain,
+  validateProxyHost,
   validatePublicHost,
   validateTimeZone,
 } from "./setup-values";
@@ -58,6 +59,8 @@ export interface SetupSessionInput {
   currentOwnerUsername?: string;
   currentInference?: RuntimeInferenceSettings;
   detectedPrivateHost?: string | null;
+  /** Safe Tailscale HTTPS default detected by the setup command. */
+  preferredHttpsHost?: string;
   /** Vendor CLI sign-ins found on this machine that Pi can reuse. */
   detectedLogins?: readonly DetectedLogin[];
   /** Informational notes shown above the launch summary, such as a port fallback. */
@@ -155,7 +158,7 @@ const hostLabel = (mode: AccessMode): { label: string; placeholder: string } => 
 };
 
 const validateHost = (mode: AccessMode, value: string): string =>
-  mode === "https" || mode === "proxy" ? validatePublicDomain(value) : validatePublicHost(value);
+  mode === "proxy" ? validateProxyHost(value) : mode === "https" ? validatePublicDomain(value) : validatePublicHost(value);
 
 const withoutTrailingWord = (value: string): string => value.replace(/\s*\S+\s*$/, "");
 
@@ -180,12 +183,15 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
       ? currentInference.modelId
       : (DEFAULT_PROVIDER_MODELS[initialProvider] ?? currentInference.modelId);
   const detectedPrivateHost = input.detectedPrivateHost ?? null;
-  const initialAccess = configuredAccessMode(input.current, fresh);
+  const initialAccess = input.preferredHttpsHost
+    ? "proxy"
+    : configuredAccessMode(input.current, fresh);
   const existingHost = existingReachableHost(input.current);
   const initialHost =
-    fresh && initialAccess === "private"
+    input.preferredHttpsHost ??
+    (fresh && initialAccess === "private"
       ? (detectedPrivateHost ?? "")
-      : (existingHost ?? (initialAccess === "private" ? (detectedPrivateHost ?? "") : ""));
+      : (existingHost ?? (initialAccess === "private" ? (detectedPrivateHost ?? "") : "")));
   const needsConnectionInput = !advanced && initialAccess !== "local" && !initialHost;
   const firstSection = advanced || needsConnectionInput ? ACCESS_SECTION : OWNER_SECTION;
   const visibleStages = firstSection === ACCESS_SECTION ? input.stages : input.stages.slice(1);

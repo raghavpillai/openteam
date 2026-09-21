@@ -11,6 +11,9 @@ umask 0007
 
 mkdir -p "$agent_dir"
 mkdir -p "$data_root" /workspace
+mkdir -p /home/box/Downloads /home/box/Documents
+chown "$agent_uid:$agent_gid" /home/box/Downloads /home/box/Documents
+chmod 2770 /home/box/Downloads /home/box/Documents
 
 # The inference supervisor owns Pi credentials. Agent-launched shells and GUI
 # processes run as the unprivileged runner identity and share only workspace,

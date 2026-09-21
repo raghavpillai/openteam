@@ -12,6 +12,7 @@
     <property name="MonospaceFontName" type="string" value="Monospace 12"/>
     <property name="CursorThemeName" type="string" value="Adwaita"/>
     <property name="CursorThemeSize" type="int" value="24"/>
-    <property name="DialogsUseHeader" type="bool" value="false"/>
+    <!-- Keep Open/Save visible even when a native chooser exceeds the display height. -->
+    <property name="DialogsUseHeader" type="bool" value="true"/>
   </property>
 </channel>

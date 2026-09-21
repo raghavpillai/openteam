@@ -12,6 +12,7 @@ import type {
 import { SEND_TO_USER_REPLY_NUDGE_PROMPT } from "@openteam/contracts";
 import { formatPiModelRef, parsePiModelRef, normalizePiReasoningLevel } from "@openteam/contracts";
 import { selectTaskConfiguration, parseTaskConfiguration, type TaskConfiguration, type TaskCapabilities } from "@openteam/contracts/task-configuration";
+import { finalizeInterruptedItems, interruptedProgress } from "./interrupted-progress";
 import {
   COMPUTER_API_PATHS,
   parseAgentDirectorySnapshot,
@@ -1495,6 +1496,7 @@ export class WakeWorker {
         where: { id: claimed.runId },
         data: { status: finalStatus, error: failureDetails, completedAt: new Date() },
       });
+      await finalizeInterruptedItems(tx, claimed.runId, finalStatus === "cancelled");
       await tx.inboxEvent.update({
         where: { id: claimed.inboxId },
         data: { status: "failed", error: failureDetails, completedAt: new Date() },
@@ -1811,13 +1813,17 @@ export class WakeWorker {
     ) {
       return;
     }
+    const items = await tx.runItem.findMany({
+      where: { runId: claimed.runId, kind: "tool" }, orderBy: { createdAt: "desc" }, take: 24,
+    });
+    const result = interruptedProgress(items.reverse(), String(details.message ?? "Runtime interrupted"));
     await tx.subagent.update({
       where: { id: subagent.id },
-      data: { status: "failed", error: details, completedAt: new Date() },
+      data: { status: "failed", error: details, result, completedAt: new Date() },
     });
     await tx.subagentAttempt.update({
       where: { id: attempt.id },
-      data: { status: "failed", error: details, completedAt: new Date() },
+      data: { status: "failed", error: details, result, completedAt: new Date() },
     });
     await tx.event.create({
       data: {
@@ -1845,7 +1851,7 @@ export class WakeWorker {
           currentRunId: attempt.childRunId,
         },
         "failed",
-        details.message as string
+        result
       );
     }
   }

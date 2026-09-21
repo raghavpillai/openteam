@@ -973,8 +973,8 @@ export class RuntimeTools {
           await this.executeHostTool(active, callId, tool, signal, (approvals) =>
             this.nativeToolExecutor.autoReviewAction(
               {
-                surface: "computer",
-                summary: `Use ${tool} on the bot computer`,
+                surface: tool.startsWith("browser_") ? "browser" : "computer",
+                summary: tool.startsWith("browser_") ? `Use dedicated browser tool ${tool}` : `Use native desktop tool ${tool}`,
                 target: active.screenBotId,
                 arguments: { tool, ...(args as Record<string, unknown>) },
               },
@@ -998,8 +998,12 @@ export class RuntimeTools {
       normalizeMainToolArguments("Computer", args)
     );
     const { then = [], description: _description, ...first } = input;
-    const actions = [first, ...then];
+    const requestedActions = [first, ...then];
+    const needsDesktopObservation = active.lastGraphicalSurface !== "computer" &&
+      requestedActions.some(action => ["click", "move", "drag", "scroll"].includes(action.action));
+    const actions = needsDesktopObservation ? [{ action: "screenshot" as const }] : requestedActions;
     const frame = await this.screens.actComputerUse(active.screenBotId, active.cwd, actions);
+    active.lastGraphicalSurface = "computer";
     // Adopt the live browser after Computer/manual navigation as well as Browser tools.
     try {
       this.observeLogins(active, await this.privateBrowser(active));
@@ -1014,7 +1018,7 @@ export class RuntimeTools {
       content: [
         {
           type: "text" as const,
-          text: `Computer action ran on the box desktop.\nScreenshot of the resulting screen saved to ${path} — include this file:// path in your report to the parent if it should be shown to the user.`,
+          text: `${needsDesktopObservation ? "Captured the native desktop before switching coordinate spaces. The requested pointer actions were NOT executed. Read this screenshot, then issue the actions using desktop coordinates; browser viewport coordinates omit the window chrome." : "Computer action ran on the box desktop."}\nScreenshot of the resulting screen saved to ${path} — include this file:// path in your report to the parent if it should be shown to the user.`,
         },
         {
           type: "image" as const,
@@ -1027,6 +1031,8 @@ export class RuntimeTools {
         width: frame.readUInt32BE(16),
         height: frame.readUInt32BE(20),
         path,
+        coordinateSpace: "desktop",
+        ...(needsDesktopObservation ? { requestedActionsSkipped: true } : {}),
       },
     };
   }
@@ -1039,7 +1045,7 @@ export class RuntimeTools {
     const endpoint = await this.screens.browserEndpointForAgent(active.screenBotId, active.cwd);
     let browser = this.browserUseSessions.get(active.botId);
     if (!browser?.connected) {
-      browser = await BrowserUseSession.connect(
+      browser = browser ? await browser.reconnect(endpoint) : await BrowserUseSession.connect(
         endpoint,
         join(this.workspaceRoot, "shared", "screenshots")
       );
@@ -1049,8 +1055,10 @@ export class RuntimeTools {
     browser.registerPrivateValues([...(this.privateBrowserValues.get(active.screenBotId) ?? [])]);
     this.observeLogins(active, browser);
     const result = await browser.execute(toolName, args);
+    active.lastGraphicalSurface = "browser";
     if (
       ["browser_navigate", "browser_snapshot", "browser_tabs"].includes(toolName) &&
+      !result.details?.pendingDialog &&
       active.requestSource !== "automation"
     ) {
       const filled = await this.automaticLogin(active, browser);

@@ -6,6 +6,7 @@ import type { ComputerUseActionInput, ScreenActionInput } from "@openteam/contra
 import { agentProcessIdentity } from "./agent-process";
 import { BrowserBroker } from "./browser/broker";
 import { BrowserProfileAuthority } from "./browser/profile-authority";
+import { prepareDownloadPreferences } from "./browser/download-preferences";
 import { performComputerUseAction } from "./screen/actions";
 import {
   environment,
@@ -397,6 +398,7 @@ export class ScreenBroker {
       if (stoppedOwnedBrowser) await this.profileAuthority.publish(session.profileDirectory);
       else await this.profileAuthority.seedIfEmpty(session.profileDirectory);
       await this.profileAuthority.prepare(session.profileDirectory);
+      await prepareDownloadPreferences(session.profileDirectory, this.home);
       // Chromium's profile survives container restarts, but its process-singleton
       // markers do not. Clear only those ephemeral locks before recreating the
       // bot's desktop; history, cookies, and the rest of the profile stay durable.

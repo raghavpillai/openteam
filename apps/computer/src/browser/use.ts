@@ -3,7 +3,9 @@ import { resolveReferenceSelectOptions } from "./reference-select";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Browser, BrowserContext, ElementHandle, Frame, Locator, Page } from "playwright-core";
+import { homedir } from "node:os";
+import { BrowserDownloads } from "./downloads";
+import type { Browser, BrowserContext, CDPSession, Dialog, ElementHandle, Frame, Locator, Page } from "playwright-core";
 import { outOfProcessPlaywright } from "./playwright-driver";
 import { normalizeFormDomain, formFieldIsSecret, type UserForm, type UserFormField } from "@openteam/contracts";
 import type { FormPageBinding } from "../user-form-host";
@@ -100,25 +102,99 @@ export class BrowserUseSession {
   private readonly ids = new WeakMap<Page, string>();
   private readonly refs = new Map<string, Map<string, ElementHandle<HTMLElement>>>();
   private readonly ownedPages = new Set<Page>();
+  private readonly targetIds = new Map<string, string>();
+  private readonly cdpSessions = new WeakMap<Page, Promise<CDPSession>>();
   private nextViewId = 1;
   private currentViewId: string | null = null;
   private screenshotOrdinal = 0;
+  private downloads?: BrowserDownloads;
+  private readonly dialogs = new Map<Page, Dialog>();
+  private readonly dialogObservers = new WeakMap<Page, Promise<void>>();
+  private dialogOpened?: (page: Page) => void;
+  private unfinishedOperation?: Promise<AgentToolResult<Record<string, unknown>>>;
+  private async drainDialogAction(): Promise<void> {
+    const operation = this.unfinishedOperation;
+    try { await operation; }
+    catch (error) {
+      // The dialog can arrive while the action's post-click screenshot starts.
+      // Its failed observation is superseded by the fresh post-dialog snapshot.
+      if (!/Open JavaScript dialog prevents evaluation/.test(String(error))) throw error;
+    }
+    finally { if (this.unfinishedOperation === operation) this.unfinishedOperation = undefined; }
+  }
+
+  private dialogState(page: Page, summary = "Browser action opened a dialog") {
+    const dialog = this.dialogs.get(page)!;
+    const pendingDialog = { type: dialog.type(), message: dialog.message(), defaultValue: dialog.defaultValue() };
+    return textResult(`${summary}. Pending ${pendingDialog.type}: ${pendingDialog.message}\n` +
+      `The page is paused. Use browser_cdp with method Page.handleJavaScriptDialog and params {accept: true|false, promptText?: string}, or respond through native Computer controls. Do not repeat the action that opened it.`,
+      { viewId: this.idFor(page), url: page.url(), pendingDialog });
+  }
+
+  private async observeDialogs(page: Page): Promise<void> {
+    let observer = this.dialogObservers.get(page);
+    if (!observer) {
+      observer = (async () => {
+        const cdp = await this.cdpFor(page);
+        const { targetInfo } = await cdp.send("Target.getTargetInfo");
+        this.targetIds.set(this.idFor(page), targetInfo.targetId);
+        cdp.on("Page.javascriptDialogClosed", () => this.dialogs.delete(page));
+        await cdp.send("Page.enable");
+      })();
+      this.dialogObservers.set(page, observer);
+    }
+    await observer;
+  }
+
+  private cdpFor(page: Page): Promise<CDPSession> {
+    let connection = this.cdpSessions.get(page);
+    if (!connection) {
+      connection = this.context.newCDPSession(page).catch(error => {
+        this.cdpSessions.delete(page);
+        throw error;
+      });
+      this.cdpSessions.set(page, connection);
+    }
+    return connection;
+  }
 
   private constructor(
     private readonly browser: Browser,
     private readonly context: BrowserContext,
-    private readonly artifactDirectory: string
+    private readonly artifactDirectory: string,
+    private readonly downloadDirectory: string
   ) {}
 
-  static async connect(endpoint: string, artifactDirectory: string, adoptExisting = false): Promise<BrowserUseSession> {
+  static async connect(endpoint: string, artifactDirectory: string, adoptExisting = false, downloadDirectory = join(homedir(), "Downloads"), lease?: { targets: Map<string, string>; selected: string | null; nextId: number }): Promise<BrowserUseSession> {
     const driver = await outOfProcessPlaywright();
     const browser = await driver.playwright.chromium.connectOverCDP(endpoint);
     const context = browser.contexts()[0];
     if (!context) throw new Error("Chromium did not provide a default browser context");
-    const session = new BrowserUseSession(browser, context, artifactDirectory);
+    const session = new BrowserUseSession(browser, context, artifactDirectory, downloadDirectory);
+    session.downloads = await BrowserDownloads.create(browser, context, () => session.leasedPages(), downloadDirectory);
     if (adoptExisting) { for (const page of context.pages()) session.trackPage(page); context.on("page", page => session.trackPage(page)); }
-    else session.trackPage(await context.newPage());
+    else if (lease) {
+      session.nextViewId = lease.nextId;
+      session.currentViewId = lease.selected;
+      for (const page of context.pages()) {
+        const cdp = await context.newCDPSession(page);
+        try {
+          const { targetInfo } = await cdp.send("Target.getTargetInfo");
+          const match = [...lease.targets].find(([, target]) => target === targetInfo.targetId);
+          if (match) { session.ids.set(page, match[0]); session.trackPage(page); }
+        } finally { await cdp.detach(); }
+      }
+    } else session.trackPage(await context.newPage());
     await session.ensurePage();
+    return session;
+  }
+
+  async reconnect(endpoint: string): Promise<BrowserUseSession> {
+    // Recover only this lease's exact Chromium target IDs, never unrelated tabs.
+    // The failed action is not replayed. Element refs must be observed again.
+    const session = await BrowserUseSession.connect(endpoint, this.artifactDirectory, false, this.downloadDirectory,
+      { targets: this.targetIds, selected: this.currentViewId, nextId: this.nextViewId });
+    session.registerPrivateValues([...this.privateValues]);
     return session;
   }
 
@@ -329,7 +405,7 @@ export class BrowserUseSession {
 
   async execute(toolName: string, raw: unknown): Promise<AgentToolResult<Record<string, unknown>>> {
     try {
-      const result = await this.executeRaw(toolName, raw);
+      const result = await this.executeWithDialogs(toolName, raw);
       if (!this.privateValues.size) return result;
       return { ...result,
         content: result.content.map(part => part.type === "text" ? {...part, text: redactSecrets(part.text, [...this.privateValues])} : part),
@@ -337,6 +413,52 @@ export class BrowserUseSession {
       };
     } catch (error) {
       throw new Error(redactSecrets(error instanceof Error ? error.message : String(error), [...this.privateValues]));
+    }
+  }
+
+  private async executeWithDialogs(toolName: string, raw: unknown): Promise<AgentToolResult<Record<string, unknown>>> {
+    const args = (raw && typeof raw === "object" ? raw : {}) as JsonObject;
+    const page = await this.ensurePage(this.viewId(args));
+    const dialog = this.dialogs.get(page);
+    if (toolName === "browser_cdp" && args.method === "Page.handleJavaScriptDialog") {
+      if (!dialog) throw new Error("No dialog is showing");
+      const params = args.params as JsonObject | undefined;
+      if (typeof params?.accept !== "boolean" || (params.promptText !== undefined && typeof params.promptText !== "string"))
+        throw new Error("Dialog handling requires accept: boolean and optional promptText: string");
+      const opened = new Promise<AgentToolResult<Record<string, unknown>>>(resolve => {
+        this.dialogOpened = openedPage => resolve(this.dialogState(openedPage));
+      });
+      try {
+        if (params.accept) await dialog.accept(params.promptText as string | undefined);
+        else await dialog.dismiss();
+        if (this.dialogs.get(page) === dialog) this.dialogs.delete(page);
+        if (this.dialogs.has(page)) return this.dialogState(page);
+        // Accepting one dialog can synchronously open another. Report it without
+        // waiting for the original click's JavaScript callback to finish.
+        return await Promise.race([opened, this.drainDialogAction().then(() =>
+          this.pageState(page, params.accept ? "Accepted browser dialog" : "Dismissed browser dialog"))]);
+      } finally { this.dialogOpened = undefined; }
+    }
+    if (dialog) return this.dialogState(page, "Browser dialog still needs a response");
+    // A native dialog response may have completed the previous browser action.
+    // Drain it before a new action; never replay an action after a dialog.
+    await this.drainDialogAction();
+    const opened = new Promise<AgentToolResult<Record<string, unknown>>>(resolve => {
+      this.dialogOpened = openedPage => resolve(this.dialogState(openedPage));
+    });
+    const operation = this.executeRaw(toolName, raw);
+    this.unfinishedOperation = operation;
+    try {
+      const result = await Promise.race([operation, opened]);
+      if (!result.details?.pendingDialog) this.unfinishedOperation = undefined;
+      return result;
+    } catch (error) {
+      this.unfinishedOperation = undefined;
+      throw error;
+    } finally {
+      this.dialogOpened = undefined;
+      // A rejected input after returning the dialog must not become unhandled.
+      void operation.catch(() => {});
     }
   }
   private async executeRaw(toolName: string, raw: unknown): Promise<AgentToolResult<Record<string, unknown>>> {
@@ -383,16 +505,19 @@ export class BrowserUseSession {
       const requested = pages.find((page) => this.idFor(page) === requestedViewId);
       if (!requested) throw new Error(`Browser tab is unavailable: ${requestedViewId}`);
       this.currentViewId = requestedViewId;
+      await this.observeDialogs(requested);
       return requested;
     }
     const selected = pages.find((page) => this.idFor(page) === this.currentViewId) ?? pages[0];
     if (selected) {
       this.currentViewId = this.idFor(selected);
+      await this.observeDialogs(selected);
       return selected;
     }
     const created = await this.context.newPage();
     this.trackPage(created);
     this.currentViewId = this.idFor(created);
+    await this.observeDialogs(created);
     return created;
   }
 
@@ -408,12 +533,21 @@ export class BrowserUseSession {
     if (this.ownedPages.has(page)) return;
     this.ownedPages.add(page);
     this.idFor(page);
+    page.on("dialog", dialog => {
+      this.dialogs.set(page, dialog);
+      this.dialogOpened?.(page);
+    });
     page.on("popup", (popup) => {
       this.trackPage(popup);
       this.currentViewId = this.idFor(popup);
     });
     page.on("close", () => {
+      void this.cdpSessions.get(page)?.then(cdp => cdp.detach()).catch(() => {});
+      this.cdpSessions.delete(page);
       this.ownedPages.delete(page);
+      this.dialogs.delete(page);
+      // Keep exact target IDs across transport loss (which also closes these
+      // Page objects). A closed Chrome target cannot match on reconnection.
       this.refs.delete(this.idFor(page));
       if (this.currentViewId === this.idFor(page)) this.currentViewId = null;
     });
@@ -439,11 +573,22 @@ export class BrowserUseSession {
 
   private async requireRef(page: Page, value: unknown): Promise<ElementHandle<HTMLElement>> {
     if (typeof value !== "string") throw new Error("An element ref is required");
-    const handle = this.refs.get(this.idFor(page))?.get(value) ?? await refHandle(page, value) as ElementHandle<HTMLElement>;
+    let handle = this.refs.get(this.idFor(page))?.get(value) ?? await refHandle(page, value) as ElementHandle<HTMLElement>;
     const connected = await handle?.evaluate((node) => node.isConnected).catch(() => false);
     if (!handle || !connected) {
       throw new Error(`Element ref ${value} is stale or unknown; take a fresh browser_snapshot`);
     }
+    // A same-origin snapshot can return a child frame's node through the main
+    // frame's JS realm. Playwright then uses that realm's viewport for clicks.
+    // Rebind to the owning frame before any pointer, geometry or input action.
+    const owner = await handle.ownerFrame();
+    if (!owner || owner.isDetached()) throw new Error(`Element ref ${value} belongs to a detached frame; take a fresh browser_snapshot`);
+    if (owner === page.mainFrame()) return handle;
+    const owned = (await owner.evaluateHandle(node => node, handle)).asElement() as ElementHandle<HTMLElement> | null;
+    if (!owned) throw new Error(`Element ref ${value} is no longer an element; take a fresh browser_snapshot`);
+    if (owned !== handle) await handle.dispose();
+    handle = owned;
+    this.refs.get(this.idFor(page))?.set(value, handle);
     return handle;
   }
 
@@ -453,7 +598,9 @@ export class BrowserUseSession {
     fullPage = false,
     data?: string
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const image = Buffer.from(await page.screenshot({ fullPage, type: "png", mask: [page.locator('[data-openteam-private="true"]')] }));
+    if (this.dialogs.has(page)) return this.dialogState(page, summary);
+    await this.observeDialogs(page);
+    const image = Buffer.from(await page.screenshot({ fullPage, timeout: 10_000, type: "png", mask: [page.locator('[data-openteam-private="true"]')] }));
     await mkdir(this.artifactDirectory, { recursive: true });
     const path = join(
       this.artifactDirectory,
@@ -462,15 +609,19 @@ export class BrowserUseSession {
     await writeFile(path, image, { mode: 0o644 });
     const pageViewId = this.idFor(page);
     const title = await page.title().catch(() => "");
+    const downloads = await this.downloads?.forPage(page) ?? [];
+    const downloadText = downloads.map(download => download.state === "completed"
+      ? download.path ? `Downloaded ${download.filename} to ${download.path}` : `Download completed: ${download.filename}. Check ${download.directory} for the saved filename; the browser did not provide a verified file path.`
+      : `Download ${download.state === "canceled" ? "canceled" : "in progress"}: ${download.filename} (destination: ${download.directory})`);
     return {
       content: [
         {
           type: "text",
-          text: redactSecrets([summary === "Took a screenshot" ? `Saved a screenshot to ${path}` : summary, `Current page: ${title} (${page.url()})`, ...(data ? [data] : [])].join("\n\n"), [...this.privateValues]),
+          text: redactSecrets([summary === "Took a screenshot" ? `Saved a screenshot to ${path}` : summary, `Current page: ${title} (${page.url()})`, ...(data ? [data] : []), ...downloadText].join("\n\n"), [...this.privateValues]),
         },
         { type: "image", data: image.toString("base64"), mimeType: "image/png" },
       ],
-      details: { viewId: pageViewId, url: page.url(), title, path },
+      details: { viewId: pageViewId, url: page.url(), title, path, coordinateSpace: fullPage ? "page" : "browser-viewport", ...(downloads.length ? { downloads } : {}) },
     };
   }
 
@@ -484,6 +635,7 @@ export class BrowserUseSession {
           })
         : await this.ensurePage(this.viewId(args));
     this.currentViewId = this.idFor(page);
+    await this.observeDialogs(page);
     const outcome = await gotoWithRecovery(page, args.url, true);
     await this.clearRefs(page);
     const safeUrl = new URL(args.url); safeUrl.username = ""; safeUrl.password = "";
@@ -661,6 +813,7 @@ export class BrowserUseSession {
   }
 
   private async recoverAfterAction(page: Page, summary: string): Promise<string> {
+    if (this.dialogs.has(page)) return summary;
     await settleIntoErrorPage(this.context, page);
     if (page.isClosed() || !isChromeErrorPage(page)) return summary;
     try {
@@ -688,6 +841,15 @@ export class BrowserUseSession {
   private async pressKey(args: JsonObject) {
     const page = await this.ensurePage(this.viewId(args));
     if (typeof args.key !== "string") throw new Error("key is required");
+    const back = /^(?:BrowserBack|Alt\+(?:Arrow)?Left)$/i.test(args.key);
+    const forward = /^(?:BrowserForward|Alt\+(?:Arrow)?Right)$/i.test(args.key);
+    if (back || forward) {
+      // A back/forward-cache restoration commits without firing a new DOMContentLoaded.
+      const options = { waitUntil: "commit" as const, timeout: 20_000 };
+      const response = back ? await page.goBack(options) : await page.goForward(options);
+      await this.clearRefs(page);
+      return this.pageState(page, `Requested browser history ${back ? "Back" : "Forward"}${response ? "" : " (no new document response; inspect the current page)"}`);
+    }
     const key = args.key
       .replace(/ControlOrMeta/gi, "Control")
       .replace(/\bctrl\b/gi, "Control")
@@ -780,7 +942,7 @@ export class BrowserUseSession {
     if (this.privateValues.size && !/^(?:Performance\.getMetrics|DOM\.getBoxModel|Page\.getLayoutMetrics)$/.test(args.method)) {
       throw new Error("This browser contains private login data. Use the page interaction tools; arbitrary CDP inspection is unavailable for this session.");
     }
-    const session = await this.context.newCDPSession(page);
+    const session = await this.cdpFor(page);
     let timer:ReturnType<typeof setTimeout>|undefined;
     try {
       const raw = await Promise.race([session.send(args.method as never, (args.params ?? {}) as never),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error("CDP request timed out")),25_000);})]);
@@ -788,6 +950,7 @@ export class BrowserUseSession {
       const result=scrub(raw);
       const state = await this.pageState(page, await this.recoverAfterAction(page, `Ran CDP ${args.method}`), false, boundedJson(result));
       state.details = {
+        ...state.details,
         viewId: this.idFor(page),
         method: args.method,
         result,
@@ -795,7 +958,6 @@ export class BrowserUseSession {
       return state;
     } finally {
       clearTimeout(timer);
-      await session.detach();
     }
   }
 
@@ -817,6 +979,7 @@ export class BrowserUseSession {
       if (!page) throw new Error("Browser tab is unavailable");
       await this.clearRefs(page);
       await page.close();
+      this.targetIds.delete(this.idFor(page));
       this.currentViewId = null;
       await this.ensurePage();
     } else if (action !== "list") {

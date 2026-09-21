@@ -65,6 +65,11 @@ RUN apt-get update \
     git \
     imagemagick \
     jq \
+    libreoffice-writer \
+    libreoffice-calc \
+    libreoffice-impress \
+    libreoffice-draw \
+    mousepad \
     nodejs \
     npm \
     novnc \
@@ -81,6 +86,7 @@ RUN apt-get update \
     x11-xserver-utils \
     x11vnc \
     xdotool \
+    xdg-utils \
     xfce4-panel \
     xfce4-settings \
     xfce4-terminal \

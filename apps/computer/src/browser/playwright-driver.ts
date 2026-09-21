@@ -12,7 +12,12 @@ export let playwrightDriver: Promise<OutOfProcessPlaywright> | null = null;
 
 export const outOfProcessPlaywright = async (): Promise<OutOfProcessPlaywright> => {
   if (!playwrightDriver) {
-    playwrightDriver = (async () => {
+    const generation = (async () => {
+      // Import before patching fork so unrelated asynchronous startup work cannot
+      // accidentally become part of this driver's lifecycle.
+      const driverModule = (await import("playwright-core/lib/outofprocess")) as unknown as {
+        start: () => Promise<OutOfProcessPlaywright>;
+      };
       const originalFork = childProcess.fork;
       childProcess.fork = ((
         modulePath: string,
@@ -23,21 +28,34 @@ export const outOfProcessPlaywright = async (): Promise<OutOfProcessPlaywright> 
           ? (argsOrOptions as readonly string[])
           : undefined;
         const options = (Array.isArray(argsOrOptions) ? maybeOptions : argsOrOptions) ?? {};
-        return originalFork(modulePath, args, {
+        const child = originalFork(modulePath, args, {
           ...(options as childProcess.ForkOptions),
           execPath: nodeBinary(),
         });
+        const invalidate = () => {
+          if (playwrightDriver === generation) playwrightDriver = null;
+        };
+        child.once("exit", invalidate);
+        child.once("disconnect", invalidate);
+        child.once("error", invalidate);
+        return child;
       }) as typeof childProcess.fork;
       try {
-        const driverModule = (await import("playwright-core/lib/outofprocess")) as unknown as {
-          start: () => Promise<OutOfProcessPlaywright>;
-        };
-        const driver=await driverModule.start();
-        return {...driver,stop:async()=>{try{await driver.stop();}finally{playwrightDriver=null;}}};
+        const pending = driverModule.start();
+        childProcess.fork = originalFork;
+        const driver = await pending;
+        return { ...driver, stop: async () => {
+          try { await driver.stop(); }
+          finally { if (playwrightDriver === generation) playwrightDriver = null; }
+        } };
       } finally {
         childProcess.fork = originalFork;
       }
-    })().catch(error=>{playwrightDriver=null;throw error;});
+    })().catch(error => {
+      if (playwrightDriver === generation) playwrightDriver = null;
+      throw error;
+    });
+    playwrightDriver = generation;
   }
   return playwrightDriver;
 };

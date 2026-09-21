@@ -1,0 +1,8 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Text Editor
+Exec=openteam-screen-launch editor
+Icon=accessories-text-editor
+Terminal=false
+StartupNotify=true

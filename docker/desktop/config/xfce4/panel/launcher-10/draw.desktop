@@ -1,0 +1,8 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=LibreOffice Draw
+Exec=openteam-screen-launch draw
+Icon=libreoffice-draw
+Terminal=false
+StartupNotify=true

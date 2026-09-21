@@ -29,7 +29,7 @@ export const thinkingFromContent = (content: unknown): string => {
 export const boundedText = (value: string, limit = 100_000): string =>
   value.length <= limit ? value : `${value.slice(0, limit)}\n… output truncated by OpenTeam`;
 
-export const safeToolResult = (result: unknown): unknown => {
+export const safeToolResult = (result: unknown, isError = false): unknown => {
   if (!result || typeof result !== "object") return result;
   const record = result as {
     content?: unknown;
@@ -55,7 +55,7 @@ export const safeToolResult = (result: unknown): unknown => {
   return {
     content,
     details: record.details ?? null,
-    isError: Boolean(record.isError),
+    isError: isError || Boolean(record.isError),
   };
 };
 

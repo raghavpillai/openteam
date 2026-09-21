@@ -180,7 +180,7 @@ export function routeEvent(
         stored?.toolName ?? event.toolName,
         stored?.args ?? {},
         event.isError ? "failed" : "completed",
-        safeToolResult(event.result)
+        safeToolResult(event.result, event.isError)
       ),
     });
     active.toolArgs.delete(event.toolCallId);

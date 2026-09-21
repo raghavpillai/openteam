@@ -1,0 +1,8 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=LibreOffice Writer
+Exec=openteam-screen-launch writer
+Icon=libreoffice-writer
+Terminal=false
+StartupNotify=true

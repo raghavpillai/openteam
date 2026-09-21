@@ -29,8 +29,17 @@ case "${1:-}" in
     cd "$screen_cwd"
     exec xfce4-terminal --disable-server
     ;;
+  editor)
+    exec mousepad --disable-server
+    ;;
+  writer|calc|impress|draw)
+    # LibreOffice otherwise reuses the first process, even on another bot's
+    # display. Give each assigned desktop its own application profile.
+    office_profile_uri=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).absolute().as_uri())' "${browser_profile}-office")
+    exec libreoffice "-env:UserInstallation=$office_profile_uri" "--$1"
+    ;;
   *)
-    echo "usage: openteam-screen-launch chromium|thunar|terminal" >&2
+    echo "usage: openteam-screen-launch chromium|thunar|terminal|editor|writer|calc|impress|draw" >&2
     exit 2
     ;;
 esac

@@ -8,7 +8,11 @@
     "dev": "bun --watch src/main.ts",
     "start": "bun dist/main.js",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "bun test --pass-with-no-tests"
+    "test": "bun test --pass-with-no-tests",
+    "test:browser-workflows": "bun run scripts/test-browser-workflows.ts",
+    "test:browser-reliability": "bun run scripts/test-browser-reliability.ts",
+    "test:native-typing": "bun run scripts/test-native-typing.ts",
+    "test:native-chooser": "bun run scripts/test-native-chooser.ts"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.84.3",

@@ -56,6 +56,7 @@ export interface ActiveTurn {
   toolArgs: Map<string, { toolName: string; args: unknown }>;
   lastStopReason: string | null;
   lastErrorMessage: string | null;
+  lastGraphicalSurface?: "browser" | "computer";
   sentMessageCount: number;
   toolActivityAfterLastSend: boolean;
   initialUserStarted: boolean;

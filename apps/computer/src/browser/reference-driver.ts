@@ -346,7 +346,7 @@ const SNAPSHOT_FN = (opts) => {
 		'[role="button"], [role="link"], [role="checkbox"], [role="radio"], ' +
 		'[role="tab"], [role="menuitem"], [role="menuitemcheckbox"], [role="combobox"], ' +
 		'[role="option"], [role="switch"], [role="searchbox"], [role="textbox"], ' +
-		'[role="slider"], [contenteditable="true"], [onclick]';
+		'[role="slider"], [contenteditable="true"], [onclick], [draggable="true"]';
 	const hidesSubtree = (el) => {
 		if (el.getAttribute("aria-hidden") === "true") return true;
 		// The element's OWN window: elements from a pierced same-origin child
@@ -710,6 +710,7 @@ const SNAPSHOT_FN = (opts) => {
 			line += " [ref=" + ref + "]";
 		}
 		if (el.disabled) line += " disabled";
+		if (el.draggable === true) line += " draggable";
 		if (el.checked === true) line += " checked";
 		const tag = el.tagName.toLowerCase();
 		if (

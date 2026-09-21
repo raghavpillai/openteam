@@ -28,10 +28,26 @@ const KEY_ALIASES: Record<string, string> = {
   up: "Up",
   arrowdown: "Down",
   down: "Down",
+  control: "ctrl",
+  controlormeta: "ctrl",
+  command: "super",
+  cmd: "super",
+  meta: "super",
+  "-": "minus",
+  "=": "equal",
+  "+": "plus",
+  "[": "bracketleft",
+  "]": "bracketright",
+  ";": "semicolon",
+  "'": "apostrophe",
+  ",": "comma",
+  ".": "period",
+  "/": "slash",
+  "\\": "backslash",
+  "`": "grave",
 };
-const normalizeKey = (key: string) =>
-  key
-    .split("+")
+export const normalizeKey = (key: string) =>
+  (key === "+" ? ["+"] : key.endsWith("++") ? [...key.slice(0, -2).split("+"), "+"] : key.split("+"))
     .map((part) => KEY_ALIASES[part.toLowerCase()] ?? part)
     .join("+");
 

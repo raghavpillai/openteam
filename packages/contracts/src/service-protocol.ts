@@ -444,7 +444,7 @@ export interface HostPermissionUpdateRequest {
 }
 
 export interface HostAutoReviewRequest extends HostApprovalTokens {
-  surface: "boxShell" | "mcp" | "computer" | "automationWrite" | "cloudAgent" | "subagentLaunch";
+  surface: "boxShell" | "mcp" | "computer" | "browser" | "automationWrite" | "cloudAgent" | "subagentLaunch";
   summary: string;
   target: string;
   command?: string;
@@ -557,7 +557,7 @@ export const parseHostPermissionUpdateRequest = (value: unknown): HostPermission
 export const parseHostAutoReviewRequest = (value: unknown): HostAutoReviewRequest => {
   const input = isRecord(value) ? value : {};
   if (
-    !["boxShell", "mcp", "computer", "automationWrite", "cloudAgent", "subagentLaunch"].includes(
+    !["boxShell", "mcp", "computer", "browser", "automationWrite", "cloudAgent", "subagentLaunch"].includes(
       String(input.surface)
     )
   ) {

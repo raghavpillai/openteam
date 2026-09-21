@@ -5,12 +5,19 @@ export async function typeText(
   env: NodeJS.ProcessEnv,
   signal?: AbortSignal
 ): Promise<void> {
-  const type = (value: string) =>
-    run("xdotool", ["type", "--clearmodifiers", "--delay", "2", "--", value], {
-      env: { ...env, LC_ALL: "C.UTF-8" },
-      failOnStderr: true,
-      signal,
-    });
+  const type = async (value: string) => {
+    // xdotool maps literal newlines to Linefeed, which GTK editors ignore.
+    // Use the same Return key as normal keyboard input, retaining blank lines.
+    const lines = value.replace(/\r\n?/g, "\n").split("\n");
+    for (let index = 0; index < lines.length; index++) {
+      if (index > 0) await run("xdotool", ["key", "--clearmodifiers", "Return"], { env, failOnStderr: true, signal });
+      if (lines[index]) await run("xdotool", ["type", "--clearmodifiers", "--delay", "2", "--", lines[index]!], {
+        env: { ...env, LC_ALL: "C.UTF-8" },
+        failOnStderr: true,
+        signal,
+      });
+    }
+  };
   if (!/[^\p{ASCII}]/u.test(text)) {
     await type(text);
     return;

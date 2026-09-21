@@ -47,6 +47,7 @@ import { decodeInlineImages, loadAttachmentImages } from "./runtime/attachments"
 import { compactionExtension, compactionObservation, inferCompaction } from "./runtime/compaction";
 import { textFromContent } from "./runtime/content";
 import { attachSession, routeEvent } from "./runtime/events";
+import { verifyGraphicalTaskCompletion } from "./runtime/graphical-completion";
 import { inferenceReasoningOptions, reasoningExtension } from "./runtime/reasoning";
 import { untrustedResultsExtension } from "./runtime/untrusted-results";
 import { enrichUserInfo } from "./runtime/prompt-context";
@@ -725,6 +726,7 @@ export class ComputerRuntime {
       if (!session) throw new Error("Pi session is not attached");
       await this.compaction.beginUserQuery(active.contextSessionId, active.resetSelfSummaryCount);
       await active.session?.prompt(content, { source: "rpc", images });
+      await verifyGraphicalTaskCompletion(active);
       if (isDeliveryOwed(active.requestSource) && !active.endTurnRequested) {
         if (active.sentMessageCount === 0) {
           await session.prompt(REPLY_NUDGE_PROMPT, {

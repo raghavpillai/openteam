@@ -293,7 +293,7 @@ export const startHostBridge = (options: {
       if (request.method === "POST" && request.url === HOST_BRIDGE_PATHS.autoReview) {
         const input = parseHostAutoReviewRequest(await body(request));
         if (
-          !["mcp", "computer", "automationWrite", "cloudAgent", "subagentLaunch"].includes(
+          !["mcp", "computer", "browser", "automationWrite", "cloudAgent", "subagentLaunch"].includes(
             String(input.surface)
           ) ||
           typeof input.summary !== "string" ||

@@ -25,6 +25,7 @@ import { McpRuntimeRouter } from "./mcp-runtime-router";
 import { DesktopMcpClient } from "./desktop-mcp-client";
 import { resolveWorkspacePath } from "./paths";
 import { ComputerRuntime } from "./runtime";
+import { inferenceFailure } from "./inference-error";
 import { checkAgentWorkspace, checkDesktopAvailable, ComputerReadiness } from "./readiness";
 import { ScreenBroker } from "./screen-broker";
 import { TranscriptMirror } from "./transcript-mirror";
@@ -635,7 +636,8 @@ const server = Bun.serve({
       if (request.method === "POST" && url.pathname === COMPUTER_API_PATHS.inference) {
         const body = parseComputerInferenceRequest(await request.json());
         const cwd = safePath(typeof body.cwd === "string" ? body.cwd : workspaceRoot);
-        const text = await runtime.infer({
+        try {
+          const text = await runtime.infer({
           instructions: body.instructions,
           prompt: body.prompt,
           cwd,
@@ -644,7 +646,11 @@ const server = Bun.serve({
           reasoning: body.reasoning,
           signal: request.signal,
         });
-        return json({ text });
+          return json({ text });
+        } catch (error) {
+          const failure = inferenceFailure(error);
+          return json({ error: failure.error }, failure.status);
+        }
       }
 
       return json({ error: "not_found" }, 404);

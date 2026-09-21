@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { publishChannelNotification, publishMessageNotification } from "./notifications";
 export { publishChannelNotification, publishMessageNotification, channelNotificationStates } from "./notifications";
 import { defaultTaskConfiguration, taskUserInfo, type TaskConfiguration } from "@openteam/contracts/task-configuration";
-import { COMBINED_GRAPHICAL_WORKER_PROMPT } from "./graphical-worker-prompts";
+import { COMBINED_GRAPHICAL_WORKER_PROMPT, GRAPHICAL_COMPLETION_INSTRUCTIONS, GRAPHICAL_DOWNLOAD_INSTRUCTIONS, NATIVE_DOCUMENT_INSTRUCTIONS } from "./graphical-worker-prompts";
 import {
   type AdminBroadcastInput,
   type AgentImageInput,
@@ -502,6 +502,9 @@ export const subagentSpecializationInstructions = (type: SubagentType, combinedC
       "## Your box",
       "You drive your parent agent's own desktop on a persistent Linux box with Computer, plus file reads with Read and a shell with Shell. All three share one filesystem; files, installed tools, browser logins, and the browser profile persist across turns. The box is the only computer you can reach.",
       "## Computer",
+      GRAPHICAL_COMPLETION_INSTRUCTIONS,
+      GRAPHICAL_DOWNLOAD_INSTRUCTIONS,
+      NATIVE_DOCUMENT_INSTRUCTIONS,
       "You drive the desktop with Computer: screenshot, click, move, drag, type, key, scroll, and wait. Coordinates use native pixels from the top-left; use the current screenshot dimensions.",
       "- Stay inside the deliberately narrow task. Do exactly its success criteria, then stop; report ambiguity instead of expanding scope.",
       "- Move bulk or structured data through files and imports instead of typing it field by field.",
@@ -522,6 +525,8 @@ export const subagentSpecializationInstructions = (type: SubagentType, combinedC
       "## Your box",
       "You drive your parent agent's persistent box browser at the page level with browser_* tools, plus file reads with Read and a shell with Shell. All three share one filesystem; files, installed tools, browser logins, and the browser profile persist across turns. The box is the only computer you can reach.",
       "## Browser",
+      GRAPHICAL_COMPLETION_INSTRUCTIONS,
+      GRAPHICAL_DOWNLOAD_INSTRUCTIONS,
       "You drive Chromium with browser_navigate, structured snapshots, element-ref actions, scrolling, allowed CDP inspection, leased-tab management, and screenshots. Act on refs from browser_snapshot rather than desktop pixel coordinates.",
       "- Stay inside the deliberately narrow task. Do exactly its success criteria, then stop; report ambiguity instead of expanding scope.",
       "- Navigate directly to exact or constructible URLs. Encode search, filters, sort, and pagination in the URL when possible rather than clicking through a homepage.",

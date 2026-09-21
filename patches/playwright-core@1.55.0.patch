@@ -1,0 +1,29 @@
+diff --git a/lib/server/chromium/crPage.js b/lib/server/chromium/crPage.js
+index 59a3c39a981631b4dd0717e5552aa798eebb0d59..1dbcc3ae6019318057a56ed2076928bd2120b088 100644
+--- a/lib/server/chromium/crPage.js
++++ b/lib/server/chromium/crPage.js
+@@ -686,7 +686,7 @@ class FrameSession {
+   _onDialog(event) {
+     if (!this._page.frameManager.frame(this._targetId))
+       return;
+-    this._page.browserContext.dialogManager.dialogDidOpen(new dialog.Dialog(
++    const openedDialog = new dialog.Dialog(
+       this._page,
+       event.type,
+       event.message,
+@@ -696,7 +696,14 @@ class FrameSession {
+         await this._client.send("Page.handleJavaScriptDialog", { accept, promptText });
+       },
+       event.defaultPrompt
+-    ));
++    );
++    // The user can answer Chrome's native dialog outside Playwright. Keep its
++    // bookkeeping in sync without sending a second response to the browser.
++    this._client.once("Page.javascriptDialogClosed", () => {
++      openedDialog._handled = true;
++      this._page.browserContext.dialogManager.dialogWillClose(openedDialog);
++    });
++    this._page.browserContext.dialogManager.dialogDidOpen(openedDialog);
+   }
+   _handleException(exceptionDetails) {
+     this._page.emitOnContextOnceInitialized(import_browserContext.BrowserContext.Events.PageError, (0, import_crProtocolHelper.exceptionToError)(exceptionDetails), this._page);

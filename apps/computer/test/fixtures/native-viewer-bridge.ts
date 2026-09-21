@@ -62,7 +62,7 @@ const server = Bun.serve({
           },
         });
       if (path.endsWith("/screen/frame"))
-        return new Response(await broker.screenshot(id, "/workspace"), {
+        return new Response(new Uint8Array(await broker.screenshot(id, "/workspace")), {
           headers: { "Content-Type": "image/png" },
         });
       if (path.endsWith("/screen/actions"))

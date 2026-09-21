@@ -395,7 +395,9 @@ export class NativeToolExecutor {
     const task = `Run a task on OpenTeam's computer: “${input.prompt}”`;
     const request = {
       surface: "subagentLaunch",
-      summary: task,
+      // This is a display label, not the review payload. Keep the complete task
+      // in arguments so the classifier still reviews every requested action.
+      summary: task.slice(0, 500),
       target: input.subagent_type ?? "generalPurpose",
       arguments: {
         task,
@@ -419,11 +421,16 @@ export class NativeToolExecutor {
       const response = await fetch(`${this.serverUrl}/api/v0/internal/permissions/review-action`, {
         method: "POST", headers: { authorization: `Bearer ${this.controlToken}`, "content-type": "application/json" },
         body: JSON.stringify({ ...input, ...approvals, reviewContext: this.reviewContexts.getStore() }),
-        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000),
       });
-      const result = await response.json() as Record<string, any>;
+      const result = await response.json().catch(() => ({})) as Record<string, any>;
       if (response.status === 409 && isHostApprovalRequest(result.approval)) throw new HostApprovalRequiredError(result.approval);
-      if (!response.ok || result.allowed !== true) throw new Error(typeof result.error === "string" ? result.error : "Auto Review is unavailable");
+      if (!response.ok || result.allowed !== true) {
+        const message = typeof result.error === "string" ? result.error
+          : typeof result.error?.message === "string" ? result.error.message
+          : `Auto Review did not authorize the action (HTTP ${response.status})`;
+        throw new Error(message);
+      }
       return;
     }
     await this.hostFetch(HOST_BRIDGE_PATHS.autoReview, { ...input, ...approvals }, signal);

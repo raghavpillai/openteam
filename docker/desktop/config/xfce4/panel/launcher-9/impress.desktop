@@ -1,0 +1,8 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=LibreOffice Impress
+Exec=openteam-screen-launch impress
+Icon=libreoffice-impress
+Terminal=false
+StartupNotify=true

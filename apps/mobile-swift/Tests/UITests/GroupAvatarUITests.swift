@@ -60,7 +60,9 @@ import XCTest
     assertHeaderCentered(app)
     capture("group-computer-header", app)
     computer.tap()
-    XCTAssertTrue(app.buttons["Computer options"].waitForExistence(timeout: 12))
+    // This fixture has no RFB stream. Validate native destination/routing;
+    // connected-view controls are covered by the dedicated VNC acceptance suite.
+    XCTAssertTrue(app.buttons["Computer help"].waitForExistence(timeout: 12))
     XCTAssertTrue(app.staticTexts["Member 2"].exists)
     try await assertRequestedScreen("visual-group-5-bot-1")
 
@@ -77,7 +79,9 @@ import XCTest
     XCTAssertEqual(computer.value as? String, "Member 3")
     capture("group-computer-latest-responder", app)
     computer.tap()
-    XCTAssertTrue(app.buttons["Computer options"].waitForExistence(timeout: 12))
+    // This fixture has no RFB stream. Validate native destination/routing;
+    // connected-view controls are covered by the dedicated VNC acceptance suite.
+    XCTAssertTrue(app.buttons["Computer help"].waitForExistence(timeout: 12))
     XCTAssertTrue(app.staticTexts["Member 3"].exists)
     try await assertRequestedScreen("visual-group-5-bot-2")
     capture("group-computer-open", app)
@@ -91,12 +95,23 @@ import XCTest
     XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
   }
   private func assertRequestedScreen(_ botID: String) async throws {
-    let (data, _) = try await URLSession.shared.data(from: URL(string: "http://127.0.0.1:20070/__qa/state")!)
-    let state = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-    let requests = try XCTUnwrap(state["requests"] as? [[String: Any]])
-    for suffix in ["", "/frame"] {
-      XCTAssertTrue(requests.contains { $0["path"] as? String == "/api/v0/bots/\(botID)/screen\(suffix)" && $0["method"] as? String == "GET" })
-    }
+    let deadline = Date().addingTimeInterval(5)
+    var requests: [[String: Any]] = []
+    repeat {
+      let (data, _) = try await URLSession.shared.data(from: URL(string: "http://127.0.0.1:20070/__qa/state")!)
+      let state = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+      requests = try XCTUnwrap(state["requests"] as? [[String: Any]])
+      if requests.contains(where: {
+        $0["path"] as? String == "/api/v0/bots/\(botID)/screen/vnc" && $0["method"] as? String == "POST"
+      }) { break }
+      try await Task.sleep(for: .milliseconds(100))
+    } while Date() < deadline
+    XCTAssertTrue(requests.contains {
+      $0["path"] as? String == "/api/v0/bots/\(botID)/screen" && $0["method"] as? String == "GET"
+    })
+    XCTAssertTrue(requests.contains {
+      $0["path"] as? String == "/api/v0/bots/\(botID)/screen/vnc" && $0["method"] as? String == "POST"
+    })
   }
   func assertHeaderCentered(_ app: XCUIApplication) {
     let pill = app.buttons["conversation-details"]

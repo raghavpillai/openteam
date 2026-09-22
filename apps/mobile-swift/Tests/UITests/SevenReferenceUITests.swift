@@ -4,7 +4,7 @@ import XCTest
 @MainActor final class SevenReferenceUITests: XCTestCase {
   let base = "http://127.0.0.1:20026"
 
-  func launch(home: Bool = false, voice: Bool = false) async throws -> XCUIApplication {
+  func launch(home: Bool = false, voice: Bool = false, theme: String = "dark") async throws -> XCUIApplication {
     continueAfterFailure = false
     var request = URLRequest(url: URL(string: base + "/__qa/scene")!)
     request.httpMethod = "POST"
@@ -13,7 +13,7 @@ import XCTest
     let (_, response) = try await URLSession.shared.data(for: request)
     XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
     let app = XCUIApplication()
-    app.launchArguments = ["--ui-testing", "--server", base, "--appearance", "dark"]
+    app.launchArguments = ["--ui-testing", "--server", base, "--appearance", theme]
     if !home { app.launchArguments += ["--open-channel", "visual-chat"] }
     if voice { app.launchArguments += ["--qa-synthetic-voice"] }
     app.launch()
@@ -46,15 +46,117 @@ import XCTest
     app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
   }
 
+  func testSearchAndCreationGeometryInBothAppearances() async throws {
+    for theme in ["dark", "light"] {
+      let app = try await launch(home: true, theme: theme)
+      let home = XCTAttachment(screenshot: app.screenshot())
+      home.name = "home-geometry-" + theme; home.lifetime = .keepAlways; add(home)
+      app.buttons["Search"].tap()
+      XCTAssertTrue(app.textFields["search-input"].waitForExistence(timeout: 5))
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+      let search = XCTAttachment(screenshot: app.screenshot())
+      search.name = "search-geometry-" + theme; search.lifetime = .keepAlways; add(search)
+      app.buttons["sheet-close"].tap()
+      XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 5))
+      app.buttons["New conversation"].tap()
+      XCTAssertTrue(app.buttons["New Group Chat"].waitForExistence(timeout: 5))
+      let menu = XCTAttachment(screenshot: app.screenshot())
+      menu.name = "creation-geometry-" + theme; menu.lifetime = .keepAlways; add(menu)
+      app.terminate()
+    }
+  }
   func test01AttachmentMenuOverKeyboard() async throws {
     let app = try await launch()
     field(app).tap()
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+    XCTAssertLessThan(app.keyboards.firstMatch.frame.minY, app.frame.maxY - 200)
     app.buttons["attach-button"].tap()
-    XCTAssertTrue(app.buttons["Files"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["Choose File"].waitForExistence(timeout: 5))
+    XCTAssertLessThan(app.buttons["Attach Image"].frame.minY, app.buttons["Take Photo"].frame.minY)
+    XCTAssertLessThan(app.buttons["Take Photo"].frame.minY, app.buttons["Choose File"].frame.minY)
+    XCTAssertTrue(app.keyboards.firstMatch.exists)
+    XCTAssertLessThan(app.keyboards.firstMatch.frame.minY, app.frame.maxY - 200)
     capture(1, app)
-    app.buttons["Files"].tap()
+    app.buttons["Choose File"].tap()
     XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 8))
+  }
+
+  func testAttachmentPickerCancelKeepsDraftInBothThemes() async throws {
+    for theme in ["dark", "light"] {
+      let app = try await launch(theme: theme)
+      field(app).tap()
+      field(app).typeText("Unsent attachment draft")
+      XCTAssertLessThan(app.keyboards.firstMatch.frame.minY, app.frame.maxY - 200)
+      app.buttons["attach-button"].tap()
+      XCTAssertTrue(app.buttons["Choose File"].waitForExistence(timeout: 5))
+      XCTAssertLessThan(app.buttons["Attach Image"].frame.minY, app.buttons["Take Photo"].frame.minY)
+      XCTAssertLessThan(app.buttons["Take Photo"].frame.minY, app.buttons["Choose File"].frame.minY)
+      XCTAssertLessThan(app.keyboards.firstMatch.frame.minY, app.frame.maxY - 200)
+      let menu = XCTAttachment(screenshot: app.screenshot())
+      menu.name = "attachment-menu-draft-" + theme; menu.lifetime = .keepAlways; add(menu)
+      app.buttons["Attach Image"].tap()
+      XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 8))
+      app.buttons["Cancel"].tap()
+      XCTAssertTrue(field(app).waitForExistence(timeout: 5))
+      XCTAssertEqual(field(app).value as? String, "Unsent attachment draft")
+      field(app).tap()
+      app.buttons["attach-button"].tap()
+      XCTAssertTrue(app.buttons["Choose File"].waitForExistence(timeout: 5))
+      app.buttons["Choose File"].tap()
+      XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 8))
+      app.buttons["Cancel"].tap()
+      XCTAssertEqual(field(app).value as? String, "Unsent attachment draft")
+      XCTAssertFalse(app.alerts.firstMatch.exists)
+      app.terminate()
+    }
+  }
+
+  func testAttachmentMenuDismissalPreservesKeyboardAndPosition() async throws {
+    for theme in ["dark", "light"] {
+      let app = try await launch(theme: theme)
+      field(app).tap()
+      field(app).typeText("Keep this draft")
+      let inputFrame = field(app).frame
+      let messageFrame = app.staticTexts["Got it — here."].frame
+      for _ in 0..<2 {
+        app.buttons["attach-button"].tap()
+        XCTAssertTrue(app.buttons["Choose File"].waitForExistence(timeout: 5))
+        let menu = app.descendants(matching: .any).matching(identifier: "attachment-menu-panel").firstMatch
+        XCTAssertEqual(menu.frame.minX, 8, accuracy: 1)
+        XCTAssertEqual(menu.frame.width, 250, accuracy: 1)
+        XCTAssertEqual(field(app).frame.minY, inputFrame.minY, accuracy: 1)
+        XCTAssertEqual(app.staticTexts["Got it — here."].frame.minY, messageFrame.minY, accuracy: 1)
+        XCTAssertLessThan(app.keyboards.firstMatch.frame.minY, app.frame.maxY - 200)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.25)).tap()
+        XCTAssertTrue(app.buttons["Choose File"].waitForNonExistence(timeout: 5))
+        XCTAssertEqual(field(app).value as? String, "Keep this draft")
+        XCTAssertEqual(field(app).frame.minY, inputFrame.minY, accuracy: 1)
+        XCTAssertLessThan(app.keyboards.firstMatch.frame.minY, app.frame.maxY - 200)
+      }
+      // Dismissing a panel must not leave an invisible layer eating chat taps.
+      field(app).typeText(" still editable")
+      XCTAssertEqual(field(app).value as? String, "Keep this draft still editable")
+      app.terminate()
+    }
+  }
+
+  func testAttachmentMenuWithoutKeyboardAndBackgroundCleanup() async throws {
+    for theme in ["dark", "light"] {
+      let app = try await launch(theme: theme)
+      app.buttons["attach-button"].tap()
+      XCTAssertTrue(app.buttons["Choose File"].waitForExistence(timeout: 5))
+      XCTAssertFalse(app.keyboards.firstMatch.exists)
+      let capture = XCTAttachment(screenshot: app.screenshot())
+      capture.name = "attachment-menu-unfocused-" + theme
+      capture.lifetime = .keepAlways; add(capture)
+      XCUIDevice.shared.press(.home)
+      app.activate()
+      XCTAssertTrue(app.buttons["Choose File"].waitForNonExistence(timeout: 5))
+      field(app).tap()
+      field(app).typeText("After returning")
+      XCTAssertEqual(field(app).value as? String, "After returning")
+      app.terminate()
+    }
   }
 
   func test02RecordingControls() async throws {

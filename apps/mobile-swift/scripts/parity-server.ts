@@ -140,7 +140,7 @@ const server = Bun.serve({
     if(path.startsWith("/api/v0/assets/")){
       contentReceipts.push({path,authenticated:request.headers.has("authorization")});
       const id=path.split('/').at(-1)!;
-      const archive=/^([789])\1{63}$/.test(id), photo=/^([1-6])\1{63}$/.test(id);
+      const archive=/^([789])\1{63}$/.test(id), photo=/^([1-6])\1{63}$/.test(id)||/^gallery-\d+$/.test(id);
       return new Response(Bun.file(new URL(archive?'./fixtures/media-archive.zip':photo?'./fixtures/media-reference.png':'./fixtures/attachment.png',import.meta.url)),{headers:{'Content-Type':archive?'application/zip':'image/png'}});
     }
     if(path.endsWith("/user-form/prefill"))return response({email:"fixture@example.invalid"});

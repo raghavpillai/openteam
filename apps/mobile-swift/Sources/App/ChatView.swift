@@ -23,6 +23,8 @@ struct ChatView: View {
   @State private var threadFocus: String?
   @State private var unreadBoundary: String?
   @State private var didCaptureBoundary = false
+  @State private var openingReadSequence: String?
+  @State private var didResolveBoundary = false
   @State private var didPositionHistory = false
   @State private var historyAvailable = false
   @State private var requestedInitialHistory = false
@@ -31,7 +33,7 @@ struct ChatView: View {
     didPositionHistory && (hasLater || (!bottomVisible && !followsLatest))
   }
   var body: some View {
-    let timeline = timelineCache.project(store.visibleMessages(channel.id))
+    let timeline = timelineCache.project(store.visibleMessages(channel.id), includeBranched: true)
     let rows = timelineCache.present(timeline, pending: pendingMessages, animateNew: didPositionHistory)
     ZStack {
       if historyAvailable {
@@ -61,7 +63,10 @@ struct ChatView: View {
       }
     }
     .onChange(of: store.busy.contains("history-" + channel.id)) { _, busy in
-      if requestedInitialHistory && !busy { historyAvailable = true }
+      if requestedInitialHistory && !busy {
+        resolveOpeningBoundary()
+        historyAvailable = true
+      }
     }
     .onChange(of: store.focusedMessage) { _, id in
       if didPositionHistory, let id, thread == nil { focus(id) }
@@ -72,21 +77,29 @@ struct ChatView: View {
     .task(id: channel.id) {
       store.activeChannel = channel.id
       if !didCaptureBoundary {
-        if let read = channel.notificationState?["lastReadSequence"].string, !read.isEmpty {
-          unreadBoundary = store.messages(channel.id).first { !$0.isUser && MessageMerge.less(read, $0.sequence) }?.id
-        }
+        // Freeze the entry cursor before viewing marks the channel read. The
+        // bootstrap preview is not the full page and cannot locate its boundary.
+        openingReadSequence = channel.notificationState?["lastReadSequence"].string
         didCaptureBoundary = true
       }
-      if store.histories[channel.id] != nil { historyAvailable = true }
+      if store.histories[channel.id] != nil {
+        resolveOpeningBoundary()
+        historyAvailable = true
+      }
       await store.loadHistory(channel.id)
       guard !Task.isCancelled else { return }
       requestedInitialHistory = true
+      resolveOpeningBoundary()
       if !store.busy.contains("history-" + channel.id) { historyAvailable = true }
       if store.focusedRoutine != nil { details = true }
     }
     .onDisappear {
       store.flushPersistence()
-      if thread == nil && store.activeChannel == channel.id { store.activeChannel = nil }
+      // Both destinations continue reading this channel. Clearing it on an
+      // exchange push stops history reconciliation and loses non-preview replies.
+      if thread == nil && exchange == nil && store.activeChannel == channel.id {
+        store.activeChannel = nil
+      }
     }
     .nativeCanvas()
     .chatFloatingBars(top: { header }, bottom: { ComposerView(channel: channel).disabled(!didPositionHistory) })
@@ -108,6 +121,15 @@ struct ChatView: View {
         .onDisappear { threadFocus = nil }
     }
   }
+  private func resolveOpeningBoundary() {
+    guard !didResolveBoundary, store.histories[channel.id] != nil else { return }
+    if let read = openingReadSequence, !read.isEmpty {
+      unreadBoundary = store.messages(channel.id).first {
+        !$0.isUser && MessageMerge.less(read, $0.sequence)
+      }?.id
+    }
+    didResolveBoundary = true
+  }
   private func nativeRows(_ rows: [MessagePresentation.Row], timeline: MessageTimeline) -> [NativeHistoryItem] {
     var result: [NativeHistoryItem] = []
     let busy = store.busy.contains("history-" + channel.id)
@@ -128,7 +150,7 @@ struct ChatView: View {
       case .confirmed(let entry):
         animatesResize = entry.message.metadata["type"].string == "widget"
         hash.combine(entry.message)
-        hash.combine(timeline.replyCounts[entry.id] ?? 0)
+        hash.combine(entry.showsReplyContext)
       case .pending(let pending):
         hash.combine(pending.failure)
         hash.combine(pending.input.content)
@@ -139,7 +161,7 @@ struct ChatView: View {
       result.append(NativeHistoryItem(id: row.id, scrollID: row.scrollID, version: hash.finalize(),
         anchorToBottom: row.timestamp != nil, animatesResize: animatesResize) {
         AnyView(MessageArrival(animate: timelineCache.consumeArrival(row), isUser: row.isUser) {
-          timelineRow(row, replies: timeline.replyCounts[row.scrollID] ?? 0)
+          timelineRow(row)
         }.padding(.horizontal, 16)
           .padding(.top, row.id == rows.first?.id ? 14 : row.groupsWithPrevious ? 8 : 12)
           .environment(store).environment(modals))
@@ -163,7 +185,7 @@ struct ChatView: View {
     })
     return result
   }
-  private func timelineRow(_ row: MessagePresentation.Row, replies: Int) -> some View {
+  private func timelineRow(_ row: MessagePresentation.Row) -> some View {
     VStack(alignment: .leading, spacing: 12) {
       if let date = row.timestamp {
         Text(timestamp(date)).font(.system(size: 13)).foregroundStyle(NativePalette.chatFaint)
@@ -178,16 +200,21 @@ struct ChatView: View {
             Text("NEW").font(.system(size: 10, weight: .semibold)).tracking(1).foregroundStyle(NativePalette.link)
             NativePalette.link.opacity(0.55).frame(height: 0.5)
           }.padding(.vertical, 6).accessibilityLabel("New messages")
+            .accessibilityIdentifier("unread-boundary-" + message.id)
         }
         if message.metadata["event"]["type"].string == "name-changed" {
           Label("Renamed to " + message.metadata["event"]["to"].string, systemImage: "pencil")
             .font(.system(size: 12)).foregroundStyle(NativePalette.muted).frame(maxWidth: .infinity)
         } else {
           MessageRow(message: message, channel: channel, onReply: { reply(message) },
-            onThread: { branchesReplies = true; thread = message }, threadReplyCount: replies,
-            onExchange: { exchange = $0 }, onRoutine: { store.focusedRoutine = $0; details = true })
+            onThread: { branchesReplies = true; thread = message },
+            onExchange: { exchange = $0 }, onRoutine: { store.focusedRoutine = $0; details = true },
+            showsReplyContext: entry.showsReplyContext,
+            onReplyContext: { openReplyContext($0, branches: message.metadata["branched"].bool) })
         }
-      case .pending(let pending): PendingMessageView(pending: pending)
+      case .pending(let pending):
+        PendingMessageView(pending: pending,
+          onReplyContext: { openReplyContext($0, branches: pending.input.isFork == true) })
       }
     }
   }
@@ -209,7 +236,18 @@ struct ChatView: View {
       .animation(.easeInOut(duration: reduceMotion ? 0.15 : 0.22), value: showsLatestButton)
   }
   private var pendingMessages: [PendingSend] {
-    store.state.outbox.filter { $0.channelId == channel.id && $0.input.isFork != true }
+    store.state.outbox.filter { $0.channelId == channel.id }
+  }
+  private func openReplyContext(_ id: String, branches: Bool) {
+    Task {
+      if !store.messages(channel.id).contains(where: { $0.id == id }) {
+        guard await store.loadContext(channel.id, messageID: id, preservingTimeline: true) else { return }
+      }
+      if let original = store.messages(channel.id).first(where: { $0.id == id }) {
+        branchesReplies = branches
+        thread = original
+      }
+    }
   }
   private func jumpToLatest() async {
     if hasLater, !(await store.loadLatest(channel.id)) { return }
@@ -233,7 +271,8 @@ struct ChatView: View {
   }
   var header: some View {
     HStack(spacing: 8) {
-      ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular) { dismiss() }
+      ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular,
+        regularInLightMode: true) { dismiss() }
         .accessibilityIdentifier(
           "chat-back")
       Button {
@@ -277,7 +316,7 @@ struct ChatView: View {
   }
 }
 
-@MainActor private final class ChatTimelineCache {
+@MainActor final class ChatTimelineCache {
   private var source: [Message] = []
   private var includesBranched = false
   private var value = MessageTimeline([])
@@ -304,7 +343,7 @@ struct ChatView: View {
 
 /// Keep this wrapper's identity across queued -> confirmed content. Only the new
 /// bubble animates; loading history and updates to an existing bubble do not.
-private struct MessageArrival<Content: View>: View {
+struct MessageArrival<Content: View>: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var visible: Bool
   let isUser: Bool
@@ -341,12 +380,12 @@ struct MessageRow: View {
   let channel: Channel
   var onReply: () -> Void
   var onThread: () -> Void
-  var threadReplyCount = 0
   var onExchange: (BotExchangePeer) -> Void = { _ in }
   var onRoutine: (String) -> Void = { _ in }
   var viewOnly = false
   var speakerOverride: Bot?
   var showsReplyContext = true
+  var onReplyContext: ((String) -> Void)?
   @State private var drag: CGFloat = 0
   @State private var swipeFeedback = ReplySwipeFeedback()
   private var speaker: Bot? {
@@ -385,7 +424,7 @@ struct MessageRow: View {
       if let speaker {
         Button { if !viewOnly { Task { await store.open(speaker.dmChannelId) } } } label: {
           MessageBotMark(bot: speaker, size: 22)
-        }.buttonStyle(.plain).padding(.trailing, viewOnly ? 5 : 7).padding(.bottom, 5)
+        }.buttonStyle(.plain).padding(.trailing, 5).padding(.bottom, 5)
           .accessibilityLabel("Open " + speaker.name + "’s chat")
           .allowsHitTesting(!viewOnly)
       }
@@ -393,13 +432,14 @@ struct MessageRow: View {
         Group {
           if let speaker {
             Button { if !viewOnly { Task { await store.open(speaker.dmChannelId) } } } label: {
-              Text(speaker.name).font(.system(size: 12, weight: .medium))
+              Text(speaker.name).font(.system(size: 12))
                 .foregroundStyle(NativePalette.chatMuted).padding(.leading, 12)
             }.buttonStyle(.plain).allowsHitTesting(!viewOnly)
               .accessibilityIdentifier("speaker-" + message.id)
           }
           if showsReplyContext, let reply = message.replyTo {
-            MessageReplyQuote(replyID: reply, channelID: channel.id, ownerID: message.id)
+            MessageReplyQuote(replyID: reply, channelID: channel.id, ownerID: message.id,
+              onOpen: onReplyContext.map { action in { action(reply) } })
           }
           if !message.displayContent.isEmpty {
             Group {
@@ -423,15 +463,6 @@ struct MessageRow: View {
           }
           ForEach(message.attachments, id: \.self) {
             AttachmentView(asset: $0, channelID: channel.id, messageID: message.id)
-          }
-          let replies = threadReplyCount
-          if replies > 0 {
-            Button(
-              "\(replies) \(replies == 1 ? "reply" : "replies")",
-              systemImage: "bubble.left.and.bubble.right", action: onThread
-            )
-            .font(.footnote).padding(.horizontal, 12).padding(.vertical, 4)
-            .accessibilityIdentifier("thread-" + message.id)
           }
         }.highPriorityGesture(
           LongPressGesture(minimumDuration: 0.45).onEnded { _ in openActions() }
@@ -703,9 +734,11 @@ struct MessageReplyQuote: View {
   let replyID: String
   let channelID: String
   let ownerID: String
+  var onOpen: (() -> Void)?
   var body: some View {
     let original = store.messages(channelID).first(where: { $0.id == replyID })
       Button {
+        if let onOpen { onOpen(); return }
         Task {
           if !store.messages(channelID).contains(where: { $0.id == replyID })
             || (!store.visibleMessages(channelID).contains(where: { $0.id == replyID })
@@ -715,13 +748,13 @@ struct MessageReplyQuote: View {
           store.focusedMessage = replyID
         }
       } label: {
-        Label(
-          original.map { $0.content.isEmpty ? "Attachment" : $0.content } ?? "View original message",
-          systemImage: "arrowshape.turn.up.left"
-        )
-        .font(.caption).lineLimit(2).foregroundStyle(NativePalette.muted).padding(10)
-        .background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 14))
+        HStack(spacing: 5) {
+          Image(systemName: "arrow.turn.up.right").font(.system(size: 10))
+          Text(original.map { $0.content.isEmpty ? "Attachment" : $0.content }
+            ?? "View original message").font(.system(size: 12)).lineLimit(1)
+        }.frame(maxWidth: 328, alignment: .trailing).foregroundStyle(NativePalette.chatMuted)
       }.buttonStyle(.plain).accessibilityIdentifier("reply-quote-" + ownerID)
+        .accessibilityLabel("Reply to: " + (original?.displayContent ?? "View original message"))
   }
 }
 
@@ -730,12 +763,14 @@ struct PendingMessageView: View {
   @Environment(AppStore.self) private var store
   let pending: PendingSend
   var showsReplyContext = true
+  var onReplyContext: ((String) -> Void)?
   var body: some View {
     HStack(alignment: .bottom, spacing: 0) {
       Spacer(minLength: 44)
       VStack(alignment: .trailing, spacing: 5) {
         if showsReplyContext, let reply = pending.input.replyToMessageId {
-          MessageReplyQuote(replyID: reply, channelID: pending.channelId, ownerID: pending.id)
+          MessageReplyQuote(replyID: reply, channelID: pending.channelId, ownerID: pending.id,
+            onOpen: onReplyContext.map { action in { action(reply) } })
         }
         if !pending.input.content.isEmpty {
           Group {
@@ -801,6 +836,7 @@ struct ThreadPage: View {
   @State private var exchange: BotExchangePeer?
   @State private var details = false
   @State private var ready = false
+  @State private var showsLoading = false
   @State private var focusRequest = UUID()
   private var draftKey: String { channel.id + (branchesReplies ? ":thread:" : ":reply:") + root.id }
   private var messages: [Message] {
@@ -808,17 +844,25 @@ struct ThreadPage: View {
   }
   var body: some View {
     ZStack {
-      NativeMessageList(items: rows, initialTarget: initialFocus ?? "bottom", request: scrollRequest,
+      NativeMessageList(items: rows, initialTarget: initialFocus ?? "bottom", initialLayout: .nextLayout,
+        request: scrollRequest,
         onPositioned: { ready = true })
         .opacity(ready ? 1 : 0).allowsHitTesting(ready).accessibilityHidden(!ready)
-      if !ready {
+      if !ready && showsLoading {
         ProgressView().accessibilityIdentifier("thread-loading").offset(y: -20)
       }
     }.accessibilityIdentifier("reply-page-" + root.id)
+      // Cached reply rows need one layout settle. Avoid flashing a spinner in
+      // the middle of the native push; retain it for an actual loading delay.
+      .task {
+        try? await Task.sleep(for: .milliseconds(200))
+        if !Task.isCancelled { showsLoading = true }
+      }
       .messageModalHost(modals).nativeCanvas().toolbar(.hidden, for: .navigationBar)
       .chatFloatingBars(top: {
         HStack {
-          ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular) {
+          ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular,
+            regularInLightMode: true) {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             dismiss()
           }.accessibilityIdentifier("thread-back")

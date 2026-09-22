@@ -1,4 +1,5 @@
 /** Isolated settings/plugin QA. Never authenticates with a provider or uses real accounts. */
+import { readFileSync } from "node:fs";
 const upstream = "http://127.0.0.1:20013";
 const port = 20014;
 const catalog = [
@@ -7,7 +8,12 @@ const catalog = [
   { key: "qa-drive", name: "Google Drive", description: "Search, read, create, and share files." },
   { key: "qa-granola", name: "Granola", description: "Your meetings in your workflow." },
   { key: "qa-asana", name: "asana", description: "Asana project management integration." },
-].map(p => ({ ...p, publisher: "OpenTeam QA", version: "1.0.0", setupFields: [], hasSkills: false }));
+].map((p, index) => {
+  const name = ["gmail", "google-calendar", "google-drive", "granola"][index];
+  const logoUrl = name ? "data:image/png;base64," + readFileSync(new URL(`../../../packages/plugins/${name}/assets/icon.png`, import.meta.url)).toString("base64") : null;
+  return { ...p, featured: index < 4, category: "Team plugins", logoUrl,
+    publisher: "OpenTeam QA", version: "1.0.0", setupFields: [], hasSkills: false };
+});
 let installed = new Set<string>();
 let status = "needs_auth";
 let authorizationUrl: string | null = null;
@@ -25,7 +31,7 @@ let requests: { method: string; path: string; query: string; input: unknown }[] 
 const connection = (key: string) => ({
   id: key + "-connection", revision: "1", pluginKey: key, connectorKey: "qa-connector",
   name: key === "qa-calendar" ? "Google Calendar" : "Gmail", alias: "QA account",
-  transport: "http", auth: "oauth", status, authorizationUrl, authorizationExpiresAt,
+  transport: "http", auth: "oauth", oauthCallbackMode: "server", status, authorizationUrl, authorizationExpiresAt,
   statusMessage: status === "error" ? "Didn't finish connecting. Try signing in again." : null,
   instructions: "", canAuthenticate: true, configured: true, tools: [],
 });

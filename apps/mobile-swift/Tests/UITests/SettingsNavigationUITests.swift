@@ -40,7 +40,7 @@ import XCTest
         if account {
           XCTAssertTrue(app.buttons["re-auth"].exists)
         } else {
-          XCTAssertTrue(app.searchFields.firstMatch.waitForExistence(timeout: 5))
+          XCTAssertTrue(app.textFields["plugin-search"].waitForExistence(timeout: 5))
         }
         capture(title.lowercased() + "-" + appearance, app)
         app.navigationBars.buttons.firstMatch.tap()

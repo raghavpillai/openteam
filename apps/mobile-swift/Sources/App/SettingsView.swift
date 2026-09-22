@@ -193,7 +193,7 @@ struct ConversationDetails: View {
   var bot: Bot? { channel.flatMap { store.bot(for: $0) } }
   var body: some View {
     Group {
-      NativeForm {
+      NativeForm(rowInsets: EdgeInsets(top: 14, leading: 18, bottom: 14, trailing: 18)) {
         if let channel {
           Section {
             HStack {
@@ -237,7 +237,8 @@ struct ConversationDetails: View {
                 bot?.hasAvatar == true
                   ? "Changing the robot replaces the current custom photo."
                   : "How this Bot’s mark looks everywhere"
-              ).foregroundStyle(NativePalette.faint)
+              ).font(.system(size: 14)).foregroundStyle(NativePalette.faint)
+                .listRowInsets(EdgeInsets(top: 8, leading: 18, bottom: 8, trailing: 18))
             }.listRowBackground(NativePalette.assistant)
             Section {
               NavigationLink {
@@ -298,10 +299,11 @@ struct ConversationDetails: View {
                         body: .object(["notificationsEnabled": .bool(enabled)]))
                     }
                   })
-              ).disabled(changingNotifications).accessibilityIdentifier("profile-notifications")
+              ).frame(minHeight: 28).disabled(changingNotifications).accessibilityIdentifier("profile-notifications")
             } footer: {
               Text("Get notified when this Bot finishes or needs input")
-                .font(.subheadline).foregroundStyle(NativePalette.faint)
+                .font(.system(size: 14)).foregroundStyle(NativePalette.faint)
+                .listRowInsets(EdgeInsets(top: 8, leading: 18, bottom: 8, trailing: 18))
             }
             Section {
               Button {
@@ -317,6 +319,8 @@ struct ConversationDetails: View {
           }
         }
       }.listSectionSpacing(16)
+        .contentMargins(.horizontal, 24, for: .scrollContent)
+        .environment(\.defaultMinListRowHeight, 50)
         .navigationTitle("Details").navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .navigationBarBackButtonHidden()

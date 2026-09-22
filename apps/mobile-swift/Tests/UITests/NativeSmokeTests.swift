@@ -48,9 +48,11 @@ final class NativeSmokeTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["Waiting for connection"].waitForExistence(timeout: 10))
     capture("native-thread-offline", app)
     app.buttons["thread-back"].tap()
-    XCTAssertFalse(app.staticTexts["First isolated reply"].exists)
-    root.press(forDuration: 1)
-    app.buttons["Start a thread"].tap()
+    XCTAssertTrue(app.staticTexts["First isolated reply"].waitForExistence(timeout: 5))
+    let pendingLink = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'reply-quote-'")).firstMatch
+    XCTAssertTrue(pendingLink.isHittable)
+    pendingLink.tap()
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.staticTexts["First isolated reply"].waitForExistence(timeout: 5))
     try await control("__qa/control", body: ["offline": false])
     let reconciled = expectation(
@@ -80,8 +82,12 @@ final class NativeSmokeTests: XCTestCase {
     }
     capture("native-thread-reconciled", app)
     app.buttons["thread-back"].tap()
-    XCTAssertFalse(app.staticTexts["First isolated reply"].exists)
-    XCTAssertFalse(app.staticTexts["Second isolated reply"].exists)
+    XCTAssertTrue(app.staticTexts["First isolated reply"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["Second isolated reply"].exists)
+    for reply in replies {
+      let id = try XCTUnwrap(reply["id"] as? String)
+      XCTAssertTrue(app.buttons["reply-quote-" + id].exists)
+    }
   }
   func testChatKeyboardSendAndLostAcknowledgment() async throws {
     let app = try await launch()

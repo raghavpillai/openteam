@@ -197,9 +197,9 @@ import XCTest
   func testAttachmentMenuAndConversationHold() async throws {
     let app = try await launch()
     app.buttons["attach-button"].tap()
-    XCTAssertTrue(app.buttons["Files"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["Choose File"].waitForExistence(timeout: 5))
     try await expect("composer.attach", "light")
-    app.buttons["Photo library"].tap()
+    app.buttons["Attach Image"].tap()
     XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 8))
     app.buttons["Cancel"].tap()
     try await expect("composer.attach", "light")

@@ -1,3 +1,4 @@
+import CoreImage
 import XCTest
 
 @MainActor final class AttachmentReferenceUITests: XCTestCase {
@@ -26,6 +27,8 @@ import XCTest
     ]
     app.launch()
     XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading")
+      .firstMatch.waitForNonExistence(timeout: 15))
     return app
   }
   func capture(_ name: String, _ app: XCUIApplication) {
@@ -187,7 +190,76 @@ import XCTest
     capture("photo-share", app)
     app.terminate()
   }
+
+  func testLongGalleryKeepsVisibleThumbnailsAndReopensCachedPhotosOffline() async throws {
+    let app = try await launch(scene: "media-long")
+    let last = app.buttons["attachment-gallery-24"]
+    XCTAssertTrue(last.waitForExistence(timeout: 10))
+    let initial = try await request("/__qa/state")
+    let inlineRequests = try XCTUnwrap(initial["contentReceipts"] as? [[String: Any]])
+    last.tap()
+    XCTAssertTrue(app.buttons["photo-options"].waitForExistence(timeout: 8))
+    let strip = app.scrollViews["photo-filmstrip"]
+    XCTAssertTrue(strip.waitForExistence(timeout: 5))
+    func select(_ number: Int, backwards: Bool) {
+      let thumbnail = app.buttons["photo-thumbnail-gallery-\(number)"]
+      for _ in 0..<12 {
+        if thumbnail.exists, !thumbnail.frame.isEmpty, app.frame.contains(thumbnail.frame) { break }
+        if backwards { strip.swipeRight() } else { strip.swipeLeft() }
+      }
+      XCTAssertTrue(thumbnail.exists)
+      XCTAssertFalse(thumbnail.frame.isEmpty)
+      XCTAssertTrue(app.frame.contains(thumbnail.frame))
+      thumbnail.tap()
+      XCTAssertTrue(app.staticTexts["Gallery photo \(number)"].waitForExistence(timeout: 5))
+      XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "photo-image-gallery-\(number)")
+        .firstMatch.waitForExistence(timeout: 10))
+    }
+    // Traverse more photos than the full-size cache can retain.
+    for number in stride(from: 23, through: 1, by: -1) { select(number, backwards: true) }
+    select(24, backwards: false)
+    try await Task.sleep(for: .seconds(1))
+    let bitmap = try XCTUnwrap(app.screenshot().image.cgImage)
+    let scale = CGFloat(bitmap.width) / app.frame.width
+    var sampled = 0
+    for number in 1...24 {
+      let thumbnail = app.buttons["photo-thumbnail-gallery-\(number)"]
+      guard thumbnail.exists, !thumbnail.frame.isEmpty, app.frame.contains(thumbnail.frame) else { continue }
+      let rect = CGRect(x: thumbnail.frame.midX * scale - 6, y: thumbnail.frame.midY * scale - 6, width: 12, height: 12)
+      let sample = try XCTUnwrap(bitmap.cropping(to: rect))
+      let filter = try XCTUnwrap(CIFilter(name: "CIAreaAverage"))
+      filter.setValue(CIImage(cgImage: sample), forKey: kCIInputImageKey)
+      filter.setValue(CIVector(cgRect: CGRect(x: 0, y: 0, width: 12, height: 12)), forKey: kCIInputExtentKey)
+      var rgba = [UInt8](repeating: 0, count: 4)
+      CIContext().render(try XCTUnwrap(filter.outputImage), toBitmap: &rgba, rowBytes: 4,
+        bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
+      XCTAssertGreaterThan(Int(rgba[0]) + Int(rgba[1]) + Int(rgba[2]), 180,
+        "Photo \(number) regressed to an empty dark filmstrip tile")
+      sampled += 1
+    }
+    XCTAssertGreaterThanOrEqual(sampled, 3)
+    capture("long-gallery-thumbnails", app)
+    let before = try await request("/__qa/state")
+    let requests = try XCTUnwrap(before["contentReceipts"] as? [[String: Any]])
+    let receipts = XCTAttachment(data: try JSONSerialization.data(withJSONObject: [
+      "inline": inlineRequests, "afterGallery": requests,
+    ], options: [.prettyPrinted, .sortedKeys]), uniformTypeIdentifier: "public.json")
+    receipts.name = "gallery-download-receipts"; receipts.lifetime = .keepAlways; add(receipts)
+    for number in 1...23 {
+      let path = "/api/v0/assets/gallery-\(number)"
+      let inlineCount = inlineRequests.filter { ($0["path"] as? String) == path }.count
+      XCTAssertEqual(requests.filter { ($0["path"] as? String) == path }.count - inlineCount, 1,
+        "Page and thumbnail should share one original download for \(path); inline count \(inlineCount)")
+    }
+    try await request("/__qa/control", ["offline": true])
+    select(1, backwards: true)
+    XCTAssertFalse(app.buttons["photo-retry"].exists)
+    capture("long-gallery-offline-return", app)
+    try await request("/__qa/control", ["offline": false])
+    app.terminate()
+  }
   func testImageFailureCanRetryAndOpen() async throws {
+    for status in [503, 200] {
     let app = try await launch(scene: "media")
     app.terminate()
     try await request(
@@ -195,7 +267,7 @@ import XCTest
       [
         "failures": [
           "GET /api/v0/assets/" + id(6): [
-            "status": 503, "message": "Temporary fixture failure", "count": 100,
+            "status": status, "message": "Temporary fixture failure", "count": 100,
           ]
         ]
       ])
@@ -211,17 +283,21 @@ import XCTest
         .waitForExistence(timeout: 10))
     capture("photo-recovered", app)
     app.terminate()
+    }
   }
   func testProfileRoutinesNotificationsAndTemplateShare() async throws {
     let app = try await launch(scene: "media")
-    for name in [
-      "parity-probe-handwritten", "parity-probe-harmless", "cua-time-parity-20260831",
-      "cua-parity-interval-20260902", "cua-parity-weekday-20260902",
+    for (name, schedules) in [
+      ("parity-probe-handwritten", ["0 11 * * 1-5"]),
+      ("parity-probe-harmless", ["0 11 * * 1-5"]),
+      ("cua-time-parity-20260831", ["0 * * * *"]),
+      ("cua-parity-interval-20260902", ["@every 5m", "45 19 * * 1-5"]),
+      ("cua-parity-weekday-20260902", ["45 19 * * 1-5"]),
     ] {
       try await request(
         "/api/v0/bots/bot-research/routines",
         [
-          "name": name, "prompt": "Inert QA routine", "schedule": "0 11 * * 1-5", "enabled": false,
+          "name": name, "prompt": "Inert QA routine", "schedule": schedules[0], "schedules": schedules, "enabled": false,
           "clientId": UUID().uuidString,
         ])
     }

@@ -19,8 +19,10 @@ struct HistoryScrollRequest: Equatable {
 }
 
 struct NativeMessageList: UIViewControllerRepresentable {
+  enum InitialLayout { case settled, nextLayout }
   let items: [NativeHistoryItem]
   var initialTarget = "bottom"
+  var initialLayout = InitialLayout.settled
   var request: HistoryScrollRequest?
   var onPositioned: () -> Void = {}
   var onScroll: (_ atBottom: Bool, _ following: Bool) -> Void = { _, _ in }
@@ -28,6 +30,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
   func makeUIViewController(context: Context) -> HistoryListController {
     let controller = HistoryListController()
     controller.initialTarget = initialTarget
+    controller.initialLayout = initialLayout
     controller.onPositioned = onPositioned
     controller.onScroll = onScroll
     return controller
@@ -80,8 +83,10 @@ struct NativeMessageList: UIViewControllerRepresentable {
   private var motionRecords: [[String: Any]] = []
   #endif
   private var settle: DispatchWorkItem?
+  private var initialLayoutGeneration = 0
   private var feedback = ScrollEdgeFeedback()
   var initialTarget = "bottom"
+  var initialLayout = NativeMessageList.InitialLayout.settled
   var onPositioned: () -> Void = {}
   var onScroll: (Bool, Bool) -> Void = { _, _ in }
 
@@ -336,18 +341,27 @@ struct NativeMessageList: UIViewControllerRepresentable {
       positioning = true
       scroll(to: initialTarget, animated: false)
       positioning = false
-      // Wait for the first visible rows to self-size before removing the spinner.
-      // Later asynchronous document resizes retain the same bottom/reading anchor.
+      // Main history waits for its first self-sizing rows. Cached reply pages
+      // can join the native push as soon as their layout stops changing.
+      // Later document resizes retain the same bottom/reading anchor.
       settle?.cancel()
+      initialLayoutGeneration += 1
+      let generation = initialLayoutGeneration
       let work = DispatchWorkItem { [weak self] in
-        guard let self, !self.positioned else { return }
+        guard let self, !self.positioned, !self.updating else { return }
+        self.table.layoutIfNeeded()
+        guard self.initialLayoutGeneration == generation else { return }
         self.positioned = true
         self.following = self.initialTarget == "bottom"
         self.onPositioned()
         self.reportScroll()
       }
       settle = work
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+      if initialLayout == .nextLayout {
+        DispatchQueue.main.async(execute: work)
+      } else {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+      }
     } else if resized && following && !table.isDragging && !scrollingToTarget {
       positioning = true
       if footerResized && !viewportResized && !UIAccessibility.isReduceMotionEnabled {

@@ -5,6 +5,7 @@ import SwiftUI
 struct LoadedAttachment: Identifiable {
   let url: URL
   let image: UIImage?
+  let maximumPixels: Int
   var id: URL { url }
 
   @MainActor static func fetch(_ asset: Asset, store: AppStore, maximumPixels: Int = 960) async throws -> Self {
@@ -14,22 +15,23 @@ struct LoadedAttachment: Identifiable {
     guard store.api?.baseURL == api.baseURL, store.api?.token == api.token else {
       throw CancellationError()
     }
-    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    let leaf = URL(fileURLWithPath: asset.fileName).lastPathComponent
-    let url = folder.appendingPathComponent(leaf.isEmpty || [".", "..", "/"].contains(leaf) ? "Attachment" : leaf)
-    try data.write(to: url, options: [.atomic, .completeFileProtection])
-    var image: UIImage?
-    if asset.mimeType.hasPrefix("image/"),
-      let source = CGImageSourceCreateWithData(data as CFData, nil),
-      let decoded = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-        kCGImageSourceCreateThumbnailFromImageAlways: true,
-        kCGImageSourceThumbnailMaxPixelSize: maximumPixels,
-        kCGImageSourceCreateThumbnailWithTransform: true,
-      ] as CFDictionary) {
-      image = UIImage(cgImage: decoded)
+    let url = try await AttachmentImageFile.write(data, named: asset.fileName)
+    do {
+      let result = try await decode(url, maximumPixels: asset.mimeType.hasPrefix("image/") ? maximumPixels : 0)
+      // Re-auth can happen while file preparation runs off the main actor too.
+      guard store.api?.baseURL == api.baseURL, store.api?.token == api.token else {
+        throw CancellationError()
+      }
+      return result
+    } catch {
+      try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+      throw error
     }
-    return Self(url: url, image: image)
+  }
+
+  @MainActor static func decode(_ url: URL, maximumPixels: Int) async throws -> Self {
+    let decoded = try await AttachmentImageFile.decode(url, maximumPixels: maximumPixels)
+    return Self(url: url, image: decoded.map { UIImage(cgImage: $0) }, maximumPixels: maximumPixels)
   }
 }
 
@@ -143,6 +145,10 @@ struct NativePhotoGallery: View {
   let items: [GalleryItem]
   @State private var selected: String
   @State private var files: [String: LoadedAttachment]
+  @State private var sourceURLs: [String: URL]
+  @State private var sourceTasks: [String: Task<URL, Error>] = [:]
+  @State private var thumbnails: [String: UIImage] = [:]
+  @State private var thumbnailLoading = Set<String>()
   @State private var loading = Set<String>()
   @State private var failures: [String: String] = [:]
   @State private var sharing = false
@@ -154,6 +160,7 @@ struct NativePhotoGallery: View {
     self.items = items
     _selected = State(initialValue: initialID)
     _files = State(initialValue: initialFile.map { [initialID: $0] } ?? [:])
+    _sourceURLs = State(initialValue: initialFile.map { [initialID: $0.url] } ?? [:])
   }
   private var current: GalleryItem? { items.first { $0.id == selected } }
   var body: some View {
@@ -161,21 +168,20 @@ struct NativePhotoGallery: View {
       HStack {
         ChromeButton(title: "Close", symbol: "xmark", darkTint: 0.06) { dismiss() }.accessibilityIdentifier("photo-close")
         Spacer()
-        Menu {
-          Button("Forward", systemImage: "arrowshape.turn.up.right") {
-            NativeHaptics.play(.light, source: "attachment.forward")
-            forwarding = true
-          }
-          Button("Share", systemImage: "square.and.arrow.up") {
-            NativeHaptics.play(.light, source: "attachment.share")
-            sharing = true
-          }.disabled(files[selected] == nil)
-          Button(saving ? "Saving…" : "Save", systemImage: "arrow.down.to.line") {
-            Task { await savePhoto() }
-          }.disabled(files[selected]?.image == nil || saving)
-        } label: {
-          Image(systemName: "ellipsis").font(.system(size: 17)).frame(width: 44, height: 44).nativeGlass(darkTint: 0.06)
-        }.accessibilityLabel("Photo options").accessibilityIdentifier("photo-options")
+        NativeActionMenu(symbol: "ellipsis", darkTint: 0.07, title: "Photo options",
+          identifier: "photo-options", panelIdentifier: "photo-menu-panel",
+          hapticSource: "attachment.options", color: .white, actions: [
+            .init(title: "Forward", symbol: "arrowshape.turn.up.right", action: {
+              NativeHaptics.play(.light, source: "attachment.forward")
+              forwarding = true
+            }),
+            .init(title: "Share", symbol: "square.and.arrow.up", enabled: files[selected] != nil, action: {
+              NativeHaptics.play(.light, source: "attachment.share")
+              sharing = true
+            }),
+            .init(title: saving ? "Saving…" : "Save", symbol: "arrow.down.to.line",
+              enabled: files[selected]?.image != nil && !saving, action: { Task { await savePhoto() } }),
+          ]).frame(width: 44, height: 44).nativeGlass(darkTint: 0.06)
       }.padding(.horizontal, 18).padding(.top, 6)
       TabView(selection: $selected) {
         ForEach(items) { item in
@@ -211,7 +217,7 @@ struct NativePhotoGallery: View {
                   } label: {
                     ZStack {
                       Color(white: 0.15)
-                      if let image = files[item.id]?.image { Image(uiImage: image).resizable().scaledToFill() }
+                      if let image = thumbnails[item.id] { Image(uiImage: image).resizable().scaledToFill() }
                       if item.id != selected { Color.black.opacity(0.48) }
                     }.frame(width: 48, height: 48).clipShape(RoundedRectangle(cornerRadius: 9))
                       .overlay { if item.id == selected { RoundedRectangle(cornerRadius: 9).stroke(.white, lineWidth: 2) } }
@@ -219,10 +225,11 @@ struct NativePhotoGallery: View {
                     .accessibilityLabel("Photo \((items.firstIndex { $0.id == item.id } ?? 0) + 1)")
                     .accessibilityIdentifier("photo-thumbnail-" + item.asset.id)
                     .accessibilityAddTraits(item.id == selected ? .isSelected : [])
-                    .task { await load(item) }
+                    .task { await loadThumbnail(item) }
                 }
               }.padding(.horizontal, max(16, (geometry.size.width - 48) / 2))
             }.scrollIndicators(.hidden).frame(height: 52)
+              .accessibilityIdentifier("photo-filmstrip")
               .onAppear { proxy.scrollTo(selected, anchor: .center) }
               .onChange(of: selected) { _, id in withAnimation { proxy.scrollTo(id, anchor: .center) } }
           }
@@ -235,6 +242,7 @@ struct NativePhotoGallery: View {
       .onChange(of: selected) { _, id in
         if let item = items.first(where: { $0.id == id }) { Task { await load(item) } }
       }
+      .onDisappear { for task in sourceTasks.values { task.cancel() } }
       .foregroundStyle(.white)
       .sheet(isPresented: $sharing) {
         if let file = files[selected] { NativeFileShare(url: file.url) { actionError = UserFacingError.message($0) } }
@@ -248,11 +256,17 @@ struct NativePhotoGallery: View {
       } message: { Text(actionError ?? "") }
   }
   private func load(_ item: GalleryItem) async {
-    guard files[item.id] == nil, loading.insert(item.id).inserted else { return }
+    // The inline preview opens immediately, then upgrades from the same local
+    // original. Previously that 960-pixel preview prevented a gallery decode.
+    guard (files[item.id]?.maximumPixels ?? 0) < 2048, loading.insert(item.id).inserted else { return }
     defer { loading.remove(item.id) }
     do {
-      let file = try await LoadedAttachment.fetch(item.asset, store: store, maximumPixels: 2048)
-      guard file.image != nil else { throw APIError("This image could not be loaded.") }
+      let url = try await sourceURL(item)
+      let file = try await LoadedAttachment.decode(url, maximumPixels: 2048)
+      guard file.image != nil else {
+        sourceURLs[item.id] = nil
+        throw APIError("This image could not be loaded.")
+      }
       files[item.id] = file
       failures[item.id] = nil
       // Keep long photo histories from retaining every decoded full-size image.
@@ -263,6 +277,29 @@ struct NativePhotoGallery: View {
       files = files.filter { retained.contains($0.key) }
     } catch {
       if !UserFacingError.isCancelled(error) { failures[item.id] = UserFacingError.message(error) }
+      if (error as? APIError)?.unauthorized == true { store.handle(error) }
+    }
+  }
+  private func sourceURL(_ item: GalleryItem) async throws -> URL {
+    if let url = sourceURLs[item.id] { return url }
+    if let task = sourceTasks[item.id] { return try await task.value }
+    // Page and filmstrip requests share one download. Decoded page eviction
+    // keeps the original on disk so returning to an older photo works offline.
+    let task = Task { try await LoadedAttachment.fetch(item.asset, store: store, maximumPixels: 0).url }
+    sourceTasks[item.id] = task
+    defer { sourceTasks[item.id] = nil }
+    let url = try await task.value
+    sourceURLs[item.id] = url
+    return url
+  }
+  private func loadThumbnail(_ item: GalleryItem) async {
+    guard thumbnails[item.id] == nil, thumbnailLoading.insert(item.id).inserted else { return }
+    defer { thumbnailLoading.remove(item.id) }
+    do {
+      let url = try await sourceURL(item)
+      let thumbnail = try await LoadedAttachment.decode(url, maximumPixels: 144)
+      thumbnails[item.id] = thumbnail.image
+    } catch {
       if (error as? APIError)?.unauthorized == true { store.handle(error) }
     }
   }
@@ -298,7 +335,7 @@ private enum PhotoLibraryWriter {
 private struct ZoomablePhoto: UIViewRepresentable {
   let image: UIImage
   func makeUIView(context: Context) -> PhotoScrollView { PhotoScrollView(image: image) }
-  func updateUIView(_ view: PhotoScrollView, context: Context) { view.setNeedsLayout() }
+  func updateUIView(_ view: PhotoScrollView, context: Context) { view.updateImage(image) }
 }
 
 private final class PhotoScrollView: UIScrollView, UIScrollViewDelegate {
@@ -321,6 +358,11 @@ private final class PhotoScrollView: UIScrollView, UIScrollViewDelegate {
     addGestureRecognizer(doubleTap)
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+  func updateImage(_ image: UIImage) {
+    guard photo.image !== image else { return }
+    photo.image = image
+    setNeedsLayout()
+  }
   override func layoutSubviews() {
     super.layoutSubviews()
     if zoomScale == 1, let image = photo.image, bounds.width > 0, bounds.height > 0 {

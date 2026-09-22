@@ -161,7 +161,7 @@ final class GrokbotVisualTests: XCTestCase {
     try await control(["offline": true]); app.buttons["thread-send-button"].tap()
     XCTAssertTrue(app.staticTexts["Waiting for connection"].waitForExistence(timeout: 10))
     app.buttons["thread-back"].tap()
-    XCTAssertFalse(app.staticTexts["Focused reply survives retry"].isHittable)
+    XCTAssertTrue(app.staticTexts["Focused reply survives retry"].isHittable)
     original.press(forDuration: 0.7); app.buttons["Reply"].tap()
     XCTAssertTrue(app.staticTexts["Focused reply survives retry"].waitForExistence(timeout: 8))
     try await control(["offline": false, "dropNextSend": true])
@@ -181,7 +181,12 @@ final class GrokbotVisualTests: XCTestCase {
     XCTAssertFalse(app.alerts.firstMatch.exists)
     capture("focused-reply-recovered", app)
     app.buttons["thread-back"].tap()
-    XCTAssertTrue(app.buttons["thread-visual-message-visual-chat-3"].waitForExistence(timeout: 8))
+    let replyID = try XCTUnwrap(replies.first?["id"] as? String)
+    let link = app.buttons["reply-quote-" + replyID]
+    XCTAssertTrue(link.waitForExistence(timeout: 8))
+    link.tap()
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.staticTexts["Focused reply survives retry"].isHittable)
   }
   func testScrolledChatKeepsFloatingControlsInBothAppearances() async throws {
     for appearance in ["light", "dark"] {

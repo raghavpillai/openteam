@@ -36,7 +36,7 @@ struct ProfileRoutinesView: View {
             }
             Spacer(minLength: 4)
             Image(systemName: "chevron.right").font(.footnote).foregroundStyle(NativePalette.faint)
-          }.padding(.vertical, 3)
+          }
         }
       }
       Button("Add routine", systemImage: "plus", action: onAdd).foregroundStyle(NativePalette.link)
@@ -47,6 +47,7 @@ struct ProfileRoutinesView: View {
         Text("Routines").font(.footnote).foregroundStyle(NativePalette.faint)
       }
       .accessibilityLabel("Routines")
+      .listRowInsets(EdgeInsets(top: 4, leading: 18, bottom: 6, trailing: 18))
     }.listRowBackground(NativePalette.assistant)
       .task(id: refreshID) { await load() }
   }

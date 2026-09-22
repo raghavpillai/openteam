@@ -6,6 +6,8 @@ struct BotExchangeView: View {
   let channel: Channel
   let peer: BotExchangePeer
   @State private var ready = false
+  @State private var showsLoading = false
+  @State private var timelineCache = ChatTimelineCache()
   @State private var modals = MessageModalPresenter()
   private var source: Bot? { store.bot(for: channel) }
   private var peerBot: Bot? { store.bots.first { $0.id == peer.id } }
@@ -14,9 +16,15 @@ struct BotExchangeView: View {
   }
   var body: some View {
     ZStack {
-      NativeMessageList(items: rows, initialTarget: peer.focusedMessageID ?? "bottom", onPositioned: { ready = true })
-        .opacity(ready ? 1 : 0)
-      if !ready { ProgressView().accessibilityLabel("Loading exchange") }
+      NativeMessageList(items: rows, initialTarget: peer.focusedMessageID ?? "bottom",
+        initialLayout: .nextLayout, onPositioned: { ready = true })
+        .opacity(ready ? 1 : 0).allowsHitTesting(ready).accessibilityHidden(!ready)
+      if !ready && showsLoading {
+        ProgressView().accessibilityLabel("Loading exchange").accessibilityIdentifier("exchange-loading")
+      }
+    }.task {
+      try? await Task.sleep(for: .milliseconds(200))
+      if !Task.isCancelled { showsLoading = true }
     }.messageModalHost(modals).nativeCanvas().toolbar(.hidden, for: .navigationBar)
       .chatFloatingBars(top: { header }, bottom: {
         Label("Read-only", systemImage: "lock")
@@ -29,7 +37,8 @@ struct BotExchangeView: View {
   }
   private var header: some View {
     HStack(spacing: 8) {
-      ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular) { dismiss() }
+      ChatChromeButton(title: "Back", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular,
+        regularInLightMode: true) { dismiss() }
         .accessibilityIdentifier("exchange-back")
       HStack(spacing: -9) {
         if let source { MessageBotMark(bot: source, size: 29) }
@@ -51,18 +60,25 @@ struct BotExchangeView: View {
           .font(.footnote).frame(maxWidth: .infinity).padding(14).disabled(busy))
       })
     }
-    let timeline = MessageTimeline(messages, includeBranched: true)
-    for entry in timeline.entries {
+    let timeline = timelineCache.project(messages, includeBranched: true)
+    let presented = timelineCache.present(timeline, pending: [], animateNew: ready)
+    for row in presented {
+      guard case .confirmed(let entry) = row.content else { continue }
       let message = entry.message
       let speaker = BotExchangePeer(message.metadata)?.incoming == true ? peerBot : source
-      result.append(NativeHistoryItem(id: message.id, scrollID: message.id, version: message.hashValue) {
-        AnyView(VStack(spacing: 12) {
-          if let date = entry.timestamp {
-            Text(chatTimestamp(date)).font(.system(size: 13)).foregroundStyle(NativePalette.chatFaint)
-              .frame(maxWidth: .infinity).padding(.top, 14).padding(.bottom, 2)
+      result.append(NativeHistoryItem(id: row.id, scrollID: message.id,
+        version: message.hashValue ^ entry.timestamp.hashValue,
+        anchorToBottom: entry.timestamp != nil,
+        animatesResize: message.metadata["type"].string == "widget") {
+        AnyView(MessageArrival(animate: timelineCache.consumeArrival(row), isUser: message.isUser) {
+          VStack(spacing: 12) {
+            if let date = entry.timestamp {
+              Text(chatTimestamp(date)).font(.system(size: 13)).foregroundStyle(NativePalette.chatFaint)
+                .frame(maxWidth: .infinity).padding(.top, 14).padding(.bottom, 2)
+            }
+            MessageRow(message: message, channel: channel, onReply: {}, onThread: {},
+              viewOnly: true, speakerOverride: speaker, showsReplyContext: entry.showsReplyContext)
           }
-          MessageRow(message: message, channel: channel, onReply: {}, onThread: {},
-            viewOnly: true, speakerOverride: speaker)
         }
           .padding(.horizontal, 16).padding(.top, 12).environment(store).environment(modals))
       })

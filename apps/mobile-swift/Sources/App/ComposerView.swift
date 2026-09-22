@@ -154,12 +154,9 @@ struct ComposerView: View {
     HStack(alignment: .bottom, spacing: 10) {
       NativeAttachmentMenu(
         enabled: !uploading && attachmentCount < 6,
-        voiceEnabled: !transcribing && !voice.recording && voice.pendingURL == nil
-          && store.state.bootstrap?.runtime["transcription"].string == "configured",
         color: NativePalette.text,
-        photos: { photoLibrary = true }, files: { files = true }, camera: { camera = true },
-        voice: startRecording
-      ).frame(width: 44, height: 44).nativeChatGlass()
+        photos: { photoLibrary = true }, files: { files = true }, camera: { camera = true }
+      ).frame(width: 44, height: 44).nativeChatGlass(regularInLightMode: true)
       VStack(spacing: 0) {
         if !focusedReply, let reply = draft.replyTo {
           HStack(spacing: 7) {
@@ -251,7 +248,7 @@ struct ComposerView: View {
             Spacer()
           }.padding(8)
         }
-      }.nativeChatGlass().foregroundStyle(NativePalette.text)
+      }.nativeChatGlass(regularInLightMode: true).foregroundStyle(NativePalette.text)
     }
   }
   private var focusPadding: some View {
@@ -588,45 +585,226 @@ struct CameraPicker: UIViewControllerRepresentable {
   }
 }
 
-/// Observe UIKit's actual menu-presentation event. SwiftUI Menu consumes the
-/// label's tap gesture, so a simultaneous TapGesture can silently miss feedback.
-private struct NativeAttachmentMenu: UIViewRepresentable {
-  let enabled: Bool, voiceEnabled: Bool
+/// A child presentation keeps the composer first responder and gives each menu
+/// the same measured row geometry without UIKit choosing a different source inset.
+private struct NativeAttachmentMenu: View {
+  let enabled: Bool
   let color: Color
-  let photos: () -> Void, files: () -> Void, camera: () -> Void, voice: () -> Void
+  let photos: () -> Void, files: () -> Void, camera: () -> Void
+  var body: some View {
+    NativeActionMenu(symbol: "plus", pointSize: 16, title: "Attach",
+      identifier: "attach-button", panelIdentifier: "attachment-menu-panel",
+      hapticSource: "composer.attach", anchor: .aboveLeading, enabled: enabled, color: color,
+      actions: [
+        .init(title: "Attach Image", symbol: "photo.on.rectangle", action: photos),
+        .init(title: "Take Photo", symbol: "camera",
+          enabled: UIImagePickerController.isSourceTypeAvailable(.camera), action: camera),
+        .init(title: "Choose File", symbol: "folder", action: files),
+      ])
+  }
+}
+
+struct NativeMenuAction {
+  let title: String
+  var symbol: String? = nil
+  var enabled = true
+  let action: () -> Void
+}
+
+enum NativeMenuAnchor { case aboveLeading, topTrailing }
+
+struct NativeActionMenu: UIViewRepresentable {
+  @Environment(\.isEnabled) private var environmentEnabled
+  let symbol: String
+  var pointSize: CGFloat = 17
+  var darkTint: Double = 0.10
+  let title: String
+  let identifier: String
+  let panelIdentifier: String
+  let hapticSource: String
+  var anchor: NativeMenuAnchor = .topTrailing
+  var enabled = true
+  var color: Color = NativePalette.text
+  let actions: [NativeMenuAction]
+
+  func makeCoordinator() -> Coordinator { Coordinator() }
   func makeUIView(context: Context) -> UIButton {
-    let button = UIButton(type: .system)
-    button.setImage(
-      UIImage(
-        systemName: "plus",
-        withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)),
-      for: .normal)
-    button.showsMenuAsPrimaryAction = true
-    button.accessibilityLabel = "Attach"
-    button.accessibilityIdentifier = "attach-button"
-    button.addAction(
-      UIAction { _ in NativeHaptics.play(.light, source: "composer.attach") },
-      for: .menuActionTriggered)
+    let button = NativeMenuButton(type: .system)
+    button.setImage(UIImage(systemName: symbol, withConfiguration:
+      UIImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)), for: .normal)
+    button.accessibilityLabel = title
+    button.accessibilityIdentifier = identifier
+    let coordinator = context.coordinator
+    button.removed = { [weak coordinator] in coordinator?.close(animated: false) }
+    button.addAction(UIAction { [weak button, weak coordinator] _ in
+      guard let button else { return }
+      coordinator?.open(from: button)
+    }, for: .touchUpInside)
     return button
   }
   func updateUIView(_ button: UIButton, context: Context) {
-    button.isEnabled = enabled
+    button.isEnabled = enabled && environmentEnabled
     button.tintColor = UIColor(color)
-    var actions = [
-      UIAction(title: "Photo library", image: UIImage(systemName: "photo")) { _ in photos() },
-      UIAction(title: "Files", image: UIImage(systemName: "doc")) { _ in files() },
-    ]
-    if UIImagePickerController.isSourceTypeAvailable(.camera) {
-      actions.append(
-        UIAction(title: "Camera", image: UIImage(systemName: "camera")) { _ in camera() })
-    }
-    actions.append(
-      UIAction(
-        title: "Record voice note", image: UIImage(systemName: "mic"),
-        attributes: voiceEnabled ? [] : [.disabled]
-      ) { _ in voice() })
-    button.menu = UIMenu(children: actions)
+    context.coordinator.actions = actions
+    context.coordinator.darkTint = darkTint
+    context.coordinator.anchor = anchor
+    context.coordinator.panelIdentifier = panelIdentifier
+    context.coordinator.hapticSource = hapticSource
+    if !button.isEnabled { context.coordinator.close(animated: false) }
   }
+  static func dismantleUIView(_ uiView: UIButton, coordinator: Coordinator) {
+    coordinator.close(animated: false)
+  }
+
+  @MainActor final class Coordinator {
+    var actions: [NativeMenuAction] = []
+    var darkTint = 0.10
+    var anchor = NativeMenuAnchor.topTrailing
+    var panelIdentifier = ""
+    var hapticSource = ""
+    private var panel: NativeMenuController?
+    func open(from button: UIButton) {
+      guard panel == nil else { close(); return }
+      var responder: UIResponder? = button
+      while responder != nil && !(responder is UIViewController) { responder = responder?.next }
+      guard var parent = responder as? UIViewController else { return }
+      while let ancestor = parent.parent { parent = ancestor }
+      let controller = NativeMenuController(source: button, actions: actions,
+        anchor: anchor, identifier: panelIdentifier, darkTint: darkTint) { [weak self] index in
+        guard let self else { return }
+        let item = index.flatMap { self.actions.indices.contains($0) ? self.actions[$0] : nil }
+        self.close(animated: item == nil)
+        if let item, item.enabled { item.action() }
+      }
+      panel = controller
+      parent.addChild(controller)
+      controller.view.frame = parent.view.bounds
+      controller.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+      parent.view.addSubview(controller.view)
+      controller.didMove(toParent: parent)
+      controller.reveal()
+      NativeHaptics.play(.light, source: hapticSource)
+    }
+    func close(animated: Bool = true) {
+      guard let controller = panel else { return }
+      panel = nil
+      controller.hide(animated: animated)
+    }
+  }
+}
+
+private final class NativeMenuButton: UIButton {
+  var removed: (() -> Void)?
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    if window == nil { removed?() }
+  }
+}
+
+private struct NativeMenuContent: View {
+  let actions: [NativeMenuAction]
+  let identifier: String
+  let darkTint: Double
+  let choose: (Int) -> Void
+  @ScaledMetric(relativeTo: .body) private var rowHeight = 42.0
+  var body: some View {
+    VStack(spacing: 0) {
+      ForEach(actions.indices, id: \.self) { index in
+        Button { choose(index) } label: {
+          HStack(spacing: 14) {
+            if let symbol = actions[index].symbol {
+              Image(systemName: symbol).font(.system(size: 17)).frame(width: 22)
+            }
+            Text(actions[index].title).font(.body)
+            Spacer(minLength: 0)
+          }.padding(.horizontal, 28).frame(minHeight: rowHeight)
+            .contentShape(Rectangle())
+        }.buttonStyle(.plain).foregroundStyle(NativePalette.text)
+          .disabled(!actions[index].enabled)
+      }
+    }.padding(.vertical, 10).frame(width: 250)
+      .modifier(NativeGlass(radius: 32, darkTint: darkTint))
+      .accessibilityIdentifier(identifier)
+  }
+}
+
+/// Public UIKit containment provides outside-tap / Escape dismissal without
+/// resigning the text field or changing its keyboard safe-area during opening.
+private final class NativeMenuController: UIViewController {
+  weak var source: UIView?
+  let actions: [NativeMenuAction]
+  let anchor: NativeMenuAnchor
+  let identifier: String
+  let darkTint: Double
+  let choose: (Int?) -> Void
+  private var hosting: UIHostingController<NativeMenuContent>!
+  init(source: UIView, actions: [NativeMenuAction], anchor: NativeMenuAnchor,
+    identifier: String, darkTint: Double, choose: @escaping (Int?) -> Void) {
+    self.source = source; self.actions = actions; self.anchor = anchor
+    self.identifier = identifier; self.darkTint = darkTint; self.choose = choose
+    super.init(nibName: nil, bundle: nil)
+  }
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+  override func viewDidLoad() {
+    super.viewDidLoad()
+    view.backgroundColor = .clear
+    NotificationCenter.default.addObserver(self, selector: #selector(escape),
+      name: UIApplication.didEnterBackgroundNotification, object: nil)
+    let outside = UIButton(type: .custom)
+    outside.frame = view.bounds; outside.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    outside.accessibilityLabel = "Dismiss menu"
+    outside.addAction(UIAction { [weak self] _ in self?.choose(nil) }, for: .touchUpInside)
+    view.addSubview(outside)
+    hosting = UIHostingController(rootView: NativeMenuContent(actions: actions,
+      identifier: identifier, darkTint: darkTint) { [weak self] in self?.choose($0) })
+    hosting.view.backgroundColor = .clear
+    addChild(hosting); view.addSubview(hosting.view); hosting.didMove(toParent: self)
+    view.accessibilityViewIsModal = true
+  }
+  deinit { NotificationCenter.default.removeObserver(self) }
+  override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    guard let source, source.window != nil else { choose(nil); return }
+    let sourceFrame = source.convert(source.bounds, to: view)
+    let size = hosting.sizeThatFits(in: CGSize(width: 250, height: view.bounds.height))
+    let left: CGFloat
+    let top: CGFloat
+    switch anchor {
+    case .aboveLeading:
+      left = view.safeAreaInsets.left + 8
+      let bottom = min(sourceFrame.maxY + 10, view.bounds.height - view.safeAreaInsets.bottom)
+      top = max(view.safeAreaInsets.top, bottom - size.height)
+    case .topTrailing:
+      left = view.bounds.width - view.safeAreaInsets.right - 8 - size.width
+      top = max(view.safeAreaInsets.top, sourceFrame.minY - 5)
+    }
+    hosting.view.bounds = CGRect(origin: .zero, size: size)
+    hosting.view.center = CGPoint(x: left + size.width / 2, y: top + size.height / 2)
+  }
+  func reveal() {
+    view.layoutIfNeeded()
+    guard !UIAccessibility.isReduceMotionEnabled else { return }
+    hosting.view.alpha = 0
+    let trailing = anchor == .topTrailing
+    hosting.view.transform = CGAffineTransform(translationX: trailing ? 8 : -8,
+      y: trailing ? -8 : 8).scaledBy(x: 0.96, y: 0.96)
+    UIView.animate(withDuration: 0.22, delay: 0, options: [.curveEaseOut]) {
+      self.hosting.view.alpha = 1; self.hosting.view.transform = .identity
+    }
+  }
+  func hide(animated: Bool) {
+    view.isUserInteractionEnabled = false
+    let remove = {
+      self.willMove(toParent: nil); self.view.removeFromSuperview(); self.removeFromParent()
+    }
+    guard animated && !UIAccessibility.isReduceMotionEnabled else { remove(); return }
+    UIView.animate(withDuration: 0.16, animations: { self.hosting.view.alpha = 0 }) { _ in remove() }
+  }
+  override func accessibilityPerformEscape() -> Bool { choose(nil); return true }
+  override var keyCommands: [UIKeyCommand]? {
+    [UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(escape))]
+  }
+  @objc private func escape() { choose(nil) }
 }
 
 /// Focus only after the native push/pop completes. Focusing a returning page

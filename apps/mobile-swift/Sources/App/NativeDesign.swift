@@ -34,7 +34,7 @@ enum NativePalette {
       })
   }
   static let assistant = surface
-  static let user = color("0A0A0A", "545454")
+  static let user = color("0E0E0E", "545454")
   static let separator = color("E4E4E4", "343434")
   static let code = color("E5E5E5", "2C2C2C")
   static let selection = code
@@ -65,6 +65,7 @@ enum NativePalette {
     return [
       "text": css(text), "muted": css(muted), "separator": css(separator),
       "code": css(code), "link": css(link),
+      "list-marker": dark ? "rgba(235,235,245,0.3)" : "rgba(60,60,67,0.34)",
     ]
   }
 }
@@ -72,10 +73,12 @@ enum NativePalette {
 /// Use one palette for custom sheets and native grouped settings, rather than
 /// silently reverting to UIKit's different grouped backgrounds on deeper pages.
 struct NativeForm<Content: View>: View {
+  var rowInsets: EdgeInsets? = nil
   @ViewBuilder var content: Content
   var body: some View {
     Form {
       content.listRowBackground(NativePalette.surface)
+        .listRowInsets(rowInsets)
         .listRowSeparatorTint(NativePalette.separator)
     }.scrollContentBackground(.hidden).nativeCanvas()
   }
@@ -122,16 +125,27 @@ struct NativeGlass: ViewModifier {
 /// A neutral tint keeps clear glass from whitening bright messages behind it.
 /// Calibrated against both empty-canvas and scrolling-content reference frames;
 /// tint alpha is not the opacity of the material itself.
-/// Keep the established light material for legible black labels over dark bubbles.
+/// The light tint preserves black-label contrast without the regular material's
+/// opaque frosting as a dark user bubble passes behind the header.
 struct NativeChatGlass: ViewModifier {
   @Environment(\.colorScheme) private var scheme
   var radius: CGFloat = 22
+  var regularInLightMode = false
   func body(content: Content) -> some View {
-    if #available(iOS 26, *), scheme == .dark {
+    if scheme == .light && regularInLightMode {
+      content.modifier(NativeGlass(radius: radius))
+    } else if #available(iOS 26, *) {
       content.glassEffect(
-        Glass.clear.tint(Color(white: 55 / 255).opacity(0.5)).interactive(),
+        (scheme == .dark
+          ? Glass.clear.tint(Color(white: 55 / 255).opacity(0.5))
+          : Glass.clear.tint(Color(white: 239 / 255).opacity(0.25))).interactive(),
         in: RoundedRectangle(cornerRadius: radius)
-      )
+      ).overlay {
+        if scheme == .light {
+          RoundedRectangle(cornerRadius: radius)
+            .strokeBorder(.black.opacity(0.12), lineWidth: 0.5).allowsHitTesting(false)
+        }
+      }.shadow(color: scheme == .light ? .black.opacity(0.06) : .clear, radius: 12, y: 3)
     } else {
       content.modifier(NativeGlass(radius: radius))
     }
@@ -141,9 +155,7 @@ struct NativeChatGlass: ViewModifier {
 /// The original chat fades the canvas behind the floating controls. Keeping this
 /// separate from the glass avoids changing material opacity as history scrolls.
 private struct ChatChromeFade: View {
-  @Environment(\.colorScheme) private var scheme
   var edge: VerticalEdge
-  private var isDarkHeader: Bool { edge == .top && scheme == .dark }
   var body: some View {
     LinearGradient(
       stops: [
@@ -153,13 +165,12 @@ private struct ChatChromeFade: View {
           location: edge == .top ? 0.20 : 0.18),
         .init(
           color: NativePalette.background.opacity(
-            edge == .top ? (isDarkHeader ? 0.48 : 0.25) : 0.35),
+            edge == .top ? 0.48 : 0.35),
           location: edge == .top ? 0.55 : 0.65),
-        // Match the recorded fade without changing the known light appearance.
-        // Keeping this outside the glass also preserves the full-width scroll fade.
+        // Both themes fade before the floating header, independently of its glass.
         .init(
-          color: NativePalette.background.opacity(isDarkHeader ? 0.04 : 0),
-          location: isDarkHeader ? 0.85 : 1),
+          color: NativePalette.background.opacity(edge == .top ? 0.04 : 0),
+          location: edge == .top ? 0.85 : 1),
         .init(color: NativePalette.background.opacity(0), location: 1),
       ],
       startPoint: edge == .top ? .top : .bottom,
@@ -169,7 +180,6 @@ private struct ChatChromeFade: View {
 }
 
 private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
-  @Environment(\.colorScheme) private var scheme
   var top: Top
   var bottom: Bottom
   func body(content: Content) -> some View {
@@ -190,26 +200,22 @@ private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
           // during the first keyboard transition.
           .safeAreaInset(edge: .bottom, spacing: 0) {
             bottom.background(alignment: .bottom) {
-              if scheme == .dark {
-                // Fade the transcript before it passes under the composer.
-                // Sizing this to the short bar leaves bright scrolling glyphs
-                // behind the glass; the reference fade begins above the bar.
-                GeometryReader { composer in
-                  ChatChromeFade(edge: .bottom)
-                    .frame(width: composer.size.width, height: max(100, composer.size.height + 56))
-                    .background(alignment: .bottom) {
-                      // Continue the opaque endpoint through the home-indicator
-                      // area so content cannot reappear below the gradient.
-                      NativePalette.background
-                        .frame(height: viewport.safeAreaInsets.bottom)
-                        .offset(y: viewport.safeAreaInsets.bottom)
-                    }
-                    .frame(width: composer.size.width, height: composer.size.height, alignment: .bottom)
-                    .offset(y: min(24, viewport.safeAreaInsets.bottom))
-                }.allowsHitTesting(false)
-              } else {
-                ChatChromeFade(edge: .bottom).ignoresSafeArea(.container, edges: .bottom)
-              }
+              // Fade the transcript before it passes under the composer.
+              // Sizing this to the short bar leaves bright scrolling glyphs
+              // behind the glass; the reference fade begins above the bar.
+              GeometryReader { composer in
+                ChatChromeFade(edge: .bottom)
+                  .frame(width: composer.size.width, height: max(100, composer.size.height + 56))
+                  .background(alignment: .bottom) {
+                    // Continue the opaque endpoint through the home-indicator
+                    // area so content cannot reappear below the gradient.
+                    NativePalette.background
+                      .frame(height: viewport.safeAreaInsets.bottom)
+                      .offset(y: viewport.safeAreaInsets.bottom)
+                  }
+                  .frame(width: composer.size.width, height: composer.size.height, alignment: .bottom)
+                  .offset(y: min(24, viewport.safeAreaInsets.bottom))
+              }.allowsHitTesting(false)
             }
           }
           .scrollEdgeEffectHidden()
@@ -221,8 +227,8 @@ private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
   }
 }
 extension View {
-  func nativeChatGlass(radius: CGFloat = 22) -> some View {
-    modifier(NativeChatGlass(radius: radius))
+  func nativeChatGlass(radius: CGFloat = 22, regularInLightMode: Bool = false) -> some View {
+    modifier(NativeChatGlass(radius: radius, regularInLightMode: regularInLightMode))
   }
   func chatFloatingBars<Top: View, Bottom: View>(
     @ViewBuilder top: () -> Top, @ViewBuilder bottom: () -> Bottom
@@ -285,12 +291,13 @@ struct ChatChromeButton: View {
   var symbol: String
   var symbolSize: CGFloat = 16
   var symbolWeight: Font.Weight = .semibold
+  var regularInLightMode = false
   var action: () -> Void
   var body: some View {
     Button(action: action) {
       Image(systemName: symbol).font(.system(size: symbolSize, weight: symbolWeight))
         .frame(width: 44, height: 44).foregroundStyle(NativePalette.text)
-        .nativeChatGlass().contentShape(Rectangle())
+        .nativeChatGlass(regularInLightMode: regularInLightMode).contentShape(Rectangle())
     }.buttonStyle(.plain).accessibilityLabel(title)
   }
 }

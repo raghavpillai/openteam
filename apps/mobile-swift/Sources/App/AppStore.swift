@@ -579,7 +579,7 @@ final class AppStore {
     state.messages[page.channelId] = MessageMerge.merge(page.threadContext, page.messages)
   }
   @discardableResult
-  func loadContext(_ channelID: String, messageID: String) async -> Bool {
+  func loadContext(_ channelID: String, messageID: String, preservingTimeline: Bool = false) async -> Bool {
     guard let api else { return false }
     let epoch = generation
     do {
@@ -588,6 +588,11 @@ final class AppStore {
       guard epoch == generation else { return false }
       guard page.channelId == channelID else {
         throw APIError("This message belongs to another conversation.")
+      }
+      if preservingTimeline {
+        state.messages[channelID] = MessageMerge.merge(messages(channelID), page.threadContext + page.messages)
+        persist()
+        return true
       }
       state.messages[channelID] = MessageMerge.merge(page.threadContext, page.messages)
       historyWindows[channelID] = HistoryWindow(

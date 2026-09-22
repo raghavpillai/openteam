@@ -16,11 +16,11 @@ import XCTest
     let (data, _) = try await URLSession.shared.data(from: URL(string: base + "/__settings/state")!)
     return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
   }
-  func launch(_ scene: String = "catalog", strict: Bool = true) async throws -> XCUIApplication {
+  func launch(_ scene: String = "catalog", strict: Bool = true, appearance: String = "dark") async throws -> XCUIApplication {
     continueAfterFailure = false
     try await post("/__settings/reset", ["scene": scene, "strictAccess": strict])
     let app = XCUIApplication()
-    app.launchArguments = ["--ui-testing", "--server", base, "--appearance", "dark"]
+    app.launchArguments = ["--ui-testing", "--server", base, "--appearance", appearance]
     app.launch()
     XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 15))
     app.buttons["settings-button"].tap()
@@ -73,6 +73,37 @@ import XCTest
     XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 8))
   }
   func backToPlugins(_ app: XCUIApplication) { app.navigationBars.buttons["Plugins"].tap() }
+  func testCatalogAndSettingsGeometryInBothAppearances() async throws {
+    for appearance in ["dark", "light"] {
+      let app = try await launch(appearance: appearance)
+      capture("geometry-settings-" + appearance, app)
+      plugins(app)
+      XCTAssertTrue(plugin("Google Calendar", app).waitForExistence(timeout: 8))
+      capture("geometry-plugins-" + appearance, app)
+      plugin("Google Calendar", app).tap()
+      XCTAssertTrue(app.buttons["Install plugin"].waitForExistence(timeout: 8))
+      capture("geometry-plugin-detail-" + appearance, app)
+      app.terminate()
+    }
+  }
+  func testInstalledCatalogNavigationSearchAndScrolledGlass() async throws {
+    let app = try await launch(appearance: "light")
+    plugins(app)
+    XCTAssertTrue(plugin("Google Calendar", app).waitForExistence(timeout: 8))
+    app.buttons["installed-plugins"].tap()
+    XCTAssertTrue(plugin("Gmail", app).waitForExistence(timeout: 5))
+    XCTAssertFalse(plugin("Google Calendar", app).exists)
+    app.buttons["Back"].tap()
+    XCTAssertTrue(plugin("Google Calendar", app).waitForExistence(timeout: 5))
+    app.textFields["plugin-search"].tap()
+    app.textFields["plugin-search"].typeText("Calendar")
+    XCTAssertTrue(plugin("Google Calendar", app).exists)
+    XCTAssertFalse(plugin("Gmail", app).exists)
+    app.buttons["Clear search"].tap()
+    XCTAssertTrue(plugin("Gmail", app).waitForExistence(timeout: 5))
+    app.swipeUp()
+    capture("catalog-scrolled-light", app)
+  }
   func testReferenceSettingsAndPreferencePersistence() async throws {
     let app = try await launch()
     capture("09-settings-top", app)
@@ -105,7 +136,7 @@ import XCTest
   func testReferenceCatalogLoadingFailureRetryAndAuthorizationStates() async throws {
     var app = try await launch("loading")
     plugins(app)
-    XCTAssertTrue(app.staticTexts["Loading plugins…"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "plugins-loading").firstMatch.waitForExistence(timeout: 8))
     capture("10-loading", app)
     try await post(["holdCatalog": false])
     XCTAssertTrue(plugin("Gmail", app).waitForExistence(timeout: 8))
@@ -240,7 +271,7 @@ import XCTest
     let app = try await launch()
     plugins(app)
     XCTAssertTrue(plugin("Gmail", app).waitForExistence(timeout: 8))
-    let search = app.searchFields.firstMatch
+    let search = app.textFields["plugin-search"]
     XCTAssertTrue(search.exists)
     search.tap()
     search.typeText("NoSuchPluginForAudit")

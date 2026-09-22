@@ -31,6 +31,28 @@ import UIKit
   }
   /// Record actual scroll motion over the same transcript as the reference.
   /// Resting screenshots alone cannot establish the glass's backdrop response.
+  func testLightReferenceGlassKeyboardAndScroll() async throws {
+    let app = try await launch("light-glass", appearance: "light")
+    let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    let header = app.buttons["conversation-details"]
+    let initialHeader = header.frame
+    try await capture("light-reference-rest", app)
+    input.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 6))
+    try await capture("light-reference-keyboard", app)
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 6))
+    try await capture("light-reference-keyboard-dismissed", app)
+    for (index, distance) in [CGFloat(230), CGFloat(-140), CGFloat(180), CGFloat(-270)].enumerated() {
+      let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.68, dy: 0.38))
+      start.press(forDuration: 0.03, thenDragTo: start.withOffset(CGVector(dx: 0, dy: distance)),
+        withVelocity: XCUIGestureVelocity(rawValue: 100), thenHoldForDuration: 0.1)
+      XCTAssertEqual(header.frame.minY, initialHeader.minY, accuracy: 1)
+      XCTAssertTrue(input.isHittable)
+      try await capture("light-reference-scroll-\(index)", app)
+    }
+    app.terminate()
+  }
   func testMovingGlassOverMatchedTranscript() async throws {
     for appearance in ["dark", "light"] {
       let app = try await launch("glass", appearance: appearance)
@@ -235,7 +257,8 @@ import UIKit
     app.terminate()
   }
   func testSwipeReplyPageKeepsThreadContextAndDraft() async throws {
-    let app = try await launch("reply")
+    for appearance in ["dark", "light"] {
+    let app = try await launch("reply", appearance: appearance)
     let rootText = "No facts in your memory match \"LANTERN914\" (0 searched). Try different words, or a shorter literal fragment."
     let root = app.staticTexts[rootText]
     XCTAssertTrue(root.waitForExistence(timeout: 8))
@@ -254,26 +277,88 @@ import UIKit
     XCTAssertEqual(field.value as? String, "Unsent reply")
     app.buttons["thread-send-button"].tap()
     XCTAssertTrue(app.staticTexts["Unsent reply"].waitForExistence(timeout: 8))
-    _ = try await api("/__audit/bot-reply", ["replyTo": "root", "content": "Reply stayed in this thread."])
+    let sentState = try await api("/__audit/state")
+    let sentID = try XCTUnwrap((sentState["messages"] as? [[String: Any]])?.first { $0["content"] as? String == "Unsent reply" }?["id"] as? String)
+    // channel-service passes the user message ID into the forked delivery;
+    // SendToUser inherits that ID for the bot response's replyTo metadata.
+    _ = try await api("/__audit/bot-reply", ["replyTo": sentID, "content": "Reply stayed in this thread."])
     XCTAssertTrue(app.staticTexts["Reply stayed in this thread."].waitForExistence(timeout: 8))
-    try await capture("reply-page", app)
+    try await capture("reply-page-" + appearance, app)
     let state = try await api("/__audit/state")
     let receipts = try XCTUnwrap(state["receipts"] as? [[String: Any]])
     let body = try XCTUnwrap(receipts.last?["body"] as? [String: Any])
     XCTAssertEqual(body["replyToMessageId"] as? String, "root")
     XCTAssertEqual(body["isFork"] as? Bool, true)
     app.buttons["thread-back"].tap()
-    XCTAssertTrue(app.buttons["thread-root"].waitForExistence(timeout: 8))
-    XCTAssertFalse(app.staticTexts["Unsent reply"].isHittable)
-    XCTAssertFalse(app.staticTexts["Reply stayed in this thread."].isHittable)
-    app.buttons["thread-root"].tap()
+    XCTAssertTrue(app.staticTexts["Unsent reply"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.staticTexts["Unsent reply"].isHittable)
+    XCTAssertTrue(app.staticTexts["Reply stayed in this thread."].isHittable)
+    let quote = app.buttons["reply-quote-" + sentID]
+    XCTAssertTrue(quote.isHittable)
+    XCTAssertFalse(app.buttons["reply-quote-bot-reply"].exists, "Consecutive bot replies must not repeat the quote")
+    try await capture("reply-main-linked-" + appearance, app)
+    quote.tap()
     XCTAssertTrue(app.staticTexts["Unsent reply"].waitForExistence(timeout: 8))
     XCTAssertTrue(app.staticTexts["Reply stayed in this thread."].waitForExistence(timeout: 8))
     app.terminate()
+    }
+  }
+  func testReplyLinkLoadsMissingRootWithoutReplacingMainTimeline() async throws {
+    try await checkReplyContext("reply-context")
+  }
+  func testInlineReplyLinkKeepsItsExistingReplies() async throws {
+    try await checkReplyContext("inline-reply-context")
+  }
+  func testRichReplyPageKeepsBottomAnchoredAfterDocumentLayout() async throws {
+    for appearance in ["dark", "light"] {
+      let app = try await launch("rich-reply", appearance: appearance)
+      app.buttons["reply-quote-rich-child"].tap()
+      XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 8))
+      let field = app.descendants(matching: .any).matching(identifier: "thread-message-input").firstMatch
+      field.tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+      let anchor = app.staticTexts["Rich reply anchor."]
+      XCTAssertTrue(anchor.isHittable)
+      let bottom = anchor.frame.maxY
+      for _ in 0..<4 {
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertEqual(anchor.frame.maxY, bottom, accuracy: 1,
+          "Self-sizing reply context must not cause a delayed scroll jump")
+      }
+      field.typeText("Rich context draft")
+      try await capture("rich-reply-stable-" + appearance, app)
+      app.buttons["thread-back"].tap()
+      XCTAssertTrue(app.buttons["reply-quote-rich-child"].isHittable)
+      app.buttons["reply-quote-rich-child"].tap()
+      XCTAssertEqual(field.value as? String, "Rich context draft")
+      app.terminate()
+    }
+  }
+  private func checkReplyContext(_ scene: String) async throws {
+    for appearance in ["dark", "light"] {
+      let app = try await launch(scene, appearance: appearance)
+      let reply = app.staticTexts["Visible reply."]
+      XCTAssertTrue(reply.waitForExistence(timeout: 8))
+      XCTAssertTrue(app.staticTexts["Visible response."].isHittable)
+      let y = reply.frame.minY
+      let quote = app.buttons["reply-quote-context-reply"]
+      XCTAssertTrue(quote.isHittable)
+      quote.tap()
+      XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 8))
+      XCTAssertTrue(app.staticTexts["Older reply context."].isHittable)
+      XCTAssertTrue(reply.isHittable)
+      app.buttons["thread-back"].tap()
+      XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 8))
+      XCTAssertTrue(reply.isHittable)
+      XCTAssertEqual(reply.frame.minY, y, accuracy: 2)
+      XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "message-older-root").firstMatch.isHittable)
+      try await capture(scene + "-return-" + appearance, app)
+      app.terminate()
+    }
   }
   func testThreadPushHasWorkingFeedbackAndNoSheetChrome() async throws {
     let app = try await launch("thread")
-    XCTAssertTrue(app.buttons["thread-root"].waitForExistence(timeout: 8)); app.buttons["thread-root"].tap()
+    XCTAssertTrue(app.buttons["reply-quote-reply"].waitForExistence(timeout: 8)); app.buttons["reply-quote-reply"].tap()
     XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 8))
     XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "thread-loading").firstMatch.waitForNonExistence(timeout: 8))
     XCTAssertFalse(app.navigationBars["Thread"].exists)
@@ -301,8 +386,9 @@ import UIKit
     app.terminate()
   }
   func testGroupAndReadOnlyExchange() async throws {
+    for appearance in ["dark", "light"] {
     for scene in ["group", "exchange", "markdown"] {
-      let app = try await launch(scene)
+      let app = try await launch(scene, appearance: appearance)
       if scene == "exchange" {
         XCTAssertTrue(app.buttons["exchange-exchange-in"].waitForExistence(timeout: 8))
         app.buttons["exchange-exchange-in"].tap()
@@ -311,11 +397,60 @@ import UIKit
         XCTAssertFalse(app.buttons["Close Chat"].exists)
         XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "message-input").firstMatch.isHittable)
       }
-      try await capture(scene, app)
+      try await capture(scene + "-" + appearance, app)
       XCTAssertFalse(app.alerts.firstMatch.exists)
       app.terminate()
     }
+    }
   }
+  func testColdGroupPlacesUnreadDividerBeforeFirstUnreadBot() async throws {
+    for appearance in ["dark", "light"] {
+      let app = try await launch("group-cold", appearance: appearance)
+      let boundary = app.descendants(matching: .any).matching(identifier: "unread-boundary-g7").firstMatch
+      try await capture("cold-group-unread-" + appearance, app)
+      XCTAssertTrue(boundary.waitForExistence(timeout: 5), "Bootstrap only contains g8; history must restore the boundary before g7")
+      XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "unread-boundary-g8").firstMatch.exists)
+      XCTAssertLessThan(boundary.frame.maxY, app.buttons["speaker-g7"].frame.minY)
+      XCTAssertEqual(app.buttons["Computer"].value as? String, "New Bot")
+      let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+      field.tap(); field.typeText("Unsent group draft")
+      _ = try await api("/__audit/append", ["id":"new-group-reply", "content":"New group response."])
+      XCTAssertTrue(app.staticTexts["New group response."].waitForExistence(timeout: 8))
+      XCTAssertEqual(field.value as? String, "Unsent group draft")
+      XCTAssertEqual(app.buttons["Computer"].value as? String, "Parity Probe v3")
+      XCTAssertTrue(boundary.exists, "New activity must not move the opening unread divider")
+      try await capture("group-arrival-" + appearance, app)
+      app.terminate()
+    }
+  }
+
+  func testExchangeArrivalKeepsMainDraftAndReadOnlyState() async throws {
+    for appearance in ["dark", "light"] {
+      let app = try await launch("exchange", appearance: appearance)
+      let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+      field.tap(); field.typeText("Unsent main draft")
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+      app.buttons["exchange-exchange-in"].tap()
+      XCTAssertTrue(app.staticTexts["Hey — user asked us to DM each other from Parity Probe Room. Ack from New Bot."].waitForExistence(timeout: 5))
+      try await capture("exchange-before-arrival-" + appearance, app)
+      _ = try await api("/__audit/append", ["items": [
+        ["id":"exchange-new", "content":"A new exchange reply.", "metadata":["toAgent":["id":"bot-ops","name":"New Bot"]]],
+        ["id":"exchange-followup", "content":"Another reply in this exchange.", "metadata":["fromAgent":["id":"bot-ops","name":"New Bot"]]],
+        ["id":"unrelated-final", "content":"An unrelated main-chat message."]
+      ]])
+      XCTAssertTrue(app.staticTexts["A new exchange reply."].waitForExistence(timeout: 8))
+      XCTAssertTrue(app.staticTexts["Another reply in this exchange."].exists)
+      XCTAssertFalse(app.staticTexts["An unrelated main-chat message."].exists)
+      XCTAssertFalse(field.exists)
+      XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "exchange-read-only").firstMatch.exists)
+      try await capture("exchange-arrival-" + appearance, app)
+      app.buttons["exchange-back"].tap()
+      XCTAssertTrue(field.waitForExistence(timeout: 5))
+      XCTAssertEqual(field.value as? String, "Unsent main draft")
+      app.terminate()
+    }
+  }
+
   func testWaveformOpensExistingRecorder() async throws {
     let app = try await launch("voice")
     XCTAssertTrue(app.buttons["voice-input-button"].isHittable)
@@ -329,14 +464,18 @@ import UIKit
     app.terminate()
   }
   func testBotTapShowsCenteredNativeLoader() async throws {
-    let app = try await launch("opening", home: true)
+    for appearance in ["dark", "light"] {
+    let app = try await launch("opening", home: true, appearance: appearance)
     app.buttons["channel-channel-research"].tap()
     let spinner = app.activityIndicators["chat-loading"]
     XCTAssertTrue(spinner.waitForExistence(timeout: 5))
-    try await capture("loading", app)
+    XCTAssertEqual(spinner.frame.midX, app.frame.midX, accuracy: 1)
+    XCTAssertEqual(spinner.frame.midY, app.frame.midY, accuracy: 2)
+    try await capture("loading-" + appearance, app)
     XCTAssertTrue(app.staticTexts["Hello"].waitForExistence(timeout: 15))
     XCTAssertTrue(spinner.waitForNonExistence(timeout: 15))
-    try await capture("loaded", app)
+    try await capture("loaded-" + appearance, app)
     app.terminate()
+    }
   }
 }

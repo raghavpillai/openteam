@@ -2,9 +2,12 @@ import SwiftUI
 
 struct PluginListView: View {
   @Environment(AppStore.self) private var store
+  @Environment(\.dismiss) private var dismiss
   @State private var settings: JSON = .null
   @State private var query = ""
   @State private var category = "All"
+  @State private var selected: JSON?
+  @State private var installedOnly = false
   // Keep aligned with client-core/plugin-marketplace.ts.
   private let categories = [
     "All", "Featured", "Team plugins", "Agent Orchestration", "Canvas",
@@ -14,76 +17,141 @@ struct PluginListView: View {
   ]
   @State private var failure: String?
   @State private var loading = true
+  private func key(_ plugin: JSON) -> String {
+    plugin["pluginKey"].string.isEmpty ? plugin["key"].string : plugin["pluginKey"].string
+  }
+  private func installed(_ plugin: JSON) -> JSON? {
+    settings["installs"].array.first { key($0) == key(plugin) }
+  }
+  private var groups: [(name: String, plugins: [JSON])] {
+    if installedOnly { return [("Installed", filtered(settings["installs"].array))] }
+    let catalog = settings["catalog"].array
+    let extra = settings["installs"].array.filter { item in !catalog.contains { key($0) == key(item) } }
+    let values = filtered(catalog + extra, usingCategory: true)
+    if !query.isEmpty || category != "All" { return [(query.isEmpty ? category : "Results", values)] }
+    var names: [String] = []
+    for item in values where !item["featured"].bool {
+      let name = item["category"].string.isEmpty ? "Team plugins" : item["category"].string
+      if !names.contains(name) { names.append(name) }
+    }
+    return [("Featured", values.filter { $0["featured"].bool })]
+      + names.map { name in (name, values.filter {
+        !$0["featured"].bool && ($0["category"].string.isEmpty ? "Team plugins" : $0["category"].string) == name
+      }) }
+  }
   var body: some View {
-    NativeList {
-      if loading { ProgressView("Loading plugins…") }
-      if let failure {
-        Text(failure).foregroundStyle(NativePalette.destructive)
-        Button("Retry") { Task { await load() } }
+    ScrollView {
+      catalogContent
+    }.nativeCanvas().scrollDismissesKeyboard(.interactively)
+      .floatingBar(edge: .top) { searchBar }
+      .overlay {
+        if loading && settings == .null {
+          ProgressView().accessibilityLabel("Loading plugins…")
+            .accessibilityIdentifier("plugins-loading")
+        }
       }
-      Section("Installed") {
-        ForEach(filtered(settings["installs"].array).map { $0["pluginKey"].string }, id: \.self) {
-          key in
-          let plugin = settings["installs"].array.first { $0["pluginKey"].string == key } ?? .null
-          NavigationLink {
-            PluginDetailView(plugin: plugin, installed: true, onChange: load)
-          } label: {
-            pluginRow(plugin)
+      .navigationTitle("Plugins").navigationBarTitleDisplayMode(.inline)
+      .navigationBarBackButtonHidden()
+      .navigationDestination(item: $selected) { plugin in
+        PluginDetailView(plugin: plugin, installed: installed(plugin) != nil, onChange: load)
+      }
+      .toolbar { catalogToolbar }.task { await load() }.refreshable { await load() }
+  }
+  @ToolbarContentBuilder private var catalogToolbar: some ToolbarContent {
+
+        ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
+        if #available(iOS 26.0, *) {
+          ToolbarItem(placement: .topBarLeading) { catalogHeading }
+            .sharedBackgroundVisibility(.hidden)
+        } else {
+          ToolbarItem(placement: .topBarLeading) { catalogHeading }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+          Button { installedOnly.toggle() } label: {
+            HStack(spacing: 6) {
+              if let first = settings["installs"].array.first {
+                PluginCatalogMark(plugin: first, fallback: settings["catalog"].array.first { key($0) == key(first) }, size: 20)
+              }
+              Text("\(settings["installs"].array.count) installed").font(.system(size: 17))
+            }
+          }.accessibilityIdentifier("installed-plugins")
+        }
+        }
+  private var catalogHeading: some View {
+    HStack(spacing: 14) {
+      ChromeButton(title: "Back", symbol: "chevron.left") {
+        if installedOnly { installedOnly = false } else { dismiss() }
+      }
+      Text(installedOnly ? "Installed" : "Plugins")
+        .font(.system(size: 17, weight: .medium)).fixedSize()
+    }.fixedSize()
+  }
+  private var catalogContent: some View {
+      LazyVStack(alignment: .leading, spacing: 0) {
+        if let failure {
+          VStack(alignment: .leading, spacing: 10) {
+            InlineFailure(message: failure)
+            Button("Retry") { Task { await load() } }
+          }.padding(.vertical, 16)
+        }
+        ForEach(groups.indices, id: \.self) { index in
+          let group = groups[index]
+          if !group.plugins.isEmpty {
+            HStack {
+              Text(group.name).font(.system(size: 13)).foregroundStyle(NativePalette.faint)
+              Spacer()
+              if !installedOnly, query.isEmpty, category == "All" {
+                Button("View all") { category = group.name }
+                  .font(.system(size: 13)).foregroundStyle(NativePalette.muted)
+              }
+            }.padding(.horizontal, 4).padding(.top, 24).padding(.bottom, 8)
+            ForEach(group.plugins, id: \.self) { plugin in
+              pluginButton(plugin)
+            }
           }
         }
-      }
-      Section("Discover") {
-        if !loading, failure == nil,
-          filtered(settings["catalog"].array.filter { !$0["installed"].bool }, usingCategory: true)
-            .isEmpty
-        {
-          Text("No plugins match this filter.").foregroundStyle(NativePalette.muted)
+        if !loading, failure == nil, groups.allSatisfy({ $0.plugins.isEmpty }) {
+          Text(query.isEmpty && category == "All" ? "No plugins available." : "No plugins match this filter.")
+            .foregroundStyle(NativePalette.muted).padding(.vertical, 24)
         }
-        ForEach(
-          filtered(settings["catalog"].array.filter { !$0["installed"].bool }, usingCategory: true),
-          id: \.self
-        ) {
-          plugin in
-          NavigationLink {
-            PluginDetailView(plugin: plugin, installed: false, onChange: load)
-          } label: {
-            pluginRow(plugin)
-          }
+        if !loading {
+          NavigationLink("Plugin workspace") { PluginManagementView() }
+            .foregroundStyle(NativePalette.link).padding(.vertical, 24)
         }
-      }
-      Section {
-        NavigationLink("Plugin workspace") {
-          PluginManagementView()
+      }.padding(.horizontal, 20).padding(.bottom, 20)
+  }
+  private func pluginButton(_ plugin: JSON) -> some View {
+    Button { selected = installed(plugin) ?? plugin } label: { pluginRow(plugin) }
+      .buttonStyle(.plain).accessibilityElement(children: .combine)
+      .accessibilityLabel(plugin["name"].string + ", " + plugin["description"].string)
+  }
+  private var searchBar: some View {
+    HStack(spacing: 8) {
+      HStack(spacing: 7) {
+        Image(systemName: "magnifyingglass").font(.system(size: 14)).foregroundStyle(NativePalette.faint)
+        TextField("Search plugins", text: $query).font(.system(size: 15))
+          .textInputAutocapitalization(.never).autocorrectionDisabled()
+          .tint(NativePalette.chatInsertion).accessibilityIdentifier("plugin-search")
+        if !query.isEmpty {
+          Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
+            .foregroundStyle(NativePalette.muted).accessibilityLabel("Clear search")
         }
-      }
-      if !loading, failure == nil, settings["catalog"].array.isEmpty,
-        settings["installs"].array.isEmpty
-      {
-        ContentUnavailableView(
-          "No plugins available", systemImage: "puzzlepiece.extension",
-          description: Text("Add a source or import a package in the plugin workspace."))
-      }
-    }.navigationTitle("Plugins").searchable(text: $query, prompt: "Search plugins").task {
-      await load()
-    }.refreshable { await load() }
-      .toolbar {
-        Menu {
-          Picker("Filter plugins", selection: $category.hapticSelection("plugin.category")) {
-            ForEach(categories, id: \.self) { Text($0).tag($0) }
-          }
-        } label: {
-          Image(systemName: "line.3.horizontal.decrease")
-        }.accessibilityLabel("Filter plugins: " + category).accessibilityIdentifier(
-          "plugin-category")
-      }
+      }.padding(.horizontal, 12).frame(height: 40).nativeGlass()
+      Menu {
+        Picker("Filter plugins", selection: $category.hapticSelection("plugin.category")) {
+          ForEach(categories, id: \.self) { Text($0).tag($0) }
+        }
+      } label: {
+        Image(systemName: "line.3.horizontal.decrease").font(.system(size: 18))
+          .frame(width: 42, height: 42).nativeGlass()
+      }.accessibilityLabel("Filter plugins: " + category).accessibilityIdentifier("plugin-category")
+    }.padding(.horizontal, 18).padding(.top, 2).padding(.bottom, 8)
   }
   func filtered(_ values: [JSON], usingCategory: Bool = false) -> [JSON] {
     values.filter { plugin in
-      let textMatches =
-        query.isEmpty
-        || ["name", "description", "publisher", "category"].contains {
-          plugin[$0].string.localizedCaseInsensitiveContains(query)
-        }
+      let textMatches = query.isEmpty || ["name", "description", "publisher", "category"].contains {
+        plugin[$0].string.localizedCaseInsensitiveContains(query)
+      }
       guard textMatches, usingCategory else { return textMatches }
       switch category {
       case "All": return true
@@ -95,26 +163,68 @@ struct PluginListView: View {
     }
   }
   private func normalizedCategory(_ value: String) -> String {
-    value.lowercased()
-      .replacingOccurrences(of: #"\s*(?:&|\band\b)\s*"#, with: " ", options: .regularExpression)
+    value.lowercased().replacingOccurrences(of: #"\s*(?:&|\band\b)\s*"#, with: " ", options: .regularExpression)
       .split(whereSeparator: \.isWhitespace).joined(separator: " ")
   }
-  func pluginRow(_ plugin: JSON) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Text(plugin["name"].string).font(.headline)
-      Text(plugin["description"].string).font(.subheadline).foregroundStyle(NativePalette.muted)
-        .lineLimit(3)
-    }.padding(.vertical, 5)
+  private func actionLabel(_ plugin: JSON) -> String {
+    guard let install = installed(plugin) else { return "Add" }
+    if install["connections"].array.contains(where: {
+      ["needs_auth", "unauthenticated", "expired", "error"].contains($0["status"].string)
+    }) { return "Authorize" }
+    return "Added"
+  }
+  private func pluginRow(_ plugin: JSON) -> some View {
+    HStack(spacing: 16) {
+      PluginCatalogMark(plugin: plugin, fallback: nil, size: 38)
+      VStack(alignment: .leading, spacing: 3) {
+        Text(plugin["name"].string).font(.system(size: 17)).foregroundStyle(NativePalette.text)
+        Text(plugin["description"].string).font(.system(size: 14))
+          .foregroundStyle(NativePalette.muted).lineLimit(2)
+      }.frame(maxWidth: .infinity, alignment: .leading)
+      let label = actionLabel(plugin)
+      Text(label).font(.system(size: 14, weight: label == "Authorize" ? .medium : .regular))
+        .foregroundStyle(label == "Authorize" ? Color.white : NativePalette.text)
+        .padding(.horizontal, 13).frame(height: 32)
+        .background(label == "Authorize" ? NativePalette.link : NativePalette.selection, in: Capsule())
+        .accessibilityHidden(true)
+    }.frame(minHeight: 72).contentShape(Rectangle())
   }
   func load() async {
     loading = true
-    do {
-      settings = try await store.request("/api/v0/plugins")
-      failure = nil
-    } catch { failure = UserFacingError.message(error) }
+    do { settings = try await store.request("/api/v0/plugins"); failure = nil }
+    catch { failure = UserFacingError.message(error) }
     loading = false
   }
 }
+
+/// Package-owned PNG/JPEG icons arrive as data URLs and work without a network
+/// request. External logos remain optional; unsupported/missing icons use a mark.
+private struct PluginCatalogMark: View {
+  let plugin: JSON
+  let fallback: JSON?
+  let size: CGFloat
+  private var source: String {
+    [plugin["logoUrl"].string, plugin["catalog"]["logoUrl"].string, fallback?["logoUrl"].string ?? ""]
+      .first { !$0.isEmpty } ?? ""
+  }
+  var body: some View {
+    Group {
+      if source.hasPrefix("data:image/"), source.contains(";base64,"),
+        let encoded = source.components(separatedBy: ";base64,").last, encoded.count <= 350_000,
+        let data = Data(base64Encoded: encoded), let image = UIImage(data: data) {
+        Image(uiImage: image).resizable().scaledToFit().background(.white)
+      } else if let url = URL(string: source), ["https", "http"].contains(url.scheme ?? "") {
+        AsyncImage(url: url) { image in image.resizable().scaledToFit() } placeholder: { placeholder }
+      } else { placeholder }
+    }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: size * 0.2))
+      .accessibilityHidden(true)
+  }
+  private var placeholder: some View {
+    RoundedRectangle(cornerRadius: size * 0.2).fill(NativePalette.selection)
+      .overlay { Image(systemName: "puzzlepiece.extension").font(.system(size: size * 0.58)).foregroundStyle(NativePalette.muted) }
+  }
+}
+
 struct PluginDetailView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss

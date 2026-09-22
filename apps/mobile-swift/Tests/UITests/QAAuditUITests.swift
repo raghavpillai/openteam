@@ -53,16 +53,20 @@ import XCTest
   func testExistingThreadHasVisibleEntryPoint() async throws {
     let app = try await launch("thread")
     XCTAssertTrue(app.staticTexts["QA thread root"].waitForExistence(timeout: 10))
-    capture("missing-thread-entry", app)
-    XCTAssertTrue(
-      app.buttons.containing(
-        NSPredicate(format: "label CONTAINS[c] 'repl' OR label CONTAINS[c] 'thread'")
-      ).firstMatch.exists,
-      "QA-03: An existing thread is hidden without a reply count or Open thread control.")
+    let link = app.buttons["reply-quote-audit-reply"]
+    XCTAssertTrue(link.waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["QA hidden thread reply"].isHittable)
+    capture("main-timeline-reply-entry", app)
+    link.tap()
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["QA thread root"].isHittable)
+    XCTAssertTrue(app.staticTexts["QA hidden thread reply"].isHittable)
   }
   func testStartThreadInsideThreadDoesSomething() async throws {
+    continueAfterFailure = false
     let app = try await launch("thread")
-    let root = app.staticTexts["QA thread root"]
+    let root = app.descendants(matching: .any).matching(identifier: "message-audit-root")
+      .firstMatch.staticTexts["QA thread root"]
     XCTAssertTrue(root.waitForExistence(timeout: 10)); root.press(forDuration: 0.7)
     app.buttons["Start a thread"].tap()
     let page = app.descendants(matching: .any).matching(identifier: "reply-page-audit-root").firstMatch

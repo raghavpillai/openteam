@@ -145,20 +145,12 @@ struct HomeView: View {
       Spacer()
       ChromeButton(title: "Search", symbol: "magnifyingglass") { search = true }
         .accessibilityIdentifier("search-button")
-      Menu {
-        Button("New Bot") {
-          creation = .bot
-        }
-        Button("New Group Chat") {
-          creation = .group
-        }
-      } label: {
-        Image(systemName: "plus").font(.system(size: 20, weight: .regular)).frame(
-          width: 44, height: 44
-        ).nativeGlass()
-      }
-      .buttonStyle(.plain).accessibilityLabel("New conversation").accessibilityIdentifier(
-        "new-button")
+      NativeActionMenu(symbol: "plus", pointSize: 20, title: "New conversation",
+        identifier: "new-button", panelIdentifier: "creation-menu-panel",
+        hapticSource: "home.create", actions: [
+          .init(title: "New Bot", action: { creation = .bot }),
+          .init(title: "New Group Chat", action: { creation = .group }),
+        ]).frame(width: 44, height: 44).nativeGlass()
     }.foregroundStyle(NativePalette.text).padding(.horizontal, 18).padding(.top, 6).padding(
       .bottom, 10
     )
@@ -189,7 +181,7 @@ struct HomeView: View {
             Image(systemName: collapsed ? "chevron.right" : "chevron.down").font(
               .system(size: 11, weight: .medium)
             ).foregroundStyle(NativePalette.faint)
-          }.foregroundStyle(NativePalette.muted).padding(.top, 14).frame(height: 46)
+          }.foregroundStyle(NativePalette.faint).padding(.top, 22).frame(height: 46)
             .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityLabel(name + " section")
           .accessibilityIdentifier("section-" + (id.isEmpty ? "unassigned" : id))
@@ -214,7 +206,7 @@ struct HomeView: View {
       if !collapsed {
         if sorted.isEmpty, !id.isEmpty {
           Text("No chats").font(.system(size: 15)).foregroundStyle(NativePalette.faint)
-            .frame(height: 46, alignment: .topLeading).padding(.top, 8)
+            .frame(height: 28, alignment: .topLeading).padding(.top, 14)
         }
         ForEach(sorted) { channel in
           ConversationSwipeRow(
@@ -583,8 +575,9 @@ struct SearchView: View {
             } label: {
               searchRow(
                 channel: channel, title: channel.name,
-                subtitle: store.bot(for: channel)?.description ?? channel.description,
-                kind: channel.isGroup ? "Group" : "Bot")
+                subtitle: store.bot(for: channel)?.description
+                  ?? (channel.description.isEmpty && channel.isGroup ? "Group Chat" : channel.description),
+                kind: channel.isGroup ? "Group Chat" : "Bot")
             }.buttonStyle(.plain)
           }
         }
@@ -615,7 +608,7 @@ struct SearchView: View {
         if !loading, !query.isEmpty, results.isEmpty, failure == nil {
           ContentUnavailableView.search(text: query)
         }
-      }.padding(.horizontal, 20).padding(.top, 16)
+      }.padding(.horizontal, 20).padding(.top, 18)
     }.scrollDismissesKeyboard(.interactively)
       .scrollClipDisabled()
       .floatingBar(edge: .top) { header }
@@ -648,19 +641,19 @@ struct SearchView: View {
     HStack(spacing: 8) {
       ChromeButton(title: "Close", symbol: "xmark") { dismiss() }.accessibilityIdentifier(
         "sheet-close")
-      HStack(spacing: 5) {
+      HStack(spacing: 8) {
         Image(systemName: "magnifyingglass").foregroundStyle(NativePalette.faint).font(
-          .system(size: 14))
+          .system(size: 17))
         TextField("Search", text: $query).font(.system(size: 17)).textInputAutocapitalization(
           .never
         ).autocorrectionDisabled().focused($focused).submitLabel(
           .search
-        ).accessibilityIdentifier("search-input")
+        ).tint(NativePalette.chatInsertion).accessibilityIdentifier("search-input")
         if !query.isEmpty {
           Button("Clear", systemImage: "xmark.circle.fill") { query = "" }.labelStyle(.iconOnly)
             .foregroundStyle(NativePalette.muted)
         }
-      }.padding(.horizontal, 10).frame(height: 44).nativeGlass()
+      }.padding(.horizontal, 14).frame(height: 44).nativeGlass()
       Menu {
         Picker("Search in", selection: $category.hapticSelection("search.category")) {
           ForEach(
@@ -672,7 +665,7 @@ struct SearchView: View {
           width: 44, height: 44
         ).nativeGlass()
       }
-    }.padding(.horizontal, 18).padding(.top, 16).padding(.bottom, 14)
+    }.padding(.horizontal, 18).padding(.top, 18).padding(.bottom, 14)
   }
   func searchRow(channel: Channel?, title: String, subtitle: String, kind: String) -> some View {
     HStack(spacing: 14) {

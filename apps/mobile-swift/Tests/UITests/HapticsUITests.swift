@@ -397,7 +397,7 @@ import XCTest
     try await expect("rich-action.result", "error")
     try await clear()
     app.buttons["Take over"].tap()
-    XCTAssertTrue(app.buttons["Computer options"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 8))
     try await expect("computer.handoff-start", "light")
     _ = try await request("/__qa/control", body: ["failures": [path: ["status": 503]]])
     try await clear()

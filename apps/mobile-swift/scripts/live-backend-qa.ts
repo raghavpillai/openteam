@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { createPrismaClient } from "../../../packages/db/src/index";
 
-const root = resolve("output/swift-full-qa-0916/live-backend");
+const root = resolve(process.env.SWIFT_LIVE_QA_OUTPUT ?? "output/swift-full-qa-0916/live-backend");
 const databaseUrl = "postgresql://swiftqa:swiftqa-disposable-only@127.0.0.1:20002/swiftqa_live";
 const prisma = createPrismaClient(databaseUrl);
 await mkdir(root, { recursive: true });
@@ -21,6 +21,10 @@ const computer = Bun.serve({
       return Response.json({ status: "ready", inference: { ready: true, authenticated: true } });
     if (request.headers.get("authorization") !== `Bearer ${token}`)
       return new Response(null, { status: 401 });
+    if (path === "/health/authenticated")
+      return Response.json({ status: "ready", inference: { ready: true, authenticated: true } });
+    if (path === "/v1/task-capabilities")
+      return Response.json({ desktopAvailable: false, boxAvailable: false });
     if (path === "/v1/agent-stores" && request.method === "GET")
       return Response.json({ agents: [] });
     if (path === "/v1/infer") {

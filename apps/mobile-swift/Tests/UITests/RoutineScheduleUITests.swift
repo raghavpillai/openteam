@@ -264,6 +264,34 @@ import XCTest
     XCTAssertEqual((routine["trigger"] as? [String: Any])?["type"] as? String, "group")
   }
 
+  func testPauseResumeAndDeleteCancellationPersist() async throws {
+    try await reset()
+    let id = try await seed("@every 5m")
+    launch()
+    row("Schedule QA").swipeLeft()
+    XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: 5))
+    app.buttons["Pause"].tap()
+    var routine = try await saved(id)
+    XCTAssertEqual(routine["enabled"] as? Bool, false)
+    row("Schedule QA").swipeLeft()
+    XCTAssertTrue(app.buttons["Resume"].waitForExistence(timeout: 5))
+    app.buttons["Resume"].tap()
+    routine = try await saved(id)
+    XCTAssertEqual(routine["enabled"] as? Bool, true)
+    edit()
+    reveal(app.buttons["Delete routine"])
+    app.buttons["Delete routine"].tap()
+    try XCTUnwrap(app.buttons.matching(identifier: "Cancel").allElementsBoundByIndex.last).tap()
+    routine = try await saved(id)
+    XCTAssertEqual(routine["id"] as? String, id)
+    app.buttons["Delete routine"].tap()
+    app.buttons["Delete"].tap()
+    XCTAssertTrue(app.staticTexts["No routines yet"].waitForExistence(timeout: 8))
+    let state = try await request("/__qa/state")
+    XCTAssertFalse((state["routines"] as? [[String: Any]] ?? []).contains { $0["id"] as? String == id })
+    capture("routine-deleted-after-cancel-and-confirm")
+  }
+
   func testPinnedZoneAndNonstandardTimeSurviveWeekdayChange() async throws {
     try await reset()
     let id = try await seed("CRON_TZ=Europe/Rome 17 9 * * 7")

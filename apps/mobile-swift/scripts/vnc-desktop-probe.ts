@@ -30,14 +30,32 @@ const cdp = await context.newCDPSession(page);
 const {windowId} = await cdp.send('Browser.getWindowForTarget');
 await cdp.send('Browser.setWindowBounds',{windowId,bounds:{windowState:'fullscreen'}});
 await page.locator('#input').focus();
+async function restoreWindow(){
+ // CDP rejects a direct minimized → fullscreen transition even after bringToFront.
+ await cdp.send('Browser.setWindowBounds',{windowId,bounds:{windowState:'normal'}});
+ await page.bringToFront();
+ for(let attempt=0;attempt<40;attempt++){
+  const {bounds}=await cdp.send('Browser.getWindowBounds',{windowId});
+  if(bounds.windowState==='normal')break;
+  if(attempt===39)throw new Error('QA Chrome window did not restore');
+  await Bun.sleep(50);
+ }
+ await cdp.send('Browser.setWindowBounds',{windowId,bounds:{windowState:'fullscreen'}});
+ for(let attempt=0;attempt<40;attempt++){
+  const {bounds}=await cdp.send('Browser.getWindowBounds',{windowId});
+  if(bounds.windowState==='fullscreen')return;
+  if(attempt===39)throw new Error('QA Chrome window did not become fullscreen');
+  await Bun.sleep(50);
+ }
+}
 Bun.serve({hostname:'0.0.0.0',port:8791,async fetch(request){
  const url=new URL(request.url);
  if(url.pathname==='/state')return Response.json(await page.evaluate(()=>({... (window as any).receipt,text:(document.querySelector('#input') as HTMLTextAreaElement).value,scrollY:window.scrollY,width:innerWidth,height:innerHeight,pulse:document.querySelector('#pulse')?.textContent})));
  if(url.pathname==='/reset'&&request.method==='POST'){
-  await page.bringToFront();await cdp.send('Browser.setWindowBounds',{windowId,bounds:{windowState:'fullscreen'}});
+  await restoreWindow();
   await page.locator('#input').fill('');await page.evaluate(()=>{(window as any).receipt={clicks:0,rightClicks:0,moves:0,keys:[],events:[]};scrollTo(0,0)});await page.locator('#input').focus();return Response.json({ok:true});
  }
- if(url.pathname==='/focus'&&request.method==='POST'){await page.locator('#input').focus();return Response.json({ok:true})}
+ if(url.pathname==='/focus'&&request.method==='POST'){await restoreWindow();await page.locator('#input').focus();return Response.json({ok:true})}
  if(url.pathname==='/desktop'&&request.method==='POST'){await cdp.send('Browser.setWindowBounds',{windowId,bounds:{windowState:'normal'}});await cdp.send('Browser.setWindowBounds',{windowId,bounds:{windowState:'minimized'}});return Response.json({ok:true})}
  return new Response(null,{status:404});
 }});

@@ -129,9 +129,14 @@ import XCTest
     return row
   }
   private func reveal(_ row: XCUIElement, _ app: XCUIApplication) {
+    let replying = app.buttons["thread-back"].exists
+    let header = app.buttons[replying ? "thread-back" : "conversation-details"]
+    let input = app.descendants(matching: .any).matching(
+      identifier: replying ? "thread-message-input" : "message-input").firstMatch
+    XCTAssertTrue(header.waitForExistence(timeout: 5))
+    XCTAssertTrue(input.waitForExistence(timeout: 5))
     for _ in 0..<24 {
-      let top = app.buttons["conversation-details"].frame.maxY + 20
-      let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+      let top = header.frame.maxY + 20
       let bottom = input.frame.minY - 20
       // Lazy history intentionally omits offscreen rows from accessibility.
       // These targets are earlier messages, so reveal them before reading their frame.
@@ -153,9 +158,8 @@ import XCTest
     }
     XCTAssertTrue(row.exists)
     XCTAssertGreaterThan(row.frame.height, 0)
-    XCTAssertGreaterThan(row.frame.midY, app.buttons["conversation-details"].frame.maxY)
-    XCTAssertLessThan(row.frame.midY,
-      app.descendants(matching: .any).matching(identifier: "message-input").firstMatch.frame.minY)
+    XCTAssertGreaterThan(row.frame.midY, header.frame.maxY)
+    XCTAssertLessThan(row.frame.midY, input.frame.minY)
   }
   private func send(_ text: String, _ app: XCUIApplication) {
     let replying = app.buttons["thread-back"].isHittable
@@ -172,7 +176,11 @@ import XCTest
   private func recordVoice(_ app: XCUIApplication, seconds: Int = 5, hasDraft: Bool = false)
     async throws
   {
-    if hasDraft { app.buttons["attach-button"].tap() }
+    if hasDraft {
+      app.buttons["attach-button"].tap()
+      XCTAssertTrue(app.buttons["Record voice note"].waitForExistence(timeout: 5))
+      capture("voice-draft-entry", app)
+    }
     app.buttons["Record voice note"].tap()
     XCTAssertTrue(app.buttons["Stop recording"].waitForExistence(timeout: 10))
     let recording = app.descendants(matching: .any).matching(identifier: "Recording voice note")
@@ -269,7 +277,7 @@ import XCTest
     XCTAssertEqual(matching.count, 1, "Inline reply must be durably accepted once")
     let id = try XCTUnwrap(message["id"] as? String)
     if app.buttons["thread-back"].isHittable { app.buttons["thread-back"].tap() }
-    XCTAssertTrue(app.buttons["thread-" + parent].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.buttons["reply-quote-" + id].waitForExistence(timeout: 15))
     return id
   }
 

@@ -2,6 +2,8 @@
 
 A SwiftUI iPhone/iPad client for the existing OpenTeam HTTP API. This is a **migration beta**; Release builds update the existing iOS TestFlight app. Android remains in `apps/mobile`.
 
+[September 22 functional simulator QA](docs/FUNCTIONAL-QA-0922.md) records 171 passing UI checks, live scheduled execution, real transcription/VNC/read synchronization, four fixes, and long-history measurements. Device-only notification delivery, microphone/camera and vibration checks remain separate. These local fixes have not been uploaded to TestFlight.
+
 [TestFlight 0.0.1 (34)](docs/TESTFLIGHT-34.md) improves reply pages, nested threads, widgets, message motion and scrolling glass. It fixes composer focus and keyboard jumps, and includes the recent OAuth/re-auth recovery changes. Apple verified it available to Team (Expo).
 
 Previous [TestFlight 0.0.1 (33)](docs/TESTFLIGHT-33.md) refines chat glass, colors, control glyphs and composer focus against the GrokBot references. It includes the authenticated native VNC viewer and preserves build 32’s message-parity and performance fixes.

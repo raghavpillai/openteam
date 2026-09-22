@@ -10,7 +10,9 @@ struct ComputerView: View {
   @State private var finishRequestID = UUID().uuidString
   @State private var status: JSON = .null
   @State private var vnc = ComputerVNC()
-  private var hasFrame: Bool { vnc.hasFrame }
+  private var hasFrame: Bool {
+    vnc.hasFrame && status["width"].int > 0 && status["height"].int > 0
+  }
   @State private var text = ""
   @State private var busy = false
   @State private var failure: String?
@@ -383,14 +385,18 @@ private struct ComputerVideo: View {
   var body: some View {
     GeometryReader { geometry in
       let ratio = remoteSize.width / remoteSize.height
+      let displayReady = vnc.hasFrame && remoteSize.width > 1 && remoteSize.height > 1
       ZStack {
         ComputerSurface(vnc: vnc, remoteSize: remoteSize,
           interactive: interactive, trackpad: trackpad, action: action)
           .frame(width: min(geometry.size.width, geometry.size.height * ratio),
             height: min(geometry.size.height, geometry.size.width / ratio))
-          .opacity(vnc.hasFrame ? 1 : 0)
+          // The stream and status arrive independently. Keep the placeholder
+          // out of both the picture and accessibility tree until sizing is known.
+          .opacity(displayReady ? 1 : 0)
+          .accessibilityHidden(!displayReady)
           .offset(y: keyboard ? -min(18, max(0, (geometry.size.height - min(geometry.size.height, geometry.size.width / ratio)) / 2)) : 0)
-        if !vnc.hasFrame && showStarting {
+        if !displayReady && showStarting {
           VStack(spacing: 14) {
             ProgressView().tint(.gray)
             Text(desktopReady ? "Connecting…" : "Starting desktop…").font(.subheadline)

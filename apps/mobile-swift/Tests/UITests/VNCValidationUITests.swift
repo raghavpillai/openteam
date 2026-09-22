@@ -116,6 +116,9 @@ import XCTest
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
     XCTAssertLessThan(screen.frame.maxY, app.keyboards.firstMatch.frame.minY)
     XCTAssertEqual(screen.frame.width / screen.frame.height, 1.6, accuracy: 0.03)
+    // The startup reference intentionally minimizes Chrome to show the desktop.
+    // Restore the instrumented input before asserting delivered keyboard text.
+    _ = try await request("/__qa/focus", [:])
     app.typeText("Native VNC input")
     _ = try await eventually { $0["text"] as? String == "Native VNC input" }
     app.typeText("\n" + XCUIKeyboardKey.delete.rawValue + "!")
@@ -252,6 +255,29 @@ import XCTest
       }
     }
     capture("trackpad-remote-drag", app)
+  }
+  func testTrackpadMovementAfterAnExpiredTapDoesNotDrag() async throws {
+    let app = try await launch()
+    takeControl(app)
+    app.buttons["Computer options"].tap()
+    app.buttons["Input controls"].tap()
+    XCTAssertTrue(app.buttons["Trackpad"].waitForExistence(timeout: 8))
+    app.buttons["Trackpad"].tap()
+    app.buttons["Close input controls"].tap()
+    let target = app.otherElements["computer-screen"].coordinate(
+      withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+    target.tap()
+    _ = try await eventually { ($0["clicks"] as? Int ?? 0) == 1 }
+    try await Task.sleep(for: .milliseconds(650))
+    target.press(forDuration: 0.05,
+      thenDragTo: target.withOffset(CGVector(dx: 65, dy: 12)),
+      withVelocity: .slow, thenHoldForDuration: 0)
+    let moved = try await eventually { ($0["moves"] as? Int ?? 0) > 1 }
+    let events = moved["events"] as? [[String: Any]] ?? []
+    XCTAssertFalse(events.contains {
+      $0["type"] as? String == "pointermove" && $0["buttons"] as? Int == 1
+    }, "An expired tap must not leave the remote mouse button held")
+    capture("trackpad-expired-tap-moves-only", app)
   }
   func testForegroundRecoveryPauseAndLeaseReturn() async throws {
     let app = try await launch()

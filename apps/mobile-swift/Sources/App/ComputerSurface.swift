@@ -65,8 +65,7 @@ final class ComputerSurfaceView: UIView, UIScrollViewDelegate, UIGestureRecogniz
       recognizer.delegate = self
       picture.addGestureRecognizer(recognizer)
     }
-    picture.accessibilityIdentifier = "computer-screen"
-    picture.isAccessibilityElement = true
+    picture.isAccessibilityElement = false
     picture.accessibilityLabel = "Live computer screen"
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -85,6 +84,10 @@ final class ComputerSurfaceView: UIView, UIScrollViewDelegate, UIGestureRecogniz
     self.controlling = interactive
     self.trackpad = trackpad
     self.action = action
+    let displayReady = vnc.hasFrame && remoteSize.width > 1 && remoteSize.height > 1
+    picture.isAccessibilityElement = displayReady
+    picture.accessibilityElementsHidden = !displayReady
+    picture.accessibilityIdentifier = displayReady ? "computer-screen" : nil
     scroll.panGestureRecognizer.minimumNumberOfTouches = interactive ? 2 : 1
     for recognizer in [pointerGesture, twoFingerTap, twoFingerPan] {
       if recognizer.isEnabled != interactive { recognizer.isEnabled = interactive }

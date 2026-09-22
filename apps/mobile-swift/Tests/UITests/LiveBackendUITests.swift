@@ -41,6 +41,8 @@ import XCTest
     app.textFields["new-name"].tap()
     app.textFields["new-name"].typeText("Reply QA " + suffix)
     app.buttons["create-confirm"].tap()
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+      .waitForExistence(timeout: 20))
     let greeting = app.staticTexts.matching(identifier: "Your QA bot is ready").firstMatch
     XCTAssertTrue(greeting.waitForExistence(timeout: 45))
     let snapshot = try await state()
@@ -81,7 +83,7 @@ import XCTest
     XCTAssertEqual(metadata["branched"] as? Bool, true)
     XCTAssertEqual(reply["channelId"] as? String, original["channelId"] as? String)
     app.buttons["thread-back"].tap()
-    let quote = app.buttons["thread-" + (try XCTUnwrap(original["id"] as? String))]
+    let quote = app.buttons["reply-quote-" + (try XCTUnwrap(reply["id"] as? String))]
     XCTAssertTrue(quote.waitForExistence(timeout: 15))
     capture("production-inline-reply", app)
     let from = greeting.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.5))
@@ -137,13 +139,15 @@ import XCTest
     app.textViews["routine-prompt"].tap()
     app.textViews["routine-prompt"].typeText(
       "SWIFT_SCHEDULE_CANARY: Confirm the scheduled task ran.")
-    let schedule = app.textFields["routine-schedule"]
-    find(schedule, app)
-    schedule.tap()
-    let prior = schedule.value as? String ?? ""
-    schedule.typeText(
-      String(repeating: XCUIKeyboardKey.delete.rawValue, count: prior.count) + "@every 5m")
-    XCTAssertEqual(schedule.value as? String, "@every 5m")
+    let frequency = app.buttons["routine-frequency"]
+    find(frequency, app)
+    frequency.tap()
+    app.buttons["Interval"].tap()
+    app.buttons["routine-interval-unit"].tap()
+    app.buttons["minutes"].tap()
+    app.buttons["routine-interval-amount"].tap()
+    app.buttons["5"].tap()
+    XCTAssertEqual(app.staticTexts["routine-schedule-summary"].label, "Every 5 minutes")
     app.buttons["routine-save"].tap()
     XCTAssertTrue(app.staticTexts[routineName].waitForExistence(timeout: 15))
     capture("schedule-created", app)

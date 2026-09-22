@@ -169,44 +169,34 @@ import XCTest
     capture("native-file-preview", app)
     app.buttons["photo-close"].tap()
   }
-  func testComputerHandoffDragTypeFailureAndReturnControl() async throws {
+  /// Input delivery is covered against an actual VNC desktop in VNCValidationUITests.
+  /// This fixture verifies handoff lifecycle even if the viewer cannot connect.
+  func testComputerHandoffFailureAndReturnControl() async throws {
     let app = try await launch("handoff")
+    let path = "POST /api/v0/channel-messages/content-fixture/computer-handoff"
     XCTAssertTrue(app.buttons["Take over"].waitForExistence(timeout: 12))
     app.buttons["Take over"].tap()
-    XCTAssertTrue(app.buttons["Computer options"].waitForExistence(timeout: 12))
-    app.buttons["Computer options"].tap()
-    XCTAssertTrue(app.buttons["Give back control"].waitForExistence(timeout: 5))
-    app.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.45)).tap()
-    let screen = app.images["computer-screen"]
-    XCTAssertTrue(screen.waitForExistence(timeout: 12))
-    capture("computer-takeover", app)
-    screen.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.4)).press(
-      forDuration: 0.1,
-      thenDragTo: screen.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.55)))
-    app.buttons["Clipboard"].tap()
-    let field = app.descendants(matching: .any).matching(identifier: "computer-text").firstMatch
-    field.tap()
-    field.typeText("Native computer input")
-    try await control(
-      "/__qa/control",
-      ["failures": ["POST /api/v0/bots/bot-research/screen/actions": ["status": 503]]])
-    app.buttons["Type"].tap()
-    XCTAssertTrue(
-      app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "try again shortly"))
-        .firstMatch.waitForExistence(timeout: 12))
-    XCTAssertEqual(field.value as? String, "Native computer input")
-    app.buttons["Type"].tap()
-    XCTAssertTrue(app.buttons["Computer options"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 12))
+    let active = try await state()
+    XCTAssertEqual((active["screen"] as? [String: Any])?["humanTakeover"] as? Bool, true)
+    capture("computer-handoff-viewer", app)
+    try await control("/__qa/control", ["failures": [path: ["status": 503]]])
     app.buttons["Done"].tap()
-    let closed = expectation(
-      for: NSPredicate(format: "isHittable == true"),
+    XCTAssertTrue(app.staticTexts.containing(
+      NSPredicate(format: "label CONTAINS %@", "try again shortly"))
+      .firstMatch.waitForExistence(timeout: 12))
+    let failed = try await state()
+    XCTAssertEqual((failed["screen"] as? [String: Any])?["humanTakeover"] as? Bool, true)
+    XCTAssertTrue(app.buttons["Done"].isHittable)
+    app.buttons["Done"].tap()
+    let closed = expectation(for: NSPredicate(format: "isHittable == true"),
       evaluatedWith: app.buttons["conversation-details"])
     await fulfillment(of: [closed], timeout: 12)
     let data = try await state()
     let receipts = data["contentReceipts"] as? [[String: Any]] ?? []
-    XCTAssertTrue(receipts.contains { $0["action"] as? String == "drag" })
-    XCTAssertTrue(receipts.contains { $0["action"] as? String == "type" })
-    XCTAssertTrue(receipts.contains { $0["action"] as? String == "complete" })
+    XCTAssertEqual(receipts.filter { $0["action"] as? String == "start" }.count, 1)
+    XCTAssertEqual(receipts.filter { $0["action"] as? String == "complete" }.count, 1)
     XCTAssertEqual((data["screen"] as? [String: Any])?["humanTakeover"] as? Bool, false)
+    capture("computer-handoff-returned", app)
   }
 }

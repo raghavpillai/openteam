@@ -143,11 +143,20 @@ final class MessagePerformanceUITests: XCTestCase {
       NSPredicate(format: "identifier BEGINSWITH %@", "reply-quote-")
     ).firstMatch
     XCTAssertTrue(quote.waitForExistence(timeout: 10))
+    let mainQuoteY = quote.frame.minY
     quote.tap()
+    XCTAssertTrue(app.buttons["thread-back"].waitForExistence(timeout: 8))
     let target = app.otherElements["message-" + targetID].firstMatch
     XCTAssertTrue(target.waitForExistence(timeout: 8))
     XCTAssertTrue(target.isHittable)
-    XCTAssertTrue(app.buttons["Latest messages"].exists)
+    XCTAssertTrue(app.staticTexts["A quote to distant history"].isHittable)
+    // A quoted message opens focused reply context. The main timeline keeps
+    // its reading position instead of scrolling back through 989 messages.
+    app.buttons["thread-back"].tap()
+    XCTAssertTrue(quote.waitForExistence(timeout: 8))
+    XCTAssertTrue(quote.isHittable)
+    XCTAssertEqual(quote.frame.minY, mainQuoteY, accuracy: 8)
+    XCTAssertFalse(app.buttons["Latest messages"].exists)
   }
 
   func testRichHistoryAnchorsAndIncomingMessagesWhileReading() async throws {

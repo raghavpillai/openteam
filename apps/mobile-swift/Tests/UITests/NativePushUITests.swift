@@ -275,14 +275,16 @@ import XCTest
     _ = try await waitRegistered()
     let toggle = app.switches["push-notifications-toggle"]
     XCTAssertTrue(toggle.isHittable)
-    toggle.tap()
+    (toggle.switches.firstMatch.exists ? toggle.switches.firstMatch : toggle).tap()
+    XCTAssertEqual(toggle.value as? String, "0")
     for _ in 0..<30 {
       if (try await request("/__push/state"))["registration"] is NSNull { break }
       try await Task.sleep(for: .milliseconds(200))
     }
     let retiredState1 = try await request("/__push/state")
     XCTAssertTrue(retiredState1["registration"] is NSNull)
-    toggle.tap()
+    (toggle.switches.firstMatch.exists ? toggle.switches.firstMatch : toggle).tap()
+    XCTAssertEqual(toggle.value as? String, "1")
     _ = try await waitRegistered()
     let signout = app.buttons["sign-out"]
     for _ in 0..<5 where !signout.isHittable { app.swipeUp() }

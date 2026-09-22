@@ -110,7 +110,7 @@ import XCTest
     let haptics = app.switches["App haptics"]
     find(haptics, app)
     let initial = haptics.value as? String
-    haptics.tap()
+    (haptics.switches.firstMatch.exists ? haptics.switches.firstMatch : haptics).tap()
     XCTAssertNotEqual(haptics.value as? String, initial)
     let changed = haptics.value as? String
     find(app.buttons["sign-out"], app)
@@ -121,7 +121,7 @@ import XCTest
     app.navigationBars.buttons.firstMatch.tap()
     find(haptics, app)
     XCTAssertEqual(haptics.value as? String, changed)
-    haptics.tap()
+    (haptics.switches.firstMatch.exists ? haptics.switches.firstMatch : haptics).tap()
     XCTAssertEqual(haptics.value as? String, initial)
     app.buttons["appearance-picker"].tap()
     XCTAssertTrue(app.buttons["Light"].waitForExistence(timeout: 5))
@@ -183,7 +183,8 @@ import XCTest
       app.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] %@", "try again shortly"))
         .firstMatch.waitForExistence(timeout: 8))
     capture("uninstall-error", app)
-    XCTAssertTrue(uninstall.exists)
+    // Reconciliation refreshes the form; its lazy rows may be outside the viewport.
+    find(uninstall, app)
     uninstall.tap()
     app.buttons["Uninstall"].tap()
     XCTAssertTrue(app.navigationBars["Plugins"].waitForExistence(timeout: 8))

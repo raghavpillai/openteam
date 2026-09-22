@@ -114,6 +114,9 @@ struct HomeView: View {
             pendingOpen = (id, nil)
             creation = nil
           }.referenceSheet()
+            // Group search focuses immediately. Start at the keyboard's final
+            // sheet detent so its first member tap cannot land on a moving row.
+            .presentationDetents(kind == .group ? [.large] : [.fraction(0.95), .large])
         }
         .sheet(isPresented: $search, onDismiss: openSelectedConversation) {
           SearchView { id, message, routine in

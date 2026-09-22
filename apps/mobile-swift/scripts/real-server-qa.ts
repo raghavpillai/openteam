@@ -12,6 +12,7 @@ const root = resolve(process.env.SWIFT_REAL_QA_OUTPUT ?? "output/swift-live-gest
 await mkdir(root, { recursive: true });
 const base = "http://127.0.0.1:20020";
 const computerName = "openteam-swift-real-qa-0916";
+const computerImage = process.env.SWIFT_REAL_QA_COMPUTER_IMAGE ?? "openteam-memory-computer:20260913";
 const databaseName = `swiftqa_reallive_${Date.now()}`;
 const runtimeRoot = join(root, databaseName);
 const databaseURL = `postgresql://swiftqa:swiftqa-disposable-only@127.0.0.1:20002/${databaseName}`;
@@ -37,6 +38,7 @@ for (const key of Object.keys(env)) if (key.startsWith("OPENTEAM_APNS_")) delete
 const children: ReturnType<typeof Bun.spawn>[] = [];
 let computerStarted = false;
 const serverImage = process.env.SWIFT_REAL_QA_SERVER_IMAGE;
+const dockerNetwork = process.env.SWIFT_REAL_QA_DOCKER_NETWORK;
 const serverName = "openteam-swift-qa-server";
 let serverStarted = false;
 let control: ReturnType<typeof Bun.serve> | undefined;
@@ -76,13 +78,14 @@ try {
   const keys = ["OPENTEAM_CONTROL_TOKEN", "OPENTEAM_SERVER_URL", "OPENTEAM_AGENT_DATA_ROOT", "OPENTEAM_AGENT_DATA_CANONICAL_ROOT", "OPENTEAM_WORKSPACE_ROOT", "OPENTEAM_PI_AGENT_DIR", "OPENTEAM_BOX_STORE_ROOT", "OPENTEAM_BOX_COPY_IN", "OPENTEAM_TIME_ZONE"];
   await run(["bun", "build", "apps/computer/src/main.ts", "apps/computer/src/provider-cli.ts", "--outdir", join(root, "computer-build"), "--target", "bun", "--external", "@earendil-works/pi-coding-agent", "--external", "playwright-core"]);
   await run(["docker", "run", "-d", "--rm", "--name", computerName,
+    ...(dockerNetwork ? ["--network", dockerNetwork] : []),
     "-p", "127.0.0.1:20021:8790", "--tmpfs", "/home/box:rw", "--tmpfs", "/box-store:rw",
     ...(process.env.SWIFT_VNC_QA === "1" ? ["-p", "127.0.0.1:20025:8791"] : []),
     "-v", `${root}:${root}`,
     "-v", `${root}/computer-build/main.js:/app/apps/computer/dist/main.js:ro`,
     "-v", `${root}/computer-build/provider-cli.js:/app/apps/computer/dist/provider-cli.js:ro`,
     ...keys.flatMap(key => ["-e", key]),
-    "openteam-memory-computer:20260913"]);
+    computerImage]);
   computerStarted = true;
   const credentials = await run(["docker", "exec", "openteam-computer-1", "cat", "/home/box/.pi/agent/auth.json"]);
   await run(["docker", "exec", "-i", computerName, "sh", "-c", "umask 077; cat > /home/box/.pi/agent/auth.json"], credentials);
@@ -98,11 +101,12 @@ try {
     const serverEnv = {
       ...env,
       DATABASE_URL: databaseURL.replace("@127.0.0.1:", "@host.docker.internal:"),
-      OPENTEAM_COMPUTER_URL: "http://host.docker.internal:20021",
+      OPENTEAM_COMPUTER_URL: dockerNetwork ? `http://${computerName}:8790` : "http://host.docker.internal:20021",
     };
     // Keep credentials in the child environment, never in argv or a checked-in file.
     const keys = Object.keys(serverEnv).filter(key => key === "DATABASE_URL" || key.startsWith("OPENTEAM_"));
     await run(["docker", "run", "-d", "--rm", "--name", serverName,
+      ...(dockerNetwork ? ["--network", dockerNetwork] : []),
       "--user", `${process.getuid!()}:${process.getgid!()}`,
       "-p", "127.0.0.1:20020:20020", "-v", `${runtimeRoot}:${runtimeRoot}`,
       ...keys.flatMap(key => ["-e", key]), serverImage], undefined, process.cwd(), serverEnv);
@@ -146,7 +150,7 @@ try {
   }
   const model = await fetch(base + "/api/v0/server-settings/inference", { method: "PATCH", headers, body: JSON.stringify({ providerId: "openai-codex", modelId: "gpt-5.5", reasoning: "low" }), signal: AbortSignal.timeout(45_000) });
   if (!model.ok) throw new Error(`Model selection failed (${model.status}): ${await model.text()}`);
-  await writeFile(join(root, "environment.json"), JSON.stringify({ base, auth: "required", database: databaseName, server: serverImage ?? "current workspace", worker: "current workspace", computer: "current workspace bundle on existing Linux runtime image", computerImage: "openteam-memory-computer:20260913", model: "openai-codex/gpt-5.5", inferenceStub: false, apnsDeliveryConfigured: false }, null, 2));
+  await writeFile(join(root, "environment.json"), JSON.stringify({ base, auth: "required", database: databaseName, server: serverImage ?? "current workspace", worker: "current workspace", computer: "current workspace bundle on existing Linux runtime image", computerImage, model: "openai-codex/gpt-5.5", inferenceStub: false, apnsDeliveryConfigured: false }, null, 2));
   control = Bun.serve({ hostname: "127.0.0.1", port: 20022, async fetch(request) {
     const url = new URL(request.url);
     if (request.headers.has("origin")) return new Response(null, { status: 403 });

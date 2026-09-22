@@ -153,9 +153,13 @@ struct ComposerView: View {
   private var messageControls: some View {
     HStack(alignment: .bottom, spacing: 10) {
       NativeAttachmentMenu(
-        enabled: !uploading && attachmentCount < 6,
+        enabled: !uploading,
+        attachmentsEnabled: attachmentCount < 6,
         color: NativePalette.text,
-        photos: { photoLibrary = true }, files: { files = true }, camera: { camera = true }
+        photos: { photoLibrary = true }, files: { files = true }, camera: { camera = true },
+        voice: (!draft.text.isEmpty || attachmentCount > 0)
+          && store.state.bootstrap?.runtime["transcription"].string == "configured"
+          ? { startRecording() } : nil
       ).frame(width: 44, height: 44).nativeChatGlass(regularInLightMode: true)
       VStack(spacing: 0) {
         if !focusedReply, let reply = draft.replyTo {
@@ -589,18 +593,27 @@ struct CameraPicker: UIViewControllerRepresentable {
 /// the same measured row geometry without UIKit choosing a different source inset.
 private struct NativeAttachmentMenu: View {
   let enabled: Bool
+  let attachmentsEnabled: Bool
   let color: Color
   let photos: () -> Void, files: () -> Void, camera: () -> Void
+  var voice: (() -> Void)?
+  private var actions: [NativeMenuAction] {
+    var items: [NativeMenuAction] = [
+      .init(title: "Attach Image", symbol: "photo.on.rectangle", enabled: attachmentsEnabled, action: photos),
+      .init(title: "Take Photo", symbol: "camera",
+        enabled: attachmentsEnabled && UIImagePickerController.isSourceTypeAvailable(.camera), action: camera),
+      .init(title: "Choose File", symbol: "folder", enabled: attachmentsEnabled, action: files),
+    ]
+    // The mic becomes Send while drafting. Keep voice insertion reachable
+    // without changing the empty composer's three attachment options.
+    if let voice { items.append(.init(title: "Record voice note", symbol: "mic.fill", action: voice)) }
+    return items
+  }
   var body: some View {
     NativeActionMenu(symbol: "plus", pointSize: 16, title: "Attach",
       identifier: "attach-button", panelIdentifier: "attachment-menu-panel",
-      hapticSource: "composer.attach", anchor: .aboveLeading, enabled: enabled, color: color,
-      actions: [
-        .init(title: "Attach Image", symbol: "photo.on.rectangle", action: photos),
-        .init(title: "Take Photo", symbol: "camera",
-          enabled: UIImagePickerController.isSourceTypeAvailable(.camera), action: camera),
-        .init(title: "Choose File", symbol: "folder", action: files),
-      ])
+      hapticSource: "composer.attach", anchor: .aboveLeading,
+      enabled: enabled && (attachmentsEnabled || voice != nil), color: color, actions: actions)
   }
 }
 

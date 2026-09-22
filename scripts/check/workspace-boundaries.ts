@@ -9,7 +9,7 @@ const walk = async (directory: string): Promise<string[]> => {
   const entries = await readdir(directory, { withFileTypes: true });
   const nested = await Promise.all(
     entries.flatMap((entry) => {
-      if (["dist", "dist-web", "node_modules", "release", "coverage"].includes(entry.name)) {
+      if ((entry.name.startsWith(".") || ["dist", "dist-web", "node_modules", "release", "coverage"].includes(entry.name))) {
         return [];
       }
       const path = resolve(directory, entry.name);
@@ -63,7 +63,7 @@ const serverOnlyPackages = new Set([
 ]);
 const clientSourceDirectories = new Map<string, string[]>([
   ["desktop", [resolve(root, "apps", "desktop", "src")]],
-  ["mobile", [resolve(root, "apps", "mobile", "src"), resolve(root, "apps", "mobile", "app")]],
+  ["ios", [resolve(root, "apps", "ios", "scripts")]],
   ["landing", [resolve(root, "apps", "landing", "src")]],
 ]);
 for (const directories of clientSourceDirectories.values()) {
@@ -161,7 +161,7 @@ for (const file of (await walk(resolve(root, "apps"))).filter(
   }
 }
 
-for (const file of await walk(resolve(root, "apps", "mobile"))) {
+for (const file of await walk(resolve(root, "apps", "ios", "scripts"))) {
   for (const imported of await importsFor(file)) {
     if (imported.specifier === "@openteam/contracts" && imported.runtimeNames.length > 0) {
       failures.push(

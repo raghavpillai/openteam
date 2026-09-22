@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import type { ChannelMessageView, ClientSnapshot } from "@openteam/contracts";
-import { mobileFixture } from "../../../apps/mobile/src/fixtures";
+import { mobileFixture } from "../../../apps/ios/scripts/fixtures/snapshot";
 
 // This benchmark measures renderer-neutral work, not UI frame times. Point it
 // at a frozen bundle to compare worktree arms without switching source files.

@@ -1,0 +1,22 @@
+/** Offline-only rich-message renderer. The app shell, chat and composer remain SwiftUI. */
+import {readFileSync,writeFileSync,readdirSync} from 'node:fs';
+import {resolve,dirname} from 'node:path';
+import {createRequire} from 'node:module';
+const root=resolve(import.meta.dir,'../../..');
+const require=createRequire(resolve(import.meta.dir,'../package.json'));
+const packageDir=(name:string,_version:string)=>dirname(require.resolve(name+'/package.json'));
+const read=(name:string,version:string,path:string)=>readFileSync(resolve(packageDir(name,version),path),'utf8');
+const katexDir=packageDir('katex','0.16.47');
+// WKWebView supports WOFF2; omit redundant WOFF/TTF copies of every font.
+let css=read('katex','0.16.47','dist/katex.min.css').replace(/src:([^;]+);/g,(all,sources)=>{const woff2=sources.split(',').find((s:string)=>s.includes('.woff2'));return woff2?'src:'+woff2+';':all}).replace(/url\(fonts\/([^)]*)\)/g,(_,name)=>`url(data:font/${name.endsWith('woff2')?'woff2':name.endsWith('woff')?'woff':'ttf'};base64,${readFileSync(resolve(katexDir,'dist/fonts',name)).toString('base64')})`);
+const runtime=readFileSync(resolve(import.meta.dir,'message-renderer.js'),'utf8');
+const libraries=[read('marked','18.0.5','lib/marked.umd.js'),read('dompurify','3.4.14','dist/purify.min.js'),read('katex','0.16.47','dist/katex.min.js'),read('katex','0.16.47','dist/contrib/auto-render.min.js'),read('mermaid','11.17.1','dist/mermaid.min.js')];
+const escapeScripts=(parts:string[])=>parts.join('\n;\n').replace(/<\/script/gi,'<\\/script');
+const libs=escapeScripts(libraries);
+const html=`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; font-src data:; img-src data:; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'"><style>${css}\nhtml,body{margin:0;padding:0;background:transparent;color:var(--text);font:17px -apple-system,sans-serif;overflow-wrap:anywhere}*{box-sizing:border-box}article>:first-child{margin-top:0}article>:last-child{margin-bottom:0}p{margin:0 0 .65em}h1,h2,h3,h4,h5,h6{line-height:1.2;margin:.8em 0 .4em}h1{font-size:1.45em}h2{font-size:1.25em}h3{font-size:1.1em}ul,ol{padding-left:1.5em;margin:.5em 0}ul>li::marker{font-size:.75em;color:var(--list-marker)}ol>li::marker{color:var(--list-marker)}li+li{margin-top:.5em}li p{margin:.2em 0}blockquote{border-left:3px solid var(--muted);margin:.6em 0;padding-left:.8em;color:var(--muted)}pre{white-space:pre;overflow-x:auto;padding:12px;background:var(--code);border-radius:8px}code{font:0.82em ui-monospace,monospace}table{border-collapse:collapse;display:block;overflow-x:auto}th,td{border:1px solid var(--separator);padding:8px;text-align:left;min-width:64px}a{color:var(--link)}svg{max-width:100%;height:auto}input{pointer-events:none}.katex-display{overflow-x:auto;overflow-y:hidden;padding:4px 0}hr{border:0;border-top:1px solid var(--separator);margin:1em 0}.diagram-error{white-space:pre-wrap;font:0.82em ui-monospace,monospace}</style></head><body><article id="message"></article><script>${libs}\n;${runtime}</script></body></html>`;
+const output=resolve(root,'apps/ios/Sources/App/Resources');
+writeFileSync(resolve(output,'MessageRenderer.html'),html);
+// Ordinary tables, lists and formulas need no Mermaid runtime.
+writeFileSync(resolve(output,'TextDocumentRenderer.html'),html.replace(libs,()=>escapeScripts(libraries.slice(0,-1))));
+writeFileSync(resolve(output,'MessageRenderer-LICENSES.txt'),[['marked','18.0.5','LICENSE'],['dompurify','3.4.14','LICENSE'],['katex','0.16.47','LICENSE'],['mermaid','11.17.1','LICENSE']].map(([name,version,file])=>`${name} ${version}\n${read(name!,version!,file!)}\n`).join('\n'));
+console.log(`Generated offline renderer (${html.length} bytes).`);

@@ -6,11 +6,6 @@ const componentPath = new URL(
   import.meta.url
 );
 const stylesPath = new URL("../src/renderer/styles.css", import.meta.url);
-const mobileComponentPath = new URL(
-  "../../mobile/src/components/rich-message-card.tsx",
-  import.meta.url
-);
-
 describe("Bot rich-message visual contract", () => {
   test("uses the renderer-matched card, option panel, and field geometry", async () => {
     const source = await readFile(componentPath, "utf8");
@@ -27,20 +22,6 @@ describe("Bot rich-message visual contract", () => {
 
   });
 
-  test("keeps the same renderer geometry on mobile", async () => {
-    const source = await readFile(mobileComponentPath, "utf8");
-
-    expect(source).toContain("borderRadius: 16");
-    expect(source).toContain("padding: 12");
-    expect(source).toContain("gap: 10");
-    expect(source).toContain("borderRadius: 8");
-    expect(source).toContain("padding: 8");
-    expect(source).toContain("width: 18");
-    expect(source).toContain("height: 20");
-    expect(source).toMatch(/dismissButton:\s*\{\s*width: 20,\s*height: 20,/);
-    expect(source).toContain("minHeight: 32");
-  });
-
   test("matches Bot's entrance and conditional-submit motion", async () => {
     const source = await readFile(stylesPath, "utf8");
 
@@ -51,13 +32,10 @@ describe("Bot rich-message visual contract", () => {
     expect(source).toContain("120ms ease-out");
   });
 
-  test("keeps Bot's literal widget copy and accessibility contract on both clients", async () => {
-    const [desktop, mobile] = await Promise.all([
-      readFile(componentPath, "utf8"),
-      readFile(mobileComponentPath, "utf8"),
-    ]);
+  test("keeps Bot's literal widget copy and accessibility contract on desktop", async () => {
+    const desktop = await readFile(componentPath, "utf8");
 
-    for (const source of [desktop, mobile]) {
+    for (const source of [desktop]) {
       expect(source).toContain('placeholder="Type your own answer"');
       expect(source).not.toContain('placeholder="Write another answer"');
       expect(source).toContain("Your answer");
@@ -69,13 +47,10 @@ describe("Bot rich-message visual contract", () => {
     expect(desktop).toContain('title="Dismiss without answering"');
   });
 
-  test("keeps Bot's secure-request copy and field treatment on both clients", async () => {
-    const [desktop, mobile] = await Promise.all([
-      readFile(componentPath, "utf8"),
-      readFile(mobileComponentPath, "utf8"),
-    ]);
+  test("keeps Bot's secure-request copy and field treatment on desktop", async () => {
+    const desktop = await readFile(componentPath, "utf8");
 
-    for (const source of [desktop, mobile]) {
+    for (const source of [desktop]) {
       expect(source).toContain("Save securely");
       expect(source).toContain("Stored securely, never shown to your Bot.");
       expect(source).toContain("Saved securely and kept private.");
@@ -85,6 +60,5 @@ describe("Bot rich-message visual contract", () => {
       expect(source).toContain("spellCheck={false}");
     }
     expect(desktop).toContain('type="password"');
-    expect(mobile).toContain("secureTextEntry");
   });
 });

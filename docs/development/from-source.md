@@ -45,7 +45,7 @@ curl http://127.0.0.1:8787/api/v0/health
 bun run desktop
 ```
 
-Connect to `http://127.0.0.1:8787` and sign in. Native mobile builds have [separate prerequisites](../../apps/mobile/README.md).
+Connect to `http://127.0.0.1:8787` and sign in. Native mobile builds have [separate prerequisites](../../apps/ios/README.md).
 
 ## Package the macOS desktop
 

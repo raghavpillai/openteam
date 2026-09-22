@@ -22,7 +22,7 @@ const sourceFiles = async (directory: string): Promise<string[]> => {
       entries.flatMap((entry) => {
         const path = resolve(directory, entry.name);
         if (entry.isDirectory()) return [sourceFiles(path)];
-        return /\.(?:ts|tsx)$/.test(entry.name) ? [Promise.resolve([path])] : [];
+        return /\.(?:ts|tsx|js)$/.test(entry.name) ? [Promise.resolve([path])] : [];
       })
     )
   ).flat();
@@ -61,7 +61,7 @@ const windowsFor = async (directories: string[]): Promise<SourceWindow[]> => {
 
 const [desktop, mobile] = await Promise.all([
   windowsFor([resolve(root, "apps", "desktop", "src", "renderer")]),
-  windowsFor([resolve(root, "apps", "mobile", "app"), resolve(root, "apps", "mobile", "src")]),
+  windowsFor([resolve(root, "apps", "ios", "scripts")]),
 ]);
 const desktopBySignature = new Map<string, SourceWindow[]>();
 for (const entry of desktop) {

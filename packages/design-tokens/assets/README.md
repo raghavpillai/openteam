@@ -13,18 +13,14 @@ the system's native conversion of the same layers.
 
 ## Build integration
 
-- iOS: Expo's `ios.icon` and the checked-in Xcode project reference `OpenTeam.icon`.
-  Xcode compiles the layered appearances and generates older-OS fallback icons.
-  Home Screen appearance is controlled by the user's icon customization setting,
-  independently of the app's own theme.
+- iOS: `apps/ios/Resources/Assets.xcassets/AppIcon.appiconset` holds the current
+  native app icon. Xcode packages it with the Swift app; it has no Expo fallback pipeline.
 - macOS: electron-builder compiles the `.icon` into `Assets.car`, includes a legacy
   ICNS, and writes the native icon keys into Info.plist. Do not replace it with
   `app.dock.setIcon`, which bypasses the system's appearance selection.
 - Windows: `icon.ico` includes 16, 24, 32, 48, 64, 128 and 256px representations.
 - Linux: `openteam-desktop-light.png` is the packaged icon. Windows and Linux use
   static icons; light and dark PNG exports are available for both.
-- In-app About screens: generated opaque PNGs in `apps/mobile/assets` follow the
-  resolved light/dark theme. The light PNG is also Expo's generic fallback.
 
 The native PNGs here are flattened previews with platform masking. Do not use them
 as opaque iOS App Store asset-catalog inputs. Use the `.icon` source instead.
@@ -37,13 +33,10 @@ From the repository root on macOS with Xcode 26+ selected and dependencies insta
 
 ```sh
 bun scripts/branding/export-app-icons.ts
-bun scripts/branding/export-mobile-icon-fallbacks.ts
-bun test ./apps/mobile/test/native-assets.test.ts ./apps/desktop/test/macos-release.test.ts
+bun test ./apps/desktop/test/macos-release.test.ts
 ```
 
-The mobile fallback exporter uses macOS `sips` SVG support and Core Graphics to
-write full-bleed, opaque RGB PNGs. Rebuild/reinstall the apps to see new system
-icons; updating JavaScript alone cannot update a Home Screen or Dock icon.
+Rebuild/reinstall native apps to see updated system icons.
 
 ## Design references
 

@@ -22,7 +22,7 @@ viewer ports on loopback or a trusted private network. Provider credentials live
 computer volume, never `.env`.
 
 `bun run desktop:tailscale` serves the UI to other devices on your tailnet. See the
-[mobile guide](../../apps/mobile/README.md) to build the phone app and configure a reachable server URL.
+[mobile guide](../../apps/ios/README.md) to build the phone app and configure a reachable server URL.
 
 ## Repository map
 
@@ -34,7 +34,7 @@ OpenTeam is a Bun and Turborepo TypeScript monorepo.
 | `apps/worker` | Durable job runner and bot turns |
 | `apps/computer` | Pi runtime, Linux desktop, tools, and MCP execution |
 | `apps/desktop` | Electron desktop app |
-| `apps/mobile` | Expo / React Native app |
+| `apps/ios` | SwiftUI iOS app |
 | `apps/cli` | Installer and server management commands |
 | `apps/landing` | Public website and download page |
 | `packages/contracts` | Shared API types and schemas |

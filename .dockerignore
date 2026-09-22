@@ -15,8 +15,8 @@ apps/cli/**
 !apps/cli/package.json
 apps/desktop/**
 !apps/desktop/package.json
-apps/mobile/**
-!apps/mobile/package.json
+apps/ios/**
+!apps/ios/package.json
 **/Pods
 **/build
 **/artifacts

@@ -12,13 +12,13 @@ import { createOpenTeamClient } from "../../packages/client-core/src/client";
 import { createOpenTeamAuthClient } from "../../packages/client-core/src/auth";
 import { checkTranscription } from "../../apps/cli/src/transcription-check";
 import { installationPaths } from "../../apps/cli/src/config";
-import { testNativeVoiceNote } from "./test-native";
 
 const argument = (name: string, fallback = "") => {
   const index = process.argv.indexOf(name);
   return index === -1 ? fallback : process.argv[index + 1]!;
 };
 const repository = resolve(import.meta.dirname, "../..");
+if (process.argv.includes("--ios-app")) throw new Error("Use apps/ios/scripts/real-server-qa.ts and the RealServer Xcode scheme for native iOS transcription QA; --ios-app was the retired React Native harness.");
 const directory = await mkdtemp(join(tmpdir(), "openteam-transcription-e2e-"));
 const name = `openteam-transcription-qa-${randomUUID().slice(0, 8)}`;
 const secret = () => randomBytes(32).toString("hex");
@@ -354,20 +354,6 @@ try {
   const desktopResult = JSON.parse(await readFile(join(browserDirectory, "results.json"), "utf8"));
   record("native Chromium capture and real UI", desktopResult);
   const deliveries = [...desktopResult.deliveries];
-  const iosApp = argument("--ios-app");
-  if (iosApp) {
-    const nativeResult = await testNativeVoiceNote({
-      appPath: resolve(iosApp),
-      repository,
-      directory,
-      audio: fixture,
-      serverUrl: baseUrl,
-      username: "voice.qa",
-      password: ownerPassword,
-    });
-    record("iPhone native upload and permission handling", nativeResult);
-    deliveries.push(...(nativeResult.deliveries ?? []));
-  }
   await writeFile(join(directory, "delivery-expectations.json"), JSON.stringify(deliveries));
   record(
     "actual worker and Pi receive the submitted transcript",

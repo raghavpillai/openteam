@@ -15,7 +15,7 @@ The desktop app provides chat, screen viewing, plugins, routines, settings, and 
 
 ## Mobile
 
-The mobile app is currently available from source. Follow the [mobile build instructions](../../apps/mobile/README.md) for a native development build; it is not yet distributed through the public download page as an App Store release.
+The mobile app is currently available from source. Follow the [mobile build instructions](../../apps/ios/README.md) for a native development build; it is not yet distributed through the public download page as an App Store release.
 
 Enter the server URL on the sign-in screen. In the app, **Settings → Private connection** lets you change the URL or sign out.
 

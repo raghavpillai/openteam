@@ -81,23 +81,13 @@ Safety properties:
 - `seed.sql` refuses to run unless the connected database is exactly `openteam_perf_audit`
 - The computer service is a local stub, so no real graphical-computer sessions are created
 
-## iOS export gate
+## Native iOS performance
 
-`bun --filter @openteam/mobile performance` creates both release-shaped and source-mapped iOS
-exports under a disposable system temporary directory. It checks Hermes bytecode and Metro
-module budgets, exported asset count and bytes, application route parity, and the production
-bundle's retained packages. The gate rejects runtime retention of `effect`, `fast-check`, or
-external `@react-navigation/*` packages.
-
-The gate clears the two supported `EXPO_PUBLIC_*` build-time values so local configuration does
-not alter its hash or measurements. It always removes its temporary exports, including after a
-failure, and does not touch `apps/mobile/dist`.
-
-For machine-readable evidence, run the script directly:
-
-```sh
-bun scripts/performance/check-mobile-budgets.ts --json
-```
+Run `bun run ios:performance` on macOS for the Release Swift history benchmarks.
+Use the Xcode `MessagePerformance` scheme in `apps/ios/OpenTeamNative.xcodeproj`
+for simulator scroll CPU/memory measurements, with the inert parity server running.
+See [the iOS guide](../../apps/ios/README.md). Core timings and simulator metrics
+are not physical-device frame-rate measurements.
 
 ## Start and seed
 

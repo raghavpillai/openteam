@@ -1,9 +1,9 @@
 # Releasing OpenTeam
 
 The `Release OpenTeam` workflow runs for tags shaped like `v1.2.3`. The tag version must exactly
-match the CLI, server, worker, computer, desktop, and mobile package versions plus the Expo app
+match the CLI, server, worker, computer, desktop, and iOS package versions plus `apps/ios/release.json`
 version. Releases are all-or-nothing: the public GitHub release stays unavailable unless every
-desktop installer is signed and the matching iPhone build reaches TestFlight.
+desktop installer is signed and the matching iPhone archive is accepted for upload to App Store Connect.
 
 ## What a release produces
 
@@ -23,9 +23,9 @@ The workflow:
 3. **desktop-linux / desktop-windows / desktop-macos**: build the Electron installers. Linux
    always builds. Windows and macOS signing credentials are mandatory; missing credentials fail
    the release. The macOS job signs and notarizes its artifacts.
-4. **mobile-ios**: builds the matching iPhone app with EAS and submits that exact build to App
-   Store Connect for TestFlight. `EXPO_TOKEN` and current EAS signing/submission credentials are
-   mandatory.
+4. **mobile-ios**: builds and checks the native Swift app on macOS, archives both the app
+   and notification extension, then uploads that exact archive using an App Store Connect API key.
+   Apple processing and tester availability require a separate check after upload.
 5. **github-release**: after every image, desktop, and mobile job succeeds, renders
    `openteam-compose.yaml` with the exact image digests, signs the Compose bundle and Linux
    AppImage with the workflow's Sigstore identity, writes CLI and desktop checksums, attests all
@@ -41,10 +41,14 @@ The workflow:
 2. Add `WINDOWS_CSC_LINK`, `WINDOWS_CSC_KEY_PASSWORD`, `MACOS_CSC_LINK`,
    `MACOS_CSC_KEY_PASSWORD`, `MACOS_CSC_NAME`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and
    `APPLE_TEAM_ID` as repository secrets.
-3. Create an Expo access token for the `zzenn` EAS project and add it as the repository secret
-   `EXPO_TOKEN`. Confirm that the App Store Connect app, distribution certificate, provisioning
-   profile, and production submit credentials are current in EAS. The workflow creates an internal
-   TestFlight group when needed and waits for the exact build's submission to finish.
+3. Configure native iOS repository secrets: `IOS_DISTRIBUTION_P12_BASE64`,
+   `IOS_DISTRIBUTION_P12_PASSWORD`, `IOS_APP_PROFILE_BASE64`,
+   `IOS_EXTENSION_PROFILE_BASE64`, `APP_STORE_CONNECT_KEY_ID`,
+   `APP_STORE_CONNECT_ISSUER_ID`, and `APP_STORE_CONNECT_PRIVATE_KEY` (raw P8 text).
+   The distribution profiles must match the app/extension identifiers and team in
+   `apps/ios/release.json`, with push/communication capabilities enabled. Increment
+   `buildNumber` for each upload. The ephemeral runner imports signing material into a
+   temporary keychain and removes it afterwards. Expo credentials are no longer used.
 4. In App Store Connect, add the submitted build to an external TestFlight group when a public beta
    is intended. A public TestFlight link requires Apple's beta review.
 
@@ -59,7 +63,7 @@ git push origin v1.2.3
 ```
 
 After the first release, verify anonymous image pulls and the public install command from a machine
-that is not authenticated to GitHub or EAS. Install each desktop artifact on a clean OS, confirm
+that is not authenticated to GitHub. Install each desktop artifact on a clean OS, confirm
 its platform signature, and verify that the TestFlight build can sign in to a newly installed
 server before announcing the release.
 

@@ -1,9 +1,9 @@
-/** Render real desktop/RN components against controlled promise outcomes. No real permissions. */
+/** Render real desktop components against controlled promise outcomes. No real permissions. */
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "../../computer/node_modules/playwright-core";
-import { createServer, build } from "vite";
+import { createServer } from "vite";
 const repo = resolve(import.meta.dir, "../../..");
 const output = resolve(
   repo,
@@ -11,79 +11,23 @@ const output = resolve(
 );
 await mkdir(output, { recursive: true });
 const buildDir = await mkdtemp(join(tmpdir(), "openteam-permission-ui-"));
-const mobileRoot = join(repo, "apps/mobile");
 const results: string[] = [];
 const assert = (value: unknown, message: string) => {
   if (!value) throw new Error(message);
 };
 let vite: Awaited<ReturnType<typeof createServer>> | undefined;
-let server: ReturnType<typeof Bun.serve> | undefined;
 const browser = await chromium.launch({
   executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   headless: true,
 });
 try {
-  await build({
-    configFile: false,
-    root: mobileRoot,
-    logLevel: "warn",
-    resolve: {
-      extensions: [".web.tsx", ".web.ts", ".web.js", ".mjs", ".js", ".ts", ".tsx", ".jsx", ".json"],
-      alias: { "react-native": join(mobileRoot, "node_modules/react-native-web/dist/index.js"), "react-native-svg": join(mobileRoot, "node_modules/react-native-svg/lib/module/ReactNativeSVG.web.js") },
-      dedupe: ["react", "react-dom"],
-    },
-    define: { "process.env.NODE_ENV": '"production"', __DEV__: "false" },
-    plugins: [
-      {
-        name: "isolated-native-services",
-        enforce: "pre",
-        resolveId(id) {
-          if (["expo-symbols", "expo-router"].includes(id)) return `\0fixture:${id}`;
-        },
-        load(id) {
-          if (id === "\0fixture:expo-symbols") return "export const SymbolView = () => null;";
-          if (id === "\0fixture:expo-router")
-            return "export const router = {push: (value) => {window.fixtureNavigation = value;}};";
-          if (/\/state\/openteam-context\.tsx$/.test(id))
-            return "export const useOpenTeam = () => window.mobileFixtureApi;";
-          if (/\/src\/theme\.ts$/.test(id))
-            return 'import {mobileLightTheme} from "@openteam/design-tokens/mobile-theme"; export const useTheme = () => mobileLightTheme;';
-          if (/\/src\/haptics\.ts$/.test(id))
-            return "export const notificationAsync = async()=>{}, impactAsync=async()=>{}, selectionAsync=async()=>{}, NotificationFeedbackType={}, ImpactFeedbackStyle={};";
-          if (/\/components\/bot-mark\.tsx$/.test(id)) return "export const BotMark = () => null;";
-        },
-      },
-    ],
-    build: {
-      outDir: buildDir,
-      emptyOutDir: true,
-      lib: {
-        entry: join(mobileRoot, "test/browser/permission-cards.tsx"),
-        formats: ["es"],
-        fileName: () => "fixture.js",
-      },
-      minify: false,
-    },
-  });
   vite = await createServer({
     root: join(repo, "apps/desktop"),
     cacheDir: join(buildDir, "desktop-cache"),
     server: { host: "127.0.0.1", port: 0 },
   });
   await vite.listen();
-  server = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    fetch(request) {
-      return new URL(request.url).pathname === "/fixture.js"
-        ? new Response(Bun.file(join(buildDir, "fixture.js")))
-        : new Response(
-            '<html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div><script type="module" src="/fixture.js"></script></html>',
-            { headers: { "content-type": "text/html" } }
-          );
-    },
-  });
-  for (const mobile of [false, true]) {
+  for (const mobile of [false]) {
     const label = mobile ? "mobile" : "desktop";
     const page = await browser.newPage({
       viewport: mobile ? { width: 390, height: 844 } : { width: 980, height: 950 },
@@ -99,9 +43,7 @@ try {
       new URL(route.request().url()).hostname === "127.0.0.1" ? route.continue() : route.abort()
     );
     await page.goto(
-      mobile
-        ? server.url.origin
-        : `${vite.resolvedUrls!.local[0]}test/browser/permission-cards.html`
+      `${vite.resolvedUrls!.local[0]}test/browser/permission-cards.html`
     );
     await page.waitForFunction(() => (window as any).permissionQA?.ready === true);
     const configure = (config: any) =>
@@ -614,6 +556,5 @@ try {
 } finally {
   await browser.close();
   await vite?.close();
-  server?.stop(true);
   await rm(buildDir, { recursive: true, force: true });
 }

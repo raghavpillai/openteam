@@ -7,7 +7,7 @@ COPY apps/computer/package.json apps/computer/package.json
 COPY apps/cli/package.json apps/cli/package.json
 COPY apps/desktop/package.json apps/desktop/package.json
 COPY apps/landing/package.json apps/landing/package.json
-COPY apps/mobile/package.json apps/mobile/package.json
+COPY apps/ios/package.json apps/ios/package.json
 COPY apps/server/package.json apps/server/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY packages/client-core/package.json packages/client-core/package.json
@@ -42,7 +42,7 @@ COPY apps/computer/package.json apps/computer/package.json
 COPY apps/cli/package.json apps/cli/package.json
 COPY apps/desktop/package.json apps/desktop/package.json
 COPY apps/landing/package.json apps/landing/package.json
-COPY apps/mobile/package.json apps/mobile/package.json
+COPY apps/ios/package.json apps/ios/package.json
 COPY apps/server/package.json apps/server/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY packages/client-core/package.json packages/client-core/package.json

@@ -349,7 +349,7 @@ export function AccountMenu({
           <DropdownMenuItem
             className={menuItem}
             onSelect={() =>
-              openExternal("https://github.com/raghavpillai/openteam/tree/main/apps/mobile")
+              openExternal("https://github.com/raghavpillai/openteam/tree/main/apps/ios")
             }
           >
             <Smartphone className="size-4" strokeWidth={1.85} />

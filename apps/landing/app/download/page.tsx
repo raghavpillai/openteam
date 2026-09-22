@@ -144,7 +144,7 @@ export default function DownloadPage() {
               </p>
               <Button
                 className="ot-button"
-                render={<a href={`${GITHUB}/tree/main/apps/mobile`} />}
+                render={<a href={`${GITHUB}/tree/main/apps/ios`} />}
                 nativeButton={false}
               >
                 View iPhone source <ArrowUpRight size={16} />

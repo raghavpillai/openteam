@@ -22,7 +22,7 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "check": "bun run typecheck && bun run test && bun run build && bun scripts/performance/check-desktop-budgets.ts",
-    "check:architecture": "bun scripts/check/workspace-boundaries.ts && bun scripts/check/contract-enum-parity.ts && bun scripts/check/mobile-bundle-boundary.ts && bun scripts/check/client-source-duplication.ts",
+    "check:architecture": "bun scripts/check/workspace-boundaries.ts && bun scripts/check/contract-enum-parity.ts && bun scripts/check/ios-bundle-boundary.ts && bun scripts/check/client-source-duplication.ts",
     "test:health:chaos": "bun scripts/test-health-chaos.ts",
     "test:cli:e2e": "bun scripts/test-cli-e2e.ts",
     "test:auth:e2e": "bun scripts/test-auth-e2e.ts",
@@ -37,9 +37,9 @@
     "desktop:performance": "bun --filter @openteam/desktop build && bun scripts/performance/check-desktop-budgets.ts",
     "desktop:performance:release": "bun --filter @openteam/desktop package",
     "desktop:tailscale": "bash scripts/tailscale-dev.sh",
-    "mobile:performance": "bun --filter @openteam/mobile performance",
     "format": "biome format --write .",
-    "format:check": "biome format ."
+    "format:check": "biome format .",
+    "ios:performance": "bun --filter @openteam/ios performance"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.7",

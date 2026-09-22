@@ -6,7 +6,7 @@ identity. Completing the run reuses the message identity, so completion does not
 produce a second alert. Agent-to-agent transcript projections stay excluded.
 Bot notification settings and hidden or archived conversations control delivery.
 
-The server sends mobile alerts through Expo. Desktop displays native alerts from
+The server sends native iOS alerts through APNs and retains Expo transport for older installed clients. Desktop displays native alerts from
 the live activity projection, including when its macOS window is minimized or
 closed into the background. Quitting desktop stops desktop alerts. Each client
 suppresses alerts for its visible conversation; other conversations can alert.
@@ -22,7 +22,7 @@ resolved-approval alerts are skipped. Every delivered alert includes the sequenc
 needed for selective removal. Read synchronization updates badges and clears only
 covered alerts on the other device.
 
-iOS performs removal in a native Expo app delegate subscriber, including when the
+iOS performs removal in the native Swift notification delegate, including when the
 system wakes the app for a background notification. Read cursors persist locally
 and tolerate reordered pushes. The app also reconciles on foreground sync. Apple
 can delay or discard background pushes and does not wake a force-quit app; therefore
@@ -35,8 +35,7 @@ and [Expo's push delivery documentation](https://docs.expo.dev/push-notification
 
 Deploy the database schema before the updated server and worker (`bun run db:deploy`).
 Rebuild desktop and the iOS native app. The native iOS change requires a new binary;
-JavaScript-only updates cannot install the background subscriber. Expo's notification
-config enables `remote-notification`, and CocoaPods autolinking registers the subscriber.
+The checked-in iOS target enables `remote-notification` and embeds its notification service extension.
 Older clients can still mark messages read; they cannot acknowledge new reaction activity.
 
 ## Verification
@@ -52,9 +51,7 @@ cursors, late foreground alerts, and retrying failed native cleanup. The Swift
 policy can also be checked directly on macOS:
 
 ```sh
-swiftc apps/mobile/modules/openteam-native/ios/OpenTeamNotificationSubscriber.swift \
-  apps/mobile/test/notification-read-policy.swift -o /tmp/openteam-notification-policy-test
-/tmp/openteam-notification-policy-test
+swift test --package-path apps/ios --filter NotificationReadTests
 ```
 
 Physical-device acceptance checks: enable notifications on both apps, receive a
@@ -71,11 +68,10 @@ The push carries the bot's robot shape and color, without an authenticated image
 URL or an image download. Uploaded custom photos currently fall back to that robot.
 
 Following [Apple’s communication notification API](https://developer.apple.com/documentation/usernotifications/implementing-communication-notifications),
-iOS embeds `OpenTeamNotificationService`, which donates an incoming
+iOS embeds `OpenTeamNotifications`, which donates an incoming
 `INSendMessageIntent` and updates the notification with its sender avatar. iOS
 provides the small app badge and the system Notification Center layout. Both the
-app and extension enable Communication Notifications; the Expo config plugin also
-registers the extension for EAS signing. The worker sends `mutableContent` and a
+app and extension enable Communication Notifications and are signed by the native Xcode release job. The worker sends `mutableContent` and a
 conversation `threadId`. An extension timeout or donation failure falls back to
 the original alert, retaining message delivery and read-state metadata.
 
@@ -83,7 +79,7 @@ The extension draws the same artwork as the profile UI. Regenerate its bundled
 artwork after editing design tokens:
 
 ```sh
-bun apps/mobile/notification-service/generate-notification-artwork.ts
+bun apps/ios/NotificationService/generate-notification-artwork.ts
 ```
 
 Desktop renders those same shapes into PNG icons before handing alerts to Electron,

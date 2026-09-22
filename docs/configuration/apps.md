@@ -18,7 +18,7 @@ Appearance and local-computer permissions belong to the device. Model and servic
 
 Allow OpenTeam notifications in your operating system, then check the app and bot notification settings. Use the bot's notification control for fewer alerts from that conversation. The app suppresses alerts for the conversation you are viewing.
 
-Mobile push also requires a native app build configured for push delivery. If you built the mobile app yourself, complete the [mobile notification setup](../../apps/mobile/README.md) before relying on background alerts.
+Mobile push also requires a native app build configured for push delivery. If you built the mobile app yourself, complete the [mobile notification setup](../../apps/ios/README.md) before relying on background alerts.
 
 ## Fix missing alerts
 

@@ -71,7 +71,7 @@ when you close the app. Keep the desktop app open when bots need access to your 
 | App | Get it |
 | --- | --- |
 | Desktop for macOS, Windows, and Linux | [Downloads](https://openteam.so/download) |
-| iPhone companion | [Build and setup instructions](apps/mobile/README.md) |
+| iPhone companion | [Build and setup instructions](apps/ios/README.md) |
 
 Both apps connect to your server for chat, live screens, and settings.
 

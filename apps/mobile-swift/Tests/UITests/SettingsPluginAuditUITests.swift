@@ -48,7 +48,7 @@ import XCTest
   }
   func readyStatus(_ app: XCUIApplication) -> XCUIElement {
     app.descendants(matching: .any).matching(
-      NSPredicate(format: "label == 'Ready' OR value == 'Ready' OR label == 'Status, Ready'")
+      NSPredicate(format: "label == 'Connected' OR value == 'Connected' OR label == 'Status, Connected'")
     ).firstMatch
   }
   func plugins(_ app: XCUIApplication) {
@@ -70,7 +70,7 @@ import XCTest
     plugins(app)
     XCTAssertTrue(plugin("Google Calendar", app).waitForExistence(timeout: 8))
     plugin("Google Calendar", app).tap()
-    XCTAssertTrue(app.buttons["Connect"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.buttons["Connection settings"].waitForExistence(timeout: 8))
   }
   func backToPlugins(_ app: XCUIApplication) { app.navigationBars.buttons["Plugins"].tap() }
   func testCatalogAndSettingsGeometryInBothAppearances() async throws {
@@ -194,7 +194,7 @@ import XCTest
     XCTAssertFalse(installs.contains { $0["pluginKey"] as? String == "qa-calendar" })
     try await recordState("uninstall-recovered")
   }
-  func testInstallRetryAndRepeatedConnectDoesNotDuplicateRequest() async throws {
+  func testInstallRetryShowsOnlyThePendingSignInActions() async throws {
     let app = try await launch(strict: false)
     plugins(app)
     XCTAssertTrue(plugin("Google Calendar", app).waitForExistence(timeout: 8))
@@ -214,18 +214,15 @@ import XCTest
     XCTAssertTrue(app.buttons["Reopen sign-in"].waitForExistence(timeout: 8))
     let installedState = try await state()
     XCTAssertEqual(installedState["authCount"] as? Int, 1)
-    try await post(["holdConnect": true])
-    app.buttons["Connect"].tap()
-    app.buttons["Connect"].tap()
-    let snapshot = try await state()
-    let connections = (snapshot["requests"] as? [[String: Any]] ?? []).filter {
-      $0["path"] as? String == "/api/v0/plugin-connections/qa-calendar-connection/connect"
-    }
-    try await post(["holdConnect": false])
-    XCTAssertEqual(connections.count, 1)
+    XCTAssertFalse(app.buttons["Connect"].exists)
+    XCTAssertFalse(app.buttons["Sign in"].exists)
+    XCTAssertTrue(app.buttons["Cancel sign-in"].exists)
+    try await post(["status": "ready"])
     XCTAssertTrue(readyStatus(app).waitForExistence(timeout: 8))
+    XCTAssertFalse(app.buttons["Reopen sign-in"].exists)
+    XCTAssertFalse(app.buttons["Sign in"].exists)
     capture("connected", app)
-    try await recordState("connect-deduplication")
+    try await recordState("pending-sign-in-actions")
   }
   func testAuthorizationReturnRefreshesConnection() async throws {
     let app = try await launch("authorize", strict: false)
@@ -239,7 +236,8 @@ import XCTest
     if browser.state == .runningForeground { capture("external-authorization-browser", browser) }
     try await post(["status": "ready"])
     app.activate()
-    XCTAssertTrue(app.buttons["Sign in"].waitForExistence(timeout: 8))
+    XCTAssertTrue(readyStatus(app).waitForExistence(timeout: 8))
+    XCTAssertFalse(app.buttons["Sign in"].exists)
     capture("07-authorization-return", app)
     try await recordState("authorization-return")
     XCTAssertTrue(
@@ -323,7 +321,7 @@ import XCTest
     snapshot = try await state()
     XCTAssertEqual(snapshot["authCount"] as? Int, 1)
     try await post(["expired": true])
-    XCTAssertTrue(app.staticTexts["Sign-in expired"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Sign-in expired")).firstMatch.waitForExistence(timeout: 8))
     app.buttons["Try again"].tap()
     let restarted = expectation(
       for: NSPredicate(format: "state != %d", XCUIApplication.State.runningForeground.rawValue),

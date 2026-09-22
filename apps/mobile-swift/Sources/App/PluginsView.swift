@@ -255,7 +255,7 @@ struct PluginDetailView: View {
         LabeledContent("Version", value: plugin["version"].string)
       }
       let catalog = isInstalled ? plugin["catalog"] : plugin
-      if !catalog["installationSteps"].array.isEmpty {
+      if !isInstalled, !catalog["installationSteps"].array.isEmpty {
         Section("Installation steps") {
           ForEach(Array(catalog["installationSteps"].array.enumerated()), id: \.offset) { index, step in
             Text("\(index + 1). " + step.string)
@@ -274,9 +274,12 @@ struct PluginDetailView: View {
       if isInstalled {
         ForEach(plugin["connections"].array.map { $0["id"].string }, id: \.self) { id in
           let connection = connectionBinding(id)
-          Section(connection.wrappedValue["name"].string) {
+          Section(connection.wrappedValue["alias"].string.isEmpty ? connection.wrappedValue["name"].string : connection.wrappedValue["alias"].string) {
             NavigationLink("Connection settings") {
-              PluginConnectionView(connection: connection.wrappedValue)
+              PluginConnectionView(connection: connection.wrappedValue, onChange: {
+                if let latest = try? await latestInstallation() { plugin = latest }
+                await onChange()
+              })
             }
             PluginConnectionActions(connection: connection, startAutomatically: autoConnectID == id)
           }

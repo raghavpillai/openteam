@@ -25,7 +25,17 @@ struct PluginConnectionView: View {
   @State private var operation = FormOperation()
   @State private var remove = false
   @State private var loaded = false
+  @State private var setupExpanded = false
+  var onChange: () async -> Void = {}
   var path: String { "/api/v0/plugin-connections/\(API.segment(connection["id"].string))" }
+  private var providerSteps: [String] {
+    MobilePluginAuthorization.providerSetupSteps(
+      pluginKey: connection["pluginKey"].string,
+      callbackMode: callbackMode == "auto"
+        ? (configuration["callbackUrl"].string.hasPrefix("https://") ? "server" : "manual")
+        : callbackMode,
+      steps: configuration["setup"]["steps"].array.map(\.string))
+  }
   var body: some View {
     NativeForm {
       Section {
@@ -33,153 +43,205 @@ struct PluginConnectionView: View {
         if !loaded, !operation.busy { Button("Retry") { Task { await load() } } }
       }
       if loaded {
-        Section("Account") {
-          TextField("Account alias", text: $alias)
-          Button("Rename account") {
-            perform(
-              "/account", method: "PATCH", body: .object(["alias": .string(alias)]),
-              success: "Account renamed.")
-          }.disabled(alias.count < 2 || alias.count > 80)
-          TextField("New account alias", text: $newAlias)
-          Button("Add another account") {
-            perform(
-              "/accounts", body: .object(["alias": .string(newAlias)]), success: "Account added.")
-          }.disabled(newAlias.count < 2 || newAlias.count > 80)
-          Button("Remove account", role: .destructive) { remove = true }
+        Section(connection["alias"].string.isEmpty ? "Account" : connection["alias"].string) {
+          PluginConnectionActions(
+            connection: $connection, beforeSignIn: { await save(feedback: false) }
+          )
+          .id(connection["id"].string)
         }
         if !configuration["setup"]["title"].string.isEmpty {
-          Section("Provider setup") {
-            Text(configuration["setup"]["title"].string).font(.headline)
-            Text(configuration["setup"]["description"].string)
-            ForEach(Array(configuration["setup"]["steps"].array.enumerated()), id: \.offset) { index, step in
-              Text("\(index + 1). " + step.string)
-            }
-            if let url = URL(string: configuration["setup"]["documentationUrl"].string) {
-              Link("Provider setup guide", destination: url)
-            }
-          }
-        }
-        Section("Configuration") {
-          if connection["auth"].string == "oauth" {
-            Picker("Sign-in method", selection: $callbackMode) {
-              Text("Automatic (recommended)").tag("auto")
-              Text("Paste callback URL").tag("manual")
-              Text("Desktop listener (advanced)").tag("desktop")
-              Text("Server callback").tag("server")
-            }
-            if callbackMode == "desktop" {
-              Text("Connect once in the desktop app using a native OAuth client. Your server stores the connection and makes it available on this device.")
-                .font(.footnote).foregroundStyle(NativePalette.muted)
-            } else if callbackMode == "manual" || (callbackMode == "auto" && !configuration["callbackUrl"].string.hasPrefix("https://")) {
-              if configuration["manualCallbackSupported"] == .bool(false) {
-                Text("This provider requires HTTPS. Configure Tailscale Serve or your own HTTPS domain before authorizing.")
-                  .font(.footnote).foregroundStyle(NativePalette.muted)
-              } else {
-                Text("Your server uses manual callback paste. For Google, create a Desktop app OAuth client. After approving access in your browser, copy the full callback address and paste it into OpenTeam. No desktop app is needed.")
-                  .font(.footnote).foregroundStyle(NativePalette.muted)
-                Text(configuration["manualCallbackUrl"].string).font(.footnote.monospaced()).textSelection(.enabled)
+          Section {
+            DisclosureGroup("Provider setup guide") {
+              Text(configuration["setup"]["title"].string).font(.headline)
+              Text(
+                MobilePluginAuthorization.providerSetupDescription(
+                  pluginKey: connection["pluginKey"].string,
+                  description: configuration["setup"]["description"].string))
+              ForEach(Array(providerSteps.enumerated()), id: \.offset) {
+                index, step in
+                Text("\(index + 1). " + step)
               }
-            } else {
-              Text("Register this exact callback with your provider’s web OAuth client. Google requires an HTTPS hostname for a remote server callback. A desktop OAuth client cannot be reused for this method.")
-                .font(.footnote).foregroundStyle(NativePalette.muted)
-              Text(configuration["callbackUrl"].string).font(.footnote.monospaced())
-                .textSelection(.enabled)
-            }
-          }
-          ForEach(configuration["fields"].array, id: \.self) { field in
-            let id = field["key"].string
-            if field["secret"].bool {
-              SecureField(
-                field["label"].string
-                  + (configuration["configuredSecrets"].array.contains(.string(id))
-                    ? " (saved)" : ""),
-                text: Binding(
-                  get: { secrets[id] ?? "" },
-                  set: {
-                    secrets[id] = $0
-                    cleared.remove(id)
-                  })
-              )
-              .textInputAutocapitalization(.never).autocorrectionDisabled()
-              if configuration["configuredSecrets"].array.contains(.string(id)) {
-                Toggle(
-                  "Clear saved " + field["label"].string.lowercased(),
-                  isOn: Binding(
-                    get: { cleared.contains(id) },
-                    set: {
-                      if $0 {
-                        cleared.insert(id)
-                        secrets[id] = ""
-                      } else {
-                        cleared.remove(id)
-                      }
-                    }))
+              if let url = URL(string: configuration["setup"]["documentationUrl"].string) {
+                Link("Provider setup guide", destination: url)
               }
-            } else {
-              PluginFieldInput(
-                field: field,
-                value: Binding(get: { values[id] ?? field["default"] }, set: { values[id] = $0 }))
             }
-            if !field["helpText"].string.isEmpty {
-              Text(field["helpText"].string).font(.footnote).foregroundStyle(NativePalette.muted)
-            }
-          }
-          if connection["transport"].string == "http" {
-            TextField("Endpoint", text: $endpoint).keyboardType(.URL).textInputAutocapitalization(
-              .never
-            ).autocorrectionDisabled()
-          } else if connection["transport"].string == "stdio" {
-            TextField("Command", text: $command).textInputAutocapitalization(.never)
-              .autocorrectionDisabled()
-            TextField("Working directory", text: $cwd).textInputAutocapitalization(.never)
-              .autocorrectionDisabled()
-            JSONTextEditor(text: $args, label: "Arguments")
-          }
-          DisclosureGroup("Advanced connection settings") {
-            Picker(
-              "OAuth client authentication",
-              selection: $method.hapticSelection("plugin.authentication")
-            ) {
-              Text("None").tag("none")
-              Text("Client secret in body").tag("client_secret_post")
-              Text("HTTP Basic").tag("client_secret_basic")
-            }
-            JSONTextEditor(text: $headers, label: "Replacement headers")
-              .disabled(clearHeaders)
-            Text("Saved headers: " + configuration["headerNames"].array.map(\.string).joined(separator: ", "))
-              .font(.footnote).foregroundStyle(NativePalette.muted)
-            Toggle("Clear all saved headers", isOn: $clearHeaders)
-              .accessibilityIdentifier("connection-clear-headers")
-            JSONTextEditor(text: $env, label: "Replacement environment variables")
-              .disabled(clearEnvironment)
-            Text("Saved environment variables: " + configuration["environmentNames"].array.map(\.string).joined(separator: ", "))
-              .font(.footnote).foregroundStyle(NativePalette.muted)
-            Toggle("Clear all saved environment variables", isOn: $clearEnvironment)
-              .accessibilityIdentifier("connection-clear-environment")
-            Text(
-              "Leave these objects empty to preserve saved values, or select Clear all to remove them when saving. Saved values are never displayed."
-            ).font(.footnote).foregroundStyle(NativePalette.muted)
-          }
-          Button("Save configuration") { Task { await save() } }
-        }
-        Section("Instructions") {
-          TextEditor(text: $instructions).frame(minHeight: 130)
-          Button("Save instructions") {
-            perform(
-              "/instructions", method: "PATCH",
-              body: .object(["instructions": .string(instructions)]), success: "Instructions saved."
-            )
           }
         }
         Section {
-          NavigationLink("Tool permissions") { PluginToolPoliciesView(connection: connection) }
-          NavigationLink("Test a tool") { PluginToolTestView(connection: connection) }
-          PluginConnectionActions(
-            connection: $connection, beforeSignIn: { await save(feedback: false) })
-          Button("Restart connection") { perform("/restart", success: "Connection restarted.") }
+          DisclosureGroup(
+            connection["auth"].string == "oauth" ? "Sign-in setup" : "Connection setup",
+            isExpanded: $setupExpanded
+          ) {
+            if connection["auth"].string == "oauth" {
+              Picker("Sign-in method", selection: $callbackMode) {
+                Text("Automatic (recommended)").tag("auto")
+                Text("Copy and paste from browser").tag("manual")
+                Text("Desktop listener (advanced)").tag("desktop")
+                Text("Return to server (HTTPS)").tag("server")
+              }
+              if callbackMode == "desktop" {
+                Text(
+                  "Connect once in the desktop app using a native OAuth client. Your server stores the connection and makes it available on this device."
+                )
+                .font(.footnote).foregroundStyle(NativePalette.muted)
+              } else if callbackMode == "manual"
+                || (callbackMode == "auto"
+                  && !configuration["callbackUrl"].string.hasPrefix("https://"))
+              {
+                if configuration["manualCallbackSupported"] == .bool(false) {
+                  Text(
+                    "This provider requires HTTPS. Configure Tailscale Serve or your own HTTPS domain before authorizing."
+                  )
+                  .font(.footnote).foregroundStyle(NativePalette.muted)
+                } else {
+                  Text(
+                    "Sign in on this device, then copy the browser’s final address back into OpenTeam. For Google, choose “Desktop app” when creating the OAuth client in Google Cloud. That is Google’s client type name; you can still sign in entirely on your iPhone."
+                  )
+                  .font(.footnote).foregroundStyle(NativePalette.muted)
+                  Text(configuration["manualCallbackUrl"].string).font(.footnote.monospaced())
+                    .textSelection(.enabled)
+                }
+              } else {
+                Text(
+                  "Register this exact callback with your provider’s web OAuth client. Google requires an HTTPS hostname for a remote server callback. A desktop OAuth client cannot be reused for this method."
+                )
+                .font(.footnote).foregroundStyle(NativePalette.muted)
+                Text(configuration["callbackUrl"].string).font(.footnote.monospaced())
+                  .textSelection(.enabled)
+              }
+            }
+            ForEach(
+              configuration["fields"].array.filter { $0["key"].string != "scope" }, id: \.self
+            ) { field in
+              let id = field["key"].string
+              if field["secret"].bool {
+                SecureField(
+                  field["label"].string
+                    + (configuration["configuredSecrets"].array.contains(.string(id))
+                      ? " (saved)" : ""),
+                  text: Binding(
+                    get: { secrets[id] ?? "" },
+                    set: {
+                      secrets[id] = $0
+                      cleared.remove(id)
+                    })
+                )
+                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                if configuration["configuredSecrets"].array.contains(.string(id)) {
+                  Toggle(
+                    "Clear saved " + field["label"].string.lowercased(),
+                    isOn: Binding(
+                      get: { cleared.contains(id) },
+                      set: {
+                        if $0 {
+                          cleared.insert(id)
+                          secrets[id] = ""
+                        } else {
+                          cleared.remove(id)
+                        }
+                      }))
+                }
+              } else {
+                PluginFieldInput(
+                  field: field,
+                  value: Binding(get: { values[id] ?? field["default"] }, set: { values[id] = $0 }))
+              }
+              if !field["helpText"].string.isEmpty {
+                Text(field["helpText"].string).font(.footnote).foregroundStyle(NativePalette.muted)
+              }
+            }
+            DisclosureGroup("Advanced connection settings") {
+              ForEach(
+                configuration["fields"].array.filter { $0["key"].string == "scope" }, id: \.self
+              ) { field in
+                PluginFieldInput(
+                  field: field,
+                  value: Binding(
+                    get: { values["scope"] ?? field["default"] }, set: { values["scope"] = $0 }))
+              }
+              if connection["transport"].string == "http" {
+                TextField("Endpoint", text: $endpoint).keyboardType(.URL)
+                  .textInputAutocapitalization(
+                    .never
+                  ).autocorrectionDisabled()
+              } else if connection["transport"].string == "stdio" {
+                TextField("Command", text: $command).textInputAutocapitalization(.never)
+                  .autocorrectionDisabled()
+                TextField("Working directory", text: $cwd).textInputAutocapitalization(.never)
+                  .autocorrectionDisabled()
+                JSONTextEditor(text: $args, label: "Arguments")
+              }
+              Picker(
+                "OAuth client authentication",
+                selection: $method.hapticSelection("plugin.authentication")
+              ) {
+                Text("None").tag("none")
+                Text("Client secret in body").tag("client_secret_post")
+                Text("HTTP Basic").tag("client_secret_basic")
+              }
+              JSONTextEditor(text: $headers, label: "Replacement headers")
+                .disabled(clearHeaders)
+              Text(
+                "Saved headers: "
+                  + configuration["headerNames"].array.map(\.string).joined(separator: ", ")
+              )
+              .font(.footnote).foregroundStyle(NativePalette.muted)
+              Toggle("Clear all saved headers", isOn: $clearHeaders)
+                .accessibilityIdentifier("connection-clear-headers")
+              JSONTextEditor(text: $env, label: "Replacement environment variables")
+                .disabled(clearEnvironment)
+              Text(
+                "Saved environment variables: "
+                  + configuration["environmentNames"].array.map(\.string).joined(separator: ", ")
+              )
+              .font(.footnote).foregroundStyle(NativePalette.muted)
+              Toggle("Clear all saved environment variables", isOn: $clearEnvironment)
+                .accessibilityIdentifier("connection-clear-environment")
+              Text(
+                "Leave these objects empty to preserve saved values, or select Clear all to remove them when saving. Saved values are never displayed."
+              ).font(.footnote).foregroundStyle(NativePalette.muted)
+            }
+            Button("Save configuration") { Task { await save() } }
+          }
+        }
+        Section {
+          DisclosureGroup("Instructions for bots") {
+            TextEditor(text: $instructions).frame(minHeight: 130)
+            Button("Save instructions") {
+              perform(
+                "/instructions", method: "PATCH",
+                body: .object(["instructions": .string(instructions)]),
+                success: "Instructions saved."
+              )
+            }
+          }
+        }
+        Section {
+          DisclosureGroup("Manage accounts") {
+            TextField("Account name, e.g. Personal", text: $alias)
+            Button("Rename account") {
+              perform(
+                "/account", method: "PATCH", body: .object(["alias": .string(alias)]),
+                success: "Account renamed.")
+            }.disabled(alias.count < 2 || alias.count > 80)
+            TextField("New account name, e.g. Work", text: $newAlias)
+            Button("Add another account") {
+              Task { await addAccount() }
+            }.disabled(newAlias.count < 2 || newAlias.count > 80)
+            Button("Remove account", role: .destructive) { remove = true }
+          }
+        }
+        Section {
+          DisclosureGroup("Tools and troubleshooting") {
+            NavigationLink("Tool permissions") { PluginToolPoliciesView(connection: connection) }
+            NavigationLink("Test a tool") { PluginToolTestView(connection: connection) }
+            Button("Restart connection") { perform("/restart", success: "Connection restarted.") }
+          }
         }
       }
-    }.navigationTitle("Connection").navigationBarTitleDisplayMode(.inline).disabled(operation.busy)
+    }.id(connection["id"].string).navigationTitle("Connection").navigationBarTitleDisplayMode(
+      .inline
+    ).disabled(operation.busy)
       .task { if !loaded { await load() } }
       .onDisappear {
         secrets = [:]
@@ -192,6 +254,7 @@ struct PluginConnectionView: View {
             if await operation.run({
               _ = try await store.request(path + "/account", method: "DELETE")
             }) {
+              await onChange()
               dismiss()
             }
           }
@@ -199,21 +262,33 @@ struct PluginConnectionView: View {
       }
   }
   private func load() async {
-    await operation.run(feedback: false) {
-      configuration = try await store.request(path + "/configuration")
-      values = configuration["values"].object
-      instructions = connection["instructions"].string
-      alias = connection["alias"].string
-      endpoint = configuration["endpoint"].string
-      command = configuration["command"].string
-      args = configuration["args"].pretty
-      cwd = configuration["cwd"].string
-      method =
-        configuration["tokenEndpointAuthMethod"].string.isEmpty
-        ? "none" : configuration["tokenEndpointAuthMethod"].string
-      callbackMode = configuration["oauthCallbackMode"].string.isEmpty ? "auto" : configuration["oauthCallbackMode"].string
-      loaded = true
+    await operation.run(feedback: false) { try await loadConfiguration() }
+  }
+  private func loadConfiguration() async throws {
+    configuration = try await store.request(path + "/configuration")
+    values = configuration["values"].object
+    instructions = connection["instructions"].string
+    alias = connection["alias"].string
+    endpoint = configuration["endpoint"].string
+    command = configuration["command"].string
+    args = configuration["args"].pretty
+    cwd = configuration["cwd"].string
+    method =
+      configuration["tokenEndpointAuthMethod"].string.isEmpty
+      ? "none" : configuration["tokenEndpointAuthMethod"].string
+    callbackMode =
+      configuration["oauthCallbackMode"].string.isEmpty
+      ? "auto" : configuration["oauthCallbackMode"].string
+    if PluginAuthorizationSession(connection) == nil,
+      !configuration["resolvedOAuthCallbackMode"].string.isEmpty
+    {
+      connection["oauthCallbackMode"] = configuration["resolvedOAuthCallbackMode"]
     }
+    connection["setupPhase"] = configuration["setupPhase"]
+    connection["configured"] = .bool(
+      configuration["setupPhase"].string != "provider_setup_required")
+    setupExpanded = configuration["setupPhase"].string == "provider_setup_required"
+    loaded = true
   }
   private func perform(
     _ suffix: String, method: String = "POST", body: JSON? = nil, success: String
@@ -221,11 +296,39 @@ struct PluginConnectionView: View {
     Task {
       await operation.run(success: success) {
         _ = try await store.request(path + suffix, method: method, body: body)
+        if suffix == "/account" {
+          connection["alias"] = .string(alias.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        await onChange()
       }
     }
   }
+  private func addAccount() async {
+    await operation.run(success: "Account added. Sign in to connect it.") {
+      let created = try await store.request(
+        path + "/accounts", method: "POST",
+        body: .object(["alias": .string(newAlias.trimmingCharacters(in: .whitespacesAndNewlines))]))
+      // Continue on the account just created, rather than leaving the user on the source account.
+      for key in ["id", "alias", "status"] { connection[key] = created[key] }
+      for key in ["authorizationUrl", "authorizationExpiresAt", "statusMessage"] {
+        connection[key] = .null
+      }
+      connection["setupPhase"] = .null
+      connection["instructions"] = .string("")
+      secrets = [:]
+      cleared = []
+      newAlias = ""
+      headers = "{}"
+      env = "{}"
+      clearHeaders = false
+      clearEnvironment = false
+      loaded = false
+      try await loadConfiguration()
+      await onChange()
+    }
+  }
   @discardableResult private func save(feedback: Bool = true) async -> Bool {
-    await operation.run(success: "Configuration saved.", feedback: feedback) {
+    await operation.run(success: feedback ? "Configuration saved." : nil, feedback: feedback) {
       var validation = values
       for (key, value) in secrets where !value.isEmpty { validation[key] = .string(value) }
       try FormValidation.fields(
@@ -258,8 +361,11 @@ struct PluginConnectionView: View {
         body["args"] = parsed
         body["cwd"] = .string(cwd)
       }
-      let headerMap = clearHeaders ? JSON.object([:]) : try FormValidation.stringMap(headers, label: "Headers")
-      let environment = clearEnvironment ? JSON.object([:]) : try FormValidation.stringMap(env, label: "Environment")
+      let headerMap =
+        clearHeaders ? JSON.object([:]) : try FormValidation.stringMap(headers, label: "Headers")
+      let environment =
+        clearEnvironment
+        ? JSON.object([:]) : try FormValidation.stringMap(env, label: "Environment")
       if clearHeaders || !headerMap.object.isEmpty { body["headers"] = headerMap }
       if clearEnvironment || !environment.object.isEmpty { body["env"] = environment }
       _ = try await store.request(path + "/configuration", method: "PUT", body: .object(body))
@@ -271,8 +377,14 @@ struct PluginConnectionView: View {
       clearEnvironment = false
       configuration = try await store.request(path + "/configuration")
       if connection["auth"].string == "oauth" {
-        connection["oauthCallbackMode"] = configuration["oauthCallbackMode"]
+        if !configuration["resolvedOAuthCallbackMode"].string.isEmpty {
+          connection["oauthCallbackMode"] = configuration["resolvedOAuthCallbackMode"]
+        }
       }
+      connection["setupPhase"] = configuration["setupPhase"]
+      connection["configured"] = .bool(
+        configuration["setupPhase"].string != "provider_setup_required")
+      await onChange()
     }
   }
 }

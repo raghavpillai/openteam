@@ -250,7 +250,7 @@ import XCTest
     XCTAssertTrue(app.buttons["Connection settings"].waitForExistence(timeout: 8))
     try await expect("form.result", "success")
     app.buttons["Connection settings"].tap()
-    XCTAssertTrue(app.textFields["Account alias"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.buttons["Manage accounts"].waitForExistence(timeout: 8))
     let final = try await events()
     XCTAssertEqual(final.count, 1, "Connection loading must stay quiet")
   }
@@ -423,7 +423,7 @@ import XCTest
     XCTAssertTrue(app.buttons["Connection settings"].waitForExistence(timeout: 8))
     _ = try await request("/__qa/control", body: ["pluginCanAuthenticate": true])
     app.buttons["Connection settings"].tap()
-    XCTAssertTrue(app.textFields["Account alias"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.buttons["Manage accounts"].waitForExistence(timeout: 8))
     scrollTo(app.buttons["Sign in"], app)
     _ = try await request(
       "/__qa/control",

@@ -86,7 +86,14 @@ const server = Bun.serve({
       offline = input.offline ?? offline; dropNextSend = input.dropNextSend ?? dropNextSend; authRequired = input.authRequired ?? authRequired;
       dropNextRoutineRun = input.dropNextRoutineRun ?? dropNextRoutineRun;
       if (input.screenState) screen.state = input.screenState;
-      if (input.pluginCanAuthenticate !== undefined) functionality.connection.canAuthenticate = input.pluginCanAuthenticate;
+      if (input.pluginCanAuthenticate !== undefined) {
+        functionality.connection.canAuthenticate = input.pluginCanAuthenticate;
+        if (input.pluginCanAuthenticate) {
+          functionality.connection.auth = "oauth";
+          functionality.connection.status = "needs_auth";
+          Object.assign(functionality.connection, { oauthCallbackMode: "server" });
+        }
+      }
       if (input.configuration) Object.assign(functionality.configuration, input.configuration);
       if (input.customAvatarRevision) {
         snapshot.bots[0]!.hasAvatar = true;

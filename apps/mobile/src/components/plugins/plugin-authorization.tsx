@@ -28,6 +28,7 @@ export function PluginAuthorization({
     return () => clearInterval(timer);
   }, [connection.authorizationUrl]);
   const session = pluginAuthorization(connection, now);
+  useEffect(() => { if (session?.expired) setCallbackUrl(""); }, [session?.expired]);
   if (!session) return null;
   const run = async (action: () => Promise<unknown>) => {
     if (active.current) return;
@@ -48,16 +49,16 @@ export function PluginAuthorization({
   return (
     <View style={{ gap: 8, paddingVertical: 12 }}>
       <Text style={{ color: theme.text, fontWeight: "600" }}>
-        {session.expired ? "Sign-in expired" : "Waiting for authorization"}
+        {session.expired ? "Sign-in expired" : "Finish signing in"}
       </Text>
       <Text style={{ color: theme.textMuted }}>
         {session.expired
           ? "Start again when you’re ready. Your setup is saved."
-          : "Finish in your browser, or reopen the same sign-in."}
+          : "Approve access in your browser, then return to OpenTeam."}
       </Text>
       {connection.oauthCallbackMode === "manual" && !session.expired && <View style={{ gap: 8 }}>
-        <Text style={{ color: theme.textMuted }}>After approving access, copy the full address of the localhost page, even if it did not load, and paste it here.</Text>
-        <TextInput accessibilityLabel="Complete callback URL" placeholder="Paste complete callback URL" value={callbackUrl} onChangeText={setCallbackUrl} secureTextEntry autoCapitalize="none" autoCorrect={false} style={{ color: theme.text, padding: 12 }} />
+        <Text style={{ color: theme.textMuted }}>The browser’s final page may say it cannot open. This is expected. Tap the address bar, copy the entire address starting with 127.0.0.1, return here, and paste it below.</Text>
+        <TextInput accessibilityLabel="Browser address from sign-in" placeholder="Paste the browser address here" value={callbackUrl} onChangeText={setCallbackUrl} secureTextEntry autoCapitalize="none" autoCorrect={false} style={{ color: theme.text, padding: 12 }} />
         <NativeActionButton title="Complete sign-in" disabled={busy || !callbackUrl.trim()} onPress={() => { const value = callbackUrl; setCallbackUrl(""); void run(() => pluginOperation(api => api.finishManualPluginAuthentication(connection.id, value))); }} />
       </View>}
       {error ? (

@@ -17,36 +17,47 @@ struct PluginConnectionActions: View {
     PluginAuthorizationSession(connection, now: now)
   }
   private var requiresDesktop: Bool { MobilePluginAuthorization.requiresDesktop(connection) }
+  private var presentation: PluginConnectionPresentation { .init(connection, now: now) }
 
   var body: some View {
     FormStatus(operation: operation)
     LabeledContent(
       "Status",
-      value: connection["setupPhase"].string.isEmpty ? connection["status"].string.replacingOccurrences(of: "_", with: " ").capitalized : connection["setupPhase"].string.replacingOccurrences(of: "_", with: " ").capitalized)
-      // A Form lazily realizes rows. Keep the lifecycle on the visible status row:
-      // OAuth controls can push an invisible footer offscreen on smaller iPhones.
-      .task(id: scenePhase) { await monitorConnection() }
-    if !connection["statusMessage"].string.isEmpty {
+      value: presentation.status
+    )
+    // A Form lazily realizes rows. Keep the lifecycle on the visible status row:
+    // OAuth controls can push an invisible footer offscreen on smaller iPhones.
+    .task(id: scenePhase) { await monitorConnection() }
+    if connection["status"].string == "error", !connection["statusMessage"].string.isEmpty {
       Text(connection["statusMessage"].string).font(.footnote).foregroundStyle(NativePalette.muted)
     }
-    if requiresDesktop {
-      if connection["status"].string != "ready" {
-        Text("Sign in on desktop").font(.headline)
-        Text("Open this plugin in the OpenTeam desktop app connected to the same server. Once connected, it works here too; the desktop app can be closed. To sign in from this device, configure a server callback and the provider’s web client in Connection settings.")
-          .font(.footnote).foregroundStyle(NativePalette.muted)
-      }
-    } else if let session {
-      Text(session.expired ? "Sign-in expired" : "Waiting for authorization").font(.headline)
+    if presentation.connected {
       Text(
-        session.expired
-          ? "Start again when you’re ready. Your setup is saved."
-          : "Finish in your browser, or reopen the same sign-in."
+        "This account is ready to use. Choose which bots can use it under Bot access on the plugin page."
       )
       .font(.footnote).foregroundStyle(NativePalette.muted)
+    } else if presentation.connecting {
+      ProgressView("Connecting your account…")
+    } else if requiresDesktop {
+      Text("Sign in on desktop").font(.headline)
+      Text(
+        "This account uses the desktop sign-in method. To sign in on this iPhone, open Connection settings, expand Sign-in setup, and choose Automatic. Or finish signing in in the OpenTeam desktop app."
+      )
+      .font(.footnote).foregroundStyle(NativePalette.muted)
+    } else if let session {
+      if session.expired || connection["oauthCallbackMode"].string != "manual" {
+        Text(
+          session.expired
+            ? "Start again when you’re ready. Your setup is saved."
+            : "Approve access in your browser, then return to OpenTeam."
+        ).font(.subheadline).foregroundStyle(.secondary)
+      }
       if connection["oauthCallbackMode"].string == "manual", !session.expired {
-        Text("After approving access, the localhost page may not load. Copy its complete address and paste it here. Keep it out of chat.")
-          .font(.footnote).foregroundStyle(NativePalette.muted)
-        SecureField("Complete callback URL", text: $callbackURL)
+        Text(
+          "1. Approve access in your browser.\n2. If Safari says it can’t open the page, that’s expected. Copy the entire address from the address bar (it starts with 127.0.0.1).\n3. Return here and paste the address below."
+        )
+        .font(.subheadline).foregroundStyle(.secondary)
+        SecureField("Paste the browser address here", text: $callbackURL)
           .textInputAutocapitalization(.never).autocorrectionDisabled()
           .accessibilityIdentifier("plugin-manual-callback")
           .onChange(of: session.state) { _, _ in callbackURL = "" }
@@ -54,8 +65,11 @@ struct PluginConnectionActions: View {
         Button("Complete sign-in") {
           let value = callbackURL
           callbackURL = ""
-          Task { await command("/authenticate/manual", body: .object(["callbackUrl": .string(value)])) }
-        }.disabled(operation.busy || callbackURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+          Task {
+            await command("/authenticate/manual", body: .object(["callbackUrl": .string(value)]))
+          }
+        }.disabled(
+          operation.busy || callbackURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
       }
       Button(session.expired ? "Try again" : "Reopen sign-in") {
         Task {
@@ -67,23 +81,37 @@ struct PluginConnectionActions: View {
           await command("/authenticate/cancel", body: .object(["state": .string(session.state)]))
         }
       }.disabled(operation.busy)
-    } else if connection["canAuthenticate"].bool {
-      Button("Sign in") { Task { await signIn() } }.disabled(operation.busy)
+    } else if presentation.needsSetup, beforeSignIn == nil {
+      Text(
+        "Open Connection settings to finish the one-time setup. Then you can sign in on this device."
+      )
+      .font(.footnote).foregroundStyle(NativePalette.muted)
+    } else if connection["auth"].string == "oauth" {
+      Button(presentation.needsSetup ? "Save and sign in" : "Sign in") { Task { await signIn() } }
+        .disabled(operation.busy)
+    } else {
+      Button("Connect") { Task { await command("/connect") } }.disabled(operation.busy)
     }
-    Button("Connect") { Task { await command("/connect") } }.disabled(operation.busy)
-    Button("Refresh status") {
-      Task { await operation.run(feedback: false) { try await refresh() } }
+    DisclosureGroup("More connection actions") {
+      Button("Refresh status") {
+        Task { await operation.run(feedback: false) { try await refresh() } }
+      }.disabled(operation.busy)
+      if presentation.connected || presentation.connecting || connection["status"].string == "error"
+      {
+        Button("Disconnect", role: .destructive) { Task { await command("/disconnect") } }
+          .disabled(operation.busy)
+      }
     }
-    .disabled(operation.busy)
-    Button("Disconnect") { Task { await command("/disconnect") } }.disabled(operation.busy)
   }
   private func monitorConnection() async {
     guard scenePhase == .active else { return }
     if startAutomatically, !autoStarted {
       autoStarted = true
-      if connection["canAuthenticate"].bool {
+      if connection["auth"].string == "oauth" {
         if !requiresDesktop { await signIn() }
-      } else { await command("/connect") }
+      } else {
+        await command("/connect")
+      }
     } else {
       try? await refresh()
     }
@@ -143,7 +171,14 @@ struct PluginConnectionActions: View {
           || (suffix == "/authenticate/manual" && connection["status"].string == "ready")
           || (suffix == "/disconnect" && connection["status"].string == "disconnected")
           || (suffix == "/authenticate/cancel" && session == nil)
-        if !reconciled { throw error }
+        if !reconciled {
+          if suffix == "/authenticate/manual", (error as? APIError)?.status == 400 {
+            throw APIError(
+              "That address couldn’t finish sign-in. Copy the entire address from the browser’s final page and paste it again. To start over, cancel this sign-in."
+            )
+          }
+          throw error
+        }
       }
       try await refresh()
     }

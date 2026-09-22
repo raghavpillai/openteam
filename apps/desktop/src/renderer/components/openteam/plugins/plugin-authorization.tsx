@@ -36,7 +36,7 @@ export function PluginAuthorization({
       setFeedback("Authorization received. Refreshing connection status…");
     } catch {
       const status = await api.pluginConnectionStatuses([connection.id]).catch(() => null);
-      setFeedback(status?.connections[0]?.status === "ready" ? "Connected." : "Could not finish sign-in. Check the callback URL or start again if it expired.");
+      setFeedback(status?.connections[0]?.status === "ready" ? "Connected." : "Could not finish sign-in. Copy the entire address from the browser’s final page and try pasting it again. If this sign-in expired, start again.");
     } finally { setSubmitting(false); }
   };
   const action =
@@ -44,15 +44,15 @@ export function PluginAuthorization({
   return (
     <div className="mx-3 mb-3 rounded-lg bg-foreground/[0.035] p-3" role="status">
       <p className="text-[12px] font-medium">
-        {session.expired ? "Sign-in expired" : "Waiting for authorization"}
+        {session.expired ? "Sign-in expired" : "Finish signing in"}
       </p>
       <p className="mt-1 text-[11px] text-foreground-secondary">
         {session.expired
           ? "Start again when you’re ready. Your setup is saved."
-          : manual ? "After approving access, the localhost page may not load. Copy its complete address and paste it below. Keep it out of chat." : "Finish in your browser. If you closed it, reopen the same sign-in below."}
+          : manual ? "Approve access in your browser. The next page may say it cannot open — that is expected. Copy the entire address starting with 127.0.0.1 from the address bar, return here, and paste it below." : "Finish in your browser. If you closed it, reopen the same sign-in below."}
       </p>
       {manual && !session.expired && <div className="mt-3 flex flex-wrap gap-2">
-        <input type="password" aria-label="Complete callback URL" placeholder="Paste complete callback URL" autoComplete="off" spellCheck={false} value={callbackUrl} onChange={event => setCallbackUrl(event.target.value)} className="min-w-0 flex-1 rounded border border-foreground/15 bg-transparent px-3 py-2 text-[12px]" />
+        <input type="password" aria-label="Browser address from sign-in" placeholder="Paste the browser address here" autoComplete="off" spellCheck={false} value={callbackUrl} onChange={event => setCallbackUrl(event.target.value)} className="min-w-0 flex-1 rounded border border-foreground/15 bg-transparent px-3 py-2 text-[12px]" />
         <button className={action} type="button" disabled={busy || submitting || !callbackUrl.trim()} onClick={() => void finish()}>Complete sign-in</button>
       </div>}
       {feedback && <p role="status" className="mt-2 text-[12px]">{feedback}</p>}

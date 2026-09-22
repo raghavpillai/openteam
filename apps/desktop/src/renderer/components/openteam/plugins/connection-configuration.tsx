@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../../client/openteam-api";
 import { inputClass, PluginButton, PluginField, usePluginOperation } from "./plugin-ui";
 import { PluginAuthorization } from "./plugin-authorization";
-import { pluginAuthorization } from "@openteam/product-core/plugin-authorization";
+import { pluginAuthorization, pluginProviderSetupSteps, pluginProviderSetupDescription } from "@openteam/product-core/plugin-authorization";
 
 export function ConnectionConfiguration({
   connection,
@@ -120,9 +120,9 @@ export function ConnectionConfiguration({
       {config.setup && (
         <section className="rounded-xl bg-black/5 p-4 dark:bg-white/5">
           <h4 className="font-medium">{config.setup.title}</h4>
-          <p className="mt-1 text-sm">{config.setup.description}</p>
+          <p className="mt-1 text-sm">{pluginProviderSetupDescription(connection.pluginKey, config.setup.description)}</p>
           <ol className="my-3 list-decimal space-y-1 pl-5 text-sm">
-            {config.setup.steps.map((step) => (
+            {pluginProviderSetupSteps(connection.pluginKey, resolvedCallbackMode, config.setup.steps).map((step) => (
               <li key={step}>{step}</li>
             ))}
           </ol>

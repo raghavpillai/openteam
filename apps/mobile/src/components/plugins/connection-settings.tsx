@@ -2,6 +2,7 @@ import { Linking, Pressable, Switch, Text, View } from "react-native";
 
 import { Button, Field, Choices } from "./plugin-controls";
 import type { PluginWorkspaceModel } from "./use-plugin-workspace";
+import { pluginProviderSetupSteps, pluginProviderSetupDescription } from "@openteam/product-core/plugin-authorization";
 import { PluginAuthorization } from "./plugin-authorization";
 export function ConnectionSettings({ model }: { model: PluginWorkspaceModel }) {
   const {
@@ -83,8 +84,8 @@ export function ConnectionSettings({ model }: { model: PluginWorkspaceModel }) {
           )}
           {config.setup && (
             <View style={{ gap: 8 }}>
-              {paragraph(config.setup.description)}
-              {config.setup.steps.map((step, index) => (
+              {paragraph(pluginProviderSetupDescription(connection.pluginKey, config.setup.description))}
+              {pluginProviderSetupSteps(connection.pluginKey, callbackMode === "auto" ? (config.callbackUrl.startsWith("https://") ? "server" : "manual") : callbackMode, config.setup.steps).map((step, index) => (
                 <Text key={step} style={{ color: theme.text }}>
                   {index + 1}. {step}
                 </Text>

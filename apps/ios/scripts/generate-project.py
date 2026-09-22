@@ -129,3 +129,17 @@ for scheme in ['OpenTeamNative.xcscheme', 'OpenTeamReference.xcscheme']:
 for scheme in ['OpenTeamNative.xcscheme', 'OpenTeamReference.xcscheme']:
     path = schemes / scheme
     path.write_text(path.read_text().replace('</SkippedTests>', '<Test Identifier="GlassSectionsUITests"/><Test Identifier="AttachmentReferenceUITests"/><Test Identifier="EdgeBackUITests"/><Test Identifier="MessagePerformanceUITests"/><Test Identifier="ChatMotionUITests"/></SkippedTests>'))
+
+# Keep the default run self-contained. Real desktop capture needs an opt-in backend.
+for scheme in ['OpenTeamNative.xcscheme', 'OpenTeamReference.xcscheme']:
+    path = schemes / scheme
+    path.write_text(path.read_text().replace('</SkippedTests>', '<Test Identifier="VideoComputerParityUITests"/></SkippedTests>'))
+(schemes / 'VideoComputerParity.xcscheme').write_text(visual_scheme.replace('GrokbotVisualTests', 'VideoComputerParityUITests'))
+(schemes / 'VideoParity.xcscheme').write_text(visual_scheme.replace('GrokbotVisualTests', 'VideoParityUITests'))
+regression_tests = ['ChatMotionUITests/testComposerFocusAtTextAndPaddingInBothAppearances', 'QAAuditUITests/testStartThreadInsideThreadDoesSomething', 'QAAuditUITests/testSearchOpensTheMatchingThreadReply', 'QAAuditUITests/testChromeSelectionAndExecutionReceipts', 'GrokbotVisualTests/testFocusedReplyRetriesAndKeepsThreadContext', 'NativeSmokeTests/testThreadKeepsQueuedAndSuccessiveRepliesInItsOwnContext', 'HapticsUITests/testMessageHoldCopyReactionReplyAndSendHaveExactlyOneCueEach', 'EdgeBackUITests/testInteriorMessageSwipesAndHoldsStillWork', 'EdgeBackUITests/testCanceledEdgeSwipeDoesNotBecomeReply', 'ChatMotionUITests/testKeyboardSendAndActivityTransitions', 'MessageFeatureUITests/testOlderSearchContextLoadsForwardWithoutSkippingPages', 'MessageFeatureUITests/testContinuousScrollCrossesNativeWindowsAndReturnsToLatest', 'ContentFlowUITests/testOfflineRichMarkdownTablesMathAndDiagram', 'ContentFlowUITests/testCompletedWidgetKeepsLabeledCheckedRowsInBothThemes', 'ContentFlowUITests/testUserFormPrefillValidationFailureAndAcceptedReceipt', 'MessagePerformanceUITests/testThousandMessageScrolling']
+(schemes / 'VideoParityRegression.xcscheme').write_text(visual_scheme.replace('<Test Identifier="GrokbotVisualTests"/>', ''.join(f'<Test Identifier="{name}"/>' for name in regression_tests)))
+
+# Broader post-migration acceptance; fixture ports 20032/20043/20039 plus local installation.
+(schemes / 'MigrationAcceptance.xcscheme').write_text(visual_scheme.replace('<Test Identifier="GrokbotVisualTests"/>', ''.join(f'<Test Identifier="{name}"/>' for name in ['RoutineScheduleUITests', 'EdgeBackUITests', 'AttachmentReferenceUITests', 'LiveHTTPUITests'])))
+
+(schemes / 'MotionPerformance.xcscheme').write_text(visual_scheme.replace('<Test Identifier="GrokbotVisualTests"/>', '<Test Identifier="ChatMotionUITests"/><Test Identifier="MessagePerformanceUITests"/>'))

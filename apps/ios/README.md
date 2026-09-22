@@ -52,10 +52,18 @@ Run the core, client-contract and default native UI checks against a booted simu
 bash apps/ios/scripts/verify.sh <simulator-udid>
 ```
 
-The script starts fixtures on ports 19997 and 19992. Optional Xcode schemes cover
+The script starts fixtures on ports 19997, 19992, 20070, 20122 and 20121.
+The `VideoComputerParity` scheme requires a separate disposable live desktop backend.
+`MigrationAcceptance` covers routines, edge gestures, attachments and the local
+HTTP/HTTPS installation (fixtures 20032, 20043 and 20039). `MotionPerformance`
+covers composer motion and history performance (fixtures 20070 and 19996); run
+it after other simulator suites finish. Optional Xcode schemes cover
 message motion/performance, widgets, settings, VNC, and reference captures. See
 `Tests/UITests` and `OpenTeamNative.xcodeproj/xcshareddata/xcschemes` for the current
-checks; optional live-server tests require their own isolated backend.
+checks; optional live-server tests require their own isolated backend. For an
+isolated `FunctionalFlowUITests` rerun, set
+`TEST_RUNNER_FUNCTIONAL_FLOW_SERVER=http://127.0.0.1:<fixture-port>` when invoking
+`xcodebuild`; the default remains port 19992.
 
 For real transcription, the `RealServer` scheme's
 `RealServerUITests/testLiveVoiceTranscriptionAndDraftPreservation` uses

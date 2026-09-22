@@ -63,6 +63,7 @@ function reset(name:string){
 reset('single');
 const server=Bun.serve({hostname:'127.0.0.1',port:20121,idleTimeout:40,async fetch(req){
  const url=new URL(req.url),path=url.pathname;
+ if(path==='/__audit/health')return Response.json({service:'ios-video-reference-fixture'});
  if(path==='/__audit/scene') {const b:any=await req.json();await fetch(upstream+'/__qa/reset',{method:'POST'});reset(b.scene);return Response.json({ok:true});}
  if(path==='/__audit/state')return Response.json({scene,revision,messages,receipts});
  if(path==='/__audit/fail-once'){failOnce=true;return Response.json({ok:true});}

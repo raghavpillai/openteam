@@ -2,7 +2,7 @@ import XCTest
 
 @MainActor
 final class FunctionalFlowUITests: XCTestCase {
-  let base = "http://127.0.0.1:19992"
+  let base = ProcessInfo.processInfo.environment["FUNCTIONAL_FLOW_SERVER"] ?? "http://127.0.0.1:19992"
   func fixture(_ path: String = "/__qa/control", _ body: [String: Any] = [:]) async throws {
     var request = URLRequest(url: URL(string: base + path)!)
     request.httpMethod = "POST"
@@ -380,7 +380,20 @@ final class FunctionalFlowUITests: XCTestCase {
     error(app)
     XCTAssertEqual(alias.value as? String, "Work notes")
     app.buttons["Rename account"].tap()
-    XCTAssertTrue(app.staticTexts["Account renamed."].waitForExistence(timeout: 8))
+    // Native Form virtualizes rows above the account controls. Bring the
+    // receipt back into view rather than treating an offscreen row as absent.
+    for _ in 0..<4 where !app.staticTexts["Account renamed."].exists {
+      app.collectionViews.firstMatch.swipeDown()
+    }
+    guard app.staticTexts["Account renamed."].waitForExistence(timeout: 8) else {
+      capture("plugin-account-rename-failure", app)
+      let hierarchy = XCTAttachment(string: app.debugDescription)
+      hierarchy.name = "plugin-account-rename-hierarchy"
+      hierarchy.lifetime = .keepAlways
+      add(hierarchy)
+      XCTFail("Renaming must keep account settings open and show its receipt.")
+      return
+    }
     capture("plugin-account", app)
     app.buttons["Manage accounts"].tap()
     app.buttons["Connection setup"].tap()

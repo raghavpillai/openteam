@@ -435,6 +435,19 @@ export function useVirtualWindow({
 
   const followedActiveItem = useRef<string | null>(null);
 
+  const getViewportAnchor = useCallback(() => {
+    const element = scrollRef.current;
+    const current = latestLayout.current;
+    if (!element || !current || current.sizes.length === 0) return null;
+    const offset = element.scrollTop - scopeOrigin();
+    const visible = computeVirtualRangeFromLayout({
+      ...current, scrollOffset: offset, viewportSize: element.clientHeight,
+      overscan: 0, maxItems: 1,
+    });
+    const index = visible.startIndex;
+    return { index, key: getKey(index), viewportOffset: (current.offsets[index] ?? 0) - offset };
+  }, [getKey, scopeOrigin, scrollRef]);
+
   useLayoutEffect(() => {
     if (!revealActiveItem || activeIndex === undefined || activeIndex < 0 || activeIndex >= count) {
       followedActiveItem.current = null;
@@ -455,6 +468,7 @@ export function useVirtualWindow({
   }, [activeIndex, count, measuredSizeAt, getKey, range.offsets, revealActiveItem, scopeOrigin, scrollRef]);
 
   return {
+    getViewportAnchor,
     measureElement,
     scrollInitialized,
     scrollIndexToViewportOffset,

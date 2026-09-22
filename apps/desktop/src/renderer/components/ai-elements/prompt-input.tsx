@@ -175,6 +175,7 @@ export function PromptInput({
   const [dragging, setDragging] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const submitInFlight = useRef(false);
+  const restoreSubmitFocus = useRef(false);
   const [staging, setStaging] = useState(false);
   const stagingInFlight = useRef(false);
   const [autoExpanded, setAutoExpanded] = useState(false);
@@ -199,6 +200,17 @@ export function PromptInput({
   useLayoutEffect(() => {
     if (focusRequest !== undefined && !disabled) textareaRef.current?.focus({ preventScroll: true });
   }, [focusRequest, disabled]);
+
+  useLayoutEffect(() => {
+    if (submitting || !restoreSubmitFocus.current) return;
+    restoreSubmitFocus.current = false;
+    // Disabling contenteditable during staging drops focus. Restore it after
+    // dispatch, unless the user has moved to another control in the meantime.
+    const active = document.activeElement;
+    if (!disabled && (active === document.body || surfaceRef.current?.contains(active))) {
+      textareaRef.current?.focus({ preventScroll: true });
+    }
+  }, [submitting, disabled]);
 
   const startVoice = () => {
     if (textareaRef.current) voiceBookmark.current = voiceInsertionRange(textareaRef.current);
@@ -567,6 +579,7 @@ export function PromptInput({
     const content = value.trim();
     if ((!content && attachments.length === 0) || blocked || sendDisabled || submitInFlight.current) return;
     submitInFlight.current = true;
+    restoreSubmitFocus.current = Boolean(surfaceRef.current?.contains(document.activeElement));
     const pendingAttachments = attachmentsRef.current;
     let recoverableAttachments = pendingAttachments;
     const pendingRichText = richText;

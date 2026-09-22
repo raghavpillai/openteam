@@ -785,7 +785,9 @@ const SNAPSHOT_FN = (opts) => {
 			nodeCount += 1;
 			lines.push(describe(el, depth));
 			childDepth = depth + 1;
-			if (isInteractive || isTextual) return;
+			// Text blocks can contain frames whose interactive descendants live in
+			// another document and therefore do not match querySelector above.
+			if (isInteractive || (isTextual && !el.querySelector("iframe,frame"))) return;
 		}
 		// An open shadow root's children walk like light children — the editable
 		// controls of custom elements (e.g. <faceplate-text-input>) live there.

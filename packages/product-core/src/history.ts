@@ -112,8 +112,12 @@ export const reconcileActiveHistoryRefresh = (
     : { ...latest, loading };
 };
 
+/** Server sequence, not random UUID order, breaks equal-timestamp ties. */
+export const compareMessageChronology = (left: ChannelMessageView, right: ChannelMessageView): number =>
+  messageCreatedAtMs(left) - messageCreatedAtMs(right) || compareEntitySequence(left, right);
+
 const messageOrder = (left: ChannelMessageView, right: ChannelMessageView): number =>
-  messageCreatedAtMs(left) - messageCreatedAtMs(right) || left.id.localeCompare(right.id);
+  compareMessageChronology(left, right) || left.id.localeCompare(right.id);
 
 const metadataFor = (message: ChannelMessageView): Record<string, unknown> =>
   message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)

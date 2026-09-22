@@ -193,10 +193,6 @@ button.group-sender-name:hover {
   background: color-mix(in srgb, currentColor 20%, transparent);
 }
 
-/* Keep the author-column width independent of hover controls. */
-.message-row[data-group-author] .group-message-body > [data-message-bubble-id] {
-  max-width: min(calc((100% - 30px) * 0.88), 640px, calc(100% - 112px));
-}
 /* Overlay scrollbars preserve the reference transcript's full content width. */
 .conversation-overlay-scroll {
   overflow: auto !important;

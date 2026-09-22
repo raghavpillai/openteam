@@ -172,6 +172,7 @@
   animation: spin 0.7s linear infinite;
 }
 .permission-widget {
+  max-width: none;
   line-height: 20px;
 }
 .permission-widget .widget-options {
@@ -258,7 +259,7 @@ button.widget-option[aria-pressed="true"] {
 .widget-option-resolved .widget-option-key {
   opacity: 0.4;
 }
-.widget-option-resolved svg {
+.widget-option svg {
   color: var(--permission-secondary);
 }
 .widget-custom {
@@ -269,12 +270,14 @@ button.widget-option[aria-pressed="true"] {
   border: 1px solid var(--permission-border);
   border-radius: 8px;
   background: var(--permission-input);
+  transition: border-color 120ms ease;
 }
 .widget-custom:focus-within {
-  border-color: color-mix(in srgb, var(--permission-text) 30%, transparent);
+  border-color: var(--ring);
 }
 .widget-custom textarea {
   display: block;
+  field-sizing: content;
   flex: 1 1 0;
   min-width: 0;
   padding: 5px 10px;

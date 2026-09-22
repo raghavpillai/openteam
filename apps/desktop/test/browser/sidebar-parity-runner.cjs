@@ -117,7 +117,7 @@ app
               }
             }
             if (!read) {
-              const dot = document.querySelector('[aria-label="Unread"]');
+              const dot = document.querySelector('[aria-label="Unread activity"]');
               const row = dot.closest("button");
               const bounds = row.getBoundingClientRect(),
                 badge = dot.getBoundingClientRect();
@@ -130,8 +130,8 @@ app
                 "Unread dot must be vertically centered"
               );
               check(
-                getComputedStyle(row.querySelector(".truncate")).fontWeight === "400",
-                "Unread name must use regular weight"
+                getComputedStyle(row.querySelector(".truncate")).fontWeight === "500",
+                "Unread name retains the same medium weight as other rows"
               );
               document.querySelector('[data-more-unreads="below"]').click();
               await pause();

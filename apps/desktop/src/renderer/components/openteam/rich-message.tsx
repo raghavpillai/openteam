@@ -119,7 +119,7 @@ function ResolvedWidget({ metadata, widget }: { metadata: RichMetadata; widget: 
             {index > 0 && <div className="widget-divider" />}
             <div className="widget-option widget-option-resolved">
               {optionIndex !== null ? (
-                <span className={optionKeyClass}><span>{widgetOptionLetter(optionIndex)}</span></span>
+                <span aria-hidden="true" className={optionKeyClass}><span>{widgetOptionLetter(optionIndex)}</span></span>
               ) : null}
               <span className="widget-option-label min-w-0 flex-1">{label}</span>
               <span className="inline-flex w-4 shrink-0"><PermissionIcon name="check" className="size-3.5" /></span>
@@ -302,7 +302,7 @@ function WidgetCard({
               onClick={() => choose(value)}
               type="button"
             >
-              <span className={optionKeyClass}><span>{widgetOptionLetter(index)}</span></span>
+              <span aria-hidden="true" className={optionKeyClass}><span>{widgetOptionLetter(index)}</span></span>
               <span className="min-w-0 flex-1">
                 <span className="widget-option-label">{option.label}</span>
                 {option.description ? (
@@ -327,8 +327,6 @@ function WidgetCard({
               disabled={pending}
               onChange={(event) => {
                 setCustom(event.currentTarget.value);
-                event.currentTarget.style.height = "auto";
-                event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`;
               }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {

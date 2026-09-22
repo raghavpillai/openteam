@@ -11,6 +11,7 @@
     "test": "bun test --pass-with-no-tests",
     "test:browser-workflows": "bun run scripts/test-browser-workflows.ts",
     "test:browser-reliability": "bun run scripts/test-browser-reliability.ts",
+    "test:browser-session-lifecycle": "bun run scripts/test-browser-session-lifecycle.ts",
     "test:native-typing": "bun run scripts/test-native-typing.ts",
     "test:native-chooser": "bun run scripts/test-native-chooser.ts"
   },

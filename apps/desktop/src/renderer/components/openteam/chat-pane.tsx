@@ -455,6 +455,7 @@ const MessageRow = memo(function MessageRow({
   const a2aProjection = channel.kind === "bot_dm" ? a2aProjectionFor(message) : null;
   const userReactionSet = ownReactionEmojiSet(message);
   const display = messageDisplayProjection(message);
+  const isWidget = messageMetadata(message).type === "widget";
   const { attachments, stagedAttachments, displayContent, files: fileAttachments } = display;
   const stagedImageAttachments = stagedAttachments.filter(
     (attachment) => attachment.kind === "image" && attachment.previewUri
@@ -521,8 +522,11 @@ const MessageRow = memo(function MessageRow({
   const actions = (
     <MessageActions
       data-message-actions=""
-      className={`pointer-events-none shrink-0 opacity-0 transition-opacity duration-150 group-hover/message:pointer-events-auto group-hover/message:opacity-100 group-focus-within/message:pointer-events-auto group-focus-within/message:opacity-100 ${
-        from === "user" ? "flex-row-reverse" : ""
+      className={`pointer-events-none absolute z-[1] px-0 opacity-0 group-hover/message:pointer-events-auto group-hover/message:opacity-100 group-focus-within/message:pointer-events-auto group-focus-within/message:opacity-100 ${
+        from === "user" ? "right-full mr-1.5 flex-row-reverse" : "left-full ml-1.5"
+      } ${
+        images.length > 0 || fileAttachments.length > 0 || stagedFileAttachments.length > 0
+          ? "bottom-0" : "top-1/2 -translate-y-1/2"
       }`}
     >
       <EmojiPicker
@@ -532,7 +536,7 @@ const MessageRow = memo(function MessageRow({
       >
         <button
           aria-label="React to message"
-          className="flex size-6 items-center justify-center rounded-full hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+          className="flex size-6 shrink-0 items-center justify-center rounded-full transition-colors duration-[120ms] hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
           disabled={!canInteract}
           type="button"
         >
@@ -540,7 +544,7 @@ const MessageRow = memo(function MessageRow({
         </button>
       </EmojiPicker>
       <MessageAction
-        className="size-6 rounded-full"
+        className="size-6 shrink-0 rounded-full transition-colors duration-[120ms]"
         disabled={!canInteract}
         onClick={() => onReply(message)}
         tooltip="Reply"
@@ -551,7 +555,7 @@ const MessageRow = memo(function MessageRow({
         <DropdownMenuTrigger asChild>
           <button
             aria-label="More message actions"
-            className="flex size-6 items-center justify-center rounded-full hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+            className="flex size-6 shrink-0 items-center justify-center rounded-full transition-colors duration-[120ms] hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
             type="button"
           >
             <Ellipsis className="size-[15px]" />
@@ -585,7 +589,7 @@ const MessageRow = memo(function MessageRow({
         <Message
           className={`group/message${separatedFromPrevious && !hasAgentGutter ? " mt-3" : ""}`}
           data-group-author={hasAgentGutter || undefined}
-          data-enter={entranceActive ? "new" : undefined}
+          data-enter={entranceActive && !display.richMessage ? "new" : undefined}
           data-message-address={channelMessageAddress(message)}
           data-message-id={message.id}
           data-failed={delivery?.phase === "failed" || undefined}
@@ -634,7 +638,6 @@ const MessageRow = memo(function MessageRow({
                 : "items-center"
             } ${from === "user" ? "justify-end" : "justify-start"}`}
           >
-            {from === "user" && actions}
             {hasAgentGutter && (
               <div
                 className="flex w-[22px] shrink-0 self-stretch items-end justify-center"
@@ -643,55 +646,65 @@ const MessageRow = memo(function MessageRow({
                 {showAgentAvatar && <TranscriptSenderAvatar bot={senderBot} name={senderName ?? senderBot?.name ?? "Bot"} onOpenChat={onOpenBotChat} onOpenProfile={onOpenBotProfile} />}
               </div>
             )}
-            {display.richMessage ? (
-              <RichMessage message={message} />
-            ) : images.length > 0 ||
-              fileAttachments.length > 0 ||
-              stagedFileAttachments.length > 0 ? (
-              <div
-                className={`flex max-w-[min(88%,640px,calc(100%-82px))] flex-col gap-1.5 ${
-                  from === "user" ? "items-end" : "items-start"
-                }`}
-                data-message-bubble-id={message.id}
-              >
-                <MessageImageGallery images={images} />
-                {fileAttachments.length > 0 && (
-                  <Suspense fallback={null}>
-                    <MessageFileAttachments attachments={fileAttachments} />
-                  </Suspense>
-                )}
-                {stagedFileAttachments.map((attachment) => (
-                  <article
-                    className="flex h-[52px] w-[246px] max-w-full items-center gap-2 rounded-[12px] border border-black/10 bg-background px-3 dark:border-white/15"
-                    data-staged-attachment=""
-                    key={attachment.stagingId}
+            <div className={`flex min-w-0 flex-1 ${from === "user" ? "justify-end" : "justify-start"}`}>
+              <div className={cn(
+                "message-with-actions relative min-w-0",
+                display.richMessage ? "w-full" : "w-fit",
+                display.richMessage && !isWidget
+                  ? "max-w-[min(88%,520px,calc(100%-82px))]"
+                  : "max-w-[min(88%,640px,calc(100%-82px))]"
+              )}>
+                {display.richMessage ? (
+                  <RichMessage message={message} />
+                ) : images.length > 0 ||
+                  fileAttachments.length > 0 ||
+                  stagedFileAttachments.length > 0 ? (
+                  <div
+                    className={`flex max-w-full flex-col gap-1.5 ${
+                      from === "user" ? "items-end" : "items-start"
+                    }`}
+                    data-message-bubble-id={message.id}
                   >
-                    <File className="size-[17px] shrink-0 text-foreground-secondary" />
-                    <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
-                      {attachment.fileName}
-                    </span>
-                  </article>
-                ))}
-                {displayContent && (
+                    <MessageImageGallery images={images} />
+                    {fileAttachments.length > 0 && (
+                      <Suspense fallback={null}>
+                        <MessageFileAttachments attachments={fileAttachments} />
+                      </Suspense>
+                    )}
+                    {stagedFileAttachments.map((attachment) => (
+                      <article
+                        className="flex h-[52px] w-[246px] max-w-full items-center gap-2 rounded-[12px] border border-black/10 bg-background px-3 dark:border-white/15"
+                        data-staged-attachment=""
+                        key={attachment.stagingId}
+                      >
+                        <File className="size-[17px] shrink-0 text-foreground-secondary" />
+                        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                          {attachment.fileName}
+                        </span>
+                      </article>
+                    ))}
+                    {displayContent && (
+                      <MessageContent
+                        className="max-w-full"
+                        data-group-position={groupPosition}
+                        from={from}
+                      >
+                        <MessageResponse>{displayContent}</MessageResponse>
+                      </MessageContent>
+                    )}
+                  </div>
+                ) : (
                   <MessageContent
-                    className="max-w-full"
                     data-group-position={groupPosition}
+                    data-message-bubble-id={message.id}
                     from={from}
                   >
-                    <MessageResponse>{displayContent}</MessageResponse>
+                    <MessageResponse>{message.content}</MessageResponse>
                   </MessageContent>
                 )}
+                {actions}
               </div>
-            ) : (
-              <MessageContent
-                data-group-position={groupPosition}
-                data-message-bubble-id={message.id}
-                from={from}
-              >
-                <MessageResponse>{message.content}</MessageResponse>
-              </MessageContent>
-            )}
-            {from !== "user" && actions}
+            </div>
           </div>
           {(reactionPills.length > 0 || userReactionSet.size > 0) && (
             <div
@@ -1241,11 +1254,7 @@ const BotThinkingSlot = memo(function BotThinkingSlot({
             <GroupActivityContent activity={groupActivity} />
           ) : (
             <>
-              <span aria-hidden="true" className="bot-thinking-badge">
-                <span className="bot-thinking-dot" />
-                <span className="bot-thinking-dot" />
-                <span className="bot-thinking-dot" />
-              </span>
+              <BotAvatar bot={bot} size="sm" mode="thinking" />
               <ThinkingCaption text={activity} group={group} />
             </>
           )}
@@ -1257,11 +1266,13 @@ const BotThinkingSlot = memo(function BotThinkingSlot({
 
 const A2AActivityRow = memo(function A2AActivityRow({
   count,
+  direction,
   onOpen,
   peer,
   peerName,
 }: {
   count: number;
+  direction?: "incoming" | "outgoing";
   onOpen?: (trigger: HTMLButtonElement) => void;
   peer?: BotView;
   peerName: string;
@@ -1279,7 +1290,9 @@ const A2AActivityRow = memo(function A2AActivityRow({
       data-a2a-activity=""
     >
       <span className="leading-5">
-        {count} {count === 1 ? "message" : "messages"} with
+        {count === 1 && direction
+          ? direction === "incoming" ? "Message from" : "Messaged"
+          : `${count} ${count === 1 ? "message" : "messages"} with`}
       </span>
       {onOpen ? (
         <button
@@ -1576,11 +1589,6 @@ export const ChatPane = memo(function ChatPane({
           pending,
           delivery,
         })
-      )
-      .sort(
-        (left, right) =>
-          new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime() ||
-          left.id.localeCompare(right.id)
       );
     const collapsed =
       channel.kind === "bot_dm" ? collapseA2ATimeline(ordered, (entry) => entry.message) : ordered;
@@ -1599,8 +1607,7 @@ export const ChatPane = memo(function ChatPane({
       })),
     ].sort(
       (left, right) =>
-        new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime() ||
-        left.id.localeCompare(right.id)
+        new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
     );
   }, [approvals, channel.kind, mainMessageRecords, visibleContextMessageIds]);
   const replyingTo = replyTarget?.channelId === channel.id ? replyTarget.message : null;
@@ -1846,7 +1853,7 @@ export const ChatPane = memo(function ChatPane({
           <ConversationTopDivider />
           <ConversationTimestampPeek />
           <ConversationContent
-            overlayScrollbars={channel.kind === "group"}
+            overlayScrollbars
             className="max-w-none gap-1 px-4 pt-11"
             style={{ paddingBottom: `calc(${24 + restingThinkingSpace}px + var(--composer-overlap, 0px))` }}
           >
@@ -1917,7 +1924,7 @@ export const ChatPane = memo(function ChatPane({
                           entry.createdAt
                         ) && (
                           <div
-                            className={`flex justify-center pb-3 ${index === 0 ? "pt-[26.5px]" : "pt-6"}`}
+                            className={`flex justify-center ${index === 0 ? "pb-3 pt-[26.5px]" : "pb-3.5 pt-5"}`}
                           >
                             <time
                               className="select-none text-xs tabular-nums text-muted-foreground"
@@ -1936,6 +1943,7 @@ export const ChatPane = memo(function ChatPane({
                       ) : entry.type === "a2a" ? (
                         <A2AActivityRow
                           count={entry.entries.length}
+                          direction={entry.entries[0]?.message ? a2aProjectionFor(entry.entries[0].message)?.direction : undefined}
                           onOpen={
                             entry.peerId && onOpenA2A && selectedBot
                               ? (trigger) =>

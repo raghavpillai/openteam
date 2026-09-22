@@ -6,7 +6,7 @@ import {
   durableSendMessage,
   durableSendRenderKey,
 } from "./durable-delivery";
-import { messageCreatedAtMs } from "./history";
+import { compareMessageChronology } from "./history";
 import { messageRenderKey } from "./messages";
 
 export interface OutgoingMessageProjection {
@@ -19,7 +19,7 @@ export interface OutgoingMessageProjection {
 export interface OutgoingMessageProjectionOptions {
   /** Native rows retain their optimistic key until the journal retires the send. */
   echoRenderKey?: "message" | "delivery";
-  /** Preserve each renderer's existing tie-break for equal timestamps. */
+  /** Final tie-break after timestamp and server sequence. */
   orderBy?: "renderKey" | "messageId";
 }
 
@@ -77,7 +77,7 @@ export const projectOutgoingMessages = (
   }
   return projected.sort(
     (left, right) =>
-      messageCreatedAtMs(left.message) - messageCreatedAtMs(right.message) ||
+      compareMessageChronology(left.message, right.message) ||
       (orderBy === "messageId"
         ? left.message.id.localeCompare(right.message.id)
         : left.renderKey.localeCompare(right.renderKey))

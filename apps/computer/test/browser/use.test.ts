@@ -100,12 +100,14 @@ describe("browser-use tool surface", () => {
       };
     };
     interface FakeContext {
+      on(event: string, listener: unknown): void;
       pages(): FakePage[];
       newPage(): Promise<FakePage>;
       newCDPSession(page: FakePage): Promise<unknown>;
     }
     const allPages: FakePage[] = [];
     const context: FakeContext = {
+      on: () => {},
       pages: () => allPages,
       newCDPSession: async (page) => ({ on: () => {}, send: async () => ({ targetInfo: { targetId: page.url() } }) }),
       newPage: async () => {

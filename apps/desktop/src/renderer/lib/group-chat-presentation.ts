@@ -114,7 +114,8 @@ export function groupChatActivity(
   const reading = readers.length
     ? `${groupParticipantNames(readers.map((bot) => bot.name))} ${readers.length === 1 ? "is" : "are"} reading`
     : "";
-  return { workers, readers, typing, text: [working, reading].filter(Boolean).join(" · ") };
+  const caption = [working, reading].filter(Boolean).join(" · ");
+  return { workers, readers, typing, text: caption ? `${caption}…` : "" };
 }
 
 export function firstUnreadMessageId(

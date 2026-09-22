@@ -29,6 +29,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { api } from "../../client/openteam-api";
 import { cn } from "../../lib/cn";
 import {
@@ -208,6 +209,30 @@ function OpenSearchDialog({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [requestGate] = useState(createSearchRequestGate);
+  const [returnFocus] = useState(() => {
+    const element = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const selection = document.getSelection();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    return { element, range: range && element?.contains(range.commonAncestorContainer) ? range.cloneRange() : null };
+  });
+  const restoreFocusOnClose = useRef(true);
+  const focusRestored = useRef(false);
+  const restoreCallerFocus = () => {
+    if (!restoreFocusOnClose.current || focusRestored.current || !returnFocus.element?.isConnected) return;
+    focusRestored.current = true;
+    returnFocus.element.focus({ preventScroll: true });
+    if (returnFocus.range) {
+      const selection = document.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(returnFocus.range);
+    }
+  };
+  const changeOpen = (nextOpen: boolean) => {
+    // Radix's unmount autofocus is deferred. Return the caret before the next
+    // keystroke, and keep that deferred event from resetting it a second time.
+    flushSync(() => onOpenChange(nextOpen));
+    if (!nextOpen) restoreCallerFocus();
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -335,6 +360,8 @@ function OpenSearchDialog({
 
   const choose = (result: DisplayResult | undefined) => {
     if (!result) return;
+    // A selected destination owns focus; dismissal returns to the original draft.
+    restoreFocusOnClose.current = false;
     if (result.type === "action") result.value.run();
     else onSelectResult(result.value);
     onOpenChange(false);
@@ -342,12 +369,16 @@ function OpenSearchDialog({
 
 
   return (
-    <Dialog onOpenChange={onOpenChange} open={open}>
+    <Dialog onOpenChange={changeOpen} open={open}>
       <DialogContent
         className="h-[min(456px,calc(100vh-48px))] max-w-[560px] grid-rows-[auto_1fr] gap-0 overflow-hidden rounded-[15px] border-border/80 bg-popover p-0 shadow-none"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           inputRef.current?.focus({ preventScroll: true });
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          restoreCallerFocus();
         }}
         showCloseButton={false}
       >
@@ -399,7 +430,7 @@ function OpenSearchDialog({
         </div>
 
         <div
-          className="min-h-0 overflow-y-auto p-2"
+          className="search-results-scroll min-h-0 overflow-y-auto p-2"
           id="search-results"
           ref={listRef}
           aria-label="Results"

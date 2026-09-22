@@ -439,7 +439,8 @@ async function main() {
       (b) => b.textContent === "Load older messages"
     )!;
     button.click();
-    await wait(220);
+    // A paging anchor must survive deferred row measurement, not just insertion.
+    await wait(2600);
     assert(Math.abs(offset() - before) <= 2, `Prepend moved anchor by ${offset() - before}px`);
     assert(olderLoads === loads + 1, "Prepend triggered extra history loads");
   });

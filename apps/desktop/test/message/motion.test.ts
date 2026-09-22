@@ -36,7 +36,7 @@ test("message entrance and acknowledgement motion match OpenTeam", async () => {
   expect(styles).toContain(".sent-while-offline-notice[data-cleared]");
   expect(styles).toContain("transform-origin: right bottom;");
   expect(styles).not.toMatch(/\.message-row(?:\[[^\]]+\])?\s*\{[^}]*content-visibility/);
-  expect(chatPane).toContain('data-enter={entranceActive ? "new" : undefined}');
+  expect(chatPane).toContain('data-enter={entranceActive && !display.richMessage ? "new" : undefined}');
   expect(chatPane).toContain('event.animationName === "message-row-enter"');
   expect(chatPane).toContain('event.animationName === "message-row-enter-reduced"');
   expect(chatPane).toContain("setEntranceActive(false)");

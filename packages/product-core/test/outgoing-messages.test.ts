@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ChannelMessageView } from "@openteam/contracts";
 import { type DurableSendRecord, durableSendPromptDigest } from "../src/durable-delivery";
+import { sortedUniqueMessages } from "../src/history";
 import { projectOutgoingMessages } from "../src/outgoing-messages";
 
 const message = (id: string, extra: Partial<ChannelMessageView> = {}): ChannelMessageView => ({
@@ -110,4 +111,35 @@ describe("shared outgoing message projection", () => {
       }).map((item) => item.message.id)
     ).toEqual(["a-server", "m-server"]);
   });
+});
+
+test("equal-time server batches use numeric sequence before random UUIDs", () => {
+  const batch = [
+    message("z-first", { sequence: "9007199254740992" }),
+    message("m-second", { sequence: "9007199254740993" }),
+    message("a-third", { sequence: "9007199254740994" }),
+  ];
+  expect(sortedUniqueMessages([...batch].reverse()).map((row) => row.id)).toEqual([
+    "z-first",
+    "m-second",
+    "a-third",
+  ]);
+  for (const orderBy of ["renderKey", "messageId"] as const) {
+    expect(
+      projectOutgoingMessages([...batch].reverse(), [], { orderBy }).map((row) => row.message.id)
+    ).toEqual(["z-first", "m-second", "a-third"]);
+    const delivery = record({
+      nonce: "third",
+      acceptedMessage: batch[2],
+      phase: "accepted-awaiting-echo",
+    });
+    expect(
+      projectOutgoingMessages(batch.slice(0, 2), [delivery], { orderBy }).map(
+        (row) => row.message.id
+      )
+    ).toEqual(["z-first", "m-second", "a-third"]);
+    expect(
+      projectOutgoingMessages(batch, [delivery], { orderBy }).map((row) => row.message.id)
+    ).toEqual(["z-first", "m-second", "a-third"]);
+  }
 });

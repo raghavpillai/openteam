@@ -143,6 +143,7 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
     [entries]
   );
   const {
+    getViewportAnchor,
     measureElement,
     scrollInitialized,
     scrollIndexToViewportOffset,
@@ -276,8 +277,12 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
           break;
         }
       }
-      const key = visibleRow?.dataset.virtualTimelineKey;
-      if (!visibleRow || !key) return null;
+      // A large wheel/scrollbar jump can reach the paging threshold before the
+      // new virtual window mounts. Anchor its logical row instead of loading
+      // with no anchor and moving the reader when the older page arrives.
+      const logical = visibleRow ? null : getViewportAnchor();
+      const key = visibleRow?.dataset.virtualTimelineKey ?? logical?.key;
+      if (!key) return null;
       const anchor = {
         automatic,
         direction,
@@ -286,13 +291,15 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
         reported: false,
         startedAt: performance.now(),
         survived: true,
-        viewportOffset: visibleRow.getBoundingClientRect().top - viewportBounds.top,
+        viewportOffset: visibleRow
+          ? visibleRow.getBoundingClientRect().top - viewportBounds.top
+          : logical!.viewportOffset,
       };
       pendingScrollAnchor.current = anchor;
       stopScroll();
       return anchor;
     },
-    [scrollRef, stopScroll]
+    [getViewportAnchor, scrollRef, stopScroll]
   );
 
   const sampleScrollAnchor = useCallback(

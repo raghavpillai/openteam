@@ -31,7 +31,7 @@ test("group readers become workers only when their turn starts acting", () => {
   const initial = groupChatActivity([run("0"), run("1", { status: "queued" })], bots, new Map());
   expect(initial.readers.map((bot) => bot.name)).toEqual(["Ada"]);
   expect(initial.workers.map((bot) => bot.name)).toEqual(["Bea"]);
-  expect(initial.text).toBe("Bea is working · Ada is reading");
+  expect(initial.text).toBe("Bea is working · Ada is reading…");
   const tools = new Map([["0", [item("tool", "Read")]]]);
   expect(groupChatActivity([run("0")], bots, tools).readers).toEqual([]);
   const completedTool = new Map([["0", [item("tool", "Read", "completed"), item("reasoning")]]]);
@@ -61,7 +61,7 @@ test("group activity deduplicates identities, omits completed turns, and keeps r
   expect(activity.workers.map((bot) => bot.id)).toEqual(["0"]);
   expect(activity.readers.map((bot) => bot.id)).toEqual(["1"]);
   expect(activity.typing).toBe(true);
-  expect(activity.text).toBe("Ada is typing · Bea is reading");
+  expect(activity.text).toBe("Ada is typing · Bea is reading…");
   expect(groupChatActivity([], bots, new Map()).text).toBe("");
 });
 
@@ -78,7 +78,7 @@ test("a single working participant retains its tool caption alongside readers", 
     bots,
     new Map([["0", [item("tool", "WebSearch")]]])
   );
-  expect(activity.text).toBe("Searching the web · Bea is reading");
+  expect(activity.text).toBe("Searching the web · Bea is reading…");
   expect(activity.workers.map((bot) => bot.name)).toEqual(["Ada"]);
 });
 

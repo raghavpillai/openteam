@@ -102,6 +102,7 @@ export class BrowserUseSession {
   private readonly ids = new WeakMap<Page, string>();
   private readonly refs = new Map<string, Map<string, ElementHandle<HTMLElement>>>();
   private readonly ownedPages = new Set<Page>();
+  private readonly openers = new WeakMap<Page, Page>();
   private readonly targetIds = new Map<string, string>();
   private readonly cdpSessions = new WeakMap<Page, Promise<CDPSession>>();
   private nextViewId = 1;
@@ -112,15 +113,20 @@ export class BrowserUseSession {
   private readonly dialogObservers = new WeakMap<Page, Promise<void>>();
   private dialogOpened?: (page: Page) => void;
   private unfinishedOperation?: Promise<AgentToolResult<Record<string, unknown>>>;
+  private cancelledNavigation?: Promise<AgentToolResult<Record<string, unknown>>>;
   private async drainDialogAction(): Promise<void> {
     const operation = this.unfinishedOperation;
     try { await operation; }
     catch (error) {
       // The dialog can arrive while the action's post-click screenshot starts.
       // Its failed observation is superseded by the fresh post-dialog snapshot.
-      if (!/Open JavaScript dialog prevents evaluation/.test(String(error))) throw error;
+      if (!/Open JavaScript dialog prevents evaluation/.test(String(error)) &&
+          !(operation && operation === this.cancelledNavigation && /net::ERR_ABORTED/.test(String(error)))) throw error;
     }
-    finally { if (this.unfinishedOperation === operation) this.unfinishedOperation = undefined; }
+    finally {
+      if (this.unfinishedOperation === operation) this.unfinishedOperation = undefined;
+      if (this.cancelledNavigation === operation) this.cancelledNavigation = undefined;
+    }
   }
 
   private dialogState(page: Page, summary = "Browser action opened a dialog") {
@@ -136,14 +142,21 @@ export class BrowserUseSession {
     if (!observer) {
       observer = (async () => {
         const cdp = await this.cdpFor(page);
+        cdp.on("Page.javascriptDialogClosed", event => {
+          if (!event.result && this.dialogs.get(page)?.type() === "beforeunload")
+            this.cancelledNavigation = this.unfinishedOperation;
+          this.dialogs.delete(page);
+        });
         const { targetInfo } = await cdp.send("Target.getTargetInfo");
         this.targetIds.set(this.idFor(page), targetInfo.targetId);
-        cdp.on("Page.javascriptDialogClosed", () => this.dialogs.delete(page));
         await cdp.send("Page.enable");
-      })();
+      })().catch(error => { this.dialogObservers.delete(page); throw error; });
       this.dialogObservers.set(page, observer);
     }
-    await observer;
+    // A popup can pause in its first script before Page.enable finishes. Its
+    // dialog must remain answerable while observation is being initialized.
+    if (this.dialogs.has(page)) void observer.catch(() => {});
+    else await observer;
   }
 
   private cdpFor(page: Page): Promise<CDPSession> {
@@ -163,7 +176,28 @@ export class BrowserUseSession {
     private readonly context: BrowserContext,
     private readonly artifactDirectory: string,
     private readonly downloadDirectory: string
-  ) {}
+  ) {
+    // Playwright otherwise auto-dismisses dialogs with no listeners, including
+    // dialogs in another worker's tab on a separate connection to this Chrome.
+    context.on("dialog", dialog => {
+      const page = dialog.page();
+      if (!page) return;
+      if (this.ownedPages.has(page)) this.recordDialog(page, dialog);
+      else void page.opener().then(opener => {
+        if (!opener || !this.ownedPages.has(opener) || page.isClosed()) return;
+        this.openers.set(page, opener);
+        this.trackPage(page);
+        this.currentViewId = this.idFor(page);
+        this.recordDialog(page, dialog);
+      }).catch(() => {});
+    });
+  }
+
+  private recordDialog(page: Page, dialog: Dialog): void {
+    if (this.dialogs.get(page) === dialog) return;
+    this.dialogs.set(page, dialog);
+    this.dialogOpened?.(page);
+  }
 
   static async connect(endpoint: string, artifactDirectory: string, adoptExisting = false, downloadDirectory = join(homedir(), "Downloads"), lease?: { targets: Map<string, string>; selected: string | null; nextId: number }): Promise<BrowserUseSession> {
     const driver = await outOfProcessPlaywright();
@@ -181,7 +215,11 @@ export class BrowserUseSession {
         try {
           const { targetInfo } = await cdp.send("Target.getTargetInfo");
           const match = [...lease.targets].find(([, target]) => target === targetInfo.targetId);
-          if (match) { session.ids.set(page, match[0]); session.trackPage(page); }
+          if (match) {
+            session.ids.set(page, match[0]);
+            session.targetIds.set(match[0], targetInfo.targetId);
+            session.trackPage(page);
+          }
         } finally { await cdp.detach(); }
       }
     } else session.trackPage(await context.newPage());
@@ -429,6 +467,7 @@ export class BrowserUseSession {
         this.dialogOpened = openedPage => resolve(this.dialogState(openedPage));
       });
       try {
+        if (!params.accept && dialog.type() === "beforeunload") this.cancelledNavigation = this.unfinishedOperation;
         if (params.accept) await dialog.accept(params.promptText as string | undefined);
         else await dialog.dismiss();
         if (this.dialogs.get(page) === dialog) this.dialogs.delete(page);
@@ -454,6 +493,12 @@ export class BrowserUseSession {
       return result;
     } catch (error) {
       this.unfinishedOperation = undefined;
+      const opener = this.openers.get(page);
+      if (page.isClosed() && this.connected && opener && this.ownedPages.has(opener) && !opener.isClosed() &&
+          /(?:Target|page|browser|context).*closed/i.test(String(error))) {
+        this.currentViewId = this.idFor(opener);
+        return this.pageState(opener, "Popup closed during the action. Showing its parent page; inspect the result before retrying. The action was not replayed.");
+      }
       throw error;
     } finally {
       this.dialogOpened = undefined;
@@ -533,11 +578,9 @@ export class BrowserUseSession {
     if (this.ownedPages.has(page)) return;
     this.ownedPages.add(page);
     this.idFor(page);
-    page.on("dialog", dialog => {
-      this.dialogs.set(page, dialog);
-      this.dialogOpened?.(page);
-    });
+    page.on("dialog", dialog => this.recordDialog(page, dialog));
     page.on("popup", (popup) => {
+      this.openers.set(popup, page);
       this.trackPage(popup);
       this.currentViewId = this.idFor(popup);
     });
@@ -549,8 +592,9 @@ export class BrowserUseSession {
       // Keep exact target IDs across transport loss (which also closes these
       // Page objects). A closed Chrome target cannot match on reconnection.
       this.refs.delete(this.idFor(page));
-      if (this.currentViewId === this.idFor(page)) this.currentViewId = null;
+      if (this.connected && this.currentViewId === this.idFor(page)) this.currentViewId = null;
     });
+    void this.observeDialogs(page).catch(() => {});
   }
 
   private idFor(page: Page): string {

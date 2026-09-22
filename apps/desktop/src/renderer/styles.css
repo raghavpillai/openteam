@@ -574,6 +574,11 @@ textarea,
   color: var(--message-user-foreground);
 }
 
+/* The wrapper owns the width cap; hover controls must not reduce bubble space. */
+.message-with-actions > .message-bubble {
+  max-width: 100%;
+}
+
 .message-bubble[data-role="user"][data-group-position="middle"],
 .message-bubble[data-role="user"][data-group-position="last"] {
   border-start-end-radius: 6px;
@@ -618,18 +623,6 @@ textarea,
   }
 }
 
-@keyframes bot-thinking-dot {
-  0%,
-  60%,
-  100% {
-    opacity: 0.35;
-  }
-
-  30% {
-    opacity: 1;
-  }
-}
-
 .bot-thinking-content {
   animation: bot-thinking-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
   transform-origin: left center;
@@ -637,40 +630,6 @@ textarea,
 
 .bot-thinking-content[data-exiting="true"] {
   animation: bot-thinking-exit 140ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-
-.bot-thinking-badge {
-  display: inline-flex;
-  width: 43px;
-  height: 28px;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  gap: 3.5px;
-  box-sizing: border-box;
-  border: 0.5px solid #e0e0e0;
-  border-radius: 9999px;
-  background: #ebebeb;
-}
-
-.bot-thinking-dot {
-  width: 5.25px;
-  height: 5.25px;
-  flex-shrink: 0;
-  border-radius: 9999px;
-  background: #141414;
-  animation: bot-thinking-dot 1.4s ease-in-out infinite;
-  opacity: 0.35;
-}
-
-.bot-thinking-dot:nth-child(2) {
-  animation-delay: -1.2s;
-  opacity: 0.65;
-}
-
-.bot-thinking-dot:nth-child(3) {
-  animation-delay: -1s;
-  opacity: 1;
 }
 
 @keyframes bot-activity-shimmer {
@@ -732,15 +691,6 @@ textarea,
 }
 
 :root[data-theme="dark"] {
-  .bot-thinking-badge {
-    border-color: #393939;
-    background: #232323;
-  }
-
-  .bot-thinking-dot {
-    background: #fcfcfc;
-  }
-
   .bot-thinking-label {
     color: #9e9e9e;
   }
@@ -759,9 +709,6 @@ textarea,
     animation-timing-function: ease-out;
   }
 
-  .bot-thinking-dot {
-    animation-name: none;
-  }
 }
 
 @keyframes bot-thinking-exit-reduced {
@@ -1267,6 +1214,11 @@ textarea,
  * padding, rows retain the same 12px inset as the search field. */
 .sidebar-roster {
   scrollbar-gutter: stable;
+}
+
+.sidebar-roster:not(:hover)::-webkit-scrollbar-thumb,
+.search-results-scroll:not(:hover)::-webkit-scrollbar-thumb {
+  background-color: transparent;
 }
 
 .sidebar-account-footer {

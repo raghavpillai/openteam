@@ -73,8 +73,8 @@ describe("OpenTeam-profile UI parity", () => {
     expect(main).toContain("minHeight: 520");
     expect(avatar).toContain('aria-label="Edit Bot avatar"');
     expect(screen).toContain('aria-label="Open computer"');
-    expect(screen).toContain("onPointerMove");
-    expect(screen).toContain('action: "drag"');
+    expect(screen).toContain("<VncComputer");
+    expect(screen).toContain("createSession={api.screenVncSession}");
     expect(routines).toContain('aria-label="Routines"');
     expect(routines).toContain('<ul aria-label="Routines"');
   });
@@ -113,20 +113,20 @@ describe("OpenTeam-profile UI parity", () => {
       "bottom-0.5 right-0.5 size-2.5 shadow-[0_0_0_3.333px_var(--working-dot-ring,var(--sidebar))]"
     );
     expect(sidebar).not.toContain("working-presence-pulse");
-    expect(sidebar.match(/active=\{working\}/g)?.length).toBe(4);
-    expect(sidebar).toContain("active={working && !(needsAttention || unread)}");
+    expect(sidebar.match(/active=\{working\}/g)?.length).toBe(3);
+    expect(sidebar).toContain("<SidebarUnreadAvatar");
   });
 
   test("shows Bot's blue unread badge on compact Bot and group avatars", async () => {
     const sidebar = await componentSource("sidebar");
 
-    expect(sidebar).toMatch(
-      /data-unread-indicator=\{\s*unread && !needsAttention \? "true" : undefined,?\s*\}/
-    );
-    expect(sidebar).toContain('needsAttention ? "bg-amber-500" : "bg-[#3062bf]"');
-    expect(sidebar).toContain("bottom-[7px] right-[7px] z-20 size-2 rounded-full border-2");
-    expect(sidebar).toContain('selected ? "border-selected" : "border-sidebar"');
-    expect(sidebar).toContain("active={working && !(needsAttention || unread)}");
+    const unread = await componentSource("sidebar-unread");
+    expect(sidebar).toContain('<SidebarUnreadAvatar unread={unread && !needsAttention}>');
+    expect(sidebar).toContain('<SidebarUnreadAvatar pinned unread={unread && !needsAttention}>');
+    expect(unread).toContain('data-unread-indicator="true"');
+    expect(unread).toContain('bg-[#0c64c1] dark:bg-[#459ffe]');
+    expect(unread).toContain('absolute bottom-0.5 right-0.5 z-20');
+    expect(unread).toContain('transparent 6px, #000 6px');
   });
 
   test("matches Bot's viewport-aware more-unreads navigator", async () => {

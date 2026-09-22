@@ -3529,9 +3529,11 @@ export const Sidebar = memo(function Sidebar({
           const next = moveSnappedSidebar(session, event.clientX);
           const snapped = next.mode !== session.mode;
           Object.assign(session, next);
-          if (snapped) animateSidebarWidth(next.width);
+          // Collapse snaps animate; outward dragging follows the pointer without
+          // a spring lag (keyboard/button toggles still animate both ways).
+          if (snapped && next.mode === "compact") animateSidebarWidth(next.width);
           else {
-            if (next.mode === "expanded" && next.width > MIN_EXPANDED_SIDEBAR_WIDTH && sidebarSnapTimerRef.current !== null) {
+            if (next.mode === "expanded" && sidebarSnapTimerRef.current !== null) {
               window.clearTimeout(sidebarSnapTimerRef.current);
               sidebarSnapTimerRef.current = null;
               flushSync(() => setSidebarSnapping(false));

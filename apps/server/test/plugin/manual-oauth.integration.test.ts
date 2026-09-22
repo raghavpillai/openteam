@@ -63,9 +63,10 @@ test.skipIf(!databaseUrl)(
           callback.replace("state=", "state=wrong")
         )
       ).rejects.toThrow("state");
+      const safariCallback = callback.replace(/^http:\/\//, "");
       const completions = await Promise.allSettled([
-        client.finishManualPluginAuthentication(connection.id, callback),
-        client.finishManualPluginAuthentication(connection.id, callback),
+        client.finishManualPluginAuthentication(connection.id, safariCallback),
+        client.finishManualPluginAuthentication(connection.id, safariCallback),
       ]);
       expect(completions.filter((result) => result.status === "fulfilled")).toHaveLength(1);
       await expect(

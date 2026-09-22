@@ -21,13 +21,19 @@ export function oauthCallbackMode(
 
 /** Parse a user-pasted response without fetching the URL or exposing it to an agent. */
 export function parseManualCallback(value: string, expectedRedirect: string) {
+  const expected = new URL(expectedRedirect);
+  let candidate = value.trim();
+  // Safari can copy the address-bar text without its http:// prefix. Only restore
+  // the scheme for our exact expected loopback authority and callback path.
+  if (candidate.startsWith(`${expected.host}${expected.pathname}?`)) {
+    candidate = `${expected.protocol}//${candidate}`;
+  }
   let url: URL;
   try {
-    url = new URL(value.trim());
+    url = new URL(candidate);
   } catch {
     throw invalidManualCallback();
   }
-  const expected = new URL(expectedRedirect);
   if (
     url.origin !== expected.origin ||
     url.pathname !== expected.pathname ||

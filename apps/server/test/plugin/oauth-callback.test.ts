@@ -61,6 +61,26 @@ test("manual callback parses success/denial and rejects malformed or ambiguous r
     expect(() => parse(url)).toThrow("complete callback URL");
 });
 
+test("Safari address-bar copies may omit only the expected callback's scheme", () => {
+  const parse = (value: string) => parseManualCallback(value, MANUAL_OAUTH_REDIRECT);
+  const address = MANUAL_OAUTH_REDIRECT.replace(/^http:\/\//, "");
+  const query = "state=s%2B1&iss=https%3A%2F%2Faccounts.google.com&code=c%2B2&scope=https://www.googleapis.com/auth/calendar.events";
+  expect(parse(` ${address}?${query} `)).toEqual(parse(`${MANUAL_OAUTH_REDIRECT}?${query}`));
+  expect(parse(`${address}?state=s&error=access_denied`).error).toBe("access_denied");
+  for (const value of [
+    `127.0.0.1:42814/callback?${query}`,
+    `127.0.0.1:42813/callback/other?${query}`,
+    `127.0.0.1:42813/callback.evil?${query}`,
+    `127.0.0.1:42813@attacker.test/callback?${query}`,
+    `user@${address}?${query}`,
+    `//${address}?${query}`,
+    `${address}?${query}#fragment`,
+    `${address}?${query}&code=duplicate`,
+    `${address}?${query}&state=duplicate`,
+    `${address}?${query}&iss=duplicate`,
+  ]) expect(() => parse(value)).toThrow("complete callback URL");
+});
+
 test("provider setup requires all fields, while dynamic registration needs no user-created app", () => {
   const gmail = pluginCatalog.find((row) => row.key === "gmail")!;
   const connection = {

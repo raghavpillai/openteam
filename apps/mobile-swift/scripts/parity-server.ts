@@ -27,6 +27,7 @@ let missingToken = false;
 let memories: any[] = [];
 let pagedHistory = false;
 let failures: Record<string, {status?: number; message?: string; count?: number; delayMs?: number}> = {};
+let searchResults: unknown[] | null = null;
 let functionality = new FunctionalFixtures();
 let screen = {state:"ready",width:1280,height:800,humanTakeover:false,apps:["chromium","thunar","terminal"]};
 let contentReceipts:any[] = [];
@@ -41,7 +42,7 @@ function reset() {
   dropNextRoutineRun = false;
   pagedHistory = false;
   requestLog.length = 0;
-  failures = {}; authExpired = false; invalidServer = false; missingToken = false;
+  failures = {}; searchResults = null; authExpired = false; invalidServer = false; missingToken = false;
   functionality = new FunctionalFixtures(); screen.humanTakeover=false; screen.state="ready"; contentReceipts=[]; routineExecutions=[];
   memories = [{ id: "memory-fixture", content: "Prefers concise summaries and clear next steps.", createdAt: 1789473600000, kind: "profile" }];
   settings = { version: 2, pinnedIds: [], unreadIds: [], unassignedCollapsed: false, sections: [], sectionByChannel: {}, channelOrderByGroup: {} };
@@ -106,6 +107,7 @@ const server = Bun.serve({
       if (input.expireTakeover) screen.humanTakeover = false;
       authExpired = input.authExpired ?? authExpired; invalidServer = input.invalidServer ?? invalidServer; missingToken = input.missingToken ?? missingToken;
       if (input.failures) failures = input.failures;
+      if ("searchResults" in input) searchResults = input.searchResults;
       emit("snapshot.reset"); return response({ ok: true });
     }
     if (path === "/__qa/state") return response({ messages: snapshot.channelMessages, requests: requestLog, settings, approvals: snapshot.approvals, bots: snapshot.bots, channels: snapshot.channels, memories, routines, routineExecutions, contentReceipts, screen, configuration:functionality.configuration, pluginSettings:functionality.settings(snapshot.bots), sources:functionality.sources, skills:functionality.skills });
@@ -201,6 +203,7 @@ const server = Bun.serve({
     if (path.endsWith("/read")) {const channel=snapshot.channels.find(c=>c.id===path.split("/")[4]);if(channel){channel.unreadCount=0;channel.notificationState={...channel.notificationState,lastReadSequence:input.throughSequence} as any;}return response({ channelId: path.split("/")[4], lastReadSequence: input.throughSequence ?? "0", unreadCount: 0 });}
     if (path === "/api/v0/search") {
       const q = (url.searchParams.get("q") ?? "").toLowerCase();
+      if (searchResults) return response({ query: q, results: searchResults });
       return response({ query: q, results: snapshot.channelMessages.filter(m => m.content.toLowerCase().includes(q)).map(m => ({ id:m.id, kind:"message", title: snapshot.channels.find(c => c.id === m.channelId)?.name, subtitle:m.content, channelId:m.channelId, messageId:m.id, botId:m.senderBotId, url:null, createdAt:m.createdAt })) });
     }
     if (path.endsWith("/context")) {

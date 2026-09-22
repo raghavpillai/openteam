@@ -92,21 +92,18 @@ import XCTest
     app.buttons["Add routine"].tap()
     XCTAssertTrue(app.textFields["routine-name"].waitForExistence(timeout: 5))
   }
-  func testComputerStartingFrameAndNativeKeyboard() async throws {
+  func testLegacyComputerServerShowsUpgradeMessage() async throws {
     let app = try await launch("dark-chat")
-    try await post("/__qa/control", ["screenState": "starting"])
+    // This fixture only implements the retired still-image screen API. Real
+    // startup, RFB frames and keyboard delivery belong to VNCValidationUITests.
     app.buttons["Computer"].tap()
-    XCTAssertTrue(app.staticTexts["Starting desktop…"].waitForExistence(timeout: 5))
-    capture(7, app)
-    try await post("/__qa/control", ["screenState": "ready"])
-    XCTAssertTrue(app.images["computer-screen"].waitForExistence(timeout: 10))
-    capture(6, app)
-    app.buttons["Show computer keyboard"].tap()
-    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
-    XCTAssertLessThan(app.images["computer-screen"].frame.maxY, app.keyboards.firstMatch.frame.minY)
-    app.typeText("Native keyboard")
-    capture(8, app)
-    app.buttons["Hide computer keyboard"].tap()
+    XCTAssertTrue(app.staticTexts["Update your OpenTeam server to use the computer."].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["Try again"].exists)
+    XCTAssertFalse(app.buttons["Show computer keyboard"].exists)
+    let image = XCTAttachment(screenshot: app.screenshot())
+    image.name = "legacy-computer-upgrade-required"
+    image.lifetime = .keepAlways
+    add(image)
     app.buttons["Done"].tap()
     XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 10))
   }

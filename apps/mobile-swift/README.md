@@ -24,6 +24,14 @@ The [full-app QA audit](docs/QA-AUDIT-0916.md) and [settings/plugin follow-up](d
 
 Debug builds install as **OpenTeam Swift** (`dev.openteam.mobile.swift`) with their own Keychain, sandbox, and `openteam-swift://` links. Release builds install as **OpenTeam** (`dev.openbot.mobile`), use the existing app’s notification and Keychain identity, and handle `openteam://` links. Release version/build/team settings come from `release.json`. The application UI, navigation, animations and state run in Swift. This target has no React Native, Expo or CocoaPods dependency. Complex message documents use a small, isolated offline WebKit renderer with bundled Markdown, KaTeX and Mermaid libraries; ordinary messages and code remain native views. Native push adds backward-compatible APNs registration/delivery alongside the existing Expo transport.
 
+## Current interaction boundaries
+
+Profile edits use a native Save / Discard / Keep editing alert when leaving with unsaved changes. Saves keep the submitted form stable until the server responds; failed requests retain the edits. Search reports unavailable destinations and allows retry.
+
+Voice input records and transcribes into the draft. Live voice chat is not implemented by the current mobile/server API, so the composer does not show a separate voice-call waveform. The microphone and the attachment menu's voice-note action remain available when transcription is configured.
+
+Simulator UI checks do not certify physical haptic feel, APNs delivery or iPhone frame rate. Use a physical device for those release acceptance checks. Exact moving-glass parity also remains a visual acceptance item.
+
 ## Run
 
 Open `OpenTeamNative.xcodeproj`, select the `OpenTeamNative` scheme and an iOS simulator, and Run. iOS 18 or later and a Swift 6/Xcode toolchain are required. For a physical iPhone, choose your Apple signing team in both the app and notification-extension targets first; see [native push setup](docs/NATIVE-PUSH.md). Enter the same server address and OpenTeam account used by the existing app.

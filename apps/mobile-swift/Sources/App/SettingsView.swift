@@ -22,7 +22,7 @@ struct SettingsView: View {
                   .lineLimit(1)
                 Text("Self-hosted").font(.system(size: 12)).foregroundStyle(NativePalette.muted)
               }
-            }.padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
+            }.padding(.vertical, 4).frame(maxWidth: .infinity, alignment: .leading)
               .contentShape(Rectangle())
           }.accessibilityIdentifier("account-settings")
         }
@@ -34,13 +34,15 @@ struct SettingsView: View {
               Text("Plugins").font(.body)
               Text("Tools and skills for OpenTeam").font(.system(size: 13))
                 .foregroundStyle(NativePalette.muted)
-            }.padding(.vertical, 5).frame(maxWidth: .infinity, alignment: .leading)
+            }.padding(.vertical, 1).frame(maxWidth: .infinity, alignment: .leading)
               .contentShape(Rectangle())
           }.accessibilityIdentifier("plugins-settings")
         }
-        Section("Bot") {
+        Section {
           NavigationLink("Bot notifications") { notificationSettings }
           NavigationLink("Hidden conversations") { HiddenConversationsView() }
+        } header: {
+          Text("Bot").font(.system(size: 13)).foregroundStyle(NativePalette.faint)
         }
         Section { PushNotificationSettings() }
         Section {
@@ -77,8 +79,14 @@ struct SettingsView: View {
           }.disabled(store.busy.contains("sign-out")).accessibilityIdentifier("sign-out")
         }
       }.listStyle(.insetGrouped)
+        // The reference's cards begin 16 points inside the inset sheet, with
+        // less top/row padding than the system's default grouped list.
+        .contentMargins(.horizontal, 16, for: .scrollContent)
+        .contentMargins(.top, 20, for: .scrollContent)
+        .listSectionSpacing(28)
         .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
         .toolbar {
+          ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
           ToolbarItem(placement: .cancellationAction) {
             Button { dismiss() } label: {
               Image(systemName: "xmark").foregroundStyle(.primary)
@@ -186,6 +194,7 @@ struct ConversationDetails: View {
   @State private var templateFile: URL?
   @State private var exportingTemplate = false
   @State private var changingNotifications = false
+  @State private var confirmingExit = false
   private var routinePath: String {
     "/api/v0/\(channel?.isGroup == true ? "channels" : "bots")/\(API.segment(bot?.id ?? channelID))/routines"
   }
@@ -318,13 +327,13 @@ struct ConversationDetails: View {
             }
           }
         }
-      }.listSectionSpacing(16)
+      }.disabled(saving).listSectionSpacing(16)
         .contentMargins(.horizontal, 24, for: .scrollContent)
         .environment(\.defaultMinListRowHeight, 50)
         .navigationTitle("Details").navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .navigationBarBackButtonHidden()
-        .background(NativeBackGesture().frame(width: 0, height: 0))
+        .background(NativeBackGesture(shouldBegin: mayLeaveProfile).frame(width: 0, height: 0))
         .scrollContentBackground(.hidden).nativeCanvas()
         .toolbarBackground(.hidden, for: .navigationBar)
         .scrollDismissesKeyboard(.interactively)
@@ -338,19 +347,14 @@ struct ConversationDetails: View {
           }
           ToolbarItem(placement: .cancellationAction) {
             Button {
-              dismiss()
+              if mayLeaveProfile() { dismiss() }
             } label: {
               Image(systemName: "chevron.left").foregroundStyle(NativePalette.text)
-            }.accessibilityLabel("Done").accessibilityIdentifier("profile-back")
+            }.disabled(saving).accessibilityLabel("Done").accessibilityIdentifier("profile-back")
           }
           ToolbarItem(placement: .topBarTrailing) {
             if profileChanged {
-              Button(saving ? "Saving…" : "Save") { Task { await save() } }.disabled(
-                saving || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                  || (channel?.isGroup == true && name.count > 80) || title.count > 120
-                  || description.count > 2_000 || instructions.count > 20_000
-                  || (channel?.isGroup == true && (members.isEmpty || members.count > 6))
-              )
+              Button(saving ? "Saving…" : "Save") { Task { await save() } }.disabled(!canSaveProfile)
               .accessibilityIdentifier("profile-save")
             } else if bot != nil {
               Button {
@@ -390,7 +394,7 @@ struct ConversationDetails: View {
             } label: {
               Image(systemName: "ellipsis").foregroundStyle(NativePalette.text)
             }
-            .accessibilityLabel("Bot options").accessibilityIdentifier("profile-options")
+            .disabled(saving).accessibilityLabel("Bot options").accessibilityIdentifier("profile-options")
           }
         }
         .sheet(
@@ -428,6 +432,13 @@ struct ConversationDetails: View {
           title = bot?.title ?? ""
           members = Set(channel?.members.map(\.botId) ?? [])
         }
+        .alert("Save changes?", isPresented: $confirmingExit) {
+          Button("Save changes") { Task { await save() } }.disabled(!canSaveProfile)
+          Button("Discard changes", role: .destructive) { dismiss() }
+          Button("Keep editing", role: .cancel) {}
+        } message: {
+          Text("Your profile changes haven’t been saved.")
+        }
         .confirmationDialog(
           "Delete \(channel?.name ?? "conversation")?", isPresented: $deleting,
           titleVisibility: .visible
@@ -456,6 +467,19 @@ struct ConversationDetails: View {
         || icon != (bot?.icon ?? "chip") || color != (bot?.color ?? "#A47952")
         || resetAvatar || members != Set(channel?.members.map(\.botId) ?? []))
   }
+  private var canSaveProfile: Bool {
+    !saving && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && !(channel?.isGroup == true && name.count > 80) && title.count <= 120
+      && description.count <= 2_000 && instructions.count <= 20_000
+      && !(channel?.isGroup == true && (members.isEmpty || members.count > 6))
+  }
+  private func mayLeaveProfile() -> Bool {
+    guard !saving else { return false }
+    guard profileChanged else { return true }
+    focusedProfile = nil
+    confirmingExit = true
+    return false
+  }
   private func exportTemplate() async {
     guard let bot, !exportingTemplate else { return }
     exportingTemplate = true
@@ -472,7 +496,7 @@ struct ConversationDetails: View {
     } catch { failure = UserFacingError.message(error) }
   }
   func save() async {
-    guard let channel else { return }
+    guard canSaveProfile, let channel else { return }
     saving = true
     defer { saving = false }
     if let bot {

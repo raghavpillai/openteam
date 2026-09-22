@@ -130,6 +130,24 @@ import XCTest
     app?.terminate()
   }
 
+  func testUpcomingAndRunDatesAreReadable() async throws {
+    try await reset()
+    let next = "2099-09-22T13:00:00.000Z"
+    let id = try await seed("0 9 * * 1-5", extra: ["nextRunAt": next])
+    let execution = try await request("/api/v0/routines/" + id + "/test", ["clientId": UUID().uuidString])
+    let created = try XCTUnwrap(execution["createdAt"] as? String)
+    launch("light")
+    let nextLabel = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Next:")).firstMatch
+    XCTAssertTrue(nextLabel.waitForExistence(timeout: 5))
+    XCTAssertTrue(nextLabel.label.contains("2099"))
+    XCTAssertFalse(nextLabel.label.contains(next), "Do not display the raw API timestamp")
+    capture("readable-next-run")
+    edit()
+    reveal(app.staticTexts["Completed"])
+    XCTAssertFalse(app.staticTexts[created].exists, "Recent runs must format the server timestamp too")
+    capture("readable-run-history")
+  }
+
   func testWeeklyDropdownCreatesRetriesAndReopensInDarkMode() async throws {
     try await reset()
     launch()

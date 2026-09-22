@@ -1,5 +1,19 @@
 import SwiftUI
 
+// API timestamps/status keys are transport values, not labels for the native UI.
+private func routineDate(_ value: String) -> Date? {
+  ISO8601DateFormatter().date(from: value)
+    ?? ISO8601DateFormatter.fractional.date(from: value)
+}
+
+private func routineStatus(_ value: String) -> String {
+  switch value {
+  case "waiting_approval": "Needs approval"
+  case "queued": "Waiting to run"
+  default: value.replacingOccurrences(of: "_", with: " ").capitalized
+  }
+}
+
 struct ProfileRoutinesView: View {
   @Environment(AppStore.self) private var store
   let ownerID: String
@@ -86,8 +100,9 @@ struct RoutinesView: View {
             VStack(alignment: .leading, spacing: 5) {
               Text(routine.name).font(.headline)
               Text(routine.scheduleSummary).font(.subheadline).foregroundStyle(NativePalette.muted)
-              if let next = routine.nextRunAt {
-                Text("Next: " + next).font(.caption).foregroundStyle(NativePalette.muted)
+              if let next = routine.nextRunAt, let date = routineDate(next) {
+                Text("Next: \(date.formatted(date: .abbreviated, time: .shortened))")
+                  .font(.caption).foregroundStyle(NativePalette.muted)
               }
             }
           }
@@ -209,19 +224,24 @@ struct RoutineEditor: View {
             }
             ForEach(Array(executions.enumerated()), id: \.offset) { _, execution in
               VStack(alignment: .leading, spacing: 4) {
-                Text(execution["status"].string.capitalized).font(.headline)
-                Text(execution["createdAt"].string).font(.caption).foregroundStyle(
-                  NativePalette.muted)
+                Text(routineStatus(execution["status"].string)).font(.headline)
+                if let date = routineDate(execution["createdAt"].string) {
+                  Text(date.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption).foregroundStyle(NativePalette.muted)
+                }
               }
             }
           }
         }
-      }.scrollDismissesKeyboard(.interactively)
+      }.disabled(saving).scrollDismissesKeyboard(.interactively)
+        .interactiveDismissDisabled(saving)
         .navigationTitle(routine == nil ? "New routine" : "Routine").navigationBarTitleDisplayMode(
           .inline
         )
         .toolbar {
-          ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+          ToolbarItem(placement: .cancellationAction) {
+            Button("Cancel") { dismiss() }.disabled(saving)
+          }
           ToolbarItem(placement: .confirmationAction) {
             Button(saving ? "Saving…" : "Save") { Task { await save() } }.accessibilityIdentifier(
               "routine-save"

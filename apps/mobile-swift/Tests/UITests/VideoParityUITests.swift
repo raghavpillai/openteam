@@ -451,15 +451,16 @@ import UIKit
     }
   }
 
-  func testWaveformOpensExistingRecorder() async throws {
+  func testRecordingWorksWithoutAnUnsupportedVoiceChatControl() async throws {
     let app = try await launch("voice")
-    XCTAssertTrue(app.buttons["voice-input-button"].isHittable)
-    app.buttons["voice-input-button"].tap()
+    XCTAssertFalse(app.buttons["voice-input-button"].exists)
+    XCTAssertTrue(app.buttons["Record voice note"].isHittable)
+    app.buttons["Record voice note"].tap()
     XCTAssertTrue(app.buttons["Stop recording"].waitForExistence(timeout: 8))
     app.buttons["Stop recording"].tap()
     XCTAssertTrue(app.buttons["Discard recording"].waitForExistence(timeout: 8))
     app.buttons["Discard recording"].tap()
-    XCTAssertTrue(app.buttons["voice-input-button"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.buttons["Record voice note"].waitForExistence(timeout: 8))
     XCTAssertFalse(app.alerts.firstMatch.exists)
     app.terminate()
   }

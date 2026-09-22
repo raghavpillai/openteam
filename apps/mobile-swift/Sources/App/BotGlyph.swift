@@ -272,9 +272,6 @@ struct BotActivityRow: View {
         .opacity(visible ? 1 : 0)
         .animation(
           reduceMotion ? nil : .easeOut(duration: visible ? 0.18 : 0.12), value: visible)
-      Text(bot.name + (mode == .idle ? " needs input" : " is working"))
-        .font(.system(size: 12)).foregroundStyle(NativePalette.chatMuted)
-        .lineLimit(1).opacity(visible ? 1 : 0)
       Spacer()
     }.frame(height: visible ? 50 : 0).padding(.top, visible ? 2 : 0)
       .padding(.bottom, visible ? 12 : 0)

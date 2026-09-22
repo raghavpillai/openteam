@@ -339,7 +339,9 @@ struct PrimaryActionStyle: ButtonStyle {
 
 /// Restores UIKit's interactive navigation transition when our compact chrome replaces the bar.
 struct NativeBackGesture: UIViewControllerRepresentable {
+  var shouldBegin: () -> Bool = { true }
   final class Controller: UIViewController, UIGestureRecognizerDelegate {
+    var shouldBegin: () -> Bool = { true }
     @MainActor private final class SavedGesture {
       weak var gesture: UIGestureRecognizer?
       weak var delegate: (any UIGestureRecognizerDelegate)?
@@ -377,6 +379,7 @@ struct NativeBackGesture: UIViewControllerRepresentable {
       guard let navigationController, navigationController.viewControllers.count > 1,
         navigationController.transitionCoordinator == nil
       else { return false }
+      guard shouldBegin() else { return false }
       // Resign the outgoing page's editor before UIKit begins the interactive
       // pop. Keeping its keyboard attached across nested SwiftUI destinations
       // can leave the returning page with a stale zero keyboard inset.
@@ -414,7 +417,9 @@ struct NativeBackGesture: UIViewControllerRepresentable {
     }
   }
   func makeUIViewController(context: Context) -> Controller { Controller() }
-  func updateUIViewController(_ controller: Controller, context: Context) {}
+  func updateUIViewController(_ controller: Controller, context: Context) {
+    controller.shouldBegin = shouldBegin
+  }
   static func dismantleUIViewController(_ controller: Controller, coordinator: ()) {
     controller.restore()
   }

@@ -86,6 +86,151 @@ final class FunctionalFlowUITests: XCTestCase {
     app.buttons["settings-button"].tap()
     app.buttons.containing(NSPredicate(format: "label BEGINSWITH %@", "Plugins")).firstMatch.tap()
   }
+  func testSearchWhitespaceAndUnavailableResultRecovery() async throws {
+    let app = try await launch()
+    app.buttons["search-button"].tap()
+    let field = app.textFields["search-input"]
+    XCTAssertTrue(field.waitForExistence(timeout: 5))
+    field.tap()
+    field.typeText("   ")
+    XCTAssertTrue(app.staticTexts["Research"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.staticTexts["No Results"].exists)
+    try await fixture("/__qa/control", ["searchResults": [
+      ["id": "missing-result", "kind": "message", "title": "Unavailable conversation",
+       "subtitle": "A stale search hit"]]])
+    replace(field, "lost")
+    let missing = app.buttons.containing(.staticText, identifier: "Unavailable conversation").firstMatch
+    XCTAssertTrue(missing.waitForExistence(timeout: 5))
+    missing.tap()
+    XCTAssertTrue(app.staticTexts["This result is no longer available. Search again to refresh the results."]
+      .waitForExistence(timeout: 5))
+    capture("search-unavailable-result", app)
+    try await fixture("/__qa/control", ["searchResults": [
+      ["id": "recovered-result", "kind": "bot", "title": "Recovered result",
+       "subtitle": "Open Research", "botId": "bot-research"]]])
+    app.buttons["Try again"].tap()
+    let recovered = app.buttons.containing(.staticText, identifier: "Recovered result").firstMatch
+    XCTAssertTrue(recovered.waitForExistence(timeout: 5))
+    recovered.tap()
+    XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 8))
+  }
+
+  func testProfileExitKeepsDiscardsAndSavesEditsInBothThemes() async throws {
+    continueAfterFailure = false
+    for theme in ["dark", "light"] {
+      try await fixture("/__qa/reset")
+      let app = XCUIApplication()
+      app.launchArguments = ["--ui-testing", "--server", base, "--appearance", theme]
+      app.launch()
+      XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 15))
+      details(app)
+      replace(app.textFields["profile-name"], "Keep this edit")
+      app.buttons["profile-back"].tap()
+      XCTAssertTrue(app.buttons["Keep editing"].waitForExistence(timeout: 5))
+      capture("profile-unsaved-" + theme, app)
+      app.buttons["Keep editing"].tap()
+      XCTAssertEqual(app.textFields["profile-name"].value as? String, "Keep this edit")
+      let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.45))
+      edge.press(forDuration: 0.05,
+        thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.45)),
+        withVelocity: .slow, thenHoldForDuration: 0.2)
+      XCTAssertTrue(app.buttons["Save changes"].waitForExistence(timeout: 5))
+      if theme == "dark" {
+        try await fail("PATCH /api/v0/bots/bot-research")
+        app.buttons["Save changes"].tap()
+        error(app)
+        closeError(app)
+        XCTAssertEqual(app.textFields["profile-name"].value as? String, "Keep this edit")
+        XCTAssertTrue(app.textFields["profile-name"].isEnabled)
+        app.buttons["profile-back"].tap()
+        XCTAssertTrue(app.buttons["Save changes"].waitForExistence(timeout: 5))
+      }
+      app.buttons["Save changes"].tap()
+      XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 12))
+      app.buttons["conversation-details"].tap()
+      XCTAssertEqual(app.textFields["profile-name"].value as? String, "Keep this edit")
+      replace(app.textFields["profile-name"], "Discard this edit")
+      app.buttons["profile-back"].tap()
+      app.buttons["Discard changes"].tap()
+      XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 5))
+      app.buttons["conversation-details"].tap()
+      XCTAssertEqual(app.textFields["profile-name"].value as? String, "Keep this edit")
+      app.buttons["profile-back"].tap()
+      XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 5))
+      XCTAssertFalse(app.buttons["Save changes"].exists, "Unchanged profiles leave immediately")
+      app.terminate()
+    }
+  }
+
+  func testSlowProfileSavePreventsLaterEditsAndExit() async throws {
+    let app = try await launch()
+    details(app)
+    replace(app.textFields["profile-name"], "Slow profile")
+    try await fixture("/__qa/control", ["failures": [
+      "PATCH /api/v0/bots/bot-research": ["delayMs": 10000]]])
+    app.buttons["profile-save"].tap()
+    XCTAssertFalse(app.textFields["profile-name"].isEnabled)
+    XCTAssertFalse(app.buttons["profile-back"].isEnabled)
+    XCTAssertFalse(app.buttons["profile-options"].isEnabled)
+    capture("profile-saving", app)
+    let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.001, dy: 0.45))
+    edge.press(forDuration: 0.05,
+      thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.45)),
+      withVelocity: .slow, thenHoldForDuration: 0.1)
+    XCTAssertTrue(app.textFields["profile-name"].exists)
+    XCTAssertFalse(app.buttons["Discard changes"].exists)
+    XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 15))
+    app.buttons["conversation-details"].tap()
+    XCTAssertEqual(app.textFields["profile-name"].value as? String, "Slow profile")
+  }
+
+  func testSlowCreateAndRoutineSaveKeepSubmittedFormStable() async throws {
+    let app = try await launch()
+    app.buttons["new-button"].tap()
+    app.buttons["New Bot"].tap()
+    let name = app.textFields["new-name"]
+    XCTAssertTrue(name.waitForExistence(timeout: 8))
+    name.tap()
+    name.typeText("Slow creation")
+    try await fixture("/__qa/control", ["failures": ["POST /api/v0/bots": ["delayMs": 10000]]])
+    app.buttons["create-confirm"].tap()
+    XCTAssertFalse(name.isEnabled)
+    XCTAssertFalse(app.buttons["sheet-close"].isEnabled)
+    capture("create-saving", app)
+    let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.13))
+    top.press(forDuration: 0.05,
+      thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.65)),
+      withVelocity: .fast, thenHoldForDuration: 0.1)
+    XCTAssertTrue(name.exists, "An accepted creation must not lose its destination to sheet dismissal")
+    XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 15))
+    app.buttons["conversation-details"].tap()
+    let data = try await state()
+    let bot = try XCTUnwrap((data["bots"] as? [[String: Any]])?.first { $0["name"] as? String == "Slow creation" })
+    let id = try XCTUnwrap(bot["id"] as? String)
+    find(app.buttons["Routines"], app)
+    app.buttons["Routines"].tap()
+    app.buttons["Add routine"].tap()
+    app.textFields["routine-name"].tap()
+    app.textFields["routine-name"].typeText("Slow routine")
+    app.textViews["routine-prompt"].tap()
+    app.textViews["routine-prompt"].typeText("Check the fixture")
+    try await fixture("/__qa/control", ["failures": [
+      "POST /api/v0/bots/" + id + "/routines": ["delayMs": 10000]]])
+    app.buttons["routine-save"].tap()
+    XCTAssertFalse(app.textFields["routine-name"].isEnabled)
+    XCTAssertFalse(app.textViews["routine-prompt"].isEnabled)
+    XCTAssertFalse(app.buttons["Cancel"].isEnabled)
+    capture("routine-saving", app)
+    top.press(forDuration: 0.05,
+      thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.65)),
+      withVelocity: .fast, thenHoldForDuration: 0.1)
+    XCTAssertTrue(app.textFields["routine-name"].exists)
+    XCTAssertTrue(app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Slow routine"))
+      .firstMatch.waitForExistence(timeout: 15))
+    let after = try await state()
+    XCTAssertEqual((after["routines"] as? [[String: Any]])?.first?["name"] as? String, "Slow routine")
+  }
+
   func testCreateAndEditRetainInputOnFailureAndPersistRobot() async throws {
     let app = try await launch()
     app.buttons["new-button"].tap()

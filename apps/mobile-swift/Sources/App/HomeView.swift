@@ -507,7 +507,7 @@ struct CreateConversationView: View {
           .accessibilityIdentifier("create-confirm").padding(.horizontal, 28).padding(.bottom, -4)
           .padding(.top, 12)
       }
-    }.nativeCanvas()
+    }.disabled(saving).interactiveDismissDisabled(saving).nativeCanvas()
       .onAppear { if group { groupSearchFocused = true } }
   }
   func colorRow(_ values: [String]) -> some View {
@@ -526,6 +526,7 @@ struct CreateConversationView: View {
     }
   }
   func save() async {
+    guard !saving else { return }
     saving = true
     defer { saving = false }
     let body: JSON =
@@ -565,12 +566,13 @@ struct SearchView: View {
   @State private var failure: String?
   @State private var retryID = 0
   @FocusState private var focused: Bool
+  private var searchQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
   var body: some View {
     ScrollView {
       LazyVStack(spacing: 0) {
         if loading { ProgressView().padding() }
         if let failure { InlineFailure(message: failure) { retryID += 1 }.padding() }
-        if query.isEmpty {
+        if searchQuery.isEmpty {
           ForEach(store.channels.filter { !store.isHidden($0) }) { channel in
             Button {
               focused = false
@@ -601,6 +603,8 @@ struct SearchView: View {
                 ? (result.id.hasPrefix("routine:") ? String(result.id.dropFirst(8)) : result.id)
                 : nil
               onSelect(channel, routine == nil ? result.messageId : nil, routine)
+            } else {
+              failure = "This result is no longer available. Search again to refresh the results."
             }
           } label: {
             searchRow(
@@ -608,8 +612,8 @@ struct SearchView: View {
               subtitle: result.subtitle, kind: result.kind.capitalized)
           }.buttonStyle(.plain)
         }
-        if !loading, !query.isEmpty, results.isEmpty, failure == nil {
-          ContentUnavailableView.search(text: query)
+        if !loading, !searchQuery.isEmpty, results.isEmpty, failure == nil {
+          ContentUnavailableView.search(text: searchQuery)
         }
       }.padding(.horizontal, 20).padding(.top, 18)
     }.scrollDismissesKeyboard(.interactively)
@@ -620,7 +624,7 @@ struct SearchView: View {
       .task(id: query + "\n" + category + "\n" + String(retryID)) {
         results = []
         failure = nil
-        guard !query.trimmingCharacters(in: .whitespaces).isEmpty, store.api != nil else {
+        guard !searchQuery.isEmpty, store.api != nil else {
           loading = false
           return
         }
@@ -628,7 +632,7 @@ struct SearchView: View {
         do {
           try await Task.sleep(for: .milliseconds(250))
           let response = try await store.fetch(
-            "/api/v0/search", as: SearchResponse.self, query: ["q": query, "category": category])
+            "/api/v0/search", as: SearchResponse.self, query: ["q": searchQuery, "category": category])
           try Task.checkCancellation()
           results = response.results
           loading = false

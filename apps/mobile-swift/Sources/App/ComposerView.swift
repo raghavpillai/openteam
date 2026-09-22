@@ -16,10 +16,6 @@ struct ComposerView: View {
   var focusRequest: UUID? = nil
   private var focusedReply: Bool { threadRootID != nil || replyRootID != nil }
   private var key: String { draftKey ?? channel.id }
-  private var showsWaveform: Bool {
-    !channel.isGroup && !focusedReply && draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      && attachmentCount == 0
-  }
   @State private var photos: [PhotosPickerItem] = []
   @State private var photoLibrary = false
   @State private var files = false
@@ -225,7 +221,7 @@ struct ComposerView: View {
           axis: .vertical
         )
         .font(.body).lineLimit(1...8).focused($focused).tint(NativePalette.chatInsertion)
-        .padding(.leading, 16).padding(.trailing, showsWaveform ? 86 : 48)
+        .padding(.leading, 16).padding(.trailing, 48)
         .padding(.vertical, text.wrappedValue.contains("\n") ? 7 : 11)
         .frame(minHeight: 44).accessibilityIdentifier(
           focusedReply ? "thread-message-input" : "message-input"
@@ -358,26 +354,16 @@ struct ComposerView: View {
         .accessibilityIdentifier(
           focusedReply ? "thread-send-button" : "send-button")
     } else {
-      HStack(spacing: -6) {
-        Button { startRecording() } label: {
-          Image(systemName: "mic.fill").font(.system(size: 16)).foregroundStyle(NativePalette.chatMuted)
-            .frame(width: 36, height: 28)
-            .background(Color(red: 118 / 255, green: 118 / 255, blue: 128 / 255)
-              .opacity(showsWaveform ? 0 : 0.24), in: Capsule())
-            .frame(width: 44, height: 44).contentShape(Rectangle())
-        }.buttonStyle(.plain).accessibilityLabel("Record voice note")
-        if showsWaveform {
-          Button { startRecording() } label: {
-            Image(systemName: "waveform").font(.system(size: 17, weight: .semibold))
-              .foregroundStyle(NativePalette.onPrimary).frame(width: 36, height: 28)
-              .background(NativePalette.text, in: Capsule())
-              .frame(width: 44, height: 44).contentShape(Rectangle())
-          }.buttonStyle(ComposerSendStyle()).accessibilityLabel("Start voice input")
-            .accessibilityHint("Record and transcribe a voice note")
-            .accessibilityIdentifier("voice-input-button")
-        }
-      }.disabled(transcribing || voice.pendingURL != nil
-        || store.state.bootstrap?.runtime["transcription"].string != "configured")
+      // The server supports recorded transcription, not live voice chat.
+      Button { startRecording() } label: {
+        Image(systemName: "mic.fill").font(.system(size: 16)).foregroundStyle(NativePalette.chatMuted)
+          .frame(width: 36, height: 28)
+          .background(Color(red: 118 / 255, green: 118 / 255, blue: 128 / 255)
+            .opacity(0.24), in: Capsule())
+          .frame(width: 44, height: 44).contentShape(Rectangle())
+      }.buttonStyle(.plain).accessibilityLabel("Record voice note")
+        .disabled(transcribing || voice.pendingURL != nil
+          || store.state.bootstrap?.runtime["transcription"].string != "configured")
 
     }
   }

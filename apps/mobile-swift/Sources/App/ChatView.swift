@@ -434,6 +434,8 @@ struct MessageRow: View {
             Button { if !viewOnly { Task { await store.open(speaker.dmChannelId) } } } label: {
               Text(speaker.name).font(.system(size: 12))
                 .foregroundStyle(NativePalette.chatMuted).padding(.leading, 12)
+                // Match the reference's label baseline without moving the bubble below it.
+                .offset(y: 1.5)
             }.buttonStyle(.plain).allowsHitTesting(!viewOnly)
               .accessibilityIdentifier("speaker-" + message.id)
           }

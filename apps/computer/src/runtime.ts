@@ -45,7 +45,12 @@ import { ComputerEventQueue } from "./computer-event-queue";
 import { InferenceProviderService } from "./inference-providers";
 import { requireInferenceModel } from "./inference-models";
 import { decodeInlineImages, loadAttachmentImages } from "./runtime/attachments";
-import { compactionExtension, compactionObservation, inferCompaction } from "./runtime/compaction";
+import {
+  compactionExtension,
+  compactionObservation,
+  inferCompaction,
+  publishCompaction,
+} from "./runtime/compaction";
 import { textFromContent } from "./runtime/content";
 import { attachSession, routeEvent } from "./runtime/events";
 import { verifyGraphicalTaskCompletion } from "./runtime/graphical-completion";
@@ -780,11 +785,11 @@ export class ComputerRuntime {
         }
       }
       if (active.lastStopReason !== "aborted" && active.lastStopReason !== "error") {
-        const shouldPersist = await this.compaction.shouldCompactAtTurnEnd({
+        const adopted = await this.compaction.settleAtTurnEnd({
           ...compactionObservation(active),
           infer: (request, signal) => this.inferCompaction(active, request, signal),
         });
-        if (shouldPersist) await session.compact();
+        if (adopted) publishCompaction(active, adopted);
       }
       if (active.lastStopReason === "aborted") status = "interrupted";
       else if (active.lastStopReason === "error") {

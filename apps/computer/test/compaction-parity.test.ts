@@ -65,7 +65,7 @@ const setup = async () => {
   return { store, coordinator, observation };
 };
 
-test("launch uses the self-summary floor without changing the background persistence gate", async () => {
+test("launch and adoption use the same inclusive 90% boundary", async () => {
   const { coordinator, observation, store } = await setup();
   let calls = 0;
   const input = {
@@ -82,10 +82,13 @@ test("launch uses the self-summary floor without changing the background persist
   input.usedTokens = 90_002;
   await coordinator.observe(input);
   await settle();
-  expect(calls).toBe(1);
+  expect(calls).toBe(0);
   await coordinator.modelContextMessages(input);
   expect((await store.manifest(input.contextSessionId)).epoch).toBe(0);
   input.usedTokens = 90_003;
+  await coordinator.observe(input);
+  await settle();
+  expect(calls).toBe(1);
   await coordinator.modelContextMessages(input);
   expect((await store.manifest(input.contextSessionId)).epoch).toBe(1);
 });
@@ -134,9 +137,9 @@ test("early thresholds lower both boundaries only when valid", () => {
   }
 });
 
-test("fractional persist boundaries retain the reference arithmetic", () => {
-  expect(shouldPersistBotSummary(95_000.95, 100_001)).toBe(false);
-  expect(shouldPersistBotSummary(95_001, 100_001)).toBe(true);
+test("fractional windows round up to the first token at or above 90%", () => {
+  expect(shouldPersistBotSummary(90_000, 100_001)).toBe(false);
+  expect(shouldPersistBotSummary(90_001, 100_001)).toBe(true);
 });
 
 test("summary text joins nonempty prose parts and strips only closed legacy thinking tags", () => {
@@ -526,14 +529,14 @@ test("a parked candidate with a changed system or message prefix is never adopte
 test("ordinary end-of-turn pressure defers in-flight work and adopts a completed result", async () => {
   const { coordinator, observation } = await setup();
   const result = deferred<{ text: string }>();
-  observation.usedTokens = 96_000;
+  observation.usedTokens = 90_000;
   observation.infer = () => result.promise;
   expect(await coordinator.shouldCompactAtTurnEnd(observation)).toBe(false);
   expect(
     await coordinator.beforePiCompaction({
       ...observation,
       reason: "threshold",
-      tokensBefore: 96_000,
+      tokensBefore: 90_000,
       firstKeptEntryId: "last",
       signal: new AbortController().signal,
     })
@@ -751,4 +754,88 @@ test("deleting a context cancels a blocking summary and cannot resurrect its arc
   result.resolve({ text: "Late result from an uncooperative provider" });
   await settle();
   expect((await store.manifest(observation.contextSessionId)).epoch).toBe(0);
+});
+
+test("last request excludes injected reminders but preserves ordinary users with the same text", () => {
+  const genuine = text("user", "Do not forget the original goal");
+  const reminder = {
+    ...text("user", "Reminder: send an update"),
+    providerOptions: { cursor: { sandSendMessageReminder: true } },
+  };
+  expect(
+    partitionForBotSummary([genuine, text("assistant", "Working"), reminder])?.lastUserMessage
+  ).toEqual(genuine);
+  expect(partitionForBotSummary([text("user", "Earlier"), genuine])?.lastUserMessage).toEqual(
+    genuine
+  );
+});
+
+test("capacity backpressure leaves 90 percent nonblocking and adopts at the limit with new tail intact", async () => {
+  const { coordinator, observation, store } = await setup();
+  const generated = deferred<{ text: string }>();
+  let inferenceCalls = 0;
+  const input = {
+    ...observation,
+    infer: async () => {
+      inferenceCalls++;
+      return generated.promise;
+    },
+  };
+  await coordinator.observe(input);
+  await coordinator.waitForModelCapacity(input, new AbortController().signal);
+  expect((await store.manifest(input.contextSessionId)).epoch).toBe(0);
+  const steering = text("user", "Latest correction survives the capacity wait");
+  const full = { ...input, usedTokens: 100_000, piMessages: [...input.piMessages, steering] };
+  let finished = false;
+  const waiting = coordinator.waitForModelCapacity(full, new AbortController().signal).then(() => {
+    finished = true;
+  });
+  await settle();
+  expect(finished).toBe(false);
+  generated.resolve({ text: "Original unfinished goal and exact ledger values" });
+  await waiting;
+  const projected = await coordinator.modelContextMessages(full);
+  expect(projected.at(-1)).toEqual(steering);
+  expect((await store.manifest(input.contextSessionId)).epoch).toBe(1);
+  expect(inferenceCalls).toBe(1);
+});
+
+test("capacity wait is cancellable without discarding a summary needed by the next turn", async () => {
+  const { coordinator, observation } = await setup();
+  const generated = deferred<{ text: string }>();
+  const input = { ...observation, usedTokens: 100_000, infer: () => generated.promise };
+  await coordinator.observe(input);
+  const controller = new AbortController();
+  const waiting = coordinator.waitForModelCapacity(input, controller.signal);
+  await settle();
+  controller.abort();
+  await expect(waiting).rejects.toThrow();
+  generated.resolve({ text: "Keep blue" });
+  await settle();
+  expect(JSON.stringify(await coordinator.modelContextMessages(input))).toContain("Keep blue");
+});
+
+test("a failed pending summary cannot skip the durable model projection", async () => {
+  const { coordinator, observation, store } = await setup();
+  await coordinator.observe(observation);
+  await settle();
+  await coordinator.modelContextMessages(observation);
+  expect((await store.manifest(observation.contextSessionId)).epoch).toBe(1);
+  const generated = deferred<{ text: string }>();
+  const input = {
+    ...observation,
+    freshUsage: true,
+    usedTokens: 100_000,
+    piMessages: [...observation.piMessages, text("user", "Continue with the correction")],
+    infer: () => generated.promise,
+  };
+  await coordinator.observe(input);
+  const waiting = coordinator.waitForModelCapacity(input, new AbortController().signal);
+  await settle();
+  generated.reject(new Error("Summary provider unavailable"));
+  await waiting;
+  const projected = JSON.stringify(await coordinator.modelContextMessages(input));
+  expect(projected).toContain("summary_content");
+  expect(projected).toContain("Continue with the correction");
+  expect(projected).not.toContain("Built red");
 });

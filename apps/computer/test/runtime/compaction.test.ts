@@ -15,6 +15,7 @@ import {
   compactionExtension,
   compactionObservation,
   inferCompaction,
+  withPendingSummaryResults,
 } from "../../src/runtime/compaction";
 import type { ActiveTurn } from "../../src/runtime/types";
 
@@ -57,6 +58,70 @@ const request = {
   shorter: false,
 };
 const modelRef = { providerId: model.provider, modelId: model.id };
+
+test("summary wire input marks unfinished calls pending and preserves actual successes and failures", async () => {
+  const history = [
+    { role: "user", content: [{ type: "text", text: "Continue the reads" }], timestamp: 1 },
+    {
+      ...answer("", "toolUse"),
+      content: [
+        { type: "toolCall", id: "a", name: "Read", arguments: { path: "one" } },
+        { type: "toolCall", id: "b", name: "Read", arguments: { path: "two" } },
+        { type: "toolCall", id: "c", name: "Read", arguments: { path: "three" } },
+      ],
+    },
+    {
+      role: "toolResult",
+      toolCallId: "a",
+      toolName: "Read",
+      content: [{ type: "text", text: "Found one" }],
+      isError: false,
+      timestamp: 2,
+    },
+    {
+      role: "toolResult",
+      toolCallId: "b",
+      toolName: "Read",
+      content: [{ type: "text", text: "Permission denied" }],
+      isError: true,
+      timestamp: 3,
+    },
+  ];
+  const original = structuredClone(history);
+  const projection = withPendingSummaryResults(history);
+  expect(history).toEqual(original);
+  expect(projection.filter((message) => message.role === "toolResult")).toHaveLength(3);
+  expect(projection.find((message) => message.toolCallId === "b")).toEqual(history[3]);
+  expect(projection.find((message) => message.toolCallId === "c")).toMatchObject({
+    isError: false,
+  });
+  let wire = "";
+  await inferCompaction(
+    {
+      completeSimple: (_model: unknown, context: any) =>
+        streamSimple(model, context, {
+          apiKey: "synthetic-fixture",
+          maxRetries: 0,
+          fetch: (async (_url: unknown, init: any) => {
+            wire = await new Response(init.body).text();
+            return new Response(
+              'data: {"id":"fixture","object":"chat.completion.chunk","created":1,"model":"fixture","choices":[{"index":0,"delta":{"role":"assistant","content":"Ready"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+              { headers: { "content-type": "text/event-stream" } }
+            );
+          }) as typeof fetch,
+        }).result(),
+    } as unknown as ModelRuntime,
+    () => model,
+    () => [],
+    { modelRef, reasoning: "off" } as ActiveTurn,
+    { ...request, messagesToSummarize: history },
+    new AbortController().signal
+  );
+  expect(wire).toContain("Result pending at the summarization snapshot");
+  expect(wire).toContain("Found one");
+  expect(wire).toContain("Permission denied");
+  expect(wire).not.toContain("No result provided");
+});
 
 for (const stopReason of ["error", "length", "aborted"] as const) {
   for (const text of ["", "Unfinished prose"]) {
@@ -267,7 +332,11 @@ test("streamed input usage starts a summary before assistant completion and ever
   }
 });
 
-test("real Pi turns complete while summary generation runs, reopen, and adopt without using stale pressure", async () => {
+test.each([
+  32_000, 100_003, 256_000,
+])("real Pi starts at 90% of %i, completes the turn, reopens and adopts without stale pressure", async (contextWindow) => {
+  const fixtureModel = { ...model, contextWindow };
+  const boundary = Math.ceil(contextWindow * 0.9);
   const root = await mkdtemp(join(tmpdir(), "compaction-real-pi-"));
   const store = new BotCompactionArchiveStore(join(root, "archives"));
   const coordinator = new BotCompactionCoordinator(store, 0);
@@ -297,7 +366,7 @@ test("real Pi turns complete while summary generation runs, reopen, and adopt wi
       return generated;
     };
     modelRuntime.streamSimple = (_model, context, options) =>
-      streamSimple(model, context, {
+      streamSimple(fixtureModel, context, {
         ...options,
         apiKey: "synthetic-fixture",
         maxRetries: 0,
@@ -316,9 +385,9 @@ test("real Pi turns complete while summary generation runs, reopen, and adopt wi
             {
               choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
               usage: {
-                prompt_tokens: requests.length === 1 ? 96_000 : 500,
+                prompt_tokens: requests.length === 1 ? boundary - 10 : 500,
                 completion_tokens: 10,
-                total_tokens: requests.length === 1 ? 96_010 : 510,
+                total_tokens: requests.length === 1 ? boundary : 510,
               },
             },
           ];
@@ -335,7 +404,7 @@ test("real Pi turns complete while summary generation runs, reopen, and adopt wi
       });
     internals.agentDir = root;
     internals.modelRuntime = modelRuntime;
-    internals.resolveModel = () => model;
+    internals.resolveModel = () => fixtureModel;
     internals.compaction = coordinator;
     internals.compactionArchive = store;
     internals.tools = {
@@ -384,6 +453,7 @@ test("real Pi turns complete while summary generation runs, reopen, and adopt wi
       modelRef
     );
     first.session = session!;
+    expect(compactionObservation(first).maxTokens).toBe(contextWindow);
     first.sessionPath = session!.sessionFile!;
     first.unsubscribe = session!.subscribe((event) => internals.routeEvent(first, event));
     const sessionPath = first.sessionPath;
@@ -579,7 +649,7 @@ for (const scenario of [
           toolActivityAfterLastSend: false,
           pendingSteers: [],
           acceptedSteerIds: new Set(),
-        discoveredDynamicTools: new Set(["fixture/OldSchema"]),
+          discoveredDynamicTools: new Set(["fixture/OldSchema"]),
           assistantOrdinal: 0,
           startedItems: new Set(),
           toolArgs: new Map(),

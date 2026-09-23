@@ -7,13 +7,10 @@ export {
   type BotPreparedCompaction,
 } from "./compaction/coordinator";
 export {
-  BOT_BACKGROUND_UNUSED_PERCENT,
-  BOT_BACKGROUND_UNUSED_TOKENS,
+  BOT_CONTEXT_COMPACTION_RATIO,
   BOT_CONVERSATION_HARD_BYTES,
   BOT_CONVERSATION_SOFT_BYTES,
   BOT_IMAGE_TRIGGER,
-  BOT_PERSIST_UNUSED_PERCENT,
-  BOT_PERSIST_UNUSED_TOKENS,
   botBackgroundThreshold,
   botConversationSizeLimits,
   botDurableBlocks,
@@ -47,6 +44,7 @@ export {
   type BotArchiveManifest,
   type BotArchiveRecord,
   type BotCompactionEvent,
+  type BotCompactionMetrics,
   type BotCompactionReason,
   type BotMessage,
   type BotPartition,

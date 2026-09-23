@@ -39,6 +39,7 @@ export interface ActiveTurn {
   compactionRequestMessages?: BotMessage[];
   /** Canonical persisted history; Pi may remove retry failures only from memory. */
   compactionReadPiMessages?: () => BotMessage[];
+  pendingCompactionMeasurement?: { compactionId: string; epoch: number };
   todoUpdate: string | null;
   automationTrigger: string | null;
   resetSelfSummaryCount: boolean;

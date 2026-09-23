@@ -321,6 +321,83 @@ export class BotCompactionCoordinator {
     return true;
   }
 
+  /** Our archive already supports atomic adoption without rewriting Pi's tape.
+   * Pi's cut-point preparer cannot handle a terminal tool result with its tiny
+   * retained-token budget. Finished work must not fail on that preparation. */
+  async settleAtTurnEnd(input: BotObservation): Promise<BotCompactionEvent | null> {
+    await this.observe(input);
+    const pending = this.pending.get(input.contextSessionId);
+    if (!pending?.result) return null; // Park unfinished work; no more model call is needed.
+    if (!pending.parked) pending.reason = "self_summary_completed";
+    await this.modelContextMessages(input);
+    return this.takeProjectedEvent(input.contextSessionId);
+  }
+
+  async latestEvent(contextSessionId: string): Promise<BotCompactionEvent | null> {
+    const blob = await this.store.latest(contextSessionId);
+    return blob ? compactionEvent(contextSessionId, blob) : null;
+  }
+
+  /** Keep the 90% launch non-blocking, but wait before another request when
+   * the best available usage reaches the advertised window (or image limit). */
+  async waitForModelCapacity(input: BotObservation, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
+    const current = replaceBotUserInfo(
+      await this.contextMessages(input.contextSessionId, input.piMessages),
+      input.userInfoMessage ?? null
+    );
+    const usedTokens = await this.usedTokens(input, current);
+    if (
+      countBotImages(current) < BOT_IMAGE_TRIGGER &&
+      !(input.maxTokens > 0 && Number.isFinite(input.maxTokens) && usedTokens >= input.maxTokens)
+    )
+      return;
+    const pending = this.pending.get(input.contextSessionId);
+    if (!pending || pending.result || !this.matches(pending, input, current)) return;
+    const started = performance.now();
+    try {
+      pending.result = await this.waitForPending(pending, signal);
+    } catch (error) {
+      if (signal.aborted) throw error;
+      // Pi catches context-hook errors and falls back to its unprojected tape.
+      // Keep applying our durable projection if generation fails; the existing
+      // provider overflow recovery can then handle the capacity error normally.
+      console.warn(
+        JSON.stringify({
+          event: "compaction.capacity_wait_failed",
+          contextSessionId: input.contextSessionId,
+          compactionId: pending.id,
+          durationMs: Math.round(performance.now() - started),
+        })
+      );
+      return;
+    }
+    console.info(
+      JSON.stringify({
+        event: "compaction.capacity_wait",
+        contextSessionId: input.contextSessionId,
+        compactionId: pending.id,
+        usedTokens,
+        maxTokens: input.maxTokens,
+        durationMs: Math.round(performance.now() - started),
+      })
+    );
+  }
+
+  private metrics(result: BotSummaryResult, tail: BotMessage[]) {
+    return result.generation
+      ? {
+          generationCompletedAt: result.generation.completedAt,
+          generationDurationMs: result.generation.durationMs,
+          summaryInputTokens: result.generation.inputTokens,
+          summaryOutputTokens: result.generation.outputTokens,
+          retainedTailMessages: tail.length,
+          estimatedRetainedTailTokens: estimateBotContextTokens("", tail),
+          tokensAfterSource: "estimate" as const,
+        }
+      : undefined;
+  }
+
   async contextMessages(
     contextSessionId: string,
     piMessages: readonly BotMessage[]
@@ -396,6 +473,7 @@ export class BotCompactionCoordinator {
       imageCount: pending.imageCount,
       turnCount: pending.turnCount,
       usage: pending.result.usage ?? null,
+      metrics: this.metrics(pending.result, tail),
       startedAt: pending.startedAt,
       completedAt,
     });
@@ -429,19 +507,10 @@ export class BotCompactionCoordinator {
     const imageCount = countBotImages(messages);
     const turnCount = countBotTurns(messages);
     const usedTokens = await this.usedTokens(input, messages);
-    // The active generic orchestrator ORs its background gate with the
-    // self-summary gate, which floors 90% of the window. Persistence keeps
-    // the background arithmetic, so a fractional window can launch one token
-    // before it becomes eligible for mid-loop adoption.
-    const reachesSelfSummaryLimit =
-      Number.isFinite(input.maxTokens) &&
-      input.maxTokens > 0 &&
-      usedTokens >= Math.floor(input.maxTokens * 0.9);
     const reason: BotCompactionReason | null =
       imageCount >= BOT_IMAGE_TRIGGER
         ? "approaching_image_limit"
-        : shouldStartBotSummary(usedTokens, input.maxTokens, input.earlyThreshold) ||
-            reachesSelfSummaryLimit
+        : shouldStartBotSummary(usedTokens, input.maxTokens, input.earlyThreshold)
           ? "approaching_token_limit"
           : null;
     const existing = this.pending.get(input.contextSessionId);
@@ -525,6 +594,7 @@ export class BotCompactionCoordinator {
     signal: AbortSignal,
     tools?: readonly BotSummaryTool[]
   ): Promise<BotSummaryResult> {
+    const generationStarted = performance.now();
     let lastError: unknown;
     let messages = structuredClone(partition.messagesToSummarize);
     const capturedTools = tools ? structuredClone(tools) : undefined;
@@ -553,7 +623,21 @@ export class BotCompactionCoordinator {
           // Empty output retries immediately with the CURRENT input/instruction.
           continue;
         }
-        return { ...result, ...(usage ? { usage } : {}) };
+        return {
+          ...result,
+          ...(usage ? { usage } : {}),
+          generation: {
+            completedAt: new Date().toISOString(),
+            durationMs: Math.round(performance.now() - generationStarted),
+            inputTokens:
+              typeof result.usage?.input === "number"
+                ? result.usage.input +
+                  (result.usage.cacheRead ?? 0) +
+                  (result.usage.cacheWrite ?? 0)
+                : null,
+            outputTokens: typeof result.usage?.output === "number" ? result.usage.output : null,
+          },
+        };
       } catch (error) {
         lastError = error;
         if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
@@ -737,6 +821,7 @@ export class BotCompactionCoordinator {
       imageCount: pending.imageCount,
       turnCount: pending.turnCount,
       usage: result.usage ?? null,
+      metrics: this.metrics(result, tail),
       startedAt: pending.startedAt,
       completedAt,
     });

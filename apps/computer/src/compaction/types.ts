@@ -27,6 +27,22 @@ export interface BotSummaryUsage {
 export interface BotSummaryResult {
   text: string;
   usage?: BotSummaryUsage;
+  generation?: {
+    completedAt: string;
+    durationMs: number;
+    inputTokens: number | null;
+    outputTokens: number | null;
+  };
+}
+
+export interface BotCompactionMetrics {
+  generationCompletedAt: string;
+  generationDurationMs: number;
+  summaryInputTokens: number | null;
+  summaryOutputTokens: number | null;
+  retainedTailMessages: number;
+  estimatedRetainedTailTokens: number;
+  tokensAfterSource: "estimate";
 }
 
 export interface BotSummaryRetryDirective {
@@ -71,6 +87,7 @@ export interface BotArchiveBlob {
   imageCount: number;
   turnCount: number;
   usage: BotSummaryUsage | null;
+  metrics?: BotCompactionMetrics;
   startedAt: string;
   completedAt: string;
 }
@@ -100,6 +117,7 @@ export interface BotCompactionEvent extends BotArchiveRecord {
   contextSessionId: string;
   compactionId: string;
   epoch: number;
+  metrics?: BotCompactionMetrics;
 }
 
 export interface BotPartition {

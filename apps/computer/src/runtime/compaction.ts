@@ -108,23 +108,47 @@ export function compactionExtension(
   const infer = (request: BotSummaryRequest, signal: AbortSignal) =>
     inferCompaction(active, request, signal);
   let deferredAutomatic = false;
+  let restoredMeasurement = false;
   return {
     name: "openteam-bot-compaction",
     hidden: true,
     factory: (pi) => {
       pi.on("before_agent_start", async () => ({ systemPrompt: active.instructions }));
-      pi.on("context", async (event) => {
+      pi.on("context", async (event, ctx) => {
+        if (!restoredMeasurement) {
+          restoredMeasurement = true;
+          const latest = await compaction.latestEvent(active.contextSessionId);
+          if (
+            latest &&
+            !sessionManager
+              .getEntries()
+              .some(
+                (entry) =>
+                  entry.type === "custom" &&
+                  entry.customType === "openteam-compaction-usage" &&
+                  (entry.data as { compactionId?: string } | undefined)?.compactionId ===
+                    latest.compactionId
+              )
+          )
+            active.pendingCompactionMeasurement = {
+              compactionId: latest.compactionId,
+              epoch: latest.epoch,
+            };
+        }
         await acknowledgeToolOutcomes?.(event.messages as BotMessage[]);
         // The SDK's model projection can omit custom-entry metadata. Count from
         // the durable tape so a checkpoint resets the cadence on later steps.
         const graphicalReminder = graphicalProgressReminder(readPiMessages(), active);
         if (graphicalReminder && active.session) {
-          await active.session.sendCustomMessage({
-            customType: "openteam-graphical-progress",
-            content: graphicalReminder,
-            display: false,
-            details: { origin: "host" },
-          }, { triggerTurn: false });
+          await active.session.sendCustomMessage(
+            {
+              customType: "openteam-graphical-progress",
+              content: graphicalReminder,
+              display: false,
+              details: { origin: "host" },
+            },
+            { triggerTurn: false }
+          );
           event.messages = [...event.messages, active.session.messages.at(-1)!];
         }
         const reminder = communicationReminder(event.messages as BotMessage[], active);
@@ -146,6 +170,10 @@ export function compactionExtension(
           infer,
         };
         await compaction.observe(observation);
+        await compaction.waitForModelCapacity(
+          observation,
+          ctx?.signal ?? new AbortController().signal
+        );
         let messages = await compaction.modelContextMessages({
           ...observation,
         });
@@ -233,6 +261,18 @@ export function compactionExtension(
         if (event.message.role !== "assistant" || !active.session) return;
         const message = event.message as unknown as BotMessage;
         if (["error", "aborted"].includes(String(message.stopReason))) return;
+        const measuredInputTokens = responseTokens(message, false);
+        if (active.pendingCompactionMeasurement && measuredInputTokens > 0) {
+          const measurement = {
+            ...active.pendingCompactionMeasurement,
+            contextSessionId: active.contextSessionId,
+            inputTokens: measuredInputTokens,
+            source: "provider",
+          };
+          sessionManager.appendCustomEntry("openteam-compaction-usage", measurement);
+          console.info(JSON.stringify({ event: "compaction.first_request", ...measurement }));
+          active.pendingCompactionMeasurement = undefined;
+        }
         const observation = compactionObservation(active);
         const usedTokens = responseTokens(message, true);
         const early = message.earlyCompactionContextTokenThreshold;
@@ -311,15 +351,17 @@ export async function inferCompaction(
     model,
     {
       systemPrompt: botSummarySystemPrompt(request.systemPrompt),
-      messages: convertToLlm(fenceToolResults([
-        ...(request.userInfoMessage ? [request.userInfoMessage] : []),
-        ...request.messagesToSummarize,
-        {
-          role: "user",
-          content: [{ type: "text", text: botSummaryPrompt(request.shorter) }],
-          timestamp: Date.now(),
-        },
-      ] as never) as never),
+      messages: convertToLlm(
+        fenceToolResults([
+          ...(request.userInfoMessage ? [request.userInfoMessage] : []),
+          ...withPendingSummaryResults(request.messagesToSummarize),
+          {
+            role: "user",
+            content: [{ type: "text", text: botSummaryPrompt(request.shorter) }],
+            timestamp: Date.now(),
+          },
+        ] as never) as never
+      ),
       tools: (request.tools ?? modelVisibleSummaryTools(customTools(active))) as never,
     },
     {
@@ -350,11 +392,61 @@ export async function inferCompaction(
   });
 }
 
-function publishCompaction(active: ActiveTurn, adopted: BotCompactionEvent): void {
+/** Close only unanswered snapshot calls before Pi can invent error results.
+ * This projection never changes the durable tape or the real continuation tail. */
+export function withPendingSummaryResults(messages: readonly BotMessage[]): BotMessage[] {
+  const answered = new Set(
+    messages.flatMap((message) =>
+      message.role === "toolResult" && typeof message.toolCallId === "string"
+        ? [message.toolCallId]
+        : []
+    )
+  );
+  return messages.flatMap((message) => {
+    if (message.role !== "assistant" || !Array.isArray(message.content)) return [message];
+    const missing = message.content.filter(
+      (part) => part?.type === "toolCall" && typeof part.id === "string" && !answered.has(part.id)
+    );
+    return [
+      message,
+      ...missing.map((call) => ({
+        role: "toolResult",
+        toolCallId: call.id,
+        toolName: call.name,
+        content: [
+          {
+            type: "text",
+            text: "Result pending at the summarization snapshot. No outcome is available yet; this does not establish success or failure.",
+          },
+        ],
+        isError: false,
+        timestamp: message.timestamp ?? 0,
+      })),
+    ];
+  });
+}
+
+export function publishCompaction(active: ActiveTurn, adopted: BotCompactionEvent): void {
   // Schemas removed by compaction must be discovered again. Still-visible full
   // descriptors can be recovered from the next model projection at invocation.
   active.discoveredDynamicTools.clear();
   active.dynamicDiscoveryMessages = undefined;
+  active.pendingCompactionMeasurement = {
+    compactionId: adopted.compactionId,
+    epoch: adopted.epoch,
+  };
+  console.info(
+    JSON.stringify({
+      event: "compaction.adopted",
+      contextSessionId: active.contextSessionId,
+      compactionId: adopted.compactionId,
+      epoch: adopted.epoch,
+      tokensBefore: adopted.tokensBefore,
+      estimatedTokensAfter: adopted.tokensAfter,
+      startToAdoptionMs: Date.parse(adopted.completedAt) - Date.parse(adopted.startedAt),
+      ...adopted.metrics,
+    })
+  );
   active.queue.push({
     type: "compaction",
     turnId: active.turnId,

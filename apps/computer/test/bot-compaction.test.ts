@@ -51,16 +51,34 @@ const text = (role: string, value: string, options?: Record<string, unknown>): B
 });
 
 describe("Bot trigger thresholds", () => {
-  test("starts and persists on the first matching absolute-or-percent boundary", () => {
-    expect(botBackgroundThreshold(272_000)).toBe(244_800);
-    expect(botPersistThreshold(272_000)).toBe(258_400);
-    expect(botPiPersistReserve(272_000)).toBe(13_601);
-    expect(shouldStartBotSummary(244_799, 272_000)).toBe(false);
-    expect(shouldStartBotSummary(244_800, 272_000)).toBe(true);
-    expect(shouldPersistBotSummary(258_399, 272_000)).toBe(false);
-    expect(shouldPersistBotSummary(258_400, 272_000)).toBe(true);
-    expect(botBackgroundThreshold(64_000)).toBe(54_000);
-    expect(botPersistThreshold(64_000)).toBe(59_000);
+  test("starts and adopts at 90% of every model window, including Pi's strict boundary", () => {
+    for (const [window, boundary] of [
+      [8_000, 7_200],
+      [32_000, 28_800],
+      [64_000, 57_600],
+      [100_003, 90_003],
+      [128_000, 115_200],
+      [256_000, 230_400],
+      [272_000, 244_800],
+      [1_000_000, 900_000],
+    ] as const) {
+      expect(botBackgroundThreshold(window)).toBe(boundary);
+      expect(botPersistThreshold(window)).toBe(boundary);
+      expect(shouldStartBotSummary(boundary - 1, window)).toBe(false);
+      expect(shouldStartBotSummary(boundary, window)).toBe(true);
+      expect(shouldPersistBotSummary(boundary - 1, window)).toBe(false);
+      expect(shouldPersistBotSummary(boundary, window)).toBe(true);
+      const piBoundary = window - botPiPersistReserve(window);
+      expect(boundary - 1 > piBoundary).toBe(false);
+      expect(boundary > piBoundary).toBe(true);
+    }
+    for (const window of [0, -1, NaN, Infinity]) {
+      expect(shouldStartBotSummary(100, window)).toBe(false);
+      expect(shouldPersistBotSummary(100, window)).toBe(false);
+    }
+    for (const usage of [NaN, Infinity, -1]) {
+      expect(shouldStartBotSummary(usage, 100_000)).toBe(false);
+    }
   });
 
   test("supports Bot's byte-limit environment overrides with safe fallbacks", () => {

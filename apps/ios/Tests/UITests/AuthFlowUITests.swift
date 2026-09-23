@@ -315,6 +315,7 @@ final class AuthFlowUITests: XCTestCase {
     XCTAssertFalse(app.textFields["username-field"].exists)
   }
   func testDarkLargeTextWelcomeAndSignInRemainReachable() async throws {
+    continueAfterFailure = false
     try await control("/__qa/reset")
     try await control("/__qa/control", ["authRequired": true])
     let app = XCUIApplication()
@@ -329,7 +330,9 @@ final class AuthFlowUITests: XCTestCase {
     }
     XCTAssertTrue(app.buttons["get-started"].isHittable)
     capture("welcome-dark-large-text", app)
-    app.buttons["get-started"].tap()
+    // XCTest's inferred activation point misses this enlarged native glass
+    // button. Use its current visible center, then verify the full sign-in flow.
+    app.buttons["get-started"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     waitForArrival(app.textFields["server-field"])
     for _ in 0..<6 {
       if app.buttons["connect-button"].isHittable { break }

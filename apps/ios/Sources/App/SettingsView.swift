@@ -209,7 +209,7 @@ struct ConversationDetails: View {
               Spacer()
               if let bot, !bot.hasAvatar || resetAvatar || icon != bot.icon
                 || color.lowercased() != bot.color.lowercased() {
-                BotGlyph(color: Color(hex: color), kind: icon, size: 80)
+                BotGlyph(color: Color(hex: color), kind: icon, size: 80, mode: .idle)
               } else {
                 ChannelAvatar(channel: channel, size: 80)
               }

@@ -1,9 +1,8 @@
-import { spawn } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { PluginHook, PluginHookEvent, PluginRuntimePackage } from "@openteam/plugin-sdk";
-import { agentProcessIdentity, sanitizedAgentEnvironment } from "../agent-process";
+import { spawnAgentProcess as spawn, signalAgentProcess, agentProcessIdentity, sanitizedAgentEnvironment } from "../agent-process";
 import type { ActiveTurn } from "./types";
 
 type ObjectValue = Record<string, any>;
@@ -50,7 +49,7 @@ export async function runPluginCommand(
     const terminate = () => {
       stopped = true;
       try {
-        if (child.pid && process.platform !== "win32") process.kill(-child.pid, "SIGKILL");
+        if (child.pid && process.platform !== "win32") signalAgentProcess(child, "SIGKILL", true);
         else child.kill("SIGKILL");
       } catch {}
     };

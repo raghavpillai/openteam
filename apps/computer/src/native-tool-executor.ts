@@ -7,7 +7,6 @@ import { agentReadStream, agentWriteStream } from "./agent-file-stream";
 import { formatBytes2 } from "@openteam/contracts/reference-formatters";
 import { renderReadText } from "@openteam/contracts/read-output";
 import { boundToolImage } from "./runtime/image-input";
-import { spawn } from "node:child_process";
 import { randomInt } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { access, mkdir, readFile, realpath, stat } from "node:fs/promises";
@@ -39,7 +38,7 @@ import {
   parseHostShellResponse,
   parseShellAwaitResponse,
 } from "@openteam/contracts/service-protocol";
-import { agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
+import { spawnAgentProcess as spawn, agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
 import { agentFileIO } from "./agent-file-io";
 
 const DEFAULT_BLOCK_MS = 30_000;

@@ -115,7 +115,9 @@ export function compactionExtension(
       pi.on("before_agent_start", async () => ({ systemPrompt: active.instructions }));
       pi.on("context", async (event) => {
         await acknowledgeToolOutcomes?.(event.messages as BotMessage[]);
-        const graphicalReminder = graphicalProgressReminder(event.messages as BotMessage[], active);
+        // The SDK's model projection can omit custom-entry metadata. Count from
+        // the durable tape so a checkpoint resets the cadence on later steps.
+        const graphicalReminder = graphicalProgressReminder(readPiMessages(), active);
         if (graphicalReminder && active.session) {
           await active.session.sendCustomMessage({
             customType: "openteam-graphical-progress",

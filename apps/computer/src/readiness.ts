@@ -1,5 +1,4 @@
-import { spawn } from "node:child_process";
-import { agentProcessIdentity } from "./agent-process";
+import { spawnAgentProcess as spawn, agentProcessIdentity } from "./agent-process";
 
 // ScreenBroker starts these components directly; it does not use xfce4-session.
 // Check installed programs, not running processes: screens start on demand.

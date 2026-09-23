@@ -1,8 +1,8 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { join } from "node:path";
-import { agentProcessIdentity, sanitizedAgentEnvironment } from "../agent-process";
+import { spawnAgentProcess as spawn, agentProcessIdentity, sanitizedAgentEnvironment } from "../agent-process";
 import type { ScreenSession } from "./types";
 
 export const SCREEN_HEALTH_CHECK_INTERVAL_MS = 2_000;

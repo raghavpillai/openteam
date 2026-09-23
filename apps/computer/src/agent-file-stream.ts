@@ -1,7 +1,6 @@
-import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { Readable, type Writable } from "node:stream";
-import { agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
+import { spawnAgentProcess as spawn, agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
 import { AGENT_FILE_IO_SCRIPT } from "./agent-file-io";
 import { nodeBinary } from "./node-runtime";
 

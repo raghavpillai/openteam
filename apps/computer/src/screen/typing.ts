@@ -1,6 +1,5 @@
 import { run } from "./processes";
-import { spawn } from "node:child_process";
-import { agentProcessIdentity } from "../agent-process";
+import { spawnAgentProcess as spawn, agentProcessIdentity } from "../agent-process";
 
 async function pasteSupplementaryUnicode(text: string, env: NodeJS.ProcessEnv, signal?: AbortSignal) {
   // X11 keysyms above the BMP are silently dropped by LibreOffice. Clipboard

@@ -1,6 +1,5 @@
-import { spawn } from "node:child_process";
 import { HOST_TRANSFER_MAX_BYTES } from "@openteam/contracts/service-protocol";
-import { agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
+import { spawnAgentProcess as spawn, agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
 import { nodeBinary } from "./node-runtime";
 
 // File operations run as the same unprivileged user as Shell. Checking access

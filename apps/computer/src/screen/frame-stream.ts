@@ -1,5 +1,4 @@
-import { spawn } from "node:child_process";
-import { agentProcessIdentity } from "../agent-process";
+import { spawnAgentProcess as spawn, agentProcessIdentity } from "../agent-process";
 import { environment, removeProcess } from "./processes";
 import type { ScreenSession } from "./types";
 

@@ -1,9 +1,9 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chown, cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, chown, cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ComputerUseActionInput, ScreenActionInput } from "@openteam/contracts";
-import { agentProcessIdentity } from "./agent-process";
+import { spawnAgentProcess as spawn, agentProcessIdentity, assignAgentOwnership } from "./agent-process";
 import { BrowserBroker } from "./browser/broker";
 import { BrowserProfileAuthority } from "./browser/profile-authority";
 import { prepareDownloadPreferences } from "./browser/download-preferences";
@@ -399,6 +399,8 @@ export class ScreenBroker {
       else await this.profileAuthority.seedIfEmpty(session.profileDirectory);
       await this.profileAuthority.prepare(session.profileDirectory);
       await prepareDownloadPreferences(session.profileDirectory, this.home);
+      // Copied profile files and legacy profiles may have been written by the host.
+      await assignAgentOwnership([session.profileDirectory], true);
       // Chromium's profile survives container restarts, but its process-singleton
       // markers do not. Clear only those ephemeral locks before recreating the
       // bot's desktop; history, cookies, and the rest of the profile stay durable.
@@ -418,8 +420,11 @@ export class ScreenBroker {
       });
       await mkdir(join(session.runtimeDirectory, "cache"), { recursive: true });
       await mkdir(join(session.runtimeDirectory, "data"), { recursive: true });
+      await assignAgentOwnership([session.runtimeDirectory], true);
       // Concurrent Xvfb processes race when creating their shared socket directory.
       await mkdir("/tmp/.X11-unix", { recursive: true, mode: 0o1777 });
+      // mkdir applies the supervisor's restrictive umask; X servers run as runner.
+      await chmod("/tmp/.X11-unix", 0o1777);
       this.assertNotDestroyed(session);
       const display = `:${session.display}`;
       const xvfb = this.spawnLongLived(

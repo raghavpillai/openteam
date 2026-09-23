@@ -1,3 +1,4 @@
+import { CHAT_PROVIDER_DEFINITIONS } from "./chat-provider-definitions";
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile, rename, mkdir, rm } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -10,7 +11,7 @@ import {
   requireInferenceModel,
 } from "./inference-models";
 
-export const CHAT_PROVIDERS = new Set(["anthropic", "openai", "openai-codex"]);
+export const CHAT_PROVIDERS = new Set(Object.keys(CHAT_PROVIDER_DEFINITIONS));
 export const KEYLESS_API_KEY = "openteam-no-auth";
 export type ChatModel = Model<Api>;
 type CustomConfig = {
@@ -49,6 +50,46 @@ export const isChatModel = (entry: Entry, known = false, chatEndpoint = false): 
     return false;
   return known || chatEndpoint || /chat|llm|text-generation/.test(task);
 };
+
+/** OpenRouter publishes explicit modalities and parameter support; do not guess by ID. */
+const openRouterChatModel = (entry: Entry): boolean => {
+  const architecture = object(entry.architecture) ? entry.architecture : {};
+  return (
+    Array.isArray(architecture.output_modalities) &&
+    architecture.output_modalities.includes("text") &&
+    Array.isArray(entry.supported_parameters) &&
+    entry.supported_parameters.includes("tools")
+  );
+};
+const applyOpenRouterMetadata = (model: ChatModel, entry: Entry): void => {
+  const architecture = object(entry.architecture) ? entry.architecture : {};
+  const top = object(entry.top_provider) ? entry.top_provider : {};
+  const pricing = object(entry.pricing) ? entry.pricing : {};
+  const price = (value: unknown): number => {
+    const number = typeof value === "string" || typeof value === "number" ? Number(value) : NaN;
+    return Number.isFinite(number) && number >= 0 ? number * 1_000_000 : 0;
+  };
+  model.api = "openai-completions";
+  model.contextWindow = positive(entry.context_length, model.contextWindow);
+  model.maxTokens = Math.min(
+    positive(top.max_completion_tokens, model.maxTokens),
+    model.contextWindow
+  );
+  model.reasoning =
+    Array.isArray(entry.supported_parameters) &&
+    entry.supported_parameters.some((p) => p === "reasoning" || p === "reasoning_effort");
+  model.input =
+    Array.isArray(architecture.input_modalities) && architecture.input_modalities.includes("image")
+      ? ["text", "image"]
+      : ["text"];
+  model.cost = {
+    input: price(pricing.prompt),
+    output: price(pricing.completion),
+    cacheRead: price(pricing.input_cache_read),
+    cacheWrite: price(pricing.input_cache_write),
+  };
+};
+
 const configFile = async (path: string): Promise<Config> => {
   try {
     const value: unknown = JSON.parse(await readFile(path, "utf8"));
@@ -119,12 +160,7 @@ export class ChatProviderRegistry {
         const authentication = await runtime.checkAuth(p.id, { signal }).catch(() => undefined);
         const row: InferenceProviderView = {
           id: p.id,
-          name:
-            p.id === "openai-codex"
-              ? "OpenAI · ChatGPT subscription"
-              : p.id === "openai"
-                ? "OpenAI · API key"
-                : p.name,
+          name: CHAT_PROVIDER_DEFINITIONS[p.id]?.name ?? p.name,
           connected: Boolean(authentication),
           authType: authentication?.type ?? null,
           authSource: authentication?.source ?? null,
@@ -204,8 +240,10 @@ export class ChatProviderRegistry {
         if (typeof account === "string") headers.set("chatgpt-account-id", account);
       } catch {}
     } else {
-      const anthropic = id === "anthropic" || config?.api === "anthropic-messages";
+      const anthropic =
+        id === "anthropic" || id === "claude-code" || config?.api === "anthropic-messages";
       url = modelsEndpoint(base, anthropic);
+      if (id === "openrouter") url.pathname += "/user";
       if (anthropic) {
         headers.set("anthropic-version", "2023-06-01");
         url.searchParams.set("limit", "1000");
@@ -283,15 +321,17 @@ export class ChatProviderRegistry {
         entries
           .filter((m) => !replacementFor(id, m.id))
           .filter((m) =>
-            isChatModel(
-              m,
-              known.has(m.id) ||
-                (id === "openai" &&
-                  (known.has(m.id.split(":")[1] ?? "") ||
-                    /^(?:gpt-[3-9]|o[1-9](?:-|$)|chatgpt-)/.test(m.id)) &&
-                  !/instruct/.test(m.id)),
-              custom || id === "anthropic" || id === "openai-codex"
-            )
+            id === "openrouter"
+              ? openRouterChatModel(m)
+              : isChatModel(
+                  m,
+                  known.has(m.id) ||
+                    (id === "openai" &&
+                      (known.has(m.id.split(":")[1] ?? "") ||
+                        /^(?:gpt-[3-9]|o[1-9](?:-|$)|chatgpt-)/.test(m.id)) &&
+                      !/instruct/.test(m.id)),
+                  custom || id === "anthropic" || id === "claude-code" || id === "openai-codex"
+                )
           )
           .map((m) => {
             const existing =
@@ -301,15 +341,12 @@ export class ChatProviderRegistry {
               ...existing,
               id: m.id,
               provider: id,
-              name: String(m.display_name ?? m.displayName ?? existing?.name ?? m.id),
+              name: String(m.display_name ?? m.displayName ?? m.name ?? existing?.name ?? m.id),
               api:
                 existing?.api ??
                 (config?.api as Api) ??
-                (id === "anthropic"
-                  ? "anthropic-messages"
-                  : id === "openai"
-                    ? "openai-responses"
-                    : "openai-codex-responses"),
+                CHAT_PROVIDER_DEFINITIONS[id]?.api ??
+                "openai-completions",
               baseUrl: base,
               reasoning:
                 existing?.reasoning ??
@@ -324,6 +361,7 @@ export class ChatProviderRegistry {
               ),
               maxTokens: positive(m.max_tokens ?? m.outputTokenLimit, existing?.maxTokens ?? 16384),
             };
+            if (id === "openrouter") applyOpenRouterMetadata(model, m);
             return [m.id, model] as const;
           })
       ).values(),
@@ -338,7 +376,7 @@ export class ChatProviderRegistry {
     const provider = catalog.providers.find((p) => p.id === settings.providerId);
     if (!provider)
       throw new Error(
-        `Provider ${settings.providerId} is not in your registry. Connect Anthropic or OpenAI, or add a custom endpoint with openteam provider add.`
+        `Provider ${settings.providerId} is not in your registry. Connect a built-in provider, or add a custom endpoint with openteam provider add.`
       );
     const model = catalog.models.find((m) => m.id === settings.modelId);
     if (!model)
@@ -347,7 +385,10 @@ export class ChatProviderRegistry {
           `Model ${settings.modelId} is not available from this connected provider. Refresh its model list and choose a listed chat model.`
       );
     // Existing model definitions already survive restart; only persist new discoveries.
-    if (!this.runtime().getModel(settings.providerId, settings.modelId)) {
+    if (
+      settings.providerId === "openrouter" ||
+      !this.runtime().getModel(settings.providerId, settings.modelId)
+    ) {
       const document = await configFile(this.modelsPath);
       document.providers ??= {};
       const config = (document.providers[provider.id] ??= {});
@@ -356,10 +397,10 @@ export class ChatProviderRegistry {
         config.baseUrl.replace(/\/+$/, "") !== model.baseUrl.replace(/\/+$/, "")
       )
         throw new Error("Provider settings changed. Reload the model list and retry.");
-      const { id, name, reasoning, input, contextWindow, maxTokens, api, baseUrl } = model;
+      const { id, name, reasoning, input, cost, contextWindow, maxTokens, api, baseUrl } = model;
       config.models = [
         ...(config.models ?? []).filter((m) => m.id !== id),
-        { id, name, reasoning, input, contextWindow, maxTokens, api, baseUrl },
+        { id, name, reasoning, input, cost, contextWindow, maxTokens, api, baseUrl },
       ];
       await mkdir(dirname(this.modelsPath), { recursive: true, mode: 0o700 });
       const temp = `${this.modelsPath}.${randomUUID()}.tmp`;

@@ -3,7 +3,7 @@ import { ProviderConnectionSession } from "../../src/provider-connection-session
 
 export const authView = (overrides: Partial<AuthSession> = {}): AuthSession => ({
   id: "session-1",
-  providerId: "anthropic",
+  providerId: "claude-code",
   authType: "oauth",
   status: "waiting",
   prompt: {
@@ -60,7 +60,7 @@ export const connectionFixture = (authType: "oauth" | "api_key" = "oauth", pollM
     },
   };
   const session = new ProviderConnectionSession(
-    authType === "oauth" ? "anthropic" : "openai",
+    authType === "oauth" ? "claude-code" : "openai",
     authType,
     api,
     {

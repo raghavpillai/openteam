@@ -190,11 +190,11 @@ describe("detected vendor sign-ins", () => {
     const logins = detectReusableLogins({ home: directory, env: {}, platform: "linux" });
     expect(logins).toEqual([
       { provider: "openai-codex", source: "Codex CLI (~/.codex/auth.json)" },
-      { provider: "anthropic", source: "Claude Code (~/.claude/.credentials.json)" },
+      { provider: "claude-code", source: "Claude Code (~/.claude/.credentials.json)" },
     ]);
     expect(JSON.stringify(logins)).not.toContain("claude-refresh-secret");
     expect(
-      readReusableCredential("anthropic", { home: directory, env: {} })?.credential.refresh
+      readReusableCredential("claude-code", { home: directory, env: {} })?.credential.refresh
     ).toBe("claude-refresh-secret");
     expect(detectReusableLogins({ home: home(), env: {}, platform: "linux" })).toEqual([]);
   });

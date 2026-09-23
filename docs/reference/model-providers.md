@@ -1,7 +1,8 @@
 # Provider-first model selection
 
-The chat registry contains Anthropic, OpenAI API access, OpenAI ChatGPT subscription access, and
-explicitly configured custom endpoints. Credentials stay with their provider. Transcription has
+The chat registry contains Codex (`openai-codex`), Claude Code (`claude-code`), OpenAI, Anthropic,
+OpenRouter, and explicitly configured custom endpoints. Codex and Claude Code use subscription
+sign-ins through Pi; the three API providers expose API-key authentication only. Credentials stay with their provider. Transcription has
 separate endpoint settings and credentials.
 
 ```mermaid
@@ -22,8 +23,9 @@ flowchart LR
 | Provider | Discovery | Authentication |
 | --- | --- | --- |
 | OpenAI API | `https://api.openai.com/v1/models` | API key as Bearer token |
-| Anthropic | `https://api.anthropic.com/v1/models` | API key and API version, or supported OAuth headers |
-| ChatGPT subscription | Codex account model catalog | ChatGPT OAuth; separate from API-key access |
+| Anthropic API / Claude Code | `https://api.anthropic.com/v1/models` | API key and API version, or supported OAuth headers |
+| Codex | Codex account model catalog | ChatGPT OAuth; separate from API-key access |
+| OpenRouter | `https://openrouter.ai/api/v1/models/user` | OpenRouter API key as Bearer token |
 | OpenAI-compatible custom | `<base-url>/models` | Saved credential, or explicit `--no-auth` |
 | Google-compatible custom | `<base-url>/models` with `/v1beta` base | Saved API key |
 
@@ -129,3 +131,18 @@ model, restarts, completes an inference request, and verifies access revocation.
 CLI tests cover provider-first keyboard navigation, sign-in handoff, preserved drafts, grouped
 output, and terminal sizes. `bun run preview:model --gallery ../../output/model-ui` from `apps/cli`
 renders the terminal states for visual review.
+
+## Provider identities and catalog adapters
+
+`chat-provider-definitions.ts` owns the supported built-in names and default inference protocols.
+The computer service returns those providers to clients; the model CLI does not maintain another
+allowlist. `model-runtime.ts` registers isolated Claude Code OAuth, Anthropic API-key and OpenRouter
+API-key connections. OpenAI API and Codex already have distinct runtime identities.
+
+OpenRouter discovery uses its authenticated account-filtered catalog, never the public catalog as
+a fallback. Explicit text-output and tool-support metadata determines eligibility. Metadata is
+normalized into Pi model definitions, with per-token prices converted to per-million-token costs.
+Selecting an OpenRouter model persists its latest definition, including discovered capabilities,
+for use after restart. An unavailable catalog never changes the saved selection.
+
+See [OpenRouter's account model catalog](https://openrouter.ai/docs/api/api-reference/models/list-models-filtered-by-user-provider-preferences-privacy-settings-and-guardrails).

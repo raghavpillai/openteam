@@ -85,7 +85,9 @@ class SetupRunner implements CommandRunner {
   readonly calls: Array<{ command: string; args: readonly string[]; options?: RunOptions }> = [];
   readonly models = new Map<string, string[]>([
     ["openai-codex", ["gpt-5.5", "gpt-5.6-sol"]],
+    ["claude-code", ["claude-sonnet-5", "claude-sonnet-4-5"]],
     ["anthropic", ["claude-sonnet-5", "claude-sonnet-4-5"]],
+    ["openrouter", ["author/tool-model"]],
     ["openai", ["gpt-5.5", "gpt-5.6-sol"]],
   ]);
   failComposeValidation = false;
@@ -396,7 +398,6 @@ describe("interactive setup", () => {
       "0",
       "4",
       "",
-      "api-key",
       "anthropic-test-secret",
     ]);
 
@@ -425,11 +426,11 @@ describe("interactive setup", () => {
     });
   });
 
-  test("interactive menus expose each provider and both Anthropic authentication modes", async () => {
+  test("interactive menus expose separate Claude Code and Anthropic providers", async () => {
     const current = parseEnvironment(
       createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" })
     );
-    const prompter = new SelectionPrompter(["anthropic-test-secret"], ["anthropic", "api_key"]);
+    const prompter = new SelectionPrompter(["anthropic-test-secret"], ["anthropic"]);
 
     const configuration = await collectSetupConfiguration(current, false, prompter, {
       ownerConfigured: true,
@@ -447,18 +448,17 @@ describe("interactive setup", () => {
     );
     expect(providerSelection?.options.map((option) => option.value)).toEqual([
       "openai-codex",
-      "anthropic",
+      "claude-code",
       "openai",
+      "anthropic",
+      "openrouter",
       "custom",
       "skip",
     ]);
     const authenticationSelection = prompter.selections.find(
       (selection) => selection.prompt === "Use"
     );
-    expect(authenticationSelection?.options.map((option) => option.value)).toEqual([
-      "oauth",
-      "api_key",
-    ]);
+    expect(authenticationSelection).toBeUndefined();
   });
 
   test("typed setup can skip inference without asking for authentication", async () => {
@@ -846,18 +846,18 @@ describe("interactive setup", () => {
       fixture.paths,
       runner,
       { presentation: silentPresentation, detectedLogins: [] },
-      new AnswerPrompter(["anthropic", "oauth", "yes"])
+      new AnswerPrompter(["claude-code", "yes"])
     );
 
     const login = runner.calls.find((call) => providerAction(call) === "login");
-    expect(login?.args.slice(-3)).toEqual(["login", "anthropic", "oauth"]);
+    expect(login?.args.slice(-3)).toEqual(["login", "claude-code", "oauth"]);
     expect(login?.args).not.toContain("--no-TTY");
     expect(login?.options?.inherit).toBe(true);
     const environment = readFileSync(fixture.paths.environment, "utf8");
     expect(environment).not.toContain("OPENTEAM_PI_PROVIDER");
     expect(environment).not.toContain("OPENTEAM_PI_MODEL");
     expect(fixture.state.inference).toEqual({
-      providerId: "anthropic",
+      providerId: "claude-code",
       modelId: "claude-sonnet-5",
       reasoning: "high",
     });
@@ -874,7 +874,7 @@ describe("interactive setup", () => {
       fixture.paths,
       runner,
       { presentation: silentPresentation },
-      new AnswerPrompter(["anthropic", "api-key", apiKey, "yes"])
+      new AnswerPrompter(["anthropic", apiKey, "yes"])
     );
 
     const login = runner.calls.find((call) => providerAction(call) === "login");
@@ -883,6 +883,16 @@ describe("interactive setup", () => {
     expect(login?.options?.input).toBe(`${apiKey}\n`);
     expect(runner.calls.flatMap((call) => call.args).join(" ")).not.toContain(apiKey);
     expect(readFileSync(fixture.paths.environment, "utf8")).not.toContain(apiKey);
+  });
+
+  test("OpenRouter setup connects with an API key and selects from its discovered catalog", async () => {
+    const fixture = createSetupFixture();
+    const runner = new SetupRunner(() => { fixture.state.authenticated = true; });
+    await setupCommand(fixture.paths, runner, { presentation: silentPresentation, detectedLogins: [] }, new AnswerPrompter(["openrouter", "synthetic-openrouter-key", "yes"]));
+    const login = runner.calls.find(call => providerAction(call) === "login");
+    expect(login?.args.slice(-3)).toEqual(["login", "openrouter", "api_key"]);
+    expect(login?.options?.input).toBe("synthetic-openrouter-key\n");
+    expect(fixture.state.inference).toMatchObject({ providerId: "openrouter", modelId: "author/tool-model" });
   });
 
   test("registers a generic provider before startup and sends its password only to login stdin", async () => {
@@ -1307,7 +1317,7 @@ describe("interactive setup", () => {
     expect(probe?.options?.input).toBeUndefined();
     expect(runner.calls.some((call) => providerAction(call) === "import")).toBe(false);
     expect(runner.calls.some((call) => providerAction(call) === "login")).toBe(true);
-    expect(output.join("\n")).toContain("fresh ChatGPT Plus or Pro sign-in");
+    expect(output.join("\n")).toContain("fresh Codex sign-in");
     expect(output.join("\n")).toContain("choose Device code login");
     expect(output.join("\n")).not.toContain("Usage:");
     expect(output.join("\n")).not.toContain("Could not reuse");
@@ -1333,7 +1343,7 @@ describe("interactive setup", () => {
       })
     );
     const detected = {
-      provider: "anthropic" as const,
+      provider: "claude-code" as const,
       source: "Claude Code (~/.claude/.credentials.json)",
     };
     const output: string[] = [];
@@ -1347,7 +1357,7 @@ describe("interactive setup", () => {
         loginDetection: { home, env: {}, platform: "linux" },
       },
       sessionPrompter({
-        provider: "anthropic",
+        provider: "claude-code",
         model: "claude-sonnet-5",
         authenticate: true,
         authType: "oauth",
@@ -1357,7 +1367,7 @@ describe("interactive setup", () => {
 
     expect(runner.calls.some((call) => providerAction(call) === "import")).toBe(true);
     const login = runner.calls.find((call) => providerAction(call) === "login");
-    expect(login?.args.slice(-3)).toEqual(["login", "anthropic", "oauth"]);
+    expect(login?.args.slice(-3)).toEqual(["login", "claude-code", "oauth"]);
     expect(login?.options?.inherit).toBe(true);
     expect(output.some((message) => message.includes("fresh provider sign-in"))).toBe(true);
     expect(output.join("\n")).not.toContain("Usage:");
@@ -1444,7 +1454,7 @@ describe("interactive setup", () => {
           ownerPassword: "correct horse battery staple",
           apiPort: input.current.get("OPENTEAM_API_PORT") ?? "8787",
           timeZone: "UTC",
-          provider: "anthropic",
+          provider: "claude-code",
           model: "claude-sonnet-5",
           thinking: "high",
           workerConcurrency: "8",
@@ -1473,12 +1483,12 @@ describe("interactive setup", () => {
       "Checks",
     ]);
     expect(output).toContain("Configuration ready");
-    expect(output).toContain("Claude Pro, Max, or API key · claude-sonnet-5");
+    expect(output).toContain("Claude Code · claude-sonnet-5");
     expect(readManifest(fixture.paths)?.ownerUsername).toBe("session.owner");
     const login = runner.calls.find((call) => providerAction(call) === "login");
-    expect(login?.args.slice(-3)).toEqual(["login", "anthropic", "oauth"]);
+    expect(login?.args.slice(-3)).toEqual(["login", "claude-code", "oauth"]);
     expect(fixture.state.inference).toEqual({
-      providerId: "anthropic",
+      providerId: "claude-code",
       modelId: "claude-sonnet-5",
       reasoning: "high",
     });

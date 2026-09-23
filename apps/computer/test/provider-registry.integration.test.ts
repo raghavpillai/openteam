@@ -135,3 +135,124 @@ test("custom endpoint: add without a model or key, discover, select, restart, in
     await rm(directory, { recursive: true, force: true });
   }
 }, 30000);
+
+test("OpenRouter: discover a new namespaced model, select, restart and infer with its own API key", async () => {
+  const { writeFile } = await import("node:fs/promises");
+  const directory = await mkdtemp(join(tmpdir(), "openteam-openrouter-integration-"));
+  const requests: Array<{ path: string; auth: string | null; model?: string }> = [];
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(request) {
+      const path = new URL(request.url).pathname;
+      const row = {
+        path,
+        auth: request.headers.get("authorization"),
+        model: undefined as string | undefined,
+      };
+      requests.push(row);
+      if (path === "/api/v1/models/user")
+        return Response.json({
+          data: [
+            {
+              id: "author/new-tool-model",
+              name: "New tool model",
+              context_length: 64000,
+              architecture: { input_modalities: ["text"], output_modalities: ["text"] },
+              supported_parameters: ["tools"],
+              top_provider: { max_completion_tokens: 4096 },
+            },
+          ],
+        });
+      if (path === "/api/v1/chat/completions") {
+        row.model = (await request.json()).model;
+        return new Response(
+          `data: ${JSON.stringify({ id: "test", object: "chat.completion.chunk", created: 0, model: row.model, choices: [{ index: 0, delta: { role: "assistant", content: "Routed correctly" }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
+          { headers: { "content-type": "text/event-stream" } }
+        );
+      }
+      return new Response(null, { status: 404 });
+    },
+  });
+  const env = {
+    PATH: process.env.PATH!,
+    HOME: directory,
+    PI_OFFLINE: "1",
+    OPENTEAM_PI_AGENT_DIR: directory,
+    OPENTEAM_AGENT_DATA_ROOT: directory,
+  };
+  async function run(args: string[]) {
+    const child = Bun.spawn([process.execPath, ...args], {
+      cwd: resolve(import.meta.dir, ".."),
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [code, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+    return stdout;
+  }
+  try {
+    await writeFile(
+      join(directory, "auth.json"),
+      JSON.stringify({ openrouter: { type: "api_key", key: "synthetic-openrouter-key" } })
+    );
+    await writeFile(
+      join(directory, "models.json"),
+      JSON.stringify({ providers: { openrouter: { baseUrl: server.url.origin + "/api/v1" } } })
+    );
+    const catalog = JSON.parse(await run(["src/provider-cli.ts", "catalog", "openrouter"]));
+    expect(catalog.providers.map((p: { id: string }) => p.id).sort()).toEqual([
+      "anthropic",
+      "claude-code",
+      "openai",
+      "openai-codex",
+      "openrouter",
+    ]);
+    expect(catalog.providers.find((p: { id: string }) => p.id === "openrouter")).toMatchObject({
+      custom: false,
+      configured: true,
+      authMethods: [{ type: "api_key", subscription: false }],
+    });
+    expect(catalog.models).toMatchObject([
+      {
+        providerId: "openrouter",
+        modelId: "author/new-tool-model",
+        contextWindow: 64000,
+        maxTokens: 4096,
+      },
+    ]);
+    await run(["src/provider-cli.ts", "verify", "openrouter", "author/new-tool-model"]);
+    const output = await run([
+      "-e",
+      `
+      import { createModelRuntime } from './src/model-runtime';
+      const dir = process.env.OPENTEAM_PI_AGENT_DIR;
+      const runtime = await createModelRuntime({ authPath: dir+'/auth.json', modelsPath: dir+'/models.json', modelsStorePath: dir+'/models-store.json', allowModelNetwork: false });
+      const model = runtime.getModel('openrouter','author/new-tool-model');
+      if (!model || model.api !== 'openai-completions' || model.contextWindow !== 64000) throw new Error('Model snapshot was lost');
+      const response = await runtime.completeSimple(model, {messages:[{role:'user',content:'ping',timestamp:Date.now()}]}, {maxTokens:10,signal:AbortSignal.timeout(3000)});
+      if (response.stopReason === 'error') throw new Error(response.errorMessage);
+      console.log(JSON.stringify(response.content));
+    `,
+    ]);
+    expect(JSON.parse(output)).toMatchObject([{ type: "text", text: "Routed correctly" }]);
+    expect(
+      requests.filter(
+        (r) =>
+          ["/api/v1/models/user", "/api/v1/chat/completions"].includes(r.path) &&
+          r.auth !== "Bearer synthetic-openrouter-key"
+      )
+    ).toEqual([]);
+    expect(requests.find((r) => r.path.endsWith("chat/completions"))?.model).toBe(
+      "author/new-tool-model"
+    );
+  } finally {
+    server.stop(true);
+    await rm(directory, { recursive: true, force: true });
+  }
+});

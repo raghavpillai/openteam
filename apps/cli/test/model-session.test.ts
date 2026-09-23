@@ -86,13 +86,13 @@ describe("interactive model editor", () => {
       type: "complete",
       value: { connectProvider: "openai-codex", authType: "oauth" },
     });
-    expect(await activate(s, "provider:anthropic:api_key")).toEqual({
+    expect(await activate(s, "provider:anthropic")).toEqual({
       type: "complete",
       value: { connectProvider: "anthropic", authType: "api_key" },
     });
-    expect(await activate(s, "provider:anthropic:oauth")).toEqual({
+    expect(await activate(s, "provider:claude-code")).toEqual({
       type: "complete",
-      value: { connectProvider: "anthropic", authType: "oauth" },
+      value: { connectProvider: "claude-code", authType: "oauth" },
     });
   });
   test("an API connection does not mark a subscription connected or expose its model count", async () => {
@@ -108,18 +108,18 @@ describe("interactive model editor", () => {
     await activate(s, "provider");
     const subscriptions = s
       .rows()
-      .find((r) => r.kind === "option" && r.id === "provider:anthropic:oauth");
+      .find((r) => r.kind === "option" && r.id === "provider:claude-code");
     expect(subscriptions).toMatchObject({ badge: "Connect subscription" });
     expect(JSON.stringify(subscriptions)).not.toContain("38");
     expect(
-      s.rows().find((r) => r.kind === "option" && r.id === "provider:anthropic:api_key")
+      s.rows().find((r) => r.kind === "option" && r.id === "provider:anthropic")
     ).toMatchObject({ badge: "Connected" });
-    expect(await activate(s, "provider:anthropic:oauth")).toEqual({
+    expect(await activate(s, "provider:claude-code")).toEqual({
       type: "complete",
-      value: { connectProvider: "anthropic", authType: "oauth" },
+      value: { connectProvider: "claude-code", authType: "oauth" },
     });
   });
-  test("older catalogs hide unrelated built-ins and label OpenAI API and subscription access", async () => {
+  test("catalogs render server-provided built-ins and label OpenAI API and subscription access", async () => {
     const { session: s, api } = modelFixture();
     const catalog = api.catalog;
     api.catalog = async (...args) => ({
@@ -145,7 +145,7 @@ describe("interactive model editor", () => {
     });
     await s.load();
     await activate(s, "provider");
-    expect(s.rows().some((r) => r.kind === "option" && r.id === "provider:nvidia")).toBe(false);
+    expect(s.rows().some((r) => r.kind === "option" && r.id === "provider:nvidia")).toBe(true);
     expect(s.rows().some((r) => r.kind === "option" && r.id === "provider:my-nvidia")).toBe(true);
     expect(s.rows().find((r) => r.kind === "option" && r.id === "provider:openai")).toMatchObject({
       badge: "Add API key",

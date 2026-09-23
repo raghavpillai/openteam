@@ -67,16 +67,16 @@ const edit = (target: SetupSession, value: string) => {
 describe("interactive setup session", () => {
   test("prefers and reuses a detected vendor sign-in", () => {
     const detected = {
-      provider: "anthropic" as const,
+      provider: "claude-code" as const,
       source: "Claude Code (~/.claude/.credentials.json)",
     };
     const setup = session({ ownerConfigured: true, detectedLogins: [detected] });
 
-    expect(setup.state.provider).toBe("anthropic");
+    expect(setup.state.provider).toBe("claude-code");
     expect(setup.state.model).toBe("claude-sonnet-5");
     press(setup, "right");
     expect(
-      setup.rows().find((row) => "id" in row && row.id === "provider:anthropic")
+      setup.rows().find((row) => "id" in row && row.id === "provider:claude-code")
     ).toMatchObject({
       selected: true,
       recommended: true,
@@ -298,26 +298,24 @@ describe("interactive setup session", () => {
       setup.rows().find((row) => row.kind === "toggle" && row.id === "authenticate")
     ).toBeUndefined();
 
-    type(setup, "2");
+    type(setup, "4");
     expect(setup.state).toMatchObject({
       provider: "anthropic",
       model: "claude-sonnet-5",
       authenticate: true,
-      authType: "oauth",
+      authType: "api_key",
     });
-    expect(highlighted(setup)).toBe("authType");
+    expect(highlighted(setup)).toBe("apiKey");
     expect(rowIds(setup)).toEqual([
       "provider:openai-codex",
-      "provider:anthropic",
+      "provider:claude-code",
       "provider:openai",
+      "provider:anthropic",
+      "provider:openrouter",
       "provider:custom",
       "inference:skip",
-      "authType",
+      "apiKey",
     ]);
-
-    enter(setup);
-    expect(setup.state.authType).toBe("api_key");
-    press(setup, "down");
     expect(highlighted(setup)).toBe("apiKey");
     edit(setup, "anthropic-test-secret");
     expect(setup.configuration()).toMatchObject({
@@ -363,7 +361,7 @@ describe("interactive setup session", () => {
     const setup = session({ ownerConfigured: true });
     press(setup, "right");
 
-    type(setup, "5");
+    type(setup, "7");
 
     expect(setup.state.skipInference).toBe(true);
     expect(setup.view().title).toBe("3. Review");
@@ -384,13 +382,15 @@ describe("interactive setup session", () => {
   test("custom providers collect every field, cycle the API, and register on apply", () => {
     const setup = session({ ownerConfigured: true });
     press(setup, "right");
-    type(setup, "4");
+    type(setup, "6");
     expect(setup.state.provider).toBe("custom");
     expect(highlighted(setup)).toBe("custom.id");
     expect(rowIds(setup)).toEqual([
       "provider:openai-codex",
-      "provider:anthropic",
+      "provider:claude-code",
       "provider:openai",
+      "provider:anthropic",
+      "provider:openrouter",
       "provider:custom",
       "inference:skip",
       "custom.id",
@@ -468,8 +468,7 @@ describe("interactive setup session", () => {
     expect(rowIds(setup)).toContain("thinking");
     expect(rowIds(setup)).toContain("workerConcurrency");
     press(setup, "end");
-    expect(highlighted(setup)).toBe("authType");
-    press(setup, "up");
+    expect(highlighted(setup)).toBe("authenticate");
     press(setup, "up");
     expect(highlighted(setup)).toBe("workerConcurrency");
     edit(setup, "4");

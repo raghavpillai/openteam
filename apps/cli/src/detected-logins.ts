@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { CommandRunner } from "./process";
 
 /** Providers whose Pi OAuth client matches the vendor CLI, so its tokens can be reused. */
-export type ReusableProvider = "openai-codex" | "anthropic";
+export type ReusableProvider = "openai-codex" | "claude-code";
 
 export interface DetectedLogin {
   provider: ReusableProvider;
@@ -158,6 +158,6 @@ export const detectReusableLogins = (options: LoginDetectionOptions = {}): Detec
   const codex = readCodexCredential(options);
   if (codex) found.push({ provider: "openai-codex", source: codex.source });
   const claude = readClaudeCredential(options);
-  if (claude) found.push({ provider: "anthropic", source: claude.source });
+  if (claude) found.push({ provider: "claude-code", source: claude.source });
   return found;
 };

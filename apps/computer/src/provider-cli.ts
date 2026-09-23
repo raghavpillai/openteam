@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
+import { createModelRuntime } from "./model-runtime";
 
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import type { AuthEvent, AuthPrompt, AuthType, OAuthCredential } from "@earendil-works/pi-ai";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
   formatPiModelRef,
   normalizeInferenceModelId,
@@ -32,7 +32,13 @@ const modelsPath = join(agentDir, "models.json");
 const modelsStorePath = join(agentDir, "models-store.json");
 
 const createRuntime = () =>
-  ModelRuntime.create({ authPath, modelsPath, modelsStorePath, allowModelNetwork: false });
+  createModelRuntime({
+    authPath,
+    modelsPath,
+    modelsStorePath,
+    allowModelNetwork: false,
+    settingsPath: join(process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/home/box/agent-data", "settings.json"),
+  });
 
 // Await the write so large JSON responses are fully flushed through Docker's stdout pipe.
 const writeJson = async (value: unknown): Promise<void> => {
@@ -360,7 +366,7 @@ const main = async (): Promise<void> => {
     const catalog = await registry.catalog(providerId);
     if (providerId && !catalog.providers.some((p) => p.id === providerId))
       throw new Error(
-        `Provider ${providerId} is not in your registry. Connect Anthropic or OpenAI, or add a custom endpoint with openteam provider add.`
+        `Provider ${providerId} is not in your registry. Connect a built-in provider, or add a custom endpoint with openteam provider add.`
       );
     const providers = catalog.providers.map(({ connected, modelCount, ...provider }) => ({
       ...provider,

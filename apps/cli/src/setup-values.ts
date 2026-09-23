@@ -19,19 +19,29 @@ export const CUSTOM_PROVIDER_APIS = [
 ] as const;
 export const BUILTIN_PROVIDER_CHOICES = [
   {
-    label: "ChatGPT Plus or Pro",
+    label: "Codex",
     description: "Sign in with ChatGPT in your browser. No API key needed.",
     value: "openai-codex",
   },
   {
-    label: "Claude Pro, Max, or API key",
-    description: "Sign in with Claude, or use an Anthropic API key.",
-    value: "anthropic",
+    label: "Claude Code",
+    description: "Reuse your Claude Code sign-in or connect a Claude subscription.",
+    value: "claude-code",
   },
   {
     label: "OpenAI API key",
     description: "Use an API key billed through your OpenAI account.",
     value: "openai",
+  },
+  {
+    label: "Anthropic API key",
+    description: "Use an API key billed through your Anthropic account.",
+    value: "anthropic",
+  },
+  {
+    label: "OpenRouter API key",
+    description: "Access models through your OpenRouter account.",
+    value: "openrouter",
   },
 ] as const;
 export const CUSTOM_PROVIDER_CHOICE = {
@@ -47,7 +57,9 @@ export const SKIP_INFERENCE_CHOICE = {
 export const DEFAULT_PROVIDER_MODELS: Readonly<Record<string, string>> = {
   "openai-codex": "gpt-5.6-sol",
   anthropic: "claude-sonnet-5",
+  "claude-code": "claude-sonnet-5",
   openai: "gpt-5.6-sol",
+  openrouter: "", // Selected from the account catalog after authentication.
 };
 export const ACCESS_CHOICES = [
   {
@@ -218,11 +230,11 @@ export const validateProviderSelection = (value: string, currentProvider: string
   ) {
     return normalized;
   }
-  throw new Error("Choose openai-codex, anthropic, openai, or custom.");
+  throw new Error("Choose openai-codex, claude-code, openai, anthropic, openrouter, or custom.");
 };
 
 export const defaultProviderAuthType = (providerId: string): "oauth" | "api_key" =>
-  providerId === "openai-codex" || providerId === "anthropic" ? "oauth" : "api_key";
+  providerId === "openai-codex" || providerId === "claude-code" ? "oauth" : "api_key";
 
 export const validateThinking = (value: string): ThinkingLevel => {
   if (!THINKING_LEVELS.includes(value as ThinkingLevel)) {

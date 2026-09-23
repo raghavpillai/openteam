@@ -42,16 +42,20 @@ export class ProviderConnectionSession implements InteractiveSession<ConnectionR
     };
   }
   private get name() {
-    return this.providerId === "anthropic"
-      ? "Claude"
+    return this.providerId === "claude-code"
+      ? "Claude Code"
       : this.providerId === "openai-codex"
-        ? "ChatGPT"
+        ? "Codex"
         : this.providerId === "openai"
           ? "OpenAI"
-          : this.providerId;
+          : this.providerId === "anthropic"
+            ? "Anthropic"
+            : this.providerId === "openrouter"
+              ? "OpenRouter"
+              : this.providerId;
   }
   private get localName() {
-    return this.providerId === "anthropic"
+    return this.providerId === "claude-code"
       ? "Claude Code"
       : this.providerId === "openai-codex"
         ? "Codex"

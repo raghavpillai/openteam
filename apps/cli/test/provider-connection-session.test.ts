@@ -114,7 +114,7 @@ describe("provider connection screen", () => {
     const f = connectionFixture();
     choose(f.session, "import");
     await settle(() => connectionScreen(f.session).includes("Connected."));
-    expect(f.calls.imports).toEqual(["anthropic"]);
+    expect(f.calls.imports).toEqual(["claude-code"]);
     expect(f.calls.start).toBe(0);
     await f.session.dispose();
   });

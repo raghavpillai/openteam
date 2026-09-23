@@ -55,7 +55,7 @@ describe("provider connection transport", () => {
       },
       { home: f.directory, env: {}, platform: "darwin" }
     );
-    await expect(api.importLogin("anthropic", abort.signal)).rejects.toThrow();
+    await expect(api.importLogin("claude-code", abort.signal)).rejects.toThrow();
     expect(imports).toBe(0);
   });
   test("uses the existing Docker service API, piping prompt values without exposing secrets in argv", async () => {
@@ -64,7 +64,7 @@ describe("provider connection transport", () => {
       calls.push({ args: command.args, input });
       return JSON.stringify({ status: 200, body: authView() });
     });
-    await f.api.start("anthropic", "oauth");
+    await f.api.start("claude-code", "oauth");
     await f.api.respond("session-1", "prompt-1", "sensitive-code-for-test");
     await f.api.cancel("session-1");
     expect(calls[0]!.args).toContain("--no-TTY");
@@ -84,7 +84,7 @@ describe("provider connection transport", () => {
     const f = fixture(async () =>
       JSON.stringify({ status, body: { error: "sk-test-secret-token" } })
     );
-    const error = await f.api.start("anthropic", "oauth").catch((error) => error);
+    const error = await f.api.start("claude-code", "oauth").catch((error) => error);
     expect(error).toBeInstanceOf(Error);
     expect(error.message).not.toContain("sk-test-secret-token");
     expect(error.message).toMatch(/doctor|Go back/);
@@ -109,7 +109,7 @@ describe("provider connection transport", () => {
     const f = fixture(async (command, input) => {
       calls.push({ args: command.args, input });
       return command.args.includes("providers")
-        ? JSON.stringify([{ id: "anthropic", configured: true, authType: "oauth" }])
+        ? JSON.stringify([{ id: "claude-code", configured: true, authType: "oauth" }])
         : "";
     });
     mkdirSync(join(f.directory, ".claude"));
@@ -124,7 +124,7 @@ describe("provider connection transport", () => {
       }),
       { mode: 0o600 }
     );
-    await f.api.importLogin("anthropic");
+    await f.api.importLogin("claude-code");
     expect(JSON.parse(calls[0]!.input!)).toMatchObject({
       access: "test-access",
       refresh: "test-refresh",
@@ -139,7 +139,7 @@ describe("provider connection transport", () => {
       calls++;
       return "";
     });
-    await expect(f.api.importLogin("anthropic")).rejects.toThrow("No reusable Claude Code login");
+    await expect(f.api.importLogin("claude-code")).rejects.toThrow("No reusable Claude Code login");
     expect(calls).toBe(0);
   });
   test("a failed or unverified import does not report success", async () => {
@@ -155,7 +155,7 @@ describe("provider connection transport", () => {
         },
       })
     );
-    await expect(f.api.importLogin("anthropic")).rejects.toThrow("not saved");
+    await expect(f.api.importLogin("claude-code")).rejects.toThrow("not saved");
     const failed = createProviderConnectionAPI(
       f.paths,
       runner,
@@ -164,7 +164,7 @@ describe("provider connection transport", () => {
       },
       { home: f.directory, env: {}, platform: "linux" }
     );
-    const error = await failed.importLogin("anthropic").catch((error) => error);
+    const error = await failed.importLogin("claude-code").catch((error) => error);
     expect(error.message).toContain("may have expired");
     expect(error.message).not.toContain("private-refresh-token");
   });

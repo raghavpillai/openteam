@@ -442,7 +442,7 @@ const collectInferenceConfiguration = async (
     ? await prompter.select("Inference", providerChoices, currentProvider)
     : await ask(
         prompter,
-        "Inference (openai-codex/anthropic/openai/custom/skip)",
+        "Inference (openai-codex/claude-code/openai/anthropic/openrouter/custom/skip)",
         currentProvider,
         (value) =>
           value.trim().toLowerCase() === SKIP_INFERENCE_CHOICE.value
@@ -680,37 +680,12 @@ export const collectSetupConfiguration = async (
         )
       : needsAuthentication;
   if (configuration.authenticate) {
-    if (configuration.provider === "anthropic") {
-      configuration.authType = prompter.select
-        ? await prompter.select(
-            "Use",
-            [
-              { label: "Claude Pro/Max", value: "oauth" },
-              { label: "Anthropic API key", value: "api_key" },
-            ] as const,
-            "oauth"
-          )
-        : await ask(prompter, "Anthropic authentication (oauth/api-key)", "oauth", (value) => {
-            const normalized = value.replace("-", "_");
-            if (normalized !== "oauth" && normalized !== "api_key") {
-              throw new Error("Choose oauth or api-key.");
-            }
-            return normalized;
-          });
-      if (configuration.authType === "oauth") {
-        presentation?.message(
-          "Claude may bill this as extra usage instead of including it with your plan.",
-          "warning"
-        );
-      }
-    } else {
-      configuration.authType = defaultProviderAuthType(configuration.provider);
-    }
+    configuration.authType = defaultProviderAuthType(configuration.provider);
     if (configuration.authType === "api_key") {
       configuration.apiKey = await collectProviderSecret(prompter, configuration.provider);
     } else if (
       configuration.provider === "openai-codex" ||
-      configuration.provider === "anthropic"
+      configuration.provider === "claude-code"
     ) {
       const detected = (options.detectedLogins ?? []).find(
         (login) => login.provider === configuration.provider
@@ -1082,7 +1057,7 @@ export const setupCommand = async (
       registerCustomProvider(project, configuration.customProvider);
       registeredCustomProvider = configuration.customProvider.id;
     }
-    if (!configuration.skipInference) {
+    if (!configuration.skipInference && configuration.model && configuration.provider !== "openrouter") {
       assertProviderModelAvailable(project, configuration.provider, configuration.model);
     }
 
@@ -1226,6 +1201,16 @@ export const setupCommand = async (
           { inherit: true }
         );
       }
+    }
+    if (configuration.provider === "openrouter" && !configuration.model) {
+      const result = providerUtility(project, ["models", "openrouter"]);
+      let models: Array<{ modelId: string }> = [];
+      try { if (result.status === 0) models = JSON.parse(result.stdout); } catch {}
+      if (!Array.isArray(models) || !models[0]?.modelId) {
+        throw new CliError("OpenRouter returned no available models with tool support. Check your account settings, then run openteam model.");
+      }
+      configuration.model = models[0].modelId;
+      presentation.message(`Selected ${configuration.model} from OpenRouter. Use openteam model to choose another.`, "info");
     }
     // Older helpers can exit successfully when stdin closes during an OAuth prompt.
     // Check the saved authentication in a separate process before reporting success.

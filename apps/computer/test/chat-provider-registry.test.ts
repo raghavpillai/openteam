@@ -330,3 +330,69 @@ describe("chat model classification and endpoint paths", () => {
     "https://host/v1/chat/completions",
   ])("rejects unsafe or non-base URL %s", (base) => expect(() => modelsEndpoint(base)).toThrow());
 });
+
+test("OpenRouter discovers account-filtered tool models and persists capabilities", async () => {
+  const f = await fixture({
+    openrouter: { baseUrl: "https://openrouter.test/api/v1", api: "openai-completions" },
+  });
+  f.state.body = {
+    data: [
+      {
+        id: "author/new-model",
+        name: "New model",
+        architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] },
+        supported_parameters: ["tools", "reasoning"],
+        context_length: 200000,
+        top_provider: { max_completion_tokens: 32000 },
+        pricing: { prompt: "0.000002", completion: "0.000008" },
+      },
+      {
+        id: "author/no-tools",
+        architecture: { output_modalities: ["text"] },
+        supported_parameters: [],
+      },
+      {
+        id: "author/image",
+        architecture: { output_modalities: ["image"] },
+        supported_parameters: ["tools"],
+      },
+    ],
+  };
+  const catalog = await f.registry.catalog("openrouter");
+  expect(catalog.providers.find((p) => p.id === "openrouter")).toMatchObject({
+    custom: false,
+    connected: true,
+  });
+  expect(catalog.models).toHaveLength(1);
+  expect(catalog.models[0]).toMatchObject({
+    id: "author/new-model",
+    provider: "openrouter",
+    name: "New model",
+    api: "openai-completions",
+    reasoning: true,
+    input: ["text", "image"],
+    contextWindow: 200000,
+    maxTokens: 32000,
+    cost: { input: 2, output: 8 },
+  });
+  const request = f.calls.find((c) => c.url.hostname === "openrouter.test")!;
+  expect(request.url.pathname).toBe("/api/v1/models/user");
+  expect(new Headers(request.init.headers).get("authorization")).toBe(
+    "Bearer synthetic-openrouter-key"
+  );
+  await f.registry.verify({
+    providerId: "openrouter",
+    modelId: "author/new-model",
+    reasoning: "medium",
+  });
+  const saved = JSON.parse(await readFile(f.path, "utf8"));
+  expect(saved.providers.openrouter.models[0]).toMatchObject({
+    id: "author/new-model",
+    api: "openai-completions",
+    contextWindow: 200000,
+    input: ["text", "image"],
+    cost: { input: 2, output: 8 },
+  });
+  f.state.status = 401;
+  expect((await f.registry.catalog("openrouter")).models).toEqual([]);
+});

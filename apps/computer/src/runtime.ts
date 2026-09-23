@@ -1,3 +1,4 @@
+import { createModelRuntime } from "./model-runtime";
 import { prepareUserImages } from "./runtime/image-input";
 import { clampThinkingLevel } from "@earendil-works/pi-ai";
 import {
@@ -124,7 +125,8 @@ export class ComputerRuntime {
     if (!this.started) {
       await mkdir(this.sessionsDir, { recursive: true });
       await mkdir(this.contextSessionsDir, { recursive: true });
-      this.modelRuntime = await ModelRuntime.create({
+      this.modelRuntime = await createModelRuntime({
+        settingsPath: join(process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/home/box/agent-data", "settings.json"),
         authPath: join(this.agentDir, "auth.json"),
         modelsPath: join(this.agentDir, "models.json"),
         modelsStorePath: join(this.agentDir, "models-store.json"),

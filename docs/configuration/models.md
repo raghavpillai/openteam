@@ -6,10 +6,14 @@ The model provider supplies the intelligence your bots use. Connect one during s
 
 | Option | Use it with |
 | --- | --- |
-| ChatGPT sign-in (`openai-codex`) | A supported account sign-in offered by setup |
+| Codex (`openai-codex`) | A Codex/ChatGPT sign-in, including a reusable local Codex login |
+| Claude Code (`claude-code`) | A Claude subscription sign-in, including a reusable local Claude Code login |
 | OpenAI (`openai`) | An OpenAI API key |
-| Anthropic (`anthropic`) | A supported Claude sign-in or Anthropic API key |
+| Anthropic (`anthropic`) | An Anthropic API key |
+| OpenRouter (`openrouter`) | An OpenRouter API key |
 | Custom endpoint | A compatible hosted or local model service |
+
+Codex and Claude Code have separate credentials and catalogs from OpenAI and Anthropic API access. They reuse vendor sign-ins; inference still runs through Pi, without launching either CLI. Connecting an API key does not replace a subscription sign-in.
 
 Follow the app's connection flow or run:
 
@@ -61,3 +65,17 @@ Supported adapters include `openai-completions`, `openai-responses`, `anthropic-
 Run `openteam doctor` to test an actual model request. A model appearing in the list does not guarantee quota or support for every tool.
 
 If sign-in expires, reconnect through Server settings or `openteam provider login`. [Web search](web-search.md) and [voice notes](transcription.md) have separate credentials.
+
+## OpenRouter
+
+Choose **OpenRouter** in setup or Server settings and enter its API key in the hidden prompt. No base URL is required. The model picker discovers models permitted by your OpenRouter account settings and includes text-output models advertising tool support. It reads reasoning, image-input support, context limits and pricing from the provider catalog.
+
+```sh
+openteam provider login openrouter --auth api-key
+openteam model list openrouter
+openteam model
+```
+
+During quick setup, OpenRouter selects the first supported model returned by your account catalog. Use `openteam model` to change it. Namespaced IDs stay intact: the provider is `openrouter` and the model ID includes its author, for example `author/model-name`. Requests and billing stay with OpenRouter.
+
+Existing Anthropic OAuth credentials move to Claude Code on runtime startup, along with a root model selection using that credential. Anthropic API keys remain with Anthropic. Explicit task profiles or saved sessions referring to the old `anthropic` subscription identity should be updated to `claude-code`; they are not silently routed through another provider.

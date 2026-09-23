@@ -220,13 +220,13 @@ export const createProviderConnectionAPI = (
     },
     importLogin: async (provider, signal) => {
       signal?.throwIfAborted();
-      if (provider !== "anthropic" && provider !== "openai-codex")
+      if (provider !== "claude-code" && provider !== "openai-codex")
         throw new CliError("This provider does not support importing a local login.");
       let found = readReusableCredential(provider, { ...detection, runner: undefined });
       // A Keychain prompt must not block the terminal event loop; cancellation remains usable.
       if (
         !found &&
-        provider === "anthropic" &&
+        provider === "claude-code" &&
         (detection.platform ?? process.platform) === "darwin" &&
         !(detection.env ?? process.env).CLAUDE_CONFIG_DIR
       ) {
@@ -249,7 +249,7 @@ export const createProviderConnectionAPI = (
         }
       }
       signal?.throwIfAborted();
-      const name = provider === "anthropic" ? "Claude Code" : "Codex";
+      const name = provider === "claude-code" ? "Claude Code" : "Codex";
       if (!found)
         throw new CliError(
           "No reusable " +

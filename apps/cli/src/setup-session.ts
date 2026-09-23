@@ -143,10 +143,6 @@ const ACCESS_SECTION = 0;
 const OWNER_SECTION = 1;
 const INFERENCE_SECTION = 2;
 const LAUNCH_SECTION = 3;
-const AUTH_TYPE_LABELS: Record<"oauth" | "api_key", string> = {
-  oauth: "Claude Pro/Max",
-  api_key: "Anthropic API key",
-};
 const PRINTABLE = /^[^\p{Cc}]+$/u;
 
 const hostLabel = (mode: AccessMode): { label: string; placeholder: string } => {
@@ -239,7 +235,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
   const publicUrl = (): string =>
     publicUrlFor(state.accessMode, reachableHost() || "<host>", state.apiPort);
   const reusableProvider = (): ReusableProvider | null =>
-    state.provider === "openai-codex" || state.provider === "anthropic" ? state.provider : null;
+    state.provider === "openai-codex" || state.provider === "claude-code" ? state.provider : null;
   const reuseLogin = (): { provider: ReusableProvider; source: string } | undefined => {
     const provider = reusableProvider();
     if (!provider || state.skipInference || !state.authenticate || state.authType !== "oauth") {
@@ -422,7 +418,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
       rows.push({ kind: "heading", text: "Model" });
       rows.push(textRow("model", "Model", state.model, { placeholder: "model id (required)" }));
     } else {
-      rows.push({ kind: "field", label: "Model", value: state.model });
+      rows.push({ kind: "field", label: "Model", value: state.model || "Selected from catalog after connection" });
     }
     if (advanced) {
       rows.push({
@@ -444,21 +440,6 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
       });
     }
     if (state.authenticate) {
-      if (state.provider === "anthropic") {
-        rows.push({
-          kind: "cycle",
-          id: "authType",
-          label: "Use",
-          value: AUTH_TYPE_LABELS[state.authType],
-        });
-        if (state.authType === "oauth") {
-          rows.push({
-            kind: "note",
-            text: "Claude may bill this as extra usage instead of including it with your plan.",
-            tone: "warning",
-          });
-        }
-      }
       if (state.authType === "api_key") {
         rows.push(
           textRow(
@@ -477,7 +458,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
           text: `OpenTeam will reuse your ${reuseLogin()!.source} sign-in after it starts.`,
           tone: "muted",
         });
-      } else if (state.provider !== "anthropic") {
+      } else if (state.provider !== "claude-code") {
         rows.push({
           kind: "note",
           text: `A browser window will open for ${providerLabel(providerId())} sign-in after OpenTeam starts.`,
@@ -618,7 +599,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
             message: "Enter the model in Inference.",
           });
         }
-      } else if (!state.model) {
+      } else if (!state.model && state.provider !== "openrouter") {
         found.push({
           section: INFERENCE_SECTION,
           rowId: "model",
@@ -924,8 +905,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
         } else if (row.id === "thinking") {
           const index = THINKING_LEVELS.indexOf(state.thinking);
           state.thinking = THINKING_LEVELS[(index + 1) % THINKING_LEVELS.length]!;
-        } else if (row.id === "authType") {
-          state.authType = state.authType === "oauth" ? "api_key" : "oauth";
+
         }
         return { type: "continue" };
       case "action": {

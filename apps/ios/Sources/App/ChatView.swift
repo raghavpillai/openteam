@@ -29,6 +29,10 @@ struct ChatView: View {
   @State private var historyAvailable = false
   @State private var requestedInitialHistory = false
   private var hasLater: Bool { store.historyWindows[channel.id]?.hasLater == true }
+  private var showsLoadError: Bool {
+    store.historyLoadFailures.contains(channel.id) && store.histories[channel.id] == nil
+      && store.messages(channel.id).isEmpty && pendingMessages.isEmpty
+  }
   private var showsLatestButton: Bool {
     didPositionHistory && (hasLater || (!bottomVisible && !followsLatest))
   }
@@ -36,7 +40,11 @@ struct ChatView: View {
     let timeline = timelineCache.project(store.visibleMessages(channel.id), includeBranched: true)
     let rows = timelineCache.present(timeline, pending: pendingMessages, animateNew: didPositionHistory)
     ZStack {
-      if historyAvailable {
+      if showsLoadError {
+        ChatLoadErrorView {
+          Task { await store.loadHistory(channel.id) }
+        }
+      } else if historyAvailable {
         NativeMessageList(
           items: nativeRows(rows, timeline: timeline),
           initialTarget: store.focusedMessage ?? "bottom", request: scrollRequest,
@@ -56,7 +64,7 @@ struct ChatView: View {
         .accessibilityHidden(!didPositionHistory)
         .overlay(alignment: .bottomTrailing) { latestButton }
       }
-      if !didPositionHistory {
+      if !didPositionHistory && !showsLoadError {
         ProgressView().controlSize(.regular).accessibilityLabel("Loading messages")
           .accessibilityIdentifier("chat-loading").frame(maxWidth: .infinity, maxHeight: .infinity)
           .offset(y: -20)
@@ -70,6 +78,9 @@ struct ChatView: View {
     }
     .onChange(of: store.focusedMessage) { _, id in
       if didPositionHistory, let id, thread == nil { focus(id) }
+    }
+    .onChange(of: store.online) { _, online in
+      if online && showsLoadError { Task { await store.loadHistory(channel.id) } }
     }
     .onChange(of: store.state.outbox.count) { old, new in
       if new > old { Task { await jumpToLatest() } }
@@ -102,7 +113,9 @@ struct ChatView: View {
       }
     }
     .nativeCanvas()
-    .chatFloatingBars(top: { header }, bottom: { ComposerView(channel: channel).disabled(!didPositionHistory) })
+    .chatFloatingBars(top: { header }, bottom: {
+      if !showsLoadError { ComposerView(channel: channel).disabled(!didPositionHistory) }
+    })
     .toolbar(.hidden, for: .navigationBar).background(NativeBackGesture().frame(width: 0, height: 0))
     .navigationDestination(isPresented: $details) {
       ConversationDetails(channelID: channel.id, onDuplicate: { duplicatedChannel = $0 })
@@ -338,6 +351,33 @@ struct ChatView: View {
       value = MessageTimeline(messages, includeBranched: includeBranched)
     }
     return value
+  }
+}
+
+private struct ChatLoadErrorView: View {
+  let retry: () -> Void
+
+  var body: some View {
+    Button(action: retry) {
+      VStack(spacing: 16) {
+        Image(systemName: "exclamationmark.triangle")
+          .font(.system(size: 21, weight: .regular))
+        Text("Something went wrong")
+          .font(.system(size: 18, weight: .semibold))
+          .multilineTextAlignment(.center)
+      }
+      .foregroundStyle(NativePalette.text)
+      .padding(.horizontal, 24)
+      .padding(.vertical, 12)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("Something went wrong")
+    .accessibilityHint("Try loading this conversation again")
+    .accessibilityIdentifier("chat-load-error")
+    .offset(y: -1.5)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .ignoresSafeArea()
   }
 }
 

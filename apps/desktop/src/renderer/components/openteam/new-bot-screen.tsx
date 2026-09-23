@@ -128,7 +128,7 @@ export function NewBotScreen({
               key={id}
               className="flex max-w-[180px] items-center gap-1 rounded-full bg-subtle px-1.5 py-1 text-[12px] text-foreground"
             >
-              <BotAvatar bot={botById.get(id)} size="xs" />
+              <BotAvatar bot={botById.get(id)} size="xs" mode="idle" />
               <span className="truncate">{botById.get(id)?.name ?? "Bot"}</span>
               <button
                 type="button"

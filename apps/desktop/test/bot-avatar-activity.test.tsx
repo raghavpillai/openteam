@@ -28,11 +28,25 @@ describe("robot avatar chat activity", () => {
   test("animates only the running member of the open group", () => {
     expect(mode("one", "group")).toBe("<span>thinking</span>");
     expect(mode("two", "group")).toBe("<span>idle</span>");
-    expect(mode("outsider", "group")).toBe("<span>still</span>");
+    expect(mode("outsider", "group")).toBe("<span>idle</span>");
   });
-  test("keeps another chat still even when it contains the active bot", () => {
-    expect(mode("one", "other-chat")).toBe("<span>still</span>");
+  test("keeps another chat idle even when it contains the active bot", () => {
+    expect(mode("one", "other-chat")).toBe("<span>idle</span>");
     expect(mode("one", undefined, "running", null)).toBe("<span>still</span>");
+  });
+  test("passes background conversation runs to avatars even without an open chat", () => {
+    const runsByChannel = new Map([["background", [
+      { botId: "one", status: "running" } as RunView,
+      { botId: "two", status: "queued" } as RunView,
+    ]]]);
+    const markup = renderToStaticMarkup(
+      <BotAvatarActivityProvider channel={null} runsByChannel={runsByChannel}>
+        <Probe botId="one" channelId="background" />
+        <Probe botId="two" channelId="background" />
+        <Probe botId="one" channelId="resting" />
+      </BotAvatarActivityProvider>
+    );
+    expect(markup).toBe("<span>thinking</span><span>thinking</span><span>idle</span>");
   });
   test("returns to idle for completion, failure, cancellation, and approval", () => {
     for (const status of [

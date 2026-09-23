@@ -40,7 +40,7 @@ struct ComputerView: View {
       HStack(spacing: 12) {
         ChatChromeButton(title: "Done", symbol: "chevron.left", symbolSize: 18, symbolWeight: .regular) { Task { await close() } }
           .disabled(working)
-        BotGlyph(color: Color(hex: bot.color), kind: bot.icon, size: 25)
+        BotGlyph(color: Color(hex: bot.color), kind: bot.icon, size: 25, mode: .idle)
         Text(bot.name).font(.body.weight(.medium)).lineLimit(1)
           .accessibilityValue(takeover ? "You have control" : "Watching")
         Spacer(minLength: 0)

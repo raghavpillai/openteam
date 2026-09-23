@@ -24,6 +24,10 @@ final class AppStore {
   private var writer: StateWriter?
   var error: String?
   var online = false
+  private var stateSyncs: Set<UUID> = []
+  private var awaitingInitialSync = false
+  private var syncUnavailable = false
+  var syncingState: Bool { (awaitingInitialSync || !stateSyncs.isEmpty) && !syncUnavailable }
   var connecting = false
   var busy: Set<String> = []
   var navigation: [String] = []
@@ -31,6 +35,7 @@ final class AppStore {
   var focusedMessage: String?
   var activeChannel: String?
   var histories: [String: History] = [:]
+  private(set) var historyLoadFailures: Set<String> = []
   var historyWindows: [String: HistoryWindow] = [:]
   var sidebar: JSON {
     get {
@@ -52,6 +57,7 @@ final class AppStore {
   private var disk: DiskStore?
   private var record: SessionRecord?
   private var lifecycle: Task<Void, Never>?
+  private var needsIdentityRefresh = false
   private var generation = UUID()
   private var sending = false
   private var foreground = true
@@ -168,23 +174,15 @@ final class AppStore {
       }
       try LegacyInstallation.migrate()
       server = UserDefaults.standard.string(forKey: "server") ?? server
-      guard var saved = try SecureSession.read() else {
+      guard let saved = try SecureSession.read() else {
         phase = .signedOut
         return
       }
-      server = saved.server
-      do {
-        saved = try await saved.refreshIdentity(
-          fetch: {
-            try await API(server: saved.server, token: saved.token, timeout: 15)
-              .request("/api/auth/get-session")
-          }, save: { try SecureSession.save($0) })
-      } catch {
-        handle(APIError("Your session expired. Sign in again.", status: 401))
-        return
-      }
+      // Restore the established account and its disk cache before doing any
+      // networking. Slow identity/bootstrap/settings requests and outbox retries
+      // must not trap the user behind the launch robot or hide Re-auth.
       try activate(saved)
-      await refresh()
+      needsIdentityRefresh = true
       startEvents()
     } catch {
       phase = .signedOut
@@ -344,10 +342,15 @@ final class AppStore {
     let nextState = try nextDisk.load()
     if persistSession { try SecureSession.save(next) }
     lifecycle?.cancel()
+    needsIdentityRefresh = false
+    stateSyncs.removeAll()
+    awaitingInitialSync = !launchComplete
+    syncUnavailable = false
     generation = UUID()
     navigation = []
     activeChannel = nil
     histories = [:]
+    historyLoadFailures.removeAll()
     historyWindows = [:]
     record = next
     server = next.server
@@ -360,7 +363,7 @@ final class AppStore {
     phase = .ready
     #if canImport(UIKit)
       NativeNotifications.shared.bind(next)
-      Task { await NativeNotifications.shared.resume(requestPermission: launchComplete) }
+      if launchComplete { Task { await NativeNotifications.shared.resume(requestPermission: true) } }
     #endif
   }
   private func apply(_ bootstrap: Bootstrap) {
@@ -449,43 +452,65 @@ final class AppStore {
       try disk?.removeFile(file)
     } catch { self.error = error.localizedDescription }
   }
-  func refresh() async {
+  private func beginStateSync() -> UUID {
+    if stateSyncs.isEmpty { syncUnavailable = false }
+    let id = UUID()
+    stateSyncs.insert(id)
+    return id
+  }
+  func refresh(quiet: Bool = false, flushPending: Bool = true) async {
     guard let api, phase == .ready else { return }
     let epoch = generation
+    let sync = beginStateSync()
+    defer { stateSyncs.remove(sync) }
     do {
       let bootstrap = try await api.get("/api/v0/client-bootstrap", as: Bootstrap.self)
       guard epoch == generation, !Task.isCancelled else { return }
       apply(bootstrap)
       online = true
+      syncUnavailable = false
       persist()
       let root = try await api.request("/api/v0/settings")
       guard epoch == generation else { return }
       if root["settings"]["sidebarPreferences"]["version"].int == 2 {
         sidebar = root["settings"]["sidebarPreferences"]
       }
-      await flush()
-    } catch { if epoch == generation { handle(error) } }
+      // Pending sends are separate from loading the main screen's state.
+      stateSyncs.remove(sync)
+      if flushPending { await flush() }
+    } catch { if epoch == generation { handle(error, quiet: quiet) } }
+  }
+  func finishLaunch() {
+    launchComplete = true
+    startEvents()
   }
   func setForeground(_ active: Bool) {
     foreground = active
     if active {
       #if canImport(UIKit)
-        Task { await NativeNotifications.shared.resume() }
+        if launchComplete { Task { await NativeNotifications.shared.resume() } }
       #endif
       startEvents()
     } else {
       lifecycle?.cancel()
       lifecycle = nil
+      stateSyncs.removeAll()
       flushPersistence()
     }
   }
   private func startEvents() {
     lifecycle?.cancel()
-    guard phase == .ready, foreground else { return }
+    guard phase == .ready, foreground, launchComplete || testing else { return }
     let epoch = generation
+    syncUnavailable = false
+    let sync = beginStateSync()
+    awaitingInitialSync = false
     lifecycle = Task { [weak self] in
       guard let self else { return }
-      await refresh()
+      await refreshSession(epoch: epoch, sync: sync)
+      guard epoch == generation, !Task.isCancelled, phase == .ready else { return }
+      await flush()
+      guard epoch == generation, !Task.isCancelled, phase == .ready else { return }
       if let activeChannel { await loadHistory(activeChannel) }
       var cursor = state.bootstrap?.cursor ?? "0"
       var delay: UInt64 = 1
@@ -495,20 +520,32 @@ final class AppStore {
             "/api/v0/events/poll", as: EventBatch.self, query: ["after": cursor, "waitMs": "25000"])
           try Task.checkCancellation()
           guard epoch == generation else { return }
-          online = true
+          let reconnectSync = online ? nil : beginStateSync()
+          defer { if let reconnectSync { stateSyncs.remove(reconnectSync) } }
           delay = 1
-          if !batch.events.isEmpty {
+          if reconnectSync != nil || !batch.events.isEmpty {
             // Reconcile authoritative bounded projections. Advance the cursor only after reconciliation succeeds.
             let bootstrap = try await api.get("/api/v0/client-bootstrap", as: Bootstrap.self)
             try Task.checkCancellation()
             guard epoch == generation else { return }
             apply(bootstrap)
+            if reconnectSync != nil {
+              let root = try await api.request("/api/v0/settings")
+              try Task.checkCancellation()
+              guard epoch == generation else { return }
+              if root["settings"]["sidebarPreferences"]["version"].int == 2 {
+                sidebar = root["settings"]["sidebarPreferences"]
+              }
+            }
             if let activeChannel {
               try await fetchHistory(activeChannel, before: nil, api: api, epoch: epoch)
             }
             cursor = bootstrap.cursor
             persist()
           }
+          online = true
+          syncUnavailable = false
+          if let reconnectSync { stateSyncs.remove(reconnectSync) }
           await flush()
         } catch {
           if Task.isCancelled || epoch != generation { return }
@@ -519,6 +556,38 @@ final class AppStore {
       }
     }
   }
+  private func refreshSession(epoch: UUID, sync: UUID) async {
+    defer { stateSyncs.remove(sync) }
+    if needsIdentityRefresh, let saved = record {
+      do {
+        let updated = try await saved.refreshIdentity(
+          fetch: {
+            do {
+              return try await API(server: saved.server, token: saved.token, timeout: 15)
+                .request("/api/auth/get-session")
+            } catch {
+              if epoch == generation, !Task.isCancelled { handle(error, quiet: true) }
+              throw error
+            }
+          }, save: { updated in
+            // A response from before Re-auth must never recreate the old
+            // Keychain entry or overwrite a newly connected account.
+            try Task.checkCancellation()
+            guard epoch == self.generation else { throw CancellationError() }
+            try SecureSession.save(updated)
+          })
+        guard epoch == generation, !Task.isCancelled else { return }
+        record = updated
+        userName = updated.displayName
+        needsIdentityRefresh = false
+      } catch {
+        guard epoch == generation, !Task.isCancelled else { return }
+        handle(APIError("Your session expired. Sign in again.", status: 401))
+        return
+      }
+    }
+    await refresh(quiet: true, flushPending: false)
+  }
   func loadHistory(_ id: String, older: Bool = false) async {
     guard let api, !busy.contains("history-" + id) else { return }
     let epoch = generation
@@ -528,13 +597,14 @@ final class AppStore {
       try await fetchHistory(
         id, before: older ? histories[id]?.beforeSequence : nil, api: api, epoch: epoch)
     } catch {
-      if epoch == generation {
-        let hasCachedContent = !messages(id).isEmpty || state.outbox.contains { $0.channelId == id }
-        let connectionFailure = error is URLError || ((error as? APIError)?.status ?? 0) >= 500
-        // Opening a cached conversation is usable offline. Background refresh
-        // failures update connection state without interrupting a queued reply.
-        // Explicit pagination and non-transient failures still surface an error.
-        handle(error, quiet: !older && hasCachedContent && connectionFailure)
+      if epoch == generation, !Task.isCancelled,
+        !(error is CancellationError), (error as? URLError)?.code != .cancelled
+      {
+        if !older { historyLoadFailures.insert(id) }
+        // Initial-load errors are rendered in the chat when no saved content is
+        // available. Cached transcripts stay readable; pagination still reports
+        // its error without replacing the transcript.
+        handle(error, quiet: !older)
       }
     }
   }
@@ -544,6 +614,7 @@ final class AppStore {
     let page = try await api.get(
       "/api/v0/channels/\(API.segment(id))/history", as: History.self, query: query)
     guard epoch == generation, !Task.isCancelled else { return }
+    historyLoadFailures.remove(id)
     if before != nil {
       state.messages[id] = MessageMerge.merge(messages(id), page.threadContext + page.messages)
       historyWindows[id]?.extend(page.messages, earlier: true, hasMore: page.hasMore)
@@ -1001,6 +1072,8 @@ final class AppStore {
       }
       state = SavedState()
       record = nil
+      stateSyncs.removeAll()
+      awaitingInitialSync = false
       self.api = nil
       disk = nil
       phase = .signedOut
@@ -1033,10 +1106,13 @@ final class AppStore {
     stopPersistence()
     phase = .signedOut
     record = nil
+    stateSyncs.removeAll()
+    awaitingInitialSync = false
     api = nil
     disk = nil
     state = SavedState()
     histories = [:]
+    historyLoadFailures.removeAll()
     historyWindows = [:]
     navigation = []
     activeChannel = nil
@@ -1103,6 +1179,8 @@ final class AppStore {
       state = SavedState()
       disk = nil
       phase = .signedOut
+      stateSyncs.removeAll()
+      awaitingInitialSync = false
       navigation = []
       try? SecureSession.clear()
       validatedServer = server
@@ -1110,7 +1188,10 @@ final class AppStore {
       authError = "Your session expired. Sign in again. Your drafts are saved on this iPhone."
       self.error = nil
     } else {
-      if !(error is APIError) || ((error as? APIError)?.status ?? 0) >= 500 { online = false }
+      if !(error is APIError) || ((error as? APIError)?.status ?? 0) >= 500 {
+        online = false
+        syncUnavailable = true
+      }
       if !quiet { self.error = UserFacingError.message(error) }
     }
   }

@@ -463,4 +463,149 @@ final class AuthFlowUITests: XCTestCase {
     }
   }
 
+  private func savedSessionForColdLaunch(appearance: String = "light", scene: String? = nil) async throws -> XCUIApplication {
+    // Exercise the production Keychain/cache restoration path, without --ui-testing.
+    // This requires an ad-hoc signed simulator build so Keychain access is available.
+    continueAfterFailure = false
+    try await control("/__qa/reset")
+    if let scene {
+      try await control("/__qa/scene", ["scene": scene])
+      try await control("/api/v0/settings/sidebar", [
+        "version": 2, "sections": [], "pinnedIds": [], "unreadIds": [],
+        "sectionByChannel": [:], "channelOrderByGroup": ["unassigned": (0...10).map { "visual-\($0)" }],
+      ])
+    }
+    try await control("/__qa/control", ["authRequired": true])
+    let app = XCUIApplication()
+    app.launchArguments = ["-appearance", appearance]
+    app.launch()
+    if app.buttons["settings-button"].waitForExistence(timeout: 3) {
+      app.buttons["settings-button"].tap()
+      app.buttons["account-settings"].tap()
+      app.buttons["re-auth"].tap()
+    } else {
+      XCTAssertTrue(app.buttons["get-started"].waitForExistence(timeout: 15))
+      app.buttons["get-started"].tap()
+    }
+    replace(app.textFields["server-field"], base)
+    app.buttons["connect-button"].tap()
+    XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 10))
+    signIn(app)
+    guard app.buttons["settings-button"].waitForExistence(timeout: 15) else {
+      capture("saved-session-seed-failure", app)
+      XCTFail("The real Keychain session must be established before testing restoration.")
+      throw APISetupFailure.couldNotSignIn
+    }
+    dismissPasswordPrompt(app)
+    app.terminate()
+    return app
+  }
+
+  private enum APISetupFailure: Error { case couldNotSignIn }
+
+  private func assertCachedSync(_ app: XCUIApplication) {
+    XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "launch-robot").firstMatch.exists)
+    XCTAssertFalse(app.buttons["launch-skip"].exists)
+    XCTAssertTrue(app.staticTexts["Syncing state"].exists)
+    XCTAssertFalse(app.staticTexts["Offline · messages will send when you reconnect"].exists)
+    XCTAssertFalse(app.buttons["new-button"].isEnabled)
+  }
+
+  private func verifySlowLaunch(_ appearance: String) async throws {
+    let app = try await savedSessionForColdLaunch(appearance: appearance, scene: "home")
+    try await control("/__qa/control", ["failures": [
+      "GET /api/auth/get-session": ["delayMs": 12000, "status": 0, "count": 10],
+      "GET /api/v0/client-bootstrap": ["delayMs": 12000, "status": 0, "count": 10],
+      "GET /api/v0/settings": ["delayMs": 12000, "status": 0, "count": 10],
+    ]])
+    app.launch()
+    assertCachedSync(app)
+    XCTAssertTrue(app.buttons["channel-visual-0"].exists)
+    capture("cached-sync-" + appearance, app)
+    app.buttons["settings-button"].tap()
+    app.buttons["account-settings"].tap()
+    XCTAssertTrue(app.buttons["re-auth"].waitForExistence(timeout: 3))
+    app.terminate()
+  }
+
+  func testSavedSessionShowsCachedChatsWhileServerIsSlow() async throws {
+    try await verifySlowLaunch("light")
+  }
+
+  func testDarkSavedSessionShowsCachedChatsWhileSyncing() async throws {
+    try await verifySlowLaunch("dark")
+  }
+
+  func testCreationWaitsForSettingsSyncAndThenEnables() async throws {
+    let app = try await savedSessionForColdLaunch()
+    try await control("/__qa/control", ["failures": [
+      "GET /api/v0/settings": ["delayMs": 8000, "status": 0, "count": 10],
+    ]])
+    app.launch()
+    assertCachedSync(app)
+    XCTAssertTrue(app.staticTexts["Syncing state"].waitForNonExistence(timeout: 15))
+    XCTAssertTrue(app.buttons["new-button"].isEnabled)
+    app.buttons["new-button"].tap()
+    XCTAssertTrue(app.buttons["New Bot"].waitForExistence(timeout: 3))
+    XCTAssertTrue(app.buttons["New Group Chat"].exists)
+    capture("creation-enabled-after-sync", app)
+    app.terminate()
+  }
+
+  func testOfflineSavedSessionReconnectsWithoutRelaunch() async throws {
+    let app = try await savedSessionForColdLaunch()
+    try await control("/__qa/control", ["offline": true])
+    app.launch()
+    let offline = app.staticTexts["Offline · messages will send when you reconnect"]
+    XCTAssertTrue(offline.waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["channel-channel-research"].exists)
+    XCTAssertFalse(app.staticTexts["Syncing state"].exists)
+    XCTAssertFalse(app.alerts.firstMatch.exists)
+    capture("cache-offline", app)
+    // Recover the server without foregrounding or relaunching the app.
+    try await control("/__qa/control", ["offline": false, "failures": [
+      "GET /api/v0/settings": ["delayMs": 8000, "status": 0, "count": 10],
+    ]])
+    XCTAssertTrue(app.staticTexts["Syncing state"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.buttons["new-button"].isEnabled)
+    XCTAssertTrue(app.staticTexts["Syncing state"].waitForNonExistence(timeout: 15))
+    XCTAssertTrue(app.buttons["new-button"].isEnabled)
+    XCTAssertTrue(offline.waitForNonExistence(timeout: 20))
+    XCTAssertTrue(app.buttons["channel-channel-research"].exists)
+    XCTAssertFalse(app.buttons["get-started"].exists)
+    capture("restored-session-reconnected", app)
+    app.terminate()
+  }
+
+  func testExpiredSavedSessionStillReturnsToSignIn() async throws {
+    let app = try await savedSessionForColdLaunch()
+    try await control("/__qa/control", ["failures": [
+      "GET /api/auth/get-session": ["delayMs": 2000, "status": 401, "count": 10],
+    ]])
+    app.launch()
+    assertError("session expired", app)
+    XCTAssertTrue(app.textFields["username-field"].exists)
+    XCTAssertFalse(app.buttons["settings-button"].exists)
+    app.terminate()
+  }
+
+  func testReauthDuringSavedSessionRefreshCannotRestoreTheAccount() async throws {
+    let app = try await savedSessionForColdLaunch()
+    try await control("/__qa/control", ["failures": [
+      "GET /api/auth/get-session": ["delayMs": 12000, "status": 0, "count": 10],
+    ]])
+    app.launch()
+    assertCachedSync(app)
+    app.buttons["settings-button"].tap()
+    app.buttons["account-settings"].tap()
+    app.buttons["re-auth"].tap()
+    XCTAssertTrue(app.textFields["server-field"].waitForExistence(timeout: 5))
+    try await Task.sleep(for: .seconds(13))
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(app.buttons["get-started"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.buttons["settings-button"].exists)
+    app.terminate()
+  }
 }

@@ -139,6 +139,79 @@ import XCTest
     XCTAssertFalse(app.buttons["Latest messages"].exists)
     capture("short-chat-after-activity-collapse", app)
   }
+
+  func testUnavailableChatShowsReferenceErrorAndRetries() async throws {
+    continueAfterFailure = false
+    for (appearance, status) in [("light", 503), ("dark", 404)] {
+      try await control("__qa/scene", ["scene": "empty-chat"])
+      try await control("__qa/control", ["failures": [
+        "GET /api/v0/channels/visual-chat/history": ["status": status, "count": 100],
+      ]])
+      let app = XCUIApplication()
+      app.launchArguments = ["--ui-testing", "--server", base.absoluteString,
+        "--appearance", appearance, "--open-channel", "visual-chat"]
+      app.launch()
+      let error = app.buttons["chat-load-error"]
+      XCTAssertTrue(error.waitForExistence(timeout: 12))
+      XCTAssertTrue(app.buttons["chat-back"].exists)
+      XCTAssertFalse(app.alerts.firstMatch.exists)
+      XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "message-input").firstMatch.exists)
+      XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch.exists)
+      capture("chat-load-error-" + appearance, app)
+      app.buttons["chat-back"].tap()
+      XCTAssertTrue(app.buttons["channel-visual-chat"].waitForExistence(timeout: 5))
+      app.buttons["channel-visual-chat"].tap()
+      XCTAssertTrue(error.waitForExistence(timeout: 5))
+      error.tap()
+      XCTAssertTrue(error.exists)
+      try await control("__qa/control", ["failures": [:]])
+      XCTAssertTrue(error.waitForNonExistence(timeout: 10))
+      let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+      XCTAssertTrue(input.waitForExistence(timeout: 5))
+      XCTAssertTrue(input.isEnabled)
+      input.tap()
+      input.typeText("Recovered chat")
+      app.buttons["send-button"].tap()
+      XCTAssertTrue(app.staticTexts["Recovered chat"].waitForExistence(timeout: 5))
+      app.terminate()
+    }
+  }
+
+  func testOfflineChatRecoversWithoutTappingError() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "empty-chat"])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString, "--appearance", "light"]
+    app.launch()
+    XCTAssertTrue(app.buttons["channel-visual-chat"].waitForExistence(timeout: 12))
+    try await control("__qa/control", ["offline": true])
+    app.buttons["channel-visual-chat"].tap()
+    XCTAssertTrue(app.buttons["chat-load-error"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.alerts.firstMatch.exists)
+    try await control("__qa/control", ["offline": false])
+    XCTAssertTrue(app.buttons["chat-load-error"].waitForNonExistence(timeout: 15))
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "message-input").firstMatch.isEnabled)
+    app.terminate()
+  }
+
+  func testOfflineChatKeepsCachedMessagesReadable() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "dark-chat-seven"])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString,
+      "--appearance", "light", "--open-channel", "visual-chat"]
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Got it — here."].waitForExistence(timeout: 12))
+    app.buttons["chat-back"].tap()
+    try await control("__qa/control", ["offline": true])
+    app.buttons["channel-visual-chat"].tap()
+    XCTAssertTrue(app.staticTexts["Got it — here."].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.buttons["chat-load-error"].exists)
+    XCTAssertFalse(app.alerts.firstMatch.exists)
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "message-input").firstMatch.isEnabled)
+    capture("offline-cached-chat-readable", app)
+    app.terminate()
+  }
   func testKeyboardSendAndActivityTransitions() async throws {
     continueAfterFailure = false
     try await control("__qa/scene", ["scene": "dark-chat-seven"])

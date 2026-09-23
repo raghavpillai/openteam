@@ -541,7 +541,7 @@ export function HiddenAgentsDialog({
                     }}
                     type="button"
                   >
-                    <BotAvatar bot={bot} size="sm" />
+                    <BotAvatar bot={bot} channelId={bot.dmChannelId} size="sm" />
                     <span className="min-w-0 flex-1 truncate text-[13px]">{bot.name}</span>
                   </button>
                   <button
@@ -695,7 +695,7 @@ function SidebarDragPreview({
     >
       <WorkingAvatar channelId={row.channel.id} active={working} ringColor="var(--popover)" size="pin">
         {bot ? (
-          <BotAvatar bot={bot} size="lg" />
+          <BotAvatar bot={bot} channelId={channel.id} size="lg" />
         ) : (
           <div className="relative h-[68px] w-[86px] shrink-0">
             {groupBots.map((groupBot, index) => (
@@ -703,7 +703,7 @@ function SidebarDragPreview({
                 className={cn("absolute", index === 0 ? "left-0 top-0" : "bottom-0 right-0")}
                 key={groupBot?.id ?? index}
               >
-                <BotAvatar bot={groupBot} size="lg" />
+                <BotAvatar bot={groupBot} channelId={channel.id} size="lg" />
               </div>
             ))}
           </div>

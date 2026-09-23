@@ -6,14 +6,19 @@ struct LaunchContentView: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var showingLaunch = true
   @State private var launchOpacity = 1.0
+  @State private var dismissing = false
 
   var body: some View {
     ZStack {
       Group {
-        switch store.phase {
-        case .starting: Color.clear
-        case .signedOut: SignInView()
-        case .ready: HomeView()
+        // Do not expose the underlying NavigationStack to accessibility while
+        // the launch screen is waiting. Insert it as the launch fade begins.
+        if !showingLaunch || dismissing {
+          switch store.phase {
+          case .starting: Color.clear
+          case .signedOut: SignInView()
+          case .ready: HomeView()
+          }
         }
       }
       .allowsHitTesting(!showingLaunch)
@@ -33,17 +38,26 @@ struct LaunchContentView: View {
       let began = clock.now
       NativeNotifications.shared.store = store
       await store.start()
-      await NativeNotifications.shared.routePendingTap()
       // Avoid a single-frame flash on fast launches, without delaying slower startup.
       let remaining = Duration.milliseconds(700) - (clock.now - began)
       if remaining > .zero { try? await Task.sleep(for: remaining) }
       guard !Task.isCancelled else { return }
-      withAnimation(.easeOut(duration: reduceMotion ? 0.15 : 0.4), completionCriteria: .removed) {
-        launchOpacity = 0
-      } completion: {
-        showingLaunch = false
-        store.launchComplete = true
-        Task { await NativeNotifications.shared.resume(requestPermission: true) }
+      revealApp()
+    }
+  }
+
+  private func revealApp() {
+    guard showingLaunch, !dismissing else { return }
+    dismissing = true
+    withAnimation(.easeOut(duration: reduceMotion ? 0.15 : 0.4), completionCriteria: .removed) {
+      launchOpacity = 0
+    } completion: {
+      showingLaunch = false
+      store.finishLaunch()
+      Task {
+        // An uncached notification lookup must not hold the launch screen.
+        await NativeNotifications.shared.routePendingTap()
+        await NativeNotifications.shared.resume(requestPermission: true)
       }
     }
   }

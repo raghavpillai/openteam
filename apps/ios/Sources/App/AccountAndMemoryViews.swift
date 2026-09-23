@@ -77,7 +77,7 @@ struct RobotIdentityPicker: View {
             if icon != shape.rawValue { NativeHaptics.play(.selection, source: "bot.shape") }
             icon = shape.rawValue
           } label: {
-            BotGlyph(color: Color(hex: color), kind: shape.rawValue, size: 38)
+            BotGlyph(color: Color(hex: color), kind: shape.rawValue, size: 38, mode: .idle)
               .padding(3).background(
                 icon == shape.rawValue ? NativePalette.selection : .clear,
                 in: RoundedRectangle(cornerRadius: 12)

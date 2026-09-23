@@ -1044,6 +1044,7 @@ export default function App() {
     <BotAvatarActivityProvider
       channel={newBotPicker || pendingBot ? null : a2aExchangeChannel ?? selected}
       run={index.activeRunByChannel.get((a2aExchangeChannel ?? selected)?.id ?? "")}
+      runsByChannel={index.runsByChannel}
     >
     <TooltipProvider>
       <main className="flex h-screen overflow-hidden bg-background text-foreground">

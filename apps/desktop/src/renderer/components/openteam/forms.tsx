@@ -337,7 +337,7 @@ export function GroupForm({
                         className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5"
                         htmlFor={checkboxId}
                       >
-                        <BotAvatar bot={bot} size="sm" />
+                        <BotAvatar bot={bot} size="sm" mode="idle" />
                         <span className="truncate text-[13px] font-medium">{bot.name}</span>
                       </Label>
                     </div>

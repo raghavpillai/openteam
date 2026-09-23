@@ -574,7 +574,7 @@ export const Inspector = memo(function Inspector({
                         )
                       }
                     >
-                      <BotAvatar bot={candidate} size="sm" />
+                      <BotAvatar bot={candidate} size="sm" mode="idle" />
                       <span className="min-w-0 flex-1 truncate">{candidate.name}</span>
                     </DropdownMenuItem>
                   ))}

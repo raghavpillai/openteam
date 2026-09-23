@@ -22,7 +22,7 @@ struct HomeView: View {
     NavigationStack(path: $store.navigation) {
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 0) {
-          if !store.online {
+          if !store.online && !store.syncingState {
             Label("Offline · messages will send when you reconnect", systemImage: "wifi.slash")
               .font(.footnote).foregroundStyle(NativePalette.muted).padding(.vertical, 8)
           }
@@ -145,15 +145,27 @@ struct HomeView: View {
         AccountMark(name: store.userName).padding(3).nativeGlass()
       }
       .buttonStyle(.plain).accessibilityLabel("Settings").accessibilityIdentifier("settings-button")
+      if store.syncingState {
+        HStack(spacing: 8) {
+          ProgressView().controlSize(.regular).tint(NativePalette.muted)
+            .scaleEffect(0.8)
+            .frame(width: 16, height: 16).accessibilityHidden(true)
+          Text("Syncing state").font(.body.weight(.semibold)).lineLimit(1)
+        }
+        .padding(.leading, 12)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("syncing-state")
+      }
       Spacer()
       ChromeButton(title: "Search", symbol: "magnifyingglass") { search = true }
         .accessibilityIdentifier("search-button")
       NativeActionMenu(symbol: "plus", pointSize: 20, title: "New conversation",
         identifier: "new-button", panelIdentifier: "creation-menu-panel",
         hapticSource: "home.create", actions: [
-          .init(title: "New Bot", action: { creation = .bot }),
-          .init(title: "New Group Chat", action: { creation = .group }),
+          .init(title: "New Bot", action: { if !store.syncingState { creation = .bot } }),
+          .init(title: "New Group Chat", action: { if !store.syncingState { creation = .group } }),
         ]).frame(width: 44, height: 44).nativeGlass()
+        .disabled(store.syncingState)
     }.foregroundStyle(NativePalette.text).padding(.horizontal, 18).padding(.top, 6).padding(
       .bottom, 10
     )
@@ -332,7 +344,7 @@ struct ChannelRow: View {
           }
           Text(preview).font(.system(size: 15)).lineLimit(1).frame(
             maxWidth: .infinity, alignment: .leading)
-          if unread { Circle().fill(NativePalette.link).frame(width: 7, height: 7) }
+          if unread { Circle().fill(NativePalette.link).frame(width: 10, height: 10) }
         }.foregroundStyle(NativePalette.muted)
       }
     }.frame(minHeight: 80).contentShape(Rectangle()).accessibilityElement(children: .combine)
@@ -433,7 +445,7 @@ struct CreateConversationView: View {
                 }
               } label: {
                 HStack(spacing: 14) {
-                  BotGlyph(color: Color(hex: bot.color), kind: bot.icon, size: 34)
+                  BotGlyph(color: Color(hex: bot.color), kind: bot.icon, size: 34, mode: .idle)
                   Text(bot.name).font(.body).foregroundStyle(NativePalette.text)
                   Spacer()
                   if selected.contains(bot.id) { Image(systemName: "checkmark.circle.fill") }
@@ -501,7 +513,7 @@ struct CreateConversationView: View {
       if !group || namingGroup {
         Button(saving ? "Creating…" : "Create") { Task { await save() } }
           .buttonStyle(PrimaryActionStyle()).disabled(
-            saving || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            saving || store.syncingState || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
               || (group && (selected.isEmpty || selected.count > 6 || name.count > 80))
           )
           .accessibilityIdentifier("create-confirm").padding(.horizontal, 28).padding(.bottom, -4)
@@ -526,7 +538,7 @@ struct CreateConversationView: View {
     }
   }
   func save() async {
-    guard !saving else { return }
+    guard !saving, !store.syncingState else { return }
     saving = true
     defer { saving = false }
     let body: JSON =

@@ -1,52 +1,56 @@
 # Model providers
 
-The model provider supplies the intelligence your bots use. Connect one during setup or change it later in **Settings → Server**.
+Your bots use an AI model from a provider you connect. Use a subscription you already have, an API key, or your own model server.
+
+## Choose a provider
+
+| Provider | What you need | CLI ID |
+| --- | --- | --- |
+| Codex | A ChatGPT subscription | `openai-codex` |
+| Claude Code | A Claude subscription | `claude-code` |
+| OpenAI | An OpenAI API key | `openai` |
+| Anthropic | An Anthropic API key | `anthropic` |
+| OpenRouter | An OpenRouter API key | `openrouter` |
+| Custom endpoint | A compatible model server, hosted or local | Your choice |
+
+Usage and billing go through your provider account. A subscription sign-in and an API key from the same company are separate connections.
 
 ## Connect a provider
 
-| Option | Use it with |
-| --- | --- |
-| Codex (`openai-codex`) | A Codex/ChatGPT sign-in, including a reusable local Codex login |
-| Claude Code (`claude-code`) | A Claude subscription sign-in, including a reusable local Claude Code login |
-| OpenAI (`openai`) | An OpenAI API key |
-| Anthropic (`anthropic`) | An Anthropic API key |
-| OpenRouter (`openrouter`) | An OpenRouter API key |
-| Custom endpoint | A compatible hosted or local model service |
+In the desktop app, open **Settings → Server → Provider connection**, choose a provider, and connect.
 
-Codex and Claude Code have separate credentials and catalogs from OpenAI and Anthropic API access. They reuse vendor sign-ins; inference still runs through Pi, without launching either CLI. Connecting an API key does not replace a subscription sign-in.
-
-Follow the app's connection flow or run:
+Or, on the server host, run guided setup:
 
 ```sh
 openteam setup
 ```
 
-Enter credentials in the app or hidden CLI prompt. Setup can reuse a compatible local sign-in when it detects one. Account access, quota, and billing come from the provider you connect.
+If you've already signed in to Codex or Claude Code on the host, setup can reuse that sign-in.
 
-## Select a model
+## Choose a model
 
-Choose a model from the connected provider's list and apply it. On the command line:
+In the desktop app, open **Settings → Server → Model and reasoning**, pick a model and reasoning effort, and choose **Apply**. Or run `openteam model` on the host for an interactive picker.
 
-```sh
-openteam model
-```
+All bots use the same model. Changes apply to new messages; a task that's already running finishes with the settings it started with.
 
-The interactive editor lets you select the provider, model, and reasoning level. Fresh installations start with the recommended model and medium reasoning. If a model does not support reasoning controls, that setting is disabled.
+Higher reasoning effort can give better results on hard tasks, but it's slower and uses more of your quota. New installations start at medium. Some models don't support reasoning effort, and the setting is unavailable for them.
 
-All bots share the saved selection. Changes apply to new turns; work already running keeps the settings it started with.
-
-For scripting:
+To script the change:
 
 ```sh
 openteam model list
 openteam model use <provider> <model> --thinking medium
 ```
 
-## Add a custom endpoint
+## Use OpenRouter
 
-Use an endpoint reachable from the **bot computer container**. Its `localhost` is the container itself, not your laptop.
+Choose **OpenRouter** and paste your API key. The model list shows the models your OpenRouter account allows that support tool use. OpenRouter model IDs include the model's author, such as `author/model-name`.
 
-For an unauthenticated OpenAI-compatible service on the host:
+## Use your own model server
+
+You can connect any server that speaks one of these APIs: OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, or Google Generative AI. Bots rely on tool calling, so choose a model that supports it.
+
+The server must be reachable from the bots' computer, which runs in Docker. Inside Docker, `localhost` means the container, not your host. Use `host.docker.internal` to reach a server running on the host, such as [Ollama](https://ollama.com):
 
 ```sh
 openteam provider add local --name "Local models" \
@@ -56,26 +60,12 @@ openteam model list local
 openteam model
 ```
 
-Use a reachable host address if your Docker environment does not provide `host.docker.internal`. Omit `--no-auth` when the endpoint needs a key; the CLI prompts for it.
-
-Supported adapters include `openai-completions`, `openai-responses`, `anthropic-messages`, and `google-generative-ai`. Model discovery must work before a model can be selected.
+If your endpoint needs a key, leave out `--no-auth` and the CLI will ask for it. The `--api` option accepts `openai-completions`, `openai-responses`, `anthropic-messages`, or `google-generative-ai`.
 
 ## Check the connection
 
-Run `openteam doctor` to test an actual model request. A model appearing in the list does not guarantee quota or support for every tool.
+Run `openteam doctor` to send a test request to your model. A model can appear in the list and still fail if your account has no quota left.
 
-If sign-in expires, reconnect through Server settings or `openteam provider login`. [Web search](web-search.md) and [voice notes](transcription.md) have separate credentials.
+If your sign-in expires, reconnect in **Settings → Server** or run `openteam provider login`.
 
-## OpenRouter
-
-Choose **OpenRouter** in setup or Server settings and enter its API key in the hidden prompt. No base URL is required. The model picker discovers models permitted by your OpenRouter account settings and includes text-output models advertising tool support. It reads reasoning, image-input support, context limits and pricing from the provider catalog.
-
-```sh
-openteam provider login openrouter --auth api-key
-openteam model list openrouter
-openteam model
-```
-
-During quick setup, OpenRouter selects the first supported model returned by your account catalog. Use `openteam model` to change it. Namespaced IDs stay intact: the provider is `openrouter` and the model ID includes its author, for example `author/model-name`. Requests and billing stay with OpenRouter.
-
-Existing Anthropic OAuth credentials move to Claude Code on runtime startup, along with a root model selection using that credential. Anthropic API keys remain with Anthropic. Explicit task profiles or saved sessions referring to the old `anthropic` subscription identity should be updated to `claude-code`; they are not silently routed through another provider.
+Web search and voice transcription use their own credentials. See [web search](web-search.md) and [voice notes](transcription.md).

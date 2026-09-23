@@ -1,34 +1,35 @@
 # How hosting works
 
-OpenTeam has three parts you interact with: the server that stores your work, the computer bots work on, and the apps you use to talk to them.
+OpenTeam is self-hosted. You run the server on a machine you control, and the apps connect to it. This page explains what runs where, so you can pick a good host.
 
-## Your server
+## The server
 
-The server runs on a machine you choose: your own computer, a spare machine, or a remote Linux host. It stores conversations, schedules work, and connects the apps to your bots.
+The server stores your bots, conversations, files, and settings. It runs tasks and routines, and it's what the desktop and iPhone apps connect to.
 
-A remote host is useful when you want work to continue while your laptop is off. If you host on the laptop itself, sleeping or shutting it down also stops the server.
+Install it on any machine that can run Docker: your laptop, a desktop that stays on, a home server, or a cloud VM. Bots only work while the server is running, so a laptop that sleeps pauses your bots too. Use an always-on machine if you want routines to run overnight or while you're away.
 
 ## The bot computer
 
-Bots work inside a shared Linux environment with a browser, terminal, and filesystem. Each bot has its own screen and browser profile. Files under `/workspace` are shared, so two bots can work on the same project.
+Bots work in a Linux environment on the server, with a browser, a terminal, and a filesystem. Each bot has its own screen, so several bots can use their browsers at once. They share the `/workspace` folder and website sign-ins, so one bot can pick up another's files and you only sign in to a site once.
 
-This environment is separate from your laptop's desktop and home folder. Access to your physical computer uses the desktop app and its permissions. See [computer and browser](../usage/computer.md).
+This environment is separate from your own computer. Bots can't see your desktop or home folder unless you connect them through the desktop app. See [computer and browser](../usage/computer.md).
 
-## What Docker does
+## What Docker runs
 
-Docker runs OpenTeam's services in containers. A container is a packaged environment for a service; you do not need to install its dependencies manually.
+OpenTeam runs as a set of Docker containers, so you don't need to install its dependencies yourself.
 
-| Service | Why it is there |
+| Container | What it does |
 | --- | --- |
-| Server | Handles sign-in, chat, settings, and app connections |
+| Server | Sign-in, chat, settings, and app connections |
 | Worker | Runs queued tasks and routines |
-| Computer | Provides the Linux environment and model runtime |
-| PostgreSQL | Stores application data |
+| Computer | The bots' Linux environment |
+| PostgreSQL | The database |
 
-Setup starts these together using Docker Compose. Public HTTPS mode also starts a small proxy to manage the certificate. Short-lived setup containers may show **Exited (0)** after installation; that means their initialization work finished successfully.
+If you choose public HTTPS during setup, a small proxy also runs to manage the certificate.
 
 ## What needs to stay running
 
-Keep the host and Docker running for bots and routines. The desktop app also needs to stay open and connected when a task needs delegated workers or physical-computer access.
+- **The host and Docker** must stay on for bots to work and routines to run.
+- **The desktop app** only needs to stay open while a bot uses something on [your own computer](../usage/computer.md#use-your-own-computer), such as local files or saved logins. Everything else runs on the server, so you can close the app and check back later.
 
-Closing a client does not delete your conversations. Restarting the containers preserves stored data, but deleting their volumes removes it. Use [backups](../manage/backups.md) before moving to another machine or Docker installation.
+Closing an app doesn't delete anything, and restarting the server keeps all your data. To move to a new machine, [back up](../manage/backups.md) first.

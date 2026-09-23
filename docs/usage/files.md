@@ -1,28 +1,28 @@
 # Files and results
 
-Give bots the source material they need and ask for a result you can open, check, and use.
+Give bots files to work from, and get back files you can open and use.
 
 ## Attach a file
 
-Use the attachment control in the composer to select a file or image. On mobile, you can also use the photo and camera options. Wait for the attachment to be ready, then send it with your request.
+Use the attachment button in the message box to add files or images. On iPhone, you can also take a photo or choose one from your library. Wait for the upload to finish, then send your request.
 
-Tell the bot which file to use and what to produce:
+Say which file to use and what you want back:
 
-> Use the attached CSV to summarize monthly spending by category. Attach the summary and a CSV of any rows you could not categorize.
+> Use the attached CSV to summarize monthly spending by category. Attach the summary and a CSV of any rows you couldn't categorize.
 
-For scanned documents or unfamiliar formats, ask the bot to confirm what it could read before relying on the analysis.
+For scanned documents or unusual formats, ask the bot to confirm what it could read before you rely on its analysis.
 
-## Ask for a finished artifact
+## Get a file back
 
-Specify a format such as Markdown, CSV, or a document file, and ask the bot to attach the result in chat. A path mentioned in a message is not the same as a downloadable attachment.
+Ask for a specific format, such as Markdown or CSV, and ask the bot to attach it in the chat. A file path in a message isn't the same as an attachment you can open.
 
-Supported file types can be previewed in the app. Use the download action to save an attachment locally. If a preview is unavailable, download the original and open it in the appropriate application.
+Select an attachment to preview it, or download it to open it in another app.
 
 ## The shared workspace
 
-Bots use `/workspace` on their Linux computer. Files there persist across tasks and ordinary restarts, and are visible to other bots.
+Each bot works in a Linux environment with a `/workspace` folder. Files there stay between tasks and restarts, and every bot can read and write them. That makes the workspace the place for bots to share work in progress.
 
-Use a folder for each project and clear filenames:
+Keep one folder per project, with clear filenames:
 
 ```text
 /workspace/launch/
@@ -31,10 +31,10 @@ Use a folder for each project and clear filenames:
   final-brief.md
 ```
 
-That path is on the bot computer. It does not automatically refer to a folder on your laptop. Attach local files, use a connected service, or approve a transfer through the [local computer connection](computer.md#use-your-own-computer).
+`/workspace` is on your server, not on your own computer. To give a bot a file from your computer, attach it, share it through a connected service such as Google Drive, or use the [local computer connection](computer.md#use-your-own-computer).
 
-## Review and retain your work
+## Keep what matters
 
-Ask for sources, assumptions, and checks alongside important results. Keep the original file when requesting transformations so you can compare it with the output.
+Download important results, or include the workspace in your [server backups](../manage/backups.md). Restarting or updating the server keeps workspace files.
 
-Download important deliverables or include the workspace and attachments in your [server backups](../manage/backups.md). Updating the app or restarting a container is different from deleting the server's data volumes.
+When you ask a bot to transform a file, ask it to keep the original so you can compare the two.

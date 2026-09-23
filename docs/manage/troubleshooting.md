@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Start with the part that is failing: installation, app connection, a bot task, or a connected service.
+Find the part that isn't working (installation, the app connection, a bot, or a plugin) and start there.
 
 ## Run diagnostics
 
@@ -11,57 +11,70 @@ openteam status
 openteam doctor
 ```
 
-Status checks service health. Doctor gives recovery steps and tests the saved model with a small request, which uses normal provider usage.
+`status` shows whether each service is running. `doctor` runs deeper checks and tells you how to fix each problem it finds. It also sends a short test request to your model provider.
 
-For more detail:
+To see what the server is doing:
 
 ```sh
-openteam logs --service server --follow
+openteam logs server --follow
 ```
 
-## Docker or installation fails
+## Installation fails
 
-- **Docker is installed but unreachable:** run `docker info`. Start Docker Desktop or Docker Engine, then check `docker context show` points to the intended engine.
-- **A port is already allocated:** another service or OpenTeam installation may be using `8787` or `6200–6299`. Stop the conflicting stack or choose a different API port with advanced setup.
-- **Initialization containers show Exited:** an exit code of `0` is expected for completed setup jobs. The server, worker, computer, and database should stay running.
-- **The CLI is not found:** reopen the terminal or add the install directory to PATH. See [installation](../getting-started/installation.md#install).
+- **Docker isn't running:** run `docker info`. If it fails, start Docker Desktop or Docker Engine. If you have more than one Docker setup, run `docker context show` to check which one you're using.
+- **A port is already in use:** another program, or another OpenTeam installation, is using port `8787` or `6200–6299`. Stop it, or choose a different **API port** with `openteam setup --advanced`. The screen ports `6200–6299` can't be changed, so free them instead.
+- **Some containers show "Exited (0)":** that's normal. Setup containers exit once they finish. The `server`, `worker`, `computer`, and `postgres` containers should stay running.
+- **`openteam` isn't found:** open a new terminal, or add the install location to your `PATH`. See [installation](../getting-started/installation.md#install).
 
-## The app cannot connect
+## The app can't connect
 
-Run `openteam status` and use its server URL. On another device, replace a loopback URL with the server's reachable LAN, VPN, or HTTPS address.
+1. Run `openteam status` on the server and use the server URL it shows.
+2. On another device, don't use a `localhost` or `127.0.0.1` address. Use the server's network, VPN, or HTTPS address.
+3. Check that both devices are on the same network or VPN.
+4. For a public HTTPS address, check that your domain points at the server and ports 80 and 443 are open.
+5. If you run your own proxy, check that it forwards WebSocket traffic.
 
-Check that both devices are on the expected network. Public HTTPS also needs correct DNS and accessible ports 80 and 443. An existing proxy must forward WebSocket traffic. See [remote access](../configuration/remote-access.md).
+See [remote access](../configuration/remote-access.md).
 
-## Desktop sign-in reports a secure storage error
+## Desktop sign-in shows a secure storage error
 
-The desktop encrypts saved sessions with the operating system's secure storage. If access stalls, the app returns an error and keeps the sign-in form usable. Existing encrypted session data is preserved when storage access fails.
+The desktop app stores your sign-in in your system's secure storage.
 
-On macOS, check for a Keychain access prompt on the computer running OpenTeam, complete it directly, then retry sign-in. A valid server password does not authorize access to the Mac's Keychain. If no prompt appears, check Keychain Access in that Mac's logged-in desktop session. Do not reset the Keychain or delete saved credentials to work around this error.
+- **macOS:** look for a Keychain prompt and allow it. If none appears, open Keychain Access and make sure your login keychain is unlocked.
+- **Linux:** make sure a system keyring, such as GNOME Keyring or KWallet, is installed and unlocked.
 
-Desktop sign-in always saves the session in OS-backed encrypted storage. If that storage is unavailable, sign-in reports an error and preserves any existing saved session; it never silently switches to a temporary session. On Linux, enable or unlock a supported system credential store before signing in.
+Then sign in again. Don't reset your keychain or delete saved credentials to get around the error.
 
-Locally packaged, ad-hoc signed builds can prompt again after a rebuild because their signing identity changes. Distributed builds should use the same Developer ID signing identity across updates; see [building from source](../development/from-source.md#package-the-macos-desktop).
+## A bot doesn't respond
 
-## A bot does not respond
+1. Scroll the conversation for a question or approval request that's waiting for you.
+2. Run `openteam doctor` to check your model provider. Sign-ins can expire and accounts can run out of quota. To reconnect, see [model providers](../configuration/models.md#check-the-connection).
+3. If the bot is working on your own computer, make sure the desktop app is open and connected.
 
-Check that a model provider is connected, then run `openteam model list` and `openteam doctor`. A saved sign-in can expire or lack quota.
+## The screen doesn't load
 
-Look for a pending question or approval in the conversation. If the task needs delegation or your physical computer, keep the OpenTeam desktop app open and connected.
+- Run `openteam status` and check that the `computer` service is healthy.
+- If the preview says **Computer setup needs attention**, choose **Retry setup**.
+- If you run your own proxy, check that it forwards WebSocket traffic.
 
-## Chat works but the screen does not
+For work on your own computer, check **Settings → Computer** in the desktop app and your system's permissions for OpenTeam.
 
-Check the computer service and screen access for your connection mode. On a private network, the viewer ports must be reachable as well as the API port. For local-computer work, check **Settings → Computer** and the relevant operating-system permissions.
+## A plugin is connected but tasks fail
 
-## A plugin connects but a task fails
+1. In **Marketplace → Manage → Accounts and settings**, use **Test a tool** to check that the connection works.
+2. Check that the bot has access under **Bot access**, and that the tool's policy isn't **Deny**.
+3. Check the account's permissions and quota on the service's side.
 
-Check the selected account, the bot's grant, and the requested tool's policy. Then run a small read under **Test a tool**. Provider permissions, workspace access, or quota can block a call even when the account shows Connected.
+For sign-in and callback errors, see [connecting accounts](../integrations/accounts.md#troubleshooting).
 
-For OAuth callback and account errors, see [connecting accounts](../integrations/accounts.md#troubleshooting).
+## A routine didn't run
+
+Check that the routine is **Active**, and open its **Run history**. The server must be running at the scheduled time. See [routines](../usage/routines.md#when-a-routine-fails).
 
 ## The result is wrong or incomplete
 
-Point out the specific error, provide the missing source, and ask the bot to revise its existing work. For current facts, ask it to verify the source again. For repeated mistakes, review saved [memory](../usage/memory.md) and [skills](../usage/skills.md).
+Say exactly what's wrong, give the bot any missing source, and ask it to revise its existing work. For facts that change, ask it to check the source again. If the same mistake keeps coming back, ask the bot what it remembers about the topic and correct its [memory](../usage/memory.md) or [skill](../usage/skills.md).
 
 ## Get help
 
-If the problem persists, [open an issue](https://github.com/raghavpillai/openteam/issues) with the app and server versions, operating system, the steps that reproduce it, and the relevant error. Remove credentials, session URLs, and private conversation content from logs or screenshots before sharing them.
+If you're still stuck, [open an issue](https://github.com/raghavpillai/openteam/issues). Include your app version, your server version (shown by `openteam status`), your operating system, the steps that cause the problem, and the error. Remove passwords, tokens, and private conversation content from logs and screenshots first.

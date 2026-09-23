@@ -1,39 +1,50 @@
 # Routines
 
-A routine gives a bot or group a saved task to run on a schedule or when a configured event arrives.
+A routine is a task that a bot or group runs on a schedule, such as a morning briefing or a weekly report. Routines can also run when something happens in another service.
 
 ## Start with a task that works
 
-Try the task in chat first. Connect the needed accounts and review the result before asking it to run repeatedly.
-
-For example:
-
-> Every Monday at 9 AM in America/New_York, review the issues assigned to me. Summarize new blockers and upcoming deadlines, with links, in this conversation.
-
-Include the expected result and any limits, such as preparing drafts without sending messages.
+Run the task in chat first. Connect any accounts it needs and check the result. Once you're happy with it, turn it into a routine.
 
 ## Create a routine
 
-Open the bot or group's routines, choose a new routine, and enter its instructions and schedule. You can also ask a bot to create one. Desktop and mobile both provide routine controls.
+Ask the bot in chat:
 
-Save it, check the time zone, and use **Run now** to test the saved task. Review the execution history to see whether it completed or needs attention.
+> Every Monday at 9 AM, review the issues assigned to me. Summarize new blockers and upcoming deadlines, with links, in this conversation.
+
+Say what the result should be and any limits, such as "prepare drafts, but don't send anything."
+
+The bot sets up the routine and may ask you to confirm it. To see it, choose the computer button at the top right of the conversation (for a group, select its name), and look under **Routines**.
+
+## Edit a routine
+
+Open a routine to change its instructions or schedule.
+
+- **Test run** runs it once now, so you can check the result.
+- **Active** turns the routine on or off. Turning it off keeps the routine but stops it from running.
+- **Run history** shows each past run and whether it succeeded.
+
+Hiding a bot from the sidebar doesn't stop its routines. Turn off **Active** instead.
 
 ## Schedules
 
-Routines support schedule presets, intervals, and cron expressions. A routine can have up to eight schedules. The saved time zone determines when it runs; the installation time zone is the fallback.
+A routine can have up to eight schedules. Choose **Add trigger → On a schedule**, then pick a preset such as **Every hour**, **Weekdays**, or **Every week**, or set an **Interval**. To enter a cron expression, change the schedule's frequency to **Custom**. Routines can run at most once every five minutes.
 
-Pause a routine with its enabled switch to stop future scheduled runs while keeping its instructions. Edit the routine when the task changes. Hiding its conversation does not pause it.
+Schedules you set in the app use your computer's time zone. When you ask a bot to create a routine, mention the time zone if it matters.
 
-The host and Docker must stay running. Keep the desktop app connected when the task needs delegated workers or physical-computer access.
+Routines run on the server, so the server must be on at the scheduled time. They don't need the app to be open, unless the routine works on your own computer.
 
-## Event triggers
+## Run a routine when something happens
 
-External events need a configured subscription in **Settings → Server → Automation event subscriptions** and a public HTTPS callback address.
+Routines can also start when an event arrives from GitHub, Slack, Linear, Sentry, PagerDuty, Microsoft Teams, or any service that sends signed webhooks. For example, a bot could triage each new GitHub issue as it's opened.
 
-Configure the provider account and subscription, then attach the bot or group's listener. Supported providers include GitHub, Slack, Linear, Sentry, PagerDuty, Teams, and generic signed webhooks. Setup can create or update a remote webhook.
+This is an advanced setup. You need:
 
-This is optional: scheduled routines do not require event subscriptions. Provider-specific operator details are in the [event subscription reference](../reference/automation-event-subscriptions.md).
+- A public HTTPS address for your server, so the service can reach it. See [remote access](../configuration/remote-access.md).
+- Credentials from the service that let OpenTeam register a webhook, such as a management token and a signing secret.
 
-## When a routine needs attention
+Add the subscription in **Settings → Server → Automation event subscriptions**, then ask the bot to create a routine that runs on those events. For what each service needs, see the [event subscription reference](../reference/automation-event-subscriptions.md).
 
-Check its enabled state, schedule, time zone, and run history. Then check model access, plugin accounts, and pending approvals. Repeatedly retrying a failed run will not repair a disconnected account. See [troubleshooting](../manage/troubleshooting.md).
+## When a routine fails
+
+Open its **Run history** to see what went wrong. Common causes are a disconnected plugin account, an expired model sign-in, or an approval waiting in the conversation. Fix the cause, then use **Test run** to check. See [troubleshooting](../manage/troubleshooting.md).

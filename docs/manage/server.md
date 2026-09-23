@@ -1,34 +1,37 @@
 # Server commands
 
-Run these commands on the machine that hosts OpenTeam. They manage the server installation; they do not require the desktop app to be open.
+Manage your server with the `openteam` command on the host. The desktop app doesn't need to be open.
 
-## Manage the stack
+## Common commands
 
-| Command | Use it to |
+| Command | What it does |
 | --- | --- |
-| `openteam status` | Check the installed version, server address, and service health |
-| `openteam doctor` | Diagnose setup, connection, storage, and model-access problems |
-| `openteam start` | Start the server and wait for it to become ready |
-| `openteam stop` | Stop the containers while keeping data |
-| `openteam logs --follow` | Follow service logs |
-| `openteam setup` | Reconnect or change the model provider |
-| `openteam setup --advanced` | Change network and installation settings |
-| `openteam model` | Open the model and transcription editor |
-| `openteam update` | Update the CLI and server |
+| `openteam status` | Shows the server URL, version, and health of each service |
+| `openteam doctor` | Checks for setup, connection, storage, and model problems |
+| `openteam start` | Starts the server and waits until it's ready |
+| `openteam stop` | Stops the server. Your data is kept. |
+| `openteam logs --follow` | Streams logs from all services |
+| `openteam setup` | Reruns guided setup, for example to change your model provider |
+| `openteam setup --advanced` | Changes connection, port, time zone, and tasks at once |
+| `openteam model` | Chooses the model, reasoning level, and voice transcription |
+| `openteam provider` | Signs in to, signs out of, or adds model providers |
+| `openteam account update` | Changes your username or password |
+| `openteam update` | Updates the server and the CLI |
+| `openteam uninstall` | Removes the server containers |
 
-Add `--dir /path/to/installation` when using a nondefault installation. Use `openteam <command> --help` for its options.
+Run `openteam <command> --help` for options. If you installed to a different directory, add `--dir <path>`.
 
-## Check a problem
+## Diagnose a problem
 
-Start with `openteam status`. If a service is unhealthy or a task cannot run, use `openteam doctor` for more detail.
+Start with `openteam status`. If a service isn't healthy or bots aren't responding, run `openteam doctor`. It explains each failed check and what to do. Doctor sends one short request to your model provider, which counts toward your usage. It doesn't start or change anything.
 
-Doctor sends a small request to the selected model provider and uses normal provider usage. It diagnoses problems without automatically starting a stopped server or changing its settings.
-
-For a focused log view:
+To see logs for one service:
 
 ```sh
-openteam logs --service server --follow --tail 200
+openteam logs server --follow
 ```
+
+The services are `server`, `worker`, `computer`, and `postgres`.
 
 ## Change your account
 
@@ -36,7 +39,7 @@ openteam logs --service server --follow --tail 200
 openteam account update
 ```
 
-This prompts for new credentials and signs out existing sessions. Use `--username <name>` or `--password` to change only one value.
+This asks for a new username and password, and signs out every connected app. To change only one, add `--username <name>` or `--password`.
 
 ## Uninstall
 
@@ -44,6 +47,12 @@ This prompts for new credentials and signs out existing sessions. Use `--usernam
 openteam uninstall
 ```
 
-A normal uninstall removes containers but keeps configuration and persistent data. `openteam start` can recreate that installation.
+This removes the containers but keeps your data and configuration. Run `openteam start` to bring the server back.
 
-`openteam uninstall --purge` also permanently deletes the installation's data and backups. Make a separate [backup](backups.md) first if you want a way to recover it.
+To delete everything, including your bots, conversations, files, and update backups:
+
+```sh
+openteam uninstall --purge
+```
+
+This can't be undone. Make a [backup](backups.md) first if you might want your data back. Neither command removes the `openteam` CLI itself.

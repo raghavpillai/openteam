@@ -1,47 +1,51 @@
 # FAQ
 
-Answers to common questions about running OpenTeam and working with bots.
+Quick answers to common questions about OpenTeam.
+
+## Do I have to host it myself?
+
+Yes. OpenTeam runs on a machine you control, such as your own computer, a home server, or a cloud VM. The [quickstart](../getting-started/quickstart.md) walks you through it.
 
 ## Does it keep working when I close the app?
 
-Server-side work and schedules can continue while the server host and Docker stay running. Delegated workers and access to your physical computer also need the OpenTeam desktop app open and connected. If the host itself sleeps or shuts down, its server stops working.
+Yes. Bots and routines run on the server, so you can close the app and check back later. The server itself has to stay on. The one exception is work on [your own computer](../usage/computer.md#use-your-own-computer), which needs the desktop app open.
 
-## Do I need to host it myself?
+## What does it cost?
 
-Yes. Install the server on a machine you control, then connect the apps. It can be your everyday computer or a separate host. The [quickstart](../getting-started/quickstart.md) covers the default setup.
+OpenTeam is open source. You pay for the machine it runs on and for the services you connect, such as your model provider, web search, and transcription. Routines and `openteam doctor` also use your model provider.
 
-## Can several bots work at once?
+## Can several bots work at the same time?
 
-Yes. Different bots can work concurrently, subject to server capacity and model-provider limits. Each bot processes its own turns in order. Bots have separate screens and browser profiles but share workspace files.
+Yes. Different bots can work in parallel, up to the server's **tasks at once** setting. See [server settings](../configuration/server.md#change-setup-options). Each bot handles its own messages one at a time.
 
-## Is a bot using my laptop's desktop?
+## Can different bots use different models?
 
-Its default computer is a Linux environment on the server. Access to your physical computer is a separate capability provided by the desktop app and its permissions. See [computer and browser](../usage/computer.md).
+Not currently. All bots use the model selected in **Settings → Server**. See [model providers](../configuration/models.md#choose-a-model).
 
-## Is all my data local?
+## Is a bot using my computer's desktop?
 
-Your installation stores the application data, but the selected model provider receives task context and connected services receive tool requests. Local model endpoints are supported when compatible; other connected tools may still use external services.
+No. Bots work on their own Linux computer on your server. They can only work on your own computer if you allow it in the desktop app, and even then they can't see or control your screen. See [computer and browser](../usage/computer.md).
 
-## Does one model sign-in connect all my apps?
+## Is my data private?
 
-No. Model access, web-search credentials, voice transcription, and plugin accounts are configured separately. Installing a plugin also does not automatically grant every bot access to its accounts.
+Your conversations, files, and memory are stored on your server. Your model provider sees what bots send it to do their work, and connected services see the requests bots make to them. To keep model requests on your own hardware too, connect a [local model server](../configuration/models.md#use-your-own-model-server).
 
-## Can I use different models for different bots?
+## Does signing in to ChatGPT or Claude connect my other accounts?
 
-The current model and reasoning selection is shared by bots on the server. Change it in **Settings → Server** or with `openteam model`. New turns use the new selection.
+No. Your model provider, web search, voice transcription, and each plugin are set up separately. Connecting a plugin also doesn't give every bot access; you choose which bots can use it.
 
-## Can other people have accounts on my server?
+## Can other people use my server?
 
-The current installation has one owner account. Desktop and mobile clients sign in with that account. Group chats bring bots together; they are not a multi-user account system.
+Each server has one account. You can sign in with it from all your devices, but there's no way to add other people yet. Group chats bring bots together, not people.
 
 ## Do I need a plugin for every website?
 
-No. A bot can also work through its browser. Plugins provide structured access to supported services; browser tasks may need you to sign in or complete a verification step.
+No. Bots can use any website in their browser. Plugins give them faster, more reliable access to supported services. For sites that need a sign-in, [sign the bot in](../usage/computer.md#sign-in-to-websites) once.
 
-## What does it cost to run?
+## Is there an iPhone or Android app?
 
-You provide the host and model access. Model calls, search, transcription, and connected services follow the terms and usage limits of the accounts you configure. Routines and diagnostics that call a model can also consume provider usage.
+There's an iPhone app you can build from source; it isn't in the App Store yet. There's no Android app. See [desktop and mobile](../getting-started/apps.md).
 
-## Are updates a backup?
+## Do updates back up my data?
 
-No. The updater saves a database backup for rollback, but a full recovery also needs the other volumes and installation configuration. See [backups and restore](backups.md).
+Only partly. `openteam update` backs up the database so it can roll back a failed update. It doesn't back up files, sign-ins, or attachments. See [backups and restore](backups.md).

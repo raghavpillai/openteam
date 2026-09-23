@@ -74,6 +74,12 @@ OPENTEAM_TEST_DATABASE_URL=postgresql://localhost/openteam_test \
 For more validation guidance, see [health checks](../reference/health-checks.md),
 [performance checks](../../scripts/performance/README.md).
 
+## Package the macOS desktop
+
+From `apps/desktop`, `bun run package:mac-local` creates an ad-hoc signed build for local testing. A rebuild can change the identity macOS uses for Keychain access, so another system approval may be required.
+
+For distribution, use `bun run package:mac-release` with a valid Developer ID Application identity selected by `CSC_NAME` and the notarization credentials required by `scripts/macos-release-utils.ts`. Keep the signing identity consistent across releases. This release path enables hardened runtime, notarization, and signature checks. Do not change Keychain access controls to avoid approval for a differently signed build.
+
 ## Releases
 
 Releases are built from `v*` tags. The [release guide](../../.github/RELEASING.md) covers versioning,

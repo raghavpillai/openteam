@@ -1,33 +1,48 @@
 # Updates
 
-Update the desktop app and server from **Settings → Updates**, or use the CLI on the server host.
+Update the server and the `openteam` CLI with one command. The desktop app updates separately.
 
-## Update the server and CLI
+## Update the server
+
+On the server host, run:
 
 ```sh
 openteam update
 ```
 
-Keep at least 4 GB of disk space free. The updater verifies the release, downloads its images, saves a database backup, and restarts the services. Expect a short interruption while the server switches versions.
+The updater:
 
-The standalone CLI updates itself as part of this process. If an early CLI does not support self-update, run the installer once to replace it, then use `openteam update` for subsequent releases.
+1. Downloads the new version and checks its signature.
+2. Backs up the database.
+3. Restarts the server on the new version.
+4. Updates the `openteam` CLI once the new server is healthy.
+
+Bots pause briefly while the server restarts. You need at least 4 GB of free disk space. Closing the terminal doesn't stop an update; run `openteam update` again to check on it.
+
+If the new version doesn't start, the updater rolls back to the previous version and restores the database. That backup covers the database only, not workspace files, browser sign-ins, or attachments. Keep your own [backups](backups.md).
 
 ## Update from the desktop app
 
-Open **Settings → Updates**. For a local installation, the app can run its bundled CLI. For a remote server, configure an SSH destination if you want the app to run the update there.
+Open **Settings → Updates** to update the desktop app. It can also update the server when the app connects to it through a `localhost` address on the same computer.
 
-Remote updates require working SSH access with an existing host-key entry and an SSH agent. If that is not set up, run the displayed update command directly on the server.
+For a server on another machine, you can give the app an SSH destination so it can run the update for you. This needs SSH key sign-in that works without a password prompt, such as through an SSH agent. The host must already be in your `known_hosts` file, and `openteam` must be on the `PATH` for non-interactive SSH sessions. Otherwise, run `openteam update` on the server yourself.
 
-Desktop app updates are separate from server updates. Check both entries, especially if the app reports a version incompatibility.
+The desktop app and the server have separate versions. If the app reports that it's incompatible with the server, update both.
 
 ## After updating
 
-Run `openteam status`, reconnect the app, and open a bot conversation. Confirm that its history and files are available before sending new work.
+Run `openteam status`, then open the app and check that a bot's conversation and files are still there.
 
-If the new server fails readiness checks, the updater attempts to restore the previous release and its database backup. That rollback backup is not a full copy of workspace files, browser profiles, or attachments. Keep your own [complete backups](backups.md).
+## Install a specific version
+
+```sh
+openteam update --version <version>
+```
+
+Downgrading, installing a prerelease, or reinstalling the current version need an extra flag. See `openteam update --help`.
 
 ## If an update fails
 
-Read the reported failure before retrying. Common causes include low disk space, an unavailable image download, or a service that could not start. Use `openteam doctor` for the underlying problem.
+Read the error first. The usual causes are low disk space, a failed download, or a service that didn't start. Run `openteam doctor` to find the problem, fix it, and run the update again.
 
-To select a particular release, use `openteam update --version <version>`. Downgrades, prereleases, and reapplying the same release require explicit options; see `openteam update --help` before using them.
+If `openteam --version` still shows the old version after an update, run the [installer](../getting-started/installation.md#install) again to replace the CLI.

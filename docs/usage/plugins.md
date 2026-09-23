@@ -1,57 +1,71 @@
 # Plugins
 
-Plugins connect bots to services such as GitHub, Gmail, Slack, and Notion. They can also add reusable skills or connect your own MCP server.
+Plugins connect your bots to services such as Gmail, GitHub, Slack, and Notion. Some also add skills for working with that service. You can connect your own tools through MCP as well.
 
-## Install and connect
+## Available plugins
 
-1. Open **Plugins** and find the package in the marketplace.
-2. Choose **Add**, then open its account setup.
-3. Follow the package's instructions. Some services use browser sign-in; others need an API token or a registered OAuth application.
-4. Choose **Save and authorize** or **Save and connect**.
-5. Check the account and run a small read with **Test a tool**.
-6. Grant the account to the bots that should use it. Enable any included skills separately.
+| Plugin | What bots can do |
+| --- | --- |
+| GitHub | Search repositories, read code, and manage issues and pull requests |
+| Gmail | Search, read, organize, and draft email |
+| Google Calendar | Find events, check availability, and schedule meetings |
+| Google Drive | Find, read, and create files |
+| OneDrive | Find files and move them to and from the workspace |
+| Slack | Search channels, read threads, send messages, and work with canvases |
+| Linear | Find, create, and update issues, projects, and comments |
+| Notion | Work with pages for documents, research, meetings, and tasks |
+| Granola | Use meeting notes, decisions, and action items |
+| 1Password | Manage Developer Environments and `.env` files |
 
-Try a small task in chat after connecting. For example, ask the bot to list the repositories or notes you expect it to access.
+Each plugin signs in differently. Some only need a browser sign-in, while others need a token or an app you register with the service. See [connecting accounts](../integrations/accounts.md).
 
-**Added** means the package is installed. **Provider setup required** means required credentials or configuration are missing. **Ready to authorize** means those fields are saved, and **Authorization pending** means browser sign-in has started. A connection error requires validation or retry. **Connected** or **Ready** means the account connected and its tools were discovered. Neither means every bot has access or every provider operation is permitted.
+## Add a plugin
 
-## Multiple accounts
+1. Open **Marketplace** and choose **Add** on the plugin. The plugin's page opens.
+2. Under **Accounts**, follow the setup steps. Depending on the plugin, you sign in through your browser, paste a token, or enter the details of an app you registered with the service. See [connecting accounts](../integrations/accounts.md) for what each plugin needs.
+3. Under **Bot access**, turn on the account for each bot that should use it.
 
-Use **Add Another Account** or **Add account** to connect a second identity. Give it a name such as Work or Personal, authorize it separately, and check its bot grants.
+Then try it in chat:
 
-Each account has separate authorization and Bot grants. Server callbacks share one stable deployment URL; adding another account does not require another callback registration. Connecting Gmail does not also connect Calendar or Drive.
+> List my five most recently updated GitHub repositories.
 
-## Self-hosted Google sign-in on desktop and iOS
+Adding a plugin doesn't give every bot access. Each bot only sees the accounts you turn on for it. To check which account is connected, [test a tool](../integrations/accounts.md#check-the-connected-account).
 
-Keep **Sign-in callback → Automatic**. With HTTPS, either app opens its local browser and authorization returns to your OpenTeam server. Tailscale Serve is the preferred private HTTPS setup; a custom HTTPS domain works through the same flow. Configure a Google **Web application** OAuth client with the callback shown in account settings.
+## Connect more than one account
 
-If the server address is HTTP, compatible providers use **Paste callback URL**. For Google, configure a **Desktop app** OAuth client, approve in your browser, and paste the complete returned localhost address into the app's dedicated authorization form. The failed localhost page is expected. The backend checks the session, state, redirect, and expiration. This flow is implemented on desktop and iOS; Google's real iPhone consent/copy experience still needs device acceptance testing.
+To connect a second account, such as a work and a personal Gmail, choose **Add Another Account** under **Accounts** on the plugin's page. Give it a clear name, sign in, and choose which bots can use it.
 
-Tokens stay on your server, which refreshes them independently of either app. No OpenTeam-operated callback service is required. Explicit **Desktop listener (advanced)** settings are preserved and still need the desktop app. See [Google setup](../integrations/google.md) for registration and migration details.
+Gmail, Google Calendar, and Google Drive are separate plugins. Connecting one doesn't connect the others.
 
-Google applications with an External consent screen in **Testing** normally receive seven-day refresh tokens for Calendar/Gmail scopes. For durable personal use, review the project’s publishing status and Google’s requirements; storing a token successfully cannot override provider expiry or revocation. See [Google’s token expiration rules](https://developers.google.com/identity/protocols/oauth2#expiration).
+## Control what bots can do
 
-## Bot access and tool approvals
+Two settings on the plugin's page work together:
 
-Choose account grants under **Bot access and plugin details**. Tool policies control which actions need review; see [approvals and privacy](../configuration/approvals.md#set-plugin-access) for **Allow**, **Ask first**, and **Deny**.
+- **Bot access** decides which bots can use each account.
+- **Tool policies** decide what happens when any bot uses a tool: **Allow**, **Ask first**, or **Deny**.
 
-If a connected tool is missing, check the bot's grant, the tool's enabled state, and workspace restrictions.
+Use **Ask first** for tools that send, post, or delete. To hide a tool from bots entirely, turn it off under **Manage → Accounts and settings**. See [approvals and privacy](../configuration/approvals.md).
 
-## Updates, disconnection, and removal
+## Manage a plugin
 
-- **Restart / refresh tools** reconnects and refreshes available tools.
-- **Reauthorize** repeats browser sign-in for the selected account.
-- **Disconnect** stops the connection while retaining saved credentials for reconnection.
-- **Remove account** deletes that account's saved connection and access settings.
-- **Apply reviewed update** updates the package after you review its changes.
-- **Uninstall** removes the package and its accounts from OpenTeam.
+Open **Marketplace → Manage → Accounts and settings** and choose the plugin and account.
 
-Revoking access in the provider's own settings is a separate action.
+| Action | What it does |
+| --- | --- |
+| **Restart / refresh tools** | Reconnects and reloads the plugin's tools |
+| **Reauthorize** | Signs in again, for example after a sign-in expires |
+| **Disconnect** | Stops the connection but keeps its settings |
+| **Remove account** | Deletes the account and its bot access |
+| **Apply reviewed update** | Installs a new version after you review the changes |
+| **Uninstall** | Removes the plugin and all its accounts |
 
-## Custom servers, sources, and private skills
+Removing an account in OpenTeam doesn't revoke access on the service's side. To do that, remove OpenTeam from the service's security or connected apps settings.
 
-Use **Add custom MCP** for an HTTP MCP endpoint. The OpenTeam server must be able to reach it. Use **Develop** for a reusable package or a command-based connector that runs on the bot computer.
+## Add your own tools
 
-Use **Sources** to add a plugin catalog, or **Private skills** to create your own instructions. See [skills](skills.md) and the contributor guide to [building a plugin](../development/plugins.md).
+From **Marketplace**, open **Manage**:
 
-For provider-specific setup, start with [connecting accounts](../integrations/accounts.md).
+- **Add custom MCP** connects an MCP server over HTTP, or runs one as a command on the bots' computer.
+- **Private skills** lets you write your own [skills](skills.md).
+- **Plugin sources** adds catalogs of plugins from other sources.
+- **Develop plugins** lets you build and package your own. See [build a plugin](../development/plugins.md).

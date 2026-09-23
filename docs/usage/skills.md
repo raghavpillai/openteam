@@ -1,33 +1,46 @@
 # Skills
 
-A skill is a reusable set of instructions for a task. Use one when you want a bot to follow the same method or produce the same kind of result each time.
+A skill is a saved set of instructions for a task you repeat. Bots use it to follow the same method and produce the same kind of result every time.
 
 ## When to use a skill
 
-Use chat for a one-off request, memory for a lasting fact or preference, and a skill for a repeatable procedure. A routine determines when work runs; it can use a skill as part of the work.
+| To... | Use |
+| --- | --- |
+| Ask for something once | A chat message |
+| Keep a fact or preference | [Memory](memory.md) |
+| Repeat a method | A skill |
+| Run work on a schedule | A [routine](routines.md), which can use a skill |
 
-For example, a release-notes skill can define the source material, categories, writing style, and review steps for every release.
+For example, a release-notes skill can define where to find changes, how to group them, the writing style, and what to check before finishing.
 
-## Create a private skill
+## Create a skill
 
-Open **Plugins → Manage → Private skills**. Create instructions or import a `SKILL.md` file, add any supporting files, and choose the bots that may use it.
+1. Open **Marketplace**, then choose **Manage → Private skills**.
+2. Choose **Create skill**, or **Import SKILL.md** to load an existing skill file.
+3. Fill in:
+   - **Skill name**
+   - **When to use it**: a sentence that helps bots recognize when the skill applies
+   - **Instructions**: the method itself
+   - **Supporting files** (optional): templates, examples, or reference text
+4. Under **Available to Bots**, choose which bots can use it.
+5. Choose **Save skill**.
 
-A useful instruction might be:
+Good instructions are specific about inputs, steps, and the finished result:
 
 > When preparing release notes, use only the supplied changes. Group them into Added, Changed, and Fixed. Explain the user-visible effect of each change, link the source, and flag anything that needs confirmation.
 
-Include an example of a good result if format matters. Keep credentials in the account setup form, not in skill text or supporting files.
+If the format matters, include an example of a good result as a supporting file. Don't put passwords or API keys in a skill; connect accounts through [plugins](plugins.md) instead.
 
-## Use skills from a plugin
+You can also ask a bot to save a method it just used as a skill:
 
-Some plugins include skills alongside their tools. Enable the skills for the intended bot, and grant the bot any connected account they require.
+> Save how you prepared these release notes as a skill, so you can do it the same way next time.
 
-A skill does not grant account access by itself. For example, a meeting-preparation skill still needs access to its calendar or notes source.
+## Skills from plugins
 
-## Test and improve it
+Some plugins come with skills, such as instructions for working with that service. To turn them on for a bot, open the plugin's page and, under **Bot access**, turn on **Instructions and hooks** for that bot. To use the plugin's tools, the bot also needs access to its account.
 
-Ask the bot to use the skill on a small task. Check the result, clarify any missed step, and update the instructions. Test again after changing the workflow or its connected tools.
+## Test and improve a skill
 
-Once the process is reliable, ask for it in another conversation or use it in a [routine](routines.md).
+Ask a bot to use the skill on a small task and check the result. If it missed a step, update the instructions and try again. Once it works reliably, use it in other conversations or in a [routine](routines.md).
 
-To distribute a skill as a package, see the contributor guide to [building plugins](../development/plugins.md).
+To share a skill with others as a package, see [build a plugin](../development/plugins.md).

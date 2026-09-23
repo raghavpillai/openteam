@@ -1,34 +1,35 @@
 # Introduction
 
-OpenTeam gives you AI bots that can use a browser, work with files, and run commands. Give a bot a task in chat, follow its progress, and review the result in the same conversation.
+OpenTeam runs a team of AI bots on hardware you control. Each bot gets its own screen, browser, and terminal on your server, so it can research, work through websites, handle files, and use the apps you connect. You give it work in chat and review the results.
 
-You run OpenTeam on a computer you control. The desktop and mobile apps connect to that server, and you choose the model provider your bots use.
+## How it fits together
 
-## What a bot can do
+- **Your server** runs on a machine you choose: your own computer, a home server, or a cloud VM. It stores your data and runs your bots.
+- **A model provider** supplies the AI. Sign in with ChatGPT or Claude, add an API key, or point OpenTeam at your own endpoint.
+- **The apps** connect to your server. Use the desktop or iPhone app to chat with bots, watch their screens, and manage settings. Closing an app doesn't stop work on the server.
 
-A bot can research a topic, prepare a document, work through a website, or use a connected service such as GitHub, Slack, or Notion. Its conversation, saved memory, files, and browser profile persist between tasks.
+## What a bot has
 
-For example, attach a spreadsheet and ask:
+| Part | What it does |
+| --- | --- |
+| [Conversation](../usage/conversations.md) | Where you give tasks and get results. Bots can also work together in group chats. |
+| [Computer](../usage/computer.md) | Its own Linux screen and browser. You can watch it work or take over. |
+| [Workspace](../usage/files.md) | A shared `/workspace` folder where all your bots read and write files. |
+| [Memory](../usage/memory.md) | Preferences and facts it carries from one task to the next. |
+| [Skills](../usage/skills.md) | Saved instructions for work you repeat. |
+| [Plugins](../usage/plugins.md) | Access to services such as Gmail, GitHub, Slack, and Notion. |
+| [Routines](../usage/routines.md) | Tasks it runs on a schedule or when an event arrives. |
+
+## An example
+
+Attach a spreadsheet and ask:
 
 > Compare the suppliers in this file by price and delivery time. Make a shortlist of three, explain the tradeoffs, and attach a Markdown report. Flag any missing information.
 
-The bot can ask for clarification or access before continuing. You can check its work, give corrections, or take over its screen when a step needs your input.
+The bot opens the file, checks supplier websites in its browser, and writes the report. If it needs a decision or an account, it asks you in the chat. When it's done, the report is attached to the conversation.
 
-## Choose how to work
+## Get started
 
-| You want to… | Use |
-| --- | --- |
-| Give several bots different roles on a task | A [group chat](../usage/conversations.md#create-a-group-chat) |
-| Keep a preference or project fact | [Memory](../usage/memory.md) |
-| Reuse a method | A [skill](../usage/skills.md) |
-| Run a task on a schedule | A [routine](../usage/routines.md) |
-| Give a bot access to a service | A [plugin account](../usage/plugins.md) |
-
-## Start using OpenTeam
-
-- **New installation:** follow the [quickstart](../getting-started/quickstart.md).
-- **Already connected:** [create a bot](../getting-started/first-bot.md) and give it a task.
-- **Looking for ideas:** try the [use cases](use-cases.md).
-- **Choosing a host:** read [how hosting works](architecture.md).
-
-Your server must stay on while bots work. [How hosting works](architecture.md#what-needs-to-stay-running) explains when the desktop app also needs to stay connected. Your model and service accounts' access and usage limits apply.
+- **New to OpenTeam?** Follow the [quickstart](../getting-started/quickstart.md).
+- **Deciding where to host?** Read [how hosting works](architecture.md).
+- **Looking for ideas?** Browse the [use cases](use-cases.md).

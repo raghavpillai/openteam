@@ -57,6 +57,7 @@ normally writes a value; "Restart" says whether a change needs a container resta
 | `OPENTEAM_MARKETPLACE_FILE` | empty | by hand | yes | Custom plugin catalog path |
 | `OPENTEAM_ENFORCE_AUTOMATION_MINIMUM` | enabled unless `false` | by hand | yes | Enforce the 5-minute routine minimum; set `false` to opt out |
 | `EXPO_ACCESS_TOKEN` | empty | by hand | yes | Expo push token |
+| `OPENTEAM_APNS_KEY_ID`, `OPENTEAM_APNS_TEAM_ID`, `OPENTEAM_APNS_TOPIC`, `OPENTEAM_APNS_PRIVATE_KEY` (or `OPENTEAM_APNS_PRIVATE_KEY_FILE`) | unset | by hand | yes | Apple push delivery for the native iPhone app. The topic must match the app's bundle ID. Only the development Compose file passes these to the worker today. |
 | `OPENTEAM_BOX_COPY_IN` | `0` | by hand | yes | Copy snapshot store in on boot |
 | `OPENTEAM_MCP_OAUTH_CLIENT_ID`, `OPENTEAM_MCP_OAUTH_CLIENT_SECRET` | unset | by hand | yes | Fallback OAuth client for MCP plugins |
 

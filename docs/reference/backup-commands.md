@@ -1,6 +1,6 @@
 # Backup and restore commands
 
-Use these commands for the default released installation. Run them in **Bash** on the server host. For backup planning and moving Docker environments, see [Backups and restore](../manage/backups.md).
+Where a released installation keeps its data, and why the backup procedure works the way it does. For the commands themselves, see [Backups and restore](../manage/backups.md).
 
 ## Identify the data
 
@@ -22,45 +22,12 @@ uses project `openteam-dev`, so its volumes are `openteam-dev_openteam_*`, and e
 carries a `com.openteam.environment` label of `production` or `development`, so the two never
 collide on one machine.
 
-## Back up a released install
+## Back up and restore a released install
 
-Pause routines, stop sending new work, and let active runs finish. Keep the application services stopped while copying data, with PostgreSQL running for the dump. Choose a private backup destination outside the installation directory and its Docker volumes.
+The step-by-step commands are in [Backups and restore](../manage/backups.md#make-a-backup). They stop only `server`, `worker`, and `computer` so PostgreSQL stays up for `pg_dump`, and they define the Compose command as a shell function so they work in both Bash and zsh.
 
-```sh
-D=~/.openteam
-OUT=./openteam-backup-$(date -u +%Y%m%dT%H%M%SZ); mkdir -p "$OUT"
-docker compose --project-name openteam --project-directory "$D" -f "$D/compose.yaml" \
-  exec -T postgres pg_dump -U openteam -d openteam --format=custom > "$OUT/postgres.dump"
-for v in computer_home agent_data assets workspace box_store; do
-  docker run --rm -v "openteam_openteam_$v:/source:ro" -v "$(cd "$OUT" && pwd):/backup" alpine:3.22 \
-    tar -czf "/backup/openteam_$v.tar.gz" -C /source .
-done
-```
-
-Copy the installation configuration into the same backup: `.env`, `compose.yaml`, `installation.json`, and any Compose overrides. The `.env` secrets must match the restored database and volumes. Keep this configuration copy private, then restart the application and re-enable the routines you paused.
+A restore removes the `openteam_postgres` volume and lets PostgreSQL initialize it again from the restored `.env`. `POSTGRES_PASSWORD` only applies when a data directory is first created, so restoring into a cluster made by a different installation leaves the server's `DATABASE_URL` password out of sync and every connection fails authentication. Connections from inside the PostgreSQL container are trusted, so test from another container on the Compose network when checking a restore.
 
 For the development stack, `sh scripts/backup.sh` dumps the database and archives volumes; copy its configuration separately too.
 
-## Restore
-
-These commands **replace the target database and volume contents**. Confirm the installation directory, Docker context, and project first. Restore its saved configuration, and set `OUT` to the directory containing the matching `postgres.dump` and volume archives before running the block. `OUT` from a previous terminal session will not carry over.
-
-```sh
-D=~/.openteam; C="docker compose --project-name openteam --project-directory $D -f $D/compose.yaml"
-openteam stop
-$C up -d postgres
-$C exec -T postgres dropdb -U openteam --force openteam
-$C exec -T postgres createdb -U openteam openteam
-$C exec -T postgres pg_restore -U openteam -d openteam < "$OUT/postgres.dump"
-for v in computer_home agent_data assets workspace box_store; do
-  docker run --rm -v "openteam_openteam_$v:/target" -v "$(cd "$OUT" && pwd):/backup:ro" alpine:3.22 \
-    sh -c "find /target -mindepth 1 -delete && tar -xzf /backup/openteam_$v.tar.gz -C /target"
-done
-openteam start
-```
-
-Then check `openteam status`, open a bot, and confirm its history, memory, and workspace files are
-back before sending new work.
-
-The plain SQL dumps that `openteam update` writes can be restored with `psql` instead of
-`pg_restore`.
+The plain SQL dumps that `openteam update` writes to `<install>/backups/` can be restored with `psql` instead of `pg_restore`.

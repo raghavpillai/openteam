@@ -1,36 +1,88 @@
 # Backups and restore
 
-Back up the full installation before moving hosts, replacing your Docker environment, or making changes you need to recover from.
+Back up your server before you move it to another machine, change your Docker setup, or do anything you might need to undo.
 
-## What to keep
+## What's in a backup
 
-OpenTeam's data is spread across the database and persistent Docker volumes. Keep them together as one recovery set.
+Your data lives in a database and several Docker volumes. Back them up together, along with your install directory:
 
-| Data | Includes |
+| What | Contains |
 | --- | --- |
-| Database | Bots, conversations, task history, and plugin configuration |
-| Computer home | Browser profiles, saved model sign-ins, and runtime sessions |
-| Agent data | Memory, profiles, routines, and skills |
-| Workspace | Files created or used by bots |
-| Assets and snapshot store | Attachments and stored file data |
-| Installation configuration | The Compose file, installation record, and `.env` secrets |
+| Database | Bots, conversations, run history, plugin accounts, and private skills |
+| `computer_home` volume | Browser profiles, website sign-ins, and model provider sign-ins |
+| `agent_data` volume | Memory, skills, routines, bot profiles, and model settings |
+| `workspace` volume | Files in `/workspace` |
+| `assets` volume | Attachments |
+| `box_store` volume | Snapshots of the bots' computer files |
+| [Install directory](../getting-started/installation.md#where-openteam-is-installed) | Settings and generated secrets |
 
-A database dump alone is not a complete backup. The backup made during a server update is primarily for update rollback.
+Backups include sign-ins to websites and services. Store them somewhere private.
+
+The database backup that `openteam update` makes is for rolling back a failed update. It isn't a full backup.
 
 ## Make a backup
 
-Let active work finish and pause recurring work while taking the backup. Use a private destination with enough space, then follow the [backup commands](../reference/backup-commands.md#back-up-a-released-install) for the default released installation.
+These commands work in Bash or zsh on macOS and Linux. They pause your bots while the backup runs, so let active work finish first.
 
-Keep the resulting files outside the Docker volumes being backed up. Protect them like account credentials: browser sessions, model sign-ins, and connected-account data may be included.
+```sh
+D=~/.openteam
+OUT=~/openteam-backup-$(date -u +%Y%m%dT%H%M%SZ)
+mkdir -p "$OUT"
+oc() { docker compose --project-name openteam --project-directory "$D" -f "$D/compose.yaml" "$@"; }
 
-## Restore or move to another machine
+# Stop the bots, but keep the database running
+oc stop server worker computer
 
-Use the matching database dump, volumes, and configuration from the same backup. Restore into the intended installation before sending new tasks. The [restore procedure](../reference/backup-commands.md#restore) replaces its target data, so confirm the destination first.
+# Back up the database
+oc exec -T postgres pg_dump -U openteam -d openteam --format=custom > "$OUT/postgres.dump"
 
-Afterward, run `openteam status` and check a bot's history, memory, and files. Test the accounts and network address you plan to use. A new host may require updated app URLs and plugin callbacks.
+# Back up the volumes
+for v in computer_home agent_data assets workspace box_store; do
+  docker run --rm -v "openteam_openteam_$v:/source:ro" -v "$OUT:/backup" alpine:3.22 \
+    tar -czf "/backup/openteam_$v.tar.gz" -C /source .
+done
 
-## Changing Docker environments
+# Back up the install directory
+cp "$D/.env" "$D/compose.yaml" "$D/installation.json" "$OUT/"
 
-Volumes belong to the Docker engine that created them. Switching Docker contexts or VM backends does not move the data automatically. Restore the complete backup on the new engine before removing the old one.
+openteam start
+```
 
-Ordinary restarts preserve data. Deleting volumes or using `openteam uninstall --purge` removes it.
+If you installed OpenTeam somewhere else, set `D` to that directory. Keep backups outside the install directory.
+
+## Restore a backup
+
+Restoring replaces all the data in the target server. To move to a new machine, first [install OpenTeam](../getting-started/installation.md) there.
+
+```sh
+D=~/.openteam
+OUT=~/openteam-backup-20260101T000000Z   # the backup to restore
+oc() { docker compose --project-name openteam --project-directory "$D" -f "$D/compose.yaml" "$@"; }
+
+# Stop the server and remove its current database
+oc down
+docker volume rm openteam_openteam_postgres
+
+# Put back the install directory, then restore the database
+cp "$OUT/.env" "$OUT/compose.yaml" "$OUT/installation.json" "$D/"
+oc up -d --wait postgres
+oc exec -T postgres pg_restore -U openteam -d openteam < "$OUT/postgres.dump"
+
+# Restore the volumes
+for v in computer_home agent_data assets workspace box_store; do
+  docker run --rm -v "openteam_openteam_$v:/target" -v "$OUT:/backup:ro" alpine:3.22 \
+    sh -c "find /target -mindepth 1 -delete && tar -xzf /backup/openteam_$v.tar.gz -C /target"
+done
+
+openteam start
+```
+
+The restore recreates the database so that it uses the password saved in your backup's `.env`. Then run `openteam status` and open a bot to check that its conversations, memory, and files are back.
+
+On a new machine, the server URL may be different. Update it in your apps, and update the callback URL for any plugin that uses one, such as [Google](../integrations/google.md) or [Slack](../integrations/slack.md).
+
+## Changing Docker setups
+
+Docker volumes belong to the Docker engine that created them. If you switch Docker contexts, reinstall Docker Desktop, or move to a different engine, your data doesn't come with you. Back up first, then restore on the new engine before removing the old one.
+
+Restarting the server or the host keeps your data. Only deleting the Docker volumes or running `openteam uninstall --purge` removes it.

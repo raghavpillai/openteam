@@ -1,37 +1,40 @@
 # Chat and teamwork
 
-Use a direct conversation for one bot's work and a group chat when several bots need the same context.
+Chat with one bot for focused work. Start a group chat when several bots should work on the same thing together.
 
 ## Ask for work
 
-Send the task with the files, links, and decisions the bot needs. Explain where it should put the result and when it should ask you before continuing.
+Send the task along with the files, links, and decisions the bot needs. Say where the result should go and when it should check with you:
 
-> Read the attached proposal, identify missing requirements, and draft questions for the vendor. Keep everything in this chat; do not contact them.
+> Read the attached proposal, list any missing requirements, and draft questions for the vendor. Keep everything in this chat; don't contact them.
 
-You can send follow-up instructions as the work develops. If the bot asks a question or presents a review request, respond in the conversation so it can continue.
+When a bot asks a question or needs your approval, it waits for your answer in the conversation.
 
-## Replies and attachments
+## Reply, attach, and search
 
-Reply to a specific message to keep a follow-up tied to its context. Attach files and images when the bot needs source material. Use [voice notes](../configuration/transcription.md) if you would rather dictate, then review the transcription before sending it.
-
-Search helps you return to older work. On desktop, use **⌘K** or **Ctrl+K** to open search.
+- **Reply to a message** to tie your follow-up to it. Hover over the message and choose **Reply**.
+- **Attach files or images** the bot should work from. See [files and results](files.md).
+- **Dictate** instead of typing with [voice notes](../configuration/transcription.md).
+- **Search** messages, bots, files, links, and routines. Press **⌘K** on macOS or **Ctrl+K** on Windows and Linux.
 
 ## Create a group chat
 
-From a new chat, choose **Create group chat**, select the bots, and send your first message. A group can include up to six bots.
+Choose **New chat**, then **Create group chat**. Pick the bots, then send your first message. A group can have up to six bots.
 
-Describe each bot's responsibility so they can divide the work:
+Give each bot a clear role so they can split the work:
 
-> Research: collect the source material. Docs: turn it into a one-page brief. Keep the source links in the shared file and flag disagreements for me.
+> Research: collect the source material. Docs: turn it into a one-page brief. Keep source links in the shared file and flag any disagreements for me.
 
-Use mentions when addressing a particular bot. Group replies are coordinated in ordered turns; separate bots can also work on independent tasks at the same time.
+Every bot in the group can reply. They take turns, so they build on each other's messages instead of talking over each other. To address one bot, @mention it.
 
-## Share context deliberately
+## Hand off work between bots
 
-Files in the workspace are shared between bots. A bot's memory can also carry information across its conversations. A group chat is not a private filesystem or a separate host.
+All bots share the `/workspace` folder, so one bot can pick up another's files. Make handoffs specific: name the file, the next step, and any open questions.
 
-Make handoffs concrete: give the next bot the file path, the expected next step, and any unresolved questions. For example, “Continue from `/workspace/launch/brief.md`; verify the dates before editing the recommendation.”
+> Continue from /workspace/launch/brief.md. Verify the dates before you edit the recommendation.
+
+Bots can also message each other and hand tasks to helpers on their own. Group chats keep the work visible to you.
 
 ## Review the result
 
-Open attached files and check the cited sources. If the result is incomplete, identify what is missing and ask the bot to continue from its existing work. See [files and results](files.md) and [approvals and privacy](../configuration/approvals.md).
+Open the attached files and check the sources. If something's missing or wrong, say exactly what and ask the bot to continue from its existing work rather than start over.

@@ -1,53 +1,57 @@
 # Remote access
 
-Choose an address your apps can reach. A private LAN or VPN is the simplest starting point; use HTTPS for access over the public internet.
+Your apps connect to the server through its server URL. Choose a connection mode based on where your devices are: at home, on a VPN, or anywhere on the internet.
 
-## Connection defaults
+## Choose a connection mode
 
-Setup detects a private address where possible and prints the server URL. Use that URL on devices connected to the same LAN or private VPN.
+| Mode | Use it when |
+| --- | --- |
+| **Private network** (default) | Your devices are on the same home or office network, or on a VPN such as Tailscale |
+| **This machine only** | The server and the desktop app run on the same computer |
+| **Public domain with automatic HTTPS** | You have a domain and want to reach the server from anywhere |
+| **Use my existing HTTPS setup** | You already run a reverse proxy, or use Tailscale HTTPS |
+| **Public address without HTTPS** | Only for testing. Your password and conversations travel unencrypted. |
 
-A URL containing `localhost` or `127.0.0.1` only reaches the device on which you enter it. Your phone needs the server's reachable address instead.
-
-To change the connection mode, run this on the server host:
+To change the mode, run this on the server host:
 
 ```sh
 openteam setup --advanced
 ```
 
-## Pick a connection mode
-
-| Mode | Use it when |
-| --- | --- |
-| Private network | Your devices reach the host over a trusted LAN or VPN such as Tailscale |
-| This machine only | The server and desktop app run on the same machine |
-| Public HTTPS | You have a domain pointed at the server and want internet access |
-| Existing HTTPS proxy | You already manage HTTPS with a reverse proxy |
-| Public HTTP | You are deliberately testing without encryption; mobile rejects public cleartext URLs |
+A URL with `localhost` or `127.0.0.1` only works on the server itself. Your phone and other computers need the server's network address.
 
 ## Private network
 
-Connect the server and client devices to the same trusted network. Enter the private server address in each app. For access while away from home, connect the device to your VPN first.
+Setup picks the host's private address and prints a URL such as `http://192.168.1.20:8787`. Any device on the same network can connect.
 
-The default API port is `8787`. Live screens also use `6200–6299`; keep these ports within the trusted network. A working chat connection does not prove that screen-viewer ports are reachable.
+To connect while you're away, put the host and your devices on a private VPN such as [Tailscale](https://tailscale.com). Setup prefers a Tailscale address when it finds one.
 
-## Public HTTPS
+### Tailscale HTTPS
 
-1. Point the domain's DNS record at the server.
-2. Allow inbound TCP ports **80** and **443**.
-3. Choose public HTTPS in advanced setup and enter the domain.
-4. Let setup start the bundled Caddy proxy and obtain a certificate.
-5. Enter the resulting HTTPS URL in the apps.
+If Tailscale is running and HTTPS is turned on for your tailnet, setup serves OpenTeam at the host's `https://<name>.ts.net` address. Only devices on your tailnet can reach it. HTTPS also makes plugin sign-in simpler, because services such as Google can return you straight to your server.
 
-If another service already uses 80 or 443, use an existing proxy or free those ports before setup.
+Setup uses [Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve) for this and leaves any existing Serve routes and Funnel settings alone. If it can't set up HTTPS, it keeps the private HTTP address.
 
-## Existing HTTPS proxy
+## Public domain with automatic HTTPS
 
-Setup prints the local upstream, usually `http://127.0.0.1:8787`. Configure your proxy to forward HTTP and WebSocket traffic and replace incoming forwarding headers with values from its own connection.
+1. Point your domain's DNS record at the server.
+2. Allow inbound TCP ports **80** and **443** to the server.
+3. Run `openteam setup --advanced`, choose **Public domain with automatic HTTPS**, and enter the domain.
+4. Setup starts a proxy that gets a certificate for the domain.
+5. Enter the `https://` URL in your apps.
 
-A proxy on another machine also needs the configured OpenTeam proxy secret when forwarding trusted client information. Use the [operator reference](../reference/server-configuration.md) for deployment-specific settings.
+If something else on the host already uses ports 80 or 443, stop it first or use your own proxy instead.
 
-## Security notes
+## Use your own HTTPS proxy
 
-Keep owner authentication enabled. Do not expose raw screen-viewer ports to the public internet, and treat screen links as credentials. Public HTTP sends sign-in and session data without encryption.
+Choose **Use my existing HTTPS setup**. Setup prints the local address to forward to, usually `http://127.0.0.1:8787`. Configure your proxy to forward both HTTP and WebSocket traffic to it.
 
-After changing the connection, run `openteam status` and reconnect from the intended device. Check [troubleshooting](../manage/troubleshooting.md) if chat or screens are unavailable.
+If your proxy runs on a different machine, see the [server configuration reference](../reference/server-configuration.md) for the extra settings it needs.
+
+## Keep it secure
+
+- Use HTTPS for any address that's reachable from the internet.
+- Use a strong password. Anyone who signs in can control your bots and their accounts.
+- In **Private network** mode, bot screen ports `6200–6299` are open on your local network. Don't forward them from your router.
+
+After you change the connection, run `openteam status` to confirm the new URL, then reconnect your apps. If they can't connect, see [troubleshooting](../manage/troubleshooting.md#the-app-cant-connect).

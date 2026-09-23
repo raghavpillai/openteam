@@ -1,41 +1,41 @@
 # Voice notes
 
-Dictate a message, review the text, and send it to a bot. Voice notes use a transcription provider configured on your server.
+Dictate a message instead of typing it. Your recording is turned into text, which you can review before sending.
 
-## Use a voice note
+## Record a voice note
 
-Select the microphone in the composer and record your message. Stop to return the transcript to your draft, or use **Transcribe and send** when you are ready to send directly.
+Select the microphone in the message box and speak. Then either:
 
-You can edit the transcript before sending. Check names, numbers, and instructions that would change files or contact someone. Cancel recording or transcription to discard it.
+- Stop recording to put the text in your message box, where you can edit it before sending.
+- On desktop, choose **Transcribe and send** to send it right away.
 
-On desktop, **⌘D** or **Ctrl+D** toggles dictation while the draft is focused. You can also hold the shortcut and release it to stop. On mobile, use the recording controls in the composer.
+On desktop, press **⌘D** on macOS or **Ctrl+D** on Windows and Linux while you're typing a message to start dictating. Or hold the shortcut while you talk and release it to stop.
 
-Choose a desktop input under **Settings → General → System → Microphone**. **Test microphone** shows a local level meter without recording or uploading audio; it works before a transcription provider is configured.
+Recordings can be up to five minutes long. The audio isn't saved or attached to the conversation.
 
-## Configure
+Check names, numbers, and instructions in the transcript before sending, especially when the bot will act on them.
 
-In desktop **Settings → Server → Transcription**:
+## Set up transcription
 
-1. Choose **OpenAI** or **Custom / OpenAI-compatible**.
-2. Enter the provider's base URL, transcription model, and API key if required.
-3. Leave language blank for automatic detection, or choose a supported language code.
-4. Enable voice notes, save, and test the connection.
-5. Record a short note to verify that actual transcription works.
+Voice notes need a transcription service. Set it up once on the server and it works in all your apps.
 
-These settings apply to clients connected to this server. A ChatGPT sign-in used for chat models does not supply transcription API access; transcription has its own credentials.
+1. Open **Settings → Server → Transcription**.
+2. Choose **OpenAI** or **Custom / OpenAI-compatible**.
+3. Enter the base URL, model, and API key. Leave **Language** blank to detect it automatically.
+4. Turn on **Voice notes**.
+5. Choose **Save transcription**, then **Test connection**.
+6. Record a short note to check that it works.
 
-You can also configure transcription in the interactive `openteam model` editor.
+Transcription uses its own API key. A ChatGPT or Claude sign-in for chat doesn't cover it. You can also set up transcription from the host with `openteam model`.
 
-## Use a self-hosted service
+To choose a microphone on desktop, open **Settings → General → System → Microphone**.
 
-An OpenAI-compatible audio service can run on a machine you control. Its address must be reachable from the OpenTeam server, which makes the transcription request.
+## Use your own transcription service
 
-The repository includes an Apple-silicon helper for running a local model. Follow the [self-hosted transcription instructions](../reference/transcription-service.md#self-host-on-an-apple-silicon-mac) if you want that setup.
+Any service with an OpenAI-compatible transcription API works, as long as the OpenTeam server can reach it. To run one on an Apple silicon Mac, see the [self-hosted transcription guide](../reference/transcription-service.md#self-host-on-an-apple-silicon-mac).
 
-## Limits and troubleshooting
+## Troubleshooting
 
-Recordings are limited to five minutes and 25 MiB. A disabled microphone usually means transcription is off, unconfigured, or unavailable on the connected server.
-
-Check microphone permission on the device, then test the saved server configuration. A successful connection test checks discovery; a short recording checks transcription itself. If a request fails, use retry or discard rather than assuming the message was sent.
-
-Audio is processed for transcription and is not added as a chat attachment. External providers have their own processing and retention policies.
+- **The microphone button is unavailable:** transcription is turned off or not set up on the server.
+- **Recording doesn't start:** check that OpenTeam has microphone permission in your device's settings.
+- **Transcription fails:** use **Test connection** in settings, then try a short recording. If a note fails, retry or discard it; it wasn't sent.

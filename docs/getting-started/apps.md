@@ -1,32 +1,41 @@
 # Desktop and mobile
 
-Connect your devices to the same OpenTeam server to continue working with the same bots and conversations.
+The OpenTeam apps connect to your server. Sign in from as many devices as you like; they all show the same bots and conversations.
 
 ## Desktop
 
-Download an available build for your platform from [openteam.so/download](https://openteam.so/download). The download page lists the installers included in the current release.
+Download the desktop app from [openteam.so/download](https://openteam.so/download). It's available for macOS (Apple silicon and Intel), Windows (x64), and Linux (x64 AppImage).
 
-1. Start the OpenTeam server, or get its URL from your existing installation.
-2. Open the app and enter that URL.
-3. Sign in with the owner username and password.
-4. Open an existing conversation or create a bot.
+1. Open the app and enter your server URL. Run `openteam status` on the server if you don't have it.
+2. Sign in with the username and password you created during setup.
 
-The desktop app provides chat, screen viewing, plugins, routines, settings, and the connection for approved work on your physical computer. Keep it open when tasks need local computer access or delegated workers.
+The desktop app does everything: chat, watching bots' screens, plugins, routines, and all settings. It's also how bots [work on your own computer](../usage/computer.md#use-your-own-computer), so keep it open when they do.
 
-## Mobile
+## iPhone
 
-The mobile app is currently available from source. Follow the [mobile build instructions](../../apps/ios/README.md) for a native development build; it is not yet distributed through the public download page as an App Store release.
+The iPhone app isn't in the App Store yet. To use it now, build it from source with Xcode by following the [iPhone app instructions](../../apps/ios/README.md).
 
-Enter the server URL on the sign-in screen. In the app, **Settings → Private connection** lets you change the URL or sign out.
+Enter your server URL and sign in. On iPhone, you can:
 
-You can message bots, attach files or photos, review requests, view and take over a bot's screen, and manage routines. Server settings and plugin setup are easiest to complete on desktop.
+- Chat with bots, and send files, photos, and voice notes
+- Answer approval requests
+- Watch a bot's screen and take control when it needs you
+- Add, edit, and run routines
+- Set up plugins and private skills
+
+Use the desktop app to change server settings such as the model, web search, and transcription.
 
 ## Connect from another device
 
-The device must be able to reach the server. Use a reachable LAN address, your private VPN, or public HTTPS. A loopback URL such as `http://127.0.0.1:8787` only works on the server machine itself.
+Your phone or laptop needs an address it can reach the server at:
 
-For mobile access away from home, keep the phone connected to your private VPN or use HTTPS. Public cleartext HTTP is rejected by the mobile connection policy. See [remote access](../configuration/remote-access.md).
+- **At home:** use the private network address from setup, such as `http://192.168.1.20:8787`.
+- **Away from home:** connect through a VPN such as Tailscale, or give your server an HTTPS address.
+
+A `localhost` or `127.0.0.1` address only works on the server itself. See [remote access](../configuration/remote-access.md) for all the options.
+
+Plain `http://` addresses aren't encrypted. That's fine on a network you trust, such as your home Wi-Fi or Tailscale, but use HTTPS for anything reachable from the internet.
 
 ## Notifications
 
-See [settings and notifications](../configuration/apps.md#enable-notifications) to enable alerts and configure mobile push.
+To get alerts when a bot finishes or needs you, see [notifications](../configuration/apps.md#notifications).

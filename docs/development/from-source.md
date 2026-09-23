@@ -1,12 +1,15 @@
 # Development from source
 
-Use a source checkout when you want to change OpenTeam or test unreleased code. For everyday use, start with the [released installer](../getting-started/installation.md).
+Run OpenTeam from a source checkout to change it or try unreleased code. For everyday use, the [installer](../getting-started/installation.md) is simpler.
 
 ## Prerequisites
 
-Install Git, the Bun version pinned in the root `package.json`, and Docker Engine with Compose 2.20+. The shell commands below need Bash and run from the repository root.
+- Git
+- [Bun](https://bun.sh), at the version pinned in the root `package.json`
+- Docker Engine with Compose 2.20 or newer
+- Bash, to run the commands below from the repository root
 
-The development stack uses the same default ports as a released installation, so stop the other stack if both run on the same host.
+The development server uses the same ports as a released installation. If both run on one machine, stop one before starting the other.
 
 ## Get the source
 
@@ -18,7 +21,7 @@ bun run db:generate
 cp .env.example .env
 ```
 
-Replace `OPENTEAM_CONTROL_TOKEN`, `OPENTEAM_AUTH_SECRET`, and `OPENTEAM_PROXY_SECRET` in `.env` with distinct random values. Generate each separately with `openssl rand -hex 32`. Set `OPENTEAM_TIME_ZONE` to your time zone. Keep `.env` private and uncommitted.
+In `.env`, replace `OPENTEAM_CONTROL_TOKEN`, `OPENTEAM_AUTH_SECRET`, and `OPENTEAM_PROXY_SECRET` with different random values. Generate each with `openssl rand -hex 32`. Set `OPENTEAM_TIME_ZONE` to your time zone. Don't commit `.env`.
 
 ## Start the server
 
@@ -27,16 +30,16 @@ bash scripts/compose.sh up --build -d
 bash scripts/compose.sh ps
 ```
 
-Wait for the server, worker, computer, and database to be healthy. Setup jobs can exit successfully with code `0`.
+Wait until `server`, `worker`, `computer`, and `postgres` are healthy. Setup containers exit with code `0` when they finish; that's expected.
 
-## Create an account and connect inference
+## Create an account and connect a model
 
 ```sh
 bun run auth:setup
 bash scripts/compose.sh exec computer openteam-pi-auth login openai-codex oauth
 ```
 
-The first command creates your owner login. The second starts ChatGPT sign-in inside the computer environment. For other authentication choices, see [model providers](../configuration/models.md).
+The first command creates your account. The second signs in with ChatGPT. For other providers, see [model providers](../configuration/models.md).
 
 ## Open the desktop app
 
@@ -45,16 +48,16 @@ curl http://127.0.0.1:8787/api/v0/health
 bun run desktop
 ```
 
-Connect to `http://127.0.0.1:8787` and sign in. Native mobile builds have [separate prerequisites](../../apps/ios/README.md).
+Connect to `http://127.0.0.1:8787` and sign in. To build the iPhone app, see the [iPhone app instructions](../../apps/ios/README.md).
 
-## Package the macOS desktop
+## Check your changes
 
-From `apps/desktop`, `bun run package:mac-local` creates an ad-hoc signed build for local testing. A rebuild can change the identity macOS uses for Keychain access, so another system approval may be required.
+```sh
+bun run typecheck
+bun run test
+bun run build
+```
 
-For distribution, use `bun run package:mac-release` with a valid Developer ID Application identity selected by `CSC_NAME` and the notarization credentials required by `scripts/macos-release-utils.ts`. Keep the signing identity consistent across releases. This release path enables hardened runtime, notarization, and signature checks. Do not change Keychain access controls to avoid approval for a differently signed build.
+You can also run the checks for just the package you're working on. `bun run check:architecture` checks package boundaries.
 
-## Make and check changes
-
-Use `bun run typecheck`, `bun run test`, and `bun run build` for workspace checks, or run the relevant package's checks while working. `bun run check:architecture` validates package boundaries.
-
-The [contributor reference](../reference/development.md) has the repository map, database-test setup, and release links.
+The [contributor reference](../reference/development.md) covers the repository layout, database tests, desktop packaging, and releases.

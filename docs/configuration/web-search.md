@@ -1,32 +1,38 @@
 # Web search
 
-Configure search and page fetching independently of the model provider. A chat-model sign-in does not provide search credentials.
+Web search lets bots find current information online. Page fetching lets them read a page quickly without opening it in their browser. Both are off until you set them up, and they use their own API keys, separate from your model provider.
 
 ## Set up search
 
-Open **Settings → Server → Web search**, choose a provider, enter its API key, and select **Save web search**.
+1. Open **Settings → Server → Web search**.
+2. Choose a provider and enter its API key.
+3. Choose **Save web search**.
 
-| Provider | Credential |
+| Provider | What you need |
 | --- | --- |
-| Exa | Exa API key |
-| Tavily | Tavily API key |
-| Brave | Brave Search API subscription token |
-| Bing via SerpApi | SerpApi API key |
+| Exa | An Exa API key |
+| Tavily | A Tavily API key |
+| Brave Search | A Brave Search API key |
+| Bing via SerpApi | A SerpApi API key |
 
-All bots use the saved configuration. Changes apply to the next search without a restart. If search is unconfigured, the bot receives “No search configured” with setup guidance and no search is performed.
+All bots use the same search settings. Changes take effect on the next search.
 
 ## Set up page fetching
 
-Open **Settings → Server → Web fetch**. Select a provider and click **Save web fetch**. Fetch starts unconfigured; the agent receives “No fetch configured” until a provider is explicitly saved. **Built-in HTTP fetch** reads public text and HTML pages without an API key. It does not run page JavaScript or extract binary PDFs.
+1. Open **Settings → Server → Web fetch**.
+2. Choose a provider:
+   - **Built-in HTTP fetch (no key)** reads ordinary web pages. It doesn't run JavaScript or read PDFs.
+   - **Exa Contents** or **Tavily Extract** handle JavaScript-heavy pages and documents. They need an API key, separate from the search key even for the same provider.
+3. Choose **Save web fetch**.
 
-For supported rendering and document extraction, select **Exa Contents** or **Tavily Extract** and enter a key for that service. Fetch credentials are separate from search credentials, even when you use the same provider.
+Without page fetching, bots can still open pages in their browser, but it's slower.
 
 ## Change or remove a key
 
-A blank key field keeps the saved key only when the provider stays the same. Changing providers requires a new key. Use **Remove saved key** to delete one, or select **Not configured** and save to disable search or fetch. Choosing built-in fetching clears its previous provider key.
+To switch providers, choose the new one and enter its key. To delete a saved key, choose **Remove saved key**. To turn search or fetching off, choose **Not configured** and save.
 
-Keys are stored in the server database and are not returned to the settings UI. Protect database backups as credentials.
+Saved keys are stored on your server and never shown again in the app. Treat your server backups as sensitive for this reason.
 
-## Troubleshoot
+## Check that it works
 
-Ask a bot to perform a small search and check its result. A saved key does not prove that the account has permission or quota. Provider authentication and quota errors are reported without silently switching to another service.
+Ask a bot to search for something and look at the result. If it fails, the bot reports the provider's error, such as an invalid key or used-up quota. OpenTeam doesn't switch to another provider on its own.

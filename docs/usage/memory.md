@@ -1,39 +1,50 @@
 # Memory
 
-Memory helps a bot keep useful context between tasks, such as your preferences, project facts, and summaries of earlier work.
+Bots remember useful context between tasks: your preferences, facts about your projects, and what happened in earlier work. Over time, this saves you from repeating yourself.
 
-## Ask a bot to remember something
+## How bots remember
 
-Be specific about the fact and who it is for:
+As you work together, a bot notices facts worth keeping and saves them. You can also tell it directly:
 
 > Remember that my weekly reports should lead with decisions, then blockers, then next steps. Keep each section brief.
 
-You can also ask it to correct an outdated fact or forget something. Bots may save useful information from conversations automatically; memory is not a word-for-word copy of everything said.
+Memory holds short facts, not a transcript. Your full chat history is stored separately on the server.
 
-## What is shared
+## Who can see a memory
 
-| Memory | What it is for |
-| --- | --- |
-| Bot | Context for one bot, including its work across conversations |
-| User | Personal context shared across bots where the conversation permits it |
-| Project | Context for bots working on a particular project |
+| Memory | Holds | Available to |
+| --- | --- | --- |
+| Conversation | Details from one conversation | That conversation |
+| Bot | The bot's role and what it has learned | That bot, in all its conversations |
+| User | Facts about you | All your bots, in direct chats |
+| Project | Facts about a shared project | Every bot working on that project |
 
-Group conversations cannot read or write global personal user memory. A bot's own memory can follow it between conversations, so a new chat does not necessarily mean it starts without prior context.
+Bots save what they pick up on their own to conversation or bot memory. To share something with all your bots, say so:
 
-## Review or remove saved facts
+> Remember for all bots: I'm in the Pacific time zone and prefer meetings after 10 AM.
 
-On desktop, open the bot's details and its memory view. Search for a fact, delete individual entries, or clear the bot's memory using the available controls.
+To share facts among bots working on the same thing, ask one bot to create a project, and ask the others to join it. Facts saved to the project are available to all of them.
 
-Removing memory does not erase chat history, copies in files, or records at a connected service. If the same information appears in several places, review those separately.
+Group chats can't read or change your user memory. This keeps personal details out of shared conversations.
 
-## Use memory with current sources
+## Correct or remove a memory
 
-Ask the bot to check the source again when a fact may have changed. Saved context can be incomplete or out of date, especially for prices, schedules, and project status.
+Ask the bot what it remembers, then tell it what to change:
 
-For a repeatable method, create a [skill](skills.md). For source material, keep the [file](files.md) or link available instead of expecting memory to reproduce it exactly.
+> What do you remember about my reporting preferences?
+
+> Forget that I prefer PDF reports. I now want Markdown.
+
+Deleting a memory doesn't remove it from chat history, files, or connected services. Check those separately if the information appears there too.
+
+## Keep facts current
+
+Memory can go out of date, especially for prices, schedules, and project status. For anything that changes, ask the bot to check the source again instead of relying on what it remembers.
+
+For a method you want followed every time, use a [skill](skills.md). For reference material, give the bot the [file](files.md) or link rather than expecting it to recall details.
 
 ## Long conversations
 
-OpenTeam may summarize an older part of a conversation to keep the model's working context manageable. This is separate from saved memory and the chat history stored by your server.
+When a conversation gets very long, the bot summarizes the older part so it can keep working. This is separate from memory, and your full history stays in the chat.
 
-Memory is part of your installation's persistent data. Include it in [backups](../manage/backups.md) when moving or restoring your server.
+Memory is stored on your server and included in your [backups](../manage/backups.md).

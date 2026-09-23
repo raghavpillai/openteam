@@ -1,5 +1,5 @@
 import { ApiError, type WakeParentInput } from "@openteam/contracts";
-import type { Prisma } from "@openteam/db";
+import { Prisma } from "@openteam/db";
 import type { AgentMessaging, ToolContext, WakeInput } from "./index";
 
 export function automationContextRunId(runId: string, payload: unknown): string {
@@ -8,6 +8,135 @@ export function automationContextRunId(runId: string, payload: unknown): string 
       ? (payload as Record<string, unknown>).automationContextRunId
       : null;
   return typeof id === "string" ? id : runId;
+}
+
+async function pendingAutomationShells(
+  tx: Prisma.TransactionClient,
+  botId: string,
+  familyIds: string[]
+) {
+  type ShellRecord = {
+    shellKind?: string;
+    tool?: string;
+    result?: { details?: { status?: string; outputPath?: string; output_path?: string } };
+  };
+  // Avoid loading browser screenshots or unrelated tool results just to check
+  // whether an automation has a background shell to drain.
+  const items = await tx.runItem.findMany({
+    where: {
+      runId: { in: familyIds },
+      kind: "command",
+      status: "completed",
+      content: { path: ["shellKind"], equals: "background" },
+    },
+    select: { content: true },
+  });
+  const pending = items
+    .map((item) => item.content as ShellRecord)
+    .filter((item) => item.result?.details?.status === "running");
+  if (!pending.length) return false;
+  const waits = await tx.runItem.findMany({
+    where: {
+      runId: { in: familyIds },
+      kind: "tool",
+      status: "completed",
+      content: { path: ["tool"], equals: "AwaitShell" },
+    },
+    select: { content: true },
+  });
+  const records = waits.map((item) => item.content as ShellRecord);
+  const receipts = await tx.inboxEvent.findMany({
+    where: { botId, type: "shell.completed" },
+    select: { payload: true },
+  });
+  return pending.some((item) => {
+    const details = item.result!.details!;
+    const path = details.outputPath ?? details.output_path;
+    if (!path) return false;
+    // AwaitShell may consume the completion itself, suppressing the callback.
+    if (
+      records.some(
+        (record) =>
+          record.tool === "AwaitShell" &&
+          ["completed", "failed"].includes(record.result?.details?.status ?? "") &&
+          (record.result?.details?.outputPath ?? record.result?.details?.output_path) === path
+      )
+    )
+      return false;
+    return !receipts.some((receipt) => {
+      const payload = receipt.payload as { content?: string };
+      return payload.content?.includes(`Output file: ${JSON.stringify(path)}.`);
+    });
+  });
+}
+
+/** One saved occurrence can span several parent turns and delegated workers. */
+export async function reconcileRoutineExecution(tx: Prisma.TransactionClient, runId: string) {
+  const run = await tx.run.findUnique({
+    where: { id: runId },
+    include: { inboxEvents: { take: 1, select: { payload: true } } },
+  });
+  if (!run || run.origin !== "routine") return;
+  const rootId = automationContextRunId(run.id, run.inboxEvents[0]?.payload);
+  const root = await tx.run.findFirst({
+    where: { id: rootId, botId: run.botId, channelId: run.channelId, origin: "routine" },
+  });
+  if (!root) return;
+  const family = await tx.run.findMany({
+    where: {
+      botId: root.botId,
+      channelId: root.channelId,
+      origin: "routine",
+      OR: [
+        { id: rootId },
+        {
+          inboxEvents: { some: { payload: { path: ["automationContextRunId"], equals: rootId } } },
+        },
+      ],
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, status: true, completedAt: true, error: true },
+  });
+  if (family.some((entry) => ["queued", "running", "waiting_approval"].includes(entry.status)))
+    return;
+  if (
+    await tx.subagentAttempt.count({
+      where: {
+        parentRunId: { in: family.map((entry) => entry.id) },
+        status: { in: ["provisioning", "queued", "running"] },
+      },
+    })
+  )
+    return;
+  if (
+    await pendingAutomationShells(
+      tx,
+      root.botId,
+      family.map((entry) => entry.id)
+    )
+  )
+    return;
+  const final = family[0]!;
+  const handoff = await tx.automationResult.findUnique({ where: { runId: rootId }, select: { wakeRunId: true } });
+  const failedHandoff = !handoff?.wakeRunId && await tx.runItem.findFirst({ where: {
+    runId: { in: family.map(entry => entry.id) }, status: "failed", kind: "tool",
+    OR: [{ title: "WakeParent" }, { content: { path: ["arguments", "toolName"], equals: "WakeParent" } }],
+  }, select: { id: true } });
+  const status =
+    failedHandoff ? "failed" : final.status === "completed"
+      ? "completed"
+      : final.status === "cancelled"
+        ? "cancelled"
+        : "failed";
+  const updated = await tx.routineExecution.updateMany({
+    where: { runId: rootId, status: { in: ["queued", "running", "waiting_approval"] } },
+    data: {
+      status,
+      completedAt: final.completedAt ?? new Date(),
+      ...(status === "completed" ? {} : { error: failedHandoff ? { code: "automation_handoff_failed", message: "The required parent handoff failed; no result was delivered", runItemId: failedHandoff.id } : final.error ?? Prisma.JsonNull }),
+    },
+  });
+  return updated.count > 0;
 }
 
 /** Shell and delegated-worker completions resume their owning automation. */
@@ -123,6 +252,12 @@ export async function saveSilentAutomationResult(tx: Prisma.TransactionClient, r
   });
   if (!run || run.origin !== "routine") return;
   const rootId = automationContextRunId(run.id, run.inboxEvents[0]?.payload);
+  if (
+    !(await tx.run.findFirst({
+      where: { id: rootId, botId: run.botId, channelId: run.channelId, origin: "routine" },
+    }))
+  )
+    return;
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`automation-result:${rootId}`}))`;
   if (
     (
@@ -136,6 +271,7 @@ export async function saveSilentAutomationResult(tx: Prisma.TransactionClient, r
   const family = await tx.run.findMany({
     where: {
       botId: run.botId,
+      channelId: run.channelId,
       origin: "routine",
       OR: [
         { id: rootId },
@@ -144,8 +280,15 @@ export async function saveSilentAutomationResult(tx: Prisma.TransactionClient, r
         },
       ],
     },
-    select: { id: true },
+    select: { id: true, status: true },
   });
+  if (
+    family.some(
+      (entry) =>
+        entry.id !== runId && ["queued", "running", "waiting_approval"].includes(entry.status)
+    )
+  )
+    return;
   const children = await tx.subagentAttempt.count({
     where: {
       parentRunId: { in: family.map((entry) => entry.id) },
@@ -153,6 +296,14 @@ export async function saveSilentAutomationResult(tx: Prisma.TransactionClient, r
     },
   });
   if (children) return;
+  if (
+    await pendingAutomationShells(
+      tx,
+      run.botId,
+      family.map((entry) => entry.id)
+    )
+  )
+    return;
   // Event sequence preserves stream order even when several messages share a
   // millisecond timestamp. Sorting Message.updatedAt can select earlier prose.
   const final = await tx.event.findFirst({
@@ -167,5 +318,9 @@ export async function saveSilentAutomationResult(tx: Prisma.TransactionClient, r
   const payload = final?.payload as { item?: { text?: unknown } } | undefined;
   const message = typeof payload?.item?.text === "string" ? payload.item.text.trim() : "";
   if (!message) return;
-  await tx.automationResult.upsert({ where: { runId }, create: { runId, message }, update: {} });
+  await tx.automationResult.upsert({
+    where: { runId: rootId },
+    create: { runId: rootId, message },
+    update: { message },
+  });
 }

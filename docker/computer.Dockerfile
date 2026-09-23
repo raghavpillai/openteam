@@ -1,4 +1,4 @@
-FROM oven/bun:1.3.8@sha256:371d30538b69303ced927bb5915697ac7e2fa8cb409ee332c66009de64de5aa3 AS build
+FROM oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 AS build
 
 WORKDIR /app
 COPY package.json bun.lock turbo.json tsconfig.base.json ./
@@ -46,7 +46,7 @@ RUN apt-get update \
     /tmp/openteam-wallpaper-base.png \
     /openteam-wallpaper.png
 
-FROM oven/bun:1.3.8-slim@sha256:68fc2eac7f5dcfc2f69a81d1db02786ab08772eda2e4404eae785c038f8d2e41 AS runtime
+FROM oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61 AS runtime
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
@@ -75,6 +75,7 @@ RUN apt-get update \
     novnc \
     poppler-utils \
     python3-pip \
+    python-is-python3 \
     ripgrep \
     thunar \
     tesseract-ocr \
@@ -85,6 +86,7 @@ RUN apt-get update \
     wget \
     x11-xserver-utils \
     x11vnc \
+    xclip \
     xdotool \
     xdg-utils \
     xfce4-panel \

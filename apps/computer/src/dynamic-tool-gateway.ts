@@ -1,6 +1,8 @@
 import type { CallDynamicToolInput, GetDynamicToolsInput } from "@openteam/contracts";
 import { compileToolSearchPattern } from "@openteam/shell-jobs";
 import { parseArgumentsLeniently } from "./dynamic-tool-argument-repair.js";
+import { isDeepStrictEqual } from "node:util";
+import type { BotMessage } from "./compaction/types";
 
 export type DynamicNamespaceStatus = "ready" | "needsAuth" | "error" | "loading";
 
@@ -44,6 +46,48 @@ const descriptionSummary = (description: string): string => {
 
 export const dynamicToolKey = (namespace: string, toolName: string): string =>
   `${namespace}/${toolName}`;
+
+/** Reuse only complete descriptors still present in the model's projected history.
+ * Search results, summaries and file-location stubs are not schema evidence. */
+export function retainedDynamicTools(
+  catalog: readonly DynamicNamespaceDefinition[],
+  messages: readonly BotMessage[]
+): Set<string> {
+  const retained = new Set<string>();
+  const lookups = new Map<string, { namespace: string; toolName?: string }>();
+  for (const message of messages) {
+    if (message.role === "assistant" && Array.isArray(message.content) &&
+        !["error", "aborted"].includes(String(message.stopReason))) {
+      for (const part of message.content) {
+        const call = part as { type?: string; name?: string; id?: string; arguments?: GetDynamicToolsInput };
+        const args = call?.arguments;
+        if (call?.type === "toolCall" && call.name === "GetDynamicTools" && call.id &&
+            typeof args?.namespace === "string" && (!args.pattern || args.toolName)) {
+          lookups.set(call.id, { namespace: args.namespace, toolName: args.toolName });
+        }
+      }
+    }
+    if (message.role !== "toolResult" || message.toolName !== "GetDynamicTools" || message.isError) continue;
+    const lookup = lookups.get(String(message.toolCallId));
+    if (!lookup || !Array.isArray(message.content)) continue;
+    const namespace = catalog.find(n => n.name === lookup.namespace && n.namespaceStatus === "ready");
+    if (!namespace) continue;
+    for (const part of message.content) {
+      if (part?.type !== "text" || typeof part.text !== "string") continue;
+      let result;
+      try { result = JSON.parse(part.text); } catch { continue; }
+      const descriptors = lookup.toolName ? [result] :
+        result?.mode === "namespace" && result.namespace === namespace.name && Array.isArray(result.tools) ? result.tools : [];
+      for (const descriptor of descriptors) {
+        const tool = namespace.tools.find(t => t.name === descriptor?.tool && (!lookup.toolName || t.name === lookup.toolName));
+        if (tool && descriptor.description === tool.description && isDeepStrictEqual(descriptor.inputSchema, tool.inputSchema)) {
+          retained.add(dynamicToolKey(namespace.name, tool.name));
+        }
+      }
+    }
+  }
+  return retained;
+}
 
 const searchPattern = (source: string | undefined): { test(text: string): boolean } | null => {
   if (!source) return null;

@@ -512,7 +512,7 @@ export class AssetStore {
         throw new ApiError(
           400,
           "asset_path_outside_store",
-          "Attachment path is outside an allowed OpenTeam directory"
+          `Attachment path is outside an allowed OpenTeam directory. Copy the intended deliverable into ${this.allowedFileRoots.join(" or ")} and attach that verified file path. Do not broaden directory access or change permissions.`
         );
       }
       const info = await stat(source);

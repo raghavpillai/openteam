@@ -1,7 +1,23 @@
 import { expect, test } from "bun:test";
-import { verifyGraphicalTaskCompletion } from "../../src/runtime/graphical-completion";
+import { graphicalProgressReminder, verifyGraphicalTaskCompletion } from "../../src/runtime/graphical-completion";
+import type { BotMessage } from "../../src/bot-compaction";
 import { routeEvent } from "../../src/runtime/events";
 import type { ActiveTurn } from "../../src/runtime/types";
+
+test("graphical checkpoints occur during work, bounded by the user task and prior checkpoint", () => {
+  const active = { subagentType: "computerUse", lastStopReason: "toolUse" } as ActiveTurn;
+  const result = { role: "toolResult", toolName: "browser_snapshot", content: [] } as BotMessage;
+  const twelve = Array.from({ length: 12 }, () => result);
+  expect(graphicalProgressReminder(twelve.slice(1), active)).toBeNull();
+  expect(graphicalProgressReminder(twelve, active)).toContain("still active");
+  expect(graphicalProgressReminder(twelve, active)).toContain("actual user deadline");
+  expect(graphicalProgressReminder([...twelve, { role: "custom", customType: "openteam-graphical-progress" }, result], active)).toBeNull();
+  expect(graphicalProgressReminder([...twelve, { role: "user", content: "New task" }, result], active)).toBeNull();
+  expect(graphicalProgressReminder([...twelve, { role: "assistant", content: "Finished" }], active)).toBeNull();
+  for (const change of [{ subagentType: null }, { endTurnRequested: true }, { lastStopReason: "aborted" }, { lastStopReason: "error" }, { pluginAbortController: { signal: AbortSignal.abort() } }]) {
+    expect(graphicalProgressReminder(twelve, { ...active, ...change } as ActiveTurn)).toBeNull();
+  }
+});
 
 test("a stopped graphical worker gets one verification opportunity in the same session", async () => {
   const calls: string[] = [];

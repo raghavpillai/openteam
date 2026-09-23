@@ -26,14 +26,13 @@ export interface GroupVisibilityWindow {
  * only outputs authored by members that have already held this round's baton.
  */
 export const groupVisibilityClauses = ({
-  rootSequence,
   triggerSequence,
   lastTargetSequence,
   earlierRunIds,
 }: GroupVisibilityWindow) => [
   {
     sequence: {
-      ...(lastTargetSequence === null ? { gte: rootSequence } : { gt: lastTargetSequence }),
+      ...(lastTargetSequence === null ? {} : { gt: lastTargetSequence }),
       lte: triggerSequence,
     },
   },
@@ -55,27 +54,28 @@ export const groupMemberMentionHandles = (name: string): string[] => {
   if (!normalized) return [];
   const compact = normalized.replace(/\s+/g, "");
   const first = normalized.split(/\s+/)[0] ?? "";
-  return [...new Set([compact, first].filter(Boolean))];
+  return [...new Set([normalized, compact, first].filter(Boolean))];
 };
 
-const mentionHandles = (text: string): string[] => {
-  const handles: string[] = [];
-  const matcher = /(?:^|[^a-z0-9])@([a-z0-9](?:[a-z0-9._-]*[a-z0-9])?)/giu;
-  for (const match of text.matchAll(matcher)) {
-    if (match[1]) handles.push(normalizeHandle(match[1]));
+const hasMention = (text: string, handle: string): boolean => {
+  const needle = `@${handle}`;
+  for (let index = text.indexOf(needle); index >= 0; index = text.indexOf(needle, index + 1)) {
+    const before = text[index - 1],
+      after = text[index + needle.length];
+    if (!(before && /[a-z0-9]/.test(before)) && !(after && /[a-z0-9]/.test(after))) return true;
   }
-  return handles;
+  return false;
 };
 
 export const parseGroupMentions = (
   text: string,
   members: readonly GroupMentionMember[]
 ): { isEveryone: boolean; memberIds: string[] } => {
-  const handles = new Set(mentionHandles(text));
-  const isEveryone = handles.has("everyone") || handles.has("all");
+  const lower = normalizeHandle(text);
+  const isEveryone = /(?:^|[^a-z0-9])@(everyone|all)\b/.test(lower);
   const memberIds = members
     .filter((member) =>
-      groupMemberMentionHandles(member.name).some((handle) => handles.has(handle))
+      groupMemberMentionHandles(member.name).some((handle) => hasMention(lower, handle))
     )
     .map((member) => member.id);
   return { isEveryone, memberIds };

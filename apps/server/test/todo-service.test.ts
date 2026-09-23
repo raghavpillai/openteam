@@ -72,6 +72,20 @@ const todoFixture = (initial: Row[]) => {
 };
 
 describe("bounded set-based TodoWrite persistence", () => {
+  test("one-item merge completes a task without dropping neighboring tasks or their positions", async () => {
+    const fixture = todoFixture([
+      { botId: "bot-1", id: "first", content: "First", status: "pending", position: 0 },
+      { botId: "bot-1", id: "second", content: "Second", status: "pending", position: 1 },
+    ]);
+    const result = await fixture.service.write("bot-1", "call-single", {
+      merge: true, todos: [{ id: "first", content: "First", status: "completed" }],
+    });
+    expect(result.todos).toEqual([
+      { id: "first", content: "First", status: "completed" },
+      { id: "second", content: "Second", status: "pending" },
+    ]);
+    expect(fixture.rows().map(row => row.position)).toEqual([0, 1]);
+  });
   test("deduplicates in linear first-write order", () => {
     expect(
       uniqueTodoInputs([

@@ -1,4 +1,5 @@
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
+import { isPendingReviewControl } from "./pending-review-controls";
 import { spoolFile } from "@openteam/plugin-sdk/file-spool";
 import { agentReadStream, agentWriteStream } from "../agent-file-stream";
 import {
@@ -67,6 +68,7 @@ import { BROWSER_USE_TOOLS, BrowserUseSession } from "../browser/use";
 import {
   discoverDynamicTools,
   renderDynamicDiscovery,
+  retainedDynamicTools,
   type DynamicNamespaceDefinition,
   resolveDynamicTool,
 } from "../dynamic-tool-gateway";
@@ -552,7 +554,7 @@ export class RuntimeTools {
         "Screenshot",
         "ListMachines",
         "CallDynamicTool",
-      ].includes(tool)
+      ].includes(tool) && !isPendingReviewControl(tool, args)
     )
       this.assertNoPendingReview(active);
     if (active.requestSource === "automation" && AUTOMATION_PARENT_ONLY_TOOLS.has(tool)) {
@@ -962,6 +964,9 @@ export class RuntimeTools {
       async () => {
         if (active.endTurnRequested) throw new Error("The turn has ended");
         this.assertNoPendingReview(active);
+        const closeBrowser = tool === "browser_tabs" && (args as any)?.action === "close"
+          ? this.browserUseSessions?.get(active.botId) : undefined;
+        const closeTarget = closeBrowser?.tabCloseReviewTarget(args as { index?: unknown });
         if (
           ![
             "browser_snapshot",
@@ -976,7 +981,8 @@ export class RuntimeTools {
                 surface: tool.startsWith("browser_") ? "browser" : "computer",
                 summary: tool.startsWith("browser_") ? `Use dedicated browser tool ${tool}` : `Use native desktop tool ${tool}`,
                 target: active.screenBotId,
-                arguments: { tool, ...(args as Record<string, unknown>) },
+                arguments: { tool, ...(args as Record<string, unknown>),
+                  ...(closeTarget ? { browserObservedTarget: closeTarget } : {}) },
               },
               signal,
               approvals
@@ -985,6 +991,8 @@ export class RuntimeTools {
         }
         signal?.throwIfAborted();
         this.assertNoPendingReview(active);
+        if (closeTarget && JSON.stringify(closeBrowser!.tabCloseReviewTarget(args as { index?: unknown })) !== JSON.stringify(closeTarget))
+          throw new Error("Browser tab changed while awaiting review. Inspect the current tabs before requesting closure again.");
         return execute();
       }
     );
@@ -1739,7 +1747,7 @@ export class RuntimeTools {
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     return this.executeHostTool(active, callId, TASK_TOOL.name, signal, async (approvals) => {
-      await this.nativeToolExecutor.autoReviewTask(args, signal, approvals);
+      await this.nativeToolExecutor.autoReviewTask(args, signal, approvals, active.taskConfiguration);
       return this.callControlPlaneTool(active, callId, TASK_TOOL.name, args, signal);
     });
   }
@@ -2061,11 +2069,11 @@ export class RuntimeTools {
         ].includes(input.toolName))
     )
       throw new Error("This tool is unavailable to a read-only plugin agent");
-    const resolved = resolveDynamicTool(
-      this.dynamicCatalog(active),
-      active.discoveredDynamicTools,
-      input
-    );
+    const catalog = this.dynamicCatalog(active);
+    const receipts = active.discoveredDynamicTools.has(`${input.namespace}/${input.toolName}`)
+      ? active.discoveredDynamicTools
+      : new Set([...active.discoveredDynamicTools, ...retainedDynamicTools(catalog, active.dynamicDiscoveryMessages ?? [])]);
+    const resolved = resolveDynamicTool(catalog, receipts, input);
     const invoke = async () => {
       signal?.throwIfAborted();
       if (active.endTurnRequested)
@@ -2073,7 +2081,7 @@ export class RuntimeTools {
       if (
         !(
           input.namespace === "cursor" &&
-          [
+          (isPendingReviewControl(input.toolName, resolved.arguments) || [
             "AwaitShell",
             "WebFetch",
             "WebSearch",
@@ -2086,7 +2094,7 @@ export class RuntimeTools {
             "read_sibling_thread",
             "ListCredentials",
             "GetCredentialProviderStatus",
-          ].includes(input.toolName)
+          ].includes(input.toolName))
         )
       )
         this.assertNoPendingReview(active);

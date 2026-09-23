@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { createPrismaClient } from "@openteam/db";
 import { loadAutoReviewContext } from "../src/services/auto-review-context";
+import { RoutineService } from "@openteam/messaging";
 
 test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)(
   "review context uses stored human intent and parent context, rejects stale or removed access, never truncates authorization",
@@ -98,6 +99,20 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)(
       const bounded = await loadAutoReviewContext(db, { runId: parentRun.id, botId: parentId });
       expect(bounded.at(-1)?.content).toContain("Message omitted");
       expect(bounded.at(-1)?.content).not.toContain("Publish this");
+      const routines = new RoutineService(db, { defaultTimeZone: "UTC", enqueueWake: async () => { throw new Error("not used"); } });
+      const routine = await routines.mutate(parentId, crypto.randomUUID(), null, { action: "create", name: "Saved review authority", prompt: "Fill the synthetic form, do not upload files.", schedule: "@every 1h", enabled: false });
+      const revision = await db.routineRevision.findFirstOrThrow({ where: { routineId: String(routine.id) } });
+      await db.run.update({ where: { id: parentRun.id }, data: { origin: "routine" } });
+      await db.routineExecution.create({ data: { routineId: String(routine.id), routineRevisionId: revision.id, runId: parentRun.id, dedupeKey: crypto.randomUUID(), scheduledFor: new Date(), kind: "scheduled", status: "running" } });
+      const continuation = await db.run.create({ data: { botId: parentId, conversationId: parent.conversation!.id, channelId, origin: "routine", userMessageId: crypto.randomUUID(), status: "running" } });
+      const continuationEvent = await db.inboxEvent.create({ data: { botId: parentId, conversationId: parent.conversation!.id, runId: continuation.id, idempotencyKey: crypto.randomUUID(), type: "subagent.completed", payload: { automationContextRunId: parentRun.id } } });
+      const resumed = await loadAutoReviewContext(db, { runId: continuation.id, botId: parentId });
+      expect(resumed.at(-1)).toEqual({ role: "user", source: "routine", content: revision.prompt });
+      await db.subagent.update({ where: { childBotId: childId }, data: { parentRunId: continuation.id } });
+      expect((await loadAutoReviewContext(db, { runId: childRun.id, botId: childId })).at(-1)?.content).toBe(revision.prompt);
+      await db.inboxEvent.update({ where: { id: continuationEvent.id }, data: { payload: { automationContextRunId: childRun.id } } });
+      await expect(loadAutoReviewContext(db, { runId: continuation.id, botId: parentId })).rejects.toThrow("automation context is unavailable");
+      await db.subagent.update({ where: { childBotId: childId }, data: { parentRunId: parentRun.id } });
       await expect(
         loadAutoReviewContext(db, { runId: parentRun.id, botId: childId })
       ).rejects.toThrow("active");

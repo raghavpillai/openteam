@@ -313,9 +313,11 @@ export class Projection {
                 upstreamItemId,
                 role: "assistant",
                 content: item.text,
-                status: "completed",
+                status: completed ? "completed" : "streaming",
               },
-              update: { content: item.text, status: "completed" },
+              // Replayed starts must neither erase accumulated deltas nor reopen
+              // a completed message. Only completion replaces its full text.
+              update: completed ? { content: item.text, status: "completed" } : {},
             });
           }
           await this.event(tx, completed ? "run_item.completed" : "run_item.started", runId, {

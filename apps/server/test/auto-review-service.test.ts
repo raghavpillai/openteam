@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   AutoReviewService,
+  AUTO_REVIEW_COMMAND_MAX_LENGTH,
   parseAutoReviewInput,
   parseAutoReviewResponse,
 } from "../src/services/auto-review-service";
@@ -21,6 +22,29 @@ const inference = async () => ({
 });
 
 describe("Auto Review", () => {
+  test("keeps a command bound and honors a denial at the end of a long command", async () => {
+    expect(() => parseAutoReviewInput({ ...input, command: "x".repeat(AUTO_REVIEW_COMMAND_MAX_LENGTH + 1) })).toThrow();
+    const command = "# harmless synthetic preamble\n".repeat(300) + "publish-private-fixture";
+    let calls = 0;
+    const service = new AutoReviewService(async (_path, init) => {
+      calls++;
+      expect(JSON.parse(JSON.parse(String(init.body)).prompt).action.command).toBe(command);
+      return Response.json({ text: '{"decision":"block","reason":"Publication is not authorized"}' });
+    }, inference);
+    expect((await service.review(parseAutoReviewInput({ ...input, command }))).decision).toBe("block");
+    expect(calls).toBe(1);
+  });
+  test("reviews complete long commands without truncating their final action", async () => {
+    const command = "# synthetic fixture\n".repeat(300) + "printf review-the-tail";
+    const parsed = parseAutoReviewInput({ ...input, command });
+    let request: any;
+    const service = new AutoReviewService(async (_path, init) => {
+      request = JSON.parse(String(init.body));
+      return Response.json({ text: '{"decision":"allow","reason":"Synthetic fixture"}' });
+    }, inference);
+    expect((await service.review(parsed)).decision).toBe("allow");
+    expect(JSON.parse(request.prompt).action.command).toBe(command);
+  });
   test("retries transient inference failures once but never retries a policy block", async () => {
     let calls = 0;
     const service = new AutoReviewService(async () => {

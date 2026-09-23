@@ -46,7 +46,27 @@ diff --git a/dist/core/agent-session.js b/dist/core/agent-session.js
      };
      _willRetryAfterAgentEnd(event) {
          const settings = this.settingsManager.getRetrySettings();
-@@ -1590,35 +1590,16 @@
+@@ -556,7 +556,7 @@
+      * Remove all listeners and disconnect from agent.
+      * Call this when completely done with the session.
+      */
+-    dispose() {
++    dispose(options = {}) {
+         try {
+             this.abortRetry();
+             this.abortCompaction();
+@@ -570,7 +570,9 @@
+         this._extensionRunner.invalidate("This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().");
+         this._disconnectFromAgent();
+         this._eventListeners = [];
+-        cleanupSessionResources(this.sessionId);
++        if (!options.preserveProviderResources) {
++            cleanupSessionResources(this.sessionId);
++        }
+     }
+     // =========================================================================
+     // Read-only State Access
+@@ -1590,35 +1592,16 @@
              if (!willRetry) {
                  return await this._runAutoCompaction("overflow", false);
              }
@@ -139,3 +159,18 @@ diff --git a/dist/core/session-manager.js b/dist/core/session-manager.js
          }
      }
      _appendEntry(entry) {
+diff --git a/dist/core/agent-session.d.ts b/dist/core/agent-session.d.ts
+--- a/dist/core/agent-session.d.ts
++++ b/dist/core/agent-session.d.ts
+@@ -286,7 +286,10 @@
+      * Remove all listeners and disconnect from agent.
+      * Call this when completely done with the session.
+      */
+-    dispose(): void;
++    dispose(options?: {
++        /** Caller must eventually release retained resources with cleanupSessionResources(sessionId). */
++        preserveProviderResources?: boolean;
++    }): void;
+     /** Full agent state */
+     get state(): AgentState;
+     /** Current model (may be undefined if not yet selected) */

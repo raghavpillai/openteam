@@ -1,4 +1,4 @@
-FROM oven/bun:1.3.8@sha256:371d30538b69303ced927bb5915697ac7e2fa8cb409ee332c66009de64de5aa3 AS build
+FROM oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 AS build
 
 WORKDIR /app
 
@@ -35,7 +35,7 @@ RUN bun --filter @openteam/server build && bun --filter @openteam/worker build
 
 # The schema sync only needs packages/db and its dependencies (Prisma CLI, its schema
 # engine, and pg), so it gets its own slim stage instead of inheriting the full build stage.
-FROM oven/bun:1.3.8-slim@sha256:68fc2eac7f5dcfc2f69a81d1db02786ab08772eda2e4404eae785c038f8d2e41 AS migrate
+FROM oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61 AS migrate
 WORKDIR /app
 COPY package.json bun.lock turbo.json tsconfig.base.json ./
 COPY apps/computer/package.json apps/computer/package.json
@@ -68,7 +68,7 @@ ENV CHECKPOINT_DISABLE=1
 USER 1000:1000
 CMD ["bun", "--filter", "@openteam/db", "db:deploy"]
 
-FROM oven/bun:1.3.8-slim@sha256:68fc2eac7f5dcfc2f69a81d1db02786ab08772eda2e4404eae785c038f8d2e41 AS server
+FROM oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61 AS server
 WORKDIR /app
 COPY --from=build /app/apps/server/dist/main.js ./main.js
 COPY --from=build /app/node_modules/.bun/@1password+sdk@0.5.0/node_modules/@1password/sdk ./node_modules/@1password/sdk

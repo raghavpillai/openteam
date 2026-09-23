@@ -7,7 +7,7 @@ import { agentProcessIdentity } from "./agent-process";
 import { BrowserBroker } from "./browser/broker";
 import { BrowserProfileAuthority } from "./browser/profile-authority";
 import { prepareDownloadPreferences } from "./browser/download-preferences";
-import { performComputerUseAction } from "./screen/actions";
+import { performComputerUseAction, performComputerUseBatch } from "./screen/actions";
 import {
   environment,
   exists,
@@ -220,11 +220,11 @@ export class ScreenBroker {
     const session = await this.readySession(botId, cwd);
     return this.withInput(session, "agent", async (signal) => {
       const env = environment(this.home, session);
-      for (const action of actions) {
+      await performComputerUseBatch(actions, async action => {
         signal?.throwIfAborted();
         this.assertAgentControl(session);
         await performComputerUseAction(action, env, signal);
-      }
+      }, signal);
       const finalAction = actions.at(-1)?.action;
       if (finalAction && finalAction !== "wait" && finalAction !== "screenshot") {
         await new Promise((resolve) => setTimeout(resolve, 150));

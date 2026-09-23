@@ -6,6 +6,7 @@ import { Effect } from "effect";
 import type { ComputerTurnRequest } from "@openteam/contracts";
 import { AppService } from "../../server/src/app-service";
 import { WakeWorker } from "../src/worker";
+import { loadAutoReviewContext } from "../../server/src/services/auto-review-context";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 test.skipIf(!databaseUrl)(
@@ -18,6 +19,8 @@ test.skipIf(!databaseUrl)(
     let releaseAutomation: () => void = () => {};
     let releaseParent: () => void = () => {};
     let releaseManagedChild: () => void = () => {};
+    let releaseRoutineChild: () => void = () => {};
+    const routineChildGate = new Promise<void>(resolve => { releaseRoutineChild = resolve; });
     const managedChildGate = new Promise<void>(resolve => { releaseManagedChild = resolve; });
     const automationGate = new Promise<void>(resolve => { releaseAutomation = resolve; });
     const parentGate = new Promise<void>(resolve => { releaseParent = resolve; });
@@ -72,18 +75,28 @@ test.skipIf(!databaseUrl)(
           if (input.runtimeProfile === "subagent") {
             await expect(call("Task", { description: "Forbidden nested task", prompt: "Never launch" })).rejects.toThrow("parent-agent only");
             if (input.content.includes("WP_MANAGED_CHILD")) await managedChildGate;
+            if (input.content.includes("WP_ROUTINE_CHILD")) await routineChildGate;
             if (input.subagentType === "computerUse") {
               expect(input.taskConfiguration).toMatchObject({ combinedComputerUse: true });
               expect(input.instructions).toContain("Computer and browser_* tools");
               expect(input.model).not.toContain("ignored-model");
             }
-            final = input.content.includes("WP_FOREGROUND_CHILD") ? "WP_FOREGROUND_RESULT" : "WP_CHILD_RESULT: checked the fixture successfully.";
+            final = input.content.includes("WP_ROUTINE_CHILD") ? "WP_ROUTINE_CHILD_RESULT" : input.content.includes("WP_FOREGROUND_CHILD") ? "WP_FOREGROUND_RESULT" : "WP_CHILD_RESULT: checked the fixture successfully.";
           } else if (input.requestSource === "automation") {
             expect(input.instructions).toContain("WakeParent is the only route");
             await expect(
               call("SendToUser", { type: "text", content: "Must never appear" })
             ).rejects.toThrow("Use WakeParent");
-            if (input.content.includes("WP_CHILD_RESULT")) {
+            if (input.content.includes("WP_SHELL_FINISHED")) {
+              final = "WP_SHELL_SILENT: background shell completed.";
+            } else if (input.content.includes("WP_ROUTINE_CHILD_RESULT")) {
+              const review = await loadAutoReviewContext(app!.prisma, { runId: input.runId, botId: input.botId } as any);
+              expect(review.some(message => message.source === "routine" && message.content === "WP_WAIT_CHILD")).toBe(true);
+              final = "WP_FINAL_SILENT: child and verification completed.";
+            } else if (input.content.includes("WP_WAIT_CHILD")) {
+              await call("Task", { description: "Gated routine child", prompt: "WP_ROUTINE_CHILD", subagent_type: "executor", run_in_background: true });
+              final = "WP_WAITING: waiting for the child, not the final result.";
+            } else if (input.content.includes("WP_CHILD_RESULT")) {
               expect(input.sessionPath).not.toBeNull();
               await call("WakeParent", {
                 message: "WP_DELEGATED_SUCCESS: Tell the user the delegated check completed.",
@@ -180,6 +193,8 @@ test.skipIf(!databaseUrl)(
           },
           { type: "turn.started", turnId: input.runId },
           { type: "prompt.delivered", turnId: input.runId },
+          ...(input.content.includes("WP_SHELL_PENDING") ? [{ type: "item.completed", turnId: input.runId,
+            item: { id: "background-shell", type: "commandExecution", command: "sleep 10", shellKind: "background", status: "completed", result: { details: { shellId: "fixture-shell", status: "running", outputPath: "/tmp/WP_SHELL_FINISHED.log" } } } }] : []),
           ...(final
             ? [
                 {
@@ -354,8 +369,29 @@ test.skipIf(!databaseUrl)(
       ).toBe(0);
       expect(errors).toEqual([]);
       expect(turns.some(turn => turn.subagentType === "computerUse")).toBe(true);
+      const waiting = await Effect.runPromise(app.createRoutine(botId, crypto.randomUUID(), { action: "create", name: "Waiting child fixture", prompt: "WP_WAIT_CHILD", schedule: "@every 1h" }));
+      const waitingExecution = await Effect.runPromise(app.runRoutineNow(waiting.id, crypto.randomUUID()));
+      await until(async () => (await app!.prisma.run.findUnique({ where: { id: waitingExecution.runId! } }))?.status === "completed");
+      await (worker as any).recoverRoutineExecutions();
+      expect((await app.prisma.routineExecution.findUniqueOrThrow({ where: { id: waitingExecution.id } })).status).toBe("running");
+      expect(await app.prisma.automationResult.findUnique({ where: { runId: waitingExecution.runId! } })).toBeNull();
+      await expect(Effect.runPromise(app.runRoutineNow(waiting.id, crypto.randomUUID()))).rejects.toThrow("already running");
+      releaseRoutineChild();
+      await until(async () => (await app!.prisma.routineExecution.findUnique({ where: { id: waitingExecution.id } }))?.status === "completed");
+      expect((await app.prisma.automationResult.findUniqueOrThrow({ where: { runId: waitingExecution.runId! } })).message).toBe("WP_FINAL_SILENT: child and verification completed.");
+      const resumed = turns.find(turn => turn.requestSource === "automation" && turn.content.includes("WP_ROUTINE_CHILD_RESULT"))!;
+      expect(resumed.contextSessionId).toBe(turns.find(turn => turn.runId === waitingExecution.runId)!.contextSessionId);
+      const shellRoutine = await Effect.runPromise(app.createRoutine(botId, crypto.randomUUID(), { action: "create", name: "Background shell fixture", prompt: "WP_SHELL_PENDING", schedule: "@every 1h" }));
+      const shellExecution = await Effect.runPromise(app.runRoutineNow(shellRoutine.id, crypto.randomUUID()));
+      await until(async () => (await app!.prisma.run.findUnique({ where: { id: shellExecution.runId! } }))?.status === "completed");
+      await (worker as any).recoverRoutineExecutions();
+      expect((await app.prisma.routineExecution.findUniqueOrThrow({ where: { id: shellExecution.id } })).status).toBe("running");
+      expect(await app.prisma.automationResult.findUnique({ where: { runId: shellExecution.runId! } })).toBeNull();
+      await app.messaging.completeShell({ id: "fixture-shell", scope: botId, channelId, automationRunId: shellExecution.runId!, outputPath: "/tmp/WP_SHELL_FINISHED.log", exitCode: 0 });
+      await until(async () => (await app!.prisma.routineExecution.findUnique({ where: { id: shellExecution.id } }))?.status === "completed");
+      expect((await app.prisma.automationResult.findUniqueOrThrow({ where: { runId: shellExecution.runId! } })).message).toBe("WP_SHELL_SILENT: background shell completed.");
     } finally {
-      releaseAutomation(); releaseParent(); releaseManagedChild();
+      releaseAutomation(); releaseParent(); releaseManagedChild(); releaseRoutineChild();
       await worker?.stop();
       if (app) {
         await app.agentData.stopWatching();

@@ -33,9 +33,10 @@ describe("main-agent graphical delegation instructions", () => {
     expect(instructions).toContain("You cannot communicate with the user");
   });
 
-  test("gives browserUse leased-tab, ref, and human-blocker rules", () => {
+  test("gives browserUse desktop-scoped tab, ref, and human-blocker rules", () => {
     const instructions = subagentSpecializationInstructions("browserUse");
-    expect(instructions).toContain("leased tabs");
+    expect(instructions).toContain("assigned parent desktop's browser tabs");
+    expect(instructions).toContain("Preserve pre-existing and unsaved tabs");
     expect(instructions).toContain("exact DOM nodes");
     expect(instructions).toContain("CAPTCHA");
     expect(instructions).toContain("You cannot talk to the user directly");

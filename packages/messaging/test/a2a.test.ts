@@ -289,3 +289,9 @@ Current routine runtime status. This snapshot is authoritative for this turn and
     expect(A2A_PLATFORM_INSTRUCTIONS).toContain("explicitly asked for that collaboration");
   });
 });
+
+test("group pass prefix cleanup preserves meaningful contributions and normal Unicode text", () => {
+  expect(normalizeGroupAgentMessage("(pass) — revised answer")).toEqual({ status: "message", content: "revised answer" });
+  expect(normalizeGroupAgentMessage("(pass) I agree")).toEqual({ status: "message", content: "I agree" });
+  expect(normalizeGroupAgentMessage("日本語 🙂")).toEqual({ status: "message", content: "日本語 🙂" });
+});

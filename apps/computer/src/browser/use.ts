@@ -113,6 +113,7 @@ export class BrowserUseSession {
   private readonly dialogObservers = new WeakMap<Page, Promise<void>>();
   private dialogOpened?: (page: Page) => void;
   private unfinishedOperation?: Promise<AgentToolResult<Record<string, unknown>>>;
+  private dialogTimedOutOperation?: Promise<AgentToolResult<Record<string, unknown>>>;
   private cancelledNavigation?: Promise<AgentToolResult<Record<string, unknown>>>;
   private async drainDialogAction(): Promise<void> {
     const operation = this.unfinishedOperation;
@@ -120,12 +121,15 @@ export class BrowserUseSession {
     catch (error) {
       // The dialog can arrive while the action's post-click screenshot starts.
       // Its failed observation is superseded by the fresh post-dialog snapshot.
-      if (!/Open JavaScript dialog prevents evaluation/.test(String(error)) &&
+      const expiredWhileDialogOpen = operation && operation === this.dialogTimedOutOperation &&
+        /[Tt]imeout\s+\d+ms exceeded/.test(String(error));
+      if (!expiredWhileDialogOpen && !/Open JavaScript dialog prevents evaluation/.test(String(error)) &&
           !(operation && operation === this.cancelledNavigation && /net::ERR_ABORTED/.test(String(error)))) throw error;
     }
     finally {
       if (this.unfinishedOperation === operation) this.unfinishedOperation = undefined;
       if (this.cancelledNavigation === operation) this.cancelledNavigation = undefined;
+      if (this.dialogTimedOutOperation === operation) this.dialogTimedOutOperation = undefined;
     }
   }
 
@@ -175,7 +179,8 @@ export class BrowserUseSession {
     private readonly browser: Browser,
     private readonly context: BrowserContext,
     private readonly artifactDirectory: string,
-    private readonly downloadDirectory: string
+    private readonly downloadDirectory: string,
+    private readonly adoptDesktopPages = false
   ) {
     // Playwright otherwise auto-dismisses dialogs with no listeners, including
     // dialogs in another worker's tab on a separate connection to this Chrome.
@@ -199,15 +204,17 @@ export class BrowserUseSession {
     this.dialogOpened?.(page);
   }
 
-  static async connect(endpoint: string, artifactDirectory: string, adoptExisting = false, downloadDirectory = join(homedir(), "Downloads"), lease?: { targets: Map<string, string>; selected: string | null; nextId: number }): Promise<BrowserUseSession> {
+  // The runtime endpoint belongs to one bot desktop. Native Chrome and its
+  // managed workers must see the same tabs; explicit false retains an isolated
+  // lease for callers that intentionally share an endpoint with unrelated work.
+  static async connect(endpoint: string, artifactDirectory: string, adoptExisting = true, downloadDirectory = join(homedir(), "Downloads"), lease?: { targets: Map<string, string>; selected: string | null; nextId: number }): Promise<BrowserUseSession> {
     const driver = await outOfProcessPlaywright();
     const browser = await driver.playwright.chromium.connectOverCDP(endpoint);
     const context = browser.contexts()[0];
     if (!context) throw new Error("Chromium did not provide a default browser context");
-    const session = new BrowserUseSession(browser, context, artifactDirectory, downloadDirectory);
+    const session = new BrowserUseSession(browser, context, artifactDirectory, downloadDirectory, adoptExisting);
     session.downloads = await BrowserDownloads.create(browser, context, () => session.leasedPages(), downloadDirectory);
-    if (adoptExisting) { for (const page of context.pages()) session.trackPage(page); context.on("page", page => session.trackPage(page)); }
-    else if (lease) {
+    if (lease) {
       session.nextViewId = lease.nextId;
       session.currentViewId = lease.selected;
       for (const page of context.pages()) {
@@ -222,15 +229,24 @@ export class BrowserUseSession {
           }
         } finally { await cdp.detach(); }
       }
-    } else session.trackPage(await context.newPage());
+    }
+    if (adoptExisting) {
+      for (const page of context.pages()) session.trackPage(page);
+      context.on("page", page => session.trackPage(page));
+      if (!lease) {
+        const latest = session.leasedPages().at(-1);
+        if (latest) session.currentViewId = session.idFor(latest);
+      }
+    } else if (!lease) session.trackPage(await context.newPage());
     await session.ensurePage();
     return session;
   }
 
   async reconnect(endpoint: string): Promise<BrowserUseSession> {
-    // Recover only this lease's exact Chromium target IDs, never unrelated tabs.
+    // Retain exact IDs and selection. Desktop sessions also adopt new native
+    // tabs from their same scoped endpoint; isolated leases never do so.
     // The failed action is not replayed. Element refs must be observed again.
-    const session = await BrowserUseSession.connect(endpoint, this.artifactDirectory, false, this.downloadDirectory,
+    const session = await BrowserUseSession.connect(endpoint, this.artifactDirectory, this.adoptDesktopPages, this.downloadDirectory,
       { targets: this.targetIds, selected: this.currentViewId, nextId: this.nextViewId });
     session.registerPrivateValues([...this.privateValues]);
     return session;
@@ -485,7 +501,13 @@ export class BrowserUseSession {
     const opened = new Promise<AgentToolResult<Record<string, unknown>>>(resolve => {
       this.dialogOpened = openedPage => resolve(this.dialogState(openedPage));
     });
-    const operation = this.executeRaw(toolName, raw);
+    const operation: Promise<AgentToolResult<Record<string, unknown>>> = this.executeRaw(toolName, raw).catch(error => {
+      // Record when the timeout occurred, not merely that a dialog appeared.
+      // An observation/navigation timeout after the dialog closed must still fail.
+      if (this.dialogs.size && /[Tt]imeout\s+\d+ms exceeded/.test(String(error)))
+        this.dialogTimedOutOperation = operation;
+      throw error;
+    });
     this.unfinishedOperation = operation;
     try {
       const result = await Promise.race([operation, opened]);
@@ -1005,6 +1027,24 @@ export class BrowserUseSession {
     }
   }
 
+  /** Runtime evidence for review; page content never grants authorization. */
+  tabCloseReviewTarget(args: { index?: unknown }) {
+    const page = typeof args.index === "number"
+      ? this.leasedPages()[args.index]
+      : this.leasedPages().find(page => this.idFor(page) === this.currentViewId);
+    if (!page) throw new Error("Browser tab is unavailable");
+    const describe = (target: Page) => ({
+      viewId: this.idFor(target),
+      url: redactSecrets(target.url(), [...this.privateValues]),
+    });
+    const opener = this.openers.get(page);
+    return {
+      source: "Browser runtime observation; not user authorization",
+      target: describe(page),
+      ...(opener && !opener.isClosed() ? { openedBy: describe(opener) } : {}),
+    };
+  }
+
   private async tabs(args: JsonObject) {
     const action = args.action;
     if (action === "new") {
@@ -1021,10 +1061,19 @@ export class BrowserUseSession {
       const pages = this.leasedPages();
       const page = typeof args.index === "number" ? pages[args.index] : await this.ensurePage();
       if (!page) throw new Error("Browser tab is unavailable");
+      const selectedBefore = this.currentViewId;
+      const opener = this.openers.get(page);
+      const closedIndex = pages.indexOf(page);
       await this.clearRefs(page);
       await page.close();
       this.targetIds.delete(this.idFor(page));
-      this.currentViewId = null;
+      const remaining = this.leasedPages();
+      // Closing a background tab keeps selection; closing a popup returns to
+      // its opener. Otherwise use the neighboring tab, not an unrelated first
+      // tab that may hold the user's pre-existing work.
+      const next = remaining.find(candidate => this.idFor(candidate) === selectedBefore)
+        ?? (opener && remaining.includes(opener) ? opener : remaining[Math.min(closedIndex, remaining.length - 1)]);
+      this.currentViewId = next ? this.idFor(next) : null;
       await this.ensurePage();
     } else if (action !== "list") {
       throw new Error("action must be list, new, close, or select");

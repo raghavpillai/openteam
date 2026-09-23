@@ -124,7 +124,11 @@ export function renderControlResult(
           update: "Updated",
         } as Record<string, string>
       )[args.action];
-      return `${verb} routine "${result.name}" (folder ${result.folder ?? args.id})${["create", "update"].includes(args.action) ? ` — ${describeTrigger(result.trigger ?? {type:"cron",schedule:result.schedule})}${result.enabled ? "" : ", paused"}` : ""}.`;
+      const owner = result.owner?.kind === "group" ? ` Owner: group "${result.owner.name ?? result.owner.id}" (${result.owner.id}).` : "";
+      const summary = `${verb} routine "${result.name}" (folder ${result.folder ?? args.id})${["create", "update"].includes(args.action) ? ` — ${describeTrigger(result.trigger ?? {type:"cron",schedule:result.schedule})}${result.enabled ? "" : ", paused"}` : ""}.${owner}`;
+      if (typeof result.next_run_at === "string") return `${summary}\nNext scheduled occurrence: ${result.next_run_at}. Use this saved timestamp if reporting the next run; do not calculate or guess a different time.`;
+      if (result.next_run_at === null) return `${summary}\nNext scheduled occurrence: none${result.enabled === false ? " (paused)" : ""}.`;
+      return summary;
     }
     if (result.target === "avatar" && result.cleared)
       return "Cleared your picture — back to the default.";
@@ -163,6 +167,9 @@ export function renderControlResult(
   }
   if (name === "WakeParent" && result.woken)
     return "The parent was awakened and this automation turn has ended.";
+  if (name === "SendToUser" && result.sent)
+    if (result.queued) return `Message queued for the room when this turn completes. (id: ${result.message_address ?? result.message_id})`;
+  if (name === "SendToUser" && result.silent) return "No room message delivered (silent turn).";
   if (name === "SendToUser" && result.sent)
     return result.message_address || result.message_id
       ? `Message sent to user. (id: ${result.message_address ?? result.message_id})`

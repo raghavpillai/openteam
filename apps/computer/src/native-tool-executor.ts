@@ -1,6 +1,7 @@
 import { MachineDirectory } from "./machine-directory";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { HostReviewContext } from "@openteam/contracts/service-protocol";
+import type { TaskConfiguration } from "@openteam/contracts/task-configuration";
 import { Readable } from "node:stream";
 import { agentReadStream, agentWriteStream } from "./agent-file-stream";
 import { formatBytes2 } from "@openteam/contracts/reference-formatters";
@@ -390,7 +391,8 @@ export class NativeToolExecutor {
   async autoReviewTask(
     input: TaskInput,
     signal?: AbortSignal,
-    approvals: HostApprovalTokens = {}
+    approvals: HostApprovalTokens = {},
+    configuration?: Pick<TaskConfiguration, "combinedComputerUse"> | null
   ): Promise<void> {
     const task = `Run a task on OpenTeam's computer: “${input.prompt}”`;
     const request = {
@@ -404,6 +406,13 @@ export class NativeToolExecutor {
         prompt: input.prompt,
         description: input.description,
         subagent_type: input.subagent_type ?? "generalPurpose",
+        ...(input.subagent_type === "computerUse" && configuration ? {
+          runtimeCapabilities: {
+            source: "runtime task configuration",
+            tools: configuration.combinedComputerUse ? ["browser_*", "Computer"] : ["Computer"],
+            guidance: "These are available tools, not additional authorization. The delegated prompt and each action must still obey the user's requested modality and scope.",
+          },
+        } : {}),
         ...(input.model ? { model: input.model } : {}),
         ...(input.resume ? { resume: input.resume } : {}),
         ...(input.file_attachments?.length ? { file_attachments: input.file_attachments } : {}),

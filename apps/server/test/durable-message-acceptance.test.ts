@@ -98,8 +98,9 @@ describe("durable message acceptance boundary", () => {
         }),
         update: async () => ({}),
       },
-      channelMessage: { create: async () => message, count: async () => 0 },
-      idempotencyRecord: { create: async () => ({}), update: async () => ({}) },
+      channelMessage: { create: async () => message, count: async () => 0, findUniqueOrThrow: async () => message, findMany: async () => [] },
+      channelRound: { findMany: async () => [] },
+      idempotencyRecord: { findUnique: async () => null, create: async () => ({}), update: async () => ({}) },
       event: { create: async () => ({}) },
     };
     const prisma = {

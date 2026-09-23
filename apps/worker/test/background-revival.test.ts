@@ -22,7 +22,11 @@ test("background subagent completion revives the parent with Bot's dedicated sou
 
   await worker.notifySubagentParent(
     {
-      run: { findFirst: async () => ({ origin: "user" }) },
+      run: {
+        findFirst: async () => ({ origin: "user" }),
+        findUnique: async () => ({ inboxEvents: [] }),
+      },
+      channel: { findUnique: async () => ({ kind: "direct", name: "Parent" }) },
       bot: {
         findUnique: async () => ({ id: "parent", status: "active" }),
       },

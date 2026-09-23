@@ -112,6 +112,11 @@ describe("reference result and parser fixtures", () => {
       )
     ).toBe('"Missing" is not a connection that can serve files. Use one of: Drive.');
   });
+  test("routine acknowledgements preserve the persisted next occurrence instead of requiring a guess", () => {
+    const routine = { target: "routine", name: "Interval", folder: "interval", schedule: "@every 5m", enabled: true, next_run_at: "2026-09-22T06:47:04.709Z" };
+    expect(renderControlResult("update_state", routine, { action: "create" })).toContain("Next scheduled occurrence: 2026-09-22T06:47:04.709Z");
+    expect(renderControlResult("update_state", { ...routine, enabled: false, next_run_at: null }, { action: "pause" })).toContain("Next scheduled occurrence: none (paused)");
+  });
   test("delivery and subagent acknowledgements use reference phrasing", () => {
     expect(renderControlResult("SendToUser", { sent: true, message_address: "t2s1" }, {})).toBe(
       "Message sent to user. (id: t2s1)"

@@ -130,7 +130,12 @@ export class DurableStateService {
         if (!["create", "update", "pause", "resume", "delete"].includes(input.action)) {
           return stateError(input.target, input.action);
         }
-        const routine = await this.routines.mutate(botId, callId, runId, {
+        const run = runId ? await this.prisma.run.findFirst({ where: { id: runId, botId }, select: { channelId: true } }) : null;
+        const group = run?.channelId ? await this.prisma.channel.findFirst({ where: {
+          id: run.channelId, kind: "group", archivedAt: null, members: { some: { botId } },
+        }, select: { id: true, name: true } }) : null;
+        const owner = group ? { kind: "group" as const, id: group.id } : { kind: "bot" as const, id: botId };
+        const routine = await this.routines.mutateOwner(owner, callId, runId, {
           action: input.action as "create" | "update" | "pause" | "resume" | "delete",
           id: input.id,
           name: input.name,
@@ -139,7 +144,7 @@ export class DurableStateService {
           trigger: input.trigger,
           enabled: input.enabled,
         });
-        return routine;
+        return { ...routine, owner: { ...owner, ...(group ? { name: group.name } : {}) } };
       }
       case "skill":
         return this.skill(botId, input);

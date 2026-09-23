@@ -1,4 +1,4 @@
-import { nextMessageAddress } from "@openteam/messaging";
+import { nextMessageAddress, lockGroupExecution, supersedeGroupUserTurns } from "@openteam/messaging";
 import {
   ApiError,
   type ComputerSteerRequest,
@@ -283,7 +283,20 @@ export class ChannelService {
         if (existing.response) return serialize(existing.response);
         throw new ApiError(409, "request_in_progress", "This message is already being accepted");
       }
+      let supersededRunIds: string[] = [];
       const response = await this.prisma.$transaction(async (tx) => {
+        await lockGroupExecution(tx, channelId);
+        // Recheck after the room lock: concurrent delivery retries must not
+        // create another root or cancel the first accepted request's turn.
+        const duplicate = await tx.idempotencyRecord.findUnique({
+          where: { scope_key: { scope, key: input.clientId } },
+        });
+        if (duplicate) {
+          if (duplicate.requestHash !== requestHash)
+            throw new ApiError(409, "idempotency_conflict", "Idempotency key content changed");
+          if (duplicate.response) return duplicate.response as any;
+          throw new ApiError(409, "request_in_progress", "This message is already being accepted");
+        }
         const channel = await tx.channel.findUnique({
           where: { id: channelId },
           include: { members: true },
@@ -332,6 +345,7 @@ export class ChannelService {
           tx,
           channel.members.map((member) => member.botId)
         );
+        supersededRunIds = await supersedeGroupUserTurns(tx, channelId, message.id);
         const round = await this.messaging.createGroupRound(tx, {
           channelId,
           triggerMessageId: message.id,
@@ -353,9 +367,14 @@ export class ChannelService {
         });
         return accepted;
       });
-      this.afterDurableAcceptance("group message round advancement", () =>
-        this.messaging.advanceRound(response.round.id)
-      );
+      this.afterDurableAcceptance("group message round advancement", async () => {
+        // The durable cancellation fence already prevents stale publication.
+        // Stop the runtime too, without holding the acceptance transaction open.
+        await Promise.allSettled(supersededRunIds.map((runId) =>
+          this.computerFetch(COMPUTER_API_PATHS.turnCancel(runId), { method: "POST" })
+        ));
+        await this.messaging.advanceRound(response.round.id);
+      });
       return serialize(response);
     });
 

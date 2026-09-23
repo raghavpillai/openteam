@@ -22,8 +22,8 @@ const model: Model<"openai-completions"> = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 };
 
-for (const { withSteer, handoff } of [{ withSteer: false, handoff: false }, { withSteer: true, handoff: false }, { withSteer: false, handoff: true }])
-  test(`real Pi loop persists before acknowledgement, stops on ${handoff ? "WakeParent" : "end_turn"}, and recovers tape${withSteer ? " with queued steering" : ""}`, async () => {
+for (const { withSteer, handoff, batch = false } of [{ withSteer: false, handoff: false }, { withSteer: true, handoff: false }, { withSteer: false, handoff: true }, { withSteer: false, handoff: false, batch: true }])
+  test(`real Pi loop persists before acknowledgement, stops on ${handoff ? "WakeParent" : "end_turn"}, and recovers tape${withSteer ? " with queued steering" : ""}${batch ? " with three ordered replies" : ""}`, async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-parity-"));
     const requests: any[] = [];
     const sent: any[] = [];
@@ -98,6 +98,20 @@ for (const { withSteer, handoff } of [{ withSteer: false, handoff: false }, { wi
                 usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
               },
             ];
+            if (batch) {
+              const delta = chunks[0]!.choices[0]!.delta!;
+              if (!("tool_calls" in delta)) throw new Error("Missing fixture tool calls");
+              const first = delta.tool_calls![0]!;
+              delta.tool_calls = Array.from({ length: 3 }, (_, index) => ({
+                ...first,
+                index,
+                id: index === 0 ? toolId : `${toolId}-${index}`,
+                function: {
+                  name: "SendToUser",
+                  arguments: JSON.stringify({ type: "text", content: `Batch ${index + 1}`, end_turn: index === 2 }),
+                },
+              }));
+            }
             return new Response(
               chunks
                 .map(
@@ -200,7 +214,8 @@ for (const { withSteer, handoff } of [{ withSteer: false, handoff: false }, { wi
       }
 
       expect(requests).toHaveLength(1);
-      expect(sent).toHaveLength(1);
+      expect(sent).toHaveLength(batch ? 3 : 1);
+      if (batch) expect(sent.map(call => call.arguments.content)).toEqual(["Batch 1", "Batch 2", "Batch 3"]);
       expect(active.endTurnRequested).toBe(true);
       if (handoff) {
         expect(active.sentMessageCount).toBe(0);

@@ -30,12 +30,23 @@ function adapt(value: any): any {
   return value;
 }
 const contracts: Record<string, ToolContract> = adapt(reference);
+// Updating one existing task is a valid merge, even though a new task list
+// should contain multiple steps. Keep the model-facing schema and parser aligned.
+contracts.TodoWrite!.inputSchema.properties.todos.minItems = 1;
+contracts.TodoWrite!.inputSchema.allOf = [{ anyOf: [
+  { properties: { merge: { const: true } } },
+  { properties: { todos: { minItems: 2 } } },
+] }];
+contracts.TodoWrite!.inputSchema.properties.todos.description =
+  "Task items to write. A merge update may contain one item; replacing the list requires at least two items.";
 for (const excluded of ["CloudAgent", "GenerateImage", "request_scm_connect"])
   contracts.GetDynamicTools!.description = contracts.GetDynamicTools!.description.replaceAll(
     `${excluded}, `,
     ""
   );
 const send = contracts.SendToUser!;
+export const SEND_TO_USER_BATCH_GUIDANCE =
+  "When several separate text replies to the same conversation are fully ready, emit their SendToUser calls together in one assistant response, in display order, instead of waiting for a model round trip between messages. Keep end_turn false until the final call. Do not batch messages whose content depends on a preceding tool result, user input, or approval.";
 send.inputSchema.properties.type.enum = send.inputSchema.properties.type.enum.filter(
   (type: string) => type !== "cursor-agent"
 );
@@ -71,7 +82,7 @@ send.inputSchema.properties.secret = {
   ],
 };
 send.description +=
-  " OpenTeam also supports secret {label,connector,field} for connector credentials, and scope:bot|personal for named environment secrets.";
+  " OpenTeam also supports secret {label,connector,field} for connector credentials, and scope:bot|personal for named environment secrets. " + SEND_TO_USER_BATCH_GUIDANCE;
 contracts.WebSearch!.description = contracts.WebSearch!.description.replaceAll(
   "2026-09-12",
   new Date().toISOString().slice(0, 10)

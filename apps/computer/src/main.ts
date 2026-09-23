@@ -344,9 +344,10 @@ const server = Bun.serve({
         await mkdir(path, { recursive: true });
         const actual = await realpath(path);
         safePath(actual);
-        const screen = await screens.ensure(botId, actual);
-        boxStore.scheduleSnapshot(5_000, { workspace: true, chrome: true });
-        return json({ path: actual, screen });
+        // Provision files only. The viewer and graphical tools ensure their actual
+        // screen owner on first use; a graphical child's owner is its parent.
+        boxStore.scheduleSnapshot(5_000, { workspace: true });
+        return json({ path: actual });
       }
 
       if (request.method === "POST" && url.pathname === COMPUTER_API_PATHS.reconcileAgentStores) {
@@ -592,7 +593,13 @@ const server = Bun.serve({
         const input = Schema.decodeUnknownSync(ComputerTurnRequest)(await request.json());
         safePath(input.cwd);
         const events = await runtime.run(input);
-        const body = computerEventStream(events);
+        const body = computerEventStream(events, undefined, {
+          onCancel: async () => {
+            // A disconnected worker must not leave tools or approval waits
+            // alive on a run it has already marked interrupted.
+            await runtime.cancel(input.runId).catch(() => {});
+          },
+        });
         return new Response(body, {
           headers: {
             "content-type": "application/x-ndjson",
@@ -664,6 +671,7 @@ let shutdownPromise: Promise<void> | null = null;
 const shutdown = (): Promise<void> => {
   if (shutdownPromise) return shutdownPromise;
   server.stop();
+  runtime.closeIdleProviderConnections();
   shutdownPromise = Promise.all([
     stdioMcp.closeAll(),
     (async () => {

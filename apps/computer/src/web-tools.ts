@@ -131,15 +131,16 @@ export class WebTools {
 
   async fetch(url: string, cwd: string, signal?: AbortSignal) {
     try { return await this.fetchContent(url, cwd, signal); }
-    catch (error) { if (signal?.aborted) throw error; return { content: [{ type: "text" as const, text: `Error fetching URL ${url}: ${error instanceof Error ? error.message : String(error)}` }], details: { url, error: true, configured: undefined } }; }
+    catch (error) {
+      if (signal?.aborted) throw error;
+      // Throw so the agent runtime and persisted trace classify this as a
+      // failed tool call, rather than a successful fetch with no page content.
+      throw new Error(`Error fetching URL ${url}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
   private async fetchContent(url: string, cwd: string, signal?: AbortSignal) {
     const provided = await this.fetchProvider.fetch(url, signal);
-    if (!provided.configured)
-      return {
-        content: [{ type: "text" as const, text: provided.message }],
-        details: { configured: false, provider: provided.provider, url },
-      };
+    if (!provided.configured) throw new Error(provided.message);
     let content: string;
     let resultUrl: string;
     if (provided.provider === "builtin") {

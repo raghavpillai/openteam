@@ -15,9 +15,12 @@ describe("scheduled routine wake content", () => {
       prompt: "Inspect the queue.",
     });
     expect(content).not.toContain("<automation_trigger_info>");
-    expect(content).toBe(
-      '[SAND_HIDDEN_PROMPT]\n[routine] "Daily audit" (folder daily-audit) is due — Every day at 12:00 AM (0 0 * * *), fired 2026-08-28T11:00:00.000Z.\nThis is your own routine firing on schedule, not a message the user just typed.\n\nInspect the queue.\n\nUse current sources; report missing or stale inputs instead of inventing data.\nUse SendToUser to deliver a meaningful result or a failure that needs attention. Finishing silently is valid when the saved instruction says there is nothing to report.'
-    );
+    expect(content).toStartWith('[SAND_HIDDEN_PROMPT]\n[routine] "Daily audit" (folder daily-audit) is due');
+    expect(content).toContain("What you saved to do each time:\nInspect the queue.");
+    expect(content).toContain("use WakeParent for requested user-visible results or blockers");
+    expect(content).toContain("read its current workflow file");
+    expect(content).toContain("discover the current tool schema");
+    expect(content).toContain("do not send filler or progress acknowledgements");
     expect(
       scheduledRoutineTriggerContext({
         name: "Daily audit",
@@ -39,7 +42,7 @@ describe("scheduled routine wake content", () => {
         provenance: "user",
       })
     ).toStartWith(
-      '[SAND_HIDDEN_PROMPT][SAND_TRUSTED_AUTOMATION_PROMPT]\n[routine] "Daily audit" (folder daily-audit) was run on demand — Every day at 12:00 AM (0 0 * * *), fired 2026-08-28T11:00:00.000Z.\nThe user pressed Run now on this routine in the app.'
+      '[SAND_HIDDEN_PROMPT][SAND_TRUSTED_AUTOMATION_PROMPT]\n[routine] "Daily audit" (folder daily-audit) was run on demand — Every day at 12:00 AM (0 0 * * *), fired 2026-08-28T11:00:00.000Z.\nThe user pressed Run now on this routine in the app; this is that run, not a message they typed.'
     );
   });
 

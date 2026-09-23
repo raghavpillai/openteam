@@ -32,10 +32,15 @@ import {
   RoutineService,
   renderSubagentRevivalPrompt,
   automationContinuationRoute,
+  automationContextRunId,
+  reconcileRoutineExecution,
+  groupRoutineState,
+  lockGroupExecution,
 } from "@openteam/messaging";
 import { fromPrisma, type Job, type JobWithMetadata, PgBoss } from "pg-boss";
 import { pluginRuntimeContext } from "./plugins";
 import { Projection } from "./projection";
+import { workContinuously } from "./queue-dispatch";
 import { memoryInferenceSettings } from "./memory-inference";
 import { PushNotificationDispatcher } from "./push-notifications";
 
@@ -298,8 +303,8 @@ export const terminalGroupRoutineExecutionStatus = (
 ): "completed" | "failed" | null => {
   if (roundStatus === "failed") return "failed";
   if (roundStatus !== "completed") return null;
-  return deliveryStatuses.length > 0 &&
-    deliveryStatuses.every((status) => status === "failed" || status === "skipped")
+  return deliveryStatuses.some(status => status === "failed") ||
+    (deliveryStatuses.length > 0 && deliveryStatuses.every((status) => status === "skipped"))
     ? "failed"
     : "completed";
 };
@@ -330,7 +335,7 @@ export class WakeWorker {
   constructor() {
     const databaseUrl = process.env.DATABASE_URL ?? "";
     this.prisma = createPrismaClient(databaseUrl);
-    this.boss = new PgBoss(databaseUrl);
+    this.boss = new PgBoss({ connectionString: databaseUrl, useListenNotify: true });
     this.computerUrl = process.env.OPENTEAM_COMPUTER_URL ?? "http://127.0.0.1:8790";
     this.controlToken = process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me";
     this.workspaceRoot = process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace";
@@ -377,10 +382,11 @@ export class WakeWorker {
 
   async start(): Promise<void> {
     await this.boss.start();
-    await this.boss.createQueue("bot-wake");
-    await this.boss.createQueue("bot-provision");
-    await this.boss.createQueue("transcript-project");
-    await this.boss.createQueue("routine-dispatch");
+    for (const name of ["bot-wake", "bot-provision", "transcript-project", "routine-dispatch"]) {
+      await this.boss.createQueue(name, { notify: true });
+      // createQueue does not update queues created by an earlier version.
+      await this.boss.updateQueue(name, { notify: true });
+    }
     await this.boss.schedule("routine-dispatch", "* * * * *");
     await this.messaging.recoverRounds();
     await this.recoverDurableWork();
@@ -389,32 +395,22 @@ export class WakeWorker {
     await this.agentData.reconcileAllActiveBots();
     await this.agentData.startMemoryLifecycle();
     await this.pushNotifications.drain();
-    await this.boss.work<WakeData>(
+    await workContinuously<WakeData>(
+      this.boss,
       "bot-wake",
-      {
-        batchSize: 1,
-        localConcurrency: Number(process.env.OPENTEAM_WORKER_CONCURRENCY ?? 8),
-      },
-      async (jobs) => {
-        const job = jobs[0];
-        if (job) await this.handle(job);
-      }
+      Number(process.env.OPENTEAM_WORKER_CONCURRENCY ?? 8),
+      (job) => this.handle(job)
     );
-    await this.boss.work<ProvisionData>(
+    await workContinuously<ProvisionData>(
+      this.boss,
       "bot-provision",
-      { batchSize: 1, includeMetadata: true },
-      async (jobs) => {
-        const job = jobs[0];
-        if (job) await this.handleProvision(job as JobWithMetadata<ProvisionData>);
-      }
+      1,
+      (job) => this.handleProvision(job)
     );
-    await this.boss.work<TranscriptData>("transcript-project", { batchSize: 1 }, async (jobs) => {
-      const job = jobs[0];
-      if (job) await this.handleTranscript(job);
-    });
-    await this.boss.work("routine-dispatch", { batchSize: 1 }, async () => {
-      await this.dispatchRoutinePass();
-    });
+    await workContinuously<TranscriptData>(this.boss, "transcript-project", 1,
+      (job) => this.handleTranscript(job));
+    await workContinuously(this.boss, "routine-dispatch", 1,
+      () => this.dispatchRoutinePass());
     this.routineTimer = setInterval(() => {
       void this.dispatchRoutinePass().catch((error) => console.error("routine-dispatch", error));
     }, 1_000);
@@ -748,20 +744,8 @@ export class WakeWorker {
     });
     for (const execution of executions) {
       if (execution.runId && execution.run) {
-        const status = terminalRoutineExecutionStatus(execution.run.status);
-        if (!status) continue;
-        const updated = await this.prisma.routineExecution.updateMany({
-          where: {
-            id: execution.id,
-            status: { in: ["queued", "running", "waiting_approval"] },
-          },
-          data: {
-            status,
-            completedAt: execution.run.completedAt ?? new Date(),
-            ...(status === "completed" ? {} : { error: execution.run.error ?? Prisma.JsonNull }),
-          },
-        });
-        if (updated.count > 0 && execution.routine.botId) {
+        const updated = await this.prisma.$transaction(tx => reconcileRoutineExecution(tx, execution.runId!));
+        if (updated && execution.routine.botId) {
           await this.syncRoutineRunFile(execution.routine.botId, execution.runId);
         }
         continue;
@@ -794,12 +778,10 @@ export class WakeWorker {
         include: { deliveries: { select: { status: true } } },
       });
       if (!round) return;
-      const status = terminalGroupRoutineExecutionStatus(
-        round.status,
-        round.deliveries.map(({ status: deliveryStatus }) => deliveryStatus)
-      );
-      if (!status) return;
-      const finishedAt = round.completedAt ?? new Date();
+      const state = await groupRoutineState(tx, rootMessageId);
+      if (state.active) return;
+      const status = state.failed ? "failed" : "completed";
+      const finishedAt = state.completedAt ?? round.completedAt ?? new Date();
       const errorKind =
         status === "failed"
           ? round.status === "failed"
@@ -1046,23 +1028,20 @@ export class WakeWorker {
         const automations = existingLeases.filter(lease => lease.scope.startsWith("automation:"));
         if (foregroundBusy && automations.length >= 4) return null;
         if (!foregroundBusy) await this.messaging.promoteOrphanedSteers(tx, botId, "orphaned_active_turn");
-        await tx.inboxEvent.updateMany({
-          where: {
-            botId,
-            deliveryMode: "turn",
-            status: "processing",
-            claimedAt: { lt: staleAt },
-          },
-          data: { status: "pending", claimedAt: null },
-        });
         const candidates = await tx.inboxEvent.findMany({
           where: {
             botId,
             deliveryMode: "turn",
-            status: "pending",
+            OR: [
+              { status: "pending" },
+              { status: "processing", claimedAt: { lt: staleAt } },
+            ],
             availableAt: { lte: new Date() },
             bot: { status: "active" },
-            ...(foregroundBusy ? { run: { origin: "routine" as const } } : automations.length >= 4 ? { run: { origin: { not: "routine" as const } } } : {}),
+            run: {
+              status: { in: ["queued", "running"] },
+              ...(foregroundBusy ? { origin: "routine" as const } : automations.length >= 4 ? { origin: { not: "routine" as const } } : {}),
+            },
           },
           orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
           include: {
@@ -1077,6 +1056,19 @@ export class WakeWorker {
           return !automations.some(lease => lease.scope === `automation:${payload.automationContextRunId ?? candidate.runId}`);
         });
         if (!inbox) return null;
+        if (inbox.run.deliveryId && inbox.run.channelId) {
+          // Selection is only a snapshot. Serialize the claim with room
+          // supersession before changing any inbox, delivery, or run state.
+          await lockGroupExecution(tx, inbox.run.channelId);
+          const current = await tx.inboxEvent.findUnique({
+            where: { id: inbox.id },
+            include: { run: { include: { delivery: true } } },
+          });
+          if (!current ||
+              !(current.status === "pending" || (current.status === "processing" && current.claimedAt && current.claimedAt < staleAt)) ||
+              !["queued", "running"].includes(current.run.status) ||
+              !["queued", "processing"].includes(current.run.delivery?.status ?? "")) return null;
+        }
         const payload = inbox.payload as {
           content?: string;
           attachments?: unknown;
@@ -1112,10 +1104,12 @@ export class WakeWorker {
           },
         });
         if (inbox.run.deliveryId) {
-          await tx.channelDelivery.update({
+          const delivery = await tx.channelDelivery.update({
             where: { id: inbox.run.deliveryId },
             data: { status: "processing", startedAt: new Date() },
+            include: { round: { select: { rootMessageId: true } } },
           });
+          await tx.routineExecution.updateMany({ where: { channelMessageId: delivery.round.rootMessageId, status: "queued" }, data: { status: "running", startedAt: new Date() } });
         }
         await tx.run.update({
           where: { id: inbox.runId },
@@ -1325,6 +1319,8 @@ export class WakeWorker {
         dynamicNamespaces: pluginContext.dynamicNamespaces,
         pluginRuntimePackages: pluginContext.pluginRuntimePackages,
       } satisfies ComputerTurnRequest;
+      const beforeStart = await this.prisma.run.findUnique({ where: { id: claimed.runId }, select: { status: true } });
+      if (beforeStart?.status === "cancelled") throw new Error("Run was cancelled before runtime dispatch");
       const response = await fetch(`${this.computerUrl}${COMPUTER_API_PATHS.turns}`, {
         method: "POST",
         headers: {
@@ -1374,13 +1370,7 @@ export class WakeWorker {
           where: { id: claimed.inboxId },
           data: { status: "completed", completedAt },
         });
-        await tx.routineExecution.updateMany({
-          where: {
-            runId: claimed.runId,
-            status: { in: ["queued", "running", "waiting_approval"] },
-          },
-          data: { status: "completed", completedAt },
-        });
+        await reconcileRoutineExecution(tx, claimed.runId);
         if (claimed.origin === "bootstrap") {
           const onboarding = await tx.bot.updateMany({
             where: { id: claimed.botId, onboardingStatus: "running" },
@@ -1421,7 +1411,7 @@ export class WakeWorker {
       await this.recordMemoryFromRun(claimed);
       await this.syncRoutineRunFile(claimed.botId, claimed.runId);
       if (claimed.deliveryId) {
-        await this.messaging.completeDelivery(claimed.deliveryId, "completed");
+        await this.messaging.completeDelivery(claimed.deliveryId, "completed", undefined, claimed.runId);
       }
     } catch (error) {
       await this.fail(claimed, error);
@@ -1451,6 +1441,12 @@ export class WakeWorker {
   }
 
   private async heartbeat(claimed: Claimed): Promise<void> {
+    const run = await this.prisma.run.findUnique({ where: { id: claimed.runId }, select: { status: true } });
+    if (run?.status === "cancelled") {
+      // Retry a durable cancellation if the server's first dispatch raced setup
+      // or its response was lost. Keep the lease until execute/fail settles it.
+      await this.computerFetch(COMPUTER_API_PATHS.turnCancel(claimed.runId), { method: "POST" }).catch(() => undefined);
+    }
     await this.prisma.botRunLease.updateMany({
       where: { botId: claimed.botId, ownerId: claimed.ownerId },
       data: {
@@ -1485,7 +1481,7 @@ export class WakeWorker {
           ? (current.error as Prisma.InputJsonObject)
           : null;
       priorityInterrupted = currentError?.code === "priority_peer_interrupt";
-      const failureDetails = priorityInterrupted && currentError ? currentError : details;
+      const failureDetails = (priorityInterrupted || current?.status === "cancelled") && currentError ? currentError : details;
       const finalStatus =
         current?.status === "cancelled"
           ? "cancelled"
@@ -1501,13 +1497,7 @@ export class WakeWorker {
         where: { id: claimed.inboxId },
         data: { status: "failed", error: failureDetails, completedAt: new Date() },
       });
-      await tx.routineExecution.updateMany({
-        where: {
-          runId: claimed.runId,
-          status: { in: ["queued", "running", "waiting_approval"] },
-        },
-        data: { status: "failed", error: failureDetails, completedAt: new Date() },
-      });
+      await reconcileRoutineExecution(tx, claimed.runId);
       if (claimed.origin === "bootstrap") {
         const onboarding = await tx.bot.updateMany({
           where: { id: claimed.botId, onboardingStatus: "running" },
@@ -1611,12 +1601,14 @@ export class WakeWorker {
       if (claimed.origin === "group" && priorityInterrupted) {
         await this.messaging.retryInterruptedGroupDelivery(claimed.deliveryId, claimed.runId);
       } else {
-        await this.messaging.completeDelivery(claimed.deliveryId, "failed", details);
+        await this.messaging.completeDelivery(claimed.deliveryId, "failed", details, claimed.runId);
       }
     }
   }
 
   private async syncRoutineRunFile(botId: string, runId: string): Promise<void> {
+    const run = await this.prisma.run.findUnique({ where: { id: runId }, include: { inboxEvents: { take: 1, select: { payload: true } } } });
+    if (run?.origin === "routine") runId = automationContextRunId(runId, run.inboxEvents[0]?.payload);
     const execution = await this.prisma.routineExecution.findUnique({
       where: { runId },
       select: {
@@ -1878,17 +1870,21 @@ export class WakeWorker {
     // Delegated work belongs to the automation that launched it. Resume that
     // context unless it already handed responsibility to the main agent.
     const route = await automationContinuationRoute(tx, subagent.parentBotId, subagent.parentRunId);
+    const source = await tx.run.findUnique({ where: { id: subagent.parentRunId }, include: { inboxEvents: { take: 1, select: { payload: true } } } });
+    const sourcePayload = source?.inboxEvents[0]?.payload as { taskContextRunId?: string } | undefined;
+    const room = await tx.channel.findUnique({ where: { id: subagent.parentChannelId }, select: { kind: true, name: true } });
     await this.messaging.enqueueWake(tx, {
       botId: subagent.parentBotId,
       channelId: subagent.parentChannelId,
       ...route,
+      taskContextRunId: sourcePayload?.taskContextRunId ?? subagent.parentRunId,
       type: `subagent.${status}`,
       content: renderSubagentRevivalPrompt({
         title: subagent.description,
         subagentType: subagent.subagentType,
         status,
         result,
-      }),
+      }) + (room?.kind === "group" ? `\n\nThis work belongs to group room ${JSON.stringify(room.name)}. The room has not seen this result. SendToUser in this continuation delivers to that room and wakes its peers; use it once for a useful final result. Do not repeat completed work or deliver stale results after a user cancellation.` : ""),
       clientId: `subagent:${subagent.id}:${status}:${subagent.currentRunId}`,
       priority: 260,
       wrapUserContent: false,

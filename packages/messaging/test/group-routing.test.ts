@@ -15,7 +15,7 @@ const members = [
 
 describe("OpenTeam-compatible group routing", () => {
   test("builds full-name-without-spaces and first-token handles", () => {
-    expect(groupMemberMentionHandles("Parity Probe v3")).toEqual(["parityprobev3", "parity"]);
+    expect(groupMemberMentionHandles("Parity Probe v3")).toEqual(["parity probe v3", "parityprobev3", "parity"]);
   });
 
   test("matches bounded member handles and everyone aliases", () => {
@@ -79,7 +79,7 @@ describe("OpenTeam-compatible group routing", () => {
         earlierRunIds: ["run-first", "run-first", "run-second"],
       })
     ).toEqual([
-      { sequence: { gte: 97n, lte: 100n } },
+      { sequence: { lte: 100n } },
       {
         sender: "agent",
         sourceRunId: { in: ["run-first", "run-second"] },
@@ -96,4 +96,12 @@ describe("OpenTeam-compatible group routing", () => {
       })
     ).toEqual([{ sequence: { gt: 99n, lte: 100n } }]);
   });
+});
+
+test("mention boundaries match punctuation, Unicode names and full spaced names", () => {
+  const people = [{ id: "qa", name: "QA" }, { id: "jp", name: "日本語" }, { id: "spaced", name: "Research Bot" }];
+  for (const input of ["@QA.foo", "@QA_hello", "@QA-hello", "(@QA), hi"]) expect(parseGroupMentions(input, people).memberIds).toEqual(["qa"]);
+  expect(parseGroupMentions("@Research Bot", people).memberIds).toEqual(["spaced"]);
+  expect(parseGroupMentions("@日本語", people).memberIds).toEqual(["jp"]);
+  expect(parseGroupMentions("email@QA.com x@QA @QAbot", people).memberIds).toEqual([]);
 });

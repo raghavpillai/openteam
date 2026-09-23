@@ -232,7 +232,7 @@ try {
     worker:
       'FROM node:22-bookworm-slim\nWORKDIR /app\nCOPY worker.js main.js\nCOPY healthcheck.js healthcheck.js\nUSER 1000:1000\nCMD ["node","main.js"]\n',
     server:
-      'FROM oven/bun:1.3.8-slim\nWORKDIR /app\nCOPY server.js main.js\nUSER 1000:1000\nCMD ["bun","main.js"]\n',
+      'FROM oven/bun:1.4.2-slim\nWORKDIR /app\nCOPY server.js main.js\nUSER 1000:1000\nCMD ["bun","main.js"]\n',
     computer: `FROM ${process.env.OPENTEAM_CHAOS_COMPUTER_BASE || "ghcr.io/raghavpillai/openteam-computer:0.0.1"}\nCOPY computer.js /app/apps/computer/dist/main.js\nCOPY provider-cli.js /app/apps/computer/dist/provider-cli.js\n`,
     migrate: `FROM ${process.env.OPENTEAM_CHAOS_MIGRATE_BASE || "openteam-migrate:latest"}\nCOPY prisma /app/packages/db/prisma\nCOPY db-scripts /app/packages/db/scripts\n`,
   };
@@ -283,7 +283,7 @@ try {
       Object.assign(service.healthcheck, { interval: "2s", retries: 1, start_period: "45s" });
   }
   config.services.canary = {
-    image: "oven/bun:1.3.8-slim",
+    image: "oven/bun:1.4.2-slim",
     command: ["bun", "/provider.ts"],
     volumes: [`${context}/provider.ts:/provider.ts:ro`],
     labels: { "com.openteam.chaos": project },

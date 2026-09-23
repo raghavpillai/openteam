@@ -83,12 +83,11 @@ test("missing fetch configuration makes no request; built-in requires explicit s
     provider: "builtin",
   });
   for (const provider of ["exa", "tavily"] as const) {
-    const result = await new WebTools(
+    const result = new WebTools(
       new SearchProviderClient(),
       new FetchProviderClient(() => ({ provider }), request)
     ).fetch(url, process.cwd());
-    expect(result.details.configured).toBe(false);
-    expect(result.content[0]!.text).toContain("No page was fetched");
+    await expect(result).rejects.toThrow("No page was fetched");
   }
   expect(requests).toBe(0);
 });

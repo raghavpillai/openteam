@@ -5,10 +5,9 @@ import { RoutineService } from "../src/routines";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
-test("interval and weekday routines can be created, test-run, and dispatched when due", async () => {
-  if (!databaseUrl) return;
+test.skipIf(!databaseUrl)("interval and weekday routines can be created, test-run, and dispatched when due", async () => {
 
-  const prisma = createPrismaClient(databaseUrl);
+  const prisma = createPrismaClient(databaseUrl!);
   const channelId = randomUUID();
   const botId=randomUUID();const conversationId=randomUUID();const wakes: any[]=[];
   const owner = { kind: "group" as const, id: channelId };
@@ -16,12 +15,12 @@ test("interval and weekday routines can be created, test-run, and dispatched whe
     prisma,
     {
       defaultTimeZone: "America/New_York",
-      enqueueWake: async (tx,input) => {
-        wakes.push(input);
-        const run=await tx.run.create({data:{botId:input.botId,conversationId,channelId,origin:"routine",userMessageId:randomUUID()}});
-        return {run} as never;
+      enqueueWake: async () => { throw new Error("Group routines must enter the room"); },
+      createGroupRound: async (tx, input) => {
+        const seed = await tx.channelMessage.findUniqueOrThrow({ where: { id: input.triggerMessageId } });
+        wakes.push(seed);
+        return tx.channelRound.create({ data: { channelId, triggerMessageId: seed.id, rootMessageId: seed.id } });
       },
-      createGroupRound: async () => { throw new Error("Group routines must use an isolated automation, not a group round"); },
       advanceRound: async () => {},
     },
     undefined,
@@ -78,7 +77,8 @@ test("interval and weekday routines can be created, test-run, and dispatched whe
       );
       executionIds.push(execution.id);
       expect(execution).toMatchObject({ kind: "test", status: "queued" });
-      await prisma.run.update({where:{id:execution.runId!},data:{status:"completed",completedAt:new Date()}});
+      expect(execution.runId).toBeNull();
+      expect((await prisma.routineExecution.findUniqueOrThrow({ where: { id: execution.id } })).channelMessageId).toBeString();
       await prisma.routineExecution.update({where:{id:execution.id},data:{status:"completed",completedAt:new Date()}});
     }
 
@@ -105,9 +105,9 @@ test("interval and weekday routines can be created, test-run, and dispatched whe
       ]);
     }
     expect(wakes).toHaveLength(4);
-    expect(wakes.every(wake=>wake.botId===botId&&wake.channelId===channelId&&wake.origin==="routine")).toBe(true);
-    expect(await prisma.channelMessage.count({where:{channelId}})).toBe(0);
-    expect(await prisma.routine.count({where:{id:{in:routineIds},executorBotId:botId}})).toBe(2);
+    expect(wakes.every(wake=>wake.channelId===channelId&&wake.sender==="system")).toBe(true);
+    expect(await prisma.channelMessage.count({where:{channelId}})).toBe(4);
+    expect(await prisma.channelRound.count({where:{channelId}})).toBe(4);
     expect(
       await prisma.routine.count({
         where: { id: { in: routineIds }, nextRunAt: { gt: dispatchAt } },

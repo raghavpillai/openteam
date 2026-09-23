@@ -48,8 +48,30 @@ const KEY_ALIASES: Record<string, string> = {
 };
 export const normalizeKey = (key: string) =>
   (key === "+" ? ["+"] : key.endsWith("++") ? [...key.slice(0, -2).split("+"), "+"] : key.split("+"))
-    .map((part) => KEY_ALIASES[part.toLowerCase()] ?? part)
+    .map((part) => KEY_ALIASES[part.toLowerCase()] ?? (/^f(?:[1-9]|[12]\d|3[0-5])$/i.test(part) ? part.toUpperCase() : part))
     .join("+");
+
+/** A rejected batch may already have applied its prefix; never invite replay. */
+export async function performComputerUseBatch(
+  actions: readonly ComputerUseActionInput[],
+  perform: (action: ComputerUseActionInput) => Promise<void>,
+  signal?: AbortSignal
+): Promise<void> {
+  for (const [index, action] of actions.entries()) {
+    signal?.throwIfAborted();
+    try {
+      await perform(action);
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      throw new Error(
+        `Computer batch stopped at action ${index + 1} of ${actions.length} (${action.action}). ` +
+        `${index} earlier action(s) completed; later actions were not executed. ` +
+        `The failed action may have partly applied. Inspect the current screen before continuing; do not replay the completed actions. ` +
+        (error instanceof Error ? error.message : String(error))
+      );
+    }
+  }
+}
 
 export async function performComputerUseAction(
   input: ComputerUseActionInput,

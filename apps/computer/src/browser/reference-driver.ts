@@ -341,12 +341,16 @@ const SNAPSHOT_FN = (opts) => {
 	let nodeCount = 0;
 	const shadowOf = (el) => el.shadowRoot ?? el.__sandShadowRoot ?? null;
 	let closedShadowSuspects = 0;
+	// Scripted drag widgets often use pointer listeners rather than HTML's
+	// draggable attribute. Expose their public handles to the same ref tools.
+	const scriptedDragMatcher = '[aria-grabbed], .ui-sortable-handle:not(.ui-sortable-disabled *), .ui-draggable:not(.ui-draggable-disabled)';
 	const interactiveMatcher =
 		"a[href], button, input, select, textarea, summary, " +
 		'[role="button"], [role="link"], [role="checkbox"], [role="radio"], ' +
 		'[role="tab"], [role="menuitem"], [role="menuitemcheckbox"], [role="combobox"], ' +
 		'[role="option"], [role="switch"], [role="searchbox"], [role="textbox"], ' +
-		'[role="slider"], [contenteditable="true"], [onclick], [draggable="true"]';
+		'[role="slider"], [contenteditable="true"], [onclick], [draggable="true"], ' +
+		scriptedDragMatcher + ', .ui-droppable:not(.ui-droppable-disabled)';
 	const hidesSubtree = (el) => {
 		if (el.getAttribute("aria-hidden") === "true") return true;
 		// The element's OWN window: elements from a pierced same-origin child
@@ -710,9 +714,19 @@ const SNAPSHOT_FN = (opts) => {
 			line += " [ref=" + ref + "]";
 		}
 		if (el.disabled) line += " disabled";
-		if (el.draggable === true) line += " draggable";
+		if (el.draggable === true || el.matches(scriptedDragMatcher)) line += " draggable";
 		if (el.checked === true) line += " checked";
 		const tag = el.tagName.toLowerCase();
+		if (editableHost) {
+			// The compact accessible name collapses whitespace and truncates text.
+			// Preserve line boundaries for exact edit/Undo verification, with the
+			// same private-value guards as other editable controls.
+			const value = el.innerText ?? "";
+			const isSecret = declaresSecretValue(el) ||
+				el.hasAttribute("data-sand-secret-filled") || isSecretForElement(el, value, false);
+			line += " value=" + JSON.stringify(isSecret ? "<redacted>" : value.slice(0, 2000));
+			if (!isSecret && value.length > 2000) line += " value-truncated";
+		}
 		if (
 			(tag === "input" || tag === "textarea") &&
 			typeof el.value === "string" &&
@@ -785,9 +799,26 @@ const SNAPSHOT_FN = (opts) => {
 			nodeCount += 1;
 			lines.push(describe(el, depth));
 			childDepth = depth + 1;
+			// Native options have no painted box while a dropdown is closed. Their
+			// labels and selected state still belong in its accessible snapshot.
+			if (tag === "select" && childDepth <= (opts.maxDepth ?? 20)) {
+				for (const option of el.options) {
+					if (nodeCount >= maxNodes) break;
+					const group = option.parentElement?.tagName.toLowerCase() === "optgroup" ? option.parentElement : null;
+					if (hidesSubtree(option) || (group && hidesSubtree(group))) continue;
+					const label = option.label;
+					const secret = el.hasAttribute("data-sand-secret-filled") || declaresSecretValue(el) ||
+						isSecretForElement(el, option.value, false) || isSecretForElement(el, label, false);
+					let line = "  ".repeat(Math.min(childDepth, 6)) + "- option " + JSON.stringify(secret ? "<redacted>" : trim(label, 80));
+					if (option.selected) line += " selected";
+					if (el.disabled || option.disabled || group?.disabled) line += " disabled";
+					lines.push(line);
+					nodeCount += 1;
+				}
+			}
 			// Text blocks can contain frames whose interactive descendants live in
 			// another document and therefore do not match querySelector above.
-			if (isInteractive || (isTextual && !el.querySelector("iframe,frame"))) return;
+			if ((isInteractive || (isTextual && !el.querySelector("iframe,frame"))) && !el.matches(".ui-droppable")) return;
 		}
 		// An open shadow root's children walk like light children — the editable
 		// controls of custom elements (e.g. <faceplate-text-input>) live there.
@@ -1655,7 +1686,12 @@ const referenceFill = async ({ request, page, element: suppliedElement = undefin
 const referenceType = async ({ request, page }) => {
 		const viewId = "";
 		const element = await writeTargetHandle(page, request.ref);
-		await element.click({ timeout: ACTION_TIMEOUT_MS });
+		// A center click moves an existing editor's caret/selection. Focus the
+		// existing target without retargeting the insertion point, so typing
+		// after fill or an explicit caret movement preserves that state. A new
+		// focus still uses a real click with the usual actionability checks.
+		const focused = await element.evaluate(el => el.getRootNode().activeElement === el);
+		if (!focused) await element.click({ timeout: ACTION_TIMEOUT_MS });
 		if (request.clear === true) {
 			await element
 				.fill("")

@@ -26,6 +26,8 @@ import { inferenceReasoningOptions } from "./reasoning";
 import type { RuntimeTools } from "./tools";
 import type { ActiveTurn } from "./types";
 import { communicationReminder, promptFingerprint } from "./prompt-context";
+import { compactRepeatedDiscovery } from "./discovery-context";
+import { graphicalProgressReminder } from "./graphical-completion";
 
 export const modelVisibleSummaryTools = (
   tools: ReadonlyArray<{
@@ -113,6 +115,16 @@ export function compactionExtension(
       pi.on("before_agent_start", async () => ({ systemPrompt: active.instructions }));
       pi.on("context", async (event) => {
         await acknowledgeToolOutcomes?.(event.messages as BotMessage[]);
+        const graphicalReminder = graphicalProgressReminder(event.messages as BotMessage[], active);
+        if (graphicalReminder && active.session) {
+          await active.session.sendCustomMessage({
+            customType: "openteam-graphical-progress",
+            content: graphicalReminder,
+            display: false,
+            details: { origin: "host" },
+          }, { triggerTurn: false });
+          event.messages = [...event.messages, active.session.messages.at(-1)!];
+        }
         const reminder = communicationReminder(event.messages as BotMessage[], active);
         if (reminder && active.session) {
           await active.session.sendCustomMessage(
@@ -148,6 +160,8 @@ export function compactionExtension(
           );
         }
         active.compactionRequestMessages = structuredClone(readPiMessages());
+        messages = compactRepeatedDiscovery(messages);
+        active.dynamicDiscoveryMessages = messages;
         const fingerprint = promptFingerprint(
           active.instructions,
           textFromContent(active.userInfoMessage?.content),
@@ -335,6 +349,10 @@ export async function inferCompaction(
 }
 
 function publishCompaction(active: ActiveTurn, adopted: BotCompactionEvent): void {
+  // Schemas removed by compaction must be discovered again. Still-visible full
+  // descriptors can be recovered from the next model projection at invocation.
+  active.discoveredDynamicTools.clear();
+  active.dynamicDiscoveryMessages = undefined;
   active.queue.push({
     type: "compaction",
     turnId: active.turnId,

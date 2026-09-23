@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun build src/main.ts src/provider-cli.ts --outdir dist --target bun --external @earendil-works/pi-coding-agent --external playwright-core",
+    "build": "bun build src/main.ts src/provider-cli.ts --outdir dist --target bun --external @earendil-works/pi-coding-agent --external @earendil-works/pi-ai --external playwright-core",
     "dev": "bun --watch src/main.ts",
     "start": "bun dist/main.js",
     "typecheck": "tsc -p tsconfig.json",
@@ -13,7 +13,9 @@
     "test:browser-reliability": "bun run scripts/test-browser-reliability.ts",
     "test:browser-session-lifecycle": "bun run scripts/test-browser-session-lifecycle.ts",
     "test:native-typing": "bun run scripts/test-native-typing.ts",
-    "test:native-chooser": "bun run scripts/test-native-chooser.ts"
+    "test:native-chooser": "bun run scripts/test-native-chooser.ts",
+    "test:agentic-reliability": "bun run scripts/test-agentic-reliability.ts",
+    "test:native-writer": "bun run scripts/test-native-writer.ts"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.84.3",

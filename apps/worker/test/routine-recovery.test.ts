@@ -41,7 +41,7 @@ describe("routine execution restart reconciliation", () => {
     expect(terminalGroupRoutineExecutionStatus("failed", ["completed"])).toBe("failed");
     expect(terminalGroupRoutineExecutionStatus("completed", [])).toBe("completed");
     expect(terminalGroupRoutineExecutionStatus("completed", ["completed", "failed"])).toBe(
-      "completed"
+      "failed"
     );
     expect(terminalGroupRoutineExecutionStatus("completed", ["failed", "skipped"])).toBe("failed");
   });
@@ -68,7 +68,10 @@ describe("routine execution restart reconciliation", () => {
           return { count: 1 };
         },
       },
+      run: { findMany: async () => [] },
+      channelMessage: { findUnique: async () => ({ channelId: "channel-1" }), findMany: async () => [] },
       channelRound: {
+        findMany: async () => [{ status: "completed", deliveries: [{ status: "failed", run: null }, { status: "skipped", run: null }] }],
         findFirst: async () => ({
           status: "completed",
           completedAt,

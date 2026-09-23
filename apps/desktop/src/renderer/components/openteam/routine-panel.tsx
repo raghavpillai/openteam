@@ -767,6 +767,7 @@ interface RoutineSaveContext {
   draft: RoutineDraft;
   dirty: boolean;
   saving: boolean;
+  toggling: boolean;
   pending: RoutineDraft | null;
   attached: boolean;
 }
@@ -819,7 +820,7 @@ export function RoutineEditor({
   const [expandedSchedule, setExpandedSchedule] = useState<number | null>(null);
   const [addScheduleOpen, setAddScheduleOpen] = useState(false);
   const [loading, setLoading] = useState(Boolean(routineId));
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error" | "conflict">("idle");
   const [runError, setRunError] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [toggleSaving, setToggleSaving] = useState(false);
@@ -836,6 +837,7 @@ export function RoutineEditor({
       draft: newDraft(),
       dirty: false,
       saving: false,
+      toggling: false,
       pending: null,
       attached: active,
     };
@@ -919,14 +921,9 @@ export function RoutineEditor({
           enabled: value.enabled,
         });
       } else {
-        try {
-          saved = await update(current);
-        } catch (error) {
-          if (!(error instanceof ClientError) || error.status !== 409) throw error;
-          const latest = await api.routine(current.id);
-          context.routine = latest;
-          saved = await update(latest);
-        }
+        // A full draft cannot be safely retried against a newer revision: it
+        // would silently restore stale instructions or schedules.
+        saved = await update(current);
       }
       context.routine = saved;
       if (context.attached) setRoutine(saved);
@@ -935,8 +932,8 @@ export function RoutineEditor({
         if (context.attached) setDirty(false);
       }
       if (context.attached) setSaveState("saved");
-    } catch {
-      if (context.attached) setSaveState("error");
+    } catch (error) {
+      if (context.attached) setSaveState(error instanceof ClientError && error.status === 409 ? "conflict" : "error");
     } finally {
       context.saving = false;
       const pending = context.pending;
@@ -982,8 +979,19 @@ export function RoutineEditor({
         return;
       }
       try {
-        const history = await api.routineExecutions(current);
-        if (!stopped) setExecutions(history);
+        const [history, latest] = await Promise.all([api.routineExecutions(current), api.routine(current)]);
+        if (!stopped) {
+          setExecutions(history);
+          const context = contextRef.current;
+          if (context?.routine?.id === current && !context.dirty && !context.saving && !context.toggling && latest.revision > context.routine.revision) {
+            const refreshed = draftFromRoutine(latest);
+            context.routine = latest;
+            context.draft = refreshed;
+            setRoutine(latest);
+            setDraft(refreshed);
+            setSaveState("idle");
+          }
+        }
       } catch {
         // Keep the last durable history visible through transient refresh failures.
       } finally {
@@ -1025,6 +1033,7 @@ export function RoutineEditor({
     context.draft = next;
     setDraft(next);
     setToggleSaving(true);
+    context.toggling = true;
     const base = context.routine;
     const commit = async () => {
       try {
@@ -1055,6 +1064,7 @@ export function RoutineEditor({
         if (context.attached) setSaveState("error");
       })
       .finally(() => {
+        context.toggling = false;
         if (context.attached) setToggleSaving(false);
       });
   };
@@ -1219,6 +1229,8 @@ export function RoutineEditor({
         <div className="min-h-4 text-center text-[11px] text-muted-foreground" aria-live="polite">
           {saveState === "saving"
             ? "Saving…"
+            : saveState === "conflict"
+              ? "This routine changed elsewhere. Reopen it to load the latest version."
             : saveState === "error"
               ? "Couldn't save this routine."
               : runError

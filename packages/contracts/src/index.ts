@@ -361,9 +361,11 @@ export const TodoWriteInput = Schema.Struct({
       content: Schema.String,
       status: TodoStatus,
     })
-  ).pipe(Schema.minItems(2)),
+  ).pipe(Schema.minItems(1)),
   merge: Schema.Boolean,
-});
+}).pipe(Schema.filter(input => input.merge || input.todos.length >= 2, {
+  message: () => "A replacement task list requires at least two items; merge updates may contain one item",
+}));
 export type TodoWriteInput = typeof TodoWriteInput.Type;
 
 export const SubagentType = Schema.Literal(

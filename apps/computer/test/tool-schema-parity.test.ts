@@ -4,16 +4,28 @@ import { RuntimeTools } from "../src/runtime/tools";
 import type { ActiveTurn } from "../src/runtime/types";
 import { objectToolSchema } from "../src/tool-schema";
 import reference from "../../../packages/contracts/src/tool-reference.json";
-import { referenceTool } from "@openteam/contracts/tool-contracts";
+import { referenceTool, SEND_TO_USER_BATCH_GUIDANCE } from "@openteam/contracts/tool-contracts";
 import { READ_SIBLING_THREAD_TOOL } from "@openteam/contracts/sibling-threads";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { Type } from "typebox";
+import { Schema } from "effect";
+import { TodoWriteInput } from "@openteam/contracts";
 import { Value } from "typebox/value";
 import { taskToolContract } from "@openteam/contracts/tool-contracts";
 import { enrichUserInfo } from "../src/runtime/prompt-context";
 
 // The baseline is extracted from the captured external tool catalog, not our handlers.
 describe("captured tool contract wiring", () => {
+  test("advertises one-item TODO merges while retaining replacement and empty-list bounds", () => {
+    const schema = Type.Unsafe<Record<string, unknown>>(referenceTool("TodoWrite").inputSchema);
+    const one = [{ id: "first", content: "First", status: "completed" }] as const;
+    for (const [merge, todos, valid] of [[true, one, true], [false, one, false], [true, [], false], [false, [...one, { ...one[0], id: "second" }], true]] as const) {
+      const input = { merge, todos };
+      expect(Value.Check(schema, input)).toBe(valid);
+      if (valid) expect(Schema.decodeUnknownSync(TodoWriteInput)(input)).toEqual(input);
+      else expect(() => Schema.decodeUnknownSync(TodoWriteInput)(input)).toThrow();
+    }
+  });
   test("Task profiles and split/combined worker tools agree with the advertised context", () => {
     const runtime = new RuntimeTools({} as never, "http://unused.invalid", "test", "/tmp", "/tmp");
     for (const combinedComputerUse of [true, false]) {
@@ -86,7 +98,7 @@ describe("captured tool contract wiring", () => {
     const afterCloudAgent = captured.slice(captured.indexOf('Use {"type":"widget"'));
     expect(actual.description).toBe(
       identity(beforeCloudAgent + afterCloudAgent) +
-        " OpenTeam also supports secret {label,connector,field} for connector credentials, and scope:bot|personal for named environment secrets."
+        " OpenTeam also supports secret {label,connector,field} for connector credentials, and scope:bot|personal for named environment secrets. " + SEND_TO_USER_BATCH_GUIDANCE
     );
     expect(actual.description).not.toContain('"cursor-agent"');
     expect(actual.inputSchema.properties.type.enum).toEqual([

@@ -182,8 +182,14 @@ private struct ChatChromeFade: View {
 private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
   var top: Top
   var bottom: Bottom
+  @State private var keyboardFrame = CGRect.null
   func body(content: Content) -> some View {
     GeometryReader { viewport in
+      let bounds = viewport.frame(in: .global)
+      let docked = !keyboardFrame.isNull && keyboardFrame.maxY >= bounds.maxY
+        && keyboardFrame.width >= bounds.width * 0.95
+      let keyboardInset = docked ? max(0, bounds.maxY - keyboardFrame.minY) : 0
+      let bottomSafeArea = keyboardInset > 0 ? 0 : viewport.safeAreaInsets.bottom
       if #available(iOS 26, *) {
         content
           .overlay(alignment: .top) {
@@ -210,18 +216,39 @@ private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
                     // Continue the opaque endpoint through the home-indicator
                     // area so content cannot reappear below the gradient.
                     NativePalette.background
-                      .frame(height: viewport.safeAreaInsets.bottom)
-                      .offset(y: viewport.safeAreaInsets.bottom)
+                      .frame(height: bottomSafeArea)
+                      .offset(y: bottomSafeArea)
                   }
                   .frame(width: composer.size.width, height: composer.size.height, alignment: .bottom)
-                  .offset(y: min(24, viewport.safeAreaInsets.bottom))
+                  .offset(y: min(24, bottomSafeArea))
               }.allowsHitTesting(false)
             }
           }
           .scrollEdgeEffectHidden()
+          .padding(.bottom, keyboardInset)
       } else {
         content.safeAreaInset(edge: .top, spacing: 0) { top }
           .safeAreaInset(edge: .bottom, spacing: 0) { bottom }
+          .padding(.bottom, keyboardInset)
+      }
+    }
+    // The reference puts the editor in its typing position immediately, while
+    // UIKit presents the keyboard. Automatic avoidance instead gives the bar a
+    // second ~0.4-second slide on every tap. Keep dismissal/interactive changes
+    // animated, and reserve only the space covered by a docked keyboard.
+    .ignoresSafeArea(.keyboard, edges: .bottom)
+    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+      guard let screenFrame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+      let window = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        .flatMap(\.windows).first(where: \.isKeyWindow)
+      let frame = window.map { $0.convert(screenFrame, from: $0.screen.coordinateSpace) } ?? screenFrame
+      let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0
+      if !keyboardFrame.isNull && frame.minY > keyboardFrame.minY && duration > 0 {
+        withAnimation(.interpolatingSpring(duration: duration, bounce: 0)) { keyboardFrame = frame }
+      } else {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { keyboardFrame = frame }
       }
     }
   }

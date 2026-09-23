@@ -65,6 +65,15 @@ isolated `FunctionalFlowUITests` rerun, set
 `TEST_RUNNER_FUNCTIONAL_FLOW_SERVER=http://127.0.0.1:<fixture-port>` when invoking
 `xcodebuild`; the default remains port 19992.
 
+For keyboard latency investigations, add `--trace-composer-latency` to a DEBUG
+chat launch. After a real tap it saves `Documents/composer-latency.json` in the
+app container, with touch/editing/keyboard timestamps and display-link samples.
+`--composer-latency-control` opens a plain native multiline field for comparison;
+tap its title to dismiss the keyboard. These probes are excluded from Release.
+Record the simulator concurrently with `idb video --fps 120 --udid <udid> <file>`
+and inspect actual frame timestamps and the reported screen refresh limit;
+requesting 120 fps does not establish physical-device 120 Hz performance.
+
 For real transcription, the `RealServer` scheme's
 `RealServerUITests/testLiveVoiceTranscriptionAndDraftPreservation` uses
 `scripts/real-server-qa.ts`. The retired React Native `--ios-app` transcription

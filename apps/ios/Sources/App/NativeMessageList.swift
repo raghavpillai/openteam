@@ -109,7 +109,9 @@ struct NativeMessageList: UIViewControllerRepresentable {
     table.estimatedRowHeight = 90
     table.sectionHeaderTopPadding = 0
     table.contentInsetAdjustmentBehavior = .automatic
-    table.keyboardDismissMode = .interactive
+    // Browsing history should leave the composer in either scroll direction,
+    // rather than requiring a downward drag that reaches the keyboard.
+    table.keyboardDismissMode = .onDrag
     table.selfSizingInvalidation = .enabledIncludingConstraints
     table.isPrefetchingEnabled = false
     table.delegate = self

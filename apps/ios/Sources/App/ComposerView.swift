@@ -28,6 +28,9 @@ struct ComposerView: View {
   @State private var voiceRange: Range<String.Index>?
   @State private var pluginMentions: [JSON] = []
   @FocusState private var focused: Bool
+  // Focus arrives before the keyboard is ready, especially on its first launch.
+  // Changing the safe-area inset then makes history jump before the keyboard moves.
+  @State private var keyboardPresented = false
   private var draft: Draft { store.draft(key) }
   private var attachmentCount: Int { draft.attachments.count + (draft.stagedFiles?.count ?? 0) }
   private var text: Binding<String> {
@@ -47,8 +50,21 @@ struct ComposerView: View {
       } else {
         messageControls
       }
-    }.padding(.horizontal, focused ? 18 : 30).padding(.top, 4).padding(.bottom, focused ? 18 : -4)
-      .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: focused)
+    }.padding(.horizontal, keyboardPresented ? 18 : 30).padding(.top, 4)
+      .padding(.bottom, keyboardPresented ? 18 : -4)
+      .background {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--trace-composer-latency") {
+          ComposerLatencyProbe()
+        }
+        #endif
+      }
+      .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+        if focused { keyboardPresented = true }
+      }
+      .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+        keyboardPresented = false
+      }
       .animation(
         reduceMotion ? nil : .timingCurve(0.23, 1, 0.32, 1, duration: 0.24),
         value: draft.text.isEmpty

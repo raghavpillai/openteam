@@ -11,7 +11,9 @@ struct OpenTeamApp: App {
     WindowGroup {
       Group {
         #if DEBUG
-          if ProcessInfo.processInfo.arguments.contains("--bot-motion-lab") {
+          if ProcessInfo.processInfo.arguments.contains("--composer-latency-control") {
+            ComposerLatencyControl()
+          } else if ProcessInfo.processInfo.arguments.contains("--bot-motion-lab") {
             RobotMotionLab()
           } else {
             LaunchContentView()

@@ -52,6 +52,44 @@ import XCTest
     }
   }
 
+  func testHistoryScrollDismissesKeyboardAndPreservesDraft() async throws {
+    continueAfterFailure = false
+    for appearance in ["light", "dark"] {
+      try await control("__qa/scene", ["scene": "history-pages"])
+      let app = XCUIApplication()
+      app.launchArguments = ["--ui-testing", "--server", base.absoluteString,
+        "--appearance", appearance, "--open-channel", "visual-chat"]
+      app.launch()
+      let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+      XCTAssertTrue(input.waitForExistence(timeout: 15))
+      XCTAssertTrue(app.staticTexts["Page message 180"].waitForExistence(timeout: 15))
+      input.tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+      input.typeText("Keep this draft")
+      // Both directions must dismiss, including browsing older messages and
+      // scrolling back toward the latest, without sending or clearing a draft.
+      for dy in [140.0, -140.0] {
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.34))
+        start.press(forDuration: 0.05,
+          thenDragTo: start.withOffset(CGVector(dx: 0, dy: dy)),
+          withVelocity: .slow, thenHoldForDuration: 0.1)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3),
+          "Scrolling history must dismiss the keyboard in either direction")
+        XCTAssertEqual(input.value as? String, "Keep this draft")
+        capture("scroll-dismiss-\(appearance)-\(dy)", app)
+        input.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+      }
+      input.typeText(" reopened")
+      // A native field tap positions the caret where tapped; insertion needn't
+      // be at the end. Verify editing resumed without losing the original draft.
+      let edited = try XCTUnwrap(input.value as? String)
+      XCTAssertTrue(edited.contains(" reopened"))
+      XCTAssertEqual(edited.replacingOccurrences(of: " reopened", with: ""), "Keep this draft")
+      app.terminate()
+    }
+  }
+
   func testOpeningShowsSpinnerThenStableLatestMessage() async throws {
     continueAfterFailure = false
     for appearance in ["dark", "light"] {

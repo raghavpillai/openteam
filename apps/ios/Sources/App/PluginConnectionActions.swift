@@ -12,12 +12,18 @@ struct PluginConnectionActions: View {
   @State private var autoStarted = false
   @State private var now = Date()
   @State private var callbackURL = ""
+  @State private var showingManualInstructions = false
+  @State private var openedAuthorizationState: String?
   private var path: String { "/api/v0/plugin-connections/" + API.segment(connection["id"].string) }
   private var session: PluginAuthorizationSession? {
     PluginAuthorizationSession(connection, now: now)
   }
   private var requiresDesktop: Bool { MobilePluginAuthorization.requiresDesktop(connection) }
   private var presentation: PluginConnectionPresentation { .init(connection, now: now) }
+  private var isGoogle: Bool {
+    ["gmail", "google-calendar", "google-drive"].contains(connection["pluginKey"].string)
+  }
+  private var continueTitle: String { isGoogle ? "Continue to Google" : "Continue to browser" }
 
   var body: some View {
     FormStatus(operation: operation)
@@ -28,6 +34,7 @@ struct PluginConnectionActions: View {
     // A Form lazily realizes rows. Keep the lifecycle on the visible status row:
     // OAuth controls can push an invisible footer offscreen on smaller iPhones.
     .task(id: scenePhase) { await monitorConnection() }
+    .sheet(isPresented: $showingManualInstructions) { manualInstructions }
     if connection["status"].string == "error", !connection["statusMessage"].string.isEmpty {
       Text(connection["statusMessage"].string).font(.footnote).foregroundStyle(NativePalette.muted)
     }
@@ -71,9 +78,13 @@ struct PluginConnectionActions: View {
         }.disabled(
           operation.busy || callbackURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
       }
-      Button(session.expired ? "Try again" : "Reopen sign-in") {
+      Button(
+        session.expired ? "Try again"
+          : connection["oauthCallbackMode"].string == "manual"
+            && openedAuthorizationState != session.state ? continueTitle : "Reopen sign-in"
+      ) {
         Task {
-          if session.expired { await signIn() } else { openURL(session.url) }
+          if session.expired { await signIn() } else { openSignIn(session) }
         }
       }.disabled(operation.busy)
       Button("Cancel sign-in", role: .cancel) {
@@ -101,6 +112,63 @@ struct PluginConnectionActions: View {
         Button("Disconnect", role: .destructive) { Task { await command("/disconnect") } }
           .disabled(operation.busy)
       }
+    }
+  }
+  private var manualInstructions: some View {
+    NavigationStack {
+      ScrollView {
+        VStack(alignment: .leading, spacing: 24) {
+          Text("You’ll copy one address back into OpenTeam to finish connecting.")
+            .foregroundStyle(.secondary)
+          manualStep(1, isGoogle ? "Sign in to Google" : "Sign in in your browser",
+            "Choose your account and approve access.")
+          manualStep(2, "Copy the final address",
+            "Safari may say it can’t open the page. That’s expected. Touch and hold the address bar showing 127.0.0.1, then tap Copy.")
+          manualStep(3, "Return to OpenTeam",
+            "Paste the entire address into the sign-in field, then tap Complete sign-in.")
+        }.padding(24)
+      }
+      .safeAreaInset(edge: .bottom) {
+        Button(continueTitle) {
+          showingManualInstructions = false
+          Task {
+            if let session = PluginAuthorizationSession(connection), !session.expired {
+              openedAuthorizationState = session.state
+              openURL(session.url)
+            } else {
+              // A user can leave these instructions open past the OAuth expiry.
+              await signIn(manualInstructionsSeen: true)
+            }
+          }
+        }
+        .buttonStyle(PrimaryActionStyle())
+        .frame(maxWidth: .infinity).padding()
+        .accessibilityIdentifier("plugin-continue-to-provider")
+      }
+      .navigationTitle("Before you sign in").navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancel") { showingManualInstructions = false }
+        }
+      }
+    }.presentationDetents([.large])
+  }
+  private func manualStep(_ number: Int, _ title: String, _ detail: String) -> some View {
+    HStack(alignment: .top, spacing: 14) {
+      Text("\(number)").font(.headline).frame(width: 32, height: 32)
+        .background(.quaternary, in: Circle()).accessibilityHidden(true)
+      VStack(alignment: .leading, spacing: 6) {
+        Text(title).font(.headline)
+        Text(detail).foregroundStyle(.secondary)
+      }
+    }
+  }
+  private func openSignIn(_ session: PluginAuthorizationSession, manualInstructionsSeen: Bool = false) {
+    if connection["oauthCallbackMode"].string == "manual", !manualInstructionsSeen {
+      showingManualInstructions = true
+    } else {
+      openedAuthorizationState = session.state
+      openURL(session.url)
     }
   }
   private func monitorConnection() async {
@@ -137,7 +205,7 @@ struct PluginConnectionActions: View {
       connection = .object(merged)
     }
   }
-  private func signIn() async {
+  private func signIn(manualInstructionsSeen: Bool = false) async {
     guard !operation.busy, !requiresDesktop else { return }
     await operation.run(successEffect: nil) {
       if let beforeSignIn, !(await beforeSignIn()) {
@@ -159,7 +227,7 @@ struct PluginConnectionActions: View {
       guard let session, !session.expired else {
         throw APIError("The server did not return a current sign-in link. Refresh and try again.")
       }
-      openURL(session.url)
+      openSignIn(session, manualInstructionsSeen: manualInstructionsSeen)
     }
   }
   private func command(_ suffix: String, body: JSON? = nil) async {

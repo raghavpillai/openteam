@@ -299,6 +299,49 @@ import XCTest
     try await recordState("uninstall-lost-acknowledgment")
 
   }
+  func testManualSignInExplainsTheHandoffBeforeOpeningTheBrowser() async throws {
+    let app = try await launch("manual-authorize", appearance: "light")
+    openCalendar(app)
+    app.buttons["Sign in"].tap()
+    let proceed = app.buttons["plugin-continue-to-provider"]
+    XCTAssertTrue(proceed.waitForExistence(timeout: 8))
+    XCTAssertTrue(app.staticTexts["Copy the final address"].exists)
+    XCTAssertTrue(app.staticTexts["Return to OpenTeam"].exists)
+    XCTAssertEqual(app.state, .runningForeground)
+    var snapshot = try await state()
+    XCTAssertEqual(snapshot["browserOpenCount"] as? Int, 0)
+    capture("manual-before-browser", app)
+    app.buttons["Cancel"].tap()
+    XCTAssertTrue(proceed.waitForNonExistence(timeout: 5))
+    XCTAssertEqual(app.state, .runningForeground)
+    app.buttons["Continue to browser"].tap()
+    XCTAssertTrue(proceed.waitForExistence(timeout: 5))
+    proceed.tap()
+    let opened = expectation(
+      for: NSPredicate(format: "state != %d", XCUIApplication.State.runningForeground.rawValue),
+      evaluatedWith: app)
+    await fulfillment(of: [opened], timeout: 12)
+    app.activate()
+    XCTAssertTrue(app.buttons["Reopen sign-in"].waitForExistence(timeout: 8))
+    snapshot = try await state()
+    XCTAssertEqual(snapshot["authCount"] as? Int, 1)
+    XCTAssertEqual(snapshot["browserOpenCount"] as? Int, 1)
+    app.buttons["Reopen sign-in"].tap()
+    XCTAssertTrue(proceed.waitForExistence(timeout: 5))
+    XCTAssertEqual(app.state, .runningForeground)
+    // Instructions can remain open longer than the provider's sign-in window.
+    try await post(["expired": true])
+    try await Task.sleep(for: .seconds(3))
+    proceed.tap()
+    let refreshed = expectation(
+      for: NSPredicate(format: "state != %d", XCUIApplication.State.runningForeground.rawValue),
+      evaluatedWith: app)
+    await fulfillment(of: [refreshed], timeout: 12)
+    app.activate()
+    snapshot = try await state()
+    XCTAssertEqual(snapshot["authCount"] as? Int, 2)
+    XCTAssertEqual(snapshot["browserOpenCount"] as? Int, 2)
+  }
   func testAuthorizationReopenCancelExpiryAndLostResponse() async throws {
     let app = try await launch("authorize")
     openCalendar(app)
@@ -309,6 +352,7 @@ import XCTest
       evaluatedWith: app)
     await fulfillment(of: [backgrounded], timeout: 12)
     app.activate()
+    XCTAssertFalse(app.buttons["plugin-continue-to-provider"].exists)
     XCTAssertTrue(app.buttons["Reopen sign-in"].waitForExistence(timeout: 8))
     var snapshot = try await state()
     XCTAssertEqual(snapshot["authCount"] as? Int, 1)

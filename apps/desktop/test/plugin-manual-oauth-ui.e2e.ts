@@ -41,8 +41,12 @@ try {
   );
   await page.getByRole("button", { name: "Open Flow OAuth", exact: true }).click();
   await page.getByText("Installation steps", { exact: true }).click();
-  const opened = context.waitForEvent("page");
   await page.getByRole("button", { name: "Add", exact: true }).click();
+  await page.getByText("Before you sign in", { exact: true }).waitFor();
+  assert(context.pages().length === 1, "HTTP sign-in must not open the provider before the instructions");
+  await page.getByText(/The browser may say it can’t open the page/).waitFor();
+  const opened = context.waitForEvent("page");
+  await page.getByRole("button", { name: "Continue to browser", exact: true }).click();
   const provider = await opened;
   const returned = context.waitForEvent(
     "request",
@@ -54,7 +58,7 @@ try {
     callback.includes("state=") && callback.includes("code="),
     "Provider must return a complete loopback response"
   );
-  const input = page.getByLabel("Complete callback URL", { exact: true });
+  const input = page.getByLabel("Browser address from sign-in", { exact: true });
   await input.waitFor();
   assert(
     (await input.getAttribute("type")) === "password",
@@ -65,7 +69,7 @@ try {
   await page.getByRole("button", { name: "Complete sign-in", exact: true }).click();
   await page.getByText("Connected", { exact: true }).first().waitFor();
   assert(
-    (await page.getByLabel("Complete callback URL").count()) === 0,
+    (await page.getByLabel("Browser address from sign-in").count()) === 0,
     "Callback input must disappear after completion"
   );
   const settings = await client.pluginSettings();
@@ -87,6 +91,31 @@ try {
     "Polling must preserve Automatic rather than persisting the resolved mode"
   );
   await page.screenshot({ path: resolve(output, "manual-connected.png"), fullPage: true });
+  const automatic = await createPluginFlowFixture(process.env.OPENTEAM_TEST_DATABASE_URL, {
+    callbackMode: "auto",
+    publicUrl: "https://openteam.fixture.test",
+  });
+  try {
+    await page.goto(
+      `http://127.0.0.1:63387/test/browser/plugin-lifecycle.html?server=${encodeURIComponent(automatic.server.url.origin)}`
+    );
+    await page.getByRole("button", { name: "Open Flow OAuth", exact: true }).click();
+    const automaticallyOpened = context.waitForEvent("page", { timeout: 10_000 });
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    const automaticProvider = await automaticallyOpened;
+    await automaticProvider.getByRole("heading", { name: "Authorize test provider" }).waitFor();
+    assert(
+      new URL(automaticProvider.url()).searchParams.get("redirect_uri")?.startsWith("https://openteam.fixture.test/"),
+      "Automatic HTTPS must retain its server callback"
+    );
+    assert(
+      await page.getByText("Before you sign in", { exact: true }).count() === 0,
+      "HTTPS must open the provider without the HTTP instructions"
+    );
+    await automaticProvider.close();
+  } finally {
+    await automatic.close();
+  }
   assert(errors.length === 0, "Unexpected UI errors: " + errors.join(", "));
   await Bun.write(
     resolve(output, "manual-ui-result.json"),
@@ -95,6 +124,8 @@ try {
         passed: true,
         checks: [
           "registry instructions",
+          "HTTP instructions before browser handoff",
+          "HTTPS opens immediately with its server callback",
           "local-browser sign-in",
           "failed loopback page",
           "masked callback form",

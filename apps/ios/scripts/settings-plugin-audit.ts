@@ -19,6 +19,8 @@ let status = "needs_auth";
 let authorizationUrl: string | null = null;
 let authorizationExpiresAt: string | null = null;
 let authCount = 0;
+let browserOpenCount = 0;
+let callbackMode = "server";
 let loseAuthResponse = false;
 let access = new Map<string, { skillsEnabled: boolean; grantedConnectionIds: string[] }>();
 const bots = Array.from({length:64}, (_,i) => ({id: i ? `access-bot-${i}` : "visual-bot-0", name: i ? `QA Bot ${i}` : "Memory Box 914"}));
@@ -31,7 +33,7 @@ let requests: { method: string; path: string; query: string; input: unknown }[] 
 const connection = (key: string) => ({
   id: key + "-connection", revision: "1", pluginKey: key, connectorKey: "qa-connector",
   name: key === "qa-calendar" ? "Google Calendar" : "Gmail", alias: "QA account",
-  transport: "http", auth: "oauth", oauthCallbackMode: "server", status, authorizationUrl, authorizationExpiresAt,
+  transport: "http", auth: "oauth", oauthCallbackMode: callbackMode, status, authorizationUrl, authorizationExpiresAt,
   statusMessage: status === "error" ? "Didn't finish connecting. Try signing in again." : null,
   instructions: "", canAuthenticate: true, configured: true, tools: [],
 });
@@ -52,7 +54,9 @@ const server = Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 40, async f
   if (path === "/__settings/reset") {
     installed = new Set(["qa-gmail"]);
     status = ["failed", "catalog-failed"].includes(input.scene) ? "error" : "needs_auth";
-    if (["failed", "access", "authorize", "connect"].includes(input.scene)) installed.add("qa-calendar");
+    if (["failed", "access", "authorize", "manual-authorize", "connect"].includes(input.scene)) installed.add("qa-calendar");
+    callbackMode = input.scene === "manual-authorize" ? "manual" : "server";
+    browserOpenCount = 0;
     authorizationUrl = null; authorizationExpiresAt = null; authCount = 0; loseAuthResponse = false; access = new Map();
     strictAccess = input.strictAccess ?? true;
     holdCatalog = input.scene === "loading"; holdConnect = false; loseDeleteResponse = false; failures = {}; requests = [];
@@ -70,8 +74,11 @@ const server = Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 40, async f
     if (input.failures) failures = input.failures;
     return Response.json({ ok: true });
   }
-  if (path === "/__settings/state") return Response.json({ requests, settings: settings(), access: Object.fromEntries(access), authCount });
-  if (path === "/__settings/oauth") return new Response("<!doctype html><title>Isolated QA authorization</title><p>Inert authorization handoff. No credentials are requested and no provider is contacted. Return to OpenTeam Swift.</p>", { headers: { "content-type": "text/html" } });
+  if (path === "/__settings/state") return Response.json({ requests, settings: settings(), access: Object.fromEntries(access), authCount, browserOpenCount });
+  if (path === "/__settings/oauth") {
+    browserOpenCount++;
+    return new Response("<!doctype html><title>Isolated QA authorization</title><p>Inert authorization handoff. No credentials are requested and no provider is contacted. Return to OpenTeam Swift.</p>", { headers: { "content-type": "text/html", "cache-control": "no-store" } });
+  }
   if (path.startsWith("/api/v0/plugin")) {
     requests.push({ method, path, query: url.search, input });
     const failure = method + " " + path;

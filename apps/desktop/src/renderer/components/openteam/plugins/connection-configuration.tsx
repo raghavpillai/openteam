@@ -6,7 +6,7 @@ import type {
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../../client/openteam-api";
 import { inputClass, PluginButton, PluginField, usePluginOperation } from "./plugin-ui";
-import { PluginAuthorization } from "./plugin-authorization";
+import { PluginAuthorization, openAutomaticPluginSignIn } from "./plugin-authorization";
 import { pluginAuthorization, pluginProviderSetupSteps, pluginProviderSetupDescription } from "@openteam/product-core/plugin-authorization";
 
 export function ConnectionConfiguration({
@@ -84,7 +84,7 @@ export function ConnectionConfiguration({
     setEnv("");
     if (connection.auth === "oauth") {
       const result = await api.authenticatePlugin(connection.id, reauth);
-      window.open(result.authorizationUrl, "_blank", "noopener,noreferrer");
+      openAutomaticPluginSignIn(resolvedCallbackMode, result.authorizationUrl);
     } else await api.connectPlugin(connection.id);
   };
   if (!config)
@@ -100,7 +100,7 @@ export function ConnectionConfiguration({
       <PluginAuthorization connection={connection} busy={operation.busy}
         onRetry={() => void operation.run(async () => {
           const result = await api.authenticatePlugin(connection.id);
-          window.open(result.authorizationUrl, "_blank", "noopener,noreferrer");
+          openAutomaticPluginSignIn(connection.oauthCallbackMode, result.authorizationUrl);
         })}
         onCancel={() => { const session = pluginAuthorization(connection); if (session) void operation.run(() => api.cancelPluginAuthentication(connection.id, session.state)); }} />
       <div>

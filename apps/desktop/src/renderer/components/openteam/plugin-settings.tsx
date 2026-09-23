@@ -31,6 +31,7 @@ DropdownMenuItem,
 DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { InstalledPluginsView,MarketplaceView } from "./plugins/marketplace-browse";
+import { openAutomaticPluginSignIn } from "./plugins/plugin-authorization";
 
 const PluginWorkspace = lazy(() => import("./plugins/plugin-workspace"));
 
@@ -253,13 +254,13 @@ export function PluginDialog({
     }
     const session = pluginAuthorization(connection);
     if (session && !session.expired && !window.openteam?.pluginOAuth) {
-      window.open(session.url, "_blank", "noopener,noreferrer");
+      openAutomaticPluginSignIn(connection.oauthCallbackMode, session.url);
       return;
     }
     void mutate(connection.id, async () => {
       if (connection.auth !== "oauth") return api.connectPlugin(connection.id);
       const result = await api.authenticatePlugin(connection.id);
-      window.open(result.authorizationUrl, "_blank", "noopener,noreferrer");
+      openAutomaticPluginSignIn(connection.oauthCallbackMode, result.authorizationUrl);
       return result;
     });
   };
@@ -286,7 +287,7 @@ export function PluginDialog({
     if (connection.status === "ready") return;
     if (connection.auth === "oauth") {
       const result = await api.authenticatePlugin(connection.id);
-      window.open(result.authorizationUrl, "_blank", "noopener,noreferrer");
+      openAutomaticPluginSignIn(connection.oauthCallbackMode, result.authorizationUrl);
     } else await api.connectPlugin(connection.id);
   };
   const toggleConnection = (connection: PluginConnectionView) => {
@@ -499,7 +500,7 @@ export function PluginDialog({
                     );
                   if (account?.auth === "oauth" && !pluginNeedsSetup(account, selected)) {
                     const result = await api.authenticatePlugin(account.id);
-                    window.open(result.authorizationUrl, "_blank", "noopener,noreferrer");
+                    openAutomaticPluginSignIn(account.oauthCallbackMode, result.authorizationUrl);
                   }
                 }).then((success) => success || created);
               }}
@@ -532,7 +533,7 @@ export function PluginDialog({
                 void mutate(connection.id, async () => {
                   await api.configurePluginConnection(connection.id, input);
                   const result = await api.authenticatePlugin(connection.id);
-                  window.open(result.authorizationUrl, "_blank", "noopener,noreferrer");
+                  openAutomaticPluginSignIn(connection.oauthCallbackMode, result.authorizationUrl);
                   return result;
                 })
               }

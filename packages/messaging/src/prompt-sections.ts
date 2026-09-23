@@ -86,10 +86,43 @@ export function renderPromptSectionUpdates(
   if (!receipts.length) return null;
   return [
     "<instructions_update>",
-    "These parts of your instructions changed since they were rendered. The copy above keeps the earlier version until your context is next summarized. Each section below replaces its earlier version in full:",
-    ...receipts.map(
-      ({ name, next }) => `## ${SECTION_LABELS[name]}\n${next || "(This section is now empty.)"}`
-    ),
+    'These parts of your instructions changed since they were rendered. The copy above keeps the earlier version until your context is next summarized. A section marked "(changed lines only)" lists only the lines added (+) or removed (-) relative to that earlier version; any other section is shown in full and replaces it:',
+    "",
+    receipts.map(renderSectionUpdate).join("\n\n"),
     "</instructions_update>",
-  ].join("\n\n");
+  ].join("\n");
+}
+
+function renderSectionUpdate({ name, previous, next }: PromptSectionReceipt): string {
+  const heading = `## ${SECTION_LABELS[name]}`;
+  if (!next) return `${heading}\n(This section is now empty.)`;
+  const replacement = `${heading}\n${next}`;
+  if (!previous) return replacement;
+  const before = previous.split("\n"),
+    after = next.split("\n");
+  // Match the reference's bounded LCS diff, including deletion-first ties.
+  // Large sections and edits longer than a replacement stay full replacements.
+  if (before.length * after.length > 250_000) return replacement;
+  const lcs = Array.from({ length: before.length + 1 }, () => new Uint32Array(after.length + 1));
+  for (let i = before.length - 1; i >= 0; i--)
+    for (let j = after.length - 1; j >= 0; j--)
+      lcs[i]![j] =
+        before[i] === after[j]
+          ? lcs[i + 1]![j + 1]! + 1
+          : Math.max(lcs[i + 1]![j]!, lcs[i]![j + 1]!);
+  const edits: string[] = [];
+  let i = 0,
+    j = 0;
+  while (i < before.length && j < after.length) {
+    if (before[i] === after[j]) {
+      i++;
+      j++;
+    } else if (lcs[i + 1]![j]! >= lcs[i]![j + 1]!) edits.push(`- ${before[i++]}`);
+    else edits.push(`+ ${after[j++]}`);
+  }
+  for (; i < before.length; i++) edits.push(`- ${before[i]}`);
+  for (; j < after.length; j++) edits.push(`+ ${after[j]}`);
+  return edits.length >= after.length
+    ? replacement
+    : [`${heading} (changed lines only)`, ...edits].join("\n");
 }

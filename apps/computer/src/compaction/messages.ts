@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { estimateBotTextTokens } from "./token-estimate";
 import type {
   BotArchiveBlob,
   BotCompactionEvent,
@@ -349,29 +350,58 @@ export const estimateBotContextTokens = (
   messages: readonly BotMessage[],
   tools: readonly unknown[] = []
 ): number =>
-  Math.ceil((systemPrompt.length + canonicalJson(tools).length) / 4) +
-  messages.reduce((total, message) => {
-    const content = message.content ?? message.summary ?? message.output ?? "";
-    const parts = Array.isArray(content) ? content : [content];
-    return (
-      total +
-      4 +
-      parts.reduce((tokens: number, part: unknown) => {
-        if (part === undefined) return tokens;
-        // Like Pi's estimator, account for images separately from text. Encoded
-        // file bytes are not prompt text tokens (and could be megabytes each).
-        if (
-          part &&
-          typeof part === "object" &&
-          ["image", "image_url"].includes(String((part as Record<string, unknown>).type))
+  estimateBotTextTokens(systemPrompt) +
+  (tools.length ? estimateBotTextTokens(canonicalJson(tools)) : 0) +
+  messages.reduce((total, message) => total + estimateBotMessageTokens(message), 0);
+
+export const estimateBotMessageTokens = (message: BotMessage): number => {
+  const content = message.content ?? message.summary ?? message.output ?? "";
+  const parts = Array.isArray(content) ? content : [content];
+  return (
+    // Tool receipts acquire provider framing and an untrusted-data fence at
+    // serialization. Reserve that overhead before the provider measures it.
+    (message.role === "toolResult" ? 128 : 4) +
+    parts.reduce((tokens: number, part: unknown) => {
+      if (part === undefined) return tokens;
+      // Like Pi's estimator, account for images separately from text. Encoded
+      // file bytes are not prompt text tokens (and could be megabytes each).
+      if (
+        part &&
+        typeof part === "object" &&
+        ["image", "image_url"].includes(String((part as Record<string, unknown>).type))
+      )
+        return tokens + 1_200;
+      return tokens + estimateBotTextTokens(typeof part === "string" ? part : canonicalJson(part));
+    }, 0)
+  );
+};
+
+/** Preserve the measured prefix; estimate only messages added after it. The
+ * coordinator separately rejects measurements from before archive adoption. */
+export function estimateBotMeasuredContextTokens(messages: readonly BotMessage[]): number | null {
+  let trailing = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]!;
+    if (
+      message.role === "assistant" &&
+      !["error", "aborted", "pending"].includes(String(message.stopReason))
+    ) {
+      const usage = message.usage as Record<string, unknown> | undefined;
+      const positive = (value: unknown) =>
+        typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+      const measured = Math.max(
+        positive(usage?.totalTokens),
+        ["input", "output", "cacheRead", "cacheWrite"].reduce(
+          (sum, key) => sum + positive(usage?.[key]),
+          0
         )
-          return tokens + 1_200;
-        return (
-          tokens + Math.ceil((typeof part === "string" ? part : canonicalJson(part)).length / 4)
-        );
-      }, 0)
-    );
-  }, 0);
+      );
+      if (measured > 0) return measured + trailing;
+    }
+    trailing += estimateBotMessageTokens(message);
+  }
+  return null;
+}
 
 export const redactBotArchiveMessages = (messages: readonly BotMessage[]): BotMessage[] =>
   structuredClone([...messages]);

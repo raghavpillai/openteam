@@ -19,6 +19,7 @@ import {
   replaceBotUserInfo,
   canonicalJson,
   isValidBotEarlyThreshold,
+  estimateBotMeasuredContextTokens,
   sha256,
 } from "../bot-compaction";
 import { textFromContent } from "./content";
@@ -49,12 +50,8 @@ export const modelVisibleSummaryTools = (
 /** Use one context shape for every summary entry point. */
 export function compactionObservation(active: ActiveTurn): Omit<BotObservation, "infer"> {
   const usage = active.session?.getContextUsage();
-  const hasProviderUsage = active.session?.messages.some(
-    (message) =>
-      message.role === "assistant" &&
-      !["error", "aborted", "pending"].includes(message.stopReason) &&
-      responseTokens(message as unknown as BotMessage, true) > 0
-  );
+  const piMessages =
+    active.compactionReadPiMessages?.() ?? ((active.session?.messages ?? []) as BotMessage[]);
   const tools = modelVisibleSummaryTools(
     (active.session?.getAllTools() ?? []).filter((tool) =>
       active.session?.getActiveToolNames().includes(tool.name)
@@ -62,11 +59,10 @@ export function compactionObservation(active: ActiveTurn): Omit<BotObservation, 
   );
   return {
     contextSessionId: active.contextSessionId,
-    piMessages:
-      active.compactionReadPiMessages?.() ?? ((active.session?.messages ?? []) as BotMessage[]),
+    piMessages,
     systemPrompt: active.instructions,
     userInfoMessage: active.userInfoMessage,
-    usedTokens: hasProviderUsage ? (usage?.tokens ?? null) : null,
+    usedTokens: estimateBotMeasuredContextTokens(piMessages),
     maxTokens: usage?.contextWindow ?? active.session?.model?.contextWindow ?? 0,
     modelKey: sha256(canonicalJson({ model: active.modelRef, reasoning: active.reasoning, tools })),
     earlyThreshold: active.compactionEarlyThreshold,
@@ -151,7 +147,7 @@ export function compactionExtension(
           );
           event.messages = [...event.messages, active.session.messages.at(-1)!];
         }
-        const reminder = communicationReminder(event.messages as BotMessage[], active);
+        const reminder = communicationReminder(readPiMessages(), active);
         if (reminder && active.session) {
           await active.session.sendCustomMessage(
             {

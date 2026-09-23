@@ -33,6 +33,7 @@
     "@openteam/plugin-sdk": "workspace:*",
     "@openteam/shell-jobs": "workspace:*",
     "effect": "3.22.1",
+    "gpt-tokenizer": "4.0.0",
     "ipaddr.js": "2.5.0",
     "linkedom": "0.18.13",
     "playwright-core": "1.55.0",

@@ -53,7 +53,16 @@ export function promptFingerprint(system: string, userInfo: string, tools: unkno
 export const ACK_REMINDER =
   "<system_reminder>\nYou opened this turn by calling tools without first acknowledging the user. Acknowledge them now by actually invoking SendToUser with a one-line text acknowledgement, then continue the work. Plain assistant text is not shown to the user; a widget or attachment does not count as this acknowledgement.\n</system_reminder>";
 export const PROGRESS_REMINDER =
-  "<system_reminder>\nYou have worked since your last SendToUser. If the tools produced a result the user is waiting for, deliver it now with SendToUser. An opening acknowledgement does not deliver the result. If work remains, give a concise useful progress update and continue.\n</system_reminder>";
+  "<system_reminder>\nYou have made several tool calls without a SendToUser, so the user is currently watching silence. Actually invoke the SendToUser tool now. Make a real tool/function call, not text you write. Plain assistant text is NEVER shown to the user; only a real SendToUser tool invocation reaches them, so if you don't call the tool they just keep seeing silence. Send one brief update in a complete sentence, saying what you found or what happens next, not a play-by-play of each step, before continuing.\n</system_reminder>";
+export const EARLY_RESULT_REMINDER =
+  "<system_reminder>\nRemember: the user cannot see tool output or your thinking. Only SendToUser reaches them. If you have produced a result or finished what they asked, send it now with a SendToUser tool call before continuing or ending the turn. If you are still mid-task, keep working and send the result once you have it.\n</system_reminder>";
+
+const isCommunicationReminder = (message: BotMessage) =>
+  message.customType === "openteam-communication-reminder" ||
+  ["sandSendMessageReminder", "sandEarlyResultReminder", "sandStartOfTurnAckReminder"].some(
+    (flag) =>
+      (message.providerOptions?.cursor as Record<string, unknown> | undefined)?.[flag] === true
+  );
 
 /** Synthetic notes never reset the real user-turn boundary. */
 export function communicationReminder(
@@ -66,11 +75,13 @@ export function communicationReminder(
   let hasSend = false;
   let alreadyReminded = false;
   const last = messages.at(-1) as (BotMessage & { customType?: string }) | undefined;
-  if (last?.customType === "openteam-communication-reminder") return null;
+  if (last && isCommunicationReminder(last)) return null;
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]! as BotMessage & { customType?: string };
-    if (message.customType === "openteam-communication-reminder" && !hasSend)
-      alreadyReminded = true;
+    if (isCommunicationReminder(message)) {
+      if (!hasSend) alreadyReminded = true;
+      continue;
+    }
     if (
       message.role === "user" &&
       !(message.providerOptions?.cursor as Record<string, unknown> | undefined)?.isUserInfo
@@ -96,7 +107,8 @@ export function communicationReminder(
     }
   }
   if (!hasTextSend && calls > 1 && !alreadyReminded) return { kind: "ack", content: ACK_REMINDER };
-  if (calls > 6 || (hasSend && calls > 0 && !alreadyReminded))
-    return { kind: "progress", content: PROGRESS_REMINDER };
+  if (calls > 6) return { kind: "progress", content: PROGRESS_REMINDER };
+  if (hasSend && calls > 0 && !alreadyReminded)
+    return { kind: "early-result", content: EARLY_RESULT_REMINDER };
   return null;
 }

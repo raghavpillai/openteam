@@ -349,6 +349,7 @@ struct PluginDraftEditor: View {
 struct InstalledPackageView: View {
   @Environment(AppStore.self) private var store
   let key: String
+  var onChange: () async -> Void = {}
   @State private var data: JSON = .null
   @State private var operation = FormOperation()
   @State private var exported: URL?
@@ -392,6 +393,7 @@ struct InstalledPackageView: View {
                   path + "/update", method: "POST",
                   body: .object(["digest": data["update"]["digest"]]))
                 try await load()
+                await onChange()
               }
             }
           }
@@ -403,6 +405,7 @@ struct InstalledPackageView: View {
             await operation.run {
               _ = try await store.request(path + "/rollback", method: "POST")
               try await load()
+              await onChange()
             }
           }
         }

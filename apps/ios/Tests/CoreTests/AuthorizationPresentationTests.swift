@@ -3,6 +3,17 @@ import XCTest
 @testable import OpenTeamCore
 
 final class AuthorizationPresentationTests: XCTestCase {
+  func testCompatiblePackageUpdateReconnectsWithoutAnotherSignIn() {
+    var connection: JSON = .object([
+      "auth": .string("oauth"), "status": .string("disconnected"),
+      "configured": .bool(true), "setupPhase": .string("ready_to_connect"),
+    ])
+    XCTAssertTrue(PluginConnectionPresentation(connection).canReconnect)
+    XCTAssertEqual(PluginConnectionPresentation(connection).status, "Reconnect needed")
+    connection["setupPhase"] = .string("ready_to_authorize")
+    XCTAssertFalse(PluginConnectionPresentation(connection).canReconnect)
+    XCTAssertEqual(PluginConnectionPresentation(connection).status, "Sign-in needed")
+  }
   func testGoogleProviderGuideMatchesSelectedMethod() {
     let old = ["Enable the API.", "Add test users.", "Create a Web application client."]
     for key in ["gmail", "google-calendar", "google-drive"] {

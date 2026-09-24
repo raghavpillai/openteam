@@ -45,6 +45,10 @@ struct PluginConnectionActions: View {
       .font(.footnote).foregroundStyle(NativePalette.muted)
     } else if presentation.connecting {
       ProgressView("Connecting your account…")
+    } else if presentation.canReconnect {
+      Text("Your sign-in is saved. Reconnect to refresh this plugin’s tools.")
+        .font(.footnote).foregroundStyle(NativePalette.muted)
+      Button("Reconnect") { Task { await command("/connect") } }.disabled(operation.busy)
     } else if requiresDesktop {
       Text("Sign in on desktop").font(.headline)
       Text(

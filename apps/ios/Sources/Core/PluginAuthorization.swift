@@ -62,10 +62,13 @@ public struct PluginConnectionPresentation {
   public let connected: Bool
   public let connecting: Bool
   public let needsSetup: Bool
+  public let canReconnect: Bool
   public let status: String
   public init(_ connection: JSON, now: Date = Date()) {
     connected = connection["status"].string == "ready"
     connecting = ["connecting", "starting", "reconnecting"].contains(connection["status"].string)
+    canReconnect = !connected && !connecting && connection["auth"].string == "oauth"
+      && connection["setupPhase"].string == "ready_to_connect"
     needsSetup =
       !connected
       && (connection["setupPhase"].string == "provider_setup_required"
@@ -80,6 +83,8 @@ public struct PluginConnectionPresentation {
       status = "Setup needed"
     } else if connection["status"].string == "error" {
       status = "Couldn’t connect"
+    } else if canReconnect {
+      status = "Reconnect needed"
     } else if connection["auth"].string == "oauth" {
       status = "Sign-in needed"
     } else {

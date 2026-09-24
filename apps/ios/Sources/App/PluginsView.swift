@@ -284,7 +284,14 @@ struct PluginDetailView: View {
             PluginConnectionActions(connection: connection, startAutomatically: autoConnectID == id)
           }
         }
-        Section { NavigationLink("Package and updates") { InstalledPackageView(key: key) } }
+        Section {
+          NavigationLink("Package and updates") {
+            InstalledPackageView(key: key) {
+              if let latest = try? await latestInstallation() { plugin = latest }
+              await onChange()
+            }
+          }
+        }
         Section {
           FormStatus(operation: operation)
           Button("Uninstall plugin", role: .destructive) { removal = true }.disabled(operation.busy)

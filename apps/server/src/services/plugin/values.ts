@@ -388,6 +388,7 @@ export function connectionSetupPhase(connection: Parameters<typeof connectionCon
   if (connection.status === "ready") return "connected";
   if (connection.status === "error") return "validation_failed";
   if (typeof jsonObject(jsonObject(connection.credentials).oauth).authorizationUrl === "string") return "authorization_pending";
+  if (connection.authType === "oauth" && connection.status === "disconnected" && jsonObject(jsonObject(connection.credentials).oauth).tokens) return "ready_to_connect";
   return connection.authType === "oauth" ? "ready_to_authorize" : "ready_to_connect";
 }
 

@@ -156,6 +156,20 @@ test.skipIf(!databaseUrl)(
       expect(fixture.observations.authMethods).toContain("client_secret_post");
       expect(JSON.stringify(await read(first.id))).toContain("Account A");
       expect(JSON.stringify(await read(second.id))).toContain("Account B");
+      // Rollback uses the same compatible-package replacement path as an update.
+      await prisma.pluginInstallation.update({
+        where: { pluginKey: definition.key },
+        data: { previousManifest: JSON.parse(JSON.stringify({ ...definition, version: "1.0.1" })) },
+      });
+      await Effect.runPromise(service.management.update(definition.key, "", true));
+      const updated = (await Effect.runPromise(service.settings())).installs.find(
+        entry => entry.pluginKey === definition.key
+      )!;
+      expect(updated.connections.every(account => account.setupPhase === "ready_to_connect")).toBe(true);
+      await Effect.runPromise(service.connect(first.id));
+      await Effect.runPromise(service.connect(second.id));
+      expect(JSON.stringify(await read(first.id))).toContain("Account A");
+      expect(JSON.stringify(await read(second.id))).toContain("Account B");
       const before = await prisma.pluginConnection.findUniqueOrThrow({ where: { id: first.id } });
       const credentials = before.credentials as any;
       await prisma.pluginConnection.update({

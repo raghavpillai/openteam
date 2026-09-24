@@ -13,7 +13,12 @@ The desktop app does everything: chat, watching bots' screens, plugins, routines
 
 ## iPhone
 
-The iPhone app isn't in the App Store yet. To use it now, build it from source with Xcode by following the [iPhone app instructions](../../apps/ios/README.md).
+The iPhone app is in public beta on TestFlight. It needs iOS 18 or later.
+
+1. Install [TestFlight](https://apps.apple.com/app/testflight/id899247664) from the App Store.
+2. On your iPhone, open the [OpenTeam beta invite](https://testflight.apple.com/join/KFBFPkjP) and choose **Accept**, then **Install**.
+
+You can also build the app yourself with Xcode by following the [iPhone app instructions](../../apps/ios/README.md).
 
 Enter your server URL and sign in. On iPhone, you can:
 

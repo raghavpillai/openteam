@@ -17,6 +17,7 @@ import "../alive.css";
 const GITHUB = "https://github.com/raghavpillai/openteam";
 const INSTALL_COMMAND = "curl -fsSL https://openteam.so/install | sh";
 const WINDOWS_INSTALL_COMMAND = "irm https://openteam.so/install.ps1 | iex";
+const TESTFLIGHT_URL = "https://testflight.apple.com/join/KFBFPkjP";
 
 export const metadata = pageMetadata({
   title: "Download OpenTeam",
@@ -129,7 +130,7 @@ export default function DownloadPage() {
 
         <section id="mobile" className="dl-step dl-mobile-step ot-bot-section">
           <div className="dl-step-heading">
-            <h2>Build the iPhone companion.</h2>
+            <h2>Get the iPhone app.</h2>
             <p>Connect to the same server and continue your conversations from your phone.</p>
           </div>
           <div className="dl-phone-card">
@@ -137,18 +138,23 @@ export default function DownloadPage() {
               <Image src="/openteam-app-icon.png" alt="OpenTeam app icon" width={52} height={52} unoptimized />
             </div>
             <div>
-              <h3>Available from source.</h3>
+              <h3>Public beta on TestFlight.</h3>
               <p>
-                App Store and TestFlight builds are not available yet. The iPhone app is included in
-                the repository.
+                Install TestFlight from the App Store, then open the invite on your iPhone. Requires
+                iOS 18 or later. You can also build the app yourself from source.
               </p>
-              <Button
-                className="ot-button"
-                render={<a href={`${GITHUB}/tree/main/apps/ios`} />}
-                nativeButton={false}
-              >
-                View iPhone source <ArrowUpRight size={16} />
-              </Button>
+              <div className="dl-phone-actions">
+                <Button
+                  className="ot-button"
+                  render={<a href={TESTFLIGHT_URL} />}
+                  nativeButton={false}
+                >
+                  Join the TestFlight beta <ArrowUpRight size={16} />
+                </Button>
+                <a className="ot-text-link" href={`${GITHUB}/tree/main/apps/ios`}>
+                  Build from source <ArrowUpRight size={15} />
+                </a>
+              </div>
             </div>
           </div>
           <SectionBot bot="research" side="right" />

@@ -375,7 +375,16 @@
 }
 .dl-phone-card .ot-button {
   min-height: 40px;
+  font-size: 14px;
+}
+.dl-phone-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 22px;
   margin-top: 22px;
+}
+.dl-phone-actions .ot-text-link {
   font-size: 14px;
 }
 .ot-download .ot-footer {

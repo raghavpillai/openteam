@@ -795,6 +795,12 @@ export class ComputerRuntime {
       else if (active.lastStopReason === "error") {
         status = "failed";
         error = { message: active.lastErrorMessage ?? "Pi turn failed" };
+      } else if (isDeliveryOwed(active.requestSource) && !active.endTurnRequested &&
+        (active.sentMessageCount === 0 || active.toolActivityAfterLastSend)) {
+        // A model finishing is not proof that SendToUser reached the server.
+        // The one closing nudge above has already had its chance to recover.
+        status = "failed";
+        error = { message: "Turn ended without delivering its final response to the user" };
       }
     } catch (caught) {
       status = "failed";

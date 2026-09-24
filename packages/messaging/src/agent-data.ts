@@ -4,13 +4,14 @@ import managedSkills from "./prompts/managed-skills.json";
 import { safePackagePath } from "@openteam/plugin-sdk";
 import { originalSkillMarkdown } from "@openteam/plugin-sdk/skill-markdown";
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { constants, createReadStream } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import { defaultTaskConfiguration, parseTaskConfiguration, type TaskConfiguration } from "@openteam/contracts/task-configuration";
 import {
   appendFile,
   chmod,
   mkdir,
+  lstat,
   open,
   readdir,
   realpath,
@@ -179,6 +180,20 @@ const stageAttachmentCopy = async (input: {
     await handle?.close().catch(() => undefined);
     if (!complete) await rm(input.temporary, { force: true }).catch(() => undefined);
   }
+};
+
+const writeEditableBotFile = async (path: string, content: string): Promise<void> => {
+  // Set the mode on the unpublished descriptor, avoiding both umask drift and
+  // a post-rename chmod that could follow a concurrently substituted symlink.
+  await atomicWrite(path, content, 0o664, { exactMode: true });
+};
+
+const ensureEditableBotDirectory = async (directory: string): Promise<void> => {
+  await mkdir(directory, { recursive: true, mode: 0o775 });
+  const info = await lstat(directory);
+  if (!info.isDirectory()) throw new Error("Bot directory must not be a symlink");
+  const mode = info.mode & 0o7777;
+  if ((mode & 0o070) !== 0o070) await chmod(directory, mode | 0o070);
 };
 
 export type BotFileTarget = "profile" | "settings" | "instructions" | "avatar" | "projects";
@@ -984,12 +999,21 @@ export class AgentDataStore {
     await atomicWrite(path, jsonFile({ ...current, [field]: value }), 0o600);
   }
 
+  private async ensureSharedRoot(): Promise<void> {
+    // Agent tools use a different UID in the shared group. They need traversal
+    // to catalogued skills/profiles; private children keep their own modes.
+    await mkdir(this.root, { recursive: true, mode: 0o710 });
+    const mode = (await stat(this.root)).mode & 0o7777;
+    if (!(mode & 0o010)) await chmod(this.root, mode | 0o010);
+  }
+
   async ensureRuntimeDirectories(): Promise<void> {
-    await mkdir(this.root, { recursive: true, mode: 0o700 });
+    await this.ensureSharedRoot();
     const rootSettingsPath = join(this.root, "settings.json");
     if ((await readText(rootSettingsPath)) === null) {
       await atomicWrite(rootSettingsPath, jsonFile(defaultRootSettings()), 0o600);
     }
+    await chmod(rootSettingsPath, 0o600);
     await Promise.all(
       [
         this.workflowsDirectory(),
@@ -1174,8 +1198,8 @@ export class AgentDataStore {
     const source = await tx.bot.findUniqueOrThrow({ where: { id: sourceId } });
     const target = await tx.bot.findUniqueOrThrow({ where: { id: targetId } });
     const directory = this.botDirectory(targetId);
-    await mkdir(directory, { recursive: true, mode: 0o755 });
-    await atomicWrite(join(directory, "profile.json"), jsonFile(profileDocument(target)));
+    await ensureEditableBotDirectory(directory);
+    await writeEditableBotFile(join(directory, "profile.json"), jsonFile(profileDocument(target)));
     const settingsText = await readText(join(this.botDirectory(sourceId), "settings.json"));
     let settings: Record<string, unknown> = {};
     try {
@@ -1184,7 +1208,7 @@ export class AgentDataStore {
       // Reconciliation already applied the host's defaults for invalid settings.
       // Keep the original file intact and give the copy a valid settings document.
     }
-    await atomicWrite(
+    await writeEditableBotFile(
       join(directory, "settings.json"),
       jsonFile({ ...settings, ...settingsDocument(target), hiddenFromSidebar: false })
     );
@@ -1209,18 +1233,30 @@ export class AgentDataStore {
         include: { subagentIdentity: { select: { id: true } } },
       });
       if (!bot || bot.status === "archived" || bot.subagentIdentity) return;
-      await mkdir(this.root, { recursive: true, mode: 0o700 });
-      await chmod(this.root, 0o700).catch(() => undefined);
+      await this.ensureSharedRoot();
       const directory = this.botDirectory(botId);
-      await mkdir(directory, { recursive: true, mode: 0o755 });
+      await ensureEditableBotDirectory(directory);
       if ((await readText(join(directory, "profile.json"))) === null) {
-        await atomicWrite(join(directory, "profile.json"), jsonFile(profileDocument(bot)));
+        await writeEditableBotFile(join(directory, "profile.json"), jsonFile(profileDocument(bot)));
       }
       if ((await readText(join(directory, "settings.json"))) === null) {
-        await atomicWrite(
+        await writeEditableBotFile(
           join(directory, "settings.json"),
           jsonFile({ notifyOnAgentUpdates: true })
         );
+      }
+      // Repair pre-existing server-owned projections as well as new bots.
+      for (const file of ["profile.json", "settings.json"]) {
+        const path = join(directory, file);
+        const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+        try {
+          const info = await handle.stat();
+          const mode = info.mode & 0o7777;
+          // An agent-owned file is already writable by the agent UID; the
+          // server must not fail initialization trying to chmod another owner.
+          if (info.isFile() && info.uid === process.getuid?.() && (mode & 0o060) !== 0o060)
+            await handle.chmod(mode | 0o060);
+        } finally { await handle.close(); }
       }
       if (bot.templateRecipe) {
         // The recipe lives in the creation transaction until all materialization
@@ -1313,7 +1349,7 @@ export class AgentDataStore {
           binding = {};
         }
       }
-      await atomicWrite(path, jsonFile({ ...profileDocument(bot), ...binding }));
+      await writeEditableBotFile(path, jsonFile({ ...profileDocument(bot), ...binding }));
     }
     if (targets.includes("settings")) {
       const path = join(directory, "settings.json");
@@ -1326,7 +1362,7 @@ export class AgentDataStore {
           value = {};
         }
       }
-      await atomicWrite(path, jsonFile({ ...value, ...settingsDocument(bot) }));
+      await writeEditableBotFile(path, jsonFile({ ...value, ...settingsDocument(bot) }));
     }
     if (targets.includes("instructions")) {
       await rm(join(directory, "instructions.md"), { force: true });
@@ -1373,7 +1409,7 @@ export class AgentDataStore {
       const definedUpdate = Object.fromEntries(
         Object.entries(update).filter(([, candidate]) => candidate !== undefined)
       );
-      await atomicWrite(path, jsonFile({ ...value, ...definedUpdate }));
+      await writeEditableBotFile(path, jsonFile({ ...value, ...definedUpdate }));
     });
   }
 
@@ -1977,7 +2013,7 @@ export class AgentDataStore {
     } catch {
       value = profileDocument({ ...previous, name: "New Bot" });
       text = jsonFile(value);
-      await atomicWrite(path, text);
+      await writeEditableBotFile(path, text);
     }
     const parsed = profileValues(value);
     await tx.bot.update({ where: { id: botId }, data: parsed });
@@ -2000,7 +2036,7 @@ export class AgentDataStore {
     let text = await readText(path);
     if (text === null) {
       text = jsonFile({ notifyOnAgentUpdates: true });
-      await atomicWrite(path, text);
+      await writeEditableBotFile(path, text);
     }
     try {
       const value = parseJsonObject(text, "settings.json");
@@ -2672,13 +2708,13 @@ export class AgentDataStore {
         }
       }
       if ((await readText(join(directory, "profile.json"))) === null) {
-        await atomicWrite(
+        await writeEditableBotFile(
           join(directory, "profile.json"),
           jsonFile({ name: group.name, description: group.description })
         );
       }
       if ((await readText(join(directory, "settings.json"))) === null) {
-        await atomicWrite(
+        await writeEditableBotFile(
           join(directory, "settings.json"),
           jsonFile({ notifyOnAgentUpdates: true })
         );
@@ -3098,6 +3134,9 @@ export class AgentDataStore {
         await this.prisma.agentPromptSnapshot.update({ where: { botId }, data });
       }
     }
+    // Installed capabilities can change between turns without compaction.
+    // Keep user workflows frozen, but never freeze a missing managed catalog.
+    skillRender = [skillRender, await this.renderManagedSkills()].filter(Boolean).join("\n\n");
     return {
       compactionEpoch: epoch,
       profileSection,
@@ -3249,7 +3288,7 @@ export class AgentDataStore {
       const next = { ...current.settings, sidebarSections: sections.map((section) => ({
         ...section, agentIds: [...section.agentIds.filter((id) => id !== botId), ...(section.id === sectionId ? [botId] : [])],
       })) };
-      await atomicWrite(join(this.root, "settings.json"), jsonFile(next));
+      await atomicWrite(join(this.root, "settings.json"), jsonFile(next), 0o600);
     });
   }
 
@@ -3314,6 +3353,26 @@ export class AgentDataStore {
     const recent = own.filter((fact) => fact.tier !== "profile").sort((a, b) => scoreFact(b) - scoreFact(a) || recency(a, b)).slice(0, 30).map(record);
     blocks.push(renderMemorySystemPrompt({ profile, recent }, context ? null : this.memoryDirectory(botId, "agent"), context ? { nativeMemory: context } : undefined));
     return blocks.join("\n\n");
+  }
+
+  private async renderManagedSkills(): Promise<string> {
+    if (process.env.OPENTEAM_MANAGED_SKILLS === "false") return "";
+    const text = await readText(join(this.managedSkillsDirectory(), "cache.json"));
+    if (!text) return "";
+    try {
+      const cache = JSON.parse(text);
+      if (!Array.isArray(cache.skills)) return "";
+      const allowed = new Set(managedSkills.skills.map((skill) => skill.id));
+      const blocks: string[] = [];
+      for (const skill of cache.skills.slice(0, MAX_SAVED_SKILLS)) {
+        if (!skill || !allowed.has(skill.id) || typeof skill.name !== "string" ||
+            typeof skill.description !== "string") continue;
+        const path = join(this.managedSkillsDirectory(), skill.id, "SKILL.md");
+        if (!(await stat(path).catch(() => null))?.isFile()) continue;
+        blocks.push(`- ${skill.name} (managed:${skill.id}): ${skill.description}\n  Path: ${path}`);
+      }
+      return blocks.join("\n\n");
+    } catch { return ""; }
   }
 
   private async renderSkills(botId: string): Promise<string> {
@@ -3451,7 +3510,7 @@ export class AgentDataStore {
         ...input,
         version: 1,
       });
-      await atomicWrite(join(this.root, "settings.json"), jsonFile(next));
+      await atomicWrite(join(this.root, "settings.json"), jsonFile(next), 0o600);
       return next;
     });
   }
@@ -3503,7 +3562,11 @@ export class AgentDataStore {
   }
 
   async writeActiveAgentId(activeAgentId: string): Promise<void> {
-    safeFolderId(activeAgentId, "active agent id");
+    try {
+      safeFolderId(activeAgentId, "active agent id");
+    } catch {
+      throw new ApiError(400, "invalid_active_agent", "activeAgentId must be a safe folder id");
+    }
     await this.withRootFileMutation("active-agent", async () => {
       await atomicWrite(
         join(this.root, "agents", "active-agent.json"),
@@ -3557,12 +3620,12 @@ export class AgentDataStore {
           memberIds: group.members.map((member) => member.botId),
         })
       );
-      await atomicWrite(
+      await writeEditableBotFile(
         join(directory, "profile.json"),
         jsonFile({ name: group.name, description: group.description })
       );
       if ((await readText(join(directory, "settings.json"))) === null) {
-        await atomicWrite(
+        await writeEditableBotFile(
           join(directory, "settings.json"),
           jsonFile({ notifyOnAgentUpdates: true })
         );
@@ -4009,7 +4072,7 @@ export class AgentDataStore {
         if (!/^[a-f0-9]{64}$/.test(attachment.assetId)) continue;
         if (
           !Number.isSafeInteger(attachment.byteSize) ||
-          attachment.byteSize <= 0 ||
+          attachment.byteSize < 0 ||
           attachment.byteSize > MAX_MATERIALIZED_ATTACHMENT_BYTES
         ) {
           continue;

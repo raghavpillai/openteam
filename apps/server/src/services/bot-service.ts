@@ -179,8 +179,9 @@ export class BotService {
 
   update = (botId: string, input: UpdateBotInput) =>
     serviceEffect(async () => {
-      await this.agentData.reconcileBot(botId);
       const name = input.name?.trim();
+      if (name === "") throw new ApiError(400, "invalid_bot_name", "Bot name must not be blank");
+      await this.agentData.reconcileBot(botId);
       const fileTargets: BotFileTarget[] = [];
       if (
         input.name !== undefined ||

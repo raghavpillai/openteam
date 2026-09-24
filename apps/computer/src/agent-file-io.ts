@@ -1,10 +1,11 @@
+import { protectedAgentDataPath } from "@openteam/contracts/agent-file-access";
 import { HOST_TRANSFER_MAX_BYTES } from "@openteam/contracts/service-protocol";
 import { spawnAgentProcess as spawn, agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
 import { nodeBinary } from "./node-runtime";
 
 // File operations run as the same unprivileged user as Shell. Checking access
 // before doing privileged I/O would leave a symlink replacement race.
-export const AGENT_FILE_IO_SCRIPT = String.raw`
+export const AGENT_FILE_IO_SCRIPT = `const protectedAgentDataPath = ${protectedAgentDataPath.toString()};\n` + String.raw`
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -16,10 +17,30 @@ const cancellation = new AbortController();
 process.stdin.on('error', () => {});
 process.on('SIGTERM', () => { cancellation.abort(); process.stdin.destroy(new Error('File transfer cancelled')); });
 (async () => {
- const [mode, target, limitText, integrity] = process.argv.slice(1); const limit = Number(limitText);
+ const [mode, target, limitText, integrity, policyText] = process.argv.slice(1); const limit = Number(limitText);
  if (mode === 'read') {
-   const file = await fs.open(target, 'r');
-   try { const stat = await file.stat(); if (!stat.isFile() || stat.size > limit) throw Error('Source must be a regular file within the transfer size limit');
+   const file = await fs.open(target, require('node:fs').constants.O_RDONLY | require('node:fs').constants.O_NONBLOCK);
+   try {
+     if (policyText) {
+       const policy = JSON.parse(policyText);
+       // Darwin's /dev/fd entries are not symlinks to their backing pathname.
+       // F_GETPATH resolves the already-open descriptor without reopening it.
+       const openedPath = process.platform === 'darwin'
+         ? require('node:child_process').execFileSync('python3', ['-c', 'import fcntl,os,sys;sys.stdout.buffer.write(fcntl.fcntl(3,50,bytes(1024)).split(bytes([0]),1)[0])'], {stdio:['ignore','pipe','pipe',file.fd]}).toString('utf8')
+         : '/proc/self/fd/' + file.fd;
+       const actual = await fs.realpath(openedPath);
+       const within = root => {const part=path.relative(root,actual);return part==='' || (part!=='..' && !part.startsWith('..'+path.sep) && !path.isAbsolute(part));};
+       if (policy.protectedRoot && within(policy.protectedRoot)) {
+         if (protectedAgentDataPath(path.relative(policy.protectedRoot,actual).split(path.sep).join('/')))
+           throw Error('Read is not allowed for protected agent-data path');
+       }
+       if (policy.allowedRoots) {
+       const root=policy.allowedRoots.find(within);
+       if (!root || policy.excludedRoots.some(within) || path.relative(root,actual).split(path.sep).some(part=>part.startsWith('.')))
+         throw Error('Attachment source changed or contains private state');
+       }
+     }
+     const stat = await file.stat(); if (!stat.isFile() || stat.size > limit) throw Error('Source must be a regular file within the transfer size limit');
      let size = 0;
      const counted = new Transform({ transform(bytes, _encoding, done) { size += bytes.length; done(size > limit ? Error('File exceeds transfer limit') : null, bytes); } });
      await pipeline(file.createReadStream({ autoClose: false }), counted, process.stdout, { signal: cancellation.signal });
@@ -66,7 +87,7 @@ process.on('SIGTERM', () => { cancellation.abort(); process.stdin.destroy(new Er
  }
 })().catch(error => { process.stderr.write(error.message); process.exitCode = 1; });`;
 
-export function agentFileIO(mode: "read", path: string, signal?: AbortSignal): Promise<Buffer>;
+export function agentFileIO(mode: "read", path: string, signal?: AbortSignal, policy?: { protectedRoot: string }): Promise<Buffer>;
 export function agentFileIO(
   mode: "write",
   path: string,
@@ -77,12 +98,12 @@ export function agentFileIO(
   mode: "read" | "write",
   path: string,
   signal?: AbortSignal,
-  data?: Buffer
+  data?: Buffer | { protectedRoot: string }
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const child = spawn(
       nodeBinary(),
-      ["-e", AGENT_FILE_IO_SCRIPT, mode, path, String(HOST_TRANSFER_MAX_BYTES)],
+      ["-e", AGENT_FILE_IO_SCRIPT, mode, path, String(HOST_TRANSFER_MAX_BYTES), "", ...(mode === "read" && data ? [JSON.stringify(data)] : [])],
       {
         ...agentProcessIdentity(),
         env: sanitizedAgentEnvironment(process.env),
@@ -108,6 +129,6 @@ export function agentFileIO(
         reject(new Error(Buffer.concat(errors).toString() || "File transfer failed"));
       else resolve(Buffer.concat(chunks));
     });
-    child.stdin.end(data);
+    child.stdin.end(mode === "write" ? data : undefined);
   });
 }

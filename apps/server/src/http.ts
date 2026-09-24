@@ -1,5 +1,5 @@
 import { ApiError } from "@openteam/contracts";
-import { Schema } from "effect";
+import { Cause, Option, Runtime, Schema } from "effect";
 
 export const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -36,6 +36,13 @@ export const withCors = (response: Response): Response => {
 };
 
 export const errorResponse = (error: unknown): Response => {
+  // Effect.runPromise wraps expected failures in FiberFailure. Preserve typed
+  // service errors across nested service calls; defects remain internal errors.
+  for (let depth = 0; depth < 8 && Runtime.isFiberFailure(error); depth++) {
+    const failure = Cause.failureOption(error[Runtime.FiberFailureCauseId]);
+    if (Option.isNone(failure)) break;
+    error = failure.value;
+  }
   if (error instanceof ApiError) {
     return json(
       { error: { code: error.code, message: error.message, details: error.details } },

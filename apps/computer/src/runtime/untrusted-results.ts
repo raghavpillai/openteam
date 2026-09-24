@@ -1,4 +1,5 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { repairImageHistory } from "./image-input";
 
 const TAG = "cursor_untrusted_data_1337";
 const fenced = new WeakSet<object>();
@@ -60,7 +61,7 @@ export function untrustedResultsExtension(): {
     name: "openteam-untrusted-results",
     hidden: true,
     factory(pi) {
-      pi.on("context", (event) => ({ messages: fenceToolResults(event.messages) }));
+      pi.on("context", async (event) => ({ messages: fenceToolResults(await repairImageHistory(event.messages)) }));
     },
   };
 }

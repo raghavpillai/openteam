@@ -26,6 +26,18 @@ afterEach(async () => {
 });
 
 describe("bounded asset HTTP responses", () => {
+  test("serves empty attachments and rejects unsatisfiable ranges", async () => {
+    const { assets } = await fixture();
+    const ref = await assets.ingestBytes({fileName:"empty.txt",bytes:new Uint8Array()});
+    const url = new URL(`http://openteam.test/api/v0/assets/${ref.assetId}?name=empty.txt`);
+    for (const method of ["GET","HEAD"]) {
+      const response = await assetResponse(assets,noAgentAttachment,new Request(url,{method}),url,ref.assetId);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-length")).toBe("0");
+      expect(await response.text()).toBe("");
+    }
+    expect((await assetResponse(assets,noAgentAttachment,new Request(url,{headers:{range:"bytes=0-"}}),url,ref.assetId)).status).toBe(416);
+  });
   test("serves immutable content with a sanitized inline filename", async () => {
     const { assets, ref } = await fixture();
     let fallbackLookups = 0;

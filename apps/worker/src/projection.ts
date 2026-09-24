@@ -7,9 +7,10 @@ import {
   publishMessageNotification,
 } from "@openteam/messaging";
 import { approvalReason } from "./push-notifications";
+import { postgresJson } from "./postgres-json";
 
 const json = (value: unknown): Prisma.InputJsonValue =>
-  JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+  postgresJson(value) as Prisma.InputJsonValue;
 
 const itemType = (item: Record<string, unknown>): RunItemKind => {
   switch (item.type) {
@@ -46,6 +47,7 @@ export class Projection {
   ) {}
 
   async apply(runId: string, conversationId: string, botId: string, event: ComputerEvent) {
+    event = postgresJson(event) as ComputerEvent;
     switch (event.type) {
       case "session.attached":
         await this.prisma.$transaction(async (tx) => {

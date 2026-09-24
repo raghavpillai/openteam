@@ -21,6 +21,11 @@ export const element = {
 
 export const BROWSER_USE_TOOLS: readonly BrowserUseToolDefinition[] = [
   {
+    name: "browser_file_upload",
+    description: "Respond to a pending file chooser opened by a browser click. Upload only authorized absolute local paths inside the workspace; omit paths or use an empty array to cancel. File contents and destination remain subject to action review. Returns the resulting page state.",
+    inputSchema: objectToolSchema({paths: {type: "array", items: {type: "string", maxLength: 4096}, maxItems: 10}, viewId}),
+  },
+  {
     name: "browser_navigate",
     description:
       "Navigate the box browser to a URL. By default reuses your leased tab; set newTab: true to open another leased tab. Returns the resulting page state with a screenshot.",

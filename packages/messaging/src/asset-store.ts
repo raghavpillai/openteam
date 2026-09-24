@@ -9,6 +9,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { fileURLToPath } from "node:url";
 import { ApiError, type AssetKind, type AssetRef } from "@openteam/contracts";
 import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
+import { protectedAgentDataPath } from "@openteam/contracts/agent-file-access";
 
 export const REGULAR_ASSET_LIMIT = CLIENT_CAPABILITIES.uploads.maxRegularBytes;
 export const VIDEO_ASSET_LIMIT = CLIENT_CAPABILITIES.uploads.maxVideoBytes;
@@ -76,6 +77,7 @@ interface AssetMetadata {
 
 export interface AssetStoreOptions {
   root?: string;
+  agentDataRoot?: string;
   allowedFileRoots?: readonly string[];
   fetch?: typeof fetch;
 }
@@ -220,9 +222,6 @@ const strictBase64 = (value: string): Uint8Array => {
     throw new ApiError(400, "invalid_asset_bytes", "Attachment bytes are not valid base64");
   }
   const bytes = Buffer.from(value, "base64");
-  if (bytes.length === 0) {
-    throw new ApiError(400, "empty_asset", "Attachment is empty");
-  }
   return bytes;
 };
 
@@ -324,6 +323,7 @@ const classifyStaged = async (
 export class AssetStore {
   readonly root: string;
   private readonly allowedFileRoots: string[];
+  private readonly agentDataRoot?: string;
   private readonly fetchImpl: typeof fetch;
   private readonly verifiedAssets = new Map<
     string,
@@ -335,6 +335,7 @@ export class AssetStore {
   >();
 
   constructor(options: AssetStoreOptions = {}) {
+    this.agentDataRoot = options.agentDataRoot;
     this.root = resolve(
       options.root ??
         process.env.OPENTEAM_ASSET_ROOT ??
@@ -363,9 +364,6 @@ export class AssetStore {
   }): Promise<AssetRef> {
     const fileName = safeFileName(input.fileName);
     const maximum = attachmentLimitForName(fileName);
-    if (input.bytes.byteLength === 0) {
-      throw new ApiError(400, "empty_asset", "Attachment is empty");
-    }
     if (input.bytes.byteLength > maximum) {
       throw new ApiError(
         413,
@@ -515,6 +513,12 @@ export class AssetStore {
           `Attachment path is outside an allowed OpenTeam directory. Copy the intended deliverable into ${this.allowedFileRoots.join(" or ")} and attach that verified file path. Do not broaden directory access or change permissions.`
         );
       }
+      if (this.agentDataRoot) {
+        const root = await realpath(this.agentDataRoot).catch(() => resolve(this.agentDataRoot!));
+        if (within(root, source) && protectedAgentDataPath(relative(root, source).split(sep).join("/"))) {
+          throw new ApiError(403, "asset_path_protected", "Attachment path contains protected agent state");
+        }
+      }
       const info = await stat(source);
       if (!info.isFile()) throw new ApiError(400, "invalid_asset_path", "Attachment is not a file");
       const fileName = input.fileName ?? basename(source);
@@ -524,7 +528,19 @@ export class AssetStore {
       return this.ingestStream({
         fileName,
         mimeType: input.mimeType,
-        stream: createReadStream(source, { highWaterMark: REMOTE_READ_CHUNK }),
+        // Create the source only when staging starts consuming it. Opening it
+        // before stageStream's mkdir/open awaits can emit an unhandled EACCES
+        // before the async iterator installs its error listener.
+        stream: (async function* () {
+          try {
+            yield* createReadStream(source, { highWaterMark: REMOTE_READ_CHUNK });
+          } catch (error) {
+            if (["EACCES", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+              throw new ApiError(403, "asset_file_unreadable", "Permission denied reading attachment");
+            }
+            throw error;
+          }
+        })(),
         alt: input.alt,
       });
     }
@@ -646,7 +662,7 @@ export class AssetStore {
       parsed.assetId !== assetId ||
       parsed.byteSize !== blobInfo.size ||
       !Number.isSafeInteger(parsed.byteSize) ||
-      parsed.byteSize <= 0 ||
+      parsed.byteSize < 0 ||
       typeof parsed.mimeType !== "string" ||
       parsed.mimeType.length === 0 ||
       !ASSET_KINDS.has(parsed.kind) ||
@@ -793,7 +809,6 @@ export class AssetStore {
           await accept(value);
         }
       }
-      if (byteSize === 0) throw new ApiError(400, "empty_asset", "Attachment is empty");
       await handle.sync();
       await handle.close();
       handle = null;

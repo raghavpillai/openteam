@@ -59,6 +59,20 @@ const request = {
 };
 const modelRef = { providerId: model.provider, modelId: model.id };
 
+test("compaction omits historic malformed images without changing original receipts", async () => {
+  let context: any;
+  const image = {type:"image",data:Buffer.from("not an image").toString("base64"),mimeType:"image/png"};
+  const history = [{role:"toolResult",toolCallId:"read-image",toolName:"Read",content:[image],isError:false,timestamp:1}];
+  await inferCompaction(
+    {completeSimple: async (_model: unknown, input: any) => {context=input;return answer("Keep the user task");}} as unknown as ModelRuntime,
+    () => model, () => [], {modelRef,reasoning:"off"} as ActiveTurn,
+    {...request,messagesToSummarize:history},new AbortController().signal
+  );
+  expect(JSON.stringify(context.messages)).toContain("image omitted");
+  expect(JSON.stringify(context.messages)).not.toContain(image.data);
+  expect(history[0]!.content[0]).toBe(image);
+});
+
 test("summary wire input marks unfinished calls pending and preserves actual successes and failures", async () => {
   const history = [
     { role: "user", content: [{ type: "text", text: "Continue the reads" }], timestamp: 1 },

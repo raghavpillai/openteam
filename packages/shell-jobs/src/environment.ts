@@ -34,7 +34,11 @@ export async function loadShellEnvironment(
   return { path, environment };
 }
 
-export async function persistShellEnvironment(path: string, chunks: readonly Buffer[], excludedKeys: readonly string[] = []) {
+// Completion handlers may overlap even within one process. Serialize the
+// read/merge/rename sequence for each environment file.
+const pendingWrites = new Map<string, Promise<void>>();
+
+export async function persistShellEnvironment(path: string, chunks: readonly Buffer[], excludedKeys: readonly string[] = [], baseline?: NodeJS.ProcessEnv) {
   if (!chunks.length) return;
   const environment = Object.fromEntries(
     Buffer.concat(chunks)
@@ -46,9 +50,41 @@ export async function persistShellEnvironment(path: string, chunks: readonly Buf
       })
   );
   for (const key of excludedKeys) delete environment[key];
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  await writeFile(temporary, JSON.stringify(environment), { mode: 0o600 });
-  await rename(temporary, path);
+  const previous = pendingWrites.get(path) ?? Promise.resolve();
+  const write = previous.catch(() => undefined).then(async () => {
+    let merged = environment;
+    if (baseline) {
+      let current: Record<string, string>;
+      try {
+        current = JSON.parse(await readFile(path, "utf8"));
+        if (!current || typeof current !== "object" || Array.isArray(current) ||
+          !Object.values(current).every(value => typeof value === "string"))
+          throw new Error("Malformed shell environment");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        current = Object.fromEntries(Object.entries(baseline).filter((entry): entry is [string, string] => entry[1] !== undefined));
+      }
+      merged = { ...current };
+      for (const key of new Set([...Object.keys(baseline), ...Object.keys(environment)])) {
+        // An old job must not restore unchanged inherited state or overwrite a
+        // value another completed command changed while it was running.
+        if (environment[key] === baseline[key] || current[key] !== baseline[key]) continue;
+        if (environment[key] === undefined) delete merged[key];
+        else merged[key] = environment[key];
+      }
+    }
+    for (const key of excludedKeys) delete merged[key];
+    const temporary = `${path}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, JSON.stringify(merged), { mode: 0o600 });
+      await rename(temporary, path);
+    } finally {
+      await rm(temporary, { force: true });
+    }
+  });
+  pendingWrites.set(path, write);
+  try { await write; }
+  finally { if (pendingWrites.get(path) === write) pendingWrites.delete(path); }
 }
 
 /** A private inherited file descriptor avoids extra-pipe drain races in Bun. */
@@ -64,12 +100,12 @@ export function createShellEnvironmentCapture(directory: string) {
         closeSync(fd);
       }
     },
-    async persist(destination: string, excludedKeys: readonly string[] = []) {
+    async persist(destination: string, excludedKeys: readonly string[] = [], baseline?: NodeJS.ProcessEnv) {
       try {
         if ((await stat(path)).size > 4 * 1024 * 1024)
           throw new Error("Exported shell environment exceeds 4 MiB");
         const bytes = await readFile(path);
-        if (bytes.length) await persistShellEnvironment(destination, [bytes], excludedKeys);
+        if (bytes.length) await persistShellEnvironment(destination, [bytes], excludedKeys, baseline);
       } finally {
         await rm(path, { force: true });
       }

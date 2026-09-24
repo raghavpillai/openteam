@@ -31,6 +31,11 @@ describe("native computer tools", () => {
     await writeFile(join(sandRoot, "plugin-skills", "cache.json"), '{"skills":[]}\n');
     await writeFile(join(agentRoot, "profile.json"), '{"name":"Probe"}\n');
     await writeFile(join(agentRoot, "store.db"), "not a readable projection");
+    await mkdir(join(agentRoot, "deliverables"));
+    await mkdir(join(sandRoot, "custom-folder"));
+    await writeFile(join(agentRoot, "deliverables", "store.db"), "harmless nested file");
+    await writeFile(join(sandRoot, "custom-folder", "public.txt"), "harmless public file");
+    await writeFile(join(sandRoot, "settings.json"), "private fixture");
     await writeFile(join(sandRoot, ".openteam", "marker.json"), "{}\n");
     const executor = new NativeToolExecutor({
       agentDir: root,
@@ -44,6 +49,10 @@ describe("native computer tools", () => {
     expect(
       (await executor.read({ path: join(sandRoot, "plugin-skills", "cache.json") }, root)).content[0]
     ).toEqual({ type: "text", text: '     1|{"skills":[]}\n     2|' });
+    for (const path of [join(agentRoot, "deliverables", "store.db"), join(sandRoot, "custom-folder", "public.txt")]) {
+      expect(JSON.stringify((await executor.read({path},root)).content)).toContain("harmless");
+    }
+    await expect(executor.read({path:join(sandRoot,"settings.json")},root)).rejects.toThrow("protected agent-data path");
     await expect(executor.read({ path: join(agentRoot, "store.db") }, root)).rejects.toThrow(
       "Read does not expose live agent SQLite files"
     );

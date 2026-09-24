@@ -13,7 +13,7 @@ import { run } from "../src/screen/processes";
 // browser profile and synthetic file; it never attaches to a user's desktop.
 if (process.platform !== "linux") throw new Error("Run this test inside the computer image");
 const root = await mkdtemp(join(tmpdir(), "native-chooser-"));
-const file = join(root, "sample (1).txt");
+const file = join(root, "résumé (1) #.txt");
 const contents = "Native chooser regression\nCafé 42";
 await writeFile(file, contents);
 await cp(new URL("../../../docker/desktop/config", import.meta.url), join(root, "config"), {
@@ -106,7 +106,7 @@ try {
           const file = input.files![0]!;
           return { name: file.name, text: await file.text() };
         });
-      assert.deepEqual(uploaded, { name: "sample (1).txt", text: contents });
+      assert.deepEqual(uploaded, { name: "résumé (1) #.txt", text: contents });
     } else {
       // Preserve Chromium's anti-clickjacking behavior: Return must not silently
       // attach a file. The worker must explicitly choose the visible Open button.
@@ -116,7 +116,7 @@ try {
     }
   }
   console.log(
-    "PASS native chooser: Return cancels; explicit Open uploads the exact named file and Unicode content at 1280x800"
+    "PASS native chooser: Return cancels; explicit Open uploads the exact Unicode filename and content at 1280x800"
   );
 } finally {
   await (session as any)?.browser.close().catch(() => {});

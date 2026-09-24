@@ -121,6 +121,10 @@ RUN chmod 0755 \
     /usr/local/bin/openteam-pi-auth \
     /usr/local/bin/openteam-screen-launch
 
+# GTK/Chromium must decode native chooser filenames as UTF-8. Without a
+# locale, non-ASCII paths can become empty/unreadable File objects. A runtime
+# LANG or LC_* override still takes precedence over this image default.
+ENV LANG=C.UTF-8
 ENV HOME=/home/box
 ENV OPENTEAM_PI_AGENT_DIR=/home/box/.pi/agent
 WORKDIR /workspace

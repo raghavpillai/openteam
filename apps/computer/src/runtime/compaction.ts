@@ -1,4 +1,5 @@
 import { fenceToolResults } from "./untrusted-results";
+import { repairImageHistory } from "./image-input";
 import type {
   ExtensionFactory,
   ModelRuntime,
@@ -348,7 +349,7 @@ export async function inferCompaction(
     {
       systemPrompt: botSummarySystemPrompt(request.systemPrompt),
       messages: convertToLlm(
-        fenceToolResults([
+        fenceToolResults(await repairImageHistory([
           ...(request.userInfoMessage ? [request.userInfoMessage] : []),
           ...withPendingSummaryResults(request.messagesToSummarize),
           {
@@ -356,7 +357,7 @@ export async function inferCompaction(
             content: [{ type: "text", text: botSummaryPrompt(request.shorter) }],
             timestamp: Date.now(),
           },
-        ] as never) as never
+        ] as never)) as never
       ),
       tools: (request.tools ?? modelVisibleSummaryTools(customTools(active))) as never,
     },

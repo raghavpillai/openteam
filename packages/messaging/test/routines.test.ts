@@ -9,6 +9,15 @@ import {
 } from "../src/routines";
 
 describe("routine schedules", () => {
+  test("explicit UTC and Tokyo schedules keep their zones on a New York installation", () => {
+    const now = new Date("2026-09-24T13:00:00Z");
+    const utc = normalizeRoutineSchedule("CRON_TZ=UTC 0 9 * * *", "America/New_York");
+    const tokyo = normalizeRoutineSchedule("CRON_TZ=Asia/Tokyo 0 9 * * *", "America/New_York");
+    expect(utc).toMatchObject({ timezone: "UTC", timezoneMode: "pinned" });
+    expect(tokyo).toMatchObject({ timezone: "Asia/Tokyo", timezoneMode: "pinned" });
+    expect(nextRoutineRun(utc, now).toISOString()).toBe("2026-09-25T09:00:00.000Z");
+    expect(nextRoutineRun(tokyo, now).toISOString()).toBe("2026-09-25T00:00:00.000Z");
+  });
   test.each([
     "@every 1m",
     "@every 31d",

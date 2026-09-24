@@ -107,7 +107,8 @@ export const fileTimes = async (
 export const atomicWrite = async (
   path: string,
   content: string | Uint8Array,
-  mode = 0o644
+  mode = 0o644,
+  options: { exactMode?: boolean } = {}
 ): Promise<void> => {
   const parent = dirname(path);
   await mkdir(parent, { recursive: true, mode: 0o755 });
@@ -115,6 +116,7 @@ export const atomicWrite = async (
   let handle;
   try {
     handle = await open(temporary, "wx", mode);
+    if (options.exactMode) await handle.chmod(mode);
     await handle.writeFile(content);
     await handle.sync();
     await handle.close();

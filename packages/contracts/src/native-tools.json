@@ -353,7 +353,7 @@
             "type": "string"
           },
           "schedule": {
-            "description": "routine only. Shorthand for a cron trigger — \"0 7 * * *\", \"@daily\", \"@every 2h\" — interpreted in the user's local time. A clock time the user names is saved as named, so \"8am\" is \"0 8 * * *\" and \"daily at 2\" is \"0 2 * * *\"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 \"hourly\" is \"32 * * * *\". Use this OR trigger, never both. On update, omit (with trigger) to keep the current fire condition.",
+            "description": "routine only. Shorthand for a cron trigger — \"0 7 * * *\", \"@daily\", \"@every 2h\" — interpreted in the user's local time unless prefixed with CRON_TZ=<IANA zone>. Preserve an explicitly named timezone: for 09:00 UTC use CRON_TZ=UTC 0 9 * * *; for 09:00 Asia/Tokyo use CRON_TZ=Asia/Tokyo 0 9 * * *. Do not convert a pinned zone to the user's local cron time. A clock time the user names is saved as named, so \"8am\" is \"0 8 * * *\" and \"daily at 2\" is \"0 2 * * *\"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 \"hourly\" is \"32 * * * *\". Use this OR trigger, never both. On update, omit (with trigger) to keep the current fire condition.",
             "minLength": 1,
             "type": "string"
           },
@@ -396,7 +396,7 @@
                   {
                     "properties": {
                       "schedule": {
-                        "description": "A 5-field cron expression in the user's local time (\"0 7 * * *\"), or a shorthand (@hourly/@daily/@weekly/@monthly, \"@every 30m\"). A clock time the user names is saved as named, so \"8am\" is \"0 8 * * *\" and \"daily at 2\" is \"0 2 * * *\"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 \"hourly\" is \"32 * * * *\".",
+                        "description": "A 5-field cron expression in the user's local time (\"0 7 * * *\"), or a shorthand (@hourly/@daily/@weekly/@monthly, \"@every 30m\"). A clock time the user names is saved as named, so \"8am\" is \"0 8 * * *\" and \"daily at 2\" is \"0 2 * * *\"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 \"hourly\" is \"32 * * * *\". Pin an explicitly requested timezone with CRON_TZ=<IANA zone>, e.g. CRON_TZ=UTC 0 9 * * * or CRON_TZ=Asia/Tokyo 0 9 * * *.",
                         "minLength": 1,
                         "type": "string"
                       },

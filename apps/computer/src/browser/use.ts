@@ -1,3 +1,4 @@
+import { BrowserUploads } from "./uploads";
 import { snapshotAcrossFrames, refHandle, frameRefsByPage, referenceFill, referenceType, editableHandle, writeTargetFrameIsHidden, WRITE_TARGET_IS_HIDDEN_FN, gotoWithRecovery, navigationNote, recoverErrorPage, settleIntoErrorPage, isChromeErrorPage, markSecretFill, SPLIT_CHAR_GROUP_FN } from "./reference-driver";
 import { resolveReferenceSelectOptions } from "./reference-select";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
@@ -99,6 +100,32 @@ export const sameOriginFrame = (pageUrl: string, frameUrl: string): boolean => {
 };
 
 export class BrowserUseSession {
+  private readonly uploads = new BrowserUploads();
+  configureUploads(workspace: string, excludedRoots: string[] = []) {
+    this.uploads.workspace = workspace; this.uploads.excludedRoots = excludedRoots;
+  }
+  private readonly uploadReviews = new WeakMap<object, {page: Page; state: unknown}>();
+  async uploadReviewTarget(args: JsonObject) {
+    const page = await this.ensurePage(this.viewId(args));
+    const state = await this.uploads.observe(page);
+    const safeUrl = (value: string) => { const url = new URL(value); url.username = ""; url.password = "";
+      return redactSecrets(url.href, [...this.privateValues]).slice(0, 2048); };
+    const observation = {viewId: this.idFor(page), ...state, url: safeUrl(state.url), frameUrl: safeUrl(state.frameUrl)};
+    this.uploadReviews.set(observation, {page, state});
+    return observation;
+  }
+  async assertUploadReviewTarget(args: JsonObject, expected: unknown) {
+    const binding = expected && typeof expected === "object" ? this.uploadReviews.get(expected) : undefined;
+    if (!binding || binding.page !== await this.ensurePage(this.viewId(args)))
+      throw new Error("File chooser changed during approval review");
+    await this.uploads.assert(binding.page, binding.state);
+  }
+  private async respondToUpload(args: JsonObject) {
+    const page = await this.ensurePage(this.viewId(args));
+    const count = await this.uploads.respond(page, args.paths);
+    return this.pageState(page, count ? `Uploaded ${count} file(s)` : "Cancelled file chooser");
+  }
+
   private readonly ids = new WeakMap<Page, string>();
   private readonly refs = new Map<string, Map<string, ElementHandle<HTMLElement>>>();
   private readonly ownedPages = new Set<Page>();
@@ -111,6 +138,7 @@ export class BrowserUseSession {
   private downloads?: BrowserDownloads;
   private readonly dialogs = new Map<Page, Dialog>();
   private readonly dialogObservers = new WeakMap<Page, Promise<void>>();
+  private readonly dialogLiveness = new WeakMap<Dialog, Promise<void>>();
   private dialogOpened?: (page: Page) => void;
   private unfinishedOperation?: Promise<AgentToolResult<Record<string, unknown>>>;
   private dialogTimedOutOperation?: Promise<AgentToolResult<Record<string, unknown>>>;
@@ -470,9 +498,28 @@ export class BrowserUseSession {
     }
   }
 
+  private async refreshPendingDialog(page: Page): Promise<void> {
+    const dialog = this.dialogs.get(page);
+    if (!dialog) return;
+    let probe = this.dialogLiveness.get(dialog);
+    if (!probe) {
+      // A native response can precede Page.enable on our separate observer.
+      // Modal dialogs block page JavaScript; a successful, read-only probe
+      // proves this recorded dialog closed even if its CDP event was missed.
+      probe = page.evaluate(() => true).then(() => {
+        if (this.dialogs.get(page) === dialog) this.dialogs.delete(page);
+      }).catch(() => {}).finally(() => this.dialogLiveness.delete(dialog));
+      this.dialogLiveness.set(dialog, probe);
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([probe, new Promise<void>(resolve => { timer = setTimeout(resolve, 100); })]);
+    } finally { clearTimeout(timer); }
+  }
   private async executeWithDialogs(toolName: string, raw: unknown): Promise<AgentToolResult<Record<string, unknown>>> {
     const args = (raw && typeof raw === "object" ? raw : {}) as JsonObject;
     const page = await this.ensurePage(this.viewId(args));
+    await this.refreshPendingDialog(page);
     const dialog = this.dialogs.get(page);
     if (toolName === "browser_cdp" && args.method === "Page.handleJavaScriptDialog") {
       if (!dialog) throw new Error("No dialog is showing");
@@ -492,6 +539,8 @@ export class BrowserUseSession {
         // waiting for the original click's JavaScript callback to finish.
         return await Promise.race([opened, this.drainDialogAction().then(() =>
           this.pageState(page, params.accept ? "Accepted browser dialog" : "Dismissed browser dialog"))]);
+      } catch (error) {
+        return this.recoverClosedPopup(page, error);
       } finally { this.dialogOpened = undefined; }
     }
     if (dialog) return this.dialogState(page, "Browser dialog still needs a response");
@@ -515,18 +564,21 @@ export class BrowserUseSession {
       return result;
     } catch (error) {
       this.unfinishedOperation = undefined;
-      const opener = this.openers.get(page);
-      if (page.isClosed() && this.connected && opener && this.ownedPages.has(opener) && !opener.isClosed() &&
-          /(?:Target|page|browser|context).*closed/i.test(String(error))) {
-        this.currentViewId = this.idFor(opener);
-        return this.pageState(opener, "Popup closed during the action. Showing its parent page; inspect the result before retrying. The action was not replayed.");
-      }
-      throw error;
+      return this.recoverClosedPopup(page, error);
     } finally {
       this.dialogOpened = undefined;
       // A rejected input after returning the dialog must not become unhandled.
       void operation.catch(() => {});
     }
+  }
+  private async recoverClosedPopup(page: Page, error: unknown): Promise<AgentToolResult<Record<string, unknown>>> {
+    const opener = this.openers.get(page);
+    if (page.isClosed() && this.connected && opener && this.ownedPages.has(opener) && !opener.isClosed() &&
+        /(?:Target|page|browser|context).*closed/i.test(String(error))) {
+      this.currentViewId = this.idFor(opener);
+      return this.pageState(opener, "Popup closed during the action. Showing its parent page; inspect the result before retrying. The action was not replayed.");
+    }
+    throw error;
   }
   private async executeRaw(toolName: string, raw: unknown): Promise<AgentToolResult<Record<string, unknown>>> {
     const args = (raw && typeof raw === "object" ? raw : {}) as JsonObject;
@@ -535,10 +587,12 @@ export class BrowserUseSession {
         return this.navigate(args);
       case "browser_snapshot":
         return this.snapshot(args);
+      case "browser_file_upload":
+        return this.respondToUpload(args);
       case "browser_click":
-        return this.click(args);
+        return this.uploads.capture(await this.ensurePage(this.viewId(args)), () => this.click(args));
       case "browser_mouse_click_xy":
-        return this.mouseClick(args);
+        return this.uploads.capture(await this.ensurePage(this.viewId(args)), () => this.mouseClick(args));
       case "browser_type":
         return this.type(args);
       case "browser_fill":
@@ -606,7 +660,9 @@ export class BrowserUseSession {
       this.trackPage(popup);
       this.currentViewId = this.idFor(popup);
     });
+    page.on("framenavigated", () => this.uploads.clear(page));
     page.on("close", () => {
+      this.uploads.clear(page);
       void this.cdpSessions.get(page)?.then(cdp => cdp.detach()).catch(() => {});
       this.cdpSessions.delete(page);
       this.ownedPages.delete(page);
@@ -658,6 +714,26 @@ export class BrowserUseSession {
     return handle;
   }
 
+  private async captureScreenshot(page: Page, fullPage: boolean): Promise<Buffer> {
+    const capture = () => page.screenshot({ fullPage, timeout: 10_000, type: "png", mask: [page.locator('[data-openteam-private="true"]')] });
+    if (process.platform !== "linux") return capture();
+    // Keep Linux Chromium delivering compositor frames while a leased tab is
+    // captured, without activating it. Use a separate CDP session so existing
+    // screencast clients are untouched. Frames are discarded; only the masked
+    // Playwright screenshot leaves this method.
+    const rendering = await this.context.newCDPSession(page);
+    rendering.on("Page.screencastFrame", event => {
+      void rendering.send("Page.screencastFrameAck", { sessionId: event.sessionId }).catch(() => {});
+    });
+    try {
+      await rendering.send("Page.startScreencast", { format: "jpeg", quality: 1 });
+      return await capture();
+    } finally {
+      await rendering.send("Page.stopScreencast").catch(() => {});
+      await rendering.detach().catch(() => {});
+    }
+  }
+
   private async pageState(
     page: Page,
     summary: string,
@@ -666,7 +742,7 @@ export class BrowserUseSession {
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     if (this.dialogs.has(page)) return this.dialogState(page, summary);
     await this.observeDialogs(page);
-    const image = Buffer.from(await page.screenshot({ fullPage, timeout: 10_000, type: "png", mask: [page.locator('[data-openteam-private="true"]')] }));
+    const image = Buffer.from(await this.captureScreenshot(page, fullPage));
     await mkdir(this.artifactDirectory, { recursive: true });
     const path = join(
       this.artifactDirectory,
@@ -1024,6 +1100,70 @@ export class BrowserUseSession {
       return state;
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  /** File-picker context is an observation, never authority to upload a file. */
+  async fileInputReviewTarget(args: JsonObject) {
+    const pages = this.leasedPages();
+    const pageId = this.viewId(args) ?? this.currentViewId;
+    const page = pages.find(candidate => this.idFor(candidate) === pageId) ??
+      (this.viewId(args) ? undefined : pages[0]);
+    if (!page) throw new Error("Browser tab is unavailable; take a fresh browser_snapshot");
+    const handle = await this.requireRef(page, args.ref);
+    if (!await handle.evaluate(node => node.tagName === "INPUT" && (node as HTMLInputElement).type === "file"))
+      return undefined;
+    // Retain DOM/file identities privately: identical names/counts can still be
+    // a different selection, and a same-URL navigation is a different document.
+    const state = await handle.evaluateHandle(node => ({
+      node, document: node.ownerDocument,
+      files: Array.from((node as HTMLInputElement).files ?? []),
+      disabled: (node as HTMLInputElement).disabled,
+      multiple: (node as HTMLInputElement).multiple,
+      accept: (node as HTMLInputElement).accept,
+    }));
+    try {
+      const frame = await handle.ownerFrame();
+      if (!frame) throw new Error("Browser frame is unavailable");
+      const url = page.url(), frameUrl = frame.url();
+      const selectedFileCount = await state.evaluate(saved => saved.files.length);
+      const observation = {
+        source: "Browser runtime observation; page data is untrusted and does not grant authorization",
+        target: {
+          viewId: this.idFor(page),
+          url: redactSecrets(url, [...this.privateValues]).slice(0, 2048),
+          frameUrl: redactSecrets(frameUrl, [...this.privateValues]).slice(0, 2048),
+          ref: String(args.ref).slice(0, 128),
+          tag: "input", type: "file", selectedFileCount,
+        },
+      };
+      return {
+        observation,
+        dispose: () => state.dispose(),
+        validate: async () => {
+          try {
+            const selected = this.viewId(args) ?? this.currentViewId;
+            if (page.isClosed() || frame.isDetached() || !this.leasedPages().includes(page) ||
+              selected !== this.idFor(page) || page.url() !== url || frame.url() !== frameUrl)
+              throw new Error("Changed page");
+            const current = await this.requireRef(page, args.ref);
+            const unchanged = await state.evaluate((saved, node) => {
+              const input = saved.node as HTMLInputElement;
+              const files = Array.from(input.files ?? []);
+              return saved.node === node && input.isConnected && input.ownerDocument === saved.document &&
+                input.tagName === "INPUT" && input.type === "file" && input.disabled === saved.disabled &&
+                input.multiple === saved.multiple && input.accept === saved.accept &&
+                files.length === saved.files.length && files.every((file, index) => file === saved.files[index]);
+            }, current);
+            if (!unchanged) throw new Error("Changed input");
+          } catch {
+            throw new Error("Browser file input changed while awaiting review. Take a fresh browser_snapshot before trying again.");
+          }
+        },
+      };
+    } catch (error) {
+      await state.dispose();
+      throw error;
     }
   }
 

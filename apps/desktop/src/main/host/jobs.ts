@@ -511,7 +511,7 @@ export const executeShell = async (
       if (settled) return;
       settled = true;
       childClosed = true;
-      try { await environmentCapture.persist(savedEnvironment.path); }
+      try { await environmentCapture.persist(savedEnvironment.path, [], savedEnvironment.environment); }
       catch (error) { processError = error instanceof Error ? error : new Error("Could not persist shell environment"); stopReason = "output_stream_error"; }
       tree.rootClosed();
       if (runtimeTimer) clearTimeout(runtimeTimer);

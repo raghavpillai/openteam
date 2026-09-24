@@ -1,10 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { Schema } from "effect";
-import { SendMessageInput, RuntimeInlineImage, ComputerSteerRequest } from "../src";
+import { SendMessageInput, RuntimeInlineImage, ComputerSteerRequest, UpdateBotInput } from "../src";
 import { MAX_INLINE_IMAGE_URL_LENGTH } from "../src/media-input";
 import { renderReadText, readLimitNotice } from "../src/read-output";
 
 describe("message and Read boundaries", () => {
+  test("bot names reject whitespace without rejecting Unicode or partial edits", () => {
+    const decode = Schema.decodeUnknownSync(UpdateBotInput);
+    for (const name of ["", "   ", "\t\n", "\u00a0\u2003"]) {
+      expect(() => decode({ name })).toThrow();
+    }
+    expect(decode({ name: "  東京  " })).toEqual({ name: "  東京  " });
+    expect(decode({ description: "" })).toEqual({ description: "" });
+  });
   test("accepts long text and rich text without unrelated composer caps", () => {
     const input = {
       content: "x".repeat(400_001),

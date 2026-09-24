@@ -55,7 +55,7 @@ export const readWebpDimensions = (
 
 export const resizeImageForModel = async (
   bytes: Buffer,
-  options: { webpWithoutCodec?: "passthrough"; preserveWebpDimensions?: boolean } = {}
+  options: { webpWithoutCodec?: "passthrough"; preserveWebpDimensions?: boolean; preserveDimensions?: boolean } = {}
 ): Promise<{ data: Buffer; mimeType: string }> => {
   const webp =
     bytes.length >= 12 &&
@@ -63,12 +63,14 @@ export const resizeImageForModel = async (
     bytes.toString("ascii", 8, 12) === "WEBP";
   if (webp) {
     const dimensions = readWebpDimensions(bytes);
+    if (!dimensions || bytes.readUInt32LE(4) + 8 !== bytes.length)
+      throw new Error("Invalid WebP container");
     const modelCanvas =
       dimensions &&
       ((dimensions.width === 1280 && dimensions.height === 800) ||
         (dimensions.width === 1456 && dimensions.height === 840));
     if (
-      (options.preserveWebpDimensions && dimensions) ||
+      ((options.preserveWebpDimensions || options.preserveDimensions) && dimensions) ||
       options.webpWithoutCodec === "passthrough" ||
       (dimensions &&
         (modelCanvas ||
@@ -82,9 +84,20 @@ export const resizeImageForModel = async (
     throw new Error("WebP codec is not registered");
   }
   const image = await Jimp.read(bytes);
-  const mimeType = image.mime ?? "image/png";
+  const originalMime = image.mime ?? "image/png";
+  const mimeType = ["image/png", "image/jpeg", "image/gif"].includes(originalMime) ? originalMime : "image/png";
+  // Pointer tools consume coordinates in the screenshot's original pixel space.
+  // Resizing only the model input silently moves every subsequent click.
+  if (options.preserveDimensions) {
+    if (bytes.length <= MODEL_IMAGE_BYTE_TARGET) return { data: bytes, mimeType };
+    for (const quality of [85, 65, 45, 25]) {
+      const data = await image.getBuffer("image/jpeg", { quality });
+      if (data.length <= MODEL_IMAGE_BYTE_TARGET) return { data, mimeType: "image/jpeg" };
+    }
+    throw new Error("Screenshot exceeds image budget without changing coordinate geometry");
+  }
   const target = targetFitImageSize(image.width, image.height);
-  if (!target.needsResize && bytes.length <= MODEL_IMAGE_BYTE_TARGET)
+  if (mimeType === originalMime && !target.needsResize && bytes.length <= MODEL_IMAGE_BYTE_TARGET)
     return { data: bytes, mimeType };
   let { width, height } = target;
   if (target.needsResize) image.resize({ w: width, h: height });
@@ -99,15 +112,36 @@ export const resizeImageForModel = async (
   return { data, mimeType };
 };
 
-/** Tool results keep their bytes on failure, as GrokBot's Read wrapper does. */
-export const boundToolImage = async (bytes: Buffer, mimeType: string): Promise<RuntimeImage> => {
+/** Invalid bytes must never become a durable, repeatedly rejected model image. */
+export const boundToolImage = async (bytes: Buffer, mimeType: string, preserveDimensions = false): Promise<RuntimeImage | { type: "text"; text: string }> => {
   try {
-    const result = await resizeImageForModel(bytes, { webpWithoutCodec: "passthrough" });
+    const result = await resizeImageForModel(bytes, { webpWithoutCodec: "passthrough", preserveDimensions });
     return { type: "image", data: result.data.toString("base64"), mimeType: result.mimeType };
   } catch {
-    return { type: "image", data: bytes.toString("base64"), mimeType };
+    return { type: "text", text: `[image omitted: failed to process ${bytes.length} bytes (${mimeType})]` };
   }
 };
+
+// Validate historic tool images at the model boundary too. Keep original receipts
+// intact, and cache immutable message objects so each image is decoded only once.
+const safeMessages = new WeakMap<object, Promise<any>>();
+export async function repairImageHistory<T extends { role: string }>(messages: readonly T[]): Promise<T[]> {
+  return Promise.all(messages.map(message => {
+    const content = (message as T & { content?: unknown }).content;
+    if (!Array.isArray(content) || !content.some(part => part?.type === "image")) return message;
+    let cached = safeMessages.get(message);
+    if (!cached) {
+      const toolName = (message as T & { toolName?: string }).toolName;
+      const preserveCoordinates = message.role === "toolResult" &&
+        (toolName === "Computer" || toolName?.startsWith("browser_") === true);
+      cached = Promise.all(content.map(part => part?.type === "image"
+        ? boundToolImage(Buffer.from(part.data, "base64"), part.mimeType, preserveCoordinates)
+        : part)).then(content => ({ ...message, content }));
+      safeMessages.set(message, cached);
+    }
+    return cached;
+  }));
+}
 
 /** Keep an explicit notice when a user image cannot be processed. */
 export const prepareUserImages = async (images: readonly RuntimeImage[]) => {

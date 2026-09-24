@@ -110,11 +110,11 @@ describe("GrokBot input parity at the runtime boundary", () => {
     ).toThrow();
   });
 
-  test("keeps failed tool-image bytes, but explicitly reports a failed user image", async () => {
+  test("reports malformed tool and user images without forwarding invalid bytes", async () => {
     const invalid = Buffer.from("not an image");
     const tool = await boundToolImage(invalid, "image/png");
-    expect(tool.data).toBe(invalid.toString("base64"));
-    const user = await prepareUserImages([tool]);
+    expect(tool).toEqual({ type: "text", text: "[image omitted: failed to process 12 bytes (image/png)]" });
+    const user = await prepareUserImages([{type:"image",data:invalid.toString("base64"),mimeType:"image/png"}]);
     expect(user.images).toEqual([]);
     expect(user.notice).toBe("[image omitted: failed to process 12 bytes (image/png)]");
   });
@@ -122,6 +122,7 @@ describe("GrokBot input parity at the runtime boundary", () => {
   test("preserves a known WebP canvas and the box tool's no-codec passthrough", async () => {
     const canvas = Buffer.alloc(30);
     canvas.write("RIFF", 0);
+    canvas.writeUInt32LE(canvas.length - 8, 4);
     canvas.write("WEBP", 8);
     canvas.write("VP8X", 12);
     canvas.writeUIntLE(1455, 24, 3);

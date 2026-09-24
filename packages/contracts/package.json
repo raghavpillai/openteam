@@ -5,6 +5,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./agent-file-access": "./src/agent-file-access.ts",
     ".": "./src/index.ts",
     "./bot-avatar": "./src/bot-avatar.ts",
     "./capabilities": "./src/capabilities.ts",

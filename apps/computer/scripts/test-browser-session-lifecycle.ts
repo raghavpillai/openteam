@@ -16,6 +16,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
   switch (new URL(request.url).pathname) {
     case "/next": return html("<h1>Next page</h1>");
     case "/popup": return html(`<button onclick="window.opener.document.querySelector('#result').textContent='popup confirmed';window.close()">Confirm and close</button>`);
+    case "/confirm-close": return html(`<button onclick="if(confirm('Finalize once?')){const result=window.opener.document.querySelector('#result');result.textContent=String((Number(result.textContent)||0)+1);window.close()}">Confirm and close after dialog</button>`);
     case "/onload": return html(`<body onload="document.body.dataset.result=confirm('Popup confirmation')?'accepted':'dismissed'"><h1>Popup ready</h1></body>`);
     case "/frame": return html(`<button onclick="this.textContent='Frame passed'">Frame action</button>`);
     case "/nested": return html(`<p>Nested frame <iframe src="/frame"></iframe></p>`);
@@ -24,6 +25,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
       <button onclick="onbeforeunload=e=>{e.preventDefault();e.returnValue=''}">Arm unsaved change</button>
       <button onclick="window.open('/popup','_blank')">Open popup</button>
       <button onclick="window.open('/onload','_blank')">Open onload popup</button>
+      <button onclick="window.open('/confirm-close','_blank')">Open confirm-close popup</button>
       <p id="result">untouched</p>`);
   }
 } });
@@ -95,6 +97,15 @@ await check("self-closing popup returns surviving parent state without replay", 
   assert.equal(await (await session.ensurePage()).locator("#result").textContent(), "popup confirmed");
   assert.equal((await session.execute("browser_tabs", { action: "list" })).details.tabs, 1);
 });
+await check("accepting a popup dialog that closes its page recovers parent without replay", async session => {
+  await session.execute("browser_click", { ref: await ref(session, "Open confirm-close popup") });
+  const opened = await bounded(session.execute("browser_click", { ref: await ref(session, "Confirm and close after dialog") }));
+  assert.equal(opened.details.pendingDialog?.message, "Finalize once?");
+  const result = await bounded(session.execute("browser_cdp", { method: "Page.handleJavaScriptDialog", params: { accept: true } }));
+  assert.ok(text(result).includes("Popup closed"));
+  assert.equal(await (await session.ensurePage()).locator("#result").textContent(), "1");
+  assert.equal((await session.execute("browser_tabs", { action: "list" })).details.tabs, 1);
+});
 await check("onload popup dialog can be answered before page observation finishes", async session => {
   const opened = await bounded(session.execute("browser_click", { ref: await ref(session, "Open onload popup") }));
   assert.equal(opened.details.pendingDialog?.message, "Popup confirmation");
@@ -113,6 +124,30 @@ await check("native/external response to an onload popup clears pending state", 
   const snapshot = await bounded(session.execute("browser_snapshot", {}));
   assert.equal(snapshot.details.pendingDialog, undefined);
   assert.ok(text(snapshot).includes("Popup ready"));
+});
+await check("external response before delayed dialog observer enables does not strand the page", async session => {
+  const cdpFor = session.cdpFor.bind(session);
+  session.cdpFor = async (page: any) => {
+    const cdp = await cdpFor(page);
+    if (!cdp.__qaDelayedEnable) {
+      cdp.__qaDelayedEnable = true;
+      const send = cdp.send.bind(cdp);
+      cdp.send = async (method: string, params: unknown) => {
+        if (method === "Page.enable") await new Promise(resolve => setTimeout(resolve, 150));
+        return send(method, params);
+      };
+    }
+    return cdp;
+  };
+  const opened = await bounded(session.execute("browser_click", { ref: await ref(session, "Open onload popup") }));
+  assert.equal(opened.details.pendingDialog?.message, "Popup confirmation");
+  const popup = session.leasedPages().find((page: any) => page.url().endsWith("/onload"));
+  assert.ok(popup);
+  await bounded(session.dialogs.get(popup).accept());
+  await bounded(popup.waitForFunction(() => document.body.dataset.result === "accepted"));
+  const result = await bounded(session.execute("browser_snapshot", {}));
+  assert.equal(result.details.pendingDialog, undefined);
+  assert.ok(text(result).includes("Popup ready"));
 });
 await check("onload popup retains its dialog with an independent lease connected", async (session, endpoint, root) => {
   const other = await BrowserUseSession.connect(endpoint, join(root, "other"), false, join(root, "Downloads"));

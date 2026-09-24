@@ -78,6 +78,15 @@ describe("prompt-context frozen epoch fast path", () => {
     expect(context.skillRender).toBe("Frozen skills");
   });
 
+  test("existing frozen sessions receive installed skills without resetting the user workflow snapshot", async () => {
+    const fixture = promptStore(snapshot({skillRender: ""}));
+    Object.assign(fixture.store, { renderManagedSkills: async () => "- Routines: /installed/routines/SKILL.md" });
+    expect((await fixture.store.promptContext("bot-1")).skillRender).toContain("/installed/routines/SKILL.md");
+    expect(fixture.calls.skills).toBe(0);
+    Object.assign(fixture.store, { renderManagedSkills: async () => "" });
+    expect((await fixture.store.promptContext("bot-1")).skillRender).toBe("");
+  });
+
   test("limits skill rows in SQL while preserving the exact omitted count", async () => {
     let findArgs: unknown;
     const store = new AgentDataStore(

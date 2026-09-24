@@ -30,6 +30,17 @@ function adapt(value: any): any {
   return value;
 }
 const contracts: Record<string, ToolContract> = adapt(reference);
+// OpenTeam implementation of the observed pending-chooser upload capability.
+// Keep this explicit adaptation separate from the captured reference document.
+contracts.browser_file_upload = {
+  name: "browser_file_upload",
+  description: "Respond to a pending file chooser opened by a browser click. Upload authorized absolute local paths inside the workspace. Omit paths or pass [] to cancel. Do not use native chooser clicks for an intercepted chooser. File contents and destination remain subject to action review.",
+  inputSchema: {type: "object", properties: {
+    paths: {type: "array", items: {type: "string", maxLength: 4096}, maxItems: 10},
+    viewId: {type: "string", minLength: 1, maxLength: 120},
+  }, additionalProperties: false},
+};
+
 // OpenTeam supports Google Drive and Gmail transfers. Keep the captured source
 // intact while removing the retired provider from the advertised contract.
 for (const name of ["upload_file", "download_file"]) {

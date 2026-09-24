@@ -598,10 +598,24 @@ export class SubagentService {
   }
 
   private async inspect(subagent: Awaited<ReturnType<SubagentService["owned"]>>) {
-    const recentToolCalls = subagent.currentRunId
+    const currentRun = subagent.currentRunId
+      ? await this.prisma.run.findFirst({
+          where: { id: subagent.currentRunId, botId: subagent.childBotId },
+          select: { id: true, status: true },
+        })
+      : null;
+    const pendingApprovals = currentRun && ["running", "waiting_approval"].includes(currentRun.status)
+      ? await this.prisma.approval.findMany({
+          where: { runId: currentRun.id, status: "pending" },
+          orderBy: { createdAt: "asc" },
+          take: 8,
+          select: { id: true, details: true },
+        })
+      : [];
+    const recentToolCalls = currentRun
       ? await this.prisma.runItem.findMany({
           where: {
-            runId: subagent.currentRunId,
+            runId: currentRun.id,
             kind: { in: ["command", "file_change", "tool"] },
           },
           orderBy: { createdAt: "desc" },
@@ -614,11 +628,21 @@ export class SubagentService {
       description: subagent.description,
       subagent_type: subagent.subagentType,
       status: subagent.status,
+      run_status: currentRun?.status ?? null,
+      pending_approvals: pendingApprovals.map((approval) => {
+        const details = approval.details && typeof approval.details === "object" && !Array.isArray(approval.details)
+          ? approval.details as Record<string, unknown> : {};
+        return {
+          id: approval.id,
+          summary: typeof details.summary === "string" ? details.summary.slice(0, 500) : null,
+          reason: typeof details.reason === "string" ? details.reason.slice(0, 500) : null,
+        };
+      }),
       elapsed_seconds: Math.max(
         0,
         Math.round((end.getTime() - (subagent.startedAt ?? subagent.createdAt).getTime()) / 1_000)
       ),
-      tool_call_count: subagent.currentRunId ? await this.prisma.runItem.count({ where: { runId: subagent.currentRunId, kind: { in: ["command", "file_change", "tool"] } } }) : 0,
+      tool_call_count: currentRun ? await this.prisma.runItem.count({ where: { runId: currentRun.id, kind: { in: ["command", "file_change", "tool"] } } }) : 0,
       recent_tool_calls: recentToolCalls.map((item) => ({
         tool: item.title ?? item.kind,
         status: item.status,

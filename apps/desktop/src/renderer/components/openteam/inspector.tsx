@@ -79,7 +79,7 @@ function BotSettings({
       setSaveState("saving");
       try {
         await onUpdate({
-          name: next.name.trim() || "New Bot",
+          ...(next.name.trim() ? { name: next.name.trim() } : {}),
           title: next.title,
           description: next.description,
           ...(includeAvatar ? { icon: next.icon, color: next.color } : {}),
@@ -126,7 +126,7 @@ function BotSettings({
       const next = draftRef.current;
       void updateRef
         .current({
-          name: next.name.trim() || "New Bot",
+          ...(next.name.trim() ? { name: next.name.trim() } : {}),
           title: next.title,
           description: next.description,
           notificationsEnabled: next.notificationsEnabled,
@@ -164,7 +164,14 @@ function BotSettings({
             aria-label="Bot name"
             className="h-9 rounded-[7px] border-[#d9d9d9] px-2.5 text-[14px] shadow-none focus-visible:border-ring dark:focus-visible:border-ring focus-visible:ring-0 dark:border-[#292929] dark:bg-transparent"
             id={`settings-name-${bot.id}`}
-            onBlur={flush}
+            onBlur={() => {
+              if (!draftRef.current.name.trim()) {
+                const restored = { ...draftRef.current, name: bot.name };
+                draftRef.current = restored;
+                setDraft(restored);
+              }
+              flush();
+            }}
             onChange={(event) => queue({ ...draft, name: event.target.value })}
             placeholder="Bob"
             value={draft.name}

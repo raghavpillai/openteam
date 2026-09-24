@@ -10,6 +10,7 @@ import {
 } from "../../src/browser/use";
 
 const EXPECTED_TOOLS = [
+  "browser_file_upload",
   "browser_navigate",
   "browser_snapshot",
   "browser_click",

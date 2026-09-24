@@ -2,6 +2,7 @@ import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-p
 import { isPendingReviewControl } from "./pending-review-controls";
 import { spoolFile } from "@openteam/plugin-sdk/file-spool";
 import { agentReadStream, agentWriteStream } from "../agent-file-stream";
+import { stageAttachment } from "../attachment-staging";
 import {
   describeOutputLocation,
   buildUserFormRemapReceipt,
@@ -658,16 +659,17 @@ export class RuntimeTools {
           ? await this.screens.commandEnvironment(active.screenBotId, active.cwd)
           : undefined;
       const secretEnvironment = await this.processSecrets(active, signal);
+      const effectiveDirectory = await this.nativeToolExecutor.shellWorkingDirectory(shellInput, active.cwd, active.botId);
       await this.executeHostTool(active, callId, tool, signal, (approvals) =>
         this.nativeToolExecutor.autoReviewAction(
           {
             surface: "boxShell",
             summary: shellInput.description ?? "Run a command on the bot computer",
-            target: shellInput.working_directory ?? active.cwd,
+            target: effectiveDirectory,
             command: shellInput.command,
             arguments: {
               command: shellInput.command,
-              working_directory: shellInput.working_directory ?? active.cwd,
+              ...(shellInput.working_directory == null ? {} : { working_directory: shellInput.working_directory }),
             },
           },
           signal,
@@ -967,33 +969,45 @@ export class RuntimeTools {
         const closeBrowser = tool === "browser_tabs" && (args as any)?.action === "close"
           ? this.browserUseSessions?.get(active.botId) : undefined;
         const closeTarget = closeBrowser?.tabCloseReviewTarget(args as { index?: unknown });
-        if (
-          ![
-            "browser_snapshot",
-            "browser_screenshot",
-            "browser_console_messages",
-            "browser_network_requests",
-          ].includes(tool)
-        ) {
-          await this.executeHostTool(active, callId, tool, signal, (approvals) =>
-            this.nativeToolExecutor.autoReviewAction(
-              {
-                surface: tool.startsWith("browser_") ? "browser" : "computer",
-                summary: tool.startsWith("browser_") ? `Use dedicated browser tool ${tool}` : `Use native desktop tool ${tool}`,
-                target: active.screenBotId,
-                arguments: { tool, ...(args as Record<string, unknown>),
-                  ...(closeTarget ? { browserObservedTarget: closeTarget } : {}) },
-              },
-              signal,
-              approvals
-            )
-          );
+        const reviewBrowser = this.browserUseSessions?.get(active.botId);
+        const fileInput = tool === "browser_click"
+          ? await reviewBrowser?.fileInputReviewTarget(args as Record<string, unknown>) : undefined;
+        const uploadTarget = tool === "browser_file_upload"
+          ? await reviewBrowser?.uploadReviewTarget(args as Record<string, unknown>) : undefined;
+        try {
+          if (
+            ![
+              "browser_snapshot",
+              "browser_screenshot",
+              "browser_console_messages",
+              "browser_network_requests",
+            ].includes(tool)
+          ) {
+            await this.executeHostTool(active, callId, tool, signal, (approvals) =>
+              this.nativeToolExecutor.autoReviewAction(
+                {
+                  surface: tool.startsWith("browser_") ? "browser" : "computer",
+                  summary: tool.startsWith("browser_") ? `Use dedicated browser tool ${tool}` : `Use native desktop tool ${tool}`,
+                  target: active.screenBotId,
+                  arguments: { ...(args as Record<string, unknown>), tool,
+                    // Never let model-supplied arguments forge runtime evidence.
+                    browserObservedTarget: closeTarget ?? fileInput?.observation ?? uploadTarget },
+                },
+                signal,
+                approvals
+              )
+            );
+          }
+          signal?.throwIfAborted();
+          this.assertNoPendingReview(active);
+          if (closeTarget && JSON.stringify(closeBrowser!.tabCloseReviewTarget(args as { index?: unknown })) !== JSON.stringify(closeTarget))
+            throw new Error("Browser tab changed while awaiting review. Inspect the current tabs before requesting closure again.");
+          await fileInput?.validate();
+          if (uploadTarget) await reviewBrowser!.assertUploadReviewTarget(args as Record<string, unknown>, uploadTarget);
+          return await execute();
+        } finally {
+          await fileInput?.dispose();
         }
-        signal?.throwIfAborted();
-        this.assertNoPendingReview(active);
-        if (closeTarget && JSON.stringify(closeBrowser!.tabCloseReviewTarget(args as { index?: unknown })) !== JSON.stringify(closeTarget))
-          throw new Error("Browser tab changed while awaiting review. Inspect the current tabs before requesting closure again.");
-        return execute();
       }
     );
   }
@@ -1060,6 +1074,7 @@ export class RuntimeTools {
       this.browserUseSessions.set(active.botId, browser);
       this.browserSessionScreens.set(active.botId, active.screenBotId);
     }
+    browser.configureUploads(this.workspaceRoot, [this.agentDir]);
     browser.registerPrivateValues([...(this.privateBrowserValues.get(active.screenBotId) ?? [])]);
     this.observeLogins(active, browser);
     const result = await browser.execute(toolName, args);
@@ -1571,6 +1586,38 @@ export class RuntimeTools {
   }
 
   private async callControlPlaneTool(
+    active: ActiveTurn,
+    callId: string,
+    tool: string,
+    args: unknown,
+    signal?: AbortSignal
+  ): Promise<AgentToolResult<Record<string, unknown>>> {
+    const cleanup: Array<() => Promise<void>> = [];
+    try {
+      if (["SendToUser", "ReviewedExternalFileDelivery"].includes(tool) && args && typeof args === "object") {
+        const input = args as Record<string, any>;
+        const stage = async (url: string) => {
+          const file = await stageAttachment(url, {
+            workspace: process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace",
+            agentData: process.env.OPENTEAM_AGENT_DATA_CANONICAL_ROOT ?? "/home/box/sand-data",
+          }, signal);
+          cleanup.push(file.cleanup);
+          return file.url;
+        };
+        if (input.type === "attachment" && typeof input.url === "string") args = { ...input, url: await stage(input.url) };
+        else if (input.type === "text" && Array.isArray(input.images)) {
+          const images = [];
+          for (const image of input.images) images.push({ ...image, url: await stage(image.url) });
+          args = { ...input, images };
+        }
+      }
+      return await this.callControlPlaneToolRequest(active, callId, tool, args, signal);
+    } finally {
+      await Promise.all(cleanup.map(fn => fn()));
+    }
+  }
+
+  private async callControlPlaneToolRequest(
     active: ActiveTurn,
     callId: string,
     tool: string,

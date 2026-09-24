@@ -425,7 +425,7 @@ const assetRef = (value: unknown): value is AssetRef => {
     value.mimeType.length <= 120 &&
     finiteNumber(value.byteSize) &&
     Number.isSafeInteger(value.byteSize) &&
-    value.byteSize > 0 &&
+    value.byteSize >= 0 &&
     value.byteSize <= 200 * 1024 * 1024 &&
     typeof value.kind === "string" &&
     assetKinds.has(value.kind as AssetKind) &&
@@ -459,7 +459,7 @@ const stagedAttachment = (value: unknown): value is DurableStagedAttachment => {
     value.mimeType.length <= 120 &&
     finiteNumber(value.byteSize) &&
     Number.isSafeInteger(value.byteSize) &&
-    value.byteSize > 0 &&
+    value.byteSize >= 0 &&
     value.byteSize <= 200 * 1024 * 1024 &&
     typeof value.kind === "string" &&
     assetKinds.has(value.kind as AssetKind) &&

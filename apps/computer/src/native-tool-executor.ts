@@ -7,9 +7,10 @@ import { agentReadStream, agentWriteStream } from "./agent-file-stream";
 import { formatBytes2 } from "@openteam/contracts/reference-formatters";
 import { renderReadText } from "@openteam/contracts/read-output";
 import { boundToolImage } from "./runtime/image-input";
+import { decodeReadableText } from "./read-text";
 import { randomInt } from "node:crypto";
-import { createWriteStream } from "node:fs";
-import { access, mkdir, readFile, realpath, stat } from "node:fs/promises";
+import { constants, createWriteStream } from "node:fs";
+import { access, mkdir, open, realpath, stat } from "node:fs/promises";
 import { dirname, basename, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import type {
@@ -40,18 +41,9 @@ import {
 } from "@openteam/contracts/service-protocol";
 import { spawnAgentProcess as spawn, agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
 import { agentFileIO } from "./agent-file-io";
+import { protectedAgentDataPath } from "@openteam/contracts/agent-file-access";
 
 const DEFAULT_BLOCK_MS = 30_000;
-const PROTECTED_AGENT_DATA_TREES = new Set([
-  "agents",
-  "managed-skills",
-  "plugin-skills",
-  "plugins",
-  "projects",
-  "user-memory",
-  "workflows",
-]);
-const SQLITE_FILE = /^(?:store|conversation-blobs)\.db(?:-(?:shm|wal))?$/;
 
 export const sanitizedShellEnvironment = (
   source: NodeJS.ProcessEnv,
@@ -126,6 +118,18 @@ export class NativeToolExecutor {
     );
   }
 
+  async shellWorkingDirectory(input: Pick<ShellToolInput, "working_directory">, cwd: string, scope = "") {
+    if (input.working_directory != null) return localPath(input.working_directory, cwd);
+    const saved = await loadShellEnvironment(this.terminalDir, scope, {});
+    const persisted = saved.environment.PWD;
+    if (persisted && isAbsolute(persisted)) {
+      // A deleted previous directory must not strand every subsequent call.
+      const info = await stat(persisted).catch(() => null);
+      if (info?.isDirectory()) return persisted;
+    }
+    return cwd;
+  }
+
   async shell(
     input: ShellToolInput,
     cwd: string,
@@ -135,7 +139,7 @@ export class NativeToolExecutor {
     routing: { channelId?: string; automationRunId?: string; secrets?: string[]; secretEnvironment?: Record<string, string> } = {}
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     signal?.throwIfAborted();
-    const workingDirectory = localPath(input.working_directory ?? cwd, cwd);
+    const workingDirectory = await this.shellWorkingDirectory(input, cwd, scope);
     const directory = await stat(workingDirectory);
     if (!directory.isDirectory()) throw new Error(`Not a directory: ${workingDirectory}`);
     await mkdir(this.terminalDir, { recursive: true });
@@ -200,7 +204,7 @@ export class NativeToolExecutor {
         if (settled) return;
         settled = true;
         {
-          try { await environmentCapture.persist(savedEnvironment.path, Object.keys(routing.secretEnvironment ?? {})); }
+          try { await environmentCapture.persist(savedEnvironment.path, Object.keys(routing.secretEnvironment ?? {}), savedEnvironment.environment); }
           catch (error) { processError = error instanceof Error ? error : new Error("Could not persist shell environment"); }
         }
         job.finish(exitCode, processError?.message);
@@ -472,10 +476,30 @@ export class NativeToolExecutor {
     if (!terminalLog) await this.assertAgentReadable(canonical);
     const metadata = await stat(canonical);
     if (!metadata.isFile()) throw new Error(`Not a file: ${path}`);
+    let bytes: Buffer;
+    if (terminalLog) {
+      // Supervisor-owned terminal logs are the sole privileged-read exception.
+      // Pin the descriptor and recheck its actual target before returning bytes.
+      const file = await open(canonical, constants.O_RDONLY | constants.O_NONBLOCK);
+      try {
+        const actual = await realpath(process.platform === "linux" ? `/proc/self/fd/${file.fd}` : `/dev/fd/${file.fd}`);
+        await this.assertProtectedReadPath(actual);
+        if (dirname(actual) !== terminalRoot || !/^(?:[0-9]+|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.log$/i.test(basename(actual)))
+          throw new Error("Read terminal log target changed");
+        const pinned = await file.stat();
+        if (!pinned.isFile() || pinned.size > HOST_TRANSFER_MAX_BYTES)
+          throw new Error("Source must be a regular file within the transfer size limit");
+        bytes = await file.readFile();
+      } finally { await file.close(); }
+    } else {
+      const protectedRoot = await realpath(this.agentDataCanonicalRoot).catch(() => this.agentDataCanonicalRoot);
+      bytes = await agentFileIO("read", canonical, undefined, { protectedRoot });
+    }
+    const plainText = decodeReadableText(bytes);
 
     const mimeType = imageMimeTypeForPath(canonical);
-    if (mimeType) {
-      const data = await readFile(canonical);
+    if (mimeType && plainText === undefined) {
+      const data = bytes;
       return {
         content: [
           { type: "text", text: `Image file: ${canonical}` },
@@ -485,11 +509,16 @@ export class NativeToolExecutor {
       };
     }
 
-    const raw =
-      extname(canonical).toLowerCase() === ".pdf"
-        ? await this.pdfText(canonical)
-        : await readFile(canonical, "utf8");
-    const { text, ...details } = renderReadText(raw, offset, limit, metadata.size);
+    let raw: string;
+    if (extname(canonical).toLowerCase() === ".pdf") {
+      raw = await this.pdfText(bytes);
+    } else {
+      if (plainText === undefined) {
+        throw new Error(`Binary files of type ${extname(canonical) || "unknown"} are not supported by the read executor`);
+      }
+      raw = plainText;
+    }
+    const { text, ...details } = renderReadText(raw, offset, limit, bytes.length);
     return textResult(text, { path: canonical, ...details });
   }
 
@@ -506,11 +535,11 @@ export class NativeToolExecutor {
     ) {
       return;
     }
-    const [tree] = difference.split(sep);
-    if (!tree || !PROTECTED_AGENT_DATA_TREES.has(tree)) {
+    const restriction = protectedAgentDataPath(difference.split(sep).join("/"));
+    if (restriction === "private") {
       throw new Error(`Read is not allowed for protected agent-data path: ${path}`);
     }
-    if (SQLITE_FILE.test(basename(path))) {
+    if (restriction === "database") {
       throw new Error(`Read does not expose live agent SQLite files: ${path}`);
     }
   }
@@ -531,13 +560,15 @@ export class NativeToolExecutor {
     });
   }
 
-  private async pdfText(path: string): Promise<string> {
+  private async pdfText(bytes: Buffer): Promise<string> {
     return new Promise<string>((resolveText, reject) => {
-      const child = spawn("pdftotext", [path, "-"], {
+      const child = spawn("pdftotext", ["-", "-"], {
         env: sanitizedAgentEnvironment(process.env),
         ...agentProcessIdentity(),
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: ["pipe", "pipe", "pipe"],
       });
+      child.stdin!.on("error", () => {});
+      child.stdin!.end(bytes);
       const stdout: Buffer[] = [];
       const stderr: Buffer[] = [];
       child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));

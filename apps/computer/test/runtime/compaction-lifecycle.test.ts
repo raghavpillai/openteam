@@ -184,7 +184,8 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
           cwd: root,
           runtimeProfile: "agent",
           subagentType: null,
-          requestSource: "turn",
+          // This fixture has no SendToUser tool; exercise compaction on a peer wake.
+          requestSource: "agent",
           resetSelfSummaryCount: true,
           sentMessageCount: 1,
           toolActivityAfterLastSend: false,

@@ -77,12 +77,12 @@ test("timeout and cancellation leave the background process available for anothe
   expect(await readFile(done.details.output_path as string, "utf8")).toContain("survived");
 });
 
-test("exports and unsets persist across shell calls and runtime restarts while cwd resets", async () => {
+test("exports, unsets and cwd persist across shell calls and runtime restarts", async () => {
   const { executor, root } = await fixture();
   await executor.shell({ command: "export PARITY_SHELL_VALUE='two words'; cd /tmp", block_until_ms: 1000 }, root, undefined, undefined, "bot");
   const next = await executor.shell({ command: 'printf "%s\\n" "$PARITY_SHELL_VALUE"; pwd', block_until_ms: 1000 }, root, undefined, undefined, "bot");
   expect(JSON.stringify(next.content)).toContain("two words");
-  expect(JSON.stringify(next.content)).toContain(root);
+  expect(JSON.stringify(next.content)).toContain("/tmp");
   const restarted = new NativeToolExecutor({ agentDir: root, controlToken: "test" });
   const resumed = await restarted.shell({ command: 'printf "%s" "$PARITY_SHELL_VALUE"; unset PARITY_SHELL_VALUE', block_until_ms: 1000 }, root, undefined, undefined, "bot");
   expect(JSON.stringify(resumed.content)).toContain("two words");

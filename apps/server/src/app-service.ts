@@ -125,6 +125,7 @@ export class AppService {
     this.searchIndex = new SearchService(this.prisma);
     this.assets = new AssetStore({
       root: this.agentData.assetRoot,
+      agentDataRoot: this.agentData.root,
       allowedFileRoots: [this.workspaceRoot, this.agentData.root],
     });
     this.notifications = new NotificationService(this.prisma, authMode);

@@ -742,6 +742,7 @@ export class AgentMessaging {
       assets ??
       new AssetStore({
         root: this.agentData.assetRoot,
+        agentDataRoot: this.agentData.root,
         allowedFileRoots: [this.agentData.workspaceRoot, this.agentData.root],
       });
   }

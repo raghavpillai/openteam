@@ -36,6 +36,12 @@ To connect a second account, such as a work and a personal Gmail, choose **Add A
 
 Gmail, Google Calendar, and Google Drive are separate plugins. Connecting one doesn't connect the others.
 
+## Connect Slack to a self-hosted server
+
+Create an internal Slack app in your workspace and enter its client ID and client secret in OpenTeam. Your OpenTeam server keeps the authorization and connects directly to Slack's official MCP server. You can reuse the internal app for additional OpenTeam accounts in the same workspace.
+
+The Slack connection needs an HTTPS OpenTeam address. For a private deployment, use Tailscale Serve and keep Tailscale connected on your devices. Copy the exact callback URL from OpenTeam's account settings into the Slack app, enable **Agents → Enable Slack MCP Server**, then save the credentials in OpenTeam and authorize the workspace. The [Slack setup guide](../../packages/plugins/slack/README.md) includes a ready-to-use app manifest.
+
 ## Control what bots can do
 
 Two settings on the plugin's page work together:

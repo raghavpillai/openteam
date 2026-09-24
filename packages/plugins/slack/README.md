@@ -2,7 +2,11 @@
 
 This package connects to Slack's official MCP server using a Slack application owned by your deployment. Internal apps can use it without a Marketplace listing. Unlisted distributed apps cannot use Slack MCP.
 
-1. Install Slack in OpenTeam and open its account under **Plugins → Manage plugins → Installed**. Copy the displayed OAuth callback URL.
+Your OpenTeam server stores the app credentials and account authorization and connects directly to Slack's hosted MCP server. Create the internal app once for your workspace, then use it for the OpenTeam accounts in that workspace.
+
+Before connecting, configure an HTTPS address for your OpenTeam server. Tailscale Serve works for a private deployment; keep Tailscale connected on the devices used to sign in. This package uses a server callback, so callback paste is not available.
+
+1. Install Slack from **Marketplace**, then open the plugin's account settings. Copy the displayed OAuth callback URL.
 2. Open [Your Apps](https://api.slack.com/apps), select **Create New App → From a manifest**, and paste [slack-app-manifest.json](slack-app-manifest.json). Replace its example redirect URL with the exact OpenTeam callback URL. Choose your workspace, review, and create the app.
 3. In the Slack app dashboard, open **Agents** and turn on **Enable Slack MCP Server**. OAuth can succeed while discovery fails if this switch is off.
 4. From **Basic Information**, copy the client ID and client secret into OpenTeam. Choose **Save and authorize**, select the workspace, and approve access.
@@ -56,3 +60,9 @@ and workspace type checks passed. A disposable OAuth/MCP server verified manual
 client authentication, upgrade and reconnection with the saved authorization,
 account policies, and independent Bot instruction/account access. These checks
 do not claim live Slack message delivery or developer CLI app creation.
+
+Live verification on September 24, 2026 also completed OAuth with an internal
+Slack app and a private Tailscale HTTPS callback. OpenTeam discovered 26 tools;
+`slack_read_user_profile`, `slack_list_user_channels`, and
+`slack_search_channels` returned successful results through OpenTeam. These
+were read tests; message delivery and every individual tool remain untested.

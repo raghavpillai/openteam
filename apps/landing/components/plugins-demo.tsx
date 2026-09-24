@@ -3,20 +3,12 @@
 import Image from "next/image";
 import { useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
-import { BookOpen, Expand, Plug, ShieldCheck, X } from "lucide-react";
+import { BookOpen, Expand, ShieldCheck, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { useDemoCycle } from "./use-demo-cycle";
 import "./plugins-demo.css";
 
 const views = [
-  {
-    id: "browse",
-    label: "Browse plugins",
-    icon: Plug,
-    src: "/screenshots/plugins-browse.png",
-    alt: "OpenTeam's actual Plugins dialog showing the bundled plugin catalog",
-    description: "Install app connectors and reusable skills from the plugin catalog.",
-  },
   {
     id: "access",
     label: "Choose agent access",

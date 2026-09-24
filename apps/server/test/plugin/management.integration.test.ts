@@ -278,9 +278,7 @@ integration(
     const botId = crypto.randomUUID();
     let revision = "first";
     let advertisedKey = key;
-    const base = structuredClone(
-      pluginCatalog.find((plugin) => plugin.key === "research-playbook")!
-    );
+    const base = createPluginTemplate("skills", "github");
     const server = Bun.serve({
       port: 0,
       fetch: () =>

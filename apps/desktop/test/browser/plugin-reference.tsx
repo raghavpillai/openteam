@@ -10,7 +10,6 @@ import github from "../../../../packages/plugins/github/plugin.json";
 import slack from "../../../../packages/plugins/slack/plugin.json";
 import notion from "../../../../packages/plugins/notion/plugin.json";
 import linear from "../../../../packages/plugins/linear/plugin.json";
-import research from "../../../../packages/plugins/research-playbook/plugin.json";
 import gmail from "../../../../packages/plugins/gmail/plugin.json";
 import calendar from "../../../../packages/plugins/google-calendar/plugin.json";
 import drive from "../../../../packages/plugins/google-drive/plugin.json";
@@ -63,7 +62,6 @@ const definitions = [
   slack,
   linear,
   github,
-  research,
   utility,
 ];
 const catalog = definitions.map((entry) => ({

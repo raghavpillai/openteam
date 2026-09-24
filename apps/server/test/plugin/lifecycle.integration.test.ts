@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { createPrismaClient } from "@openteam/db";
+import { createPluginTemplate } from "@openteam/plugin-sdk";
 import { Effect } from "effect";
 import { PluginService } from "../../src/services/plugin-service";
 import { renderControlResult } from "@openteam/contracts/tool-results";
@@ -18,6 +19,7 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
   const channelId = crypto.randomUUID();
   const wakes: Array<Record<string, any>> = [];
   let failApprovedCall = false;
+  let skillDraftId = "";
   try {
     await prisma.$executeRawUnsafe('TRUNCATE TABLE "PluginInstallation", "Bot", "Event" CASCADE');
     await prisma.bot.create({
@@ -214,14 +216,18 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
     await Effect.runPromise(runs.resolveApproval(failureApproval.id, "accept"));
     expect(wakes).toHaveLength(wakeCount);
 
-    await Effect.runPromise(service.install("research-playbook"));
+    const skillDraft = await Effect.runPromise(service.management.importFiles({
+      "plugin.json": JSON.stringify(createPluginTemplate("skills", "lifecycle-skills-fixture")),
+    }));
+    skillDraftId = skillDraft.id;
+    await Effect.runPromise(service.install("lifecycle-skills-fixture"));
     expect(await service.skillInstructions(botId)).toBe("");
-    await Effect.runPromise(service.setEnablement("research-playbook", botId, true, true));
-    expect(await service.skillInstructions(botId)).toContain("source-led-research");
+    await Effect.runPromise(service.setEnablement("lifecycle-skills-fixture", botId, true, true));
+    expect(await service.skillInstructions(botId)).toContain("my-skill");
     expect(await service.skillInstructions(secondBotId)).toBe("");
 
     await Effect.runPromise(service.uninstall("openteam-utility-lab"));
-    await Effect.runPromise(service.uninstall("research-playbook"));
+    await Effect.runPromise(service.uninstall("lifecycle-skills-fixture"));
     expect((await Effect.runPromise(service.settings())).installs).toHaveLength(0);
 
     await expect(
@@ -230,30 +236,32 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
         botId,
         callId: "plugin-action-install-1",
         action: "InstallPlugin",
-        arguments: { pluginKey: "research-playbook" },
+        arguments: { pluginKey: "lifecycle-skills-fixture" },
       })
     ).rejects.toMatchObject({ code: "plugin_action_required" });
     const actionApproval = await prisma.approval.findFirstOrThrow({
       where: { upstreamRequestId: "plugin-action:plugin-action-install-1" },
     });
     let actionSettled = false;
-    const awaitingAction = service.waitForAction({runId,botId,callId:"plugin-action-install-1",action:"InstallPlugin",arguments:{pluginKey:"research-playbook"}}).then(result=>{actionSettled=true;return result;});
+    const awaitingAction = service.waitForAction({runId,botId,callId:"plugin-action-install-1",action:"InstallPlugin",arguments:{pluginKey:"lifecycle-skills-fixture"}}).then(result=>{actionSettled=true;return result;});
     await Bun.sleep(20);expect(actionSettled).toBe(false);
     expect(
       await Effect.runPromise(runs.resolveApproval(actionApproval.id, "accept"))
     ).toMatchObject({ status: "accepted", result: { installed: true } });
     expect((await Effect.runPromise(service.settings())).installs[0]?.pluginKey).toBe(
-      "research-playbook"
+      "lifecycle-skills-fixture"
     );
     expect(await awaitingAction).toMatchObject({completed:true,actionResult:{installed:true}});
-    const replay = await service.requestAction({runId,botId,callId:"plugin-action-install-1",action:"InstallPlugin",arguments:{plugin_id:"research-playbook"}});
+    const replay = await service.requestAction({runId,botId,callId:"plugin-action-install-1",action:"InstallPlugin",arguments:{plugin_id:"lifecycle-skills-fixture"}});
     expect(replay).toMatchObject({status:"accepted",completed:true,actionResult:{installed:true},detail:{installed:true}});
-    expect(renderControlResult("InstallPlugin", replay, {plugin_id:"research-playbook"})).toStartWith("Installed ");
-    expect(renderControlResult("InstallPlugin", replay, {plugin_id:"research-playbook"})).toContain("(plugin research-playbook).");
+    expect(renderControlResult("InstallPlugin", replay, {plugin_id:"lifecycle-skills-fixture"})).toStartWith("Installed ");
+    expect(renderControlResult("InstallPlugin", replay, {plugin_id:"lifecycle-skills-fixture"})).toContain("(plugin lifecycle-skills-fixture).");
     const savedApproval = await prisma.approval.findUniqueOrThrow({where:{id:actionApproval.id}});
     expect(savedApproval.details).toMatchObject({actionResult:{installed:true}});
-    await Effect.runPromise(service.uninstall("research-playbook"));
+    await Effect.runPromise(service.uninstall("lifecycle-skills-fixture"));
   } finally {
+    if (skillDraftId) await prisma.pluginDraft.deleteMany({ where: { id: skillDraftId } });
+    await service.close();
     await prisma.$disconnect();
   }
 });

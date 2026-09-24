@@ -1008,37 +1008,6 @@
     "sourceRevision": "cf1324609edba6d617164f1dec138aeb43f26735"
   },
   {
-    "key": "research-playbook",
-    "version": "1.0.1",
-    "name": "Research Playbook",
-    "description": "Research topics, compare sources, and write evidence-backed summaries.",
-    "publisher": "OpenTeam",
-    "category": "Research",
-    "featured": false,
-    "components": [
-      "skills"
-    ],
-    "connections": [],
-    "skills": [
-      {
-        "name": "source-led-research",
-        "description": "Research claims against primary sources and state uncertainty clearly.",
-        "body": "Use primary sources wherever they exist.\nSeparate sourced facts from inference.\nFor changing claims, verify the current state before answering.\nCite the exact source supporting each material conclusion.",
-        "path": "skills/source-led-research"
-      }
-    ],
-    "schemaVersion": 1,
-    "icon": "assets/icon.png",
-    "files": {
-      "skills/source-led-research/SKILL.md": "---\nname: source-led-research\ndescription: Research claims against primary sources and state uncertainty clearly.\n---\nUse primary sources wherever they exist.\nSeparate sourced facts from inference.\nFor changing claims, verify the current state before answering.\nCite the exact source supporting each material conclusion.",
-      "assets/SOURCES.md": "# Plugin icon\n\nOriginal OpenTeam vector artwork. Rasterized to 192 px for consistent desktop and native mobile display.\n",
-      "assets/icon.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#5B4BD5\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 5c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V4c-3-1-6-1-9 1ZM12 5v14\"/></svg>"
-    },
-    "binaryFiles": {
-      "assets/icon.png": "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"
-    }
-  },
-  {
     "key": "slack",
     "version": "1.2.0",
     "name": "Slack",

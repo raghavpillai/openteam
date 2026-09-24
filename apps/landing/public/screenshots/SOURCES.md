@@ -17,7 +17,6 @@ The `plugins-*.png` files are lossless 3000 × 2100 captures of the shipping des
 
 The fixture supplies local brand SVGs through the renderer's existing `logoUrl` field. See `../logos/SOURCES.md` for asset provenance. Each SVG has an opaque tile background in the fixture so the renderer's monogram fallback does not show through transparent areas. The shipping components and CSS are unchanged.
 
-- `plugins-browse.png`: bundled catalog with GitHub, Slack, Notion, Linear, and Research Playbook.
 - `plugins-access.png`: GitHub account, per-agent access, and a configured sample of three tool policies.
 - `plugins-skills.png`: Private skills editor, scrolled to the instructions and agent selection.
 

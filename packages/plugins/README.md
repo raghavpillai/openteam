@@ -84,7 +84,6 @@ client identities are retained as source, never adopted as our application.
 | Google Calendar | `cursor/plugins/third_party/google-calendar` | Same Google Preview exception |
 | Google Drive | `cursor/plugins/third_party/google-drive` | Same Google Preview exception |
 | OpenTeam Utility Lab | OpenTeam | First-party example; no external upstream |
-| Research Playbook | OpenTeam | First-party example; no external upstream |
 
 Source-fetched packages download only from a pinned GitHub commit and verify
 every byte before installation or replacement. Installed snapshots include the

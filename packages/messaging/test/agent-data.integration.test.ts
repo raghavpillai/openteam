@@ -21,15 +21,15 @@ test("plugin and managed skill caches use the Bot filesystem contract", async ()
   try {
     await store.syncPluginSkillCache([
       {
-        id: "research-playbook",
-        name: "Research Playbook",
+        id: "skill-cache-fixture",
+        name: "Skill cache fixture",
         version: "1.0.0",
         publisher: "OpenTeam",
         files: { "skills/research/references/check.md": "Supporting reference" },
         binaryFiles: { "skills/research/reference.bin": Buffer.from([0, 255, 128, 1]).toString("base64") },
         skills: [
           {
-            name: "Source-led research",
+            name: "Fixture skill",
             description: "Verify changing claims against primary sources.",
             body: "Separate sourced facts from inference.",
             path: "skills/research",
@@ -55,14 +55,14 @@ test("plugin and managed skill caches use the Bot filesystem contract", async ()
     expect(plugin.authBlocked).toEqual([]);
     expect(plugin.skills).toHaveLength(1);
     expect((await stat(join(root, "plugin-skills", "cache.json"))).mode & 0o444).toBe(0o444);
-    expect(plugin.skills[0]?.id).toBe("research-playbook-source-led-research");
+    expect(plugin.skills[0]?.id).toBe("skill-cache-fixture-fixture-skill");
     expect(plugin.skills[0]?.filePath.startsWith(plugin.skills[0]?.installPath ?? "!")).toBe(true);
     expect(await readFile(join(plugin.skills[0]!.installPath, "skills/research/references/check.md"), "utf8")).toBe("Supporting reference");
     expect(await readFile(join(plugin.skills[0]!.installPath, "skills/research/reference.bin"))).toEqual(Buffer.from([0, 255, 128, 1]));
     expect(
       parseSkillFile(await readFile(plugin.skills[0]!.filePath, "utf8"), "plugin skill")
     ).toMatchObject({
-      name: "Source-led research",
+      name: "Fixture skill",
       description: "Verify changing claims against primary sources.",
       body: "Separate sourced facts from inference.",
     });

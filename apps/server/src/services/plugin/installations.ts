@@ -10,6 +10,7 @@ import type { PrismaClient } from "@openteam/db";
 import type { PluginDefinition } from "../../plugins/catalog";
 import { appendEvent, serviceEffect, toJson } from "../service-utils";
 import { hasPlaceholder, manifestJson } from "./values";
+import { resolveUpstreamPlugin } from "../../plugins/upstream-package";
 
 export class PluginInstallations {
   constructor(
@@ -20,13 +21,14 @@ export class PluginInstallations {
   ) {}
   install = (pluginKey: string, values: Record<string, ConfigValue> = {}) =>
     serviceEffect(async () => {
-      const plugin = await this.definition(pluginKey);
-      if (!plugin) throw new ApiError(404, "plugin_not_found", "Plugin not found");
+      const candidate = await this.definition(pluginKey);
+      if (!candidate) throw new ApiError(404, "plugin_not_found", "Plugin not found");
       const existing = await this.prisma.pluginInstallation.findUnique({ where: { pluginKey } });
       if (existing) {
         await this.syncFileCaches();
         return { id: existing.id, installed: true };
       }
+      const plugin = await resolveUpstreamPlugin(candidate);
       const installation = await this.prisma.$transaction(async (tx) => {
         const created = await tx.pluginInstallation.create({
           data: {
@@ -189,7 +191,9 @@ export class PluginInstallations {
       const authType = input.auth ?? (Object.keys(input.headers ?? {}).length ? "token" : "none");
       const alias = input.alias?.trim() || "default";
       const configuration = {
-        ...(input.oauth ? { clientId: input.oauth.clientId, scope: input.oauth.scopes.join(" ") } : {}),
+        ...(input.oauth
+          ? { clientId: input.oauth.clientId, scope: input.oauth.scopes.join(" ") }
+          : {}),
         ...(command
           ? { command, args: [...(input.args ?? [])], ...(input.cwd ? { cwd: input.cwd } : {}) }
           : {}),
@@ -197,10 +201,18 @@ export class PluginInstallations {
       const pluginKey = `custom-mcp-${input.reviewedRequestId ?? crypto.randomUUID()}`;
       const installation = await this.prisma.$transaction(async (tx) => {
         if (input.reviewedRequestId) {
-          const prior = await tx.pluginInstallation.findUnique({ where: { pluginKey }, include: { connections: true } });
+          const prior = await tx.pluginInstallation.findUnique({
+            where: { pluginKey },
+            include: { connections: true },
+          });
           if (prior) {
             const connection = prior.connections.find((item) => item.connectorKey === "custom");
-            if (!connection) throw new ApiError(409, "reviewed_server_changed", "The reviewed server changed; request a new approval");
+            if (!connection)
+              throw new ApiError(
+                409,
+                "reviewed_server_changed",
+                "The reviewed server changed; request a new approval"
+              );
             return { installation: prior, connection };
           }
         }
@@ -247,7 +259,11 @@ export class PluginInstallations {
             authType,
             endpoint: endpoint?.toString(),
             configuration: toJson(configuration),
-            credentials: toJson({ headers: input.headers ?? {}, env: input.env ?? {}, ...(input.oauth?.clientSecret ? { clientSecret: input.oauth.clientSecret } : {}) }),
+            credentials: toJson({
+              headers: input.headers ?? {},
+              env: input.env ?? {},
+              ...(input.oauth?.clientSecret ? { clientSecret: input.oauth.clientSecret } : {}),
+            }),
             status: authType === "oauth" ? "needs_auth" : "disconnected",
             statusMessage: authType === "oauth" ? "Authentication has not been configured." : null,
           },

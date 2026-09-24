@@ -9,3 +9,4 @@ export * from "./file-transfer-policy";
 export * from "./icons";
 export * from "./templates";
 export * from "./runtime-components";
+export * from "./upstream";

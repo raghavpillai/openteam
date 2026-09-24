@@ -1,0 +1,20 @@
+{
+  "repository": "1Password/cursor-plugin",
+  "revision": "857bf89a2c3583c40ff1eea7c4c6dd30cc1156cd",
+  "directory": "",
+  "delivery": "bundled",
+  "license": "MIT",
+  "files": {
+    ".cursor-plugin/plugin.json": "80cf4c764c02b9ecd9df0f9f939c165e0124dc89da30b639722eeb544b58d7f1",
+    "LICENSE": "f41b0447a7440325f5773e6b9e3d89480e7ae9dd6380dc4a4ced54be9eb5104d",
+    "README.md": "fa8f018da533ae18b1eb0eba21ab5ab43662ba19888f05f7ffc6c4485fad5649",
+    "assets/logo.svg": "b9b9d828a3b84a408c2c2d7218542657ddc431171d995c1c9bcd3da50547139d",
+    "hooks/hooks.json": "d981a235082cc87a97ef8aa3894459acc7651a89445ab918b118b89600c96caf",
+    "mcp.json": "65c2197cbcd6f7ac1defe5b83c3e2a000ce72521763c712d81cf49d950f5d7ff",
+    "scripts/lib/telemetry.sh": "c220deed1eb85607db26e7be09a12782224be6078b01a7224c00b80199e6094a",
+    "scripts/validate-mounted-env-files": "53728502bf695299d5a4ad1c00f28144d197044898e59d283fd1aa6d7a80d5b0",
+    "scripts/validate-mounted-env-files.cmd": "eee6378652dd353a03f9d9c645b347ed1855e2d5fbf98af9e27f09feb785b201",
+    "skills/1password-environments/SKILL.md": "14a5097a4938a83b964452d4cd8424c4921583d52ee242d08e0c873deb5872d2",
+    "skills/1password-environments/reference.md": "5da18a10962ff6e44986860602a4d5df28ed1b5c0fe04c2268b129255ba71990"
+  }
+}

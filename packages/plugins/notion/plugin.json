@@ -1,15 +1,12 @@
 {
   "key": "notion",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "name": "Notion",
   "description": "Notion skills and MCP server for documents, research, meetings, and tasks.",
   "publisher": "OpenTeam",
   "category": "Documents & Files",
   "featured": true,
-  "components": [
-    "mcp",
-    "skills"
-  ],
+  "components": ["mcp", "skills"],
   "homepageUrl": "https://developers.notion.com/guides/mcp/overview",
   "setup": {
     "kind": "oauth",
@@ -29,72 +26,86 @@
     {
       "name": "search",
       "description": "Search Notion across pages and databases, including paginated results and source links.",
-      "path": "skills/search"
+      "path": "upstream/skills/search",
+      "body": ""
     },
     {
       "name": "find",
       "description": "Locate a specific Notion page or database by title, URL, or identifying context.",
-      "path": "skills/find"
+      "path": "upstream/skills/find",
+      "body": ""
     },
     {
       "name": "create-page",
       "description": "Create and verify a Notion page in the intended parent with an appropriate document structure.",
-      "path": "skills/create-page"
+      "path": "upstream/skills/create-page",
+      "body": ""
     },
     {
       "name": "create-task",
       "description": "Add a task to an existing Notion task database with validated status, dates, owner and project.",
-      "path": "skills/create-task"
+      "path": "upstream/skills/create-task",
+      "body": ""
     },
     {
       "name": "create-database-row",
       "description": "Insert a Notion database row by mapping natural-language values to its actual property schema.",
-      "path": "skills/create-database-row"
+      "path": "upstream/skills/create-database-row",
+      "body": ""
     },
     {
       "name": "database-query",
       "description": "Query a Notion data source with typed filters, sorting, pagination and readable results.",
-      "path": "skills/database-query"
+      "path": "upstream/skills/database-query",
+      "body": ""
     },
     {
       "name": "knowledge-capture",
       "description": "Turn a discussion into linked Notion documentation with decisions, rationale and unresolved questions.",
-      "path": "skills/knowledge-capture"
+      "path": "upstream/skills/knowledge-capture",
+      "body": ""
     },
     {
       "name": "meeting-intelligence",
       "description": "Prepare a meeting pre-read and agenda from relevant Notion context and authorized connected sources.",
-      "path": "skills/meeting-intelligence"
+      "path": "upstream/skills/meeting-intelligence",
+      "body": ""
     },
     {
       "name": "research-documentation",
       "description": "Research a topic across Notion and save a sourced synthesis with uncertainty and recommendations.",
-      "path": "skills/research-documentation"
+      "path": "upstream/skills/research-documentation",
+      "body": ""
     },
     {
       "name": "spec-to-implementation",
       "description": "Convert a Notion specification into an implementation plan and linked, verifiable tasks.",
-      "path": "skills/spec-to-implementation"
+      "path": "upstream/skills/spec-to-implementation",
+      "body": ""
     },
     {
       "name": "tasks-plan",
       "description": "Create an actionable implementation plan from a Notion task or specification.",
-      "path": "skills/tasks-plan"
+      "path": "upstream/skills/tasks-plan",
+      "body": ""
     },
     {
       "name": "tasks-build",
       "description": "Implement an authorized Notion task and update its progress with evidence from the work.",
-      "path": "skills/tasks-build"
+      "path": "upstream/skills/tasks-build",
+      "body": ""
     },
     {
       "name": "tasks-explain-diff",
       "description": "Create a Notion document explaining a concrete code diff, its behavior and verification.",
-      "path": "skills/tasks-explain-diff"
+      "path": "upstream/skills/tasks-explain-diff",
+      "body": ""
     },
     {
       "name": "tasks-setup",
       "description": "Set up or connect a Notion task board with a usable schema and verified sample workflow.",
-      "path": "skills/tasks-setup"
+      "path": "upstream/skills/tasks-setup",
+      "body": ""
     }
   ],
   "connections": [

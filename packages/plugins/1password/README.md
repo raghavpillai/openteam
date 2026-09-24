@@ -1,7 +1,7 @@
 # 1Password
 
 OpenTeam integration with the official 1Password Environments MCP server. Includes
-one desktop MCP connection and one OpenTeam-authored workflow skill. The provider
+one desktop MCP connection and the original upstream workflow skill and reference. The provider
 binary is installed and updated by 1Password; OpenTeam does not redistribute it.
 
 ## UI setup
@@ -51,9 +51,15 @@ the user's physical computer and are not automatically available inside Bot
 containers. Multiple OpenTeam connection aliases have separate processes and Bot
 grants; the account selection and visible accounts remain controlled by 1Password.
 
-The reference Cursor plugin also installs a shell-validation hook. OpenTeam's
-package contains the MCP connection and a workflow skill; it does not claim to run
-that Cursor-specific hook.
+The original MIT-licensed Cursor package is preserved in `upstream/`, including
+its skill, reference, MCP manifest, hook, and scripts. `upstream.json` pins every
+file by revision and hash. Shared runtime instructions handle host tool names
+and filesystem boundaries without changing provider text.
+
+The upstream shell-validation hook checks the desktop's local mounts. Its files
+are preserved, but the hook is inactive on the separate Bot computer: it cannot
+validate the desktop filesystem from there. Runtime context reports this limit.
+The original manifest also excludes Cursor's hosted runtime (`sand: "never"`).
 
 ## Implementation
 

@@ -1,0 +1,15 @@
+{
+  "repository": "cursor/plugins",
+  "revision": "12d587dfb20741cafc376c42c696c5f6e2a64487",
+  "directory": "third_party/google-drive",
+  "delivery": "reference",
+  "license": "MIT",
+  "files": {
+    ".cursor-plugin/plugin.json": "8c148bcbc4f3a4d7b39d92ecd813a11c45c79e843f97335aebf43cdc1129d08e",
+    "CHANGELOG.md": "2f097f6336f0987ac30a018561f07a49b6a0a76dde492891dfc94aeb2c91341a",
+    "LICENSE": "702f5f331b56aff0e33d8c7826df5202559f894145eb70355c6477b55b5bb8a0",
+    "README.md": "4b9ba187f3bef8fb6e5158461ea1ef194866c63661d02c7bc2b2ff5e9f5031f7",
+    "assets/logo.svg": "474264985c6d8b3d521289c6e1095eb7b7e24f549889c55e7877376c21b715b2",
+    "mcp.json": "aea6ee7b2dd04e86f434fbbc0416ee5100e22e4163ba5246171cdb1232854ace"
+  }
+}

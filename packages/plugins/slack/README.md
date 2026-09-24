@@ -16,7 +16,7 @@ Use the [plugin guide](../../../docs/usage/plugins.md) for account management, s
 
 ## Skills and commands
 
-Version 1.1.0 adds eight skills: `slack-messaging`, `slack-search`, `slack-docs`,
+Version 1.2.0 preserves the eight original upstream skills: `slack-messaging`, `slack-search`, `slack-docs`,
 `slack-api`, `slack-cli`, `create-slack-app`, `test-slack-app`, and `block-kit`.
 They cover everyday workspace tasks as well as Slack app development. The
 developer workflows may need the Slack CLI and Node.js or Python on the Bot's
@@ -35,10 +35,16 @@ Commands that summarize or compose return drafts. Saving an announcement as a
 Slack draft requires the approval described in that workflow and does not send
 it. Existing account and tool policies continue to apply.
 
-The workflow files are adapted from Slack's MIT-licensed plugin; see
-[UPSTREAM.md](UPSTREAM.md), [LICENSE](LICENSE), and [OpenTeam execution
-notes](OPENTEAM.md). This update retains the connection key, scopes, and OAuth
-setup, so applying it preserves existing account credentials and grants.
+The original MIT-licensed package is retained byte for byte in `upstream/`,
+including its manifest, skills, commands, references, and license. See
+[UPSTREAM.md](UPSTREAM.md). OpenTeam's account setup remains in the outer
+`plugin.json`; shared runtime code maps provider tool names to granted accounts.
+There are no OpenTeam instruction files inserted into the original workflows.
+Both the original flat commands (such as `/standup`) and the namespaced forms
+above work; a flat name is available only when it is unambiguous.
+
+This update retains the connection key, scopes, and OAuth setup, so applying it
+preserves existing account credentials and grants.
 After applying the update, choose **Reconnect** to refresh tools with the saved
 authorization, then enable **Instructions and hooks** for the intended Bot.
 

@@ -2,6 +2,7 @@ import { renderMemorySystemPrompt, renderUserMemorySystemPrompt, renderProjectMe
 import { assertMemoryWriteScope, getMemoryConversation, resolveMemoryConversation, type MemoryConversationContext, type MemoryWriteScope } from "./memory-scopes";
 import managedSkills from "./prompts/managed-skills.json";
 import { safePackagePath } from "@openteam/plugin-sdk";
+import { originalSkillMarkdown } from "@openteam/plugin-sdk/skill-markdown";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
@@ -1072,7 +1073,7 @@ export class AgentDataStore {
         const filePath = join(installPath, skillRelativePath);
         await atomicWrite(
           filePath,
-          renderSkillFile({
+          originalSkillMarkdown(skill, plugin.files?.[skillRelativePath]) ?? renderSkillFile({
             name: skill.name,
             description: skill.description,
             body: skill.body,

@@ -1,14 +1,12 @@
 {
   "key": "linear",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "name": "Linear",
   "description": "Find, create, and update issues, projects, and comments.",
   "publisher": "Linear",
   "category": "Productivity",
   "featured": true,
-  "components": [
-    "mcp"
-  ],
+  "components": ["mcp"],
   "homepageUrl": "https://linear.app/docs/mcp",
   "setup": {
     "kind": "oauth",

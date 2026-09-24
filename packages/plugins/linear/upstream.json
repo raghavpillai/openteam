@@ -1,0 +1,14 @@
+{
+  "repository": "linear/cursor-plugin",
+  "revision": "dac1a08f4bd267b925460b5b8c1785f93248690b",
+  "directory": "",
+  "delivery": "install",
+  "license": null,
+  "files": {
+    ".cursor-plugin/plugin.json": "5cdf9d3906175f85c1610eb74ea6b05e162ea54547bf2b75ff4da73b95876bb0",
+    "README.md": "5ef94227bc8b10b5ba1151279d4718978c163f8c9b0e66d3c5b6f4f4c9308c2d",
+    "logo.svg": "4dd06dcaa2e66da5c0af43e025e1faa4feb459ce78dc353744c24d2bcfbbbc46",
+    "mcp.json": "b4dd5a8570e496d04f34f9ef6cef320a1c4f64ae27ec5929fd9424050efb23f4",
+    "plugin.json": "a3f28256c1263af33b394a34acee9e50bb6852aaf44f101aee23f948a759618e"
+  }
+}

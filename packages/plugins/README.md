@@ -34,9 +34,9 @@ The Google packages use public REST APIs through packaged MCP servers. Enable th
 
 A package may declare `connector/server.ts`. Catalog generation bundles it as `connector/server.mjs` with its dependencies; the installed/exported package is standalone. Google packages share protocol and HTTP helpers in `_shared/google.ts`, while their tools stay in their own `connector/` directories. Do not put provider-specific dispatch in the server.
 
-Provider behavior tests live in that package's `connector/test/`; shared contract and installation tests live in `test/`. The Google reference snapshots in `_shared/reference/` pin public interfaces for deliberate compatibility review. Check behavior beyond tool names: field defaults, reply MIME, binary integrity, pagination, error handling, account routing and notifications. Calendar's local model includes its license, pinned revision and checksums in `models/`. Exported packages contain their runtime assets and need no first-run dependency download.
+Provider behavior tests live in that package's `connector/test/`; shared contract and installation tests live in `test/`. The Google reference snapshots in `_shared/reference/` pin public interfaces for deliberate compatibility review. Check behavior beyond tool names: field defaults, reply MIME, binary integrity, pagination, error handling, account routing and notifications. Calendar's local model includes its license, pinned revision and checksums in `models/`. Installed package exports contain their runtime assets and need no first-run dependency download. Registry exports of source-fetched plugins resolve their pinned source at installation.
 
-Gmail, Calendar and Drive 1.2.0 add the richer Google tool inputs and lossless result paging. Notion 1.1.0 includes 14 independently authored workflows. See the [capability and limit details](../../docs/integrations/google.md#what-bots-can-do). Linear, Notion and Slack use their provider's official MCP services with user-owned authorization.
+Gmail, Calendar and Drive 1.2.0 add the richer Google tool inputs and lossless result paging. Notion includes 14 original upstream workflows fetched at installation. See the [capability and limit details](../../docs/integrations/google.md#what-bots-can-do). Linear, Notion and Slack use their provider's official MCP services with user-owned authorization.
 
 For packaged browser OAuth, declare `oauth.authorizationServer` (`issuer`, `authorizationUrl`, `tokenUrl`), `oauth.registration: "manual"`, and `oauth.accessTokenEnv`. The server performs PKCE authorization and refresh, stores credentials in the user's database, and sends only the access token to the named environment variable. The computer needs no OAuth callback listener, client secret, or refresh token.
 
@@ -58,3 +58,54 @@ flow, or declare the required authentication method in the plugin definition bef
 Account IDs define runtime namespaces, so renaming an account does not change routing. Tool enabled state and approval preference are independent. Workspace deny/disabled policy takes precedence over Bot preferences. Required/default packages enable capabilities for Bots but never automatically share private accounts. Updates review changed components and setup; compatible account IDs, credentials, grants and policies survive. Removing a source leaves installed snapshots available.
 
 Repository CI and the UI use `@openteam/plugin-sdk` validation. The SDK is portable and contains no database, provider, app or runtime dependency. Runtime implementation remains in the computer/server adapters; client screens use shared contracts.
+
+## Preserve upstream packages
+
+Provider-owned runtime files remain unchanged under `upstream/`: manifests,
+MCP declarations, skills and references, commands, rules, agents, hooks, scripts,
+and assets. `upstream.json` pins the repository, commit, file inventory and
+SHA-256 hashes. It is build metadata, not an instruction file. Never edit a
+vendored file to add host guidance; update the source pin deliberately.
+
+The outer `plugin.json` is OpenTeam's setup overlay: stable package and connection
+IDs, authentication, typed fields, and platform requirements. Shared host code
+maps tool names, account namespaces, and command invocation. Original OAuth
+client identities are retained as source, never adopted as our application.
+
+| Package | Original source | Delivery and host exception |
+| --- | --- | --- |
+| Slack | `slackapi/slack-skills-plugin` | MIT files bundled unchanged; deployment-owned OAuth app |
+| 1Password | `1Password/cursor-plugin` | MIT files bundled unchanged; desktop MCP bridge; desktop mount hook inactive on Bot computer |
+| Granola | `granola-inc/granola-cursor-plugin` | Original files fetched and verified on install; no license declared at pin |
+| Notion | `makenotion/cursor-notion-plugin` | Original files fetched and verified on install; no license declared at pin |
+| Linear | `linear/cursor-plugin` | Original files fetched and verified on install; no license declared at pin; MCP only |
+| GitHub | `cursor/plugins/third_party/github` | MIT files bundled unchanged; same provider MCP, account token configured locally |
+| Gmail | `cursor/plugins/third_party/gmail` | MIT source retained; public API adapter remains because upstream MCP requires Workspace Developer Preview |
+| Google Calendar | `cursor/plugins/third_party/google-calendar` | Same Google Preview exception |
+| Google Drive | `cursor/plugins/third_party/google-drive` | Same Google Preview exception |
+| OneDrive | `cursor/plugins/third_party/onedrive` | MIT source retained; Microsoft Graph adapter remains because upstream uses Cursor's private connector backend |
+| OpenTeam Utility Lab | OpenTeam | First-party example; no external upstream |
+| Research Playbook | OpenTeam | First-party example; no external upstream |
+
+Source-fetched packages download only from a pinned GitHub commit and verify
+every byte before installation or replacement. Installed snapshots include the
+resolved originals and work without further source downloads; same-source
+updates reuse cached files. Source failures do not replace a working install.
+The registry contains metadata rather than independently rewritten workflows.
+
+From `packages/plugins`, use `bun run upstream:check` to verify bundled/reference files locally, or
+`bun run upstream:sync` to restore them from their pinned source. The latter
+also verifies install-time sources without writing those files into the repo.
+After a deliberate revision or inventory change, regenerate the registry and
+run the plugin, SDK, runtime, and upgrade tests. Export and filesystem-cache
+checks must compare the original bytes, including unknown frontmatter.
+
+To repeat the real-source checks from the repository root, run:
+
+```sh
+OPENTEAM_TEST_UPSTREAM_SOURCES=1 bun test ./apps/server/test/plugin/upstream-source.integration.test.ts ./apps/computer/test/runtime/collaboration-plugins.test.ts
+```
+
+These checks download and verify originals, compare exported and materialized
+bytes, and dispatch upstream commands using a runtime harness. They do not call
+live account tools or establish that a model has completed a provider workflow.

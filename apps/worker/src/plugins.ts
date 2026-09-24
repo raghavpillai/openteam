@@ -1,5 +1,13 @@
 import type { PluginDynamicNamespace } from "@openteam/contracts";
-import { connectionNamespace, effectiveToolPolicy, fileTransferCapabilities, parsePluginRuntimeComponents, type PluginRuntimePackage } from "@openteam/plugin-sdk";
+import {
+  connectionNamespace,
+  effectiveToolPolicy,
+  fileTransferCapabilities,
+  parsePluginRuntimeComponents,
+  pluginWorkflowRoot,
+  type PluginRuntimePackage,
+} from "@openteam/plugin-sdk";
+import { PLUGIN_WORKFLOW_HOST_CONTEXT } from "@openteam/contracts/plugin-workflows";
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
@@ -23,7 +31,11 @@ const namespaceName = (pluginKey: string, alias: string): string =>
 export const pluginRuntimeContext = async (
   prisma: PrismaClient,
   botId: string
-): Promise<{ dynamicNamespaces: PluginDynamicNamespace[]; skillInstructions: string; pluginRuntimePackages: PluginRuntimePackage[] }> => {
+): Promise<{
+  dynamicNamespaces: PluginDynamicNamespace[];
+  skillInstructions: string;
+  pluginRuntimePackages: PluginRuntimePackage[];
+}> => {
   const [grants, enablements] = await Promise.all([
     prisma.botPluginConnectionGrant.findMany({
       where: {
@@ -38,7 +50,14 @@ export const pluginRuntimeContext = async (
           },
         },
       },
-      include: { connection: { include: { installation: true, policies: { where: { OR: [{ botId: null }, { botId }] } } } } },
+      include: {
+        connection: {
+          include: {
+            installation: true,
+            policies: { where: { OR: [{ botId: null }, { botId }] } },
+          },
+        },
+      },
       orderBy: { connection: { createdAt: "asc" } },
     }),
     prisma.botPluginEnablement.findMany({
@@ -56,11 +75,24 @@ export const pluginRuntimeContext = async (
     name: connectionNamespace(connection.id, connection.alias),
     description: `${connection.installation.name}: ${connection.name} (${connection.alias})${connection.instructions ? `\n${connection.instructions}` : ""}`,
     namespaceStatus: runtimeStatus(connection.status),
-    fileTransfers: fileTransferCapabilities(connection.installation.pluginKey, connection.policies, Array.isArray(connection.toolSnapshot) ? connection.toolSnapshot.map(objectValue).filter(tool => typeof tool.name === "string") as any : [], botId),
+    fileTransfers: fileTransferCapabilities(
+      connection.installation.pluginKey,
+      connection.policies,
+      Array.isArray(connection.toolSnapshot)
+        ? (connection.toolSnapshot
+            .map(objectValue)
+            .filter((tool) => typeof tool.name === "string") as any)
+        : [],
+      botId
+    ),
     tools: Array.isArray(connection.toolSnapshot)
       ? connection.toolSnapshot.flatMap((candidate) => {
           const tool = objectValue(candidate);
-          if (typeof tool.name !== "string" || !effectiveToolPolicy(connection.policies, tool.name, botId, "prompt").enabled) return [];
+          if (
+            typeof tool.name !== "string" ||
+            !effectiveToolPolicy(connection.policies, tool.name, botId, "prompt").enabled
+          )
+            return [];
           return [
             {
               connectionId: connection.id,
@@ -82,31 +114,81 @@ export const pluginRuntimeContext = async (
           if (typeof skill.name !== "string" || typeof skill.body !== "string") return [];
           const description =
             typeof skill.description === "string" ? `${skill.description}\n\n` : "";
-          return [`### ${installation.name}: ${skill.name}\n${description}${skill.body}\n\nSupporting files: find pluginId ${JSON.stringify(installation.pluginKey)} and skill ${JSON.stringify(skill.name)} in ${process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data"}/plugin-skills/cache.json. Resolve relative file links from that SKILL.md directory.`];
+          return [
+            `### ${installation.name}: ${skill.name}\n${description}${skill.body}\n\nSupporting files: find pluginId ${JSON.stringify(installation.pluginKey)} and skill ${JSON.stringify(skill.name)} in ${process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data"}/plugin-skills/cache.json. Resolve relative file links from that SKILL.md directory.`,
+          ];
         })
       : [];
   });
 
-  const privateSkills = await prisma.pluginPrivateSkill.findMany({ where: { enabledBotIds: { array_contains: [botId] } } });
-  skills.push(...privateSkills.map((skill) => `### Private skill: ${skill.name}\n${skill.description}\n\n${skill.body}\n\nSupporting files: find pluginId ${JSON.stringify(`private-${skill.id}`)} in ${process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data"}/plugin-skills/cache.json and resolve links from its SKILL.md directory.`));
+  const privateSkills = await prisma.pluginPrivateSkill.findMany({
+    where: { enabledBotIds: { array_contains: [botId] } },
+  });
+  skills.push(
+    ...privateSkills.map(
+      (skill) =>
+        `### Private skill: ${skill.name}\n${skill.description}\n\n${skill.body}\n\nSupporting files: find pluginId ${JSON.stringify(`private-${skill.id}`)} in ${process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data"}/plugin-skills/cache.json and resolve links from its SKILL.md directory.`
+    )
+  );
   const root = process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data";
-  const cache = await readFile(join(root, "plugin-skills/cache.json"), "utf8").then(text => JSON.parse(text)).catch(() => ({}));
+  const cache = await readFile(join(root, "plugin-skills/cache.json"), "utf8")
+    .then((text) => JSON.parse(text))
+    .catch(() => ({}));
   const pluginRuntimePackages: PluginRuntimePackage[] = [];
   for (const { installation } of enablements) {
     const manifest = objectValue(installation.manifest);
     const files = objectValue(manifest.files) as Record<string, string>;
     const components = parsePluginRuntimeComponents(files);
-    if (![components.hooks, components.rules, components.commands, components.agents].some(items => items.length)) continue;
-    const revision = createHash("sha256").update(JSON.stringify({ version: manifest.version ?? "0", skills: manifest.skills, files: manifest.files, binaryFiles: manifest.binaryFiles })).digest("hex").slice(0, 16);
-    const installed = (cache.packages ?? []).find((entry: any) => entry.pluginId === installation.pluginKey && entry.pluginVersion === installation.version && entry.revision === revision);
-    if (!installed?.installPath) throw new Error(`Plugin runtime cache is unavailable for ${installation.pluginKey}; reinstall or refresh the plugin`);
-    pluginRuntimePackages.push({ ...components, key: installation.pluginKey, installPath: installed.installPath });
+    if (
+      ![components.hooks, components.rules, components.commands, components.agents].some(
+        (items) => items.length
+      )
+    )
+      continue;
+    const revision = createHash("sha256")
+      .update(
+        JSON.stringify({
+          version: manifest.version ?? "0",
+          skills: manifest.skills,
+          files: manifest.files,
+          binaryFiles: manifest.binaryFiles,
+        })
+      )
+      .digest("hex")
+      .slice(0, 16);
+    const installed = (cache.packages ?? []).find(
+      (entry: any) =>
+        entry.pluginId === installation.pluginKey &&
+        entry.pluginVersion === installation.version &&
+        entry.revision === revision
+    );
+    if (!installed?.installPath)
+      throw new Error(
+        `Plugin runtime cache is unavailable for ${installation.pluginKey}; reinstall or refresh the plugin`
+      );
+    const desktopOnly =
+      Array.isArray(manifest.connections) &&
+      manifest.connections.length > 0 &&
+      manifest.connections.every(
+        (connection: any) => objectValue(connection.configuration).runtime === "desktop"
+      );
+    pluginRuntimePackages.push({
+      ...components,
+      key: installation.pluginKey,
+      installPath: join(installed.installPath, pluginWorkflowRoot(files)),
+      ...(desktopOnly && components.hooks.length
+        ? {
+            hooksUnavailableReason:
+              "This plugin's hooks validate the connected desktop filesystem and cannot run on the Bot computer. They are preserved but inactive here.",
+          }
+        : {}),
+    });
   }
   return {
     dynamicNamespaces,
     pluginRuntimePackages,
     skillInstructions: skills.length
-      ? `\n\n## Installed plugin skills\n\n${skills.join("\n\n")}`
+      ? `\n\n## Installed plugin skills\n\n${PLUGIN_WORKFLOW_HOST_CONTEXT}\n\n${skills.join("\n\n")}`
       : "",
   };
 };

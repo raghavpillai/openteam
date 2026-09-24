@@ -1,20 +1,14 @@
-# Slack workflow provenance
+# Slack source
 
-Skills, commands, and Block Kit references were imported from
-https://github.com/slackapi/slack-skills-plugin at revision
-`8044341769fa84f85ee952dceddb67ef165ab110` (September 24, 2026).
-The upstream MIT copyright and permission notice are retained in `LICENSE`.
+`upstream/` contains unchanged runtime files from
+[slackapi/slack-skills-plugin](https://github.com/slackapi/slack-skills-plugin/tree/8044341769fa84f85ee952dceddb67ef165ab110).
+`upstream.json` pins the revision and SHA-256 digest of each original file.
+The MIT notice is retained in `upstream/LICENSE`.
 
-OpenTeam modifications:
+The outer `plugin.json` supplies OpenTeam's stable package identity and account
+setup. Slack's original Cursor client ID is preserved in the source file but is
+never used as this deployment's OAuth identity. Configure your own Slack app.
+Tool discovery, account routing, and host tool compatibility live in shared
+runtime code; no provider workflow text is rewritten.
 
-- Every skill and command links to `OPENTEAM.md` for account routing, runtime
-  capabilities, credentials, and action scope.
-- Cursor-specific web/question tool names and positional skill arguments are
-  expressed in terms of available capabilities and the user's request.
-- Developer sandbox and CLI setup keep passwords, API keys, and login challenge
-  codes out of chat and shell arguments.
-- The package retains OpenTeam's existing Slack app setup, scopes, connection
-  key, and OAuth configuration. Upstream client IDs are not bundled as ours.
-
-The source revision pins workflow content only. Slack hosts and versions the
-MCP tools independently; discover their current schemas when invoking them.
+Slack hosts and versions the MCP tools independently of these pinned files.

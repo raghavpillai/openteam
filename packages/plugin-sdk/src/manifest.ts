@@ -63,6 +63,26 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
     throw new Error("Unsupported plugin schema version");
   requireText(plugin.name, "plugin name", 200);
   requireText(plugin.publisher, "plugin publisher", 200);
+  if (plugin.upstream) {
+    const source = plugin.upstream;
+    if (
+      !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(source.repository) ||
+      !/^[a-f0-9]{40}$/.test(source.revision) ||
+      !["bundled", "install", "reference"].includes(source.delivery) ||
+      !(source.license === null || typeof source.license === "string") ||
+      typeof source.directory !== "string"
+    )
+      throw new Error("Invalid pinned plugin source");
+    if (source.directory !== "") safePackagePath(source.directory);
+    const entries = Object.entries(objectValue(source.files));
+    if (!entries.length || entries.length > 1000)
+      throw new Error("Invalid upstream file inventory");
+    for (const [path, hash] of entries) {
+      if (safePackagePath(path) !== path) throw new Error(`Noncanonical upstream path: ${path}`);
+      if (typeof hash !== "string" || !/^[a-f0-9]{64}$/.test(hash))
+        throw new Error(`Invalid upstream file digest: ${path}`);
+    }
+  }
   if (plugin.icon != null) {
     if (typeof plugin.icon !== "string" || !/\.(png|jpe?g|webp)$/i.test(plugin.icon))
       throw new Error("Plugin icon must be a package PNG, JPEG or WebP file");
@@ -86,7 +106,11 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
     throw new Error("Plugin must declare connections, skills, and components");
   if (plugin.connections.length > 50 || plugin.skills.length > 200)
     throw new Error("Package has too many components");
-  if (plugin.components.some((kind) => !["mcp", "skills", "rules", "commands", "agents", "hooks"].includes(kind)))
+  if (
+    plugin.components.some(
+      (kind) => !["mcp", "skills", "rules", "commands", "agents", "hooks"].includes(kind)
+    )
+  )
     throw new Error("Unsupported plugin component");
   if (plugin.connections.length && !plugin.components.includes("mcp"))
     throw new Error("Connector package must declare mcp component");
@@ -136,7 +160,10 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
     const desktopProvider = desktopMcpProvider(connector.configuration);
     if (desktopProvider && (connector.transport !== "stdio" || connector.auth !== "none"))
       throw new Error("Desktop MCP providers use stdio and authenticate in their desktop app");
-    if (connector.oauth?.supportsLoopbackRedirect !== undefined && typeof connector.oauth.supportsLoopbackRedirect !== "boolean")
+    if (
+      connector.oauth?.supportsLoopbackRedirect !== undefined &&
+      typeof connector.oauth.supportsLoopbackRedirect !== "boolean"
+    )
       throw new Error("Invalid OAuth loopback redirect support");
     if (connector.transport === "stdio" && connector.auth === "oauth") {
       const oauth = connector.oauth;
@@ -192,7 +219,8 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
     if (skill.path) safePackagePath(skill.path);
   }
   if (plugin.installationSteps !== undefined) {
-    if (!Array.isArray(plugin.installationSteps) || plugin.installationSteps.length > 30) throw new Error("Invalid installation instructions");
+    if (!Array.isArray(plugin.installationSteps) || plugin.installationSteps.length > 30)
+      throw new Error("Invalid installation instructions");
     for (const step of plugin.installationSteps) requireText(step, "installation step", 4000);
   }
   validateFields(plugin.setupFields ?? []);

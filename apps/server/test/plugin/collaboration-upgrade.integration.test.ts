@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
+import { assembleUpstreamPlugin } from "@openteam/plugin-sdk";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -25,7 +27,29 @@ for (const provider of ["slack", "granola"] as const) {
       const fixture = createOAuthMcpFixture();
       const store = new AgentDataStore(prisma, { root, workspaceRoot: join(root, "workspace") });
       const service = new PluginService(prisma, undefined, store);
-      const definition = structuredClone(pluginCatalog.find((plugin) => plugin.key === provider)!);
+      let definition = structuredClone(pluginCatalog.find((plugin) => plugin.key === provider)!);
+      if (provider === "granola") {
+        // Synthetic source tests the deferred-install path without redistributing provider text or requiring network.
+        const originals: Record<string, string> = {
+          ".cursor-plugin/plugin.json": JSON.stringify({ name: "granola", version: "1.0.0" }),
+          "agents/granola-engineer.md":
+            "---\nname: granola-engineer\ndescription: Engineer\n---\nUse meeting context.",
+          "rules/context.mdc": "---\nalwaysApply: true\n---\nUse context when relevant.",
+        };
+        for (const name of ["context", "prep", "review"])
+          originals[`skills/granola-${name}/SKILL.md`] =
+            `---\nname: granola-${name}\ndescription: Source fixture\ncustom-field: preserve\n---\nOriginal ${name} instructions.\n`;
+        for (const name of ["brief", "bug-report", "gaps", "plan", "pr", "spec"])
+          originals[`commands/granola-${name}.md`] =
+            `---\ndescription: ${name}\n---\nUse $ARGUMENTS.`;
+        definition.upstream!.files = Object.fromEntries(
+          Object.entries(originals).map(([path, body]) => [
+            path,
+            createHash("sha256").update(body).digest("hex"),
+          ])
+        );
+        definition = assembleUpstreamPlugin(definition, originals);
+      }
       definition.key = `${provider}-upgrade-${crypto.randomUUID()}`;
       // Exercise the bundled provider's OAuth settings against a disposable server.
       definition.connections[0]!.endpoint = fixture.endpoint;
@@ -34,6 +58,7 @@ for (const provider of ["slack", "granola"] as const) {
       legacy.components = provider === "slack" ? ["mcp"] : ["mcp", "skills"];
       if (provider === "slack") legacy.skills = [];
       legacy.files = {};
+      delete legacy.upstream;
       const botId = crypto.randomUUID();
       let draftId = "";
       try {
@@ -123,13 +148,15 @@ for (const provider of ["slack", "granola"] as const) {
         await Effect.runPromise(service.connect(account.id));
         const context = await pluginRuntimeContext(prisma, botId);
         expect(context.dynamicNamespaces).toEqual(namespaces);
-        expect(context.skillInstructions).toContain("OPENTEAM.md");
+        expect(context.skillInstructions).toContain("upstream");
         expect(context.pluginRuntimePackages).toHaveLength(1);
         const runtime = context.pluginRuntimePackages[0]!;
         expect(runtime.commands).toHaveLength(provider === "slack" ? 5 : 6);
         expect(runtime.agents).toHaveLength(provider === "slack" ? 0 : 1);
-        expect(await readFile(join(runtime.installPath, "OPENTEAM.md"), "utf8")).toBe(
-          definition.files!["OPENTEAM.md"]!
+        expect(runtime.installPath).toEndWith("/upstream");
+        const skillPath = `${definition.skills[0]!.path}/SKILL.md`;
+        expect(await readFile(join(runtime.installPath, "..", skillPath), "utf8")).toBe(
+          definition.files![skillPath]!
         );
         const result = await Effect.runPromise(
           service.testTool(account.id, { toolName: "whoami", arguments: {} })

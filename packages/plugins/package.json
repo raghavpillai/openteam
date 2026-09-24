@@ -10,7 +10,9 @@
   "scripts": {
     "build": "bun scripts/generate.ts && bun build src/index.ts --outdir dist --target bun",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "bun test --pass-with-no-tests"
+    "test": "bun test --pass-with-no-tests",
+    "upstream:check": "bun scripts/sync-upstream.ts --check",
+    "upstream:sync": "bun scripts/sync-upstream.ts"
   },
   "dependencies": {
     "@huggingface/tokenizers": "0.2.0",

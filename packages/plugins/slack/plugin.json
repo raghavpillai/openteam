@@ -1,16 +1,12 @@
 {
   "key": "slack",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "name": "Slack",
   "description": "Search channels, read threads, send messages, and work with canvases.",
   "publisher": "Slack",
   "category": "Inbox & Collaboration",
   "featured": true,
-  "components": [
-    "mcp",
-    "skills",
-    "commands"
-  ],
+  "components": ["mcp", "skills", "commands"],
   "homepageUrl": "https://docs.slack.dev/ai/slack-mcp-server",
   "setup": {
     "kind": "oauth_client",
@@ -76,40 +72,7 @@
       "lists:write"
     ]
   },
-  "skills": [
-    {
-      "name": "block-kit",
-      "path": "skills/block-kit"
-    },
-    {
-      "name": "create-slack-app",
-      "path": "skills/create-slack-app"
-    },
-    {
-      "name": "slack-api",
-      "path": "skills/slack-api"
-    },
-    {
-      "name": "slack-cli",
-      "path": "skills/slack-cli"
-    },
-    {
-      "name": "slack-docs",
-      "path": "skills/slack-docs"
-    },
-    {
-      "name": "slack-messaging",
-      "path": "skills/slack-messaging"
-    },
-    {
-      "name": "slack-search",
-      "path": "skills/slack-search"
-    },
-    {
-      "name": "test-slack-app",
-      "path": "skills/test-slack-app"
-    }
-  ],
+  "skills": [],
   "connections": [
     {
       "key": "slack",

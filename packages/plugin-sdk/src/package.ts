@@ -1,4 +1,4 @@
-import { parseSkillMarkdown } from "./skill-markdown";
+import { originalSkillMarkdown, parseSkillMarkdown } from "./skill-markdown";
 import { parsePluginRuntimeComponents } from "./runtime-components";
 import { objectValue, parsePluginDefinition, safePackagePath } from "./manifest";
 import { isSecretKey } from "./configuration";
@@ -266,6 +266,13 @@ export function exportPackage(plugin: PluginDefinition): Record<string, string> 
     const path = safePackagePath(
       skill.path ?? `skills/${skill.name.toLowerCase().replace(/[^a-z0-9.-]+/g, "-")}`
     );
+    if (
+      definition.upstream?.delivery === "install" &&
+      skill.body === "" &&
+      files[`${path}/SKILL.md`] === undefined
+    )
+      continue;
+    if (originalSkillMarkdown(skill, files[`${path}/SKILL.md`]) !== undefined) continue;
     files[`${path}/SKILL.md`] =
       `---\nname: ${JSON.stringify(skill.name)}\ndescription: ${JSON.stringify(skill.description)}\n---\n${skill.body}\n`;
   }

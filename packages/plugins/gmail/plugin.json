@@ -1,14 +1,12 @@
 {
   "key": "gmail",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "name": "Gmail",
   "description": "Search, read, draft, and manage email.",
   "publisher": "OpenTeam",
   "category": "Inbox & Collaboration",
   "featured": true,
-  "components": [
-    "mcp"
-  ],
+  "components": ["mcp"],
   "homepageUrl": "https://developers.google.com/workspace/gmail/api/guides",
   "setup": {
     "kind": "oauth_client",
@@ -76,9 +74,7 @@
           "prompt": "consent select_account"
         },
         "command": "bun",
-        "args": [
-          "${PLUGIN_ROOT}/connector/server.mjs"
-        ]
+        "args": ["${PLUGIN_ROOT}/connector/server.mjs"]
       }
     }
   ],

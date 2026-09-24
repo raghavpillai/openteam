@@ -21,6 +21,7 @@ import {
 } from "@openteam/plugin-sdk";
 import { exportPackageArchive, importPackageArchive } from "@openteam/plugin-sdk/archive";
 import { parseOpenTeamMarketplace } from "../../plugins/openteam-marketplace";
+import { resolveUpstreamPlugin } from "../../plugins/upstream-package";
 import { serviceEffect, toJson } from "../service-utils";
 import {
   canonicalJson,
@@ -353,7 +354,10 @@ export class PluginManagement {
         where: { pluginKey: key },
       });
       const definition = await this.installedDefinition(key);
-      const next = (await this.catalog()).find((plugin) => plugin.key === key);
+      const candidate = (await this.catalog()).find((plugin) => plugin.key === key);
+      const next = candidate
+        ? await resolveUpstreamPlugin(candidate, fetch, definition)
+        : undefined;
       const digest = pluginDigest(definition);
       return {
         definition,
@@ -379,10 +383,13 @@ export class PluginManagement {
         include: { connections: true },
       });
       if (!installation) throw new ApiError(404, "plugin_not_installed", "Plugin not installed");
-      const next = rollback
+      const candidate = rollback
         ? definitionFromManifest(installation.previousManifest)
         : (await this.catalog()).find((plugin) => plugin.key === key);
-      if (!next) throw new ApiError(404, "plugin_update_missing", "Package update is unavailable");
+      if (!candidate)
+        throw new ApiError(404, "plugin_update_missing", "Package update is unavailable");
+      const previous = definitionFromManifest(installation.manifest)!;
+      const next = await resolveUpstreamPlugin(candidate, fetch, previous);
       if (!rollback && pluginDigest(next) !== digest)
         throw new ApiError(
           409,
@@ -390,7 +397,6 @@ export class PluginManagement {
           "The package changed; review the update again"
         );
       parsePluginDefinition(next);
-      const previous = definitionFromManifest(installation.manifest)!;
       await Promise.all(
         installation.connections.map((connection) => this.stop(connection.id, connection.transport))
       );

@@ -1,0 +1,15 @@
+{
+  "repository": "cursor/plugins",
+  "revision": "12d587dfb20741cafc376c42c696c5f6e2a64487",
+  "directory": "third_party/google-calendar",
+  "delivery": "reference",
+  "license": "MIT",
+  "files": {
+    ".cursor-plugin/plugin.json": "cb5ba32cc1154bf94a7650373e58d98d59748ee973f94fc7decc856f1b8a8f62",
+    "CHANGELOG.md": "39a5e27196c178b5eff53f7e8d12342b5c20da9967c9312cd3bb9f5597f68417",
+    "LICENSE": "702f5f331b56aff0e33d8c7826df5202559f894145eb70355c6477b55b5bb8a0",
+    "README.md": "4e28009bb3d0e7792a010678a91397612329e9eaa711a01f79b640018b54cfeb",
+    "assets/logo.svg": "a7f14f0621c73d86170e16b2f6ca69782e4f554f1e3d4596bcb1f9d57d3cbe5c",
+    "mcp.json": "74c6f91168c9ba8a5a25d3543df9752bb68d28747d9d8d0515c038abc14c844e"
+  }
+}

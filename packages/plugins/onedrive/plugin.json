@@ -1,14 +1,12 @@
 {
   "key": "onedrive",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "name": "OneDrive",
   "description": "Find files and folders, and transfer files directly between OneDrive and the bot box.",
   "publisher": "OpenTeam",
   "category": "Documents & Files",
   "featured": true,
-  "components": [
-    "mcp"
-  ],
+  "components": ["mcp"],
   "homepageUrl": "https://learn.microsoft.com/en-us/graph/onedrive-concept-overview",
   "setup": {
     "kind": "oauth_client",
@@ -40,11 +38,7 @@
         "helpText": "Stored by your self-hosted OpenTeam server and never returned to the desktop app."
       }
     ],
-    "requiredScopes": [
-      "offline_access",
-      "User.Read",
-      "Files.ReadWrite"
-    ],
+    "requiredScopes": ["offline_access", "User.Read", "Files.ReadWrite"],
     "dashboardUrl": "https://entra.microsoft.com/"
   },
   "skills": [],
@@ -74,9 +68,7 @@
           "prompt": "select_account"
         },
         "command": "bun",
-        "args": [
-          "${PLUGIN_ROOT}/connector/server.mjs"
-        ]
+        "args": ["${PLUGIN_ROOT}/connector/server.mjs"]
       }
     }
   ],

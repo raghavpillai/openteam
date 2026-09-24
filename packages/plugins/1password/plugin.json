@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "key": "1password",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "1Password",
   "description": "Create and manage 1Password Developer Environments, inspect variable names, and mount local .env files. Requires the 1Password desktop app on macOS or Linux with MCP Server enabled.",
   "publisher": "OpenTeam",
@@ -9,7 +9,7 @@
   "featured": true,
   "icon": "assets/icon.png",
   "homepageUrl": "https://www.1password.dev/environments/mcp-server",
-  "components": ["mcp", "skills"],
+  "components": ["mcp", "skills", "hooks"],
   "setup": {
     "kind": "none",
     "connectionKey": "1password",
@@ -25,18 +25,20 @@
       "Grant the connection to the Bots that should use it. 1Password prompts again for access to individual environments, and authorization ends when 1Password locks."
     ]
   },
-  "connections": [{
-    "key": "1password",
-    "name": "1Password",
-    "transport": "stdio",
-    "auth": "none",
-    "endpoint": "stdio://1password-mcp",
-    "configuration": { "runtime": "desktop", "provider": "1password", "command": "1password-mcp" },
-    "tools": []
-  }],
-  "skills": [{
-    "name": "1password-environments",
-    "description": "Manage developer environments through the local 1Password MCP server, verify mounts, and keep stored secret values out of conversation.",
-    "path": "skills/1password-environments"
-  }]
+  "connections": [
+    {
+      "key": "1password",
+      "name": "1Password",
+      "transport": "stdio",
+      "auth": "none",
+      "endpoint": "stdio://1password-mcp",
+      "configuration": {
+        "runtime": "desktop",
+        "provider": "1password",
+        "command": "1password-mcp"
+      },
+      "tools": []
+    }
+  ],
+  "skills": []
 }

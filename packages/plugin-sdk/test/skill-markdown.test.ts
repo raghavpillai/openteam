@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { parseSkillMarkdown } from "../src/skill-markdown";
-import { importPackage } from "../src/package";
+import { originalSkillMarkdown, parseSkillMarkdown } from "../src/skill-markdown";
+import { exportPackage, importPackage } from "../src/package";
 
 test("private and packaged skill imports share YAML quoting and multiline semantics", () => {
   const text =
@@ -21,6 +21,12 @@ test("private and packaged skill imports share YAML quoting and multiline semant
     "skills/review/SKILL.md": text,
   });
   expect(imported.definition.skills[0]).toMatchObject(parsed);
+  expect(exportPackage(imported.definition)["skills/review/SKILL.md"]).toBe(text);
+  expect(originalSkillMarkdown({ ...parsed, body: "Edited" }, text)).toBeUndefined();
+  imported.definition.skills[0]!.body = "Edited";
+  expect(
+    parseSkillMarkdown(exportPackage(imported.definition)["skills/review/SKILL.md"]!).body.trim()
+  ).toBe("Edited");
   expect(parseSkillMarkdown("Plain instructions", "plain-skill")).toEqual({
     name: "plain-skill",
     description: "",

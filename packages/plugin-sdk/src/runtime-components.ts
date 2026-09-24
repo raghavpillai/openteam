@@ -1,6 +1,12 @@
 import { parseDocument } from "yaml";
 import { objectValue, safePackagePath } from "./manifest";
 
+export function pluginWorkflowRoot(files: Record<string, string>): string {
+  return files["upstream/.cursor-plugin/plugin.json"] || files["upstream/plugin.json"]
+    ? "upstream"
+    : "";
+}
+
 export const PLUGIN_HOOK_EVENTS = [
   "sessionStart",
   "sessionEnd",
@@ -58,6 +64,7 @@ export interface PluginRuntimeComponents {
 export interface PluginRuntimePackage extends PluginRuntimeComponents {
   key: string;
   installPath: string;
+  hooksUnavailableReason?: string;
 }
 
 function markdown(text: string, path: string) {
@@ -85,6 +92,13 @@ function markdown(text: string, path: string) {
 export function parsePluginRuntimeComponents(
   files: Record<string, string>
 ): PluginRuntimeComponents {
+  const root = pluginWorkflowRoot(files);
+  if (root)
+    files = Object.fromEntries(
+      Object.entries(files)
+        .filter(([path]) => path.startsWith(`${root}/`))
+        .map(([path, body]) => [path.slice(root.length + 1), body])
+    );
   const result: PluginRuntimeComponents = {
     hooks: [],
     rules: [],

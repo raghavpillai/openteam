@@ -1,0 +1,15 @@
+{
+  "repository": "cursor/plugins",
+  "revision": "12d587dfb20741cafc376c42c696c5f6e2a64487",
+  "directory": "third_party/onedrive",
+  "delivery": "reference",
+  "license": "MIT",
+  "files": {
+    ".cursor-plugin/plugin.json": "24fa031823ee9963c995db4708689284a5b29b21396ce504b71c1f81e31f6ed6",
+    "CHANGELOG.md": "e125399e1bd398f7135dc562b9aba2968fbe8162ff28c0cf7b934e368cec9733",
+    "LICENSE": "702f5f331b56aff0e33d8c7826df5202559f894145eb70355c6477b55b5bb8a0",
+    "README.md": "b81bf592029028441b8d27ff6ae8a5b177bd7f96e6b992400d017b868228c02a",
+    "assets/logo.svg": "cec3aadecf96ec8089a603e81ac8c5425cac0d764bb6bb8a80989436bf4db1c1",
+    "mcp.json": "7d632a3fbccc1a774bcbf173a2452b30aaad1d1b2178bc7b3b907f75a1a5f774"
+  }
+}

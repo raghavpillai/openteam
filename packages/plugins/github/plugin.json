@@ -1,14 +1,12 @@
 {
   "key": "github",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "name": "GitHub",
   "description": "Search repositories, inspect code, manage issues, and work with pull requests.",
   "publisher": "GitHub",
   "category": "Agent Orchestration",
   "featured": true,
-  "components": [
-    "mcp"
-  ],
+  "components": ["mcp"],
   "homepageUrl": "https://github.com/github/github-mcp-server",
   "setup": {
     "kind": "token",

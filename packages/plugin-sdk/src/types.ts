@@ -78,6 +78,16 @@ export interface PluginDefinition {
   homepageUrl?: string | null;
   sourceUrl?: string | null;
   sourceRevision?: string | null;
+  /** Immutable provider files. Host setup and account configuration stay outside this tree. */
+  upstream?: {
+    repository: string;
+    revision: string;
+    directory: string;
+    delivery: "bundled" | "install" | "reference";
+    license: string | null;
+    /** SHA-256 of each original file, relative to the upstream package root. */
+    files: Record<string, string>;
+  };
   logoUrl?: string | null;
   /** Relative PNG, JPEG or WebP path in binaryFiles; rendered without a network request. */
   icon?: string | null;

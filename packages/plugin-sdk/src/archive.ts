@@ -42,7 +42,7 @@ export function importPackageArchive(bytes: Uint8Array): PackagePreview {
     if (!path.startsWith(root)) continue;
     const relative = safePackagePath(path.slice(root.length));
     try {
-      files[relative] = new TextDecoder("utf-8", { fatal: true }).decode(content);
+      files[relative] = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(content);
     } catch {
       binaryFiles[relative] = btoa(
         Array.from(content, (byte) => String.fromCharCode(byte)).join("")

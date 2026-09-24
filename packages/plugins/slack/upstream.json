@@ -1,0 +1,29 @@
+{
+  "repository": "slackapi/slack-skills-plugin",
+  "revision": "8044341769fa84f85ee952dceddb67ef165ab110",
+  "directory": "",
+  "delivery": "bundled",
+  "license": "MIT",
+  "files": {
+    ".cursor-mcp.json": "d617ba5aa4d18731506f2a6c23f1845e47a2a78cabfe262f7d963ab18ca5833b",
+    ".cursor-plugin/plugin.json": "6891d130a244f6dff768e0a394866221852bdc27df08c74d09649a47cbd4a555",
+    ".mcp.json": "1b299e504b12f6be46955af4e5aaf3caaf31c88d991663e5605b9785230d5a61",
+    "CHANGELOG.md": "f71d18cff751628aa95c91d1f93d18e9542e88cad13c60c1dd99854bf8599fe1",
+    "LICENSE": "ccbd532eabd9c4a87884b19caa6738bd6541e047460a736aca3bf1ac4fd91300",
+    "README.md": "6f55c31c0615481b07fe5520d9a8b6f7d2f2398cb537e74bb0335fac48d0350d",
+    "commands/channel-digest.md": "b09dafebae25fa12b891ccff60162b8fc77ca0c5f94fc0d59218d47c048134b3",
+    "commands/draft-announcement.md": "d7f5046a8da0055ca5d470a3c3da61513e6303b17734df64399f3bd19b70bb67",
+    "commands/find-discussions.md": "42e140bb804852040eb9b2d2c4917c72e102cc84c4e87042e728ea950315f6ab",
+    "commands/standup.md": "4d7dfa8c9716855df345c87df30cb39510e6f7c64fc1bbf72427fb857d8beb03",
+    "commands/summarize-channel.md": "1719cc1abd991bac0b72947d93486219ada38895fd0e858f3c8d0e834d46d816",
+    "skills/block-kit/SKILL.md": "255f2ef5be5a6b5363b57931d5549227f375fe02fc2be7ce98226b33ed18f097",
+    "skills/block-kit/references/common-patterns.md": "b372af9aa4367fbfc6561f6629db720595e0552711d83c7208fdba512443c05e",
+    "skills/create-slack-app/SKILL.md": "abff0f9f369085ce878ee7b950c438b971756475ce70a39e1f07c27cfcea36b8",
+    "skills/slack-api/SKILL.md": "341eb0389a7f9da256962b694bf9f340b533a7daf65cb8326c9f1d61e80aecdb",
+    "skills/slack-cli/SKILL.md": "daf0a7dbcebc37c0bfd2dc8ebe753fd0ea240e332ef429a51c398a7a86af8441",
+    "skills/slack-docs/SKILL.md": "e77cf7647c45a8751b3ccd1219d1cdf459fcf561bc02f77330accf987526941e",
+    "skills/slack-messaging/SKILL.md": "bbf526b687f59815ca13cf6d13c4e79d0c990214a8af3fb304fe37808c8a16f4",
+    "skills/slack-search/SKILL.md": "07c7a141ec81a06f631971e64a8b3784b2855c24555a0050ff72d2a0b9367dde",
+    "skills/test-slack-app/SKILL.md": "38d55b00f2ca19d5d3ffa2b014666017fc01fb3fe83bbff5ba93567beba7e14f"
+  }
+}

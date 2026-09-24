@@ -1,0 +1,23 @@
+{
+  "repository": "granola-inc/granola-cursor-plugin",
+  "revision": "56583da6e4db7f311808543f18ac905b8de1ff85",
+  "directory": "",
+  "delivery": "install",
+  "license": null,
+  "files": {
+    ".cursor-plugin/plugin.json": "6deb8ca755c25906cfe96abbfb496ee2f09123242332fc66733367e3bb115591",
+    ".mcp.json": "5f97b09cb7ee90144def527c3250f57eace0addec15d02ea12816e357db9129b",
+    "README.md": "76c0abc51247079bba5ee6be8aab6d2f0d268ef33372f97e23ead58e97fa2643",
+    "agents/granola-engineer.md": "e66d44f4e2a1cd6ac52bf94eec4300a1ecfdaa9f8e840c1c6a5a6f4020edfd23",
+    "commands/granola-brief.md": "600035c648ce07ef0acbe3590a61db38de45dd63f3246eac3f80482cfc15dc05",
+    "commands/granola-bug-report.md": "8a01092dbe0500717b30e0dcc5174eaa2995c950df1b48e657fc8cd6ffc41862",
+    "commands/granola-gaps.md": "cd731902faad892b81de05ff24ed9a402745acd397c2aaac9278bb89c5a51400",
+    "commands/granola-plan.md": "d62f1da8d360883c2acaa6a2ad7856fdd9653b84e34b25cfdd815aab07ca6d32",
+    "commands/granola-pr.md": "c3e02bcfe092f1046cc6b32800eda049a413fe5a0816c2bfbfed0e30e4d363df",
+    "commands/granola-spec.md": "2d5c02af1f5588c89608977fc0b2ee96bc7903a6a445deae7a51829e3a7474e6",
+    "rules/check-meeting-context.mdc": "883ca001d39a37dd04c3c5ad6e5490e5a95ef6947501195017d09e7ec15f2cf5",
+    "skills/granola-context/SKILL.md": "54a6d11b547aabec9795b4021823619566cd8f31b576ced0aa2f5bf9ce43fbe4",
+    "skills/granola-prep/SKILL.md": "c6fcf17edb50eeaa12bf1a00f39af343959a61dabe8a74ff0129d448cfda72ed",
+    "skills/granola-review/SKILL.md": "27f23d98b302799d06a5c5137d97b8b32948822772161c95722dcc9612ef8697"
+  }
+}

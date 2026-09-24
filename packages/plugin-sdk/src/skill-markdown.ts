@@ -1,5 +1,19 @@
 import { parseDocument } from "yaml";
 
+/** Preserve provider frontmatter and formatting while it still matches the projected skill. */
+export function originalSkillMarkdown(
+  skill: { name: string; description: string; body: string },
+  original: string | undefined
+): string | undefined {
+  if (original === undefined) return undefined;
+  const parsed = parseSkillMarkdown(original, skill.name);
+  return parsed.name === skill.name &&
+    parsed.description === skill.description &&
+    parsed.body === skill.body
+    ? original
+    : undefined;
+}
+
 /** Parse SKILL.md consistently for package import and private skill editors. */
 export function parseSkillMarkdown(text: string, fallbackName = "skill") {
   if (text.length > 116_384) throw new Error("Skill file is too large");

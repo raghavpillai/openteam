@@ -1,14 +1,12 @@
 {
   "key": "google-drive",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "name": "Google Drive",
   "description": "Search, read, and create files.",
   "publisher": "OpenTeam",
   "category": "Documents & Files",
   "featured": true,
-  "components": [
-    "mcp"
-  ],
+  "components": ["mcp"],
   "homepageUrl": "https://developers.google.com/workspace/drive/api/guides/about-sdk",
   "setup": {
     "kind": "oauth_client",
@@ -75,9 +73,7 @@
           "prompt": "consent select_account"
         },
         "command": "bun",
-        "args": [
-          "${PLUGIN_ROOT}/connector/server.mjs"
-        ]
+        "args": ["${PLUGIN_ROOT}/connector/server.mjs"]
       }
     }
   ],

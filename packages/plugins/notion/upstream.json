@@ -1,0 +1,27 @@
+{
+  "repository": "makenotion/cursor-notion-plugin",
+  "revision": "cf1324609edba6d617164f1dec138aeb43f26735",
+  "directory": "",
+  "delivery": "install",
+  "license": null,
+  "files": {
+    ".cursor-plugin/plugin.json": "e4ed0ad11288466a396490ed1af1e75235974d6f3d6c651aab8324e366c90451",
+    "README.md": "73b0b5d371c2694ac8931f87245156796aa2838910225a2f2d380cb151de2c50",
+    "assets/logo.png": "04181c5cfde32096705299514ae6f415ce4f6368e037893d134ad67d34f85079",
+    "mcp.json": "6b97b88f0700eb0584c7b62f92ad909912c211f2af38d326591ecc08ee1e7a8d",
+    "skills/create-database-row/SKILL.md": "b6893ade7dbc20f85ce548674048389866decc4aba6bfecc0d42b3e2c34893a0",
+    "skills/create-page/SKILL.md": "b724a0ad35b5721a3b5afb1a20d533312406f3aca9b4d14173bada11f13b68b2",
+    "skills/create-task/SKILL.md": "b6fcaf840c16b83a42508ea63934e9f4cab5938d25fdc66d2241c9e81950915e",
+    "skills/database-query/SKILL.md": "7372ff16d06f13fe13388bae45783a0d6c38cbe31d11036c56f7a5a0c3dc0084",
+    "skills/find/SKILL.md": "33ea139e8448764d3456baecac9ddee8694ef037ddb7c0d2e701445ef7c61c50",
+    "skills/knowledge-capture/SKILL.md": "dd70c68d0cdad91c01d5ebaf5d6baf7d22386e67dd67beee387cd6cc36bf571f",
+    "skills/meeting-intelligence/SKILL.md": "e0f823a1a6258e41ec657a33e5d134ecd0d79397c4e17d7f72f071d9e842a77f",
+    "skills/research-documentation/SKILL.md": "6ebeba082f2fea6d79bbe9d9296e86059391807a49f036c143c6ce624d79e057",
+    "skills/search/SKILL.md": "cae7b1fdf5fab2de6731673447525449b145b2dc3614bb0d9b6a2ad2e6f002af",
+    "skills/spec-to-implementation/SKILL.md": "1748ef1e76f84b283349bd52742486687e3ca6e6ee231c754adcf5f8c8b8dfc1",
+    "skills/tasks-build/SKILL.md": "8ea50b5df3deca2122c590ed5b74e4def27e9f70a04089b1c9d06064fb63bfc4",
+    "skills/tasks-explain-diff/SKILL.md": "e4d55531761d2847ac273d290366712de9c6cddacea6e81be90ebb2284dbbcf4",
+    "skills/tasks-plan/SKILL.md": "56152ed9b5a161422653cf9a85efc4cb546aa0d9111e04a2ca61b52ba65644b2",
+    "skills/tasks-setup/SKILL.md": "a7cc86792e538658841d8d5c327899c6d8e4e1cc9aae69cffadd21f2d4971585"
+  }
+}

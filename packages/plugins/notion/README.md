@@ -1,9 +1,19 @@
 # Notion
 
-Uses Notion’s official MCP service and browser OAuth, with independently authored OpenTeam skills for 14 workflows: search, find, page creation, database queries and rows, task creation/setup/planning/building, diff documentation, knowledge capture, meeting preparation, research, and spec-to-implementation planning.
+Uses Notion's official MCP service and the 14 original workflows from
+[Notion's Cursor plugin](https://github.com/makenotion/cursor-notion-plugin/tree/cf1324609edba6d617164f1dec138aeb43f26735).
+They cover search, pages, databases, tasks, knowledge capture, meetings, research,
+and specification implementation.
 
-The workflow inventory was compared with [Notion’s Cursor plugin](https://github.com/makenotion/cursor-notion-plugin) at revision `cf1324609edba6d617164f1dec138aeb43f26735` on September 12, 2026. That repository did not contain a redistribution license at the inspected revision. These skill bodies are original OpenTeam implementations; no upstream skill text or assets are bundled. The package is maintained by OpenTeam, and Notion operates the connector.
+The pinned revision declares no redistribution license. `upstream.json` records
+its revision and file hashes; install or update fetches the originals directly
+from GitHub, verifies them, and saves an immutable installed snapshot under
+`upstream/`. Execution and unchanged-source updates reuse that snapshot. No
+workflow bodies are rewritten or replaced with OpenTeam-authored versions.
 
-Install or update in Plugins, connect an account, enable the package for a Bot, and grant the intended account. Skills are independent of OAuth, but executing their Notion operations requires an authorized account. Each skill uses discovered tool schemas, validates destinations and database properties, preserves unrelated content, and verifies writes. Provider tools and workspace permissions determine which operations are available.
+Install or update in Plugins, connect an account, enable **Instructions and
+hooks** for a Bot, and grant the intended account. Shared runtime code resolves
+upstream tool names against discovered schemas and granted accounts. Existing
+account credentials and permissions survive the update.
 
-See [the plugin guide](../../../docs/usage/plugins.md) for UI setup, multiple accounts, permissions, updates and contribution requirements.
+See [the plugin guide](../../../docs/usage/plugins.md) for account setup and updates.

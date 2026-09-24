@@ -2,8 +2,14 @@ import { realpath } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { PluginHook, PluginHookEvent, PluginRuntimePackage } from "@openteam/plugin-sdk";
-import { spawnAgentProcess as spawn, signalAgentProcess, agentProcessIdentity, sanitizedAgentEnvironment } from "../agent-process";
+import {
+  spawnAgentProcess as spawn,
+  signalAgentProcess,
+  agentProcessIdentity,
+  sanitizedAgentEnvironment,
+} from "../agent-process";
 import type { ActiveTurn } from "./types";
+import { PLUGIN_WORKFLOW_HOST_CONTEXT } from "@openteam/contracts/plugin-workflows";
 
 type ObjectValue = Record<string, any>;
 type InferHook = (
@@ -85,12 +91,15 @@ export function expandPluginAgent(
   if (input.resume)
     throw new Error("A resumed agent already has a fixed template; omit plugin_agent");
   const [key, name] = String(input.plugin_agent).split(":");
-  const agent = packages.find((pkg) => pkg.key === key)?.agents.find((item) => item.name === name);
+  const pkg = packages.find((pkg) => pkg.key === key);
+  const agent =
+    pkg?.agents.find((item) => item.name === name) ??
+    pkg?.agents.find((item) => item.name === `${key}-${name}`);
   if (!agent) throw new Error("Unknown or disabled plugin agent");
   const { plugin_agent, ...args } = input;
   return {
     ...args,
-    prompt: `${agent.body}\n\nTask from the parent:\n${String(input.prompt ?? "")}`,
+    prompt: `${PLUGIN_WORKFLOW_HOST_CONTEXT}\n\nPackage files: ${pkg!.installPath}\n\n${agent.body}\n\nTask from the parent:\n${String(input.prompt ?? "")}`,
     ...(agent.model && input.model === undefined ? { model: agent.model } : {}),
     ...(agent.readonly ? { read_only: true, subagent_type: "executor" } : {}),
     ...(input.run_in_background === undefined
@@ -105,6 +114,18 @@ export function pluginComponentsExtension(
   approve: ApproveHook
 ): { name: string; hidden: boolean; factory: ExtensionFactory } {
   const packages = active.pluginRuntimePackages ?? [];
+  const prefixes = (pkg: PluginRuntimePackage, name: string) => {
+    const result = [`/${pkg.key}:${name}`];
+    if (
+      packages.flatMap((other) => other.commands).filter((command) => command.name === name)
+        .length === 1
+    )
+      result.push(`/${name}`);
+    const short = name.startsWith(`${pkg.key}-`) ? name.slice(pkg.key.length + 1) : null;
+    if (short && !pkg.commands.some((command) => command.name === short))
+      result.push(`/${pkg.key}:${short}`);
+    return result;
+  };
   const signal = active.pluginAbortController?.signal ?? new AbortController().signal;
   const rules = new Set<string>();
   let started = false;
@@ -123,6 +144,7 @@ export function pluginComponentsExtension(
         const context: string[] = [];
         for (const pkg of packages)
           for (const hook of pkg.hooks.filter((item) => item.event === event)) {
+            if (pkg.hooksUnavailableReason) continue;
             if (active.readOnly && hook.command) continue;
             if (
               hook.matcher &&
@@ -225,8 +247,10 @@ export function pluginComponentsExtension(
         if (result.block) throw new Error(result.reason);
         for (const pkg of packages)
           for (const command of pkg.commands) {
-            const prefix = `/${pkg.key}:${command.name}`;
-            if (event.text === prefix || event.text.startsWith(prefix + " ")) {
+            const prefix = prefixes(pkg, command.name).find(
+              (prefix) => event.text === prefix || event.text.startsWith(prefix + " ")
+            );
+            if (prefix) {
               const args = event.text.slice(prefix.length).trim();
               return {
                 action: "transform",
@@ -239,7 +263,7 @@ export function pluginComponentsExtension(
           }
       });
       pi.on("before_agent_start", async (event) => {
-        const context: string[] = [];
+        const context: string[] = packages.length ? [PLUGIN_WORKFLOW_HOST_CONTEXT] : [];
         if (!started) {
           started = true;
           const result = await run("sessionStart", {}, true);
@@ -247,6 +271,8 @@ export function pluginComponentsExtension(
           context.push(...result.context);
         }
         for (const pkg of packages) {
+          context.push(`Plugin ${pkg.key} files: ${pkg.installPath}`);
+          if (pkg.hooksUnavailableReason) context.push(`${pkg.key}: ${pkg.hooksUnavailableReason}`);
           for (const rule of pkg.rules) {
             const id = `${pkg.key}:${rule.name}`;
             if (rule.alwaysApply || event.prompt.includes(`@${id}`)) {
@@ -262,7 +288,9 @@ export function pluginComponentsExtension(
               `Task plugin_agent=${JSON.stringify(`${pkg.key}:${agent.name}`)}: ${agent.description}${agent.readonly ? " (readonly)" : ""}`
             );
           for (const command of pkg.commands)
-            context.push(`User command /${pkg.key}:${command.name}: ${command.description}`);
+            context.push(
+              `User command ${prefixes(pkg, command.name).join(" or ")}: ${command.description}`
+            );
         }
         return context.length
           ? {

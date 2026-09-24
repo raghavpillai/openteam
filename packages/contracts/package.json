@@ -22,6 +22,7 @@
     "./model-kind": "./src/model-kind.ts",
     "./notification-content": "./src/notification-content.ts",
     "./plugin-settings": "./src/plugin-settings.ts",
+    "./plugin-workflows": "./src/plugin-workflows.ts",
     "./routine-types": "./src/routine-types.ts",
     "./service-protocol": "./src/service-protocol.ts",
     "./version-compatibility": "./src/version-compatibility.ts",

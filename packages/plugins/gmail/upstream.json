@@ -1,0 +1,15 @@
+{
+  "repository": "cursor/plugins",
+  "revision": "12d587dfb20741cafc376c42c696c5f6e2a64487",
+  "directory": "third_party/gmail",
+  "delivery": "reference",
+  "license": "MIT",
+  "files": {
+    ".cursor-plugin/plugin.json": "3a0ab9ccac80f73d196c3476ac1498801dcf5ff628157a3d40cdc6ec5dbf0dc9",
+    "CHANGELOG.md": "636a6542dccbc4d5101da888c9eea81d1c2c0f23658a379725c0d3a4379b508c",
+    "LICENSE": "702f5f331b56aff0e33d8c7826df5202559f894145eb70355c6477b55b5bb8a0",
+    "README.md": "ffb783ea68050db235aa8c2efb4974c6ae3744d71e17c5981207159ada4f26f5",
+    "assets/logo.svg": "16b247249328458d1f22b1e6c9766dcce8d75ac6316f4be8c999ca36d33f9d17",
+    "mcp.json": "a385086d5b51c8bb545f3cafe7a75305921f6f949f5503b0c275e7d0569f87c6"
+  }
+}

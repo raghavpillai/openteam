@@ -114,7 +114,7 @@ interface RoutineWakeHost {
 
 const required = (value: string | undefined, field: string): string => {
   const text = value?.trim();
-  if (!text) throw new Error(`${field} is required for this routine action`);
+  if (!text) throw new ApiError(400, "invalid_routine", `${field} is required for this routine action`);
   return text;
 };
 
@@ -328,6 +328,24 @@ const durationMilliseconds = (value: string, allowZero = false): number | null =
 };
 
 export const normalizeRoutineSchedule = (
+  original: string,
+  installationZone: string,
+  options: { enforceMinimum?: boolean } = {}
+): NormalizedSchedule => {
+  try {
+    return parseRoutineSchedule(original, installationZone, options);
+  } catch (error) {
+    // Only schedule parsing is a client error; persistence and execution failures
+    // must retain their original error classification.
+    throw new ApiError(
+      400,
+      "invalid_routine_schedule",
+      error instanceof Error ? error.message : "Invalid routine schedule"
+    );
+  }
+};
+
+const parseRoutineSchedule = (
   original: string,
   installationZone: string,
   options: { enforceMinimum?: boolean } = {}

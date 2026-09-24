@@ -25,6 +25,7 @@ databaseTest(
     const root = await mkdtemp(join(tmpdir(), "worker-memory-routing-"));
     let app: AppService | undefined, worker: WakeWorker | undefined;
     const seen: Array<{ input: TurnInput; recall: unknown; saved: unknown }> = [];
+    const extractionPrompts: string[] = [];
     const botIds: string[] = [];
     let groupId: string | undefined;
     const fake = Bun.serve({
@@ -42,6 +43,7 @@ databaseTest(
           return Response.json({ agents: [] });
         if (path === "/v1/infer") {
           const body = (await request.json()) as { kind: string; prompt: string };
+          if (body.kind === "extraction") extractionPrompts.push(body.prompt);
           return Response.json({
             text:
               body.kind === "extraction" && body.prompt.includes("ORBIT-913")
@@ -89,8 +91,14 @@ databaseTest(
           const recall = await call("RecallMemory", { query: "ORBIT-913" });
           seen.push({ input, saved, recall });
         }
-        if (input.channelId !== groupId || roundIndex === 0)
+        if (input.channelId !== groupId || roundIndex === 0) {
           await call("SendToUser", { type: "text", content: "Synthetic memory fixture completed." });
+          if (input.channelId === groupId) {
+            await call("SendToUser", { type: "text", content: "Second visible reply confirms amber." });
+            // Group messages must remain buffered until the turn completes.
+            expect(await app!.prisma.channelMessage.count({ where: { sourceRunId: input.runId } })).toBe(0);
+          }
+        }
         const events = [
           {
             type: "session.attached",
@@ -190,6 +198,12 @@ databaseTest(
         expect(saved).toBe("Remembered in your memory (profile): ORBIT-913 explicit decision uses amber.");
         expect(recall).toContain("[profile]");
         expect(input.instructions).not.toContain('scope "conversation"');
+      }
+      expect(extractionPrompts).toHaveLength(2);
+      for (const prompt of extractionPrompts) {
+        expect(prompt).toContain("For this ORBIT-913 room, we decided to use amber in the launch.");
+        expect(prompt).toContain("Synthetic memory fixture completed.");
+        expect(prompt).toContain("Second visible reply confirms amber.");
       }
       expect(
         await app.prisma.memoryFact.count({

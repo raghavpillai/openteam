@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { ApiError } from "@openteam/contracts";
 import {
   nextRoutineRun,
   nextRoutineTriggerRun,
@@ -8,6 +9,28 @@ import {
 } from "../src/routines";
 
 describe("routine schedules", () => {
+  test.each([
+    "@every 1m",
+    "@every 31d",
+    "@every nonsense",
+    "@every 5m/5m",
+    "@every 5m/invalid",
+    "0 0 7 * * *",
+    "*/2 * * * *",
+    "61 9 * * *",
+    "0 0 30 2 *",
+    "CRON_TZ=Not/A_Zone 0 9 * * *",
+  ])("classifies invalid schedule %s as a client error", (schedule) => {
+    let failure: unknown;
+    try {
+      normalizeRoutineSchedule(schedule, "UTC");
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(ApiError);
+    expect(failure).toMatchObject({ status: 400, code: "invalid_routine_schedule" });
+  });
+
   test("normalizes aliases and pinned time zones", () => {
     const daily = normalizeRoutineSchedule("CRON_TZ=America/New_York @daily", "UTC");
     expect(daily).toMatchObject({

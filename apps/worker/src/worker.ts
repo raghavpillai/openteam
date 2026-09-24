@@ -1407,12 +1407,12 @@ export class WakeWorker {
         await this.messaging.scheduleTranscriptProjection(tx, [claimed.botId]);
         await this.completeSubagent(tx, claimed);
       });
-      // Profile announcements are acknowledged by the delivered prompt receipt.
-      await this.recordMemoryFromRun(claimed);
-      await this.syncRoutineRunFile(claimed.botId, claimed.runId);
+      // Memory extraction needs the published replies, not the buffered group outbox.
       if (claimed.deliveryId) {
         await this.messaging.completeDelivery(claimed.deliveryId, "completed", undefined, claimed.runId);
       }
+      await this.recordMemoryFromRun(claimed);
+      await this.syncRoutineRunFile(claimed.botId, claimed.runId);
     } catch (error) {
       await this.fail(claimed, error);
     } finally {

@@ -29,7 +29,6 @@ describe("desktop release mapping", () => {
     expect(release.version).toBe("0.1.0");
     expect(release.downloads["mac-arm64"]?.url).toBe("https://example.com/mac.dmg");
     expect(release.downloads["windows-x64"]?.url).toBe("https://example.com/windows.exe");
-    expect(release.downloads["mac-x64"]).toBeNull();
     expect(release.downloads["linux-x64"]?.url).toBe("https://example.com/linux.AppImage");
   });
 });

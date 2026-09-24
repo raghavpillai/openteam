@@ -54,10 +54,9 @@ export function targetForPlatform(
   }
 
   if (normalizedPlatform.includes("mac") || normalizedAgent.includes("macintosh")) {
-    if (normalizedArchitecture.includes("arm")) return "mac-arm64";
-    if (normalizedArchitecture.includes("x86")) return "mac-x64";
-    // Safari does not expose Mac architecture. Apple silicon is the best default,
-    // while the Intel build remains visible directly beneath it.
+    // There is no Intel build, so don't suggest the Apple silicon one to Intel Macs.
+    if (normalizedArchitecture.includes("x86")) return null;
+    // Safari does not expose Mac architecture; Apple silicon is the likely case.
     return "mac-arm64";
   }
   if (normalizedPlatform.includes("win") || normalizedAgent.includes("windows")) {

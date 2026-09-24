@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { targetForPlatform } from "./download-options";
 
 describe("download target detection", () => {
-  test("uses client hints to distinguish Apple silicon from Intel", () => {
+  test("suggests the Apple silicon build, and nothing for Intel Macs", () => {
     expect(targetForPlatform("macOS", "Mozilla/5.0 (Macintosh)", "arm64")).toBe("mac-arm64");
-    expect(targetForPlatform("macOS", "Mozilla/5.0 (Macintosh)", "x86_64")).toBe("mac-x64");
+    expect(targetForPlatform("macOS", "Mozilla/5.0 (Macintosh)", "x86_64")).toBeNull();
   });
 
   test("keeps a safe Mac fallback and detects Windows and Linux", () => {

@@ -9,12 +9,6 @@ export const desktopTargets = [
     assetPattern: /^OpenTeam-.*-mac-arm64\.dmg$/i,
   },
   {
-    id: "mac-x64",
-    label: "macOS",
-    detail: "Intel",
-    assetPattern: /^OpenTeam-.*-mac-x64\.dmg$/i,
-  },
-  {
     id: "windows-x64",
     label: "Windows",
     detail: "x64 installer",

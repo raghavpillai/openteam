@@ -85,7 +85,7 @@ export const ACCESS_CHOICES = [
   },
   {
     title: "Public address without HTTPS",
-    description: "For temporary desktop testing only. Passwords are not encrypted in transit.",
+    description: "For temporary testing only. Passwords are not encrypted in transit.",
     value: "http",
   },
 ] as const;
@@ -101,7 +101,7 @@ export const SETUP_STAGES: readonly SetupStage[] = [
 ] as const;
 export const HTTP_WARNINGS = [
   "Without HTTPS, other people on the network may be able to see your password and session.",
-  "The iPhone app will not connect this way. Use it only for temporary desktop testing.",
+  "Use it only for temporary testing, then switch to a private network or HTTPS.",
 ] as const;
 
 export type AccessMode = (typeof ACCESS_MODES)[number];

@@ -152,9 +152,11 @@ struct NativeChatGlass: ViewModifier {
   }
 }
 
-/// The original chat fades the canvas behind the floating controls. Keeping this
-/// separate from the glass avoids changing material opacity as history scrolls.
-private struct ChatChromeFade: View {
+/// The original chat and conversation list fade the canvas behind their floating
+/// controls. Keeping this separate from the glass avoids changing material
+/// opacity as content scrolls.
+private struct ChromeFade: View {
+  @Environment(\.colorScheme) private var scheme
   var edge: VerticalEdge
   var body: some View {
     LinearGradient(
@@ -175,7 +177,60 @@ private struct ChatChromeFade: View {
       ],
       startPoint: edge == .top ? .top : .bottom,
       endPoint: edge == .top ? .bottom : .top
-    ).allowsHitTesting(false).accessibilityHidden(true)
+    ).background {
+      // GrokBot also blurs history progressively beneath its header. UIKit's
+      // scroll-edge pocket switches light-mode header glass to its dark
+      // appearance over dark bubbles, and system materials tint the empty
+      // canvas; a masked untinted blur leaves both unchanged.
+      if edge == .top {
+        BackdropBlur(style: scheme == .dark ? .dark : .light).mask {
+          LinearGradient(
+            stops: [
+              .init(color: .black, location: 0),
+              .init(color: .clear, location: 0.8),
+            ],
+            startPoint: .top, endPoint: .bottom)
+        }
+      }
+    }.allowsHitTesting(false).accessibilityHidden(true)
+  }
+}
+
+private struct BackdropBlur: UIViewRepresentable {
+  var style: UIBlurEffect.Style
+  func makeUIView(context: Context) -> UIVisualEffectView {
+    let view = UIVisualEffectView(effect: UIBlurEffect(style: style))
+    view.isUserInteractionEnabled = false
+    return view
+  }
+  func updateUIView(_ view: UIVisualEffectView, context: Context) {
+    view.effect = UIBlurEffect(style: style)
+  }
+}
+
+/// GrokBot's conversation list uses the chat's fade beneath its header. The
+/// system soft scroll edge hides rows much sooner, so it is disabled here.
+private struct FadingTopBar<Bar: View>: ViewModifier {
+  var bar: Bar
+  @State private var barHeight: CGFloat = 0
+  func body(content: Content) -> some View {
+    if #available(iOS 26, *) {
+      GeometryReader { viewport in
+        content
+          .overlay(alignment: .top) {
+            // Match the chat's fade, measured from the top of the screen.
+            ChromeFade(edge: .top)
+              .frame(height: viewport.safeAreaInsets.top + 104)
+              .offset(y: -viewport.safeAreaInsets.top - barHeight)
+          }
+          .safeAreaBar(edge: .top, spacing: 0) {
+            bar.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
+          }
+          .scrollEdgeEffectHidden(true, for: .top)
+      }
+    } else {
+      content.safeAreaInset(edge: .top, spacing: 0) { bar }
+    }
   }
 }
 
@@ -193,7 +248,7 @@ private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
       if #available(iOS 26, *) {
         content
           .overlay(alignment: .top) {
-            ChatChromeFade(edge: .top)
+            ChromeFade(edge: .top)
               .frame(height: viewport.safeAreaInsets.top + 104)
               // The chat header is 44 points with six points above and below.
               .offset(y: -viewport.safeAreaInsets.top - 56)
@@ -210,7 +265,7 @@ private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
               // Sizing this to the short bar leaves bright scrolling glyphs
               // behind the glass; the reference fade begins above the bar.
               GeometryReader { composer in
-                ChatChromeFade(edge: .bottom)
+                ChromeFade(edge: .bottom)
                   .frame(width: composer.size.width, height: max(100, composer.size.height + 56))
                   .background(alignment: .bottom) {
                     // Continue the opaque endpoint through the home-indicator
@@ -261,6 +316,9 @@ extension View {
     @ViewBuilder top: () -> Top, @ViewBuilder bottom: () -> Bottom
   ) -> some View {
     modifier(ChatFloatingBars(top: top(), bottom: bottom()))
+  }
+  func fadingTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
+    modifier(FadingTopBar(bar: bar()))
   }
   func dismissKeyboardOnTap() -> some View {
     simultaneousGesture(

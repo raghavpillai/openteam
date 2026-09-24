@@ -69,7 +69,7 @@ struct HomeView: View {
           contentWidth = $0
         }
         .scrollClipDisabled()
-        .floatingBar(edge: .top) { header }
+        .fadingTopBar { header }
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(for: String.self) { id in
           if let channel = store.channel(id) {

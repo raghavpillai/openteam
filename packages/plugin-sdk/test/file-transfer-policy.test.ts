@@ -3,6 +3,8 @@ import {fileTransferCapabilities,fileTransferPolicy} from "../src/file-transfer-
 
 test("unified file discovery honors provider capabilities and existing connector denials",()=>{
   expect(fileTransferCapabilities("google-drive",[],[],"bot")).toEqual({upload:true,download:true});
+  expect(fileTransferCapabilities("gmail",[],[],"bot")).toEqual({upload:true,download:true});
+  expect(fileTransferCapabilities("onedrive",[],[],"bot")).toBeUndefined();
   expect(fileTransferCapabilities("unrelated",[],[],"bot")).toBeUndefined();
   const policies=[{toolName:"create_file",botId:null,enabled:false,decision:"deny" as const}];
   expect(fileTransferCapabilities("google-drive",policies,[{name:"create_file"}],"bot")).toEqual({upload:false,download:true});

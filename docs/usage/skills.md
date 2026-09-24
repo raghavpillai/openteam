@@ -40,6 +40,20 @@ Skills that bots save are available to all your bots. They don't appear under **
 
 Some plugins come with skills, such as instructions for working with that service. To turn them on for a bot, open the plugin's page and, under **Bot access**, turn on **Instructions and hooks** for that bot. To use the plugin's tools, the bot also needs access to its account.
 
+| Plugin | Included skills |
+| --- | --- |
+| [Slack](../../packages/plugins/slack/README.md#skills-and-commands) | 8: `slack-messaging`, `slack-search`, `slack-docs`, `slack-api`, `slack-cli`, `create-slack-app`, `test-slack-app`, and `block-kit` |
+| [Granola](../../packages/plugins/granola/README.md) | 3: `granola-context`, `granola-prep`, and `granola-review` |
+| [Notion](../../packages/plugins/notion/README.md) | 14: `search`, `find`, `create-page`, `create-task`, `create-database-row`, `database-query`, `knowledge-capture`, `meeting-intelligence`, `research-documentation`, `spec-to-implementation`, `tasks-plan`, `tasks-build`, `tasks-explain-diff`, and `tasks-setup` |
+| [1Password](../../packages/plugins/1password/README.md#capabilities) | `1password-environments`: work with Developer Environments and local `.env` mounts |
+| Research Playbook | `source-led-research`: research claims, compare sources, and write sourced summaries |
+
+Gmail, Google Calendar, Google Drive, GitHub, Linear, and Utility Lab provide tools without bundled skills. You can create a private skill that uses those tools.
+
+Provider skills keep their original upstream instructions. Installing or updating Granola and Notion fetches their pinned skills automatically; you don't need to copy files yourself. Updating a plugin updates its included skills. Your private skills remain separate.
+
+Slack and Granola also include commands. For example, ask for `/slack:summarize-channel #general` or `/granola-brief <meeting or topic>`. See their package guides for all commands and any extra setup. Slack's app-development skills may need the Slack CLI and a language runtime on the bot computer. The 1Password skill uses the desktop's environments; its desktop mount-validation hook is inactive on the separate bot computer.
+
 ## Test and improve a skill
 
 Ask a bot to use the skill on a small task and check the result. If it missed a step, update the instructions and try again. Once it works reliably, use it in other conversations or in a [routine](routines.md).

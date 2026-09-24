@@ -3,7 +3,19 @@ import {
   FileTransferProvider,
   appendDraftAttachment,
 } from "../../src/services/plugin/file-transfer-providers";
-import { parseConnectorTransfer } from "@openteam/contracts/connector-transfers";
+import { CONNECTOR_TRANSFER_TOOLS, parseConnectorTransfer } from "@openteam/contracts/connector-transfers";
+
+test("retired file providers cannot issue requests and are absent from tool guidance", async () => {
+  const provider = new FileTransferProvider("fixture", (async (_url: any, _init?: RequestInit): Promise<Response> => {
+    throw new Error("Unexpected provider request");
+  }) as typeof fetch);
+  await expect(provider.download("onedrive", { fileId: "file" })).rejects.toThrow("Connection cannot transfer files");
+  await expect(provider.upload("onedrive", "file.txt", {}, Buffer.from("fixture"))).rejects.toThrow("Connection cannot receive files");
+  for (const tool of CONNECTOR_TRANSFER_TOOLS) expect(JSON.stringify(tool)).not.toMatch(/onedrive/i);
+  expect(CONNECTOR_TRANSFER_TOOLS.find(t => t.name === "download_file")!.inputSchema.properties.source.required).toEqual(["fileId"]);
+  expect(() => parseConnectorTransfer("download_file", { connection: "drive", source: { path: "file.txt" } })).toThrow("source.fileId");
+  expect(() => parseConnectorTransfer("upload_file", { connection: "drive", sourcePath: "/workspace/file.txt", destination: { overwrite: true } })).toThrow("destination.overwrite");
+});
 
 test("Drive export preserves native document bytes and upload uses an authenticated resumable session", async () => {
   const calls: Array<{ url: string; init: RequestInit }> = [];
@@ -42,43 +54,6 @@ test("Drive export preserves native document bytes and upload uses an authentica
       )
     )
   ).toBe(true);
-});
-
-test("OneDrive pins folder IDs, uses ordered 320-KiB fragments, and does not forward OAuth to preauthenticated endpoints", async () => {
-  const bytes = Buffer.alloc(10 * 320 * 1024 + 3, 73);
-  const ranges: string[] = [];
-  const provider = new FileTransferProvider("fixture-token", (async (
-    url: any,
-    init: RequestInit = {}
-  ) => {
-    const u = String(url);
-    const headers = new Headers(init.headers);
-    if (u.startsWith("https://storage.example.test/")) {
-      expect(headers.has("authorization")).toBe(false);
-      ranges.push(headers.get("content-range")!);
-      return Response.json(
-        ranges.length === 1
-          ? { nextExpectedRanges: [`${10 * 320 * 1024}-`] }
-          : { id: "done", name: "file.bin" }
-      );
-    }
-    expect(headers.get("authorization")).toBe("Bearer fixture-token");
-    if (u.includes("createUploadSession")) {
-      expect(u).toContain("/items/folder-id:/file.bin:/");
-      expect(JSON.parse(String(init.body)).item["@microsoft.graph.conflictBehavior"]).toBe("fail");
-      return Response.json({ uploadUrl: "https://storage.example.test/session" });
-    }
-    expect(u).toContain("/root:/Reports:");
-    return Response.json({ id: "folder-id", folder: {} });
-  }) as typeof fetch);
-  expect(await provider.upload("onedrive", "file.bin", { path: "Reports" }, bytes)).toMatchObject({
-    id: "done",
-    sizeBytes: bytes.length,
-  });
-  expect(ranges).toEqual([
-    `bytes 0-${10 * 320 * 1024 - 1}/${bytes.length}`,
-    `bytes ${10 * 320 * 1024}-${bytes.length - 1}/${bytes.length}`,
-  ]);
 });
 
 test("Gmail attaches to an existing draft without losing MIME parts or sending mail; attachment reads verify membership", async () => {

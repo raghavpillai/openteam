@@ -30,6 +30,18 @@ function adapt(value: any): any {
   return value;
 }
 const contracts: Record<string, ToolContract> = adapt(reference);
+// OpenTeam supports Google Drive and Gmail transfers. Keep the captured source
+// intact while removing the retired provider from the advertised contract.
+for (const name of ["upload_file", "download_file"]) {
+  contracts[name]!.description = contracts[name]!.description
+    .replace("google-drive, onedrive or gmail", "google-drive or gmail")
+    .replace(/\n- OneDrive:[^\n]*/, "");
+}
+delete contracts.upload_file!.inputSchema.properties.destination.properties.overwrite;
+const fileSource = contracts.download_file!.inputSchema.properties.source;
+delete fileSource.properties.path;
+fileSource.required = ["fileId"];
+fileSource.description = "Which file to pull, identified by its provider file ID.";
 // Updating one existing task is a valid merge, even though a new task list
 // should contain multiple steps. Keep the model-facing schema and parser aligned.
 contracts.TodoWrite!.inputSchema.properties.todos.minItems = 1;

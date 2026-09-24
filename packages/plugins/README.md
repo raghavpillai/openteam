@@ -83,7 +83,6 @@ client identities are retained as source, never adopted as our application.
 | Gmail | `cursor/plugins/third_party/gmail` | MIT source retained; public API adapter remains because upstream MCP requires Workspace Developer Preview |
 | Google Calendar | `cursor/plugins/third_party/google-calendar` | Same Google Preview exception |
 | Google Drive | `cursor/plugins/third_party/google-drive` | Same Google Preview exception |
-| OneDrive | `cursor/plugins/third_party/onedrive` | MIT source retained; Microsoft Graph adapter remains because upstream uses Cursor's private connector backend |
 | OpenTeam Utility Lab | OpenTeam | First-party example; no external upstream |
 | Research Playbook | OpenTeam | First-party example; no external upstream |
 

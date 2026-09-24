@@ -4,7 +4,6 @@ const part = encodeURIComponent;
 const transferError = (kind: string, message: string, extra: Record<string, unknown> = {}) => Object.assign(new Error(message), {outcome:{kind,message,...extra}});
 const drive = "https://www.googleapis.com/drive/v3";
 const gmail = "https://gmail.googleapis.com/gmail/v1/users/me";
-const graph = "https://graph.microsoft.com/v1.0/me/drive";
 const exports: Record<string, [string, string]> = {
   "application/vnd.google-apps.document": [
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -170,27 +169,6 @@ export class FileTransferProvider {
         webUrl: file.webViewLink,
       };
     }
-    if (provider === "onedrive") {
-      const route = source.fileId
-        ? `/items/${part(source.fileId)}`
-        : `/root:/${this.providerPath(source.path ?? "")}:`;
-      const file = await this.json(
-        `${graph}${route}?$select=id,name,size,file,webUrl,@microsoft.graph.downloadUrl`,
-        { signal }
-      );
-      if (!file.file) throw transferError("not_found", "Source is not a file");
-      const url = new URL(file["@microsoft.graph.downloadUrl"]);
-      // Download URLs are short-lived bearer URLs from authenticated Graph metadata.
-      if (url.protocol !== "https:" || url.username || url.password || url.port)
-        throw new Error("Invalid OneDrive download URL");
-      return {
-        id: file.id,
-        name: file.name,
-        mimeType: file.file.mimeType ?? mimeFor(file.name),
-        stream: (await this.response(url.href, {signal}, false)).body ?? new ReadableStream({start(c){c.close();}}),
-        webUrl: file.webUrl,
-      };
-    }
     if (provider === "gmail") {
       const ids = source.fileId?.split("/");
       if (ids?.length !== 2 || !ids[0] || !ids[1])
@@ -216,11 +194,6 @@ export class FileTransferProvider {
       };
     }
     throw new Error("Connection cannot transfer files");
-  }
-  private providerPath(path: string) {
-    if (!path || path.split("/").some((p) => !p || p === "." || p === ".." || p.includes("\\")))
-      throw new Error("Use a root-relative provider path without traversal");
-    return path.split("/").map(part).join("/");
   }
   async upload(
     provider: string,
@@ -271,7 +244,7 @@ export class FileTransferProvider {
     if (destination.draftId) throw transferError("invalid_destination", "draftId only applies to Gmail");
     if (provider === "google-drive") {
       if (destination.overwrite !== undefined)
-        throw transferError("invalid_destination", "Drive always creates a new file; overwrite is only for OneDrive");
+        throw transferError("invalid_destination", "Google Drive always creates a new file; overwrite is not supported");
       let parent = destination.folderId ?? "root";
       if (destination.path) {
         for (const segment of destination.path.split("/")) {
@@ -326,73 +299,6 @@ export class FileTransferProvider {
         mimeType: file.mimeType ?? mimeType,
         sizeBytes: size,
         webUrl: file.webViewLink,
-      };
-    }
-    if (provider === "onedrive") {
-      const folderRoute = destination.folderId
-        ? `/items/${part(destination.folderId)}`
-        : destination.path
-          ? `/root:/${this.providerPath(destination.path)}:`
-          : "/root";
-      const folder = await this.json(`${graph}${folderRoute}?$select=id,folder`, { signal });
-      if (!folder.folder || !folder.id) throw transferError("invalid_destination", "OneDrive destination is not a folder");
-      const parent = `/items/${part(folder.id)}`;
-      if (!size) {
-        const file = await this.json(
-          `${graph}${parent}:/${part(name)}:/content?@microsoft.graph.conflictBehavior=${destination.overwrite ? "replace" : "fail"}`,
-          {
-            method: "PUT",
-            headers: {
-              "content-type": mimeType,
-              ...(!destination.overwrite ? { "if-none-match": "*" } : {}),
-            },
-            body: new Uint8Array(),
-            signal,
-          }
-        );
-        return { id: file.id, name: file.name, mimeType, sizeBytes: 0, webUrl: file.webUrl };
-      }
-      const session = await this.json(`${graph}${parent}:/${part(name)}:/createUploadSession`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          item: {
-            name,
-            "@microsoft.graph.conflictBehavior": destination.overwrite ? "replace" : "fail",
-          },
-        }),
-        signal,
-      });
-      const url = new URL(session.uploadUrl);
-      if (url.protocol !== "https:" || url.port || url.username || url.password)
-        throw new Error("Invalid OneDrive upload URL");
-      // Graph fragment sizes must be multiples of 320 KiB except the last fragment.
-      const block = 10 * 320 * 1024;
-      let result: any;
-      for (let offset = 0; offset < size; offset += block) {
-        const end = Math.min(size, offset + block);
-        const response = await this.response(
-          url.href,
-          {
-            method: "PUT",
-            headers: { "content-range": `bytes ${offset}-${end - 1}/${size}` },
-            body: await chunk(offset,end),
-            signal,
-          },
-          false
-        );
-        result = await response.json();
-      }
-      if (!result?.id)
-        throw new Error(
-          "OneDrive did not confirm completion; inspect the destination before retrying"
-        );
-      return {
-        id: result.id,
-        name: result.name,
-        mimeType: result.file?.mimeType ?? mimeType,
-        sizeBytes: size,
-        webUrl: result.webUrl,
       };
     }
     throw new Error("Connection cannot receive files");

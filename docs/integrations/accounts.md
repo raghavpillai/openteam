@@ -10,7 +10,6 @@ Each plugin signs in to its service in one of a few ways. This page explains wha
 | GitHub | A fine-grained personal access token |
 | Gmail, Google Calendar, Google Drive | Your own Google OAuth app. See [Google](google.md). |
 | Slack | Your own Slack app. See [Slack](slack.md). Needs an HTTPS server address. |
-| OneDrive | Your own Microsoft Entra app. Needs an HTTPS server address. |
 | 1Password | The 1Password app on the same Mac or Linux computer as the OpenTeam desktop app |
 | Custom MCP | Whatever the MCP server requires |
 
@@ -27,17 +26,6 @@ Granola uses whichever workspace is active in the Granola app. To work with a di
 ## GitHub
 
 Create a [fine-grained personal access token](https://github.com/settings/personal-access-tokens) in GitHub. Give it access to only the repositories and permissions you want bots to use. Paste it into the plugin's setup form and choose **Save token and connect**.
-
-## OneDrive
-
-OneDrive needs your server to have an [HTTPS address](../configuration/remote-access.md).
-
-1. In OpenTeam, add the OneDrive plugin from **Marketplace** and keep its page open.
-2. Register an app in [Microsoft Entra](https://entra.microsoft.com/) with:
-   - The account types you need (personal, work, or both)
-   - A **Web** redirect URI set to the **Authorized redirect URI** shown on the plugin's page
-   - Delegated permissions `Files.ReadWrite`, `User.Read`, and `offline_access`
-3. Copy the app's client ID and a client secret into OpenTeam, choose **Save credentials and continue**, and sign in.
 
 ## 1Password
 
@@ -57,8 +45,8 @@ Plugins that sign in through the browser have a **Sign-in callback** setting. It
 | --- | --- |
 | **Automatic** | Uses **Server callback** when your server has an HTTPS address, and **Paste callback URL** otherwise |
 | **Server callback** | The service returns you straight to `https://<your-server>/api/v0/plugin-oauth/callback`. Needs HTTPS. |
-| **Paste callback URL** | The service returns you to a local page that doesn't load. Copy the full address from your browser and paste it into OpenTeam. Not available for Slack or OneDrive. |
-| **Desktop listener (advanced)** | The desktop app receives the callback on your computer. Start sign-in from the desktop app. Doesn't work for Slack or OneDrive. |
+| **Paste callback URL** | The service returns you to a local page that doesn't load. Copy the full address from your browser and paste it into OpenTeam. Not available for Slack. |
+| **Desktop listener (advanced)** | The desktop app receives the callback on your computer. Start sign-in from the desktop app. Doesn't work for Slack. |
 
 One callback URL works for every account on your server, so you don't need to register a new one for each account.
 

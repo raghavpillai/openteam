@@ -10,7 +10,7 @@ import { canonicalJson, toolSnapshot } from "./values";
 import { toJson } from "../service-utils";
 import { FileTransferProvider } from "./file-transfer-providers";
 import type { PluginTransport } from "./transport";
-const providers = new Set(["google-drive", "onedrive", "gmail"]);
+const providers = new Set(["google-drive", "gmail"]);
 interface Context {
   botId: string;
   runId: string;
@@ -46,7 +46,7 @@ export class ConnectorFileTransfers {
     );
     if (matches.length !== 1)
       throw Object.assign(new Error(
-        `Select one available file connection by ID: ${available.map((c) => `${c.name} account=${c.alias} id=${c.id}`).join(", ") || "none; connect Google Drive, OneDrive or Gmail"}`
+        `Select one available file connection by ID: ${available.map((c) => `${c.name} account=${c.alias} id=${c.id}`).join(", ") || "none; connect Google Drive or Gmail"}`
       ), {outcome:{kind:"unknown_connection",available:available.map(c=>`${c.installation.pluginKey} (account="${c.alias}")`)}});
     const connection = matches[0]!;
     if (connection.status !== "ready")

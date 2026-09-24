@@ -10,7 +10,6 @@ Plugins connect your bots to services such as Gmail, GitHub, Slack, and Notion. 
 | Gmail | Search, read, organize, and draft email |
 | Google Calendar | Find events, check availability, and schedule meetings |
 | Google Drive | Find, read, and create files |
-| OneDrive | Find files and folders, and copy files between OneDrive and the workspace |
 | Slack | Search channels, read threads, send messages, and work with canvases |
 | Linear | Find, create, and update issues, projects, and comments |
 | Notion | Work with pages for documents, research, meetings, and tasks |
@@ -18,6 +17,8 @@ Plugins connect your bots to services such as Gmail, GitHub, Slack, and Notion. 
 | 1Password | Manage Developer Environments and `.env` files (macOS and Linux) |
 
 The Marketplace also has **Research Playbook**, a research skill for source-based summaries, and **Utility Lab**, simple sample tools for trying out plugins.
+
+Slack, Granola, Notion, and 1Password include provider skills alongside their tools. See [the included skills and how to enable them](skills.md#skills-from-plugins). Gmail, Google Calendar, and Google Drive provide tools without bundled skills.
 
 ## Add a plugin
 

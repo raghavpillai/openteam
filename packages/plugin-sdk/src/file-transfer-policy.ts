@@ -2,8 +2,8 @@ import { effectiveToolPolicy, type ToolPolicy } from "./policy";
 import type { ToolDecision } from "./types";
 
 const aliases = {
-  upload_file: ["create_file", "update_draft", "upload_file", "upload_drive_item"],
-  download_file: ["download_file_content", "get_message", "download_file", "get_drive_item"],
+  upload_file: ["create_file", "update_draft", "upload_file"],
+  download_file: ["download_file_content", "get_message", "download_file"],
 };
 
 export function fileTransferPolicy(
@@ -27,7 +27,7 @@ export function fileTransferCapabilities(
   tools: readonly { name: string; defaultDecision?: ToolDecision }[],
   botId: string
 ) {
-  if (!["google-drive", "onedrive", "gmail"].includes(provider)) return undefined;
+  if (!["google-drive", "gmail"].includes(provider)) return undefined;
   return {
     upload: fileTransferPolicy(policies, tools, botId, "upload_file").enabled,
     download: fileTransferPolicy(policies, tools, botId, "download_file").enabled,

@@ -163,7 +163,7 @@ export class McpHttpClientManager {
     kind: "streamable-http" | "sse"
   ): Promise<ManagedHttpClient> {
     const client = new Client(
-      { name: "openteam", version: "0.0.1" },
+      { name: "openteam", version: "0.0.0" },
       {
         capabilities: {},
         listChanged: {

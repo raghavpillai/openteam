@@ -63,7 +63,7 @@ bun run test:health:chaos
 
 The runner builds current worker, server, computer and CLI bundles. It overlays them on runtime
 base images; it does not rebuild the entire computer OS image. The defaults are
-`ghcr.io/raghavpillai/openteam-computer:0.0.1` and `openteam-migrate:latest`. For a local runtime:
+`ghcr.io/raghavpillai/openteam-computer:0.0.0` and `openteam-migrate:latest`. For a local runtime:
 
 ```sh
 OPENTEAM_CHAOS_COMPUTER_BASE=openteam-memory-computer:20260913 \

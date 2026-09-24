@@ -13,7 +13,7 @@
     },
     "apps/cli": {
       "name": "@openteam/cli",
-      "version": "0.0.1",
+      "version": "0.0.0",
       "bin": {
         "openteam": "dist/openteam.js",
       },
@@ -33,7 +33,7 @@
     },
     "apps/computer": {
       "name": "@openteam/computer",
-      "version": "0.0.1",
+      "version": "0.0.0",
       "dependencies": {
         "@earendil-works/pi-ai": "0.84.3",
         "@earendil-works/pi-coding-agent": "0.84.3",
@@ -65,7 +65,7 @@
     },
     "apps/desktop": {
       "name": "@openteam/desktop",
-      "version": "0.0.1",
+      "version": "0.0.0",
       "devDependencies": {
         "@dnd-kit/dom": "^0.5.0",
         "@dnd-kit/react": "^0.5.0",
@@ -116,7 +116,7 @@
     },
     "apps/ios": {
       "name": "@openteam/ios",
-      "version": "0.0.1",
+      "version": "0.0.0",
       "devDependencies": {
         "@novnc/novnc": "1.7.0",
         "@openteam/contracts": "workspace:*",
@@ -129,7 +129,7 @@
     },
     "apps/landing": {
       "name": "@openteam/landing",
-      "version": "0.0.1",
+      "version": "0.0.0",
       "dependencies": {
         "@base-ui/react": "^1.7.0",
         "@openteam/contracts": "workspace:*",
@@ -169,7 +169,7 @@
     },
     "apps/server": {
       "name": "@openteam/server",
-      "version": "0.0.1",
+      "version": "0.0.0",
       "dependencies": {
         "@1password/sdk": "0.5.0",
         "@modelcontextprotocol/sdk": "1.30.0",
@@ -189,7 +189,7 @@
     },
     "apps/worker": {
       "name": "@openteam/worker",
-      "version": "0.0.1",
+      "version": "0.0.0",
       "dependencies": {
         "@openteam/contracts": "workspace:*",
         "@openteam/db": "workspace:*",
@@ -201,14 +201,14 @@
     },
     "packages/client-core": {
       "name": "@openteam/client-core",
-      "version": "0.0.1",
+      "version": "0.0.0",
       "dependencies": {
         "@openteam/contracts": "workspace:*",
       },
     },
     "packages/contracts": {
       "name": "@openteam/contracts",
-      "version": "0.0.1",
+      "version": "0.0.0",
       "dependencies": {
         "@openteam/plugin-sdk": "workspace:*",
         "effect": "3.22.1",
@@ -221,7 +221,7 @@
     },
     "packages/db": {
       "name": "@openteam/db",
-      "version": "0.0.1",
+      "version": "0.0.0",
       "dependencies": {
         "@prisma/adapter-pg": "7.10.0",
         "@prisma/client": "7.10.0",
@@ -236,14 +236,14 @@
     },
     "packages/design-tokens": {
       "name": "@openteam/design-tokens",
-      "version": "0.0.1",
+      "version": "0.0.0",
       "dependencies": {
         "@openteam/contracts": "workspace:*",
       },
     },
     "packages/messaging": {
       "name": "@openteam/messaging",
-      "version": "0.0.1",
+      "version": "0.0.0",
       "dependencies": {
         "@openteam/contracts": "workspace:*",
         "@openteam/db": "workspace:*",
@@ -257,7 +257,7 @@
     },
     "packages/plugin-sdk": {
       "name": "@openteam/plugin-sdk",
-      "version": "0.0.1",
+      "version": "0.0.0",
       "dependencies": {
         "ajv": "8.20.0",
         "ajv-formats": "3.0.1",
@@ -267,7 +267,7 @@
     },
     "packages/plugins": {
       "name": "@openteam/plugins",
-      "version": "0.0.1",
+      "version": "0.0.0",
       "dependencies": {
         "@huggingface/tokenizers": "0.2.0",
         "@js-temporal/polyfill": "0.5.1",
@@ -284,14 +284,14 @@
     },
     "packages/product-core": {
       "name": "@openteam/product-core",
-      "version": "0.0.1",
+      "version": "0.0.0",
       "dependencies": {
         "@openteam/contracts": "workspace:*",
       },
     },
     "packages/shell-jobs": {
       "name": "@openteam/shell-jobs",
-      "version": "0.0.1",
+      "version": "0.0.0",
       "dependencies": {
         "@openteam/contracts": "workspace:*",
         "re2js": "2.8.6",

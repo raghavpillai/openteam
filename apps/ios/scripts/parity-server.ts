@@ -166,7 +166,7 @@ const server = Bun.serve({
     if (path === "/api/v0/client-bootstrap") return response(bootstrap());
     if (path === "/api/v0/client-snapshot") return response({ ...snapshot, cursor: String(sequence) });
     if (path === "/api/v0/client-runtime") return response({ runtime: snapshot.runtime });
-    if (path === "/api/v0/system/version") return response({ releaseVersion: "0.0.1", apiProtocolVersion: 1, minimumClientVersion: "0.0.1", maximumClientVersionExclusive: "1.0.0", recommendedClientVersion: "0.0.1", updateChannel: "beta" });
+    if (path === "/api/v0/system/version") return response({ releaseVersion: "0.0.0", apiProtocolVersion: 1, minimumClientVersion: "0.0.0", maximumClientVersionExclusive: "1.0.0", recommendedClientVersion: "0.0.0", updateChannel: "beta" });
     if (path === "/api/v0/settings") return response({ settings: { sidebarPreferences: settings }, valid: true });
     if (path === "/api/v0/settings/sidebar") { settings = input; emit("settings.updated"); return response(settings); }
     if (path === "/api/v0/events/poll") {

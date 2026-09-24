@@ -12,7 +12,7 @@ if (storageScenario.has("storage-error") || storageScenario.has("storage-hang"))
   let token: string | null = null;
   const stored = () => ({ token, persistence: "memory", backend: "qa" });
   window.openteam = {
-    versions: { app: "0.0.1" },
+    versions: { app: "0.0.0" },
     updates: {
       status: async () => null,
       serverStatus: async () => null,

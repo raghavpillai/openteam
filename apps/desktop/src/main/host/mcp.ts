@@ -34,7 +34,7 @@ export class HostMcpManager {
       // Load the SDK and its schema validators only when a connection is used.
       // Constructing the host bridge must not pay this cost on every app launch.
       const { Client, StdioClientTransport } = await import("./mcp-runtime");
-      const client = new Client({ name: "OpenTeam", version: "0.0.1" });
+      const client = new Client({ name: "OpenTeam", version: "0.0.0" });
       const env = scopedProcessEnvironment(process.env);
       // 1Password's Linux desktop IPC needs these session locations, never app credentials.
       for (const key of ["XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "DBUS_SESSION_BUS_ADDRESS", "DISPLAY", "WAYLAND_DISPLAY"])

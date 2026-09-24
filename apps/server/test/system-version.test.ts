@@ -28,6 +28,6 @@ describe("system version metadata", () => {
       recommendedClientVersion: "2.0.0",
       updateChannel: "beta",
     });
-    expect(systemVersion({ OPENTEAM_VERSION: "latest" }).releaseVersion).toBe("0.0.1");
+    expect(systemVersion({ OPENTEAM_VERSION: "latest" }).releaseVersion).toBe("0.0.0");
   });
 });

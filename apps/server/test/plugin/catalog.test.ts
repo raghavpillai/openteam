@@ -1,3 +1,4 @@
+import { createUtilityPluginFixture } from "./fixtures/utility-plugin";
 import { describe, expect, test } from "bun:test";
 import { pluginCatalog, validatePluginCatalog } from "../../src/plugins/catalog";
 import { boundPluginResult } from "../../src/services/plugin-service";
@@ -25,7 +26,8 @@ describe("plugin catalog", () => {
   });
 
   test("fixture tools declare schemas and conservative write defaults", () => {
-    const fixture = pluginCatalog.find((plugin) => plugin.key === "openteam-utility-lab");
+    const fixture = createUtilityPluginFixture();
+    expect(pluginCatalog.some((plugin) => plugin.key === fixture.key)).toBe(false);
     const connector = fixture?.connections[0];
     expect(connector?.transport).toBe("builtin");
     expect(connector?.tools.map((tool) => tool.name)).toEqual(["echo", "add", "remember_note"]);

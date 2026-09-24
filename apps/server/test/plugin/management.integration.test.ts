@@ -1,9 +1,9 @@
+import { createUtilityPluginFixture } from "./fixtures/utility-plugin";
 import { expect, test } from "bun:test";
 import { createPrismaClient } from "@openteam/db";
 import { Effect } from "effect";
 import { importPackageArchive } from "@openteam/plugin-sdk/archive";
 import { createPluginTemplate } from "@openteam/plugin-sdk";
-import { pluginCatalog } from "../../src/plugins/catalog";
 import { PluginService } from "../../src/services/plugin-service";
 import { pluginRuntimeContext } from "../../../worker/src/plugins";
 
@@ -25,7 +25,7 @@ integration(
     const runId = crypto.randomUUID();
     const conversationId = crypto.randomUUID();
     const key = `test-package-${crypto.randomUUID()}`;
-    const base = structuredClone(pluginCatalog[0]!);
+    const base = createUtilityPluginFixture();
     const definition = {
       ...base,
       key,
@@ -441,7 +441,7 @@ integration("uninstall cancels pending approvals before removing the connection"
   const conversationId = crypto.randomUUID();
   const callId = crypto.randomUUID();
   const definition = {
-    ...structuredClone(pluginCatalog[0]!),
+    ...createUtilityPluginFixture(),
     key: `pending-${crypto.randomUUID()}`,
   };
   let draftId = "";

@@ -14,7 +14,6 @@ import gmail from "../../../../packages/plugins/gmail/plugin.json";
 import calendar from "../../../../packages/plugins/google-calendar/plugin.json";
 import drive from "../../../../packages/plugins/google-drive/plugin.json";
 import granola from "../../../../packages/plugins/granola/plugin.json";
-import utility from "../../../../packages/plugins/openteam-utility-lab/plugin.json";
 import onePassword from "../../../../packages/plugins/1password/plugin.json";
 import { createPluginTemplate, type PluginDefinition } from "@openteam/plugin-sdk";
 const packagedIcons = import.meta.glob("../../../../packages/plugins/*/assets/icon.png", {
@@ -62,7 +61,6 @@ const definitions = [
   slack,
   linear,
   github,
-  utility,
 ];
 const catalog = definitions.map((entry) => ({
   ...entry,

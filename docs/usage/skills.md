@@ -47,7 +47,7 @@ Some plugins come with skills, such as instructions for working with that servic
 | [Notion](../../packages/plugins/notion/README.md) | 14: `search`, `find`, `create-page`, `create-task`, `create-database-row`, `database-query`, `knowledge-capture`, `meeting-intelligence`, `research-documentation`, `spec-to-implementation`, `tasks-plan`, `tasks-build`, `tasks-explain-diff`, and `tasks-setup` |
 | [1Password](../../packages/plugins/1password/README.md#capabilities) | `1password-environments`: work with Developer Environments and local `.env` mounts |
 
-Gmail, Google Calendar, Google Drive, GitHub, Linear, and Utility Lab provide tools without bundled skills. You can create a private skill that uses those tools.
+Gmail, Google Calendar, Google Drive, GitHub, and Linear provide tools without bundled skills. You can create a private skill that uses those tools.
 
 Provider skills keep their original upstream instructions. Installing or updating Granola and Notion fetches their pinned skills automatically; you don't need to copy files yourself. Updating a plugin updates its included skills. Your private skills remain separate.
 

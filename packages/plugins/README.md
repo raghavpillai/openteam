@@ -83,7 +83,6 @@ client identities are retained as source, never adopted as our application.
 | Gmail | `cursor/plugins/third_party/gmail` | MIT source retained; public API adapter remains because upstream MCP requires Workspace Developer Preview |
 | Google Calendar | `cursor/plugins/third_party/google-calendar` | Same Google Preview exception |
 | Google Drive | `cursor/plugins/third_party/google-drive` | Same Google Preview exception |
-| OpenTeam Utility Lab | OpenTeam | First-party example; no external upstream |
 
 Source-fetched packages download only from a pinned GitHub commit and verify
 every byte before installation or replacement. Installed snapshots include the

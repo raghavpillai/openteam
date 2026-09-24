@@ -1,7 +1,7 @@
 {
-  "key": "openteam-utility-lab",
+  "key": "test-utility",
   "version": "1.0.1",
-  "name": "Utility Lab",
+  "name": "Utility test fixture",
   "description": "Try plugin tools with simple calculations, notes, and sample data.",
   "publisher": "OpenTeam",
   "category": "Developer Tools",
@@ -13,7 +13,7 @@
   "connections": [
     {
       "key": "utility",
-      "name": "Utility Lab",
+      "name": "Utility test fixture",
       "transport": "builtin",
       "auth": "none",
       "endpoint": "openteam://utility-lab",
@@ -81,6 +81,5 @@
       ]
     }
   ],
-  "schemaVersion": 1,
-  "icon": "assets/icon.png"
+  "schemaVersion": 1
 }

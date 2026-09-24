@@ -1,3 +1,4 @@
+import { createUtilityPluginFixture } from "./fixtures/utility-plugin";
 import { expect, test } from "bun:test";
 import { createPrismaClient } from "@openteam/db";
 import { createPluginTemplate } from "@openteam/plugin-sdk";
@@ -20,6 +21,7 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
   const wakes: Array<Record<string, any>> = [];
   let failApprovedCall = false;
   let skillDraftId = "";
+  let utilityDraftId = "";
   try {
     await prisma.$executeRawUnsafe('TRUNCATE TABLE "PluginInstallation", "Bot", "Event" CASCADE');
     await prisma.bot.create({
@@ -54,7 +56,11 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
       },
     });
 
-    await Effect.runPromise(service.install("openteam-utility-lab"));
+    const utilityDraft = await Effect.runPromise(service.management.importFiles({
+      "plugin.json": JSON.stringify(createUtilityPluginFixture()),
+    }));
+    utilityDraftId = utilityDraft.id;
+    await Effect.runPromise(service.management.installDraft(utilityDraft.id));
     const initial = await Effect.runPromise(service.settings());
     const connection = initial.installs[0]?.connections[0];
     if (!connection) throw new Error("Expected the installed plugin to expose a connection");
@@ -226,7 +232,7 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
     expect(await service.skillInstructions(botId)).toContain("my-skill");
     expect(await service.skillInstructions(secondBotId)).toBe("");
 
-    await Effect.runPromise(service.uninstall("openteam-utility-lab"));
+    await Effect.runPromise(service.uninstall("test-utility"));
     await Effect.runPromise(service.uninstall("lifecycle-skills-fixture"));
     expect((await Effect.runPromise(service.settings())).installs).toHaveLength(0);
 
@@ -260,6 +266,7 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
     expect(savedApproval.details).toMatchObject({actionResult:{installed:true}});
     await Effect.runPromise(service.uninstall("lifecycle-skills-fixture"));
   } finally {
+    if (utilityDraftId) await prisma.pluginDraft.deleteMany({ where: { id: utilityDraftId } });
     if (skillDraftId) await prisma.pluginDraft.deleteMany({ where: { id: skillDraftId } });
     await service.close();
     await prisma.$disconnect();

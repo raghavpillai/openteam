@@ -92,13 +92,7 @@ export async function discoverPackages(directory = root): Promise<PluginDefiniti
     }
     definitions.push(definition);
   }
-  definitions.sort((left, right) =>
-    left.key === "openteam-utility-lab"
-      ? -1
-      : right.key === "openteam-utility-lab"
-        ? 1
-        : left.key.localeCompare(right.key)
-  );
+  definitions.sort((left, right) => left.key.localeCompare(right.key));
   validatePluginCatalog(definitions);
   return definitions;
 }

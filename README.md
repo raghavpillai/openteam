@@ -96,3 +96,9 @@ See [server commands](docs/manage/server.md), [remote access](docs/configuration
 - [Development from source](docs/development/from-source.md): run from source and run checks.
 
 Browse [all documentation](docs/README.md) for feature guides and implementation notes.
+
+## License
+
+OpenTeam is licensed under the [GNU General Public License v3.0](LICENSE). Some bundled
+third-party components, such as noVNC, fonts, and a few plugins, keep their own licenses, which
+are included alongside them.

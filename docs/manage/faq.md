@@ -12,7 +12,7 @@ Yes. Bots and routines run on the server, so you can close the app and check bac
 
 ## What does it cost?
 
-OpenTeam's source code is on [GitHub](https://github.com/raghavpillai/openteam). You pay for the machine it runs on and for the services you connect, such as your model provider, web search, and transcription. Routines and `openteam doctor` also use your model provider.
+OpenTeam is open source under the GPL-3.0 license, and its code is on [GitHub](https://github.com/raghavpillai/openteam). You pay for the machine it runs on and for the services you connect, such as your model provider, web search, and transcription. Routines and `openteam doctor` also use your model provider.
 
 ## Can several bots work at the same time?
 

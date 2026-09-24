@@ -1,6 +1,7 @@
 {
   "name": "@openteam/cli",
   "version": "0.0.1",
+  "license": "GPL-3.0-only",
   "description": "Install and manage the self-hosted OpenTeam server stack",
   "repository": {
     "type": "git",

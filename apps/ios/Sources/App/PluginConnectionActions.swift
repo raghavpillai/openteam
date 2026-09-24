@@ -14,6 +14,7 @@ struct PluginConnectionActions: View {
   @State private var callbackURL = ""
   @State private var showingManualInstructions = false
   @State private var openedAuthorizationState: String?
+  @State private var recovery = PluginConnectionRecovery()
   private var path: String { "/api/v0/plugin-connections/" + API.segment(connection["id"].string) }
   private var session: PluginAuthorizationSession? {
     PluginAuthorizationSession(connection, now: now)
@@ -37,6 +38,12 @@ struct PluginConnectionActions: View {
     .sheet(isPresented: $showingManualInstructions) { manualInstructions }
     if connection["status"].string == "error", !connection["statusMessage"].string.isEmpty {
       Text(connection["statusMessage"].string).font(.footnote).foregroundStyle(NativePalette.muted)
+    }
+    if !presentation.connected, connection["pluginKey"].string == "1password" {
+      Text(
+        "Open OpenTeam and 1Password on your desktop. Unlock 1Password and approve the access request there. This page will update when the connection is ready."
+      )
+      .font(.footnote).foregroundStyle(NativePalette.muted)
     }
     if presentation.connected {
       Text(
@@ -190,10 +197,7 @@ struct PluginConnectionActions: View {
     while !Task.isCancelled {
       do { try await Task.sleep(for: .seconds(2)) } catch { return }
       now = Date()
-      if !operation.busy,
-        ["needs_auth", "connecting", "starting", "reconnecting"].contains(
-          connection["status"].string)
-      {
+      if !operation.busy, recovery.shouldPoll(connection, now: now) {
         // Keep the last known state during a transient poll failure; manual refresh exposes errors.
         try? await refresh()
       }
@@ -207,6 +211,7 @@ struct PluginConnectionActions: View {
       var merged = connection.object
       for (key, value) in status.object { merged[key] = value }
       connection = .object(merged)
+      if recovery.observe(connection) { operation.failure = nil }
     }
   }
   private func signIn(manualInstructionsSeen: Bool = false) async {
@@ -235,6 +240,8 @@ struct PluginConnectionActions: View {
     }
   }
   private func command(_ suffix: String, body: JSON? = nil) async {
+    if suffix == "/connect" { recovery.begin() }
+    else { recovery.cancel() }
     await operation.run {
       do { _ = try await store.request(path + suffix, method: "POST", body: body) } catch {
         try? await refresh()

@@ -57,6 +57,27 @@ public enum MobilePluginAuthorization {
   }
 }
 
+/// Native approval can finish after the client's connect request times out.
+/// Keep checking for that acknowledgement without polling idle accounts forever.
+public struct PluginConnectionRecovery {
+  private var deadline: Date?
+  public init() {}
+  public mutating func begin(now: Date = Date()) {
+    deadline = now.addingTimeInterval(180)
+  }
+  public mutating func cancel() { deadline = nil }
+  public func shouldPoll(_ connection: JSON, now: Date = Date()) -> Bool {
+    ["needs_auth", "connecting", "starting", "reconnecting"].contains(connection["status"].string)
+      || deadline.map { now < $0 } == true
+  }
+  /// Returns true only when an outstanding connect attempt has succeeded.
+  public mutating func observe(_ connection: JSON) -> Bool {
+    guard deadline != nil, connection["status"].string == "ready" else { return false }
+    deadline = nil
+    return true
+  }
+}
+
 /// The next useful action depends on connection state, not just whether OAuth is supported.
 public struct PluginConnectionPresentation {
   public let connected: Bool

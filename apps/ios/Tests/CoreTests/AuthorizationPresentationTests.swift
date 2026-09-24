@@ -3,6 +3,29 @@ import XCTest
 @testable import OpenTeamCore
 
 final class AuthorizationPresentationTests: XCTestCase {
+  func testConnectTimeoutStillObservesLateDesktopApproval() {
+    let start = Date(timeIntervalSince1970: 1_000)
+    let disconnected: JSON = .object(["status": .string("disconnected")])
+    let ready: JSON = .object(["status": .string("ready")])
+    var recovery = PluginConnectionRecovery()
+    XCTAssertFalse(recovery.shouldPoll(disconnected, now: start))
+    recovery.begin(now: start)
+    // The HTTP request timed out, but desktop approval is still pending.
+    XCTAssertTrue(recovery.shouldPoll(disconnected, now: start.addingTimeInterval(65)))
+    XCTAssertFalse(recovery.observe(disconnected))
+    XCTAssertTrue(recovery.observe(ready))
+    XCTAssertFalse(recovery.shouldPoll(ready, now: start.addingTimeInterval(70)))
+    XCTAssertFalse(recovery.observe(ready), "Only the pending attempt may clear its failure")
+
+    recovery.begin(now: start)
+    XCTAssertFalse(recovery.shouldPoll(disconnected, now: start.addingTimeInterval(180)))
+    recovery.begin(now: start.addingTimeInterval(200))
+    XCTAssertTrue(recovery.shouldPoll(disconnected, now: start.addingTimeInterval(201)))
+    recovery.cancel()
+    XCTAssertFalse(recovery.shouldPoll(disconnected, now: start.addingTimeInterval(202)))
+    XCTAssertTrue(recovery.shouldPoll(.object(["status": .string("needs_auth")]), now: start))
+  }
+
   func testCompatiblePackageUpdateReconnectsWithoutAnotherSignIn() {
     var connection: JSON = .object([
       "auth": .string("oauth"), "status": .string("disconnected"),

@@ -44,7 +44,10 @@ export class HostMcpManager {
       transport.stderr?.on("data", () => undefined);
       client.onclose = () => { if (this.clients.get(id) === pending) this.clients.delete(id); };
       try { await client.connect(transport, { timeout: 30_000 }); }
-      catch (error) { await client.close().catch(() => undefined); throw error; }
+      catch {
+        await client.close().catch(() => undefined);
+        throw new Error("1Password could not start. Unlock 1Password, enable Settings → Developer → Integrate with MCP clients, and complete any macOS privacy prompt for OpenTeam. Then select Connect again.");
+      }
       return { client, transport };
     })();
     this.clients.set(id, pending);

@@ -15,6 +15,6 @@ test("desktop MCP authentication, isolation, reconnect, and authenticated Bot ro
     const [code, , errors] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(errors).toBe("");
     expect(code).toBe(0);
-    expect(JSON.parse(await readFile(result, "utf8")).passed).toHaveLength(3);
+    expect(JSON.parse(await readFile(result, "utf8")).passed).toHaveLength(4);
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 20_000);

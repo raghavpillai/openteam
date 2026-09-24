@@ -30,6 +30,10 @@ const tools = [
 for await (const line of createInterface({input:process.stdin})) {
   const request = JSON.parse(line);
   if (request.id === undefined) continue;
+  if (request.method === "initialize" && existsSync(fileURLToPath(import.meta.url) + ".init-deny")) {
+    process.stdout.write(JSON.stringify({jsonrpc:"2.0",id:request.id,error:{code:-32000,message:"Fixture startup blocked"}}) + "\\n");
+    continue;
+  }
   let result;
   if (request.method === "initialize") result = {protocolVersion:request.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:"1Password test double",version:"1.0.0"}};
   else if (request.method === "tools/list") result = {tools};
@@ -64,6 +68,15 @@ test("authenticates before readiness, isolates connections, and closes/reopens p
   await manager.close("first");
   await manager.handle({ connectionId: "first", operation: "discover", provider: "1password" });
   assert.notEqual((await call("first")).processId, a.processId);
+});
+
+test("startup failure explains recovery and a fresh connection succeeds after retry", async () => {
+  await writeFile(executable + ".init-deny", "blocked");
+  try {
+    await assert.rejects(manager.handle({ connectionId: "startup", operation: "discover", provider: "1password" }), /macOS privacy prompt for OpenTeam/);
+  } finally { await rm(executable + ".init-deny"); }
+  const result = await manager.handle({ connectionId: "startup", operation: "discover", provider: "1password" });
+  assert.equal((result.tools as unknown[]).length, 2);
 });
 
 test("disabled authorization fails despite successful tool listing, and retry recovers", async () => {

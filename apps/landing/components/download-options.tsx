@@ -14,6 +14,7 @@ import {
 type ReleaseState =
   | { state: "loading" }
   | { state: "ready"; release: DesktopRelease }
+  | { state: "unpublished" }
   | { state: "unavailable" };
 
 interface NavigatorHints extends Navigator {
@@ -89,7 +90,7 @@ export const detectTarget = async (): Promise<DesktopTargetId | null> => {
 };
 
 const formatSize = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024 / 1024))} MB`;
-const DESKTOP_SOURCE_URL = "https://github.com/raghavpillai/openteam#develop-from-source";
+const DESKTOP_SOURCE_URL = "/docs/development/from-source";
 
 export function DownloadOptions() {
   const [recommended, setRecommended] = useState<DesktopTargetId | null>(null);
@@ -99,6 +100,7 @@ export function DownloadOptions() {
     void detectTarget().then(setRecommended);
     void fetch("/api/releases/latest")
       .then(async (response) => {
+        if (response.status === 404) return setReleaseState({ state: "unpublished" });
         if (!response.ok) throw new Error("release unavailable");
         const payload = (await response.json()) as { release: DesktopRelease };
         setReleaseState({ state: "ready", release: payload.release });
@@ -166,8 +168,8 @@ export function DownloadOptions() {
               ) : releaseState.state === "ready" ? (
                 <Button className="dl-download-button dl-source-button"
                   render={<a href={DESKTOP_SOURCE_URL} />} nativeButton={false}
-                  aria-label={`Build ${target.label} ${target.detail} from source`}>
-                  <Terminal size={16} /> Build from source
+                  aria-label={`Run ${target.label} ${target.detail} from source`}>
+                  <Terminal size={16} /> Run from source
                 </Button>
               ) : (
                 <Button className="dl-download-button" disabled>
@@ -181,9 +183,18 @@ export function DownloadOptions() {
       {missingBuilds && (
         <p className="dl-build-fallback">
           A build missing for your platform? Check <a href={RELEASES_URL}>all releases</a> or
-          {" "}<a href={DESKTOP_SOURCE_URL}>build the desktop app from source</a>.
+          {" "}<a href={DESKTOP_SOURCE_URL}>run the desktop app from source</a>.
         </p>
       )}
+      {releaseState.state === "unpublished" ? (
+        <div className="dl-release-error" role="status">
+          <Package size={17} aria-hidden="true" />
+          <p>
+            Desktop builds haven’t been published yet. In the meantime, you can{" "}
+            <a href={DESKTOP_SOURCE_URL}>run the desktop app from source</a>.
+          </p>
+        </div>
+      ) : null}
       {releaseState.state === "unavailable" ? (
         <div className="dl-release-error" role="status">
           <Package size={17} aria-hidden="true" />

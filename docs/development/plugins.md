@@ -9,16 +9,16 @@ Package skills, tools, or both as a plugin to reuse them or share them with othe
 | Skills | Instructions and supporting files |
 | Remote MCP | A connection to an MCP server over HTTP that your OpenTeam server can reach |
 | Packaged MCP | An MCP server that runs on the bots' computer |
-| Hybrid | Skills together with one or more tool connections |
+| Hybrid skills + packaged MCP | Skills together with a packaged MCP server |
 
 A packaged MCP server must include everything it needs to run. OpenTeam doesn't compile code or install dependencies when it installs a plugin.
 
 ## Create a plugin
 
 1. Open **Marketplace**, then choose **Manage → Develop plugins**.
-2. Choose a template for the plugin type.
-3. Give the plugin a unique key, a name, a version, and a description.
-4. Edit its files, then choose **Validate and save**.
+2. Choose a **Plugin type**, then **Create plugin**.
+3. In **Package definition**, set a unique key, a name, a version, and a description.
+4. Edit the definition, including its skills and files, or use **Load / reload folder** to load them from disk. Then choose **Validate and save**.
 
 Saving a draft doesn't change any installed copy of the plugin.
 
@@ -34,9 +34,9 @@ Write clear tool descriptions and input schemas, since bots rely on them to pick
 
 ## Share it
 
-Export the plugin as a ZIP from the development workspace. Exports never include connected accounts, credentials, or bot access settings, so keep secrets in account setup rather than in plugin files.
+Choose **Export ZIP** to package the plugin. Exports never include connected accounts, credentials, or bot access settings, so keep secrets in account setup rather than in plugin files.
 
-To release an update, increase the version number. People who installed your plugin review the changes and choose **Apply reviewed update**.
+To release an update, publish the new package with the same key, and raise the version so people can tell releases apart. When the changed package reaches someone's server, for example through a plugin source, they review the changes and choose **Apply reviewed update**.
 
 ## Reference
 

@@ -4,7 +4,7 @@ Use [Connecting accounts](../integrations/accounts.md) for account selection and
 
 ## Google access requirements
 
-The bundled connectors use Google's public Gmail, Calendar, and Drive APIs. Configure the APIs and OAuth client with the [Google setup guide](../integrations/google.md#configure-google-access); each plugin account needs its own callback and authorization.
+The bundled connectors use Google's public Gmail, Calendar, and Drive APIs. Configure the APIs and OAuth client with the [Google setup guide](../integrations/google.md#2-create-a-google-cloud-app); each plugin account needs its own authorization; all accounts share one callback URL.
 
 ### Default scopes
 
@@ -44,7 +44,7 @@ The manifest and package scopes cover Slack's published MCP tools. To limit acce
 
 ## Linear and Notion
 
-Both use the provider's hosted MCP service with dynamic OAuth registration. [Verify the connected identity](../integrations/accounts.md#verify-the-connected-identity) before granting bot access. Notion skills require separate enablement; their inventory and provenance are in the [package README](../../packages/plugins/notion/README.md).
+Both use the provider's hosted MCP service with dynamic OAuth registration. [Verify the connected identity](../integrations/accounts.md#check-the-connected-account) before granting bot access. Notion skills require separate enablement; their inventory and provenance are in the [package README](../../packages/plugins/notion/README.md).
 
 ## 1Password setup
 
@@ -52,7 +52,7 @@ The [1Password package README](../../packages/plugins/1password/README.md) cover
 
 ## Granola setup
 
-Follow [Connecting accounts](../integrations/accounts.md#verify-the-connected-identity) for authorization and account checks. For missing meeting notes, check identity and active workspace before plan or sharing permissions.
+Follow [browser sign-in](../integrations/accounts.md#browser-sign-in) for authorization and [check the connected account](../integrations/accounts.md#check-the-connected-account) for account checks. For missing meeting notes, check identity and active workspace before plan or sharing permissions.
 
 Granola supplies meeting search, lists, folders, notes, transcripts, and account information according to the connected account's access. It does not expose recording or note editing through this connector. **Basic** accounts have personal notes from the last 30 days and restrictions on some search, folder, and transcript tools. **Business** includes accessible personal and public notes. **Enterprise** administrators control member MCP access under **Settings → Workspace → General → Apps & connectors → MCP access for members**. This package uses ordinary browser OAuth; Enterprise-Managed Authorization through an identity provider is not implemented.
 

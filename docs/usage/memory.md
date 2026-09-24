@@ -8,24 +8,23 @@ As you work together, a bot notices facts worth keeping and saves them. You can 
 
 > Remember that my weekly reports should lead with decisions, then blockers, then next steps. Keep each section brief.
 
-Memory holds short facts, not a transcript. Your full chat history is stored separately on the server.
+Memory holds short facts, not a transcript.
 
 ## Who can see a memory
 
 | Memory | Holds | Available to |
 | --- | --- | --- |
-| Conversation | Details from one conversation | That conversation |
 | Bot | The bot's role and what it has learned | That bot, in all its conversations |
 | User | Facts about you | All your bots, in direct chats |
 | Project | Facts about a shared project | Every bot working on that project |
 
-Bots save what they pick up on their own to conversation or bot memory. To share something with all your bots, say so:
+Unless you say otherwise, bots save what they learn to their own memory, which they use in all their conversations. To share something with all your bots, say so:
 
 > Remember for all bots: I'm in the Pacific time zone and prefer meetings after 10 AM.
 
 To share facts among bots working on the same thing, ask one bot to create a project, and ask the others to join it. Facts saved to the project are available to all of them.
 
-Group chats can't read or change your user memory. This keeps personal details out of shared conversations.
+Group chats can't read or change your user memory. A bot's own memory is still available to it in groups, including what it learned in your direct chats. To keep something out of group chats, ask the bot to forget it.
 
 ## Correct or remove a memory
 

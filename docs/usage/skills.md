@@ -6,7 +6,6 @@ A skill is a saved set of instructions for a task you repeat. Bots use it to fol
 
 | To... | Use |
 | --- | --- |
-| Ask for something once | A chat message |
 | Keep a fact or preference | [Memory](memory.md) |
 | Repeat a method | A skill |
 | Run work on a schedule | A [routine](routines.md), which can use a skill |
@@ -21,7 +20,7 @@ For example, a release-notes skill can define where to find changes, how to grou
    - **Skill name**
    - **When to use it**: a sentence that helps bots recognize when the skill applies
    - **Instructions**: the method itself
-   - **Supporting files** (optional): templates, examples, or reference text
+   - **Supporting files** (optional): templates, examples, or reference text, entered as JSON that maps each file path to its text
 4. Under **Available to Bots**, choose which bots can use it.
 5. Choose **Save skill**.
 
@@ -34,6 +33,8 @@ If the format matters, include an example of a good result as a supporting file.
 You can also ask a bot to save a method it just used as a skill:
 
 > Save how you prepared these release notes as a skill, so you can do it the same way next time.
+
+Skills that bots save are available to all your bots. They don't appear under **Private skills**.
 
 ## Skills from plugins
 

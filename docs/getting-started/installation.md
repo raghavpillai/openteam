@@ -10,7 +10,7 @@ Install the OpenTeam server on the machine that will host your bots. The desktop
 | Docker | A running Docker engine with Compose 2.20 or newer |
 | Memory | 8 GB recommended |
 | Disk | 8 GB free recommended. Updates need at least 4 GB free. |
-| Ports | `8787` for the server, and `6200–6299` for bot screens |
+| Ports | `8787` for the server (you can change it), `6200–6299` for bot screens, and `80` and `443` if you use automatic HTTPS |
 | AI model | A ChatGPT or Claude subscription, an API key, or a compatible endpoint |
 
 On macOS and Windows, install and open Docker Desktop. On Linux, install Docker Engine and the Compose plugin. Installing only the `docker` command-line tool isn't enough; the engine must be running.
@@ -31,27 +31,22 @@ curl -fsSL https://openteam.so/install | sh
 irm https://openteam.so/install.ps1 | iex
 ```
 
-The installer downloads the `openteam` command-line tool, verifies it, and starts guided setup. You don't need Node.js or Bun. You can [read the installer](https://openteam.so/install/source) before running it.
+The installer downloads and verifies the `openteam` command-line tool, checks Docker, downloads the server, and starts guided setup. If a check fails, fix it and run `openteam setup`. You don't need Node.js or Bun. You can [read the installer](https://openteam.so/install/source) before running it.
 
 The tool is installed to `~/.local/bin` on macOS and Linux. If your terminal can't find `openteam`, add that directory to your `PATH`. On Windows, it's installed to `%LOCALAPPDATA%\OpenTeam\bin` and added to your `PATH`; open a new terminal if the command isn't found.
 
 ## Guided setup
 
-Setup walks you through three things:
+Setup asks for:
 
 1. **Your account.** OpenTeam has one account per server. Use it to sign in from all your devices.
 2. **A model provider.** See [model providers](../configuration/models.md) for the options. You can skip this and connect one later with `openteam setup`.
-3. **Your server URL.** Setup detects a private network address, or your Tailscale HTTPS address if your tailnet has HTTPS turned on, and prints the URL to use in the apps.
 
-Run `openteam setup --advanced` to choose a different connection mode, port, time zone, or number of tasks that run at once. See [server settings](../configuration/server.md).
+If setup can't find a private network address, it first asks for the address your devices will use to reach the server. It then shows a summary. Choose **Start OpenTeam** to start the server. Setup detects a private network address, or your Tailscale HTTPS address if your tailnet has HTTPS turned on, and prints the server URL to use in the apps.
 
-To change your username or password later:
+Run `openteam setup --advanced` to choose a different connection mode, API port, time zone, or number of tasks that run at once. See [server settings](../configuration/server.md).
 
-```sh
-openteam account update
-```
-
-This signs out all connected apps.
+To change your username or password later, see [server commands](../manage/server.md#change-your-account).
 
 ## Check the installation
 
@@ -60,7 +55,7 @@ openteam status
 openteam doctor
 ```
 
-`status` shows the server URL, version, and health of each service. `doctor` runs deeper checks, including a short test request to your model provider.
+`status` shows the server URL, version, and health of each service. `doctor` runs deeper checks.
 
 ## Where OpenTeam is installed
 

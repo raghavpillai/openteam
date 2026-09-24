@@ -57,7 +57,7 @@ export function ComputerDemo() {
                 {ready ? (
                   <>
                     <MonitorUp size={13} />
-                    Your computer is ready
+                    Ready for you to take over
                   </>
                 ) : (
                   <>

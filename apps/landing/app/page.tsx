@@ -155,7 +155,7 @@ export default function Home() {
               </h2>
               <p>
                 Give workers the context in your email, calendar, documents and meeting notes,
-                alongside web search. Connect apps from the plugin marketplace, save workflows as
+                alongside web search from the provider you choose. Connect apps from the plugin marketplace, save workflows as
                 reusable skills, or add your own tools through MCP.
               </p>
             </div>

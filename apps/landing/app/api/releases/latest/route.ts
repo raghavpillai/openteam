@@ -1,4 +1,4 @@
-import { getLatestDesktopRelease } from "@/lib/github-release";
+import { getLatestDesktopRelease, ReleaseLookupError } from "@/lib/github-release";
 
 export async function GET() {
   try {
@@ -7,14 +7,17 @@ export async function GET() {
       { available: true, release },
       { headers: { "Cache-Control": "public, max-age=60, s-maxage=300" } }
     );
-  } catch {
+  } catch (error) {
+    const unpublished = error instanceof ReleaseLookupError && error.status === 404;
     return Response.json(
       {
         available: false,
-        message: "Desktop builds have not been published yet.",
+        message: unpublished
+          ? "Desktop builds have not been published yet."
+          : "Could not load the latest release.",
       },
       {
-        status: 404,
+        status: unpublished ? 404 : 502,
         headers: { "Cache-Control": "public, max-age=60, s-maxage=300" },
       }
     );

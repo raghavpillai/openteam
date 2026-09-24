@@ -48,7 +48,9 @@ cp "$D/.env" "$D/compose.yaml" "$D/installation.json" "$OUT/"
 openteam start
 ```
 
-If you installed OpenTeam somewhere else, set `D` to that directory. Keep backups outside the install directory.
+If you installed OpenTeam somewhere else, set `D` to that directory: `$OPENTEAM_HOME` if you set it, `$XDG_CONFIG_HOME/openteam` if you set `XDG_CONFIG_HOME`, or the path you passed to `--dir` (then also run `openteam start --dir "$D"`). Keep backups outside the install directory.
+
+If you use automatic HTTPS, your certificates aren't included. On a new machine, the proxy requests new ones once your domain points there.
 
 ## Restore a backup
 
@@ -79,7 +81,7 @@ openteam start
 
 The restore recreates the database so that it uses the password saved in your backup's `.env`. Then run `openteam status` and open a bot to check that its conversations, memory, and files are back.
 
-On a new machine, the server URL may be different. Update it in your apps, and update the callback URL for any plugin that uses one, such as [Google](../integrations/google.md) or [Slack](../integrations/slack.md).
+On a new machine, the restored settings still use the old machine's address. Run `openteam setup --advanced` and enter the new address. If you use a domain name, you can point it at the new machine instead. Then update the server URL in your apps, and the callback URL for any plugin that uses one, such as [Google](../integrations/google.md) or [Slack](../integrations/slack.md).
 
 ## Changing Docker setups
 

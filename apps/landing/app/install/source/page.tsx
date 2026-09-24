@@ -61,7 +61,7 @@ export default function InstallSourcePage() {
       <main className="container-page max-w-[980px] pb-24 pt-14 sm:pt-18">
         <p className="microlabel">Installer source</p>
         <h1 className="mt-4 max-w-[16ch] text-[40px] font-semibold leading-[1.08] tracking-[-0.035em] text-ink sm:text-[52px]">
-          Read exactly what the one-click installer runs.
+          Read exactly what the installer runs.
         </h1>
         <p className="mt-5 max-w-[680px] text-[16px] leading-[1.65] text-ink-2">
           These are the same scripts served by the raw install URLs. They verify the downloaded

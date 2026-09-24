@@ -66,6 +66,13 @@ export function mapDesktopRelease(release: GitHubRelease): DesktopRelease {
   };
 }
 
+/** GitHub answers 404 for releases/latest until a release is published. */
+export class ReleaseLookupError extends Error {
+  constructor(readonly status: number) {
+    super(`GitHub releases returned HTTP ${status}`);
+  }
+}
+
 export async function getLatestDesktopRelease(): Promise<DesktopRelease> {
   const response = await fetch(LATEST_RELEASE_API, {
     headers: {
@@ -77,7 +84,7 @@ export async function getLatestDesktopRelease(): Promise<DesktopRelease> {
   });
 
   if (!response.ok) {
-    throw new Error(`GitHub releases returned HTTP ${response.status}`);
+    throw new ReleaseLookupError(response.status);
   }
 
   return mapDesktopRelease((await response.json()) as GitHubRelease);

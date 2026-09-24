@@ -13,11 +13,11 @@ take over when needed, or come back when the work is done.
 
 ## What you can do
 
-- **Give bots a computer.** Each bot has its own screen and browser profile. All bots share a
-  workspace, so they can build on each other's files.
+- **Give bots a computer.** Each bot has its own screen and browser. All bots share a workspace
+  and website sign-ins, so they can build on each other's files and you only sign in once.
 - **Keep context.** Conversations resume after restarts. Bots keep editable Markdown memory
-  for themselves, your projects, and the whole team.
-- **Work as a team.** Bring multiple bots into a room, let them message each other, or delegate
+  about themselves, you, and your projects.
+- **Work as a team.** Bring multiple bots into a group chat, let them message each other, or delegate
   tasks to subagents.
 - **Automate recurring work.** Save instructions as routines that run on a schedule or respond
   to configured events.
@@ -51,7 +51,8 @@ The installer downloads the CLI and starts guided setup. Node.js and Bun are not
 ### 2. Finish setup
 
 Create your OpenTeam username and password, then connect a model provider. Setup supports
-ChatGPT or Claude sign-in, OpenAI or Anthropic API keys, and compatible custom endpoints.
+ChatGPT (Codex) or Claude (Claude Code) sign-in, OpenAI, Anthropic, or OpenRouter API keys, and
+compatible custom endpoints.
 You can skip the provider step and connect one later with `openteam setup`; bots need a
 connected provider to run. See [provider setup](docs/configuration/models.md#connect-a-provider).
 
@@ -73,7 +74,7 @@ when you close the app. Keep the desktop app open when bots need access to your 
 | Desktop for macOS, Windows, and Linux | [Downloads](https://openteam.so/download) |
 | iPhone companion | [Build and setup instructions](apps/ios/README.md) |
 
-Both apps connect to your server for chat, live screens, and settings.
+Both apps connect to your server for chat and live screens. Most server settings, such as the model, are in the desktop app.
 
 ## Useful commands
 
@@ -89,9 +90,9 @@ See [server commands](docs/manage/server.md), [remote access](docs/configuration
 
 ## Documentation
 
-- [Configuration](docs/configuration/server.md): model providers, server settings, remote access, and app preferences.
-- [Plugins and skills](docs/usage/plugins.md): connect accounts and control bot access.
-- [Architecture](docs/overview/architecture.md): how bots run, where data lives, and what persists.
-- [Development](docs/development/from-source.md): run from source, navigate the repository, and run checks.
+- [Server settings](docs/configuration/server.md): where to change each setting after setup.
+- [Plugins](docs/usage/plugins.md): connect accounts and control bot access.
+- [How hosting works](docs/overview/architecture.md): what runs where and what needs to stay on.
+- [Development from source](docs/development/from-source.md): run from source and run checks.
 
 Browse [all documentation](docs/README.md) for feature guides and implementation notes.

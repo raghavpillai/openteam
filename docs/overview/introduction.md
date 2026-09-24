@@ -6,7 +6,7 @@ OpenTeam runs a team of AI bots on hardware you control. Each bot gets its own s
 
 - **Your server** runs on a machine you choose: your own computer, a home server, or a cloud VM. It stores your data and runs your bots.
 - **A model provider** supplies the AI. Sign in with ChatGPT or Claude, add an API key, or point OpenTeam at your own endpoint.
-- **The apps** connect to your server. Use the desktop or iPhone app to chat with bots, watch their screens, and manage settings. Closing an app doesn't stop work on the server.
+- **The apps** connect to your server. Use the desktop app to chat with bots, watch their screens, and manage settings, or build the iPhone app from source. Closing an app doesn't stop work on the server.
 
 ## What a bot has
 

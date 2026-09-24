@@ -14,7 +14,7 @@ Ask the bot in chat:
 
 Say what the result should be and any limits, such as "prepare drafts, but don't send anything."
 
-The bot sets up the routine and may ask you to confirm it. To see it, choose the computer button at the top right of the conversation (for a group, select its name), and look under **Routines**.
+The bot sets up the routine. To see it, choose the computer button at the top right of the conversation (for a group, select its name), and look under **Routines**.
 
 ## Edit a routine
 
@@ -28,7 +28,7 @@ Hiding a bot from the sidebar doesn't stop its routines. Turn off **Active** ins
 
 ## Schedules
 
-A routine can have up to eight schedules. Choose **Add trigger → On a schedule**, then pick a preset such as **Every hour**, **Weekdays**, or **Every week**, or set an **Interval**. To enter a cron expression, change the schedule's frequency to **Custom**. Routines can run at most once every five minutes.
+A routine can have up to eight schedules. Choose **Add trigger** (or **Add another**) **→ On a schedule**, then pick a preset such as **Every hour**, **Weekdays**, or **Every week**, or set an **Interval**. To enter a cron expression, change the schedule's frequency to **Custom**. Routines can run at most once every five minutes.
 
 Schedules you set in the app use your computer's time zone. When you ask a bot to create a routine, mention the time zone if it matters.
 
@@ -43,8 +43,8 @@ This is an advanced setup. You need:
 - A public HTTPS address for your server, so the service can reach it. See [remote access](../configuration/remote-access.md).
 - Credentials from the service that let OpenTeam register a webhook, such as a management token and a signing secret.
 
-Add the subscription in **Settings → Server → Automation event subscriptions**, then ask the bot to create a routine that runs on those events. For what each service needs, see the [event subscription reference](../reference/automation-event-subscriptions.md).
+Add the subscription in **Settings → Server → Automation event subscriptions**, then ask the bot to create a routine that runs on those events. On desktop, event routines don't appear in the **Routines** list, so ask the bot when you want to see, pause, or change one. For what each service needs, see the [event subscription reference](../reference/automation-event-subscriptions.md).
 
 ## When a routine fails
 
-Open its **Run history** to see what went wrong. Common causes are a disconnected plugin account, an expired model sign-in, or an approval waiting in the conversation. Fix the cause, then use **Test run** to check. See [troubleshooting](../manage/troubleshooting.md).
+Open its **Run history** to see which runs failed, then check the conversation for the bot's message about the problem. Common causes are a disconnected plugin account, an expired model sign-in, or an approval waiting in the conversation. Fix the cause, then use **Test run** to check. See [troubleshooting](../manage/troubleshooting.md).

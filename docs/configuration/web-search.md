@@ -22,17 +22,17 @@ All bots use the same search settings. Changes take effect on the next search.
 1. Open **Settings → Server → Web fetch**.
 2. Choose a provider:
    - **Built-in HTTP fetch (no key)** reads ordinary web pages. It doesn't run JavaScript or read PDFs.
-   - **Exa Contents** or **Tavily Extract** handle JavaScript-heavy pages and documents. They need an API key, separate from the search key even for the same provider.
+   - **Exa Contents** or **Tavily Extract** send the page's address to that service, which fetches and reads many pages the built-in fetch can't. Enter the service's API key here too, even if you already saved it for search.
 3. Choose **Save web fetch**.
 
 Without page fetching, bots can still open pages in their browser, but it's slower.
 
 ## Change or remove a key
 
-To switch providers, choose the new one and enter its key. To delete a saved key, choose **Remove saved key**. To turn search or fetching off, choose **Not configured** and save.
+To switch providers, choose the new one and enter its key. To delete a saved key, select **Remove saved key** and save. To turn search or fetching off, choose **Not configured** and save.
 
 Saved keys are stored on your server and never shown again in the app. Treat your server backups as sensitive for this reason.
 
 ## Check that it works
 
-Ask a bot to search for something and look at the result. If it fails, the bot reports the provider's error, such as an invalid key or used-up quota. OpenTeam doesn't switch to another provider on its own.
+Ask a bot to search for something and look at the result. If it fails, the bot gets an error with a hint, such as checking the API key or quota.

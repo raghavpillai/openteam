@@ -6,7 +6,7 @@ OpenTeam is self-hosted. You run the server on a machine you control, and the ap
 
 The server stores your bots, conversations, files, and settings. It runs tasks and routines, and it's what the desktop and iPhone apps connect to.
 
-Install it on any machine that can run Docker: your laptop, a desktop that stays on, a home server, or a cloud VM. Bots only work while the server is running, so a laptop that sleeps pauses your bots too. Use an always-on machine if you want routines to run overnight or while you're away.
+Install it on any 64-bit machine that can run Docker: your laptop, a desktop that stays on, a home server, or a cloud VM. Bots only work while the server is running, so a laptop that sleeps pauses your bots too. Use an always-on machine if you want routines to run overnight or while you're away.
 
 ## The bot computer
 
@@ -25,7 +25,7 @@ OpenTeam runs as a set of Docker containers, so you don't need to install its de
 | Computer | The bots' Linux environment |
 | PostgreSQL | The database |
 
-If you choose public HTTPS during setup, a small proxy also runs to manage the certificate.
+Each time you start OpenTeam, a few short setup jobs also run and then exit; `openteam status` lists them under **Setup jobs**. If you choose **Public domain with automatic HTTPS** in `openteam setup --advanced`, a small proxy also runs on ports 80 and 443 to manage the certificate.
 
 ## What needs to stay running
 

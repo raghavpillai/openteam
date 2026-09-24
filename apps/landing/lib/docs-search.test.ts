@@ -40,9 +40,9 @@ describe("client documentation search", () => {
   });
 
   test("searches body text, tables, and code with direct section links", () => {
-    expect(search("oauth callback")[0].href).toBe("/docs/integrations/google#configure-google-access");
+    expect(search("oauth callback")[0].href).toBe("/docs/integrations/accounts#sign-in-callback");
     expect(search("8787").some((entry) => entry.href.endsWith("#requirements"))).toBe(true);
-    expect(search("OPENTEAM_HOME").some((entry) => entry.href.endsWith("#check-the-installation"))).toBe(true);
+    expect(search("OPENTEAM_HOME").some((entry) => entry.href.endsWith("#where-openteam-is-installed"))).toBe(true);
     expect(search("how do I install OpenTeam").some((entry) => entry.href.includes("/getting-started/installation#"))).toBe(true);
   });
 

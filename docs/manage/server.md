@@ -1,6 +1,6 @@
 # Server commands
 
-Manage your server with the `openteam` command on the host. The desktop app doesn't need to be open.
+Manage your server with the `openteam` command on the host.
 
 ## Common commands
 
@@ -23,7 +23,7 @@ Run `openteam <command> --help` for options. If you installed to a different dir
 
 ## Diagnose a problem
 
-Start with `openteam status`. If a service isn't healthy or bots aren't responding, run `openteam doctor`. It explains each failed check and what to do. Doctor sends one short request to your model provider, which counts toward your usage. It doesn't start or change anything.
+Start with `openteam status`. If a service isn't healthy or bots aren't responding, run `openteam doctor`. It explains each failed check and what to do. Doctor sends one short request to your model provider, which counts toward your usage. It doesn't start services or change your settings.
 
 To see logs for one service:
 
@@ -31,7 +31,7 @@ To see logs for one service:
 openteam logs server --follow
 ```
 
-The services are `server`, `worker`, `computer`, and `postgres`.
+The main services are `server`, `worker`, `computer`, and `postgres`, plus `caddy` if you use automatic HTTPS.
 
 ## Change your account
 
@@ -55,4 +55,4 @@ To delete everything, including your bots, conversations, files, and update back
 openteam uninstall --purge
 ```
 
-This can't be undone. Make a [backup](backups.md) first if you might want your data back. Neither command removes the `openteam` CLI itself.
+This can't be undone. Make a [backup](backups.md) first if you might want your data back. On macOS and Linux, neither command removes the `openteam` CLI itself. On Windows, the CLI is installed inside the install directory, so `--purge` also tries to remove it.

@@ -6,7 +6,7 @@ Dictate a message instead of typing it. Your recording is turned into text, whic
 
 Select the microphone in the message box and speak. Then either:
 
-- Stop recording to put the text in your message box, where you can edit it before sending.
+- Stop recording to put the text in your message box, where you can edit it before sending. On iPhone, tap the arrow to transcribe it.
 - On desktop, choose **Transcribe and send** to send it right away.
 
 On desktop, press **⌘D** on macOS or **Ctrl+D** on Windows and Linux while you're typing a message to start dictating. Or hold the shortcut while you talk and release it to stop.
@@ -21,7 +21,7 @@ Voice notes need a transcription service. Set it up once on the server and it wo
 
 1. Open **Settings → Server → Transcription**.
 2. Choose **OpenAI** or **Custom / OpenAI-compatible**.
-3. Enter the base URL, model, and API key. Leave **Language** blank to detect it automatically.
+3. For OpenAI, enter your API key; the base URL and model are filled in. For another service, enter its base URL, model, and API key if it needs one. Leave **Language** blank to detect it automatically.
 4. Turn on **Voice notes**.
 5. Choose **Save transcription**, then **Test connection**.
 6. Record a short note to check that it works.

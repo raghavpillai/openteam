@@ -15,7 +15,7 @@ When a bot asks a question or needs your approval, it waits for your answer in t
 - **Reply to a message** to tie your follow-up to it. Hover over the message and choose **Reply**.
 - **Attach files or images** the bot should work from. See [files and results](files.md).
 - **Dictate** instead of typing with [voice notes](../configuration/transcription.md).
-- **Search** messages, bots, files, links, and routines. Press **⌘K** on macOS or **Ctrl+K** on Windows and Linux.
+- **Search** messages, bots, groups, files, links, and routines. Press **⌘K** on macOS or **Ctrl+K** on Windows and Linux.
 
 ## Create a group chat
 
@@ -33,8 +33,4 @@ All bots share the `/workspace` folder, so one bot can pick up another's files. 
 
 > Continue from /workspace/launch/brief.md. Verify the dates before you edit the recommendation.
 
-Bots can also message each other and hand tasks to helpers on their own. Group chats keep the work visible to you.
-
-## Review the result
-
-Open the attached files and check the sources. If something's missing or wrong, say exactly what and ask the bot to continue from its existing work rather than start over.
+Bots can also message each other and hand tasks to helpers on their own.

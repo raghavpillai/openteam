@@ -4,9 +4,9 @@ A bot is an AI teammate with its own conversation, memory, and screen to work on
 
 ## Create a bot
 
-Choose **New chat**, then **Create new Bot**. To name it right away, type the name first and choose **Create "<name>" Bot**.
+Choose **New chat** (the **+** in the sidebar), then **Create new Bot**. To name it right away, type the name in the **To:** field and choose **Create “<name>” Bot**.
 
-A new bot says hello and asks what you'd like it to do. Reply with its job and how you like to work:
+A new bot greets you and asks what kind of work you want it to do. Reply with its job and how you like to work, or skip the greeting and send that first:
 
 > You're my documentation assistant. Keep explanations short, check claims against the source, and ask me when a requirement is unclear. Start by reviewing the README I attach next.
 
@@ -24,7 +24,7 @@ If the task needs one of your accounts, such as Gmail or GitHub, [connect a plug
 
 Keep working in the same conversation. Tell the bot what to change and what to keep. For bigger jobs, ask it to check in with you before it makes changes you can't easily undo.
 
-You can send messages while the bot is busy. They wait in a queue until the bot is ready for them, and you can cancel a queued message before it's delivered.
+You can message a bot while it's working on something you asked for in the same chat. It reads your message right away, so you can add details or change direction mid-task. A direct message also takes priority over the bot's other chat work, such as its turn in a group chat, which runs again afterward. Routines run separately and keep going while you chat.
 
 ## Change a bot's profile
 
@@ -32,7 +32,7 @@ Open the bot and select its name at the top of the conversation to open its **Se
 
 ## Organize your sidebar
 
-Right-click a bot in the sidebar to pin, rename, duplicate, hide, or delete it. Hidden bots keep working, including their routines. Find them under **Hidden Bots** in the sidebar.
+Right-click a bot in the sidebar to **Pin**, **Rename Bot**, **Edit Profile**, **Duplicate**, **Hide from sidebar**, or **Delete** it. Hidden bots keep working, including their routines, but don't send notifications. Find them under **Hidden Bots** at the bottom of the sidebar.
 
 Give bots names that describe their role, such as Research, Operations, or Docs. This makes them easier to tell apart in the sidebar and in group chats.
 

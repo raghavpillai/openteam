@@ -91,7 +91,7 @@ export default function DownloadPage() {
               </p>
             </div>
             <div className="dl-requirements">
-              {["Docker Compose 2.20+", "8 GB RAM recommended", "macOS, Windows, or Linux"].map(
+              {["Docker Compose 2.20+", "8 GB RAM recommended", "macOS, Windows, or Linux (x64 or arm64)"].map(
                 (item) => (
                   <span key={item}>
                     <Check size={15} />

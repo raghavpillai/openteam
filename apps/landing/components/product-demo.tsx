@@ -334,7 +334,7 @@ export function ProductDemo() {
               <span className="dt-footer-icon">
                 <Plug size={14} />
               </span>
-              <span className="dt-footer-label">Plugins</span>
+              <span className="dt-footer-label">Marketplace</span>
             </div>
             <div>
               <span className="dt-account-avatar">JL</span>
@@ -448,9 +448,6 @@ export function ProductDemo() {
           <div className="dt-routines">
             <div className="dt-routines-heading">
               <h3>Routines</h3>
-              <span aria-hidden="true">
-                <Plus size={16} />
-              </span>
             </div>
             <div className="dt-routine-row">
               <CalendarClock size={14} />

@@ -10,20 +10,20 @@ Plugins connect your bots to services such as Gmail, GitHub, Slack, and Notion. 
 | Gmail | Search, read, organize, and draft email |
 | Google Calendar | Find events, check availability, and schedule meetings |
 | Google Drive | Find, read, and create files |
-| OneDrive | Find files and move them to and from the workspace |
+| OneDrive | Find files and folders, and copy files between OneDrive and the workspace |
 | Slack | Search channels, read threads, send messages, and work with canvases |
 | Linear | Find, create, and update issues, projects, and comments |
 | Notion | Work with pages for documents, research, meetings, and tasks |
 | Granola | Use meeting notes, decisions, and action items |
-| 1Password | Manage Developer Environments and `.env` files |
+| 1Password | Manage Developer Environments and `.env` files (macOS and Linux) |
 
-Each plugin signs in differently. Some only need a browser sign-in, while others need a token or an app you register with the service. See [connecting accounts](../integrations/accounts.md).
+The Marketplace also has **Research Playbook**, a research skill for source-based summaries, and **Utility Lab**, simple sample tools for trying out plugins.
 
 ## Add a plugin
 
 1. Open **Marketplace** and choose **Add** on the plugin. The plugin's page opens.
 2. Under **Accounts**, follow the setup steps. Depending on the plugin, you sign in through your browser, paste a token, or enter the details of an app you registered with the service. See [connecting accounts](../integrations/accounts.md) for what each plugin needs.
-3. Under **Bot access**, turn on the account for each bot that should use it.
+3. Under **Bot access**, turn on the account for each bot that should use it. If the plugin includes skills, such as Notion or Granola, also turn on **Instructions and hooks** for those bots.
 
 Then try it in chat:
 
@@ -42,9 +42,9 @@ Gmail, Google Calendar, and Google Drive are separate plugins. Connecting one do
 Two settings on the plugin's page work together:
 
 - **Bot access** decides which bots can use each account.
-- **Tool policies** decide what happens when any bot uses a tool: **Allow**, **Ask first**, or **Deny**.
+- **Tool policies** decide what happens when a bot uses a tool: **Allow**, **Ask first**, or **Deny**. On desktop, policies apply to all bots.
 
-Use **Ask first** for tools that send, post, or delete. To hide a tool from bots entirely, turn it off under **Manage → Accounts and settings**. See [approvals and privacy](../configuration/approvals.md).
+Use **Ask first** for tools that send, post, or delete. To hide a tool from bots entirely, turn it off under **Manage → Accounts and settings**. Choosing **Always allow** on an approval lets that bot skip **Ask first** for that tool on that account. A **Deny** policy still applies. See [approvals and privacy](../configuration/approvals.md).
 
 ## Manage a plugin
 
@@ -53,9 +53,9 @@ Open **Marketplace → Manage → Accounts and settings** and choose the plugin 
 | Action | What it does |
 | --- | --- |
 | **Restart / refresh tools** | Reconnects and reloads the plugin's tools |
-| **Reauthorize** | Signs in again, for example after a sign-in expires |
-| **Disconnect** | Stops the connection but keeps its settings |
-| **Remove account** | Deletes the account and its bot access |
+| **Reauthorize** | Signs in again, for accounts that sign in through the browser |
+| **Disconnect** | Stops the connection. The sign-in, bot access, and policies are kept. |
+| **Remove account** | Deletes the account and its bot access. If it's the plugin's only account, it's reset instead. |
 | **Apply reviewed update** | Installs a new version after you review the changes |
 | **Uninstall** | Removes the plugin and all its accounts |
 

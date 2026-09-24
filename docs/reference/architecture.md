@@ -103,4 +103,4 @@ State is stored in six Docker volumes:
 
 Restarting the stack preserves this data. Back up and restore all six stores together.
 `openteam update` takes a database dump before applying the release and rolls back on failure;
-that dump does not replace a full backup. See [backups and restore](../manage/backups.md#what-to-keep).
+that dump does not replace a full backup. See [backups and restore](../manage/backups.md#whats-in-a-backup).

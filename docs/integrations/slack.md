@@ -10,9 +10,9 @@ Connect Slack so bots can search channels, read threads, send messages, and work
 ## 1. Create a Slack app
 
 1. In OpenTeam, choose **Add** on Slack in **Marketplace**, and copy the **Authorized redirect URI** from the plugin's page.
-2. Open [Slack's app dashboard](https://api.slack.com/apps) and choose **Create New App → From a manifest**.
+2. Open [Slack's app dashboard](https://api.slack.com/apps), choose **Create New App → From a manifest**, and pick your workspace.
 3. Paste OpenTeam's [Slack app manifest](../../packages/plugins/slack/slack-app-manifest.json). Replace its example redirect URL with the URI you copied from OpenTeam.
-4. Choose your workspace, review the permissions, and create the app.
+4. Review the permissions and create the app.
 5. In the app's **Agents** settings, turn on **Enable Slack MCP Server**. Sign-in will seem to work without this, but no tools will load.
 6. From **Basic Information**, copy the **Client ID** and **Client Secret** into OpenTeam. Use the client secret, not the signing secret.
 
@@ -30,11 +30,11 @@ Start with a read-only request:
 
 Set sending and posting tools to **Ask first** until you trust how a bot uses them. See [approvals and privacy](../configuration/approvals.md#control-plugin-access).
 
-The manifest requests the scopes for every Slack tool. To limit what bots can do, remove scopes in the Slack app, turn off the matching tools in OpenTeam, and reauthorize.
+To limit what bots can do in Slack, turn tools off or set them to **Deny** under **Manage → Accounts and settings**.
 
 ## Connect another workspace
 
-Choose **Add Another Account** and sign in to the other workspace. Slack apps belong to one workspace, so a different workspace usually needs its own app.
+Choose **Add Another Account** on the plugin's page, give the account a name, and sign in to the other workspace. Slack apps belong to one workspace, so a different workspace usually needs its own app. The new account starts with your first app's credentials. To use a second app, open **Manage → Accounts and settings**, select the new account, enter the app's client ID, set the client secret to **Replace** and paste the new secret, then choose **Save and authorize**.
 
 ## Fix common problems
 
@@ -45,4 +45,4 @@ Choose **Add Another Account** and sign in to the other workspace. Slack apps be
 | A channel is missing or a tool is denied | Check your own access to the channel, the app's scopes, and the bot's access |
 | Administrator approval required | Finish your workspace's app approval process, then try again |
 
-After changing the Slack app's permissions, choose **Reauthorize** under **Manage → Accounts and settings**.
+Keep all the scopes from the manifest in your Slack app. OpenTeam requests all of them when you sign in, so removing one can make sign-in fail.

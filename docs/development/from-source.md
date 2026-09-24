@@ -21,7 +21,7 @@ bun run db:generate
 cp .env.example .env
 ```
 
-In `.env`, replace `OPENTEAM_CONTROL_TOKEN`, `OPENTEAM_AUTH_SECRET`, and `OPENTEAM_PROXY_SECRET` with different random values. Generate each with `openssl rand -hex 32`. Set `OPENTEAM_TIME_ZONE` to your time zone. Don't commit `.env`.
+In `.env`, replace `OPENTEAM_CONTROL_TOKEN` and `OPENTEAM_AUTH_SECRET` with different random values. Generate each with `openssl rand -hex 32`. Set `OPENTEAM_TIME_ZONE` to your time zone. Don't commit `.env`.
 
 ## Start the server
 
@@ -58,6 +58,6 @@ bun run test
 bun run build
 ```
 
-You can also run the checks for just the package you're working on. `bun run check:architecture` checks package boundaries.
+`bun run check:architecture` checks package boundaries and other repository rules.
 
 The [contributor reference](../reference/development.md) covers the repository layout, database tests, desktop packaging, and releases.

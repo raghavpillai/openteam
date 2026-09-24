@@ -50,7 +50,7 @@ Choose **OpenRouter** and paste your API key. The model list shows the models yo
 
 You can connect any server that speaks one of these APIs: OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, or Google Generative AI. Bots rely on tool calling, so choose a model that supports it.
 
-The server must be reachable from the bots' computer, which runs in Docker. Inside Docker, `localhost` means the container, not your host. Use `host.docker.internal` to reach a server running on the host, such as [Ollama](https://ollama.com):
+The server must be reachable from the bots' computer, which runs in Docker. Inside Docker, `localhost` means the container, not your host. Use `host.docker.internal` to reach a server running on the host, such as [Ollama](https://ollama.com). On Linux, the server must listen on more than `127.0.0.1`; for Ollama, set `OLLAMA_HOST=0.0.0.0`.
 
 ```sh
 openteam provider add local --name "Local models" \
@@ -66,6 +66,6 @@ If your endpoint needs a key, leave out `--no-auth` and the CLI will ask for it.
 
 Run `openteam doctor` to send a test request to your model. A model can appear in the list and still fail if your account has no quota left.
 
-If your sign-in expires, reconnect in **Settings → Server** or run `openteam provider login`.
+If your sign-in expires, choose **Disconnect** and connect again in **Settings → Server**, or run `openteam provider login`.
 
 Web search and voice transcription use their own credentials. See [web search](web-search.md) and [voice notes](transcription.md).

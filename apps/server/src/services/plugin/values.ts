@@ -443,6 +443,7 @@ export function connectionView(
     oauthRedirectUrl:
       connection.authType === "oauth" ? (oauthCallbackMode(publicUrl, jsonObject(connection.configuration)) === "manual" ? MANUAL_OAUTH_REDIRECT : oauthRedirectUrl(publicUrl, connection.id)) : null,
     oauthCallbackMode: connectionCallbackMode(publicUrl, connection),
+    manualCallbackSupported: plugin?.connections.find(entry => entry.key === connection.connectorKey)?.oauth?.supportsLoopbackRedirect !== false,
     setupPhase: connectionSetupPhase(connection, plugin),
     oauthLoopbackPort: Number(jsonObject(connection.configuration).oauthLoopbackPort ?? 0),
     canAuthenticate: connection.authType === "oauth" || connection.authType === "token",

@@ -811,6 +811,7 @@ export interface PluginConnectionView {
   authorizationExpiresAt?: string | null;
   oauthRedirectUrl: string | null;
   oauthCallbackMode?: "desktop" | "server" | "manual";
+  manualCallbackSupported?: boolean;
   setupPhase?: "provider_setup_required" | "ready_to_authorize" | "ready_to_connect" | "authorization_pending" | "validation_failed" | "connected";
   oauthLoopbackPort?: number;
   canAuthenticate: boolean;

@@ -106,11 +106,13 @@ test.skipIf(!databaseUrl)(
         fixture.registerClient(id, redirectUrl ?? view.callbackUrl, "fixture-client-secret");
         await Effect.runPromise(
           service.configuration.save(id, {
-            values: { clientId: id },
+            // The compact desktop setup form previously submitted an empty scope.
+            values: { clientId: id, scope: "  " },
             secrets: { clientSecret: { action: "replace", value: "fixture-client-secret" } },
             ...(basic ? { tokenEndpointAuthMethod: "client_secret_basic" as const } : {}),
           })
         );
+        expect((await Effect.runPromise(service.configuration.get(id))).values.scope).toBe("read");
       };
       const authorize = async (id: string, account: string, expectDiscoveryFailure = false, context?: typeof desktop) => {
         const start = await Effect.runPromise(service.authenticate(id, false, context));

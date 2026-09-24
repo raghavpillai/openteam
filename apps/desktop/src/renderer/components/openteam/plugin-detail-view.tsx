@@ -417,6 +417,7 @@ function PluginSetupCard({
   if (!setup || pluginAuthorization(connection)) return null;
 
   const ready = connection.status === "ready";
+  const requiresHttps = connection.oauthCallbackMode === "manual" && connection.manualCallbackSupported === false;
   const missingRequired = setup.fields.some(
     (field) => field.required && !values[field.key]?.trim()
   );
@@ -435,7 +436,7 @@ function PluginSetupCard({
       onConfigureOAuth({
         clientId: values.clientId?.trim() ?? "",
         clientSecret: values.clientSecret ?? "",
-        scope: values.scope?.trim() ?? "",
+        scope: values.scope?.trim() || setup.requiredScopes.join(" "),
       });
       return;
     }
@@ -519,7 +520,11 @@ function PluginSetupCard({
             </ol>
           ) : null}
 
-          {setup.kind === "oauth_client" && connection.oauthRedirectUrl ? (
+          {requiresHttps ? (
+            <p className="mt-3 text-[10px] leading-4 text-foreground-secondary">
+              This provider requires an HTTPS OpenTeam address. Configure Tailscale Serve or your own HTTPS domain before signing in. Callback paste is not supported.
+            </p>
+          ) : setup.kind === "oauth_client" && connection.oauthRedirectUrl ? (
             <div className="mt-3 rounded-[8px] border border-black/[0.06] bg-background px-3 py-2.5 dark:border-white/[0.08] dark:bg-black/15">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-[9.5px] font-medium uppercase tracking-[0.04em] text-foreground-tertiary">
@@ -542,7 +547,11 @@ function PluginSetupCard({
                 {connection.oauthRedirectUrl}
               </code>
               {<p className="mt-2 text-[10px] leading-4 text-foreground-secondary">
-                {connection.oauthCallbackMode === "manual" ? "Your server uses HTTP. For Google, create a Desktop app OAuth client. Approve access in your browser, then paste the complete callback URL into OpenTeam on this device." : "Register this exact URL with your provider’s Web application OAuth client. HTTPS sign-in returns automatically on desktop or iOS."}
+                {connection.oauthCallbackMode === "manual"
+                  ? ["gmail", "google-calendar", "google-drive"].includes(plugin.key)
+                    ? "Your server uses HTTP. For Google, create a Desktop app OAuth client. Approve access in your browser, then paste the complete callback URL into OpenTeam on this device."
+                    : "Approve access in your browser, then paste the complete callback URL into OpenTeam on this device, even if the localhost page cannot load."
+                  : "Register this exact URL with your provider’s Web application OAuth client. HTTPS sign-in returns automatically on desktop or iOS."}
               </p>}
             </div>
           ) : null}
@@ -606,12 +615,12 @@ function PluginSetupCard({
           ) : null}
           <button
             className={cn(primaryButton, "mt-3")}
-            disabled={busy || (!connection.configured && missingRequired)}
+            disabled={busy || requiresHttps || (!connection.configured && missingRequired)}
             onClick={submit}
             type="button"
           >
             {busy ? <LoaderCircle className="size-3 animate-spin" /> : null}
-            {actionLabel}
+            {requiresHttps ? "HTTPS required" : actionLabel}
           </button>
           <button className={cn(secondaryButton, "ml-2")} type="button" disabled={busy} onClick={onDismiss}>Set up later</button>
         </div>

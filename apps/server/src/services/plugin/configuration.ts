@@ -126,11 +126,18 @@ export class PluginConfiguration {
 
   save = (id: string, input: PluginConfigurationInput) =>
     serviceEffect(async () => {
-      const { connection, fields, plugin } = await this.connection(id);
+      const { connection, fields, plugin, connector } = await this.connection(id);
       const config = { ...jsonObject(connection.configuration) };
       const credentials = { ...jsonObject(connection.credentials) };
       if (input.values) {
         const validated = validateValues(fields, input.values, false);
+        // Compact setup clients can submit an empty advanced scope field. Keep the
+        // installed provider's required scopes instead of generating invalid OAuth.
+        const setup = connector?.setup ??
+          (plugin?.setup?.connectionKey === connection.connectorKey ? plugin.setup : null);
+        if (typeof validated.scope === "string" && !validated.scope.trim() && setup?.requiredScopes.length) {
+          validated.scope = setup.requiredScopes.join(" ");
+        }
         const publicValues = { ...jsonObject(config.values) };
         const secretValues = { ...stringRecord(credentials.values) };
         for (const [key, value] of Object.entries(validated)) {

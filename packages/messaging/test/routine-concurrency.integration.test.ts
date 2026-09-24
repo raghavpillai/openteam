@@ -31,12 +31,18 @@ describe.skipIf(!db)("routine database concurrency and dispatch isolation", () =
     const wakes: any[] = [];
     const service = new RoutineService(db!, {
       defaultTimeZone: "UTC",
-      enqueueWake: async () => { throw new Error("Group routines must enter the room"); },
+      enqueueWake: async () => {
+        throw new Error("Group routines must enter the room");
+      },
       createGroupRound: async (tx, input) => {
-        const seed = await tx.channelMessage.findUniqueOrThrow({ where: { id: input.triggerMessageId } });
+        const seed = await tx.channelMessage.findUniqueOrThrow({
+          where: { id: input.triggerMessageId },
+        });
         wakes.push(seed);
         await onWake?.(seed);
-        return tx.channelRound.create({ data: { channelId, triggerMessageId: seed.id, rootMessageId: seed.id } });
+        return tx.channelRound.create({
+          data: { channelId, triggerMessageId: seed.id, rootMessageId: seed.id },
+        });
       },
       advanceRound: async () => {},
     });
@@ -92,6 +98,32 @@ describe.skipIf(!db)("routine database concurrency and dispatch isolation", () =
     }
   });
 
+  test("concurrent creation retries save only one routine for each request", async () => {
+    const f = await fixture();
+    try {
+      const callId = randomUUID();
+      const input = {
+        action: "create" as const,
+        name: "Retried routine",
+        prompt: "Run once",
+        schedule: "@every 5m",
+        enabled: false,
+      };
+      const replies = await Promise.all(
+        Array.from({ length: 6 }, () => f.service.mutateOwner(f.owner, callId, null, input))
+      );
+      expect(new Set(replies.map((reply) => reply.id)).size).toBe(1);
+      expect(await db!.routine.count({ where: { channelId: f.channelId, name: input.name } })).toBe(
+        1
+      );
+      expect(await db!.routineRevision.count({ where: { callId } })).toBe(1);
+      const restarted = new RoutineService(db!, { defaultTimeZone: "UTC" } as never);
+      expect((await restarted.mutateOwner(f.owner, callId, null, input)).id).toBe(replies[0]!.id);
+    } finally {
+      await f.cleanup();
+    }
+  });
+
   test("manual calls by slug and UUID share the same overlap gate", async () => {
     let entered!: () => void, release!: () => void;
     const first = new Promise<void>((resolve) => (entered = resolve));
@@ -115,6 +147,30 @@ describe.skipIf(!db)("routine database concurrency and dispatch isolation", () =
       await f.cleanup();
     }
   });
+
+  test("a cron routine catches up after a month offline without timing out its transaction", async () => {
+    const f = await fixture();
+    try {
+      await f.service.mutateOwner(f.owner, randomUUID(), null, {
+        action: "update",
+        id: String(f.routine.id),
+        schedule: "*/5 * * * *",
+      });
+      const now = new Date("2026-09-24T10:02:30Z");
+      const missed = new Date("2026-08-24T10:00:00Z");
+      await f.due(missed);
+      expect(await f.service.dispatchDue(now)).toBe(1);
+      expect(f.wakes).toHaveLength(1);
+      expect(
+        (await db!.routine.findUniqueOrThrow({ where: { id: String(f.routine.id) } })).nextRunAt
+      ).toEqual(new Date("2026-09-24T10:05:00Z"));
+      expect(
+        await db!.routineExecution.findMany({ where: { routineId: String(f.routine.id) } })
+      ).toMatchObject([{ status: "queued", scheduledFor: missed }]);
+    } finally {
+      await f.cleanup();
+    }
+  }, 45_000);
 
   test("one unavailable group executor cannot starve other due routines", async () => {
     const bad = await fixture(),

@@ -1256,6 +1256,9 @@ export class AgentMessaging {
   }
 
   async enqueueBootstrap(tx: Prisma.TransactionClient, botId: string, channelId: string) {
+    // Provisioning, recovery, and the user's first message share this row lock.
+    // Read onboarding/queue state only after concurrent provisioning commits.
+    await tx.$queryRaw`SELECT "id" FROM "Bot" WHERE "id" = ${botId} FOR UPDATE`;
     const bot = await tx.bot.findUnique({
       where: { id: botId },
       include: { conversation: true },
@@ -1320,7 +1323,8 @@ export class AgentMessaging {
   }
 
   async skipBootstrapForUser(tx: Prisma.TransactionClient, botId: string): Promise<string | null> {
-    const bot = await tx.bot.findUnique({ where: { id: botId } });
+    const [bot] = await tx.$queryRaw<Array<{ onboardingStatus: string }>>`
+      SELECT "onboardingStatus" FROM "Bot" WHERE "id" = ${botId} FOR UPDATE`;
     if (!bot || !["pending", "queued", "running"].includes(bot.onboardingStatus)) return null;
     const pending = await tx.inboxEvent.findMany({
       where: {

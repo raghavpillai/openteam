@@ -364,9 +364,9 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       })
     )) as { run: { id: string } };
     const secondSnapshot = await waitFor(second.run.id);
-    expect(seenTurns.map((turn) => turn.sessionPath)).toEqual([
-      null,
-      `/var/lib/openteam/pi/${firstSeenTurn.contextSessionId}.jsonl`,
+    expect(seenTurns.map((turn) => ({ sessionPath: turn.sessionPath, content: turnBody(turn.content) }))).toEqual([
+      { sessionPath: null, content: "first" },
+      { sessionPath: `/var/lib/openteam/pi/${firstSeenTurn.contextSessionId}.jsonl`, content: "second" },
     ]);
     expect(preflightContexts).toEqual(seenTurns.map((turn) => turn.contextSessionId));
     expect(seenTurns[1]?.cwd).toBe(bot.defaultDirectory);
@@ -690,6 +690,11 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
 
     onTurn = async (input) => {
       if (input.channelId !== group.id) return;
+      const delivery = input.deliveryId ? await app!.prisma.channelDelivery.findUnique({
+        where: { id: input.deliveryId }, select: { roundId: true },
+      }) : null;
+      // Follow-up peer rounds can start before the first-round assertions run.
+      if (delivery?.roundId !== accepted.round.id) return;
       if (input.botId === bot.id) {
         await Effect.runPromise(
           app!.handleDynamicTool({
@@ -762,7 +767,10 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     }, "ordered group round");
 
     const groupSnapshot = await Effect.runPromise(app.snapshot());
-    const groupTurns = seenTurns.filter((turn) => turn.channelId === group.id);
+    const firstRoundDeliveries = new Set((await app.prisma.channelDelivery.findMany({
+      where: { roundId: accepted.round.id }, select: { id: true },
+    })).map(delivery => delivery.id));
+    const groupTurns = seenTurns.filter((turn) => turn.deliveryId && firstRoundDeliveries.has(turn.deliveryId));
     expect(groupTurns.map((turn) => turn.botId)).toEqual([bot.id, peer.id, reviewer.id]);
     expect(
       groupTurns.every((turn) => turn.content.includes("Room: Coordinate ordered parity checks."))
@@ -790,8 +798,9 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
         .map((message) => message.content)
     ).toEqual([
       "Give one compact status line.",
-      `Group answer from ${bot.id}`,
       "This arrived after the round trigger and belongs to the next round.",
+      // Group replies publish at turn completion, after the intervening input.
+      `Group answer from ${bot.id}`,
       `Group answer from ${peer.id}`,
       `Group answer from ${reviewer.id}`,
     ]);

@@ -16,6 +16,7 @@ test("discovered file tools move real box bytes over the private bridge and retu
     hostname: "127.0.0.1",
     port: 0,
     async fetch(request) {
+      if (request.method !== "POST") return new Response(null, { status: 404 });
       expect(request.headers.get("authorization")).toBe("Bearer synthetic-control");
       const streaming=new URL(request.url).pathname.endsWith("/connector-transfer");
       const body = streaming ? JSON.parse(Buffer.from(request.headers.get("x-openteam-transfer")!,"base64url").toString()) : await request.json() as any;

@@ -299,11 +299,22 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
         clientId: "a2a-contract-group-turn",
       })
     )) as { run: { id: string } };
+    const boundRoot = await app.prisma.channelMessage.create({ data: {
+      channelId: groupId, sender: "user", content: "Synthetic bound group-turn run.", clientId: crypto.randomUUID(),
+    } });
+    const boundRound = await app.prisma.channelRound.create({ data: {
+      channelId: groupId, triggerMessageId: boundRoot.id, rootMessageId: boundRoot.id,
+      deliveries: { create: { botId: source.id, ordinal: 0, status: "processing" } },
+    }, include: { deliveries: true } });
+    const boundDeliveryId = boundRound.deliveries[0]!.id;
+    await app.prisma.run.update({ where: { id: groupTurn.run.id }, data: {
+      deliveryId: boundDeliveryId, channelId: groupId, status: "running",
+    } });
     const groupTurnContext = {
       ...context,
       runId: groupTurn.run.id,
       channelId: groupId,
-      deliveryId: crypto.randomUUID(),
+      deliveryId: boundDeliveryId,
     };
     expect(
       await app.messaging.sendVisible(

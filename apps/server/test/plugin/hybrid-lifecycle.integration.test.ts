@@ -39,6 +39,8 @@ test.skipIf(!databaseUrl)(
       const connection = await prisma.pluginConnection.findFirstOrThrow({
         where: { installation: { pluginKey: definition.key } },
       });
+      // This protocol fixture receives a server callback, not a desktop/manual handoff.
+      await Effect.runPromise(service.configuration.save(connection.id, { oauthCallbackMode: "server" }));
       const authorize = async (fail = false) => {
         const started = await Effect.runPromise(service.authenticate(connection.id));
         const approval = new URL(started.authorizationUrl);
@@ -69,7 +71,7 @@ test.skipIf(!databaseUrl)(
       await expect(authorize(true)).rejects.toThrow();
       expect(
         (await prisma.pluginConnection.findUniqueOrThrow({ where: { id: connection.id } })).status
-      ).toBe("needs_auth");
+      ).toBe("error");
       expect(
         (await Effect.runPromise(service.management.package(definition.key))).skillSyncStatus
       ).toBe("ready");

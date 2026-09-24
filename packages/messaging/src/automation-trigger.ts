@@ -233,7 +233,9 @@ const validateGroup = (listeners: Array<Record<string, unknown>>): Record<string
 export const parseStoredTrigger = (input: unknown): Record<string, unknown> => {
   if (Array.isArray(input)) {
     if (input.length === 0) throw new Error("group trigger must contain at least one listener");
-    const listeners = input.slice(0, MAX_GROUP_TRIGGERS).map(parseStoredTrigger);
+    if (input.length > MAX_GROUP_TRIGGERS)
+      throw new Error(`group trigger may contain at most ${MAX_GROUP_TRIGGERS} listeners`);
+    const listeners = input.map(parseStoredTrigger);
     if (listeners.some((listener) => listener.type === "group")) {
       throw new Error("group triggers may not contain another group");
     }
@@ -246,7 +248,9 @@ export const parseStoredTrigger = (input: unknown): Record<string, unknown> => {
     if (!Array.isArray(raw) || raw.length === 0) {
       throw new Error("group trigger must contain at least one listener");
     }
-    const listeners = raw.slice(0, MAX_GROUP_TRIGGERS).map(parseStoredTrigger);
+    if (raw.length > MAX_GROUP_TRIGGERS)
+      throw new Error(`group trigger may contain at most ${MAX_GROUP_TRIGGERS} listeners`);
+    const listeners = raw.map(parseStoredTrigger);
     if (listeners.some((listener) => listener.type === "group")) {
       throw new Error("group triggers may not contain another group");
     }

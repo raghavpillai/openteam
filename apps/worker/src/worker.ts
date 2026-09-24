@@ -1019,10 +1019,15 @@ export class WakeWorker {
     const staleAt = new Date(Date.now() - LEASE_MS);
     try {
       return await this.prisma.$transaction(async (tx) => {
-        await tx.botRunLease.deleteMany({
-          where: { botId, expiresAt: { lt: new Date() } },
-        });
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`bot-run-claim:${botId}`}))`;
+        // A crash can land between the terminal run event and lease cleanup.
+        // Such a lease must not block fresh input until its heartbeat expires.
+        await tx.botRunLease.deleteMany({
+          where: { botId, OR: [
+            { expiresAt: { lt: new Date() } },
+            { run: { status: { in: ["completed", "failed", "cancelled", "interrupted"] } } },
+          ] },
+        });
         const existingLeases = await tx.botRunLease.findMany({ where: { botId } });
         const foregroundBusy = existingLeases.some(lease => lease.scope === "foreground");
         const automations = existingLeases.filter(lease => lease.scope.startsWith("automation:"));

@@ -39,6 +39,7 @@ import {
 import type { ComputerInferenceRequest } from "@openteam/contracts/service-protocol";
 import { Prisma, type PrismaClient } from "@openteam/db";
 import { type FSWatcher, watch } from "chokidar";
+import { snapshotWatchedFiles } from "./file-watch-snapshot";
 import { parseDocument } from "yaml";
 import {
   deleteAutomationFolder,
@@ -115,7 +116,7 @@ const MAX_MATERIALIZED_ATTACHMENT_BYTES = 200 * 1024 * 1024;
 const ATTACHMENT_COPY_CHUNK_BYTES = 1024 * 1024;
 const MAX_AGENT_ATTACHMENT_PATH_CACHE_ENTRIES = 1_024;
 const UUID_FOLDER = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const SQLITE_RUNTIME_FILE = /(?:^|\/)(?:store|conversation-blobs)\.db(?:-(?:wal|shm))?$/;
+const SQLITE_RUNTIME_FILE = /(?:^|\/)(?:store|conversation-blobs)\.db(?:-(?:wal|shm|journal))?$/;
 const BOX_STORE_RUNTIME_FILE = /(?:^|\/)\.box-store-/;
 
 const privateRuntimePath = (path: string): boolean => {
@@ -865,6 +866,9 @@ export class AgentDataStore {
   readonly workspaceRoot: string;
   readonly assetRoot: string;
   private watcher: FSWatcher | null = null;
+  private watcherStarting: Promise<void> | null = null;
+  private watcherScanTimer: ReturnType<typeof setInterval> | null = null;
+  private watcherScan: Promise<void> | null = null;
   private readonly pendingDreamingEvidence = new Map<string, PendingDreamingAgent>();
   private readonly pendingIdentityAnnouncements = new Map<string, PendingIdentityAnnouncement>();
   private readonly watcherTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -1839,10 +1843,17 @@ export class AgentDataStore {
     });
   }
 
-  async startWatching(): Promise<void> {
-    if (this.watcher) return;
+  startWatching(): Promise<void> {
+    if (this.watcherStarting) return this.watcherStarting;
+    if (this.watcher) return Promise.resolve();
+    this.watcherStarting = this.openWatcher().finally(() => { this.watcherStarting = null; });
+    return this.watcherStarting;
+  }
+
+  private async openWatcher(): Promise<void> {
     await this.ensureRuntimeDirectories();
     try {
+      let snapshot = await snapshotWatchedFiles(this.root, privateRuntimePath);
       this.watcher = watch(this.root, {
         ignoreInitial: true,
         // The root-owned computer runtime maintains these private projections.
@@ -1859,7 +1870,7 @@ export class AgentDataStore {
         ],
         awaitWriteFinish: { stabilityThreshold: 50, pollInterval: 10 },
       });
-      this.watcher.on("all", (_event, path) => {
+      const onFileChange = (_event: string, path: string) => {
         const normalized = relative(this.root, path).split(sep).join("/");
         if (privateRuntimePath(normalized)) return;
         const globalSkillScope = ["workflows", "managed-skills", "plugin-skills"].find((scope) =>
@@ -1914,8 +1925,44 @@ export class AgentDataStore {
             void task.then(() => this.watcherTasks.delete(task));
           }, 50)
         );
-      });
+      };
+      this.watcher.on("all", onFileChange);
       this.watcher.on("error", (error) => console.warn("agent-data watcher", error));
+      // With ignoreInitial, edits made during Chokidar's initial scan can be
+      // mistaken for initial contents and never emitted. Callers may edit as
+      // soon as this method resolves, so wait until subscriptions are ready.
+      const watcher = this.watcher;
+      await new Promise<void>((resolveReady, rejectReady) => {
+        const ready = () => {
+          watcher.off("error", failed);
+          resolveReady();
+        };
+        const failed = (error: unknown) => {
+          watcher.off("ready", ready);
+          rejectReady(error);
+        };
+        watcher.once("ready", ready);
+        watcher.once("error", failed);
+      });
+      // Native notifications (and watchFile polling) can silently miss changes.
+      // Compare metadata as a backstop; unchanged stores do no database work.
+      this.watcherScanTimer = setInterval(() => {
+        if (this.watcherScan) return;
+        this.watcherScan = snapshotWatchedFiles(this.root, privateRuntimePath)
+          .then((next) => {
+            if (this.watcher !== watcher) return;
+            for (const [path, signature] of next) {
+              if (snapshot.get(path) !== signature) onFileChange("change", path);
+            }
+            for (const path of snapshot.keys()) {
+              if (!next.has(path)) onFileChange("unlink", path);
+            }
+            snapshot = next;
+          })
+          .catch((error) => console.warn("agent-data watcher reconciliation", error))
+          .finally(() => { this.watcherScan = null; });
+      }, 1_000);
+      this.watcherScanTimer.unref();
     } catch (error) {
       console.warn("agent-data recursive watch unavailable; turn-start scans remain active", error);
     }
@@ -1961,8 +2008,12 @@ export class AgentDataStore {
   }
 
   async stopWatching(): Promise<void> {
+    await this.watcherStarting;
+    if (this.watcherScanTimer) clearInterval(this.watcherScanTimer);
+    this.watcherScanTimer = null;
     const watcher = this.watcher;
     this.watcher = null;
+    await this.watcherScan;
     if (watcher) await watcher.close();
     for (const timer of this.watcherTimers.values()) clearTimeout(timer);
     this.watcherTimers.clear();

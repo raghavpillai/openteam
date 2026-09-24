@@ -97,7 +97,9 @@ databaseTest(
       );
       expect(changed.sections.memory).toBe(first.liveMemoryRender);
       expect(changed.update).toContain("Lives in NYC.");
-      expect(changed.update).not.toContain("Lives in Boston.");
+      // Changes are a diff: the removed fact must be marked as a deletion.
+      expect(changed.update).toMatch(/^-.*Lives in Boston\./m);
+      expect(changed.update).toMatch(/^\+.*Lives in NYC\./m);
       const undelivered = await store.preparePlatformSections(
         botId,
         contextId,

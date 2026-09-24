@@ -10,17 +10,20 @@ export class PluginInvocations {
     private readonly prisma: PrismaClient,
     private readonly executeInvocation: PluginTransport["executeInvocation"]
   ) {}
-  invoke = async (request: {
-    connectionId: string;
-    namespace?: string;
-    botId: string;
-    runId: string;
-    callId: string;
-    toolName: string;
-    arguments: unknown;
-    mcpDetails?: unknown;
-    allowReviewUI?: boolean;
-  }, reviewedByUser = false): Promise<unknown> => {
+  invoke = async (
+    request: {
+      connectionId: string;
+      namespace?: string;
+      botId: string;
+      runId: string;
+      callId: string;
+      toolName: string;
+      arguments: unknown;
+      mcpDetails?: unknown;
+      allowReviewUI?: boolean;
+    },
+    reviewedByUser = false
+  ): Promise<unknown> => {
     const connection = await this.prisma.pluginConnection.findUnique({
       where: { id: request.connectionId },
       include: {
@@ -29,10 +32,22 @@ export class PluginInvocations {
         policies: { where: { OR: [{ botId: request.botId }, { botId: null }] } },
       },
     });
-    if (!connection || (connection.installation.status !== "installed" || connection.installation.mode === "disabled")) {
+    if (
+      !connection ||
+      connection.installation.status !== "installed" ||
+      connection.installation.mode === "disabled"
+    ) {
       throw new ApiError(404, "plugin_connection_unavailable", "Plugin connection is unavailable");
     }
-    if (request.namespace && request.namespace !== connectionNamespace(connection.id,connection.alias)) throw new ApiError(409,"plugin_identifier_stale","This account was renamed. Re-run GetMcpServerStatus or GetDynamicTools before calling its tools again.");
+    if (
+      request.namespace &&
+      request.namespace !== connectionNamespace(connection.id, connection.alias)
+    )
+      throw new ApiError(
+        409,
+        "plugin_identifier_stale",
+        "This account was renamed. Re-run GetMcpServerStatus or GetDynamicTools before calling its tools again."
+      );
     if (connection.status !== "ready") {
       throw new ApiError(409, "plugin_connection_not_ready", "Plugin connection is not ready");
     }
@@ -43,51 +58,83 @@ export class PluginInvocations {
       (candidate) => candidate.name === request.toolName
     );
     if (!tool) throw new ApiError(404, "plugin_tool_not_found", "Plugin tool not found");
-    const policy = effectiveToolPolicy(connection.policies, request.toolName, request.botId, tool.defaultDecision);
+    const policy = effectiveToolPolicy(
+      connection.policies,
+      request.toolName,
+      request.botId,
+      tool.defaultDecision
+    );
     const configuredDecision = policy.enabled ? policy.decision : "deny";
-    const decision = reviewedByUser && configuredDecision === "prompt" ? "allow" : configuredDecision;
+    const decision =
+      reviewedByUser && configuredDecision === "prompt" ? "allow" : configuredDecision;
     validateJsonSchema(tool.inputSchema, request.arguments);
 
-    const previous = await this.prisma.pluginInvocation.findUnique({
-      where: { callId: request.callId },
-    });
-    if (previous?.status === "completed") return previous.result;
-    if (previous) {
-      throw new ApiError(409, "plugin_call_replayed", `Plugin call is already ${previous.status}`);
-    }
-    if (decision === "prompt" && request.allowReviewUI === false) {
-      throw new ApiError(409, "automation_parent_review_required", "This connector action needs parent review. Report the verified account, action and arguments to your parent. An automation should hand this off with WakeParent; a delegated worker should include it in its final report.");
-    }
-    if (decision === "prompt") {
-      const pendingApprovals = await this.prisma.approval.findMany({
-        where: { runId: request.runId, requestMethod: "plugin/tool", status: "pending" },
-        select: { details: true },
+    const prepared = await this.prisma.$transaction(async (tx) => {
+      // Claim the request and the run's review slot together. Model tool calls
+      // may arrive in parallel, including retries served by different workers.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`plugin-call:${request.callId}`}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`plugin-review:${request.runId}`}))`;
+      const previous = await tx.pluginInvocation.findUnique({
+        where: { callId: request.callId },
       });
-      const duplicate = pendingApprovals.some(({ details: value }) => {
-        const details = jsonObject(value);
-        return (
-          details.connectionId === request.connectionId &&
-          details.toolName === request.toolName &&
-          canonicalJson(details.arguments) === canonicalJson(redact(request.arguments))
-        );
-      });
-      if (duplicate) {
+      if (
+        previous &&
+        (previous.connectionId !== request.connectionId ||
+          previous.botId !== request.botId ||
+          previous.runId !== request.runId ||
+          previous.toolName !== request.toolName)
+      ) {
         throw new ApiError(
           409,
-          "plugin_approval_required",
-          "This exact plugin tool call is already waiting for one-time approval."
+          "plugin_call_conflict",
+          "This call ID belongs to another bot, run, account, or tool"
         );
       }
-      if (pendingApprovals.length > 0) {
+      if (previous?.status === "completed")
+        return { completed: true as const, result: previous.result };
+      if (previous) {
         throw new ApiError(
           409,
-          "plugin_approval_pending",
-          "Resolve the pending approval before starting another plugin side effect."
+          "plugin_call_replayed",
+          `Plugin call is already ${previous.status}`
         );
       }
-    }
-    if (decision !== "allow") {
-      await this.prisma.$transaction(async (tx) => {
+      if (decision === "prompt" && request.allowReviewUI === false) {
+        throw new ApiError(
+          409,
+          "automation_parent_review_required",
+          "This connector action needs parent review. Report the verified account, action and arguments to your parent. An automation should hand this off with WakeParent; a delegated worker should include it in its final report."
+        );
+      }
+      if (decision === "prompt") {
+        const pendingApprovals = await tx.approval.findMany({
+          where: { runId: request.runId, requestMethod: "plugin/tool", status: "pending" },
+          select: { details: true },
+        });
+        const duplicate = pendingApprovals.some(({ details: value }) => {
+          const details = jsonObject(value);
+          return (
+            details.connectionId === request.connectionId &&
+            details.toolName === request.toolName &&
+            canonicalJson(details.arguments) === canonicalJson(redact(request.arguments))
+          );
+        });
+        if (duplicate) {
+          throw new ApiError(
+            409,
+            "plugin_approval_required",
+            "This exact plugin tool call is already waiting for one-time approval."
+          );
+        }
+        if (pendingApprovals.length > 0) {
+          throw new ApiError(
+            409,
+            "plugin_approval_pending",
+            "Resolve the pending approval before starting another plugin side effect."
+          );
+        }
+      }
+      if (decision !== "allow") {
         await tx.pluginInvocation.create({
           data: {
             callId: request.callId,
@@ -134,11 +181,31 @@ export class PluginInvocations {
             },
           });
           await appendEvent(tx, "plugin.approval.requested", approval.id, {
-            approvalId: approval.id, runId: request.runId, botId: request.botId,
-            connectionId: request.connectionId, toolName: request.toolName,
+            approvalId: approval.id,
+            runId: request.runId,
+            botId: request.botId,
+            connectionId: request.connectionId,
+            toolName: request.toolName,
           });
         }
+        return { completed: false as const };
+      }
+
+      await tx.pluginInvocation.create({
+        data: {
+          callId: request.callId,
+          connectionId: request.connectionId,
+          botId: request.botId,
+          runId: request.runId,
+          toolName: request.toolName,
+          decision,
+          arguments: toJson(request.arguments),
+        },
       });
+      return { completed: false as const };
+    });
+    if (prepared.completed) return prepared.result;
+    if (decision !== "allow") {
       throw new ApiError(
         decision === "prompt" ? 409 : 403,
         decision === "prompt" ? "plugin_approval_required" : "plugin_tool_denied",
@@ -147,18 +214,6 @@ export class PluginInvocations {
           : "This plugin tool is denied by policy."
       );
     }
-
-    await this.prisma.pluginInvocation.create({
-      data: {
-        callId: request.callId,
-        connectionId: request.connectionId,
-        botId: request.botId,
-        runId: request.runId,
-        toolName: request.toolName,
-        decision,
-        arguments: toJson(request.arguments),
-      },
-    });
     return this.executeInvocation(request.callId);
   };
 

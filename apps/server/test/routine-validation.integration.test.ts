@@ -75,11 +75,47 @@ test.skipIf(!databaseUrl)(
           schedule: "@every 5m",
           enabled: false,
         };
-        const created = await request("POST", path, input);
+        const clientId = crypto.randomUUID();
+        const created = await request("POST", path, { ...input, clientId });
         expect(created.status).toBe(201);
         const { id } = (await created.json()) as { id: string };
         const original = await app.prisma.routine.findUniqueOrThrow({ where: { id } });
         const initialCount = await app.prisma.routine.count();
+        const retries = await Promise.all(
+          Array.from({ length: 6 }, () => request("POST", path, { ...input, clientId }))
+        );
+        for (const retry of retries) {
+          expect(retry.status).toBe(201);
+          expect(await retry.json()).toMatchObject({ id });
+        }
+        expect(await app.prisma.routine.count()).toBe(initialCount);
+
+        for (const trigger of [
+          { type: "unknown" },
+          { type: "group", listeners: [] },
+          { type: "cron" },
+          {
+            type: "group",
+            listeners: Array.from({ length: 9 }, () => ({ type: "cron", schedule: "@daily" })),
+          },
+        ]) {
+          for (const [method, target] of [
+            ["POST", path],
+            ["PATCH", `/api/routines/${id}`],
+          ] as const) {
+            const rejected = await request(method, target, {
+              ...input,
+              schedule: undefined,
+              trigger,
+            });
+            expect(rejected.status).toBe(400);
+            expect(await rejected.json()).toMatchObject({
+              error: { code: "invalid_routine_trigger" },
+            });
+          }
+          expect(await app.prisma.routine.count()).toBe(initialCount);
+          expect(await app.prisma.routine.findUniqueOrThrow({ where: { id } })).toEqual(original);
+        }
 
         for (const schedule of [
           "@every 1m",

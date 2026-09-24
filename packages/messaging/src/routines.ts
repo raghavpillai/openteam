@@ -429,11 +429,22 @@ export const normalizeRoutineMutationTrigger = (
   input: { schedule?: string; trigger?: unknown },
   installationZone: string
 ): { trigger: Record<string, unknown>; schedule: StoredSchedule } => {
+  const parseTrigger = (value: unknown) => {
+    try {
+      return parseStoredTrigger(value);
+    } catch (error) {
+      throw new ApiError(
+        400,
+        "invalid_routine_trigger",
+        error instanceof Error ? error.message : "Invalid routine trigger"
+      );
+    }
+  };
   const trigger =
     input.schedule !== undefined
       ? { type: "cron", schedule: required(input.schedule, "schedule") }
       : input.trigger
-        ? parseStoredTrigger(input.trigger)
+        ? parseTrigger(input.trigger)
         : { type: "cron", schedule: required(input.schedule, "schedule") };
 
   const cronSchedule = firstCronSchedule(trigger);
@@ -1064,6 +1075,13 @@ export class RoutineService {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${owner.id}`}))`;
       }
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine-owner:${owner.kind}:${owner.id}`}))`;
+      // The owner lock also serializes retried creation requests across servers.
+      // Keep the original ID even when the routine was subsequently edited/deleted.
+      const previous = await tx.routineRevision.findFirst({
+        where: { callId, revision: 1, routine: routineOwnerWhere(owner) },
+        include: { routine: true },
+      });
+      if (previous) return { ...view(previous.routine), action: "create", created: true };
       const ownerAvailable =
         owner.kind === "bot"
           ? (await tx.bot.count({ where: { id: owner.id, status: "active" } })) > 0
@@ -1403,10 +1421,18 @@ export class RoutineService {
         const owner = routineOwnerFrom(routine);
         const statusSnapshot =
           owner.kind === "bot" ? await routineStatusSnapshot(tx, owner.id, routine.timezone) : [];
+        // Cron occurrences are wall-clock anchored. Jump over downtime rather
+        // than parsing every missed tick inside the database transaction.
+        // Relative intervals retain their existing scheduled-time anchor.
+        const hasElapsedInterval =
+          routine.scheduleKind === "interval" ||
+          cronSchedules(routine.trigger as Record<string, unknown>).some((schedule) =>
+            /^@every\s/i.test(schedule)
+          );
         let nextRunAt = nextRoutineTriggerRun(
           routine.trigger as Record<string, unknown>,
           routine,
-          scheduledFor,
+          hasElapsedInterval ? scheduledFor : now,
           this.installationZone
         );
         while (nextRunAt <= now) {

@@ -13,7 +13,7 @@ test('template versions stay private until reviewed; feedback respects privacy, 
  const data = new AgentDataStore(prisma, { root: join(root, 'data'), workspaceRoot: root });
  const messaging = new AgentMessaging(prisma, { send: async () => crypto.randomUUID(), sendDebounced: async () => crypto.randomUUID() } as never, data);
  const imported: unknown[] = []; const service = new ReviewActionService(prisma, messaging, { create: (input: unknown, recipe: unknown) => { imported.push({ input, recipe }); return Effect.succeed({ id: 'imported-bot' }); } } as never);
- const deliveries: unknown[] = []; const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) { deliveries.push(await request.json()); return Response.json({ accepted: true }); } });
+ const deliveries: unknown[] = []; const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) { if (request.method !== 'POST') return new Response(null, { status: 404 }); deliveries.push(await request.json()); return Response.json({ accepted: true }); } });
  const keys = ['OPENTEAM_FEEDBACK_ALLOW_AGENT', 'OPENTEAM_FEEDBACK_URL', 'OPENTEAM_PUBLIC_TEMPLATES', 'OPENTEAM_TEMPLATE_SHARING'] as const; const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
  try {
   await prisma.bot.create({ data: { id: botId, name: 'Review fixture', defaultDirectory: root, status: 'active', onboardingStatus: 'completed', conversation: { create: { id: conversationId } } } });

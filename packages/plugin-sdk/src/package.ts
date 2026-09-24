@@ -34,6 +34,25 @@ function skillFromFile(path: string, text: string) {
   };
 }
 
+/** Cursor packages use both package-root and manifest-relative MCP paths. */
+function mcpFilePath(path: string, manifestPath: string, files: Record<string, string>): string {
+  if (!path.startsWith("../")) {
+    const rootPath = safePackagePath(path);
+    if (files[rootPath] !== undefined) return rootPath;
+  }
+  if (path.startsWith("/") || /[\\\x00-\x1f:]/.test(path))
+    throw new Error(`Unsafe package path: ${path}`);
+  const parts = manifestPath.split("/").slice(0, -1);
+  for (const part of path.split("/")) {
+    if (part === ".") continue;
+    if (part === "..") {
+      if (!parts.length) throw new Error(`Unsafe package path: ${path}`);
+      parts.pop();
+    } else parts.push(part);
+  }
+  return safePackagePath(parts.join("/"));
+}
+
 export function importPackage(files: Record<string, string>): PackagePreview {
   validatePackageFiles(files);
   const manifestPath = files["plugin.json"]
@@ -63,7 +82,11 @@ export function importPackage(files: Record<string, string>): PackagePreview {
       ...definition.files,
       ...Object.fromEntries(Object.entries(files).filter(([path]) => path !== manifestPath)),
     };
-    return { definition: parsePluginDefinition(definition), warnings: parsePluginRuntimeComponents(definition.files).warnings, format: "openteam" };
+    return {
+      definition: parsePluginDefinition(definition),
+      warnings: parsePluginRuntimeComponents(definition.files).warnings,
+      format: "openteam",
+    };
   }
   const runtimeComponents = parsePluginRuntimeComponents(files);
   const warnings = runtimeComponents.warnings;
@@ -93,7 +116,7 @@ export function importPackage(files: Record<string, string>): PackagePreview {
     }
   );
   const readJson = (path: string) => {
-    const content = files[safePackagePath(path)];
+    const content = files[mcpFilePath(path, manifestPath, files)];
     if (content === undefined) throw new Error(`Missing package file: ${path}`);
     return objectValue(JSON.parse(content));
   };
@@ -101,7 +124,9 @@ export function importPackage(files: Record<string, string>): PackagePreview {
     manifest.mcpServers === undefined
       ? files["mcp.json"]
         ? ["mcp.json"]
-        : []
+        : files[".mcp.json"]
+          ? [".mcp.json"]
+          : []
       : Array.isArray(manifest.mcpServers)
         ? manifest.mcpServers
         : [manifest.mcpServers];
@@ -116,12 +141,27 @@ export function importPackage(files: Record<string, string>): PackagePreview {
         throw new Error(`MCP server ${key} needs a URL or command`);
       if (http && server.command)
         throw new Error(`MCP server ${key} cannot have both URL and command`);
+      const oauthHints = { ...objectValue(server.auth), ...objectValue(server.oauth) };
+      const fixedClient = ["clientId", "client_id", "CLIENT_ID"].some(
+        (field) => typeof oauthHints[field] === "string" && oauthHints[field] !== ""
+      );
+      const hasOAuth = Boolean(
+        server.oauth || fixedClient || objectValue(server.auth).type === "oauth"
+      );
+      if (fixedClient)
+        warnings.push(
+          `MCP server ${key}: configure your own OAuth client in OpenTeam. The upstream client identity and callback settings were not adopted.`
+        );
+      if (http && !hasOAuth && !Object.keys(objectValue(server.headers)).length)
+        warnings.push(
+          `MCP server ${key}: this package does not declare authentication. If the service requires sign-in, configure OAuth in the plugin definition before installing, or use its OpenTeam registry package.`
+        );
       connections.push({
         key,
         name: key,
         transport: http ? "http" : "stdio",
         endpoint: http ? String(server.url) : "",
-        auth: server.oauth
+        auth: hasOAuth
           ? "oauth"
           : Object.keys(objectValue(server.headers)).length
             ? "token"
@@ -135,6 +175,34 @@ export function importPackage(files: Record<string, string>): PackagePreview {
               ...(server.cwd ? { cwd: server.cwd } : {}),
             },
         tools: [],
+        ...(fixedClient
+          ? {
+              oauth: {
+                clientType: "confidential" as const,
+                registration: "manual" as const,
+                tokenEndpointAuthMethod: "client_secret_post" as const,
+              },
+              setup: {
+                kind: "oauth_client" as const,
+                connectionKey: key,
+                title: `Connect ${key}`,
+                description:
+                  "Register an OAuth application for this deployment and configure its callback before signing in.",
+                documentationUrl: null,
+                steps: [],
+                requiredScopes: [],
+                fields: [
+                  { key: "clientId", label: "OAuth client ID", required: true, secret: false },
+                  {
+                    key: "clientSecret",
+                    label: "OAuth client secret",
+                    required: true,
+                    secret: true,
+                  },
+                ],
+              },
+            }
+          : {}),
       });
     }
   }
@@ -167,7 +235,13 @@ export function importPackage(files: Record<string, string>): PackagePreview {
     publisher: author.name ?? "Unknown author",
     category: "Productivity",
     featured: false,
-    components: [...(connections.length ? ["mcp"] : []), ...(skills.length ? ["skills"] : []), ...(["rules", "commands", "agents", "hooks"] as const).filter(kind => runtimeComponents[kind].length)],
+    components: [
+      ...(connections.length ? ["mcp"] : []),
+      ...(skills.length ? ["skills"] : []),
+      ...(["rules", "commands", "agents", "hooks"] as const).filter(
+        (kind) => runtimeComponents[kind].length
+      ),
+    ],
     connections,
     skills,
     setupFields,

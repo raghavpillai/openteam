@@ -3,6 +3,8 @@ name: granola-review
 description: "Compare an implementation, document, or plan with the requirements and decisions recorded in meetings."
 ---
 
+Read [Granola workflow conventions](../../OPENTEAM.md) before this workflow.
+
 # Review against meeting decisions
 
 Inspect the work the user wants reviewed and identify its subject and scope. Use the intended Granola account; check `get_account_info` if the account or active workspace is unclear. Discover actual input schemas, search with `query_granola_meetings`, and retrieve the relevant notes with `get_meetings`. Use `list_meetings` to locate dated discussions or follow-ups; follow result cursors when necessary. Retrieve a transcript only when needed to resolve wording and permitted by the account.

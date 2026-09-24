@@ -43,6 +43,86 @@ const files = {
 };
 
 describe("portable plugin packages", () => {
+  test("imports hidden MCP files and preserves Granola-shaped workflow components through ZIP", () => {
+    const imported = importPackage({
+      ".cursor-plugin/plugin.json": JSON.stringify({
+        name: "meetings",
+        version: "1.0.0",
+        author: { name: "Example" },
+      }),
+      ".mcp.json": JSON.stringify({ mcpServers: { meetings: { url: "https://example.com/mcp" } } }),
+      "skills/context/SKILL.md":
+        "---\nname: context\ndescription: Meeting context\n---\nRead the meeting notes.",
+      "commands/brief.md": "---\ndescription: Brief\n---\nSummarize $ARGUMENTS",
+      "agents/engineer.md": "---\ndescription: Engineer\n---\nImplement the assigned task.",
+      "rules/context.mdc": "---\nalwaysApply: true\n---\nCite meeting evidence.",
+    });
+    expect(imported.definition.connections).toHaveLength(1);
+    expect(imported.definition.connections[0]?.endpoint).toBe("https://example.com/mcp");
+    expect(imported.warnings).toContain(
+      "MCP server meetings: this package does not declare authentication. If the service requires sign-in, configure OAuth in the plugin definition before installing, or use its OpenTeam registry package."
+    );
+    const roundtrip = importPackageArchive(exportPackageArchive(imported.definition));
+    expect(roundtrip.definition.components).toEqual([
+      "mcp",
+      "skills",
+      "rules",
+      "commands",
+      "agents",
+    ]);
+    expect(roundtrip.definition.connections).toEqual(imported.definition.connections);
+    expect(roundtrip.definition.files?.["commands/brief.md"]).toContain("$ARGUMENTS");
+  });
+  test("resolves Slack's manifest-relative MCP path without adopting another client's identity", () => {
+    const imported = importPackage({
+      ".cursor-plugin/plugin.json": JSON.stringify({
+        name: "chat",
+        version: "1.0.0",
+        mcpServers: "../.cursor-mcp.json",
+      }),
+      ".cursor-mcp.json": JSON.stringify({
+        mcpServers: {
+          chat: { url: "https://example.com/mcp", auth: { CLIENT_ID: "upstream-app" } },
+        },
+      }),
+    });
+    const connector = imported.definition.connections[0]!;
+    expect(connector.auth).toBe("oauth");
+    expect(connector.oauth?.registration).toBe("manual");
+    expect(connector.setup?.fields.map((field) => field.key)).toEqual(["clientId", "clientSecret"]);
+    expect(JSON.stringify(connector)).not.toContain("upstream-app");
+    expect(imported.warnings[0]).toContain("configure your own OAuth client");
+  });
+  test("MCP path compatibility never allows escaping the package or absolute references", () => {
+    for (const path of [
+      "../../outside.json",
+      "../nested/../../outside.json",
+      "/tmp/config.json",
+      "..\\config.json",
+      "https://example.com/config.json",
+    ]) {
+      expect(() =>
+        importPackage({
+          ".cursor-plugin/plugin.json": JSON.stringify({
+            name: "unsafe",
+            version: "1.0.0",
+            mcpServers: path,
+          }),
+          "outside.json": "{}",
+        })
+      ).toThrow("Unsafe package path");
+    }
+    expect(() =>
+      importPackage({
+        "plugin.json": JSON.stringify({
+          name: "unsafe",
+          version: "1.0.0",
+          mcpServers: "../outside.json",
+        }),
+        "outside.json": "{}",
+      })
+    ).toThrow("Unsafe package path");
+  });
   test("imports hybrid packages with typed variables and retains relative skill assets", () => {
     const preview = importPackage(files);
     expect(preview.format).toBe("agent-plugin");

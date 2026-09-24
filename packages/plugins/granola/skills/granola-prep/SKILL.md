@@ -3,6 +3,8 @@ name: granola-prep
 description: "Prepare a meeting brief from previous discussions, open commitments, and recent developments."
 ---
 
+Read [Granola workflow conventions](../../OPENTEAM.md) before this workflow.
+
 # Meeting preparation
 
 Identify the upcoming conversation from the user's context. If the meeting is unspecified, inspect the supported date filters and try `list_meetings` for the coming week. Use an already authorized calendar when appropriate; ask for missing context only if available sources cannot identify the meeting. Confirm an ambiguous Granola account or workspace with `get_account_info`.

@@ -42,7 +42,18 @@ For packaged browser OAuth, declare `oauth.authorizationServer` (`issuer`, `auth
 
 ## Compatibility and policy
 
-Portable root `plugin.json` and `.cursor-plugin/plugin.json` packages can import their skills, MCP declarations and supported configuration variables. The preview identifies unsupported hooks, rules, commands and agents; retaining these files does not execute them.
+Portable root `plugin.json` and `.cursor-plugin/plugin.json` packages can import
+skills, MCP declarations, supported configuration variables, rules, commands,
+agents, and supported lifecycle hooks. The Bot's **Instructions and hooks**
+setting controls execution of those workflow components. Import warnings identify
+unsupported component options; disabled agent permissions are not broadened.
+
+MCP declarations can use `mcp.json`, `.mcp.json`, or an explicit manifest path.
+Cursor manifest-relative paths may resolve inside the package but cannot escape
+it. Imports with an upstream OAuth client identity require configuration of the
+deployment's own application. Packages that omit authentication metadata show
+a warning; use the provider's OpenTeam registry package for its configured OAuth
+flow, or declare the required authentication method in the plugin definition before installing.
 
 Account IDs define runtime namespaces, so renaming an account does not change routing. Tool enabled state and approval preference are independent. Workspace deny/disabled policy takes precedence over Bot preferences. Required/default packages enable capabilities for Bots but never automatically share private accounts. Updates review changed components and setup; compatible account IDs, credentials, grants and policies survive. Removing a source leaves installed snapshots available.
 

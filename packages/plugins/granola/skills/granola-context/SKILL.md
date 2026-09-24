@@ -3,6 +3,8 @@ name: granola-context
 description: "Find meeting discussions, decisions, and relevant upcoming conversations with links to the evidence."
 ---
 
+Read [Granola workflow conventions](../../OPENTEAM.md) before this workflow.
+
 # Meeting context
 
 Use the Granola account granted to this Bot, following any account the user names. Inspect the discovered tool schemas before calling them. When identity or workspace is uncertain, use `get_account_info`; Granola follows the active workspace selected in its app.

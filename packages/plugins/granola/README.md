@@ -1,6 +1,34 @@
 # Granola
 
-One official Granola MCP connection and three OpenTeam-authored skills: `granola-context`, `granola-prep`, and `granola-review`. The package is maintained by OpenTeam; Granola operates the service.
+One official Granola MCP connection, three OpenTeam-authored skills, six commands,
+an agent template, and a meeting-context rule. The package is maintained by
+OpenTeam; Granola operates the service.
+
+## Workflows
+
+Enable **Instructions and hooks** for the intended Bot and grant its Granola
+account. The skills are `granola-context`, `granola-prep`, and `granola-review`.
+The additional commands are:
+
+- `/granola:plan topic` — a prioritized implementation plan.
+- `/granola:spec topic` — a specification with source-backed requirements.
+- `/granola:brief topic` — a concise briefing or meeting preparation.
+- `/granola:bug-report meeting or issue` — a bug report distinguishing reported
+  behavior from actual reproduction.
+- `/granola:pr branch or change` — a PR description based on the real diff.
+- `/granola:gaps project` — a comparison of commitments and implementation.
+
+`Task` can use `plugin_agent: "granola:engineer"` for a scoped implementation
+task that needs meeting evidence. The meeting-context rule applies when the
+task depends on meeting decisions; unrelated work does not require a search.
+All workflows follow [OPENTEAM.md](OPENTEAM.md). Generated documents remain
+drafts unless the user requests publication or another external action.
+
+Version 1.1.0 adds these workflows without changing the connector, OAuth client
+registration, scopes, or account grants. Apply the package update in Installed;
+choose **Reconnect** to refresh tools with the saved authorization, then enable
+**Instructions and hooks** for the intended Bot. Developer tools for inspecting a project
+run on the Bot computer; no Granola CLI or local Granola database is needed.
 
 ## Connect through the UI
 
@@ -27,11 +55,24 @@ Credentials remain in the user's deployment database and are not included in exp
 
 ## Provenance and maintenance
 
-Compared with the Granola detail view in Grok Bot on September 12, 2026: one connector and three skills. Its source link points to [Granola's public Cursor plugin](https://github.com/granola-inc/granola-cursor-plugin), inspected at revision `56583da6e4db7f311808543f18ac905b8de1ff85`. That repository did not include a redistribution license at that revision. The skill bodies here are independently authored implementations of those workflows; upstream commands, agents, rules, and skill text are not bundled. Icon provenance is in [assets/SOURCES.md](assets/SOURCES.md).
+The workflow inventory was checked against [Granola's public Cursor
+plugin](https://github.com/granola-inc/granola-cursor-plugin), revision
+`56583da6e4db7f311808543f18ac905b8de1ff85`, on September 24, 2026: three skills,
+six commands, one agent, and one rule. That revision has no redistribution
+license. All skill, command, agent, and rule text here is independently authored
+for OpenTeam; upstream bodies are not bundled. Icon provenance is in
+[assets/SOURCES.md](assets/SOURCES.md).
 
 The endpoint and OAuth behavior follow [Granola's current MCP documentation](https://docs.granola.ai/help-center/sharing/integrations/mcp). Public discovery advertises issuer `https://mcp-auth.granola.ai`, dynamic registration, S256 PKCE, and the protected-resource scope `mcp`. Provider schemas, plan restrictions, and workspace behavior may change independently of this package. See [the plugin guide](../../../docs/integrations/accounts.md) for setup and troubleshooting, and the repository's plugin QA evidence for the checks actually performed.
 
 ## Validation
+
+September 24, 2026: portable ZIP import/export, all six command expansions,
+three skill bodies, the meeting-context rule, the engineer agent template, and
+workspace type checks passed. A disposable OAuth/MCP server verified dynamic
+registration, upgrade and reconnection with the saved authorization, retained
+account policies, and independent Bot instruction/account access. The new
+meeting workflows have not been exercised against live meeting content.
 
 September 12, 2026: package generation, portable ZIP import/export with all three skill bodies and unchanged icon bytes, UI installation/setup, real Granola dynamic registration, saved PKCE/state, and reads of all three installed skills through the unprivileged Linux Bot's native file reader passed. The focused catalog, SDK, and OAuth suites passed (29 tests), as did plugin, SDK, server, and desktop type checks.
 

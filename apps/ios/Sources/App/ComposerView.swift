@@ -640,6 +640,9 @@ struct NativeActionMenu: UIViewRepresentable {
   var anchor: NativeMenuAnchor = .topTrailing
   var enabled = true
   var color: Color = NativePalette.text
+  /// Present a system `UIMenu` (springs out of the button) instead of the
+  /// custom panel. The composer keeps the panel so the keyboard stays up.
+  var systemMenu = false
   let actions: [NativeMenuAction]
 
   func makeCoordinator() -> Coordinator { Coordinator() }
@@ -650,6 +653,14 @@ struct NativeActionMenu: UIViewRepresentable {
     button.accessibilityLabel = title
     button.accessibilityIdentifier = identifier
     let coordinator = context.coordinator
+    if systemMenu {
+      button.showsMenuAsPrimaryAction = true
+      button.menuWillOpen = { [weak coordinator] in
+        guard let coordinator else { return }
+        NativeHaptics.play(.light, source: coordinator.hapticSource)
+      }
+      return button
+    }
     button.removed = { [weak coordinator] in coordinator?.close(animated: false) }
     button.addAction(UIAction { [weak button, weak coordinator] _ in
       guard let button else { return }
@@ -665,6 +676,12 @@ struct NativeActionMenu: UIViewRepresentable {
     context.coordinator.anchor = anchor
     context.coordinator.panelIdentifier = panelIdentifier
     context.coordinator.hapticSource = hapticSource
+    if systemMenu {
+      button.menu = UIMenu(children: actions.map { item in
+        UIAction(title: item.title, image: item.symbol.flatMap { UIImage(systemName: $0) },
+          attributes: item.enabled ? [] : .disabled) { _ in item.action() }
+      })
+    }
     if !button.isEnabled { context.coordinator.close(animated: false) }
   }
   static func dismantleUIView(_ uiView: UIButton, coordinator: Coordinator) {
@@ -710,6 +727,13 @@ struct NativeActionMenu: UIViewRepresentable {
 
 private final class NativeMenuButton: UIButton {
   var removed: (() -> Void)?
+  var menuWillOpen: (() -> Void)?
+  override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+    willDisplayMenuFor configuration: UIContextMenuConfiguration,
+    animator: (any UIContextMenuInteractionAnimating)?) {
+    super.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: animator)
+    menuWillOpen?()
+  }
   override func didMoveToWindow() {
     super.didMoveToWindow()
     if window == nil { removed?() }

@@ -161,7 +161,7 @@ struct HomeView: View {
         .accessibilityIdentifier("search-button")
       NativeActionMenu(symbol: "plus", pointSize: 20, title: "New conversation",
         identifier: "new-button", panelIdentifier: "creation-menu-panel",
-        hapticSource: "home.create", actions: [
+        hapticSource: "home.create", systemMenu: true, actions: [
           .init(title: "New Bot", action: { if !store.syncingState { creation = .bot } }),
           .init(title: "New Group Chat", action: { if !store.syncingState { creation = .group } }),
         ]).frame(width: 44, height: 44).nativeGlass()

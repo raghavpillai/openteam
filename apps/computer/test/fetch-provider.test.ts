@@ -22,7 +22,7 @@ const CASES: Record<Exclude<FetchProvider, "builtin">, Case> = {
   firecrawl: {
     endpoint: "https://api.firecrawl.dev/v2/scrape",
     auth: ["authorization", `Bearer ${key}`],
-    body: { url, formats: ["markdown"], onlyMainContent: true, maxAge: 0, timeout: 45_000, parsers: [{ type: "pdf", maxPages: 25 }] },
+    body: { url, formats: ["markdown"], onlyMainContent: true, maxAge: 0, timeout: 45_000, parsers: [{ type: "pdf", maxPages: 25 }], skipTlsVerification: false },
     success: () => Response.json({ success: true, data: { markdown: "# Page\n" + key, metadata: { sourceURL: url, url: finalUrl, statusCode: 200 } } }),
     pageFailure: () => Response.json({ success: true, data: { markdown: "Not found", metadata: { url, statusCode: 404 } } }),
     finalUrl,
@@ -101,6 +101,19 @@ test("Firecrawl notes truncated PDFs and reports sites it declines as refusals, 
   expect(forbidden?.message).toContain("Check the API key");
 });
 
+test("Exa's 1,000-character publisher excerpts are flagged to the agent", async () => {
+  const exa = (text: string) =>
+    new FetchProviderClient(
+      () => ({ provider: "exa", apiKey: key }),
+      async () => Response.json({ results: [{ url, title: "News", text }], statuses: [{ id: url, status: "success", source: "crawled" }] }),
+      validate
+    );
+  expect(await exa("n".repeat(1_000)).fetch(url)).toMatchObject({
+    note: "Exa returned only a 1,000-character excerpt of this page; the publisher limits Exa to excerpts. Open the page with the browser tool for the full text.",
+  });
+  expect(await exa("n".repeat(1_001)).fetch(url)).not.toHaveProperty("note");
+});
+
 test("every third-party fetch provider needs its key; nothing is sent without one", async () => {
   for (const provider of Object.keys(CASES) as FetchProvider[]) {
     const result = await new FetchProviderClient(() => ({ provider }), async () => {
@@ -161,12 +174,21 @@ test("external fetch sanitizes failures and honors cancellation and response bou
   } catch (error) {
     expect(String(error)).not.toContain(key);
   }
-  const oversized = new FetchProviderClient(
-    () => ({ provider: "parallel", apiKey: key }),
-    async () => new Response("x".repeat(5 * 1024 * 1024 + 1)),
+  // Provider pages share the built-in fetcher's 20 MiB bound (Firecrawl returned 7.5 MB for the WHATWG spec).
+  const large = new FetchProviderClient(
+    () => ({ provider: "firecrawl", apiKey: key }),
+    async () => Response.json({ success: true, data: { markdown: "x".repeat(7 * 1024 * 1024), metadata: { url, statusCode: 200 } } }),
     validate
   );
-  await expect(oversized.fetch(url)).rejects.toThrow("returned an invalid response");
+  expect(await large.fetch(url)).toMatchObject({ configured: true, provider: "firecrawl" });
+  const oversized = new FetchProviderClient(
+    () => ({ provider: "parallel", apiKey: key }),
+    async () => new Response("x".repeat(20 * 1024 * 1024 + 1)),
+    validate
+  );
+  await expect(oversized.fetch(url)).rejects.toThrow("Parallel returned more than 20 MiB for this page, which is over the WebFetch limit.");
+  const invalid = new FetchProviderClient(() => ({ provider: "parallel", apiKey: key }), async () => new Response("not json"), validate);
+  await expect(invalid.fetch(url)).rejects.toThrow("returned an invalid response");
   const abort = new AbortController();
   abort.abort();
   await expect(failed.fetch(url, abort.signal)).rejects.toThrow();

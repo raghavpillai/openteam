@@ -5,8 +5,9 @@ import {
   type FetchProvider,
   webProviderInfo,
 } from "@openteam/contracts/web-search";
-import { boundedJson, type SearchFetch } from "./search-provider";
+import { boundedJson, ResponseTooLargeError, type SearchFetch } from "./search-provider";
 import { publicWebUrl, validatePublicWebUrl } from "./public-web-url";
+import { MAX_WEB_DOWNLOAD } from "./builtin-fetch";
 
 export interface FetchConfiguration {
   /** Omitted: the built-in fetcher. null: fetch is turned off. */
@@ -54,6 +55,8 @@ const ADAPTERS: Record<Exclude<FetchProvider, "builtin">, Adapter> = {
         maxAge: 0,
         timeout: 45_000,
         parsers: [{ type: "pdf", maxPages: FIRECRAWL_PDF_PAGES }],
+        // Firecrawl skips certificate checks by default; verify them like the built-in fetcher.
+        skipTlsVerification: false,
       }),
     parse: (body) => {
       if (body.success === false) throw new ProviderPageError(text(body.error) || "Firecrawl could not scrape the page.");
@@ -87,7 +90,17 @@ const ADAPTERS: Record<Exclude<FetchProvider, "builtin">, Adapter> = {
         throw new ProviderPageError(`Exa could not read the page (${text(error.tag) || "error"}${error.httpStatusCode ? `, HTTP ${error.httpStatusCode}` : ""}).`);
       }
       const result = record(Array.isArray(body.results) && body.results.length === 1 ? body.results[0] : null);
-      return { url: result.url, text: result.text, title: result.title };
+      // Some news publishers (CNN, Reuters, NYT, AP, the Guardian, ...) limit Exa to exactly
+      // 1,000 characters, live or cached, whatever the text options.
+      const excerpt = text(result.text).length === 1_000;
+      return {
+        url: result.url,
+        text: result.text,
+        title: result.title,
+        note: excerpt
+          ? "Exa returned only a 1,000-character excerpt of this page; the publisher limits Exa to excerpts. Open the page with the browser tool for the full text."
+          : undefined,
+      };
     },
   },
   parallel: {
@@ -193,7 +206,8 @@ export class FetchProviderClient {
       throw new Error(`${name} fetch failed (HTTP ${status})${safe ? `: ${safe}` : ""}. ${reason}`);
     }
     try {
-      const body = await boundedJson(response);
+      // Same bound as the built-in fetcher; oversized pages are spilled to a file by WebTools.
+      const body = await boundedJson(response, MAX_WEB_DOWNLOAD);
       signal?.throwIfAborted();
       const parsed = adapter.parse(body);
       let content = text(parsed.text);
@@ -215,6 +229,8 @@ export class FetchProviderClient {
         const message = apiKey ? error.message.split(apiKey).join("[redacted]") : error.message;
         throw new Error(`${message} Try another URL, or open the page with the browser tool.`);
       }
+      if (error instanceof ResponseTooLargeError)
+        throw new Error(`${name} returned more than ${MAX_WEB_DOWNLOAD / 1024 / 1024} MiB for this page, which is over the WebFetch limit.`);
       throw new Error(`${name} returned an invalid response. Try another URL, or open the page with the browser tool.`);
     }
   }

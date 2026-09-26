@@ -125,7 +125,9 @@ const ADAPTERS: Record<SearchProvider, Adapter> = {
 /** A provider-reported failure whose message is safe to show. */
 class SearchProviderError extends Error {}
 
-export async function boundedJson(response: Response): Promise<Record<string, unknown>> {
+export class ResponseTooLargeError extends Error {}
+
+export async function boundedJson(response: Response, limit = 5 * 1024 * 1024): Promise<Record<string, unknown>> {
   if (!response.body) throw new Error("Search provider returned an empty response");
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -135,7 +137,7 @@ export async function boundedJson(response: Response): Promise<Record<string, un
       const { done, value } = await reader.read();
       if (done) break;
       length += value.byteLength;
-      if (length > 5 * 1024 * 1024) throw new Error("Search response exceeds 5 MiB");
+      if (length > limit) throw new ResponseTooLargeError(`Provider response exceeds ${limit / 1024 / 1024} MiB`);
       chunks.push(value);
     }
     return object(JSON.parse(Buffer.concat(chunks).toString("utf8")));

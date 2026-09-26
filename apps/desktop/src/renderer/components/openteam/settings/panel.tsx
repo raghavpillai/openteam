@@ -1,4 +1,4 @@
-import { CloudDownload, Monitor, Server, Settings, X } from "lucide-react";
+import { CloudDownload, Globe, Monitor, Server, Settings, X } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   type SettingsAnchor,
@@ -6,6 +6,7 @@ import {
   settingsViewForAnchor,
 } from "../../../lib/app-deep-links";
 import { cn } from "../../../lib/cn";
+import { SettingsHeading } from "./ui";
 import {
   Dialog,
   DialogClose,
@@ -17,17 +18,20 @@ import {
 const loadGeneralSettings = () => import("./general");
 const loadComputerSettings = () => import("./computer");
 const loadServerSettings = () => import("./server");
+const loadProvidersSettings = () => import("./providers");
 const loadUpdatesSettings = () => import("./updates");
 
 const GeneralSettings = lazy(loadGeneralSettings);
 const ComputerSettings = lazy(loadComputerSettings);
 const ServerSettings = lazy(loadServerSettings);
+const ProvidersSettings = lazy(loadProvidersSettings);
 const UpdatesSettings = lazy(loadUpdatesSettings);
 
 const sectionLoaders: Record<SettingsView, () => Promise<unknown>> = {
   general: loadGeneralSettings,
   computer: loadComputerSettings,
   server: loadServerSettings,
+  providers: loadProvidersSettings,
   updates: loadUpdatesSettings,
 };
 
@@ -35,6 +39,7 @@ const sectionComponents = {
   general: GeneralSettings,
   computer: ComputerSettings,
   server: ServerSettings,
+  providers: ProvidersSettings,
   updates: UpdatesSettings,
 };
 
@@ -47,6 +52,7 @@ const navigation: Array<{
   { id: "general", label: "General", icon: Settings, available: true },
   { id: "computer", label: "Computer", icon: Monitor, available: true },
   { id: "server", label: "Server", icon: Server, available: true },
+  { id: "providers", label: "Providers", icon: Globe, available: true },
   { id: "updates", label: "Updates", icon: CloudDownload, available: true },
 ];
 
@@ -168,15 +174,10 @@ export function SettingsPanel({
             className="bot-scrollbar h-full overflow-y-auto px-8 pb-8 pt-8 max-[512px]:px-6"
             ref={scrollRef}
           >
-            <h2 className="mb-7 px-2 text-[17px] font-medium leading-6 tracking-[-0.018em]">
-              {view === "updates"
-                ? "Updates"
-                : view === "computer"
-                  ? "Computer"
-                  : view === "server"
-                    ? "Server"
-                    : "General"}
-            </h2>
+            {/* Providers renders its own heading, with a breadcrumb on its Search and Fetch pages. */}
+            {view === "providers" ? null : (
+              <SettingsHeading>{navigation.find((item) => item.id === view)?.label ?? "General"}</SettingsHeading>
+            )}
             <Suspense fallback={null}>
               <ActiveSection />
             </Suspense>

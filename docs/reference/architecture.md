@@ -79,7 +79,7 @@ The runtime also supports shell completion waits, memory recall, binary host tra
 search and fetch, reviewed forms and external drafts, and bot template sharing. Further details:
 
 - [Platform prompt and tools](../reference/platform-system-prompt.md): behavior, configuration, and verification limits.
-- [Web search](../configuration/web-search.md): Exa, Tavily, Brave, and Bing via SerpApi.
+- [Web search and page fetching](../configuration/web-search.md): the built-in reader and the search and fetch providers.
 - [Native capabilities](../reference/native-capabilities.md): host access and file transfers.
 - [Memory and long conversations](../usage/memory.md): keeping context across turns.
 

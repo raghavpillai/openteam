@@ -39,6 +39,18 @@ struct SettingsView: View {
           }.accessibilityIdentifier("plugins-settings")
         }
         Section {
+          NavigationLink {
+            ProvidersSettingsView()
+          } label: {
+            VStack(alignment: .leading, spacing: 3) {
+              Text("Providers").font(.body)
+              Text("Web search and page fetching").font(.system(size: 13))
+                .foregroundStyle(NativePalette.muted)
+            }.padding(.vertical, 1).frame(maxWidth: .infinity, alignment: .leading)
+              .contentShape(Rectangle())
+          }.accessibilityIdentifier("providers-settings")
+        }
+        Section {
           NavigationLink("Bot notifications") { notificationSettings }
           NavigationLink("Hidden conversations") { HiddenConversationsView() }
         } header: {

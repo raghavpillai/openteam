@@ -87,6 +87,14 @@ export function SettingsRow({
   );
 }
 
+export function SettingsHeading({ children, anchor }: { children: ReactNode; anchor?: SettingsAnchor }) {
+  return (
+    <h2 className="mb-7 px-2 text-[17px] font-medium leading-6 tracking-[-0.018em]" data-settings-anchor={anchor}>
+      {children}
+    </h2>
+  );
+}
+
 export function SectionLabel({ children }: { children: ReactNode }) {
   return (
     <div className="mb-2 mt-7 px-2 text-[12px] font-normal leading-4 text-foreground-tertiary first:mt-0">

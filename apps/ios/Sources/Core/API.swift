@@ -92,10 +92,12 @@ public struct API: Sendable {
     return c.url!
   }
   public func request(
-    _ path: String, method: String = "GET", body: JSON? = nil, query: [String: String] = [:]
+    _ path: String, method: String = "GET", body: JSON? = nil, query: [String: String] = [:],
+    timeout: TimeInterval? = nil
   ) async throws -> JSON {
     let (data, _) = try await raw(
-      path, method: method, data: try body.map { try JSONEncoder().encode($0) }, query: query)
+      path, method: method, data: try body.map { try JSONEncoder().encode($0) }, query: query,
+      timeout: timeout)
     if data.isEmpty { return .object([:]) }
     do { return try JSONDecoder().decode(JSON.self, from: data) } catch {
       throw APIError("The server returned an invalid response.")

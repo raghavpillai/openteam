@@ -13,10 +13,6 @@ const TranscriptionSettingsPanel = lazy(() => import("./transcription").then(mod
 
 const AutomationWebhookSettings = lazy(() => import("./automation-webhooks").then(module => ({default:module.AutomationWebhookSettings})));
 
-const WebSearchSettingsPanel = lazy(() =>
-  import("./web-search").then((module) => ({ default: module.WebSearchSettingsPanel }))
-);
-
 const actionButton =
   "inline-flex h-8 items-center gap-1.5 rounded-[8px] bg-black px-3 text-[12px] text-white outline-none hover:opacity-80 disabled:opacity-50 dark:bg-white dark:text-black";
 const secondaryButton =
@@ -440,8 +436,8 @@ export default function ServerSettings() {
       {error ? (
         <div className="mt-3 px-2 text-[12px] text-red-600 dark:text-red-400">{error}</div>
       ) : null}
-      <Suspense fallback={<div className="mt-7 text-[12px] text-foreground-secondary">Loading web search settings…</div>}>
-        <WebSearchSettingsPanel /><AutomationWebhookSettings />
+      <Suspense fallback={null}>
+        <AutomationWebhookSettings />
       </Suspense>
       <Suspense fallback={null}><TranscriptionSettingsPanel /></Suspense>
     </>

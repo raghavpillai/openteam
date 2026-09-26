@@ -117,7 +117,8 @@ atMost("startup CSS bytes", startupCssBytes, 178_000);
 // The on-demand noVNC client adds ~270 KB / 90 KB gzip, including license notices.
 // It must remain outside both startup closures and has its own limits below.
 atMost("renderer bytes", result.renderer.bytes, 16_250_000);
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_000_000);
+// +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_010_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // Native capability parsing, login provisioning and the bundled current CLI:
 // 2.311 MB after removing eager catalogs and minifying native bundles.
@@ -191,8 +192,10 @@ const lazyBudgets: Record<string, number> = {
   settingsGeneralBot: 30_000,
   settingsComputer: 31_000,
   settingsServer: 35_000,
-  settingsWebSearch: 12_000,
-  settingsUpdates: 10_000,
+  // Search and Fetch pages with inlined 40 px WebP logos (~10 KB of the total).
+  settingsProviders: 30_000,
+  // Shares lucide's triangle-alert chunk with Providers since 2026-09 (+114 bytes).
+  settingsUpdates: 10_200,
 };
 if (!result.renderer.lazyClosures) {
   failures.push("Vite manifest/lazy closures were not found; run a current desktop build");

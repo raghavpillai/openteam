@@ -271,6 +271,7 @@ describe("desktop loading and packaging boundaries", () => {
     expect(shell).toContain('import("./general")');
     expect(shell).toContain('import("./computer")');
     expect(shell).toContain('import("./server")');
+    expect(shell).toContain('import("./providers")');
     expect(shell).toContain('import("./updates")');
     expect(shell).toContain("attempts < 120");
     expect(shell).not.toContain("Copyright © 2026 OpenTeam contributors");
@@ -285,7 +286,7 @@ describe("desktop loading and packaging boundaries", () => {
       "settingsGeneralBot",
       "settingsComputer",
       "settingsServer",
-      "settingsWebSearch",
+      "settingsProviders",
       "settingsUpdates",
     ]) {
       expect(measure).toContain(`${boundary}:`);

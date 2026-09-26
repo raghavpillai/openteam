@@ -981,12 +981,14 @@ final class AppStore {
   }
   /// Reads and native form writes share account-generation and session-expiry handling.
   func request(
-    _ path: String, method: String = "GET", body: JSON? = nil, query: [String: String] = [:]
+    _ path: String, method: String = "GET", body: JSON? = nil, query: [String: String] = [:],
+    timeout: TimeInterval? = nil
   ) async throws -> JSON {
     guard let api else { throw APIError("Sign in to continue.", status: 401) }
     let epoch = generation
     do {
-      let result = try await api.request(path, method: method, body: body, query: query)
+      let result = try await api.request(
+        path, method: method, body: body, query: query, timeout: timeout)
       guard epoch == generation, !Task.isCancelled else { throw CancellationError() }
       return result
     } catch {

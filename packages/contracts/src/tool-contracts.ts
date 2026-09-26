@@ -111,9 +111,9 @@ contracts.WebSearch!.description = contracts.WebSearch!.description.replaceAll(
   new Date().toISOString().slice(0, 10)
 );
 contracts.WebSearch!.description +=
-  " The search provider and its API key are configured in Settings → Server → Web search and stored in the deployment database. Without a configured provider and key, the tool returns 'No search configured' without making a request or silently switching providers.";
+  " The search provider is chosen in Settings → Providers → Search (Exa, Brave Search, Parallel, Firecrawl, Bing or Perplexity) and its key is stored on the server. Search is off until the user chooses one; the tool then fails with 'Web search is not configured' without making a request or switching providers.";
 contracts.WebFetch!.description +=
-  " OpenTeam supports built-in HTTP, Exa Contents, and Tavily Extract through Settings → Server → Web fetch and database configuration. A provider must be explicitly selected and saved; otherwise the tool returns 'No fetch configured' without making a request. Built-in HTTP needs no key and is limited to 5 MiB and public destinations; other providers require a saved key.";
+  " By default OpenTeam's built-in fetcher reads public pages directly (HTML as Markdown, text, JSON, feeds and PDFs, up to 20 MiB, public destinations only; no JavaScript). Settings → Providers → Fetch can switch to Exa, Parallel or Firecrawl, or turn fetch off; the tool then fails with 'Web fetch is turned off' or 'Web fetch is not configured' without making a request.";
 export function taskToolContract(config: TaskConfiguration = defaultTaskConfiguration()): ToolContract {
   const tool = structuredClone(contracts.Task!);
   const types = taskTypeNames(config);

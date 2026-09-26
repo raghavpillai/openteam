@@ -1,0 +1,158 @@
+{
+  "search": [
+    {
+      "id": "exa",
+      "name": "Exa",
+      "brand": "exa",
+      "description": "AI search with page highlights.",
+      "fields": [
+        {
+          "id": "apiKey",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "placeholder": "API key"
+        }
+      ],
+      "setupUrl": "https://dashboard.exa.ai/api-keys"
+    },
+    {
+      "id": "brave",
+      "name": "Brave Search",
+      "brand": "brave",
+      "description": "Results from Brave's independent index.",
+      "fields": [
+        {
+          "id": "apiKey",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "placeholder": "API key"
+        }
+      ],
+      "setupUrl": "https://api-dashboard.search.brave.com/app/keys"
+    },
+    {
+      "id": "parallel",
+      "name": "Parallel",
+      "brand": "parallel",
+      "description": "Search built for AI agents.",
+      "fields": [
+        {
+          "id": "apiKey",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "placeholder": "API key"
+        }
+      ],
+      "setupUrl": "https://platform.parallel.ai"
+    },
+    {
+      "id": "firecrawl",
+      "name": "Firecrawl",
+      "brand": "firecrawl",
+      "description": "Web search with page summaries.",
+      "fields": [
+        {
+          "id": "apiKey",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "placeholder": "API key"
+        }
+      ],
+      "setupUrl": "https://www.firecrawl.dev/app/api-keys"
+    },
+    {
+      "id": "bing-serpapi",
+      "name": "Bing",
+      "brand": "bing",
+      "description": "Bing results through a SerpApi key.",
+      "fields": [
+        {
+          "id": "apiKey",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "placeholder": "API key"
+        }
+      ],
+      "setupUrl": "https://serpapi.com/manage-api-key"
+    },
+    {
+      "id": "perplexity",
+      "name": "Perplexity",
+      "brand": "perplexity",
+      "description": "Results from Perplexity's search index.",
+      "fields": [
+        {
+          "id": "apiKey",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "placeholder": "API key"
+        }
+      ],
+      "setupUrl": "https://www.perplexity.ai/account/api/keys"
+    }
+  ],
+  "fetch": [
+    {
+      "id": "builtin",
+      "name": "Built-in",
+      "brand": "openteam",
+      "description": "Reads public pages from your server. Can't run JavaScript.",
+      "fields": [],
+      "setupUrl": null
+    },
+    {
+      "id": "exa",
+      "name": "Exa",
+      "brand": "exa",
+      "description": "Live-crawled page text.",
+      "fields": [
+        {
+          "id": "apiKey",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "placeholder": "API key"
+        }
+      ],
+      "setupUrl": "https://dashboard.exa.ai/api-keys"
+    },
+    {
+      "id": "parallel",
+      "name": "Parallel",
+      "brand": "parallel",
+      "description": "Full page content, including PDFs.",
+      "fields": [
+        {
+          "id": "apiKey",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "placeholder": "API key"
+        }
+      ],
+      "setupUrl": "https://platform.parallel.ai"
+    },
+    {
+      "id": "firecrawl",
+      "name": "Firecrawl",
+      "brand": "firecrawl",
+      "description": "Renders JavaScript and returns clean Markdown.",
+      "fields": [
+        {
+          "id": "apiKey",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "placeholder": "API key"
+        }
+      ],
+      "setupUrl": "https://www.firecrawl.dev/app/api-keys"
+    }
+  ]
+}

@@ -469,6 +469,79 @@ final class FunctionalFlowUITests: XCTestCase {
     XCTAssertEqual((config["headers"] as? [String: String])?.count, 0)
     XCTAssertEqual((config["env"] as? [String: String])?.count, 0)
   }
+  func testProvidersCheckSelectAndTurnSearchOff() async throws {
+    let app = try await launch()
+    app.buttons["settings-button"].tap()
+    app.buttons["providers-settings"].tap()
+    func element(_ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
+    func wait(_ element: XCUIElement, _ format: String, _ value: String) {
+      let match = XCTNSPredicateExpectation(
+        predicate: NSPredicate(format: format, value), object: element)
+      XCTAssertEqual(XCTWaiter.wait(for: [match], timeout: 15), .completed, element.debugDescription)
+    }
+    func back(to element: XCUIElement) {
+      app.navigationBars.buttons.firstMatch.tap()
+      XCTAssertTrue(element.waitForExistence(timeout: 8))
+    }
+    let search = app.buttons["providers-search"]
+    XCTAssertTrue(search.waitForExistence(timeout: 12))
+    XCTAssertEqual(search.value as? String, "Off")
+    XCTAssertEqual(app.buttons["providers-fetch"].value as? String, "Built-in")
+    let searchOff = app.staticTexts["Search is off. Bots can't search the web."]
+    XCTAssertTrue(searchOff.exists)
+    XCTAssertTrue(app.staticTexts["Built-in fetch reads basic pages only."].exists)
+    capture("providers-overview-default", app)
+    search.tap()
+    let off = app.buttons["providers-search-off"], exa = app.buttons["providers-search-exa"]
+    XCTAssertTrue(exa.waitForExistence(timeout: 8))
+    XCTAssertEqual(off.value as? String, "In use")
+    XCTAssertEqual(exa.value as? String, "Add API key")
+    // Without its key, tapping Exa opens it rather than choosing it.
+    exa.tap()
+    let key = app.secureTextFields["provider-field-apiKey"]
+    XCTAssertTrue(key.waitForExistence(timeout: 8))
+    XCTAssertFalse(app.buttons["provider-use"].isEnabled, "Exa needs its API key first")
+    key.tap()
+    key.typeText("good-fixture\n")
+    // The check saves the typed key first, then runs against it.
+    app.buttons["provider-check"].tap()
+    let result = element("provider-check-result")
+    XCTAssertTrue(result.waitForExistence(timeout: 15))
+    XCTAssertEqual(result.value as? String, "Passed")
+    XCTAssertEqual(key.placeholderValue, "Replace key", "Typed secrets clear once saved")
+    capture("provider-exa-passed", app)
+    app.buttons["provider-use"].tap()
+    wait(element("provider-use"), "label BEGINSWITH %@", "In use")
+    back(to: exa)
+    XCTAssertEqual(exa.value as? String, "In use, Checked")
+    back(to: search)
+    wait(search, "value == %@", "Exa")
+    XCTAssertFalse(searchOff.exists)
+    capture("providers-overview-exa", app)
+    // A ready provider is chosen with one tap, like a Wi-Fi network; Off turns search off.
+    search.tap()
+    XCTAssertTrue(off.waitForExistence(timeout: 8))
+    off.tap()
+    wait(off, "value == %@", "In use")
+    exa.tap()
+    wait(exa, "value == %@", "In use, Checked")
+    off.tap()
+    wait(off, "value == %@", "In use")
+    back(to: search)
+    wait(search, "value == %@", "Off")
+    XCTAssertTrue(searchOff.exists)
+    let providers = try await state()["webProviders"] as? [String: Any]
+    XCTAssertTrue((providers?["search"] as? [String: Any])?["selected"] is NSNull)
+    XCTAssertEqual(
+      providers?["patches"] as? [NSDictionary],
+      [
+        ["search": ["providers": ["exa": ["apiKey": "good-fixture"]]]],
+        ["search": ["selected": "exa"]],
+        ["search": ["selected": NSNull()]],
+        ["search": ["selected": "exa"]],
+        ["search": ["selected": NSNull()]],
+      ] as [NSDictionary])
+  }
 
   func testGroupProfileEditPreservesMemberOrder() async throws {
     let app = try await launch()

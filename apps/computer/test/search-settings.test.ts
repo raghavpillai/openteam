@@ -29,16 +29,16 @@ test("runtime reads current server settings on every search and passes cancellat
       results: [{ title: "Reference", url: "https://example.com", content: "Source" }],
     });
   });
-  expect((await client.search("reference")).details.configured).toBe(false);
+  await expect(client.search("reference")).rejects.toThrow("Web search is not configured");
   expect(searches).toBe(0);
   saved = { provider: "exa", apiKey: "first-fixture-key" };
   expect((await client.search("reference")).details.provider).toBe("exa");
-  saved = { provider: "tavily", apiKey: "second-fixture-key" };
+  saved = { provider: "perplexity", apiKey: "second-fixture-key" };
   const result = await client.search("reference");
-  expect(result.details.provider).toBe("tavily");
+  expect(result.details.provider).toBe("perplexity");
   expect(JSON.stringify(result)).not.toContain(saved.apiKey!);
   saved = { provider: null, apiKey: null };
-  expect((await client.search("reference")).details.configured).toBe(false);
+  await expect(client.search("reference")).rejects.toThrow("Web search is not configured");
   expect(reads).toBe(4);
   expect(searches).toBe(2);
 });

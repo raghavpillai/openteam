@@ -25,6 +25,7 @@ import { McpRuntimeRouter } from "./mcp-runtime-router";
 import { DesktopMcpClient } from "./desktop-mcp-client";
 import { resolveWorkspacePath } from "./paths";
 import { ComputerRuntime } from "./runtime";
+import { checkWebProvider, parseWebProviderCheck } from "./web-provider-check";
 import { inferenceFailure } from "./inference-error";
 import { checkAgentWorkspace, checkDesktopAvailable, ComputerReadiness } from "./readiness";
 import { ScreenBroker } from "./screen-broker";
@@ -304,6 +305,16 @@ const server = Bun.serve({
       if (request.method === "DELETE" && authSessionMatch?.[1]) {
         await runtime.cancelInferenceProviderAuth(decodeURIComponent(authSessionMatch[1]));
         return json({ ok: true });
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/web-providers/check") {
+        let input;
+        try {
+          input = parseWebProviderCheck(await request.json());
+        } catch {
+          return json({ error: "Invalid web provider check" }, 400);
+        }
+        return json(await checkWebProvider(input, AbortSignal.timeout(60_000)));
       }
 
       if (request.method === "PUT" && url.pathname === "/v1/projects") {

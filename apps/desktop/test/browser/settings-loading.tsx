@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { useState } from "react";
 import { defaultTranscriptionSettings } from "@openteam/contracts/transcription";
+import { WEB_PROVIDER_LISTS } from "@openteam/contracts/web-search";
 import { api } from "../../src/renderer/client/openteam-api";
 import { SettingsPanel } from "../../src/renderer/components/openteam/settings/panel";
 import { TooltipProvider } from "../../src/renderer/components/ui/tooltip";
@@ -14,7 +15,8 @@ let permissions = {
   autoReview: { isEnabled: true, allowInstructions: [], blockInstructions: [] },
 };
 let transcription = { ...defaultTranscriptionSettings, hasApiKey: false, configured: false };
-let search = { provider: null as string | null, hasApiKey: false, configured: false };
+const providerStates = (tool: "search" | "fetch") => Object.fromEntries(WEB_PROVIDER_LISTS[tool].map((provider) => [provider.id, { secretSaved: false, ready: !provider.fields.some((field) => field.required), check: null }]));
+let providers: any = { search: { selected: null, providers: providerStates("search") }, fetch: { selected: "builtin", providers: providerStates("fetch") } };
 const capabilities = { credentialProvider: null, credentialProviders: [], autoFill: [], cookieGrants: [], messagesGrants: [] };
 Object.assign(window, { settingsQACalls: calls, openteam: {
   auth: { machineStatus: async () => ({ machineId: "qa", connected: true, configured: true, error: null }) },
@@ -40,9 +42,9 @@ Object.assign(api, {
   serverSettings: async () => ({ inference: { providerId: "qa", modelId: "qa-model", reasoning: "medium" }, providers: [{ id: "qa", name: "QA provider", connected: true, authType: "api_key", authMethods: [{ type: "api_key", label: "API key", subscription: false }], custom: false, modelCount: 1 }], models: [{ providerId: "qa", modelId: "qa-model", name: "QA model", reasoning: true, contextWindow: 32000, maxTokens: 4096 }], modelProviderId: "qa" }),
   transcriptionSettings: async () => transcription,
   updateTranscriptionSettings: async (input: any) => { calls.push({ type: "transcription", input }); transcription = { ...transcription, ...input }; return transcription; },
-  webSearchSettings: async () => search,
-  updateWebSearchSettings: async (input: any) => { calls.push({ type: "search", input }); search = { provider: input.provider, hasApiKey: Boolean(input.apiKey), configured: Boolean(input.apiKey) }; return search; },
-  webFetchSettings: async () => ({ provider: "builtin", hasApiKey: false, configured: true }),
+  webProviders: async () => providers,
+  updateWebProviders: async (input: any) => { calls.push({ type: "providers", input }); for (const tool of ["search", "fetch"] as const) if (input[tool]?.selected !== undefined) providers = { ...providers, [tool]: { ...providers[tool], selected: input[tool].selected } }; return providers; },
+  checkWebProvider: async (input: any) => { calls.push({ type: "check", input }); return providers; },
   automationWebhooks: async () => [],
 });
 function Fixture() {

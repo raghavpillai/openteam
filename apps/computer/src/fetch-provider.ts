@@ -1,16 +1,121 @@
-import { FETCH_PROVIDERS, type FetchProvider } from "@openteam/contracts/web-search";
+/** Fetch provider APIs, verified against each provider's official documentation (2026-09). */
+import {
+  DEFAULT_FETCH_PROVIDER,
+  FETCH_PROVIDERS,
+  type FetchProvider,
+  webProviderInfo,
+} from "@openteam/contracts/web-search";
 import { boundedJson, type SearchFetch } from "./search-provider";
 import { publicWebUrl, validatePublicWebUrl } from "./public-web-url";
+
 export interface FetchConfiguration {
+  /** Omitted: the built-in fetcher. null: fetch is turned off. */
   provider?: FetchProvider | null;
   apiKey?: string;
 }
 type FetchResult =
   | { configured: false; provider: FetchProvider | null; message: string }
   | { configured: true; provider: "builtin" }
-  | { configured: true; provider: "exa" | "tavily"; url: string; text: string };
+  | { configured: true; provider: Exclude<FetchProvider, "builtin">; url: string; text: string };
+
 const record = (v: unknown): Record<string, unknown> =>
   v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+const text = (v: unknown) => (typeof v === "string" ? v : "");
+
+/** A provider-reported failure whose message is safe to show (no request data). */
+class ProviderPageError extends Error {}
+
+interface Adapter {
+  request(url: string, apiKey: string | undefined): { endpoint: string; init: RequestInit };
+  parse(body: Record<string, unknown>): { url?: unknown; text: unknown; title?: unknown };
+}
+
+const post = (endpoint: string, headers: Record<string, string>, body: unknown) => ({
+  endpoint,
+  init: { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) },
+});
+const bearer = (apiKey?: string): Record<string, string> => (apiKey ? { authorization: `Bearer ${apiKey}` } : {});
+const targetFailed = (status: unknown) => {
+  if (typeof status === "number" && status >= 400) throw new ProviderPageError(`The site returned HTTP ${status}.`);
+};
+
+const ADAPTERS: Record<Exclude<FetchProvider, "builtin">, Adapter> = {
+  firecrawl: {
+    request: (url, apiKey) =>
+      post("https://api.firecrawl.dev/v2/scrape", bearer(apiKey), {
+        url,
+        formats: ["markdown"],
+        onlyMainContent: true,
+        maxAge: 0,
+        timeout: 45_000,
+      }),
+    parse: (body) => {
+      if (body.success === false) throw new ProviderPageError(text(body.error) || "Firecrawl could not scrape the page.");
+      const data = record(body.data);
+      const metadata = record(data.metadata);
+      targetFailed(metadata.statusCode);
+      return { url: metadata.url ?? metadata.sourceURL, text: data.markdown, title: metadata.title };
+    },
+  },
+  exa: {
+    request: (url, apiKey) =>
+      post("https://api.exa.ai/contents", { "x-api-key": apiKey ?? "" }, { urls: [url], text: true, maxAgeHours: 0, livecrawlTimeout: 15_000 }),
+    parse: (body) => {
+      const failed = (Array.isArray(body.statuses) ? body.statuses : []).map(record).find((status) => status.status !== "success");
+      if (failed) {
+        const error = record(failed.error);
+        throw new ProviderPageError(`Exa could not read the page (${text(error.tag) || "error"}${error.httpStatusCode ? `, HTTP ${error.httpStatusCode}` : ""}).`);
+      }
+      const result = record(Array.isArray(body.results) && body.results.length === 1 ? body.results[0] : null);
+      return { url: result.url, text: result.text, title: result.title };
+    },
+  },
+  parallel: {
+    request: (url, apiKey) =>
+      post("https://api.parallel.ai/v1/extract", { "x-api-key": apiKey ?? "" }, {
+        urls: [url],
+        advanced_settings: { full_content: true, fetch_policy: { max_age_seconds: 600, timeout_seconds: 30 } },
+      }),
+    parse: (body) => {
+      const failed = (Array.isArray(body.errors) ? body.errors : []).map(record)[0];
+      if (failed) throw new ProviderPageError(`Parallel could not read the page (${text(failed.error_type) || "error"}${failed.http_status_code ? `, HTTP ${failed.http_status_code}` : ""}).`);
+      const result = record(Array.isArray(body.results) && body.results.length === 1 ? body.results[0] : null);
+      const excerpts = Array.isArray(result.excerpts) ? result.excerpts.filter((part) => typeof part === "string").join("\n\n") : "";
+      return { url: result.url, text: text(result.full_content) || excerpts, title: result.title };
+    },
+  },
+};
+
+async function boundedText(response: Response): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > 5 * 1024 * 1024) throw new Error("Response exceeds 5 MiB");
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks).toString("utf8");
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+}
+
+/** Provider error bodies, when they explain a request-level failure without echoing it. */
+async function providerMessage(response: Response): Promise<string> {
+  try {
+    const body = record(JSON.parse((await boundedText(response)).slice(0, 20_000)));
+    const error = body.error;
+    const message = text(record(error).message) || text(error) || text(record(body.detail).error) || text(body.message) || text(record(Array.isArray(body.errors) ? body.errors[0] : null).message);
+    return message.replace(/\s+/g, " ").slice(0, 200).replace(/[.\s]+$/, "");
+  } catch {
+    return "";
+  }
+}
 
 export class FetchProviderClient {
   constructor(
@@ -25,83 +130,70 @@ export class FetchProviderClient {
     if (typeof value !== "string" || value.length > 8000)
       throw new Error("WebFetch requires a URL of at most 8000 characters");
     publicWebUrl(value);
-    const { provider, apiKey } = await this.configuration(signal);
+    const configured = await this.configuration(signal);
+    const provider = configured.provider === undefined ? DEFAULT_FETCH_PROVIDER : configured.provider;
+    const { apiKey } = configured;
     signal?.throwIfAborted();
     if (provider === "builtin") return { configured: true, provider };
-    if (!provider || !apiKey)
+    if (!provider || !webProviderInfo("fetch", provider) || !apiKey)
       return {
         configured: false,
-        provider: provider ?? null,
-        message: `No fetch configured. ${provider ? `${FETCH_PROVIDERS[provider]} needs a saved API key. ` : ""}Configure it in Settings → Server → Web fetch. Select and save built-in HTTP fetch to read public pages without a key, or save an Exa Contents/Tavily Extract key. No page was fetched. Never paste API keys into chat.`,
+        provider,
+        message: provider
+          ? `Web fetch is not configured: ${FETCH_PROVIDERS[provider] ?? provider} is selected but its API key is missing. No page was fetched. Tell the user they can finish setting it up or choose the built-in fetcher in Settings → Providers. Never ask for API keys in chat.`
+          : "Web fetch is turned off: the user turned off page fetching in Settings → Providers. No page was fetched. Tell the user fetch is off and that they can turn it on there; you can still open pages with the browser tool.",
       };
+    const name = FETCH_PROVIDERS[provider];
+    const adapter = ADAPTERS[provider];
     const url = (await this.validate(value, signal)).href;
-    const isExa = provider === "exa";
-    const timeout = AbortSignal.timeout(30_000);
+    const { endpoint, init } = adapter.request(url, apiKey);
+    const timeout = AbortSignal.timeout(60_000);
     let response: Response;
     try {
-      response = await this.request(
-        isExa ? "https://api.exa.ai/contents" : "https://api.tavily.com/extract",
-        {
-          method: "POST",
-          redirect: "error",
-          signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-          headers: {
-            "content-type": "application/json",
-            ...(isExa ? { "x-api-key": apiKey } : { authorization: `Bearer ${apiKey}` }),
-          },
-          body: JSON.stringify(
-            isExa
-              ? { ids: [url], text: true, maxAgeHours: 0, livecrawlTimeout: 15000 }
-              : {
-                  urls: [url],
-                  extract_depth: "advanced",
-                  format: "markdown",
-                  include_images: false,
-                  timeout: 20,
-                }
-          ),
-        }
-      );
+      response = await this.request(endpoint, { ...init, redirect: "error", signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
     } catch {
       signal?.throwIfAborted();
-      throw new Error(
-        `${FETCH_PROVIDERS[provider]} ${timeout.aborted ? "timed out" : "could not connect"}. Check the provider configuration and retry.`
-      );
+      // Some providers authenticate in the URL; never echo fetch errors or request URLs.
+      throw new Error(`${name} ${timeout.aborted ? "timed out" : "could not be reached"}. Retry later, or open the page with the browser tool.`);
     }
     if (!response.ok) {
-      await response.body?.cancel().catch(() => {});
-      throw new Error(
-        `${FETCH_PROVIDERS[provider]} fetch failed (HTTP ${response.status}). ${[401, 403].includes(response.status) ? "Check the API key and access." : [402, 429, 432, 433].includes(response.status) ? "Check quota, balance, or rate limit." : "Retry later or check the provider configuration."}`
-      );
+      const detail = await providerMessage(response);
+      const status = response.status;
+      const reason =
+        status === 401 || status === 403
+          ? "Check the API key and its access in Settings → Providers."
+          : [402, 429, 432, 433].includes(status)
+            ? "Check the provider's quota, balance or rate limit."
+            : status === 400 || status === 408 || status === 422
+              ? "The provider couldn't read this page; try the browser tool."
+              : "Retry later, or open the page with the browser tool.";
+      const safe = apiKey ? detail.split(apiKey).join("[redacted]") : detail;
+      throw new Error(`${name} fetch failed (HTTP ${status})${safe ? `: ${safe}` : ""}. ${reason}`);
     }
     try {
       const body = await boundedJson(response);
       signal?.throwIfAborted();
-      if (body.error || body.errors || body.detail || body.success === false)
-        throw new Error("Provider error");
-      if (!Array.isArray(body.results) || body.results.length !== 1)
-        throw new Error("No single document result");
-      if (
-        isExa &&
-        Array.isArray(body.statuses) &&
-        body.statuses.some((s) => record(s).status !== "success")
-      )
-        throw new Error("URL crawl failed");
-      if (!isExa && Array.isArray(body.failed_results) && body.failed_results.length)
-        throw new Error("URL extraction failed");
-      const result = record(body.results[0]);
-      const text = isExa ? result.text : result.raw_content;
-      if (typeof text !== "string" || !text.trim() || typeof result.url !== "string")
-        throw new Error("Missing page content");
-      const resultUrl = publicWebUrl(result.url).href;
-      const redact = (s: string) =>
-        s.split(apiKey).join("[redacted]").split(encodeURIComponent(apiKey)).join("[redacted]");
-      return { configured: true, provider, url: redact(resultUrl), text: redact(text) };
-    } catch {
+      const parsed = adapter.parse(body);
+      let content = text(parsed.text);
+      if (!content.trim()) throw new ProviderPageError(`${name} returned no page content.`);
+      // Main-content extraction often drops the page title; lead with it like the built-in reader.
+      const title = (Array.isArray(parsed.title) ? text(parsed.title[0]) : text(parsed.title)).replace(/\s+/g, " ").trim().slice(0, 300);
+      if (title && !content.slice(0, 500).includes(title)) content = `# ${title}\n\n${content}`;
+      const redact = (s: string) => s.split(apiKey).join("[redacted]");
+      let resultUrl = url;
+      try {
+        if (typeof parsed.url === "string" && parsed.url) resultUrl = publicWebUrl(parsed.url).href;
+      } catch {
+        throw new ProviderPageError(`${name} returned an unusable page URL.`);
+      }
+      return { configured: true, provider, url: redact(resultUrl), text: redact(content) };
+    } catch (error) {
       signal?.throwIfAborted();
-      throw new Error(
-        `${FETCH_PROVIDERS[provider]} could not extract this page or returned an invalid response. Try another public URL or choose built-in HTTP fetch.`
-      );
+      if (error instanceof ProviderPageError) {
+        const message = apiKey ? error.message.split(apiKey).join("[redacted]") : error.message;
+        throw new Error(`${message} Try another URL, or open the page with the browser tool.`);
+      }
+      throw new Error(`${name} returned an invalid response. Try another URL, or open the page with the browser tool.`);
     }
   }
 }

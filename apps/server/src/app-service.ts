@@ -31,10 +31,9 @@ import { RunService } from "./services/run-service";
 import { ScreenService } from "./services/screen-service";
 import { SearchService } from "./services/search-service";
 import { forwardServiceMethod, serviceEffect } from "./services/service-utils";
-import { WebFetchSettingsService } from "./services/web-fetch-settings";
 import { SavedLoginService } from "./services/saved-login-service";
 import { ReviewPolicyService } from "./services/review-policy-service";
-import { WebSearchSettingsService } from "./services/web-search-settings";
+import { WebProviderSettingsService } from "./services/web-provider-settings";
 import { SettingsService } from "./services/settings-service";
 import { SnapshotService } from "./services/snapshot-service";
 import { recover } from "./services/startup-recovery";
@@ -48,11 +47,10 @@ const ASSET_ID = /^[a-f0-9]{64}$/;
 
 export class AppService {
   readonly transcription: TranscriptionService;
-  readonly webSearchSettings: WebSearchSettingsService;
+  readonly webProviders: WebProviderSettingsService;
   readonly savedLogins: SavedLoginService;
   readonly reviewPolicy: ReviewPolicyService;
   readonly automationWebhooks: AutomationWebhooksService;
-  readonly webFetchSettings: WebFetchSettingsService;
   private readonly settings: SettingsService;
 
   readonly prisma: PrismaClient;
@@ -93,7 +91,16 @@ export class AppService {
   ) {
     const databaseUrl = process.env.DATABASE_URL;
     this.prisma = createPrismaClient(databaseUrl);
-    this.webSearchSettings = new WebSearchSettingsService(this.prisma);
+    this.webProviders = new WebProviderSettingsService(this.prisma, async (request) => {
+      // Checks run in the computer so they exercise the same code as the agent's tools.
+      const response = await this.computerFetch("/v1/web-providers/check", {
+        method: "POST",
+        body: JSON.stringify(request),
+        signal: AbortSignal.timeout(75_000),
+      });
+      if (!response.ok) throw new Error(`Computer check failed with HTTP ${response.status}`);
+      return (await response.json()) as { ok: boolean; message: string };
+    });
     this.savedLogins = new SavedLoginService(this.prisma);
     this.machines = new MachineService(
       this.prisma,
@@ -102,7 +109,6 @@ export class AppService {
       undefined,
       authMode === "disabled"
     );
-    this.webFetchSettings = new WebFetchSettingsService(this.prisma);
     this.boss = new PgBoss(databaseUrl ?? "");
     this.eventWakeup = new EventWakeup(databaseUrl ?? "");
     this.computerUrl = process.env.OPENTEAM_COMPUTER_URL ?? "http://127.0.0.1:8790";

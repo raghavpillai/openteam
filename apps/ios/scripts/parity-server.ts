@@ -9,6 +9,7 @@ import { FunctionalFixtures } from "./functional-fixtures";
 import { contentScene } from "./content-fixtures";
 import { validateFixtureRequest } from "./validate-fixture-request";
 import { validateUserFormValues } from "../../../packages/contracts/src/review-cards";
+import { DEFAULT_FETCH_PROVIDER, WEB_PROVIDER_LISTS, WEB_TOOLS, webProviderInfo, type WebProviderInfo, type WebTool } from "../../../packages/contracts/src/web-search";
 
 const port = Number(process.env.SWIFT_PARITY_PORT || 19997);
 let snapshot: ClientSnapshot;
@@ -32,6 +33,8 @@ let functionality = new FunctionalFixtures();
 let screen = {state:"ready",width:1280,height:800,humanTakeover:false,apps:["chromium","thunar","terminal"]};
 let contentReceipts:any[] = [];
 let routineExecutions:any[] = [];
+type WebProviderRow = { secret: string | null; check: { status: "passed" | "failed"; message: string; checkedAt: string } | null };
+let webProviders: { selected: Record<WebTool, string | null>; rows: Record<WebTool, Record<string, WebProviderRow>>; patches: unknown[]; checks: unknown[] };
 const deliveries = new Map<string, ChannelMessageView>();
 const wakeups = new Set<() => void>();
 const requestLog: Array<{ method: string; path: string; clientId?: string }> = [];
@@ -44,6 +47,7 @@ function reset() {
   requestLog.length = 0;
   failures = {}; searchResults = null; authExpired = false; invalidServer = false; missingToken = false;
   functionality = new FunctionalFixtures(); screen.humanTakeover=false; screen.state="ready"; contentReceipts=[]; routineExecutions=[];
+  webProviders = { selected: { search: null, fetch: DEFAULT_FETCH_PROVIDER }, rows: { search: {}, fetch: {} }, patches: [], checks: [] };
   memories = [{ id: "memory-fixture", content: "Prefers concise summaries and clear next steps.", createdAt: 1789473600000, kind: "profile" }];
   settings = { version: 2, pinnedIds: [], unreadIds: [], unassignedCollapsed: false, sections: [], sectionByChannel: {}, channelOrderByGroup: {} };
 }
@@ -58,6 +62,60 @@ function bootstrap(): ClientBootstrapView {
     channelRounds: [], subagents: [], runtime: snapshot.runtime, capabilities: { } as any };
 }
 const response = (data: unknown, status = 200) => Response.json(data, { status });
+/** Mirrors the server's Settings → Providers rules and messages. Checks are deterministic:
+ * the built-in fetcher passes, and so do fixture keys starting with "good-". */
+const missingKey = (info: WebProviderInfo, row?: WebProviderRow) => info.fields.some(field => field.required) && !row?.secret;
+const webProvidersView = () => Object.fromEntries(WEB_TOOLS.map(tool => [tool, {
+  selected: webProviders.selected[tool],
+  providers: Object.fromEntries(WEB_PROVIDER_LISTS[tool].map(info => {
+    const row = webProviders.rows[tool][info.id];
+    return [info.id, { secretSaved: Boolean(row?.secret), ready: !missingKey(info, row), check: row?.check ?? null }];
+  })),
+}]));
+function saveWebProviders(input: any): string | null {
+  if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some(k => !WEB_TOOLS.includes(k as WebTool))) return "Unknown web provider setting.";
+  const next = structuredClone({ selected: webProviders.selected, rows: webProviders.rows });
+  for (const tool of WEB_TOOLS) {
+    const change = input[tool];
+    if (change === undefined) continue;
+    if (!change || typeof change !== "object" || Object.keys(change).some(k => !["selected", "providers"].includes(k))) return `Unknown ${tool} setting.`;
+    for (const [id, fields] of Object.entries<any>(change.providers ?? {})) {
+      const info = webProviderInfo(tool, id);
+      if (!info) return `Unknown ${tool} provider.`;
+      const row: WebProviderRow = next.rows[tool][id] ?? { secret: null, check: null };
+      for (const [field, value] of Object.entries<any>(fields ?? {})) {
+        if (field !== "apiKey" || !info.fields.length) return `${info.name} has no ${field} field.`;
+        if (value !== null && (typeof value !== "string" || !value.trim() || /\s/.test(value.trim()))) return "The API key is invalid.";
+        const secret = value === null ? null : value.trim();
+        if (secret !== row.secret) row.check = null;
+        row.secret = secret;
+      }
+      next.rows[tool][id] = row;
+    }
+    if (change.selected !== undefined) {
+      if (change.selected !== null && !webProviderInfo(tool, change.selected)) return `Choose a ${tool} provider from the list.`;
+      next.selected[tool] = change.selected;
+    }
+    const info = webProviderInfo(tool, next.selected[tool]);
+    if (info && missingKey(info, next.rows[tool][info.id])) return change.providers?.[info.id]?.apiKey === null
+      ? `${info.name} is used for ${tool}. Choose another ${tool} provider before removing its API key.`
+      : `Add the ${info.name} API key to use it for ${tool}.`;
+  }
+  Object.assign(webProviders, next);
+  return null;
+}
+function checkWebProvider(input: any): string | null {
+  const tool = input?.tool as WebTool, info = WEB_TOOLS.includes(tool) ? webProviderInfo(tool, input?.provider) : undefined;
+  if (!info) return "Choose a provider to check.";
+  const row = webProviders.rows[tool][info.id];
+  if (missingKey(info, row)) return `Add the ${info.name} API key before checking it.`;
+  const passed = !row?.secret || row.secret.startsWith("good-");
+  webProviders.rows[tool][info.id] = { secret: row?.secret ?? null, check: {
+    status: passed ? "passed" : "failed", checkedAt: new Date().toISOString(),
+    message: !passed ? `${info.name} rejected the API key (HTTP 401).` : tool === "search" ? "Search works: 3 results for “OpenTeam”." : "Fetch works: read example.com (1,234 characters).",
+  } };
+  return null;
+}
 const server = Bun.serve({
   hostname: "127.0.0.1", port, idleTimeout: 40,
   async fetch(request, server) {
@@ -110,7 +168,7 @@ const server = Bun.serve({
       if ("searchResults" in input) searchResults = input.searchResults;
       emit("snapshot.reset"); return response({ ok: true });
     }
-    if (path === "/__qa/state") return response({ messages: snapshot.channelMessages, requests: requestLog, settings, approvals: snapshot.approvals, bots: snapshot.bots, channels: snapshot.channels, memories, routines, routineExecutions, contentReceipts, screen, configuration:functionality.configuration, pluginSettings:functionality.settings(snapshot.bots), sources:functionality.sources, skills:functionality.skills });
+    if (path === "/__qa/state") return response({ messages: snapshot.channelMessages, requests: requestLog, settings, approvals: snapshot.approvals, bots: snapshot.bots, channels: snapshot.channels, memories, routines, routineExecutions, contentReceipts, screen, configuration:functionality.configuration, pluginSettings:functionality.settings(snapshot.bots), sources:functionality.sources, skills:functionality.skills, webProviders: { ...webProvidersView(), patches: webProviders.patches, checks: webProviders.checks } });
     if (path === "/__qa/haptics") {
       if (method === "POST") hapticAudit.push(input);
       if (method === "DELETE") hapticAudit = [];
@@ -168,6 +226,13 @@ const server = Bun.serve({
     if (path === "/api/v0/client-runtime") return response({ runtime: snapshot.runtime });
     if (path === "/api/v0/system/version") return response({ releaseVersion: "0.0.0", apiProtocolVersion: 1, minimumClientVersion: "0.0.0", maximumClientVersionExclusive: "1.0.0", recommendedClientVersion: "0.0.0", updateChannel: "beta" });
     if (path === "/api/v0/settings") return response({ settings: { sidebarPreferences: settings }, valid: true });
+    if (path === "/api/v0/server-settings/web-providers" || (path === "/api/v0/server-settings/web-providers/check" && method === "POST")) {
+      if (method === "PATCH") webProviders.patches.push(input);
+      if (method === "POST") webProviders.checks.push(input);
+      const rejected = method === "PATCH" ? saveWebProviders(input) : method === "POST" ? checkWebProvider(input) : null;
+      if (rejected) return response({ error: { code: "invalid_web_provider_settings", message: rejected } }, 400);
+      return response(webProvidersView());
+    }
     if (path === "/api/v0/settings/sidebar") { settings = input; emit("settings.updated"); return response(settings); }
     if (path === "/api/v0/events/poll") {
       const after = Number(url.searchParams.get("after") ?? 0);

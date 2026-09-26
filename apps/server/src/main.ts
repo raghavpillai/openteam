@@ -221,7 +221,7 @@ const server = Bun.serve<VncConnection>({
           return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
         if (request.method !== "GET")
           return json({ error: { code: "method_not_allowed", message: "Method not allowed" } }, 405);
-        return json(await (path.includes("/web-fetch/") ? app.webFetchSettings : app.webSearchSettings).credentials());
+        return json(await app.webProviders.credentials(path.includes("/web-fetch/") ? "fetch" : "search"));
       }
       if (request.method === "PATCH" && path === "/api/internal/server-settings/inference") {
         if (!authorizedInternal(request)) {

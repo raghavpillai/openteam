@@ -40,12 +40,13 @@ function serverWebConfiguration(
       )
         throw new Error("Invalid settings");
       signal?.throwIfAborted();
-      return { provider: value.provider ?? undefined, apiKey: value.apiKey ?? undefined };
+      // Keep null distinct: for fetch it means the user turned fetch off.
+      return { provider: value.provider, apiKey: value.apiKey ?? undefined };
     } catch {
       signal?.throwIfAborted();
       // Neither upstream errors nor response bodies may expose credentials.
       throw new Error(
-        `Web ${kind} settings could not be loaded. Check the server connection and saved key in Server settings.`
+        `Web ${kind} settings could not be loaded from the OpenTeam server, so nothing was ${kind === "search" ? "searched" : "fetched"}. Retry shortly; if it keeps failing, the server may need attention.`
       );
     }
   };

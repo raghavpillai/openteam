@@ -86,8 +86,8 @@ describe("Grok-derived platform prompt integration", () => {
       );
       const prompt = renderPlatformBaseSystemPrompt(features);
       expect(prompt).toContain("download it to your computer and attach the saved file");
-      expect(prompt).toContain("No search configured");
-      expect(prompt).toContain("No fetch configured");
+      expect(prompt).toContain("Web search is not configured");
+      expect(prompt).toContain("Web fetch is turned off");
       expect(prompt).not.toContain("Use watchVideo");
       expect(prompt).not.toContain("GenerateImage");
       expect(prompt).not.toContain("request_scm_connect");

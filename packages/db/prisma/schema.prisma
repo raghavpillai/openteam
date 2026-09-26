@@ -1368,18 +1368,36 @@ model TaskSettings {
   updatedAt DateTime @updatedAt
 }
 
+/// Selected search provider; null means search is off. Credentials live in WebToolProvider.
 model WebSearchSettings {
   id              String   @id @default("global")
   provider        String?
+  /// Legacy key, migrated to WebToolProvider by raw-schema.sql and kept null.
   apiKey          String?
   updatedAt       DateTime @updatedAt
 }
 
+/// Selected fetch provider; no row means the built-in fetcher and a null provider turns fetch off.
 model WebFetchSettings {
   id        String   @id @default("global")
-  provider  String   @default("builtin")
+  provider  String?  @default("builtin")
+  /// Legacy key, migrated to WebToolProvider by raw-schema.sql and kept null.
   apiKey    String?
   updatedAt DateTime @updatedAt
+}
+
+/// A provider's saved configuration for one web tool ("search" or "fetch"). Each tool keeps its
+/// own entries: the provider's API key and the last connection check.
+model WebToolProvider {
+  tool         String
+  provider     String
+  secret       String?
+  checkStatus  String?
+  checkMessage String?
+  checkedAt    DateTime?
+  updatedAt    DateTime  @updatedAt
+
+  @@id([tool, provider])
 }
 
 model AutomationWebhook {

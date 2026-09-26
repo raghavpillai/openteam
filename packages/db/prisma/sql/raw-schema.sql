@@ -302,16 +302,56 @@ WHERE older."botId" IS NULL AND newer."botId" IS NULL
 CREATE UNIQUE INDEX IF NOT EXISTS "PluginToolPolicy_global_unique"
 ON "PluginToolPolicy" ("connectionId", "toolName") WHERE "botId" IS NULL;
 
--- Web search settings are a single server-owned row.
+-- Web tools: one selected provider per tool, and per-tool provider rows holding the API key
+-- and last connection check. Provider lists match packages/contracts/src/web-search.ts.
+-- Move legacy keys into WebToolProvider before the constraints below forbid them, and drop
+-- entries for providers no longer offered. Every provider except built-in fetch needs a key,
+-- so a selection without one was never usable: search turns off and fetch falls back to built-in.
 ALTER TABLE "WebSearchSettings" DROP CONSTRAINT IF EXISTS "WebSearchSettings_valid";
-ALTER TABLE "WebSearchSettings" ADD CONSTRAINT "WebSearchSettings_valid" CHECK (
-  "id" = 'global' AND
-  ("provider" IS NULL OR "provider" IN ('exa', 'tavily', 'brave', 'bing-serpapi')) AND
-  ("provider" IS NOT NULL OR "apiKey" IS NULL)
-);
-
 ALTER TABLE "WebFetchSettings" DROP CONSTRAINT IF EXISTS "WebFetchSettings_valid";
+ALTER TABLE "WebToolProvider" DROP CONSTRAINT IF EXISTS "WebToolProvider_valid";
+INSERT INTO "WebToolProvider" ("tool", "provider", "secret", "updatedAt")
+SELECT 'search', "provider", "apiKey", now() FROM "WebSearchSettings"
+WHERE "apiKey" IS NOT NULL AND "provider" IN ('exa', 'brave', 'parallel', 'firecrawl', 'bing-serpapi', 'perplexity')
+ON CONFLICT ("tool", "provider") DO NOTHING;
+INSERT INTO "WebToolProvider" ("tool", "provider", "secret", "updatedAt")
+SELECT 'fetch', "provider", "apiKey", now() FROM "WebFetchSettings"
+WHERE "apiKey" IS NOT NULL AND "provider" IN ('exa', 'parallel', 'firecrawl')
+ON CONFLICT ("tool", "provider") DO NOTHING;
+DELETE FROM "WebToolProvider" WHERE NOT (
+  ("tool" = 'search' AND "provider" IN ('exa', 'brave', 'parallel', 'firecrawl', 'bing-serpapi', 'perplexity')) OR
+  ("tool" = 'fetch' AND "provider" IN ('builtin', 'exa', 'parallel', 'firecrawl'))
+);
+UPDATE "WebSearchSettings" s SET "provider" = NULL
+WHERE "provider" IS NOT NULL AND NOT EXISTS (
+  SELECT 1 FROM "WebToolProvider" p
+  WHERE p."tool" = 'search' AND p."provider" = s."provider" AND p."secret" IS NOT NULL
+);
+UPDATE "WebFetchSettings" f SET "provider" = 'builtin'
+WHERE "provider" IS NOT NULL AND "provider" <> 'builtin' AND NOT EXISTS (
+  SELECT 1 FROM "WebToolProvider" p
+  WHERE p."tool" = 'fetch' AND p."provider" = f."provider" AND p."secret" IS NOT NULL
+);
+UPDATE "WebSearchSettings" SET "apiKey" = NULL WHERE "apiKey" IS NOT NULL;
+UPDATE "WebFetchSettings" SET "apiKey" = NULL WHERE "apiKey" IS NOT NULL;
+
+ALTER TABLE "WebSearchSettings" ADD CONSTRAINT "WebSearchSettings_valid" CHECK (
+  "id" = 'global' AND "apiKey" IS NULL AND ("provider" IS NULL OR "provider" IN (
+    'exa', 'brave', 'parallel', 'firecrawl', 'bing-serpapi', 'perplexity'
+  ))
+);
 ALTER TABLE "WebFetchSettings" ADD CONSTRAINT "WebFetchSettings_valid" CHECK (
-  "id" = 'global' AND "provider" IN ('builtin', 'exa', 'tavily') AND
-  ("provider" <> 'builtin' OR "apiKey" IS NULL)
+  "id" = 'global' AND "apiKey" IS NULL AND ("provider" IS NULL OR "provider" IN (
+    'builtin', 'exa', 'parallel', 'firecrawl'
+  ))
+);
+ALTER TABLE "WebToolProvider" ADD CONSTRAINT "WebToolProvider_valid" CHECK (
+  (("tool" = 'search' AND "provider" IN (
+    'exa', 'brave', 'parallel', 'firecrawl', 'bing-serpapi', 'perplexity'
+  )) OR ("tool" = 'fetch' AND "provider" IN (
+    'builtin', 'exa', 'parallel', 'firecrawl'
+  ))) AND
+  ("secret" IS NULL OR length(btrim("secret")) > 0) AND
+  ("checkStatus" IS NULL OR "checkStatus" IN ('passed', 'failed')) AND
+  (("checkStatus" IS NULL) = ("checkedAt" IS NULL))
 );

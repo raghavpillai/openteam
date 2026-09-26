@@ -474,7 +474,7 @@ const readLazyClosures = async () => {
       settingsGeneralBot: ["src/renderer/components/openteam/settings/general-bot.tsx"],
       settingsComputer: ["src/renderer/components/openteam/settings/computer.tsx"],
       settingsServer: ["src/renderer/components/openteam/settings/server.tsx"],
-      settingsWebSearch: ["src/renderer/components/openteam/settings/web-search.tsx"],
+      settingsProviders: ["src/renderer/components/openteam/settings/providers.tsx"],
       settingsUpdates: ["src/renderer/components/openteam/settings/updates.tsx"],
     };
     const closures = Object.fromEntries(

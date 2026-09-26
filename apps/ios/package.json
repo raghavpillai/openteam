@@ -7,7 +7,7 @@
   "scripts": {
     "generate": "python3 scripts/generate-project.py && bun scripts/export-robot-artwork.ts && bun NotificationService/generate-notification-artwork.ts && bun scripts/export-message-renderer.ts && bun scripts/export-computer-vnc.ts",
     "native:check": "python3 scripts/check-native-config.py",
-    "test": "python3 scripts/check-native-config.py && bun scripts/export-robot-artwork.ts --check",
+    "test": "python3 scripts/check-native-config.py && bun scripts/export-robot-artwork.ts --check && bun scripts/export-web-providers.ts --check",
     "test:core": "swift test -c release",
     "test:ui": "bash scripts/verify.sh",
     "performance": "swift test -c release --filter HistoryPerformanceTests"

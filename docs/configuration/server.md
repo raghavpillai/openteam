@@ -8,7 +8,7 @@ Guided setup covers most installations. This page shows where to change each set
 | --- | --- |
 | Model provider | Desktop **Settings → Server**, `openteam setup`, or `openteam model` (sign in first with `openteam provider login`) |
 | Model and reasoning level | Desktop **Settings → Server**, or `openteam model` |
-| Web search and page fetching | Desktop **Settings → Server** |
+| Web search and page fetching | **Settings → Providers** on desktop or iPhone |
 | Voice transcription | Desktop **Settings → Server**, or `openteam model` |
 | Connection mode, API port, time zone, and tasks at once | `openteam setup --advanced` |
 | Username and password | `openteam account update` |

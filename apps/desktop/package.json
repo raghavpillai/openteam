@@ -137,6 +137,7 @@
     "test:computer-view": "bun scripts/test-computer-view.ts",
     "test:sidebar-parity": "bun scripts/test-sidebar-parity.ts",
     "test:permission-cards": "bun scripts/test-permission-cards.ts",
+    "test:provider-settings": "bun scripts/test-provider-settings.ts",
     "test:parity-review": "bun scripts/test-parity-review.ts",
     "test:update-ui": "bun scripts/test-desktop-update-ui.ts",
     "test:native:e2e": "bun test/host/fixtures/capability-integration.ts"

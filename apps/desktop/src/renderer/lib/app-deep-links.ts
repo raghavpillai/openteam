@@ -10,10 +10,12 @@ export const SETTINGS_ANCHORS = [
   "update-status",
   "server-update",
   "automatic-updates",
+  "web-search-provider",
+  "web-fetch-provider",
 ] as const;
 
 export type SettingsAnchor = (typeof SETTINGS_ANCHORS)[number];
-export type SettingsView = "general" | "computer" | "server" | "updates";
+export type SettingsView = "general" | "computer" | "server" | "providers" | "updates";
 export const OPENTEAM_DEEP_LINK_EVENT = "openteam:deep-link";
 
 const settingsAnchorSet = new Set<string>(SETTINGS_ANCHORS);
@@ -30,6 +32,8 @@ const viewByAnchor: Record<SettingsAnchor, SettingsView> = {
   "update-status": "updates",
   "server-update": "updates",
   "automatic-updates": "updates",
+  "web-search-provider": "providers",
+  "web-fetch-provider": "providers",
 };
 
 export type OpenTeamDeepLink =

@@ -1,6 +1,5 @@
 import type {AutomationWebhookInput,AutomationWebhookView} from "@openteam/contracts/automation-webhooks";
-import type { WebFetchSettingsInput, WebFetchSettingsView } from "@openteam/contracts/web-search";
-import type { WebSearchSettingsInput, WebSearchSettingsView } from "@openteam/contracts/web-search";
+import type { WebProviderCheckInput, WebProvidersInput, WebProvidersView } from "@openteam/contracts/web-search";
 import type {
   PluginComposerView,
   PluginTestInput,
@@ -182,13 +181,16 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
     saveAutomationWebhook: (input: AutomationWebhookInput) => transport.request<AutomationWebhookView>("/api/v0/server-settings/automation-webhooks",{method:"POST",body:JSON.stringify(input)}),
     removeAutomationWebhook: (id: string) => transport.request<{removed:boolean;notice:string|null}>(`/api/v0/server-settings/automation-webhooks/${encodeURIComponent(id)}`,{method:"DELETE"}),
     connectAutomationWebhook: (id: string) => transport.request<AutomationWebhookView>(`/api/v0/server-settings/automation-webhooks/${encodeURIComponent(id)}/connect`,{method:"POST"}),
-    webFetchSettings: () => transport.request<WebFetchSettingsView>("/api/v0/server-settings/web-fetch"),
-    updateWebFetchSettings: (input: WebFetchSettingsInput) => transport.request<WebFetchSettingsView>("/api/v0/server-settings/web-fetch", {method: "PATCH", body: JSON.stringify(input)}),
-    webSearchSettings: () =>
-      transport.request<WebSearchSettingsView>("/api/v0/server-settings/web-search"),
-    updateWebSearchSettings: (input: WebSearchSettingsInput) =>
-      transport.request<WebSearchSettingsView>("/api/v0/server-settings/web-search", {
+    webProviders: () => transport.request<WebProvidersView>("/api/v0/server-settings/web-providers"),
+    updateWebProviders: (input: WebProvidersInput) =>
+      transport.request<WebProvidersView>("/api/v0/server-settings/web-providers", {
         method: "PATCH",
+        body: JSON.stringify(input),
+      }),
+    /** Runs a real search or fetch with the saved fields and stores the outcome. */
+    checkWebProvider: (input: WebProviderCheckInput) =>
+      transport.request<WebProvidersView>("/api/v0/server-settings/web-providers/check", {
+        method: "POST",
         body: JSON.stringify(input),
       }),
     serverSettings: (providerId?: string) => {

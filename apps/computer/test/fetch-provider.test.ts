@@ -22,7 +22,7 @@ const CASES: Record<Exclude<FetchProvider, "builtin">, Case> = {
   firecrawl: {
     endpoint: "https://api.firecrawl.dev/v2/scrape",
     auth: ["authorization", `Bearer ${key}`],
-    body: { url, formats: ["markdown"], onlyMainContent: true, maxAge: 0, timeout: 45_000, parsers: [{ type: "pdf", maxPages: 25 }], skipTlsVerification: false },
+    body: { url, formats: ["markdown"], onlyMainContent: true, maxAge: 0, timeout: 45_000, skipTlsVerification: false },
     success: () => Response.json({ success: true, data: { markdown: "# Page\n" + key, metadata: { sourceURL: url, url: finalUrl, statusCode: 200 } } }),
     pageFailure: () => Response.json({ success: true, data: { markdown: "Not found", metadata: { url, statusCode: 404 } } }),
     finalUrl,

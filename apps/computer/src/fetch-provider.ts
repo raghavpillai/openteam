@@ -33,9 +33,6 @@ interface Adapter {
   refusesSite?(status: number, detail: string): boolean;
 }
 
-/** Firecrawl bills one credit per PDF page (RFC 9110 alone would cost 194). */
-export const FIRECRAWL_PDF_PAGES = 25;
-
 const post = (endpoint: string, headers: Record<string, string>, body: unknown) => ({
   endpoint,
   init: { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) },
@@ -54,7 +51,6 @@ const ADAPTERS: Record<Exclude<FetchProvider, "builtin">, Adapter> = {
         onlyMainContent: true,
         maxAge: 0,
         timeout: 45_000,
-        parsers: [{ type: "pdf", maxPages: FIRECRAWL_PDF_PAGES }],
         // Firecrawl skips certificate checks by default; verify them like the built-in fetcher.
         skipTlsVerification: false,
       }),

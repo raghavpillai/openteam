@@ -16,7 +16,7 @@ export interface FetchConfiguration {
 type FetchResult =
   | { configured: false; provider: FetchProvider | null; message: string }
   | { configured: true; provider: "builtin" }
-  | { configured: true; provider: Exclude<FetchProvider, "builtin">; url: string; text: string };
+  | { configured: true; provider: Exclude<FetchProvider, "builtin">; url: string; text: string; note?: string };
 
 const record = (v: unknown): Record<string, unknown> =>
   v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
@@ -27,8 +27,13 @@ class ProviderPageError extends Error {}
 
 interface Adapter {
   request(url: string, apiKey: string | undefined): { endpoint: string; init: RequestInit };
-  parse(body: Record<string, unknown>): { url?: unknown; text: unknown; title?: unknown };
+  parse(body: Record<string, unknown>): { url?: unknown; text: unknown; title?: unknown; note?: string };
+  /** An error response that means the provider declines this site, not a key or quota problem. */
+  refusesSite?(status: number, detail: string): boolean;
 }
+
+/** Firecrawl bills one credit per PDF page (RFC 9110 alone would cost 194). */
+export const FIRECRAWL_PDF_PAGES = 25;
 
 const post = (endpoint: string, headers: Record<string, string>, body: unknown) => ({
   endpoint,
@@ -48,18 +53,33 @@ const ADAPTERS: Record<Exclude<FetchProvider, "builtin">, Adapter> = {
         onlyMainContent: true,
         maxAge: 0,
         timeout: 45_000,
+        parsers: [{ type: "pdf", maxPages: FIRECRAWL_PDF_PAGES }],
       }),
     parse: (body) => {
       if (body.success === false) throw new ProviderPageError(text(body.error) || "Firecrawl could not scrape the page.");
       const data = record(body.data);
       const metadata = record(data.metadata);
       targetFailed(metadata.statusCode);
-      return { url: metadata.url ?? metadata.sourceURL, text: data.markdown, title: metadata.title };
+      const read = Number(metadata.numPages);
+      const total = Number(metadata.totalPages);
+      return {
+        url: metadata.url ?? metadata.sourceURL,
+        text: data.markdown,
+        title: metadata.title,
+        note:
+          total > read
+            ? `Firecrawl read only the first ${read} of ${total} PDF pages. Download the PDF with Shell and use Read for the rest.`
+            : undefined,
+      };
     },
+    // Sites Firecrawl declines by policy (NYT, Reddit, LinkedIn, Yelp, ...) return HTTP 403.
+    refusesSite: (status, detail) => status === 403 && /do not support this site/i.test(detail),
   },
   exa: {
+    // Crawls live unless Exa fetched the page within the hour, and serves Exa's cached copy when
+    // the crawl fails. With 0 there is no cached copy to serve (benchmark: 66% vs 61% useful).
     request: (url, apiKey) =>
-      post("https://api.exa.ai/contents", { "x-api-key": apiKey ?? "" }, { urls: [url], text: true, maxAgeHours: 0, livecrawlTimeout: 15_000 }),
+      post("https://api.exa.ai/contents", { "x-api-key": apiKey ?? "" }, { urls: [url], text: true, maxAgeHours: 1, livecrawlTimeout: 15_000 }),
     parse: (body) => {
       const failed = (Array.isArray(body.statuses) ? body.statuses : []).map(record).find((status) => status.status !== "success");
       if (failed) {
@@ -159,6 +179,8 @@ export class FetchProviderClient {
     if (!response.ok) {
       const detail = await providerMessage(response);
       const status = response.status;
+      if (adapter.refusesSite?.(status, detail))
+        throw new Error(`${name} doesn't fetch this site. Open the page with the browser tool instead.`);
       const reason =
         status === 401 || status === 403
           ? "Check the API key and its access in Settings → Providers."
@@ -186,7 +208,7 @@ export class FetchProviderClient {
       } catch {
         throw new ProviderPageError(`${name} returned an unusable page URL.`);
       }
-      return { configured: true, provider, url: redact(resultUrl), text: redact(content) };
+      return { configured: true, provider, url: redact(resultUrl), text: redact(content), ...(parsed.note ? { note: parsed.note } : {}) };
     } catch (error) {
       signal?.throwIfAborted();
       if (error instanceof ProviderPageError) {

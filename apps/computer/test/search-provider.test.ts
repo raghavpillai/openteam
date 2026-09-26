@@ -55,7 +55,7 @@ const SPECS: Record<SearchProvider, Spec> = {
     method: "POST",
     url: "https://api.firecrawl.dev/v2/search",
     auth: ["authorization", `Bearer ${key}`],
-    body: { query: "reference & example", limit: 10, highlights: false },
+    body: { query: "reference & example", limit: 10, highlights: true },
     success: { success: true, data: { web: [{ ...hit, description: "An extract.", position: 1 }] } },
     empty: () => Response.json({ success: true, data: {} }),
   },

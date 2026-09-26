@@ -36,8 +36,7 @@ export class WebTools {
       const page = await builtinFetch(url, signal);
       ({ text: content, url: resultUrl, note, retriedWithBrowserHeaders } = page);
     } else {
-      content = provided.text;
-      resultUrl = provided.url;
+      ({ text: content, url: resultUrl, note } = provided);
     }
     let text = `# Content from ${resultUrl}\n\n${note ? `Note: ${note}\n\n` : ""}${content}`;
     let outputPath: string | undefined;

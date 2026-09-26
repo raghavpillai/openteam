@@ -22,7 +22,7 @@ const CASES: Record<Exclude<FetchProvider, "builtin">, Case> = {
   firecrawl: {
     endpoint: "https://api.firecrawl.dev/v2/scrape",
     auth: ["authorization", `Bearer ${key}`],
-    body: { url, formats: ["markdown"], onlyMainContent: true, maxAge: 0, timeout: 45_000 },
+    body: { url, formats: ["markdown"], onlyMainContent: true, maxAge: 0, timeout: 45_000, parsers: [{ type: "pdf", maxPages: 25 }] },
     success: () => Response.json({ success: true, data: { markdown: "# Page\n" + key, metadata: { sourceURL: url, url: finalUrl, statusCode: 200 } } }),
     pageFailure: () => Response.json({ success: true, data: { markdown: "Not found", metadata: { url, statusCode: 404 } } }),
     finalUrl,
@@ -30,7 +30,7 @@ const CASES: Record<Exclude<FetchProvider, "builtin">, Case> = {
   exa: {
     endpoint: "https://api.exa.ai/contents",
     auth: ["x-api-key", key],
-    body: { urls: [url], text: true, maxAgeHours: 0, livecrawlTimeout: 15_000 },
+    body: { urls: [url], text: true, maxAgeHours: 1, livecrawlTimeout: 15_000 },
     success: () => Response.json({ results: [{ url: finalUrl, text: "# Page\n" + key }], statuses: [{ id: url, status: "success", source: "crawled" }] }),
     pageFailure: () => Response.json({ results: [], statuses: [{ id: url, status: "error", error: { tag: "CRAWL_NOT_FOUND", httpStatusCode: 404 } }] }),
     finalUrl,
@@ -80,6 +80,26 @@ for (const [provider, spec] of Object.entries(CASES)) {
     }
   });
 }
+
+test("Firecrawl notes truncated PDFs and reports sites it declines as refusals, not key problems", async () => {
+  const firecrawl = (respond: () => Response) =>
+    new FetchProviderClient(() => ({ provider: "firecrawl", apiKey: key }), async () => respond(), validate);
+  const pdf = (numPages: number, totalPages: number) => () =>
+    Response.json({ success: true, data: { markdown: "RFC text", metadata: { url, statusCode: 200, numPages, totalPages } } });
+  expect(await firecrawl(pdf(25, 194)).fetch(url)).toMatchObject({
+    note: "Firecrawl read only the first 25 of 194 PDF pages. Download the PDF with Shell and use Read for the rest.",
+  });
+  expect(await firecrawl(pdf(5, 5)).fetch(url)).not.toHaveProperty("note");
+  const web = await new WebTools(new SearchProviderClient(), firecrawl(pdf(25, 194))).fetch(url, process.cwd());
+  expect(web.content[0]!.text).toContain("Note: Firecrawl read only the first 25 of 194 PDF pages.");
+
+  const declined = () =>
+    Response.json({ success: false, error: "We apologize for the inconvenience but we do not support this site. If you are part of an enterprise, contact us." }, { status: 403 });
+  const refusal = await firecrawl(declined).fetch(url).then(() => null, (e: Error) => e);
+  expect(refusal?.message).toBe("Firecrawl doesn't fetch this site. Open the page with the browser tool instead.");
+  const forbidden = await firecrawl(() => Response.json({ success: false, error: "Forbidden" }, { status: 403 })).fetch(url).then(() => null, (e: Error) => e);
+  expect(forbidden?.message).toContain("Check the API key");
+});
 
 test("every third-party fetch provider needs its key; nothing is sent without one", async () => {
   for (const provider of Object.keys(CASES) as FetchProvider[]) {

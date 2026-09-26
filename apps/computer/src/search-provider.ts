@@ -80,8 +80,9 @@ const ADAPTERS: Record<SearchProvider, Adapter> = {
     validate: (query) => {
       if (query.length > 500) throw new Error("Firecrawl search accepts at most 500 characters. Shorten search_term.");
     },
-    // Highlights make snippets very long.
-    request: (query, apiKey) => json("https://api.firecrawl.dev/v2/search", bearer(apiKey), { query, limit: 10, highlights: false }),
+    // Highlights are free and put the answer in more snippets (14 vs 12 of 15 benchmark queries);
+    // normalize() still cuts each snippet to 2,000 characters.
+    request: (query, apiKey) => json("https://api.firecrawl.dev/v2/search", bearer(apiKey), { query, limit: 10, highlights: true }),
     rows: (body) => {
       if (body.success === false) throw new Error("Firecrawl rejected the search");
       const web = object(body.data).web;

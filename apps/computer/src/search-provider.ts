@@ -50,7 +50,9 @@ const errorCode = (body: Record<string, unknown>) => string(object(body.error).c
 const ADAPTERS: Record<SearchProvider, Adapter> = {
   exa: {
     request: (query, apiKey) =>
-      json("https://api.exa.ai/search", { "x-api-key": apiKey ?? "" }, { query, type: "auto", numResults: 10, contents: { highlights: { maxCharacters: 500 } } }),
+      // Exa sizes highlights to relevance by default; that put the answer in 31 of 31 benchmark
+      // results vs 30 with 500-character highlights. normalize() still cuts each to 2,000 characters.
+      json("https://api.exa.ai/search", { "x-api-key": apiKey ?? "" }, { query, type: "auto", numResults: 10, contents: { highlights: true } }),
     rows: (body) =>
       list(body.results).map((row) => ({
         title: row.title,

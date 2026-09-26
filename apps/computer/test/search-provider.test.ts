@@ -39,7 +39,7 @@ const SPECS: Record<SearchProvider, Spec> = {
     method: "POST",
     url: "https://api.exa.ai/search",
     auth: ["x-api-key", key],
-    body: { query: "reference & example", type: "auto", numResults: 10, contents: { highlights: { maxCharacters: 500 } } },
+    body: { query: "reference & example", type: "auto", numResults: 10, contents: { highlights: true } },
     success: { results: [{ ...hit, highlights: ["An extract."], publishedDate: "2026-09-01T00:00:00.000Z" }] },
     empty: () => Response.json({ results: [] }),
   },

@@ -208,7 +208,19 @@ turndown.addRule("image", {
   },
 });
 
+/** Readability and Turndown are synchronous and grow with element count: the WHATWG HTML spec
+ * (~331k elements) blocked the computer's event loop for 57s with 3-4 GB RSS on a 4-vCPU
+ * cloud VM. Larger pages come back as plain text instead (a 1.9s stall and 610 MB there).
+ * The largest ordinary page in the fetch benchmark (RFC 9110) has ~16k elements. */
+export const MAX_MARKDOWN_ELEMENTS = 50_000;
+const BLOCKS =
+  "address,article,aside,blockquote,br,caption,dd,details,div,dl,dt,figcaption,figure,footer,form,h1,h2,h3,h4,h5,h6,header,hr,li,main,nav,ol,p,pre,section,summary,table,tr,ul";
+
 export function webMarkdown(html: string, url: string): string {
+  return htmlToText(html, url).text;
+}
+
+function htmlToText(html: string, url: string): { text: string; plain: boolean } {
   const { document } = parseHTML(html);
   // Remove active content and form controls (their values can hold prefilled data), but keep
   // form contents: ASP.NET-style pages wrap the whole document in one <form>.
@@ -216,6 +228,17 @@ export function webMarkdown(html: string, url: string): string {
     "script,style,noscript,iframe,svg,canvas,template,object,embed,input,select,textarea,button"
   ))
     node.remove();
+  if (document.querySelectorAll("*").length > MAX_MARKDOWN_ELEMENTS) {
+    for (const node of document.querySelectorAll(BLOCKS)) node.after("\n");
+    for (const node of document.querySelectorAll("td,th"))
+      if (node.previousElementSibling) node.before(" | ");
+    const title = collapse(document.title ?? "");
+    const text = (document.body?.textContent ?? "")
+      .replace(/[^\S\n]+/g, " ")
+      .replace(/ *\n\s*/g, (gap: string) => (gap.split("\n").length > 2 ? "\n\n" : "\n"))
+      .trim();
+    return { text: `${title ? `# ${title}\n\n` : ""}${text}`, plain: true };
+  }
   for (const node of document.querySelectorAll("a[href],img[src]")) {
     const key = node.tagName.toLowerCase() === "a" ? "href" : "src";
     node.removeAttribute("title");
@@ -263,7 +286,7 @@ export function webMarkdown(html: string, url: string): string {
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return `${title ? `# ${title}\n\n` : ""}${markdown}`;
+  return { text: `${title ? `# ${title}\n\n` : ""}${markdown}`, plain: false };
 }
 
 function pdfText(bytes: Buffer, signal?: AbortSignal): Promise<string> {
@@ -319,20 +342,23 @@ async function attempt(url: string, headers: Record<string, string>, signal: Abo
     throw new Error(
       `WebFetch received ${response.contentType.split(";")[0] || "an unknown binary content type"}; download this file with Shell instead`
     );
-  if (kind === "pdf") return { url: response.url, text: await pdfText(response.bytes, signal), html: 0 };
+  if (kind === "pdf") return { url: response.url, text: await pdfText(response.bytes, signal), html: 0, plain: false };
   const decoded = decodeWebText(response.bytes, response.contentType);
   return kind === "html"
-    ? { url: response.url, text: webMarkdown(decoded, response.url), html: response.bytes.length }
-    : { url: response.url, text: decoded, html: 0 };
+    ? { url: response.url, ...htmlToText(decoded, response.url), html: response.bytes.length }
+    : { url: response.url, text: decoded, html: 0, plain: false };
 }
 
 type Attempt = Awaited<ReturnType<typeof attempt>>;
 const bodyOf = (page: Attempt) => page.text.replace(/^# .*\n+/, "");
 const challenged = (page: Attempt) => bodyOf(page).length < 3_000 && CHALLENGE.test(page.text);
 const thin = (page: Attempt) => page.html > 0 && (collapse(bodyOf(page)).length < 1_500 || challenged(page));
+// Some hosts drop a share of connections from cloud IP ranges; undici reports that as
+// "Connect Timeout Error", and one more attempt usually connects.
 const retryable = (error: unknown) =>
   (error instanceof WebHttpError && [401, 403, 406, 429, 503].includes(error.status)) ||
-  /did not respond|other side closed|socket|ECONNRESET|Headers Overflow/i.test(String(error));
+  /did not respond|other side closed|socket|ECONNRESET|ETIMEDOUT|Connect Timeout|Headers Overflow/i.test(String(error));
+const LARGE_PAGE_NOTE = "This page is very large, so it is plain text without links, tables or formatting.";
 
 /** Public pages as Markdown or text. Sends an honest request first and retries once with
  * browser-like headers when a site blocks it or serves a near-empty shell. */
@@ -343,7 +369,13 @@ export async function builtinFetch(url: string, signal?: AbortSignal, get: WebGe
   let firstError: unknown;
   try {
     first = await attempt(url, HONEST_HEADERS, combined, get);
-    if (!thin(first)) return { url: first.url, text: first.text, retriedWithBrowserHeaders: false };
+    if (!thin(first))
+      return {
+        url: first.url,
+        text: first.text,
+        note: first.plain ? LARGE_PAGE_NOTE : undefined,
+        retriedWithBrowserHeaders: false,
+      };
   } catch (error) {
     signal?.throwIfAborted();
     if (deadline.aborted) throw slow();
@@ -362,7 +394,9 @@ export async function builtinFetch(url: string, signal?: AbortSignal, get: WebGe
     ? "The site returned a bot check instead of the page. Open it with the browser tool instead."
     : thin(best)
       ? "Little readable text came back; this page probably needs JavaScript. Open it with the browser tool for the full page."
-      : undefined;
+      : best.plain
+        ? LARGE_PAGE_NOTE
+        : undefined;
   return { url: best.url, text: best.text, note, retriedWithBrowserHeaders: best === second };
 }
 

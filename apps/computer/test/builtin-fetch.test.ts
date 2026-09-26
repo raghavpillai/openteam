@@ -1,10 +1,12 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { errors } from "undici/index.js";
 import {
   builtinFetch,
   decodeWebText,
   kindOf,
+  MAX_MARKDOWN_ELEMENTS,
   webMarkdown,
   WebHttpError,
   type publicWebGet,
@@ -135,6 +137,38 @@ test("hard blocks explain the browser fallback; other failures are not retried",
   const image = fakeGet(() => ({ bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0]), contentType: "image/png" }));
   await expect(builtinFetch(url, undefined, image.get)).rejects.toThrow("WebFetch received image/png; download this file with Shell instead");
   expect(image.calls).toHaveLength(1);
+});
+
+test("dropped connections are retried once", async () => {
+  const dropped = fakeGet((headers) => (isBrowser(headers) ? { bytes: html(article) } : new errors.ConnectTimeoutError()));
+  const page = await builtinFetch(url, undefined, dropped.get);
+  expect(dropped.calls).toHaveLength(2);
+  expect(page.text).toContain("Useful paragraph");
+
+  const down = fakeGet(() => new errors.ConnectTimeoutError());
+  await expect(builtinFetch(url, undefined, down.get)).rejects.toThrow("Connect Timeout Error");
+  expect(down.calls).toHaveLength(2);
+});
+
+test("pages too large to convert quickly come back as plain text with a note", async () => {
+  const list = (items: number) =>
+    html(
+      `<h1>Spec</h1><table><tr><th>Term</th><th>Meaning</th></tr><tr><td>alpha</td><td>first</td></tr></table>` +
+        `<ul>${Array.from({ length: items }, (_, i) => `<li><a href="/item/${i}">Item ${i}</a></li>`).join("")}</ul>`
+    );
+  const items = MAX_MARKDOWN_ELEMENTS / 2 + 10;
+  const { get } = fakeGet(() => ({ bytes: list(items) }));
+  const page = await builtinFetch(url, undefined, get);
+  expect(page.note).toContain("very large");
+  expect(page.text).toStartWith("# Fixture\n\nSpec\n");
+  expect(page.text).toContain(`Item 0\nItem 1\n`);
+  expect(page.text).toContain(`Item ${items - 1}`);
+  expect(page.text).toContain("Term | Meaning\nalpha | first\n");
+  expect(page.text).not.toContain("](https://example.com/item/");
+
+  const smaller = webMarkdown(list(100).toString(), url);
+  expect(smaller).toContain("[Item 99](https://example.com/item/99)");
+  expect(smaller).toContain("| alpha | first |");
 });
 
 test("feeds, JSON and non-UTF-8 text come back as text", async () => {

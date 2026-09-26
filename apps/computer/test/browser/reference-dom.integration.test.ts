@@ -20,9 +20,9 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)("reference snapshots 
   let snapshot=text(await session.execute("browser_snapshot",{}));
   expect(snapshot).toContain("Visible heading");expect(snapshot).toContain("Shadow field");expect(snapshot).toContain("Frame field");expect(snapshot).toContain("[gen=");
   const ref=(label:string)=>snapshot.split('\n').find(line=>line.includes('[ref=')&&line.includes(label))!.match(/\[ref=(e\d+)\]/)![1]!;
-  await session.execute("browser_fill",{ref:ref("Shadow field"),element:"Shadow field",value:"shadow fixture"});
-  await session.execute("browser_fill",{ref:ref("Frame field"),element:"Frame field",value:"frame fixture"});
-  await session.execute("browser_fill",{ref:ref("Masked number"),element:"Masked number",value:"12345"});
+  snapshot=text(await session.execute("browser_fill",{ref:ref("Shadow field"),element:"Shadow field",value:"shadow fixture"}));
+  snapshot=text(await session.execute("browser_fill",{ref:ref("Frame field"),element:"Frame field",value:"frame fixture"}));
+  snapshot=text(await session.execute("browser_fill",{ref:ref("Masked number"),element:"Masked number",value:"12345"}));
   const page=await (session as any).ensurePage();expect(await page.locator('#masked').inputValue()).toBe("12345");
   const binding=(await session.formPages("127.0.0.1"))[0]!;
   const previous=ref("Replaceable");await page.locator('#replaceable').evaluate((node:HTMLElement)=>node.replaceWith(node.cloneNode(true)));

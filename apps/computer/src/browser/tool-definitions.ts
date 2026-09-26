@@ -20,6 +20,8 @@ export const element = {
 } as const;
 
 export const BROWSER_USE_TOOLS: readonly BrowserUseToolDefinition[] = [
+  referenceTool("browser_find"),
+  referenceTool("browser_fill_form"),
   {
     name: "browser_file_upload",
     description: "Respond to a pending file chooser opened by a browser click. Upload only authorized absolute local paths inside the workspace; omit paths or use an empty array to cancel. File contents and destination remain subject to action review. Returns the resulting page state.",

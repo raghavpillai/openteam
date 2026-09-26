@@ -1,3 +1,4 @@
+import { findPageLines } from "./find";
 import { BrowserUploads } from "./uploads";
 import { snapshotAcrossFrames, refHandle, frameRefsByPage, referenceFill, referenceType, editableHandle, writeTargetFrameIsHidden, WRITE_TARGET_IS_HIDDEN_FN, gotoWithRecovery, navigationNote, recoverErrorPage, settleIntoErrorPage, isChromeErrorPage, markSecretFill, SPLIT_CHAR_GROUP_FN } from "./reference-driver";
 import { resolveReferenceSelectOptions } from "./reference-select";
@@ -135,6 +136,9 @@ export class BrowserUseSession {
   private nextViewId = 1;
   private currentViewId: string | null = null;
   private screenshotOrdinal = 0;
+  private observationMode: "image" | "dom" = "dom";
+  // DOM observations carry actionable references; explicit screenshots remain available.
+  configureObservationMode(mode: "image" | "dom") { this.observationMode = mode; }
   private downloads?: BrowserDownloads;
   private readonly dialogs = new Map<Page, Dialog>();
   private readonly dialogObservers = new WeakMap<Page, Promise<void>>();
@@ -277,6 +281,7 @@ export class BrowserUseSession {
     const session = await BrowserUseSession.connect(endpoint, this.artifactDirectory, this.adoptDesktopPages, this.downloadDirectory,
       { targets: this.targetIds, selected: this.currentViewId, nextId: this.nextViewId });
     session.registerPrivateValues([...this.privateValues]);
+    session.configureObservationMode(this.observationMode);
     return session;
   }
 
@@ -585,6 +590,8 @@ export class BrowserUseSession {
     switch (toolName) {
       case "browser_navigate":
         return this.navigate(args);
+      case "browser_find":
+        return this.find(args);
       case "browser_snapshot":
         return this.snapshot(args);
       case "browser_file_upload":
@@ -595,6 +602,8 @@ export class BrowserUseSession {
         return this.uploads.capture(await this.ensurePage(this.viewId(args)), () => this.mouseClick(args));
       case "browser_type":
         return this.type(args);
+      case "browser_fill_form":
+        return this.fillBatch(args);
       case "browser_fill":
         return this.fill(args);
       case "browser_select_option":
@@ -738,10 +747,25 @@ export class BrowserUseSession {
     page: Page,
     summary: string,
     fullPage = false,
-    data?: string
+    data?: string,
+    observation?: "snapshot" | "screenshot"
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     if (this.dialogs.has(page)) return this.dialogState(page, summary);
     await this.observeDialogs(page);
+    if (this.observationMode === "dom" && observation !== "screenshot") {
+      const snapshot = observation === "snapshot" ? undefined : await this.captureSnapshot(page);
+      const title = await page.title().catch(() => "");
+      const downloads = await this.downloads?.forPage(page) ?? [];
+      return textResult(redactSecrets([
+        summary, `Current page: ${title} (${page.url()})`, `Tab viewId: ${this.idFor(page)}`,
+        ...(data ? [data] : []), ...(snapshot ? [snapshot.lines.join("\n")] : []),
+        ...downloads.map(download => `Download ${download.state}: ${download.filename}${download.path ? ` (${download.path})` : ` (destination: ${download.directory})`}`),
+      ].join("\n\n"), [...this.privateValues]), {
+        viewId: this.idFor(page), url: page.url(), title,
+        ...(snapshot ? { refs: snapshot.refCount, unreachableFrames: snapshot.unreachableFrames } : {}),
+        ...(downloads.length ? { downloads } : {}),
+      });
+    }
     const image = Buffer.from(await this.captureScreenshot(page, fullPage));
     await mkdir(this.artifactDirectory, { recursive: true });
     const path = join(
@@ -759,7 +783,7 @@ export class BrowserUseSession {
       content: [
         {
           type: "text",
-          text: redactSecrets([summary === "Took a screenshot" ? `Saved a screenshot to ${path}` : summary, `Current page: ${title} (${page.url()})`, ...(data ? [data] : []), ...downloadText].join("\n\n"), [...this.privateValues]),
+          text: redactSecrets([summary === "Took a screenshot" ? `Saved a screenshot to ${path}` : summary, `Current page: ${title} (${page.url()})`, `Tab viewId: ${this.idFor(page)}`, ...(data ? [data] : []), ...downloadText].join("\n\n"), [...this.privateValues]),
         },
         { type: "image", data: image.toString("base64"), mimeType: "image/png" },
       ],
@@ -791,15 +815,33 @@ export class BrowserUseSession {
       maxDepth: typeof args.maxDepth === "number" ? args.maxDepth : 20,
       selector: typeof args.selector === "string" && args.selector.length ? args.selector : undefined,
       stableRefs: false,
+      findText: args.findText === true,
     });
     frameRefsByPage.set(page, result.refOwners);
     return result;
   }
 
+  private async find(args: JsonObject) {
+    // Validate before touching refs or the page.
+    await findPageLines([], args);
+    const page = await this.ensurePage(this.viewId(args));
+    const snapshot = await this.captureSnapshot(page, {findText: true, maxDepth: 100});
+    const found = await findPageLines(snapshot.lines, args);
+    return textResult(redactSecrets([
+      `Page text search: ${found.count} matching lines${found.truncated ? " (results truncated)" : ""}.`,
+      `Tab viewId: ${this.idFor(page)}`,
+      ...found.lines,
+      ...snapshot.lines.filter(line => line.includes("truncated") || line.includes("unreachable")),
+    ].join("\n"), [...this.privateValues]), {
+      viewId: this.idFor(page), matches: found.count, truncated: found.truncated,
+      unreachableFrames: snapshot.unreachableFrames,
+    });
+  }
+
   private async snapshot(args: JsonObject) {
     const page = await this.ensurePage(this.viewId(args));
     const result = await this.captureSnapshot(page, args);
-    const output = await this.pageState(page, `Captured page snapshot (${result.refCount} interactive refs)`, false, result.lines.join("\n"));
+    const output = await this.pageState(page, `Captured page snapshot (${result.refCount} interactive refs)`, false, result.lines.join("\n"), "snapshot");
     output.details = { ...output.details, refs: result.refCount, unreachableFrames: result.unreachableFrames, ...(result.selector ? { selectorMatched: result.selector.matched, selectorClosedShadow: result.selector.closedShadow } : {}) };
     return output;
   }
@@ -913,15 +955,25 @@ export class BrowserUseSession {
     const hold = args.holdDurationMs;
     if (hold !== undefined && (typeof hold !== "number" || !Number.isInteger(hold) || hold < 1 || hold > 30_000)) throw new Error("holdDurationMs must be 1–30000");
     const box = await handle.boundingBox();
-    await handle.click({
-      button: (args.button as "left" | "right" | "middle") ?? "left",
-      clickCount: args.doubleClick === true ? 2 : 1,
-      modifiers: modifiers as Array<"Alt" | "Control" | "Meta" | "Shift">,
-      ...(typeof hold === "number" ? {delay:hold,timeout:30_000 + hold} : {}),
-      ...((typeof args.offsetX === "number" || typeof args.offsetY === "number") && box ? {
-        position: {x:box.width / 2 + (typeof args.offsetX === "number" ? args.offsetX : 0),y:box.height / 2 + (typeof args.offsetY === "number" ? args.offsetY : 0)}
-      } : {}),
-    });
+    try {
+      await handle.click({
+        // Match the reference driver's action budget instead of inheriting
+        // Playwright's 30-second default for stale/covered controls.
+        timeout: 10_000 + (typeof hold === "number" ? hold * (args.doubleClick === true ? 2 : 1) : 0),
+        button: (args.button as "left" | "right" | "middle") ?? "left",
+        clickCount: args.doubleClick === true ? 2 : 1,
+        modifiers: modifiers as Array<"Alt" | "Control" | "Meta" | "Shift">,
+        ...(typeof hold === "number" ? {delay:hold} : {}),
+        ...((typeof args.offsetX === "number" || typeof args.offsetY === "number") && box ? {
+          position: {x:box.width / 2 + (typeof args.offsetX === "number" ? args.offsetX : 0),y:box.height / 2 + (typeof args.offsetY === "number" ? args.offsetY : 0)}
+        } : {}),
+      });
+    } catch (error) {
+      if (error instanceof Error && /Timeout \d+ms exceeded/.test(error.message)) {
+        throw new Error(`${error.message}\nTake a fresh browser_snapshot and inspect the current page before choosing another action. The click was not forced or automatically replayed; verify whether the page changed before retrying.`);
+      }
+      throw error;
+    }
     return this.pageState(page, await this.recoverAfterAction(page, `Clicked ${args.element ?? args.ref}`));
   }
 
@@ -945,6 +997,51 @@ export class BrowserUseSession {
     if (typeof args.text !== "string") throw new Error("text is required");
     const result = await referenceType({ page, request: args });
     return this.pageState(page, await this.recoverAfterAction(page, result.summary));
+  }
+
+  private async fillBatch(args: JsonObject) {
+    if (!Array.isArray(args.fields) || !args.fields.length || args.fields.length > 20)
+      throw new Error("fields must contain 1–20 entries");
+    const fields = args.fields as Array<{target: string; name: string; type: string; value: string | boolean}>;
+    const seen = new Set<string>();
+    for (const field of fields) {
+      if (!field || !/^e[0-9]+$/.test(field.target) || typeof field.name !== "string" || field.name.length > 500 || seen.has(field.target))
+        throw new Error("Each field needs a unique current target ref and a name");
+      seen.add(field.target);
+      if (field.type === "checkbox" ? ![true, false, "true", "false"].includes(field.value)
+        : field.type !== "textbox" || typeof field.value !== "string" || field.value.length > 10_000)
+        throw new Error("Use textbox strings or checkbox true/false values");
+    }
+    const page = await this.ensurePage(this.viewId(args));
+    const outcomes: Array<{ target: string; status: string; reason?: string }> = [];
+    // Pin all nodes before writing: do not silently retarget after a page transition.
+    const handles = await Promise.all(fields.map(field => this.requireRef(page, field.target)));
+    for (let i = 0; i < fields.length; i++) {
+      const field = fields[i]!;
+      const handle = handles[i]!;
+      try {
+        if (await handle.evaluate(WRITE_TARGET_IS_HIDDEN_FN) || await writeTargetFrameIsHidden(page, handle))
+          throw new Error("hidden");
+        const valid = await handle.evaluate((node, type) => node.isConnected && !node.hasAttribute("disabled") && !node.hasAttribute("readonly") &&
+          (type === "checkbox" ? node.matches('input[type="checkbox"]') :
+            node.matches('textarea,input:not([type="password"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="submit"]):not([type="button"])') || node.isContentEditable), field.type);
+        if (!valid) throw new Error("unavailable");
+        if (field.type === "checkbox") {
+          const value = field.value === true || field.value === "true";
+          await handle.setChecked(value, { timeout: 3_000 });
+          if (await handle.isChecked() !== value) throw new Error("verification");
+        } else {
+          await referenceFill({ page, element: handle, request: {ref: field.target, element: field.name, value: field.value} });
+        }
+        outcomes.push({target: field.target, status: "filled"});
+      } catch {
+        outcomes.push({target: field.target, status: "failed", reason: "Target unavailable, changed, hidden, unsupported or could not be filled; inspect fresh page state."});
+        for (const remaining of fields.slice(i + 1)) outcomes.push({target: remaining.target, status: "not_attempted"});
+        break;
+      }
+    }
+    const result = await this.pageState(page, `Form fill outcomes: ${JSON.stringify(outcomes)}. No submit was requested.`);
+    return { ...result, details: { ...result.details, fields: outcomes }, isError: outcomes.some(field => field.status === "failed") };
   }
 
   private async fill(args: JsonObject) {
@@ -1065,7 +1162,7 @@ export class BrowserUseSession {
       return value;
     });
     const duration = typeof args.durationMs === "number" ? args.durationMs : 2_000;
-    const result = await this.pageState(page, `Highlighted ${args.element ?? args.ref} for ${duration}ms`);
+    const result = await this.pageState(page, `Highlighted ${args.element ?? args.ref} for ${duration}ms`, false, undefined, "screenshot");
     setTimeout(() => {
       void handle
         .evaluate((node, value) => {
@@ -1228,13 +1325,13 @@ export class BrowserUseSession {
         url: page.url(),
       }))
     );
-    if (action === "list") return textResult(`Listed ${entries.length} tab(s)\n\n${JSON.stringify(entries.map(({ index, url, title }) => ({ index, url, title })), null, 1)}`, { tabs: entries.length });
+    if (action === "list") return textResult(`Listed ${entries.length} tab(s)\n\n${JSON.stringify(entries.map(({ index, viewId, url, title }) => ({ index, viewId, url, title })), null, 1)}`, { tabs: entries.length });
     return this.pageState(await this.ensurePage(), action === "new" ? "Opened a new tab" : action === "select" ? `Selected tab ${args.index}` : "Closed a tab");
   }
 
   private async takeScreenshot(args: JsonObject) {
     const page = await this.ensurePage(this.viewId(args));
-    return this.pageState(page, "Took a screenshot", args.fullPage === true);
+    return this.pageState(page, "Took a screenshot", args.fullPage === true, undefined, "screenshot");
   }
 }
 export { BROWSER_USE_TOOLS, type BrowserUseToolDefinition } from "./tool-definitions";

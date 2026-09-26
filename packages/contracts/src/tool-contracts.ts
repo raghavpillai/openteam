@@ -30,6 +30,42 @@ function adapt(value: any): any {
   return value;
 }
 const contracts: Record<string, ToolContract> = adapt(reference);
+// DOM-first observations replace the older capture's implicit screenshots.
+// Keep argument schemas unchanged and reserve images for explicit visual tools.
+contracts.browser_navigate!.description = contracts.browser_navigate!.description.replace(
+  "with a screenshot", "with page text and current element refs. Use browser_take_screenshot for visual evidence"
+);
+contracts.browser_click!.description = "Click an element by ref from the latest returned page state or browser_snapshot. Scrolls the element into view first. Returns page text and current element refs. Use browser_take_screenshot for visual evidence.";
+
+// Observed text/regex search capability with bounded OpenTeam output.
+contracts.browser_find = {
+  name: "browser_find",
+  description: "Find text in the current rendered page, including non-interactive text, open shadow roots and reachable frames. Supply exactly one of text (case-insensitive literal) or regex (JavaScript pattern or /pattern/flags). Returns matching page lines with nearby context and current actionable refs. Does not click or scroll. Results are bounded; narrow the query if truncated. Hidden content is excluded and private field values remain redacted.",
+  inputSchema: { type: "object", additionalProperties: false, properties: {
+    text: { type: "string", minLength: 1, maxLength: 500 },
+    regex: { type: "string", minLength: 1, maxLength: 500 },
+    viewId: { type: "string", minLength: 1, maxLength: 120 },
+    maxResults: { type: "integer", minimum: 1, maximum: 100, default: 20 },
+  }, oneOf: [{ required: ["text"] }, { required: ["regex"] }] },
+};
+
+// Observed Grok invocation shape; bounded OpenTeam extension, not a captured full schema.
+contracts.browser_fill_form = {
+  name: "browser_fill_form",
+  description: "Fill multiple ordinary form fields in one call using refs from the latest page state. Prefer this over separate fills/clicks for a form. Supports textbox values and explicit checkbox states (true/false), not toggles. Does not submit. Returns per-field outcomes and fresh page state; a failure stops the remaining fields without rolling back completed fields. Use the write-only user form for credentials instead.",
+  inputSchema: { type: "object", additionalProperties: false, required: ["fields"], properties: {
+    viewId: { type: "string", minLength: 1, maxLength: 120 },
+    fields: { type: "array", minItems: 1, maxItems: 20, items: {
+      type: "object", additionalProperties: false, required: ["target", "name", "type", "value"], properties: {
+        target: { type: "string", pattern: "^e[0-9]+$" },
+        name: { type: "string", maxLength: 500 },
+        type: { type: "string", enum: ["textbox", "checkbox"] },
+        value: { anyOf: [{ type: "string", maxLength: 10000 }, { type: "boolean" }] },
+      },
+    } },
+  } },
+};
+
 // OpenTeam implementation of the observed pending-chooser upload capability.
 // Keep this explicit adaptation separate from the captured reference document.
 contracts.browser_file_upload = {

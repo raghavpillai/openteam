@@ -81,8 +81,17 @@ describe("captured tool contract wiring", () => {
   });
 
   test("preserves the captured graphical schemas including held clicks", () => {
-    expect(BROWSER_USE_TOOLS).toHaveLength(15);
-    for (const tool of BROWSER_USE_TOOLS) expect(tool).toEqual((reference as any)[tool.name]);
+    expect(BROWSER_USE_TOOLS).toHaveLength(18);
+    // File upload is an OpenTeam extension; the captured 15 tools retain their schemas.
+    const captured = BROWSER_USE_TOOLS.filter((tool) => !["browser_file_upload", "browser_fill_form", "browser_find"].includes(tool.name));
+    expect(captured).toHaveLength(15);
+    for (const tool of captured) {
+      expect(tool.inputSchema).toEqual((reference as any)[tool.name].inputSchema);
+      if (["browser_navigate", "browser_click"].includes(tool.name)) {
+        expect(tool.description).toContain("page text and current element refs");
+        expect(tool.description).not.toContain("with a screenshot");
+      } else expect(tool).toEqual((reference as any)[tool.name]);
+    }
     expect(reference.browser_click.inputSchema.properties.holdDurationMs.maximum).toBe(30_000);
     expect(reference.browser_mouse_click_xy.inputSchema.properties.holdDurationMs.maximum).toBe(
       30_000

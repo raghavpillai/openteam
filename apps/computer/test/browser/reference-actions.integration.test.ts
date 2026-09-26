@@ -32,7 +32,7 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)(
         .join("\n");
     try {
       const url = `http://127.0.0.1:${server.port}/`;
-      expect(text(await session.execute("browser_navigate", { url }))).toBe(
+      expect(text(await session.execute("browser_navigate", { url }))).toStartWith(
         `Navigated to ${url}\n\nCurrent page: Contract fixture (${url})`
       );
       const snapshot = text(await session.execute("browser_snapshot", {}));

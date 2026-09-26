@@ -337,7 +337,7 @@ const SNAPSHOT_FN = (opts) => {
 	}
 	let refsThisWalk = 0;
 	const lines = ["[gen=" + state.generation + "]"];
-	const maxNodes = 400;
+	const maxNodes = opts.findText ? 10000 : 400;
 	let nodeCount = 0;
 	const shadowOf = (el) => el.shadowRoot ?? el.__sandShadowRoot ?? null;
 	let closedShadowSuspects = 0;
@@ -662,6 +662,11 @@ const SNAPSHOT_FN = (opts) => {
 	const describe = (el, depth) => {
 		const role = roleOf(el);
 		let name = nameOf(el);
+        if (opts.findText && !el.matches(interactiveMatcher)) {
+          const ownText = Array.from(el.childNodes).filter(node => node.nodeType === 3).map(node => node.nodeValue ?? "").join(" ");
+          name = trim(ownText || name, 2000);
+          if (el.hasAttribute("data-sand-secret-filled") || isSecretForElement(el, name, false)) name = "<redacted>";
+        }
 		// An editable's own text can be its snapshot name — a contenteditable's
 		// content directly, and an input's or textarea's through nameOf's
 		// innerText/value fallback — so glyphs a focus-steal diverted into one
@@ -779,7 +784,8 @@ const SNAPSHOT_FN = (opts) => {
 		const isHeading = /^h[1-6]$/.test(tag);
 		const isTextual =
 			!opts.interactive &&
-			(tag === "p" || tag === "li" || tag === "label" || tag === "td" || tag === "th");
+			(tag === "p" || tag === "li" || tag === "label" || tag === "td" || tag === "th" ||
+              (opts.findText && Array.from(el.childNodes).some(node => node.nodeType === 3 && node.nodeValue?.trim())));
 		if (hasBox && !isInteractive && isClosedShadowSuspect(el)) {
 			if (opts.settleClosedShadow === true) {
 				el.__sandClosedShadowUnlockTried = isDefinedCustomElement(el) ? true : "undefined";
@@ -794,7 +800,7 @@ const SNAPSHOT_FN = (opts) => {
 				isHeading ||
 				(isTextual &&
 					trim(el.innerText, 10).length > 0 &&
-					el.querySelector(interactiveMatcher) === null))
+					(opts.findText || el.querySelector(interactiveMatcher) === null)))
 		) {
 			nodeCount += 1;
 			lines.push(describe(el, depth));
@@ -818,7 +824,7 @@ const SNAPSHOT_FN = (opts) => {
 			}
 			// Text blocks can contain frames whose interactive descendants live in
 			// another document and therefore do not match querySelector above.
-			if ((isInteractive || (isTextual && !el.querySelector("iframe,frame"))) && !el.matches(".ui-droppable")) return;
+			if ((isInteractive || (isTextual && !opts.findText && !el.querySelector("iframe,frame"))) && !el.matches(".ui-droppable")) return;
 		}
 		// An open shadow root's children walk like light children — the editable
 		// controls of custom elements (e.g. <faceplate-text-input>) live there.
@@ -1686,6 +1692,10 @@ const referenceFill = async ({ request, page, element: suppliedElement = undefin
 const referenceType = async ({ request, page }) => {
 		const viewId = "";
 		const element = await writeTargetHandle(page, request.ref);
+        const editable = await element.evaluate(el => el.isConnected && !el.matches(":disabled") &&
+          el.getAttribute("aria-disabled") !== "true" && el.getAttribute("aria-readonly") !== "true" &&
+          !el.hasAttribute("readonly") && (el.isContentEditable || el.matches('textarea,input:not([type]),input[type="text"],input[type="search"],input[type="email"],input[type="url"],input[type="tel"],input[type="password"],input[type="number"]')));
+        if (!editable) throw new Error("Target is not an enabled editable text control. No click or typing was performed. Take a fresh browser_snapshot and choose an editable ref.");
 		// A center click moves an existing editor's caret/selection. Focus the
 		// existing target without retargeting the insertion point, so typing
 		// after fill or an explicit caret movement preserves that state. A new
@@ -1693,9 +1703,7 @@ const referenceType = async ({ request, page }) => {
 		const focused = await element.evaluate(el => el.getRootNode().activeElement === el);
 		if (!focused) await element.click({ timeout: ACTION_TIMEOUT_MS });
 		if (request.clear === true) {
-			await element
-				.fill("")
-				.catch((failure) => noteIgnoredFailure("clearing the control before typing", failure));
+			await element.fill("");
 		}
 		await page.keyboard.type(request.text, { delay: request.slowly === true ? 40 : 0 });
 		if (request.submit === true) {

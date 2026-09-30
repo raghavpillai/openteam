@@ -73,3 +73,35 @@ test("failed periodic reconciliation allows subsequent retries", async () => {
   await b.syncTail;
   expect(calls).toBe(2);
 });
+
+test("owned detach releases its connection when unrelated reconciliation stalls", async () => {
+  const b: any = new (BrowserBroker as any)("/tmp/no-io-needed", 20);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let closed = false;
+  b.reconcile = () => gate;
+  b.peers.set("owned", { cdp: { close() { closed = true; } } });
+  tick(b);
+  const pending = b.detach("owned");
+  const outcome = await Promise.race([
+    pending.then(() => "released"),
+    new Promise<string>((resolve) => setTimeout(() => resolve("blocked"), 150)),
+  ]);
+  const closedBeforeSyncRecovered = closed;
+  release();
+  await pending;
+  await b.syncTail;
+  expect(outcome).toBe("released");
+  expect(closedBeforeSyncRecovered).toBe(true);
+  expect(b.peers.has("owned")).toBe(false);
+});
+
+test("a failed final sync does not prevent disconnecting the owned browser", async () => {
+  const b: any = new BrowserBroker("/tmp/no-io-needed");
+  let closed = false;
+  b.reconcile = async () => { throw new Error("storage unavailable"); };
+  b.peers.set("owned", { cdp: { close() { closed = true; } } });
+  await expect(b.detach("owned")).resolves.toBeUndefined();
+  expect(closed).toBe(true);
+  expect(b.peers.has("owned")).toBe(false);
+});

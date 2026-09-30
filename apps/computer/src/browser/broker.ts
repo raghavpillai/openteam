@@ -46,7 +46,10 @@ export class BrowserBroker {
   private syncTail: Promise<void> = Promise.resolve();
   private periodicSync: Promise<void> | null = null;
 
-  constructor(home = process.env.HOME ?? "/home/openteam") {
+  constructor(
+    home = process.env.HOME ?? "/home/openteam",
+    private readonly detachSyncTimeoutMs = 5_000
+  ) {
     this.stateDirectory = join(home, ".openteam");
     this.keyPath = join(this.stateDirectory, "browser-authority.key");
     this.storePath = join(this.stateDirectory, "browser-authority.json.enc");
@@ -74,13 +77,29 @@ export class BrowserBroker {
     await this.attaching.get(botId)?.catch(() => undefined);
     const peer = this.peers.get(botId);
     if (!peer) return;
-    await this.enqueueSync();
-    if (this.peers.get(botId) !== peer) return;
-    this.peers.delete(botId);
-    peer.cdp.close();
-    if (this.peers.size === 0 && this.timer) {
-      clearInterval(this.timer);
-      this.timer = null;
+    // Final live-state sharing is best effort. An unrelated unresponsive page
+    // must not prevent the screen owner from stopping its processes and freeing
+    // memory. The on-disk browser profile is retained by the screen lifecycle.
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        this.enqueueSync(),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => reject(new Error("Browser detach sync timed out")), this.detachSyncTimeoutMs);
+        }),
+      ]);
+    } catch {
+      console.warn("Browser live-state sync did not finish during detach; retaining the on-disk profile.");
+    } finally {
+      clearTimeout(timeout);
+      if (this.peers.get(botId) === peer) {
+        this.peers.delete(botId);
+        peer.cdp.close();
+      }
+      if (this.peers.size === 0 && this.timer) {
+        clearInterval(this.timer);
+        this.timer = null;
+      }
     }
   }
 

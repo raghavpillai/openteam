@@ -31,6 +31,27 @@ test("prose in navigation-marked disclosures survives extraction while link menu
   expect(markdown).not.toContain("MENU_ONLY");
 });
 
+test("disclosures survive enclosing chrome landmarks and article extraction", () => {
+  for (const wrapper of ["header", "footer", "aside"]) {
+    const page = html(`<main>${article}<${wrapper}><nav>Archived records retain their original owners and timestamps.</nav><nav><a href="/menu">MENU_ONLY</a></nav></${wrapper}><details><summary>Export policy</summary><p>Exports include every archived record and its original identifier.</p></details></main>`).toString();
+    const markdown = webMarkdown(page, url);
+    expect(markdown).toContain("original owners and timestamps");
+    expect(markdown).toContain("every archived record and its original identifier");
+    expect(markdown).not.toContain("MENU_ONLY");
+  }
+  const standalone = webMarkdown(html(`${article}<details><summary>Export policy</summary><p>All archived records remain exportable.</p></details><details hidden>HIDDEN_DISCLOSURE</details>`).toString(), url);
+  expect(standalone).toContain("All archived records remain exportable.");
+  expect(standalone).not.toContain("HIDDEN_DISCLOSURE");
+});
+
+test("article extraction cannot drop a short sibling from an explicit main region", () => {
+  for (const region of ["<main>", '<div role="main">']) {
+    const close = region === "<main>" ? "</main>" : "</div>";
+    const markdown = webMarkdown(html(`${region}${article}<section>Exports retain original timestamps and include archived records.</section>${close}`).toString(), url);
+    expect(markdown).toContain("Exports retain original timestamps and include archived records.");
+  }
+});
+
 test("public fetch cancels while DNS is pending and does not continue after late resolution", async () => {
   const controller = new AbortController();
   let resolveDns!: (value: Array<{ address: string; family: number }>) => void;

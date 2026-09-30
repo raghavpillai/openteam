@@ -407,17 +407,18 @@ function htmlToText(html: string, url: string): { text: string; plain: boolean }
   // Some publishers use navigation landmarks for disclosure answers rather
   // than menus. Retain prose-dominated blocks as ordinary content; stripping
   // every nav would silently lose facts while leaving their questions behind.
-  const navigationProse: string[] = [];
+  const disclosureNodes = Array.from(document.querySelectorAll("details") as ArrayLike<any>);
   for (const node of document.querySelectorAll("nav,[role=navigation]")) {
     const text = collapse(node.textContent ?? "");
     const linkText = Array.from(node.querySelectorAll("a") as ArrayLike<any>)
       .map(link => collapse(link.textContent ?? "")).join(" ");
     if (!text || linkText.length >= text.length / 2) continue;
-    navigationProse.push(text);
     const content = document.createElement("div");
     while (node.firstChild) content.appendChild(node.firstChild);
     node.replaceWith(content);
+    disclosureNodes.push(content);
   }
+  const disclosureProse = disclosureNodes.map(node => collapse(node.textContent ?? "")).filter(Boolean);
   // Page chrome is dropped from the fallback only when that keeps most of the text; some
   // sites put their main content inside header/footer landmarks.
   const beforeChrome = textLength();
@@ -425,7 +426,7 @@ function htmlToText(html: string, url: string): { text: string; plain: boolean }
     document.querySelectorAll(
       "nav,header,footer,aside,[role=navigation],[role=banner],[role=contentinfo]"
     ) as ArrayLike<any>
-  );
+  ).filter(node => !disclosureNodes.some(disclosure => node.contains(disclosure)));
   const placements = chrome.map((node: any) => [node, node.parentNode, node.nextSibling] as const);
   for (const node of chrome) node.remove();
   if (textLength() < beforeChrome * 0.3)
@@ -433,6 +434,12 @@ function htmlToText(html: string, url: string): { text: string; plain: boolean }
   const fallback = document.body?.innerHTML ?? "";
   const bodyText = textLength();
   const bodyTables = Array.from(document.querySelectorAll("table") as ArrayLike<any>).filter(isDataTable).length;
+  // A publisher-designated main region can contain short but essential siblings
+  // of an article (feature labels, qualifications, or footnotes). Overall text
+  // coverage alone does not establish that these facts survived extraction.
+  const requiredText = [...disclosureProse, ...Array.from(
+    document.querySelectorAll('main,[role="main"]') as ArrayLike<any>
+  ).map(node => collapse(node.textContent ?? ""))];
   let content = fallback;
   try {
     const article = new Readability(document as unknown as Document).parse();
@@ -443,7 +450,7 @@ function htmlToText(html: string, url: string): { text: string; plain: boolean }
     // pages. Page chrome is already gone, so use it only when it keeps nearly all the text
     // and any data table (benchmarked: 0.85 kept more facts than 0.5 or 0.7 at ~1% more text).
     if (article?.content && articleText >= bodyText * 0.85 && (bodyTables === 0 || articleTables > 0) &&
-        navigationProse.every(text => articleContentText.includes(text)))
+        requiredText.every(text => articleContentText.includes(text)))
       content = article.content;
   } catch {
     /* Malformed pages still have their inert body. */

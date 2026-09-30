@@ -1,0 +1,390 @@
+{
+  "exportSha256": "8c2762d87defd6d762500c3cadc55050f71477ddd7fa05776936fcf9679022a9",
+  "skillCount": 47,
+  "classification": "Managed built-in catalog; plugin and user-workflow trees excluded.",
+  "verification": "Per-file hashes verified against Grok-exported manifest; runtime catalogue supplied by a newly created bot on an existing account. Not an independently verified pristine new-account baseline.",
+  "pluginSkillCountReported": 0,
+  "userAuthoredSkillCountReported": 0,
+  "sourceManifest": {
+    "auditId": "930Y",
+    "createdAt": "2026-09-30T19:10:36.398571+00:00"
+  },
+  "files": [
+    {
+      "id": "accommodation-booking",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/accommodation-booking/SKILL.md",
+      "sourceSha256": "dea19af17795f37b6bf5206bcb2d08c0cd02c016516a93b4af523b780d7eff46",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/accommodation-booking/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Merged latest upstream changes while retaining documented OpenTeam backend/tool adapters."
+    },
+    {
+      "id": "add-connector",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/add-connector/SKILL.md",
+      "sourceSha256": "e8892fc1fb7771f62f03002639f3302fbe9d83c29707d092ef81f390eb948785",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/add-connector/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Existing OpenTeam backend/tool adapter retained; upstream body unchanged."
+    },
+    {
+      "id": "box-desktop",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/box-desktop/SKILL.md",
+      "sourceSha256": "0350f61db10da8ad546f71156bd0cb447ed900f3894ea1a0ce695ff22b89c2e7",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/box-desktop/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Merged latest upstream changes while retaining documented OpenTeam backend/tool adapters."
+    },
+    {
+      "id": "channels",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/channels/SKILL.md",
+      "sourceSha256": "a7e55f7ca4fc6c3c1b732fa1b4dbb64dbe753a11d50c0cb882c27ac4409200a4",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/channels/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Existing OpenTeam backend/tool adapter retained; upstream body unchanged."
+    },
+    {
+      "id": "code-changes",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/code-changes/SKILL.md",
+      "sourceSha256": "4fb50e465483c42bb0e902b19388be5be26c9926dd87e0bf758745e06941eb10",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/code-changes/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Existing OpenTeam backend/tool adapter retained; upstream body unchanged."
+    },
+    {
+      "id": "export-bot-template",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/export-bot-template/SKILL.md",
+      "sourceSha256": "1a5a4d738f06b0e3a940e29d98f0c8c9bcdf4e9f5f5e40ac499292f8346973db",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/export-bot-template/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Preserved OpenTeam template schema and deployment visibility; exported upstream skill contains account-specific public-only sharing claims."
+    },
+    {
+      "id": "flight-booking",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/flight-booking/SKILL.md",
+      "sourceSha256": "dba1f0cfe863ec305d102c02826af9f006d5bed0061f7a41649c0f92f910f8eb",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/flight-booking/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Merged latest upstream changes while retaining documented OpenTeam backend/tool adapters."
+    },
+    {
+      "id": "food-ordering",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/food-ordering/SKILL.md",
+      "sourceSha256": "7eb13e629fb0f758560c7b8a934d16ee148553d7081ac1b3748210a117e92e26",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/food-ordering/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Merged latest upstream changes while retaining documented OpenTeam backend/tool adapters."
+    },
+    {
+      "id": "group-chat-turns",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/group-chat-turns/SKILL.md",
+      "sourceSha256": "18b67ae133d5342dcec42f9364cb60b9dc16af3ec6f5cb3f24dce212b57b3e06",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/group-chat-turns/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Existing OpenTeam backend/tool adapter retained; upstream body unchanged."
+    },
+    {
+      "id": "in-chat-forms",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/in-chat-forms/SKILL.md",
+      "sourceSha256": "885a4f7965d845e1df6228b04290d5772f2939c41b235d9be8d7e7de1f347844",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/in-chat-forms/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Merged latest upstream changes while retaining documented OpenTeam backend/tool adapters."
+    },
+    {
+      "id": "job-search",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/job-search/SKILL.md",
+      "sourceSha256": "56335c7b3649a472a4dd01120203d8c5b10c83bd916cdc5a19d0e99c922bd9b1",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/job-search/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Merged latest upstream changes while retaining documented OpenTeam backend/tool adapters."
+    },
+    {
+      "id": "learn-from-demonstration",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/learn-from-demonstration/SKILL.md",
+      "sourceSha256": "827c67ef1089ebbb84fb23fcf1f9ad84b889c1e8231f6b9b5da787b8a32482f7",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/learn-from-demonstration/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Merged latest upstream changes while retaining documented OpenTeam backend/tool adapters."
+    },
+    {
+      "id": "no-connector-fallback",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/no-connector-fallback/SKILL.md",
+      "sourceSha256": "e1d5433b8aeef4dfb0fbf8d2f7943db8ba3c168563720feef3379cf52a908244",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/no-connector-fallback/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Merged latest upstream changes while retaining documented OpenTeam backend/tool adapters."
+    },
+    {
+      "id": "purchases",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/purchases/SKILL.md",
+      "sourceSha256": "096967e508d0d71d9ca726dd83f7450d5d5a2321d0d45c3578a07c0a2c42bc68",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/purchases/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Merged latest upstream changes while retaining documented OpenTeam backend/tool adapters."
+    },
+    {
+      "id": "restaurant-booking",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/restaurant-booking/SKILL.md",
+      "sourceSha256": "20f32c01c08ba6167595d1fb7a5cce50e3b4bafc05150b880dd12e766d249842",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/restaurant-booking/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Merged latest upstream changes while retaining documented OpenTeam backend/tool adapters."
+    },
+    {
+      "id": "restaurant-recommendations",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/restaurant-recommendations/SKILL.md",
+      "sourceSha256": "a294a37ead9161eb2693c1e274889f5b5804de584c11a1a45bfa2639b257dc87",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/restaurant-recommendations/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Merged latest upstream changes while retaining documented OpenTeam backend/tool adapters."
+    },
+    {
+      "id": "rideshare",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/rideshare/SKILL.md",
+      "sourceSha256": "462a23821e82067ffd4ad6c5f3f62c05661089f4368e7200bc77ab470c5fad12",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/rideshare/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Merged latest upstream changes while retaining documented OpenTeam backend/tool adapters."
+    },
+    {
+      "id": "routines",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/routines/SKILL.md",
+      "sourceSha256": "54b17d0b5741718e8199d81c18665ac341fe4f0ac2a6cfedffc06125cf647219",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/routines/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Merged latest upstream changes while retaining documented OpenTeam backend/tool adapters."
+    },
+    {
+      "id": "scheduling",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/scheduling/SKILL.md",
+      "sourceSha256": "496ccb8c8a3451d8a33696ec6d9e13471c521caeace6f4f27bcf32285708e8c4",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/scheduling/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Merged latest upstream changes while retaining documented OpenTeam backend/tool adapters."
+    },
+    {
+      "id": "send-on-behalf",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/send-on-behalf/SKILL.md",
+      "sourceSha256": "ee80b87486ac474d5e2e023d09272e59e38392e181292480fa935d16ab555223",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/send-on-behalf/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Merged latest upstream changes while retaining documented OpenTeam backend/tool adapters."
+    },
+    {
+      "id": "shopping",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/shopping/SKILL.md",
+      "sourceSha256": "40f6e61fba3c7c5a01af9dc26804345acad5f5aaf78c94437bc1975d040c5ce9",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/shopping/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Merged latest upstream changes while retaining documented OpenTeam backend/tool adapters."
+    },
+    {
+      "id": "sign-in",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/sign-in/SKILL.md",
+      "sourceSha256": "f2c41a8b66e5debaa62af13bf51b67af58f8c43b53852076f7f9506cc686e30c",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/sign-in/SKILL.md",
+      "status": "added-adapted",
+      "reason": "New upstream sign-in workflow; Secure Form tool name mapped and credential discovery conditional on tool availability."
+    },
+    {
+      "id": "site-playbooks-airbnb",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-airbnb/SKILL.md",
+      "sourceSha256": "40bb2df8cb1e3089d66f594e3ef567f900317d96fa787694b6b48e817b354c09",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-airbnb/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-bestbuy",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-bestbuy/SKILL.md",
+      "sourceSha256": "0a5cbf03e106307676647d8721d07652dc09c370a765f01ee382aed8e491a6b3",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-bestbuy/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-costco",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-costco/SKILL.md",
+      "sourceSha256": "017386971dce96d29b1e8172b7fa4ee217f05c6486bab938fc3e8a72536b5567",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-costco/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-craigslist",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-craigslist/SKILL.md",
+      "sourceSha256": "5b467d19a2e99ce184045d14a72b01aaa87bb1d582dc30ff5b4e614c7ffcdca4",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-craigslist/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-doordash",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-doordash/SKILL.md",
+      "sourceSha256": "64ea903949ac6960455aaaa03525fea5d6aa948795e09fd9a5ad644bfdce067a",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-doordash/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-ebay",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-ebay/SKILL.md",
+      "sourceSha256": "11600b19dd3b8aabac1b000443fa296945ef719ca5432efe49f047461fa16454",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-ebay/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-etsy",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-etsy/SKILL.md",
+      "sourceSha256": "638d2277cc12bbb0e7cf64e737bfe0399331a482c7d420b71204cbc76f849642",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-etsy/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-expedia",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-expedia/SKILL.md",
+      "sourceSha256": "238808c1b46d8224e7dfda2154892a5f84630d88530239cde2f2b32ffdb85ff1",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-expedia/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-facebook-marketplace",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-facebook-marketplace/SKILL.md",
+      "sourceSha256": "da804063c4e2dff38ce432e4bd1067d46b701325e19f9523ba616a4fac6334cc",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-facebook-marketplace/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-fedex",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-fedex/SKILL.md",
+      "sourceSha256": "b504cf25f565ecb4606a394b6b0be62ae195d7b0d1da0f357f0ba7114daead1e",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-fedex/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-google-flights",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-google-flights/SKILL.md",
+      "sourceSha256": "93257ee626a2ec07d03ba6de4a42d6c1cbc4f231b4bfe6234ba40b5cbbeb6f64",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-google-flights/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-instacart",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-instacart/SKILL.md",
+      "sourceSha256": "4e3efbe183f19633eac749fc1d1c8d4613644c5fd7fea78d32feaa6b262a03ce",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-instacart/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-linkedin",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-linkedin/SKILL.md",
+      "sourceSha256": "fb4a5a393ffcf3ed72fceed595e57547c0f31d36333c389741777d3202b583c3",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-linkedin/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-luma",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-luma/SKILL.md",
+      "sourceSha256": "dcb28c82cf455f624f0bdf0caf5ac3ef24651761345989ea3b238fa51ae18cd1",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-luma/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-opentable",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-opentable/SKILL.md",
+      "sourceSha256": "ccdd6af411f8e6522ebf32d0abc3e54e6f266f26c1110d80445a88e0fcd9c05f",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-opentable/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-realtor",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-realtor/SKILL.md",
+      "sourceSha256": "5a694830f643229c0acf762530a2ba9fc236e573db89688aeb916d5712bf4df1",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-realtor/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-resy",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-resy/SKILL.md",
+      "sourceSha256": "1d8bb219ad028699f5e1e2ab77202454e5808c05f371db7ce5c9daec513722c9",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-resy/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-southwest",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-southwest/SKILL.md",
+      "sourceSha256": "ce151e7e65edc3be906f41fdbff26cdd399d5c2bf6e615b4ecdbd2c0e547d462",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-southwest/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-target",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-target/SKILL.md",
+      "sourceSha256": "17cbde86ea51b99d22cf4d28d66965e2bc6aa42446e94eeccb39b27775f39b4a",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-target/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-united",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-united/SKILL.md",
+      "sourceSha256": "4625a486029f5a8e7c3c6d120f7c82af56cd46c563173fcb7a80cb02a88c431c",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-united/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-ups",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-ups/SKILL.md",
+      "sourceSha256": "2bd2fd1bd81884e5ca8231fab255108f9d00481ecb393d4c44c7174bc06e36a0",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-ups/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "site-playbooks-usps",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/site-playbooks-usps/SKILL.md",
+      "sourceSha256": "208a4de3777a0c591a93a2eee1253ddcb4dd61d26abca6f65828f64c735fdb50",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/site-playbooks-usps/SKILL.md",
+      "status": "added-tool-adapted",
+      "reason": "Latest upstream recipe; only Secure Form tool name mapped to the actual OpenTeam schema."
+    },
+    {
+      "id": "skill-authoring",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/skill-authoring/SKILL.md",
+      "sourceSha256": "4fa5707f846ef8cf7e9afca4d2ebc46339af3f282b30210b81e67613044c805f",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/skill-authoring/SKILL.md",
+      "status": "existing-adapted",
+      "reason": "Merged latest upstream changes while retaining documented OpenTeam backend/tool adapters."
+    },
+    {
+      "id": "source-control",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/source-control/SKILL.md",
+      "sourceSha256": "ba5dca12493a52a390a53360f38c6628d4f3d3a5acf5ffa774d3270983169df8",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/source-control/SKILL.md",
+      "status": "reference-only",
+      "reason": "Exact built-in source copied. Inactive because OpenTeam does not implement the required Grok/Origin cloud-source-control or voice-call backend."
+    },
+    {
+      "id": "voice-calls",
+      "sourcePath": "/home/box/agent-data/managed-skills/skills/voice-calls/SKILL.md",
+      "sourceSha256": "f7caba7db6b59634e0c178bd85dcb95e5948e394068fa658d331d7386f0bd515",
+      "vendoredPath": "packages/messaging/reference/grok-builtins-2026-09-30/skills/voice-calls/SKILL.md",
+      "status": "reference-only",
+      "reason": "Exact built-in source copied. Inactive because OpenTeam does not implement the required Grok/Origin cloud-source-control or voice-call backend."
+    }
+  ]
+}

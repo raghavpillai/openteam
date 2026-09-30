@@ -11,8 +11,8 @@ import { AgentDataStore } from '../src/agent-data';
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
 
 test('catalog copies verified site recipes exactly and declares unsupported backend workflows',()=>{
-  expect(source.skills).toHaveLength(46);
-  expect(managed.skills).toHaveLength(44);
+  expect(source.skills).toHaveLength(47);
+  expect(managed.skills).toHaveLength(45);
   const installed=new Map(managed.skills.map(s=>[s.id,s.content]));
   expect(new Set(managed.skills.map(s=>s.id)).size).toBe(managed.skills.length);
   for(const item of source.skills){
@@ -24,13 +24,24 @@ test('catalog copies verified site recipes exactly and declares unsupported back
       continue;
     }
     expect(hash(installed.get(item.id)!)).toBe(record.installedSha256!);
-    if(item.id.startsWith('site-playbooks-'))expect(installed.get(item.id)).toBe(item.content);
+    if(item.id.startsWith('site-playbooks-'))expect(installed.get(item.id)).toBe(item.content.replaceAll('RequestUserForm', 'request_user_form'));
   }
   for(const item of managed.skills){
     const front=yaml(item.content.split('---')[1]!);
     expect(front.name).toBe(item.id);expect(front.description.trim().length).toBeGreaterThan(10);
     for(const match of item.content.matchAll(/`(site-playbooks-[a-z]+(?:-[a-z]+)*)`/g))expect(installed.has(match[1]!)).toBe(true);
   }
+});
+
+test('every built-in has an unchanged source file, including unavailable backend workflows', async () => {
+  for (const item of source.skills) {
+    const file = join(import.meta.dir, '../reference/grok-builtins-2026-09-30/skills', item.id, 'SKILL.md');
+    expect(await readFile(file, 'utf8')).toBe(item.content);
+  }
+  const signIn = managed.skills.find(skill => skill.id === 'sign-in')!.content;
+  expect(signIn).toContain('request_user_form');
+  expect(signIn).toContain('If it is unavailable, continue to the Secure Form');
+  expect(signIn).not.toContain('RequestUserForm');
 });
 
 test('all imported recipes materialize and appear in metadata without injecting full bodies',async()=>{

@@ -535,7 +535,7 @@ const server = Bun.serve({
       const frameMatch = url.pathname.match(/^\/v1\/screens\/([^/]+)\/frame$/);
       if (request.method === "GET" && frameMatch?.[1]) {
         const cwd = safePath(url.searchParams.get("cwd") ?? workspaceRoot);
-        const frame = await screens.screenshot(frameMatch[1], cwd);
+        const frame = await screens.screenshot(frameMatch[1], cwd, request.signal);
         return new Response(new Uint8Array(frame), {
           headers: {
             "content-type": "image/png",

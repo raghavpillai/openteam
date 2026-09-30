@@ -10,7 +10,7 @@ const object = (value: unknown): Record<string, unknown> => value && typeof valu
 // page observations as well as an action receipt; preserve that evidence just
 // like snapshots. Review cards and credential/form-entry payloads stay excluded.
 const observations = new Set([
-  "Shell", "Read", "WebFetch", "WebSearch", "browser_snapshot", "browser_take_screenshot",
+  "Shell", "Read", "WebFetch", "WebSearch", "Computer", "Screenshot", "browser_snapshot", "browser_take_screenshot",
   "browser_tabs", "browser_console_messages", "browser_network_requests",
   "browser_navigate", "browser_click", "browser_mouse_click_xy", "browser_press_key",
   "browser_hover", "browser_scroll", "browser_wait_for", "browser_find",

@@ -49,3 +49,18 @@ test("browser form entry, arbitrary execution and approval results remain exclud
       .toEqual({tool,output_omitted:true});
   }
 });
+
+test("desktop history retains screenshot receipts after interruption without replaying inputs or images", () => {
+  for (const tool of ["Computer", "Screenshot"]) {
+    const value = transcriptToolProjection({tool,
+      arguments: {action: "type", text: "PRIVATE_TYPED_INPUT", then: [{action: "key", key: "Return"}]},
+      result: {content: [
+        {type: "text", text: "Screenshot saved to /workspace/shared/screenshots/desktop.png"},
+        {type: "image", data: "PRIVATE_IMAGE"},
+        {type: "thinking", text: "PRIVATE_REASONING"},
+      ], details: {path: "/private/detail", token: "PRIVATE_TOKEN"}},
+    });
+    expect(value).toEqual({tool, output: "Screenshot saved to /workspace/shared/screenshots/desktop.png"});
+    expect(boundTranscriptValue(value)).not.toContain("PRIVATE_");
+  }
+});

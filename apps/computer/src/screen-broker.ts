@@ -23,6 +23,7 @@ import {
 } from "./screen/processes";
 import type { ScreenSession, ScreenStatus } from "./screen/types";
 import { streamScreenFrames } from "./screen/frame-stream";
+import { captureDesktop } from "./screen/capture";
 
 const WIDTH = 1280;
 
@@ -144,12 +145,10 @@ export class ScreenBroker {
     return this.ensure(botId, cwd);
   }
 
-  async screenshot(botId: string, cwd: string): Promise<Buffer> {
+  async screenshot(botId: string, cwd: string, signal?: AbortSignal): Promise<Buffer> {
+    signal?.throwIfAborted();
     const session = await this.readySession(botId, cwd);
-    return run("import", ["-display", `:${session.display}`, "-window", "root", "png:-"], {
-      env: environment(this.home, session),
-      captureStdout: true,
-    });
+    return captureDesktop(session.display, environment(this.home, session), signal);
   }
 
   /** Bind a pending native review to the current human-control generation. */
@@ -252,11 +251,16 @@ export class ScreenBroker {
       if (finalAction && finalAction !== "wait" && finalAction !== "screenshot") {
         await new Promise((resolve) => setTimeout(resolve, 150));
       }
-      return run("import", ["-display", `:${session.display}`, "-window", "root", "png:-"], {
-        env,
-        captureStdout: true,
-        signal,
-      });
+      try {
+        return await captureDesktop(session.display, env, signal);
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        throw new Error(
+          `All ${actions.length} requested desktop action(s) completed, but the resulting screenshot could not be captured. ` +
+          `Do not replay those actions. Request a fresh screenshot to inspect the current state before continuing. ` +
+          (error instanceof Error ? error.message : String(error))
+        );
+      }
     });
   }
 

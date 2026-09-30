@@ -42,6 +42,11 @@ test.skipIf(!url)("scoped persisted history: stopped workers, paging, append, co
   expect(bounded.rows[1]!.content).toContain('FINAL_RESULT=complete');
   expect(bounded.rows[1]!.content.length).toBeLessThan(2000);
   expect(bounded.rows.reduce((n,r)=>n+r.content.length,0)).toBeLessThan(63_000);
+  await db.runItem.create({data:{runId:run.id,kind:'tool',status:'completed',content:{tool:'Computer',arguments:{action:'type',text:'PRIVATE_TYPED_INPUT'},result:{content:[{type:'text',text:'Screenshot saved to /workspace/shared/screenshots/stopped-worker.png'},{type:'image',data:'PRIVATE_IMAGE'}]}}}});
+  const recovered=await readTranscript(db,context,{...target,limit:200});
+  expect(recovered.rows.some(r=>r.content.includes('/workspace/shared/screenshots/stopped-worker.png'))).toBe(true);
+  expect(JSON.stringify(recovered)).not.toContain('PRIVATE_TYPED_INPUT');
+  expect(JSON.stringify(recovered)).not.toContain('PRIVATE_IMAGE');
   expect(JSON.stringify(await readTranscript(db,context,target))).not.toContain('PRIVATE_');
   await expect(readTranscript(db,{botId:foreign.id,channelId:channel.id},target)).rejects.toThrow('not available');
   await expect(readTranscript(db,{botId:child.id,channelId:null},{agent_id:parent.id})).rejects.toThrow('not available');

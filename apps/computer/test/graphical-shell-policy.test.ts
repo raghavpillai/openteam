@@ -48,4 +48,15 @@ describe("graphical Shell capability boundary", () => {
       graphicalShellBoundaryViolation("node -e 'chromium.connectOverCDP(endpoint)'", "computerUse")
     ).toBeNull();
   });
+
+  test("reserved port failures explain local HTTP server recovery without relaxing CDP restrictions", () => {
+    for (const actor of [null, "browserUse"] as const) {
+      expect(() => assertGraphicalShellBoundary("curl http://127.0.0.1:9342/index.html", actor))
+        .toThrow("choose an unused port outside that range");
+      expect(() => assertGraphicalShellBoundary("nc -z localhost 9342", actor))
+        .toThrow("Do not stop existing listeners");
+      expect(graphicalShellBoundaryViolation("curl http://127.0.0.1:18442/index.html", actor)).toBeNull();
+      expect(graphicalShellBoundaryViolation("curl http://127.0.0.1:18442/json/version", actor)).not.toBeNull();
+    }
+  });
 });

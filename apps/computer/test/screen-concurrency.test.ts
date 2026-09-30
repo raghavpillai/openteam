@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ScreenSession } from "../src/screen/types";
 import { ScreenBroker } from "../src/screen-broker";
+import { assignAgentOwnership } from "../src/agent-process";
 
 const homes: string[] = [];
 afterEach(async () => {
@@ -26,6 +27,22 @@ const fixture = async () => {
 };
 
 describe("concurrent screen requests", () => {
+  test("failed post-action capture preserves the action receipt without repeating input", async () => {
+    const {broker, home} = await fixture();
+    await broker.ensure("capture-failure", "/workspace");
+    const previousPath = process.env.PATH;
+    try {
+      await writeFile(join(home,"xdotool"), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${home}/input.log'\n`, {mode:0o755});
+      await writeFile(join(home,"import"), "#!/bin/sh\necho 'capture unavailable' >&2\nexit 9\n", {mode:0o755});
+      await assignAgentOwnership([home], true);
+      process.env.PATH = home;
+      await expect(broker.actComputerUse("capture-failure", "/workspace", [{action:"type",text:"once"}]))
+        .rejects.toThrow("All 1 requested desktop action(s) completed");
+      const input = await readFile(join(home,"input.log"),"utf8");
+      expect(input.trim().split("\n")).toHaveLength(1);
+      expect(input).toContain("once");
+    } finally { process.env.PATH = previousPath; }
+  });
   test("canceled review capture does not start a desktop or run queued actions", async () => {
     const { broker, starts } = await fixture();
     const canceled = new AbortController(); canceled.abort();

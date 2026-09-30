@@ -805,7 +805,7 @@ export class RuntimeTools {
       return this.nativeToolExecutor.listMachines(signal);
     }
     if (tool === SCREENSHOT_TOOL.name) {
-      const frame = await this.screens.screenshot(active.botId, active.cwd);
+      const frame = await this.screens.screenshot(active.botId, active.cwd, signal);
       const directory = join(this.workspaceRoot, "shared", "screenshots");
       await mkdir(directory, { recursive: true });
       const path = join(directory, `${active.botId}-${Date.now()}.png`);

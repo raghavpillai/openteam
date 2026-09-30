@@ -1,6 +1,38 @@
 import { expect, test } from 'bun:test';
 import { BrowserUseSession } from '../../src/browser/use';
 
+test('navigation capture recovery refreshes masks once without retrying element captures or unrelated failures', async () => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+  try {
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+    for (const message of ['Frame was detached', 'Frame is currently attempting a navigation', 'Execution context was destroyed, most likely because of a navigation']) {
+      let calls = 0;
+      const page = {
+        frames: () => [{locator: () => `mask-${calls}`}],
+        screenshot: async (options: any) => {
+          expect(options.mask).toEqual([`mask-${calls}`]);
+          if (++calls === 1) throw new Error(message);
+          return Buffer.from('masked new document');
+        },
+      };
+      expect(await (BrowserUseSession.prototype as any).captureScreenshot.call({}, page, false, 1000))
+        .toEqual(Buffer.from('masked new document'));
+      expect(calls).toBe(2);
+      calls = 0;
+      await expect((BrowserUseSession.prototype as any).captureScreenshot.call({}, page, false, 1000, undefined, page))
+        .rejects.toThrow(message);
+      expect(calls).toBe(1);
+    }
+    for (const message of ['Frame is currently attempting a navigation', 'Permission denied']) {
+      let calls = 0;
+      const page = {frames: () => [], screenshot: async () => {calls++; throw new Error(message);}};
+      await expect((BrowserUseSession.prototype as any).captureScreenshot.call({}, page, false, 1000))
+        .rejects.toThrow(message);
+      expect(calls).toBe(message === 'Permission denied' ? 1 : 2);
+    }
+  } finally {Object.defineProperty(process, 'platform', platform);}
+});
+
 // Model a responsive capture with an unresponsive protocol phase. No website,
 // product name, expected page contents, or live browser is involved.
 test('screenshot protocol timeouts settle without closing the shared browser or returning unmasked frames', async () => {

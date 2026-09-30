@@ -847,11 +847,11 @@ export class BrowserUseSession {
       };
       try { return await attempt(); }
       catch (error) {
-        // A third-party iframe can disappear between collecting masks and the
+        // A frame can navigate or disappear between collecting masks and the
         // capture. Retry only this read-only whole-page observation, once and
         // inside the original budget. A detached element target stays invalid.
         if (target || signal?.aborted || performance.now() >= deadline ||
-            !(error instanceof Error) || !/Frame was detached/i.test(error.message)) throw error;
+            !(error instanceof Error) || !/Frame was detached|Frame is currently attempting a navigation|Execution context was destroyed, most likely because of a navigation/i.test(error.message)) throw error;
         return attempt();
       }
     };

@@ -19,6 +19,18 @@ const html = (body: string, title = "Fixture") =>
 const paragraphs = "<p>Useful paragraph about the topic with real reading content for people.</p>".repeat(40);
 const article = `<article><h1>Guide</h1>${paragraphs}</article>`;
 
+test("prose in navigation-marked disclosures survives extraction while link menus do not", () => {
+  const page = html(`<nav><a href="/menu">MENU_ONLY</a></nav><main>${article}
+    <section><h2>Common questions</h2><div><h3>What is included?</h3>
+    <nav style="height:0px"><div>Each workspace includes twelve project folders and unlimited archived records. See <a href="/limits">the limits guide</a> for exceptions.</div></nav>
+    </div><div role="navigation">Exported records retain their original creation dates and author names.</div></section></main>`).toString();
+  const markdown = webMarkdown(page, url);
+  expect(markdown).toContain("twelve project folders and unlimited archived records");
+  expect(markdown).toContain("original creation dates and author names");
+  expect(markdown).toContain("https://example.com/limits");
+  expect(markdown).not.toContain("MENU_ONLY");
+});
+
 test("public fetch cancels while DNS is pending and does not continue after late resolution", async () => {
   const controller = new AbortController();
   let resolveDns!: (value: Array<{ address: string; family: number }>) => void;

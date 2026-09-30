@@ -404,6 +404,20 @@ function htmlToText(html: string, url: string): { text: string; plain: boolean }
   }
   const title = collapse(document.title ?? "");
   const textLength = () => collapse(document.body?.textContent ?? "").length;
+  // Some publishers use navigation landmarks for disclosure answers rather
+  // than menus. Retain prose-dominated blocks as ordinary content; stripping
+  // every nav would silently lose facts while leaving their questions behind.
+  const navigationProse: string[] = [];
+  for (const node of document.querySelectorAll("nav,[role=navigation]")) {
+    const text = collapse(node.textContent ?? "");
+    const linkText = Array.from(node.querySelectorAll("a") as ArrayLike<any>)
+      .map(link => collapse(link.textContent ?? "")).join(" ");
+    if (!text || linkText.length >= text.length / 2) continue;
+    navigationProse.push(text);
+    const content = document.createElement("div");
+    while (node.firstChild) content.appendChild(node.firstChild);
+    node.replaceWith(content);
+  }
   // Page chrome is dropped from the fallback only when that keeps most of the text; some
   // sites put their main content inside header/footer landmarks.
   const beforeChrome = textLength();
@@ -422,12 +436,14 @@ function htmlToText(html: string, url: string): { text: string; plain: boolean }
   let content = fallback;
   try {
     const article = new Readability(document as unknown as Document).parse();
-    const articleText = collapse(article?.textContent ?? "").length;
+    const articleContentText = collapse(article?.textContent ?? "");
+    const articleText = articleContentText.length;
     const articleTables = (article?.content?.match(/<table/gi) ?? []).length;
     // Readability suits articles but drops listings, pricing cards, data tables and app-like
     // pages. Page chrome is already gone, so use it only when it keeps nearly all the text
     // and any data table (benchmarked: 0.85 kept more facts than 0.5 or 0.7 at ~1% more text).
-    if (article?.content && articleText >= bodyText * 0.85 && (bodyTables === 0 || articleTables > 0))
+    if (article?.content && articleText >= bodyText * 0.85 && (bodyTables === 0 || articleTables > 0) &&
+        navigationProse.every(text => articleContentText.includes(text)))
       content = article.content;
   } catch {
     /* Malformed pages still have their inert body. */

@@ -27,6 +27,7 @@ import { resolveWorkspacePath } from "./paths";
 import { ComputerRuntime } from "./runtime";
 import { checkWebProvider, parseWebProviderCheck } from "./web-provider-check";
 import { inferenceFailure } from "./inference-error";
+import { boundToolImage } from "./runtime/image-input";
 import { checkAgentWorkspace, checkDesktopAvailable, ComputerReadiness } from "./readiness";
 import { ScreenBroker } from "./screen-broker";
 import { TranscriptMirror } from "./transcript-mirror";
@@ -655,9 +656,17 @@ const server = Bun.serve({
         const body = parseComputerInferenceRequest(await request.json());
         const cwd = safePath(typeof body.cwd === "string" ? body.cwd : workspaceRoot);
         try {
+          request.signal.throwIfAborted();
+          const observation = body.screenBotId
+            ? await boundToolImage(await screens.actComputerUse(body.screenBotId, cwd, [{ action: "screenshot" }], request.signal), "image/png", true)
+            : undefined;
+          request.signal.throwIfAborted();
+          if (observation && observation.type !== "image") throw new Error("Review screen observation could not be processed");
           const text = await runtime.infer({
+          kind: body.kind,
           instructions: body.instructions,
           prompt: body.prompt,
+          ...(observation?.type === "image" ? { images: [observation] } : {}),
           cwd,
           timeoutMs: Math.max(1_000, Math.min(body.timeoutMs, 90_000)),
           model: body.model,

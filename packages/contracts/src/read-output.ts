@@ -49,7 +49,7 @@ export const renderReadText = (
       raw.length === 0
         ? "File is empty."
         : exceededLimit
-          ? readLimitNotice(fileSize)
+          ? readLimitNotice(units)
           : output.join("\n"),
     lines: Math.max(0, end - start),
     totalLines,
@@ -57,5 +57,16 @@ export const renderReadText = (
     fileSize,
     isEmpty: raw.length === 0,
     exceededLimit,
+  };
+};
+
+/** PDF line ranges refer to extracted text, never physical page numbers. */
+export const renderPdfReadText = (raw: string, offset?: number, limit?: number, fileSize = raw.length) => {
+  const result = renderReadText(raw, offset, limit ?? 200, fileSize);
+  return {
+    ...result,
+    text: `PDF text extraction (line offsets refer to extracted text, not PDF pages).${raw.trim() ? "" : " No text layer was extracted; the document may require OCR."}\n${result.text}`,
+    extraction: "pdf-text" as const,
+    extractedCharacters: raw.length,
   };
 };

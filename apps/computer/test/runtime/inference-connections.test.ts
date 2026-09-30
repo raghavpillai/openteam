@@ -56,10 +56,11 @@ test("real infer call retains full input and reasoning while discarding failed l
   let fail = false;
   state.modelRuntime = {
     checkAuth: async () => ({ type: "oauth" }),
-    completeSimple: async (_model: unknown, context: unknown, options: unknown) => {
+    streamSimple: (_model: unknown, context: unknown, options: unknown) => {
       calls.push({ context, options });
-      return fail ? { stopReason: "error", errorMessage: "provider failed" }
+      const result = fail ? { stopReason: "error", errorMessage: "provider failed" }
         : { stopReason: "stop", content: [{ type: "text", text: "fixture result" }] };
+      return { async *[Symbol.asyncIterator]() {}, result: async () => result };
     },
   };
   const request = { model: "openai-codex/fixture", reasoning: "off" as const, instructions: "unchanged instruction", prompt: "unchanged user input", cwd: "/tmp", timeoutMs: 1_000 };

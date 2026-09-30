@@ -2,7 +2,7 @@ import { withReferenceContract, referenceTool } from "./tool-contracts";
 import { Schema } from "effect";
 import { BOT_AVATAR_COLOR_NAMES } from "./bot-avatar";
 export { validateProcessSecretName } from "./process-secrets";
-import { MAX_INLINE_IMAGE_URL_LENGTH } from "./media-input";
+import { MAX_INLINE_IMAGE_URL_LENGTH, MAX_TASK_ATTACHMENTS, isTaskMediaPath } from "./media-input";
 import cursorToolsDocument from "./cursor-tools.json";
 export * from "./review-cards";
 export { formatUserFormReceipt } from "./user-form-receipts";
@@ -360,13 +360,15 @@ export const TodoWriteInput = Schema.Struct({
   todos: Schema.Array(
     Schema.Struct({
       id: Schema.String,
-      content: Schema.String,
-      status: TodoStatus,
+      content: Schema.optional(Schema.String),
+      status: Schema.optional(TodoStatus),
     })
   ).pipe(Schema.minItems(1)),
   merge: Schema.Boolean,
 }).pipe(Schema.filter(input => input.merge || input.todos.length >= 2, {
   message: () => "A replacement task list requires at least two items; merge updates may contain one item",
+}), Schema.filter(input => input.merge || input.todos.every(todo => todo.content !== undefined && todo.status !== undefined), {
+  message: () => "Replacement tasks require content and status",
 }));
 export type TodoWriteInput = typeof TodoWriteInput.Type;
 
@@ -382,10 +384,13 @@ export type SubagentType = typeof SubagentType.Type;
 export const TaskInput = Schema.Struct({
   description: Schema.String,
   prompt: Schema.String.pipe(Schema.minLength(1)),
-  model: Schema.optional(Schema.String),
   resume: Schema.optional(Schema.String),
   subagent_type: Schema.optional(SubagentType),
-  file_attachments: Schema.optional(Schema.Array(Schema.String)),
+  file_attachments: Schema.optional(Schema.Array(Schema.String.pipe(Schema.filter(isTaskMediaPath, {
+    message: () => "Task file_attachments accepts supported images or videos only. For ZIPs, PDFs and other files, put the shared filesystem path in the Task prompt and omit file_attachments.",
+  }))).pipe(Schema.maxItems(MAX_TASK_ATTACHMENTS, {
+    message: () => `Task accepts at most ${MAX_TASK_ATTACHMENTS} file_attachments. Split the media across separate tasks.`,
+  }))),
   run_in_background: Schema.optional(Schema.Boolean),
   read_only: Schema.optional(Schema.Boolean),
 });
@@ -1266,6 +1271,8 @@ export const COMPUTER_TOOL = {
 export const COMPUTER_USE_TOOL = { type: "function", ...referenceTool("Computer") };
 
 export const DynamicToolCallRequest = Schema.Struct({
+  // Runtime-only handoff; not a model-visible Task argument.
+  foregroundYield: Schema.optional(Schema.Boolean),
   runId: Schema.String,
   botId: Schema.String,
   conversationId: Schema.String,
@@ -1313,6 +1320,7 @@ export const ComputerTurnRequest = Schema.Struct({
   model: Schema.String,
   reasoning: Schema.Literal(...PI_REASONING_LEVELS),
   fileAttachments: Schema.optional(Schema.Array(Schema.String)),
+  attachmentOwnerBotId: Schema.optional(Schema.String),
   images: Schema.optional(Schema.Array(RuntimeInlineImage).pipe(Schema.maxItems(6))),
   dynamicNamespaces: Schema.optional(Schema.Array(PluginDynamicNamespace)),
   pluginRuntimePackages: Schema.optional(Schema.Array(Schema.Unknown)),

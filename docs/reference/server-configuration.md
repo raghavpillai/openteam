@@ -86,3 +86,15 @@ Internal tuning knobs, read by the computer service and not meant for operators:
 Development-only variables for the desktop app: `OPENTEAM_SERVER_URL`, `OPENTEAM_RENDERER_URL`,
 `OPENTEAM_HOST_BRIDGE_PORT` (`8791`), `OPENTEAM_AUTO_REVIEW_MODE` (`off`, `shadow`, `enforce`),
 `OPENTEAM_UPDATE_MANIFEST_URL`, `OPENTEAM_DEV_HOST`, and `VITE_OPENTEAM_API_URL`.
+
+Box-store snapshots retain blobs referenced by the current manifest and any
+`conflict.manifest-*.json` recovery manifests. Successful snapshots check for
+unused blobs at most once per hour. A blob becomes eligible for collection only
+after it has been observed unreferenced for 24 hours; reintroduction restarts that
+grace period. Collection is bounded to 5,000 blobs or approximately 2 GiB per
+pass (one large blob can exceed the byte budget). Invalid manifests or retention
+metadata prevent collection, without invalidating a successfully published
+snapshot. Initial rollout marks candidates rather than immediately reclaiming
+old blobs. Snapshot, restore, startup repair, and collection operations serialize
+using an OS-backed SQLite lock in the store directory. Do not mutate the store
+with scripts or older processes that bypass this lock.

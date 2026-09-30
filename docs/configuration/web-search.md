@@ -1,4 +1,4 @@
-# Web search and page fetching
+# Web search and fetching
 
 Bots use two web tools. **Search** finds information online. **Fetch** reads a web page without opening the bot's browser. You configure them separately in **Settings → Providers**, on desktop or iPhone. Each tool has its own page, its own list of providers and its own keys.
 

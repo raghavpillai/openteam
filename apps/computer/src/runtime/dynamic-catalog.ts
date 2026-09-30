@@ -1,3 +1,4 @@
+import { READ_TRANSCRIPT_TOOL, parseReadTranscriptInput } from "@openteam/contracts/read-transcript";
 import { READ_SIBLING_THREAD_TOOL, parseSiblingThreadInput } from "@openteam/contracts/sibling-threads";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { withReferenceContract, taskToolContract, FIRST_PARTY_NAMESPACE_DESCRIPTION } from "@openteam/contracts/tool-contracts";
@@ -186,6 +187,8 @@ export function dynamicCatalog(
     ...(active.runtimeProfile === "subagent"
       ? []
       : [
+          { ...READ_TRANSCRIPT_TOOL, source: "first-party" as const, decodeArguments: parseReadTranscriptInput,
+            execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) => callControlPlaneTool(turn, callId, "ReadTranscript", args, signal) },
           { ...READ_SIBLING_THREAD_TOOL, source: "first-party" as const, decodeArguments: parseSiblingThreadInput,
             execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) => callControlPlaneTool(turn, callId, "read_sibling_thread", args, signal) },
           controlPlaneTool(LIST_AGENTS_TOOL, ListAgentsInput),

@@ -1,6 +1,7 @@
+import { collectBoxStoreBlobsLocked, withBoxStoreOperation } from "./box-store/garbage-collection";
 import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { chmod, lstat, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, readFile, rm, stat, utimes } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import {
   type BoxStoreDirtyHint,
@@ -30,6 +31,7 @@ export class BoxStoreSync {
   private readonly sandRoot: string;
   private readonly workspaceRoot: string;
   private readonly hasLiveAgentHandle: (agentId: string) => boolean;
+  private lastBlobCollection = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private periodic: ReturnType<typeof setInterval> | null = null;
   private scheduledRun: Promise<void> | null = null;
@@ -80,7 +82,7 @@ export class BoxStoreSync {
 
   async start(): Promise<void> {
     await mkdir(this.blobsRoot, { recursive: true, mode: 0o700 });
-    await this.repairTemporaryFiles();
+    await withBoxStoreOperation(this.storeRoot, () => this.repairTemporaryFiles());
     if (process.env.OPENTEAM_BOX_COPY_IN === "1") await this.copyIn();
     this.periodic = setInterval(() => this.scheduleSnapshot(0, { all: true }), 120_000);
     this.periodic.unref?.();
@@ -233,6 +235,23 @@ export class BoxStoreSync {
   }
 
   async snapshotOut(hint: BoxStoreDirtyHint = { all: true }): Promise<BoxStoreManifest> {
+    return withBoxStoreOperation(this.storeRoot, async () => {
+      const manifest = await this.snapshotOutLocked(hint);
+      if (Date.now() - this.lastBlobCollection >= 60 * 60_000) {
+        try {
+          const collection = await collectBoxStoreBlobsLocked(this.storeRoot);
+          this.lastBlobCollection = Date.now();
+          if (collection.deleted) console.info(JSON.stringify({event: "box_store.collection", ...collection}));
+        } catch (error) {
+          // Snapshot publication remains valid even if optional maintenance fails.
+          console.warn("box-store collection", error);
+        }
+      }
+      return manifest;
+    });
+  }
+
+  private async snapshotOutLocked(hint: BoxStoreDirtyHint): Promise<BoxStoreManifest> {
     this.metrics.snapshotRuns += 1;
     const startingManifest = await this.readManifest();
     const startingEtag = startingManifest?.etag ?? null;
@@ -329,6 +348,10 @@ export class BoxStoreSync {
   }
 
   async copyIn(): Promise<{ copied: number; skipped: number }> {
+    return withBoxStoreOperation(this.storeRoot, () => this.copyInLocked());
+  }
+
+  private async copyInLocked(): Promise<{ copied: number; skipped: number }> {
     const manifest = await this.readManifest();
     if (!manifest) return { copied: 0, skipped: 0 };
     let copied = 0;
@@ -580,7 +603,13 @@ export class BoxStoreSync {
 
   private async storeBlob(sha256: string, bytes: Uint8Array): Promise<void> {
     const target = join(this.blobsRoot, sha256);
-    if (await stat(target).catch(() => null)) return;
+    if (await stat(target).catch(() => null)) {
+      // Reintroduction can occur between collection scans. Restart its grace
+      // period even if the same content hash already existed as an orphan.
+      const now = new Date();
+      await utimes(target, now, now);
+      return;
+    }
     try {
       await atomicWrite(target, bytes);
     } catch (error) {

@@ -248,6 +248,7 @@
         "@openteam/contracts": "workspace:*",
         "@openteam/db": "workspace:*",
         "@openteam/plugin-sdk": "workspace:*",
+        "@openteam/product-core": "workspace:*",
         "chokidar": "5.0.0",
         "cron-parser": "5.10.0",
         "pg-boss": "12.28.0",
@@ -299,6 +300,7 @@
     },
   },
   "patchedDependencies": {
+    "@earendil-works/pi-ai@0.84.3": "patches/@earendil-works%2Fpi-ai@0.84.3.patch",
     "playwright-core@1.55.0": "patches/playwright-core@1.55.0.patch",
     "@earendil-works/pi-coding-agent@0.84.3": "patches/@earendil-works%2Fpi-coding-agent@0.84.3.patch",
   },

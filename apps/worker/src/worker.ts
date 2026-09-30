@@ -10,13 +10,13 @@ import type {
   SubagentType,
 } from "@openteam/contracts";
 import { SEND_TO_USER_REPLY_NUDGE_PROMPT } from "@openteam/contracts";
-import { formatPiModelRef, parsePiModelRef, normalizePiReasoningLevel } from "@openteam/contracts";
+import { formatPiModelRef, normalizePiReasoningLevel } from "@openteam/contracts";
 import { selectTaskConfiguration, parseTaskConfiguration, type TaskConfiguration, type TaskCapabilities } from "@openteam/contracts/task-configuration";
 import { finalizeInterruptedItems, interruptedProgress } from "./interrupted-progress";
+import { includeSubagentFailures } from "./subagent-result";
 import {
   COMPUTER_API_PATHS,
   parseAgentDirectorySnapshot,
-  parseComputerEvent,
   type AgentDirectoryRecord,
 } from "@openteam/contracts/service-protocol";
 import {
@@ -42,6 +42,7 @@ import { pluginRuntimeContext } from "./plugins";
 import { Projection } from "./projection";
 import { workContinuously } from "./queue-dispatch";
 import { memoryInferenceSettings } from "./memory-inference";
+import { consumeComputerEvents } from "./computer-events";
 import { PushNotificationDispatcher } from "./push-notifications";
 
 const LEASE_MS = 2 * 60_000;
@@ -142,11 +143,11 @@ interface Claimed {
   runtimeProfile: "agent" | "subagent";
   subagentType: SubagentType | null;
   readOnly: boolean;
-  model: string | null;
-  reasoning: string | null;
+  inferenceParentRunId: string | null;
   combinedComputerUse: boolean | null;
   taskConfiguration: TaskConfiguration | null;
   fileAttachments: string[];
+  attachmentOwnerBotId: string;
 }
 
 export const contextScopeForRun = (
@@ -1217,10 +1218,10 @@ export class WakeWorker {
           subagentType:
             (inbox.bot.subagentIdentity?.subagentType as SubagentType | undefined) ?? null,
           readOnly: inbox.bot.subagentIdentity?.readOnly ?? false,
-          model: inbox.bot.subagentIdentity?.model ?? null,
-          reasoning: inbox.bot.subagentIdentity?.reasoning ?? null,
+          inferenceParentRunId: inbox.bot.subagentIdentity?.parentRunId ?? null,
           combinedComputerUse: inbox.bot.subagentIdentity?.combinedComputerUse ?? null,
           taskConfiguration: inbox.bot.subagentIdentity?.taskConfiguration ? parseTaskConfiguration(inbox.bot.subagentIdentity.taskConfiguration) : null,
+          attachmentOwnerBotId: inbox.bot.subagentIdentity?.parentBotId ?? inbox.bot.id,
           fileAttachments: Array.isArray(inbox.bot.subagentIdentity?.fileAttachments)
             ? inbox.bot.subagentIdentity.fileAttachments.filter(
                 (value): value is string => typeof value === "string"
@@ -1270,10 +1271,16 @@ export class WakeWorker {
         return [(async () => ({ id: `input:${payload.clientId}`, content: `[SAND_HIDDEN_PROMPT]Earlier user input whose delivery was interrupted:\n${payload.content}`, images: await this.messaging.assets.runtimeImages(assetRefs(payload.attachments)) }))()];
       }));
       const instructions = platformPrompt.instructions;
-      const selectedInference = {
-        ...parsePiModelRef(claimed.model ?? formatPiModelRef(inference)),
-        reasoning: claimed.reasoning ? normalizePiReasoningLevel(claimed.reasoning) : inference.reasoning,
-      };
+      // Resolve from server-owned run state, including resumed legacy workers.
+      // Stored worker profiles may have been selected by an older Task.model.
+      const inferenceParent = claimed.inferenceParentRunId
+        ? await this.prisma.run.findUnique({ where: { id: claimed.inferenceParentRunId } })
+        : null;
+      const selectedInference = inferenceParent?.inferenceProvider && inferenceParent.inferenceModel
+        ? { providerId: inferenceParent.inferenceProvider, modelId: inferenceParent.inferenceModel,
+            reasoning: inferenceParent.inferenceReasoning
+              ? normalizePiReasoningLevel(inferenceParent.inferenceReasoning) : inference.reasoning }
+        : inference;
       await this.prisma.run.update({ where: { id: claimed.runId }, data: {
         inferenceProvider: selectedInference.providerId,
         inferenceModel: selectedInference.modelId,
@@ -1321,11 +1328,13 @@ export class WakeWorker {
         model: formatPiModelRef(selectedInference),
         reasoning: selectedInference.reasoning,
         fileAttachments: claimed.fileAttachments,
+        attachmentOwnerBotId: claimed.attachmentOwnerBotId,
         dynamicNamespaces: pluginContext.dynamicNamespaces,
         pluginRuntimePackages: pluginContext.pluginRuntimePackages,
       } satisfies ComputerTurnRequest;
       const beforeStart = await this.prisma.run.findUnique({ where: { id: claimed.runId }, select: { status: true } });
       if (beforeStart?.status === "cancelled") throw new Error("Run was cancelled before runtime dispatch");
+      const streamAbort = new AbortController();
       const response = await fetch(`${this.computerUrl}${COMPUTER_API_PATHS.turns}`, {
         method: "POST",
         headers: {
@@ -1333,38 +1342,27 @@ export class WakeWorker {
           "content-type": "application/json",
         },
         body: JSON.stringify(turnRequest),
-        signal: AbortSignal.timeout(24 * 60 * 60_000),
+        signal: AbortSignal.any([streamAbort.signal, AbortSignal.timeout(24 * 60 * 60_000)]),
       });
       if (!response.ok || !response.body) {
         throw new Error(`Computer rejected turn: ${response.status} ${await response.text()}`);
       }
-      const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-      let buffer = "";
-      while (true) {
-        const { value, done } = await reader.read();
-        buffer += value ?? "";
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          const event = parseComputerEvent(JSON.parse(line));
-          if (event.type === "prompt.delivered") {
-            await this.prisma.run.updateMany({ where: { botId: claimed.botId, id: { in: [claimed.runId, ...missed.map((input) => input.runId)] }, inputDeliveredAt: null }, data: { inputDeliveredAt: new Date() } });
-            await this.messaging.acknowledgePlatformPrompt(claimed.botId, claimed.contextSessionId, platformPrompt);
-          }
-          await this.projection.apply(claimed.runId, claimed.conversationId, claimed.botId, event);
-          // Only approval and completion transitions can enqueue a push. Token
-          // deltas are frequent and previously caused two empty outbox scans
-          // per NDJSON event; the 2s safety timer still covers every other path.
-          if (computerEventQueuesPushNotification(event)) {
-            void this.pushNotifications
-              .drain()
-              .catch((error) => console.error("push notification delivery", error));
-          }
-          if (event.type === "turn.completed") completion = event;
+      await consumeComputerEvents(response.body, async (event) => {
+        if (event.type === "prompt.delivered") {
+          await this.prisma.run.updateMany({ where: { botId: claimed.botId, id: { in: [claimed.runId, ...missed.map((input) => input.runId)] }, inputDeliveredAt: null }, data: { inputDeliveredAt: new Date() } });
+          await this.messaging.acknowledgePlatformPrompt(claimed.botId, claimed.contextSessionId, platformPrompt);
         }
-        if (done) break;
-      }
+        await this.projection.apply(claimed.runId, claimed.conversationId, claimed.botId, event);
+        // Only approval and completion transitions can enqueue a push. Token
+        // deltas are frequent and previously caused two empty outbox scans
+        // per NDJSON event; the 2s safety timer still covers every other path.
+        if (computerEventQueuesPushNotification(event)) {
+          void this.pushNotifications
+            .drain()
+            .catch((error) => console.error("push notification delivery", error));
+        }
+        if (event.type === "turn.completed") completion = event;
+      }, () => streamAbort.abort());
       if (!completion)
         throw new Error("Computer stream ended without an authoritative turn completion");
       const completionFailure = turnCompletionFailure(completion);
@@ -1742,7 +1740,27 @@ export class WakeWorker {
       where: { runId: claimed.runId, role: "assistant", status: "completed" },
       orderBy: { updatedAt: "desc" },
     });
-    const result = finalMessage?.content.trim() || "Subagent completed without a text report.";
+    const failures = await tx.runItem.findMany({
+      where: {
+        runId: claimed.runId,
+        kind: { in: ["tool", "command"] },
+        OR: [
+          { status: "failed" },
+          { content: { path: ["result", "isError"], equals: true } },
+          // Shell execution may complete successfully as a tool transport while
+          // the command itself exits nonzero. Preserve that failure as well.
+          { kind: "command", content: { path: ["result", "details", "exitCode"], gt: 0 } },
+          { kind: "command", content: { path: ["result", "details", "exitCode"], lt: 0 } },
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: { kind: true, content: true },
+    });
+    const result = includeSubagentFailures(
+      finalMessage?.content.trim() || "Subagent completed without a text report.",
+      failures.reverse()
+    );
     await tx.subagent.update({
       where: { id: subagent.id },
       data: {
@@ -1752,7 +1770,7 @@ export class WakeWorker {
         completedAt: new Date(),
       },
     });
-    await tx.subagentAttempt.update({
+    const settledAttempt = await tx.subagentAttempt.update({
       where: { id: attempt.id },
       data: {
         status: "completed",
@@ -1775,7 +1793,7 @@ export class WakeWorker {
         },
       },
     });
-    if (attempt.runInBackground) {
+    if (settledAttempt.runInBackground) {
       await this.notifySubagentParent(
         tx,
         {
@@ -1818,7 +1836,7 @@ export class WakeWorker {
       where: { id: subagent.id },
       data: { status: "failed", error: details, result, completedAt: new Date() },
     });
-    await tx.subagentAttempt.update({
+    const settledAttempt = await tx.subagentAttempt.update({
       where: { id: attempt.id },
       data: { status: "failed", error: details, result, completedAt: new Date() },
     });
@@ -1837,7 +1855,7 @@ export class WakeWorker {
         },
       },
     });
-    if (attempt.runInBackground) {
+    if (settledAttempt.runInBackground) {
       await this.notifySubagentParent(
         tx,
         {

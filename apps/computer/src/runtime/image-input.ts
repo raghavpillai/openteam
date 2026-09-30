@@ -133,7 +133,7 @@ export async function repairImageHistory<T extends { role: string }>(messages: r
     if (!cached) {
       const toolName = (message as T & { toolName?: string }).toolName;
       const preserveCoordinates = message.role === "toolResult" &&
-        (toolName === "Computer" || toolName?.startsWith("browser_") === true);
+        (toolName === "Computer" || toolName === "Screenshot" || toolName?.startsWith("browser_") === true);
       cached = Promise.all(content.map(part => part?.type === "image"
         ? boundToolImage(Buffer.from(part.data, "base64"), part.mimeType, preserveCoordinates)
         : part)).then(content => ({ ...message, content }));

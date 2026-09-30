@@ -46,7 +46,8 @@ interface RawResponse {
 export async function publicWebGet(
   value: string,
   signal?: AbortSignal,
-  headers: Record<string, string> = HONEST_HEADERS
+  headers: Record<string, string> = HONEST_HEADERS,
+  resolveHost: (hostname: string, options: { all: true }) => Promise<Array<{ address: string; family: number }>> = lookup
 ): Promise<RawResponse> {
   const cookies = new Map<string, Map<string, string>>();
   let target = value;
@@ -54,7 +55,26 @@ export async function publicWebGet(
     signal?.throwIfAborted();
     const url = publicWebUrl(target);
     const hostname = url.hostname.replace(/^\[|\]$/g, "");
-    const addresses = await lookup(hostname, { all: true });
+    const timeout = AbortSignal.timeout(HOP_TIMEOUT_MS);
+    const hopSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+    let addresses: Array<{ address: string; family: number }>;
+    let abortLookup: (() => void) | undefined;
+    try {
+      // Node's system resolver does not accept AbortSignal. Release the caller
+      // promptly and discard a late result; it must never open a socket later.
+      addresses = await new Promise<Array<{ address: string; family: number }>>((resolve, reject) => {
+        abortLookup = () => reject(hopSignal.reason);
+        hopSignal.addEventListener("abort", abortLookup, { once: true });
+        if (hopSignal.aborted) { abortLookup(); return; }
+        resolveHost(hostname, { all: true }).then(resolve, reject);
+      });
+      hopSignal.throwIfAborted();
+    } catch (error) {
+      if (timeout.aborted && !signal?.aborted) throw new Error("The site did not respond within 20 seconds");
+      throw error;
+    } finally {
+      if (abortLookup) hopSignal.removeEventListener("abort", abortLookup);
+    }
     if (!addresses.length || addresses.some((entry) => !isPublicAddress(entry.address)))
       throw new Error("Private and local network destinations are not allowed");
     const address = addresses.find((entry) => entry.family === 4) ?? addresses[0]!;
@@ -69,14 +89,13 @@ export async function publicWebGet(
       },
     });
     const jar = cookies.get(url.host);
-    const timeout = AbortSignal.timeout(HOP_TIMEOUT_MS);
     let status: number, location: string | undefined, contentType: string, encoding: string | undefined;
     let raw: Buffer;
     try {
       const response = await client.request({
         method: "GET",
         path: url.pathname + url.search,
-        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+        signal: hopSignal,
         headers: { ...headers, ...(jar?.size ? { cookie: [...jar].map(([k, v]) => `${k}=${v}`).join("; ") } : {}) },
       });
       const header = (name: string) => {
@@ -179,6 +198,54 @@ const isDataTable = (table: any) => {
   return rows.length >= 2 && rows.some((row: any) => row.querySelectorAll("td,th").length >= 2);
 };
 
+// Some comparison matrices use repeated div rows rather than table/ARIA markup.
+// Preserve cell positions, including empty cells, without inventing column names
+// or interpreting an absent/removed icon as a yes/no value.
+function preserveRepeatedCellRows(document: any) {
+  let remainingRows = 1000;
+  const cellsOf = (row: any): any[] => {
+    if (row.tagName !== "DIV") return [];
+    const cells = Array.from(row.children ?? []) as any[];
+    if (cells.length < 3 || cells.length > 12 ||
+      cells.some(cell => cell.tagName !== "DIV" || cell.querySelector("table,article,section,ul,ol,form") || collapse(cell.textContent ?? "").length > 500) ||
+      !collapse(cells[0]?.textContent ?? "")) return [];
+    return cells;
+  };
+  for (const parent of Array.from(document.querySelectorAll("div,section") as ArrayLike<any>).reverse()) {
+    const children = Array.from(parent.children ?? []) as any[];
+    for (let start = 0; start < children.length && remainingRows > 0;) {
+      const first = cellsOf(children[start]);
+      if (!first.length) { start++; continue; }
+      let end = start + 1;
+      while (end < children.length && cellsOf(children[end]).length === first.length) end++;
+      const rows = children.slice(start, end);
+      if (rows.length >= 3 && rows.length <= remainingRows && rows.some(row => cellsOf(row).some(cell => !collapse(cell.textContent ?? "")))) {
+        const table = document.createElement("table");
+        const caption = document.createElement("caption");
+        caption.textContent = "Repeated layout rows: columns are positional; empty/omitted cells do not establish feature availability.";
+        table.appendChild(caption);
+        const heading = document.createElement("tr");
+        first.forEach((_, index) => { const cell = document.createElement("th"); cell.textContent = `Column ${index + 1}`; heading.appendChild(cell); });
+        table.appendChild(heading);
+        for (const row of rows) {
+          const tr = document.createElement("tr");
+          for (const source of cellsOf(row)) {
+            const cell = document.createElement("td");
+            cell.innerHTML = source.innerHTML;
+            if (!collapse(cell.textContent ?? "")) cell.textContent = "[empty or omitted content]";
+            tr.appendChild(cell);
+          }
+          table.appendChild(tr);
+        }
+        parent.insertBefore(table, rows[0]);
+        for (const row of rows) row.remove();
+        remainingRows -= rows.length;
+      }
+      start = end;
+    }
+  }
+}
+
 const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced", bulletListMarker: "-" });
 turndown.addRule("dataTable", {
   filter: (node) => node.nodeName === "TABLE" && isDataTable(node),
@@ -220,14 +287,98 @@ export function webMarkdown(html: string, url: string): string {
   return htmlToText(html, url).text;
 }
 
+/** Static visibility only: no scripts, external stylesheets or viewport assumptions.
+ * Restrict selectors and work to keep untrusted CSS from turning extraction into rendering. */
+function removeHiddenContent(document: ReturnType<typeof parseHTML>["document"]) {
+  const display = new Map<Element, { value: string; rank: number; important: boolean }>();
+  let rules = 0;
+  let selectors = 0;
+  for (const style of document.querySelectorAll("style")) {
+    if (style.getAttribute("media") && style.getAttribute("media") !== "all") continue;
+    if ((style.textContent?.length ?? 0) > 100_000) continue;
+    try {
+      for (const rule of style.sheet?.cssRules ?? []) {
+        if (++rules > 500) break;
+        // Conditional rules and complex selectors require a real browser.
+        const css = rule as unknown as { selectorText?: string; style?: CSSStyleDeclaration };
+        const value = css.style?.getPropertyValue("display").trim().toLowerCase();
+        if (!value || !css.selectorText) continue;
+        const important = css.style?.getPropertyPriority("display") === "important";
+        for (const selector of css.selectorText.split(",").slice(0, 20)) {
+          if (++selectors > 500) break;
+          const simple = selector.trim();
+          if (!/^(?:[a-zA-Z][\w-]*)?(?:[.#][\w-]+)*$/.test(simple) || !simple) continue;
+          const rank = (simple.match(/#/g)?.length ?? 0) * 100 + (simple.match(/\./g)?.length ?? 0) * 10 + (/^[a-zA-Z]/.test(simple) ? 1 : 0);
+          for (const node of document.querySelectorAll(simple)) {
+            const old = display.get(node);
+            if (!old || (important && !old.important) || (important === old.important && rank >= old.rank))
+              display.set(node, { value, rank, important });
+          }
+        }
+      }
+    } catch { /* Malformed styles do not invalidate the page. */ }
+    if (rules > 500 || selectors > 500) break;
+  }
+  for (const node of document.querySelectorAll("[style]")) {
+    const value = (node as HTMLElement).style.getPropertyValue("display").trim().toLowerCase();
+    if (value && (!display.get(node)?.important || /display\s*:[^;]*!important/i.test(node.getAttribute("style") ?? "")))
+      display.set(node, { value: value.replace(/\s*!important$/, ""), rank: 1000, important: true });
+  }
+  for (const [node, rule] of display) if (rule.value === "none") node.remove();
+  for (const node of document.querySelectorAll('[hidden],[aria-hidden="true"]')) node.remove();
+}
+
+function structuredData(document: ReturnType<typeof parseHTML>["document"]): string {
+  const blocks: string[] = [];
+  let remaining = 40_000;
+  for (const node of document.querySelectorAll('script[type="application/ld+json"]')) {
+    const raw = node.textContent ?? "";
+    if (raw.length > 64_000) continue;
+    try {
+      const value: unknown = JSON.parse(raw);
+      if (!value || typeof value !== "object") continue;
+      // Keep complete JSON values and escape fences supplied by page data.
+      const json = JSON.stringify(value, null, 2).replace(/`/g, "\\u0060");
+      if (json.length > remaining) continue;
+      blocks.push("```json\n" + json + "\n```");
+      remaining -= json.length;
+    } catch { /* Never execute malformed JSON-LD as JavaScript. */ }
+  }
+  return blocks.length ? "\n\n## Structured page metadata (JSON-LD)\n\nPublisher-provided data; not necessarily visible, current or applicable to your region. Verify conflicts with the rendered page.\n\n" + blocks.join("\n\n") : "";
+}
+
 function htmlToText(html: string, url: string): { text: string; plain: boolean } {
   const { document } = parseHTML(html);
+  // Resolve links against the publisher's first base href, before removing any
+  // DOM content. Later base elements cannot replace an invalid first value.
+  let linkBase = url;
+  const baseHref = document.querySelector("base[href]")?.getAttribute("href");
+  if (baseHref !== undefined && baseHref !== null) {
+    try {
+      const base = new URL(baseHref, url);
+      if (!["data:", "javascript:"].includes(base.protocol)) linkBase = base.href;
+    } catch { /* Invalid base URLs fall back to the fetched document URL. */ }
+  }
+  const metadata = structuredData(document);
+  // Avoid selector scans over exceptionally large documents.
+  if (document.querySelectorAll("*").length <= MAX_MARKDOWN_ELEMENTS) removeHiddenContent(document);
+  else for (const node of document.querySelectorAll('[hidden],[aria-hidden="true"]')) node.remove();
   // Remove active content and form controls (their values can hold prefilled data), but keep
   // form contents: ASP.NET-style pages wrap the whole document in one <form>.
   for (const node of document.querySelectorAll(
-    "script,style,noscript,iframe,svg,canvas,template,object,embed,input,select,textarea,button"
+    "script,style,noscript,iframe,canvas,template,object,embed,input,select,textarea,button"
   ))
     node.remove();
+  // Comparison tables often encode their values as labelled icons. Preserve
+  // publisher-supplied accessible names, never infer meaning from SVG geometry.
+  // Hidden content and active/form elements have already been removed above.
+  for (const node of document.querySelectorAll("svg")) {
+    const labelledBy = (node.getAttribute("aria-labelledby") ?? "").trim().split(/\s+/)
+      .filter(Boolean).map(id => document.getElementById(id)?.textContent ?? "").join(" ");
+    const label = collapse(labelledBy || node.getAttribute("aria-label") || node.querySelector("title")?.textContent || "");
+    if (label) node.replaceWith(document.createTextNode(label));
+    else node.remove();
+  }
   if (document.querySelectorAll("*").length > MAX_MARKDOWN_ELEMENTS) {
     for (const node of document.querySelectorAll(BLOCKS)) node.after("\n");
     for (const node of document.querySelectorAll("td,th"))
@@ -237,13 +388,14 @@ function htmlToText(html: string, url: string): { text: string; plain: boolean }
       .replace(/[^\S\n]+/g, " ")
       .replace(/ *\n\s*/g, (gap: string) => (gap.split("\n").length > 2 ? "\n\n" : "\n"))
       .trim();
-    return { text: `${title ? `# ${title}\n\n` : ""}${text}`, plain: true };
+    return { text: `${title ? `# ${title}\n\n` : ""}${text}${metadata}`, plain: true };
   }
+  preserveRepeatedCellRows(document);
   for (const node of document.querySelectorAll("a[href],img[src]")) {
     const key = node.tagName.toLowerCase() === "a" ? "href" : "src";
     node.removeAttribute("title");
     try {
-      const target = new URL(node.getAttribute(key)!, url);
+      const target = new URL(node.getAttribute(key)!, linkBase);
       if (["http:", "https:"].includes(target.protocol)) node.setAttribute(key, target.href);
       else node.removeAttribute(key);
     } catch {
@@ -257,7 +409,7 @@ function htmlToText(html: string, url: string): { text: string; plain: boolean }
   const beforeChrome = textLength();
   const chrome = Array.from(
     document.querySelectorAll(
-      "nav,header,footer,aside,[role=navigation],[role=banner],[role=contentinfo],[aria-hidden=true]"
+      "nav,header,footer,aside,[role=navigation],[role=banner],[role=contentinfo]"
     ) as ArrayLike<any>
   );
   const placements = chrome.map((node: any) => [node, node.parentNode, node.nextSibling] as const);
@@ -286,7 +438,7 @@ function htmlToText(html: string, url: string): { text: string; plain: boolean }
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return { text: `${title ? `# ${title}\n\n` : ""}${markdown}`, plain: false };
+  return { text: `${title ? `# ${title}\n\n` : ""}${markdown}${metadata}`, plain: false };
 }
 
 function pdfText(bytes: Buffer, signal?: AbortSignal): Promise<string> {
@@ -300,11 +452,20 @@ function pdfText(bytes: Buffer, signal?: AbortSignal): Promise<string> {
     });
     const stdout: Buffer[] = [];
     let size = 0;
+    let outputLimitExceeded = false;
     child.stdin!.on("error", () => {});
     child.stdin!.end(bytes);
     child.stdout!.on("data", (chunk: Buffer) => {
+      if (outputLimitExceeded) return;
       size += chunk.length;
-      if (size <= MAX_WEB_DOWNLOAD) stdout.push(chunk);
+      if (size > MAX_WEB_DOWNLOAD) {
+        outputLimitExceeded = true;
+        stdout.length = 0;
+        reject(new Error("PDF extracted text exceeds the output limit; download the PDF with Shell and use Read or extract selected pages"));
+        child.kill();
+        return;
+      }
+      stdout.push(chunk);
     });
     child.stderr!.resume();
     child.once("error", (error: NodeJS.ErrnoException) =>
@@ -350,9 +511,12 @@ async function attempt(url: string, headers: Record<string, string>, signal: Abo
 }
 
 type Attempt = Awaited<ReturnType<typeof attempt>>;
-const bodyOf = (page: Attempt) => page.text.replace(/^# .*\n+/, "");
+const bodyOf = (page: Attempt) => page.text.split("\n\n## Structured page metadata (JSON-LD)", 1)[0]!.replace(/^# .*\n+/, "");
 const challenged = (page: Attempt) => bodyOf(page).length < 3_000 && CHALLENGE.test(page.text);
-const thin = (page: Attempt) => page.html > 0 && (collapse(bodyOf(page)).length < 1_500 || challenged(page));
+const thin = (page: Attempt) => {
+  const body = collapse(bodyOf(page));
+  return page.html > 0 && (!body || /^(?:loading[.…! ]*|please (?:wait|enable javascript)[.! ]*)$/i.test(body) || challenged(page));
+};
 // Some hosts drop a share of connections from cloud IP ranges; undici reports that as
 // "Connect Timeout Error", and one more attempt usually connects.
 const retryable = (error: unknown) =>
@@ -389,7 +553,9 @@ export async function builtinFetch(url: string, signal?: AbortSignal, get: WebGe
     signal?.throwIfAborted();
     if (!first) throw deadline.aborted ? slow() : blocked(firstError, error);
   }
-  const best = second && (!first || collapse(bodyOf(second)).length > collapse(bodyOf(first)).length) ? second : first!;
+  const quality = (page: Attempt) => challenged(page) ? 0 : thin(page) ? 1 : 2;
+  const best = second && (!first || quality(second) > quality(first) ||
+    (quality(second) === quality(first) && collapse(bodyOf(second)).length > collapse(bodyOf(first)).length)) ? second : first!;
   const note = challenged(best)
     ? "The site returned a bot check instead of the page. Open it with the browser tool instead."
     : thin(best)

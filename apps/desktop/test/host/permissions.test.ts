@@ -20,7 +20,10 @@ const action: HostAction = {
 const store = async () => {
   const directory = await mkdtemp(join(tmpdir(), "openteam-host-policy-"));
   temporaryDirectories.push(directory);
-  return createPermissionSettingsStore(join(directory, "settings.json"));
+  const settings = createPermissionSettingsStore(join(directory, "settings.json"));
+  // These review-behavior fixtures opt in explicitly.
+  await settings.update({ autoReviewEnabled: true });
+  return settings;
 };
 
 afterEach(async () => {
@@ -32,6 +35,20 @@ afterEach(async () => {
 });
 
 describe("host permission gates", () => {
+  test("review off skips inference but retains the separate local-computer permission", async () => {
+    const settings = await store();
+    await settings.update({ autoReviewEnabled: false });
+    for (const decision of ["deny", "allow-once"] as const) {
+      let prompts = 0;
+      const result = await authorizeHostAction(action, {
+        settings, mode: "enforce", promptLocal: async () => { prompts++; return decision; },
+        review: async () => { throw new Error("Review must be off"); },
+        promptAutoReview: async () => { throw new Error("Review prompt must be off"); },
+      });
+      expect(prompts).toBe(1);
+      expect(result.allowed).toBe(decision === "allow-once");
+    }
+  });
   test("host reviews load the shared policy and Always persists it without losing server rules", async () => {
     const local = await store();
     await local.update({ localToolPermission: "always" });

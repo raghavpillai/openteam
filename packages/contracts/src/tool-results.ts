@@ -185,17 +185,29 @@ export function renderControlResult(
         : `${Math.floor(seconds / 60)}m${seconds % 60 ? ` ${seconds % 60}s` : ""}`;
     const describe = (sub: any, detailed: boolean) => {
       const calls = sub.recent_tool_calls ?? [];
+      const approvals = Array.isArray(sub.pending_approvals) ? sub.pending_approvals : [];
+      const status = typeof sub.status === "string" ? sub.status : "status unavailable";
+      const runStatus = typeof sub.run_status === "string" ? `; run: ${sub.run_status}` : "";
       const lines = [
-        `- ${sub.subagent_id} [${sub.subagent_type}] "${sub.description}" — running for ${elapsed(sub.elapsed_seconds)}, ${sub.tool_call_count ?? calls.length} tool call(s)`,
+        `- ${sub.subagent_id} [${sub.subagent_type}] "${sub.description}" — ${status}${runStatus}; elapsed ${elapsed(sub.elapsed_seconds)}, ${sub.tool_call_count ?? calls.length} tool call(s)${approvals.length ? `, ${approvals.length} pending approval(s)` : ""}`,
       ];
       if (detailed) {
+        for (const approval of approvals) {
+          lines.push(`  Pending approval ${approval.id}${approval.summary ? `: ${approval.summary}` : ""}${approval.reason ? ` — ${approval.reason}` : ""}`);
+        }
         lines.push(
           calls.length ? "  Recent activity (oldest → newest):" : "  No tool activity recorded yet."
         );
-        lines.push(...[...calls].reverse().map((call: any) => `    ${call.tool}`));
+        // Admission/start is not completion: preserve the persisted state so a
+        // pending or failed call cannot read like a completed worker action.
+        lines.push(...[...calls].reverse().map((call: any) => {
+          const error = call.status === "failed" && typeof call.error === "string" && call.error
+            ? ` — error: ${JSON.stringify(call.error.slice(0, 500))}` : "";
+          return `    [${typeof call.status === "string" && call.status ? call.status : "status unavailable"}] ${call.tool}${error}`;
+        }));
         if (sub.transcript_path)
           lines.push(
-            `  Full transcript (read it for the complete play-by-play): ${sub.transcript_path}`
+            `  Private transcript reference: ${sub.transcript_path}. Use cursor.ReadTranscript with this subagent_id for observable history; do not open the path with Read.`
           );
       }
       return lines.join("\n");

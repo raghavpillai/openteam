@@ -7,6 +7,7 @@ import { spawnAgentProcess as spawn, agentProcessIdentity, assignAgentOwnership 
 import { BrowserBroker } from "./browser/broker";
 import { BrowserProfileAuthority } from "./browser/profile-authority";
 import { prepareDownloadPreferences } from "./browser/download-preferences";
+import { prepareOfficeProfile } from "./screen/office-profile";
 import { performComputerUseAction, performComputerUseBatch } from "./screen/actions";
 import {
   environment,
@@ -49,7 +50,9 @@ export const createViewerPassword = (): string => randomBytes(6).toString("base6
 
 export class ScreenBroker {
   private readonly sessions = new Map<string, ScreenSession>();
+  // Persisted IDs select durable profile directories, not live display capacity.
   private readonly slotByBot = new Map<string, number>();
+  private readonly liveSlotByBot = new Map<string, number>();
   private readonly destroyedBotIds = new Set<string>();
   private readonly stateRoot: string;
   private readonly mappingPath: string;
@@ -86,12 +89,14 @@ export class ScreenBroker {
     if (!session) {
       const slot = await this.allocateSlot(botId);
       if (this.destroyedBotIds.has(botId)) {
+        this.liveSlotByBot.delete(botId);
         if (this.slotByBot.delete(botId)) await this.persistMappings();
         throw new Error("Graphical screen was destroyed");
       }
       // Another request may have created this session while slot allocation waited.
       session = this.sessions.get(botId);
       if (!session) {
+        const profileSlot = this.slotByBot.get(botId)!;
         session = {
           botId,
           cwd,
@@ -104,9 +109,9 @@ export class ScreenBroker {
           viewerPassword: createViewerPassword(),
           browserDebugPort: BROWSER_DEBUG_PORT_BASE + slot,
           profileDirectory:
-            slot === 0
+            profileSlot === 0
               ? join(this.home, "chrome-profile")
-              : join(this.home, `chrome-profile-${slot + 1}`),
+              : join(this.home, `chrome-profile-${profileSlot + 1}`),
           runtimeDirectory: join("/tmp", `openteam-screen-${slot}`),
           state: "starting",
           error: null,
@@ -145,6 +150,20 @@ export class ScreenBroker {
       env: environment(this.home, session),
       captureStdout: true,
     });
+  }
+
+  /** Bind a pending native review to the current human-control generation. */
+  async guardAgentReview(botId: string, cwd: string): Promise<() => void> {
+    const session = await this.readySession(botId, cwd);
+    this.assertAgentControl(session);
+    const revision = this.inputRevisions.get(session) ?? 0;
+    return () => {
+      this.assertNotDestroyed(session);
+      this.assertAgentControl(session);
+      if (revision !== (this.inputRevisions.get(session) ?? 0)) {
+        throw new Error("Graphical control changed during review; inspect the screen and request a new action");
+      }
+    };
   }
 
   async stream(
@@ -215,10 +234,14 @@ export class ScreenBroker {
   async actComputerUse(
     botId: string,
     cwd: string,
-    actions: readonly ComputerUseActionInput[]
+    actions: readonly ComputerUseActionInput[],
+    externalSignal?: AbortSignal
   ): Promise<Buffer> {
+    externalSignal?.throwIfAborted();
     const session = await this.readySession(botId, cwd);
-    return this.withInput(session, "agent", async (signal) => {
+    return this.withInput(session, "agent", async (controlSignal) => {
+      const signal = externalSignal && controlSignal ? AbortSignal.any([externalSignal, controlSignal]) : externalSignal ?? controlSignal;
+      signal?.throwIfAborted();
       const env = environment(this.home, session);
       await performComputerUseBatch(actions, async action => {
         signal?.throwIfAborted();
@@ -248,6 +271,15 @@ export class ScreenBroker {
     operation: (signal?: AbortSignal) => Promise<T>
   ): Promise<T> {
     return this.withInput(await this.readySession(botId, cwd), "agent", operation);
+  }
+
+  /** Observe an existing browser without launching applications or starting a desktop. */
+  async existingBrowserEndpointForAgent(botId: string): Promise<string | null> {
+    const session = this.sessions.get(botId);
+    if (!session || session.state !== "ready") return null;
+    this.assertAgentControl(session);
+    const endpoint = `http://127.0.0.1:${session.browserDebugPort}`;
+    return await this.browserIsReady(endpoint) ? endpoint : null;
   }
 
   async browserEndpointForAgent(botId: string, cwd: string): Promise<string> {
@@ -300,6 +332,7 @@ export class ScreenBroker {
       this.sessions.delete(botId);
       await rm(session.runtimeDirectory, { recursive: true, force: true });
     }
+    this.liveSlotByBot.delete(botId);
     if (this.slotByBot.delete(botId)) await this.persistMappings();
   }
 
@@ -338,6 +371,9 @@ export class ScreenBroker {
     const revision = this.inputRevisions.get(session) ?? 0;
     const result = (this.inputQueues.get(session) ?? Promise.resolve()).then(async () => {
       this.assertNotDestroyed(session);
+      if (actor === "human") {
+        this.inputRevisions.set(session, (this.inputRevisions.get(session) ?? 0) + 1);
+      }
       let controller: AbortController | undefined;
       if (actor === "agent") {
         this.assertAgentControl(session);
@@ -401,6 +437,7 @@ export class ScreenBroker {
       await prepareDownloadPreferences(session.profileDirectory, this.home);
       // Copied profile files and legacy profiles may have been written by the host.
       await assignAgentOwnership([session.profileDirectory], true);
+      await prepareOfficeProfile(session.profileDirectory);
       // Chromium's profile survives container restarts, but its process-singleton
       // markers do not. Clear only those ephemeral locks before recreating the
       // bot's desktop; history, cookies, and the rest of the profile stay durable.
@@ -526,6 +563,15 @@ export class ScreenBroker {
       ]);
       this.assertSessionStarting(session);
       this.openApp(session, "terminal");
+      // A listening VNC endpoint can precede XFCE's first painted frame. Do
+      // not hand a native-only worker a black screen without its launchers.
+      await this.waitForEndpoint(async () => {
+        try {
+          await run("xdotool", ["search", "--onlyvisible", "--class", "xfce4-panel"], { env, signal: AbortSignal.timeout(1_000) });
+          const mean = Number((await run("import", ["-display", display, "-window", "root", "-format", "%[fx:mean]", "info:"], { env, captureStdout: true, signal: AbortSignal.timeout(2_000) })).toString().trim());
+          return Number.isFinite(mean) && mean > 0;
+        } catch { return false; }
+      }, "Desktop renderer", session, vnc);
       session.lastHealthCheckAt = Date.now();
       session.state = "ready";
     } catch (error) {
@@ -700,7 +746,7 @@ export class ScreenBroker {
     try {
       const parsed = JSON.parse(await readFile(this.mappingPath, "utf8")) as Record<string, number>;
       for (const [botId, slot] of Object.entries(parsed)) {
-        if (Number.isInteger(slot) && slot >= 0 && slot < MAX_SCREENS) {
+        if (Number.isSafeInteger(slot) && slot >= 0 && slot < Number.MAX_SAFE_INTEGER) {
           this.slotByBot.set(botId, slot);
         }
       }
@@ -711,25 +757,40 @@ export class ScreenBroker {
   }
 
   private async allocateSlot(botId: string): Promise<number> {
-    const existing = this.slotByBot.get(botId);
+    const existing = this.liveSlotByBot.get(botId);
     if (existing !== undefined) return existing;
     let allocated = -1;
     const allocation = this.allocation.then(async () => {
-      const reserved = this.slotByBot.get(botId);
+      const reserved = this.liveSlotByBot.get(botId);
       if (reserved !== undefined) {
         allocated = reserved;
         return;
       }
-      const used = new Set(this.slotByBot.values());
-      for (let slot = 0; slot < MAX_SCREENS; slot += 1) {
-        if (!used.has(slot)) {
-          allocated = slot;
-          this.slotByBot.set(botId, slot);
-          break;
+      const used = new Set(this.liveSlotByBot.values());
+      const profileSlot = this.slotByBot.get(botId);
+      // Prefer the legacy display when free, without letting dormant profiles
+      // occupy ports or making a relocated bot switch profile directories.
+      if (profileSlot !== undefined && profileSlot < MAX_SCREENS && !used.has(profileSlot)) {
+        allocated = profileSlot;
+      } else {
+        for (let slot = 0; slot < MAX_SCREENS; slot += 1) {
+          if (!used.has(slot)) { allocated = slot; break; }
         }
       }
       if (allocated < 0) throw new Error(`OpenTeam supports at most ${MAX_SCREENS} live screens`);
-      await this.persistMappings();
+      this.liveSlotByBot.set(botId, allocated);
+      if (profileSlot === undefined) {
+        const profiles = new Set(this.slotByBot.values());
+        let nextProfile = 0;
+        while (profiles.has(nextProfile)) nextProfile += 1;
+        this.slotByBot.set(botId, nextProfile);
+        try { await this.persistMappings(); }
+        catch (error) {
+          this.slotByBot.delete(botId);
+          this.liveSlotByBot.delete(botId);
+          throw error;
+        }
+      }
     });
     this.allocation = allocation.catch(() => undefined);
     await allocation;

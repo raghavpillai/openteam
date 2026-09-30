@@ -93,7 +93,6 @@ test("installed hooks gate real commands, ask through review, expand commands an
       expandPluginAgent([pkg], { plugin_agent: "fixture:reviewer", prompt: "Audit parser" })
     ).toMatchObject({
       read_only: true,
-      model: "fixture/model",
       subagent_type: "executor",
       run_in_background: false,
     });
@@ -130,4 +129,15 @@ test("unsupported component permissions cannot silently broaden an imported agen
       "hooks/hooks.json": '{"hooks":{"beforeShellExecution":[{"command":"echo ok","timeout":0}]}}',
     })
   ).toThrow("timeout");
+});
+
+// Imported templates are content, not inference configuration.
+test("plugin agent model preferences do not become Task inference controls", () => {
+  const components = parsePluginRuntimeComponents({
+    "agents/reviewer.md": "---\ndescription: Audit\nmodel: provider/expensive\n---\nReview the files.",
+  });
+  const pkg = { ...components, key: "fixture", installPath: "/tmp/fixture" };
+  const expanded = expandPluginAgent([pkg], { plugin_agent: "fixture:reviewer", prompt: "Review" });
+  expect(expanded.model).toBeUndefined();
+  expect(expanded.prompt).toContain("Review the files.");
 });

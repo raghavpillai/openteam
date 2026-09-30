@@ -31,19 +31,29 @@ export class WebTools {
     let content: string;
     let resultUrl: string;
     let note: string | undefined;
+    let source: "cached" | "crawled" | "unknown" = "crawled";
     let retriedWithBrowserHeaders = false;
     if (provided.provider === "builtin") {
       const page = await builtinFetch(url, signal);
       ({ text: content, url: resultUrl, note, retriedWithBrowserHeaders } = page);
     } else {
       ({ text: content, url: resultUrl, note } = provided);
+      source = provided.provenance.source;
     }
-    let text = `# Content from ${resultUrl}\n\n${note ? `Note: ${note}\n\n` : ""}${content}`;
+    const retrievedAt = new Date().toISOString();
+    const provenance = `Retrieval: ${provided.provider}; source: ${source}; retrieved at: ${retrievedAt}.`;
+    const freshness = source === "cached"
+      ? "Cached content; crawl time is unavailable. This does not verify current prices, availability or shipping. Use the browser to verify time-sensitive facts in the requested region."
+      : source === "unknown"
+        ? "The provider did not report whether this content was cached or freshly crawled."
+        : "Fetched during this request; page content can still be stale or location-dependent.";
+    const header = `# Content from ${resultUrl}\n\n${provenance} ${freshness}\n\n${note ? `Note: ${note}\n\n` : ""}`;
+    let text = header + content;
     let outputPath: string | undefined;
     if (text.length > WEB_INLINE_CHARACTERS) {
       outputPath = resolve(cwd, ".openteam", "web", `${randomUUID()}.md`);
       await agentFileIO("write", outputPath, signal, Buffer.from(text));
-      text = describeOutputLocation({ filePath: outputPath, sizeBytes: Buffer.byteLength(text), lineCount: text.split("\n").length }, {});
+      text = header + describeOutputLocation({ filePath: outputPath, sizeBytes: Buffer.byteLength(text), lineCount: text.split("\n").length }, {});
     }
     return {
       content: [{ type: "text" as const, text }],
@@ -51,6 +61,9 @@ export class WebTools {
         configured: true,
         provider: provided.provider,
         url: resultUrl,
+        requestedUrl: url,
+        source,
+        retrievedAt,
         outputPath,
         characters: content.length,
         ...(note ? { note } : {}),

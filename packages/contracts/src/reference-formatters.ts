@@ -292,12 +292,15 @@ function scorePluginForToken(plugin, token) {
 }
 function rankPluginsLexically(plugins, query) {
   const tokens = tokenizePluginQuery(query);
+  // Action words alone must not turn an unrelated connector into a subject match.
+  // Preserve broad discovery when the user supplies only action words.
+  const subjectTokens = tokens.filter((token) => !["search", "find", "live", "lookup", "get", "use"].includes(token));
   const byName = (a, b2) => a.displayName.localeCompare(b2.displayName);
   if (tokens.length === 0) return [...plugins].sort(byName);
   return plugins.map((plugin) => ({
     plugin,
     score: tokens.reduce((sum, token) => sum + scorePluginForToken(plugin, token), 0)
-  })).filter((entry) => entry.score > 0).sort((a, b2) => b2.score - a.score || byName(a.plugin, b2.plugin)).map((entry) => entry.plugin);
+  })).filter((entry) => entry.score > 0 && (!subjectTokens.length || subjectTokens.some((token) => scorePluginForToken(entry.plugin, token) > 0))).sort((a, b2) => b2.score - a.score || byName(a.plugin, b2.plugin)).map((entry) => entry.plugin);
 }
 function formatOutputLocationSize(sizeBytes) {
   const total = Number(sizeBytes);

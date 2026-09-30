@@ -6,7 +6,7 @@ const Jimp = createJimp({ formats: [png] });
 
 test('model history preserves graphical screenshot coordinates but still bounds ordinary images', async () => {
   const bytes = await new Jimp({width:1280,height:800,color:0xffffffff}).getBuffer('image/png');
-  for (const toolName of ['Computer', 'browser_snapshot', 'browser_click', 'Read']) {
+  for (const toolName of ['Computer', 'Screenshot', 'browser_snapshot', 'browser_click', 'Read']) {
     const message = { role:'toolResult',toolName,content:[{type:'image',data:bytes.toString('base64'),mimeType:'image/png'}] };
     const [result] = await repairImageHistory([message]);
     const image = await Jimp.read(Buffer.from(result!.content[0]!.data,'base64'));

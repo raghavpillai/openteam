@@ -20,15 +20,20 @@ export class TodoService {
       const incoming = uniqueTodoInputs(input.todos);
       const incomingIds = incoming.map((todo) => todo.id);
       if (!input.merge) {
+        const complete = incoming.map(todo => {
+          if (todo.content === undefined || todo.status === undefined)
+            throw new Error("Replacement tasks require content and status");
+          return { id: todo.id, content: todo.content, status: todo.status };
+        });
         await tx.todoItem.deleteMany({ where: { botId } });
         await tx.todoItem.createMany({
-          data: incoming.map((todo, position) => ({ botId, position, ...todo })),
+          data: complete.map((todo, position) => ({ botId, position, ...todo })),
         });
       } else {
         const [matching, last] = await Promise.all([
           tx.todoItem.findMany({
             where: { botId, id: { in: incomingIds } },
-            select: { id: true, position: true },
+            select: { id: true, position: true, content: true, status: true },
           }),
           tx.todoItem.findFirst({
             where: { botId },
@@ -36,13 +41,16 @@ export class TodoService {
             select: { position: true },
           }),
         ]);
-        const positions = new Map(matching.map((todo) => [todo.id, todo.position]));
+        const existing = new Map(matching.map((todo) => [todo.id, todo]));
         let nextPosition = (last?.position ?? -1) + 1;
-        const merged = incoming.map((todo) => ({
-          botId,
-          position: positions.get(todo.id) ?? nextPosition++,
-          ...todo,
-        }));
+        const merged = incoming.map((todo) => {
+          const previous = existing.get(todo.id);
+          const content = todo.content ?? previous?.content;
+          const status = todo.status ?? previous?.status;
+          if (content === undefined || status === undefined)
+            throw new Error(`New task ${todo.id} requires content and status`);
+          return { botId, id: todo.id, content, status, position: previous?.position ?? nextPosition++ };
+        });
         await tx.todoItem.deleteMany({ where: { botId, id: { in: incomingIds } } });
         await tx.todoItem.createMany({ data: merged });
       }

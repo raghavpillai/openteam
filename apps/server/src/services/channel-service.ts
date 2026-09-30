@@ -137,6 +137,23 @@ export class ChannelService {
         throw new ApiError(409, "request_in_progress", "This message is already being accepted");
       }
 
+      // Copy/hash files and acquire their advisory locks before message acceptance
+      // locks Bot. File reconciliation may hold those locks while updating Bot.
+      // Revalidate the target inside acceptance below; prepared files grant no access.
+      let preparedAttachmentPaths: string[] | undefined;
+      if (input.attachments?.length) {
+        const target = await this.prisma.conversation.findUnique({
+          where: { id: conversationId },
+          include: { bot: { include: { subagentIdentity: { select: { id: true } } } } },
+        });
+        if (!target || target.bot.subagentIdentity || !["active", "provisioning"].includes(target.bot.status)) {
+          throw new ApiError(404, "conversation_not_found", "Runnable conversation not found");
+        }
+        preparedAttachmentPaths = await this.messaging.agentData.materializeAttachments(
+          target.botId, input.clientId, input.attachments
+        );
+      }
+
       const accepted = await this.prisma.$transaction(async (tx) => {
         const conversation = await tx.conversation.findUnique({
           where: { id: conversationId },
@@ -215,7 +232,7 @@ export class ChannelService {
           occurredAt: visibleMessage.createdAt,
           timeZone: input.timeZone,
           ...(input.isFork ? { replyToMessageId: visibleMessage.id, isFork: true } : {}),
-        });
+        }, preparedAttachmentPaths);
         await this.messaging.scheduleTranscriptProjection(tx, [conversation.botId]);
         await tx.channel.update({
           where: { id: channel.id },

@@ -116,7 +116,8 @@ describe("Grok-derived platform prompt integration", () => {
       ],
     });
     expect(prompt.instructions).toContain("browserUse: structured browser interaction");
-    expect(prompt.instructions).toContain("quick: Small jobs");
+    expect(prompt.instructions).not.toContain("quick: Small jobs");
+    expect(prompt.instructions).not.toContain("<available_subagent_models>");
     expect(prompt.instructions).not.toContain("computerUse: browser and desktop work");
   });
   test("deployment-disabled template sharing is omitted from managed and inline workflows", () => {

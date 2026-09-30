@@ -26,6 +26,33 @@ const fixture = async () => {
 };
 
 describe("concurrent screen requests", () => {
+  test("canceled review capture does not start a desktop or run queued actions", async () => {
+    const { broker, starts } = await fixture();
+    const canceled = new AbortController(); canceled.abort();
+    await expect(broker.actComputerUse("never-start", "/workspace", [{ action: "screenshot" }], canceled.signal)).rejects.toThrow();
+    expect(starts).toHaveLength(0);
+    const controller = new AbortController();
+    const pending = broker.actComputerUse("queued", "/workspace", [{ action: "wait", durationMs: 30000 }], controller.signal);
+    await Bun.sleep(30); controller.abort();
+    await expect(pending).rejects.toThrow();
+  });
+  test("native review is invalidated even when human takeover has already ended", async () => {
+    const { broker } = await fixture();
+    const validate = await broker.guardAgentReview("shared", "/workspace");
+    expect(() => validate()).not.toThrow();
+    await broker.takeover("shared", "/workspace", true);
+    expect(() => validate()).toThrow();
+    await expect(broker.guardAgentReview("shared", "/workspace")).rejects.toThrow();
+    await broker.takeover("shared", "/workspace", false);
+    expect(() => validate()).toThrow("Graphical control changed during review");
+    const fresh = await broker.guardAgentReview("shared", "/workspace");
+    expect(() => fresh()).not.toThrow();
+    await broker.act("shared", "/workspace", { action: "wait", ms: 1 }, "human");
+    expect(() => fresh()).toThrow("Graphical control changed during review");
+    const beforeDestroy = await broker.guardAgentReview("shared", "/workspace");
+    await broker.destroy("shared");
+    expect(() => beforeDestroy()).toThrow();
+  });
   test("simultaneous cold requests share one desktop and one startup", async () => {
     const { broker, home, starts } = await fixture();
     const statuses = await Promise.all(
@@ -56,15 +83,28 @@ describe("concurrent screen requests", () => {
 
   test("exhausting screen slots does not poison later allocation after a slot is freed", async () => {
     const { broker, home } = await fixture();
-    await writeFile(
-      join(home, ".sand-window-assignments.json"),
-      JSON.stringify(
-        Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`reserved-${i}`, i]))
-      )
-    );
+    await Promise.all(Array.from({length:100},(_,i)=>broker.ensure(`reserved-${i}`, "/workspace")));
     await expect(broker.ensure("overflow", "/workspace")).rejects.toThrow("at most 100");
     await broker.destroy("reserved-7");
     expect((await broker.ensure("recovered", "/workspace")).display).toBe(107);
+  });
+
+  test("dormant assignments preserve profiles without exhausting live slots", async () => {
+    const {broker,home}=await fixture();
+    const legacy=Object.fromEntries(Array.from({length:100},(_,i)=>[`old-${i}`,i]));
+    await writeFile(join(home,".sand-window-assignments.json"),JSON.stringify(legacy));
+    await Promise.all([broker.ensure("new", "/workspace"),broker.ensure("old-0", "/workspace")]);
+    const sessions=(broker as any).sessions as Map<string,ScreenSession>;
+    expect(sessions.get("new")!.profileDirectory).toBe(join(home,"chrome-profile-101"));
+    expect(sessions.get("old-0")!.profileDirectory).toBe(join(home,"chrome-profile"));
+    expect(sessions.get("new")!.slot).not.toBe(sessions.get("old-0")!.slot);
+    const saved=JSON.parse(await readFile(join(home,".sand-window-assignments.json"),"utf8"));
+    expect(saved).toEqual({...legacy,new:100});
+    // A restarted broker can load the profile ID above the live-screen limit.
+    const restarted=new ScreenBroker(home) as any;
+    restarted.startSession=async(session:ScreenSession)=>{session.state="ready";session.lastHealthCheckAt=Date.now();};
+    await restarted.ensure("new","/workspace");
+    expect(restarted.sessions.get("new").profileDirectory).toBe(join(home,"chrome-profile-101"));
   });
 
   test("overlapping human and agent actions finish in order on the same desktop", async () => {

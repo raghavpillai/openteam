@@ -1,5 +1,7 @@
+import { ShellReviewEscalation } from "./shell-review-escalation";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { isPendingReviewControl } from "./pending-review-controls";
+import { onlyPendingBackgroundWork } from "./background-status";
 import { spoolFile } from "@openteam/plugin-sdk/file-spool";
 import { agentReadStream, agentWriteStream } from "../agent-file-stream";
 import { stageAttachment } from "../attachment-staging";
@@ -111,6 +113,7 @@ export const LEGACY_EXTERNAL_NATIVE_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 export class RuntimeTools {
+  private readonly shellReviewEscalation = new ShellReviewEscalation();
   private readonly shellWaits = new Map<string, Set<AbortController>>();
   interruptShellWaits(runId: string) {
     for (const wait of this.shellWaits.get(runId) ?? [])
@@ -393,6 +396,7 @@ export class RuntimeTools {
     {
       runId: string;
       screenBotId: string;
+      settled: Promise<void>;
       settle: (decision?: ApprovalDecision, error?: Error) => void;
       select?: (items?: readonly string[]) => void;
     }
@@ -409,13 +413,54 @@ export class RuntimeTools {
     pending.settle(decision);
   }
 
-  private assertNoPendingReview(active: ActiveTurn) {
-    if (
-      [...this.pendingApprovals.values()].some(
-        (pending) => pending.screenBotId === active.screenBotId
-      )
-    )
-      throw new Error("Another action is waiting for approval; no new side effect may start yet.");
+  private async assertNoPendingReview(active: ActiveTurn, signal?: AbortSignal): Promise<void> {
+    const pending = [...this.pendingApprovals.values()].filter(
+      (review) => review.screenBotId === active.screenBotId
+    );
+    if (!pending.length) return;
+    // The owning turn already waits on its approval. A sibling worker must not
+    // burn model turns repeatedly retrying the same shared-screen gate.
+    if (pending.every((review) => review.runId !== active.runId)) {
+      this.assertCurrentInput(active);
+      signal?.throwIfAborted();
+      // The foreground coordinator must remain able to stop/check workers or
+      // report the blocker. Waiting here prevents its entire parallel tool
+      // batch from finishing, so it cannot choose those control operations.
+      // This is only an error result: the pending approval remains untouched.
+      if (active.runtimeProfile === "agent") {
+        throw new Error(
+          "Another run on this computer is waiting for approval. This action was not executed. cursor.CheckSubagent and cursor.ReadTranscript remain available for inspection; cursor.StopSubagent remains available to cancel the waiting worker. MessageSubagent and side effects are blocked while approval is pending. Use those existing control tools when appropriate, or report the blocker and await the user's decision; do not retry blocked actions."
+        );
+      }
+      // Steering is drained after the tool batch. Wake this non-executing wait
+      // so the model can process a correction or stop request without resolving
+      // (or inheriting permission from) the other run's pending approval.
+      const controller = new AbortController();
+      const waits = this.shellWaits.get(active.runId) ?? new Set<AbortController>();
+      waits.add(controller);
+      this.shellWaits.set(active.runId, waits);
+      const waitSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+      let onAbort: (() => void) | undefined;
+      try {
+        await Promise.race([
+          Promise.all(pending.map((review) => review.settled)),
+          new Promise<never>((_, reject) => {
+            onAbort = () => reject(waitSignal.reason ?? new DOMException("Aborted", "AbortError"));
+            waitSignal.addEventListener("abort", onAbort, { once: true });
+            if (waitSignal.aborted) onAbort();
+          }),
+        ]);
+      } finally {
+        if (onAbort) waitSignal.removeEventListener("abort", onAbort);
+        waits.delete(controller);
+        if (!waits.size) this.shellWaits.delete(active.runId);
+      }
+      signal?.throwIfAborted();
+      // Never replay an action chosen before the approval was resolved. It may
+      // now be stale, and resolution does not authorize this worker's action.
+      throw new Error("The shared approval wait ended. This action was not executed; inspect current task state before choosing a new action.");
+    }
+    throw new Error("Another action is waiting for approval; no new side effect may start yet.");
   }
 
   private assertCurrentInput(active: ActiveTurn): void {
@@ -490,7 +535,7 @@ export class RuntimeTools {
           executionMode: "sequential",
           execute: (callId, args, signal) =>
             this.reviewGraphicalAction(active, callId, "Computer", args, signal, () =>
-              this.callComputerUse(active, args)
+              this.callComputerUse(active, args, signal)
             ),
         });
     const browserTools = () => BROWSER_USE_TOOLS.map((tool) =>
@@ -533,6 +578,7 @@ export class RuntimeTools {
     args: unknown,
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
+    this.assertCurrentInput(active);
     return this.nativeToolExecutor.withReviewContext(
       { runId: active.runId, botId: active.botId },
       () => this.executeScopedTool(active, callId, tool, args, signal)
@@ -555,8 +601,19 @@ export class RuntimeTools {
       throw new Error("This plugin agent is read-only");
     if (active.readOnly && tool === "Read" && (args as Record<string, unknown>).machineId)
       throw new Error("Read-only agents cannot access the user's computer");
-    if (active.endTurnRequested)
+    signal?.throwIfAborted();
+    active.pluginAbortController?.signal.throwIfAborted();
+    const queuedAttachment = tool === SEND_TO_USER_TOOL.name &&
+      (args as { type?: string } | null)?.type === "attachment" &&
+      active.pendingDeliveryAttachments?.get(callId) === JSON.stringify(args);
+    const queuedCleanup = tool === CALL_DYNAMIC_TOOL_TOOL.name &&
+      active.pendingDeliveryCleanup?.get(callId) === JSON.stringify(args);
+    const finishCleanup = active.endTurnRequested === true && active.finishDeliveryAttachments === true && queuedCleanup;
+    if (active.endTurnRequested && !(active.finishDeliveryAttachments && queuedAttachment) && !finishCleanup)
       throw new Error("The turn has ended after delivery; wait for the next user message.");
+    // Consume once, even on failure. This is not a retry or a new action grant.
+    if (queuedAttachment) active.pendingDeliveryAttachments?.delete(callId);
+    if (queuedCleanup) active.pendingDeliveryCleanup?.delete(callId);
     if (
       ![
         "Read",
@@ -568,7 +625,7 @@ export class RuntimeTools {
         "CallDynamicTool",
       ].includes(tool) && !isPendingReviewControl(tool, args)
     )
-      this.assertNoPendingReview(active);
+      await this.assertNoPendingReview(active, signal);
     if (active.requestSource === "automation" && AUTOMATION_PARENT_ONLY_TOOLS.has(tool)) {
       throw new Error("Use WakeParent to hand this communication to the parent agent");
     }
@@ -646,8 +703,9 @@ export class RuntimeTools {
         if (active.subagentType) {
           throw new Error("Graphical subagents cannot target the user's local computer");
         }
-        return this.executeHostTool(active, callId, tool, signal, async (approvals) => {
+        return this.executeHostTool(active, callId, tool, signal, this.shellReviewEscalation.wrap(active, [shellInput.machineId, shellInput.working_directory ?? null], shellInput, async (approvals) => {
           const result = await this.nativeToolExecutor.externalShell(shellInput, signal, approvals);
+          this.shellReviewEscalation.invalidate(active);
           if (
             result.details.status === "running" &&
             typeof result.details.shell_id === "string" &&
@@ -663,7 +721,7 @@ export class RuntimeTools {
             });
           }
           return result;
-        });
+        }));
       }
       const environment =
         active.subagentType === "computerUse"
@@ -671,7 +729,7 @@ export class RuntimeTools {
           : undefined;
       const secretEnvironment = await this.processSecrets(active, signal);
       const effectiveDirectory = await this.nativeToolExecutor.shellWorkingDirectory(shellInput, active.cwd, active.botId);
-      await this.executeHostTool(active, callId, tool, signal, (approvals) =>
+      await this.executeHostTool(active, callId, tool, signal, this.shellReviewEscalation.wrap(active, ["box", effectiveDirectory], shellInput, (approvals) =>
         this.nativeToolExecutor.autoReviewAction(
           {
             surface: "boxShell",
@@ -685,9 +743,11 @@ export class RuntimeTools {
           },
           signal,
           approvals
-        )
+        ))
       );
-      this.assertNoPendingReview(active);
+      await this.assertNoPendingReview(active, signal);
+      // A command can change persistent shell state; old blocks need fresh review.
+      this.shellReviewEscalation.invalidate(active);
       return this.nativeToolExecutor.shell(
         shellInput,
         active.cwd,
@@ -773,7 +833,8 @@ export class RuntimeTools {
         active,
         callId,
         Schema.decodeUnknownSync(CallDynamicToolInput)(args),
-        signal
+        signal,
+        finishCleanup
       );
     }
 
@@ -936,10 +997,13 @@ export class RuntimeTools {
   ): Promise<ApprovalDecision> {
     if (signal?.aborted) return Promise.reject(new DOMException("Approval aborted", "AbortError"));
     const approvalId = crypto.randomUUID();
+    let notifySettled!: () => void;
+    const settled = new Promise<void>((resolve) => { notifySettled = resolve; });
     return new Promise<ApprovalDecision>((resolveDecision, reject) => {
       const onAbort = () => settle(undefined, new DOMException("Approval aborted", "AbortError"));
       const settle = (decision?: ApprovalDecision, approvalError?: Error) => {
         if (!this.pendingApprovals.delete(approvalId)) return;
+        notifySettled();
         signal?.removeEventListener("abort", onAbort);
         if (approvalError) reject(approvalError);
         else if (decision) resolveDecision(decision);
@@ -948,6 +1012,7 @@ export class RuntimeTools {
       this.pendingApprovals.set(approvalId, {
         runId: active.runId,
         screenBotId: active.screenBotId,
+        settled,
         settle,
         select,
       });
@@ -977,7 +1042,9 @@ export class RuntimeTools {
       { runId: active.runId, botId: active.botId },
       async () => {
         if (active.endTurnRequested) throw new Error("The turn has ended");
-        this.assertNoPendingReview(active);
+        await this.assertNoPendingReview(active, signal);
+        const validateNativeReview = tool === "Computer"
+          ? await this.screens.guardAgentReview(active.screenBotId, active.cwd) : undefined;
         const closeBrowser = tool === "browser_tabs" && (args as any)?.action === "close"
           ? this.browserUseSessions?.get(active.botId) : undefined;
         const closeTarget = closeBrowser?.tabCloseReviewTarget(args as { index?: unknown });
@@ -1006,6 +1073,7 @@ export class RuntimeTools {
                   summary: tool.startsWith("browser_") ? `Use dedicated browser tool ${tool}` : `Use native desktop tool ${tool}`,
                   target: active.screenBotId,
                   arguments: { ...(args as Record<string, unknown>), tool,
+                    nativeScreenObservation: tool === "Computer" ? true : undefined,
                     // Never let model-supplied arguments forge runtime evidence.
                     browserObservedTarget: closeTarget ?? fileInput?.observation ?? uploadTarget },
                 },
@@ -1015,7 +1083,8 @@ export class RuntimeTools {
             );
           }
           signal?.throwIfAborted();
-          this.assertNoPendingReview(active);
+          await this.assertNoPendingReview(active, signal);
+          validateNativeReview?.();
           if (closeTarget && JSON.stringify(closeBrowser!.tabCloseReviewTarget(args as { index?: unknown })) !== JSON.stringify(closeTarget))
             throw new Error("Browser tab changed while awaiting review. Inspect the current tabs before requesting closure again.");
           await fileInput?.validate();
@@ -1030,8 +1099,10 @@ export class RuntimeTools {
 
   private async callComputerUse(
     active: ActiveTurn,
-    args: unknown
+    args: unknown,
+    signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
+    signal?.throwIfAborted();
     const input = Schema.decodeUnknownSync(ComputerUseInput)(
       normalizeMainToolArguments("Computer", args)
     );
@@ -1040,11 +1111,12 @@ export class RuntimeTools {
     const needsDesktopObservation = active.lastGraphicalSurface !== "computer" &&
       requestedActions.some(action => ["click", "move", "drag", "scroll"].includes(action.action));
     const actions = needsDesktopObservation ? [{ action: "screenshot" as const }] : requestedActions;
-    const frame = await this.screens.actComputerUse(active.screenBotId, active.cwd, actions);
+    const frame = await this.screens.actComputerUse(active.screenBotId, active.cwd, actions, signal);
+    signal?.throwIfAborted();
     active.lastGraphicalSurface = "computer";
     // Adopt the live browser after Computer/manual navigation as well as Browser tools.
     try {
-      this.observeLogins(active, await this.privateBrowser(active));
+      this.observeLogins(active, await this.privateBrowser(active, false));
     } catch {
       /* No live browser yet. */
     }
@@ -1129,20 +1201,23 @@ export class RuntimeTools {
     return result;
   }
 
-  private async formBrowser(botId: string): Promise<FormBrowser> {
+  private async formBrowser(botId: string, existingEndpoint?: string, createInitialPage = true): Promise<FormBrowser> {
     const sessions = () =>
       [...this.browserUseSessions.entries()].filter(
         ([id, session]) =>
           session.connected && (id === botId || this.browserSessionScreens.get(id) === botId)
       );
     if (!sessions().length) {
-      const endpoint = await this.screens.browserEndpointForAgent(botId, this.workspaceRoot);
+      const endpoint = existingEndpoint ?? await this.screens.browserEndpointForAgent(botId, this.workspaceRoot);
       this.browserUseSessions.set(
         botId,
         await BrowserUseSession.connect(
           endpoint,
           join(this.workspaceRoot, "shared", "screenshots"),
-          true
+          true,
+          undefined,
+          undefined,
+          createInitialPage
         )
       );
       this.browserSessionScreens.set(botId, botId);
@@ -1204,12 +1279,14 @@ export class RuntimeTools {
       browser: BrowserUseSession;
       binding: Awaited<ReturnType<BrowserUseSession["loginBinding"]>>;
     }> = [];
+    const seen = new Set<BrowserUseSession>();
     for (const [id, browser] of this.browserUseSessions)
-      if (
+      if (!seen.has(browser) &&
         browser.connected &&
         (id === active.screenBotId || this.browserSessionScreens.get(id) === active.screenBotId)
       ) {
         try {
+          seen.add(browser);
           const binding = await browser.loginBinding(site);
           if (!matches.some((match) => match.binding.pageId === binding.pageId))
             matches.push({ browser, binding });
@@ -1272,9 +1349,12 @@ export class RuntimeTools {
     }
   }
 
-  private async privateBrowser(active: ActiveTurn): Promise<BrowserUseSession> {
-    await this.screens.browserEndpointForAgent(active.screenBotId, active.cwd);
-    await this.formBrowser(active.screenBotId);
+  private async privateBrowser(active: ActiveTurn, launch = true): Promise<BrowserUseSession> {
+    const endpoint = launch
+      ? await this.screens.browserEndpointForAgent(active.screenBotId, active.cwd)
+      : await this.screens.existingBrowserEndpointForAgent(active.screenBotId);
+    if (!endpoint) throw new Error("No live browser on this desktop");
+    await this.formBrowser(active.screenBotId, endpoint, launch);
     const browser = [...this.browserUseSessions.entries()].find(
       ([id, session]) =>
         session.connected &&
@@ -1661,7 +1741,8 @@ export class RuntimeTools {
     callId: string,
     tool: string,
     args: unknown,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    foregroundYield = false
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     const timeout = AbortSignal.timeout(
       [
@@ -1692,6 +1773,7 @@ export class RuntimeTools {
         "content-type": "application/json",
       },
       body: JSON.stringify({
+        ...(foregroundYield ? {foregroundYield: true} : {}),
         runId: active.runId,
         botId: active.botId,
         conversationId: active.conversationId,
@@ -1749,6 +1831,9 @@ export class RuntimeTools {
       typeof body === "object" &&
       (body as Record<string, unknown>).foregroundPending === true
     ) {
+      if (active.pendingSteers.length > 0) {
+        return this.callControlPlaneToolRequest(active, callId, tool, args, requestSignal, true);
+      }
       return this.callControlPlaneTool(active, callId, tool, args, requestSignal);
     }
     if (
@@ -1806,8 +1891,11 @@ export class RuntimeTools {
         input.type === "widget" ||
         input.type === "secret-request" ||
         [REQUEST_BOX_HELP_TOOL.name, "request_user_form", "SendFeedback"].includes(tool)
-      )
+      ) {
+        if (tool === SEND_TO_USER_TOOL.name && input.type === "text" && input.end_turn === true)
+          active.finishDeliveryAttachments = true;
         active.endTurnRequested = true;
+      }
     }
     return {
       content: [
@@ -1818,6 +1906,7 @@ export class RuntimeTools {
       ],
       details: {
         tool,
+        ...(tool === "CheckSubagent" ? {pendingBackgroundWork: onlyPendingBackgroundWork(body)} : {}),
         ...(tool === "TodoWrite" && body && typeof body === "object" && "todos" in body
           ? { todos: body.todos }
           : {}),
@@ -2139,7 +2228,8 @@ export class RuntimeTools {
     active: ActiveTurn,
     callId: string,
     input: CallDynamicToolInput,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    finishCleanup = false
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     if (
       active.readOnly &&
@@ -2162,7 +2252,11 @@ export class RuntimeTools {
     const resolved = resolveDynamicTool(catalog, receipts, input);
     const invoke = async () => {
       signal?.throwIfAborted();
-      if (active.endTurnRequested)
+      if (finishCleanup) {
+        this.assertCurrentInput(active);
+        active.pluginAbortController?.signal.throwIfAborted();
+      }
+      if (active.endTurnRequested && !finishCleanup)
         throw new Error("The turn has ended; wait for the next user message");
       if (
         !(
@@ -2178,12 +2272,13 @@ export class RuntimeTools {
             "GetPlugin",
             "GetMcpServerStatus",
             "read_sibling_thread",
+            "ReadTranscript",
             "ListCredentials",
             "GetCredentialProviderStatus",
           ].includes(input.toolName))
         )
       )
-        this.assertNoPendingReview(active);
+        await this.assertNoPendingReview(active, signal);
       if (input.namespace !== "cursor")
         await this.executeHostTool(active, callId, input.toolName, signal, (approvals) =>
           this.nativeToolExecutor.autoReviewAction(
@@ -2197,7 +2292,10 @@ export class RuntimeTools {
             approvals
           )
         );
-      return resolved.tool.execute(active, callId, resolved.arguments, signal, input.mcpDetails);
+      const result = await resolved.tool.execute(active, callId, resolved.arguments, signal, resolved.mcpDetails);
+      return finishCleanup && !("isError" in result && result.isError)
+        ? {...result, details: {...result.details, deliveryCleanup: true}}
+        : result;
     };
     if (
       input.namespace === "cursor" &&

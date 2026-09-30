@@ -5,7 +5,7 @@ import type { TaskConfiguration } from "@openteam/contracts/task-configuration";
 import { Readable } from "node:stream";
 import { agentReadStream, agentWriteStream } from "./agent-file-stream";
 import { formatBytes2 } from "@openteam/contracts/reference-formatters";
-import { renderReadText } from "@openteam/contracts/read-output";
+import { renderReadText, renderPdfReadText } from "@openteam/contracts/read-output";
 import { boundToolImage } from "./runtime/image-input";
 import { decodeReadableText } from "./read-text";
 import { randomInt } from "node:crypto";
@@ -39,7 +39,7 @@ import {
   parseHostShellResponse,
   parseShellAwaitResponse,
 } from "@openteam/contracts/service-protocol";
-import { spawnAgentProcess as spawn, agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
+import { spawnAgentProcess as spawn, agentProcessIdentity, agentProcessGroupSignaler, sanitizedAgentEnvironment } from "./agent-process";
 import { agentFileIO } from "./agent-file-io";
 import { protectedAgentDataPath } from "@openteam/contracts/agent-file-access";
 
@@ -160,6 +160,7 @@ export class NativeToolExecutor {
       cwd: workingDirectory,
       env: { ...sanitizedShellEnvironment(savedEnvironment.environment, workingDirectory), ...routing.secretEnvironment },
       ...agentProcessIdentity(),
+      detached: true,
       stdio: ["ignore", "pipe", "pipe", environmentCapture.fd],
     });
     environmentCapture.closeParent();
@@ -192,7 +193,13 @@ export class NativeToolExecutor {
     child.stdout!.once("end", () => collect(stdoutRedactor.end()));
     child.stderr!.once("end", () => collect(stderrRedactor.end()));
 
-    const abort = () => child.kill("SIGTERM");
+    const signalGroup = agentProcessGroupSignaler(child);
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
+    const abort = () => {
+      signalGroup("SIGTERM");
+      killTimer ??= setTimeout(() => signalGroup("SIGKILL"), 500);
+    };
+    child.once("close", () => { if (killTimer) clearTimeout(killTimer); });
     signal?.addEventListener("abort", abort, { once: true });
     if (signal?.aborted) abort();
     let processError: Error | undefined;
@@ -416,7 +423,6 @@ export class NativeToolExecutor {
             guidance: "These are available tools, not additional authorization. The delegated prompt and each action must still obey the user's requested modality and scope.",
           },
         } : {}),
-        ...(input.model ? { model: input.model } : {}),
         ...(input.resume ? { resume: input.resume } : {}),
         ...(input.file_attachments?.length ? { file_attachments: input.file_attachments } : {}),
         ...(input.run_in_background !== undefined
@@ -518,7 +524,8 @@ export class NativeToolExecutor {
       }
       raw = plainText;
     }
-    const { text, ...details } = renderReadText(raw, offset, limit, bytes.length);
+    const isPdf = extname(canonical).toLowerCase() === ".pdf";
+    const { text, ...details } = (isPdf ? renderPdfReadText : renderReadText)(raw, offset, limit, bytes.length);
     return textResult(text, { path: canonical, ...details });
   }
 

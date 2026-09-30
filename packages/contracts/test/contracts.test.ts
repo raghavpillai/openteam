@@ -539,6 +539,12 @@ describe("API contracts", () => {
       todos: [{ id: "investigate", content: "Find the cause", status: "completed" }],
       merge: true,
     }).todos).toHaveLength(1);
+    expect(Schema.decodeUnknownSync(TodoWriteInput)({
+      todos: [{ id: "investigate", status: "completed" }], merge: true,
+    }).todos[0]).toEqual({ id: "investigate", status: "completed" });
+    expect(() => Schema.decodeUnknownSync(TodoWriteInput)({
+      todos: [{ id: "a", status: "pending" }, { id: "b", content: "Complete", status: "pending" }], merge: false,
+    })).toThrow("Replacement tasks require content and status");
     expect(() =>
       Schema.decodeUnknownSync(TodoWriteInput)({
         todos: [{ id: "only", content: "Only one", status: "pending" }],

@@ -12,7 +12,8 @@ export class ReviewPolicyService {
     const row = await this.db.autoReviewPolicy.findUnique({ where: { id: "global" } });
     return {
       configured: !!row,
-      isEnabled: row?.enabled ?? true,
+      // Optional classifier stays opt-in for this release; honor saved choices.
+      isEnabled: row?.enabled ?? false,
       allowInstructions: row?.allowInstructions ?? [],
       blockInstructions: row?.blockInstructions ?? [],
     };

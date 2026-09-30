@@ -85,10 +85,48 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)(
         ],
       });
       const context = await loadAutoReviewContext(db, { runId: childRun.id, botId: childId });
-      expect(context.map((row) => row.content)).toEqual([
+      expect(context.filter((row) => row.source === "conversation").map((row) => row.content)).toEqual([
         "Edit report.md, then stop before publishing.",
         "I will edit the report.",
       ]);
+      const worker = await db.subagent.findUniqueOrThrow({ where: { childBotId: childId } });
+      await db.subagentAttempt.create({ data: {
+        subagentId: worker.id, parentRunId: parentRun.id, parentChannelId: channelId,
+        parentToolCallId: "completed-attempt", childRunId: childRun.id,
+        description: "Review", prompt: "UNTRUSTED WORKER PROMPT", result: "UNTRUSTED WORKER RESULT",
+        status: "completed", completedAt: new Date(),
+      } });
+      const revival = await db.run.create({ data: {
+        botId: parentId, conversationId: parent.conversation!.id, channelId,
+        origin: "background_revival", userMessageId: crypto.randomUUID(), status: "running",
+      } });
+      await db.inboxEvent.create({ data: {
+        botId: parentId, conversationId: parent.conversation!.id, runId: revival.id,
+        idempotencyKey: crypto.randomUUID(), type: "subagent.completed",
+        payload: { taskContextRunId: parentRun.id },
+      } });
+      await db.runItem.create({ data: {
+        runId: parentRun.id, upstreamItemId: "receipt-test", kind: "tool", status: "completed", title: "Read",
+        content: { result: "PRIVATE OUTPUT" },
+      } });
+      const revivedContext = await loadAutoReviewContext(db, { runId: revival.id, botId: parentId });
+      const receiptText = revivedContext.filter(row => row.source === "execution_receipt").map(row => row.content).join("\n");
+      expect(receiptText).toContain("workerLifecycle");
+      expect(receiptText).toContain(childRun.id);
+      expect(receiptText).toContain('"tool":"Read"');
+      expect(receiptText).not.toContain("UNTRUSTED WORKER");
+      expect(receiptText).not.toContain("PRIVATE OUTPUT");
+      // Historical completion remains visible after the mutable worker pointer moves.
+      await db.subagent.update({ where: { id: worker.id }, data: { currentRunId: null } });
+      expect(JSON.stringify(await loadAutoReviewContext(db, { runId: revival.id, botId: parentId }))).toContain(childRun.id);
+      await db.subagent.update({ where: { id: worker.id }, data: { currentRunId: childRun.id } });
+      await db.subagentAttempt.updateMany({ where: { subagentId: worker.id }, data: { parentChannelId: crypto.randomUUID() } });
+      expect(JSON.stringify(await loadAutoReviewContext(db, { runId: revival.id, botId: parentId }))).not.toContain("workerLifecycle");
+      await db.subagentAttempt.updateMany({ where: { subagentId: worker.id }, data: { parentChannelId: channelId } });
+      // A matching attempt under another owner or channel is not this task's evidence.
+      await db.subagent.update({ where: { id: worker.id }, data: { parentBotId: childId } });
+      expect(JSON.stringify(await loadAutoReviewContext(db, { runId: revival.id, botId: parentId }))).not.toContain("workerLifecycle");
+      await db.subagent.update({ where: { id: worker.id }, data: { parentBotId: parentId } });
       await db.channelMessage.create({
         data: {
           channelId,
@@ -97,8 +135,8 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)(
         },
       });
       const bounded = await loadAutoReviewContext(db, { runId: parentRun.id, botId: parentId });
-      expect(bounded.at(-1)?.content).toContain("Message omitted");
-      expect(bounded.at(-1)?.content).not.toContain("Publish this");
+      expect(bounded.filter(row => row.source === "conversation").at(-1)?.content).toContain("Message omitted");
+      expect(bounded.filter(row => row.source === "conversation").at(-1)?.content).not.toContain("Publish this");
       const routines = new RoutineService(db, { defaultTimeZone: "UTC", enqueueWake: async () => { throw new Error("not used"); } });
       const routine = await routines.mutate(parentId, crypto.randomUUID(), null, { action: "create", name: "Saved review authority", prompt: "Fill the synthetic form, do not upload files.", schedule: "@every 1h", enabled: false });
       const revision = await db.routineRevision.findFirstOrThrow({ where: { routineId: String(routine.id) } });
@@ -107,9 +145,9 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)(
       const continuation = await db.run.create({ data: { botId: parentId, conversationId: parent.conversation!.id, channelId, origin: "routine", userMessageId: crypto.randomUUID(), status: "running" } });
       const continuationEvent = await db.inboxEvent.create({ data: { botId: parentId, conversationId: parent.conversation!.id, runId: continuation.id, idempotencyKey: crypto.randomUUID(), type: "subagent.completed", payload: { automationContextRunId: parentRun.id } } });
       const resumed = await loadAutoReviewContext(db, { runId: continuation.id, botId: parentId });
-      expect(resumed.at(-1)).toEqual({ role: "user", source: "routine", content: revision.prompt });
+      expect(resumed.find(row => row.source === "routine")).toEqual({ role: "user", source: "routine", content: revision.prompt });
       await db.subagent.update({ where: { childBotId: childId }, data: { parentRunId: continuation.id } });
-      expect((await loadAutoReviewContext(db, { runId: childRun.id, botId: childId })).at(-1)?.content).toBe(revision.prompt);
+      expect((await loadAutoReviewContext(db, { runId: childRun.id, botId: childId })).find(row => row.source === "routine")?.content).toBe(revision.prompt);
       await db.inboxEvent.update({ where: { id: continuationEvent.id }, data: { payload: { automationContextRunId: childRun.id } } });
       await expect(loadAutoReviewContext(db, { runId: continuation.id, botId: parentId })).rejects.toThrow("automation context is unavailable");
       await db.subagent.update({ where: { childBotId: childId }, data: { parentRunId: parentRun.id } });

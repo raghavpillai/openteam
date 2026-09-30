@@ -48,3 +48,15 @@ export const attachmentRejectionMessage = (
 
 export const MAX_INLINE_IMAGE_BYTES = CLIENT_CAPABILITIES.uploads.maxRegularBytes;
 export const MAX_INLINE_IMAGE_URL_LENGTH = Math.ceil(MAX_INLINE_IMAGE_BYTES / 3) * 4 + 128;
+
+// Task attachments are inline model media, not general shared filesystem inputs.
+export const MAX_TASK_ATTACHMENTS = 8;
+export const TASK_IMAGE_MIME_TYPES: Readonly<Record<string, string>> = {
+  ".gif": "image/gif", ".jpeg": "image/jpeg", ".jpg": "image/jpeg",
+  ".png": "image/png", ".webp": "image/webp",
+};
+export const TASK_VIDEO_EXTENSIONS: ReadonlySet<string> = new Set([".m4v", ".mkv", ".mov", ".mp4", ".webm"]);
+export const isTaskMediaPath = (path: string): boolean => {
+  const extension = mediaExtension(path);
+  return Boolean(TASK_IMAGE_MIME_TYPES[extension]) || TASK_VIDEO_EXTENSIONS.has(extension);
+};

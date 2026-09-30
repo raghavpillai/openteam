@@ -74,29 +74,16 @@ test("default Task contract matches the captured combined-worker catalog exactly
   ).toEqual(inherited);
 });
 
-test("configured effort choices apply only to new executors and resume ignores model", () => {
-  expect(taskToolContract(config).inputSchema.properties.model.enum).toEqual(["quick", "deep"]);
-  expect(taskInference(config, {}, inherited)).toMatchObject({
-    modelId: "small-model",
-    reasoning: "low",
-  });
-  expect(taskInference(config, { model: "deep" }, inherited)).toMatchObject({
-    providerId: "anthropic",
-    modelId: "large-model",
-  });
-  expect(() => taskInference(config, { model: "unconfigured" }, inherited)).toThrow("effort level");
-  for (const subagent_type of ["computerUse", "browserUse", "videoReview", "watchVideo"])
-    expect(taskInference(config, { subagent_type, model: "unconfigured" }, inherited)).toEqual(
-      inherited
-    );
-  expect(taskInference(config, { resume: "previous", model: "unconfigured" }, inherited)).toEqual(
-    inherited
-  );
-  expect(taskInference({ ...config, defaultExecutorProfile: undefined }, {}, inherited)).toEqual(
-    inherited
-  );
-  expect(taskUserInfo(config)).toContain("quick: Small bounded tasks (default)");
-  expect(taskUserInfo(config)).not.toContain("small-model");
+test("legacy profiles and model arguments cannot override server inference", () => {
+  expect(taskToolContract(config).inputSchema.properties.model).toBeUndefined();
+  expect(taskUserInfo(config)).not.toContain("available_subagent_models");
+  for (const reasoning of ["off", "minimal", "low", "medium", "high"] as const)
+    for (const subagent_type of ["executor", "computerUse", "browserUse", "videoReview", "watchVideo"])
+      for (const model of [undefined, "quick", "deep", "unconfigured", "provider/model"])
+        for (const resume of [undefined, "previous"]) {
+          const authority = { ...inherited, reasoning };
+          expect(taskInference(config, { model, subagent_type, resume }, authority)).toEqual(authority);
+        }
 });
 
 test("split mode exposes browserUse without losing existing types", () => {
@@ -109,6 +96,19 @@ test("split mode exposes browserUse without losing existing types", () => {
     "browserUse",
   ]);
   expect(taskUserInfo(split)).toContain("browserUse:");
+});
+
+test("graphical capability hints respect disabled tools and unavailable workers", () => {
+  for (const combinedComputerUse of [true, false]) {
+    const selected = { ...config, combinedComputerUse };
+    expect(taskUserInfo(selected)).toContain("browser_console_messages");
+    expect(taskUserInfo(selected)).toContain("browser_take_screenshot");
+    expect(taskUserInfo(selected)).toContain("browser_file_upload");
+    const restricted = taskUserInfo({ ...selected, disabledToolIdentifiers: ["BROWSER_CONSOLE_MESSAGES"] });
+    expect(restricted).not.toContain("browser_console_messages");
+    expect(restricted).toContain("browser_take_screenshot");
+    expect(taskUserInfo({ ...selected, graphicalAvailable: false })).not.toContain("Browser capabilities");
+  }
 });
 
 test("invalid and ambiguous profile configurations cannot be saved", () => {

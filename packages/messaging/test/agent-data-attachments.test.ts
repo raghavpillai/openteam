@@ -8,13 +8,12 @@ import { AgentDataStore } from "../src";
 
 const roots: string[] = [];
 
-const fixture = async (activeAtCommit: boolean) => {
+const fixture = async (activeAtCommit: boolean, bytes = Buffer.alloc(4 * 1024 * 1024 + 17, 0x5a)) => {
   const root = await mkdtemp(join(tmpdir(), "openteam-materialized-attachments-"));
   roots.push(root);
   const dataRoot = join(root, "agent-data");
   const assetRoot = join(root, "assets");
   await mkdir(assetRoot, { recursive: true });
-  const bytes = Buffer.alloc(4 * 1024 * 1024 + 17, 0x5a);
   const assetId = createHash("sha256").update(bytes).digest("hex");
   const source = join(assetRoot, `${assetId}.blob`);
   await writeFile(source, bytes);
@@ -100,6 +99,14 @@ describe("agent attachment materialization", () => {
     ]);
     expect(paths).toEqual([join(dataRoot, "agents", "bot-1", "attachments", `${assetId}.data`)]);
     expect(await readFile(paths[0] ?? "missing")).toEqual(bytes);
+    expect(await readdir(join(dataRoot, ".attachment-staging"))).toEqual([]);
+  });
+
+  test("materializes a verified empty upload without treating it as missing", async () => {
+    const { store, dataRoot, attachment, assetId } = await fixture(true, Buffer.alloc(0));
+    const paths = await store.materializeAttachments("bot-1", "empty-message", [attachment]);
+    expect(paths).toEqual([join(dataRoot, "agents", "bot-1", "attachments", `${assetId}.data`)]);
+    expect((await readFile(paths[0]!)).length).toBe(0);
     expect(await readdir(join(dataRoot, ".attachment-staging"))).toEqual([]);
   });
 

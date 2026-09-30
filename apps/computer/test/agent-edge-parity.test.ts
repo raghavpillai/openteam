@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, readdir } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, readdir, chmod, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -89,4 +89,35 @@ test("review keeps omitted directory arguments and receives the effective persis
     expect(reviews[1].arguments).toEqual({command:"pwd"});
     expect(reviews[1].target).toBe(join(root,"sub"));
   } finally {server.stop(true);await rm(root,{recursive:true,force:true});}
+});
+
+
+test("workspace delivery stages private runner files without changing source permissions or state policy", async () => {
+  const root = await mkdtemp(join(tmpdir(), "private-delivery-"));
+  const options = {workspace:join(root,"workspace"),agentData:join(root,"state"),home:join(root,"home"),temporary:join(root,"tmp")};
+  try {
+    for (const dir of Object.values(options)) await mkdir(dir);
+    const privateDir = await mkdtemp(join(options.workspace,"private-"));
+    const source = join(privateDir,"report.txt");
+    await writeFile(source,"private deliverable",{mode:0o600});
+    const staged = await stageAttachment(pathToFileURL(source).href,options);
+    expect(staged.url).not.toBe(pathToFileURL(source).href);
+    expect(await readFile(fileURLToPath(staged.url),"utf8")).toBe("private deliverable");
+    expect((await stat(privateDir)).mode & 0o777).toBe(0o700);
+    expect((await stat(source)).mode & 0o777).toBe(0o600);
+    expect((await stat(fileURLToPath(staged.url))).mode & 0o777).toBe(0o644);
+    await staged.cleanup();
+    expect(await readdir(options.workspace)).toEqual([privateDir.split("/").at(-1)!]);
+    const state = join(options.agentData,"settings.json");
+    await writeFile(state,"protected fixture");
+    const alias = join(options.workspace,"state-alias.txt");
+    await symlink(state,alias);
+    // Do not launder protected state through a newly staged workspace file.
+    expect((await stageAttachment(pathToFileURL(alias).href,options)).url).toBe(pathToFileURL(alias).href);
+    if (process.getuid?.() !== 0) {
+      await chmod(source,0);
+      await expect(stageAttachment(pathToFileURL(source).href,options)).rejects.toThrow();
+      await chmod(source,0o600);
+    }
+  } finally { await rm(root,{recursive:true,force:true}); }
 });

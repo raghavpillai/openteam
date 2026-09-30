@@ -502,7 +502,12 @@ export class AssetStore {
       if (!isAbsolute(requested)) {
         throw new ApiError(400, "invalid_asset_path", "Attachment path must be absolute");
       }
-      const source = await realpath(requested).catch(() => null);
+      const source = await realpath(requested).catch((error: NodeJS.ErrnoException) => {
+        if (["EACCES", "EPERM"].includes(error.code ?? "")) {
+          throw new ApiError(403, "asset_file_unreadable", "Permission denied reading attachment");
+        }
+        return null;
+      });
       const roots = await Promise.all(
         this.allowedFileRoots.map((root) => realpath(root).catch(() => resolve(root)))
       );

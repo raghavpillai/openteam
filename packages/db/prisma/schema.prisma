@@ -1343,7 +1343,7 @@ model SavedLoginConnection {
 
 model AutoReviewPolicy {
   id String @id @default("global")
-  enabled Boolean @default(true)
+  enabled Boolean @default(false)
   allowInstructions String[] @default([])
   blockInstructions String[] @default([])
   updatedAt DateTime @updatedAt

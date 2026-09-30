@@ -145,6 +145,52 @@ describe("reference result and parser fixtures", () => {
       "Draft email to a@example.com is now an editable card in the chat (id: draft-1). Nothing has been sent; the user reviews, may edit, and sends or discards it from the card."
     );
   });
+  test("subagent activity preserves pending and failed tool states", () => {
+    const output = renderControlResult("CheckSubagent", {
+      subagent_id: "worker-example", subagent_type: "executor", description: "Independent task",
+      elapsed_seconds: 30,
+      recent_tool_calls: [
+        { tool: "Read", status: "running" },
+        { tool: "Shell", status: "failed" },
+        { tool: "WebFetch", status: "completed" },
+        { tool: "Unknown receipt" },
+      ],
+    }, {});
+    expect(output).toContain("[running] Read");
+    expect(output).toContain("[failed] Shell");
+    expect(output).toContain("[completed] WebFetch");
+    expect(output).toContain("[status unavailable] Unknown receipt");
+    expect(output.indexOf("[completed] WebFetch")).toBeLessThan(output.indexOf("[running] Read"));
+  });
+  test("subagent observations expose approval waits and queued state to the model", () => {
+    const worker = {
+      subagent_id: "worker-example", subagent_type: "executor", description: "Independent task",
+      status: "running", run_status: "waiting_approval", elapsed_seconds: 30,
+      pending_approvals: [{ id: "approval-example", summary: "Open a local document", reason: "Review required" }],
+    };
+    const detail = renderControlResult("CheckSubagent", worker, {});
+    expect(detail).toContain("waiting_approval");
+    expect(detail).toContain("approval-example");
+    expect(detail).toContain("Review required");
+    const list = renderControlResult("CheckSubagent", { subagents: [worker] }, {});
+    expect(list).toContain("waiting_approval");
+    expect(list).toContain("1 pending approval");
+    const queued = renderControlResult("CheckSubagent", { ...worker, status: "queued", run_status: null, pending_approvals: [] }, {});
+    expect(queued).toContain("queued");
+    expect(queued).not.toContain("running for");
+  });
+  test("subagent failure observations include a bounded quoted reason without changing execution status", () => {
+    const output = renderControlResult("CheckSubagent", {
+      subagent_id: "worker-example", subagent_type: "computerUse", description: "Check controls",
+      status: "running", elapsed_seconds: 10,
+      recent_tool_calls: [
+        { tool: "browser_select_option", status: "failed", error: "New instruction queued.\nAction not executed." },
+        { tool: "Read", status: "completed", error: "must not appear" },
+      ],
+    }, {});
+    expect(output).toContain('[failed] browser_select_option — error: "New instruction queued.\\nAction not executed."');
+    expect(output).not.toContain("must not appear");
+  });
   test("plugin status formatting retains account routing and hides auth URLs", () => {
     const connections = [
       {

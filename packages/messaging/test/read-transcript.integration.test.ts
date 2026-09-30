@@ -1,0 +1,57 @@
+import {expect, test} from "bun:test";
+import {createPrismaClient} from "@openteam/db";
+import {readTranscript} from "../src/read-transcript";
+const url = process.env.OPENTEAM_TEST_DATABASE_URL;
+test.skipIf(!url)("scoped persisted history: stopped workers, paging, append, compaction and private boundaries", async()=>{
+ const db=createPrismaClient(url!); const botIds:string[]=[]; const channels:string[]=[];
+ const bot=async()=>{const b=await db.bot.create({data:{name:'Transcript QA fixture',status:'active',defaultDirectory:'/tmp/transcript-qa',conversation:{create:{}}},include:{conversation:true}});botIds.push(b.id);return b;};
+ try {
+  const parent=await bot(), child=await bot(), foreign=await bot();
+  const channel=await db.channel.create({data:{kind:'bot_dm',name:'Transcript QA',members:{create:{botId:parent.id,ordinal:0}}}});channels.push(channel.id);
+  const session=await db.contextSession.create({data:{botId:parent.id,scope:'channel',scopeId:channel.id,compactionEpoch:3}});
+  const context={botId:parent.id,channelId:channel.id};
+  await db.channelMessage.create({data:{channelId:channel.id,sender:'user',content:'PRE_COMPACTION_VISIBLE'}});
+  await db.channelMessage.create({data:{channelId:channel.id,sender:'system',content:'DO_NOT_EXPOSE_SYSTEM'}});
+  expect((await readTranscript(db,context,{})).rows.map(r=>r.content)).toEqual(['PRE_COMPACTION_VISIBLE']);
+  expect((await readTranscript(db,context,{session_id:session.id})).total).toBe(1);
+  const user=await db.message.create({data:{botId:parent.id,conversationId:parent.conversation!.id,role:'user',content:'fixture'}});
+  const parentRun=await db.run.create({data:{botId:parent.id,conversationId:parent.conversation!.id,userMessageId:user.id,channelId:channel.id,status:'completed'}});
+  const worker=await db.subagent.create({data:{parentBotId:parent.id,childBotId:child.id,parentRunId:parentRun.id,parentChannelId:channel.id,launchCallId:crypto.randomUUID(),description:'fixture',prompt:'PUBLIC_TASK',subagentType:'executor',outputPath:'/tmp/unused',status:'stopped'}});
+  const task=await db.message.create({data:{botId:child.id,conversationId:child.conversation!.id,role:'user',content:'PUBLIC_TASK',createdAt:new Date('2026-01-01')}});
+  const run=await db.run.create({data:{botId:child.id,conversationId:child.conversation!.id,userMessageId:task.id,status:'interrupted'}});
+  await db.runItem.create({data:{runId:run.id,kind:'tool',title:'promptFingerprint',content:{private:'PRIVATE_BOOTSTRAP_METADATA'}}});
+  await db.runItem.create({data:{runId:run.id,kind:'reasoning',content:{text:'PRIVATE_REASONING'}}});
+  await db.runItem.create({data:{runId:run.id,kind:'command',status:'completed',content:{type:'commandExecution',command:'echo hello',result:{content:[{type:'text',text:'hello'}]}},createdAt:new Date('2026-01-02')}});
+  await db.message.create({data:{botId:child.id,conversationId:child.conversation!.id,role:'system',content:'PRIVATE_BOOTSTRAP'}});
+  const target={subagent_id:`sand-subagent-${worker.id}`};
+  const page=await readTranscript(db,context,{...target,limit:1});
+  expect(page.total).toBe(2);expect(page.next_before).toBe(1);expect(page.rows[0]!.content).toContain('hello');
+  await db.message.create({data:{botId:child.id,conversationId:child.conversation!.id,role:'assistant',content:'APPENDED'}});
+  const previous=await readTranscript(db,context,{...target,limit:1,before:page.next_before});
+  expect(previous.rows[0]!.content).toBe('PUBLIC_TASK');expect(previous.next_before).toBeNull();
+  expect((await readTranscript(db,context,{...target,before:0})).rows).toEqual([]);
+  await db.runItem.updateMany({where:{runId:run.id,kind:'command'},data:{content:{type:'commandExecution',command:'print diagnostic',result:{content:[{type:'text',text:'BEGIN\nPASSWORD=fixture-secret\n'+'record\n'.repeat(6000)+'\nFINAL_RESULT=complete'}],details:{exitCode:0}}}}});
+  const expanded=await readTranscript(db,context,{...target,limit:1,before:2});
+  expect(expanded.rows[0]!.content).toContain('FINAL_RESULT=complete');
+  expect(expanded.rows[0]!.content).toContain('print diagnostic');
+  expect(expanded.rows[0]!.content).not.toContain('fixture-secret');
+  expect(expanded.rows[0]!.content.length).toBeGreaterThan(20_000);
+  expect(expanded.rows[0]!.content.length).toBeLessThan(20_100);
+  await db.message.createMany({data:Array.from({length:30},(_,i)=>({botId:child.id,conversationId:child.conversation!.id,role:'assistant' as const,content:`row ${i}: `+'detail '.repeat(800)}))});
+  const bounded=await readTranscript(db,context,{...target,limit:200});
+  expect(bounded.rows[1]!.content).toContain('FINAL_RESULT=complete');
+  expect(bounded.rows[1]!.content.length).toBeLessThan(2000);
+  expect(bounded.rows.reduce((n,r)=>n+r.content.length,0)).toBeLessThan(63_000);
+  expect(JSON.stringify(await readTranscript(db,context,target))).not.toContain('PRIVATE_');
+  await expect(readTranscript(db,{botId:foreign.id,channelId:channel.id},target)).rejects.toThrow('not available');
+  await expect(readTranscript(db,{botId:child.id,channelId:null},{agent_id:parent.id})).rejects.toThrow('not available');
+  await expect(readTranscript(db,{botId:foreign.id,channelId:channel.id},{session_id:session.id})).rejects.toThrow('not available');
+  await expect(readTranscript(db,context,{agent_id:child.id})).rejects.toThrow('not available');
+  // Peer reads retain the existing visible-message policy, never peer tool payloads.
+  await db.runItem.create({data:{runId:parentRun.id,kind:'command',content:{type:'commandExecution',command:'PEER_PRIVATE_COMMAND'}}});
+  const peer=await readTranscript(db,{botId:foreign.id,channelId:null},{agent_id:parent.id});
+  expect(peer.total).toBe(1);expect(JSON.stringify(peer)).not.toContain('PEER_PRIVATE');
+  await db.channel.update({where:{id:channel.id},data:{archivedAt:new Date()}});
+  await expect(readTranscript(db,context,{})).rejects.toThrow('not available');
+ } finally {await db.bot.deleteMany({where:{id:{in:botIds}}});await db.channel.deleteMany({where:{id:{in:channels}}});await db.$disconnect();}
+},20000);

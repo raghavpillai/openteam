@@ -22,8 +22,8 @@ const model: Model<"openai-completions"> = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 };
 
-for (const { withSteer, handoff, batch = false } of [{ withSteer: false, handoff: false }, { withSteer: true, handoff: false }, { withSteer: false, handoff: true }, { withSteer: false, handoff: false, batch: true }])
-  test(`real Pi loop persists before acknowledgement, stops on ${handoff ? "WakeParent" : "end_turn"}, and recovers tape${withSteer ? " with queued steering" : ""}${batch ? " with three ordered replies" : ""}`, async () => {
+for (const { withSteer, handoff, batch = false, lateSteer = false } of [{ withSteer: false, handoff: false }, { withSteer: true, handoff: false }, { withSteer: false, handoff: true }, { withSteer: false, handoff: false, batch: true }, { withSteer: false, handoff: false, lateSteer: true }, { withSteer: false, handoff: false, lateSteer: true, batch: true }])
+  test(`real Pi loop persists before acknowledgement, stops on ${handoff ? "WakeParent" : "end_turn"}, and recovers tape${withSteer ? " with queued steering" : ""}${batch ? " with three ordered replies" : ""}${lateSteer ? " with correction during inference" : ""}`, async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-parity-"));
     const requests: any[] = [];
     const sent: any[] = [];
@@ -62,6 +62,10 @@ for (const { withSteer, handoff, batch = false } of [{ withSteer: false, handoff
               "<user_query>Read the result</user_query>"
             );
             requests.push(JSON.parse(await new Response(init.body).text()));
+            if (lateSteer && requests.length === 1) {
+              await runtime.steer(active.runId, { inboxId: "late-steer-inbox", clientMessageId: "late-steer-message",
+                content: "Use the corrected result instead of the original result." });
+            }
             const toolId = `send-${requests.length}`;
             const chunks = [
               {
@@ -82,7 +86,7 @@ for (const { withSteer, handoff, batch = false } of [{ withSteer: false, handoff
                               arguments: { message: "Fixture result: notify the user." },
                             } : {
                               type: "text",
-                              content: "Fixture result",
+                              content: lateSteer ? (requests.length === 1 ? "Stale result" : "Corrected result") : "Fixture result",
                               end_turn: true,
                             }),
                           },
@@ -98,7 +102,7 @@ for (const { withSteer, handoff, batch = false } of [{ withSteer: false, handoff
                 usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
               },
             ];
-            if (batch) {
+            if (batch && (!lateSteer || requests.length === 1)) {
               const delta = chunks[0]!.choices[0]!.delta!;
               if (!("tool_calls" in delta)) throw new Error("Missing fixture tool calls");
               const first = delta.tool_calls![0]!;
@@ -213,9 +217,15 @@ for (const { withSteer, handoff, batch = false } of [{ withSteer: false, handoff
         expect(acknowledged.some((event) => event.type === "input.delivered")).toBe(false);
       }
 
-      expect(requests).toHaveLength(1);
-      expect(sent).toHaveLength(batch ? 3 : 1);
-      if (batch) expect(sent.map(call => call.arguments.content)).toEqual(["Batch 1", "Batch 2", "Batch 3"]);
+      expect(requests).toHaveLength(lateSteer ? 2 : 1);
+      if (lateSteer) {
+        expect(sent.map(call => call.arguments.content)).toEqual(["Corrected result"]);
+        expect(JSON.stringify(requests[1].messages)).toContain("Use the corrected result");
+        expect(active.pendingSteers).toHaveLength(0);
+        expect(acknowledged.filter(event => event.type === "input.delivered")).toHaveLength(1);
+      }
+      expect(sent).toHaveLength(batch && !lateSteer ? 3 : 1);
+      if (batch && !lateSteer) expect(sent.map(call => call.arguments.content)).toEqual(["Batch 1", "Batch 2", "Batch 3"]);
       expect(active.endTurnRequested).toBe(true);
       if (handoff) {
         expect(active.sentMessageCount).toBe(0);
@@ -260,7 +270,7 @@ for (const { withSteer, handoff, batch = false } of [{ withSteer: false, handoff
           .filter(
             (entry: any) => entry.type === "custom" && entry.customType === "openteam-input-receipt"
           )
-      ).toHaveLength(1);
+      ).toHaveLength(lateSteer ? 2 : 1);
       if (process.env.OPENTEAM_PARITY_ARTIFACT_DIR && !withSteer && !handoff) {
         const { writeFile } = await import("node:fs/promises");
         await mkdir(process.env.OPENTEAM_PARITY_ARTIFACT_DIR, { recursive: true });

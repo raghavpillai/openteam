@@ -100,7 +100,6 @@ export function expandPluginAgent(
   return {
     ...args,
     prompt: `${PLUGIN_WORKFLOW_HOST_CONTEXT}\n\nPackage files: ${pkg!.installPath}\n\n${agent.body}\n\nTask from the parent:\n${String(input.prompt ?? "")}`,
-    ...(agent.model && input.model === undefined ? { model: agent.model } : {}),
     ...(agent.readonly ? { read_only: true, subagent_type: "executor" } : {}),
     ...(input.run_in_background === undefined
       ? { run_in_background: agent.background ?? false }

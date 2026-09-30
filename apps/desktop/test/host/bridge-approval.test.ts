@@ -24,10 +24,11 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-const bridge = async (review: "allow" | "block" = "allow") => {
+const bridge = async (review: "allow" | "block" = "allow", observe?: (action: unknown) => void) => {
   const root = await mkdtemp(join(tmpdir(), "openteam-host-bridge-"));
   roots.push(root);
   const permissionSettings = createPermissionSettingsStore(join(root, "permissions.json"));
+  await permissionSettings.update({ autoReviewEnabled: true });
   const server = await startHostBridge({
     token: "bridge-token",
     port: 0,
@@ -36,11 +37,11 @@ const bridge = async (review: "allow" | "block" = "allow") => {
     autoReviewMode: "enforce",
     machineId: "machine-1",
     machineLabel: "Test Mac",
-    reviewAction: async () => ({
+    reviewAction: async (action) => { observe?.(action); return ({
       decision: review,
       reason: review === "allow" ? "safe test command" : "requires confirmation",
       proposedRule: "Allow this test command",
-    }),
+    }); },
     runJob: executeHostJob,
   });
   servers.push(server);
@@ -59,6 +60,29 @@ const bridge = async (review: "allow" | "block" = "allow") => {
 };
 
 describe("host bridge durable approval protocol", () => {
+  test("file-transfer review retains supervisor context through a local-permission retry", async () => {
+    const actions: any[] = [];
+    const { root, post } = await bridge("block", action => actions.push(action));
+    const reviewContext = {
+      runId: "11111111-1111-4111-8111-111111111111",
+      botId: "22222222-2222-4222-8222-222222222222",
+    };
+    for (const direction of ["read", "write"] as const) {
+      const request = { direction, path: join(root, "research.zip"), bytes: 128430606,
+        machineId: "machine-1", reviewContext };
+      expect((await post("/v1/file-transfer", request)).status).toBe(409);
+      expect(actions).toHaveLength(direction === "read" ? 0 : 1);
+      const reviewed = await post("/v1/file-transfer", { ...request, localApproval: "allow-once" });
+      expect(reviewed.status).toBe(409);
+      expect(actions.at(-1)).toMatchObject({
+        surface: direction === "read" ? "hostRead" : "hostWrite", reviewContext,
+      });
+    }
+    const malformed = await post("/v1/file-transfer", { direction: "write", path: join(root,"bad.zip"),
+      bytes: 1, machineId: "machine-1", localApproval: "allow-once", reviewContext: {runId:"bad",botId:"bad"} });
+    expect(malformed.status).toBe(400);
+    expect(actions).toHaveLength(2);
+  });
   test("awaits an authorized background command without another approval and checks host identity", async () => {
     const { root, permissionSettings, post } = await bridge();
     const started = await post("/v1/shell", {

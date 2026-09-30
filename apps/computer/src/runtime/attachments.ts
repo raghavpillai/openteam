@@ -1,8 +1,8 @@
-import { MAX_INLINE_IMAGE_BYTES } from "@openteam/contracts/media-input";
+import { MAX_INLINE_IMAGE_BYTES, MAX_TASK_ATTACHMENTS, TASK_IMAGE_MIME_TYPES, TASK_VIDEO_EXTENSIONS } from "@openteam/contracts/media-input";
 import type { RuntimeInlineImage } from "@openteam/contracts";
-import { chown, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { chown, mkdtemp, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { extname, isAbsolute, join, resolve } from "node:path";
+import { extname, isAbsolute, join, resolve, relative, sep } from "node:path";
 import { agentProcessIdentity, sanitizedAgentEnvironment } from "../agent-process";
 import type { RuntimeImage } from "./types";
 
@@ -34,33 +34,43 @@ export const decodeInlineImages = (inputs: readonly RuntimeInlineImage[]): Runti
     };
   });
 
-export const IMAGE_MIME_TYPES: Record<string, string> = {
-  ".gif": "image/gif",
-  ".jpeg": "image/jpeg",
-  ".jpg": "image/jpeg",
-  ".png": "image/png",
-  ".webp": "image/webp",
+export const IMAGE_MIME_TYPES = TASK_IMAGE_MIME_TYPES;
+export const VIDEO_EXTENSIONS = TASK_VIDEO_EXTENSIONS;
+
+const within = (root: string, path: string) => path === root || path.startsWith(root + sep);
+
+export const attachmentRoots = (ownerBotId?: string): string[] => {
+  const roots = ["/workspace"];
+  if (ownerBotId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ownerBotId)) {
+    roots.push(join(process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/home/box/agent-data", "agents", ownerBotId, "attachments"));
+  }
+  return roots;
 };
 
-export const VIDEO_EXTENSIONS = new Set([".m4v", ".mkv", ".mov", ".mp4", ".webm"]);
-
-export const attachmentPath = (cwd: string, value: string): string => {
+export const attachmentPath = async (cwd: string, value: string, roots = attachmentRoots(), trustedBase?: string): Promise<string> => {
   const path = resolve(isAbsolute(value) ? value : join(cwd, value));
-  if (path !== "/workspace" && !path.startsWith("/workspace/")) {
-    throw new Error(`Subagent attachment must be inside /workspace: ${value}`);
-  }
-  return path;
+  const root = roots.map(root => resolve(root)).find(root => within(root, path));
+  if (!root) throw new Error(`Subagent attachment must be inside the workspace or the owning agent's uploaded attachments: ${value}`);
+  const [resolvedRoot, resolvedPath] = await Promise.all([realpath(root), realpath(path)]);
+  const base = trustedBase ? resolve(trustedBase) : undefined;
+  const expectedRoot = base && within(base, root) ? resolve(await realpath(base), relative(base, root)) : root;
+  if (resolvedRoot !== expectedRoot || !within(resolvedRoot, resolvedPath)) throw new Error(`Subagent attachment resolves outside its allowed directory: ${value}`);
+  return resolvedPath;
 };
 
 export async function loadAttachmentImages(
   cwd: string,
-  fileAttachments: readonly string[]
+  fileAttachments: readonly string[],
+  ownerBotId?: string
 ): Promise<{ images: RuntimeImage[]; tempDirectories: string[] }> {
+  if (fileAttachments.length > MAX_TASK_ATTACHMENTS) {
+    throw new Error(`Task accepts at most ${MAX_TASK_ATTACHMENTS} file_attachments. Split the media across separate tasks.`);
+  }
   const images: RuntimeImage[] = [];
   const tempDirectories: string[] = [];
   try {
-    for (const value of fileAttachments.slice(0, 8)) {
-      const path = attachmentPath(cwd, value);
+    for (const [attachmentIndex, value] of fileAttachments.entries()) {
+      const path = await attachmentPath(cwd, value, attachmentRoots(ownerBotId), process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/home/box/agent-data");
       const details = await stat(path);
       if (!details.isFile()) throw new Error(`Subagent attachment is not a file: ${value}`);
       const extension = extname(path).toLowerCase();
@@ -124,7 +134,13 @@ export async function loadAttachmentImages(
         .sort()
         .slice(0, 12);
       if (frames.length === 0) throw new Error(`Video attachment produced no frames: ${value}`);
-      for (const frame of frames) {
+      // Reserve one image for every remaining attachment. A final slice would
+      // silently remove later screenshots or entire clips from the model input.
+      const frameBudget = Math.min(frames.length, 16 - images.length - (fileAttachments.length - attachmentIndex - 1));
+      const selectedFrames = Array.from({ length: frameBudget }, (_, index) =>
+        frames[frameBudget === 1 ? 0 : Math.round(index * (frames.length - 1) / (frameBudget - 1))]!
+      );
+      for (const frame of selectedFrames) {
         images.push({
           type: "image",
           data: Buffer.from(await readFile(join(directory, frame))).toString("base64"),
@@ -132,7 +148,7 @@ export async function loadAttachmentImages(
         });
       }
     }
-    return { images: images.slice(0, 16), tempDirectories };
+    return { images, tempDirectories };
   } catch (error) {
     await Promise.all(
       tempDirectories.map((directory) => rm(directory, { recursive: true, force: true }))

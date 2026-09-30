@@ -131,9 +131,14 @@ export const taskToolEnabled = (config: TaskConfiguration | undefined, tool: str
   );
 
 export function taskUserInfo(config = defaultTaskConfiguration()): string {
+  const browserCapabilities = [
+    ["browser_console_messages", "read browser console errors and warnings without opening native developer tools"],
+    ["browser_take_screenshot", "capture page evidence and return the saved file path"],
+    ["browser_file_upload", "respond to page file choosers using workspace files"],
+  ].filter(([tool]) => taskToolEnabled(config, tool!));
   return [
     "<available_subagent_types>",
-    "executor: general delegated work. Supply a self-contained task with all required context and completion criteria.",
+    "executor: general delegated work with search, fetch, files and shell; no browser or desktop controls and no nested workers. Supply a self-contained task with all required context and completion criteria. If graphical verification may be needed, route that part to an available graphical worker from the parent.",
     "videoReview and watchVideo: media review.",
     config.graphicalAvailable === false
       ? "Browser and desktop workers are unavailable on this computer."
@@ -141,38 +146,21 @@ export function taskUserInfo(config = defaultTaskConfiguration()): string {
         ? "computerUse: browser and desktop work using structured browser tools and desktop controls on the same persistent box. Only one computerUse worker may run at a time."
         : "computerUse: desktop interaction and sites that defeat browser automation. Only one computerUse worker may run at a time.\nbrowserUse: structured browser interaction; prefer it for browser-only work.",
     "</available_subagent_types>",
-    ...(config.executorProfiles.length
-      ? [
-          "<available_subagent_models>",
-          "Choose an effort level for a new executor, or omit model for the default. It is ignored for other worker types and resumed executors.",
-          ...config.executorProfiles.map(
-            (profile) =>
-              `${profile.name}: ${profile.description}${profile.name === config.defaultExecutorProfile ? " (default)" : ""}`
-          ),
-          "</available_subagent_models>",
-        ]
+    ...(config.graphicalAvailable !== false && browserCapabilities.length
+      ? ["Browser capabilities of the graphical worker (subject to the task's modality restrictions): " +
+          browserCapabilities.map(([tool, capability]) => `${tool}: ${capability}`).join("; ") +
+          ". Delegate the required result; the worker can use these tools without additional native UI steps."]
       : []),
   ].join("\n");
 }
 
-/** Model is an executor profile selector, never an arbitrary model override. */
+/** Worker inference is inherited from the server-authored parent run.
+ * Legacy profiles remain readable in stored configurations, but neither their
+ * defaults nor tool arguments may select a worker model or reasoning level. */
 export function taskInference(
-  config: TaskConfiguration,
-  input: { subagent_type?: string; model?: string; resume?: string },
+  _config: TaskConfiguration,
+  _input: { subagent_type?: string; model?: string; resume?: string },
   inherited: ServerInferenceSettings
 ): ServerInferenceSettings {
-  if (
-    input.resume ||
-    (input.subagent_type ?? "executor") !== "executor" ||
-    !config.executorProfiles.length
-  )
-    return inherited;
-  const name = input.model ?? config.defaultExecutorProfile;
-  if (name === undefined) return inherited;
-  const profile = config.executorProfiles.find((profile) => profile.name === name);
-  if (!profile)
-    throw new Error(
-      `Unknown executor effort level. Choose ${config.executorProfiles.map((profile) => profile.name).join(", ")}, or omit model.`
-    );
-  return serverInferenceSettings(profile.providerId, profile.modelId, profile.reasoning);
+  return serverInferenceSettings(inherited.providerId, inherited.modelId, inherited.reasoning);
 }

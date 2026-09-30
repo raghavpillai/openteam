@@ -48,6 +48,25 @@ export function signalAgentProcess(child: ChildProcess, signal: NodeJS.Signals |
   return result.status === 0;
 }
 
+/** Only for a child spawned with detached:true. Valid until its pipes close,
+ * including the interval where the group leader exited but descendants remain. */
+export function agentProcessGroupSignaler(child: ChildProcess): (signal: NodeJS.Signals) => boolean {
+  const pid = child.pid;
+  let closed = false;
+  child.once("close", () => { closed = true; });
+  return signal => {
+    if (!pid || closed) return false;
+    const identity = agentProcessIdentity();
+    if (identity.uid === undefined) {
+      try { process.kill(-pid, signal); return true; } catch { return false; }
+    }
+    const result = spawnSync(nodeBinary(), ["-e", "const [pid, signal] = JSON.parse(process.argv[1]); process.kill(pid, signal);", "--", JSON.stringify([-pid, signal])], {
+      ...identity, env: { PATH: "/usr/bin:/bin" }, stdio: "ignore", timeout: 2_000,
+    });
+    return result.status === 0;
+  };
+}
+
 /** Bun now honors uid/gid; cancellation must use the same dropped identity. */
 export const spawnAgentProcess: typeof spawn = ((command: string, args: readonly string[], options: SpawnOptions) => {
   const identity = agentProcessIdentity();

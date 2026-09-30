@@ -2,9 +2,19 @@ import { describe, expect, test } from "bun:test";
 import { Schema } from "effect";
 import { SendMessageInput, RuntimeInlineImage, ComputerSteerRequest, UpdateBotInput } from "../src";
 import { MAX_INLINE_IMAGE_URL_LENGTH } from "../src/media-input";
-import { renderReadText, readLimitNotice } from "../src/read-output";
+import { renderReadText, renderPdfReadText, readLimitNotice } from "../src/read-output";
 
 describe("message and Read boundaries", () => {
+  test("PDF default reads are bounded, pageable and identify absent text layers", () => {
+    const raw = Array.from({ length: 1000 }, (_, i) => `paragraph ${i + 1} ${"text ".repeat(50)}`).join("\n");
+    const first = renderPdfReadText(raw, undefined, undefined, 2858365);
+    expect(first.exceededLimit).toBe(false);
+    expect(first.lines).toBe(200);
+    expect(first.text).toContain("800 lines not shown");
+    expect(first.extractedCharacters).toBe(raw.length);
+    expect(renderPdfReadText(raw, 201, 1).text).toContain("paragraph 201");
+    expect(renderPdfReadText("").text).toContain("may require OCR");
+  });
   test("bot names reject whitespace without rejecting Unicode or partial edits", () => {
     const decode = Schema.decodeUnknownSync(UpdateBotInput);
     for (const name of ["", "   ", "\t\n", "\u00a0\u2003"]) {
@@ -51,6 +61,10 @@ describe("message and Read boundaries", () => {
       isEmpty: true,
       totalLines: 0,
     });
+  });
+  test("limit notices measure extracted characters, not binary PDF byte size", () => {
+    expect(renderReadText("a".repeat(100001), undefined, undefined, 2858365).text)
+      .toBe(readLimitNotice(100001));
   });
   test("measures UTF-16 units rather than UTF-8 bytes or code points", () => {
     expect(renderReadText("😀".repeat(50_000)).exceededLimit).toBe(false);

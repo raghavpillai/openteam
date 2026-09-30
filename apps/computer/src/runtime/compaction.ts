@@ -27,7 +27,7 @@ import { textFromContent } from "./content";
 import { inferenceReasoningOptions } from "./reasoning";
 import type { RuntimeTools } from "./tools";
 import type { ActiveTurn } from "./types";
-import { communicationReminder, promptFingerprint } from "./prompt-context";
+import { communicationReminder, executionClock, executionReceipts, promptFingerprint } from "./prompt-context";
 import { compactRepeatedDiscovery } from "./discovery-context";
 import { graphicalProgressReminder } from "./graphical-completion";
 
@@ -217,7 +217,7 @@ export function compactionExtension(
           });
         }
         return {
-          messages: messages as typeof event.messages,
+          messages: [...messages, ...executionClock(active.runtimeStartedAt), ...executionReceipts(readPiMessages(), active.runtimeStartedAt)] as typeof event.messages,
         };
       });
       pi.on("message_start", async (event) => {

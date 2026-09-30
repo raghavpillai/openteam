@@ -18,7 +18,7 @@ const todoFixture = (initial: Row[]) => {
     todoItem: {
       findMany: async (args: {
         where: { botId: string; id?: { in: string[] } };
-        select?: { id: true; position: true };
+        select?: { id: true; position: true; content?: true; status?: true };
         take?: number;
       }) => {
         const selected = rows.filter(
@@ -26,7 +26,8 @@ const todoFixture = (initial: Row[]) => {
             row.botId === args.where.botId && (!args.where.id || args.where.id.in.includes(row.id))
         );
         if (args.select) {
-          return selected.map(({ id, position }) => ({ id, position }));
+          return selected.map(({ id, position, content, status }) => ({ id, position,
+            ...(args.select?.content ? {content} : {}), ...(args.select?.status ? {status} : {}) }));
         }
         return selected
           .sort((left, right) => left.position - right.position)
@@ -72,6 +73,20 @@ const todoFixture = (initial: Row[]) => {
 };
 
 describe("bounded set-based TodoWrite persistence", () => {
+  test("partial merges preserve unchanged fields and reject incomplete new tasks before mutation", async () => {
+    const fixture = todoFixture([
+      {botId:"bot-1",id:"a",content:"Original",status:"pending",position:0},
+      {botId:"bot-1",id:"b",content:"Neighbor",status:"pending",position:1},
+    ]);
+    expect((await fixture.service.write("bot-1","partial",{merge:true,todos:[{id:"a",status:"completed"}]})).todos[0])
+      .toEqual({id:"a",content:"Original",status:"completed"});
+    expect((await fixture.service.write("bot-1","rename",{merge:true,todos:[{id:"a",content:"Renamed"}]})).todos[0])
+      .toEqual({id:"a",content:"Renamed",status:"completed"});
+    const before = fixture.rows().map(row => ({...row}));
+    await expect(fixture.service.write("bot-1","invalid",{merge:true,todos:[{id:"a",status:"pending"},{id:"new",status:"pending"}]}))
+      .rejects.toThrow("requires content and status");
+    expect(fixture.rows()).toEqual(before);
+  });
   test("one-item merge completes a task without dropping neighboring tasks or their positions", async () => {
     const fixture = todoFixture([
       { botId: "bot-1", id: "first", content: "First", status: "pending", position: 0 },

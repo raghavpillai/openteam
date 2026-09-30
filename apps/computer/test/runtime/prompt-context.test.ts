@@ -5,6 +5,7 @@ import {
   promptFingerprint,
   EARLY_RESULT_REMINDER,
   PROGRESS_REMINDER,
+  executionClock,
 } from "../../src/runtime/prompt-context";
 
 const user = { role: "user", content: "do work" };
@@ -13,6 +14,17 @@ const call = (name: string, args = {}) => ({
   content: [{ type: "toolCall", name, arguments: args }],
 });
 const active = { requestSource: "turn", subagentType: null } as const;
+
+test("execution clock reports actual invocation interval without restarting parent deadlines", () => {
+  const start = Date.parse("2026-09-25T17:52:23Z");
+  const messages = executionClock(start, start + 158000);
+  expect(messages[0]?.content).toContain("elapsed 158 seconds");
+  expect(messages[0]?.content).toContain("2026-09-25T17:55:01.000Z");
+  expect(messages[0]?.content).toContain("not total user wait");
+  expect(executionClock(undefined, start)).toEqual([]);
+  expect(executionClock(NaN, start)).toEqual([]);
+  expect(executionClock(start, start - 1000)[0]?.content).toContain("elapsed 0 seconds");
+});
 
 test("runtime context describes actual tools and preserves saved skill catalog", () => {
   const text = enrichUserInfo(

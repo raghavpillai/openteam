@@ -1093,7 +1093,7 @@
     },
     {
       "name": "CallDynamicTool",
-      "description": "Invoke one tool from a dynamic namespace, e.g. an MCP server. IMPORTANT: Always call GetDynamicTools for this namespace/tool before calling to ensure correct parameters. Set mcpDetails only for tools from external MCP namespaces; omit it for first-party tools in the cursor namespace.\n\nExample:\n{\n  \"namespace\": \"my-namespace\",\n  \"toolName\": \"search\",\n  \"mcpDetails\": { \"description\": \"Search the public docs for the example API\" },\n  \"arguments\": { \"query\": \"example\", \"limit\": 10 }\n}",
+      "description": "Invoke one tool from a dynamic namespace, e.g. an MCP server. Always call GetDynamicTools for this namespace/tool before invoking it, then use its declared arguments. Built-in calls need only namespace, toolName and arguments. Optional mcpDetails.description is a display annotation and never changes execution or authorization; it is accepted but not forwarded for built-in tools. Approval fields in mcpDetails apply only to external MCP namespaces and are rejected for built-in tools.",
       "parameters": {
         "properties": {
           "arguments": {
@@ -1108,7 +1108,7 @@
             "description": "Tool arguments as an object or recoverable JSON text."
           },
           "mcpDetails": {
-            "description": "MCP-specific call metadata. Set this only when invoking a tool from an external MCP namespace; omit it for first-party tools in the cursor namespace.",
+            "description": "Optional call annotation. For built-in namespaces the only accepted field is description. External MCP namespaces also support the approval fields below. Metadata never grants permission by itself.",
             "properties": {
               "description": {
                 "description": "Short plain-language description of what this call will do. One sentence naming the outcome and where it applies (channel, page, file, or service) when known. Do not include tool names, argument keys, or JSON.",
@@ -1126,7 +1126,8 @@
             "required": [
               "description"
             ],
-            "type": "object"
+            "type": "object",
+            "additionalProperties": false
           },
           "namespace": {
             "description": "Dynamic namespace hosting the tool, e.g. an MCP server.",

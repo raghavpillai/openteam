@@ -46,12 +46,13 @@ describe("OpenTeam-compatible subagent launch semantics", () => {
 
   test("returns Bot's background result with a resumable external id", () => {
     const result = subagentBackgroundResult(
-      "278ef2fe-2d3f-4689-bfa5-b506254f1cc3",
-      "/home/box/agent-transcripts/worker.jsonl"
+      "278ef2fe-2d3f-4689-bfa5-b506254f1cc3"
     );
     expect(result).toStartWith("Subagent is running in the background.");
     expect(result).toContain("do not wait for it - either end your turn or work on something else");
-    expect(result).toContain("Do NOT mention the transcript path to the user.");
+    expect(result).toContain('CheckSubagent with subagent_id="sand-subagent-278ef2fe-2d3f-4689-bfa5-b506254f1cc3"');
+    expect(result).not.toContain("tailing");
+    expect(result).not.toContain("/home/box/");
     expect(result).toContain("Agent ID: sand-subagent-278ef2fe-2d3f-4689-bfa5-b506254f1cc3");
   });
 

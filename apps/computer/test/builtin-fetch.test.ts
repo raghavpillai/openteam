@@ -9,7 +9,7 @@ import {
   MAX_MARKDOWN_ELEMENTS,
   webMarkdown,
   WebHttpError,
-  type publicWebGet,
+  publicWebGet,
 } from "../src/builtin-fetch";
 
 type Get = typeof publicWebGet;
@@ -18,6 +18,60 @@ const html = (body: string, title = "Fixture") =>
   Buffer.from(`<!doctype html><html><head><title>${title}</title></head><body>${body}</body></html>`);
 const paragraphs = "<p>Useful paragraph about the topic with real reading content for people.</p>".repeat(40);
 const article = `<article><h1>Guide</h1>${paragraphs}</article>`;
+
+test("public fetch cancels while DNS is pending and does not continue after late resolution", async () => {
+  const controller = new AbortController();
+  let resolveDns!: (value: Array<{ address: string; family: number }>) => void;
+  let calls = 0;
+  const pending = publicWebGet("https://example.com/", controller.signal, undefined, () => {
+    calls++;
+    return new Promise(resolve => { resolveDns = resolve; });
+  }).then(() => "unexpected success", error => error);
+  const reason = new Error("User cancelled during DNS");
+  controller.abort(reason);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([pending, new Promise(resolve => { timer = setTimeout(() => resolve("still pending"), 100); })]);
+    expect(result).toBe(reason);
+    expect(calls).toBe(1);
+  } finally {
+    clearTimeout(timer);
+    // A private address makes any accidental continuation observable without
+    // permitting a network connection from this regression fixture.
+    resolveDns([{ address: "127.0.0.1", family: 4 }]);
+  }
+  expect(await pending).toBe(reason);
+});
+
+test("DNS cancellation retains pre-abort and private-address guards", async () => {
+  const controller = new AbortController();
+  controller.abort(new Error("Already stopped"));
+  let calls = 0;
+  await expect(publicWebGet("https://example.com/", controller.signal, undefined, async () => {
+    calls++;
+    return [{ address: "127.0.0.1", family: 4 }];
+  })).rejects.toThrow("Already stopped");
+  expect(calls).toBe(0);
+  await expect(publicWebGet("https://example.com/", undefined, undefined, async () => [
+    { address: "93.184.216.34", family: 4 }, { address: "127.0.0.1", family: 4 },
+  ])).rejects.toThrow("Private and local network destinations are not allowed");
+  await expect(publicWebGet("https://example.com/", undefined, undefined, async () => {
+    throw new Error("Resolver unavailable");
+  })).rejects.toThrow("Resolver unavailable");
+});
+
+test("markdown preserves explicitly labelled SVG evidence without guessing decorative icons", () => {
+  const markdown = webMarkdown(html(`<main><h1>Service comparison</h1><table>
+    <tr><th>Feature</th><th>Basic</th><th>Team</th></tr>
+    <tr><td>Shared scheduling</td><td><svg role="img" aria-label="Not included"><path/></svg></td><td><svg><title>Included</title><path/></svg></td></tr>
+    <tr><td>Exports</td><td><svg aria-labelledby="export-label"><title id="export-label">Available with add-on</title></svg></td><td><svg aria-hidden="true"><title>HIDDEN_ICON</title></svg></td></tr>
+    </table><svg><path id="DECORATIVE_PATH"/></svg><svg><script>ACTIVE_SCRIPT</script></svg>
+    <button><svg aria-label="PRIVATE_BUTTON"/></button></main>`).toString(), url);
+  expect(markdown).toContain("| Shared scheduling | Not included | Included |");
+  expect(markdown).toContain("| Exports | Available with add-on |  |");
+  for (const hidden of ["HIDDEN_ICON", "DECORATIVE_PATH", "ACTIVE_SCRIPT", "PRIVATE_BUTTON"])
+    expect(markdown).not.toContain(hidden);
+});
 
 test("text decoding honors header, BOM, meta and XML charset declarations", () => {
   const shiftJis = Buffer.from([0x93, 0xfa, 0x96, 0x7b]); // 日本
@@ -186,4 +240,67 @@ test.skipIf(!Bun.which("pdftotext"))("PDFs are converted to text", async () => {
   const { get } = fakeGet(() => ({ bytes: pdf, contentType: "application/pdf" }));
   const page = await builtinFetch(url, undefined, get);
   expect(page.text).toContain("PDF_VIOLET_284");
+});
+
+test("short complete pages are neither retried nor labeled JavaScript shells", async () => {
+  const { get, calls } = fakeGet(() => ({ bytes: html('<h1>Example Domain</h1><p>This domain is for use in documentation examples.</p>') }));
+  const page = await builtinFetch(url, undefined, get);
+  expect(calls).toHaveLength(1);
+  expect(page.note).toBeUndefined();
+});
+
+test("extraction separates structured offers from visible shipping and removes statically hidden text", () => {
+  const page = html(`<style>.hidden {display:none} .shown {display:none} .shown {display:block} @media print {.print {display:none}}</style>
+    <p class="hidden">Free shipping HIDDEN_CSS</p><p hidden>HIDDEN_ATTRIBUTE</p>
+    <p aria-hidden="true">HIDDEN_ARIA</p><p style="display:none !important">HIDDEN_INLINE</p>
+    <p class="hidden" style="display:block">Visible override</p><p class="shown">Visible cascade</p>
+    <p class="print">Visible screen</p><p>Shipping: $50</p>
+    <script type="application/ld+json">{"@type":"Product","offers":{"price":9975,"priceCurrency":"USD"}}</script>
+    <script type="application/ld+json">invalid PRIVATE_INVALID</script><script>PRIVATE_SCRIPT</script>`).toString();
+  const result = webMarkdown(page, url);
+  expect(result).not.toContain("HIDDEN_");
+  expect(result).not.toContain("PRIVATE_");
+  expect(result).toContain("Shipping: $50");
+  expect(result).toContain("Visible override");
+  expect(result).toContain("Visible cascade");
+  expect(result).toContain("Visible screen");
+  expect(result).toContain('"price": 9975');
+  expect(result).toContain("not necessarily visible, current or applicable to your region");
+});
+
+test("structured data is bounded, inert, and cannot conceal an empty page", async () => {
+  const data = JSON.stringify({ text: "```injected", price: 123 });
+  const page = html(`<div id="root">Loading</div><script type="application/ld+json">${data}</script><script type="application/ld+json">${JSON.stringify({ big: 'x'.repeat(65_000) })}</script>`);
+  const { get } = fakeGet(() => ({ bytes: page }));
+  const result = await builtinFetch(url, undefined, get);
+  expect(result.note).toContain("needs JavaScript");
+  expect(result.text).toContain('"price": 123');
+  expect(result.text).not.toContain("```injected");
+  expect(result.text).not.toContain('"big"');
+});
+
+test("a short genuine retry wins over a larger challenge page", async () => {
+  const { get } = fakeGet(headers => ({ bytes: html(isBrowser(headers)
+    ? '<p>Shipping: $50</p>'
+    : '<p>Checking your browser. Verify you are human before continuing to the requested shopping page.</p>') }));
+  const result = await builtinFetch(url, undefined, get);
+  expect(result.text).toContain("Shipping: $50");
+  expect(result.note).toBeUndefined();
+  expect(result.retriedWithBrowserHeaders).toBe(true);
+});
+
+test("repeated div matrices retain empty cell positions without inventing meanings", () => {
+  const matrix = `<section><h2>Starter · Team · Business · Enterprise</h2><div>
+  <div><div>Members</div><div>5</div><div>5</div><div>25</div><div>Unlimited</div></div>
+  <div><div>Synced users</div><div></div><div>1 user</div><div>5 users</div><div>Unlimited</div></div>
+  <div><div>Advanced feature</div><div></div><div></div><div></div><div><svg><path /></svg></div></div>
+  </div></section>`;
+  const result = webMarkdown(html(matrix).toString(), url);
+  expect(result).toContain('| Column 1 | Column 2 | Column 3 | Column 4 | Column 5 |');
+  expect(result).toContain(String.raw`| Synced users | \[empty or omitted content\] | 1 user | 5 users | Unlimited |`);
+  expect(result).toContain('columns are positional');
+  expect(result).not.toContain('| Advanced feature | No');
+  const ordinary = webMarkdown(html('<div><div><div>One</div><div>Two</div><div>Three</div></div><p>Normal content</p></div>').toString(), url);
+  expect(ordinary).not.toContain('columns are positional');
+  expect(ordinary).toContain('Normal content');
 });

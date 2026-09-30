@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+# Keep desktop MIME handlers and Debian browser alternatives on the assigned
+# screen's browser profile, just like the dock and computer tools.
+exec openteam-screen-launch chromium "$@"

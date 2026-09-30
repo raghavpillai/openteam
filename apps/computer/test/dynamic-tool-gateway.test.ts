@@ -3,6 +3,7 @@ import type { CallDynamicToolInput, GetDynamicToolsInput } from "@openteam/contr
 import {
   type DynamicNamespaceDefinition,
   discoverDynamicTools,
+  renderDynamicDiscovery,
   resolveDynamicTool,
 } from "../src/dynamic-tool-gateway";
 
@@ -76,6 +77,19 @@ describe("OpenTeam dynamic tool gateway", () => {
     expect(toolMatch.namespaces[0]?.tools.map((tool) => tool.name)).toEqual(["SendToAgent"]);
   });
 
+  test("empty scoped search does not claim an existing namespace is missing", () => {
+    const receipts = new Set<string>();
+    const input = { namespace: "openteam", pattern: "browser_" };
+    const result = discover(receipts, input);
+    expect(renderDynamicDiscovery(result, input)).toEqual({ mode: "search", pattern: "browser_", matches: [] });
+    expect(receipts.size).toBe(0);
+    // An empty search grants no tool schemas; exact lookup still works afterward.
+    expect(() => resolveDynamicTool(catalog(), receipts, { namespace: "openteam", toolName: "Computer", arguments: { action: "click" } })).toThrow("Call GetDynamicTools");
+    expect(discover(receipts, { namespace: "openteam", toolName: "Computer" }).namespaces).toHaveLength(1);
+    expect(() => discover(new Set(), { namespace: "missing", pattern: "browser_" })).toThrow("not found");
+    expect(() => discover(new Set(), { namespace: "openteam", toolName: "missing" })).toThrow("not found");
+  });
+
   test("rejects malformed discovery requests", () => {
     expect(() => discover(new Set(), { toolName: "Computer" })).toThrow(
       "toolName requires namespace"
@@ -120,5 +134,34 @@ describe("OpenTeam dynamic tool gateway", () => {
     expect(() => resolveDynamicTool(catalog(), receipts, { ...input, mcpDetails: {} })).toThrow(
       "mcpDetails must be omitted"
     );
+  });
+
+  test("normalizes display-only metadata without forwarding it or skipping validation", () => {
+    const receipts = new Set(["openteam/Computer"]);
+    const input = { namespace: "openteam", toolName: "Computer", arguments: { action: "click" },
+      mcpDetails: { description: "Interact with the selected page" } };
+    const resolved = resolveDynamicTool(catalog(), receipts, input);
+    expect(resolved.arguments).toEqual({ action: "click" });
+    expect(resolved.mcpDetails).toBeUndefined();
+    expect(input.mcpDetails.description).toBe("Interact with the selected page");
+    expect(() => resolveDynamicTool(catalog(), new Set(), input)).toThrow("Call GetDynamicTools");
+    expect(() => resolveDynamicTool(catalog("needsAuth"), receipts, input)).toThrow("unavailable");
+    expect(() => resolveDynamicTool(catalog(), receipts, { ...input, arguments: {} })).toThrow("action is required");
+    for (const mcpDetails of [null, [], {}, { description: 1 },
+      { description: "click", requestSmartModeApproval: true },
+      { description: "click", requestSmartModeApproval: false },
+      { description: "click", smartModeBlockReason: "blocked" },
+      { description: "click", unexpected: "value" }]) {
+      expect(() => resolveDynamicTool(catalog(), receipts, { ...input, mcpDetails })).toThrow("mcpDetails must be omitted");
+    }
+  });
+
+  test("external MCP approval metadata remains unchanged", () => {
+    const external = catalog().map(n => ({ ...n, name: "external", kind: "mcp" as const }));
+    const mcpDetails = { description: "Interact with a page", requestSmartModeApproval: true, smartModeBlockReason: "original reason" };
+    const result = resolveDynamicTool(external, new Set(["external/Computer"]), {
+      namespace: "external", toolName: "Computer", arguments: { action: "click" }, mcpDetails,
+    });
+    expect(result.mcpDetails).toBe(mcpDetails);
   });
 });

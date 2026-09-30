@@ -376,6 +376,9 @@ for (const timing of ["terminal-ready", "terminal-pending"] as const) {
             toolCalls++;
             toolStarted.resolve();
             await releaseTool.promise;
+            // Model a successful terminal delivery, not only an end-turn flag.
+            currentActive.sentMessageCount++;
+            currentActive.toolActivityAfterLastSend = false;
             currentActive.endTurnRequested = true;
             return {
               content: [{ type: "text", text: `Tool result ${round}` }],

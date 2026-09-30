@@ -1,11 +1,11 @@
 import {test,expect} from 'bun:test';
-import {mkdtemp,mkdir,writeFile,rm,symlink,rename} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,rm,symlink,rename,realpath} from 'node:fs/promises';
 import {execFileSync} from 'node:child_process';
 import {agentFileIO} from '../src/agent-file-io';
 import {NativeToolExecutor} from '../src/native-tool-executor';
 
 test('Read rejects a file swapped into protected state after its initial readability check',async()=>{
- const root=await mkdtemp('/tmp/read-race-');
+ const root=await realpath(await mkdtemp('/tmp/read-race-'));
  try {
   const data=root+'/data';await mkdir(data);
   const secret=data+'/settings.json';await writeFile(secret,'DUMMY-PRIVATE-CANARY');

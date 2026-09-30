@@ -1,4 +1,6 @@
 import { createModelRuntime } from "./model-runtime";
+import { providerIdleFetch } from "./runtime/provider-idle-fetch";
+import type { ComputerInferenceRequest } from "@openteam/contracts/service-protocol";
 import { prepareUserImages } from "./runtime/image-input";
 import { clampThinkingLevel } from "@earendil-works/pi-ai";
 import {
@@ -55,6 +57,7 @@ import { textFromContent } from "./runtime/content";
 import { attachSession, routeEvent } from "./runtime/events";
 import { verifyGraphicalTaskCompletion } from "./runtime/graphical-completion";
 import { inferenceReasoningOptions, reasoningExtension } from "./runtime/reasoning";
+import { withAgentOutputBudget } from "./runtime/output-budget";
 import { inferenceMetricsExtension } from "./runtime/inference-metrics";
 import { IdleProviderConnections, InferenceProviderConnections } from "./runtime/provider-connections";
 import { untrustedResultsExtension } from "./runtime/untrusted-results";
@@ -240,6 +243,7 @@ export class ComputerRuntime {
 
     const queue = new ComputerEventQueue();
     const active: ActiveTurn = {
+      runtimeStartedAt: Date.now(),
       taskConfiguration: request.taskConfiguration === undefined ? defaultTaskConfiguration() : parseTaskConfiguration(request.taskConfiguration),
       runId: request.runId,
       botId: request.botId,
@@ -336,7 +340,7 @@ export class ComputerRuntime {
       const contextState = await this.contextState(active.contextSessionId);
       await this.compactionArchive.enforceSizeLimit(active.contextSessionId, sessionPath);
       const uploaded = await prepareUserImages(decodeInlineImages(request.images ?? []));
-      const attachments = await loadAttachmentImages(request.cwd, request.fileAttachments ?? []);
+      const attachments = await loadAttachmentImages(request.cwd, request.fileAttachments ?? [], request.attachmentOwnerBotId ?? request.botId);
       active.attachmentTempDirectories = attachments.tempDirectories;
       const session = await this.createSession({ ...request, sessionPath }, active);
       const openedSessionPath = session.sessionFile;
@@ -458,6 +462,7 @@ export class ComputerRuntime {
   async cancel(runId: string): Promise<void> {
     const active = this.activeByRun.get(runId);
     if (!active) throw new Error("Run is not actively executing");
+    active.endTurnRequested = true;
     active.pluginAbortController?.abort();
     this.tools.cancelApprovals(runId);
     this.tools.interruptShellWaits(runId);
@@ -522,6 +527,8 @@ export class ComputerRuntime {
   }
 
   async infer(request: {
+    kind?: ComputerInferenceRequest["kind"];
+    images?: RuntimeImage[];
     instructions: string;
     prompt: string;
     cwd: string;
@@ -538,6 +545,9 @@ export class ComputerRuntime {
       throw new Error(`Pi inference provider ${modelRef.providerId} is not configured`);
     }
     const model = this.resolveModel(modelRef);
+    if (request.images?.length && !model.input?.includes("image")) {
+      throw new Error("Selected inference model cannot review visual evidence");
+    }
     const controller = new AbortController();
     const signal = request.signal
       ? AbortSignal.any([controller.signal, request.signal])
@@ -554,16 +564,21 @@ export class ComputerRuntime {
       ? this.inferenceConnections.acquire(JSON.stringify([modelRef.providerId, model.id, model.baseUrl]))
       : undefined;
     let reusable = false;
+    const inferenceStartedAt = performance.now();
+    let outcome = "error";
+    let firstDeltaMs: number | null = null;
+    let firstTextDeltaMs: number | null = null;
+    let usage: { inputTokens?: number; cachedInputTokens?: number; outputTokens?: number; reasoningTokens?: number } = {};
     try {
       signal.throwIfAborted();
-      const result = await modelRuntime.completeSimple(
+      const stream = modelRuntime.streamSimple(
         model,
         {
           systemPrompt: request.instructions,
           messages: [
             {
               role: "user",
-              content: [{ type: "text", text: request.prompt }],
+              content: [{ type: "text", text: request.prompt }, ...(request.images ?? [])],
               timestamp: Date.now(),
             },
           ] as never,
@@ -580,6 +595,23 @@ export class ComputerRuntime {
           } : {}),
         }
       );
+      // completeSimple uses this same stream and result. Observe only timings;
+      // start/content-block events do not establish that any output arrived.
+      for await (const event of stream) {
+        if ((event.type === "text_delta" || event.type === "thinking_delta" || event.type === "toolcall_delta")
+          && event.delta.length > 0) {
+          const elapsed = Math.round(performance.now() - inferenceStartedAt);
+          firstDeltaMs ??= elapsed;
+          if (event.type === "text_delta") firstTextDeltaMs ??= elapsed;
+        }
+      }
+      const result = await stream.result();
+      usage = {
+        inputTokens: result.usage?.input,
+        cachedInputTokens: result.usage?.cacheRead,
+        outputTokens: result.usage?.output,
+        reasoningTokens: result.usage?.reasoning,
+      };
       signal.throwIfAborted();
       if (result.stopReason === "error" || result.stopReason === "aborted") {
         throw new Error(result.errorMessage || `Memory inference ${result.stopReason}`);
@@ -587,6 +619,7 @@ export class ComputerRuntime {
       const assistantText = textFromContent(result.content);
       if (!assistantText.trim()) throw new Error("Memory inference returned no assistant text");
       reusable = true;
+      outcome = "success";
       return assistantText;
     } catch (error) {
       if (timedOut) throw new Error("Memory inference timed out", { cause: error });
@@ -595,6 +628,20 @@ export class ComputerRuntime {
     } finally {
       clearTimeout(timer);
       connection?.release(reusable && !signal.aborted);
+      // Metadata only: never emit prompts, responses, errors, paths or credentials.
+      console.info(JSON.stringify({
+        event: "utility_inference.metrics",
+        firstDeltaMs,
+        firstTextDeltaMs,
+        kind: request.kind ?? "unspecified",
+        provider: modelRef.providerId,
+        model: modelRef.modelId,
+        reasoning: request.reasoning,
+        durationMs: Math.round(performance.now() - inferenceStartedAt),
+        timeoutMs: request.timeoutMs,
+        outcome: timedOut ? "timeout" : request.signal?.aborted ? "canceled" : outcome,
+        ...usage,
+      }));
     }
   }
 
@@ -610,7 +657,7 @@ export class ComputerRuntime {
   private resolveModel(ref: PiModelRef) {
     const modelRuntime = this.modelRuntime;
     if (!modelRuntime) throw new Error("Pi model runtime is not initialized");
-    return requireInferenceModel(modelRuntime, ref);
+    return withAgentOutputBudget(requireInferenceModel(modelRuntime, ref));
   }
 
   private requireModelRuntime(): ModelRuntime {
@@ -707,6 +754,14 @@ export class ComputerRuntime {
       sessionManager,
       settingsManager,
     });
+    // Pi's request timeout covers headers. Its CLI also installs a body-idle
+    // dispatcher, but embedded sessions need their own response-body guard.
+    const stream = session.agent.streamFunction;
+    session.agent.streamFunction = (model, context, options) => stream(model, context,
+      model.api === "openai-completions" ? {
+        ...options,
+        fetch: providerIdleFetch(options?.fetch ?? fetch, settingsManager.getHttpIdleTimeoutMs()),
+      } : options);
     return session;
   }
 
@@ -771,7 +826,9 @@ export class ComputerRuntime {
       await this.compaction.beginUserQuery(active.contextSessionId, active.resetSelfSummaryCount);
       await active.session?.prompt(content, { source: "rpc", images });
       await verifyGraphicalTaskCompletion(active);
-      if (isDeliveryOwed(active.requestSource) && !active.endTurnRequested) {
+      if (isDeliveryOwed(active.requestSource) && !active.endTurnRequested &&
+          !active.pluginAbortController?.signal.aborted &&
+          !["aborted", "error"].includes(active.lastStopReason ?? "")) {
         if (active.sentMessageCount === 0) {
           await session.prompt(REPLY_NUDGE_PROMPT, {
             source: "rpc",
@@ -784,35 +841,42 @@ export class ComputerRuntime {
           });
         }
       }
-      if (active.lastStopReason !== "aborted" && active.lastStopReason !== "error") {
+      if (!active.pluginAbortController?.signal.aborted && active.lastStopReason !== "aborted" && active.lastStopReason !== "error") {
         const adopted = await this.compaction.settleAtTurnEnd({
           ...compactionObservation(active),
           infer: (request, signal) => this.inferCompaction(active, request, signal),
         });
         if (adopted) publishCompaction(active, adopted);
       }
-      if (active.lastStopReason === "aborted") status = "interrupted";
+      if (active.pluginAbortController?.signal.aborted || active.lastStopReason === "aborted") status = "interrupted";
       else if (active.lastStopReason === "error") {
         status = "failed";
         error = { message: active.lastErrorMessage ?? "Pi turn failed" };
-      } else if (isDeliveryOwed(active.requestSource) && !active.endTurnRequested &&
+      } else if (isDeliveryOwed(active.requestSource) &&
         (active.sentMessageCount === 0 || active.toolActivityAfterLastSend)) {
         // A model finishing is not proof that SendToUser reached the server.
-        // The one closing nudge above has already had its chance to recover.
+        // end_turn prevents further work, but cannot certify a later rejected
+        // attachment as delivered. Surface that failure without restarting it.
         status = "failed";
-        error = { message: "Turn ended without delivering its final response to the user" };
+        error = { message: active.sentMessageCount === 0
+          ? "Turn ended without delivering its final response to the user"
+          : "A response was delivered, but the turn ended with subsequent tool activity that was not reported to the user" };
       }
     } catch (caught) {
-      status = "failed";
-      error = {
-        message: caught instanceof Error ? caught.message : String(caught),
-      };
-      active.queue.push({
-        type: "runtime.error",
-        turnId: active.turnId,
-        message: (error as { message: string }).message,
-        retrying: false,
-      });
+      if (active.pluginAbortController?.signal.aborted) {
+        status = "interrupted";
+      } else {
+        status = "failed";
+        error = {
+          message: caught instanceof Error ? caught.message : String(caught),
+        };
+        active.queue.push({
+          type: "runtime.error",
+          turnId: active.turnId,
+          message: (error as { message: string }).message,
+          retrying: false,
+        });
+      }
     } finally {
       this.compaction.parkBackground(active.contextSessionId);
       attachSession(active);
@@ -825,13 +889,15 @@ export class ComputerRuntime {
           })
           .catch((settlementError) => console.warn("turn settlement persistence", settlementError));
       }
+      // Release context ownership before publishing completion: the worker may
+      // immediately dispatch the next queued user message on this event.
+      await this.cleanup(active, status === "completed" && !active.pluginAbortController?.signal.aborted);
       active.queue.push({
         type: "turn.completed",
         turnId: active.turnId,
         status,
         error,
       });
-      await this.cleanup(active, status === "completed" && !active.pluginAbortController?.signal.aborted);
       await Promise.allSettled(
         active.attachmentTempDirectories.map((directory) =>
           rm(directory, { recursive: true, force: true })

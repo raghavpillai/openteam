@@ -4,10 +4,21 @@ set -eu
 screen_cwd=${OPENTEAM_SCREEN_CWD:-/workspace}
 browser_profile=${OPENTEAM_BROWSER_PROFILE:-/home/box/chrome-profile}
 browser_debug_port=${OPENTEAM_BROWSER_DEBUG_PORT:-9222}
-browser_target=${2:-about:blank}
 
 case "${1:-}" in
   chromium)
+    shift
+    # Headless CLI jobs (dump-dom, PDF, screenshots) must be allowed to exit.
+    # Desktop debugging flags keep them alive and the shared profile can route
+    # them into an existing visible browser instead of an independent job.
+    for browser_arg do
+      case "$browser_arg" in
+        --headless|--headless=*)
+          exec google-chrome --no-sandbox --disable-dev-shm-usage "$@"
+          ;;
+      esac
+    done
+    if [ "$#" -eq 0 ]; then set -- about:blank; fi
     exec google-chrome \
       --no-sandbox \
       --test-type \
@@ -20,7 +31,7 @@ case "${1:-}" in
       --remote-debugging-address=127.0.0.1 \
       --remote-allow-origins='*' \
       --remote-debugging-port="$browser_debug_port" \
-      --new-window "$browser_target"
+      --new-window "$@"
     ;;
   thunar)
     exec thunar "$screen_cwd"
@@ -30,13 +41,16 @@ case "${1:-}" in
     exec xfce4-terminal --disable-server
     ;;
   editor)
-    exec mousepad --disable-server
+    shift
+    exec mousepad --disable-server "$@"
     ;;
   writer|calc|impress|draw)
     # LibreOffice otherwise reuses the first process, even on another bot's
     # display. Give each assigned desktop its own application profile.
     office_profile_uri=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).absolute().as_uri())' "${browser_profile}-office")
-    exec libreoffice "-env:UserInstallation=$office_profile_uri" "--$1"
+    office_kind=$1
+    shift
+    exec libreoffice "-env:UserInstallation=$office_profile_uri" "--$office_kind" "$@"
     ;;
   *)
     echo "usage: openteam-screen-launch chromium|thunar|terminal|editor|writer|calc|impress|draw" >&2

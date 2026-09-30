@@ -1,5 +1,6 @@
 /** Search provider APIs, verified against each provider's official documentation (2026-09). */
 import { SEARCH_PROVIDERS, type SearchProvider, webProviderInfo } from "@openteam/contracts/web-search";
+import { setTimeout as waitForSearchRetry } from "node:timers/promises";
 export { SEARCH_PROVIDERS, type SearchProvider } from "@openteam/contracts/web-search";
 export interface SearchConfiguration {
   provider?: SearchProvider | null;
@@ -218,11 +219,27 @@ export class SearchProviderClient {
     adapter.validate?.(query);
     const { url, init } = adapter.request(query, apiKey);
     const timeout = AbortSignal.timeout(30_000);
+    const deadline = Date.now() + 30_000;
     const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
     const redact = (value: string) => (apiKey ? value.split(apiKey).join("[redacted]") : value);
     let response: Response;
     try {
       response = await this.request(url, { ...init, redirect: "error", signal: requestSignal });
+      // Exa documents 503 as an unprocessed, unbilled capacity rejection.
+      // Keep retries inside the original timeout; other failures remain explicit.
+      for (let retry = 0; provider === "exa" && response.status === 503 && retry < 2; retry++) {
+        const retryAfter = response.headers.get("retry-after")?.trim();
+        const requestedDelay = retryAfter
+          ? /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1_000 : Date.parse(retryAfter) - Date.now()
+          : 0;
+        const waitMs = Math.max(1_000 * 2 ** retry + Math.random() * 250,
+          Number.isFinite(requestedDelay) ? requestedDelay : 0);
+        if (waitMs >= deadline - Date.now()) break;
+        await response.body?.cancel();
+        await waitForSearchRetry(waitMs, undefined, { signal: requestSignal });
+        requestSignal.throwIfAborted();
+        response = await this.request(url, { ...init, redirect: "error", signal: requestSignal });
+      }
     } catch {
       // SerpApi authenticates in the URL; never echo fetch errors or request URLs.
       signal?.throwIfAborted();

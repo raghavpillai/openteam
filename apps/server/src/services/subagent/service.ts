@@ -22,6 +22,18 @@ import { taskInference, parseTaskConfiguration } from "@openteam/contracts/task-
 
 const ACTIVE_STATUSES = ["provisioning", "queued", "running"] as const;
 
+// Parent-visible execution evidence, not authorization. Keep the observed
+// error separate from tool arguments, successful output, and image payloads.
+const failedToolError = (status: string, content: unknown): string | undefined => {
+  if (status !== "failed" || !content || typeof content !== "object" || Array.isArray(content)) return;
+  const result = (content as { result?: unknown }).result;
+  if (!result || typeof result !== "object" || Array.isArray(result)) return;
+  const parts = (result as { content?: unknown }).content;
+  if (!Array.isArray(parts)) return;
+  const text = parts.find((part) => part && typeof part === "object" && part.type === "text" && typeof part.text === "string" && part.text.trim());
+  return text ? text.text.slice(0, 500) : undefined;
+};
+
 export const graphicalSubagentType = (type: SubagentType): boolean =>
   type === "computerUse" || type === "browserUse";
 
@@ -46,10 +58,11 @@ export const botSubagentId = (id: string): string =>
 
 export const openteamSubagentId = (id: string): string => id.replace(/^sand-subagent-/, "");
 
-export const subagentBackgroundResult = (id: string, transcriptPath: string): string =>
+export const subagentBackgroundResult = (id: string): string =>
   [
-    `Subagent is running in the background. If needed, you can monitor its output by tailing the transcript at: ${transcriptPath}. When you end your turn, you will be automatically sent the subagent's final response upon its completion, so do not wait for it - either end your turn or work on something else.`,
-    "Do NOT mention the transcript path to the user. Do NOT try to predict the subagent's response before it replies.",
+    `Subagent is running in the background. If needed, use CheckSubagent with subagent_id="${botSubagentId(id)}" to inspect its status and progress. When you end your turn, you will be automatically sent the subagent's final response upon its completion, so do not wait for it - either end your turn or work on something else.`,
+    'Before invoking CheckSubagent, load its schema with GetDynamicTools(namespace="cursor", toolName="CheckSubagent") if it is not already loaded.',
+    "Do NOT try to predict the subagent's response before it replies.",
     "",
     `Agent ID: ${botSubagentId(id)} (can be used with the \`resume\` parameter to send a follow-up after it completes)`,
   ].join("\n");
@@ -88,7 +101,7 @@ export class SubagentService {
     private readonly agentData: AgentDataStore
   ) {}
 
-  async task(context: ToolContext, input: TaskInput, signal?: AbortSignal) {
+  async task(context: ToolContext, input: TaskInput, signal?: AbortSignal, foregroundYield = false) {
     const nested = await this.prisma.subagent.findUnique({ where: { childBotId: context.botId } });
     if (nested) {
       throw new ApiError(403, "nested_subagent_forbidden", "Subagents cannot launch subagents");
@@ -111,6 +124,7 @@ export class SubagentService {
     if (!subagent && receipt) {
       throw new ApiError(409, "request_in_progress", "This Task call is already being accepted");
     }
+    if (foregroundYield && !attempt) throw new ApiError(409, "subagent_attempt_missing", "Cannot yield a Task that was not already started");
     if (!receipt) {
       try {
         receipt = await this.prisma.idempotencyRecord.create({
@@ -150,6 +164,21 @@ export class SubagentService {
     attempt ??= await this.attemptForCall(context.botId, context.callId);
     if (!attempt) {
       throw new ApiError(409, "subagent_attempt_missing", "This Task attempt is unavailable");
+    }
+    if (foregroundYield) {
+      // Persist notification ownership before allowing the parent to stop waiting.
+      // If completion won the race, return its result directly instead.
+      const changed = await this.prisma.subagentAttempt.updateMany({
+        where: {id: attempt.id, status: {in: ["provisioning", "queued", "running"]}},
+        data: {runInBackground: true},
+      });
+      if (changed.count) return {
+        foregroundYielded: true, status: "running", subagent_id: botSubagentId(subagent.id), attempt_id: attempt.id,
+        message: "Foreground wait yielded for a user update. The existing worker remains running and completion will wake you. Process the update and use MessageSubagent to relay changes; do not start a duplicate task.",
+      };
+      attempt = await this.prisma.subagentAttempt.findUniqueOrThrow({where: {id: attempt.id}});
+      if (attempt.status === "completed") return `${attempt.result || "Subagent completed without a text report."}\n\nAgent ID: ${botSubagentId(subagent.id)}`;
+      return {subagent_id: botSubagentId(subagent.id), status: attempt.status, error: attempt.error, result: attempt.result};
     }
     return this.taskResult(subagent, attempt, signal);
   }
@@ -291,12 +320,29 @@ export class SubagentService {
 
   async stop(parentBotId: string, callId: string, input: StopSubagentInput) {
     const subagent = await this.activeOwned(parentBotId, input.subagent_id);
-    await this.prisma.$transaction(async (tx) => {
+    if (subagent.currentRunId) {
+      try {
+        await Effect.runPromise(this.runs.cancel(subagent.currentRunId));
+      } catch (error) {
+        // A completed run can race cancellation. Transport failures for a live
+        // run must remain failures so the caller can retry the same worker.
+        const run = await this.prisma.run.findUnique({ where: { id: subagent.currentRunId } });
+        if (!run || !["completed", "failed", "cancelled", "interrupted"].includes(run.status)) throw error;
+      }
+    }
+    const stopped = await this.prisma.$transaction(async (tx) => {
       const stoppedAt = new Date();
-      await tx.subagent.update({
-        where: { id: subagent.id },
+      const updated = await tx.subagent.updateMany({
+        where: {
+          id: subagent.id,
+          currentRunId: subagent.currentRunId,
+          status: { in: [...ACTIVE_STATUSES] },
+        },
         data: { status: "stopped", stoppedAt, completedAt: stoppedAt },
       });
+      // Do not overwrite completion or a new attempt that began while the
+      // cancellation request was in flight.
+      if (updated.count === 0) return false;
       if (subagent.currentRunId) {
         await tx.subagentAttempt.updateMany({
           where: {
@@ -313,13 +359,11 @@ export class SubagentService {
         runId: subagent.currentRunId,
         callId,
       });
+      return true;
     });
-    if (subagent.currentRunId) {
-      try {
-        await Effect.runPromise(this.runs.cancel(subagent.currentRunId));
-      } catch {
-        // The durable stopped state wins if the turn ended while cancellation was dispatched.
-      }
+    if (!stopped) {
+      const current = await this.prisma.subagent.findUnique({ where: { id: subagent.id } });
+      return { stopped: false, subagent_id: botSubagentId(subagent.id), status: current?.status ?? "unavailable" };
     }
     return { stopped: true, subagent_id: botSubagentId(subagent.id), status: "stopped" };
   }
@@ -466,7 +510,7 @@ export class SubagentService {
       where: { id: restoredId, parentBotId: context.botId },
     });
     if (!subagent) {
-      return this.launch(context, { ...input, model: undefined, resume: undefined }, restoredId);
+      return this.launch(context, { ...input, resume: undefined }, restoredId);
     }
     if (["provisioning", "queued", "running"].includes(subagent.status)) {
       throw new ApiError(
@@ -612,12 +656,20 @@ export class SubagentService {
           select: { id: true, details: true },
         })
       : [];
+    // Prompt fingerprints are persisted as tool-kind diagnostics, not agent actions.
+    // Filter before the recent-call limit so diagnostics cannot hide real activity.
+    const activityWhere: Prisma.RunItemWhereInput = {
+      runId: currentRun?.id,
+      kind: { in: ["command", "file_change", "tool"] },
+      OR: [
+        { kind: { not: "tool" } },
+        { title: null },
+        { title: { not: "promptFingerprint" } },
+      ],
+    };
     const recentToolCalls = currentRun
       ? await this.prisma.runItem.findMany({
-          where: {
-            runId: currentRun.id,
-            kind: { in: ["command", "file_change", "tool"] },
-          },
+          where: activityWhere,
           orderBy: { createdAt: "desc" },
           take: 8,
         })
@@ -642,10 +694,11 @@ export class SubagentService {
         0,
         Math.round((end.getTime() - (subagent.startedAt ?? subagent.createdAt).getTime()) / 1_000)
       ),
-      tool_call_count: currentRun ? await this.prisma.runItem.count({ where: { runId: currentRun.id, kind: { in: ["command", "file_change", "tool"] } } }) : 0,
+      tool_call_count: currentRun ? await this.prisma.runItem.count({ where: activityWhere }) : 0,
       recent_tool_calls: recentToolCalls.map((item) => ({
         tool: item.title ?? item.kind,
         status: item.status,
+        error: failedToolError(item.status, item.content),
         at: item.createdAt.toISOString(),
       })),
       transcript_path: subagent.outputPath,
@@ -659,7 +712,7 @@ export class SubagentService {
     attempt: NonNullable<Awaited<ReturnType<SubagentService["attemptForCall"]>>>,
     signal?: AbortSignal
   ) {
-    if (attempt.runInBackground) return subagentBackgroundResult(subagent.id, subagent.outputPath);
+    if (attempt.runInBackground) return subagentBackgroundResult(subagent.id);
     // A bounded long poll fits behind HTTP idle timeouts. The runtime repeats
     // the same idempotent Task request until this exact attempt settles.
     const deadline = Date.now() + 20_000;

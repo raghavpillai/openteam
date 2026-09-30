@@ -13,5 +13,11 @@ export function inferenceFailure(error: unknown): { status: number; error: { cod
   if (/rate.?limit|\b429\b/i.test(message)) return {
     status: 429, error: { code: "inference_rate_limit", message: "Inference provider is rate limited" },
   };
+  // Preserve a useful availability diagnosis without returning provider payloads.
+  // Billing/quota exhaustion is not evidence of temporary provider capacity.
+  if (!/insufficient[_\s-]?quota|billing|\b402\b/i.test(message) &&
+    /\bat capacity\b|\boverloaded\b|\bservice unavailable\b|\b503\b/i.test(message)) return {
+    status: 503, error: { code: "inference_unavailable", message: "Inference provider is temporarily unavailable or at capacity" },
+  };
   return { status: 502, error: { code: "inference_provider_failed", message: "Inference provider failed to return a usable response" } };
 }

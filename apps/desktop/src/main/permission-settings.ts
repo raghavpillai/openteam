@@ -20,7 +20,8 @@ export const DEFAULT_PERMISSION_SETTINGS: PermissionSettings = {
   machineLabel: null,
   localToolPermission: "ask",
   autoReview: {
-    isEnabled: true,
+    // Match the server's opt-in default until Auto Review ships enabled.
+    isEnabled: false,
     allowInstructions: [],
     blockInstructions: [],
   },

@@ -14,10 +14,14 @@ export interface FetchConfiguration {
   provider?: FetchProvider | null;
   apiKey?: string;
 }
+export interface FetchProvenance {
+  source: "cached" | "crawled" | "unknown";
+}
+
 type FetchResult =
   | { configured: false; provider: FetchProvider | null; message: string }
   | { configured: true; provider: "builtin" }
-  | { configured: true; provider: Exclude<FetchProvider, "builtin">; url: string; text: string; note?: string };
+  | { configured: true; provider: Exclude<FetchProvider, "builtin">; url: string; text: string; note?: string; provenance: FetchProvenance };
 
 const record = (v: unknown): Record<string, unknown> =>
   v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
@@ -28,7 +32,7 @@ class ProviderPageError extends Error {}
 
 interface Adapter {
   request(url: string, apiKey: string | undefined): { endpoint: string; init: RequestInit };
-  parse(body: Record<string, unknown>): { url?: unknown; text: unknown; title?: unknown; note?: string };
+  parse(body: Record<string, unknown>): { url?: unknown; text: unknown; title?: unknown; note?: string; provenance?: FetchProvenance };
   /** An error response that means the provider declines this site, not a key or quota problem. */
   refusesSite?(status: number, detail: string): boolean;
 }
@@ -80,7 +84,8 @@ const ADAPTERS: Record<Exclude<FetchProvider, "builtin">, Adapter> = {
     request: (url, apiKey) =>
       post("https://api.exa.ai/contents", { "x-api-key": apiKey ?? "" }, { urls: [url], text: true, maxAgeHours: 1, livecrawlTimeout: 15_000 }),
     parse: (body) => {
-      const failed = (Array.isArray(body.statuses) ? body.statuses : []).map(record).find((status) => status.status !== "success");
+      const statuses = (Array.isArray(body.statuses) ? body.statuses : []).map(record);
+      const failed = statuses.find((status) => status.status !== "success");
       if (failed) {
         const error = record(failed.error);
         throw new ProviderPageError(`Exa could not read the page (${text(error.tag) || "error"}${error.httpStatusCode ? `, HTTP ${error.httpStatusCode}` : ""}).`);
@@ -93,6 +98,7 @@ const ADAPTERS: Record<Exclude<FetchProvider, "builtin">, Adapter> = {
         url: result.url,
         text: result.text,
         title: result.title,
+        provenance: { source: statuses.length === 1 && ["cached", "crawled"].includes(String(statuses[0]!.source)) ? statuses[0]!.source as "cached" | "crawled" : "unknown" },
         note: excerpt
           ? "Exa returned only a 1,000-character excerpt of this page; the publisher limits Exa to excerpts. Open the page with the browser tool for the full text."
           : undefined,
@@ -218,7 +224,7 @@ export class FetchProviderClient {
       } catch {
         throw new ProviderPageError(`${name} returned an unusable page URL.`);
       }
-      return { configured: true, provider, url: redact(resultUrl), text: redact(content), ...(parsed.note ? { note: parsed.note } : {}) };
+      return { configured: true, provider, url: redact(resultUrl), text: redact(content), provenance: parsed.provenance ?? { source: "unknown" }, ...(parsed.note ? { note: parsed.note } : {}) };
     } catch (error) {
       signal?.throwIfAborted();
       if (error instanceof ProviderPageError) {

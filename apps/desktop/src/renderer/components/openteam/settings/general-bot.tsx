@@ -99,7 +99,7 @@ export default function GeneralBotSettings() {
           anchors={["auto-review"]}
           control={
             <InteractiveSwitch
-              checked={permissions?.autoReview.isEnabled ?? true}
+              checked={permissions?.autoReview.isEnabled ?? false}
               disabled={!permissions}
               onChange={(autoReviewEnabled) => updatePermissions({ autoReviewEnabled })}
             />

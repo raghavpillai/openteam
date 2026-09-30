@@ -122,12 +122,16 @@ try {
   assert.ok(boxResult.includes(`"x":${Math.round(expectedBox.x)}`));
   assert.ok(boxResult.includes(`"y":${Math.round(expectedBox.y)}`));
   await session.execute("browser_click", { ref: embedded });
+  // The child frame reports through postMessage, which is asynchronous even
+  // after Playwright has completed the click and captured its observation.
+  await page.waitForFunction(() => (window as any).clicks === 1, undefined, { timeout: 1_000 });
   assert.equal(
     await page.evaluate(() => (window as any).clicks),
     1,
     "nested-frame click must reach its button"
   );
   await session.execute("browser_click", { ref: embedded });
+  await page.waitForFunction(() => (window as any).clicks === 2, undefined, { timeout: 1_000 });
   assert.equal(
     await page.evaluate(() => (window as any).clicks),
     2,

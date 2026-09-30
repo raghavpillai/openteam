@@ -53,9 +53,16 @@ test("box shell waits for a chat decision, blocks concurrent side effects, and e
   const target = join(root, "approved.txt"),
     unintended = join(root, "unintended.txt");
   try {
+    await expect((tools as any).executeOpenTeamTool(active, "initial-shell", "Shell", {
+      command: `printf approved > '${target}'`,
+      block_until_ms: 1000,
+    })).rejects.toThrow("Block reason: Fixture review");
+    expect(await Bun.file(target).exists()).toBe(false);
     const work = (tools as any).executeOpenTeamTool(active, "review-shell", "Shell", {
       command: `printf approved > '${target}'`,
       block_until_ms: 1000,
+      request_smart_mode_approval: true,
+      smart_mode_block_reason: "Fixture review",
     });
     const event = await approval;
     expect(await Bun.file(target).exists()).toBe(false);
@@ -64,14 +71,27 @@ test("box shell waits for a chat decision, blocks concurrent side effects, and e
         command: `touch '${unintended}'`,
       })
     ).rejects.toThrow("waiting for approval");
+    let siblingSettled = false;
+    const sibling = (tools as any).executeOpenTeamTool(
+      { ...active, runId: crypto.randomUUID(), botId: crypto.randomUUID() },
+      "sibling-shell", "Shell", { command: `touch '${unintended}'` }
+    ).then(
+      () => "unexpected execution",
+      (error: Error) => error.message
+    ).finally(() => { siblingSettled = true; });
+    await Bun.sleep(25);
+    expect(siblingSettled).toBe(false);
+    expect(reviews).toHaveLength(1);
     tools.resolveApproval(event.approvalId, "accept");
     await work;
+    expect(await sibling).toContain("This action was not executed");
     expect(await readFile(target, "utf8")).toBe("approved");
     expect(await Bun.file(unintended).exists()).toBe(false);
     expect(reviews).toHaveLength(2);
     expect(reviews[0]).toMatchObject({ surface: "boxShell", reviewContext: { runId, botId } });
     expect(reviews[1].command).toBe(reviews[0].command);
   } finally {
+    tools.cancelApprovals(runId);
     api.stop(true);
     await rm(root, { recursive: true, force: true });
   }

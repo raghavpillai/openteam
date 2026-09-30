@@ -7,6 +7,7 @@ import { createPrismaClient } from "@openteam/db";
 import { AgentDataStore, type MemoryInferenceRequest } from "../src/agent-data";
 import { readMemoryTree } from "../src/memory-files";
 import { parseSkillFile } from "../src/skill-files";
+import managedCatalog from "../src/prompts/managed-skills.json";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -41,7 +42,7 @@ test("plugin and managed skill caches use the Bot filesystem contract", async ()
       await readFile(join(root, "managed-skills", "cache.json"), "utf8")
     ) as { fetchedAt: number; skills: unknown[] };
     expect(managed.fetchedAt).toBeNumber();
-    expect(managed.skills).toHaveLength(20);
+    expect(managed.skills).toHaveLength(managedCatalog.skills.length);
     expect(managed.skills).toEqual(expect.arrayContaining([expect.objectContaining({ id: "code-changes" }), expect.objectContaining({ id: "in-chat-forms" })]));
 
     const plugin = JSON.parse(

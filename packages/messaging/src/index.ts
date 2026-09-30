@@ -1,3 +1,5 @@
+export { readTranscript } from "./read-transcript";
+import { attachmentContext } from "./attachment-context";
 import { listSiblingThreads } from "./sibling-threads";
 export { readSiblingThread } from "./sibling-threads";
 import { nextMessageAddress, resolveMessageAddress } from "./message-address";
@@ -89,6 +91,7 @@ export const graphicalDelegationInstructions = (config: TaskConfiguration = defa
     : "For browser page interaction, delegate with Task using subagent_type browserUse. For pixel-based browser work or any other desktop-app interaction, delegate with Task using subagent_type computerUse.",
   "Do not attempt graphical interaction yourself: the main-agent Screenshot tool is read-only, and graphical Computer control is intentionally available only to a computerUse subagent.",
   "Give the subagent the full goal, exact URLs or app names, inputs, completion criteria, and relevant constraints. Treat its final report as the result of the graphical work.",
+  "Carry user deadlines and remaining time into each delegated task, including resumed tasks. For an overall deadline, pass the original absolute cutoff and remaining budget; do not restart the allowance for each worker. Stop unfinished delegated work at that cutoff and report partial results. If the user instead gives a separate allowance per item, preserve that distinction.",
 ].join(" ");
 export const MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS = graphicalDelegationInstructions();
 
@@ -136,6 +139,7 @@ export const renderSubagentRevivalPrompt = (input: {
     `Background task "${input.title}" (${input.subagentType}) ${outcome}:`,
     input.result.trim(),
     "",
+    "When reporting this result, distinguish eventual completion from an error-free run. Preserve reported failed actions, approval denials, user interventions and material fallbacks. Successful recovery does not erase them; summarize them accurately without repeating the work.",
     SUBAGENT_REVIVAL_INSTRUCTION,
   ].join("\n");
 };
@@ -798,7 +802,7 @@ export class AgentMessaging {
     });
   }
 
-  async enqueueWake(tx: Prisma.TransactionClient, input: WakeInput) {
+  async enqueueWake(tx: Prisma.TransactionClient, input: WakeInput, preparedAttachmentPaths?: string[]) {
     const bot = await tx.bot.findUnique({
       where: { id: input.botId },
       include: { conversation: true },
@@ -823,9 +827,9 @@ export class AgentMessaging {
     const attachmentPaths =
       input.includeAttachmentPaths === false
         ? []
-        : await this.agentData.materializeAttachments(bot.id, input.clientId, attachments);
+        : preparedAttachmentPaths ?? await this.agentData.materializeAttachments(bot.id, input.clientId, attachments);
     const runtimeContent = attachmentPaths.length
-      ? `${baseRuntimeContent}\n\nAttached files available on the shared computer:\n${attachmentPaths.map((path) => `- ${path}`).join("\n")}`
+      ? `${baseRuntimeContent}\n\nAttached files available on the shared computer:\n${attachmentContext(attachmentPaths, attachments)}`
       : baseRuntimeContent;
     const message = await tx.message.create({
       data: {
@@ -1020,7 +1024,8 @@ export class AgentMessaging {
 
   async acceptDirectUserMessage(
     tx: Prisma.TransactionClient,
-    input: Omit<WakeInput, "origin" | "type" | "priority">
+    input: Omit<WakeInput, "origin" | "type" | "priority">,
+    preparedAttachmentPaths?: string[]
   ) {
     const bot = await tx.bot.findUnique({
       where: { id: input.botId },
@@ -1045,7 +1050,7 @@ export class AgentMessaging {
         origin: "user",
         type: "user.message",
         priority: PRIORITY.user,
-      });
+      }, preparedAttachmentPaths);
       return {
         ...queued,
         steer: null,
@@ -1063,13 +1068,13 @@ export class AgentMessaging {
       timeZone: input.timeZone ?? this.defaultTimeZone,
     });
     const attachments = await this.attachmentsForWake(input);
-    const attachmentPaths = await this.agentData.materializeAttachments(
+    const attachmentPaths = preparedAttachmentPaths ?? await this.agentData.materializeAttachments(
       bot.id,
       input.clientId,
       attachments
     );
     const runtimeContent = attachmentPaths.length
-      ? `${baseRuntimeContent}\n\nAttached files available on the shared computer:\n${attachmentPaths.map((path) => `- ${path}`).join("\n")}`
+      ? `${baseRuntimeContent}\n\nAttached files available on the shared computer:\n${attachmentContext(attachmentPaths, attachments)}`
       : baseRuntimeContent;
 
     const messageId = crypto.randomUUID();
@@ -1154,6 +1159,20 @@ export class AgentMessaging {
       return { promoted: false, run: inbox.run };
     }
     if (!["pending", "processing"].includes(inbox.status)) {
+      return { promoted: false, run: inbox.run };
+    }
+    // A worker steer belongs to one dispatched task. Replaying it as a user
+    // turn loses the worker's authorization, parent and completion routing.
+    // Only ordinary user steering may fall back to a new foreground turn.
+    if (inbox.type === "subagent.steer") {
+      await tx.inboxEvent.update({
+        where: { id: inbox.id },
+        data: {
+          status: "failed",
+          completedAt: new Date(),
+          error: json({ code: "subagent_steer_target_ended", reason }),
+        },
+      });
       return { promoted: false, run: inbox.run };
     }
     const payload = inbox.payload as {
@@ -1258,7 +1277,9 @@ export class AgentMessaging {
   async enqueueBootstrap(tx: Prisma.TransactionClient, botId: string, channelId: string) {
     // Provisioning, recovery, and the user's first message share this row lock.
     // Read onboarding/queue state only after concurrent provisioning commits.
-    await tx.$queryRaw`SELECT "id" FROM "Bot" WHERE "id" = ${botId} FOR UPDATE`;
+    // Bot identity is unchanged. Permit foreign-key KEY SHARE locks taken by
+    // concurrent file initialization while still serializing onboarding updates.
+    await tx.$queryRaw`SELECT "id" FROM "Bot" WHERE "id" = ${botId} FOR NO KEY UPDATE`;
     const bot = await tx.bot.findUnique({
       where: { id: botId },
       include: { conversation: true },
@@ -1323,8 +1344,10 @@ export class AgentMessaging {
   }
 
   async skipBootstrapForUser(tx: Prisma.TransactionClient, botId: string): Promise<string | null> {
+    // FOR UPDATE blocks file-state FK inserts; those can hold the attachment
+    // advisory lock needed later in this acceptance transaction, forming a cycle.
     const [bot] = await tx.$queryRaw<Array<{ onboardingStatus: string }>>`
-      SELECT "onboardingStatus" FROM "Bot" WHERE "id" = ${botId} FOR UPDATE`;
+      SELECT "onboardingStatus" FROM "Bot" WHERE "id" = ${botId} FOR NO KEY UPDATE`;
     if (!bot || !["pending", "queued", "running"].includes(bot.onboardingStatus)) return null;
     const pending = await tx.inboxEvent.findMany({
       where: {
@@ -2205,7 +2228,7 @@ export class AgentMessaging {
         timeZone: this.defaultTimeZone,
       }),
       `Your effective settings are hiddenFromSidebar=${bot.hiddenFromSidebar} and notifyOnAgentUpdates=${bot.notificationsEnabled}. Memory dreaming is a host-level experiment, not an agent setting.`,
-      `Safe peer-readable transcript mirrors live under ${join(this.agentData.root, "agent-transcripts")}/<bot-id>/<bot-id>.jsonl. Read one only when a task-relevant reason requires it. They are redacted reference projections, not private model context or raw Pi session history.`,
+      `Use cursor.ReadTranscript for task-relevant saved conversation history or a dispatched worker’s observable activity. Transcript files are private runtime storage; do not open them with Read.`,
       frozen.sections.agent_directory,
       frozen.sections.memory
         ? `Durable memory. Later sections have higher instructional precedence (own > project > user):\n${frozen.sections.memory}`
@@ -2229,7 +2252,7 @@ export class AgentMessaging {
       orderBy: { createdAt: "asc" }, take: 20,
     }) : [];
     return {
-      instructions: automation ? `${instructions}\n\n${AUTOMATION_RUN_INSTRUCTIONS}\n\nThe parent's durable memories are included above. Parent transcript pointer: ${join(this.agentData.root, "agent-transcripts", botId, `${botId}.jsonl`)}. Read it only when the saved task needs earlier conversation detail; the parent conversation has deliberately not been copied into this automation context.` : instructions,
+      instructions: automation ? `${instructions}\n\n${AUTOMATION_RUN_INSTRUCTIONS}\n\nThe parent's durable memories are included above. Use cursor.ReadTranscript with agent_id="${botId}" only when the saved task needs earlier conversation detail; the parent conversation has deliberately not been copied into this automation context.` : instructions,
       instructionsUpdate: frozen.update,
       ambientContext: automation ? null : [
         dismissedWidgetPrompts.length > 0 ? buildDismissedQuestionsNote(dismissedWidgetPrompts) : "",

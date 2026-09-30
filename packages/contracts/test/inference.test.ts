@@ -69,4 +69,13 @@ describe("Pi inference model references", () => {
       })
     ).toMatchObject({ model: "openai-codex/gpt-5.5", reasoning: "high" });
   });
+  test("native screen references are bounded and restricted to verification", () => {
+    const request = { kind: "verification", instructions: "Review", prompt: "Action", timeoutMs: 5000,
+      model: "openrouter/x-ai/grok-4.7", reasoning: "low", screenBotId: crypto.randomUUID() };
+    expect(parseComputerInferenceRequest(request).screenBotId).toBe(request.screenBotId);
+    for (const screenBotId of ["../../other", "http://example.test", "", 12, { data: "image" }]) {
+      expect(() => parseComputerInferenceRequest({ ...request, screenBotId })).toThrow("screen observation");
+    }
+    expect(() => parseComputerInferenceRequest({ ...request, kind: "extraction" })).toThrow("screen observation");
+  });
 });

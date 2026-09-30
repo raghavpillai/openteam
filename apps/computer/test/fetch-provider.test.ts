@@ -239,6 +239,7 @@ test("oversized extraction spills redacted full content to an actual file", asyn
     );
     const result = await new WebTools(new SearchProviderClient(), client).fetch(url, cwd);
     expect(result.content[0]!.text).toContain("Content written to file:");
+    expect(result.content[0]!.text).toContain("source: unknown");
     const outputPath = "outputPath" in result.details ? result.details.outputPath : undefined;
     expect(outputPath).toBeDefined();
     const full = await readFile(outputPath!, "utf8");
@@ -247,5 +248,25 @@ test("oversized extraction spills redacted full content to an actual file", asyn
     expect(full).not.toContain(key);
   } finally {
     await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("Exa cache provenance reaches the agent without inventing a crawl timestamp", async () => {
+  for (const source of ["cached", "crawled", undefined, "unexpected"] as const) {
+    const client = new FetchProviderClient(
+      () => ({ provider: "exa", apiKey: key }),
+      async () => Response.json({ results: [{ url: finalUrl, text: 'Price $9975; delivery to Thailand.' }], statuses: [{ id: url, status: 'success', source }] }),
+      validate
+    );
+    const page = await new WebTools(new SearchProviderClient(), client).fetch(url, process.cwd());
+    const expected = source === "cached" || source === "crawled" ? source : "unknown";
+    expect(page.details).toMatchObject({ source: expected, requestedUrl: url, url: finalUrl });
+    expect(Number.isNaN(Date.parse(page.details.retrievedAt))).toBe(false);
+    expect(page.content[0]!.text).toContain(`source: ${expected}`);
+    expect(page.details).not.toHaveProperty("crawledAt");
+    if (source === "cached") {
+      expect(page.content[0]!.text).toContain("crawl time is unavailable");
+      expect(page.content[0]!.text).toContain("Use the browser");
+    }
   }
 });

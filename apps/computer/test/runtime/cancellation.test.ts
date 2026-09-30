@@ -22,6 +22,7 @@ test("cancellation is accepted during session setup and signals pending work", a
   } as ActiveTurn);
   await runtime.cancel("starting");
   expect(controller.signal.aborted).toBe(true);
+  expect(internals.activeByRun.get("starting")?.endTurnRequested).toBe(true);
   expect(stopped).toEqual(["approval:starting", "wait:starting"]);
   expect(() => controller.signal.throwIfAborted()).toThrow();
   await expect(runtime.cancel("missing")).rejects.toThrow("not actively executing");

@@ -104,18 +104,25 @@ export async function waitForProcessExit(
   timeoutMs: number
 ): Promise<void> {
   if (processes.every((process) => processHasExited(process))) return;
-  await Promise.race([
-    Promise.all(
-      processes.map(
-        (process) =>
-          new Promise<void>((resolve) => {
-            if (processHasExited(process)) resolve();
-            else process.once("exit", () => resolve());
-          })
-      )
-    ),
-    new Promise((resolve) => setTimeout(resolve, timeoutMs)),
-  ]);
+  await new Promise<void>((resolve) => {
+    const pending = new Set(processes.filter((process) => !processHasExited(process)));
+    const listeners = new Map<ChildProcess, () => void>();
+    const finish = () => {
+      clearTimeout(timer);
+      for (const [process, listener] of listeners) process.removeListener("exit", listener);
+      resolve();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    for (const process of pending) {
+      const listener = () => {
+        pending.delete(process);
+        if (pending.size === 0) finish();
+      };
+      listeners.set(process, listener);
+      process.once("exit", listener);
+    }
+    if (pending.size === 0) finish();
+  });
 }
 
 export function processHasExited(process: ChildProcess): boolean {

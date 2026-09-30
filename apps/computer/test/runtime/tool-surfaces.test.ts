@@ -17,6 +17,30 @@ import {
 
 const runtimeTools = () => (new ComputerRuntime() as unknown as { tools: unknown }).tools;
 
+test('background status evidence comes only from active server records', async () => {
+  const runtime = runtimeTools() as any;
+  const previousFetch = globalThis.fetch;
+  const pending = {subagent_id: 'worker', status: 'running', run_status: 'waiting_approval'};
+  const fixtures: Array<[unknown, boolean]> = [
+    [pending, true],
+    [{...pending, status: 'queued', run_status: null}, true],
+    [{subagents: [pending]}, true],
+    [{...pending, run_status: 'failed'}, false],
+    [{...pending, status: 'completed'}, false],
+    [{subagents: [pending, {...pending, status: 'completed'}]}, false],
+    [{subagents: []}, false],
+    ['No background subagents are running right now.', false],
+    ['The worker is running', false],
+  ];
+  try {
+    for (const [body, expected] of fixtures) {
+      globalThis.fetch = (async () => Response.json(body)) as unknown as typeof fetch;
+      const result = await runtime.callControlPlaneTool({}, 'check', 'CheckSubagent', {});
+      expect(result.details.pendingBackgroundWork).toBe(expected);
+    }
+  } finally { globalThis.fetch = previousFetch; }
+});
+
 const temporaryRoots: string[] = [];
 
 afterEach(async () => {
@@ -583,4 +607,58 @@ describe("context turn reservation", () => {
     );
     expect(await store.stagedId(contextSessionId)).toBeNull();
   });
+});
+
+test('foreground Task yields existing worker identity for pending steering instead of polling forever', async () => {
+  const runtime = runtimeTools() as any;
+  const previousFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (async (_url:any, init:any) => { calls++; const body=JSON.parse(init.body); return Response.json(body.foregroundYield ? {foregroundYielded:true,subagent_id:'existing-worker',status:'running',message:'MessageSubagent'} : {foregroundPending:true,subagent_id:'existing-worker',attempt_id:'attempt'}); }) as unknown as typeof fetch;
+  try {
+    const result = await runtime.callControlPlaneTool({pendingSteers:[{content:'Apply correction'}]}, 'call', 'Task', {});
+    expect(calls).toBe(2);
+    expect(result.content[0].text).toContain('existing-worker');
+    expect(result.content[0].text).toContain('MessageSubagent');
+  } finally {globalThis.fetch=previousFetch;}
+});
+
+test('foreground Task keeps the same call identity while waiting without steering', async () => {
+  const runtime = runtimeTools() as any;
+  const previousFetch = globalThis.fetch;
+  const requests: any[] = [];
+  globalThis.fetch = (async (_url:any, init:any) => {
+    requests.push(JSON.parse(init.body));
+    return Response.json(requests.length === 1 ? {foregroundPending:true,subagent_id:'existing-worker'} : {status:'completed',result:'done'});
+  }) as unknown as typeof fetch;
+  try {
+    const result = await runtime.callControlPlaneTool({pendingSteers:[]}, 'same-call', 'Task', {prompt:'existing task'});
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toEqual(requests[1]);
+    expect(result.content[0].text).toContain('done');
+  } finally {globalThis.fetch=previousFetch;}
+});
+
+test('browser workers retain their parent desktop session and steering cancels only the waiting run', async () => {
+  const tools = runtimeTools() as any;
+  tools.screens.browserEndpointForAgent = async () => 'http://unused-test-endpoint';
+  const used: string[] = [];
+  const makeBrowser = (name: string) => ({connected:true, configureUploads(){}, registerPrivateValues(){}, watchLoginFocus(){return () => {};},
+    async execute(tool: string, _args: unknown, signal?: AbortSignal) {
+      used.push(name);
+      if (tool === 'browser_wait_for') await new Promise((_,reject) => {signal!.addEventListener('abort',()=>reject(signal!.reason),{once:true});});
+      return {content:[],details:{}};
+    }});
+  const first=makeBrowser('first'), other=makeBrowser('other');
+  tools.browserUseSessions.set('old-worker',first); tools.browserSessionScreens.set('old-worker','desktop-a');
+  tools.browserUseSessions.set('other-worker',other); tools.browserSessionScreens.set('other-worker','desktop-b');
+  const turn={botId:'new-worker',screenBotId:'desktop-a',cwd:'/workspace',runId:'wait-run',requestSource:'automation'};
+  await tools.callBrowserUse(turn,'browser_console_messages',{all:true});
+  expect(tools.browserUseSessions.get('new-worker')).toBe(first);
+  await tools.callBrowserUse({...turn,botId:'another-worker',screenBotId:'desktop-b'},'browser_console_messages',{});
+  expect(tools.browserUseSessions.get('another-worker')).toBe(other);
+  const pending=tools.callBrowserForTurn(turn,'browser_wait_for',{time:10});
+  await new Promise(resolve=>setTimeout(resolve,0));
+  tools.interruptShellWaits('different-run'); expect(tools.shellWaits.size).toBe(1);
+  tools.interruptShellWaits('wait-run'); await expect(pending).rejects.toThrow('new user message');
+  expect(tools.shellWaits.size).toBe(0); expect(used).toEqual(['first','other','first']);
 });

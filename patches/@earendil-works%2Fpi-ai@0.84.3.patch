@@ -1,0 +1,13 @@
+diff --git a/dist/utils/retry.js b/dist/utils/retry.js
+index 65c7c9efd7667445b711fcd43549062ee3eb5ecf..41ee815fc85d53723ecdcce91d94cc3ae54f0b6a 100644
+--- a/dist/utils/retry.js
++++ b/dist/utils/retry.js
+@@ -20,6 +20,8 @@ const NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN = buildProviderErrorPattern([
+ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
+     // Generic provider load, HTTP status, and server-side transient failures.
+     "overloaded",
++    // Some providers report temporary saturation without an HTTP status.
++    "at capacity",
+     "rate.?limit",
+     "too many requests",
+     "429",

@@ -68,7 +68,7 @@ describe("permission settings", () => {
     await writeFile(path, "not json");
     expect(await createPermissionSettingsStore(path).read()).toMatchObject({
       localToolPermission: "ask",
-      autoReview: { isEnabled: true },
+      autoReview: { isEnabled: false },
     });
   });
 });

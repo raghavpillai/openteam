@@ -4,6 +4,13 @@ import type { BotAgentStore } from "../bot-agent-store";
 import { safeToolResult, textFromContent, thinkingFromContent, toolItem } from "./content";
 import type { ActiveTurn } from "./types";
 
+function isBackgroundStatusCheck(toolName: string, args: unknown): boolean {
+  if (toolName === "CheckSubagent") return true;
+  if (toolName !== "CallDynamicTool" || !args || typeof args !== "object") return false;
+  const input = args as Record<string, unknown>;
+  return input.namespace === "cursor" && input.toolName === "CheckSubagent";
+}
+
 export function startAgentMessage(active: ActiveTurn, itemId: string): void {
   if (active.startedItems.has(itemId)) return;
   active.startedItems.add(itemId);
@@ -106,6 +113,24 @@ export function routeEvent(
       return;
     }
     if (message.role !== "assistant") return;
+    // Capture the finite delivery batch before any tool executes. A text reply
+    // ending the turn must not discard attachments already emitted with it.
+    if (!active.endTurnRequested) {
+      active.finishDeliveryAttachments = false;
+      active.pendingDeliveryAttachments = new Map();
+      active.pendingDeliveryCleanup = new Map();
+      if (Array.isArray(message.content)) for (const part of message.content) {
+        if (part?.type === "toolCall" && part.name === "SendToUser" &&
+            part.arguments?.type === "attachment" && typeof part.id === "string") {
+          active.pendingDeliveryAttachments.set(part.id, JSON.stringify(part.arguments));
+        }
+        if (part?.type === "toolCall" && part.name === "CallDynamicTool" &&
+            part.arguments?.namespace === "cursor" && part.arguments?.toolName === "StopSubagent" &&
+            typeof part.id === "string") {
+          active.pendingDeliveryCleanup.set(part.id, JSON.stringify(part.arguments));
+        }
+      }
+    }
     active.lastStopReason = message.stopReason ?? null;
     active.lastErrorMessage = message.errorMessage ?? null;
     const text = textFromContent(message.content);
@@ -155,12 +180,19 @@ export function routeEvent(
   }
 
   if (event.type === "tool_execution_start") {
-    if (active.sentMessageCount > 0) {
+    // Schema discovery and a status-only poll may leave an already-announced
+    // background handoff intact. Loading metadata does not produce a task result.
+    // Defer its delivery obligation until the host's result proves it is pending.
+    const deliveryCleanup = active.endTurnRequested === true && active.finishDeliveryAttachments === true &&
+      event.toolName === "CallDynamicTool" &&
+      active.pendingDeliveryCleanup?.get(event.toolCallId) === JSON.stringify(event.args);
+    if (active.sentMessageCount > 0 && !deliveryCleanup && event.toolName !== "GetDynamicTools" && !isBackgroundStatusCheck(event.toolName, event.args)) {
       active.toolActivityAfterLastSend = true;
     }
     active.toolArgs.set(event.toolCallId, {
       toolName: event.toolName,
       args: event.args,
+      deliveryCleanup,
     });
     active.queue.push({
       type: "item.started",
@@ -172,6 +204,24 @@ export function routeEvent(
 
   if (event.type === "tool_execution_end") {
     const stored = active.toolArgs.get(event.toolCallId);
+    if (stored?.toolName === "GetDynamicTools" && active.sentMessageCount > 0) {
+      const result = event.result as {isError?: boolean} | undefined;
+      if (event.isError || result?.isError) active.toolActivityAfterLastSend = true;
+      // Successful discovery never clears earlier work or a failed delivery.
+    }
+    if (stored?.deliveryCleanup) {
+      const result = event.result as {details?: {deliveryCleanup?: boolean}; isError?: boolean} | undefined;
+      if (event.isError || result?.isError || result?.details?.deliveryCleanup !== true)
+        active.toolActivityAfterLastSend = true;
+    }
+    if (stored && isBackgroundStatusCheck(stored.toolName, stored.args) && active.sentMessageCount > 0) {
+      const result = event.result as {details?: {tool?: string; pendingBackgroundWork?: boolean}} | undefined;
+      if (event.isError || result?.details?.tool !== "CheckSubagent" || result.details.pendingBackgroundWork !== true) {
+        active.toolActivityAfterLastSend = true;
+      }
+      // Never clear prior/concurrent activity: a pending worker cannot excuse
+      // another undelivered result or a failed SendToUser call.
+    }
     active.queue.push({
       type: "item.completed",
       turnId: active.turnId,

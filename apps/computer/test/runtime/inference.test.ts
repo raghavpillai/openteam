@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, spyOn } from "bun:test";
 import { ComputerRuntime } from "../../src/runtime";
 
 const inferenceRequest = {
@@ -17,7 +17,8 @@ const runtimeWithResult = (result: unknown) => {
     authenticated: boolean;
     modelRuntime: {
       checkAuth: () => Promise<{ type: "api_key" }>;
-      completeSimple: () => Promise<unknown>;
+      completeSimple: (...args: any[]) => Promise<unknown>;
+      streamSimple: (...args: any[]) => unknown;
     };
     resolveModel: () => { reasoning: boolean };
   };
@@ -26,12 +27,95 @@ const runtimeWithResult = (result: unknown) => {
   internals.modelRuntime = {
     checkAuth: async () => ({ type: "api_key" }),
     completeSimple: async () => result,
+    streamSimple: (...args: any[]) => {
+      const completion = internals.modelRuntime.completeSimple(...args);
+      return {
+        async *[Symbol.asyncIterator]() { await completion; },
+        result: () => completion,
+      };
+    },
   };
   internals.resolveModel = () => ({ reasoning: true });
   return runtime;
 };
 
 describe("memory inference", () => {
+  test("stream timing excludes empty/start events and preserves pre-timeout progress", async () => {
+    const logs: string[] = [];
+    const spy = spyOn(console, "info").mockImplementation(value => { logs.push(String(value)); });
+    try {
+      for (const withText of [false, true]) {
+        const runtime = runtimeWithResult(null);
+        (runtime as any).modelRuntime.streamSimple = (_model: unknown, _context: unknown, options: any) => ({
+          async *[Symbol.asyncIterator]() {
+            yield { type: "start" };
+            yield { type: "text_delta", delta: "" };
+            if (withText) {
+              yield { type: "thinking_delta", delta: "PRIVATE_REASONING" };
+              await Bun.sleep(5);
+              yield { type: "text_delta", delta: "PRIVATE_RESPONSE" };
+            }
+            await new Promise((_, reject) => options.signal.addEventListener("abort",
+              () => reject(new Error("PRIVATE_ERROR")), { once: true }));
+          },
+          result: () => { throw new Error("No final result on interrupted stream"); },
+        });
+        await expect(runtime.infer({ ...inferenceRequest, timeoutMs: 30 })).rejects.toThrow("timed out");
+        const metrics = JSON.parse(logs.at(-1)!);
+        expect(metrics.outcome).toBe("timeout");
+        if (withText) {
+          expect(metrics.firstDeltaMs).toBeGreaterThanOrEqual(0);
+          expect(metrics.firstTextDeltaMs).toBeGreaterThanOrEqual(metrics.firstDeltaMs);
+        } else {
+          expect(metrics.firstDeltaMs).toBeNull();
+          expect(metrics.firstTextDeltaMs).toBeNull();
+        }
+      }
+      expect(logs.join("\n")).not.toContain("PRIVATE_");
+    } finally { spy.mockRestore(); }
+  });
+
+  test("visual review sends the observation as an image without changing text or tool access", async () => {
+    const runtime = runtimeWithResult(null);
+    const image = { type: "image" as const, mimeType: "image/png", data: "SYNTHETIC_IMAGE_BYTES" };
+    const internals = runtime as any;
+    internals.resolveModel = () => ({ reasoning: true, input: ["text", "image"] });
+    internals.modelRuntime.completeSimple = async (_model: unknown, context: any) => {
+      expect(context.systemPrompt).toBe(inferenceRequest.instructions);
+      expect(context.tools).toEqual([]);
+      expect(context.messages[0].content).toEqual([{ type: "text", text: inferenceRequest.prompt }, image]);
+      return { stopReason: "stop", content: [{ type: "text", text: "decision" }] };
+    };
+    await expect(runtime.infer({ ...inferenceRequest, images: [image] })).resolves.toBe("decision");
+    internals.resolveModel = () => ({ reasoning: true, input: ["text"] });
+    await expect(runtime.infer({ ...inferenceRequest, images: [image] })).rejects.toThrow("cannot review visual evidence");
+  });
+  test("utility metrics expose usage and outcome without request or response content", async () => {
+    const logs: string[] = [];
+    const spy = spyOn(console, "info").mockImplementation(value => { logs.push(String(value)); });
+    try {
+      const runtime = runtimeWithResult({
+        stopReason: "stop",
+        content: [{ type: "text", text: "PRIVATE_RESPONSE" }],
+        usage: { input: 120, cacheRead: 80, output: 12, reasoning: 5 },
+      });
+      await expect(runtime.infer({ ...inferenceRequest, kind: "verification",
+        instructions: "PRIVATE_INSTRUCTIONS", prompt: "PRIVATE_PROMPT", cwd: "/PRIVATE_PATH",
+      })).resolves.toBe("PRIVATE_RESPONSE");
+      expect(logs).toHaveLength(1);
+      expect(JSON.parse(logs[0]!)).toMatchObject({
+        event: "utility_inference.metrics", kind: "verification", outcome: "success",
+        provider: "openai-codex", model: "gpt-5.5", reasoning: "high",
+        inputTokens: 120, cachedInputTokens: 80, outputTokens: 12, reasoningTokens: 5,
+      });
+      expect(JSON.parse(logs[0]!).durationMs).toBeGreaterThanOrEqual(0);
+      expect(logs.join("\n")).not.toContain("PRIVATE_");
+      const failing = runtimeWithResult({ stopReason: "error", errorMessage: "PRIVATE_ERROR", content: [] });
+      await expect(failing.infer(inferenceRequest)).rejects.toThrow("PRIVATE_ERROR");
+      expect(JSON.parse(logs[1]!)).toMatchObject({ outcome: "error", kind: "unspecified" });
+      expect(logs.join("\n")).not.toContain("PRIVATE_");
+    } finally { spy.mockRestore(); }
+  });
   test("caller cancellation cancels the underlying provider completion", async () => {
     const runtime = runtimeWithResult(null);
     const controller = new AbortController();

@@ -31,7 +31,7 @@ test("failed graphical workers persist partial results and send those results to
   worker.notifySubagentParent = async (...args: any[]) => { delivered = args[3]; };
   const tx = {
     subagent: { findFirst: async () => ({ id: "child", status: "running" }), update: async (arg: any) => writes.push(arg) },
-    subagentAttempt: { findUnique: async () => ({ id: "attempt", status: "running", runInBackground: true }), update: async (arg: any) => writes.push(arg) },
+    subagentAttempt: { findUnique: async () => ({ id: "attempt", status: "running", runInBackground: true }), update: async (arg: any) => { writes.push(arg); return {runInBackground:true}; } },
     runItem: { findMany: async () => [pending, completed] },
     event: { create: async () => {} },
   };

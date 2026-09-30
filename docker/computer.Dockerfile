@@ -70,11 +70,16 @@ RUN apt-get update \
     libreoffice-impress \
     libreoffice-draw \
     mousepad \
+    mupdf \
     nodejs \
     npm \
+    file \
     novnc \
     poppler-utils \
+    python3-openpyxl \
     python3-pip \
+    python3-reportlab \
+    python3-venv \
     python-is-python3 \
     ripgrep \
     thunar \
@@ -82,6 +87,7 @@ RUN apt-get update \
     tesseract-ocr-eng \
     tini \
     unzip \
+    zip \
     websockify \
     wget \
     x11-xserver-utils \
@@ -114,9 +120,11 @@ COPY --chown=box:box docker/computer-entrypoint.sh /usr/local/bin/openteam-compu
 COPY --chown=box:box docker/openteam-pi-auth /usr/local/bin/openteam-pi-auth
 COPY --chown=box:box docker/desktop /usr/share/openteam-desktop
 COPY --chown=box:box docker/openteam-screen-launch /usr/local/bin/openteam-screen-launch
+COPY --chown=box:box docker/openteam-browser /usr/bin/chromium
 COPY --chown=box:box docker/openteam-vnc.html /usr/share/novnc/openteam.html
 COPY --from=desktop-assets /openteam-wallpaper.png /usr/share/openteam-desktop/wallpaper.png
 RUN chmod 0755 \
+    /usr/bin/chromium \
     /usr/local/bin/openteam-computer-entrypoint \
     /usr/local/bin/openteam-pi-auth \
     /usr/local/bin/openteam-screen-launch

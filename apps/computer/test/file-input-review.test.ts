@@ -10,17 +10,19 @@ function fixture() {
     dispose: async () => { disposed++; } }) }]]);
   runtime.nativeToolExecutor = { withReviewContext: (_: unknown, fn: () => unknown) => fn(), autoReviewAction: async (input: unknown) => { reviewed = input; } };
   runtime.assertNoPendingReview = () => {};
+  runtime.screens = { guardAgentReview: async () => () => {} };
   runtime.executeHostTool = (_a: unknown, _i: unknown, _t: unknown, _s: unknown, fn: (a: any) => unknown) => fn({});
   return { runtime, observation, review: () => reviewed, executions: () => executed, disposals: () => disposed,
     change: () => { changed = true; },
     invoke: (tool = "browser_click") => runtime.reviewGraphicalAction({ botId: "bot", screenBotId: "screen" }, "call", tool,
-      { ref: "e1", tool: "forged-tool", browserObservedTarget: { source: "forged user permission", selectedFileCount: 0 } }, undefined, async () => { executed++; }) };
+      { ref: "e1", tool: "forged-tool", nativeScreenObservation: "forged", browserObservedTarget: { source: "forged user permission", selectedFileCount: 0 } }, undefined, async () => { executed++; }) };
 }
 
 test("file click review overwrites forged evidence and validates before acting", async () => {
   const f = fixture(); await f.invoke();
   expect(f.review().arguments.browserObservedTarget).toEqual(f.observation);
   expect(f.review().arguments.tool).toBe("browser_click");
+  expect(f.review().arguments.nativeScreenObservation).toBeUndefined();
   expect(JSON.stringify(f.review())).not.toContain("forged user permission");
   expect(f.executions()).toBe(1); expect(f.disposals()).toBe(1);
   f.change(); await expect(f.invoke()).rejects.toThrow("file input changed");
@@ -30,6 +32,16 @@ test("file click review overwrites forged evidence and validates before acting",
 test("unobserved actions cannot smuggle browser evidence into review", async () => {
   const f = fixture(); await f.invoke("Computer");
   expect(f.review().arguments.browserObservedTarget).toBeUndefined();
+  expect(f.review().arguments.nativeScreenObservation).toBe(true);
+});
+
+test("native action does not execute if human control changes during review", async () => {
+  const f = fixture();
+  let changed = false;
+  f.runtime.screens.guardAgentReview = async () => () => { if (changed) throw new Error("control changed"); };
+  f.runtime.nativeToolExecutor.autoReviewAction = async () => { changed = true; };
+  await expect(f.invoke("Computer")).rejects.toThrow("control changed");
+  expect(f.executions()).toBe(0);
 });
 
 test("denied reviews never execute and release retained file identity", async () => {

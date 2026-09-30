@@ -14,6 +14,7 @@ import type { TaskConfiguration } from "@openteam/contracts/task-configuration";
 export type TurnStatus = "completed" | "failed" | "interrupted";
 
 export interface ActiveTurn {
+  runtimeStartedAt?: number;
   taskConfiguration?: TaskConfiguration;
   pluginRuntimePackages?: readonly import("@openteam/plugin-sdk").PluginRuntimePackage[];
   pluginAbortController?: AbortController;
@@ -54,7 +55,7 @@ export interface ActiveTurn {
   currentAssistantId: string | null;
   currentReasoningId: string | null;
   startedItems: Set<string>;
-  toolArgs: Map<string, { toolName: string; args: unknown }>;
+  toolArgs: Map<string, { toolName: string; args: unknown; deliveryCleanup?: boolean }>;
   lastStopReason: string | null;
   lastErrorMessage: string | null;
   lastGraphicalSurface?: "browser" | "computer";
@@ -76,6 +77,11 @@ export interface ActiveTurn {
   lastPromptFingerprint?: string;
   connectorInstructions?: string;
   endTurnRequested?: boolean;
+  /** Remaining attachment calls from the already-produced assistant response. */
+  pendingDeliveryAttachments?: Map<string, string>;
+  finishDeliveryAttachments?: boolean;
+  /** Exact stop calls already emitted alongside a closing response. */
+  pendingDeliveryCleanup?: Map<string, string>;
   acknowledgedCardOutcomes?: Set<string>;
 }
 

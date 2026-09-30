@@ -166,7 +166,6 @@ const stageAttachmentCopy = async (input: {
       return false;
     }
     if (
-      byteSize === 0 ||
       byteSize !== input.expectedByteSize ||
       hash.digest("hex") !== input.expectedAssetId
     ) {
@@ -1037,6 +1036,8 @@ export class AgentDataStore {
       await atomicWrite(join(this.managedSkillsDirectory(), "cache.json"), jsonFile({ version: "disabled", skills: [] }), 0o444);
       return;
     }
+    // Retired OpenTeam-only helper; the supported navigation recipe is inline.
+    await rm(join(this.managedSkillsDirectory(), "flight-booking", "google-flights-url.cjs"), { force: true });
     const cachePath = join(this.managedSkillsDirectory(), "cache.json");
     const current = await readText(cachePath);
     if (current) {

@@ -120,3 +120,22 @@ describe("live Pi steering", () => {
     ]);
   });
 });
+
+test("queued corrections prevent native, browser and computer actions from reaching review or execution", async () => {
+  const runtime = new ComputerRuntime();
+  const tools = (runtime as any).tools;
+  let reviewed = 0;
+  tools.nativeToolExecutor = { withReviewContext: async () => { reviewed++; return { content: [], details: {} }; } };
+  const active = { subagentType: "computerUse", pendingSteers: [{ inboxId: "new-input", content: "Correct the task" }] };
+  const catalog = tools.customTools(active);
+  for (const name of ["Shell", "Read", "Computer", "browser_click"]) {
+    const tool = catalog.find((candidate: any) => candidate.name === name);
+    expect(tool).toBeDefined();
+    await expect(tool.execute("stale-call", {}, undefined, undefined, {})).rejects.toThrow("newer instruction is queued");
+  }
+  expect(reviewed).toBe(0);
+  expect(active.pendingSteers).toHaveLength(1);
+  active.pendingSteers.splice(0);
+  await catalog.find((tool: any) => tool.name === "Shell").execute("current-call", {}, undefined, undefined, {});
+  expect(reviewed).toBe(1);
+});

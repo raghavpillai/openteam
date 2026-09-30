@@ -1,4 +1,4 @@
-import { renderReadText } from "@openteam/contracts/read-output";
+import { renderReadText, renderPdfReadText } from "@openteam/contracts/read-output";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { randomInt } from "node:crypto";
 import { ShellJobRegistry, createShellEnvironmentCapture, loadShellEnvironment, SHELL_ENVIRONMENT_CAPTURE } from "@openteam/shell-jobs";
@@ -347,7 +347,8 @@ export const executeRead = async (input: HostReadInput, signal?: AbortSignal) =>
     raw = await readFile(path, "utf8");
   }
   signal?.throwIfAborted();
-  return { kind: "text" as const, path, ...renderReadText(raw, typeof input.offset === "number" ? input.offset : undefined, typeof input.limit === "number" ? input.limit : undefined, metadata.size) };
+  const render = extname(path).toLowerCase() === ".pdf" ? renderPdfReadText : renderReadText;
+  return { kind: "text" as const, path, ...render(raw, typeof input.offset === "number" ? input.offset : undefined, typeof input.limit === "number" ? input.limit : undefined, metadata.size) };
 };
 
 const finishOutputFile = (stream: WriteStream, suffix: string) =>

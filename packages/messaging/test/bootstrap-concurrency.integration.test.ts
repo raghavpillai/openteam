@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, writeFile, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPrismaClient } from "@openteam/db";
@@ -7,6 +8,54 @@ import { AgentDataStore } from "../src/agent-data";
 import { AgentMessaging } from "../src/index";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
+
+test.skipIf(!databaseUrl)("first-message attachments do not deadlock concurrent file initialization", async () => {
+  const db = createPrismaClient(databaseUrl!);
+  const root = await mkdtemp(join(tmpdir(), "bootstrap-attachment-race-"));
+  const botId = crypto.randomUUID();
+  const assetRoot = join(root, "assets");
+  const store = new AgentDataStore(db, { root, assetRoot, workspaceRoot: root });
+  const messaging = new AgentMessaging(db, {} as never, store);
+  const fileLocked = Promise.withResolvers<void>();
+  const botLocked = Promise.withResolvers<void>();
+  let initialization: Promise<unknown> | undefined;
+  let acceptance: Promise<unknown> | undefined;
+  try {
+    await db.bot.create({ data: { id: botId, name: "Attachment race", defaultDirectory: root,
+      status: "active", onboardingStatus: "pending", conversation: { create: {} } } });
+    const bytes = Buffer.from("attachment race fixture");
+    const assetId = createHash("sha256").update(bytes).digest("hex");
+    await mkdir(assetRoot);
+    await writeFile(join(assetRoot, `${assetId}.blob`), bytes);
+    initialization = db.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${botId}`}))`;
+      fileLocked.resolve();
+      await botLocked.promise;
+      // This FK takes KEY SHARE on Bot, just like live file initialization.
+      await tx.agentFileState.create({ data: { path: join(root, "profile.json"), botId, kind: "profile" } });
+    });
+    acceptance = db.$transaction(async tx => {
+      await fileLocked.promise;
+      await messaging.skipBootstrapForUser(tx, botId);
+      botLocked.resolve();
+      const paths = await store.materializeAttachments(botId, "first-user-message", [{
+        assetId, fileName: "fixture.txt", mimeType: "text/plain", kind: "file", byteSize: bytes.length,
+      }]);
+      expect(paths).toHaveLength(1);
+      expect(await readFile(paths[0]!)).toEqual(bytes);
+      await tx.message.create({ data: { botId, conversationId: (await tx.conversation.findUniqueOrThrow({ where: { botId } })).id,
+        role: "user", content: "Attachment accepted", status: "completed" } });
+    });
+    await Promise.all([initialization, acceptance]);
+    expect(await db.message.count({ where: { botId, role: "user" } })).toBe(1);
+  } finally {
+    fileLocked.resolve(); botLocked.resolve();
+    await Promise.allSettled([initialization, acceptance]);
+    await db.bot.deleteMany({ where: { id: botId } });
+    await db.$disconnect();
+    await rm(root, { recursive: true, force: true });
+  }
+}, 15000);
 
 test.skipIf(!databaseUrl)("speaking during provisioning cancels the greeting committed by provisioning", async () => {
   const db = createPrismaClient(databaseUrl!);

@@ -37,7 +37,8 @@ describe("captured tool contract wiring", () => {
       expect(task.inputSchema).toEqual(taskToolContract(taskConfiguration).inputSchema);
       const userInfo = enrichUserInfo("<user_info></user_info>", { cwd: "/tmp", transcriptPath: "/tmp/transcript", namespaces: [], taskConfiguration });
       expect(userInfo.includes("browserUse:")).toBe(!combinedComputerUse);
-      expect(userInfo).toContain("quick: Small jobs");
+      // Worker inference is server-controlled; profiles are not model-selectable.
+      expect(userInfo).not.toContain("quick: Small jobs");
       const computer = runtime.customTools({ ...active, runtimeProfile: "subagent", subagentType: "computerUse" });
       expect(computer.some(tool => tool.name === "browser_snapshot")).toBe(combinedComputerUse);
       expect(computer.some(tool => tool.name === "Computer")).toBe(true);

@@ -66,6 +66,9 @@ export function parseHostTransferRequest(value: unknown): HostTransferRequest {
     path,
     machineId,
     ...(value.direction === "write" ? { bytes: Number(value.bytes) } : {}),
+    // File transfers need the same supervisor provenance as other host tools.
+    // Without it, Auto Review cannot retrieve the authorizing conversation.
+    ...(value.reviewContext === undefined ? {} : { reviewContext: parseHostReviewContext(value.reviewContext) }),
     ...(value.localApproval === "allow-once" || value.localApproval === "always"
       ? { localApproval: value.localApproval }
       : {}),
@@ -216,6 +219,8 @@ export interface AgentDirectorySnapshot {
 
 export interface ComputerInferenceRequest {
   kind: "extraction" | "episode" | "synthesis" | "verification";
+  /** Internal verification only: capture this desktop locally, never accept image bytes from the actor. */
+  screenBotId?: string;
   instructions: string;
   prompt: string;
   timeoutMs: number;
@@ -251,8 +256,13 @@ export const parseComputerInferenceRequest = (value: unknown): ComputerInference
     throw new Error("Inference model is invalid");
   }
   const reasoning = normalizePiReasoningLevel(input.reasoning);
+  if (input.screenBotId !== undefined && (input.kind !== "verification" ||
+    typeof input.screenBotId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.screenBotId))) {
+    throw new Error("Inference screen observation is invalid");
+  }
   return {
     kind: input.kind as ComputerInferenceRequest["kind"],
+    ...(typeof input.screenBotId === "string" ? { screenBotId: input.screenBotId } : {}),
     instructions,
     prompt,
     timeoutMs: input.timeoutMs,

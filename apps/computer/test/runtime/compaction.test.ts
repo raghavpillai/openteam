@@ -656,7 +656,8 @@ for (const scenario of [
           cwd: root,
           runtimeProfile: "agent",
           subagentType: null,
-          requestSource: "turn",
+          // This provider fixture tests compaction, and exposes no delivery tool.
+          requestSource: "agent",
           resetSelfSummaryCount: true,
           sentMessageCount: 1,
           endTurnRequested: true,

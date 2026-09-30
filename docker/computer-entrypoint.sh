@@ -15,6 +15,25 @@ mkdir -p /home/box/Downloads /home/box/Documents
 chown "$agent_uid:$agent_gid" /home/box/Downloads /home/box/Documents
 chmod 2770 /home/box/Downloads /home/box/Documents
 
+# The runner needs ordinary package caches and LibreOffice profile storage.
+# Older volumes may have these parents owned by the desktop UID with mode 0700.
+# Grant traversal only on the parents; do not recursively expose .local/share
+# or the supervisor-owned credential directories.
+for runner_dir in /home/box/.local /home/box/.cache /home/box/.local/lib /home/box/.local/bin /home/box/.cache/pip /home/box/.cache/uv /home/box/.cache/fontconfig /home/box/.cache/dconf /home/box/.config /home/box/.config/libreoffice; do
+  if [ -L "$runner_dir" ]; then
+    echo "refusing redirected runner package directory: $runner_dir" >&2
+    exit 1
+  fi
+done
+mkdir -p /home/box/.local /home/box/.cache /home/box/.config
+chgrp "$agent_gid" /home/box/.local /home/box/.cache /home/box/.config
+chmod g+x /home/box/.local /home/box/.cache /home/box/.config
+for runner_dir in /home/box/.local/lib /home/box/.local/bin /home/box/.cache/pip /home/box/.cache/uv /home/box/.cache/fontconfig /home/box/.cache/dconf /home/box/.config/libreoffice; do
+  mkdir -p "$runner_dir"
+  chown -R "$agent_uid:$agent_gid" "$runner_dir"
+  chmod 2770 "$runner_dir"
+done
+
 # The inference supervisor owns Pi credentials. Agent-launched shells and GUI
 # processes run as the unprivileged runner identity and share only workspace,
 # agent-data, and browser state through the box group.

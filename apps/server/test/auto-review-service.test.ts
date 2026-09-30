@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, spyOn } from "bun:test";
 import {
   AutoReviewService,
   AUTO_REVIEW_COMMAND_MAX_LENGTH,
@@ -22,6 +22,65 @@ const inference = async () => ({
 });
 
 describe("Auto Review", () => {
+  test("only native runtime observations request a locally captured review image", async () => {
+    const requests: any[] = [];
+    const service = new AutoReviewService(async (_path, init) => {
+      requests.push(JSON.parse(String(init.body)));
+      return Response.json({ text: '{"decision":"block","reason":"Not authorized"}' });
+    }, inference);
+    const target = crypto.randomUUID();
+    const native = { ...input, surface: "computer" as const, target,
+      reviewContext: { runId: crypto.randomUUID(), botId: target },
+      arguments: { nativeScreenObservation: true },
+    };
+    await service.review(native);
+    expect(requests[0].screenBotId).toBe(target);
+    await service.review({ ...native, surface: "browser" });
+    await service.review({ ...native, reviewContext: undefined });
+    await service.review({ ...native, arguments: {} });
+    for (const request of requests.slice(1)) expect(request.screenBotId).toBeUndefined();
+  });
+  test("retries transport unavailability once with identical review input", async () => {
+    for (const failure of [new TypeError("fetch failed"), new DOMException("Timed out", "TimeoutError")]) {
+      const bodies: string[] = [];
+      const service = new AutoReviewService(async (_path, init) => {
+        bodies.push(String(init.body));
+        if (bodies.length === 1) throw failure;
+        return Response.json({ text: '{"decision":"block","reason":"Confirmation required"}' });
+      }, inference);
+      expect(await service.review(input)).toEqual({ decision: "block", reason: "Confirmation required" });
+      expect(bodies).toHaveLength(2);
+      expect(bodies[0]).toBe(bodies[1]);
+    }
+  });
+
+  test("persistent transport failures stay closed and do not retry unrelated exceptions", async () => {
+    for (const [failure, expectedCalls] of [[new TypeError("fetch failed"), 2], [new DOMException("Timed out", "TimeoutError"), 2], [new Error("Invalid configuration"), 1]] as const) {
+      let calls = 0;
+      const service = new AutoReviewService(async () => { calls++; throw failure; }, inference);
+      expect((await service.review(input)).decision).toBe("reject");
+      expect(calls).toBe(expectedCalls);
+    }
+  });
+
+  test("timing metrics count retries without exposing review content", async () => {
+    const logs: string[] = [];
+    const spy = spyOn(console, "info").mockImplementation(value => { logs.push(String(value)); });
+    try {
+      let calls = 0;
+      const service = new AutoReviewService(async () => ++calls === 1
+        ? new Response(null, { status: 503 })
+        : Response.json({ text: '{"decision":"block","reason":"PRIVATE_REASON"}' }), inference);
+      const result = await service.review({ ...input, summary: "PRIVATE_SUMMARY", command: "PRIVATE_COMMAND" });
+      expect(result.decision).toBe("block");
+      const metric = JSON.parse(logs[0]!);
+      expect(metric).toMatchObject({ event: "auto_review.metrics", decision: "block", inferenceAttempts: 2 });
+      expect(metric.durationMs).toBeGreaterThanOrEqual(0);
+      expect(metric.contextMs).toBeGreaterThanOrEqual(0);
+      expect(metric.inferenceMs).toBeGreaterThanOrEqual(0);
+      expect(logs.join("\n")).not.toContain("PRIVATE_");
+    } finally { spy.mockRestore(); }
+  });
   test("keeps a command bound and honors a denial at the end of a long command", async () => {
     expect(() => parseAutoReviewInput({ ...input, command: "x".repeat(AUTO_REVIEW_COMMAND_MAX_LENGTH + 1) })).toThrow();
     const command = "# harmless synthetic preamble\n".repeat(300) + "publish-private-fixture";
@@ -95,7 +154,12 @@ describe("Auto Review", () => {
       parseAutoReviewResponse('```json\n{"decision":"allow","reason":"safe"}\n```')
     ).toBeNull();
     expect(parseAutoReviewResponse('{"decision":"maybe","reason":"uncertain"}')).toBeNull();
-    expect(parseAutoReviewResponse('{"decision":"allow"}')).toBeNull();
+    expect(parseAutoReviewResponse('{"decision":"allow"}')).toEqual({ decision: "allow", reason: "Allowed by Auto Review." });
+    for (const text of ['{"decision":"block"}', '{"decision":"block","reason":""}',
+      '{"decision":"allow","reason":null}', '{"decision":"allow","reason":42}',
+      '{"decision":"allow","reason":""}', '{"decision":"allow"', 'null']) {
+      expect(parseAutoReviewResponse(text)).toBeNull();
+    }
   });
 
   test("places block rules before allow rules and states their precedence", async () => {

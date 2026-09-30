@@ -20,7 +20,14 @@ export const element = {
 } as const;
 
 export const BROWSER_USE_TOOLS: readonly BrowserUseToolDefinition[] = [
+  referenceTool("browser_run_code"),
+  referenceTool("browser_handle_dialog"),
+  referenceTool("browser_navigate_back"),
+  referenceTool("browser_wait_for"),
+  referenceTool("browser_resize"),
   referenceTool("browser_find"),
+  referenceTool("browser_hover"),
+  referenceTool("browser_console_messages"),
   referenceTool("browser_fill_form"),
   {
     name: "browser_file_upload",
@@ -202,7 +209,7 @@ export const BROWSER_USE_TOOLS: readonly BrowserUseToolDefinition[] = [
   },
   {
     name: "browser_take_screenshot",
-    description: "Take a viewport or full-page screenshot of the selected page.",
-    inputSchema: objectToolSchema({ viewId, fullPage: { type: "boolean" } }),
+    description: "Take a viewport, full-page, or element screenshot of the selected page.",
+    inputSchema: objectToolSchema({ viewId, fullPage: { type: "boolean" }, target: { type: "string", minLength: 1, maxLength: 1000 }, element: { type: "string", maxLength: 500 } }),
   },
 ].map(tool => referenceTool(tool.name));

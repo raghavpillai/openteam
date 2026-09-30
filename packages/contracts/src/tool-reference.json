@@ -3416,5 +3416,51 @@
         "message"
       ]
     }
+  },
+  "browser_run_code": {
+    "name": "browser_run_code",
+    "description": "Automate a web task in one call: pass one async Playwright function, `async (page) => { ...; return value; }`, that does the task and returns what it found or did. The return value is JSON-serialized into the result as `{\"result\": ..., \"stdio\": [...]}`, optionally with a `steps` array of what the script did. A page is always available: the selected tab, which is the one browser_snapshot reads, brought to the front first if it is hidden, or a new about:blank tab when none is open, so start with page.goto when you need a site. To use another open tab, find it in page.context().pages() by its url() and call bringToFront() on it before click or hover, which wait for the tab to be in front; fill, press, reads and click({ force: true }) also work on a background tab. The tab a script leaves in front becomes the selected tab for the next call and browser_snapshot. Each call starts fresh with only page, console, Buffer, URL, TextEncoder and TextDecoder in scope, so start with page.goto when you need a site. There is no expect; check conditions in code and return what you found. A call may run 30 seconds and return 256 KB. OpenTeam: operates only on this worker’s leased tabs. Browser-wide credential operations are unavailable; use browser_file_upload for workspace uploads. Scripts are unavailable while protected login values are present.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "maxLength": 16384,
+          "description": "A JavaScript function containing Playwright code to execute. It will be invoked with a single argument, page, which you can use for page interaction. For example: `async (page) => { await page.getByRole('button', { name: 'Submit' }).click(); return await page.title(); }`"
+        }
+      }
+    }
+  },
+  "browser_handle_dialog": {
+    "name": "browser_handle_dialog",
+    "description": "Handle a dialog",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accept": {
+          "type": "boolean"
+        },
+        "promptText": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "accept"
+      ]
+    }
+  },
+  "browser_navigate_back": {
+    "name": "browser_navigate_back",
+    "description": "Go back to the previous page in the history",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    }
   }
 }

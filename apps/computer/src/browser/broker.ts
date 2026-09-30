@@ -44,6 +44,7 @@ export class BrowserBroker {
   private loaded = false;
   private timer: ReturnType<typeof setInterval> | null = null;
   private syncTail: Promise<void> = Promise.resolve();
+  private periodicSync: Promise<void> | null = null;
 
   constructor(home = process.env.HOME ?? "/home/openteam") {
     this.stateDirectory = join(home, ".openteam");
@@ -71,9 +72,10 @@ export class BrowserBroker {
 
   async detach(botId: string): Promise<void> {
     await this.attaching.get(botId)?.catch(() => undefined);
-    await this.enqueueSync();
     const peer = this.peers.get(botId);
     if (!peer) return;
+    await this.enqueueSync();
+    if (this.peers.get(botId) !== peer) return;
     this.peers.delete(botId);
     peer.cdp.close();
     if (this.peers.size === 0 && this.timer) {
@@ -124,9 +126,21 @@ export class BrowserBroker {
     await this.refreshTargets(peer, true);
     await this.save();
     if (!this.timer) {
-      this.timer = setInterval(() => void this.enqueueSync(), 1_500);
+      this.timer = setInterval(() => this.schedulePeriodicSync(), 1_500);
       this.timer.unref?.();
     }
+  }
+
+  private schedulePeriodicSync(): void {
+    // Slow pages must not accumulate a new whole-browser reconciliation on
+    // every timer tick. Explicit detach requests still get their own barrier.
+    if (this.periodicSync) return;
+    const pending = this.enqueueSync();
+    this.periodicSync = pending;
+    const clear = () => {
+      if (this.periodicSync === pending) this.periodicSync = null;
+    };
+    void pending.then(clear, clear);
   }
 
   private enqueueSync(): Promise<void> {

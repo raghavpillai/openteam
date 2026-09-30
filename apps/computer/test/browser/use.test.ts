@@ -10,6 +10,15 @@ import {
 } from "../../src/browser/use";
 
 const EXPECTED_TOOLS = [
+  "browser_run_code",
+  "browser_handle_dialog",
+  "browser_navigate_back",
+  "browser_wait_for",
+  "browser_resize",
+  "browser_find",
+  "browser_hover",
+  "browser_console_messages",
+  "browser_fill_form",
   "browser_file_upload",
   "browser_navigate",
   "browser_snapshot",

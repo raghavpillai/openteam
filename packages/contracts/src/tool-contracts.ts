@@ -37,6 +37,56 @@ contracts.browser_navigate!.description = contracts.browser_navigate!.descriptio
 );
 contracts.browser_click!.description = "Click an element by ref from the latest returned page state or browser_snapshot. Scrolls the element into view first. Returns page text and current element refs. Use browser_take_screenshot for visual evidence.";
 
+contracts.browser_snapshot!.description = "Capture a structured snapshot of the current page with [ref=eN] handles for interactive elements. The snapshot inspects reachable shadow roots and frames, including reachable cross-origin frames; frames it cannot inspect are called out in a trailing note. Refs are tied to the latest snapshot for that tab. Use this for page structure and choosing what to click or type; use browser_take_screenshot for visual evidence.";
+
+// Observed element-target captures; retain our tab routing and current refs.
+contracts.browser_take_screenshot!.description = "Save a screenshot of the current page. Use fullPage for the full scrollable page, or target for one element by current snapshot ref or unique CSS selector. fullPage and target cannot be combined. element is a human-readable label, not a selector.";
+Object.assign(contracts.browser_take_screenshot!.inputSchema.properties, {
+  target: { type: "string", minLength: 1, maxLength: 1000, description: "Current snapshot ref or unique CSS selector of the element to capture" },
+  element: { type: "string", maxLength: 500, description: "Short human-readable label for the capture" },
+});
+
+// Capabilities observed in Grok runs; schemas explicitly adapted to our ref API.
+contracts.browser_wait_for = {
+  name: "browser_wait_for",
+  description: "Wait for text to appear or disappear or a specified time to pass",
+  inputSchema: {type: "object", additionalProperties: false, properties: {
+    time: {type: "number", minimum: 0, maximum: 10},
+    text: {type: "string", minLength: 1, maxLength: 1000, description: "Text to wait for"},
+    textGone: {type: "string", minLength: 1, maxLength: 1000, description: "Text to wait for to disappear"},
+    viewId: {type: "string"},
+  }},
+};
+// Observed browser_resize invocation and upstream Playwright MCP description.
+// Add our tab lease selector and bound dimensions; the live Grok schema was not captured.
+contracts.browser_resize = {
+  name: "browser_resize",
+  description: "Resize the browser window. Changes the selected tab's viewport dimensions and returns fresh page state.",
+  inputSchema: {type: "object", additionalProperties: false, required: ["width", "height"], properties: {
+    width: {type: "integer", minimum: 1, maximum: 8192, description: "Width of the browser window in pixels"},
+    height: {type: "integer", minimum: 1, maximum: 8192, description: "Height of the browser window in pixels"},
+    viewId: {type: "string", minLength: 1, maxLength: 120},
+  }},
+};
+contracts.browser_hover = {
+  name: "browser_hover",
+  description: "Hover over element on page",
+  inputSchema: {type: "object", additionalProperties: false, required: ["target"], properties: {
+    target: {type: "string", minLength: 1, maxLength: 1000, description: "The ref from the latest snapshot, or a unique CSS selector"},
+    element: {type: "string", maxLength: 500, description: "Short plain-language name of the element, shown to the user in review"},
+    viewId: {type: "string"},
+  }},
+};
+contracts.browser_console_messages = {
+  name: "browser_console_messages",
+  description: "Returns all console messages",
+  inputSchema: {type: "object", additionalProperties: false, properties: {
+    level: {type: "string", enum: ["error", "warning", "info", "debug"], default: "info", description: 'Level of the console messages. Each level includes messages of more severe levels. Defaults to "info".'},
+    all: {type: "boolean", default: false, description: "Return all console messages since the beginning of the session, not just since the last navigation. Defaults to false."},
+    viewId: {type: "string"},
+  }},
+};
+
 // Observed text/regex search capability with bounded OpenTeam output.
 contracts.browser_find = {
   name: "browser_find",

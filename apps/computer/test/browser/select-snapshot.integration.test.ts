@@ -34,6 +34,24 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)("snapshots expose nat
     expect(snapshot).toContain('- option "One" selected');
     expect(snapshot).not.toContain('- option "Two" selected');
     expect(snapshot.split("\n").find(line => line.includes('combobox "Priority'))).toContain(`[ref=${ref}]`);
+    const selectionPage = await (session as any).ensurePage();
+    await selectionPage.evaluate(() => {
+      const el = document.createElement('select');
+      el.setAttribute('aria-label', 'Collision');
+      el.innerHTML = '<option value="first">second</option><option value="second">Other choice</option>';
+      document.body.append(el);
+      const grouped = document.createElement('select');
+      grouped.setAttribute('aria-label', 'Grouped');
+      grouped.innerHTML = '<optgroup disabled><option value="locked">Choice</option></optgroup><option value="available">Choice</option>';
+      document.body.append(grouped);
+    });
+    snapshot = text(await session.execute("browser_snapshot", {}));
+    const collisionRef = snapshot.split("\n").find(line => line.includes('combobox "Collision'))!.match(/\[ref=(e\d+)\]/)![1]!;
+    await session.execute("browser_select_option", { ref: collisionRef, values: ["second"] });
+    expect(await selectionPage.getByLabel('Collision').inputValue()).toBe('second');
+    const groupedRef = snapshot.split("\n").find(line => line.includes('combobox "Grouped'))!.match(/\[ref=(e\d+)\]/)![1]!;
+    await session.execute("browser_select_option", { ref: groupedRef, values: ["Choice"] });
+    expect(await selectionPage.getByLabel('Grouped').inputValue()).toBe('available');
     const shallow = text(await session.execute("browser_snapshot", { maxDepth: 0 }));
     expect(shallow).toContain('combobox "Priority');
     expect(shallow).not.toContain('- option "One"');

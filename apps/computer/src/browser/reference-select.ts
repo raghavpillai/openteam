@@ -3,8 +3,8 @@
 export const resolveReferenceSelectOptions = (el, requested) => {
 	const tag = el.tagName ? el.tagName.toLowerCase() : "";
 	if (tag !== "select" || !Array.isArray(requested)) return { kind: "unresolved" };
-	const options = [...el.options].filter((option) => !option.disabled);
-	if (options.length === 0) return { kind: "unresolved" };
+	const options = [...el.options].filter((option) => !option.matches(":disabled"));
+
 	const significant = (text) =>
 		String(text ?? "")
 			.toLowerCase()
@@ -13,9 +13,9 @@ export const resolveReferenceSelectOptions = (el, requested) => {
 	const MIN_PREFIX_SIGNIFICANT_CHARS_SO_A_BARE_CODE_LIKE_AL_NEVER_TAKES_ALASKA = 4;
 	const resolveVerbatimThenCaselessThenAlphanumericThenShortestLabelPrefix = (wanted) => {
 		if (typeof wanted !== "string") return undefined;
-		const verbatim = options.find(
-			(option) => option.value === wanted || labelOf(option) === wanted.trim(),
-		);
+		// Values are identifiers; an earlier display label must not shadow one.
+		const verbatim = options.find((option) => option.value === wanted) ??
+			options.find((option) => labelOf(option) === wanted.trim());
 		if (verbatim) return verbatim;
 		const lower = wanted.trim().toLowerCase();
 		const caseless = options.find(

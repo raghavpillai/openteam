@@ -1,4 +1,6 @@
+import { runBrowserCode } from "./run-code";
 import { findPageLines } from "./find";
+import { saveLargeBrowserOutput } from "./output";
 import { BrowserUploads } from "./uploads";
 import { snapshotAcrossFrames, refHandle, frameRefsByPage, referenceFill, referenceType, editableHandle, writeTargetFrameIsHidden, WRITE_TARGET_IS_HIDDEN_FN, gotoWithRecovery, navigationNote, recoverErrorPage, settleIntoErrorPage, isChromeErrorPage, markSecretFill, SPLIT_CHAR_GROUP_FN } from "./reference-driver";
 import { resolveReferenceSelectOptions } from "./reference-select";
@@ -36,13 +38,6 @@ const textResult = (
   content: [{ type: "text", text }],
   details,
 });
-
-const boundedJson = (value: unknown): string => {
-  const serialized = JSON.stringify(value, null, 2);
-  return serialized.length <= 100_000
-    ? serialized
-    : `${serialized.slice(0, 100_000)}\n… browser output truncated`;
-};
 
 export const assertAllowedCdpMethod = (method: string): void => {
   const denied = [
@@ -101,6 +96,7 @@ export const sameOriginFrame = (pageUrl: string, frameUrl: string): boolean => {
 };
 
 export class BrowserUseSession {
+  private endpoint?: string;
   private readonly uploads = new BrowserUploads();
   configureUploads(workspace: string, excludedRoots: string[] = []) {
     this.uploads.workspace = workspace; this.uploads.excludedRoots = excludedRoots;
@@ -147,9 +143,11 @@ export class BrowserUseSession {
   private unfinishedOperation?: Promise<AgentToolResult<Record<string, unknown>>>;
   private dialogTimedOutOperation?: Promise<AgentToolResult<Record<string, unknown>>>;
   private cancelledNavigation?: Promise<AgentToolResult<Record<string, unknown>>>;
-  private async drainDialogAction(): Promise<void> {
+  private scriptDialogOpened?: (page: Page) => void;
+  private scriptOperation?: Promise<AgentToolResult<Record<string, unknown>>>;
+  private async drainDialogAction(): Promise<AgentToolResult<Record<string, unknown>> | undefined> {
     const operation = this.unfinishedOperation;
-    try { await operation; }
+    try { return await operation; }
     catch (error) {
       // The dialog can arrive while the action's post-click screenshot starts.
       // Its failed observation is superseded by the fresh post-dialog snapshot.
@@ -160,6 +158,7 @@ export class BrowserUseSession {
     }
     finally {
       if (this.unfinishedOperation === operation) this.unfinishedOperation = undefined;
+      if (this.scriptOperation === operation) this.scriptOperation = undefined;
       if (this.cancelledNavigation === operation) this.cancelledNavigation = undefined;
       if (this.dialogTimedOutOperation === operation) this.dialogTimedOutOperation = undefined;
     }
@@ -169,7 +168,7 @@ export class BrowserUseSession {
     const dialog = this.dialogs.get(page)!;
     const pendingDialog = { type: dialog.type(), message: dialog.message(), defaultValue: dialog.defaultValue() };
     return textResult(`${summary}. Pending ${pendingDialog.type}: ${pendingDialog.message}\n` +
-      `The page is paused. Use browser_cdp with method Page.handleJavaScriptDialog and params {accept: true|false, promptText?: string}, or respond through native Computer controls. Do not repeat the action that opened it.`,
+      `The page is paused. Use browser_handle_dialog with {accept: true|false, promptText?: string}, or respond through native Computer controls. Do not repeat the action that opened it.`,
       { viewId: this.idFor(page), url: page.url(), pendingDialog });
   }
 
@@ -239,12 +238,13 @@ export class BrowserUseSession {
   // The runtime endpoint belongs to one bot desktop. Native Chrome and its
   // managed workers must see the same tabs; explicit false retains an isolated
   // lease for callers that intentionally share an endpoint with unrelated work.
-  static async connect(endpoint: string, artifactDirectory: string, adoptExisting = true, downloadDirectory = join(homedir(), "Downloads"), lease?: { targets: Map<string, string>; selected: string | null; nextId: number }): Promise<BrowserUseSession> {
+  static async connect(endpoint: string, artifactDirectory: string, adoptExisting = true, downloadDirectory = join(homedir(), "Downloads"), lease?: { targets: Map<string, string>; selected: string | null; nextId: number }, createInitialPage = true): Promise<BrowserUseSession> {
     const driver = await outOfProcessPlaywright();
     const browser = await driver.playwright.chromium.connectOverCDP(endpoint);
     const context = browser.contexts()[0];
     if (!context) throw new Error("Chromium did not provide a default browser context");
     const session = new BrowserUseSession(browser, context, artifactDirectory, downloadDirectory, adoptExisting);
+    session.endpoint = endpoint;
     session.downloads = await BrowserDownloads.create(browser, context, () => session.leasedPages(), downloadDirectory);
     if (lease) {
       session.nextViewId = lease.nextId;
@@ -269,8 +269,9 @@ export class BrowserUseSession {
         const latest = session.leasedPages().at(-1);
         if (latest) session.currentViewId = session.idFor(latest);
       }
-    } else if (!lease) session.trackPage(await context.newPage());
-    await session.ensurePage();
+    } else if (!lease && createInitialPage) session.trackPage(await context.newPage());
+    // Passive desktop observation must not create a tab/window after capture.
+    if (createInitialPage) await session.ensurePage();
     return session;
   }
 
@@ -490,14 +491,15 @@ export class BrowserUseSession {
     return redactSecrets(result.lines.join("\n"), [...this.privateValues]);
   }
 
-  async execute(toolName: string, raw: unknown): Promise<AgentToolResult<Record<string, unknown>>> {
+  async execute(toolName: string, raw: unknown, signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
     try {
-      const result = await this.executeWithDialogs(toolName, raw);
-      if (!this.privateValues.size) return result;
-      return { ...result,
+      const result = await this.executeWithDialogs(toolName, raw, signal);
+      const redacted = !this.privateValues.size ? result : { ...result,
         content: result.content.map(part => part.type === "text" ? {...part, text: redactSecrets(part.text, [...this.privateValues])} : part),
         details: JSON.parse(redactSecrets(JSON.stringify(result.details ?? {}), [...this.privateValues])),
       };
+      // run_code has its own 256 KB JSON contract; do not replace it with a text-file preview.
+      return toolName === "browser_run_code" ? redacted : await saveLargeBrowserOutput(redacted, this.artifactDirectory);
     } catch (error) {
       throw new Error(redactSecrets(error instanceof Error ? error.message : String(error), [...this.privateValues]));
     }
@@ -521,14 +523,14 @@ export class BrowserUseSession {
       await Promise.race([probe, new Promise<void>(resolve => { timer = setTimeout(resolve, 100); })]);
     } finally { clearTimeout(timer); }
   }
-  private async executeWithDialogs(toolName: string, raw: unknown): Promise<AgentToolResult<Record<string, unknown>>> {
+  private async executeWithDialogs(toolName: string, raw: unknown, signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
     const args = (raw && typeof raw === "object" ? raw : {}) as JsonObject;
     const page = await this.ensurePage(this.viewId(args));
     await this.refreshPendingDialog(page);
     const dialog = this.dialogs.get(page);
-    if (toolName === "browser_cdp" && args.method === "Page.handleJavaScriptDialog") {
+    if (toolName === "browser_handle_dialog" || (toolName === "browser_cdp" && args.method === "Page.handleJavaScriptDialog")) {
       if (!dialog) throw new Error("No dialog is showing");
-      const params = args.params as JsonObject | undefined;
+      const params = toolName === "browser_handle_dialog" ? args : args.params as JsonObject | undefined;
       if (typeof params?.accept !== "boolean" || (params.promptText !== undefined && typeof params.promptText !== "string"))
         throw new Error("Dialog handling requires accept: boolean and optional promptText: string");
       const opened = new Promise<AgentToolResult<Record<string, unknown>>>(resolve => {
@@ -542,8 +544,9 @@ export class BrowserUseSession {
         if (this.dialogs.has(page)) return this.dialogState(page);
         // Accepting one dialog can synchronously open another. Report it without
         // waiting for the original click's JavaScript callback to finish.
-        return await Promise.race([opened, this.drainDialogAction().then(() =>
-          this.pageState(page, params.accept ? "Accepted browser dialog" : "Dismissed browser dialog"))]);
+        const script = this.unfinishedOperation === this.scriptOperation;
+        return await Promise.race([opened, this.drainDialogAction().then(result =>
+          script && result ? result : this.pageState(page, params.accept ? "Accepted browser dialog" : "Dismissed browser dialog"))]);
       } catch (error) {
         return this.recoverClosedPopup(page, error);
       } finally { this.dialogOpened = undefined; }
@@ -553,9 +556,11 @@ export class BrowserUseSession {
     // Drain it before a new action; never replay an action after a dialog.
     await this.drainDialogAction();
     const opened = new Promise<AgentToolResult<Record<string, unknown>>>(resolve => {
-      this.dialogOpened = openedPage => resolve(this.dialogState(openedPage));
+      const notify = (openedPage: Page) => resolve(this.dialogState(openedPage));
+      if (toolName === "browser_run_code") this.scriptDialogOpened = notify;
+      else this.dialogOpened = notify;
     });
-    const operation: Promise<AgentToolResult<Record<string, unknown>>> = this.executeRaw(toolName, raw).catch(error => {
+    const operation: Promise<AgentToolResult<Record<string, unknown>>> = this.executeRaw(toolName, raw, signal).catch(error => {
       // Record when the timeout occurred, not merely that a dialog appeared.
       // An observation/navigation timeout after the dialog closed must still fail.
       if (this.dialogs.size && /[Tt]imeout\s+\d+ms exceeded/.test(String(error)))
@@ -563,6 +568,7 @@ export class BrowserUseSession {
       throw error;
     });
     this.unfinishedOperation = operation;
+    if (toolName === "browser_run_code") this.scriptOperation = operation;
     try {
       const result = await Promise.race([operation, opened]);
       if (!result.details?.pendingDialog) this.unfinishedOperation = undefined;
@@ -572,6 +578,7 @@ export class BrowserUseSession {
       return this.recoverClosedPopup(page, error);
     } finally {
       this.dialogOpened = undefined;
+      this.scriptDialogOpened = undefined;
       // A rejected input after returning the dialog must not become unhandled.
       void operation.catch(() => {});
     }
@@ -585,11 +592,26 @@ export class BrowserUseSession {
     }
     throw error;
   }
-  private async executeRaw(toolName: string, raw: unknown): Promise<AgentToolResult<Record<string, unknown>>> {
+  private async executeRaw(toolName: string, raw: unknown, signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
     const args = (raw && typeof raw === "object" ? raw : {}) as JsonObject;
     switch (toolName) {
       case "browser_navigate":
         return this.navigate(args);
+      case "browser_navigate_back": {
+        signal?.throwIfAborted();
+        const page = await this.ensurePage();
+        await page.goBack({waitUntil: "domcontentloaded", timeout: 30_000});
+        signal?.throwIfAborted();
+        return this.pageState(page, "Went back in browser history");
+      }
+      case "browser_resize":
+        return this.resize(args, signal);
+      case "browser_wait_for":
+        return this.waitFor(args, signal);
+      case "browser_hover":
+        return this.hover(args);
+      case "browser_console_messages":
+        return this.consoleMessages(args);
       case "browser_find":
         return this.find(args);
       case "browser_snapshot":
@@ -618,15 +640,65 @@ export class BrowserUseSession {
         return this.boundingBox(args);
       case "browser_highlight":
         return this.highlight(args);
+      case "browser_run_code":
+        return this.runCode(args, signal);
       case "browser_cdp":
         return this.cdp(args);
       case "browser_tabs":
         return this.tabs(args);
       case "browser_take_screenshot":
-        return this.takeScreenshot(args);
+        return this.takeScreenshot(args, signal);
       default:
         throw new Error(`Unknown browser-use tool: ${toolName}`);
     }
+  }
+
+  private async runCode(args: JsonObject, signal?: AbortSignal) {
+    if (this.privateValues.size) throw new Error("browser_run_code is unavailable while protected login values are present");
+    if (!this.endpoint) throw new Error("browser_run_code requires a connected browser endpoint");
+    const page = await this.ensurePage();
+    const pages = this.leasedPages();
+    await Promise.all(pages.map(p => this.observeDialogs(p)));
+    for (const p of pages) this.uploads.watch(p);
+    const selected = this.targetIds.get(this.idFor(page));
+    if (!selected) throw new Error("Selected browser tab is unavailable");
+    let updates = Promise.resolve();
+    const synchronize = async (state: {targets: string[]; selected: string | null; dialog?: string}) => {
+      for (const candidate of this.context.pages()) {
+        if (candidate.isClosed()) continue;
+        let target: string;
+        try {
+          const cdp = await this.cdpFor(candidate);
+          const {targetInfo} = await cdp.send("Target.getTargetInfo");
+          target=targetInfo.targetId;
+        } catch(error) {
+          // A script can close a new tab before its queued selection update
+          // reaches this connection. Do not fail otherwise-completed actions.
+          if(candidate.isClosed() || /No target with given id found/.test(String(error)))continue;
+          throw error;
+        }
+        if (state.targets.includes(target)) {
+          this.trackPage(candidate);
+          this.uploads.watch(candidate);
+          if (target === (state.dialog ?? state.selected)) this.currentViewId = this.idFor(candidate);
+          await this.clearRefs(candidate);
+          if (target === state.dialog && this.dialogs.has(candidate)) this.scriptDialogOpened?.(candidate);
+        }
+      }
+    };
+    let response;
+    try {
+      response = await runBrowserCode({endpoint: this.endpoint,
+        targets: pages.map(p => this.targetIds.get(this.idFor(p))!).filter(Boolean),
+        selected, code: args.code as string}, signal, undefined, state => {
+          updates = updates.then(() => synchronize(state));
+          return updates;
+        });
+    } finally { await updates; }
+    await synchronize(response);
+    // Keep logs and a structured error together so the agent can diagnose a
+    // failed script without repeating side effects.
+    return textResult(JSON.stringify(response.payload), response.payload);
   }
 
   private async ensurePage(requestedViewId?: string): Promise<Page> {
@@ -659,17 +731,34 @@ export class BrowserUseSession {
     return pages;
   }
 
+  private readonly consoleHistory = new WeakMap<Page, {next: number; navigationStart: number; entries: Array<{id: number; level: string; text: string}>}>();
+
   private trackPage(page: Page): void {
     if (this.ownedPages.has(page)) return;
     this.ownedPages.add(page);
     this.idFor(page);
+    const history = {next: 0, navigationStart: 0, entries: [] as Array<{id: number; level: string; text: string}>};
+    this.consoleHistory.set(page, history);
+    const record = (level: string, text: string) => {
+      history.entries.push({id: ++history.next, level, text: redactSecrets(text, [...this.privateValues]).slice(0, 2000)});
+      if (history.entries.length > 200) history.entries.shift();
+    };
+    page.on("console", message => {
+      const location = message.location();
+      const source = location.url ? ` @ ${location.url}:${(location.lineNumber ?? 0) + 1}:${(location.columnNumber ?? 0) + 1}` : "";
+      record(message.type(), message.text() + source);
+    });
+    page.on("pageerror", error => record("error", error.stack || error.message));
     page.on("dialog", dialog => this.recordDialog(page, dialog));
     page.on("popup", (popup) => {
       this.openers.set(popup, page);
       this.trackPage(popup);
       this.currentViewId = this.idFor(popup);
     });
-    page.on("framenavigated", () => this.uploads.clear(page));
+    page.on("framenavigated", frame => {
+      this.uploads.clear(page);
+      if (frame === page.mainFrame()) history.navigationStart = history.next;
+    });
     page.on("close", () => {
       this.uploads.clear(page);
       void this.cdpSessions.get(page)?.then(cdp => cdp.detach()).catch(() => {});
@@ -723,23 +812,78 @@ export class BrowserUseSession {
     return handle;
   }
 
-  private async captureScreenshot(page: Page, fullPage: boolean): Promise<Buffer> {
-    const capture = () => page.screenshot({ fullPage, timeout: 10_000, type: "png", mask: [page.locator('[data-openteam-private="true"]')] });
+  private async captureScreenshot(page: Page, fullPage: boolean, timeoutMs = 10_000, signal?: AbortSignal, target?: Locator | ElementHandle<HTMLElement>): Promise<Buffer> {
+    signal?.throwIfAborted();
+    // Session setup, compositor startup and capture consume the same budget.
+    // Cleanup gets its own short allowance so an expired capture can release CDP.
+    const deadline = performance.now() + timeoutMs;
+    const remainingBudget = () => Math.max(1, Math.ceil(deadline - performance.now()));
+    const bounded = async <T>(operation: Promise<T>, phase: string, budget = remainingBudget(), interruptible = true): Promise<T> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let abort: (() => void) | undefined;
+      try {
+        return await Promise.race([operation, new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`Browser screenshot timed out during ${phase}`)), budget);
+          if (interruptible && signal) {
+            abort = () => reject(signal.reason ?? new Error("Browser screenshot interrupted"));
+            signal.addEventListener("abort", abort, { once: true });
+            if (signal.aborted) abort();
+          }
+        })]);
+      } finally {
+        clearTimeout(timer);
+        if (abort) signal?.removeEventListener("abort", abort);
+      }
+    };
+    const capture = async () => {
+      const attempt = () => {
+        const remaining = remainingBudget();
+        const options = {
+          timeout: remaining, type: "png" as const,
+          // Refresh every mask after frame churn; never drop masking to recover.
+          mask: page.frames().map(frame => frame.locator('[data-openteam-private="true"]')),
+        };
+        return bounded(target ? target.screenshot(options) : page.screenshot({ ...options, fullPage }), "capture", remaining);
+      };
+      try { return await attempt(); }
+      catch (error) {
+        // A third-party iframe can disappear between collecting masks and the
+        // capture. Retry only this read-only whole-page observation, once and
+        // inside the original budget. A detached element target stays invalid.
+        if (target || signal?.aborted || performance.now() >= deadline ||
+            !(error instanceof Error) || !/Frame was detached/i.test(error.message)) throw error;
+        return attempt();
+      }
+    };
     if (process.platform !== "linux") return capture();
     // Keep Linux Chromium delivering compositor frames while a leased tab is
     // captured, without activating it. Use a separate CDP session so existing
     // screencast clients are untouched. Frames are discarded; only the masked
     // Playwright screenshot leaves this method.
-    const rendering = await this.context.newCDPSession(page);
-    rendering.on("Page.screencastFrame", event => {
-      void rendering.send("Page.screencastFrameAck", { sessionId: event.sessionId }).catch(() => {});
-    });
+    let rendering: CDPSession | undefined;
+    let finished = false;
+    const pending = this.context.newCDPSession(page);
+    // If session creation finishes after our timeout, release only that session;
+    // never close the shared browser or the user's tab to recover an observation.
+    void pending.then(session => {
+      if (finished) void session.detach().catch(() => {});
+    }).catch(() => {});
     try {
-      await rendering.send("Page.startScreencast", { format: "jpeg", quality: 1 });
+      rendering = await bounded(pending, "session setup");
+      const session = rendering;
+      session.on("Page.screencastFrame", event => {
+        void session.send("Page.screencastFrameAck", { sessionId: event.sessionId }).catch(() => {});
+      });
+      await bounded(session.send("Page.startScreencast", { format: "jpeg", quality: 1 }), "render setup");
       return await capture();
     } finally {
-      await rendering.send("Page.stopScreencast").catch(() => {});
-      await rendering.detach().catch(() => {});
+      finished = true;
+      if (rendering) {
+        // Cleanup must not hide a successful capture or prevent a timeout from
+        // reaching the agent, which needs the result to select a fallback.
+        await bounded(rendering.send("Page.stopScreencast"), "render cleanup", Math.min(timeoutMs, 1_000), false).catch(() => {});
+        await bounded(rendering.detach(), "session cleanup", Math.min(timeoutMs, 1_000), false).catch(() => {});
+      }
     }
   }
 
@@ -748,7 +892,9 @@ export class BrowserUseSession {
     summary: string,
     fullPage = false,
     data?: string,
-    observation?: "snapshot" | "screenshot"
+    observation?: "snapshot" | "screenshot",
+    signal?: AbortSignal,
+    screenshotTarget?: Locator | ElementHandle<HTMLElement>
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     if (this.dialogs.has(page)) return this.dialogState(page, summary);
     await this.observeDialogs(page);
@@ -759,6 +905,7 @@ export class BrowserUseSession {
       return textResult(redactSecrets([
         summary, `Current page: ${title} (${page.url()})`, `Tab viewId: ${this.idFor(page)}`,
         ...(data ? [data] : []), ...(snapshot ? [snapshot.lines.join("\n")] : []),
+        ...(downloads.length ? ["Recent download history for this tab (not necessarily triggered by this action):"] : []),
         ...downloads.map(download => `Download ${download.state}: ${download.filename}${download.path ? ` (${download.path})` : ` (destination: ${download.directory})`}`),
       ].join("\n\n"), [...this.privateValues]), {
         viewId: this.idFor(page), url: page.url(), title,
@@ -766,7 +913,7 @@ export class BrowserUseSession {
         ...(downloads.length ? { downloads } : {}),
       });
     }
-    const image = Buffer.from(await this.captureScreenshot(page, fullPage));
+    const image = Buffer.from(await this.captureScreenshot(page, fullPage, 10_000, signal, screenshotTarget));
     await mkdir(this.artifactDirectory, { recursive: true });
     const path = join(
       this.artifactDirectory,
@@ -783,11 +930,11 @@ export class BrowserUseSession {
       content: [
         {
           type: "text",
-          text: redactSecrets([summary === "Took a screenshot" ? `Saved a screenshot to ${path}` : summary, `Current page: ${title} (${page.url()})`, `Tab viewId: ${this.idFor(page)}`, ...(data ? [data] : []), ...downloadText].join("\n\n"), [...this.privateValues]),
+          text: redactSecrets([summary === "Took a screenshot" ? `Saved a screenshot to ${path}` : summary, `Current page: ${title} (${page.url()})`, `Tab viewId: ${this.idFor(page)}`, `Capture area: ${screenshotTarget ? "element" : fullPage ? "full page" : "browser viewport"}`, ...(data ? [data] : []), ...(downloadText.length ? ["Recent download history for this tab (not necessarily triggered by this action):"] : []), ...downloadText].join("\n\n"), [...this.privateValues]),
         },
         { type: "image", data: image.toString("base64"), mimeType: "image/png" },
       ],
-      details: { viewId: pageViewId, url: page.url(), title, path, coordinateSpace: fullPage ? "page" : "browser-viewport", ...(downloads.length ? { downloads } : {}) },
+      details: { viewId: pageViewId, url: page.url(), title, path, coordinateSpace: screenshotTarget ? "element" : fullPage ? "page" : "browser-viewport", ...(downloads.length ? { downloads } : {}) },
     };
   }
 
@@ -829,13 +976,30 @@ export class BrowserUseSession {
     const found = await findPageLines(snapshot.lines, args);
     return textResult(redactSecrets([
       `Page text search: ${found.count} matching lines${found.truncated ? " (results truncated)" : ""}.`,
+      `Query (${typeof args.text === "string" ? "text" : "regex"}): ${JSON.stringify(redactSecrets(String(args.text ?? args.regex), [...this.privateValues]))}`,
       `Tab viewId: ${this.idFor(page)}`,
+      "Numbered lines are text locations, not element refs. Use only explicit [ref=...] values for element actions; a text match may have no actionable ref.",
       ...found.lines,
       ...snapshot.lines.filter(line => line.includes("truncated") || line.includes("unreachable")),
     ].join("\n"), [...this.privateValues]), {
       viewId: this.idFor(page), matches: found.count, truncated: found.truncated,
       unreachableFrames: snapshot.unreachableFrames,
     });
+  }
+
+  private async resize(args: JsonObject, signal?: AbortSignal) {
+    signal?.throwIfAborted();
+    const { width, height } = args;
+    if (typeof width !== "number" || typeof height !== "number" ||
+      !Number.isInteger(width) || !Number.isInteger(height) ||
+      width < 1 || height < 1 || width > 8192 || height > 8192) {
+      throw new Error("Browser width and height must be positive integers between 1 and 8192");
+    }
+    const page = await this.ensurePage(this.viewId(args));
+    signal?.throwIfAborted();
+    await page.setViewportSize({ width, height });
+    signal?.throwIfAborted();
+    return this.pageState(page, `Resized browser viewport to ${width} x ${height}`);
   }
 
   private async snapshot(args: JsonObject) {
@@ -944,6 +1108,73 @@ export class BrowserUseSession {
         };
       })
       .catch(() => null);
+  }
+
+  private async waitFor(args: JsonObject, signal?: AbortSignal) {
+    const {time, text, textGone} = args;
+    if (time === undefined && text === undefined && textGone === undefined)
+      throw new Error("Provide time, text or textGone");
+    if (time !== undefined && (typeof time !== "number" || !Number.isFinite(time) || time < 0 || time > 10))
+      throw new Error("time must be between 0 and 10 seconds");
+    for (const value of [text, textGone])
+      if (value !== undefined && (typeof value !== "string" || !value.trim() || value.length > 1000))
+        throw new Error("Wait text must be a non-empty string of at most 1000 characters");
+    const page = await this.ensurePage(this.viewId(args));
+    const pause = (ms: number) => new Promise<void>((resolve, reject) => {
+      signal?.throwIfAborted();
+      const abort = () => { clearTimeout(timer); signal?.removeEventListener("abort", abort); reject(signal?.reason ?? new Error("Wait interrupted")); };
+      const timer = setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, ms);
+      signal?.addEventListener("abort", abort, {once: true});
+    });
+    signal?.throwIfAborted();
+    if (typeof time === "number") await pause(time * 1000);
+    for (const [value, visible] of [[text, true], [textGone, false]] as const) {
+      if (typeof value !== "string") continue;
+      const deadline = Date.now() + 10_000;
+      while (true) {
+        signal?.throwIfAborted();
+        if (page.isClosed()) throw new Error("Page closed while waiting");
+        // Hidden templates and responsive duplicates often precede the live copy.
+        // Appearance means any visible match; disappearance means none remain.
+        if ((await page.getByText(value).filter({visible: true}).count() > 0) === visible) break;
+        if (Date.now() >= deadline) throw new Error(`Timed out after 10000ms waiting for text to ${visible ? "appear" : "disappear"}: ${value}`);
+        await pause(100);
+      }
+    }
+    signal?.throwIfAborted();
+    return this.pageState(page, "Wait completed");
+  }
+
+  private async hover(args: JsonObject) {
+    const page = await this.ensurePage(this.viewId(args));
+    if (typeof args.target !== "string" || !args.target.trim() || args.target.length > 1000) throw new Error("target must be a snapshot ref or unique CSS selector");
+    if (/^e[0-9]+$/.test(args.target)) {
+      await (await this.requireRef(page, args.target)).hover({timeout: 10_000});
+    } else {
+      // Prefix the engine explicitly; do not turn selector text into JavaScript.
+      const locator = page.locator(`css=${args.target}`);
+      const count = await locator.count();
+      if (count !== 1) throw new Error(`Hover selector must identify exactly one element; matched ${count}`);
+      await locator.hover({timeout: 10_000});
+    }
+    return this.pageState(page, `Hovered ${args.element ?? args.target}`);
+  }
+
+  private async consoleMessages(args: JsonObject) {
+    if (args.level !== undefined && !["debug", "info", "warning", "error"].includes(String(args.level))) throw new Error("Invalid console level");
+    const page = await this.ensurePage(this.viewId(args));
+    const history = this.consoleHistory.get(page)!;
+    const rank: Record<string, number> = {debug: 0, log: 1, info: 1, warning: 2, error: 3};
+    const threshold = rank[String(args.level ?? "info")]!;
+    const entries = history.entries.filter(entry => (args.all === true || entry.id > history.navigationStart) && (rank[entry.level] ?? 1) >= threshold);
+    // Bound output while retaining navigation-scoped (not read-once) semantics.
+    let used = 0;
+    const selected = [];
+    for (const entry of entries) {
+      if (used + entry.text.length > 30_000) break;
+      selected.push(entry); used += entry.text.length;
+    }
+    return textResult(selected.map(entry => `[${entry.level}] ${entry.text}`).join("\n") || "No matching console messages.", {viewId: this.idFor(page), truncated: selected.length < entries.length, retained: history.entries.length});
   }
 
   private async click(args: JsonObject) {
@@ -1073,7 +1304,7 @@ export class BrowserUseSession {
     }
     const resolved = await handle.evaluate(resolveReferenceSelectOptions, args.values) as {kind:string;values?:string[];fuzzy?:boolean;optionCount?:number};
     if (resolved.kind === "unmatched") throw new Error(`None of the ${resolved.optionCount} options matched the requested value, by value or by visible label. Take a fresh browser_snapshot to read the control, and pass an option value or label the page actually offers.`);
-    const selected = resolved.kind === "matched" ? await handle.selectOption(resolved.values!) : await handle.selectOption(args.values as string[]).catch(() => handle.selectOption((args.values as string[]).map(label => ({label}))));
+    const selected = resolved.kind === "matched" ? await handle.selectOption(resolved.values!.map(value => ({ value }))) : await handle.selectOption(args.values as string[]).catch(() => handle.selectOption((args.values as string[]).map(label => ({label}))));
     return this.pageState(page, `Selected ${JSON.stringify(selected)} in ${args.element ?? args.ref}${resolved.fuzzy ? " (matched the requested value to the page's option by its visible label)" : ""}`);
   }
 
@@ -1187,7 +1418,7 @@ export class BrowserUseSession {
       const raw = await Promise.race([session.send(args.method as never, (args.params ?? {}) as never),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error("CDP request timed out")),25_000);})]);
       const scrub=(value:unknown):any=>typeof value === "string" ? redactSecrets(value,[...this.privateValues]) : Array.isArray(value) ? value.map(scrub) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([key,value])=>[key,scrub(value)])) : value;
       const result=scrub(raw);
-      const state = await this.pageState(page, await this.recoverAfterAction(page, `Ran CDP ${args.method}`), false, boundedJson(result));
+      const state = await this.pageState(page, await this.recoverAfterAction(page, `Ran CDP ${args.method}`), false, JSON.stringify(result, null, 2));
       state.details = {
         ...state.details,
         viewId: this.idFor(page),
@@ -1208,17 +1439,21 @@ export class BrowserUseSession {
       (this.viewId(args) ? undefined : pages[0]);
     if (!page) throw new Error("Browser tab is unavailable; take a fresh browser_snapshot");
     const handle = await this.requireRef(page, args.ref);
-    if (!await handle.evaluate(node => node.tagName === "INPUT" && (node as HTMLInputElement).type === "file"))
+    if (!await handle.evaluate(node => {
+      const input = node.tagName === "LABEL" ? (node as HTMLLabelElement).control : node;
+      return input?.tagName === "INPUT" && (input as HTMLInputElement).type === "file";
+    }))
       return undefined;
     // Retain DOM/file identities privately: identical names/counts can still be
     // a different selection, and a same-URL navigation is a different document.
-    const state = await handle.evaluateHandle(node => ({
-      node, document: node.ownerDocument,
-      files: Array.from((node as HTMLInputElement).files ?? []),
-      disabled: (node as HTMLInputElement).disabled,
-      multiple: (node as HTMLInputElement).multiple,
-      accept: (node as HTMLInputElement).accept,
-    }));
+    const state = await handle.evaluateHandle(clickTarget => {
+      const node = (clickTarget.tagName === "LABEL" ? (clickTarget as HTMLLabelElement).control : clickTarget) as HTMLInputElement;
+      return {
+        clickTarget, node, document: node.ownerDocument,
+        files: Array.from(node.files ?? []),
+        disabled: node.disabled, multiple: node.multiple, accept: node.accept,
+      };
+    });
     try {
       const frame = await handle.ownerFrame();
       if (!frame) throw new Error("Browser frame is unavailable");
@@ -1247,7 +1482,8 @@ export class BrowserUseSession {
             const unchanged = await state.evaluate((saved, node) => {
               const input = saved.node as HTMLInputElement;
               const files = Array.from(input.files ?? []);
-              return saved.node === node && input.isConnected && input.ownerDocument === saved.document &&
+              const control = node.tagName === "LABEL" ? (node as HTMLLabelElement).control : node;
+              return saved.clickTarget === node && node.isConnected && saved.node === control && input.isConnected && input.ownerDocument === saved.document &&
                 input.tagName === "INPUT" && input.type === "file" && input.disabled === saved.disabled &&
                 input.multiple === saved.multiple && input.accept === saved.accept &&
                 files.length === saved.files.length && files.every((file, index) => file === saved.files[index]);
@@ -1329,9 +1565,23 @@ export class BrowserUseSession {
     return this.pageState(await this.ensurePage(), action === "new" ? "Opened a new tab" : action === "select" ? `Selected tab ${args.index}` : "Closed a tab");
   }
 
-  private async takeScreenshot(args: JsonObject) {
+  private async takeScreenshot(args: JsonObject, signal?: AbortSignal) {
+    if (args.target !== undefined && (typeof args.target !== "string" || !args.target.trim() || args.target.length > 1000))
+      throw new Error("target must be a snapshot ref or unique CSS selector");
+    if (args.target !== undefined && args.fullPage === true)
+      throw new Error("fullPage cannot be used with element screenshots");
     const page = await this.ensurePage(this.viewId(args));
-    return this.pageState(page, "Took a screenshot", args.fullPage === true, undefined, "screenshot");
+    let target: Locator | ElementHandle<HTMLElement> | undefined;
+    if (typeof args.target === "string") {
+      if (/^e[0-9]+$/.test(args.target)) target = await this.requireRef(page, args.target);
+      else {
+        const locator = page.locator(`css=${args.target}`);
+        const count = await locator.count();
+        if (count !== 1) throw new Error(`Screenshot selector must identify exactly one element; matched ${count}`);
+        target = locator;
+      }
+    }
+    return this.pageState(page, "Took a screenshot", args.fullPage === true, undefined, "screenshot", signal, target);
   }
 }
 export { BROWSER_USE_TOOLS, type BrowserUseToolDefinition } from "./tool-definitions";

@@ -52,7 +52,14 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)('find recovers generi
   state=text(await session.execute('browser_snapshot',{}));
   await session.execute('browser_type',{ref:ref(state,'Editor'),text:'replacement',clear:true});
   expect(await page.getByLabel('Editor').innerText()).toBe('replacement');
-  expect((await session.execute('browser_find',{text:'absent unique phrase'})).details?.matches).toBe(0);
+  const absent=await session.execute('browser_find',{text:'absent unique phrase'});
+  expect(absent.details?.matches).toBe(0);
+  expect(text(absent)).toContain('Query (text): "absent unique phrase"');
+  expect(text(await session.execute('browser_find',{regex:'/missing-item/i'}))).toContain('Query (regex): "/missing-item/i"');
+  (session as any).privateValues.add('private-search-value');
+  expect(text(await session.execute('browser_find',{text:'private-search-value'}))).not.toContain('private-search-value');
+  (session as any).privateValues.add('private\n"query"');
+  expect(text(await session.execute('browser_find',{text:'private\n"query"'}))).not.toContain('query');
   await page.evaluate(() => {
     const section = document.createElement('section');
     section.innerHTML = '<p>Ordinary row</p>'.repeat(450) + '<div>Late needle <button>Late action</button></div>';

@@ -38,21 +38,32 @@ export class BrowserUploads {
   private serial=0;
   workspace='/workspace';
   excludedRoots:string[]=[];
+  private watched=new WeakSet<Page>();
+  private captures=new Map<Page,Promise<void>>();
+  watch(page:Page) {
+    if(this.watched.has(page))return;
+    this.watched.add(page);
+    page.on('filechooser',chooser=>{
+      const capture=(async()=>{
+        const document=await chooser.element().evaluateHandle(node=>node.ownerDocument!.documentElement);
+        this.clear(page);
+        this.pending.set(page,{chooser,document:document as ElementHandle,id:++this.serial});
+      })();
+      this.captures.set(page,capture);
+      void capture.catch(()=>{}).finally(()=>{if(this.captures.get(page)===capture)this.captures.delete(page)});
+    });
+    page.on('close',()=>this.clear(page));
+  }
   async capture<T extends {content:any[];details?:Record<string,unknown>}>(page:Page,action:()=>Promise<T>):Promise<T> {
     if(this.pending.has(page))throw new Error('Respond to the pending file chooser before another click');
-    let capturing:Promise<void>|undefined;
-    const opened=(chooser:FileChooser)=>{capturing=(async()=>{
-      const document=await chooser.element().evaluateHandle(node=>node.ownerDocument!.documentElement);
-      this.pending.set(page,{chooser,document:document as ElementHandle,id:++this.serial});
-    })();void capturing.catch(()=>{});};
-    page.once('filechooser',opened);
-    try {
-      const result=await action();await capturing;
-      if(!this.pending.has(page))return result;
-      return {...result,content:[...result.content,{type:'text',text:'File chooser is pending. Use browser_file_upload with absolute workspace paths, or omit paths to cancel. Do not use native chooser clicks for this intercepted chooser.'}],details:{...result.details,pendingFileChooser:true}};
-    } finally {page.off('filechooser',opened);}
+    this.watch(page);
+    const result=await action();await this.captures.get(page);
+    if(!this.pending.has(page))return result;
+    return {...result,content:[...result.content,{type:'text',text:'File chooser is pending. Use browser_file_upload with absolute workspace paths, or omit paths to cancel. Do not use native chooser clicks for this intercepted chooser.'}],details:{...result.details,pendingFileChooser:true}};
   }
+
   async observe(page:Page) {
+    await this.captures.get(page);
     const pending=this.pending.get(page);
     if(!pending||page.isClosed())throw new Error('No pending file chooser in this tab');
     const input=pending.chooser.element();

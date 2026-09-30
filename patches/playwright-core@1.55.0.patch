@@ -1,8 +1,60 @@
 diff --git a/lib/server/chromium/crPage.js b/lib/server/chromium/crPage.js
-index 59a3c39a981631b4dd0717e5552aa798eebb0d59..1dbcc3ae6019318057a56ed2076928bd2120b088 100644
 --- a/lib/server/chromium/crPage.js
 +++ b/lib/server/chromium/crPage.js
-@@ -686,7 +686,7 @@ class FrameSession {
+@@ -394,6 +394,9 @@
+     if (!this._isMainFrame())
+       this._addRendererListeners();
+     this._addBrowserListeners();
++    // Backport upstream attachment ordering: parent identity must exist before
++    // inserting a remote iframe when connecting to an already-loaded page.
++    this._bufferedAttachedToTargetEvents = [];
+     const promises = [
+       this._client.send("Page.enable"),
+       this._client.send("Page.getFrameTree").then(({ frameTree }) => {
+@@ -401,6 +404,10 @@
+           this._handleFrameTree(frameTree);
+           this._addRendererListeners();
+         }
++        const attached = this._bufferedAttachedToTargetEvents || [];
++        this._bufferedAttachedToTargetEvents = undefined;
++        for (const event of attached)
++          this._onAttachedToTarget(event);
+         const localFrames = this._isMainFrame() ? this._page.frames() : [this._page.frameManager.frame(this._targetId)];
+         for (const frame of localFrames) {
+           this._client._sendMayFail("Page.createIsolatedWorld", {
+@@ -479,6 +486,13 @@
+     promises.push(this._client.send("Runtime.runIfWaitingForDebugger"));
+     promises.push(this._firstNonInitialNavigationCommittedPromise);
+     await Promise.all(promises);
++    // Multiple CDP clients may not replay every existing remote-frame attach.
++    // Reconcile by parent identity; attach missing children without navigating.
++    const { targetInfos } = await this._client.send("Target.getTargets");
++    for (const target of targetInfos) {
++      if (target.type === "iframe" && target.parentFrameId === this._targetId && !this._crPage._sessions.has(target.targetId))
++        await this._client._sendMayFail("Target.attachToTarget", { targetId: target.targetId, flatten: true });
++    }
+   }
+   dispose() {
+     this._firstNonInitialNavigationCommittedReject(new import_errors.TargetClosedError());
+@@ -593,10 +607,16 @@
+       this._onExecutionContextDestroyed(contextId);
+   }
+   _onAttachedToTarget(event) {
++    if (this._bufferedAttachedToTargetEvents) {
++      this._bufferedAttachedToTargetEvents.push(event);
++      return;
++    }
+     const session = this._client.createChildSession(event.sessionId);
+     if (event.targetInfo.type === "iframe") {
+       const targetId = event.targetInfo.targetId;
+-      const frame = this._page.frameManager.frame(targetId);
++      let frame = this._page.frameManager.frame(targetId);
++      if (!frame && event.targetInfo.parentFrameId)
++        frame = this._page.frameManager.frameAttached(targetId, event.targetInfo.parentFrameId);
+       if (!frame)
+         return;
+       this._page.frameManager.removeChildFramesRecursively(frame);
+@@ -686,7 +706,7 @@
    _onDialog(event) {
      if (!this._page.frameManager.frame(this._targetId))
        return;
@@ -11,7 +63,7 @@ index 59a3c39a981631b4dd0717e5552aa798eebb0d59..1dbcc3ae6019318057a56ed2076928bd
        this._page,
        event.type,
        event.message,
-@@ -696,7 +696,14 @@ class FrameSession {
+@@ -696,7 +716,14 @@
          await this._client.send("Page.handleJavaScriptDialog", { accept, promptText });
        },
        event.defaultPrompt

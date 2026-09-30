@@ -349,8 +349,11 @@ const SNAPSHOT_FN = (opts) => {
 		'[role="button"], [role="link"], [role="checkbox"], [role="radio"], ' +
 		'[role="tab"], [role="menuitem"], [role="menuitemcheckbox"], [role="combobox"], ' +
 		'[role="option"], [role="switch"], [role="searchbox"], [role="textbox"], ' +
-		'[role="slider"], [contenteditable="true"], [onclick], [draggable="true"], ' +
-		scriptedDragMatcher + ', .ui-droppable:not(.ui-droppable-disabled)';
+		'[role="slider"], [contenteditable="true"], [onclick], [draggable="true"], [tabindex], ' +
+		 scriptedDragMatcher + ', .ui-droppable:not(.ui-droppable-disabled)';
+	// Styled toggles and upload buttons commonly hide the native input and paint its label. The
+	// label remains a native click target even when the input has no box.
+	const labelControl = (el) => el.tagName === "LABEL" && el.control?.matches('input[type="radio"], input[type="checkbox"], input[type="file"]') ? el.control : null;
 	const hidesSubtree = (el) => {
 		if (el.getAttribute("aria-hidden") === "true") return true;
 		// The element's OWN window: elements from a pierced same-origin child
@@ -638,7 +641,11 @@ const SNAPSHOT_FN = (opts) => {
 		if (alt) return trim(alt, 80);
 		const title = el.getAttribute("title");
 		if (title) return trim(title, 80);
-		return trim(el.innerText ?? el.value ?? "", 80);
+		// SVG links and diagram controls do not expose innerText; their visible
+		// text still provides a usable accessible name. SVG value properties
+		// may be animated objects rather than strings.
+		return trim(el.innerText ?? (typeof el.value === "string" ? el.value : undefined) ??
+			(el.namespaceURI === "http://www.w3.org/2000/svg" ? el.textContent : ""), 80);
 	};
 	const roleOf = (el) => {
 		const explicit = el.getAttribute("role");
@@ -662,7 +669,7 @@ const SNAPSHOT_FN = (opts) => {
 	const describe = (el, depth) => {
 		const role = roleOf(el);
 		let name = nameOf(el);
-        if (opts.findText && !el.matches(interactiveMatcher)) {
+        if ((opts.findText || (/^(div|span)$/i.test(el.tagName) && !el.matches("[aria-label], [aria-labelledby]"))) && !el.matches(interactiveMatcher)) {
           const ownText = Array.from(el.childNodes).filter(node => node.nodeType === 3).map(node => node.nodeValue ?? "").join(" ");
           name = trim(ownText || name, 2000);
           if (el.hasAttribute("data-sand-secret-filled") || isSecretForElement(el, name, false)) name = "<redacted>";
@@ -693,7 +700,11 @@ const SNAPSHOT_FN = (opts) => {
 		}
 		let line = "  ".repeat(Math.min(depth, 6)) + "- " + role;
 		if (name) line += " " + JSON.stringify(name);
-		if (el.matches(interactiveMatcher) && !el.disabled) {
+		const toggle = labelControl(el);
+		const disabled = el.matches(":disabled") || el.getAttribute("aria-disabled") === "true" || toggle?.matches(":disabled") || toggle?.getAttribute("aria-disabled") === "true";
+		// A selector explicitly identifies a target, including custom event-driven
+		// controls whose semantics are not reflected in ARIA or HTML attributes.
+		if ((el.matches(interactiveMatcher) || toggle || (opts.selector && el === root) || el.matches("[aria-label], [aria-labelledby]")) && !disabled) {
 			let ref;
 			if (stableRefs) {
 				const cached = state.byElement.get(el);
@@ -718,10 +729,50 @@ const SNAPSHOT_FN = (opts) => {
 			refsThisWalk += 1;
 			line += " [ref=" + ref + "]";
 		}
-		if (el.disabled) line += " disabled";
+		if (disabled) line += " disabled";
+		if (el.readOnly || el.getAttribute("aria-readonly") === "true") line += " readonly";
+		if (role === "textbox" && !el.isContentEditable && !el.matches("input,textarea")) line += " non-editable";
 		if (el.draggable === true || el.matches(scriptedDragMatcher)) line += " draggable";
-		if (el.checked === true) line += " checked";
+		const ariaChecked = el.getAttribute("aria-checked");
+		if (["true", "false", "mixed"].includes(ariaChecked)) line += " checked=" + ariaChecked;
+		else if (el.indeterminate === true || toggle?.indeterminate === true) line += " checked=mixed";
+		else if (el.checked === true || toggle?.checked === true) line += " checked";
+		// A label and ref alone cannot show whether a tab/toggle/disclosure
+		// changed after a click. Preserve the explicit accessible states.
+		for (const stateName of ["pressed", "expanded", "selected"]) {
+			const value = el.getAttribute("aria-" + stateName);
+			if (value === "true" || value === "false" || (stateName === "pressed" && value === "mixed"))
+				line += " " + stateName + "=" + value;
+		}
+		// Custom range controls carry their current value in ARIA rather than
+		// an input.value property. Keep state changes observable after key/click actions.
+		if (["slider", "spinbutton", "scrollbar", "meter", "progressbar"].includes(role)) {
+			for (const valueName of ["valuemin", "valuemax", "valuenow", "valuetext"]) {
+				const value = el.getAttribute("aria-" + valueName);
+				if (value === null || value.trim() === "") continue;
+				if (valueName !== "valuetext" && !Number.isFinite(Number(value))) continue;
+				const secret = declaresSecretValue(el) || el.hasAttribute("data-sand-secret-filled") ||
+					isSecretForElement(el, value, false);
+				line += " " + valueName + "=" + JSON.stringify(secret ? "<redacted>" : trim(value, 80));
+			}
+		}
 		const tag = el.tagName.toLowerCase();
+		// Native numeric inputs expose constraints through HTML attributes, not
+		// aria-value*. Preserve explicit valid bounds so agents can choose legal
+		// keyboard increments without inspecting source or guessing defaults.
+		if (tag === "input" && ["range", "number"].includes(el.type)) {
+			for (const name of ["min", "max", "step"]) {
+				const raw = el.getAttribute(name);
+				if (raw === null || raw === "") continue;
+				const anyStep = name === "step" && raw.toLowerCase() === "any";
+				if (!anyStep && (!/^-?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$/.test(raw) ||
+					!Number.isFinite(Number(raw)) || (name === "step" && Number(raw) <= 0))) continue;
+				const secret = declaresSecretValue(el) || el.hasAttribute("data-sand-secret-filled") ||
+					isSecretForElement(el, raw, false);
+				line += " " + name + "=" + JSON.stringify(secret ? "<redacted>" : trim(raw, 80));
+			}
+		}
+		if (tag === "input" && ["date", "time", "month", "datetime-local", "week"].includes(el.type)) line += " input-type=" + el.type;
 		if (editableHost) {
 			// The compact accessible name collapses whitespace and truncates text.
 			// Preserve line boundaries for exact edit/Undo verification, with the
@@ -748,7 +799,10 @@ const SNAPSHOT_FN = (opts) => {
 			const hasSecretFillValue = isSecretForElement(el, el.value, tag === "input");
 			const isSecret =
 				declaresSecretValue(el) || el.hasAttribute("data-sand-secret-filled") || hasSecretFillValue;
-			line += " value=" + (isSecret ? '"<redacted>"' : JSON.stringify(trim(el.value, 40)));
+			// Keep multiline editors faithful, as with contenteditable above. A
+			// flattened preview cannot distinguish one line from several entries.
+			line += " value=" + (isSecret ? '"<redacted>"' : JSON.stringify(tag === "textarea" ? el.value.slice(0, 2000) : trim(el.value, 40)));
+			if (!isSecret && tag === "textarea" && el.value.length > 2000) line += " value-truncated";
 		}
 		if (tag === "a") {
 			const href = el.getAttribute("href");
@@ -760,10 +814,11 @@ const SNAPSHOT_FN = (opts) => {
 	const walk = (el, depth) => {
 		if (nodeCount >= maxNodes || depth > (opts.maxDepth ?? 20)) return;
 		// Instanceof against the element's OWN window: a pierced child frame's
-		// elements are instances of THAT frame's HTMLElement, never the top one.
+		// elements are instances of THAT frame's Element, never the top one.
+		// Include SVG controls and HTML controls nested in foreignObject.
 		const view =
 			el.ownerDocument && el.ownerDocument.defaultView ? el.ownerDocument.defaultView : win;
-		if (!(el instanceof view.HTMLElement)) return;
+		if (!(el instanceof view.Element)) return;
 		const tag = el.tagName.toLowerCase();
 		if (tag === "script" || tag === "style" || tag === "noscript") return;
 		if (hidesSubtree(el)) return;
@@ -780,11 +835,12 @@ const SNAPSHOT_FN = (opts) => {
 			return;
 		}
 		if (!hasBox && emptyBoxClipsEverythingInsideIt(el)) return;
-		const isInteractive = el.matches(interactiveMatcher);
+		const isInteractive = el.matches(interactiveMatcher) || labelControl(el) !== null || (opts.selector && el === root);
 		const isHeading = /^h[1-6]$/.test(tag);
+		const isGenericText = /^(div|span)$/.test(tag) && Array.from(el.childNodes).some(node => node.nodeType === 3 && node.nodeValue?.trim());
 		const isTextual =
 			!opts.interactive &&
-			(tag === "p" || tag === "li" || tag === "label" || tag === "td" || tag === "th" ||
+			(isGenericText || tag === "p" || tag === "pre" || tag === "output" || tag === "li" || tag === "label" || tag === "td" || tag === "th" ||
               (opts.findText && Array.from(el.childNodes).some(node => node.nodeType === 3 && node.nodeValue?.trim())));
 		if (hasBox && !isInteractive && isClosedShadowSuspect(el)) {
 			if (opts.settleClosedShadow === true) {
@@ -797,6 +853,7 @@ const SNAPSHOT_FN = (opts) => {
 		if (
 			hasBox &&
 			(isInteractive ||
+                (!opts.interactive && el.matches("[aria-label], [aria-labelledby]")) ||
 				isHeading ||
 				(isTextual &&
 					trim(el.innerText, 10).length > 0 &&
@@ -817,14 +874,21 @@ const SNAPSHOT_FN = (opts) => {
 						isSecretForElement(el, option.value, false) || isSecretForElement(el, label, false);
 					let line = "  ".repeat(Math.min(childDepth, 6)) + "- option " + JSON.stringify(secret ? "<redacted>" : trim(label, 80));
 					if (option.selected) line += " selected";
-					if (el.disabled || option.disabled || group?.disabled) line += " disabled";
+					if (el.matches(":disabled") || option.disabled || group?.disabled) line += " disabled";
 					lines.push(line);
 					nodeCount += 1;
 				}
 			}
 			// Text blocks can contain frames whose interactive descendants live in
 			// another document and therefore do not match querySelector above.
-			if ((isInteractive || (isTextual && !opts.findText && !el.querySelector("iframe,frame"))) && !el.matches(".ui-droppable")) return;
+			// Event-delegating wrappers are not leaves: retain their nested controls,
+			// frames and open shadow content instead of exposing only the wrapper.
+			// A nested shadow host is invisible to querySelector's light-DOM
+			// control match, even when its shadow tree contains usable controls.
+			const hasNestedContent = el.querySelector(interactiveMatcher + ",iframe,frame") || shadowOf(el) ||
+				Array.from(el.querySelectorAll("*")).some(child => shadowOf(child));
+			const interactiveLeaf = isInteractive && !hasNestedContent;
+			if ((interactiveLeaf || (isTextual && !isGenericText && !opts.findText && !hasNestedContent)) && tag !== "label" && !el.matches(".ui-droppable, [tabindex]")) return;
 		}
 		// An open shadow root's children walk like light children — the editable
 		// controls of custom elements (e.g. <faceplate-text-input>) live there.
@@ -1695,7 +1759,16 @@ const referenceType = async ({ request, page }) => {
         const editable = await element.evaluate(el => el.isConnected && !el.matches(":disabled") &&
           el.getAttribute("aria-disabled") !== "true" && el.getAttribute("aria-readonly") !== "true" &&
           !el.hasAttribute("readonly") && (el.isContentEditable || el.matches('textarea,input:not([type]),input[type="text"],input[type="search"],input[type="email"],input[type="url"],input[type="tel"],input[type="password"],input[type="number"]')));
-        if (!editable) throw new Error("Target is not an enabled editable text control. No click or typing was performed. Take a fresh browser_snapshot and choose an editable ref.");
+        if (!editable) {
+          const temporal = await element.evaluate(el => el.isConnected && !el.matches(":disabled") &&
+            el.getAttribute("aria-disabled") !== "true" && el.getAttribute("aria-readonly") !== "true" &&
+            !el.hasAttribute("readonly") && el.matches('input[type="date"],input[type="time"],input[type="month"],input[type="datetime-local"]') ? el.type : null);
+          if (temporal) {
+            const format = { date: "YYYY-MM-DD", time: "HH:mm or HH:mm:ss", month: "YYYY-MM", "datetime-local": "YYYY-MM-DDTHH:mm" }[temporal];
+            throw new Error(`Target is an input[type=${temporal}] control, not a plain text editor. No click or typing was performed. Use browser_fill with value in ${format} format, or browser_fill_form with type textbox and that value; then inspect the resulting state.`);
+          }
+          throw new Error("Target is not an enabled editable text control. No click or typing was performed. Take a fresh browser_snapshot and choose an editable ref.");
+        }
 		// A center click moves an existing editor's caret/selection. Focus the
 		// existing target without retargeting the insertion point, so typing
 		// after fill or an explicit caret movement preserves that state. A new

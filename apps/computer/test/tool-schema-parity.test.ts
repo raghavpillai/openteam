@@ -50,7 +50,7 @@ describe("captured tool contract wiring", () => {
       }
     }
   });
-  test("exposes all 74 shared contracts through the actual model-facing profiles", () => {
+  test("exposes all 77 shared contracts through the actual model-facing profiles", () => {
     const runtime = new RuntimeTools({} as never, "http://unused.invalid", "test", "/tmp", "/tmp");
     const base = { runtimeProfile: "agent", pluginNamespaces: [] } as unknown as ActiveTurn;
     const catalog = [
@@ -69,7 +69,7 @@ describe("captured tool contract wiring", () => {
         ? (runtime as any).dynamicCatalog(active).flatMap((n: any) => n.tools)
         : []),
     ]);
-    expect(Object.keys(reference)).toHaveLength(74);
+    expect(Object.keys(reference)).toHaveLength(77);
     for (const name of Object.keys(reference)) {
       const visible = catalog.find((t) => t.name === name);
       expect(visible, name).toBeDefined();
@@ -81,15 +81,28 @@ describe("captured tool contract wiring", () => {
   });
 
   test("preserves the captured graphical schemas including held clicks", () => {
-    expect(BROWSER_USE_TOOLS).toHaveLength(18);
-    // File upload is an OpenTeam extension; the captured 15 tools retain their schemas.
-    const captured = BROWSER_USE_TOOLS.filter((tool) => !["browser_file_upload", "browser_fill_form", "browser_find"].includes(tool.name));
+    expect(BROWSER_USE_TOOLS).toHaveLength(25);
+    // Retain the original fields; later observed element captures extend the
+    // earlier screenshot catalog without rewriting the captured baseline.
+    const captured = BROWSER_USE_TOOLS.filter((tool) => !["browser_handle_dialog", "browser_navigate_back", "browser_run_code", "browser_wait_for", "browser_resize", "browser_file_upload", "browser_fill_form", "browser_find", "browser_hover", "browser_console_messages"].includes(tool.name));
     expect(captured).toHaveLength(15);
     for (const tool of captured) {
+      if (tool.name === "browser_take_screenshot") {
+        const { target, element, ...properties } = (tool.inputSchema as any).properties;
+        expect({ ...tool.inputSchema, properties }).toEqual(reference.browser_take_screenshot.inputSchema);
+        expect(target.type).toBe("string");
+        expect(element.type).toBe("string");
+        expect(tool.description).toContain("fullPage and target cannot be combined");
+        continue;
+      }
       expect(tool.inputSchema).toEqual((reference as any)[tool.name].inputSchema);
       if (["browser_navigate", "browser_click"].includes(tool.name)) {
         expect(tool.description).toContain("page text and current element refs");
         expect(tool.description).not.toContain("with a screenshot");
+      } else if (tool.name === "browser_snapshot") {
+        // The captured baseline predates our tested cross-origin support.
+        expect(tool.description).toContain("reachable cross-origin frames");
+        expect(tool.description).toContain("frames it cannot inspect");
       } else expect(tool).toEqual((reference as any)[tool.name]);
     }
     expect(reference.browser_click.inputSchema.properties.holdDurationMs.maximum).toBe(30_000);

@@ -418,6 +418,17 @@ export class RuntimeTools {
       throw new Error("Another action is waiting for approval; no new side effect may start yet.");
   }
 
+  private assertCurrentInput(active: ActiveTurn): void {
+    // Pi drains steering after the current tool batch. If a correction arrived
+    // during inference, do not execute that response's now-stale tool calls first.
+    // Leave the queue intact so Pi records the correction before regenerating.
+    if (active.pendingSteers?.length) {
+      throw new Error(
+        "A newer instruction is queued. This tool action was not executed. Process the new instruction before choosing the next action."
+      );
+    }
+  }
+
   customTools(active: ActiveTurn) {
     const native = (
       tool: (typeof NATIVE_TOOLS)[number],
@@ -491,7 +502,7 @@ export class RuntimeTools {
             executionMode: "sequential",
             execute: (callId, args, signal) =>
               this.reviewGraphicalAction(active, callId, tool.name, args, signal, () =>
-                this.callBrowserUse(active, tool.name, args)
+                this.callBrowserForTurn(active, tool.name, args, signal)
               ),
           })
         );
@@ -961,6 +972,7 @@ export class RuntimeTools {
     signal: AbortSignal | undefined,
     execute: () => Promise<T>
   ): Promise<T> {
+    this.assertCurrentInput(active);
     return this.nativeToolExecutor.withReviewContext(
       { runId: active.runId, botId: active.botId },
       async () => {
@@ -978,10 +990,14 @@ export class RuntimeTools {
           if (
             ![
               "browser_snapshot",
-              "browser_screenshot",
+              "browser_find",
+              "browser_wait_for",
+              "browser_get_bounding_box",
+              "browser_take_screenshot",
               "browser_console_messages",
               "browser_network_requests",
-            ].includes(tool)
+            ].includes(tool) &&
+            !(tool === "browser_tabs" && (args as Record<string, unknown>)?.action === "list")
           ) {
             await this.executeHostTool(active, callId, tool, signal, (approvals) =>
               this.nativeToolExecutor.autoReviewAction(
@@ -1059,13 +1075,34 @@ export class RuntimeTools {
     };
   }
 
+  private async callBrowserForTurn(active: ActiveTurn, name: string, args: unknown, signal?: AbortSignal) {
+    if (name !== "browser_wait_for" && name !== "browser_run_code") return this.callBrowserUse(active, name, args, signal);
+    const controller = new AbortController();
+    const waits = this.shellWaits.get(active.runId) ?? new Set<AbortController>();
+    waits.add(controller);
+    this.shellWaits.set(active.runId, waits);
+    try {
+      return await this.callBrowserUse(active, name, args, signal ? AbortSignal.any([signal, controller.signal]) : controller.signal);
+    } finally {
+      waits.delete(controller);
+      if (!waits.size) this.shellWaits.delete(active.runId);
+    }
+  }
+
   private async callBrowserUse(
     active: ActiveTurn,
     toolName: string,
-    args: unknown
+    args: unknown,
+    signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     const endpoint = await this.screens.browserEndpointForAgent(active.screenBotId, active.cwd);
     let browser = this.browserUseSessions.get(active.botId);
+    if (!browser?.connected) {
+      // Reuse only the trusted parent desktop, never a process-wide endpoint.
+      // Sequential workers retain tab state and bounded console history.
+      browser = [...this.browserUseSessions.entries()].find(([id, session]) =>
+        session.connected && this.browserSessionScreens.get(id) === active.screenBotId)?.[1] ?? browser;
+    }
     if (!browser?.connected) {
       browser = browser ? await browser.reconnect(endpoint) : await BrowserUseSession.connect(
         endpoint,
@@ -1074,10 +1111,12 @@ export class RuntimeTools {
       this.browserUseSessions.set(active.botId, browser);
       this.browserSessionScreens.set(active.botId, active.screenBotId);
     }
+    this.browserUseSessions.set(active.botId, browser);
+    this.browserSessionScreens.set(active.botId, active.screenBotId);
     browser.configureUploads(this.workspaceRoot, [this.agentDir]);
     browser.registerPrivateValues([...(this.privateBrowserValues.get(active.screenBotId) ?? [])]);
     this.observeLogins(active, browser);
-    const result = await browser.execute(toolName, args);
+    const result = await browser.execute(toolName, args, signal);
     active.lastGraphicalSurface = "browser";
     if (
       ["browser_navigate", "browser_snapshot", "browser_tabs"].includes(toolName) &&

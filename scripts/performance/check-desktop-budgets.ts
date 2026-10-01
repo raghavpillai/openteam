@@ -120,9 +120,11 @@ atMost("renderer bytes", result.renderer.bytes, 16_250_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_010_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
-// Native capability parsing, login provisioning and the bundled current CLI:
-// 2.311 MB after removing eager catalogs and minifying native bundles.
-atMost("Electron runtime bytes", result.electron.bytes, 2_320_000);
+// October 1 release baseline, including the native launcher and current tool
+// contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
+// 1.3.8 are 10,758 bytes larger. Retain the individual bundle limits below
+// and less than 1% aggregate headroom for this measured feature baseline.
+atMost("Electron runtime bytes", result.electron.bytes, 2_460_000);
 const electronFileBudget = (path: string, maximum: number) => {
   const file = result.electron.files.find((candidate) => candidate.path === path);
   if (!file) failures.push(`Electron runtime file is missing: ${path}`);

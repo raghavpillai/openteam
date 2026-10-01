@@ -196,8 +196,9 @@ const lazyBudgets: Record<string, number> = {
   settingsServer: 35_000,
   // Search and Fetch pages with inlined 40 px WebP logos (~10 KB of the total).
   settingsProviders: 30_000,
-  // Shares lucide's triangle-alert chunk with Providers since 2026-09 (+114 bytes).
-  settingsUpdates: 10_200,
+  // Shares lucide's triangle-alert chunk with Providers. The signed-out
+  // compatibility guard brings the measured October release closure to 10,250 bytes.
+  settingsUpdates: 10_300,
 };
 if (!result.renderer.lazyClosures) {
   failures.push("Vite manifest/lazy closures were not found; run a current desktop build");

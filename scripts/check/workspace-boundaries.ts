@@ -145,9 +145,12 @@ for (const owner of ["db", "messaging"] as const) {
   }
 }
 
-for (const file of (await walk(resolve(root, "apps"))).filter(
-  (candidate) => !candidate.split(sep).includes("test")
-)) {
+// Cross-app imports are forbidden in shipped app code. Test and validation
+// harnesses under test/ and scripts/ may compose multiple apps deliberately.
+for (const file of (await walk(resolve(root, "apps"))).filter((candidate) => {
+  const segments = candidate.split(sep);
+  return !segments.includes("test") && !segments.includes("scripts");
+})) {
   const owner = relative(resolve(root, "apps"), file).split(sep)[0];
   for (const imported of await importsFor(file)) {
     if (!imported.specifier.startsWith(".")) continue;

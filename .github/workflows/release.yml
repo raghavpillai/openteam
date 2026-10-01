@@ -128,6 +128,7 @@ jobs:
             apps/desktop/release/*.blockmap
 
   desktop-windows:
+    if: vars.RELEASE_NATIVE_CLIENTS == 'true'
     permissions:
       contents: read
     needs: validate
@@ -169,6 +170,7 @@ jobs:
             apps/desktop/release/*.blockmap
 
   desktop-macos:
+    if: vars.RELEASE_NATIVE_CLIENTS == 'true'
     permissions:
       contents: read
     needs: validate
@@ -205,6 +207,7 @@ jobs:
             apps/desktop/release/*.blockmap
 
   mobile-ios:
+    if: vars.RELEASE_NATIVE_CLIENTS == 'true'
     permissions:
       contents: read
     needs: validate
@@ -232,7 +235,7 @@ jobs:
         run: bash apps/ios/scripts/ci-testflight.sh
 
   github-release:
-    needs: [validate, images, desktop-linux, desktop-windows, desktop-macos, mobile-ios]
+    needs: [validate, images, desktop-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write

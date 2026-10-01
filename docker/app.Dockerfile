@@ -30,6 +30,7 @@ COPY packages/plugin-sdk ./packages/plugin-sdk
 COPY packages/plugins ./packages/plugins
 COPY packages/db ./packages/db
 COPY packages/messaging ./packages/messaging
+COPY packages/product-core ./packages/product-core
 RUN bun --filter @openteam/db db:generate
 RUN bun --filter @openteam/server build && bun --filter @openteam/worker build
 

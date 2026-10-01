@@ -2,8 +2,10 @@
 
 The `Release OpenTeam` workflow runs for tags shaped like `v1.2.3`. The tag version must exactly
 match the CLI, server, worker, computer, desktop, and iOS package versions plus `apps/ios/release.json`
-version. Releases are all-or-nothing: the public GitHub release stays unavailable unless every
-desktop installer is signed and the matching iPhone archive is accepted for upload to App Store Connect.
+version. Core releases are all-or-nothing: the public GitHub release stays unavailable unless the
+server images, CLI binaries, release bundle, and Linux desktop artifact all succeed. Set the
+`RELEASE_NATIVE_CLIENTS` repository variable to `true` only when the Windows, macOS, and iOS signing
+secrets are configured and those native clients should ship from CI with the core release.
 
 ## What a release produces
 
@@ -21,12 +23,12 @@ The workflow:
    attestations. The migrate image is a slim stage holding only `packages/db` and its
    dependencies; it must not inherit the full build stage again.
 3. **desktop-linux / desktop-windows / desktop-macos**: build the Electron installers. Linux
-   always builds. Windows and macOS signing credentials are mandatory; missing credentials fail
-   the release. The macOS job signs and notarizes its artifacts.
-4. **mobile-ios**: builds and checks the native Swift app on macOS, archives both the app
+   always builds. Windows and macOS run when `RELEASE_NATIVE_CLIENTS=true`; their signing
+   credentials are then mandatory. The macOS job signs and notarizes its artifacts.
+4. **mobile-ios**: when `RELEASE_NATIVE_CLIENTS=true`, builds and checks the native Swift app on macOS, archives both the app
    and notification extension, then uploads that exact archive using an App Store Connect API key.
    Apple processing and tester availability require a separate check after upload.
-5. **github-release**: after every image, desktop, and mobile job succeeds, renders
+5. **github-release**: after every image and the Linux desktop job succeed, renders
    `openteam-compose.yaml` with the exact image digests, signs the Compose bundle and Linux
    AppImage with the workflow's Sigstore identity, writes CLI and desktop checksums, attests all
    artifacts, uploads every installer, and publishes the release. Each native CLI binary ships

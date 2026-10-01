@@ -47,20 +47,23 @@ describe("GrokBot input parity at the runtime boundary", () => {
     expect(dimensions(original)).toEqual([1024, 1024]);
   });
 
-  test("extracts the real native PDF fixture and leaves its bytes intact", async () => {
-    const root = await temporary();
-    const file = join(root, "fixture.pdf");
-    const original = await readFile(
-      new URL("./fixtures/input-parity/fixture.pdf", import.meta.url)
-    );
-    await writeFile(file, original);
-    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
-    const result = await executor.read({ path: file }, root);
-    expect(
-      result.content.some((item) => item.type === "text" && item.text.includes("PDF_"))
-    ).toBeTrue();
-    expect(await readFile(file)).toEqual(original);
-  });
+  test.skipIf(!Bun.which("pdftotext"))(
+    "extracts the real native PDF fixture and leaves its bytes intact",
+    async () => {
+      const root = await temporary();
+      const file = join(root, "fixture.pdf");
+      const original = await readFile(
+        new URL("./fixtures/input-parity/fixture.pdf", import.meta.url)
+      );
+      await writeFile(file, original);
+      const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
+      const result = await executor.read({ path: file }, root);
+      expect(
+        result.content.some((item) => item.type === "text" && item.text.includes("PDF_"))
+      ).toBeTrue();
+      expect(await readFile(file)).toEqual(original);
+    }
+  );
 
   test("matches the independently extracted host geometry, including thin-image exceptions", () => {
     // Oracle: host 886e13a, SHA d54bf2ea6a49e2dfad656c4889b4f202e92817fb00fa829aadbb6aa76dc5fecc.
@@ -113,8 +116,13 @@ describe("GrokBot input parity at the runtime boundary", () => {
   test("reports malformed tool and user images without forwarding invalid bytes", async () => {
     const invalid = Buffer.from("not an image");
     const tool = await boundToolImage(invalid, "image/png");
-    expect(tool).toEqual({ type: "text", text: "[image omitted: failed to process 12 bytes (image/png)]" });
-    const user = await prepareUserImages([{type:"image",data:invalid.toString("base64"),mimeType:"image/png"}]);
+    expect(tool).toEqual({
+      type: "text",
+      text: "[image omitted: failed to process 12 bytes (image/png)]",
+    });
+    const user = await prepareUserImages([
+      { type: "image", data: invalid.toString("base64"), mimeType: "image/png" },
+    ]);
     expect(user.images).toEqual([]);
     expect(user.notice).toBe("[image omitted: failed to process 12 bytes (image/png)]");
   });

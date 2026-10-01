@@ -14,21 +14,21 @@ const appVersion = (() => {
 
 type AuthTokenStorageResult = {
   token: string | null;
-  persistence: "encrypted" | "memory";
+  persistence: "disk";
   backend: string;
 };
 
 const authTokenStorageResult = (value: unknown): AuthTokenStorageResult => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Secure authentication storage returned an invalid response");
+    throw new Error("Authentication storage returned an invalid response");
   }
   const candidate = value as Record<string, unknown>;
   if (
     (candidate.token !== null && typeof candidate.token !== "string") ||
-    !["encrypted", "memory"].includes(String(candidate.persistence)) ||
+    candidate.persistence !== "disk" ||
     typeof candidate.backend !== "string"
   ) {
-    throw new Error("Secure authentication storage returned an invalid response");
+    throw new Error("Authentication storage returned an invalid response");
   }
   return candidate as AuthTokenStorageResult;
 };

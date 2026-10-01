@@ -23,7 +23,6 @@ import {
   nativeTheme,
   net,
   protocol,
-  safeStorage,
   shell,
 } from "electron";
 import type { AppUpdater } from "electron-updater";
@@ -1161,33 +1160,11 @@ if (!hasSingleInstanceLock) {
     .whenReady()
     .then(async () => {
       localMachine.machineId = await loadMachineIdentity(join(app.getPath("userData"), "machine-id"));
+      // Separate from legacy auth-session.bin: do not access Keychain to migrate.
+      // Users with an encrypted session sign in once to create the new local file.
       authTokenStore = new DesktopAuthTokenStore(
-        join(app.getPath("userData"), "auth-session.bin"),
-        {
-          backend: () => {
-            if (process.platform !== "linux")
-              return process.platform === "darwin" ? "keychain" : "dpapi";
-            try {
-              return safeStorage.getSelectedStorageBackend();
-            } catch {
-              return "unavailable";
-            }
-          },
-          decrypt: (value) => safeStorage.decryptStringAsync(value),
-          encrypt: (value) => safeStorage.encryptStringAsync(value),
-          isAvailable: async () => {
-            if (!await safeStorage.isAsyncEncryptionAvailable()) return false;
-            if (process.platform !== "linux") return true;
-            try {
-              return safeStorage.getSelectedStorageBackend() !== "basic_text";
-            } catch {
-              return false;
-            }
-          },
-        }
+        join(app.getPath("userData"), "auth-session.json")
       );
-      // The renderer presents a retryable storage error. A denied or stalled
-      // keychain must not prevent the main window and host bridge starting.
       const authStorageWarmup = authTokenStore.read().catch(() => null);
       await protocol.handle("openteam-staged", async (request) => {
         try {
@@ -1260,12 +1237,7 @@ if (!hasSingleInstanceLock) {
           notification.show();
         },
       });
-      const [, authStorage] = await Promise.all([createWindow(), authStorageWarmup]);
-      if (authStorage?.persistence === "memory") {
-        console.warn(
-          "OpenTeam OS secure storage is unavailable; enable or unlock the system credential store before signing in."
-        );
-      }
+      await Promise.all([createWindow(), authStorageWarmup]);
       scheduleDesktopUpdateChecks();
       const port = Number(process.env.OPENTEAM_HOST_BRIDGE_PORT ?? 8791);
       const token = resolveControlToken({

@@ -119,7 +119,7 @@ interface Window {
 
 interface OpenTeamAuthTokenStorageResult {
   token: string | null;
-  persistence: "encrypted" | "memory";
+  persistence: "disk";
   backend: string;
 }
 

@@ -36,16 +36,16 @@ Object.defineProperty(globalThis, "window", {
         },
         readToken: async () => {
           if (failTokenRead) throw new Error("Keychain unavailable: native diagnostic");
-          return { token: secureToken, persistence: "encrypted", backend: "test" };
+          return { token: secureToken, persistence: "disk", backend: "test" };
         },
         writeToken: async (token: string) => {
           if (failTokenWrite) throw new Error("Secure sign-in storage did not respond");
           secureToken = token;
-          return { token, persistence: "encrypted", backend: "test" };
+          return { token, persistence: "disk", backend: "test" };
         },
         clearToken: async () => {
           secureToken = null;
-          return { token: null, persistence: "encrypted", backend: "test" };
+          return { token: null, persistence: "disk", backend: "test" };
         },
       },
     },

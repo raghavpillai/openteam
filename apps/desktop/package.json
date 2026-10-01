@@ -1,6 +1,6 @@
 {
   "name": "@openteam/desktop",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "license": "GPL-3.0-only",
   "author": "OpenTeam contributors",
   "main": "dist-electron/main.js",

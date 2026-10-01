@@ -4,6 +4,7 @@ import { extname, relative, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 import {
   isReleaseArtifactLocation,
+  matchesResignedMacExecutable,
   releaseArtifactKind,
   validatePackagedPackageJson,
   validatePackagedTopLevel,
@@ -152,7 +153,10 @@ const readAsarInventory = async (path: string) => {
         if (packaged.unpacked) {
           try {
             const packagedBytes = await readFile(resolve(`${path}.unpacked`, current.packagePath));
-            if (sourceBytes.equals(packagedBytes)) matched += 1;
+            if (sourceBytes.equals(packagedBytes) || (
+              current.packagePath === "dist-electron/openteam-op-launcher" &&
+              await matchesResignedMacExecutable(sourceBytes, packagedBytes)
+            )) matched += 1;
             else changed.push(current.packagePath);
           } catch {
             missing.push(current.packagePath);

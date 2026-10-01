@@ -1,4 +1,25 @@
 import { basename } from "node:path";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+/** Compare executable content across packaging re-signing without changing either input. */
+export async function matchesResignedMacExecutable(source: Buffer, packaged: Buffer): Promise<boolean> {
+  if (process.platform !== "darwin") return false;
+  const directory = await mkdtemp(join(tmpdir(), "openteam-signature-compare-"));
+  try {
+    const paths = [join(directory, "source"), join(directory, "packaged")];
+    await writeFile(paths[0]!, source, { mode: 0o600 });
+    await writeFile(paths[1]!, packaged, { mode: 0o600 });
+    for (const path of paths) {
+      if (Bun.spawnSync(["/usr/bin/codesign", "--verify", "--strict", path]).exitCode !== 0) return false;
+      if (Bun.spawnSync(["/usr/bin/codesign", "--remove-signature", path]).exitCode !== 0) return false;
+    }
+    return (await readFile(paths[0]!)).equals(await readFile(paths[1]!));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
 
 export const PACKAGED_APP_TOP_LEVEL = ["dist", "dist-electron", "package.json"] as const;
 
@@ -43,6 +64,7 @@ export const validatePackagedTopLevel = (actualNames: string[]) => {
 };
 
 export interface PackagedMetadataExpectation {
+  license?: unknown;
   author?: unknown;
   description?: unknown;
   main: string;
@@ -64,6 +86,7 @@ export const validatePackagedPackageJson = (
   const errors: string[] = [];
   for (const field of [
     "name",
+    "license",
     "version",
     "description",
     "author",
@@ -84,7 +107,7 @@ export const validatePackagedPackageJson = (
   ] as const) {
     if (field in record) errors.push(`package.json unexpectedly contains ${field}`);
   }
-  const allowed = new Set(["name", "version", "description", "author", "private", "type", "main"]);
+  const allowed = new Set(["name", "license", "version", "description", "author", "private", "type", "main"]);
   for (const field of Object.keys(record)) {
     if (!allowed.has(field)) errors.push(`package.json contains unexpected field ${field}`);
   }

@@ -21,6 +21,9 @@ export function VersionMismatchBanner({ showReview = true }: { showReview?: bool
   const [clientUpdate, setClientUpdate] = useState<OpenTeamUpdateStatus | null>(null);
   const acting = useRef(false);
 
+  // Toasts outlive their React owner unless explicitly dismissed on sign-out.
+  useEffect(() => () => { toast.dismiss(VERSION_MISMATCH_TOAST_ID); }, []);
+
   useEffect(() => {
     let active = true;
     void window.openteam?.updates
@@ -62,7 +65,7 @@ export function VersionMismatchBanner({ showReview = true }: { showReview?: bool
   }, [clientUpdate]);
 
   const runDirectAction = useCallback(async () => {
-    if (!status || !compatibility || acting.current) return;
+    if (!status || !compatibility || compatibility === "unknown" || acting.current) return;
     if (status.status === "updating") {
       openUpdates();
       return;
@@ -107,7 +110,9 @@ export function VersionMismatchBanner({ showReview = true }: { showReview?: bool
 
   useEffect(() => {
     if (loading || !status || !compatibility) return;
-    if (compatibility === "compatible" || compatibility === "update-recommended") {
+    // A local installation version without a live protocol response cannot
+    // establish incompatibility. Keep unknown status in Update settings only.
+    if (compatibility === "unknown" || compatibility === "compatible" || compatibility === "update-recommended") {
       toast.dismiss(VERSION_MISMATCH_TOAST_ID);
       return;
     }

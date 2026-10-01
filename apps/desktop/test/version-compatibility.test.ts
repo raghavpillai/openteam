@@ -61,7 +61,7 @@ describe("OpenTeam release compatibility", () => {
     }
   });
 
-  test("keeps mismatch guidance visible before a user signs in", async () => {
+  test("does not probe server compatibility during onboarding and dismisses stale warnings", async () => {
     const [authGate, notifier, entrypoint] = await Promise.all([
       Bun.file(
         new URL("../src/renderer/components/openteam/auth-gate.tsx", import.meta.url)
@@ -71,7 +71,10 @@ describe("OpenTeam release compatibility", () => {
       ).text(),
       Bun.file(new URL("../src/renderer/index.tsx", import.meta.url)).text(),
     ]);
-    expect(authGate).toContain("<VersionMismatchBanner showReview={false} />");
+    expect(authGate).not.toContain("VersionMismatchBanner");
+    expect(notifier).toContain('useEffect(() => () => { toast.dismiss(VERSION_MISMATCH_TOAST_ID); }, [])');
+    expect(notifier).toContain('if (compatibility === "unknown" || compatibility === "compatible"');
+    expect(openTeamCompatibility("0.0.0", "0.1.0", null)).toBe("unknown");
     expect(notifier).toContain("toast.warning(title");
     expect(notifier).toContain("duration: Number.POSITIVE_INFINITY");
     expect(notifier).toContain("action: { label: actionLabel");

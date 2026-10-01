@@ -14,7 +14,6 @@ import { saveConfiguredApiBase } from "../../client/runtime-url";
 import { useAuthSession } from "../../hooks/use-auth-session";
 import { authErrorMessage } from "../../lib/auth-error-message";
 import { BotAvatarGlyph } from "./avatar-picker-icons";
-import { VersionMismatchBanner } from "./version-mismatch-banner";
 
 type LandingStage = "checking" | "welcome" | "endpoint" | "credentials";
 
@@ -72,7 +71,6 @@ function LandingShell({ children, stage }: { children: ReactNode; stage: Landing
   }, [stage]);
   return (
     <main className="auth-shell" data-stage={stage}>
-      <VersionMismatchBanner showReview={false} />
       <div className="electron-window-drag-strip" />
       <section aria-labelledby="openteam-auth-heading" className="auth-onboarding-shell">
         <AuthBrand />

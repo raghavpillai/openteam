@@ -135,6 +135,50 @@ esac
     expect(denied.action).toContain("executable's permissions");
   });
 
+  test("explains missing local Docker group membership and its security impact", () => {
+    const check = dockerFailureCheck(
+      "daemon",
+      failure(
+        "permission denied while trying to connect to the docker API at unix:///var/run/docker.sock"
+      ),
+      "linux",
+      {
+        socketPath: "/var/run/docker.sock",
+        username: "azureuser",
+        groupName: "docker",
+        configuredMember: false,
+        activeMember: false,
+      }
+    );
+    expect(check.detail).toBe(
+      "Docker's local socket (/var/run/docker.sock) belongs to the docker group, but azureuser is not a member."
+    );
+    expect(check.action).toContain("sudo usermod -aG docker azureuser");
+    expect(check.action).toContain("fully log out and reconnect");
+    expect(check.action).toContain("root-equivalent access");
+  });
+
+  test("distinguishes a stale login from missing Docker group membership", () => {
+    const check = dockerFailureCheck(
+      "daemon",
+      failure(
+        "permission denied while trying to connect to the docker API at unix:///var/run/docker.sock"
+      ),
+      "linux",
+      {
+        socketPath: "/var/run/docker.sock",
+        username: "azureuser",
+        groupName: "docker",
+        configuredMember: true,
+        activeMember: false,
+      }
+    );
+    expect(check.detail).toContain("this terminal has not picked up");
+    expect(check.action).toContain("Fully log out and reconnect");
+    expect(check.action).not.toContain("usermod");
+    expect(check.action).toContain("root-equivalent access");
+  });
+
   test("keeps both Compose command errors and recommends updating an unsupported version", async () => {
     const directory = mkdtempSync(join(tmpdir(), "openteam-compose-recovery-"));
     try {

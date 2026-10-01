@@ -1,6 +1,67 @@
+import { readFileSync, statSync } from "node:fs";
+import { userInfo } from "node:os";
 import type { DoctorCheck } from "./doctor";
 import type { RunResult } from "./process";
 import { cleanTerminalText } from "./terminal";
+
+interface LinuxDockerSocketAccess {
+  socketPath: string;
+  username: string;
+  groupName: string;
+  configuredMember: boolean;
+  activeMember: boolean;
+}
+
+const systemDockerSocket = (raw: string): string | null => {
+  if (/unix:\/\/\/var\/run\/docker\.sock/.test(raw)) return "/var/run/docker.sock";
+  if (/unix:\/\/\/run\/docker\.sock/.test(raw)) return "/run/docker.sock";
+  return null;
+};
+
+const linuxDockerSocketAccess = (raw: string): LinuxDockerSocketAccess | null => {
+  if (process.platform !== "linux") return null;
+  const socketPath = systemDockerSocket(raw);
+  if (!socketPath) return null;
+  try {
+    const socket = statSync(socketPath);
+    const account = userInfo();
+    if ((socket.mode & 0o060) !== 0o060) return null;
+    const group = readFileSync("/etc/group", "utf8")
+      .split("\n")
+      .map((line) => line.split(":"))
+      .find((fields) => Number(fields[2]) === socket.gid);
+    const groupName = group?.[0];
+    if (!groupName || !/^[a-z_][a-z0-9_-]*\$?$/i.test(groupName)) return null;
+    if (!/^[a-z_][a-z0-9_-]*\$?$/i.test(account.username)) return null;
+    const configuredMembers = (group?.[3] ?? "").split(",").filter(Boolean);
+    const activeGroups = new Set([process.getgid?.(), ...(process.getgroups?.() ?? [])]);
+    return {
+      socketPath,
+      username: account.username,
+      groupName,
+      configuredMember: account.gid === socket.gid || configuredMembers.includes(account.username),
+      activeMember: activeGroups.has(socket.gid),
+    };
+  } catch {
+    return null;
+  }
+};
+
+const localSocketPermissionRecovery = (
+  access: LinuxDockerSocketAccess | null
+): Pick<DoctorCheck, "detail" | "action"> | null => {
+  if (!access || access.activeMember) return null;
+  if (access.configuredMember) {
+    return {
+      detail: `${access.username} is configured in the ${access.groupName} group, but this terminal has not picked up that membership.`,
+      action: `Fully log out and reconnect, then run docker info. Membership in the ${access.groupName} group grants root-equivalent access to this host.`,
+    };
+  }
+  return {
+    detail: `Docker's local socket (${access.socketPath}) belongs to the ${access.groupName} group, but ${access.username} is not a member.`,
+    action: `Membership in the ${access.groupName} group grants root-equivalent access. If that is appropriate, run sudo usermod -aG ${access.groupName} ${access.username}, fully log out and reconnect, then run docker info. Otherwise, ask the host administrator or configure rootless Docker.`,
+  };
+};
 
 const errorCode = (result: RunResult): unknown =>
   result.error && "code" in result.error ? result.error.code : undefined;
@@ -23,7 +84,8 @@ export const commandDiagnostic = (command: string, result: RunResult): string =>
 export const dockerFailureCheck = (
   kind: "cli" | "daemon",
   result: RunResult,
-  platform: NodeJS.Platform = process.platform
+  platform: NodeJS.Platform = process.platform,
+  socketAccess: LinuxDockerSocketAccess | null | undefined = undefined
 ): DoctorCheck => {
   const command = kind === "cli" ? "docker --version" : "docker info --format '{{.ServerVersion}}'";
   const diagnostic = commandDiagnostic(command, result);
@@ -61,8 +123,15 @@ export const dockerFailureCheck = (
     action =
       "Run docker context ls to check the remote host. Verify SSH access and the host key with that host's administrator, then run docker info.";
   } else if (permission) {
-    detail = "Docker denied access to its engine.";
+    const localRecovery =
+      platform === "linux"
+        ? localSocketPermissionRecovery(
+            socketAccess === undefined ? linuxDockerSocketAccess(raw) : socketAccess
+          )
+        : null;
+    detail = localRecovery?.detail ?? "Docker denied access to its engine.";
     action =
+      localRecovery?.action ??
       "Run docker context ls to verify the selected engine. Check that your user has access to its Docker socket, or ask its administrator to grant access; then run docker info.";
   } else if (/client.*(?:too old|too new)|(?:minimum|maximum) supported API version/i.test(raw)) {
     detail = "The Docker client and engine could not agree on an API version.";

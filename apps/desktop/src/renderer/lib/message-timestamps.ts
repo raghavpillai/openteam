@@ -17,10 +17,10 @@ function createFormatters(timeZone?: string) {
   };
 }
 function getFormatters(timeZone?: string) {
-  const key = timeZone ?? "local";
+  const key = timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   let result = formatters.get(key);
   if (!result) {
-    result = createFormatters(timeZone);
+    result = createFormatters(key);
     formatters.set(key, result);
   }
   return result;
@@ -57,8 +57,8 @@ export function formatIdleGapTimestamp(createdAt: string, now = new Date(), time
   const messageDay = calendarDate(date, timeZone);
   const daysAgo = currentDay.ordinal - messageDay.ordinal;
   const format = getFormatters(timeZone);
-  const time = format.time.format(date);
-  if (daysAgo === 0) return `Today ${time}`;
+  const time = format.time.format(date).replace(/\s/g, "").toLowerCase();
+  if (daysAgo === 0) return time;
   if (daysAgo === 1) return `Yesterday ${time}`;
   const calendar = (currentDay.year === messageDay.year ? format.sameYear : format.otherYear).format(date);
   return `${calendar} ${time}`;

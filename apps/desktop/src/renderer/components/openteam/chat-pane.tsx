@@ -1,3 +1,4 @@
+import { useDayClock } from "../../hooks/use-day-clock";
 import { ThinkingCaption } from "./thinking-caption";
 import { thinkingActivity } from "../../lib/thinking-activity";
 import { firstUnreadMessageId, groupChatActivity, type GroupActivity } from "../../lib/group-chat-presentation";
@@ -320,32 +321,6 @@ const useThinkingPresence = (active: boolean, exitMs = THINKING_EXIT_MS): Thinki
   }, [exitMs, phase]);
 
   return active ? "visible" : phase;
-};
-
-const nextLocalMidnightDelay = (now: Date) => {
-  const next = new Date(now);
-  next.setHours(24, 0, 1, 0);
-  return Math.max(1_000, next.getTime() - now.getTime());
-};
-
-/** Timestamp labels only change when the local calendar day changes. */
-const useDayClock = (active: boolean) => {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    if (!active) return;
-    setNow(new Date());
-    let timer = 0;
-    const schedule = () => {
-      const current = new Date();
-      timer = window.setTimeout(() => {
-        setNow(new Date());
-        schedule();
-      }, nextLocalMidnightDelay(current));
-    };
-    schedule();
-    return () => window.clearTimeout(timer);
-  }, [active]);
-  return now;
 };
 
 interface MessageTimelineEntry {

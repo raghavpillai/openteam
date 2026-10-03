@@ -243,7 +243,7 @@ export default function ServerSettings() {
                 onValueChange={(value) => setAuthType(value as "api_key" | "oauth")}
                 value={authType}
               >
-                <SelectTrigger className="h-7 w-[150px] rounded-[8px] border-black/[0.055] bg-black/[0.035] px-2 text-[12px] shadow-none dark:border-white/[0.07] dark:bg-white/[0.07]">
+                <SelectTrigger className="h-7 w-auto min-w-[150px] shrink-0 rounded-[8px] border-black/[0.055] bg-black/[0.035] px-2 text-[12px] shadow-none dark:border-white/[0.07] dark:bg-white/[0.07]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

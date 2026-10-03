@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { OnePasswordSavedLogins } from "../plugins/onepassword-saved-logins";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+const OnePasswordSavedLogins = lazy(() => import("../plugins/onepassword-saved-logins").then(module => ({ default: module.OnePasswordSavedLogins })));
 import { SectionLabel, SettingsGroup } from "./ui";
 type Settings = Awaited<ReturnType<NonNullable<Window["openteam"]>["permissions"]["getCapabilities"]>>;
 export function NativeCapabilitySettings() {
@@ -19,7 +19,7 @@ export function NativeCapabilitySettings() {
   };
   return <>
     <SectionLabel>Saved logins</SectionLabel>
-    <SettingsGroup><div className="py-4"><OnePasswordSavedLogins logoUrl={null} onChanged={refresh} /></div></SettingsGroup>
+    <SettingsGroup><div className="py-4"><Suspense fallback={<p className="px-8 text-sm">Loading saved logins…</p>}><OnePasswordSavedLogins logoUrl={null} onChanged={refresh} /></Suspense></div></SettingsGroup>
     <SectionLabel>Mac access</SectionLabel>
     <SettingsGroup><div className="space-y-4 py-4 text-sm">
       <label className="flex items-start gap-2"><input type="checkbox" disabled={busy || !settings} checked={settings?.messagesSendAll ?? false} onChange={event => void update({ messagesSendAll: event.target.checked })} /><span>Allow all Messages sends without asking each time<span className="block text-xs text-foreground-secondary">Applies to all bots and recipients on this Mac. Turn this off to restore per-message or per-recipient approval.</span></span></label>

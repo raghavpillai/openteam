@@ -1,22 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { LoaderCircle } from "lucide-react";
-import type { PluginCatalogItemView } from "@openteam/contracts";
 import { onePasswordErrorMessage } from "@openteam/contracts/saved-logins";
 import onePasswordIcon from "../../../assets/integrations/1password.png?inline";
 import { PluginMark } from "./plugin-mark";
 
-export const SAVED_LOGINS_KEY = "1password-saved-logins";
-export const savedLoginsCatalog = (logoUrl: string | null, installed = false): PluginCatalogItemView => ({
-  key: SAVED_LOGINS_KEY, name: "1Password", version: "1.0.0", publisher: "1Password",
-  description: "Share existing 1Password vaults with OpenTeam through a service account token, so it can sign in to sites on its computer.",
-  category: "Login and Credential Management", featured: false, installed,
-  components: [], connections: [], skills: [], homepageUrl: "https://1password.com",
-  sourceUrl: null, sourceRevision: null, logoUrl: logoUrl ?? onePasswordIcon, setupFields: [], setup: null,
-});
-
 type Settings = Awaited<ReturnType<NonNullable<Window["openteam"]>["permissions"]["getCapabilities"]>>;
 const button = "inline-flex cursor-pointer items-center justify-center gap-2 rounded-full bg-foreground/10 px-4 py-2 text-[13px] hover:bg-foreground/15 disabled:cursor-default disabled:opacity-45";
-const input = "w-full rounded-lg border border-foreground/15 bg-background px-3 py-2 text-[13px] outline-none focus:border-blue-500";
+const input = "w-full rounded-lg border border-foreground/15 bg-background px-3 py-2 text-[13px] outline-none focus:border-foreground/20";
 
 export function OnePasswordSavedLogins({ logoUrl, onChanged }: { logoUrl: string | null; onChanged: () => void }) {
   const working = useRef(false);
@@ -51,13 +41,13 @@ export function OnePasswordSavedLogins({ logoUrl, onChanged }: { logoUrl: string
   };
   const connections = settings?.credentialProviders?.filter(row => row.broker) ?? [];
   return (
-    <div className="bot-scrollbar min-h-0 flex-1 overflow-y-auto px-8 pb-8 max-sm:px-5">
+    <div className="bot-scrollbar min-h-0 flex-1 overflow-y-auto px-8 pb-8 max-sm:px-4">
       <div className="mb-5 flex items-center gap-3"><PluginMark logoUrl={logoUrl ?? onePasswordIcon} name="1Password" /><h2 className="text-[18px] font-medium">1Password</h2></div>
       <p className="mb-5 text-[13px] leading-5 text-foreground-secondary">Share existing 1Password vaults with OpenTeam through a service account token, so it can sign in to sites on its computer.</p>
       {mode === "manual" ? (
         <form className="space-y-4" onSubmit={event => { event.preventDefault(); void run(async () => { apply(await permissions!.importSavedLoginToken(token.trim())); }); }}>
           <p className="text-[13px] leading-5">Paste a 1Password service account token with read access to the vaults you want to share. All vaults selected for that token will be connected. OpenTeam keeps the token encrypted and uses it to fill saved logins on its computer.</p>
-          <ol className="list-decimal space-y-3 pl-5 text-[13px] leading-5 text-foreground-secondary">
+          <ol className="list-decimal space-y-3 pl-4 text-[13px] leading-5 text-foreground-secondary">
             <li>Choose the existing vaults containing the logins you want OpenTeam to use. You can also create a separate vault if you prefer.</li>
             <li>On 1Password.com, open Developer → Service Accounts and create a service account. Select those vaults and grant read-only access. <a className="text-blue-500 underline" href="https://www.1password.dev/service-accounts/get-started" target="_blank" rel="noreferrer">How to create a service account</a></li>
             <li>Copy the token 1Password shows once and paste it here.</li>
@@ -75,7 +65,7 @@ export function OnePasswordSavedLogins({ logoUrl, onChanged }: { logoUrl: string
       )}
       {busy ? <div className="mt-4 flex items-center gap-2 text-[13px]" role="status"><LoaderCircle className="size-4 animate-spin" />Working…<button className={button} onClick={() => void permissions?.cancelSavedLoginSetup()}>Cancel setup</button></div> : null}
       {error ? <p role="alert" className="mt-4 text-[13px] text-red-600">{error}</p> : null}
-      {connections.length ? <section className="mt-7 space-y-4" aria-label="Connected 1Password vaults">
+      {connections.length ? <section className="mt-6 space-y-4" aria-label="Connected 1Password vaults">
         {connections.map(row => {
           const id = `1password:${row.account}:${row.vault}`;
           return <div key={id} className="space-y-3 rounded-xl bg-foreground/5 p-4 text-[13px]">

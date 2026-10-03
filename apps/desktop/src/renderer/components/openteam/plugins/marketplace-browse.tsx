@@ -15,7 +15,7 @@ import { api } from "../../../client/openteam-api";
 import { pluginAuthorization, pluginNeedsSetup } from "@openteam/product-core/plugin-authorization";
 import { cn } from "../../../lib/cn";
 import { PluginMark } from "./plugin-mark";
-import { SAVED_LOGINS_KEY } from "./onepassword-saved-logins";
+import { SAVED_LOGINS_KEY } from "./saved-logins-catalog";
 import { MarketplaceCategories } from "./marketplace-categories";
 
 const pill =

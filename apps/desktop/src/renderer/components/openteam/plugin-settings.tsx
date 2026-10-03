@@ -33,7 +33,8 @@ DropdownMenuTrigger,
 import { InstalledPluginsView,MarketplaceView } from "./plugins/marketplace-browse";
 import { openAutomaticPluginSignIn } from "./plugins/plugin-authorization";
 
-import { OnePasswordSavedLogins, savedLoginsCatalog, SAVED_LOGINS_KEY } from "./plugins/onepassword-saved-logins";
+import { savedLoginsCatalog, SAVED_LOGINS_KEY } from "./plugins/saved-logins-catalog";
+const OnePasswordSavedLogins = lazy(() => import("./plugins/onepassword-saved-logins").then(module => ({ default: module.OnePasswordSavedLogins })));
 
 const PluginWorkspace = lazy(() => import("./plugins/plugin-workspace"));
 

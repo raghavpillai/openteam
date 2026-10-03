@@ -27,8 +27,10 @@ Keep credentials outside the repository, pass them through the process environme
 and never put their values in logs. Keep the signing identity consistent across
 releases. The release command enables hardened runtime, notarizes the app, checks
 package budgets, and verifies Developer ID signatures, entitlements, Gatekeeper,
-and the stapled notarization ticket. Verify the DMG with `hdiutil verify` and
-`xcrun stapler validate` before distributing it.
+and the stapled notarization ticket. Verify DMG integrity with `hdiutil verify`; mount it read-only and verify the enclosed
+app with `codesign --verify --deep --strict`, `spctl --assess --type execute`, and
+`xcrun stapler validate` before distributing it. The notarization ticket is stapled
+to the app, not necessarily to the DMG container.
 
 `package:mac-local` makes an ad-hoc build for testing; use `package:mac-release`
 for public installers. The maintainer's reusable local release skill lives in a

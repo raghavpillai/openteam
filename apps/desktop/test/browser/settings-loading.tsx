@@ -17,7 +17,7 @@ let permissions = {
 let transcription = { ...defaultTranscriptionSettings, hasApiKey: false, configured: false };
 const providerStates = (tool: "search" | "fetch") => Object.fromEntries(WEB_PROVIDER_LISTS[tool].map((provider) => [provider.id, { secretSaved: false, ready: !provider.fields.some((field) => field.required), check: null }]));
 let providers: any = { search: { selected: null, providers: providerStates("search") }, fetch: { selected: "builtin", providers: providerStates("fetch") } };
-const capabilities = { credentialProvider: null, credentialProviders: [], autoFill: [], cookieGrants: [], messagesGrants: [] };
+const capabilities = { credentialProviders: [], cookieGrants: [], messagesGrants: [] };
 Object.assign(window, { settingsQACalls: calls, openteam: {
   auth: { machineStatus: async () => ({ machineId: "qa", connected: true, configured: true, error: null }) },
   permissions: {

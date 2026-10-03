@@ -8,7 +8,7 @@ import type { PrismaClient } from "@openteam/db";
 import {
   applySecretEdits,
   connectionNamespace,
-  desktopMcpProvider,
+  assertComputerMcpRuntime,
   fieldsForConnector,
   isSecretKey,
   validateValues,
@@ -67,6 +67,7 @@ export class PluginConfiguration {
     serviceEffect(async (): Promise<PluginConfigurationView> => {
       const { connection, connector, plugin, fields } = await this.connection(id);
       const config = jsonObject(connection.configuration);
+      assertComputerMcpRuntime(config);
       const credentials = jsonObject(connection.credentials);
       const values: Record<string, unknown> = {
         ...jsonObject(config.values),
@@ -78,7 +79,7 @@ export class PluginConfiguration {
         namespace: connectionNamespace(id,connection.alias),
         endpoint: connection.endpoint,
         command: typeof config.command === "string" ? config.command : null,
-        runtime: desktopMcpProvider(config) ? "desktop" : "computer",
+        runtime: "computer",
         args: stringArray(config.args),
         cwd: typeof config.cwd === "string" ? config.cwd : null,
         fields,
@@ -197,7 +198,7 @@ export class PluginConfiguration {
         }
       }
       let endpoint = connection.endpoint;
-      desktopMcpProvider({ ...config, env: { ...jsonObject(config.env), ...jsonObject(credentials.env) } });
+      assertComputerMcpRuntime({ ...config, env: { ...jsonObject(config.env), ...jsonObject(credentials.env) } });
       if (input.endpoint !== undefined) {
         const url = new URL(input.endpoint);
         if (!["http:", "https:"].includes(url.protocol) || url.username || url.password)

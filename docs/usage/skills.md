@@ -45,7 +45,6 @@ Some plugins come with skills, such as instructions for working with that servic
 | [Slack](../../packages/plugins/slack/README.md#skills-and-commands) | 8: `slack-messaging`, `slack-search`, `slack-docs`, `slack-api`, `slack-cli`, `create-slack-app`, `test-slack-app`, and `block-kit` |
 | [Granola](../../packages/plugins/granola/README.md) | 3: `granola-context`, `granola-prep`, and `granola-review` |
 | [Notion](../../packages/plugins/notion/README.md) | 14: `search`, `find`, `create-page`, `create-task`, `create-database-row`, `database-query`, `knowledge-capture`, `meeting-intelligence`, `research-documentation`, `spec-to-implementation`, `tasks-plan`, `tasks-build`, `tasks-explain-diff`, and `tasks-setup` |
-| [1Password](../../packages/plugins/1password/README.md#capabilities) | `1password-environments`: work with Developer Environments and local `.env` mounts |
 
 Gmail, Google Calendar, Google Drive, GitHub, and Linear provide tools without bundled skills. You can create a private skill that uses those tools.
 

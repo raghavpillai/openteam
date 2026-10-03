@@ -31,7 +31,6 @@ export const HOST_BRIDGE_PATHS = {
   machines: "/v1/machines",
   autoReview: "/v1/auto-review",
   permissionUpdate: "/v1/permissions/update",
-  mcp: "/v1/mcp",
   capabilities: "/v1/capabilities",
 } as const;
 

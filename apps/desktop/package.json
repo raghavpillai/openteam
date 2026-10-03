@@ -115,7 +115,6 @@
     "build:utility": "bun build src/main/host/utility.ts --outfile dist-electron/host-utility.js --target node --format esm --external electron --minify",
     "build:server-updater": "bun build ../cli/src/main.ts --outfile dist-electron/openteam-cli.js --target node --format esm --minify",
     "build:preload": "bun build src/preload/index.ts --outfile dist-electron/preload.cjs --target node --format cjs --external electron --minify --keep-names",
-    "build:onepassword-launcher": "bun scripts/build-onepassword-launcher.ts",
     "build:electron": "bun run build:main && bun run build:utility && bun run build:server-updater && bun run build:preload",
     "build": "bun run clean && vite build && bun run build:electron",
     "package": "bun run clean:release && bun run build && electron-builder --publish never && bun ../../scripts/performance/check-desktop-budgets.ts --release",

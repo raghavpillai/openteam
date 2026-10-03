@@ -8,7 +8,8 @@ import { pluginCatalog } from "../src";
 
 test("every bundled package includes portable provider artwork", async () => {
   const catalog = pluginCatalog;
-  expect(catalog.length).toBeGreaterThanOrEqual(9);
+  expect(catalog.length).toBeGreaterThanOrEqual(8);
+  expect(catalog.some(plugin => plugin.key === "1password")).toBe(false);
   for (const plugin of catalog) {
     expect(plugin.icon).toBe("assets/icon.png");
     expect(pluginIconUrl(plugin)).toStartWith("data:image/png;base64,");

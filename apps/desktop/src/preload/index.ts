@@ -206,7 +206,7 @@ contextBridge.exposeInMainWorld("openteam", {
     importSavedLoginToken: (token: string) => ipcRenderer.invoke("openteam:capabilities:import-login-token", token),
     listSavedLogins: () => ipcRenderer.invoke("openteam:capabilities:logins"),
     getCapabilities: () => ipcRenderer.invoke("openteam:capabilities:get"),
-    updateCapabilities: (input: { account?: string; vault?: string; revoke?: "cookies" | "credentials" | "messages"; autoFill?: string[]; removeCredentialConnection?: string; messagesSendAll?: boolean }) => ipcRenderer.invoke("openteam:capabilities:update", input),
+    updateCapabilities: (input: { revoke?: "cookies" | "credentials" | "messages"; removeCredentialConnection?: string; messagesSendAll?: boolean }) => ipcRenderer.invoke("openteam:capabilities:update", input),
     get: () => ipcRenderer.invoke("openteam:permissions:get"),
     update: (request: {
       machineLabel?: string;

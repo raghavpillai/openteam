@@ -5,17 +5,15 @@ import "../../src/renderer/styles.css";
 import { onePasswordError } from "@openteam/contracts/saved-logins";
 const calls: unknown[] = [];
 let state: any = {
-  credentialProvider: null,
   credentialProviders: [],
-  autoFill: [],
   cookieGrants: [],
   messagesGrants: [],
 };
 (window as any).fixtureCalls = calls;
 let cancelSetup: (() => void) | undefined;
 const updateProvider = (patch: Record<string, unknown>) => {
-  const provider = { ...state.credentialProvider, ...patch };
-  state = { ...state, credentialProvider: provider, credentialProviders: [provider] };
+  const provider = { ...state.credentialProviders[0], ...patch };
+  state = { ...state, credentialProviders: [provider] };
   return state;
 };
 (window as any).openteam = {
@@ -25,8 +23,8 @@ const updateProvider = (patch: Record<string, unknown>) => {
       calls.push({ action: "import-token" });
       if ((window as any).fixtureMode === "invalid") throw new Error("Synthetic invalid token");
       if ((window as any).fixtureMode === "cancel") return new Promise((_resolve, reject) => { cancelSetup = () => reject(onePasswordError("cancelled")); });
-      const provider = { account: "service-account", vault: "fixture-vault", vaultName: "Existing Work Vault", broker: true, alwaysAllow: false, lifecycleState: "active", itemCount: 2 };
-      state = { ...state, credentialProvider: provider, credentialProviders: [provider, ...((window as any).fixtureMultipleVaults ? [{ ...provider, vault: "family-vault", vaultName: "Existing Family Vault" }] : [])] };
+      const provider = { account: "service-account", vault: "fixture-vault", vaultName: "Existing Work Vault", alwaysAllow: false, lifecycleState: "active", itemCount: 2 };
+      state = { ...state, credentialProviders: [provider, ...((window as any).fixtureMultipleVaults ? [{ ...provider, vault: "family-vault", vaultName: "Existing Family Vault" }] : [])] };
       return state;
     },
     cancelSavedLoginSetup: async () => {
@@ -60,7 +58,7 @@ const updateProvider = (patch: Record<string, unknown>) => {
       calls.push({ action: "update", input });
       state = { ...state, ...input };
       if (input.removeCredentialConnection || input.revoke === "credentials")
-        state = { ...state, credentialProvider: null, credentialProviders: [], autoFill: [] };
+        state = { ...state, credentialProviders: [] };
       return state;
     },
   },

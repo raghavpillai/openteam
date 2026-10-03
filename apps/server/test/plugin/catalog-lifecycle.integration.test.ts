@@ -74,8 +74,6 @@ for (const catalog of pluginCatalog) {
           const runtime = context.pluginRuntimePackages.find((pkg) => pkg.key === catalog.key)!;
           expect(runtime).toBeDefined();
           expect(runtime.commands).toEqual(components.commands);
-          if (catalog.key === "1password")
-            expect(runtime.hooksUnavailableReason).toContain("desktop filesystem");
         }
         expect(context.dynamicNamespaces).toEqual([]);
         const accounts = await prisma.pluginConnection.findMany({

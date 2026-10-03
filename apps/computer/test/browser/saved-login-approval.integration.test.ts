@@ -33,7 +33,7 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)(
     const context = await browser.newContext();
     const session = new (BrowserUseSession as any)(browser, context, root) as BrowserUseSession;
     const settings = new CapabilitySettingsStore(join(root, "capabilities.json"));
-    await settings.update({ account: "account", vault: "vault" });
+    await settings.mutate(current => ({ ...current, credentialProviders: [{ account: "account", vault: "vault" }] }));
     const item = {
       id: "login",
       title: "Fixture login",

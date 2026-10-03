@@ -125,19 +125,6 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)(
       expect(item.updated_at).toBe(list[0]!.updated_at);
       await service.importToken({ token: "ops_renewed_synthetic_service_token" });
       expect((await service.view())[0]?.generation).toBe(2);
-      await db.savedLoginConnection.update({
-        where: { id: connectionId },
-        data: { expiresAt: new Date(Date.now() - 1000) },
-      });
-      expect((await service.view())[0]?.lifecycleState).toBe("expired");
-      await expect(service.operation({ operation: "list", accountId, vaultId })).rejects.toThrow(
-        "Renew"
-      );
-      await db.savedLoginConnection.update({
-        where: { id: connectionId },
-        data: { expiresAt: new Date(Date.now() + 86400_000) },
-      });
-      expect((await service.view())[0]?.lifecycleState).toBe("expiring");
       duringRead = () => service.disconnect(connectionId).then(() => undefined);
       await expect(
         service.operation({ operation: "get", accountId, vaultId, itemId: "fixture-login" })
@@ -147,7 +134,6 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)(
       ).toBeNull();
       expect(await service.view()).toEqual([]);
     } finally {
-      await db.savedLoginMint.deleteMany({ where: { connectionId } });
       await db.savedLoginConnection.deleteMany({ where: { id: connectionId } });
       await db.$disconnect();
     }
@@ -158,9 +144,8 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)(
   "manual service-account import accepts an existing vault, encrypts tokens and replaces access without local setup",
   async () => {
     const db = createPrismaClient(process.env.OPENTEAM_TEST_DATABASE_URL!);
-    const vaultId = crypto.randomUUID(), accountId = crypto.randomUUID();
+    const vaultId = crypto.randomUUID();
     const connectionId = `1password:service-account:${vaultId}`;
-    const automaticId = `1password:${accountId}:${vaultId}`;
     let vaultTitle = "Existing Engineering Vault", failRead = false;
     const tokens: string[] = [];
     const token = "ops_synthetic_imported_private_token";
@@ -178,17 +163,10 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)(
       await expect(service.importToken({ token })).rejects.toThrow("read access");
       expect(await service.view()).toEqual([]);
       failRead = false;
-      // Exercise migration from an old plaintext connection, then replacement by manual import.
-      await db.savedLoginConnection.create({ data: { id: automaticId, accountId, vaultId, vaultName: vaultTitle, token, enabled: true } });
-      await service.encryptLegacyTokens();
-      const migrated = await db.savedLoginConnection.findUniqueOrThrow({ where: { id: automaticId } });
-      expect(migrated.token).toStartWith("enc:v1:");
-      expect(cipher.decrypt(migrated.token!, automaticId)).toBe(token);
       const result = await service.importToken({ token: ` ${token} ` });
       expect(result).toHaveLength(1);
-      expect(result[0]).toMatchObject({ id: connectionId, vaultName: "Existing Engineering Vault", itemCount: 1, expiresAt: null, alwaysAllow: false });
+      expect(result[0]).toMatchObject({ id: connectionId, vaultName: "Existing Engineering Vault", itemCount: 1, alwaysAllow: false });
       expect(JSON.stringify(result)).not.toContain(token);
-      expect((await db.savedLoginConnection.findUniqueOrThrow({ where: { id: automaticId } })).token).toBeNull();
       const stored = await db.savedLoginConnection.findUniqueOrThrow({ where: { id: connectionId } });
       expect(cipher.decrypt(stored.token!, connectionId)).toBe(token);
       await service.operation({ operation: "list", accountId: "service-account", vaultId });
@@ -200,7 +178,6 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)(
       expect((await db.savedLoginConnection.findUniqueOrThrow({ where: { id: connectionId } })).token).toBeNull();
       expect(await service.view()).toEqual([]);
     } finally {
-      await db.savedLoginMint.deleteMany({ where: { vaultId } });
       await db.savedLoginConnection.deleteMany({ where: { vaultId } });
       await db.$disconnect();
     }

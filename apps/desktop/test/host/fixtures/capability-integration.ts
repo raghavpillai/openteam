@@ -28,7 +28,7 @@ try {
     [{ id: 1, text: "synthetic 🦊" }]
   );
   const settings = new CapabilitySettingsStore(join(root, "settings.json"));
-  await settings.update({ account: "fixture-account", vault: "fixture-vault" });
+  await settings.mutate(current => ({ ...current, credentialProviders: [{ account: "fixture-account", vault: "fixture-vault" }] }));
   const item = {
     id: "login",
     title: "Fixture login",
@@ -108,7 +108,7 @@ try {
   assert.deepEqual(await call("AutomaticSavedCredential", { site: "http://127.0.0.1:19999" }), {
     skipped: true,
   });
-  await settings.update({ autoFill: [`${login.connection_id}:${login.credential_id}`] });
+  await settings.mutate(current => ({ ...current, credentialProviders: current.credentialProviders.map(row => ({ ...row, alwaysAllow: true })) }));
   const automatic = await call("AutomaticSavedCredential", { site: "http://127.0.0.1:19999" });
   assert.equal(automatic.password, "synthetic-password-123");
   assert.equal(reviews, 0);

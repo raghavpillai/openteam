@@ -39,7 +39,7 @@ export function OnePasswordSavedLogins({ logoUrl, onChanged }: { logoUrl: string
       setError(onePasswordErrorMessage(cause, "Could not connect 1Password. Check the token's vault access and your server connection, then retry."));
     } finally { working.current = false; setBusy(false); }
   };
-  const connections = settings?.credentialProviders?.filter(row => row.broker) ?? [];
+  const connections = settings?.credentialProviders ?? [];
   return (
     <div className="bot-scrollbar min-h-0 flex-1 overflow-y-auto px-8 pb-8 max-sm:px-4">
       <div className="mb-5 flex items-center gap-3"><PluginMark logoUrl={logoUrl ?? onePasswordIcon} name="1Password" /><h2 className="text-[18px] font-medium">1Password</h2></div>
@@ -69,7 +69,7 @@ export function OnePasswordSavedLogins({ logoUrl, onChanged }: { logoUrl: string
         {connections.map(row => {
           const id = `1password:${row.account}:${row.vault}`;
           return <div key={id} className="space-y-3 rounded-xl bg-foreground/5 p-4 text-[13px]">
-            <div className="font-medium">{row.vaultName}</div><p className="text-foreground-secondary">{row.itemCount ?? 0} saved logins · {row.lifecycleState ?? "active"}{row.expiresAt ? ` · expires ${new Date(row.expiresAt).toLocaleDateString()}` : ""}</p>
+            <div className="font-medium">{row.vaultName}</div><p className="text-foreground-secondary">{row.itemCount ?? 0} saved logins · {row.lifecycleState ?? "active"}</p>
             {row.lastSyncErrorCode ? <p className="text-red-600">Could not sync. Check 1Password access, then sync or renew.</p> : null}
             <label className="flex items-center gap-2"><input type="checkbox" aria-label={`Always allow saved logins in ${row.vaultName}`} disabled={busy} checked={row.alwaysAllow === true} onChange={e => void run(async () => apply(await permissions!.setSavedLoginAlwaysAllow(id, e.target.checked)))} />Always allow saved logins</label>
             <p className="text-xs text-foreground-secondary">Each login fill asks for approval unless enabled above. Automatic filling requires a matching website and a single matching login.</p>

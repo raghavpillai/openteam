@@ -22,7 +22,7 @@ test("saved credentials expose metadata only, bind exact origin/revision, and re
   const root = await mkdtemp(join(tmpdir(), "openteam-credentials-test-"));
   try {
     const settings = new CapabilitySettingsStore(join(root, "settings.json"));
-    await settings.update({ account: "fixture-account", vault: "fixture-vault" });
+    await settings.mutate(current => ({ ...current, credentialProviders: [{ account: "fixture-account", vault: "fixture-vault" }] }));
     let gets = 0;
     let consent = 0;
     let revoke = false;
@@ -215,10 +215,10 @@ test("multiple vaults retain separate identities, report attention, and disconne
  const root=await mkdtemp(join(tmpdir(),"multiple-vault-fixture-"));
  try {
   const settings=new CapabilitySettingsStore(join(root,"settings.json"));
-  await settings.update({account:"one",vault:"personal"});await settings.update({account:"two",vault:"work"});
+  await settings.mutate(current => ({ ...current, credentialProviders: [{account:"one",vault:"personal"},{account:"two",vault:"work"}] }));
   const provider=new SavedCredentials(settings,async()=>"deny",async(_file,args)=>{
    if(args.includes("two"))throw new Error("locked fixture vault");
-   return args[0]==="whoami" ? "{}" : JSON.stringify([fixtureLogin]);
+   return JSON.stringify([fixtureLogin]);
   });
   expect(await provider.status()).toMatchObject({connectionCount:2,itemCount:1,connectionsNeedingAttention:1});
   const list=await provider.list({});expect(list.credentials).toHaveLength(1);expect(list.unavailableConnections).toHaveLength(1);

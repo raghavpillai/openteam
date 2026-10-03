@@ -22,7 +22,6 @@ import { computerEventStream } from "./computer-event-stream";
 import { BotAgentStore } from "./bot-agent-store";
 import { StdioMcpManager } from "./mcp-manager";
 import { McpRuntimeRouter } from "./mcp-runtime-router";
-import { DesktopMcpClient } from "./desktop-mcp-client";
 import { resolveWorkspacePath } from "./paths";
 import { ComputerRuntime } from "./runtime";
 import { checkWebProvider, parseWebProviderCheck } from "./web-provider-check";
@@ -71,7 +70,7 @@ const runtime = new ComputerRuntime(screens, agentStores, ({ botId }) =>
     chrome: true,
   })
 );
-const stdioMcp = new McpRuntimeRouter(new StdioMcpManager(), new DesktopMcpClient(controlToken));
+const stdioMcp = new McpRuntimeRouter(new StdioMcpManager());
 
 const json = (value: unknown, status = 200, headers: Record<string, string> = {}) =>
   Response.json(value, {

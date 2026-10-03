@@ -47,7 +47,6 @@ export class OnePasswordProvisioning {
     const rows = await this.backend("always-allow", { connectionId, alwaysAllow });
     await this.settings.mutate((settings) => ({
       ...settings,
-      autoFill: settings.autoFill.filter((key) => !key.startsWith(connectionId + ":")),
       revocationEpoch: (settings.revocationEpoch ?? 0) + 1,
     }));
     return applySavedLoginConnections(this.settings, rows);
@@ -64,12 +63,10 @@ async function applySavedLoginConnections(settings: CapabilitySettingsStore, row
     account: identifier(row.accountId),
     vault: identifier(row.vaultId),
     vaultName: String(row.vaultName),
-    broker: true,
     alwaysAllow: row.alwaysAllow === true,
     permissionRevision: Number(row.permissionRevision ?? 0),
     generation: Number(row.generation ?? 0),
     lifecycleState: String(row.lifecycleState ?? "active"),
-    expiresAt: row.expiresAt ?? null,
     itemCount: Number(row.itemCount ?? 0),
     lastSuccessfulSyncAt: row.lastSuccessfulSyncAt ?? null,
     lastSyncErrorCode: row.lastSyncErrorCode ?? null,
@@ -82,7 +79,6 @@ async function applySavedLoginConnections(settings: CapabilitySettingsStore, row
       JSON.stringify(
         providers.map((row) => ({
           id: credentialConnectionId(row),
-          broker: row.broker === true,
           alwaysAllow: row.alwaysAllow === true,
           generation: row.generation ?? 0,
           permissionRevision: row.permissionRevision ?? 0,
@@ -91,19 +87,7 @@ async function applySavedLoginConnections(settings: CapabilitySettingsStore, row
     const changed = permissions(connections) !== permissions(credentialConnections(settings));
     return {
       ...settings,
-      credentialProvider: connections[0] ?? null,
       credentialProviders: connections,
-      autoFill: settings.autoFill.filter((key) =>
-        connections.some((row) => {
-          const previous = credentialConnections(settings).find(
-            (old) => credentialConnectionId(old) === credentialConnectionId(row)
-          );
-          return (
-            key.startsWith(credentialConnectionId(row) + ":") &&
-            (!row.broker || (row.permissionRevision ?? 0) === (previous?.permissionRevision ?? 0))
-          );
-        })
-      ),
       revocationEpoch: (settings.revocationEpoch ?? 0) + Number(changed),
     };
   });
@@ -111,16 +95,15 @@ async function applySavedLoginConnections(settings: CapabilitySettingsStore, row
 
 export function brokerCredentialCommand(
   settings: CapabilitySettingsStore,
-  backend: SavedLoginBackend,
-  _legacyFallback?: NativeCommand
+  backend: SavedLoginBackend
 ): NativeCommand {
   return async (file, args, signal) => {
     const accountId = args[args.indexOf("--account") + 1];
     const vaultId = args[args.indexOf("--vault") + 1];
     const config = credentialConnections(await settings.read()).find(
-      (row) => row.account === accountId && (args[0] === "whoami" || row.vault === vaultId)
+      (row) => row.account === accountId && row.vault === vaultId
     );
-    if (!config?.broker) throw new Error("Reconnect 1Password through the service-account setup. Local vault reads are disabled.");
+    if (!config) throw new Error("Saved-login connection not found");
     signal?.throwIfAborted();
     await applySavedLoginConnections(settings, await backend("view", undefined, signal));
     if (
@@ -130,11 +113,9 @@ export function brokerCredentialCommand(
     )
       throw new Error("The saved-login connection was revoked");
     const operation =
-      args[0] === "whoami"
-        ? "status"
-        : args[0] === "item" && ["get", "list"].includes(args[1]!)
-          ? args[1]
-          : undefined;
+      args[0] === "item" && ["get", "list"].includes(args[1]!)
+        ? args[1]
+        : undefined;
     if (!operation) throw new Error("Unsupported saved-login operation");
     let result: unknown;
     try {

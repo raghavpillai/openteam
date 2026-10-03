@@ -14,7 +14,6 @@ import gmail from "../../../../packages/plugins/gmail/plugin.json";
 import calendar from "../../../../packages/plugins/google-calendar/plugin.json";
 import drive from "../../../../packages/plugins/google-drive/plugin.json";
 import granola from "../../../../packages/plugins/granola/plugin.json";
-import onePassword from "../../../../packages/plugins/1password/plugin.json";
 import { createPluginTemplate, type PluginDefinition } from "@openteam/plugin-sdk";
 const packagedIcons = import.meta.glob("../../../../packages/plugins/*/assets/icon.png", {
   eager: true,
@@ -52,7 +51,6 @@ for (const key of Object.keys(api)) {
 }
 const timestamp = "2026-09-12T12:00:00.000Z";
 const definitions = [
-  onePassword,
   gmail,
   calendar,
   drive,
@@ -232,10 +230,9 @@ api.installPlugin = async (key) => {
 };
 api.connectPlugin = async (id) => {
   const account = findAccount(id);
-  if (account.pluginKey !== "1password") throw new Error("This fixture only simulates native 1Password connection failures.");
-  account.status = "error";
-  account.statusMessage = "Unlock 1Password, enable Integrate with MCP clients in Settings → Developer, complete any macOS setup prompt, then retry and approve the connection.";
-  throw new Error(account.statusMessage);
+  account.status = "ready";
+  account.statusMessage = null;
+  return { status: "ready", toolCount: account.tools.length };
 };
 api.uninstallPlugin = async (key) => {
   settings.installs = settings.installs.filter((install) => install.pluginKey !== key);
@@ -305,7 +302,7 @@ api.pluginConfiguration = async (id) => {
     namespace: `${account.pluginKey}_${account.alias.replaceAll(" ", "_")}`,
     endpoint: definition.connections[0]!.endpoint,
     command: null,
-    runtime: account.pluginKey === "1password" ? "desktop" : "computer",
+    runtime: "computer",
     args: [],
     cwd: null,
     values: {},

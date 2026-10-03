@@ -937,11 +937,10 @@ ipcMain.handle("openteam:capabilities:logins", async (event) => {
 ipcMain.handle("openteam:capabilities:update", async (event, input: unknown) => {
   requirePermissionSettings(event);
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Invalid native settings");
-  const update = input as { removeCredentialConnection?: string; revoke?: string; account?: unknown; vault?: unknown };
-  if (update.account !== undefined || update.vault !== undefined) throw new Error("Connect 1Password through service-account setup. Local vault reads are disabled.");
+  const update = input as { removeCredentialConnection?: string; revoke?: string };
   if (update.removeCredentialConnection) await provisioning().disconnect(update.removeCredentialConnection);
   if (update.revoke === "credentials") for (const provider of (await sharedCapabilitySettings().read()).credentialProviders ?? []) {
-    if (provider.broker) await provisioning().disconnect(`1password:${provider.account}:${provider.vault}`);
+    await provisioning().disconnect(`1password:${provider.account}:${provider.vault}`);
   }
   return sharedCapabilitySettings().update(input);
 });

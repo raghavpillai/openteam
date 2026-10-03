@@ -32,16 +32,6 @@ export class SavedLoginService {
     private readonly connect: SavedLoginProvider = provider,
     private readonly cipher = new SavedLoginTokenCipher()
   ) {}
-  async encryptLegacyTokens() {
-    const rows = await this.db.savedLoginConnection.findMany({ where: { token: { startsWith: "ops_" } } });
-    for (const row of rows) {
-      if (!row.token) continue;
-      const token = this.cipher.encrypt(row.token, row.id);
-      await this.db.savedLoginConnection.updateMany({
-        where: { id: row.id, token: row.token, generation: row.generation }, data: { token },
-      });
-    }
-  }
   async view() {
     const rows = await this.db.savedLoginConnection.findMany({
       where: { enabled: true },
@@ -52,7 +42,6 @@ export class SavedLoginService {
         vaultId: true,
         vaultName: true,
         generation: true,
-        expiresAt: true,
         alwaysAllow: true,
         permissionRevision: true,
         itemCount: true,
@@ -62,14 +51,7 @@ export class SavedLoginService {
     });
     return rows.map((row) => ({
       ...row,
-      lifecycleState:
-        row.expiresAt && row.expiresAt.getTime() <= Date.now()
-          ? "expired"
-          : row.lastSyncErrorCode === "provider-rejected"
-            ? "provider-rejected"
-            : row.expiresAt && row.expiresAt.getTime() - Date.now() <= 7 * 86400_000
-              ? "expiring"
-              : "active",
+      lifecycleState: row.lastSyncErrorCode === "provider-rejected" ? "provider-rejected" : "active",
     }));
   }
   async setAlwaysAllow(input: any) {
@@ -155,12 +137,8 @@ export class SavedLoginService {
           token: encrypted, enabled: true, generation: (current?.generation ?? 0) + 1,
           alwaysAllow: false, permissionRevision: (current?.permissionRevision ?? 0) + 1,
           // The provider controls imported-token expiry; do not invent a lifetime.
-          expiresAt: null, itemCount: vault.itemCount, lastSuccessfulSyncAt: new Date(), lastSyncErrorCode: null,
+          itemCount: vault.itemCount, lastSuccessfulSyncAt: new Date(), lastSyncErrorCode: null,
         };
-        await tx.savedLoginConnection.updateMany({
-          where: { vaultId: vault.id, id: { not: connectionId }, enabled: true },
-          data: { token: null, enabled: false, alwaysAllow: false, generation: { increment: 1 }, permissionRevision: { increment: 1 } },
-        });
         await tx.savedLoginConnection.upsert({ where: { id: connectionId }, create: { id: connectionId, ...data }, update: data });
       }
     });
@@ -179,34 +157,23 @@ export class SavedLoginService {
           generation: { increment: 1 },
         },
       });
-      await tx.savedLoginMint.deleteMany({ where: { connectionId } });
     });
     return this.view();
   }
   /** Native main-process transport only; not a model tool or renderer IPC. */
   async operation(input: any) {
-    if (!["list", "get", "status"].includes(input?.operation)) throw invalid();
+    if (!["list", "get"].includes(input?.operation)) throw invalid();
     const connection = await this.db.savedLoginConnection.findFirst({
       where: { accountId: id(input.accountId), vaultId: id(input.vaultId), enabled: true },
     });
-    if (!connection?.token || (connection.expiresAt && connection.expiresAt.getTime() < Date.now()))
+    if (!connection?.token)
       throw new ApiError(
         409,
         "saved_login_renewal_required",
         "Renew this 1Password connection in Computer settings"
       );
     try {
-      // Upgrade old plaintext connections before any provider read. New writes are always encrypted.
-      let envelope = connection.token;
-      if (/^ops_[A-Za-z0-9_-]+$/.test(envelope)) {
-        const encrypted = this.cipher.encrypt(envelope, connection.id);
-        await this.db.savedLoginConnection.updateMany({
-          where: { id: connection.id, generation: connection.generation, token: envelope, enabled: true },
-          data: { token: encrypted },
-        });
-        envelope = encrypted;
-      }
-      const client = await this.connect(this.cipher.decrypt(envelope, connection.id));
+      const client = await this.connect(this.cipher.decrypt(connection.token, connection.id));
       const result =
         input.operation === "get"
           ? await client.items.get(connection.vaultId, id(input.itemId))

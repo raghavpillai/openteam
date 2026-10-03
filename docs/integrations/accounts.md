@@ -29,13 +29,9 @@ Create a [fine-grained personal access token](https://github.com/settings/person
 
 ## 1Password
 
-The 1Password plugin manages Developer Environments and `.env` files. It doesn't read your vault passwords. To let bots sign in to websites with saved passwords, use [saved logins](../usage/computer.md#sign-in-to-websites) instead.
+Use **Marketplace → Login and Credential Management → 1Password** to connect saved browser logins. Create a service account on 1Password.com, select the existing vaults you want to share with read-only access, and paste its token into OpenTeam. See [saved logins](../usage/computer.md#sign-in-to-websites).
 
-1. Install 1Password on macOS or Linux and unlock it.
-2. In 1Password, open **Settings → Developer** and turn on **Integrate with MCP clients**.
-3. In the OpenTeam desktop app on the same computer, add the 1Password plugin and approve the prompt in 1Password. If it doesn't connect, choose **Connect**.
-
-Keep 1Password unlocked and the OpenTeam desktop app open while bots use it.
+The 1Password desktop app and Environments MCP setup are not used.
 
 ## Sign-in callback
 

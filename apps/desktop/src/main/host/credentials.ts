@@ -17,10 +17,7 @@ export function credentialOrigin(site: string): string {
     throw new Error("Saved logins require HTTPS or a loopback origin");
   return url.origin;
 }
-const itemRevision = (item: Record<string, any>, kind?: string) =>
-  kind?.startsWith("updated_at:") || item.version === undefined
-    ? `updated_at:${item.updated_at ?? ""}`
-    : `version:${item.version}`;
+const itemRevision = (item: Record<string, any>) => `updated_at:${item.updated_at ?? ""}`;
 const credentialJson = (text: string): any => {
   try {
     return JSON.parse(text);
@@ -36,17 +33,16 @@ export class SavedCredentials {
   ) {}
   async status(signal?: AbortSignal) {
     const connections = credentialConnections(await this.settings.read());
-    if (!connections.length) return {kind:"not-connected",connected:false,provider:"1password",setup:"In Computer settings, connect a 1Password account and vault. Enable CLI integration in 1Password."};
+    if (!connections.length) return {kind:"not-connected",connected:false,provider:"1password",setup:"Connect 1Password with a service account token in Marketplace or Computer settings."};
     const statuses = await Promise.all(connections.map(async config => {
       const connection_id = credentialConnectionId(config);
       try {
-        if (!config.broker) await this.run("op",["whoami","--account",config.account,"--format=json"],signal);
         const items=credentialJson(await this.run("op",["item","list","--account",config.account,"--vault",config.vault,"--format=json"],signal));
         if(!Array.isArray(items))throw new Error("Invalid item metadata");
         return {connection_id,kind:"connected",itemCount:items.length,needsAttention:false};
       } catch (error) {
         signal?.throwIfAborted();
-        return {connection_id,kind:"unavailable",itemCount:0,needsAttention:true,setup:"Unlock 1Password and verify this account and vault."};
+        return {connection_id,kind:"unavailable",itemCount:0,needsAttention:true,setup:"Renew the service account token in Saved logins settings."};
       }
     }));
     return {kind:"connected",connected:statuses.some(item=>!item.needsAttention),provider:"1password",connectionCount:statuses.length,itemCount:statuses.reduce((sum,item)=>sum+item.itemCount,0),connectionsNeedingAttention:statuses.filter(item=>item.needsAttention).length,connections:statuses};
@@ -101,7 +97,7 @@ export class SavedCredentials {
         provider_revision: itemRevision(item),
         sites,
         targetRules,
-        autoFill: alwaysAllow || permissions.autoFill.includes(`${connection_id}:${item.id}`),
+        autoFill: alwaysAllow,
       };
       return [
         {
@@ -143,7 +139,7 @@ export class SavedCredentials {
         "The saved login changed, was revoked, or does not match this live origin. List credentials again."
       );
     const connectionAlwaysAllow = credentialConnections(await this.settings.read()).find(row => credentialConnectionId(row) === item.connection_id)?.alwaysAllow === true;
-    const automaticAllowed = item.autoFill && matchCredentialRules(item.targetRules, origin, !connectionAlwaysAllow) && (connectionAlwaysAllow || matches.length === 1);
+    const automaticAllowed = item.autoFill && matchCredentialRules(item.targetRules, origin) && (connectionAlwaysAllow || matches.length === 1);
     if (args.automatic === true && (!automaticAllowed || matches.length !== 1)) return { skipped: true };
     if (args.automatic !== true && !automaticAllowed) {
       const decision = await this.consent({
@@ -183,7 +179,7 @@ export class SavedCredentials {
         signal
       )
     );
-    if (itemRevision(raw, item.provider_revision) !== item.provider_revision)
+    if (itemRevision(raw) !== item.provider_revision)
       throw new Error("The login changed during retrieval; list credentials again");
     const sites = (raw.urls ?? []).flatMap((url: any) => {
       try {

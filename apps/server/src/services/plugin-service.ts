@@ -15,7 +15,7 @@ import { OpenTeamMarketplaceSource } from "../plugins/openteam-marketplace";
 import { PluginManagement } from "./plugin/management";
 import { PluginConfiguration } from "./plugin/configuration";
 import {
-  desktopMcpProvider,
+  assertComputerMcpRuntime,
   fieldsForConnector,
   validateValues,
   type ConfigValue,
@@ -352,10 +352,7 @@ export class PluginService {
         connectionId = created.id;
       }
       const connection = await this.connectionOrThrow(connectionId);
-      if (desktopMcpProvider(runtimeConfiguration(connection)))
-        return Effect.runPromise(
-          args.forceReauth === true ? this.restart(connectionId) : this.connect(connectionId)
-        );
+      assertComputerMcpRuntime(runtimeConfiguration(connection));
       return runAuthentication(this.authenticate(connectionId, args.forceReauth === true));
     }
     if (action === "RestartMcpServers") return Effect.runPromise(this.restart(connectionId));

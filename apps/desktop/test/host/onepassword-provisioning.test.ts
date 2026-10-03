@@ -2,11 +2,11 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { OnePasswordProvisioning, brokerCredentialCommand } from "../../src/main/host/onepassword-provisioning";
+import { OnePasswordProvisioning } from "../../src/main/host/onepassword-provisioning";
 import { CapabilitySettingsStore } from "../../src/main/host/capability-settings";
 const connection = { accountId: "service-account", vaultId: "vault", vaultName: "Shared with OpenTeam", generation: 1 };
 
-test("manual import validates tokens, keeps metadata private and denies legacy local reads", async () => {
+test("manual import validates tokens and keeps metadata private", async () => {
   const root = await mkdtemp(join(tmpdir(), "manual-token-"));
   try {
     const settings = new CapabilitySettingsStore(join(root, "settings.json"));
@@ -20,11 +20,8 @@ test("manual import validates tokens, keeps metadata private and denies legacy l
     await expect(setup.importToken("invalid")).rejects.toThrow("valid");
     expect(calls).toEqual([]);
     const result = await setup.importToken("ops_synthetic_manual_token");
-    expect(result.credentialProvider).toMatchObject({ broker: true, account: "service-account" });
+    expect(result.credentialProviders[0]).toMatchObject({ account: "service-account" });
     expect(JSON.stringify(result)).not.toContain("ops_synthetic_manual_token");
-    await settings.update({ account: "legacy", vault: "legacy-vault" });
-    const run = brokerCredentialCommand(settings, async () => { throw new Error("Unexpected backend operation"); }, async () => { throw new Error("Must never invoke local CLI"); });
-    await expect(run("op", ["item", "list", "--account", "legacy", "--vault", "legacy-vault"])).rejects.toThrow("Local vault reads are disabled");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -42,7 +39,7 @@ test("cancelled token registration releases setup and allows retry", async () =>
     setup.cancel();
     await expect(pending).rejects.toThrow("cancelled");
     cancel = false;
-    expect((await setup.importToken("ops_synthetic_manual_token")).credentialProvider?.broker).toBe(true);
+    expect((await setup.importToken("ops_synthetic_manual_token")).credentialProviders.length > 0).toBe(true);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -56,6 +53,6 @@ test("server metadata recovers a manual registration after its response is lost"
       return [connection];
     });
     await expect(setup.importToken("ops_synthetic_manual_token")).rejects.toThrow("Response lost");
-    expect((await setup.refresh()).credentialProvider?.vault).toBe("vault");
+    expect((await setup.refresh()).credentialProviders[0]?.vault).toBe("vault");
   } finally { await rm(root, { recursive: true, force: true }); }
 });

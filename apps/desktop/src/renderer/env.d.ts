@@ -27,8 +27,8 @@ interface Window {
       setSavedLoginAlwaysAllow(connectionId: string, alwaysAllow: boolean): ReturnType<NonNullable<Window["openteam"]>["permissions"]["getCapabilities"]>;
       importSavedLoginToken(token: string): ReturnType<NonNullable<Window["openteam"]>["permissions"]["getCapabilities"]>;
       listSavedLogins(): Promise<{ connected: boolean; credentials: Array<{credential_id: string; connection_id: string; title: string; sites: string[]; autoFill: boolean}> }>;
-      getCapabilities(): Promise<{ credentialProvider: import("@openteam/contracts/saved-logins").CredentialProviderConnection | null; credentialProviders?: Array<import("@openteam/contracts/saved-logins").CredentialProviderConnection>; messagesSendAll?:boolean; autoFill: string[]; cookieGrants: string[]; messagesGrants: string[] }>;
-      updateCapabilities(input: { account?: string; vault?: string; revoke?: "cookies" | "credentials" | "messages"; autoFill?: string[]; removeCredentialConnection?: string; messagesSendAll?: boolean }): Promise<{ credentialProvider: import("@openteam/contracts/saved-logins").CredentialProviderConnection | null; credentialProviders?: Array<import("@openteam/contracts/saved-logins").CredentialProviderConnection>; messagesSendAll?:boolean; autoFill: string[]; cookieGrants: string[]; messagesGrants: string[] }>;
+      getCapabilities(): Promise<{ credentialProviders: Array<import("@openteam/contracts/saved-logins").CredentialProviderConnection>; messagesSendAll?:boolean; cookieGrants: string[]; messagesGrants: string[] }>;
+      updateCapabilities(input: { revoke?: "cookies" | "credentials" | "messages"; removeCredentialConnection?: string; messagesSendAll?: boolean }): Promise<{ credentialProviders: Array<import("@openteam/contracts/saved-logins").CredentialProviderConnection>; messagesSendAll?:boolean; cookieGrants: string[]; messagesGrants: string[] }>;
       get: () => Promise<OpenTeamPermissionSettings>;
       update: (request: {
         machineLabel?: string;

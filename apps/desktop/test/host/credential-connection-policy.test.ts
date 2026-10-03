@@ -65,8 +65,6 @@ test("connection permission sync, matching rules, ambiguous logins and revocatio
     duplicate = true;
     expect(await credentials.automatic("https://example.com")).toEqual({ skipped: true });
     duplicate = false;
-    // Old per-item grants must also be revoked when a different desktop changes permission.
-    await settings.mutate((value) => ({ ...value, autoFill: [connection.id + ":login"] }));
     // A second desktop changes the server-side grant during a private retrieval.
     duringRead = () => {
       connection.alwaysAllow = false;
@@ -75,8 +73,7 @@ test("connection permission sync, matching rules, ambiguous logins and revocatio
     await expect(credentials.automatic("https://example.com")).rejects.toThrow(
       "revoked during retrieval"
     );
-    expect((await settings.read()).credentialProvider?.alwaysAllow).toBe(false);
-    expect((await settings.read()).autoFill).toEqual([]);
+    expect((await settings.read()).credentialProviders[0]?.alwaysAllow).toBe(false);
     expect(await credentials.automatic("https://example.com")).toEqual({ skipped: true });
     expect(JSON.stringify(await credentials.list({ site: "https://example.com" }))).not.toContain(
       "SYNTHETIC-PRIVATE-PASSWORD"

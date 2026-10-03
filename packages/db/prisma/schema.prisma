@@ -1336,7 +1336,6 @@ model SavedLoginConnection {
   itemCount Int @default(0)
   lastSuccessfulSyncAt DateTime?
   lastSyncErrorCode String?
-  expiresAt DateTime?
   updatedAt DateTime @updatedAt
   @@unique([accountId, vaultId])
 }
@@ -1347,19 +1346,6 @@ model AutoReviewPolicy {
   allowInstructions String[] @default([])
   blockInstructions String[] @default([])
   updatedAt DateTime @updatedAt
-}
-
-model SavedLoginMint {
-  id String @id @default(uuid()) @db.Uuid
-  connectionId String
-  accountId String
-  vaultId String
-  vaultName String
-  expectedGeneration Int
-  expiresAt DateTime
-  providerExpiresAt DateTime?
-  tokenHash String?
-  completedAt DateTime?
 }
 
 model TaskSettings {

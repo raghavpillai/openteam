@@ -259,7 +259,6 @@ export class AppService {
   boot = () =>
     serviceEffect(async () => {
       await this.prisma.$queryRaw`SELECT 1`;
-      await this.savedLogins.encryptLegacyTokens();
       await this.eventWakeup.start();
       await this.snapshots.pruneEvents();
       this.eventPruneTimer = setInterval(() => {

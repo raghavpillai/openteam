@@ -108,7 +108,7 @@ export function PluginDialog({
   const [data, setData] = useState<PluginSettingsView | null>(null);
   const [savedLoginsConnected, setSavedLoginsConnected] = useState(false);
   const refreshSavedLogins = useCallback(() => {
-    void window.openteam?.permissions.getCapabilities().then(value => setSavedLoginsConnected((value.credentialProviders ?? []).some(row => row.broker))).catch(() => undefined);
+    void window.openteam?.permissions.getCapabilities().then(value => setSavedLoginsConnected(value.credentialProviders.length > 0)).catch(() => undefined);
   }, []);
   useEffect(() => { if (open) refreshSavedLogins(); }, [open, refreshSavedLogins]);
   useEffect(() => { window.addEventListener("openteam:saved-logins-changed", refreshSavedLogins); return () => window.removeEventListener("openteam:saved-logins-changed", refreshSavedLogins); }, [refreshSavedLogins]);
@@ -425,7 +425,7 @@ export function PluginDialog({
           <MarketplaceView
             hidden={page !== "marketplace"}
             busy={busy}
-            data={{ ...data, catalog: [savedLoginsCatalog(data.catalog.find(p => p.key === "1password")?.logoUrl ?? null, savedLoginsConnected), ...data.catalog] }}
+            data={{ ...data, catalog: [savedLoginsCatalog(null, savedLoginsConnected), ...data.catalog] }}
             onInstall={(plugin) => {
               if (plugin.key === SAVED_LOGINS_KEY) { openDetail(plugin); return; }
               if (plugin.connections.length || plugin.setup || plugin.setupFields.length)
@@ -455,7 +455,7 @@ export function PluginDialog({
               <LoaderCircle className="size-5 animate-spin text-foreground-tertiary" />
             </div>
           ) : page === "saved-logins" ? (
-            <OnePasswordSavedLogins logoUrl={data.catalog.find(p => p.key === "1password")?.logoUrl ?? null} onChanged={refreshSavedLogins} />
+            <OnePasswordSavedLogins logoUrl={null} onChanged={refreshSavedLogins} />
           ) : page === "installed" ? (
             <InstalledPluginsView
               data={data}
@@ -469,7 +469,7 @@ export function PluginDialog({
                   : void mutate(connection.id, () => api.restartPluginConnection(connection.id))
               }
               catalogFallback={catalogPluginForInstall}
-              savedLogins={savedLoginsConnected ? savedLoginsCatalog(data.catalog.find(p => p.key === "1password")?.logoUrl ?? null, true) : undefined}
+              savedLogins={savedLoginsConnected ? savedLoginsCatalog(null, true) : undefined}
             />
           ) : page === "manage" ? (
             <Suspense fallback={<p className="p-8 text-sm">Loading plugin management…</p>}>

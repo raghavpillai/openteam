@@ -461,6 +461,7 @@ const readLazyClosures = async () => {
       routineSummary: ["src/renderer/components/openteam/routine-summary.tsx"],
       routineEditor: ["src/renderer/components/openteam/routine-panel.tsx"],
       newBot: ["src/renderer/components/openteam/new-bot-screen.tsx"],
+      savedLogins: ["src/renderer/components/openteam/plugins/onepassword-saved-logins.tsx"],
       pluginSettings: ["src/renderer/components/openteam/plugin-settings.tsx"],
       pluginManagement: ["src/renderer/components/openteam/plugins/plugin-workspace.tsx"],
       skillImport: ["src/renderer/components/openteam/plugins/skill-import.ts"],

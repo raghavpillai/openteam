@@ -1,89 +1,61 @@
-# Releasing OpenTeam
+# Releasing OpenTeam locally
 
-The `Release OpenTeam` workflow runs for tags shaped like `v1.2.3`. The tag version must exactly
-match the CLI, server, worker, computer, desktop, and iOS package versions plus `apps/ios/release.json`
-version. Core releases are all-or-nothing: the public GitHub release stays unavailable unless the
-server images, CLI binaries, release bundle, and Linux desktop artifact all succeed. Set the
-`RELEASE_NATIVE_CLIENTS` repository variable to `true` only when the Windows, macOS, and iOS signing
-secrets are configured and those native clients should ship from CI with the core release.
+Build releases on the appropriate local machine. Tag pushes do not run a release
+workflow. GitHub Releases remains the download host used by `openteam.so/download`
+and the install scripts; uploading locally built artifacts does not require GitHub
+Actions. The CLI installer workflow runs tests only.
 
-## What a release produces
+## macOS desktop
 
-Users install with `curl -fsSL https://openteam.so/install | sh` (or `install.ps1` on Windows).
-That script downloads a native `openteam` binary from the latest GitHub release and verifies it
-against `SHA256SUMS`, so the release itself is the distribution channel. Node.js, Bun, and npm are
-not required on an end-user machine.
+Build the requested source revision in an isolated checkout so unrelated working-tree
+changes cannot enter an installer. For an existing release, use its exact tag commit;
+do not move the tag just to add a missing installer. Use the Bun version pinned in
+root `package.json`, install with `bun install --frozen-lockfile`, and generate the
+database client with `bun run db:generate`.
 
-The workflow:
+From `apps/desktop`, run `bun run typecheck` and `bun run package:mac-release`.
+The signed release script requires a Developer ID Application identity selected by
+`CSC_NAME` and notarization credentials. `CSC_LINK` and `CSC_KEY_PASSWORD` can import
+a protected P12 into a temporary Keychain. Supply notarization through one complete
+credential mode:
 
-1. **validate**: architecture checks plus CLI, server, worker, computer, desktop, and mobile
-   typechecks and tests, after generating the database client.
-2. **images**: version-pinned `linux/amd64` and `linux/arm64` server, worker, migrate, and
-   computer images pushed to GHCR from digest-pinned build stages, with provenance and SBOM
-   attestations. The migrate image is a slim stage holding only `packages/db` and its
-   dependencies; it must not inherit the full build stage again.
-3. **desktop-linux / desktop-windows / desktop-macos**: build the Electron installers. Linux
-   always builds. Windows and macOS run when `RELEASE_NATIVE_CLIENTS=true`; their signing
-   credentials are then mandatory. The macOS job signs and notarizes its artifacts.
-4. **mobile-ios**: when `RELEASE_NATIVE_CLIENTS=true`, builds and checks the native Swift app on macOS, archives both the app
-   and notification extension, then uploads that exact archive using an App Store Connect API key.
-   Apple processing and tester availability require a separate check after upload.
-5. **github-release**: after every image and the Linux desktop job succeed, renders
-   `openteam-compose.yaml` with the exact image digests, signs the Compose bundle and Linux
-   AppImage with the workflow's Sigstore identity, writes CLI and desktop checksums, attests all
-   artifacts, uploads every installer, and publishes the release. Each native CLI binary ships
-   with a `.gz` copy at about a third of the size; the install scripts download the compressed
-   copy when it exists and verify the decompressed binary against the raw binary's checksum, so
-   the compressed files add no new trust surface.
+- `APPLE_API_KEY`, `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER`.
+- `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`.
+- `APPLE_KEYCHAIN_PROFILE` (and the existing corresponding Keychain credentials).
 
-## Before the first release
+Keep credentials outside the repository, pass them through the process environment,
+and never put their values in logs. Keep the signing identity consistent across
+releases. The release command enables hardened runtime, notarizes the app, checks
+package budgets, and verifies Developer ID signatures, entitlements, Gatekeeper,
+and the stapled notarization ticket. Verify the DMG with `hdiutil verify` and
+`xcrun stapler validate` before distributing it.
 
-1. Make the repository public, or make each GHCR package public after its first push. Installs
-   pull the four images anonymously, so private packages are not a supported release state.
-2. Add `WINDOWS_CSC_LINK`, `WINDOWS_CSC_KEY_PASSWORD`, `MACOS_CSC_LINK`,
-   `MACOS_CSC_KEY_PASSWORD`, `MACOS_CSC_NAME`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and
-   `APPLE_TEAM_ID` as repository secrets.
-3. Configure native iOS repository secrets: `IOS_DISTRIBUTION_P12_BASE64`,
-   `IOS_DISTRIBUTION_P12_PASSWORD`, `IOS_APP_PROFILE_BASE64`,
-   `IOS_EXTENSION_PROFILE_BASE64`, `APP_STORE_CONNECT_KEY_ID`,
-   `APP_STORE_CONNECT_ISSUER_ID`, and `APP_STORE_CONNECT_PRIVATE_KEY` (raw P8 text).
-   The distribution profiles must match the app/extension identifiers and team in
-   `apps/ios/release.json`, with push/communication capabilities enabled. Increment
-   `buildNumber` for each upload. The ephemeral runner imports signing material into a
-   temporary keychain and removes it afterwards. Expo credentials are no longer used.
-4. In App Store Connect, add the submitted build to an external TestFlight group when a public beta
-   is intended. A public TestFlight link requires Apple's beta review.
+`package:mac-local` makes an ad-hoc build for testing; use `package:mac-release`
+for public installers. The maintainer's reusable local release skill lives in a
+private, gitignored `.agents/skills/openteam-macos-release/` folder.
 
-## Cutting a release
+## Publish artifacts
 
-Only after the full repository check passes:
+Upload the verified DMG, ZIP, blockmaps, and `latest-mac.yml` from
+`apps/desktop/release/` to the intended release using `gh release upload <tag> <files>`.
+Do not replace existing assets unless that replacement is intended. Preserve other
+platforms' entries in `DESKTOP_SHA256SUMS`, add the hashes of the uploaded macOS files,
+and upload the merged checksum file. Download the published DMG and verify its hash.
 
-```sh
-bun run check
-git tag v1.2.3
-git push origin v1.2.3
-```
+The download page selects `OpenTeam-<version>-mac-arm64.dmg` from the latest published
+GitHub release and caches lookups for five minutes. Verify the download page resolves
+the installer after publication. A local build alone does not make a public download.
 
-After the first release, verify anonymous image pulls and the public install command from a machine
-that is not authenticated to GitHub. Install each desktop artifact on a clean OS, confirm
-its platform signature, and verify that the TestFlight build can sign in to a newly installed
-server before announcing the release.
+## Core artifacts and trust
 
-## Testing the native CLI
+Existing releases include native CLI binaries, digest-pinned server/worker/migrate/
+computer images, and the signed Compose manifest. Preserve these assets and their
+checksums when adding a desktop installer. The CLI verifies Compose signatures against
+the historical `release.yml` GitHub-workflow identity. Removing release automation does
+not change that verification policy or invalidate published artifacts. Publishing new
+core artifacts locally requires a separately reviewed signing identity and verifier
+change; do not disable verification to reuse the macOS publishing procedure.
 
-The published `openteam` binaries run on Bun, while local development usually runs the CLI under
-Node, so runtime differences only show up in the compiled binary. Release verification is the
-known hazard: Bun's `crypto.verify` has no default digest for EC and RSA keys, and the Sigstore and
-TUF libraries rely on Node's default. `apps/cli/src/runtime-compat.ts` fills that in, and
-`apps/cli/test/runtime-compat.test.ts` runs the real verifier under `bun test` against a captured
-release bundle and trust root. Before tagging, also run the freshly built binary once against the
-previous release, for example `apps/cli/release/openteam-darwin-arm64 doctor`, and try
-`openteam install --no-setup` in a throwaway directory if the verification code changed.
-
-## Verification model
-
-The CLI accepts a Compose file only when its Sigstore signature was issued to this repository's
-`release.yml` workflow for the matching version tag. `SHA256SUMS` is a fast corruption check; the
-Sigstore bundle establishes publisher identity and transparency-log inclusion. Release Actions are
-pinned to immutable commit SHAs with permissions scoped per job; Dependabot keeps those pins
-current.
+The tag version must match the CLI, server, worker, computer, desktop, and iOS package
+versions and `apps/ios/release.json`. Before cutting a new core release, run the full
+repository checks and verify anonymous image pulls and a fresh installation.

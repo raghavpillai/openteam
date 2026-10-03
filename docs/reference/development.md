@@ -123,5 +123,4 @@ For distribution, use `bun run package:mac-release` with a valid Developer ID Ap
 
 ## Releases
 
-Releases are built from `v*` tags. The [release guide](../../.github/RELEASING.md) covers versioning,
-signing, CI, desktop installers, and iPhone distribution.
+Releases are built locally from the requested commit or `v*` tag. The [release guide](../../.github/RELEASING.md) covers signing, desktop installers, upload verification, and the existing core artifact trust policy. Tag pushes do not trigger release builds.

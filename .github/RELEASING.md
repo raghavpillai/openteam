@@ -50,13 +50,25 @@ the installer after publication. A local build alone does not make a public down
 
 ## Core artifacts and trust
 
-Existing releases include native CLI binaries, digest-pinned server/worker/migrate/
-computer images, and the signed Compose manifest. Preserve these assets and their
-checksums when adding a desktop installer. The CLI verifies Compose signatures against
-the historical `release.yml` GitHub-workflow identity. Removing release automation does
-not change that verification policy or invalidate published artifacts. Publishing new
-core artifacts locally requires a separately reviewed signing identity and verifier
-change; do not disable verification to reuse the macOS publishing procedure.
+Core releases are built locally and include native CLI binaries, digest-pinned
+server/worker/migrate/computer images, and the signed Compose manifest. The protected
+local P-256 signing key lives outside Git. Its public key is pinned in
+`apps/cli/src/release-signing-key.ts`. `apps/cli/scripts/sign-release.ts` accepts the
+key path through `OPENTEAM_RELEASE_SIGNING_KEY_PATH`, verifies that the public key
+matches the pin, publishes the signature to Rekor, and verifies each resulting
+Sigstore bundle before writing it. The signed payload binds the repository,
+version, and artifact SHA256; clients require the pinned key and a verified
+transparency-log entry. Historical workflow signatures remain verifiable using
+their original issuer and exact release-tag identity.
+
+Build all four images for linux/amd64 and linux/arm64, push immutable image digests,
+and render `deploy/compose.yaml` with `scripts/render-release-compose.ts`. Run
+`bun --filter @openteam/cli build:release`, then sign the rendered Compose and five
+raw CLI binaries with the local signing helper. Publish raw and gzip binaries,
+signature bundles and SHA256SUMS together. Test the downloaded signature bundles,
+anonymous image pulls, and a fresh public-installer installation before declaring
+success. Keep signing keys, registry credentials, and generated notarization material
+out of Git and logs.
 
 The tag version must match the CLI, server, worker, computer, desktop, and iOS package
 versions and `apps/ios/release.json`. Before cutting a new core release, run the full

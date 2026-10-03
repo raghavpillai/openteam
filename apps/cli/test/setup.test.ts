@@ -90,6 +90,13 @@ class SetupRunner implements CommandRunner {
     ["openrouter", ["author/tool-model"]],
     ["openai", ["gpt-5.5", "gpt-5.6-sol"]],
   ]);
+  readonly reasoning = new Map<
+    string,
+    {
+      levels: Array<"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max">;
+      defaultLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+    }
+  >();
   failComposeValidation = false;
   failStartup = false;
   failImport = false;
@@ -166,7 +173,23 @@ class SetupRunner implements CommandRunner {
         return {
           status: 0,
           stdout: JSON.stringify(
-            (this.models.get(providerId) ?? []).map((modelId) => ({ providerId, modelId }))
+            (this.models.get(providerId) ?? []).map((modelId) => {
+              const reasoning = this.reasoning.get(`${providerId}/${modelId}`);
+              return {
+                providerId,
+                modelId,
+                reasoningLevels: reasoning?.levels ?? [
+                  "off",
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max",
+                ],
+                defaultReasoningLevel: reasoning?.defaultLevel ?? "medium",
+              };
+            })
           ),
           stderr: "",
         };
@@ -697,7 +720,7 @@ describe("interactive setup", () => {
     });
     servers.push(server);
 
-    let original = replaceEnvironmentValue(
+    const original = replaceEnvironmentValue(
       createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" }),
       "OPENTEAM_API_PORT",
       String(server.port)
@@ -794,8 +817,8 @@ describe("interactive setup", () => {
     const upIndex = runner.calls.findIndex((call) => call.args.includes("up"));
     const loginIndex = actions.indexOf("login");
     expect(modelIndex).toBeGreaterThanOrEqual(0);
-    expect(upIndex).toBeGreaterThan(modelIndex);
     expect(loginIndex).toBeGreaterThan(upIndex);
+    expect(modelIndex).toBeGreaterThan(loginIndex);
     const login = runner.calls[loginIndex];
     expect(login?.args).toContain("--no-TTY");
     expect(login?.args).toContain("api_key");
@@ -810,6 +833,75 @@ describe("interactive setup", () => {
       reasoning: "high",
     });
     expect(environment).not.toContain(apiKey);
+  });
+
+  test("requires an account-backed model choice when the setup default is unavailable", async () => {
+    const fixture = createSetupFixture();
+    let runner: SetupRunner;
+    runner = new SetupRunner(() => {
+      fixture.state.authenticated = true;
+      runner.models.set("openai-codex", ["account-fast", "account-deep"]);
+    });
+    const selections = new SelectionPrompter([], ["account-deep"]);
+    const prompter: SetupPrompter = selections;
+    prompter.session = sessionPrompter({
+      model: "retired-default",
+      authenticate: true,
+    }).session;
+    const output: string[] = [];
+
+    await setupCommand(
+      fixture.paths,
+      runner,
+      { presentation: { ...silentPresentation, message: (message) => output.push(message) } },
+      prompter
+    );
+
+    expect(selections.selections).toContainEqual({
+      prompt: "Inference model",
+      options: [
+        { label: "account-fast", value: "account-fast" },
+        { label: "account-deep", value: "account-deep" },
+      ],
+      current: "account-fast",
+    });
+    expect(output.join("\n")).toContain(
+      "Codex does not provide retired-default to this account. Choose an available model."
+    );
+    expect(fixture.state.inference).toEqual({
+      providerId: "openai-codex",
+      modelId: "account-deep",
+      reasoning: "high",
+    });
+  });
+
+  test("automatically uses the sole account-backed model when the setup default is unavailable", async () => {
+    const fixture = createSetupFixture();
+    let runner: SetupRunner;
+    runner = new SetupRunner(() => {
+      fixture.state.authenticated = true;
+      runner.models.set("openai-codex", ["account-only"]);
+      runner.reasoning.set("openai-codex/account-only", {
+        levels: ["low", "medium"],
+        defaultLevel: "low",
+      });
+    });
+    const output: string[] = [];
+
+    await setupCommand(
+      fixture.paths,
+      runner,
+      { presentation: { ...silentPresentation, message: (message) => output.push(message) } },
+      sessionPrompter({ model: "retired-default", authenticate: true })
+    );
+
+    expect(output).toContain("Selected the only available model: account-only.");
+    expect(output).toContain("account-only does not support thinking high; using low.");
+    expect(fixture.state.inference).toEqual({
+      providerId: "openai-codex",
+      modelId: "account-only",
+      reasoning: "low",
+    });
   });
 
   test("skipping inference starts no provider validation or sign-in", async () => {
@@ -887,12 +979,22 @@ describe("interactive setup", () => {
 
   test("OpenRouter setup connects with an API key and selects from its discovered catalog", async () => {
     const fixture = createSetupFixture();
-    const runner = new SetupRunner(() => { fixture.state.authenticated = true; });
-    await setupCommand(fixture.paths, runner, { presentation: silentPresentation, detectedLogins: [] }, new AnswerPrompter(["openrouter", "synthetic-openrouter-key", "yes"]));
-    const login = runner.calls.find(call => providerAction(call) === "login");
+    const runner = new SetupRunner(() => {
+      fixture.state.authenticated = true;
+    });
+    await setupCommand(
+      fixture.paths,
+      runner,
+      { presentation: silentPresentation, detectedLogins: [] },
+      new AnswerPrompter(["openrouter", "synthetic-openrouter-key", "yes"])
+    );
+    const login = runner.calls.find((call) => providerAction(call) === "login");
     expect(login?.args.slice(-3)).toEqual(["login", "openrouter", "api_key"]);
     expect(login?.options?.input).toBe("synthetic-openrouter-key\n");
-    expect(fixture.state.inference).toMatchObject({ providerId: "openrouter", modelId: "author/tool-model" });
+    expect(fixture.state.inference).toMatchObject({
+      providerId: "openrouter",
+      modelId: "author/tool-model",
+    });
   });
 
   test("registers a generic provider before startup and sends its password only to login stdin", async () => {
@@ -926,8 +1028,8 @@ describe("interactive setup", () => {
     const loginIndex = actions.indexOf("login");
     expect(addIndex).toBeGreaterThanOrEqual(0);
     expect(modelIndex).toBeGreaterThan(addIndex);
-    expect(upIndex).toBeGreaterThan(modelIndex);
     expect(loginIndex).toBeGreaterThan(upIndex);
+    expect(modelIndex).toBeGreaterThan(loginIndex);
     const registration = JSON.parse(runner.calls[addIndex]?.options?.input ?? "{}") as Record<
       string,
       unknown
@@ -955,33 +1057,38 @@ describe("interactive setup", () => {
     expect(environment).not.toContain(password);
   });
 
-  test("rejects an unavailable model before changing configuration or starting services", async () => {
+  test("requires a listed model after authentication when an advanced choice is unavailable", async () => {
     const fixture = createSetupFixture();
-    const runner = new SetupRunner();
+    const runner = new SetupRunner(() => {
+      fixture.state.authenticated = true;
+    });
 
-    await expect(
-      setupCommand(
-        fixture.paths,
-        runner,
-        { presentation: silentPresentation, advanced: true },
-        new AnswerPrompter([
-          "local",
-          "",
-          "",
-          "openai",
-          "not-a-real-model",
-          "",
-          "",
-          "yes",
-          "test-key",
-          "yes",
-        ])
-      )
-    ).rejects.toThrow("openteam model list openai");
+    await setupCommand(
+      fixture.paths,
+      runner,
+      { presentation: silentPresentation, advanced: true },
+      new AnswerPrompter([
+        "local",
+        "",
+        "",
+        "openai",
+        "not-a-real-model",
+        "",
+        "",
+        "yes",
+        "test-key",
+        "yes",
+        "gpt-5.5",
+      ])
+    );
 
-    expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
-    expect(runner.calls.some((call) => call.args.includes("up"))).toBe(false);
-    expect(runner.calls.some((call) => providerAction(call) === "login")).toBe(false);
+    const actions = runner.calls.map(providerAction);
+    expect(actions.indexOf("models")).toBeGreaterThan(actions.indexOf("login"));
+    expect(fixture.state.inference).toEqual({
+      providerId: "openai",
+      modelId: "gpt-5.5",
+      reasoning: "high",
+    });
   });
 
   test("does not overwrite an existing custom provider during onboarding", async () => {
@@ -1386,27 +1493,51 @@ describe("interactive setup", () => {
       if (command !== "tailscale") return originalRun(command, args, options);
       runner.calls.push({ command, args, options });
       return args[0] === "status"
-        ? { status: 0, stdout: JSON.stringify({ BackendState: "Running", Self: { DNSName: `${host}.`, TailscaleIPs: ["100.100.10.5"] }, CertDomains: [host] }), stderr: "" }
-        : args.includes("--bg") ? { status: 1, stdout: "", stderr: "Serve permission denied" }
-        : { status: 0, stdout: "{}", stderr: "" };
+        ? {
+            status: 0,
+            stdout: JSON.stringify({
+              BackendState: "Running",
+              Self: { DNSName: `${host}.`, TailscaleIPs: ["100.100.10.5"] },
+              CertDomains: [host],
+            }),
+            stderr: "",
+          }
+        : args.includes("--bg")
+          ? { status: 1, stdout: "", stderr: "Serve permission denied" }
+          : { status: 0, stdout: "{}", stderr: "" };
     };
     const output: string[] = [];
-    const prompter = sessionPrompter({ accessMode: "proxy", publicUrl: `https://${host}`, skipInference: true });
+    const prompter = sessionPrompter({
+      accessMode: "proxy",
+      publicUrl: `https://${host}`,
+      skipInference: true,
+    });
     const collect = prompter.session!;
-    prompter.session = input => {
+    prompter.session = (input) => {
       expect(input.preferredHttpsHost).toBe(host);
       return collect(input);
     };
-    await setupCommand(fixture.paths, runner, {
-      fresh: true, detectedPrivateHost: "100.100.10.5", detectedLogins: [],
-      presentation: { ...silentPresentation, message: message => output.push(message) },
-    }, prompter);
+    await setupCommand(
+      fixture.paths,
+      runner,
+      {
+        fresh: true,
+        detectedPrivateHost: "100.100.10.5",
+        detectedLogins: [],
+        presentation: { ...silentPresentation, message: (message) => output.push(message) },
+      },
+      prompter
+    );
     const saved = parseEnvironment(readFileSync(fixture.paths.environment, "utf8"));
     expect(saved.get("OPENTEAM_ACCESS_MODE")).toBe("private");
-    expect(saved.get("OPENTEAM_PUBLIC_URL")).toBe(`http://100.100.10.5:${saved.get("OPENTEAM_API_PORT")}`);
+    expect(saved.get("OPENTEAM_PUBLIC_URL")).toBe(
+      `http://100.100.10.5:${saved.get("OPENTEAM_API_PORT")}`
+    );
     expect(saved.get("OPENTEAM_AUTH_URL")).toBe(saved.get("OPENTEAM_PUBLIC_URL"));
     expect(saved.get("COMPOSE_PROFILES")).toBe("direct");
-    expect(output.some(message => message.includes("compatible plugins will use callback paste"))).toBe(true);
+    expect(
+      output.some((message) => message.includes("compatible plugins will use callback paste"))
+    ).toBe(true);
   });
 
   test("cancels setup before provider validation without changing anything", async () => {

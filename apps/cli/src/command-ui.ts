@@ -118,7 +118,7 @@ export const renderModelCatalog = (
     )) {
       const active = provider === selected.providerId && model.modelId === selected.modelId;
       const capabilities = [
-        model.reasoning ? "reasoning" : "",
+        model.reasoning ? `reasoning ${model.reasoningLevels.join("/")}` : "",
         model.input.includes("image") ? "images" : "",
       ].filter(Boolean);
       view.row(

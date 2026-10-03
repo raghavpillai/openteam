@@ -5,7 +5,12 @@ import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import semver from "semver";
 import type { CliOptions } from "./arguments";
-import { promoteStagedCli, readCliPromotion, waitForCliFollowerToExit } from "./cli-update";
+import {
+  promoteStagedCli,
+  readCliPromotion,
+  removeCurrentCli,
+  waitForCliFollowerToExit,
+} from "./cli-update";
 import type { InstallationManifest, InstallationPaths } from "./config";
 import {
   createEnvironment,
@@ -183,6 +188,19 @@ export const installCommand = async (
       throw new CliError(
         `OpenTeam ${existing.version} is already installed. Use openteam update --version ${normalizeVersion(options.version)}.`
       );
+    }
+    if (existing.uninstalledAt) {
+      printMessage(`Reinstalling OpenTeam ${existing.version}; refreshing release configuration…`);
+      const release = await downloadRelease({
+        repository: existing.repository,
+        version: existing.version,
+        composeUrl: options.composeUrl,
+        checksumUrl: options.checksumUrl,
+        signatureUrl: options.signatureUrl,
+        allowUnsigned: options.allowUnsigned,
+      });
+      writeFileAtomic(paths.compose, release.compose, 0o600);
+      writeManifest(paths, { ...existing, composeUrl: release.composeUrl, updatedAt: new Date().toISOString() });
     }
     if (!existing.ownerUsername && !options.noSetup) {
       console.log(
@@ -570,7 +588,8 @@ const confirmation = async (question: string): Promise<boolean> => {
 export const uninstallCommand = async (
   paths: InstallationPaths,
   options: CliOptions,
-  runner: CommandRunner
+  runner: CommandRunner,
+  dependencies: { removeCli?: () => string | null } = {}
 ): Promise<void> => {
   const manifest = requireInstallation(paths);
   const question = options.purge
@@ -587,18 +606,30 @@ export const uninstallCommand = async (
   );
   if (options.purge) {
     rmSync(paths.directory, { recursive: true, force: true });
-    printMessage("OpenTeam and its local Docker data were permanently removed.", "success");
+    const cliPath = (dependencies.removeCli ?? removeCurrentCli)();
+    console.log(
+      renderSummary(
+        "uninstall",
+        "REMOVED",
+        cliPath ? [{ label: "CLI removed", value: cliPath }] : [],
+        [{ text: "OpenTeam and its local Docker data were permanently removed.", tone: "success" }]
+      )
+    );
     return;
   }
   writeManifest(paths, { ...manifest, uninstalledAt: new Date().toISOString() });
+  const cliPath = (dependencies.removeCli ?? removeCurrentCli)();
   console.log(
     renderSummary(
       "uninstall",
-      "CONTAINERS REMOVED",
-      [{ label: "Data preserved", value: paths.directory }],
+      "UNINSTALLED",
+      [
+        { label: "Data preserved", value: paths.directory },
+        ...(cliPath ? [{ label: "CLI removed", value: cliPath }] : []),
+      ],
       [
         {
-          text: `Run ${installationCommand(paths, "start")} to recreate the containers with the preserved data.`,
+          text: "Run the OpenTeam installer again to restore the CLI and recreate the containers with the preserved data.",
           tone: "info",
         },
       ]

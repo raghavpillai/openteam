@@ -23,6 +23,8 @@ const models: ModelRow[] = [
   modelId,
   name: modelId,
   reasoning: true,
+  reasoningLevels: ["low", "medium", "high", "xhigh", "max"],
+  defaultReasoningLevel: "medium",
   input: ["text", "image"],
   contextWindow: 272000,
   maxTokens: 4096,

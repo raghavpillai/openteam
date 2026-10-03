@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type { AuthEvent, AuthPrompt, AuthType } from "@earendil-works/pi-ai";
+import {
+  type AuthEvent,
+  type AuthPrompt,
+  type AuthType,
+  getSupportedThinkingLevels,
+} from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
   type InferenceProviderAuthSessionView,
@@ -53,6 +58,9 @@ export class InferenceProviderService {
         modelId: model.id,
         name: model.name,
         reasoning: model.reasoning,
+        reasoningLevels: getSupportedThinkingLevels(model),
+        defaultReasoningLevel:
+          model.defaultReasoningLevel ?? getSupportedThinkingLevels(model)[0] ?? "off",
         contextWindow: model.contextWindow,
         maxTokens: model.maxTokens,
       })),

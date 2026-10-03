@@ -48,6 +48,7 @@
     "@sigstore/protobuf-specs": "0.5.2",
     "@sigstore/verify": "3.1.1",
     "@tufjs/models": "4.1.0",
-    "@types/semver": "7.7.1"
+    "@types/semver": "7.7.1",
+    "@sigstore/sign": "4.1.1"
   }
 }

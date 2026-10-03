@@ -24,6 +24,7 @@ const model: Model<"openai-codex-responses"> = {
   input: ["text", "image"],
   contextWindow: 272_000,
   maxTokens: 128_000,
+  thinkingLevelMap: { off: "none", minimal: "low", xhigh: "xhigh", max: "max" },
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 };
 const context = {
@@ -85,6 +86,10 @@ describe("Codex reasoning request semantics", () => {
       ...inferenceReasoningOptions(restricted, "off"),
     }).result();
     expect(capture.requests[0]).toMatchObject({ reasoning: { effort: "low" } });
+  });
+
+  test("omits off when a dynamic Codex model has no advertised off mapping", () => {
+    expect(inferenceReasoningOptions({ ...model, thinkingLevelMap: undefined }, "off")).toEqual({});
   });
 
   test("keeps other providers and non-reasoning models on Pi's existing path", () => {

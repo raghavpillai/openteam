@@ -1,8 +1,8 @@
 import { ModelSession } from "../../src/model-session";
 import type {
-  ModelSettingsAPI,
-  ModelProvider,
   ModelCatalog,
+  ModelProvider,
+  ModelSettingsAPI,
   TranscriptionDraft,
   TranscriptionView,
 } from "../../src/model-settings";
@@ -107,6 +107,10 @@ export const modelFixture = () => {
           modelId,
           name: modelId === "reasoner" ? "Reasoner" : modelId,
           reasoning,
+          reasoningLevels: reasoning
+            ? (["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const)
+            : (["off"] as const),
+          defaultReasoningLevel: reasoning ? ("medium" as const) : ("off" as const),
           contextWindow: 128000,
           maxTokens: 8192,
         })),

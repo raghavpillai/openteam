@@ -1,14 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
   ChatProviderRegistry,
   isChatModel,
-  modelsEndpoint,
   KEYLESS_API_KEY,
+  modelsEndpoint,
 } from "../src/chat-provider-registry";
+
 const dirs: string[] = [];
 afterEach(async () => {
   await Promise.all(dirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
@@ -260,6 +261,61 @@ describe("provider-first chat registry", () => {
     // The live subscription endpoint returns only a hidden review model for
     // the old 0.99.0 client, even with a valid authenticated subscription.
     expect(f.calls[0]?.url.searchParams.get("client_version")).toBe("1.0.0");
+  });
+  test("ChatGPT reasoning levels and default come from each catalog model", async () => {
+    const f = await fixture();
+    f.connected.clear();
+    f.connected.add("openai-codex");
+    f.state.body = {
+      models: [
+        {
+          slug: "gpt-6.1-sol",
+          display_name: "GPT-6.1 Sol",
+          visibility: "list",
+          supported_reasoning_levels: [
+            { effort: "low" },
+            { effort: "medium" },
+            { effort: "high" },
+            { effort: "ultra" },
+          ],
+          default_reasoning_level: "low",
+        },
+      ],
+    };
+    const [model] = (await f.registry.catalog("openai-codex")).models;
+    expect(model).toMatchObject({
+      id: "gpt-6.1-sol",
+      reasoningLevels: ["low", "medium", "high"],
+      defaultReasoningLevel: "low",
+      thinkingLevelMap: {
+        off: null,
+        minimal: null,
+        low: "low",
+        medium: "medium",
+        high: "high",
+        xhigh: null,
+        max: null,
+      },
+    });
+    await expect(
+      f.registry.verify({
+        providerId: "openai-codex",
+        modelId: "gpt-6.1-sol",
+        reasoning: "off",
+      })
+    ).rejects.toThrow("does not support reasoning level off");
+    await f.registry.verify({
+      providerId: "openai-codex",
+      modelId: "gpt-6.1-sol",
+      reasoning: "low",
+    });
+    const persisted = JSON.parse(await readFile(f.path, "utf8"));
+    expect(persisted.providers["openai-codex"].models[0]).toMatchObject({
+      id: "gpt-6.1-sol",
+      reasoningLevels: ["low", "medium", "high"],
+      defaultReasoningLevel: "low",
+      thinkingLevelMap: { off: null, low: "low" },
+    });
   });
   test("Google-compatible custom endpoints filter generation methods", async () => {
     const f = await fixture({

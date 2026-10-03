@@ -1,10 +1,15 @@
-import { CHAT_PROVIDER_DEFINITIONS } from "./chat-provider-definitions";
 import { randomUUID } from "node:crypto";
-import { readFile, writeFile, rename, mkdir, rm } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { InferenceProviderView, ServerInferenceSettings } from "@openteam/contracts";
+import {
+  type InferenceProviderView,
+  PI_REASONING_LEVELS,
+  type PiReasoningLevel,
+  type ServerInferenceSettings,
+} from "@openteam/contracts";
+import { CHAT_PROVIDER_DEFINITIONS } from "./chat-provider-definitions";
 import {
   availableInferenceModels,
   replacementFor,
@@ -13,7 +18,10 @@ import {
 
 export const CHAT_PROVIDERS = new Set(Object.keys(CHAT_PROVIDER_DEFINITIONS));
 export const KEYLESS_API_KEY = "openteam-no-auth";
-export type ChatModel = Model<Api>;
+export type ChatModel = Model<Api> & {
+  reasoningLevels?: PiReasoningLevel[];
+  defaultReasoningLevel?: PiReasoningLevel;
+};
 type CustomConfig = {
   name?: string;
   baseUrl?: string;
@@ -29,6 +37,44 @@ const positive = (v: unknown, fallback: number) =>
   Number.isSafeInteger(v) && Number(v) > 0 ? Number(v) : fallback;
 const validId = (v: unknown): v is string =>
   typeof v === "string" && v.length > 0 && v.length <= 256 && !/[\p{Cc}\p{Cf}]/u.test(v);
+const reasoningLevel = (value: unknown): PiReasoningLevel | undefined => {
+  const normalized = value === "none" ? "off" : value;
+  return typeof normalized === "string" &&
+    (PI_REASONING_LEVELS as readonly string[]).includes(normalized)
+    ? (normalized as PiReasoningLevel)
+    : undefined;
+};
+const advertisedReasoning = (
+  entry: Entry
+):
+  | {
+      levels: PiReasoningLevel[];
+      defaultLevel: PiReasoningLevel;
+      levelMap: NonNullable<ChatModel["thinkingLevelMap"]>;
+    }
+  | undefined => {
+  if (!Array.isArray(entry.supported_reasoning_levels)) return undefined;
+  const levels: PiReasoningLevel[] = [];
+  const advertisedValues = new Map<PiReasoningLevel, string>();
+  for (const candidate of entry.supported_reasoning_levels) {
+    const value = object(candidate) ? candidate.effort : candidate;
+    const level = reasoningLevel(value);
+    if (!level || typeof value !== "string" || advertisedValues.has(level)) continue;
+    levels.push(level);
+    advertisedValues.set(level, value);
+  }
+  const first = levels[0];
+  if (!first) return undefined;
+  const advertisedDefault = reasoningLevel(entry.default_reasoning_level);
+  return {
+    levels,
+    defaultLevel:
+      advertisedDefault && levels.includes(advertisedDefault) ? advertisedDefault : first,
+    levelMap: Object.fromEntries(
+      PI_REASONING_LEVELS.map((level) => [level, advertisedValues.get(level) ?? null])
+    ),
+  };
+};
 
 /** Common non-chat families; structured task metadata takes precedence over inference by ID. */
 export const isChatModel = (entry: Entry, known = false, chatEndpoint = false): boolean => {
@@ -337,6 +383,7 @@ export class ChatProviderRegistry {
             const existing =
               known.get(m.id) ??
               (id === "openai" ? known.get(m.id.split(":")[1] ?? "") : undefined);
+            const advertised = advertisedReasoning(m);
             const model: ChatModel = {
               ...existing,
               id: m.id,
@@ -353,6 +400,13 @@ export class ChatProviderRegistry {
                 (m.thinking === true ||
                   (Array.isArray(m.supported_reasoning_levels) &&
                     m.supported_reasoning_levels.length > 0)),
+              ...(advertised
+                ? {
+                    reasoningLevels: advertised.levels,
+                    defaultReasoningLevel: advertised.defaultLevel,
+                    thinkingLevelMap: advertised.levelMap,
+                  }
+                : {}),
               input: existing?.input ?? ["text"],
               cost: existing?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
               contextWindow: positive(
@@ -384,9 +438,16 @@ export class ChatProviderRegistry {
         provider.modelMessage ??
           `Model ${settings.modelId} is not available from this connected provider. Refresh its model list and choose a listed chat model.`
       );
-    // Existing model definitions already survive restart; only persist new discoveries.
+    if (model.reasoningLevels && !model.reasoningLevels.includes(settings.reasoning)) {
+      throw new Error(
+        `${model.name} does not support reasoning level ${settings.reasoning}. Choose one of: ${model.reasoningLevels.join(", ")}.`
+      );
+    }
+    // Persist dynamic capability mappings so inference keeps the same request contract
+    // after a restart, even before the next catalog refresh.
     if (
       settings.providerId === "openrouter" ||
+      settings.providerId === "openai-codex" ||
       !this.runtime().getModel(settings.providerId, settings.modelId)
     ) {
       const document = await configFile(this.modelsPath);
@@ -397,10 +458,36 @@ export class ChatProviderRegistry {
         config.baseUrl.replace(/\/+$/, "") !== model.baseUrl.replace(/\/+$/, "")
       )
         throw new Error("Provider settings changed. Reload the model list and retry.");
-      const { id, name, reasoning, input, cost, contextWindow, maxTokens, api, baseUrl } = model;
+      const {
+        id,
+        name,
+        reasoning,
+        reasoningLevels,
+        defaultReasoningLevel,
+        thinkingLevelMap,
+        input,
+        cost,
+        contextWindow,
+        maxTokens,
+        api,
+        baseUrl,
+      } = model;
       config.models = [
         ...(config.models ?? []).filter((m) => m.id !== id),
-        { id, name, reasoning, input, cost, contextWindow, maxTokens, api, baseUrl },
+        {
+          id,
+          name,
+          reasoning,
+          reasoningLevels,
+          defaultReasoningLevel,
+          thinkingLevelMap,
+          input,
+          cost,
+          contextWindow,
+          maxTokens,
+          api,
+          baseUrl,
+        },
       ];
       await mkdir(dirname(this.modelsPath), { recursive: true, mode: 0o700 });
       const temp = `${this.modelsPath}.${randomUUID()}.tmp`;

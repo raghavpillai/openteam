@@ -52,7 +52,7 @@ test("real infer call retains full input and reasoning while discarding failed l
   const releases: string[] = [];
   state.inferenceConnections = new InferenceProviderConnections(2, 60_000, id => { releases.push(id); });
   state.start = async () => {};
-  state.resolveModel = () => ({ api: "openai-codex-responses", id: "fixture", baseUrl: "https://fixture.invalid", reasoning: true });
+  state.resolveModel = () => ({ api: "openai-codex-responses", id: "fixture", baseUrl: "https://fixture.invalid", reasoning: true, thinkingLevelMap: { off: "none" } });
   let fail = false;
   state.modelRuntime = {
     checkAuth: async () => ({ type: "oauth" }),

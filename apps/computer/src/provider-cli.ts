@@ -1,11 +1,16 @@
 #!/usr/bin/env bun
-import { createModelRuntime } from "./model-runtime";
 
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
-import type { AuthEvent, AuthPrompt, AuthType, OAuthCredential } from "@earendil-works/pi-ai";
+import {
+  type AuthEvent,
+  type AuthPrompt,
+  type AuthType,
+  getSupportedThinkingLevels,
+  type OAuthCredential,
+} from "@earendil-works/pi-ai";
 import {
   formatPiModelRef,
   normalizeInferenceModelId,
@@ -14,17 +19,18 @@ import {
   serverInferenceSettings,
 } from "@openteam/contracts";
 import {
-  authOptionLabel,
-  createAuthQuestion,
-  defaultAuthOption,
-  selectedAuthOption,
-} from "./provider-auth-prompt";
-import {
   CHAT_PROVIDERS,
   ChatProviderRegistry,
   KEYLESS_API_KEY,
   modelsEndpoint,
 } from "./chat-provider-registry";
+import { createModelRuntime } from "./model-runtime";
+import {
+  authOptionLabel,
+  createAuthQuestion,
+  defaultAuthOption,
+  selectedAuthOption,
+} from "./provider-auth-prompt";
 
 const agentDir = resolve(process.env.OPENTEAM_PI_AGENT_DIR ?? "/home/box/.pi/agent");
 const authPath = join(agentDir, "auth.json");
@@ -37,7 +43,10 @@ const createRuntime = () =>
     modelsPath,
     modelsStorePath,
     allowModelNetwork: false,
-    settingsPath: join(process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/home/box/agent-data", "settings.json"),
+    settingsPath: join(
+      process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/home/box/agent-data",
+      "settings.json"
+    ),
   });
 
 // Await the write so large JSON responses are fully flushed through Docker's stdout pipe.
@@ -59,7 +68,7 @@ const usage = () => {
   openteam-pi-auth login <provider> <oauth|api_key>
   openteam-pi-auth import <provider>   # reads OAuth tokens JSON from stdin
   openteam-pi-auth logout <provider>
-  openteam-pi-auth verify <provider> <model>
+  openteam-pi-auth verify <provider> <model> [reasoning]
   openteam-pi-auth add-custom       # reads JSON from stdin
   openteam-pi-auth remove-custom <provider>`);
 };
@@ -333,7 +342,7 @@ const removeCustomProvider = async (providerId: string): Promise<void> => {
 };
 
 const main = async (): Promise<void> => {
-  const [command, rawProvider, rawArgument] = process.argv.slice(2);
+  const [command, rawProvider, rawArgument, rawReasoning] = process.argv.slice(2);
   if (!command) {
     usage();
     process.exitCode = 2;
@@ -378,6 +387,9 @@ const main = async (): Promise<void> => {
       modelId: model.id,
       name: model.name,
       reasoning: model.reasoning,
+      reasoningLevels: getSupportedThinkingLevels(model),
+      defaultReasoningLevel:
+        model.defaultReasoningLevel ?? getSupportedThinkingLevels(model)[0] ?? "off",
       input: model.input,
       contextWindow: model.contextWindow,
       maxTokens: model.maxTokens,
@@ -404,7 +416,16 @@ const main = async (): Promise<void> => {
   if (command === "verify") {
     if (!rawArgument) throw new Error("verify requires a model");
     const ref = piModelRef(providerId, rawArgument);
-    await registry.verify({ ...ref, reasoning: "off" });
+    if (rawReasoning) {
+      await registry.verify(serverInferenceSettings(providerId, rawArgument, rawReasoning));
+    } else {
+      const catalog = await registry.catalog(providerId);
+      const model = catalog.models.find((candidate) => candidate.id === rawArgument);
+      await registry.verify({
+        ...ref,
+        reasoning: model?.defaultReasoningLevel ?? "off",
+      });
+    }
     console.log(`${formatPiModelRef(ref)} is ready.`);
     return;
   }

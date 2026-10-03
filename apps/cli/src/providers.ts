@@ -34,6 +34,8 @@ export type ModelRow = {
   modelId: string;
   name: string;
   reasoning: boolean;
+  reasoningLevels: Array<"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max">;
+  defaultReasoningLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   input: string[];
   contextWindow: number;
   maxTokens: number;
@@ -283,6 +285,9 @@ export const modelUseCommand = async (
     throw new CliError("Selecting a model requires a provider and model id");
   const project = projectFor(paths, runner);
   project.runOrThrow(authCommand(["verify", providerId, modelId]));
+  const catalog = jsonCommand<{ models: ModelRow[] }>(project, ["catalog", providerId]);
+  const model = catalog.models.find((candidate) => candidate.modelId === modelId);
+  if (!model) throw new CliError(`${providerId} does not provide ${modelId} to this account`);
   const current = await readRuntimeInferenceSettings(paths, providerId);
   if (
     options.thinking &&
@@ -290,7 +295,15 @@ export const modelUseCommand = async (
   ) {
     throw new CliError(`Invalid reasoning level: ${options.thinking}`);
   }
-  const reasoning = (options.thinking || current.reasoning) as typeof current.reasoning;
+  const requested = (options.thinking || current.reasoning) as typeof current.reasoning;
+  if (options.thinking && !model.reasoningLevels.includes(requested)) {
+    throw new CliError(
+      `${model.name} does not support reasoning level ${requested}. Choose one of: ${model.reasoningLevels.join(", ")}.`
+    );
+  }
+  const reasoning = model.reasoningLevels.includes(requested)
+    ? requested
+    : model.defaultReasoningLevel;
   if (
     current.providerId === providerId &&
     current.modelId === modelId &&

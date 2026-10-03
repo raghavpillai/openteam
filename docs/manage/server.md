@@ -17,7 +17,7 @@ Manage your server with the `openteam` command on the host.
 | `openteam provider` | Signs in to, signs out of, or adds model providers |
 | `openteam account update` | Changes your username or password |
 | `openteam update` | Updates the server and the CLI |
-| `openteam uninstall` | Removes the server containers |
+| `openteam uninstall` | Removes the server containers and CLI while preserving configuration and data |
 
 Run `openteam <command> --help` for options. If you installed to a different directory, add `--dir <path>`.
 
@@ -47,7 +47,7 @@ This asks for a new username and password, and signs out every connected app. To
 openteam uninstall
 ```
 
-This removes the containers but keeps your data and configuration. Run `openteam start` to bring the server back.
+This removes the containers and the `openteam` CLI, but keeps your data and configuration. Run the installer again to restore the CLI and bring the server back with the preserved data.
 
 To delete everything, including your bots, conversations, files, and update backups:
 
@@ -55,4 +55,4 @@ To delete everything, including your bots, conversations, files, and update back
 openteam uninstall --purge
 ```
 
-This can't be undone. Make a [backup](backups.md) first if you might want your data back. On macOS and Linux, neither command removes the `openteam` CLI itself. On Windows, the CLI is installed inside the install directory, so `--purge` also tries to remove it.
+This can't be undone. Make a [backup](backups.md) first if you might want your data back. Both uninstall modes remove the `openteam` CLI; on Windows, deletion completes immediately after the running CLI process exits.

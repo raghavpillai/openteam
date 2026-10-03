@@ -4,6 +4,7 @@ import { verify, type Bundle } from "sigstore";
 import { withBunCryptoVerifyCompatibility } from "./bun-crypto";
 import { normalizeRepository, normalizeVersion } from "./config";
 import { CliError } from "./errors";
+import { LOCAL_RELEASE_KEY_ID, LOCAL_RELEASE_PUBLIC_KEY, localReleaseSigningPayload } from "./release-signing-key";
 
 export interface ReleaseArtifact {
   version: string;
@@ -61,10 +62,18 @@ export const verifyArtifactSignature = async (options: {
   } catch {
     throw new CliError("The release signature bundle is not valid JSON");
   }
+  const keyHint = bundle.verificationMaterial?.publicKey?.hint;
   const identity = `https://github.com/${normalizeRepository(options.repository)}/.github/workflows/release.yml@refs/tags/v${normalizeVersion(options.version)}`;
   try {
+    if (keyHint !== undefined && keyHint !== LOCAL_RELEASE_KEY_ID)
+      throw new Error("Untrusted local release signing key");
+    const local = keyHint === LOCAL_RELEASE_KEY_ID;
     await withBunCryptoVerifyCompatibility(() =>
-      verify(bundle, Buffer.from(options.artifact), {
+      verify(bundle, local ? localReleaseSigningPayload(options.repository, options.version, options.artifact) : Buffer.from(options.artifact), local ? {
+        keySelector: hint => hint === LOCAL_RELEASE_KEY_ID ? LOCAL_RELEASE_PUBLIC_KEY : undefined,
+        ctLogThreshold: 0,
+        tlogThreshold: 1,
+      } : {
         certificateIssuer: "https://token.actions.githubusercontent.com",
         certificateIdentityURI: `^${escapedPattern(identity)}$`,
         ctLogThreshold: 1,

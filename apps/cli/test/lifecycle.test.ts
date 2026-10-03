@@ -185,6 +185,19 @@ const releaseFixture = () => {
 };
 
 describe("installed lifecycle", () => {
+  test("reinstall refreshes release images while preserving account, environment and data", async () => {
+    const { paths } = fixture();
+    const manifest = readManifest(paths)!;
+    const environment = readFileSync(paths.environment, "utf8");
+    writeFileAtomic(paths.compose, "old local image configuration");
+    writeManifest(paths, { ...manifest, uninstalledAt: new Date().toISOString() });
+    await installCommand(paths, parseArguments(["install", ...releaseFixture()]), new HealthyDockerRunner());
+    expect(readFileSync(paths.compose, "utf8")).toContain("example/openteam-server");
+    expect(readFileSync(paths.environment, "utf8")).toBe(environment);
+    expect(readManifest(paths)?.ownerUsername).toBe(manifest.ownerUsername);
+    expect(readManifest(paths)?.uninstalledAt).toBeUndefined();
+  });
+
   test("start requires account setup even when containers are already healthy", async () => {
     for (const ownerUsername of [undefined, "  "]) {
       const { paths } = fixture();
@@ -467,9 +480,16 @@ describe("installed lifecycle", () => {
   test("safe uninstall removes containers but preserves configuration", async () => {
     const { directory, paths } = fixture();
     const runner = new HealthyDockerRunner();
-    await uninstallCommand(paths, parseArguments(["uninstall", "--yes"]), runner);
+    let removedCli = false;
+    await uninstallCommand(paths, parseArguments(["uninstall", "--yes"]), runner, {
+      removeCli: () => {
+        removedCli = true;
+        return "/usr/local/bin/openteam";
+      },
+    });
     expect(readFileSync(paths.environment, "utf8")).toContain("OPENTEAM_CONTROL_TOKEN=");
     expect(readManifest(paths)?.uninstalledAt).toBeString();
+    expect(removedCli).toBe(true);
     expect(directory).toBe(paths.directory);
     expect(runner.calls.at(-1)?.args).toContain("down");
     expect(runner.calls.at(-1)?.args).not.toContain("--volumes");
@@ -478,8 +498,15 @@ describe("installed lifecycle", () => {
   test("purge requires an explicit flag and removes the installation directory", async () => {
     const { directory, paths } = fixture();
     const runner = new HealthyDockerRunner();
-    await uninstallCommand(paths, parseArguments(["uninstall", "--purge", "--yes"]), runner);
+    let removedCli = false;
+    await uninstallCommand(paths, parseArguments(["uninstall", "--purge", "--yes"]), runner, {
+      removeCli: () => {
+        removedCli = true;
+        return "/usr/local/bin/openteam";
+      },
+    });
     expect(readManifest(paths)).toBeNull();
+    expect(removedCli).toBe(true);
     expect(runner.calls.at(-1)?.args).toContain("--volumes");
     temporaryDirectories.splice(temporaryDirectories.indexOf(directory), 1);
   });

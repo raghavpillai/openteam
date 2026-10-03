@@ -1,7 +1,7 @@
-import {
+import type {
+  InferenceProviderAuthSessionView,
   PI_REASONING_LEVELS,
-  type InferenceProviderAuthSessionView,
-  type ServerSettingsView,
+  ServerSettingsView,
 } from "@openteam/contracts/inference";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { Check, ExternalLink, LoaderCircle } from "lucide-react";
@@ -9,9 +9,14 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react
 import { api } from "../../../client/openteam-api";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { SectionLabel, SettingsGroup, SettingsRow } from "./ui";
-const TranscriptionSettingsPanel = lazy(() => import("./transcription").then(module => ({ default: module.TranscriptionSettingsPanel })));
 
-const AutomationWebhookSettings = lazy(() => import("./automation-webhooks").then(module => ({default:module.AutomationWebhookSettings})));
+const TranscriptionSettingsPanel = lazy(() =>
+  import("./transcription").then((module) => ({ default: module.TranscriptionSettingsPanel }))
+);
+
+const AutomationWebhookSettings = lazy(() =>
+  import("./automation-webhooks").then((module) => ({ default: module.AutomationWebhookSettings }))
+);
 
 const actionButton =
   "inline-flex h-8 items-center gap-1.5 rounded-[8px] bg-black px-3 text-[12px] text-white outline-none hover:opacity-80 disabled:opacity-50 dark:bg-white dark:text-black";
@@ -99,7 +104,11 @@ export default function ServerSettings() {
     [data, providerId]
   );
   const selectedModel = data?.models.find((model) => model.modelId === modelId);
-  const effectiveReasoning = selectedModel?.reasoning ? reasoning : "off";
+  const supportsReasoning = Boolean(selectedModel?.reasoning);
+  const reasoningLevels = selectedModel?.reasoningLevels ?? [];
+  const effectiveReasoning = reasoningLevels.includes(reasoning)
+    ? reasoning
+    : (selectedModel?.defaultReasoningLevel ?? "off");
   const changed = Boolean(
     data &&
       (data.inference.providerId !== providerId ||
@@ -122,6 +131,14 @@ export default function ServerSettings() {
       setError(clientErrorMessage(cause, "Could not load provider models"));
     } finally {
       setBusy(null);
+    }
+  };
+
+  const selectModel = (nextModelId: string) => {
+    setModelId(nextModelId);
+    const model = data?.models.find((candidate) => candidate.modelId === nextModelId);
+    if (model && !model.reasoningLevels.includes(reasoning)) {
+      setReasoning(model.defaultReasoningLevel);
     }
   };
 
@@ -371,7 +388,7 @@ export default function ServerSettings() {
         <SettingsRow
           anchors={["inference-model"]}
           control={
-            <Select disabled={!data?.models.length} onValueChange={setModelId} value={modelId}>
+            <Select disabled={!data?.models.length} onValueChange={selectModel} value={modelId}>
               <SelectTrigger className="h-7 w-[250px] rounded-[8px] border-black/[0.055] bg-black/[0.035] px-2 text-[12px] shadow-none dark:border-white/[0.07] dark:bg-white/[0.07]">
                 <SelectValue placeholder="No models available" />
               </SelectTrigger>
@@ -384,22 +401,25 @@ export default function ServerSettings() {
               </SelectContent>
             </Select>
           }
-          description={provider?.modelMessage ?? "Accessible chat models from this connected provider. Applied to new agent turns and background inference."}
+          description={
+            provider?.modelMessage ??
+            "Accessible chat models from this connected provider. Applied to new agent turns and background inference."
+          }
           title="Model"
         />
         <SettingsRow
           anchors={["inference-reasoning"]}
           control={
             <Select
-              disabled={!selectedModel?.reasoning}
+              disabled={!supportsReasoning}
               onValueChange={(value) => setReasoning(value as (typeof PI_REASONING_LEVELS)[number])}
-              value={selectedModel?.reasoning ? reasoning : "off"}
+              value={effectiveReasoning}
             >
               <SelectTrigger className="h-7 w-[130px] rounded-[8px] border-black/[0.055] bg-black/[0.035] px-2 text-[12px] shadow-none dark:border-white/[0.07] dark:bg-white/[0.07]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {PI_REASONING_LEVELS.map((level) => (
+                {reasoningLevels.map((level) => (
                   <SelectItem key={level} value={level}>
                     {reasoningLabel(level)}
                   </SelectItem>
@@ -408,8 +428,8 @@ export default function ServerSettings() {
             </Select>
           }
           description={
-            selectedModel?.reasoning
-              ? "The runtime clamps unsupported levels to the closest model capability."
+            supportsReasoning
+              ? "Reasoning levels reported by this model's provider."
               : "This model does not expose reasoning controls."
           }
           title="Reasoning effort"
@@ -439,7 +459,9 @@ export default function ServerSettings() {
       <Suspense fallback={null}>
         <AutomationWebhookSettings />
       </Suspense>
-      <Suspense fallback={null}><TranscriptionSettingsPanel /></Suspense>
+      <Suspense fallback={null}>
+        <TranscriptionSettingsPanel />
+      </Suspense>
     </>
   );
 }

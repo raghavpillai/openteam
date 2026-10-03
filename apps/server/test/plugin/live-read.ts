@@ -5,10 +5,10 @@ import { Effect } from "effect";
 import { PluginService } from "../../src/services/plugin-service";
 
 const flags = new Set(process.argv.slice(2));
-if (!flags.has("--live") || [...flags].some((flag) => !["--live", "--native"].includes(flag))) {
-  console.error("Usage: bun apps/server/test/plugin/live-read.ts --live [--native]");
+if (!flags.has("--live") || [...flags].some((flag) => flag !== "--live")) {
+  console.error("Usage: bun apps/server/test/plugin/live-read.ts --live");
   console.error(
-    "Reads the default connected accounts. --native also authenticates 1Password and lists environments."
+    "Reads the default connected accounts."
   );
   process.exit(2);
 }
@@ -33,30 +33,10 @@ const service = new PluginService(prisma, (path, init) => {
 let passed = 0;
 let failed = 0;
 
-function accountId(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    try {
-      return accountId(JSON.parse(value));
-    } catch {
-      return;
-    }
-  }
-  if (!value || typeof value !== "object") return;
-  const record = value as Record<string, unknown>;
-  for (const key of ["accountId", "account_id"]) {
-    if (typeof record[key] === "string") return record[key];
-  }
-  for (const child of Object.values(record)) {
-    const id = accountId(child);
-    if (id) return id;
-  }
-}
-
 async function check(
   plugin: string,
   tool: string,
-  args: Record<string, unknown>,
-  nativeAuth = false
+  args: Record<string, unknown>
 ) {
   let status = "invocation_failed";
   try {
@@ -71,7 +51,6 @@ async function check(
         service.testTool(connection.id, {
           toolName: tool,
           arguments: args,
-          ...(nativeAuth ? { confirmSideEffect: true } : {}),
         })
       );
       const result = response.result as { isError?: boolean } | null;
@@ -79,8 +58,6 @@ async function check(
         status = "missing_result";
       } else if (result.isError) {
         status = "provider_error";
-      } else if (nativeAuth && !accountId(result)) {
-        status = "missing_account_id";
       } else {
         passed++;
         console.log(JSON.stringify({ plugin, tool, status: "pass" }));
@@ -130,12 +107,7 @@ try {
     ["notion", "notion-search", { query: "OpenTeam", page_size: 1, max_highlight_length: 0 }],
   ];
   for (const [plugin, tool, args] of checks) await check(plugin, tool, args);
-  if (flags.has("--native")) {
-    const result = await check("1password", "authenticate", {}, true);
-    const id = accountId(result);
-    if (id) await check("1password", "list_environments", { accountId: id });
-  }
-  console.log(JSON.stringify({ passed, failed, native: flags.has("--native") }));
+  console.log(JSON.stringify({ passed, failed }));
   process.exitCode = failed ? 1 : 0;
 } finally {
   await service.close();

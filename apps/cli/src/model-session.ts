@@ -1,20 +1,19 @@
 import { errorMessage } from "./errors";
 import type { InteractiveOutcome, InteractiveSession } from "./interactive-session";
-import { renderModelSession } from "./model-ui";
 import {
-  modelProviderOptions,
   modelProviderAccess,
+  modelProviderOptions,
   PROVIDER_GROUPS,
 } from "./model-provider-options";
-import {
-  THINKING,
-  type ModelCatalog,
-  type ModelChoice,
-  type ModelProvider,
-  type ModelSettingsAPI,
-  type TranscriptionDraft,
-  type TranscriptionView,
+import type {
+  ModelCatalog,
+  ModelChoice,
+  ModelProvider,
+  ModelSettingsAPI,
+  TranscriptionDraft,
+  TranscriptionView,
 } from "./model-settings";
+import { renderModelSession } from "./model-ui";
 import type { RuntimeInferenceSettings } from "./runtime-settings";
 import type { SessionKey } from "./setup-session";
 import { SELECTABLE_ROW_KINDS, type SessionRow, type SetupSessionView } from "./ui";
@@ -133,6 +132,15 @@ export class ModelSession implements InteractiveSession<ModelExit> {
   }
   private models(): ModelChoice[] {
     return this.catalogs.get(this.inference?.providerId ?? "") ?? [];
+  }
+  private selectedModel(): ModelChoice | undefined {
+    return this.models().find((model) => model.modelId === this.inference?.modelId);
+  }
+  private reconcileReasoning(model = this.selectedModel()): void {
+    if (!this.inference || !model) return;
+    if (!model.reasoningLevels.includes(this.inference.reasoning)) {
+      this.inference.reasoning = model.defaultReasoningLevel;
+    }
   }
   private text(
     id: string,
@@ -478,8 +486,7 @@ export class ModelSession implements InteractiveSession<ModelExit> {
               ? this.savedInference.modelId
               : (catalog.models[0]?.modelId ?? "");
         this.inference = { ...this.inference!, providerId, modelId: selected };
-        if (!catalog.models.find((m) => m.modelId === selected)?.reasoning)
-          this.inference.reasoning = "off";
+        this.reconcileReasoning(catalog.models.find((m) => m.modelId === selected));
         this.pane = "models";
         this.search = "";
         this.focusSelectedOption();
@@ -497,6 +504,7 @@ export class ModelSession implements InteractiveSession<ModelExit> {
         };
       } else if (id === "refresh-models") {
         this.installCatalog(await this.api.catalog(this.inference?.providerId, signal));
+        this.reconcileReasoning();
         this.notice = { text: "Provider models refreshed.", tone: "info" };
       } else if (id === "browse-transcription") {
         this.transcriptionModels = await this.api.transcriptionModels(this.transcription!, signal);
@@ -652,18 +660,19 @@ export class ModelSession implements InteractiveSession<ModelExit> {
       this.focusSelectedOption();
     } else if (row.id.startsWith("model:")) {
       this.inference!.modelId = row.id.slice(6);
-      if (!this.models().find((m) => m.modelId === this.inference!.modelId)?.reasoning)
-        this.inference!.reasoning = "off";
+      this.reconcileReasoning();
       this.back();
     } else if (row.id.startsWith("transcription-choice:")) {
       this.transcription!.model = row.id.slice("transcription-choice:".length);
       this.back();
     } else if (row.id === "thinking") {
-      if (!this.models().find((m) => m.modelId === this.inference?.modelId)?.reasoning)
+      const model = this.selectedModel();
+      const levels = model?.reasoningLevels ?? [];
+      if (!model?.reasoning)
         this.notice = { text: "This model does not support a thinking level.", tone: "muted" };
       else
         this.inference!.reasoning =
-          THINKING[(THINKING.indexOf(this.inference!.reasoning) + 1) % THINKING.length]!;
+          levels[(levels.indexOf(this.inference!.reasoning) + 1) % levels.length]!;
     } else if (row.id === "enabled") this.transcription!.enabled = !this.transcription!.enabled;
     else if (row.id === "remove-key") {
       if (this.transcription!.apiKey === null) delete this.transcription!.apiKey;

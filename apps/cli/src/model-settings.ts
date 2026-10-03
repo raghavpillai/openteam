@@ -1,6 +1,6 @@
 import type { InstallationPaths } from "./config";
 import { CliError } from "./errors";
-import { runtimeSettingsRequest, type RuntimeInferenceSettings } from "./runtime-settings";
+import { type RuntimeInferenceSettings, runtimeSettingsRequest } from "./runtime-settings";
 
 export type ModelProvider = {
   id: string;
@@ -18,6 +18,8 @@ export type ModelChoice = {
   modelId: string;
   name: string;
   reasoning: boolean;
+  reasoningLevels: RuntimeInferenceSettings["reasoning"][];
+  defaultReasoningLevel: RuntimeInferenceSettings["reasoning"];
   contextWindow: number;
   maxTokens: number;
 };
@@ -143,6 +145,9 @@ export const createModelSettingsAPI = (paths: InstallationPaths): ModelSettingsA
         typeof value.modelId !== "string" ||
         typeof value.name !== "string" ||
         typeof value.reasoning !== "boolean" ||
+        !Array.isArray(value.reasoningLevels) ||
+        value.reasoningLevels.some((level) => !THINKING.includes(level as never)) ||
+        !THINKING.includes(value.defaultReasoningLevel as never) ||
         typeof value.contextWindow !== "number" ||
         typeof value.maxTokens !== "number"
       )
@@ -152,6 +157,8 @@ export const createModelSettingsAPI = (paths: InstallationPaths): ModelSettingsA
         modelId: value.modelId,
         name: value.name,
         reasoning: value.reasoning,
+        reasoningLevels: value.reasoningLevels as RuntimeInferenceSettings["reasoning"][],
+        defaultReasoningLevel: value.defaultReasoningLevel as RuntimeInferenceSettings["reasoning"],
         contextWindow: value.contextWindow,
         maxTokens: value.maxTokens,
       };

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { emitKeypressEvents } from "node:readline";
 import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
+import { installationCommand } from "./command-ui";
 import type { InstallationManifest, InstallationPaths } from "./config";
 import {
   ensureAuthenticationSecret,
@@ -22,26 +23,17 @@ import {
 import { type ComposeProject, requireComposeProject } from "./docker";
 import { printDoctor, runDoctor, suggestApiPort } from "./doctor";
 import { CliError } from "./errors";
-import { installationCommand } from "./command-ui";
-import { printSetupCancelled, waitForAutomaticSetup } from "./setup-countdown";
 import { checkHealth } from "./health";
-import { SETUP_JOBS_NOTE, waitForStartup } from "./startup";
 import type { CommandRunner } from "./process";
-import { detectTailscaleHttps, ensureTailscaleHttps, tailscaleHttpsHost } from "./tailscale-https";
 import { supportsCredentialImport } from "./provider-capabilities";
 import { inspectPublicReadiness } from "./public-readiness";
 import {
-  readRuntimeInferenceSettings,
   type RuntimeInferenceSettings,
+  readRuntimeInferenceSettings,
   writeRuntimeInferenceSettings,
 } from "./runtime-settings";
+import { printSetupCancelled, waitForAutomaticSetup } from "./setup-countdown";
 import { runSetupSession, type SetupSessionInput } from "./setup-session";
-import {
-  assertOwnServer,
-  assertPortsAvailable,
-  portRequirementsFromConfiguration,
-  runningServices,
-} from "./stack";
 import {
   ACCESS_CHOICES,
   ACCESS_MODES,
@@ -61,9 +53,9 @@ import {
   providerLabel,
   publicUrlFor,
   SETUP_STAGES,
-  SKIP_INFERENCE_CHOICE,
   type SetupConfiguration,
   type SetupCustomProvider,
+  SKIP_INFERENCE_CHOICE,
   THINKING_LEVELS,
   thinkingLabel,
   validateAccessMode,
@@ -76,12 +68,20 @@ import {
   validateProviderId,
   validateProviderName,
   validateProviderSelection,
-  validatePublicDomain,
   validateProxyHost,
+  validatePublicDomain,
   validatePublicHost,
   validateThinking,
   validateTimeZone,
 } from "./setup-values";
+import {
+  assertOwnServer,
+  assertPortsAvailable,
+  portRequirementsFromConfiguration,
+  runningServices,
+} from "./stack";
+import { SETUP_JOBS_NOTE, waitForStartup } from "./startup";
+import { detectTailscaleHttps, ensureTailscaleHttps, tailscaleHttpsHost } from "./tailscale-https";
 import {
   createSetupPresentation,
   type MessageTone,
@@ -519,7 +519,9 @@ export const collectSetupConfiguration = async (
 ): Promise<SetupConfiguration> => {
   const presentation = options.presentation;
   const advanced = options.advanced ?? false;
-  const currentAccess = options.preferredHttpsHost ? "proxy" : configuredAccessMode(current, options.fresh ?? false);
+  const currentAccess = options.preferredHttpsHost
+    ? "proxy"
+    : configuredAccessMode(current, options.fresh ?? false);
   let selectedAccess: SetupConfiguration["accessMode"] = currentAccess;
   if (advanced) {
     presentation?.stage(0);
@@ -544,7 +546,8 @@ export const collectSetupConfiguration = async (
     }
   }
 
-  const existingHost = options.preferredHttpsHost ?? (options.fresh ? null : existingReachableHost(current));
+  const existingHost =
+    options.preferredHttpsHost ?? (options.fresh ? null : existingReachableHost(current));
   const detectedPrivateHost =
     options.detectedPrivateHost === undefined
       ? detectPrivateNetworkHost()
@@ -773,11 +776,18 @@ const removeRegisteredCustomProvider = (
   if (providerId) providerUtility(project, ["remove-custom", providerId]);
 };
 
-const assertProviderModelAvailable = (
+type AvailableProviderModel = {
+  providerId: string;
+  modelId: string;
+  name?: string;
+  reasoningLevels: SetupConfiguration["thinking"][];
+  defaultReasoningLevel: SetupConfiguration["thinking"];
+};
+
+const availableProviderModels = (
   project: ComposeProject,
-  providerId: string,
-  modelId: string
-): void => {
+  providerId: string
+): AvailableProviderModel[] => {
   const result = providerUtility(project, ["models", providerId]);
   if (result.status !== 0) {
     throw new CliError(
@@ -790,22 +800,100 @@ const assertProviderModelAvailable = (
   } catch {
     throw new CliError(`OpenTeam received invalid model information for ${providerId}`);
   }
-  if (
-    !Array.isArray(models) ||
-    !models.some(
-      (candidate) =>
-        candidate &&
-        typeof candidate === "object" &&
-        "providerId" in candidate &&
-        candidate.providerId === providerId &&
-        "modelId" in candidate &&
-        candidate.modelId === modelId
-    )
-  ) {
+  if (!Array.isArray(models)) {
+    throw new CliError(`OpenTeam received invalid model information for ${providerId}`);
+  }
+  const available = models.flatMap((candidate): AvailableProviderModel[] => {
+    if (
+      !candidate ||
+      typeof candidate !== "object" ||
+      !("providerId" in candidate) ||
+      candidate.providerId !== providerId ||
+      !("modelId" in candidate) ||
+      typeof candidate.modelId !== "string" ||
+      !candidate.modelId ||
+      !("reasoningLevels" in candidate) ||
+      !Array.isArray(candidate.reasoningLevels) ||
+      candidate.reasoningLevels.some(
+        (level: unknown) => !THINKING_LEVELS.includes(level as SetupConfiguration["thinking"])
+      ) ||
+      !("defaultReasoningLevel" in candidate) ||
+      !THINKING_LEVELS.includes(candidate.defaultReasoningLevel as SetupConfiguration["thinking"])
+    ) {
+      return [];
+    }
+    return [
+      {
+        providerId,
+        modelId: candidate.modelId,
+        reasoningLevels: candidate.reasoningLevels as SetupConfiguration["thinking"][],
+        defaultReasoningLevel: candidate.defaultReasoningLevel as SetupConfiguration["thinking"],
+        ...(typeof (candidate as { name?: unknown }).name === "string"
+          ? { name: (candidate as { name: string }).name }
+          : {}),
+      },
+    ];
+  });
+  if (!available.length) {
     throw new CliError(
-      `${providerId} does not provide ${modelId}. Choose a model shown by openteam model list ${providerId}.`
+      `${providerLabel(providerId)} returned no available chat models for this account. Check the provider connection, then retry setup.`
     );
   }
+  return available;
+};
+
+const chooseAvailableProviderModel = async (
+  project: ComposeProject,
+  providerId: string,
+  requestedModel: string,
+  prompter: SetupPrompter,
+  presentation: SetupPresentation
+): Promise<AvailableProviderModel> => {
+  const models = availableProviderModels(project, providerId);
+  const requested = models.find((model) => model.modelId === requestedModel);
+  if (requested) return requested;
+
+  if (requestedModel) {
+    presentation.message(
+      `${providerLabel(providerId)} does not provide ${requestedModel} to this account. Choose an available model.`,
+      "warning"
+    );
+  }
+  const firstModel = models[0];
+  if (!firstModel) throw new CliError(`${providerLabel(providerId)} returned no available models.`);
+  if (models.length === 1) {
+    const selected = firstModel.modelId;
+    presentation.message(`Selected the only available model: ${selected}.`, "info");
+    return firstModel;
+  }
+
+  const choices = models.map((model) => ({
+    label:
+      model.name && model.name !== model.modelId
+        ? `${model.name} (${model.modelId})`
+        : model.modelId,
+    value: model.modelId,
+  }));
+  const first = firstModel.modelId;
+  if (prompter.select) {
+    const selected = await prompter.select("Inference model", choices, first);
+    return models.find((model) => model.modelId === selected) ?? firstModel;
+  }
+
+  presentation.choices(
+    models.map((model) => ({
+      title: model.modelId,
+      description:
+        model.name && model.name !== model.modelId ? model.name : "Available to this account",
+    }))
+  );
+  const allowed = new Set(models.map((model) => model.modelId));
+  const selected = await ask(prompter, "Inference model", first, (value) => {
+    const model = validateModel(value);
+    if (!allowed.has(model)) throw new CliError("Choose one of the available models shown above.");
+    return model;
+  });
+  return models.find((model) => model.modelId === selected) ?? firstModel;
 };
 
 const configurationSummary = (configuration: SetupConfiguration, advanced: boolean) => [
@@ -958,16 +1046,23 @@ export const setupCommand = async (
       });
     }
   }
-  const tailscale = detectTailscaleHttps(runner, current.get("OPENTEAM_API_PORT") || String(API_PORT));
+  const tailscale = detectTailscaleHttps(
+    runner,
+    current.get("OPENTEAM_API_PORT") || String(API_PORT)
+  );
   const accessMode = configuredAccessMode(current, fresh);
   const privateHost = (fresh ? null : existingReachableHost(current)) ?? detectedPrivateHost;
-  const preferredHttpsHost = tailscale && accessMode === "private" &&
+  const preferredHttpsHost =
+    tailscale &&
+    accessMode === "private" &&
     (!privateHost || privateHost === tailscale.host || tailscale.addresses.includes(privateHost))
-    ? tailscaleHttpsHost(tailscale) : undefined;
-  if (preferredHttpsHost) notes.push({
-    text: `Tailscale HTTPS: https://${preferredHttpsHost}. Setup will configure a private Serve route for OpenTeam. Keep Tailscale connected on your devices.`,
-    tone: "info",
-  });
+      ? tailscaleHttpsHost(tailscale)
+      : undefined;
+  if (preferredHttpsHost)
+    notes.push({
+      text: `Tailscale HTTPS: https://${preferredHttpsHost}. Setup will configure a private Serve route for OpenTeam. Keep Tailscale connected on your devices.`,
+      tone: "info",
+    });
   const collectOptions: SetupCommandOptions = {
     ...options,
     fresh,
@@ -1040,15 +1135,33 @@ export const setupCommand = async (
   if (configuration.apiPort !== (previousApiPort || String(API_PORT))) ownedPorts.delete("server");
   presentation.message("Checking startup ports…", "info");
   await assertPortsAvailable(runner, portRequirementsFromConfiguration(configuration, ownedPorts));
-  if (tailscale && configuration.accessMode === "proxy" && configuration.publicUrl === `https://${tailscaleHttpsHost(tailscale)}`) {
+  if (
+    tailscale &&
+    configuration.accessMode === "proxy" &&
+    configuration.publicUrl === `https://${tailscaleHttpsHost(tailscale)}`
+  ) {
     presentation.message("Checking Tailscale HTTPS…", "info");
     if (!ensureTailscaleHttps(runner, tailscale, configuration.apiPort)) {
-      const fallbackHost = privateHost || tailscale.addresses.find(address => !address.includes(":")) || tailscale.host;
-      configuration = { ...configuration, accessMode: "private", ...bindHostsFor("private", fallbackHost),
-        publicUrl: publicUrlFor("private", fallbackHost, configuration.apiPort) };
-      presentation.message(`Tailscale HTTPS could not be configured. Keeping private HTTP at ${configuration.publicUrl}; compatible plugins will use callback paste. Enable HTTPS with Tailscale Serve, then rerun setup to switch.`, "warning");
-      await assertPortsAvailable(runner, portRequirementsFromConfiguration(configuration, ownedPorts));
-    } else presentation.message(`Tailscale HTTPS is ready at ${configuration.publicUrl}.`, "success");
+      const fallbackHost =
+        privateHost ||
+        tailscale.addresses.find((address) => !address.includes(":")) ||
+        tailscale.host;
+      configuration = {
+        ...configuration,
+        accessMode: "private",
+        ...bindHostsFor("private", fallbackHost),
+        publicUrl: publicUrlFor("private", fallbackHost, configuration.apiPort),
+      };
+      presentation.message(
+        `Tailscale HTTPS could not be configured. Keeping private HTTP at ${configuration.publicUrl}; compatible plugins will use callback paste. Enable HTTPS with Tailscale Serve, then rerun setup to switch.`,
+        "warning"
+      );
+      await assertPortsAvailable(
+        runner,
+        portRequirementsFromConfiguration(configuration, ownedPorts)
+      );
+    } else
+      presentation.message(`Tailscale HTTPS is ready at ${configuration.publicUrl}.`, "success");
   }
   let registeredCustomProvider: string | null = null;
   try {
@@ -1057,10 +1170,6 @@ export const setupCommand = async (
       registerCustomProvider(project, configuration.customProvider);
       registeredCustomProvider = configuration.customProvider.id;
     }
-    if (!configuration.skipInference && configuration.model && configuration.provider !== "openrouter") {
-      assertProviderModelAvailable(project, configuration.provider, configuration.model);
-    }
-
     const nextEnvironment = ensureAuthenticationSecret(
       updateEnvironment(previousEnvironment, configuration)
     );
@@ -1202,15 +1311,21 @@ export const setupCommand = async (
         );
       }
     }
-    if (configuration.provider === "openrouter" && !configuration.model) {
-      const result = providerUtility(project, ["models", "openrouter"]);
-      let models: Array<{ modelId: string }> = [];
-      try { if (result.status === 0) models = JSON.parse(result.stdout); } catch {}
-      if (!Array.isArray(models) || !models[0]?.modelId) {
-        throw new CliError("OpenRouter returned no available models with tool support. Check your account settings, then run openteam model.");
-      }
-      configuration.model = models[0].modelId;
-      presentation.message(`Selected ${configuration.model} from OpenRouter. Use openteam model to choose another.`, "info");
+    const selectedModel = await chooseAvailableProviderModel(
+      project,
+      configuration.provider,
+      configuration.model,
+      prompter,
+      presentation
+    );
+    configuration.model = selectedModel.modelId;
+    if (!selectedModel.reasoningLevels.includes(configuration.thinking)) {
+      const previous = configuration.thinking;
+      configuration.thinking = selectedModel.defaultReasoningLevel;
+      presentation.message(
+        `${selectedModel.name || selectedModel.modelId} does not support thinking ${previous}; using ${configuration.thinking}.`,
+        "info"
+      );
     }
     // Older helpers can exit successfully when stdin closes during an OAuth prompt.
     // Check the saved authentication in a separate process before reporting success.
@@ -1223,6 +1338,7 @@ export const setupCommand = async (
         "verify",
         configuration.provider,
         configuration.model,
+        configuration.thinking,
       ],
       { timeoutMs: 10_000 }
     );

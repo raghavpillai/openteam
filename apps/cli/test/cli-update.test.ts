@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
@@ -12,6 +12,7 @@ import {
   isStandaloneCliExecutable,
   promoteStagedCli,
   readCliPromotion,
+  removeCurrentCli,
   stageCliUpdate,
 } from "../src/cli-update";
 
@@ -110,6 +111,38 @@ describe("CLI self-update", () => {
     expect(cliAssetName("linux", "x64")).toBe("openteam-linux-x64");
     expect(cliAssetName("win32", "arm64")).toBe("openteam-windows-x64.exe");
     expect(() => cliAssetName("freebsd", "x64")).toThrow("does not publish");
+  });
+
+  test("removes a standalone Unix CLI without deleting a shared runtime", () => {
+    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-remove-"));
+    temporaryDirectories.push(directory);
+    const executable = join(directory, "openteam");
+    writeFileSync(executable, "standalone executable", { mode: 0o755 });
+    writeFileSync(`${executable}.previous`, "previous standalone executable", { mode: 0o755 });
+    expect(
+      removeCurrentCli({
+        executable,
+        argv: [executable, "/$bunfs/root/openteam", "uninstall"],
+        versions: { bun: "1.3.8" },
+        platform: "linux",
+        standaloneExecutable: true,
+      })
+    ).toBe(executable);
+    expect(existsSync(executable)).toBe(false);
+    expect(existsSync(`${executable}.previous`)).toBe(false);
+
+    const sharedRuntime = join(directory, "bun");
+    writeFileSync(sharedRuntime, "shared runtime", { mode: 0o755 });
+    expect(
+      removeCurrentCli({
+        executable: sharedRuntime,
+        argv: [sharedRuntime, join(directory, "main.ts"), "uninstall"],
+        versions: { bun: "1.3.8" },
+        platform: "linux",
+        standaloneExecutable: false,
+      })
+    ).toBeNull();
+    expect(existsSync(sharedRuntime)).toBe(true);
   });
 
   test("verifies compressed and raw checksums plus the release Sigstore identity", async () => {

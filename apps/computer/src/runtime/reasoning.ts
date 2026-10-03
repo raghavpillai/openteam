@@ -16,15 +16,17 @@ export function inferenceReasoningOptions(
     return { reasoning: level === "off" ? undefined : level };
   }
 
-  // Pi 0.84.3 drops "off" from Codex requests. Omitting reasoning lets the
-  // provider choose its default effort, so explicitly encode the supported
-  // off value at the request boundary. Other providers keep Pi's mapping.
+  // Pi 0.84.3 drops "off" from Codex requests. Only encode it when the model
+  // catalog explicitly maps off to a provider value. For dynamically discovered
+  // models without capability metadata, omission safely uses the provider default.
+  const off = model.thinkingLevelMap?.off;
+  if (off === undefined || off === null) return {};
   return {
     onPayload(payload) {
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
       return {
         ...payload,
-        reasoning: { effort: model.thinkingLevelMap?.off ?? "none" },
+        reasoning: { effort: off },
       };
     },
   };

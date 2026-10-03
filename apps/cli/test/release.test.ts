@@ -93,3 +93,27 @@ describe("release downloads", () => {
     ).rejects.toThrow("Sigstore verification failed");
   });
 });
+
+describe("local release signature trust", () => {
+  const artifact = Bun.file(new URL("./fixtures/local-release-artifact.txt", import.meta.url));
+  const signature = Bun.file(new URL("./fixtures/local-release-artifact.txt.sigstore.json", import.meta.url));
+  const options = async () => ({ repository: "raghavpillai/openteam", version: "0.0.0", compose: await artifact.text(), serializedBundle: await signature.text() });
+
+  test("accepts the pinned local key with a verified transparency-log entry", async () => {
+    await verifyReleaseSignature(await options());
+  });
+  test("rejects modified bytes and cross-version or cross-repository replay", async () => {
+    const original = await options();
+    for (const changed of [{ compose: original.compose + "tampered" }, { version: "0.0.1" }, { repository: "attacker/repo" }])
+      await expect(verifyReleaseSignature({ ...original, ...changed })).rejects.toThrow("Sigstore verification failed");
+  });
+  test("rejects untrusted keys and missing transparency evidence", async () => {
+    const original = await options();
+    const unknownKey = JSON.parse(original.serializedBundle);
+    unknownKey.verificationMaterial.publicKey.hint = "untrusted-key";
+    await expect(verifyReleaseSignature({ ...original, serializedBundle: JSON.stringify(unknownKey) })).rejects.toThrow("Untrusted local release signing key");
+    const unsignedLog = JSON.parse(original.serializedBundle);
+    unsignedLog.verificationMaterial.tlogEntries = [];
+    await expect(verifyReleaseSignature({ ...original, serializedBundle: JSON.stringify(unsignedLog) })).rejects.toThrow("Sigstore verification failed");
+  });
+});

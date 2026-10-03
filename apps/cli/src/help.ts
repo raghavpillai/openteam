@@ -29,7 +29,7 @@ Your installation:
   start         Start OpenTeam after account setup
   stop          Stop OpenTeam
   logs          View troubleshooting logs
-  uninstall     Remove OpenTeam
+  uninstall     Remove OpenTeam services and CLI
 
 Models and accounts:
   provider      Manage AI accounts and connections
@@ -277,7 +277,7 @@ ${helpHint}`,
 
   uninstall: `${heading(
     "openteam uninstall [options]",
-    "Remove OpenTeam containers while preserving configuration and data by default."
+    "Remove OpenTeam services and CLI while preserving configuration and data by default."
   )}
 
 Options:

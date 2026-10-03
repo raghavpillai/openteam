@@ -17,6 +17,17 @@ import type { RuntimeInferenceSettings } from "../src/runtime-settings";
 class ModelRunner implements CommandRunner {
   calls: Array<readonly string[]> = [];
   verificationError: string | undefined;
+  models = ["gpt-5.5", "gpt-5.6-sol"].map((modelId) => ({
+    providerId: "openai-codex",
+    modelId,
+    name: modelId,
+    reasoning: true,
+    reasoningLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+    defaultReasoningLevel: "medium",
+    input: ["text", "image"],
+    contextWindow: 272000,
+    maxTokens: 128000,
+  }));
   run(_command: string, args: readonly string[], _options?: RunOptions): RunResult {
     this.calls.push(args);
     if (args[0] === "compose" && args[1] === "version") {
@@ -24,6 +35,9 @@ class ModelRunner implements CommandRunner {
     }
     if (args.includes("verify") && this.verificationError) {
       return { status: 1, stdout: "", stderr: this.verificationError };
+    }
+    if (args.includes("catalog")) {
+      return { status: 0, stdout: JSON.stringify({ models: this.models }), stderr: "" };
     }
     return { status: 0, stdout: "", stderr: "" };
   }
@@ -125,6 +139,50 @@ describe("Codex model selection", () => {
       "openai-codex",
       "gpt-5.6-sol",
     ]);
+  });
+
+  test("uses the model's advertised default when the saved level is unsupported", async () => {
+    const { paths, runner, state } = fixture();
+    runner.models = runner.models.map((model) =>
+      model.modelId === "gpt-5.6-sol"
+        ? {
+            ...model,
+            reasoningLevels: ["low", "medium"],
+            defaultReasoningLevel: "low",
+          }
+        : model
+    );
+    await modelUseCommand(paths, runner, {
+      providerId: "openai-codex",
+      modelId: "gpt-5.6-sol",
+    });
+    expect(state.selected.reasoning).toBe("low");
+    expect(runner.calls.find((args) => args.includes("verify"))?.slice(-3)).toEqual([
+      "verify",
+      "openai-codex",
+      "gpt-5.6-sol",
+    ]);
+  });
+
+  test("rejects an explicit level the selected model does not advertise", async () => {
+    const { paths, runner, state } = fixture();
+    runner.models = runner.models.map((model) =>
+      model.modelId === "gpt-5.6-sol"
+        ? {
+            ...model,
+            reasoningLevels: ["low", "medium"],
+            defaultReasoningLevel: "low",
+          }
+        : model
+    );
+    await expect(
+      modelUseCommand(paths, runner, {
+        providerId: "openai-codex",
+        modelId: "gpt-5.6-sol",
+        thinking: "off",
+      })
+    ).rejects.toThrow("Choose one of: low, medium");
+    expect(state.writes).toHaveLength(0);
   });
 
   test.each([

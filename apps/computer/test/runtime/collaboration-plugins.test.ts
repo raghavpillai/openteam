@@ -13,7 +13,6 @@ for (const [key, skillCount, commands] of [
     8,
     ["channel-digest", "draft-announcement", "find-discussions", "standup", "summarize-channel"],
   ],
-  ["1password", 1, []],
 ] as const) {
   test(`${key} workflows survive export and dispatch with arguments and supporting files`, async () => {
     const source = pluginCatalog.find((plugin) => plugin.key === key)!;
@@ -34,9 +33,6 @@ for (const [key, skillCount, commands] of [
       ...components,
       key,
       installPath: `/agent-data/plugins/cache/${key}/upstream`,
-      ...(key === "1password"
-        ? { hooksUnavailableReason: "Desktop filesystem hook is unavailable on the Bot computer." }
-        : {}),
     };
     const events: Record<string, (event: any) => Promise<any>> = {};
     await pluginComponentsExtension(
@@ -80,19 +76,8 @@ for (const [key, skillCount, commands] of [
         expect(definition.files?.[target]).toBeDefined();
       }
     }
-    if (key === "1password") {
-      expect(components.hooks).toHaveLength(1);
-      expect(context.message.content).toContain("Desktop filesystem hook is unavailable");
-      // This must skip the preserved desktop-only hook rather than executing it on the Bot host.
-      expect(
-        await events.tool_call!({ toolName: "Shell", input: { command: "echo fixture" } })
-      ).toBeUndefined();
-    } else {
-      expect(definition.files?.["upstream/LICENSE"]).toContain("MIT");
-      expect(
-        definition.files?.["upstream/skills/block-kit/references/common-patterns.md"]
-      ).toBeTruthy();
-    }
+    expect(definition.files?.["upstream/LICENSE"]).toContain("MIT");
+    expect(definition.files?.["upstream/skills/block-kit/references/common-patterns.md"]).toBeTruthy();
   });
 }
 

@@ -382,6 +382,30 @@ const scheduleWindowsRemoval = (path: string): void => {
   }
 };
 
+export const removeCurrentCli = (
+  options: {
+    executable?: string;
+    argv?: readonly string[];
+    versions?: Readonly<Record<string, string | undefined>>;
+    platform?: NodeJS.Platform;
+    standaloneExecutable?: boolean;
+  } = {}
+): string | null => {
+  const executable = resolve(options.executable ?? process.execPath);
+  const argv = options.argv ?? process.argv;
+  const versions = options.versions ?? process.versions;
+  const platform = options.platform ?? process.platform;
+  const standaloneExecutable =
+    options.standaloneExecutable ?? isBunStandaloneExecutable(argv, versions);
+  if (!isStandaloneCliExecutable(argv, executable, versions, platform, standaloneExecutable)) {
+    return null;
+  }
+  rmSync(`${executable}.previous`, { force: true });
+  if (platform === "win32") scheduleWindowsRemoval(executable);
+  else rmSync(executable);
+  return executable;
+};
+
 export const waitForCliFollowerToExit = async (
   promotion: CliPromotion,
   platform = process.platform

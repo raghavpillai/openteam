@@ -53,6 +53,8 @@ export interface InferenceModelView {
   modelId: string;
   name: string;
   reasoning: boolean;
+  reasoningLevels: PiReasoningLevel[];
+  defaultReasoningLevel: PiReasoningLevel;
   contextWindow: number;
   maxTokens: number;
 }

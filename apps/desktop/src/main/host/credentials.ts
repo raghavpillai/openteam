@@ -33,7 +33,7 @@ export class SavedCredentials {
   ) {}
   async status(signal?: AbortSignal) {
     const connections = credentialConnections(await this.settings.read());
-    if (!connections.length) return {kind:"not-connected",connected:false,provider:"1password",setup:"Connect 1Password with a service account token in Marketplace or Computer settings."};
+    if (!connections.length) return {kind:"not-connected",connected:false,provider:"1password",setup:"Connect 1Password with a service account token in Marketplace → 1Password."};
     const statuses = await Promise.all(connections.map(async config => {
       const connection_id = credentialConnectionId(config);
       try {
@@ -42,7 +42,7 @@ export class SavedCredentials {
         return {connection_id,kind:"connected",itemCount:items.length,needsAttention:false};
       } catch (error) {
         signal?.throwIfAborted();
-        return {connection_id,kind:"unavailable",itemCount:0,needsAttention:true,setup:"Renew the service account token in Saved logins settings."};
+        return {connection_id,kind:"unavailable",itemCount:0,needsAttention:true,setup:"Renew the service account token in Marketplace → 1Password."};
       }
     }));
     return {kind:"connected",connected:statuses.some(item=>!item.needsAttention),provider:"1password",connectionCount:statuses.length,itemCount:statuses.reduce((sum,item)=>sum+item.itemCount,0),connectionsNeedingAttention:statuses.filter(item=>item.needsAttention).length,connections:statuses};

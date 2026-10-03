@@ -1,6 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { NativeCapabilitySettings } from "../../src/renderer/components/openteam/settings/native-capabilities";
+import ComputerSettings from "../../src/renderer/components/openteam/settings/computer";
 import "../../src/renderer/styles.css";
 import { onePasswordError } from "@openteam/contracts/saved-logins";
 const calls: unknown[] = [];
@@ -18,6 +18,7 @@ const updateProvider = (patch: Record<string, unknown>) => {
 };
 (window as any).openteam = {
   permissions: {
+    get: async () => ({ machine: { label: "Fixture computer" } }),
     getCapabilities: async () => state,
     importSavedLoginToken: async (_token: string) => {
       calls.push({ action: "import-token" });
@@ -63,12 +64,15 @@ const updateProvider = (patch: Record<string, unknown>) => {
     },
   },
 };
+const { api } = await import("../../src/renderer/client/openteam-api");
 if (new URLSearchParams(location.search).has("marketplace")) {
-  const { api } = await import("../../src/renderer/client/openteam-api");
   api.pluginSettings = async () => ({ catalog: [], installs: [], botCount: 1, policies: [], activity: [] });
   api.pluginManagement = async () => ({ skills: [] }) as any;
   const { PluginDialog } = await import("../../src/renderer/components/openteam/plugin-settings");
   createRoot(document.getElementById("root")!).render(<PluginDialog open onOpenChange={() => {}} />);
 } else {
-  createRoot(document.getElementById("root")!).render(<main style={{ padding: 32, maxWidth: 760 }}><NativeCapabilitySettings /></main>);
+  api.machines = async () => [];
+  api.computerDisplay = async () => ({ width: 1280, height: 800 });
+  (window as any).openteam.auth = { machineStatus: async () => null };
+  createRoot(document.getElementById("root")!).render(<main style={{ padding: 32, maxWidth: 760 }}><ComputerSettings /></main>);
 }

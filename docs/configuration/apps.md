@@ -7,12 +7,14 @@ Some settings apply to one device, some to one bot, and some to your whole serve
 | Tab | What's there |
 | --- | --- |
 | **General** | Your account and sign out, theme, microphone, and [auto-review](approvals.md#auto-review) |
-| **Computer** | Whether bots can use this computer, other connected computers, the bot screen size, saved logins, and Mac access |
+| **Computer** | Whether bots can use this computer, other connected computers, the bot screen size, and Mac access |
 | **Server** | Model provider, model and reasoning, event subscriptions, and transcription |
 | **Providers** | Which service bots use for [web search and page fetching](web-search.md), and those services' API keys |
 | **Updates** | Desktop app and server updates |
 
 **Server** and **Providers** settings and auto-review apply to every bot and every app connected to your server; changing the model there changes it for all bots. Theme, microphone, **Execution on this computer**, and Mac access apply only to the device you're using. The bot screen size and the list of connected computers apply to your whole server.
+
+Manage saved logins in **Marketplace → 1Password**, where you can connect vaults, sync, renew access, disconnect, or reconnect.
 
 Each bot also has its own settings. Open the bot and select its name at the top of the conversation to change its name, label, avatar, description, and notifications.
 

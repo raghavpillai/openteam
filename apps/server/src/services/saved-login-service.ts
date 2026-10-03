@@ -170,7 +170,7 @@ export class SavedLoginService {
       throw new ApiError(
         409,
         "saved_login_renewal_required",
-        "Renew this 1Password connection in Computer settings"
+        "Renew this 1Password connection in Marketplace → 1Password"
       );
     try {
       const client = await this.connect(this.cipher.decrypt(connection.token, connection.id));

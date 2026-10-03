@@ -19,12 +19,12 @@ export function renderDesktopResult(
 ): string {
   if (name === "GetCredentialProviderStatus") {
     if (output.kind === "unavailable")
-      return "Credential provider status: unavailable. The backend status check failed; this does not mean the provider is disconnected. Tell the user the status could not be checked and that Settings → Credentials remains the authoritative fallback. Diagnostic class: Error.";
+      return "Credential provider status: unavailable. The backend status check failed; this does not mean the provider is disconnected. Tell the user the status could not be checked and that Marketplace → 1Password remains the authoritative fallback. Diagnostic class: Error.";
     return renderCredentialProviderStatus(output) ?? "Credential provider status: unavailable.";
   }
   if (name === "ListCredentials") {
     if (!output.connected)
-      return "No 1Password vault is connected. The user can connect one in Settings → Credentials; suggest that if the task needs their saved credentials.";
+      return "No 1Password vault is connected. The user can connect one in Marketplace → 1Password; suggest that if the task needs their saved credentials.";
     const views = output.credentials ?? [],
       site = args.site || undefined,
       query = args.query || undefined;

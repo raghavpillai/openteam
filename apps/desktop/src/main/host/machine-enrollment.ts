@@ -73,7 +73,7 @@ export class DesktopMachineEnrollment {
     const enrollment = this.current;
     if (!enrollment) throw new Error("Connect this desktop before using saved logins");
     const response = await this.channel(enrollment, "/saved-login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value), signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(30_000)]) });
-    if (!response.ok) throw new Error("Saved-login retrieval failed. Check the connection in Computer settings.");
+    if (!response.ok) throw new Error("Saved-login retrieval failed. Check the connection in Marketplace → 1Password.");
     return response.json();
   }
   status() { return { connected: this.isConnected(), configured: !!this.serverUrl, error: this.connectionError }; }

@@ -29,6 +29,12 @@ app.whenReady().then(async () => {
       if (marketplace) {
         await until(() => button('Connect 1Password'), 'marketplace mount');
         button('Connect 1Password').click();
+      } else {
+        await until(() => document.querySelector('[aria-label="Computer label"]')?.value === 'Fixture computer', 'computer settings mount');
+        check(!document.body.textContent.includes('1Password'), '1Password remains in Computer settings');
+        check(!document.body.textContent.includes('Saved logins'), 'Saved logins remain in Computer settings');
+        check(!document.querySelector('input[type="password"]'), 'Token form remains in Computer settings');
+        return { marketplace: false, computerSettingsOnly: true, noSavedLogins: true };
       }
       await until(() => document.querySelector('input[type="password"]'), 'manual token form');
       check(!document.body.textContent.includes('Shared with OpenTeam'), 'Dedicated vault name restriction remains');
@@ -76,8 +82,11 @@ app.whenReady().then(async () => {
       check(!permission().checked, 'Renewal retained old approval');
       button('Disconnect').click();
       await until(() => !permission(), 'disconnect');
+      document.querySelector('[aria-label="Back to Marketplace"]').click();
+      await until(() => button('Connect 1Password'), 'disconnected marketplace status');
+      check(!button('Manage 1Password'), 'Disconnected vault still marked connected');
       window.fixtureMultipleVaults = true;
-      button('Add service account token').click();
+      button('Connect 1Password').click();
       await until(() => document.querySelector('input[type="password"]'), 'reconnect token form');
       await enterToken();
       button('Connect 1Password').click();
@@ -87,7 +96,9 @@ app.whenReady().then(async () => {
         document.querySelector('[aria-label="Back to Marketplace"]').click();
         await until(() => button('Manage 1Password'), 'connected marketplace status');
         check(document.body.textContent.includes('1 installed'), 'Native connection missing from installed count');
-        document.querySelector('[aria-label="Your plugins"]').click();
+        document.querySelector('[aria-label="Manage plugins"]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }));
+        await until(() => [...document.querySelectorAll('[role="menuitem"]')].some(el => el.textContent.trim() === 'Your plugins'), 'plugins menu');
+        [...document.querySelectorAll('[role="menuitem"]')].find(el => el.textContent.trim() === 'Your plugins').click();
         await until(() => document.body.textContent.includes('Shared saved logins'), 'installed native connection');
         button('Manage 1Password').click();
         await until(() => permission(), 'reopen native connection');

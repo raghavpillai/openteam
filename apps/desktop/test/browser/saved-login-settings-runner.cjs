@@ -19,58 +19,81 @@ app.whenReady().then(async () => {
     await win.loadURL(process.env.SAVED_LOGIN_TEST_URL);
     const result = await win.webContents.executeJavaScript(`(async () => {
       const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-      const button = name => [...document.querySelectorAll('button')].find(el => el.textContent.trim() === name);
+      const button = name => [...document.querySelectorAll('button')].find(el => el.getClientRects().length && el.textContent.trim() === name);
       const check = (condition, message) => { if (!condition) throw Error(message); };
       async function until(predicate, stage) {
         for (let i = 0; i < 200; i++) { if (predicate()) { console.log('Passed: ' + stage); return; } await wait(20); }
         throw Error('Settings UI timed out: ' + stage);
       }
-      await until(() => button('Choose 1Password account'), 'mount');
-      button('Choose 1Password account').click();
-      await until(() => !button('Connect vault').disabled, 'account choice');
-      button('Connect vault').click();
-      await until(() => document.querySelector('[aria-label="Always allow saved logins in OpenTeam"]'), 'connect');
-      const permission = () => document.querySelector('[aria-label="Always allow saved logins in OpenTeam"]');
-      check(!permission().checked, 'New connection broadened permissions');
-      check(document.body.textContent.includes('2 logins'), 'Missing directory count');
+      const marketplace = new URLSearchParams(location.search).has('marketplace');
+      if (marketplace) {
+        await until(() => button('Connect 1Password'), 'marketplace mount');
+        button('Connect 1Password').click();
+      }
+      await until(() => document.querySelector('input[type="password"]'), 'manual token form');
+      check(!document.body.textContent.includes('Shared with OpenTeam'), 'Dedicated vault name restriction remains');
+      check(document.body.textContent.includes('existing vaults'), 'Existing vault instructions missing');
+      check(!document.body.textContent.includes('CLI integration'), 'Automatic setup guidance remains');
+      check(!button('Use a service account token instead'), 'Alternative setup option remains');
+      const enterToken = async () => {
+        const field = document.querySelector('input[type="password"]');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(field, 'ops_synthetic_manual_token');
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+        await until(() => !button('Connect 1Password').disabled, 'token entry');
+      };
+      await enterToken();
+      window.fixtureMode = 'invalid';
+      button('Connect 1Password').click();
+      await until(() => document.querySelector('[role="alert"]'), 'invalid-token feedback');
+      check(document.querySelector('input[type="password"]'), 'Failed import dismissed token entry');
+      window.fixtureMode = 'cancel';
+      button('Connect 1Password').click();
+      await until(() => button('Cancel setup'), 'cancellation control');
+      button('Cancel setup').click();
+      await until(() => document.querySelector('[role="alert"]')?.textContent.includes('cancelled'), 'cancelled import');
+      window.fixtureMode = undefined;
+      button('Connect 1Password').click();
+      const permission = () => document.querySelector('[aria-label="Always allow saved logins in Existing Work Vault"]');
+      await until(() => permission() && !document.querySelector('input[type="password"]'), 'connect and clear token');
+      check(!permission().checked, 'Manual connection broadened permissions');
+      check(!document.body.textContent.includes('ops_synthetic_manual_token'), 'Token exposed in UI');
       permission().click();
       await until(() => permission().checked && !permission().disabled, 'enable connection');
-      check(window.fixtureCalls.some(c => c.action === 'always-allow' && c.alwaysAllow === true), 'Permission IPC missing');
       window.fixtureSyncFailure = true;
       button('Sync').click();
-      await until(() => document.body.textContent.includes('sync failed'), 'failed sync');
+      await until(() => document.body.textContent.includes('Could not sync'), 'failed sync');
       window.fixtureSyncFailure = false;
       button('Sync').click();
-      await until(() => !document.body.textContent.includes('sync failed') && document.body.textContent.includes('3 logins'), 'sync recovery');
+      await until(() => !document.body.textContent.includes('Could not sync'), 'sync recovery');
       button('View saved logins').click();
-      await until(() => document.body.textContent.includes('Fixture login'), 'directory');
-      check(document.querySelectorAll('input[type="checkbox"]').length === 2, 'Broker showed legacy per-item grants');
+      await until(() => document.body.textContent.includes('Fixture login'), 'login directory');
       button('Renew access').click();
-      await wait(0);
-      await until(() => !button('Renew access').disabled, 'renewal');
-      check(!document.body.textContent.includes('Fixture login'), 'Renewal retained stale credential metadata');
-      check(window.fixtureCalls.some(c => c.action === 'connect' && c.input.connectionId === '1password:fixture-account:fixture-vault'), 'Renewal lost connection identity');
-      for (const mode of ['permission', 'completion-pending', 'delivery-indeterminate', 'cancel']) {
-        window.fixtureMode = mode;
-        button('Connect vault').click();
-        if (mode === 'cancel') {
-          await until(() => button('Cancel setup'), 'cancel control');
-          button('Cancel setup').click();
-        }
-        const expectedError = { permission: 'Manage Vault', 'completion-pending': 'registration could not be confirmed', 'delivery-indeterminate': 'previous setup', cancel: 'cancelled' }[mode];
-        await until(() => !button('Connect vault').disabled && document.querySelector('[role="alert"]')?.textContent.includes(expectedError), mode);
-        check(!!button('Retry connection completion') === (mode === 'completion-pending'), 'Wrong completion action for ' + mode);
-        check(!!button('I reviewed the service accounts in 1Password — restart setup') === (mode === 'delivery-indeterminate'), 'Wrong restart action for ' + mode);
-        if (mode === 'permission') check(document.querySelector('[role="alert"]').textContent.includes('Manage Vault'), 'Permission failure was not actionable');
-        if (mode === 'cancel') check(document.querySelector('[role="alert"]').textContent.includes('cancelled'), 'Cancellation not rendered');
-      }
-      window.fixtureMode = undefined;
-      button('Disconnect vault').click();
+      await until(() => document.querySelector('input[type="password"]'), 'manual renewal');
+      check(document.querySelector('input[type="password"]').value === '', 'Renewal retained secret');
+      await enterToken();
+      button('Connect 1Password').click();
+      await until(() => permission() && !document.querySelector('input[type="password"]'), 'renew and clear token');
+      check(!permission().checked, 'Renewal retained old approval');
+      button('Disconnect').click();
       await until(() => !permission(), 'disconnect');
-      button('Connect vault').click();
-      await until(() => permission(), 'reconnect');
-      check(!permission().checked, 'Reconnect retained an old permission');
-      return { connection: true, defaultAsk: true, permissionToggle: true, syncFailureRecovery: true, renewal: true, typedFailures: 3, cancellation: true, disconnectReconnect: true, calls: window.fixtureCalls.length };
+      window.fixtureMultipleVaults = true;
+      button('Add service account token').click();
+      await until(() => document.querySelector('input[type="password"]'), 'reconnect token form');
+      await enterToken();
+      button('Connect 1Password').click();
+      await until(() => permission() && document.body.textContent.includes('Existing Family Vault'), 'reconnect multiple existing vaults');
+      check(document.querySelector('[aria-label="Always allow saved logins in Existing Family Vault"]'), 'Second vault permission missing');
+      if (marketplace) {
+        document.querySelector('[aria-label="Back to Marketplace"]').click();
+        await until(() => button('Manage 1Password'), 'connected marketplace status');
+        check(document.body.textContent.includes('1 installed'), 'Native connection missing from installed count');
+        document.querySelector('[aria-label="Your plugins"]').click();
+        await until(() => document.body.textContent.includes('Shared saved logins'), 'installed native connection');
+        button('Manage 1Password').click();
+        await until(() => permission(), 'reopen native connection');
+      }
+      return { marketplace, manualOnly: true, existingVaults: true, multipleVaults: true, invalidToken: true, cancellation: true, defaultAsk: true, permissionToggle: true, syncRecovery: true, manualRenewal: true, disconnectReconnect: true, noLocalRead: true };
+
     })()`);
     fs.writeFileSync(path.join(output, "results.json"), JSON.stringify(result, null, 2));
     fs.writeFileSync(

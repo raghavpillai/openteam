@@ -1,5 +1,4 @@
 import { OnePasswordProvisioning, brokerCredentialCommand, type SavedLoginBackend } from "./host/onepassword-provisioning";
-import { ManagedOnePasswordCli } from "./host/onepassword-cli";
 import { randomBytes } from "node:crypto";
 import { loadMachineIdentity } from "./host/machine-identity";
 import { DesktopMachineEnrollment } from "./host/machine-enrollment";
@@ -905,17 +904,10 @@ const savedLoginBackend: SavedLoginBackend = async (operation, input, signal) =>
     headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
     ...(operation === "view" ? {} : { body: JSON.stringify(input) }), signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(30_000)]),
   });
-  if (!response.ok) throw new Error("The saved-login server request failed. Check your connection and retry completion if setup was interrupted.");
+  if (!response.ok) throw new Error("The saved-login server request failed. Check the token’s vault access and your server connection, then retry.");
   return response.json();
 };
 let savedLoginProvisioning: OnePasswordProvisioning | undefined;
-let managedOnePasswordCli: ManagedOnePasswordCli | undefined;
-const onePasswordCli = () => managedOnePasswordCli ??= new ManagedOnePasswordCli({
-  dataDir: app.getPath("userData"),
-  launcherPath: app.isPackaged
-    ? join(process.resourcesPath, "app.asar.unpacked", "dist-electron", "openteam-op-launcher")
-    : join(app.getAppPath(), "dist-electron", "openteam-op-launcher"),
-});
 let provisioningServerUrl: string | null = null;
 const provisioning = () => {
   if (!savedLoginProvisioning || provisioningServerUrl !== enrollmentServerUrl) {
@@ -924,18 +916,15 @@ const provisioning = () => {
     savedLoginProvisioning = new OnePasswordProvisioning(sharedCapabilitySettings(), (operation, input, signal) => {
       if (!serverUrl || enrollmentServerUrl !== serverUrl) throw new Error("The server changed during 1Password setup. Reconnect to the original server to finish setup.");
       return savedLoginBackend(operation, input, signal);
-    }, onePasswordCli().command, signal => onePasswordCli().resolve(signal, true));
+    });
   }
   return savedLoginProvisioning;
 };
 const savedLoginCommand = () => brokerCredentialCommand(sharedCapabilitySettings(), savedLoginBackend);
-ipcMain.handle("openteam:capabilities:accounts", event => { requireAuthSender(event); return provisioning().accounts(); });
 ipcMain.handle("openteam:capabilities:cancel-login", event => { requireAuthSender(event); savedLoginProvisioning?.cancel(); });
-ipcMain.handle("openteam:capabilities:connect-login", (event, input) => { requireAuthSender(event); return provisioning().connect(input); });
-ipcMain.handle("openteam:capabilities:finish-login", event => { requireAuthSender(event); return provisioning().finish(); });
+ipcMain.handle("openteam:capabilities:import-login-token", (event, token: string) => { requireAuthSender(event); return provisioning().importToken(token); });
 ipcMain.handle("openteam:capabilities:sync-logins", (event, connectionId?: string) => { requireAuthSender(event); return provisioning().sync(connectionId); });
 ipcMain.handle("openteam:capabilities:allow-logins", (event, input: { connectionId: string; alwaysAllow: boolean }) => { requireAuthSender(event); return provisioning().setAlwaysAllow(input.connectionId, input.alwaysAllow); });
-ipcMain.handle("openteam:capabilities:restart-login", event => { requireAuthSender(event); provisioning().acknowledgeUncertainSetup(); });
 
 ipcMain.handle("openteam:capabilities:get", async (event) => {
   requirePermissionSettings(event); return provisioning().refresh().catch(() => sharedCapabilitySettings().read());
@@ -948,7 +937,8 @@ ipcMain.handle("openteam:capabilities:logins", async (event) => {
 ipcMain.handle("openteam:capabilities:update", async (event, input: unknown) => {
   requirePermissionSettings(event);
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Invalid native settings");
-  const update = input as { removeCredentialConnection?: string; revoke?: string };
+  const update = input as { removeCredentialConnection?: string; revoke?: string; account?: unknown; vault?: unknown };
+  if (update.account !== undefined || update.vault !== undefined) throw new Error("Connect 1Password through service-account setup. Local vault reads are disabled.");
   if (update.removeCredentialConnection) await provisioning().disconnect(update.removeCredentialConnection);
   if (update.revoke === "credentials") for (const provider of (await sharedCapabilitySettings().read()).credentialProviders ?? []) {
     if (provider.broker) await provisioning().disconnect(`1password:${provider.account}:${provider.vault}`);

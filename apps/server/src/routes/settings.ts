@@ -15,12 +15,11 @@ export async function settingsRoutes(context: RouteContext): Promise<Response | 
   }
 
   if (path === "/api/server-settings/saved-logins" && request.method === "GET") return json(await app.savedLogins.view());
-  const savedLogin = path.match(/^\/api\/server-settings\/saved-logins\/(begin|complete|disconnect|sync|always-allow)$/);
+  const savedLogin = path.match(/^\/api\/server-settings\/saved-logins\/(import-token|disconnect|sync|always-allow)$/);
   if (savedLogin && request.method === "POST") {
     const input = await request.json();
     const operation = savedLogin[1];
-    const result = operation === "begin" ? await app.savedLogins.begin(input)
-      : operation === "complete" ? await app.savedLogins.complete(input)
+    const result = operation === "import-token" ? await app.savedLogins.importToken(input)
       : operation === "sync" ? await app.savedLogins.sync(input)
       : operation === "always-allow" ? await app.savedLogins.setAlwaysAllow(input)
       : await app.savedLogins.disconnect(String((input as any)?.connectionId));

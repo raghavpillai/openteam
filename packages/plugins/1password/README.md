@@ -1,4 +1,4 @@
-# 1Password
+# 1Password Environments
 
 OpenTeam integration with the official 1Password Environments MCP server. Includes
 one desktop MCP connection and the original upstream workflow skill and reference. The provider
@@ -14,7 +14,7 @@ binary is installed and updated by 1Password; OpenTeam does not redistribute it.
    your account lacks access. If Developer has no MCP option, check availability
    with 1Password; a Business admin may also need to enable **Policies → Agentic
    permissions → Local MCP server**.
-3. Keep OpenTeam desktop open on that same computer. Install **1Password** from
+3. Keep OpenTeam desktop open on that same computer. Install **1Password Environments** from
    **Plugins → Marketplace**, then choose **Connect** and authorize in 1Password.
 4. Grant the account and skill to the intended Bots. Use **Account settings → Test
    a tool** to test the discovered tools. Authorization is controlled by 1Password
@@ -24,8 +24,8 @@ No API key, OAuth client registration, service-account token, or user CLI setup 
 required. A browser-only or cloud deployment cannot reach the local app without
 its configured OpenTeam desktop host bridge. Windows is not supported by 1Password.
 
-Saved browser logins are a separate feature in Computer settings. That setup manages
-the signed 1Password CLI automatically and provisions vault-scoped read-only access.
+Saved browser logins use the **1Password** marketplace entry under **Login and Credential Management**, also available in Computer settings. That setup accepts a manually created service-account token with read access to one or more
+existing vaults selected by the user. It does not install or use a local CLI.
 It does not replace this plugin's official Environments MCP server. See
 [saved-login setup](../../../docs/reference/native-capabilities.md#saved-logins).
 

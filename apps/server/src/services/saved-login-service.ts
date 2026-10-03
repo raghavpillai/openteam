@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { SavedLoginTokenCipher } from "./saved-login-token";
 import { ApiError } from "@openteam/contracts";
 import type { PrismaClient } from "@openteam/db";
 import { AuthExpiredError, type Client } from "@1password/sdk";
@@ -29,8 +29,19 @@ const provider: SavedLoginProvider = async (token) => {
 export class SavedLoginService {
   constructor(
     private readonly db: PrismaClient,
-    private readonly connect: SavedLoginProvider = provider
+    private readonly connect: SavedLoginProvider = provider,
+    private readonly cipher = new SavedLoginTokenCipher()
   ) {}
+  async encryptLegacyTokens() {
+    const rows = await this.db.savedLoginConnection.findMany({ where: { token: { startsWith: "ops_" } } });
+    for (const row of rows) {
+      if (!row.token) continue;
+      const token = this.cipher.encrypt(row.token, row.id);
+      await this.db.savedLoginConnection.updateMany({
+        where: { id: row.id, token: row.token, generation: row.generation }, data: { token },
+      });
+    }
+  }
   async view() {
     const rows = await this.db.savedLoginConnection.findMany({
       where: { enabled: true },
@@ -105,104 +116,53 @@ export class SavedLoginService {
     }
     return this.view();
   }
-  async begin(input: any) {
-    let accountId = id(input?.accountId),
-      vaultId = id(input?.vaultId),
-      vaultName = label(input?.vaultName);
-    const connectionId = `1password:${accountId}:${vaultId}`;
-    const row = await this.db.savedLoginConnection.findUnique({ where: { id: connectionId } });
-    if (input.connectionId && input.connectionId !== connectionId) throw invalid();
-    const seconds = input.expiresInSeconds === undefined ? 90 * 86400 : input.expiresInSeconds;
-    if (!Number.isInteger(seconds) || seconds < 60 || seconds > 365 * 86400) throw invalid();
-    const mint = await this.db.savedLoginMint.create({
-      data: {
-        connectionId,
-        accountId,
-        vaultId,
-        vaultName,
-        expectedGeneration: row?.generation ?? 0,
-        expiresAt: new Date(Date.now() + 10 * 60_000),
-        providerExpiresAt: new Date(Date.now() + seconds * 1000),
-      },
-    });
-    return {
-      mintTicket: mint.id,
-      connectionId,
-      expectedGeneration: mint.expectedGeneration,
-      providerExpiresInSeconds: seconds,
-    };
-  }
-  async complete(input: any) {
-    const mintTicket = id(input?.mintTicket);
-    if (
-      typeof input?.token !== "string" ||
-      input.token.length > 16 * 1024 ||
-      !/^ops_[A-Za-z0-9_-]+$/.test(input.token)
-    )
-      throw invalid();
-    const tokenHash = createHash("sha256").update(input.token).digest("hex");
-    const ticket = await this.db.savedLoginMint.findUnique({ where: { id: mintTicket } });
-    if (!ticket) throw invalid();
-    let itemCount = 0;
-    if (!ticket.completedAt) {
-      if (ticket.expiresAt.getTime() < Date.now()) throw invalid();
-      try {
-        const client = await this.connect(input.token);
-        const vaults = await client.vaults.list();
-        if (vaults.length !== 1 || vaults[0]?.id !== ticket.vaultId) throw invalid();
-        // Verify the intended vault is readable before storing a connection.
-        itemCount = (await client.items.list(ticket.vaultId)).filter(
-          (value) => value.state === "active" && ["Login", "Password"].includes(value.category)
+  async importToken(input: any) {
+    const token = typeof input?.token === "string" ? input.token.trim() : "";
+    if (token.length > 16 * 1024 || !/^ops_[A-Za-z0-9_-]+$/.test(token)) throw invalid();
+    // Validate through 1Password, rather than trusting token contents or user-entered vault IDs.
+    let scopes: Array<{ id: string; title: string; itemCount: number }>;
+    try {
+      const client = await this.connect(token);
+      const vaults = await client.vaults.list();
+      if (!vaults.length || vaults.length > 1000) throw invalid();
+      const seen = new Set<string>();
+      scopes = [];
+      // Validate every granted vault before saving any connection. Never trust token claims.
+      for (const vault of vaults) {
+        const vaultId = id(vault.id);
+        if (seen.has(vaultId)) throw invalid();
+        seen.add(vaultId);
+        const title = label(vault.title);
+        const itemCount = (await client.items.list(vaultId)).filter(
+          value => value.state === "active" && ["Login", "Password"].includes(value.category)
         ).length;
-      } catch {
-        throw new ApiError(
-          400,
-          "saved_login_provider_unavailable",
-          "1Password could not validate read access to the selected vault. No connection was saved."
-        );
+        scopes.push({ id: vaultId, title, itemCount });
       }
+    } catch {
+      throw new ApiError(400, "saved_login_token_invalid", "Use a valid service account token with read access to the vaults you want to connect.");
     }
-    await this.db.$transaction(async (tx) => {
+    // Each vault is independently approved and disconnected, even when a token grants several.
+    const connections = scopes.map(vault => {
+      const connectionId = `1password:service-account:${vault.id}`;
+      return { vault, connectionId, encrypted: this.cipher.encrypt(token, connectionId) };
+    });
+    await this.db.$transaction(async tx => {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(742310, 7)::text`;
-      const fresh = await tx.savedLoginMint.findUniqueOrThrow({ where: { id: mintTicket } });
-      const current = await tx.savedLoginConnection.findUnique({
-        where: { id: fresh.connectionId },
-      });
-      if (fresh.completedAt) {
-        if (
-          fresh.tokenHash !== tokenHash ||
-          !current?.enabled ||
-          current.generation !== fresh.expectedGeneration + 1
-        )
-          throw invalid();
-        return;
+      for (const { vault, connectionId, encrypted } of connections) {
+        const current = await tx.savedLoginConnection.findUnique({ where: { id: connectionId } });
+        const data = {
+          accountId: "service-account", vaultId: vault.id, vaultName: vault.title,
+          token: encrypted, enabled: true, generation: (current?.generation ?? 0) + 1,
+          alwaysAllow: false, permissionRevision: (current?.permissionRevision ?? 0) + 1,
+          // The provider controls imported-token expiry; do not invent a lifetime.
+          expiresAt: null, itemCount: vault.itemCount, lastSuccessfulSyncAt: new Date(), lastSyncErrorCode: null,
+        };
+        await tx.savedLoginConnection.updateMany({
+          where: { vaultId: vault.id, id: { not: connectionId }, enabled: true },
+          data: { token: null, enabled: false, alwaysAllow: false, generation: { increment: 1 }, permissionRevision: { increment: 1 } },
+        });
+        await tx.savedLoginConnection.upsert({ where: { id: connectionId }, create: { id: connectionId, ...data }, update: data });
       }
-      if (
-        fresh.expiresAt.getTime() < Date.now() ||
-        (current?.generation ?? 0) !== fresh.expectedGeneration
-      )
-        throw invalid();
-      const data = {
-        accountId: fresh.accountId,
-        vaultId: fresh.vaultId,
-        vaultName: fresh.vaultName,
-        token: input.token,
-        generation: fresh.expectedGeneration + 1,
-        enabled: true,
-        expiresAt: fresh.providerExpiresAt,
-        itemCount,
-        lastSuccessfulSyncAt: new Date(),
-        lastSyncErrorCode: null,
-      };
-      await tx.savedLoginConnection.upsert({
-        where: { id: fresh.connectionId },
-        create: { id: fresh.connectionId, ...data },
-        update: data,
-      });
-      await tx.savedLoginMint.update({
-        where: { id: mintTicket },
-        data: { tokenHash, completedAt: new Date() },
-      });
     });
     return this.view();
   }
@@ -236,7 +196,17 @@ export class SavedLoginService {
         "Renew this 1Password connection in Computer settings"
       );
     try {
-      const client = await this.connect(connection.token);
+      // Upgrade old plaintext connections before any provider read. New writes are always encrypted.
+      let envelope = connection.token;
+      if (/^ops_[A-Za-z0-9_-]+$/.test(envelope)) {
+        const encrypted = this.cipher.encrypt(envelope, connection.id);
+        await this.db.savedLoginConnection.updateMany({
+          where: { id: connection.id, generation: connection.generation, token: envelope, enabled: true },
+          data: { token: encrypted },
+        });
+        envelope = encrypted;
+      }
+      const client = await this.connect(this.cipher.decrypt(envelope, connection.id));
       const result =
         input.operation === "get"
           ? await client.items.get(connection.vaultId, id(input.itemId))

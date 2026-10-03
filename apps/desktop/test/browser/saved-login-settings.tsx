@@ -21,35 +21,14 @@ const updateProvider = (patch: Record<string, unknown>) => {
 (window as any).openteam = {
   permissions: {
     getCapabilities: async () => state,
-    savedLoginAccounts: async () => [{ id: "fixture-account", label: "Fixture account" }],
-    connectSavedLogins: async (input: unknown) => {
-      calls.push({ action: "connect", input });
-      const mode = (window as any).fixtureMode;
-      if (
-        mode === "permission" ||
-        mode === "completion-pending" ||
-        mode === "delivery-indeterminate"
-      )
-        throw onePasswordError(mode);
-      if (mode === "cancel")
-        return new Promise((_resolve, reject) => {
-          cancelSetup = () => reject(onePasswordError("cancelled"));
-        });
-      const provider = {
-        account: "fixture-account",
-        vault: "fixture-vault",
-        vaultName: "OpenTeam",
-        broker: true,
-        alwaysAllow: false,
-        lifecycleState: "active",
-        itemCount: 2,
-        expiresAt: "2026-12-01T00:00:00.000Z",
-        lastSuccessfulSyncAt: "2026-09-19T12:00:00.000Z",
-      };
-      state = { ...state, credentialProvider: provider, credentialProviders: [provider] };
+    importSavedLoginToken: async (_token: string) => {
+      calls.push({ action: "import-token" });
+      if ((window as any).fixtureMode === "invalid") throw new Error("Synthetic invalid token");
+      if ((window as any).fixtureMode === "cancel") return new Promise((_resolve, reject) => { cancelSetup = () => reject(onePasswordError("cancelled")); });
+      const provider = { account: "service-account", vault: "fixture-vault", vaultName: "Existing Work Vault", broker: true, alwaysAllow: false, lifecycleState: "active", itemCount: 2 };
+      state = { ...state, credentialProvider: provider, credentialProviders: [provider, ...((window as any).fixtureMultipleVaults ? [{ ...provider, vault: "family-vault", vaultName: "Existing Family Vault" }] : [])] };
       return state;
     },
-    finishSavedLoginConnection: async () => state,
     cancelSavedLoginSetup: async () => {
       calls.push({ action: "cancel" });
       cancelSetup?.();
@@ -65,7 +44,6 @@ const updateProvider = (patch: Record<string, unknown>) => {
         itemCount: 3,
       });
     },
-    restartSavedLoginSetup: async () => {},
     listSavedLogins: async () => ({
       connected: true,
       credentials: [
@@ -87,8 +65,12 @@ const updateProvider = (patch: Record<string, unknown>) => {
     },
   },
 };
-createRoot(document.getElementById("root")!).render(
-  <main style={{ padding: 32, maxWidth: 760 }}>
-    <NativeCapabilitySettings />
-  </main>
-);
+if (new URLSearchParams(location.search).has("marketplace")) {
+  const { api } = await import("../../src/renderer/client/openteam-api");
+  api.pluginSettings = async () => ({ catalog: [], installs: [], botCount: 1, policies: [], activity: [] });
+  api.pluginManagement = async () => ({ skills: [] }) as any;
+  const { PluginDialog } = await import("../../src/renderer/components/openteam/plugin-settings");
+  createRoot(document.getElementById("root")!).render(<PluginDialog open onOpenChange={() => {}} />);
+} else {
+  createRoot(document.getElementById("root")!).render(<main style={{ padding: 32, maxWidth: 760 }}><NativeCapabilitySettings /></main>);
+}

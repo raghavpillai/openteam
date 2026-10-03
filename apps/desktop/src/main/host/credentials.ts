@@ -1,7 +1,7 @@
 import {credentialConnections, credentialConnectionId} from "./capability-settings";
 import { createHash } from "node:crypto";
 import { credentialRules, matchCredentialRules } from "./credential-domain";
-import { nativeCommand, type NativeCommand } from "./native-command";
+import { type NativeCommand } from "./native-command";
 import type { CapabilitySettingsStore, NativeConsent } from "./capability-settings";
 export function credentialOrigin(site: string): string {
   const url = new URL(site.includes("://") ? site : `https://${site}`);
@@ -32,7 +32,7 @@ export class SavedCredentials {
   constructor(
     private readonly settings: CapabilitySettingsStore,
     private readonly consent: NativeConsent,
-    private readonly run: NativeCommand = nativeCommand
+    private readonly run: NativeCommand = async () => { throw new Error("Connect a 1Password service account. Local vault reads are disabled."); }
   ) {}
   async status(signal?: AbortSignal) {
     const connections = credentialConnections(await this.settings.read());

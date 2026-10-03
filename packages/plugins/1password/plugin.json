@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "key": "1password",
-  "version": "1.1.0",
-  "name": "1Password",
+  "version": "1.2.0",
+  "name": "1Password Environments",
   "description": "Create and manage 1Password Developer Environments, inspect variable names, and mount local .env files. Requires the 1Password desktop app on macOS or Linux with MCP Server enabled.",
   "publisher": "OpenTeam",
   "category": "Developer Tools",
-  "featured": true,
+  "featured": false,
   "icon": "assets/icon.png",
   "homepageUrl": "https://www.1password.dev/environments/mcp-server",
   "components": ["mcp", "skills", "hooks"],
@@ -28,7 +28,7 @@
   "connections": [
     {
       "key": "1password",
-      "name": "1Password",
+      "name": "1Password Environments",
       "transport": "stdio",
       "auth": "none",
       "endpoint": "stdio://1password-mcp",

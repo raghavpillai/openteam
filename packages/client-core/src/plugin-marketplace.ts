@@ -13,6 +13,7 @@ export const PLUGIN_MARKETPLACE_CATEGORIES = [
   "Finance and Legal",
   "Inbox and Collaboration",
   "Infrastructure",
+  "Login and Credential Management",
   "MCP",
   "Payments",
   "Productivity",

@@ -47,9 +47,7 @@ test("connection permission sync, matching rules, ambiguous logins and revocatio
         fields: [{ purpose: "PASSWORD", value: "SYNTHETIC-PRIVATE-PASSWORD" }],
       };
     };
-    const provisioning = new OnePasswordProvisioning(settings, backend, async () => {
-      throw Error("Never invoke a local CLI");
-    });
+    const provisioning = new OnePasswordProvisioning(settings, backend);
     await provisioning.refresh();
     const credentials = new SavedCredentials(
       settings,

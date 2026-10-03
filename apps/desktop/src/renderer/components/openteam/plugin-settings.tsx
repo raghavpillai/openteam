@@ -33,9 +33,11 @@ DropdownMenuTrigger,
 import { InstalledPluginsView,MarketplaceView } from "./plugins/marketplace-browse";
 import { openAutomaticPluginSignIn } from "./plugins/plugin-authorization";
 
+import { OnePasswordSavedLogins, savedLoginsCatalog, SAVED_LOGINS_KEY } from "./plugins/onepassword-saved-logins";
+
 const PluginWorkspace = lazy(() => import("./plugins/plugin-workspace"));
 
-type MarketplacePage = "marketplace" | "installed" | "detail" | "custom" | "manage";
+type MarketplacePage = "saved-logins" | "marketplace" | "installed" | "detail" | "custom" | "manage";
 
 const secondaryButton =
   "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 cursor-pointer rounded-full bg-[#77777717] px-3 text-[13px] text-foreground outline-none transition-colors duration-120 ease-out hover:bg-[#7777772b] focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-45";
@@ -103,6 +105,12 @@ export function PluginDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const followedTarget = useRef<typeof target>(null);
   const [data, setData] = useState<PluginSettingsView | null>(null);
+  const [savedLoginsConnected, setSavedLoginsConnected] = useState(false);
+  const refreshSavedLogins = useCallback(() => {
+    void window.openteam?.permissions.getCapabilities().then(value => setSavedLoginsConnected((value.credentialProviders ?? []).some(row => row.broker))).catch(() => undefined);
+  }, []);
+  useEffect(() => { if (open) refreshSavedLogins(); }, [open, refreshSavedLogins]);
+  useEffect(() => { window.addEventListener("openteam:saved-logins-changed", refreshSavedLogins); return () => window.removeEventListener("openteam:saved-logins-changed", refreshSavedLogins); }, [refreshSavedLogins]);
   const [settingsEpoch, setSettingsEpoch] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const mutating = useRef(false);
@@ -219,6 +227,7 @@ export function PluginDialog({
     }
   }, [data, page, selected, selectedKey]);
   const openDetail = (plugin: PluginCatalogItemView) => {
+    if (plugin.key === SAVED_LOGINS_KEY) { setPage("saved-logins"); setError(null); return; }
     void loadPluginDetail();
     setSelectedKey(plugin.key);
     setPage("detail");
@@ -233,6 +242,7 @@ export function PluginDialog({
         followedTarget.current?.pluginId === target.pluginId)
     )
       return;
+    if (target.pluginId === SAVED_LOGINS_KEY) { followedTarget.current = target; setPage("saved-logins"); setError(null); return; }
     const plugin =
       data.installs.find((candidate) => candidate.pluginKey === target.pluginId)?.catalog ??
       data.catalog.find((candidate) => candidate.key === target.pluginId);
@@ -303,7 +313,7 @@ export function PluginDialog({
   };
 
   const title =
-    page === "detail" && selected
+    page === "saved-logins" ? "1Password" : page === "detail" && selected
       ? selected.name
       : page === "custom"
         ? "Add custom MCP"
@@ -344,7 +354,7 @@ export function PluginDialog({
           >
             <X className="size-4" strokeWidth={1.7} />
           </button>
-          {page === "detail" || page === "custom" || page === "manage" ? (
+          {page === "saved-logins" || page === "detail" || page === "custom" || page === "manage" ? (
             <button
               aria-label="Back to Marketplace"
               className="absolute left-3.5 grid size-8 place-items-center cursor-pointer rounded-full text-foreground-secondary outline-none transition-colors duration-120 ease-out hover:bg-foreground/[0.08] focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
@@ -354,7 +364,7 @@ export function PluginDialog({
               <ChevronLeft className="size-4" />
             </button>
           ) : null}
-          {page === "detail" || page === "custom" || page === "manage" ? (
+          {page === "saved-logins" || page === "detail" || page === "custom" || page === "manage" ? (
             <div className="w-full text-center text-[12px] font-medium">{title}</div>
           ) : (
             <div className="flex w-full items-center justify-between pr-8">
@@ -414,8 +424,9 @@ export function PluginDialog({
           <MarketplaceView
             hidden={page !== "marketplace"}
             busy={busy}
-            data={data}
+            data={{ ...data, catalog: [savedLoginsCatalog(data.catalog.find(p => p.key === "1password")?.logoUrl ?? null, savedLoginsConnected), ...data.catalog] }}
             onInstall={(plugin) => {
+              if (plugin.key === SAVED_LOGINS_KEY) { openDetail(plugin); return; }
               if (plugin.connections.length || plugin.setup || plugin.setupFields.length)
                 openDetail(plugin);
               if (
@@ -442,6 +453,8 @@ export function PluginDialog({
             >
               <LoaderCircle className="size-5 animate-spin text-foreground-tertiary" />
             </div>
+          ) : page === "saved-logins" ? (
+            <OnePasswordSavedLogins logoUrl={data.catalog.find(p => p.key === "1password")?.logoUrl ?? null} onChanged={refreshSavedLogins} />
           ) : page === "installed" ? (
             <InstalledPluginsView
               data={data}
@@ -455,6 +468,7 @@ export function PluginDialog({
                   : void mutate(connection.id, () => api.restartPluginConnection(connection.id))
               }
               catalogFallback={catalogPluginForInstall}
+              savedLogins={savedLoginsConnected ? savedLoginsCatalog(data.catalog.find(p => p.key === "1password")?.logoUrl ?? null, true) : undefined}
             />
           ) : page === "manage" ? (
             <Suspense fallback={<p className="p-8 text-sm">Loading plugin management…</p>}>

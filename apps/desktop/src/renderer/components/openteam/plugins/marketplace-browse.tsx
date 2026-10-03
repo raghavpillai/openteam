@@ -15,6 +15,7 @@ import { api } from "../../../client/openteam-api";
 import { pluginAuthorization, pluginNeedsSetup } from "@openteam/product-core/plugin-authorization";
 import { cn } from "../../../lib/cn";
 import { PluginMark } from "./plugin-mark";
+import { SAVED_LOGINS_KEY } from "./onepassword-saved-logins";
 import { MarketplaceCategories } from "./marketplace-categories";
 
 const pill =
@@ -73,7 +74,7 @@ function PluginRow({
         </span>
       </button>
       {action ??
-        (plugin.installed ? (
+        (plugin.key === SAVED_LOGINS_KEY ? <button className={pill} onClick={() => plugin.installed ? onOpen(plugin) : onInstall?.(plugin)} type="button">{plugin.installed ? "Manage 1Password" : "Connect 1Password"}</button> : plugin.installed ? (
           <span className="inline-flex items-center gap-1 px-1 text-[12px] text-foreground-secondary">
             <Check className="size-3 text-emerald-600" />
             Added
@@ -109,6 +110,7 @@ export function MarketplaceView({
 }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("All");
+  const installedCount = data.installs.length + (data.catalog.some(p => p.key === SAVED_LOGINS_KEY && p.installed) ? 1 : 0);
   const normalized = query.trim().toLocaleLowerCase();
   const filtered = data.catalog.filter(
     (p) =>
@@ -148,7 +150,7 @@ export function MarketplaceView({
           ))}
         </span>
         <span className="text-[12px] text-foreground-secondary">
-          {data.installs.length ? `${data.installs.length} installed` : "Your plugins"}
+          {installedCount ? `${installedCount} installed` : "Your plugins"}
         </span>
         <ChevronRight className="size-3 text-foreground-tertiary" />
       </button>
@@ -200,6 +202,7 @@ export function InstalledPluginsView({
   onManage,
   onRetry,
   catalogFallback,
+  savedLogins,
 }: {
   data: PluginSettingsView;
   busy: string | null;
@@ -208,6 +211,7 @@ export function InstalledPluginsView({
   onManage: (section?: "installed" | "private") => void;
   onRetry: (connection: PluginConnectionView) => void;
   catalogFallback: (install: PluginInstallView) => PluginCatalogItemView;
+  savedLogins?: PluginCatalogItemView;
 }) {
   const [query, setQuery] = useState("");
   const [skills, setSkills] = useState<PluginPrivateSkillView[] | null>(null);
@@ -252,6 +256,7 @@ export function InstalledPluginsView({
             </button>
           </div>
           <div className="grid grid-cols-2 gap-x-4 max-sm:grid-cols-1">
+            {savedLogins && matches(savedLogins.name) ? <PluginRow plugin={savedLogins} onOpen={onOpen} subtitle="Shared saved logins" /> : null}
             {installs.map((install) => {
               const plugin =
                 install.catalog ??
@@ -294,7 +299,7 @@ export function InstalledPluginsView({
               );
             })}
           </div>
-          {!installs.length && (
+          {!installs.length && !savedLogins && (
             <p className="px-2 py-4 text-[13px] text-foreground-secondary">
               {query ? "No installed plugins found." : "No plugins installed yet."}
             </p>

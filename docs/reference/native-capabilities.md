@@ -27,26 +27,25 @@ Every send requires a native recipient/body review. Text and addresses are passe
 
 ## Saved logins
 
-Computer settings → Saved logins connects explicitly selected 1Password accounts and vaults. This is independent of the 1Password Environments plugin. Enable CLI integration in the 1Password desktop app; OpenTeam manages the CLI executable when needed. Only the explicitly configured account/vault is queried.
+Marketplace → **Login and Credential Management → 1Password** and Computer settings → Saved logins use the same **manual service-account token** flow. On 1Password.com, create a service account, select one or more existing vaults, grant read-only access, then paste the token into OpenTeam. No particular vault name or new vault is required. All vaults selected for the token are connected. No local 1Password app, CLI installation, desktop account discovery, or CLI integration is needed.
 
-On macOS, setup prefers a verified system 1Password CLI v2.35 or newer. Otherwise it downloads the pinned vendor release (currently 2.35.0, matching the inspected reference), checks the archive, vendor code signature and reported version, and atomically caches it under the desktop app's private data directory. Both Apple Silicon and Intel are supported. Downloads are bounded, concurrent setup shares an installation, cancellation stops unused downloads, and a failed or damaged cache can be retried. Readiness is checked before setup mutations. Metadata commands have a 30-second deadline and 1 MiB output limit; mutations have a 180-second deadline and service-account tokens are bounded to 16 KiB.
+The server discovers the vaults accessible to the token and validates that every vault is readable before saving any connection. Each vault has its own connection, approval setting, and disconnect control. A failure to read any granted vault rejects the entire import without partial registration. The user must select read-only permission when creating the token; the SDK does not expose a permission introspection endpoint here, so the server verifies readable vault scope and only performs reads. Token expiry belongs to the provider; OpenTeam does not invent an expiry date. Renewal reopens token entry, clears remembered approval, and replaces access to the same vault. Previous service-account connections can still be read, but all new setup and renewal use pasted tokens. Automatic provisioning IPC and public mint-ticket endpoints are removed.
 
-Provisioning runs through a bundled native launcher that verifies the vendor signature again, restricts command arguments to account/vault/service-account setup, scrubs inherited 1Password authentication settings, and denies access to OpenTeam's data store. CLI stderr does not enter UI, tool or conversation output. The launcher is built as part of the desktop app and unpacked outside Electron's archive. A development build requires the macOS command-line build tools. Real desktop/biometric approval still belongs to 1Password.
+Ongoing reads use the backend's 1Password SDK and the scoped service-account token, never the user's local CLI or vault. Legacy local-CLI fallback is disabled, and syncing server connection metadata removes old local-only connections. No OAuth app registration, developer client ID, or shared vendor credential is needed. Users need permission to create service accounts in their own 1Password account.
 
-The selected vault receives a read-only service account through the existing mint-ticket/backend registration flow. Setup supports renewal, cancellation and retrying interrupted registration. Disconnect removes this deployment's access; it does not delete the service account at 1Password. The Environments plugin continues to use the vendor app's own MCP executable, which 1Password installs and updates. Packaged box connectors use the box's bundled Bun runtime; they do not depend on a user-installed host CLI.
+Tokens are encrypted with AES-256-GCM before database storage, using a domain-separated key derived from the existing `OPENTEAM_AUTH_SECRET` (or `BETTER_AUTH_SECRET`) and authenticated connection IDs. Existing plaintext tokens are upgraded at server boot and before reads. Keep the deployment secret stable when restoring the database; changing it requires reconnecting saved logins. Tokens never appear in connection metadata or model results.
+
+1Password does not permit service-account access to built-in Personal, Private, Employee, or default Shared vaults. Existing custom vaults are supported. Service-account vault permissions are immutable at 1Password: changing the selected vaults requires creating a replacement service account token.
+
+This saved-login flow is independent of the optional **1Password Environments** MCP plugin, which manages developer environments and local `.env` mounts.
+
+Setup supports cancellation and retrying registration. Disconnect removes this deployment's stored access; it does not delete the service account at 1Password. The separate Environments plugin continues to use the vendor app's own MCP executable, which 1Password installs and updates.
 
 Each connection has a database-backed **Always allow** permission, off by default, plus Sync,
 item count, last successful sync, expiry and provider error status. Permission changes synchronize
 across enrolled desktops and invalidate in-flight fills and older per-item grants. Turning it on
 allows approved website matching rules; passive filling still requires one matching login.
-Expiry defaults to 90 days in this deployment; the captured Grok client does not establish its
-private server default. The seven-day expiring indicator is a local display policy.
-
-Backend calls have a 30-second deadline. A lost or invalid registration response retains the
-same private token and ticket in the running desktop process for completion retry, without
-minting again. An uncertain mint requires reconciliation in 1Password before restarting.
-Explicit permission/approval failures can be retried normally. Settings shows the recovery
-action appropriate to the actual setup state and static provider guidance rather than raw stderr.
+The seven-day expiring indicator applies to older connections with known expiry dates. Backend calls have a 30-second deadline. After a lost registration response, refresh connection metadata or paste the token again; this never creates a new service account in 1Password. Error messages use static guidance rather than raw provider output.
 
 `ListCredentials` returns metadata, target rules and revision identifiers, never passwords. Domain matching uses the Public Suffix List including private suffixes; exact host/port rules apply to loopback and nonstandard-port URLs. The credential request is `SendToUser` with `type: "credential-request"` and the discovered credential ID, connection ID, catalog revision, current site and purpose.
 

@@ -48,7 +48,9 @@ Both use the provider's hosted MCP service with dynamic OAuth registration. [Ver
 
 ## 1Password setup
 
-The [1Password package README](../../packages/plugins/1password/README.md) covers native setup, authorization, account selection, local mounts, and bridge behavior. The Environments connector returns metadata and variable names, not vault passwords. Mounts belong to the physical computer and are not automatically available in bot containers.
+The **1Password** marketplace entry shares one or more existing vaults selected for a service account for saved browser logins. Setup uses only a manually created service-account token; no local app or CLI is needed. Tokens are encrypted and ongoing reads use the backend SDK. See [saved-login setup](native-capabilities.md#saved-logins).
+
+The separate [1Password Environments package README](../../packages/plugins/1password/README.md) covers native setup, authorization, account selection, local mounts, and bridge behavior. The Environments connector returns metadata and variable names, not vault passwords. Mounts belong to the physical computer and are not automatically available in bot containers.
 
 ## Granola setup
 

@@ -1,4 +1,4 @@
-FROM oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 AS build
+FROM --platform=$BUILDPLATFORM oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 AS build
 
 WORKDIR /app
 
@@ -36,7 +36,7 @@ RUN bun --filter @openteam/server build && bun --filter @openteam/worker build
 
 # The schema sync only needs packages/db and its dependencies (Prisma CLI, its schema
 # engine, and pg), so it gets its own slim stage instead of inheriting the full build stage.
-FROM oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61 AS migrate
+FROM --platform=$BUILDPLATFORM oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61 AS migrate-build
 WORKDIR /app
 COPY package.json bun.lock turbo.json tsconfig.base.json ./
 COPY apps/computer/package.json apps/computer/package.json
@@ -57,11 +57,15 @@ COPY packages/plugin-sdk/package.json packages/plugin-sdk/package.json
 COPY packages/plugins/package.json packages/plugins/package.json
 COPY patches ./patches
 COPY vendor/sheetjs/xlsx-0.20.3.tgz vendor/sheetjs/xlsx-0.20.3.tgz
+ENV PRISMA_CLI_BINARY_TARGETS=debian-openssl-3.0.x,linux-arm64-openssl-3.0.x
 RUN bun install --frozen-lockfile --production --filter @openteam/db \
   && rm -rf /root/.bun/install/cache
 COPY packages/db/prisma.config.ts packages/db/prisma.config.ts
 COPY packages/db/prisma packages/db/prisma
 COPY packages/db/scripts packages/db/scripts
+FROM oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61 AS migrate
+WORKDIR /app
+COPY --from=migrate-build /app /app
 ENV NODE_ENV=production
 ENV HOME=/tmp
 ENV XDG_CACHE_HOME=/tmp/.cache

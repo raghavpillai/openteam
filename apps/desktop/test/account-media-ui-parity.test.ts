@@ -41,7 +41,7 @@ describe("Bot account and media UI parity guards", () => {
     expect(settings).toContain("dark:bg-[#070707]");
     expect(settings).toContain("dark:bg-[#111111]");
     expect(settings).toContain('aria-label="Close"');
-    expect(plugins).toContain("h-[min(700px,calc(100vh-80px))]");
+    expect(plugins).toContain("h-[min(700px,calc(100dvh-48px))]");
     expect(plugins).toContain("w-[min(800px,calc(100vw-40px))]");
     expect(plugins).toContain('surface="modal"');
     const pluginMark = await read("../src/renderer/components/openteam/plugins/plugin-mark.tsx");

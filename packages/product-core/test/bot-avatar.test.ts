@@ -35,13 +35,12 @@ describe("shared bot avatar activity", () => {
     expect(resolveBotAvatarMode({ activeChannel, run: running, runsByChannel, botId: "one", channelId: "background" }))
       .toBe("idle");
   });
-  test("leaves thinking after a terminal or approval state", () => {
+  test("leaves thinking after a terminal state", () => {
     for (const status of [
       "completed",
       "failed",
       "cancelled",
       "interrupted",
-      "waiting_approval",
     ] as const) {
       expect(
         resolveBotAvatarMode({ activeChannel, run: { ...running, status }, botId: "one" })

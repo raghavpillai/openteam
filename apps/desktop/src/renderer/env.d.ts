@@ -1,6 +1,7 @@
 interface Window {
   openteam?: {
     platform: string;
+    onMenuAction?: (listener: (action: "about" | "updates" | "settings") => void) => () => void;
     visibility?: { subscribe: (callback: (visible: boolean) => void) => () => void };
     auth: {
       connectMachine: (serverUrl: string) => Promise<{ machineId: string }>;

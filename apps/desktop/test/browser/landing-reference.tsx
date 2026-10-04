@@ -214,7 +214,6 @@ function Reference() {
             onHideChannel={noop}
             onNewBot={noop}
             onNewGroup={noop}
-            onOpenAbout={noop}
             onOpenHiddenAgents={noop}
             onOpenPlugins={noop}
             onOpenSettings={noop}

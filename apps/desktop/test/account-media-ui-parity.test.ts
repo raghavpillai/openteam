@@ -10,27 +10,25 @@ describe("Bot account and media UI parity guards", () => {
     const menu = source.slice(menuStart, menuEnd);
     const labels = [
       "Get OpenTeam for iOS",
-      "Support",
-      "Help Center",
-      "Send Feedback",
-      "About",
       "Settings",
       "Log out",
     ];
     const offsets = labels.map((label) => menu.indexOf(label));
     expect(offsets.every((offset) => offset >= 0)).toBe(true);
     expect(offsets).toEqual([...offsets].sort((left, right) => left - right));
+    for (const label of ["Support", "Help Center", "Send Feedback", "About"]) {
+      expect(menu).not.toContain(label);
+    }
     expect(menu).not.toContain("Weekly usage");
     expect(source).toContain("New update available");
     expect(source).toMatch(/openteam\?\.updates\s*\.openDownload\(\)/);
   });
 
   test("keeps source-verified Bot dialog and file-viewer geometry", async () => {
-    const [settings, plugins, attachment, sidebar] = await Promise.all([
+    const [settings, plugins, attachment] = await Promise.all([
       read("../src/renderer/components/openteam/settings/panel.tsx"),
       read("../src/renderer/components/openteam/plugin-settings.tsx"),
       read("../src/renderer/components/openteam/file-attachment.tsx"),
-      read("../src/renderer/components/openteam/sidebar.tsx"),
     ]);
 
     expect(settings).toContain("h-[min(700px,calc(100vh-96px))]");
@@ -56,9 +54,6 @@ describe("Bot account and media UI parity guards", () => {
     expect(attachment).toContain("grid-rows-[40px_minmax(0,1fr)]");
     expect(attachment).toContain("min-w-[min(220px,100%)]");
     expect(attachment).toContain("max-w-[min(340px,100%)]");
-    expect(sidebar).toContain("What happened? What did you expect?");
-    expect(sidebar).toContain("Include current conversation ID");
-    expect(sidebar).toContain("I would like a response to my feedback");
   });
 
   test("keeps document previews, download-all, and media navigation wired", async () => {

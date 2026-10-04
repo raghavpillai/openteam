@@ -99,7 +99,7 @@ createRoot(document.getElementById("root")!).render(
         </main>
       ) : (
         <div style={{ position: "fixed", left: 24, bottom: 24 }}>
-          <AccountMenu onOpenAbout={() => {}} onOpenSettings={() => {}}>
+          <AccountMenu onOpenSettings={() => {}}>
             <button
               id="account"
               className="size-9 rounded-full bg-[#282828] text-sm text-[#a0a0a0]"

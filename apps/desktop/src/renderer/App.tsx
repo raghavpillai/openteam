@@ -590,6 +590,15 @@ export default function App() {
     setSettingsOpen(true);
   }, []);
   const openSettings = useCallback(() => openSettingsTarget(null), [openSettingsTarget]);
+  useEffect(
+    () =>
+      window.openteam?.onMenuAction?.((action) => {
+        if (action === "about") openAbout();
+        else if (action === "updates") openSettingsTarget("update-status");
+        else openSettings();
+      }),
+    [openAbout, openSettings, openSettingsTarget]
+  );
   const openPlugins = useCallback(() => {
     setPluginTarget(null);
     setPluginsOpen(true);
@@ -1066,7 +1075,6 @@ export default function App() {
           onLayoutChange={handleSidebarLayoutChange}
           onNewBot={openNewBot}
           onNewGroup={openNewGroup}
-          onOpenAbout={openAbout}
           onOpenHiddenAgents={openHiddenAgents}
           onOpenPlugins={openPlugins}
           onOpenSettings={openSettings}

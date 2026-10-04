@@ -59,6 +59,10 @@ app
     await delay(400);
     await click(`document.getElementById('account')`);
     await assert(
+      `(()=>{const text=document.querySelector('[role=menu]').textContent;return !['Support','Help Center','Send Feedback','About'].some(label=>text.includes(label))&&text.includes('Settings');})()`,
+      "Account menu must keep Settings and omit Support, Help Center, Send Feedback, and About"
+    );
+    await assert(
       `document.body.textContent.includes('New update available')`,
       "Available banner missing"
     );

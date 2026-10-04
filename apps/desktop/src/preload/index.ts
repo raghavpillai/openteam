@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { ApplicationMenuAction } from "../main/application-menu";
 
 const appVersionArgument = process.argv.find((argument) =>
   argument.startsWith("--openteam-app-version=")
@@ -122,6 +123,13 @@ const notificationSnapshot = (value: unknown) => {
 
 contextBridge.exposeInMainWorld("openteam", {
   platform: process.platform,
+  onMenuAction: (callback: (action: ApplicationMenuAction) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, action: unknown) => {
+      if (action === "about" || action === "updates" || action === "settings") callback(action);
+    };
+    ipcRenderer.on("openteam:app-menu", listener);
+    return () => ipcRenderer.removeListener("openteam:app-menu", listener);
+  },
   visibility: {
     subscribe: (callback: (visible: boolean) => void) => {
       let active = true;

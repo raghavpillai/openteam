@@ -16,16 +16,13 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  CircleHelp,
   Clock3,
   Copy,
   CopyPlus,
   EyeOff,
   Folder,
   FolderPlus,
-  Info,
   LogOut,
-  Megaphone,
   Pencil,
   Pin,
   PinOff,
@@ -105,9 +102,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Input } from "../ui/input";
@@ -211,19 +205,13 @@ const VIRTUAL_SECTIONS_JUMP_KEY = "virtual-sections";
 export function AccountMenu({
   children,
   compact = false,
-  onOpenAbout,
   onOpenSettings,
 }: {
   children: React.ReactNode;
   compact?: boolean;
-  onOpenAbout: () => void;
   onOpenSettings: () => void;
 }) {
   const auth = useAuthSession();
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [feedback, setFeedback] = useState("");
-  const [includeConversationId, setIncludeConversationId] = useState(false);
-  const [wantsFeedbackResponse, setWantsFeedbackResponse] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const openingUpdateDialog = useRef(false);
@@ -242,31 +230,6 @@ export function AccountMenu({
   );
   const menuItem = "h-8 gap-2 rounded-[8px] px-2 text-[13px] font-normal leading-[19.5px]";
   const openExternal = (url: string) => window.open(url, "_blank", "noopener,noreferrer");
-  const submitFeedback = () => {
-    const body = feedback.trim();
-    if (!body) return;
-    const selectedConversationId = includeConversationId
-      ? document.querySelector<HTMLElement>('[data-channel-id][data-selected="true"]')?.dataset
-          .channelId
-      : undefined;
-    const url = new URL("https://github.com/raghavpillai/openteam/issues/new");
-    url.searchParams.set("title", "OpenTeam feedback");
-    url.searchParams.set(
-      "body",
-      [
-        body,
-        selectedConversationId ? `Conversation ID: ${selectedConversationId}` : null,
-        wantsFeedbackResponse ? "Response requested: yes" : null,
-      ]
-        .filter(Boolean)
-        .join("\n\n")
-    );
-    openExternal(url.toString());
-    setFeedback("");
-    setIncludeConversationId(false);
-    setWantsFeedbackResponse(false);
-    setFeedbackOpen(false);
-  };
 
   return (
     <>
@@ -355,15 +318,6 @@ export function AccountMenu({
             <Smartphone className="size-4" strokeWidth={1.85} />
             Get OpenTeam for iOS
           </DropdownMenuItem>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger className={menuItem}><CircleHelp className="size-4" strokeWidth={1.85} />Support<ChevronRight className="ml-auto size-3.5" /></DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-[200px] rounded-[13px] p-1.5">
-              <DropdownMenuItem className={menuItem} onSelect={() => openExternal("https://github.com/raghavpillai/openteam#readme")}><CircleHelp className="size-4" strokeWidth={1.85} />Help Center</DropdownMenuItem>
-              <DropdownMenuItem className={menuItem} onSelect={() => setFeedbackOpen(true)}><Megaphone className="size-4" strokeWidth={1.85} />Send Feedback</DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem className={menuItem} onSelect={onOpenAbout}><Info className="size-4" strokeWidth={1.85} />About</DropdownMenuItem>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
           <DropdownMenuItem className={menuItem} onSelect={onOpenSettings}><Settings className="size-4" strokeWidth={1.85} />Settings</DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem className={menuItem} onSelect={() => setSignOutOpen(true)}>
@@ -372,68 +326,6 @@ export function AccountMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-
-      <Dialog onOpenChange={setFeedbackOpen} open={feedbackOpen}>
-        <DialogContent
-          className="w-[460px] max-w-[calc(100vw-32px)] gap-0 rounded-[16px] border-black/10 bg-background p-0 shadow-[0_24px_72px_rgba(0,0,0,0.24)]"
-          showCloseButton={false}
-        >
-          <div className="border-b border-black/[0.07] px-4 py-4 dark:border-white/[0.08]">
-            <DialogTitle className="text-[14px] font-medium">Send Feedback</DialogTitle>
-          </div>
-          <div className="px-4 pb-4 pt-4">
-            <DialogDescription className="text-[13px] leading-[18px]">
-              Tell the OpenTeam team what happened or what you want changed. Reports go straight to
-              the team.
-            </DialogDescription>
-            <textarea
-              autoFocus
-              className="mt-3 h-[140px] w-full resize-none rounded-[5px] border border-black/[0.09] bg-black/[0.025] px-2.5 py-2 text-[13px] leading-[18px] outline-none placeholder:text-foreground-tertiary focus:border-black/20 dark:border-white/[0.1] dark:bg-transparent"
-              maxLength={8_000}
-              onChange={(event) => setFeedback(event.target.value)}
-              placeholder="What happened? What did you expect?"
-              value={feedback}
-            />
-            <div className="mt-3 flex flex-col gap-3">
-              <label className="flex items-center gap-2 text-[12.5px] leading-[18px]">
-                <input
-                  checked={includeConversationId}
-                  className="size-4 rounded-[4px] accent-white"
-                  onChange={(event) => setIncludeConversationId(event.target.checked)}
-                  type="checkbox"
-                />
-                Include current conversation ID
-              </label>
-              <label className="flex items-center gap-2 text-[12.5px] leading-[18px]">
-                <input
-                  checked={wantsFeedbackResponse}
-                  className="size-4 rounded-[4px] accent-white"
-                  onChange={(event) => setWantsFeedbackResponse(event.target.checked)}
-                  type="checkbox"
-                />
-                I would like a response to my feedback
-              </label>
-            </div>
-          </div>
-          <div className="flex justify-end gap-2 border-t border-black/[0.07] py-3 pl-4 pr-3 dark:border-white/[0.08]">
-            <button
-              className="h-8 rounded-[9px] px-3 text-[12.5px] hover:bg-black/[0.05] dark:hover:bg-white/[0.07]"
-              onClick={() => setFeedbackOpen(false)}
-              type="button"
-            >
-              Cancel
-            </button>
-            <button
-              className="h-8 rounded-[9px] bg-black px-3.5 text-[12.5px] font-medium text-white disabled:opacity-40 dark:bg-white dark:text-black"
-              disabled={!feedback.trim()}
-              onClick={submitFeedback}
-              type="button"
-            >
-              Send Feedback
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <AlertDialog onOpenChange={setSignOutOpen} open={signOutOpen}>
         <AlertDialogContent className="max-w-[430px] rounded-[16px]">
@@ -2455,7 +2347,6 @@ export const Sidebar = memo(function Sidebar({
   onSelect,
   onNewBot,
   onNewGroup,
-  onOpenAbout,
   onOpenHiddenAgents,
   onOpenPlugins,
   onOpenSettings,
@@ -2483,7 +2374,6 @@ export const Sidebar = memo(function Sidebar({
   onSelect: (id: string, focusComposer?: boolean) => void;
   onNewBot: () => void;
   onNewGroup: () => void;
-  onOpenAbout: () => void;
   onOpenHiddenAgents: () => void;
   onOpenPlugins: () => void;
   onOpenSettings: () => void;
@@ -3452,7 +3342,7 @@ export const Sidebar = memo(function Sidebar({
 
       </SidebarCollapseMotion>
       <div className="sidebar-account-footer">
-        <AccountMenu compact={compact} onOpenAbout={onOpenAbout} onOpenSettings={onOpenSettings}>
+        <AccountMenu compact={compact} onOpenSettings={onOpenSettings}>
           <Button
             aria-label={`Account: ${account.name}`}
             data-sidebar-account-trigger=""

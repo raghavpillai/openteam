@@ -25,6 +25,7 @@ import {
   shell,
 } from "electron";
 import type { AppUpdater } from "electron-updater";
+import { applicationMenuTemplate } from "./application-menu";
 import { desktopSignIn, desktopSignOut } from "./auth-client";
 import { createOpenTeamClient } from "@openteam/client-core";
 import { DesktopPluginOAuth } from "./plugin-oauth";
@@ -192,13 +193,12 @@ const serverUpdater = new ServerUpdater({
 });
 
 const checkForDesktopUpdate = async (): Promise<DesktopUpdateSnapshot> => {
-  desktopUpdateSnapshot = {
-    ...desktopUpdateSnapshot,
+  publishDesktopUpdate({
     status: "checking",
     progress: null,
     message: null,
     failureKind: null,
-  };
+  });
   try {
     if (app.isPackaged) {
       const autoUpdater = await configureDesktopUpdater();
@@ -252,6 +252,8 @@ const checkForDesktopUpdate = async (): Promise<DesktopUpdateSnapshot> => {
       progress: null,
       ...failure,
     };
+  } finally {
+    publishDesktopUpdate(desktopUpdateSnapshot);
   }
   return desktopUpdateSnapshot;
 };
@@ -1057,6 +1059,22 @@ if (!hasSingleInstanceLock) {
   void app
     .whenReady()
     .then(async () => {
+      Menu.setApplicationMenu(
+        Menu.buildFromTemplate(
+          applicationMenuTemplate(process.platform, (action) => {
+            focusMainWindow();
+            mainWindow?.webContents.send("openteam:app-menu", action);
+            if (
+              action === "updates" &&
+              !["checking", "downloading", "downloaded", "installing"].includes(
+                desktopUpdateSnapshot.status
+              )
+            ) {
+              void checkForDesktopUpdate();
+            }
+          })
+        )
+      );
       localMachine.machineId = await loadMachineIdentity(join(app.getPath("userData"), "machine-id"));
       // Separate from legacy auth-session.bin: do not access Keychain to migrate.
       // Users with an encrypted session sign in once to create the new local file.

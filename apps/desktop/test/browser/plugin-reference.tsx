@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { createPortal } from "react-dom";
 import type {
   PluginCatalogItemView,
   PluginConnectionView,
@@ -296,6 +297,43 @@ api.pluginConfiguration = async (id) => {
     tokenEndpointAuthMethod: "none",
   };
 };
+// Opt-in frame audit of the shipping transition, readable through native CUA.
+function MotionAudit() {
+  const [container, setContainer] = useState<Element | null>(null);
+  useEffect(() => {
+    const findModal = () => setContainer(document.querySelector(".plugin-dialog"));
+    findModal();
+    const observer = new MutationObserver(findModal);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+  const [report, setReport] = useState("Click through a plugin to capture navigation frames.");
+  useEffect(() => {
+    let frame = 0;
+    const capture = (event: AnimationEvent) => {
+      const pane = event.target;
+      if (!(pane instanceof HTMLElement) || !pane.classList.contains("plugin-page") || pane.classList.contains("plugin-page-outgoing")) return;
+      cancelAnimationFrame(frame);
+      const start = performance.now();
+      const modal = pane.closest(".plugin-dialog")!;
+      const bounds = modal.getBoundingClientRect();
+      const rows: Array<{ ms: number; incoming: number; outgoing: number | null; inert: boolean; modalFixed: boolean }> = [];
+      const sample = () => {
+        const outgoing = modal.querySelector<HTMLElement>(".plugin-page-outgoing");
+        const rect = modal.getBoundingClientRect();
+        const translation = (node: Element) => Math.round(new DOMMatrixReadOnly(getComputedStyle(node).transform).m41);
+        rows.push({ ms: Math.round(Number(pane.getAnimations()[0]?.currentTime ?? 200)), incoming: translation(pane), outgoing: outgoing ? translation(outgoing) : null, inert: !outgoing || outgoing.inert && outgoing.getAttribute("aria-hidden") === "true", modalFixed: rect.x === bounds.x && rect.y === bounds.y && rect.width === bounds.width && rect.height === bounds.height });
+        if (performance.now() - start < 230) frame = requestAnimationFrame(sample);
+        else setReport(JSON.stringify({ animation: event.animationName, pass: rows.every(row => row.inert && row.modalFixed) && rows.at(-1)?.incoming === 0 && rows.at(-1)?.outgoing === null, frames: rows.map(row => [row.ms, row.incoming, row.outgoing]) }));
+      };
+      sample();
+    };
+    document.addEventListener("animationstart", capture);
+    return () => { cancelAnimationFrame(frame); document.removeEventListener("animationstart", capture); };
+  }, []);
+  return container ? createPortal(<details className="absolute bottom-2 left-2 z-[150] max-h-[35vh] max-w-[420px] overflow-auto rounded-lg border bg-background p-2 text-[11px]"><summary>Navigation frame audit</summary><pre role="status" aria-label="Navigation frame audit" className="whitespace-pre-wrap">{report}</pre></details>, container) : null;
+}
+
 function Reference() {
   const [open, setOpen] = useState(true);
   return (
@@ -304,6 +342,7 @@ function Reference() {
         Open plugins
       </button>
       <PluginDialog open={open} onOpenChange={setOpen} />
+      {new URLSearchParams(location.search).has("motion") && <MotionAudit />}
     </TooltipProvider>
   );
 }

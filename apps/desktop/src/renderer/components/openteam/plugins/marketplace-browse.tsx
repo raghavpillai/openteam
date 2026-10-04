@@ -93,46 +93,12 @@ function PluginRow({
   );
 }
 
-export function MarketplaceView({
-  hidden = false,
-  busy,
-  data,
-  onInstall,
-  onOpen,
-  onShowInstalled,
-}: {
-  hidden?: boolean;
-  busy: string | null;
-  data: PluginSettingsView;
-  onInstall: (plugin: PluginCatalogItemView) => void;
-  onOpen: (plugin: PluginCatalogItemView) => void;
-  onShowInstalled: () => void;
-}) {
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<string>("All");
+export function InstalledPluginsSummary({ data, onShowInstalled }: { data: PluginSettingsView; onShowInstalled: () => void }) {
   const installedCount = data.installs.length + (data.catalog.some(p => p.key === SAVED_LOGINS_KEY && p.installed) ? 1 : 0);
-  const normalized = query.trim().toLocaleLowerCase();
-  const filtered = data.catalog.filter(
-    (p) =>
-      pluginMatchesMarketplaceCategory(p, category) &&
-      `${p.name} ${p.description} ${p.publisher}`.toLocaleLowerCase().includes(normalized)
-  );
-  const grouped = category === "All" && !normalized;
-  const groups = [...new Set(data.catalog.filter((p) => !p.featured).map((p) => p.category))];
-  const sections = grouped
-    ? [
-        { name: "Featured", plugins: data.catalog.filter((p) => p.featured) },
-        ...groups.map((name) => ({
-          name: categoryLabel(name),
-          plugins: data.catalog.filter((p) => !p.featured && p.category === name),
-        })),
-      ].filter((s) => s.plugins.length)
-    : [{ name: normalized ? "Results" : category, plugins: filtered }];
   return (
-    <div className={cn("flex min-h-0 flex-1 flex-col px-8 pb-5 max-sm:px-5", hidden && "hidden")}>
       <button
         aria-label="Your plugins"
-        className="mb-5 flex h-8 shrink-0 cursor-pointer self-start items-center gap-2 rounded-lg text-left outline-none hover:opacity-70 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+        className="flex h-8 shrink-0 cursor-pointer self-start items-center gap-2 rounded-lg text-left outline-none hover:opacity-70 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
         onClick={onShowInstalled}
         type="button"
       >
@@ -154,6 +120,49 @@ export function MarketplaceView({
         </span>
         <ChevronRight className="size-3 text-foreground-tertiary" />
       </button>
+  );
+}
+
+export function MarketplaceView({
+  query,
+  category,
+  onQueryChange,
+  onCategoryChange,
+  busy,
+  data,
+  onInstall,
+  onOpen,
+}: {
+  query: string;
+  category: string;
+  onQueryChange: (value: string) => void;
+  onCategoryChange: (value: string) => void;
+  busy: string | null;
+  data: PluginSettingsView;
+  onInstall: (plugin: PluginCatalogItemView) => void;
+  onOpen: (plugin: PluginCatalogItemView) => void;
+}) {
+  const setQuery = onQueryChange;
+  const setCategory = onCategoryChange;
+  const normalized = query.trim().toLocaleLowerCase();
+  const filtered = data.catalog.filter(
+    (p) =>
+      pluginMatchesMarketplaceCategory(p, category) &&
+      `${p.name} ${p.description} ${p.publisher}`.toLocaleLowerCase().includes(normalized)
+  );
+  const grouped = category === "All" && !normalized;
+  const groups = [...new Set(data.catalog.filter((p) => !p.featured).map((p) => p.category))];
+  const sections = grouped
+    ? [
+        { name: "Featured", plugins: data.catalog.filter((p) => p.featured) },
+        ...groups.map((name) => ({
+          name: categoryLabel(name),
+          plugins: data.catalog.filter((p) => !p.featured && p.category === name),
+        })),
+      ].filter((s) => s.plugins.length)
+    : [{ name: normalized ? "Results" : category, plugins: filtered }];
+  return (
+    <div className="flex min-h-0 flex-1 flex-col px-8 pb-5 max-sm:px-5">
       <SearchField query={query} onChange={setQuery} />
       <MarketplaceCategories category={category} onChange={setCategory} />
       <div className="bot-scrollbar mt-7 min-h-0 flex-1 overflow-y-auto">
@@ -195,10 +204,11 @@ export function MarketplaceView({
 }
 
 export function InstalledPluginsView({
+  query,
+  onQueryChange,
   data,
   busy,
   onOpen,
-  onBack,
   onManage,
   onRetry,
   catalogFallback,
@@ -207,13 +217,14 @@ export function InstalledPluginsView({
   data: PluginSettingsView;
   busy: string | null;
   onOpen: (plugin: PluginCatalogItemView) => void;
-  onBack: () => void;
-  onManage: (section?: "installed" | "private") => void;
+  onManage: () => void;
   onRetry: (connection: PluginConnectionView) => void;
   catalogFallback: (install: PluginInstallView) => PluginCatalogItemView;
   savedLogins?: PluginCatalogItemView;
+  query: string;
+  onQueryChange: (value: string) => void;
 }) {
-  const [query, setQuery] = useState("");
+  const setQuery = onQueryChange;
   const [skills, setSkills] = useState<PluginPrivateSkillView[] | null>(null);
   const [skillError, setSkillError] = useState(false);
   useEffect(() => {
@@ -234,26 +245,12 @@ export function InstalledPluginsView({
   const installs = data.installs.filter((p) => matches(p.name));
   return (
     <div className="flex min-h-0 flex-1 flex-col px-8 pb-6 max-sm:px-5">
-      <button
-        onClick={onBack}
-        className="mb-4 flex self-start items-center gap-1 rounded-md bg-black/[0.035] px-2 py-1 text-[12px] text-foreground-secondary dark:bg-white/[0.05]"
-        type="button"
-      >
-        <ChevronLeft className="size-3" />
-        Back to Marketplace
-      </button>
+      <h1 tabIndex={-1} className="mb-5 text-[16px] font-medium">Manage plugins and skills</h1>
       <SearchField query={query} onChange={setQuery} />
       <div className="bot-scrollbar mt-8 min-h-0 flex-1 overflow-y-auto">
         <section>
           <div className="mb-2 flex items-center justify-between px-2">
             <h3 className="text-[12px] text-foreground-secondary">Installed</h3>
-            <button
-              type="button"
-              className="text-[12px] text-foreground-secondary hover:text-foreground"
-              onClick={() => onManage("installed")}
-            >
-              Manage plugins
-            </button>
           </div>
           <div className="grid grid-cols-2 gap-x-4 max-sm:grid-cols-1">
             {savedLogins && matches(savedLogins.name) ? <PluginRow plugin={savedLogins} onOpen={onOpen} subtitle="Shared saved logins" /> : null}
@@ -292,7 +289,7 @@ export function InstalledPluginsView({
                         {pluginAuthorization(retry) ? pluginAuthorization(retry)?.expired ? "Try again" : "Reopen" : pluginNeedsSetup(retry, plugin) ? "Set up" : retry.auth === "oauth" && retry.status === "needs_auth" ? "Authorize" : "Retry"}
                       </button>
                     ) : (
-                      <span />
+                      <span className="text-[12px] text-emerald-600 dark:text-emerald-400">{install.connections.length ? "Connected" : "Added"}</span>
                     )
                   }
                 />
@@ -307,11 +304,11 @@ export function InstalledPluginsView({
         </section>
         <section className="mt-8">
           <div className="mb-2 flex items-center justify-between px-2">
-            <h3 className="text-[12px] text-foreground-secondary">Private</h3>
+            <h3 className="text-[12px] text-foreground-secondary">Private skills</h3>
             <button
               className="text-[12px] text-foreground-secondary hover:text-foreground"
               type="button"
-              onClick={() => onManage("private")}
+              onClick={() => onManage()}
             >
               Manage skills
             </button>
@@ -322,7 +319,7 @@ export function InstalledPluginsView({
               <button
                 className="flex w-full items-center gap-3 rounded-lg px-2 py-3 text-left hover:bg-black/[0.035] dark:hover:bg-white/[0.035]"
                 key={skill.id}
-                onClick={() => onManage("private")}
+                onClick={() => onManage()}
                 type="button"
               >
                 <PluginMark name={skill.name} />

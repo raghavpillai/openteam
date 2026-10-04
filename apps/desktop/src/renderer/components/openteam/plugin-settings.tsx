@@ -26,13 +26,15 @@ DropdownMenuContent,
 DropdownMenuItem,
 DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
-import { InstalledPluginsView,MarketplaceView } from "./plugins/marketplace-browse";
+import { PluginPageStack } from "./plugins/plugin-page-stack";
+import { InstalledPluginsSummary,InstalledPluginsView,MarketplaceView } from "./plugins/marketplace-browse";
 import { openAutomaticPluginSignIn } from "./plugins/plugin-authorization";
 
 import { savedLoginsCatalog, SAVED_LOGINS_KEY } from "./plugins/saved-logins-catalog";
 const OnePasswordSavedLogins = lazy(() => import("./plugins/onepassword-saved-logins").then(module => ({ default: module.OnePasswordSavedLogins })));
 
-const PluginWorkspace = lazy(() => import("./plugins/plugin-workspace"));
+const loadPluginWorkspace = () => import("./plugins/plugin-workspace");
+const PluginWorkspace = lazy(loadPluginWorkspace);
 
 type MarketplacePage = "saved-logins" | "marketplace" | "installed" | "detail" | "custom" | "manage";
 
@@ -90,11 +92,28 @@ export function PluginDialog({
   open: boolean;
   target?: { pluginId: string; nonce: number } | null;
 }) {
-  const [page, setPage] = useState<MarketplacePage>("marketplace");
-  const [managementSection, setManagementSection] = useState<
-    "installed" | "private" | "sources" | "develop"
-  >("installed");
-  const openManagement = (section: typeof managementSection = "installed") => {
+  const [page, setCurrentPage] = useState<MarketplacePage>("marketplace");
+  const [direction, setDirection] = useState<"push" | "pop">("push");
+  const trail = useRef<Array<{ page: MarketplacePage; selectedKey: string | null; section: "private" | "develop" }>>([]);
+  const [installedQuery, setInstalledQuery] = useState("");
+  const [browseQuery, setBrowseQuery] = useState("");
+  const [browseCategory, setBrowseCategory] = useState("All");
+  const setPage = (next: MarketplacePage) => {
+    if (next === page) return;
+    trail.current.push({ page, selectedKey, section: managementSection });
+    setDirection("push");
+    setCurrentPage(next);
+  };
+  const goBack = () => {
+    const previous = trail.current.pop();
+    setDirection("pop");
+    setSelectedKey(previous?.selectedKey ?? null);
+    setManagementSection(previous?.section ?? "private");
+    setCurrentPage(previous?.page ?? "marketplace");
+    setError(null);
+  };
+  const [managementSection, setManagementSection] = useState<"private" | "develop">("private");
+  const openManagement = (section: typeof managementSection = "private") => {
     setManagementSection(section);
     setPage("manage");
   };
@@ -180,9 +199,16 @@ export function PluginDialog({
   }, [needsPluginAuthentication, open, statusRefresh]);
   useEffect(() => {
     if (open) return;
-    setPage("marketplace");
-    setSelectedKey(null);
-    setError(null);
+    const timer = window.setTimeout(() => {
+      setCurrentPage("marketplace");
+      trail.current = [];
+      setBrowseQuery("");
+      setInstalledQuery("");
+      setBrowseCategory("All");
+      setSelectedKey(null);
+      setError(null);
+    }, 150);
+    return () => window.clearTimeout(timer);
   }, [open]);
 
   const mutate = useCallback(
@@ -315,12 +341,13 @@ export function PluginDialog({
       : page === "custom"
         ? "Add custom MCP"
         : page === "manage"
-          ? "Manage plugins"
-          : "Marketplace";
+          ? managementSection === "private" ? "Private skills" : "Develop plugins"
+          : page === "installed" ? "Manage plugins and skills" : "Marketplace";
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
-        className="flex h-[min(700px,calc(100vh-80px))] w-[min(800px,calc(100vw-40px))] flex-col max-w-none gap-0 overflow-hidden rounded-[13px] border-black/10 bg-background p-0 text-foreground shadow-[0_24px_72px_rgba(0,0,0,0.24)] dark:border-[#303030]"
+        overlayClassName="plugin-overlay"
+        className="plugin-dialog flex h-[min(700px,calc(100dvh-48px))] w-[min(800px,calc(100vw-40px))] flex-col max-w-none gap-0 overflow-hidden rounded-[13px] border-black/10 bg-background p-0 text-foreground shadow-[0_24px_72px_rgba(0,0,0,0.24)] dark:border-[#303030]"
         ref={dialogRef}
         onOpenAutoFocus={(event) => { event.preventDefault(); dialogRef.current?.focus(); }}
         onCloseAutoFocus={(event) => {
@@ -342,50 +369,40 @@ export function PluginDialog({
         <DialogDescription className="sr-only">
           Browse, install, connect, and configure OpenTeam plugins.
         </DialogDescription>
-        <header className="relative flex h-[96px] shrink-0 items-center px-8">
-          <button
-            aria-label="Close plugins"
-            className="absolute right-3.5 top-3.5 grid size-8 place-items-center cursor-pointer rounded-full text-foreground-tertiary outline-none transition-colors duration-120 ease-out hover:bg-foreground/[0.08] hover:text-foreground focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-            onClick={() => onOpenChange(false)}
-            type="button"
-          >
-            <X className="size-4" strokeWidth={1.7} />
-          </button>
-          {page === "saved-logins" || page === "detail" || page === "custom" || page === "manage" ? (
+        <button aria-label="Close plugins" className="absolute right-3.5 top-3.5 z-10 grid size-8 cursor-pointer place-items-center rounded-full text-foreground-tertiary outline-none transition-colors hover:bg-foreground/[0.08] focus-visible:ring-2 focus-visible:ring-blue-500" onClick={() => onOpenChange(false)} type="button"><X className="size-4" strokeWidth={1.7} /></button>
+        <PluginPageStack pageKey={`${page}:${page === "detail" ? selectedKey : page === "manage" ? managementSection : ""}`} direction={direction}>
+        <header className={`relative flex shrink-0 items-center px-8 ${page === "marketplace" ? "h-[96px]" : "h-[64px]"}`}>
+          {page !== "marketplace" ? (
             <button
-              aria-label="Back to Marketplace"
-              className="absolute left-3.5 grid size-8 place-items-center cursor-pointer rounded-full text-foreground-secondary outline-none transition-colors duration-120 ease-out hover:bg-foreground/[0.08] focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-              onClick={() => setPage(page === "custom" ? "installed" : "marketplace")}
+              aria-label={trail.current.at(-1)?.page === "installed" ? "Back to installed plugins" : "Back to Marketplace"}
+              className={`absolute left-3.5 flex h-8 items-center justify-center gap-1 cursor-pointer rounded-full text-foreground-secondary outline-none transition-colors duration-120 ease-out hover:bg-foreground/[0.08] focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${page === "installed" ? "px-2 text-[12px]" : "w-8"}`}
+              onClick={goBack}
               type="button"
             >
               <ChevronLeft className="size-4" />
+              {page === "installed" ? "Marketplace" : null}
             </button>
           ) : null}
-          {page === "saved-logins" || page === "detail" || page === "custom" || page === "manage" ? (
-            <div className="w-full text-center text-[12px] font-medium">{title}</div>
+          {page !== "marketplace" ? (
+            <span className="sr-only">{title}</span>
           ) : (
             <div className="flex w-full items-center justify-between pr-8">
-              <div className="text-[16px] font-semibold">Marketplace</div>
-              <div className="flex items-center gap-2">
-                <DropdownMenu>
+              <h1 tabIndex={-1} className="text-[16px] font-semibold">Marketplace</h1>
+              <div className="flex items-center gap-3">
+                {data && <InstalledPluginsSummary data={{ ...data, catalog: [savedLoginsCatalog(null, savedLoginsConnected), ...data.catalog] }} onShowInstalled={() => setPage("installed")} />}
+                <DropdownMenu onOpenChange={isOpen => { if (isOpen) void loadPluginWorkspace().then(module => module.preloadPluginManagement()).catch(() => undefined); }}>
                   <DropdownMenuTrigger asChild>
                     <button type="button" className={secondaryButton} aria-label="Manage plugins">
                       Manage
                       <ChevronDown className="size-3" />
                     </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
+                  <DropdownMenuContent align="end" className="plugin-management-menu w-[190px]">
                     <DropdownMenuItem onSelect={() => setPage("installed")}>
                       Your plugins
                     </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => openManagement("installed")}>
-                      Accounts and settings
-                    </DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => openManagement("private")}>
                       Private skills
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => openManagement("sources")}>
-                      Plugin sources
                     </DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => openManagement("develop")}>
                       Develop plugins
@@ -417,9 +434,12 @@ export function PluginDialog({
             </button>
           </div>
         ) : null}
-        {data && (
+        {data && page === "marketplace" && (
           <MarketplaceView
-            hidden={page !== "marketplace"}
+            query={browseQuery}
+            category={browseCategory}
+            onQueryChange={setBrowseQuery}
+            onCategoryChange={setBrowseCategory}
             busy={busy}
             data={{ ...data, catalog: [savedLoginsCatalog(null, savedLoginsConnected), ...data.catalog] }}
             onInstall={(plugin) => {
@@ -432,7 +452,6 @@ export function PluginDialog({
                 void mutate(plugin.key, () => installAndConnect(plugin));
             }}
             onOpen={openDetail}
-            onShowInstalled={() => setPage("installed")}
           />
         )}
         <Suspense
@@ -454,11 +473,12 @@ export function PluginDialog({
             <OnePasswordSavedLogins logoUrl={null} onChanged={refreshSavedLogins} />
           ) : page === "installed" ? (
             <InstalledPluginsView
+              query={installedQuery}
+              onQueryChange={setInstalledQuery}
               data={data}
               busy={busy}
               onOpen={openDetail}
-              onBack={() => setPage("marketplace")}
-              onManage={openManagement}
+              onManage={() => openManagement("private")}
               onRetry={(connection) =>
                 connection.auth === "oauth" && connection.status === "needs_auth"
                   ? authenticateConnection(connection)
@@ -474,22 +494,22 @@ export function PluginDialog({
                 initialSection={managementSection}
                 settings={data}
                 refresh={refresh}
-                onOpen={openDetail}
                 initialPluginKey={selectedKey}
               />
             </Suspense>
           ) : page === "marketplace" ? null : page === "custom" ? (
             <CustomMcpView
+              onBack={goBack}
               busy={busy === "custom-mcp"}
-              onBack={() => setPage("installed")}
               onSubmit={(input) =>
                 void mutate("custom-mcp", () => api.addCustomMcp(input)).then((created) => {
-                  if (created) setPage("installed");
+                  if (created) { setDirection("pop"); setCurrentPage("installed"); }
                 })
               }
             />
           ) : selected ? (
             <PluginDetail
+              advancedSettings={<Suspense fallback={<p className="p-4 text-[13px]">Loading settings…</p>}><PluginWorkspace initialSection="installed" settings={data} refresh={refresh} initialPluginKey={selected.key} /></Suspense>}
               busy={busy}
               data={data}
               key={selected.key}
@@ -556,6 +576,7 @@ export function PluginDialog({
             />
           ) : null}
         </Suspense>
+        </PluginPageStack>
       </DialogContent>
     </Dialog>
   );

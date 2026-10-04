@@ -1,0 +1,138 @@
+.plugin-dialog[data-state="open"] {
+  animation: plugin-dialog-enter 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.plugin-dialog[data-state="closed"] {
+  animation: plugin-dialog-exit 120ms ease-out;
+}
+.plugin-overlay[data-state="open"] {
+  animation: plugin-overlay-enter 180ms ease-out;
+}
+.plugin-overlay[data-state="closed"] {
+  animation: plugin-overlay-exit 120ms ease-out;
+}
+.plugin-page-viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  isolation: isolate;
+}
+.plugin-page {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--background);
+  outline: none;
+}
+.plugin-page[data-direction] {
+  animation-duration: 200ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: both;
+}
+.plugin-page[data-direction="push"] {
+  z-index: 1;
+  animation-name: plugin-push-in;
+}
+.plugin-page-outgoing[data-direction="push"] {
+  z-index: 0;
+  animation-name: plugin-push-out;
+}
+.plugin-page[data-direction="pop"] {
+  z-index: 0;
+  animation-name: plugin-pop-in;
+}
+.plugin-page-outgoing[data-direction="pop"] {
+  z-index: 1;
+  animation-name: plugin-pop-out;
+}
+.plugin-page-outgoing {
+  pointer-events: none;
+  overflow: hidden;
+}
+.plugin-dialog .bot-scrollbar {
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.plugin-dialog :is(h1, h2, h3, [data-plugin-heading]):focus {
+  outline: none;
+}
+.plugin-management-menu [role="menuitem"] {
+  font-size: 13px;
+  padding: 8px 10px;
+}
+.plugin-management-card {
+  border-radius: 14px;
+  background: #77777717;
+}
+@keyframes plugin-push-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes plugin-push-out {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-30%);
+    opacity: 0;
+  }
+}
+@keyframes plugin-pop-in {
+  from {
+    transform: translateX(-30%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes plugin-pop-out {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes plugin-dialog-enter {
+  from {
+    opacity: 0;
+    scale: 0.97;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+@keyframes plugin-dialog-exit {
+  to {
+    opacity: 0;
+    scale: 0.98;
+  }
+}
+@keyframes plugin-overlay-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes plugin-overlay-exit {
+  to {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .plugin-dialog[data-state],
+  .plugin-overlay[data-state],
+  .plugin-page[data-direction] {
+    animation: none;
+  }
+}

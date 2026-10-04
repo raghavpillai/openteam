@@ -1,4 +1,4 @@
-import type { PluginCatalogItemView, PluginSettingsView } from "@openteam/contracts";
+import type { PluginSettingsView } from "@openteam/contracts";
 import type {
   PluginManagementView,
   PluginPackageView,
@@ -6,9 +6,11 @@ import type {
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { api } from "../../../client/openteam-api";
 const ConnectionConfiguration = lazy(() => import("./connection-configuration").then(module => ({default:module.ConnectionConfiguration})));
-const PackageStudio = lazy(() => import("./package-studio").then(module => ({default:module.PackageStudio})));
-import { PluginMark } from "./plugin-mark";
-const PrivateSkills = lazy(() => import("./private-skills").then(module => ({default:module.PrivateSkills})));
+const loadPackageStudio = () => import("./package-studio");
+const PackageStudio = lazy(() => loadPackageStudio().then(module => ({default:module.PackageStudio})));
+const loadPrivateSkills = () => import("./private-skills");
+const PrivateSkills = lazy(() => loadPrivateSkills().then(module => ({default:module.PrivateSkills})));
+export const preloadPluginManagement = () => Promise.all([loadPrivateSkills(), loadPackageStudio()]);
 import {
   downloadPlugin,
   inputClass,
@@ -17,33 +19,27 @@ import {
   usePluginOperation,
 } from "./plugin-ui";
 
-type Section = "installed" | "private" | "sources" | "develop";
+type Section = "installed" | "private" | "develop";
 export default function PluginWorkspace({
   settings,
   refresh,
-  onOpen,
   initialSection = "installed",
   initialPluginKey,
 }: {
   settings: PluginSettingsView;
   refresh: () => Promise<unknown>;
-  onOpen: (plugin: PluginCatalogItemView) => void;
   initialSection?: Section;
   initialPluginKey?: string | null;
 }) {
-  const [section, setSection] = useState<Section>(initialSection);
+  const section = initialSection;
   const [data, setData] = useState<PluginManagementView | null>(null);
-  const [key, setKey] = useState(
+  const [key] = useState(
     settings.installs.some((install) => install.pluginKey === initialPluginKey)
       ? initialPluginKey!
       : (settings.installs[0]?.pluginKey ?? "")
   );
   const [packageView, setPackage] = useState<PluginPackageView | null>(null);
   const [connectionId, setConnectionId] = useState("");
-  const [sourceUrl, setSourceUrl] = useState("");
-  const [sourceId, setSourceId] = useState("");
-  const [sourceName, setSourceName] = useState("");
-  const [remove, setRemove] = useState("");
   const load = useCallback(async () => {
     await refresh();
     setData(await api.pluginManagement());
@@ -55,7 +51,7 @@ export default function PluginWorkspace({
   useEffect(() => {
     let active = true;
     setPackage(null);
-    if (key)
+    if (key && section === "installed")
       void api
         .pluginPackage(key)
         .then((value) => {
@@ -65,7 +61,7 @@ export default function PluginWorkspace({
     return () => {
       active = false;
     };
-  }, [key, settings]);
+  }, [key, settings, section]);
   const installed = settings.installs.find((entry) => entry.pluginKey === key);
   const connection =
     installed?.connections.find((entry) => entry.id === connectionId) ?? installed?.connections[0];
@@ -74,27 +70,9 @@ export default function PluginWorkspace({
     // Keep the implicit first selection stable when saving reorders the accounts.
     setConnectionId(resolvedConnectionId);
   }, [resolvedConnectionId]);
-  const catalog = installed?.catalog ?? settings.catalog.find((entry) => entry.key === key);
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <nav
-        aria-label="Plugin management"
-        className="flex shrink-0 flex-wrap gap-2 border-b border-black/10 px-8 pb-4 dark:border-white/10"
-      >
-        {(
-          [
-            ["installed", "Installed"],
-            ["private", "Private skills"],
-            ["sources", "Sources"],
-            ["develop", "Develop"],
-          ] as const
-        ).map(([id, name]) => (
-          <PluginButton key={id} primary={section === id} onClick={() => setSection(id)}>
-            {name}
-          </PluginButton>
-        ))}
-      </nav>
-      <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
+      <div className={section === "installed" ? "grid gap-4" : "bot-scrollbar min-h-0 flex-1 overflow-y-auto px-8 pb-8 pt-2 max-sm:px-5"}>
         <Suspense fallback={<p className="text-sm">Loading plugin management…</p>}>
         {operation.feedback}
         {!data ? (
@@ -103,164 +81,16 @@ export default function PluginWorkspace({
           <PackageStudio data={data} refresh={load} />
         ) : section === "private" ? (
           <PrivateSkills data={data} refresh={load} />
-        ) : section === "sources" ? (
-          <div className="grid gap-5">
-            <div>
-              <h3 className="text-lg font-medium">Plugin sources</h3>
-              <p className="mt-1 text-sm text-foreground-secondary">
-                Add a catalog hosted by you or another publisher. Installed packages keep their own
-                snapshot when a source changes or is removed.
-              </p>
-            </div>
-            <div className="rounded-xl border border-black/10 p-4 dark:border-white/10">
-              <p className="font-medium">Bundled plugins</p>
-              <p className="text-sm text-foreground-secondary">
-                Included with this OpenTeam release.
-              </p>
-            </div>
-            {data.sources.map((source) => (
-              <div
-                key={source.id}
-                className="grid gap-2 rounded-xl border border-black/10 p-4 dark:border-white/10"
-              >
-                <p className="font-medium">
-                  {source.name} · {source.pluginCount} plugins
-                </p>
-                <p className="break-all text-xs text-foreground-secondary">{source.url}</p>
-                <p className="text-xs">
-                  {source.error ??
-                    (source.refreshedAt
-                      ? `Refreshed ${new Date(source.refreshedAt).toLocaleString()}`
-                      : source.status)}
-                </p>
-                <div className="flex gap-2">
-                  <PluginButton
-                    disabled={operation.busy}
-                    onClick={() => {
-                      setSourceId(source.id);
-                      setSourceName(source.name);
-                      setSourceUrl(source.url);
-                    }}
-                  >
-                    Edit source
-                  </PluginButton>
-                  <PluginButton
-                    disabled={operation.busy}
-                    onClick={() =>
-                      void operation.run(
-                        () => api.refreshPluginSource(source.id),
-                        "Catalog refreshed."
-                      )
-                    }
-                  >
-                    Refresh
-                  </PluginButton>
-                  <PluginButton
-                    disabled={operation.busy}
-                    onClick={() =>
-                      remove === source.id
-                        ? void operation.run(async () => {
-                            await api.removePluginSource(source.id);
-                            if (sourceId === source.id) {
-                              setSourceId("");
-                              setSourceName("");
-                              setSourceUrl("");
-                            }
-                          })
-                        : setRemove(source.id)
-                    }
-                  >
-                    {remove === source.id ? "Confirm remove source" : "Remove"}
-                  </PluginButton>
-                </div>
-              </div>
-            ))}
-            <PluginField label="Catalog name">
-              <input
-                className={inputClass}
-                value={sourceName}
-                onChange={(event) => setSourceName(event.target.value)}
-              />
-            </PluginField>
-            <PluginField label="Catalog manifest URL">
-              <input
-                className={inputClass}
-                placeholder="https://example.com/plugins/marketplace.json"
-                value={sourceUrl}
-                onChange={(event) => setSourceUrl(event.target.value)}
-              />
-            </PluginField>
-            <div>
-              <PluginButton
-                primary
-                disabled={operation.busy || !sourceUrl}
-                onClick={() =>
-                  void operation.run(async () => {
-                    if (sourceId) await api.updatePluginSource(sourceId, sourceUrl, sourceName);
-                    else await api.addPluginSource(sourceUrl, sourceName);
-                    setSourceId("");
-                    setSourceUrl("");
-                    setSourceName("");
-                  }, "Catalog added.")
-                }
-              >
-                {sourceId ? "Save source" : "Add source"}
-              </PluginButton>
-            </div>
-          </div>
         ) : (
           <div className="grid gap-5">
-            <PluginField label="Installed plugin">
-              <select
-                className={inputClass}
-                value={key}
-                onChange={(event) => {
-                  setKey(event.target.value);
-                  setConnectionId("");
-                  setRemove("");
-                }}
-              >
-                <option value="">Choose a plugin…</option>
-                {settings.installs.map((entry) => (
-                  <option key={entry.id} value={entry.pluginKey}>
-                    {entry.name} · {entry.version}
-                  </option>
-                ))}
-              </select>
-            </PluginField>
             {installed && (
               <>
-                <div className="flex items-center gap-3">
-                  <PluginMark logoUrl={catalog?.logoUrl} name={installed.name} />
-                  <div>
-                    <h3 className="text-[14px] font-medium">{installed.name}</h3>
-                    <p className="text-[12px] text-foreground-secondary">{installed.description}</p>
-                  </div>
-                </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  {catalog && (
-                    <PluginButton onClick={() => onOpen(catalog)}>
-                      Plugin details
-                    </PluginButton>
-                  )}
                   <PluginButton
                     disabled={operation.busy}
                     onClick={() => void operation.run(() => downloadPlugin(key))}
                   >
                     Export package
-                  </PluginButton>
-                  <PluginButton
-                    disabled={operation.busy}
-                    onClick={() =>
-                      remove === key
-                        ? void operation.run(async () => {
-                            await api.uninstallPlugin(key);
-                            setKey("");
-                          }, "Plugin and accounts removed.")
-                        : setRemove(key)
-                    }
-                  >
-                    {remove === key ? "Confirm uninstall and remove accounts" : "Uninstall"}
                   </PluginButton>
                 </div>
                 {packageView && (

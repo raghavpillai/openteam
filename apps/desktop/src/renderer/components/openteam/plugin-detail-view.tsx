@@ -99,7 +99,7 @@ export function CustomMcpView({
   const [auth, setAuth] = useState<"none" | "token" | "oauth">("none");
   const [alias, setAlias] = useState("default");
   const field =
-    "h-9 w-full rounded-[8px] border border-black/10 bg-black/[0.035] px-3 text-[12px] outline-none focus:border-black/20 dark:border-white/10 dark:bg-[#222] dark:focus:border-white/20";
+    "h-9 w-full rounded-[8px] border border-black/10 bg-black/[0.035] px-3 text-[13px] outline-none focus:border-black/20 dark:border-white/10 dark:bg-[#222] dark:focus:border-white/20";
   const parsedConfiguration = (() => {
     if (!configuration.trim()) return {};
     try {
@@ -131,7 +131,7 @@ export function CustomMcpView({
     (transport !== "stdio" || parsedArgs !== null);
   return (
     <form
-      className="mx-auto w-full max-w-[560px] px-8 pb-8"
+      className="bot-scrollbar min-h-0 flex-1 overflow-y-auto px-8 pb-8 pt-2 max-sm:px-5"
       onSubmit={(event) => {
         event.preventDefault();
         if (!valid) return;
@@ -152,21 +152,14 @@ export function CustomMcpView({
         });
       }}
     >
-      <button
-        className="mb-6 inline-flex items-center gap-1 text-[11px] text-foreground-secondary hover:text-foreground"
-        onClick={onBack}
-        type="button"
-      >
-        <ChevronLeft className="size-3.5" /> Back to Installed
-      </button>
       <div className="mb-6">
-        <h2 className="text-[15px] font-medium">Add custom MCP</h2>
-        <p className="mt-1 text-[11.5px] leading-5 text-foreground-secondary">
-          Remote servers run through OpenTeam. Local commands run on the shared bot computer.
+        <h2 tabIndex={-1} className="text-[16px] font-medium">Add custom MCP</h2>
+        <p className="mt-1 text-[12px] leading-5 text-foreground-secondary">
+          Connect a remote MCP server or run one on your Bot’s computer.
         </p>
       </div>
-      <div className="space-y-4 rounded-[14px] bg-black/[0.035] p-4 dark:bg-white/[0.055]">
-        <label className="block text-[11px] text-foreground-secondary">
+      <div className="space-y-4 rounded-[14px] bg-[#77777717] p-4">
+        <label className="block text-[12px] text-foreground-secondary">
           Name
           <input
             className={cn(field, "mt-1.5")}
@@ -175,12 +168,12 @@ export function CustomMcpView({
           />
         </label>
         <div>
-          <div className="mb-1.5 text-[11px] text-foreground-secondary">Transport</div>
+          <div className="mb-1.5 text-[12px] text-foreground-secondary">Transport</div>
           <div className="inline-flex rounded-[8px] bg-black/[0.06] p-0.5 dark:bg-black/30">
             {(["http", "stdio"] as const).map((value) => (
               <button
                 className={cn(
-                  "h-7 rounded-[6px] px-3 text-[11px] capitalize",
+                  "h-7 rounded-[6px] px-3 text-[12px]",
                   transport === value && "bg-background shadow-sm"
                 )}
                 key={value}
@@ -192,7 +185,7 @@ export function CustomMcpView({
             ))}
           </div>
         </div>
-        <label className="block text-[11px] text-foreground-secondary">
+        <label className="block text-[12px] text-foreground-secondary">
           {transport === "http" ? "MCP URL" : "Command"}
           <input
             className={cn(field, "mt-1.5 font-mono")}
@@ -203,7 +196,7 @@ export function CustomMcpView({
         </label>
         {transport === "stdio" ? (
           <>
-            <label className="block text-[11px] text-foreground-secondary">
+            <label className="block text-[12px] text-foreground-secondary">
               Arguments (JSON array)
               <input
                 className={cn(field, "mt-1.5 font-mono")}
@@ -212,7 +205,7 @@ export function CustomMcpView({
                 value={args}
               />
             </label>
-            <label className="block text-[11px] text-foreground-secondary">
+            <label className="block text-[12px] text-foreground-secondary">
               Working directory on Bot computer
               <input
                 className={cn(field, "mt-1.5 font-mono")}
@@ -221,7 +214,7 @@ export function CustomMcpView({
                 placeholder="/workspace"
               />
             </label>
-            <label className="block text-[11px] text-foreground-secondary">
+            <label className="block text-[12px] text-foreground-secondary">
               Environment JSON (optional)
               <textarea
                 className={cn(field, "mt-1.5 h-20 resize-none py-2 font-mono")}
@@ -233,7 +226,7 @@ export function CustomMcpView({
           </>
         ) : (
           <>
-            <div className="text-[11px] text-foreground-secondary">
+            <div className="text-[12px] text-foreground-secondary">
               <span>Authentication</span>
               <Suspense
                 fallback={
@@ -255,7 +248,7 @@ export function CustomMcpView({
                 />
               </Suspense>
             </div>
-            <label className="block text-[11px] text-foreground-secondary">
+            <label className="block text-[12px] text-foreground-secondary">
               Headers JSON (optional)
               <textarea
                 className={cn(field, "mt-1.5 h-20 resize-none py-2 font-mono")}
@@ -266,7 +259,7 @@ export function CustomMcpView({
             </label>
           </>
         )}
-        <label className="block text-[11px] text-foreground-secondary">
+        <label className="block text-[12px] text-foreground-secondary">
           Account label
           <input
             className={cn(field, "mt-1.5")}
@@ -275,7 +268,7 @@ export function CustomMcpView({
           />
         </label>
       </div>
-      <div className="mt-5 flex justify-end gap-2">
+      <div className="sticky bottom-0 mt-5 flex justify-end gap-2 bg-background py-3">
         <button className={secondaryButton} onClick={onBack} type="button">
           Cancel
         </button>
@@ -292,12 +285,14 @@ function DetailBlock({
   children,
   count,
   label,
+  summary,
   onOpenChange,
   open = false,
 }: {
   children: React.ReactNode;
   count: number;
   label: string;
+  summary?: string;
   onOpenChange?: (open: boolean) => void;
   open?: boolean;
 }) {
@@ -314,7 +309,7 @@ function DetailBlock({
   return (
     <section className="mt-6">
       <h3 className="mb-2 px-3.5 text-[13px] font-normal text-foreground-tertiary">{label}</h3>
-      <div className="overflow-hidden rounded-[14px] bg-black/[0.08] dark:bg-white/[0.08]">
+      <div className="overflow-hidden rounded-[14px] bg-[#77777717]">
         <button
           aria-expanded={expanded}
           aria-controls={expanded ? contentId : undefined}
@@ -326,8 +321,7 @@ function DetailBlock({
           type="button"
         >
           <span className="flex-1">
-            {count} {singular}
-            {count === 1 ? "" : "s"}
+            {summary ?? `${count} ${singular}${count === 1 ? "" : "s"}`}
           </span>
           <ChevronDown
             className={cn(
@@ -809,6 +803,7 @@ function ConnectionSettingsRow({
 }
 
 export function PluginDetail({
+  advancedSettings,
   busy,
   data,
   plugin,
@@ -845,7 +840,9 @@ export function PluginDetail({
   onRemove: (plugin: PluginCatalogItemView) => void;
   onRestart: (connection: PluginConnectionView) => void;
   onToggle: (connection: PluginConnectionView) => void;
+  advancedSettings?: React.ReactNode;
 }) {
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [setupValues, setSetupValues] = useState<Record<string, string>>({});
   const [setupAccountId, setSetupAccountId] = useState<string | null>(null);
   const [dismissedSetupIds, setDismissedSetupIds] = useState<string[]>([]);
@@ -862,9 +859,7 @@ export function PluginDetail({
       <div className="group/plugin-heading flex items-center gap-3 pt-1">
         <PluginMark logoUrl={plugin.logoUrl} name={plugin.name} size="lg" />
         <div className="min-w-0 flex-1 pt-1">
-          <div className="flex items-center gap-1.5 text-[14px] font-medium">
-            {plugin.name}
-          </div>
+          <h1 tabIndex={-1} className="flex items-center gap-1.5 text-[16px] font-medium">{plugin.name}</h1>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[12px] text-foreground-secondary">
             <span>{plugin.publisher}</span>
             {plugin.sourceUrl || plugin.homepageUrl ? (
@@ -930,7 +925,7 @@ export function PluginDetail({
       {connections.length ? (
         <section className="mt-8">
           <h3 className="mb-1.5 px-3.5 text-[13px] text-foreground-tertiary">Accounts</h3>
-          <div className="overflow-hidden rounded-[14px] bg-black/[0.08] dark:bg-white/[0.08]">
+          <div className="overflow-hidden rounded-[14px] bg-[#77777717]">
             {connections.map((connection) => (
               <PluginAccountRow
                 key={connection.id}
@@ -985,6 +980,14 @@ export function PluginDetail({
           ) : null}
         </section>
       ) : null}
+      {connections.some(connection => connection.tools.length > 0) ? (
+        <DetailBlock count={connections.reduce((count, connection) => count + connection.tools.length, 0)} label="Tools" summary={`${connections.reduce((count, connection) => count + connection.tools.length, 0)} tools available`}>
+          {connections.flatMap(connection => connection.tools.map(tool => <div key={`${connection.id}:${tool.name}`} className="border-t border-foreground/[0.06] px-3.5 py-3">
+            <div className="flex items-center justify-between gap-3 text-[13px]"><span className="break-all">{tool.name}</span>{connections.length > 1 && <span className="shrink-0 text-[12px] text-foreground-secondary">{connection.alias}</span>}</div>
+            <p className="mt-1 text-[12px] leading-5 text-foreground-secondary">{tool.description}</p>
+          </div>))}
+        </DetailBlock>
+      ) : null}
       {plugin.connections.length ? (
         <DetailBlock count={plugin.connections.length} label="Connectors">
           {plugin.connections.map((connection) => (
@@ -1020,6 +1023,22 @@ export function PluginDetail({
         </DetailBlock>
       ) : null}
 
+      <section className="mt-6">
+        <h3 className="mb-2 px-3.5 text-[13px] text-foreground-tertiary">Information</h3>
+        <dl className="plugin-management-card px-3.5 text-[13px]">
+          <div className="flex min-h-[42px] items-center justify-between gap-3"><dt>Publisher</dt><dd className="text-foreground-secondary">{plugin.publisher}</dd></div>
+          <div className="flex min-h-[42px] items-center justify-between gap-3 border-t border-foreground/10"><dt>Version</dt><dd className="text-foreground-secondary">{install?.version ?? plugin.version}</dd></div>
+        </dl>
+      </section>
+      {install && advancedSettings ? <section className="mt-6">
+        <h3 className="mb-2 px-3.5 text-[13px] text-foreground-tertiary">Settings</h3>
+        <div className="plugin-management-card overflow-hidden">
+          <button type="button" aria-expanded={advancedOpen} className="flex min-h-[42px] w-full cursor-pointer items-center justify-between px-3.5 text-left text-[13px] outline-none hover:bg-foreground/[0.05] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500" onClick={() => setAdvancedOpen(!advancedOpen)}>
+            Advanced settings <ChevronDown className={cn("size-3.5 transition-transform duration-200", advancedOpen && "rotate-180")} />
+          </button>
+          {advancedOpen && <div className="border-t border-foreground/10 p-4">{advancedSettings}</div>}
+        </div>
+      </section> : null}
       {recentActivity.length ? (
         <DetailBlock count={recentActivity.length} label="Activity" open={false}>
           {recentActivity.map((entry) => (

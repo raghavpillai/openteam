@@ -3,7 +3,7 @@ import { api } from "../../../client/openteam-api";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 
 export const inputClass =
-  "w-full rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-white/15";
+  "w-full min-w-0 min-h-9 rounded-[8px] border border-black/10 bg-[#7777770a] px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-white/15";
 export function PluginButton({
   children,
   onClick,
@@ -20,7 +20,7 @@ export function PluginButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-40 ${primary ? "bg-foreground text-background" : "bg-black/5 hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/15"}`}
+      className={`inline-flex min-h-[26px] shrink-0 whitespace-nowrap cursor-pointer items-center justify-center gap-1.5 rounded-full px-3 py-1 text-[13px] outline-none transition-colors duration-120 ease-out focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-default disabled:opacity-40 ${primary ? "bg-foreground text-background" : "bg-[#77777717] hover:bg-[#7777772b]"}`}
     >
       {children}
     </button>
@@ -36,8 +36,8 @@ export function PluginField({
   help?: string | null;
 }) {
   return (
-    <label className="grid gap-1.5 text-sm">
-      <span className="font-medium">{label}</span>
+    <label className="grid gap-1.5 text-[12px] text-foreground-secondary">
+      <span>{label}</span>
       {children}
       {help && <span className="text-xs text-foreground-secondary">{help}</span>}
     </label>

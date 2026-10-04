@@ -41,8 +41,8 @@ export function PrivateSkills({
       {operation.feedback}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-medium">Private skills</h3>
-          <p className="text-sm text-foreground-secondary">
+          <h1 tabIndex={-1} className="text-[16px] font-medium">Private skills</h1>
+          <p className="text-[12px] leading-5 text-foreground-secondary">
             Instructions and supporting files stored on your server. Choose which Bots can use each
             skill.
           </p>
@@ -55,16 +55,16 @@ export function PrivateSkills({
             type="button"
             onClick={() => edit(skill)}
             key={skill.id}
-            className="rounded-xl border border-black/10 p-4 text-left dark:border-white/10"
+            className="plugin-management-card cursor-pointer px-3.5 py-3 text-left transition-colors hover:bg-[#7777772b]"
           >
             <p className="font-medium">{skill.name}</p>
-            <p className="text-sm text-foreground-secondary">
-              {skill.description} · {skill.enabledBotIds.length} Bots
+            <p className="text-[12px] leading-5 text-foreground-secondary">
+              {skill.description} · {skill.enabledBotIds.length} Bot{skill.enabledBotIds.length === 1 ? "" : "s"}
             </p>
           </button>
         ))}
         {!data.skills.length && !editing && (
-          <p className="py-8 text-center text-sm text-foreground-secondary">
+          <p className="py-8 text-center text-[12px] leading-5 text-foreground-secondary">
             Create a skill or import a SKILL.md file to get started.
           </p>
         )}

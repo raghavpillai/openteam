@@ -89,7 +89,7 @@ export function ConnectionConfiguration({
     return (
       <div>
         {operation.feedback}
-        <p className="text-sm">Loading connection setup…</p>
+        <p className="text-[12px]">Loading connection setup…</p>
       </div>
     );
   return (
@@ -102,10 +102,10 @@ export function ConnectionConfiguration({
         })}
         onCancel={() => { const session = pluginAuthorization(connection); if (session) void operation.run(() => api.cancelPluginAuthentication(connection.id, session.state)); }} />
       <div>
-        <h3 className="font-medium">
+        <h3 className="text-[14px] font-medium">
           {connection.name} · {connection.alias}
         </h3>
-        <p className="text-sm text-foreground-secondary">
+        <p className="text-[12px] text-foreground-secondary">
           {config.runtime === "desktop"
             ? "Runs on your local computer through OpenTeam desktop"
             : connection.transport === "stdio"
@@ -113,20 +113,20 @@ export function ConnectionConfiguration({
             : "Connects to the configured server"}{" "}
           · {connection.status.replaceAll("_", " ")}
         </p>
-        {connection.statusMessage && <p className="mt-2 text-sm">{connection.statusMessage}</p>}
+        {connection.statusMessage && <p className="mt-2 text-[12px]">{connection.statusMessage}</p>}
       </div>
-      {config.setup && (
+      {config.setup && connection.status !== "ready" && (
         <section className="rounded-xl bg-black/5 p-4 dark:bg-white/5">
-          <h4 className="font-medium">{config.setup.title}</h4>
-          <p className="mt-1 text-sm">{pluginProviderSetupDescription(connection.pluginKey, config.setup.description)}</p>
-          <ol className="my-3 list-decimal space-y-1 pl-5 text-sm">
+          <h4 className="text-[13px] font-medium">{config.setup.title}</h4>
+          <p className="mt-1 text-[12px]">{pluginProviderSetupDescription(connection.pluginKey, config.setup.description)}</p>
+          <ol className="my-3 list-decimal space-y-1 pl-5 text-[12px]">
             {pluginProviderSetupSteps(connection.pluginKey, resolvedCallbackMode, config.setup.steps).map((step) => (
               <li key={step}>{step}</li>
             ))}
           </ol>
           {config.setup.documentationUrl && (
             <a
-              className="text-sm text-blue-600 underline"
+              className="text-[12px] text-blue-600 underline"
               href={config.setup.documentationUrl}
               target="_blank"
               rel="noreferrer"
@@ -155,7 +155,7 @@ export function ConnectionConfiguration({
         </PluginField>
       )}
       {connection.auth === "oauth" && resolvedCallbackMode === "manual" && config.manualCallbackSupported === false && (
-        <p role="status" className="text-sm">This provider requires HTTPS. Configure Tailscale Serve or your own HTTPS domain before authorizing.</p>
+        <p role="status" className="text-[12px]">This provider requires HTTPS. Configure Tailscale Serve or your own HTTPS domain before authorizing.</p>
       )}
       {connection.auth === "oauth" && callbackMode !== "desktop" && (
         <PluginField
@@ -270,7 +270,7 @@ export function ConnectionConfiguration({
         </PluginField>
       ))}
       {config.runtime !== "desktop" && <details className="rounded-xl border border-black/10 p-3 dark:border-white/10">
-        <summary className="cursor-pointer text-sm font-medium">Server settings</summary>
+        <summary className="cursor-pointer text-[12px] font-medium">Server settings</summary>
         <div className="mt-4 grid gap-4">
           {connection.transport === "http" && (
             <PluginField label="MCP server URL">
@@ -403,7 +403,7 @@ export function ConnectionConfiguration({
         </PluginButton>
       </div>
       <section className="grid gap-3 border-t border-black/10 pt-4 dark:border-white/10">
-        <h4 className="font-medium">Account</h4>
+        <h4 className="text-[13px] font-medium">Account</h4>
         <div className="flex gap-2">
           <input
             aria-label="Account name"
@@ -481,17 +481,17 @@ export function ConnectionConfiguration({
         </PluginButton>
       </PluginField>
       <section className="grid gap-2">
-        <h4 className="font-medium">Tools ({connection.tools.length})</h4>
+        <h4 className="text-[13px] font-medium">Tools ({connection.tools.length})</h4>
         {connection.tools.map((tool) => (
           <div className="rounded-lg border border-black/10 p-3 dark:border-white/10" key={tool.name}>
-            <p className="break-all text-sm">{tool.name}</p>
+            <p className="break-all text-[12px]">{tool.name}</p>
             <p className="line-clamp-2 text-xs text-foreground-secondary">{tool.description}</p>
           </div>
         ))}
       </section>
       {connection.tools.length > 0 && (
         <section className="grid gap-3 rounded-xl border border-black/10 p-4 dark:border-white/10">
-          <h4 className="font-medium">Test a tool</h4>
+          <h4 className="text-[13px] font-medium">Test a tool</h4>
           <select
             className={inputClass}
             aria-label="Tool to test"

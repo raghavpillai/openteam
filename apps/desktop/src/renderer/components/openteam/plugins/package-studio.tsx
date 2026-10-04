@@ -56,8 +56,8 @@ export function PackageStudio({
     <div className="grid gap-5">
       {operation.feedback}
       <div>
-        <h3 className="text-lg font-medium">Develop plugins</h3>
-        <p className="mt-1 text-sm text-foreground-secondary">
+        <h1 tabIndex={-1} className="text-[16px] font-medium">Develop plugins</h1>
+        <p className="mt-1 text-[12px] leading-5 text-foreground-secondary">
           Load a package, preview its setup, test an installation, and export a bundle for others.
           Drafts and installed packages are separate.
         </p>
@@ -246,7 +246,7 @@ export function PackageStudio({
           </div>
         </>
       )}
-      <aside className="border-t border-black/10 pt-4 text-sm text-foreground-secondary dark:border-white/10">
+      <aside className="border-t border-black/10 pt-4 text-[12px] leading-5 text-foreground-secondary dark:border-white/10">
         <p>
           Contributions belong in <code>packages/plugins/&lt;plugin-name&gt;/</code>. Most plugins
           need only a manifest and skill files. A connector implementation can keep its dependencies

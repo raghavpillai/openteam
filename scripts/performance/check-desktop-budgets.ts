@@ -158,7 +158,6 @@ const lazyBudgets: Record<string, number> = {
   pluginStudio: 30_000,
   privateSkills: 20_000,
   settingsMicrophone: 12_000,
-  settingsTranscription: 12_000,
   basicMarkdown: 600_000,
   advancedRich: 600_000,
   cjk: 600_000,

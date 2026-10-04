@@ -419,7 +419,6 @@ const readLazyClosures = async () => {
       pluginStudio: ["src/renderer/components/openteam/plugins/package-studio.tsx"],
       privateSkills: ["src/renderer/components/openteam/plugins/private-skills.tsx"],
       settingsMicrophone: ["src/renderer/components/openteam/settings/microphone.tsx"],
-      settingsTranscription: ["src/renderer/components/openteam/settings/transcription.tsx"],
       basicMarkdown: ["src/renderer/components/ai-elements/message-response.tsx"],
       advancedRich: ["src/renderer/components/ai-elements/message-response/rich.tsx"],
       cjk: [

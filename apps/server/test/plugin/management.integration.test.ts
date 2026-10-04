@@ -431,6 +431,7 @@ integration(
     let behavior = "delayed";
     const service = new PluginService(prisma, async (_path, init) => {
       if (init?.method === "DELETE") return Response.json({ stopped: true });
+      if (init?.method === "GET") return Response.json({ state: "stopped", tools: [] });
       if (behavior === "delayed") {
         announce();
         await held;

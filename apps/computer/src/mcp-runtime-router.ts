@@ -8,10 +8,22 @@ export class McpRuntimeRouter {
     assertComputerMcpRuntime(configuration);
     return this.computer.discover(id, configuration);
   }
-  async call(id: string, configuration: unknown, toolName: string, args: unknown): Promise<unknown> {
+  async call(
+    id: string,
+    configuration: unknown,
+    toolName: string,
+    args: unknown
+  ): Promise<unknown> {
     assertComputerMcpRuntime(configuration);
     return this.computer.call(id, configuration, toolName, args);
   }
-  async close(id: string) { await this.computer.close(id); }
-  async closeAll() { await this.computer.closeAll(); }
+  async close(id: string) {
+    await this.computer.close(id);
+  }
+  status(id: string) {
+    return this.computer.status(id);
+  }
+  async closeAll() {
+    await this.computer.closeAll();
+  }
 }

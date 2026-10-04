@@ -292,8 +292,21 @@ export class PluginTransport {
     const response = await this.callComputer(`/v1/mcp/connections/${connection.id}/discover`, {
       configuration: await this.stdioConfiguration(connection),
     });
-    const tools = Array.isArray(response.tools) ? response.tools : [];
-    return tools.map((candidate) => {
+    return this.stdioTools(response.tools);
+  }
+
+  async stdioStatus(connectionId: string) {
+    if (!this.computerFetch) throw new Error("Computer runtime is unavailable");
+    const response = await this.computerFetch(`/v1/mcp/connections/${connectionId}`, { method: "GET" });
+    if (!response.ok) throw new Error(`Computer MCP status failed (${response.status})`);
+    const value = jsonObject(await response.json());
+    if (!["starting", "ready", "error", "stopped"].includes(String(value.state)))
+      throw new Error("Computer MCP status is invalid");
+    return { state: value.state, tools: this.stdioTools(value.tools) };
+  }
+
+  private stdioTools(value: unknown): PluginToolDefinition[] {
+    return (Array.isArray(value) ? value : []).map((candidate) => {
       const tool = jsonObject(candidate);
       if (typeof tool.name !== "string") throw new Error("MCP tool is missing a name");
       const annotations = jsonObject(tool.annotations);
@@ -422,9 +435,9 @@ export class PluginTransport {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
-      // Native authorization waits for the user's 1Password prompt; the generic RPC budget is 10s.
-      ...(jsonObject(jsonObject(body).configuration).runtime === "desktop"
-        ? { signal: AbortSignal.timeout(180_000) } : {}),
+      // Startup can wait for browser consent. Keep the RPC alive through the
+      // computer's five-minute startup and tool-discovery budgets.
+      signal: AbortSignal.timeout(path.endsWith("/discover") ? 360_000 : 65_000),
     });
     const value = await response.json().catch(() => ({}));
     if (!response.ok) {

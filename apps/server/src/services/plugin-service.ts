@@ -710,55 +710,74 @@ export class PluginService {
       return { cancelled: true };
     });
 
+  private readonly connectionStarts = new Map<string, ReturnType<PluginService["beginConnect"]>>();
+
   connect = (connectionId: string, sessionId: string | null = null) =>
     serviceEffect(async () => {
-      const connection = await this.connectionOrThrow(connectionId);
-      this.assertAvailable(connection);
-      this.validateConfiguration(connection);
-      if (connection.authType === "oauth") {
-        const oauth = jsonObject(jsonObject(connection.credentials).oauth);
-        if (!oauth.tokens) return runAuthentication(this.authenticate(connectionId, false, undefined, sessionId));
-      }
-      if (connection.authType === "token" && !connectionConfigured(connection)) {
-        await this.prisma.pluginConnection.update({
-          where: { id: connectionId },
-          data: { status: "needs_auth", statusMessage: "Add a token or request headers first." },
-        });
-        throw new ApiError(409, "plugin_token_required", "This connector needs a token or headers");
-      }
-
-      let tools = toolSnapshot(connection.toolSnapshot);
-      try {
-        if (connection.transport === "http") {
-          if (!connection.endpoint) throw new Error("Connection endpoint is missing");
-          tools = await this.http.discover(connectionId, this.httpOptions(connection));
-        } else if (connection.transport === "stdio") {
-          tools = await this.discoverStdio(connection);
-        }
-      } catch (error) {
-        const raw = error instanceof Error ? error.message : String(error);
-        const message = String(redactConnectionSecrets(raw, connection)).slice(0, 1500);
-        const authFailure =
-          connection.authType !== "none" &&
-          /401|403|unauthoriz|invalid.token|invalid.grant/i.test(message);
-        await this.prisma.pluginConnection.updateMany({
-          where: { id: connectionId, runtimeGeneration: connection.runtimeGeneration },
-          data: {
-            status: authFailure ? "needs_auth" : "error",
-            statusMessage: `${authFailure ? "Authentication failed" : connection.transport === "stdio" ? "Local runtime unavailable" : "Tool discovery failed"}: ${message}`,
-            lastCheckedAt: new Date(),
-          },
-        });
-        throw new ApiError(
-          authFailure ? 401 : 503,
-          authFailure ? "plugin_auth_failed" : "plugin_runtime_failed",
-          message
-        );
-      }
-      const updated = await this.markReady(connection, tools);
-      return { id: updated.id, status: updated.status, toolCount: tools.length };
+      const existing = this.connectionStarts.get(connectionId);
+      if (existing) return existing;
+      const pending = this.beginConnect(connectionId, sessionId);
+      this.connectionStarts.set(connectionId, pending);
+      try { return await pending; }
+      finally { if (this.connectionStarts.get(connectionId) === pending) this.connectionStarts.delete(connectionId); }
     });
 
+  private beginConnect = async (connectionId: string, sessionId: string | null) => {
+    const connection = await this.connectionOrThrow(connectionId);
+    this.assertAvailable(connection);
+    this.validateConfiguration(connection);
+    if (connection.authType === "oauth") {
+      const oauth = jsonObject(jsonObject(connection.credentials).oauth);
+      if (!oauth.tokens) return runAuthentication(this.authenticate(connectionId, false, undefined, sessionId));
+    }
+    if (connection.authType === "token" && !connectionConfigured(connection)) {
+      await this.prisma.pluginConnection.update({
+        where: { id: connectionId },
+        data: { status: "needs_auth", statusMessage: "Add a token or request headers first." },
+      });
+      throw new ApiError(409, "plugin_token_required", "This connector needs a token or headers");
+    }
+
+    let tools = toolSnapshot(connection.toolSnapshot);
+    try {
+      if (connection.transport === "http") {
+        if (!connection.endpoint) throw new Error("Connection endpoint is missing");
+        tools = await this.http.discover(connectionId, this.httpOptions(connection));
+      } else if (connection.transport === "stdio") {
+        // Connect is an explicit user action. A failed process may be retried
+        // here, while concurrent connects share this same attempt.
+        const runtime = await this.transport.stdioStatus(connectionId);
+        if (runtime.state === "error") await this.stopRuntime(connectionId, "stdio");
+        const starting = await this.prisma.pluginConnection.updateMany({
+          where: { id: connectionId, runtimeGeneration: connection.runtimeGeneration },
+          data: { status: "needs_auth", statusMessage: "Local runtime starting: Complete any browser sign-in prompt. Reconnect to retry." },
+        });
+        if (!starting.count) throw new ApiError(409, "plugin_connection_changed", "Connection setup changed while connecting");
+        tools = await this.discoverStdio(connection);
+      }
+    } catch (error) {
+      const raw = error instanceof Error ? error.message : String(error);
+      const message = String(redactConnectionSecrets(raw, connection)).slice(0, 1500);
+      const authFailure =
+        connection.authType !== "none" &&
+        /401|403|unauthoriz|invalid.token|invalid.grant/i.test(message);
+      await this.prisma.pluginConnection.updateMany({
+        where: { id: connectionId, runtimeGeneration: connection.runtimeGeneration },
+        data: {
+          status: authFailure ? "needs_auth" : "error",
+          statusMessage: `${authFailure ? "Authentication failed" : connection.transport === "stdio" ? "Local runtime unavailable" : "Tool discovery failed"}: ${message}`,
+          lastCheckedAt: new Date(),
+        },
+      });
+      throw new ApiError(
+        authFailure ? 401 : 503,
+        authFailure ? "plugin_auth_failed" : "plugin_runtime_failed",
+        message
+      );
+    }
+    const updated = await this.markReady(connection, tools);
+    return { id: updated.id, status: updated.status, toolCount: tools.length };
+    };
   disconnect = (connectionId: string) =>
     serviceEffect(async () => {
       const connection = await this.prisma.pluginConnection.findUnique({
@@ -960,6 +979,7 @@ export class PluginService {
     serviceEffect(async () => {
       const connection = await this.connectionOrThrow(connectionId);
       await this.stopRuntime(connectionId, connection.transport);
+      await this.connectionStarts.get(connectionId)?.catch(() => undefined);
       return Effect.runPromise(this.connect(connectionId));
     });
 
@@ -1110,6 +1130,7 @@ export class PluginService {
           OR: [
             { status: "ready" },
             { status: "error", statusMessage: { startsWith: "Local runtime unavailable:" } },
+            { status: "needs_auth", statusMessage: { startsWith: "Local runtime starting:" } },
           ],
         },
         include: { installation: true },
@@ -1119,9 +1140,20 @@ export class PluginService {
         // health check must not request access after the user locks the provider.
         if (jsonObject(connection.configuration).runtime === "desktop") continue;
         try {
-          const tools = await this.discoverStdio(connection);
+          // Discovery can spawn an OAuth bridge and open a browser. Background
+          // health checks only observe the existing runtime; retries are explicit.
+          const runtime = await this.transport.stdioStatus(connection.id);
           const current = await this.connectionOrThrow(connection.id);
           if (current.updatedAt.getTime() !== connection.updatedAt.getTime()) continue;
+          if (runtime.state === "starting") {
+            if (current.status !== "needs_auth") await this.prisma.pluginConnection.updateMany({
+              where: { id: connection.id, updatedAt: connection.updatedAt },
+              data: { status: "needs_auth", statusMessage: "Local runtime starting: Complete any browser sign-in prompt. Reconnect to retry.", lastCheckedAt: new Date() },
+            });
+            continue;
+          }
+          if (runtime.state !== "ready") throw new Error("MCP process is not connected. Reconnect to try again.");
+          const tools = runtime.tools;
           if (
             current.status !== "ready" ||
             canonicalJson(tools) !== canonicalJson(current.toolSnapshot)

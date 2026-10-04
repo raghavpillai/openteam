@@ -594,6 +594,9 @@ const server = Bun.serve({
       }
 
       const mcpConnectionMatch = url.pathname.match(/^\/v1\/mcp\/connections\/([^/]+)$/);
+      if (request.method === "GET" && mcpConnectionMatch?.[1]) {
+        return json(stdioMcp.status(mcpConnectionMatch[1]));
+      }
       if (request.method === "DELETE" && mcpConnectionMatch?.[1]) {
         await stdioMcp.close(mcpConnectionMatch[1]);
         return json({ ok: true });

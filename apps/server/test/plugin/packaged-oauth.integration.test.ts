@@ -49,6 +49,7 @@ test.skipIf(!databaseUrl)(
     const configurations: Array<Record<string, any>> = [];
     const service = new PluginService(prisma, async (path, init) => {
       if (init?.method === "DELETE") return Response.json({});
+      if (init?.method === "GET") return Response.json({ state: "stopped", tools: [] });
       const { configuration, toolName, arguments: args } = JSON.parse(String(init?.body));
       configurations.push(configuration);
       expect(Object.keys(configuration).sort()).toEqual([

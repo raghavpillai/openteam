@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { discoverAllTools, scopedProcessEnvironment } from "@openteam/plugin-sdk";
+import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
+import { discoverAllTools, objectValue, scopedProcessEnvironment } from "@openteam/plugin-sdk";
 import { join } from "node:path";
 import { PluginPackageCache } from "./plugin-package-cache";
 
@@ -13,8 +14,14 @@ export interface StdioMcpConfiguration {
 
 interface ManagedStdioClient {
   fingerprint: string;
+  launchFingerprint: string;
   client: Client;
-  transport: StdioClientTransport;
+  state: "starting" | "ready" | "error";
+  tools: unknown[];
+  error?: string;
+  abort: AbortController;
+  connected: Promise<ManagedStdioClient>;
+  discovery?: Promise<unknown[]>;
 }
 
 const normalized = (value: unknown): StdioMcpConfiguration => {
@@ -44,15 +51,32 @@ const normalized = (value: unknown): StdioMcpConfiguration => {
 
 export class StdioMcpManager {
   private readonly clients = new Map<string, ManagedStdioClient>();
+  private readonly closing = new Map<string, Promise<void>>();
   private readonly packages: PluginPackageCache;
 
-  constructor(cacheDirectory = join(process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data", "plugin-runtimes")) {
+  constructor(
+    cacheDirectory = join(process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data", "plugin-runtimes"),
+    private readonly startupTimeoutMs = 300_000
+  ) {
     this.packages = new PluginPackageCache(cacheDirectory);
   }
 
   async discover(connectionId: string, input: unknown): Promise<unknown[]> {
-    const managed = await this.get(connectionId, normalized(await this.packages.resolve(input)));
-    return discoverAllTools((cursor) => managed.client.listTools({ cursor }, { timeout: 30_000 }));
+    const refresh = this.clients.get(connectionId)?.state === "ready";
+    const managed = await this.get(connectionId, input);
+    return refresh ? this.refreshTools(managed) : managed.tools;
+  }
+
+  /** Passive health probes never launch a process, refresh tokens, or open a login page. */
+  status(connectionId: string) {
+    const managed = this.clients.get(connectionId);
+    return managed
+      ? {
+          state: managed.state,
+          tools: managed.state === "ready" ? managed.tools : [],
+          error: managed.error,
+        }
+      : { state: "stopped" as const, tools: [] };
   }
 
   async call(
@@ -61,7 +85,7 @@ export class StdioMcpManager {
     toolName: string,
     args: unknown
   ): Promise<unknown> {
-    const managed = await this.get(connectionId, normalized(await this.packages.resolve(input)));
+    const managed = await this.get(connectionId, input);
     return managed.client.callTool(
       {
         name: toolName,
@@ -76,46 +100,120 @@ export class StdioMcpManager {
   }
 
   async close(connectionId: string): Promise<void> {
+    const closing = this.closing.get(connectionId);
+    if (closing) return closing;
     const managed = this.clients.get(connectionId);
     this.clients.delete(connectionId);
-    await managed?.client.close().catch(() => undefined);
+    if (!managed) return;
+    managed.abort.abort(new Error("MCP connection was stopped"));
+    const pending = managed.client.close().catch(() => undefined);
+    this.closing.set(connectionId, pending);
+    try {
+      await pending;
+    } finally {
+      if (this.closing.get(connectionId) === pending) this.closing.delete(connectionId);
+    }
   }
 
   async closeAll(): Promise<void> {
-    await Promise.all([...this.clients.keys()].map((id) => this.close(id)));
+    await Promise.all(
+      [...new Set([...this.clients.keys(), ...this.closing.keys()])].map((id) => this.close(id))
+    );
   }
 
-  private async get(connectionId: string, configuration: StdioMcpConfiguration) {
-    const fingerprint = JSON.stringify(configuration);
+  private async get(connectionId: string, input: unknown): Promise<ManagedStdioClient> {
+    const closing = this.closing.get(connectionId);
+    if (closing) await closing;
+    const fingerprint = JSON.stringify(input);
+    const { env: _env, ...launchConfiguration } = objectValue(input);
+    const launchFingerprint = JSON.stringify(launchConfiguration);
     const existing = this.clients.get(connectionId);
-    if (existing?.fingerprint === fingerprint) return existing;
-    if (existing) await this.close(connectionId);
+    if (existing?.fingerprint === fingerprint) {
+      if (existing.state === "error") throw new Error(existing.error);
+      return existing.connected;
+    }
+    // Host-managed access tokens rotate in the child's environment. Replace a
+    // ready process when only its environment changes, but never interrupt an
+    // in-progress login or let a stale launch definition replace a newer one.
+    if (existing?.state === "ready" && existing.launchFingerprint === launchFingerprint) {
+      await this.close(connectionId);
+      return this.get(connectionId, input);
+    }
+    if (existing) throw new Error("MCP configuration changed; reconnect to apply it");
     const client = new Client({ name: "openteam-computer", version: "0.0.0" });
-    const transport = new StdioClientTransport({
-      command: configuration.command,
-      args: configuration.args,
-      env: scopedProcessEnvironment(process.env, configuration.env),
-      cwd: configuration.cwd,
-      stderr: "pipe",
-    });
-    const managed = { fingerprint, client, transport };
-    transport.stderr?.on("data", (chunk) => {
-      let message = String(chunk).trim();
-      for (const value of Object.values(configuration.env ?? {})) {
-        if (value.length >= 4) message = message.replaceAll(value, "[redacted]");
-      }
-      if (message) console.error(`[stdio-mcp:${connectionId}] ${message.slice(0, 2_000)}`);
-    });
-    transport.onerror = () => {
-      if (this.clients.get(connectionId) === managed) this.clients.delete(connectionId);
+    const managed: ManagedStdioClient = {
+      fingerprint,
+      launchFingerprint,
+      client,
+      state: "starting",
+      tools: [],
+      abort: new AbortController(),
+      connected: undefined!,
     };
+    // Publish before package resolution or MCP initialization: every caller
+    // shares this process, including callers whose HTTP request times out.
+    this.clients.set(connectionId, managed);
+    client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
+      if (managed.state === "ready") await this.refreshTools(managed).catch(() => {});
+    });
+    managed.connected = this.start(connectionId, managed, input);
+    void managed.connected.catch(() => {});
+    return managed.connected;
+  }
+
+  private async start(connectionId: string, managed: ManagedStdioClient, input: unknown) {
     try {
-      await client.connect(transport, { timeout: 30_000 });
+      const configuration = normalized(await this.packages.resolve(input));
+      managed.abort.signal.throwIfAborted();
+      const { client } = managed;
+      const transport = new StdioClientTransport({
+        command: configuration.command,
+        args: configuration.args,
+        env: scopedProcessEnvironment(process.env, configuration.env),
+        cwd: configuration.cwd,
+        stderr: "pipe",
+      });
+      transport.stderr?.on("data", (chunk) => {
+        let message = String(chunk).trim();
+        for (const value of Object.values(configuration.env ?? {})) {
+          if (value.length >= 4) message = message.replaceAll(value, "[redacted]");
+        }
+        if (message) console.error(`[stdio-mcp:${connectionId}] ${message.slice(0, 2_000)}`);
+      });
+      client.onclose = () => {
+        if (managed.state === "ready") {
+          managed.state = "error";
+          managed.error = "MCP process exited. Reconnect to try again.";
+        }
+      };
+      await client.connect(transport, {
+        timeout: this.startupTimeoutMs,
+        signal: managed.abort.signal,
+      });
+      await this.refreshTools(managed);
+      managed.abort.signal.throwIfAborted();
+      managed.state = "ready";
+      return managed;
     } catch (error) {
-      await client.close().catch(() => undefined);
+      managed.state = "error";
+      // Keep a failed entry until explicit reconnect. Discovery/calls must not
+      // turn an expired login or broken executable into an automatic retry loop.
+      managed.error = "MCP startup or sign-in failed. Reconnect to try again.";
+      await managed.client.close().catch(() => undefined);
       throw error;
     }
-    this.clients.set(connectionId, managed);
-    return managed;
+  }
+
+  private async refreshTools(managed: ManagedStdioClient): Promise<unknown[]> {
+    if (managed.discovery) return managed.discovery;
+    const pending = discoverAllTools((cursor) =>
+      managed.client.listTools({ cursor }, { timeout: 30_000, signal: managed.abort.signal })
+    );
+    managed.discovery = pending;
+    try {
+      return (managed.tools = await pending);
+    } finally {
+      if (managed.discovery === pending) managed.discovery = undefined;
+    }
   }
 }

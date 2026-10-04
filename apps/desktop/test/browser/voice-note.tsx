@@ -2,8 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { PromptInput } from "../../src/renderer/components/ai-elements/prompt-input";
 import { api } from "../../src/renderer/client/openteam-api";
-import { TranscriptionSettingsPanel } from "../../src/renderer/components/openteam/settings/transcription";
-import { defaultTranscriptionSettings } from "@openteam/contracts/transcription";
+import ServerSettings from "../../src/renderer/components/openteam/settings/server";
 import { ThreadTray } from "../../src/renderer/components/openteam/thread-tray";
 
 const renderErrors: string[] = [];
@@ -431,54 +430,38 @@ async function run() {
     "Closing an animating thread allowed a late voice send"
   );
   reports.push("closing a thread aborts transcription before its exit animation finishes");
-  let savedInput: Record<string, unknown> | undefined;
-  api.transcriptionSettings = async () => ({
-    ...defaultTranscriptionSettings(),
-    configured: false,
-    hasApiKey: false,
-  });
-  api.updateTranscriptionSettings = async (input) => {
-    savedInput = input as unknown as Record<string, unknown>;
-    const { apiKey: _key, ...settings } = input;
-    return { ...settings, configured: true, hasApiKey: true };
-  };
-  api.checkTranscription = async () => ({
-    level: "pass",
-    status: "ready",
-    detail: "Provider connection verified",
-  });
-  root.render(<TranscriptionSettingsPanel />);
-  await pause();
-  const provider = document.querySelector<HTMLSelectElement>(
-    '[aria-label="Transcription provider"]'
-  )!;
-  provider.value = "openai";
-  provider.dispatchEvent(new Event("change", { bubbles: true }));
-  await pause();
-  const model = document.querySelector<HTMLInputElement>('[aria-label="Transcription model"]')!;
-  assert(model.value === "whisper-1", "OpenAI model default missing");
-  const apiKey = document.querySelector<HTMLInputElement>('[aria-label="Transcription API key"]')!;
-  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
-    apiKey,
-    "synthetic-api-key"
-  );
-  apiKey.dispatchEvent(new Event("input", { bubbles: true }));
-  document.querySelector<HTMLInputElement>('[aria-label="Enable voice notes"]')!.click();
-  await pause();
-  textButton("Save transcription")!.click();
+  const configurationCalls: string[] = [];
+  for (const method of [
+    "serverSettings",
+    "startInferenceProviderAuth",
+    "updateInferenceSettings",
+    "disconnectInferenceProvider",
+    "transcriptionSettings",
+    "updateTranscriptionSettings",
+    "checkTranscription",
+  ] as const) {
+    api[method] = async () => {
+      configurationCalls.push(method);
+      throw new Error("Configuration is managed on the server");
+    };
+  }
+  root.render(<ServerSettings />);
   await pause();
   assert(
-    savedInput?.apiKey === "synthetic-api-key" && savedInput?.enabled === true,
-    "Settings did not save selected provider and credentials"
+    document.body.textContent?.includes(
+      "Manage voice notes and transcription settings on your OpenTeam server."
+    ),
+    "Server transcription configuration note missing"
   );
-  assert(apiKey.value === "", "Key remains in the password field after saving");
-  textButton("Test connection")!.click();
-  await pause();
   assert(
-    document.body.textContent?.includes("Provider connection verified"),
-    "Connection result missing"
+    !document.querySelector('input, [role="combobox"]') &&
+      !textButton("Save transcription") &&
+      !textButton("Test connection") &&
+      !textButton("Apply"),
+    "Server settings still exposes configuration controls"
   );
-  reports.push("provider setup saves credentials, clears the key field, and tests connectivity");
+  assert(configurationCalls.length === 0, "Server settings accessed configuration APIs");
+  reports.push("server settings directs configuration to the server without controls or API calls");
   return { reports, uploads };
 }
 run()

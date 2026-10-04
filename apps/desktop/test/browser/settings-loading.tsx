@@ -13,7 +13,7 @@ const calls: unknown[] = [];
 let computer = {
   version: 1, machineLabel: "QA computer", machine: {machineId:"qa",label:"QA computer"},
 };
-let transcription = { ...defaultTranscriptionSettings, hasApiKey: false, configured: false };
+let transcription = { ...defaultTranscriptionSettings(), hasApiKey: false, configured: false };
 const providerStates = (tool: "search" | "fetch") => Object.fromEntries(WEB_PROVIDER_LISTS[tool].map((provider) => [provider.id, { secretSaved: false, ready: !provider.fields.some((field) => field.required), check: null }]));
 let providers: any = { search: { selected: null, providers: providerStates("search") }, fetch: { selected: "builtin", providers: providerStates("fetch") } };
 const capabilities = { credentialProviders: [], };

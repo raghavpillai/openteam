@@ -34,6 +34,10 @@ const MAX_TEXTAREA_HEIGHT = 120;
 const MULTILINE_THRESHOLD = 39;
 const SECONDARY_ACTION_CLASS =
   "size-7 rounded-full bg-[#f0f0f0] text-[#696969] shadow-[inset_0_0_0_0.5px_rgba(20,20,20,0.10)] hover:bg-[#e9e9e9] hover:text-[#1f1f1f] disabled:opacity-100 dark:bg-[#3b3b3b] dark:text-[#a8a8a8] dark:shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.12)] dark:hover:bg-[#484848] dark:hover:text-[#fafafa]";
+const VOICE_ACTION_CLASS =
+  "size-7 rounded-full bg-[#77777717] text-[#1414149c] shadow-[inset_0_0_0_0.5px_#1414141a] hover:bg-[#7777772b] hover:text-[#141414] disabled:opacity-40 dark:bg-[#7777772c] dark:text-[#fcfcfc8f] dark:shadow-[inset_0_0_0_0.5px_#fcfcfc1a] dark:hover:bg-[#77777752] dark:hover:text-[#fcfcfc]";
+const SEND_ACTION_CLASS =
+  "size-7 rounded-full bg-[#070707] text-[#fcfcfc] shadow-none hover:bg-[#070707] hover:opacity-90 disabled:opacity-40 dark:bg-[#fafafa] dark:text-[#141414] dark:hover:bg-[#fafafa]";
 
 function BotPlusIcon({ className }: { className?: string }) {
   return (
@@ -1006,7 +1010,7 @@ export function PromptInput({
                             ? `Click or hold ${/Mac/.test(navigator.platform) ? "⌘D" : "Ctrl+D"} to dictate`
                             : "Set up transcription in Server settings"
                         }
-                        className={cn(SECONDARY_ACTION_CLASS, "disabled:opacity-40")}
+                        className={VOICE_ACTION_CLASS}
                         disabled={!voice.available || blocked}
                         onClick={startVoice}
                         onMouseDown={(event) => event.preventDefault()}
@@ -1014,7 +1018,7 @@ export function PromptInput({
                         type="button"
                         variant="ghost"
                       >
-                        <BotMicIcon className="size-4 animate-in fade-in-0 zoom-in-50 duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:animate-none" />
+                        <BotMicIcon className="size-3.5 animate-in fade-in-0 zoom-in-50 duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:animate-none" />
                       </Button>
                     )}
                     <Button
@@ -1032,7 +1036,7 @@ export function PromptInput({
                             ? `Click or hold ${/Mac/.test(navigator.platform) ? "⌘D" : "Ctrl+D"} to dictate`
                             : undefined
                       }
-                      className="relative size-7 rounded-full bg-[#070707] text-[#fcfcfc] shadow-none transition-opacity hover:bg-[#070707] hover:opacity-90 disabled:bg-[#070707] disabled:opacity-40 dark:bg-[#fafafa] dark:text-[#141414] dark:hover:bg-[#fafafa]"
+                      className={cn("relative", hasPayload ? SEND_ACTION_CLASS : VOICE_ACTION_CLASS)}
                       disabled={
                         blocked || (hasPayload && sendDisabled) || (!hasPayload && !voice.available)
                       }
@@ -1040,10 +1044,11 @@ export function PromptInput({
                       onMouseDown={!hasPayload ? (event) => event.preventDefault() : undefined}
                       size="icon"
                       type={hasPayload ? "submit" : "button"}
+                      variant={hasPayload ? "default" : "ghost"}
                     >
                       <BotMicIcon
                         className={cn(
-                          "absolute size-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+                          "absolute size-3.5 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
                           hasPayload
                             ? "[transform:scale(0.5)] opacity-0"
                             : "[transform:scale(1)] opacity-100"

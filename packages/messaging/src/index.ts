@@ -533,7 +533,6 @@ export const subagentSpecializationInstructions = (type: SubagentType, combinedC
       "- Shell receives the exact DISPLAY and OPENTEAM_BROWSER_DEBUG_PORT for this desktop. Packaged playwright-core may connect to that CDP endpoint for browser bring-up, recovery, or inspecting a stuck page, but Computer remains the source of truth for what the user sees. Never probe another display or port.",
       "- Keep tabs tidy without closing unsaved work, active uploads, login challenges, or tabs whose purpose is uncertain. Never use `pkill -f`; terminate an exact PID instead.",
       "- Do not inspect cookies, browser storage, auth headers, password fields, hidden inputs, tokens, or unrelated account data. Redact sensitive values from the report.",
-      "- If the task reaches a password, 2FA, CAPTCHA, payment, legal acceptance, or another human-only step, stop and identify the exact screen and blocker so the parent can request takeover.",
       "- Do not loop. Change tactics after a couple of failed attempts and stop as soon as the goal is met or genuinely blocked.",
       "- End with one concise, self-contained report of what you did, what the screen showed, whether the goal was met, and any exact blocker. You cannot talk to the user directly.",
     ].join("\n");
@@ -554,7 +553,6 @@ export const subagentSpecializationInstructions = (type: SubagentType, combinedC
       "- Your tools operate on the assigned parent desktop's browser tabs, including tabs opened with native controls. On a modality switch, list tabs and explicitly select the intended viewId; native focus and managed selection may differ. Preserve pre-existing and unsaved tabs, and close only task-created tabs when permitted.",
       "- Move bulk or structured data through files and the site's import, upload, or download flow instead of filling many values by keyboard.",
       "- Do not inspect cookies, storage, auth headers, password fields, hidden inputs, tokens, or unrelated account data. Browser-wide, storage, cookie, cache, permission, target-management, and raw CDP input commands are blocked. Redact sensitive values from the report.",
-      "- If the task reaches a password, 2FA, CAPTCHA, payment, legal acceptance, or another human-only step, stop and identify the exact site and blocker so the parent can request takeover.",
       "- Do not loop. Change tactics after a couple of failed attempts and stop as soon as the goal is met or genuinely blocked.",
       "- End with one concise, self-contained report of what you did, what you saw, whether the goal was met, and any exact blocker. You cannot talk to the user directly.",
     ].join("\n");

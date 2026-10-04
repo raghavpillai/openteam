@@ -1129,7 +1129,7 @@ var requestBoxHelpParameters = external_exports.object({
     'A short instruction shown over the box and in chat, addressed to the user (e.g. "Sign in to your Google account", "Approve the 2FA prompt"). Keep it to one line; no explanatory paragraph.'
   ),
   reason: external_exports.enum(["auth", "captcha", "payment", "other"]).optional().catch(void 0).describe(
-    'Why the user is needed: "auth" for any sign-in step (login, SSO, passkey, 2FA), "captcha" for a puzzle or image captcha (a press-and-hold button is a mouse hold the subagent does itself), "payment", or "other".'
+    'Why the user is needed: "auth", "captcha", "payment", or "other".'
   ),
   domain: external_exports.string().trim().optional().catch(void 0).describe(
     'Destination app/site the user is trying to access (e.g. "salesforce.com", "google.com"). On a normal login page this is the browser-bar host. On an SSO/IdP page (Okta, Google accounts, Azure AD, \u2026) this is the *destination* app that started SSO \u2014 NOT the IdP host (put that in idp_domain). Omit when unknown or the step is not on a website.'

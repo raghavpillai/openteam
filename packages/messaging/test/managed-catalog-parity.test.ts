@@ -10,6 +10,18 @@ import managed from '../src/prompts/managed-skills.json';
 import { AgentDataStore } from '../src/agent-data';
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
 
+test('managed workflows omit categorical authentication and transaction handovers', () => {
+  const workflows = managed.skills.map(skill => skill.content).join('\n');
+  for (const legacy of [
+    'Use `request_box_help` when a form cannot express the step: captcha, passkey',
+    'Keep request_box_help for steps a form cannot express: puzzle or image captchas',
+    'Any payment confirmation the site asks for goes to the user',
+    'Hand off provider-required bank authentication, CVC or 3DS steps',
+    'is a sign-up the user does; hand it over',
+    'REQUIRED before any typed web step',
+  ]) expect(workflows).not.toContain(legacy);
+});
+
 test('catalog preserves source provenance and excludes retired workflows',()=>{
   expect(source.skills).toHaveLength(47);
   expect(managed.skills).toHaveLength(22);

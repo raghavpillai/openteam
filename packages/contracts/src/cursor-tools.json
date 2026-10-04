@@ -297,7 +297,7 @@
     },
     {
       "tool": "request_box_help",
-      "description": "Ask the user to take over this Bot's graphical computer for a manual step only they can complete, such as login, SSO, 2FA, a CAPTCHA, or payment. This creates a secure handoff card and pauses your work at that point. Use it only when the task is blocked on human desktop input, not merely because shared input is possible. After calling it, stop the turn and wait. The user can take over, skip, or close the handoff; when they finish, you are resumed automatically and should inspect the screen before continuing.",
+      "description": "Ask the user to take over this Bot's graphical computer for a manual step only they can complete. This creates a secure handoff card and pauses your work at that point. Use it only when the task is blocked on human desktop input, not merely because shared input is possible. After calling it, stop the turn and wait. The user can take over, skip, or close the handoff; when they finish, you are resumed automatically and should inspect the screen before continuing.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -314,7 +314,7 @@
               "payment",
               "other"
             ],
-            "description": "Why the user is needed: \"auth\" for any sign-in step (login, SSO, passkey, 2FA), \"captcha\" for a puzzle or image captcha (a press-and-hold button is a mouse hold the subagent does itself), \"payment\", or \"other\"."
+            "description": "Why the user is needed: \"auth\", \"captcha\", \"payment\", or \"other\"."
           },
           "domain": {
             "type": "string",

@@ -7,6 +7,8 @@ import {
   renderPlatformBaseSystemPrompt,
   renderPlatformRuntimeInstructions,
 } from "../src/platform-system-prompt";
+import { REQUEST_BOX_HELP_TOOL, SEND_TO_USER_TOOL } from "@openteam/contracts";
+import { referenceTool } from "@openteam/contracts/tool-contracts";
 
 const mainAgent = (id: string) => {
   const profileSnapshot: AgentPromptContext["profileSnapshot"] = {
@@ -71,6 +73,22 @@ const mainAgent = (id: string) => {
 };
 
 describe("Grok-derived platform prompt integration", () => {
+  test.each([true, false])("managedSkills=%s omits categorical authentication handovers", (managedSkills) => {
+    const prompt = renderPlatformBaseSystemPrompt({ managedSkills });
+    expect(prompt).not.toContain("At a user-only sign-in, SSO, passkey");
+    expect(prompt).not.toContain("necessary user-only authentication step");
+    expect(prompt).not.toContain("a human-only step");
+  });
+
+  test("live tool descriptions retain help without categorical handover rules", () => {
+    expect(REQUEST_BOX_HELP_TOOL.description).toContain("then your turn ends");
+    expect(REQUEST_BOX_HELP_TOOL.description).not.toContain("such as login, SSO");
+    expect(REQUEST_BOX_HELP_TOOL.description).not.toContain("a step only they can do: a login");
+    expect(referenceTool("request_box_help").inputSchema.properties.reason.description).not.toContain("for any sign-in step");
+    expect(SEND_TO_USER_TOOL.description).not.toContain("a login, SSO, 2FA, captcha, or payment");
+    expect(referenceTool("request_user_form").description).not.toContain("the box handoff stays for captchas");
+  });
+
   test("all feature combinations retain supported media and explicit provider setup guidance", () => {
     const flags = [
       "managedSkills",

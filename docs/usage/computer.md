@@ -10,7 +10,7 @@ The full-size view is live, so you can click and type in it. Avoid doing so whil
 
 ## Take over when the bot needs you
 
-Some steps need a person, such as a sign-in, a CAPTCHA, or a decision on a website. When that happens, the bot posts a card in the chat asking you to take over (**Take over the computer** on desktop).
+Some steps need a person. When that happens, the bot posts a card in the chat asking you to take over (**Take over the computer** on desktop).
 
 1. Choose **Take over** to open the bot's screen.
 2. Complete the step.

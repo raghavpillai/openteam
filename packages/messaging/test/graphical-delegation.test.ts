@@ -11,6 +11,19 @@ import {
 import { PLATFORM_BASE_SYSTEM_PROMPT } from "../src/platform-system-prompt";
 
 describe("main-agent graphical delegation instructions", () => {
+  test.each([
+    ["computerUse", true],
+    ["computerUse", false],
+    ["browserUse", false],
+  ] as const)("%s worker omits categorical handover instructions (combined=%s)", (type, combined) => {
+    const instructions = subagentSpecializationInstructions(type, combined);
+    expect(instructions).not.toContain("If the task reaches a password");
+    expect(instructions).not.toContain("At a username/password step, stop");
+    expect(instructions).not.toContain("Report SSO, passkeys");
+    expect(instructions).not.toContain("Never retrieve or enter private credentials yourself");
+    expect(instructions).toContain("blocker");
+  });
+
   test("routes graphical work to the available combined or split workers", () => {
     expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).not.toContain("subagent_type browserUse");
     expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain("subagent_type computerUse");
@@ -37,7 +50,7 @@ describe("main-agent graphical delegation instructions", () => {
     expect(instructions).toContain("assigned parent desktop's browser tabs");
     expect(instructions).toContain("Preserve pre-existing and unsaved tabs");
     expect(instructions).toContain("exact DOM nodes");
-    expect(instructions).toContain("CAPTCHA");
+    expect(instructions).toContain("any exact blocker");
     expect(instructions).toContain("You cannot talk to the user directly");
   });
 

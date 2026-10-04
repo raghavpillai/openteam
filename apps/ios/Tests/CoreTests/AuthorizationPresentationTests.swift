@@ -142,32 +142,4 @@ final class AuthorizationPresentationTests: XCTestCase {
       XCTAssertEqual(PluginAuthorizationSession(connection, now: now)?.expired, true)
     }
   }
-  func testApprovalSelectionUsesExactProfileAndHostIdentity() {
-    XCTAssertEqual(
-      ApprovalPresentation.siteKey(profileID: "Profile 2", origin: "https://example.com"),
-      "[\"Profile 2\",\"https://example.com\"]")
-    XCTAssertNotEqual(
-      ApprovalPresentation.siteKey(profileID: "Profile 1", origin: "example.com"),
-      ApprovalPresentation.siteKey(profileID: "Profile 2", origin: "example.com"))
-  }
-  func testPermissionReceiptDoesNotClaimExecutionCompleted() throws {
-    let data = Data(
-      #"{"id":"a","runId":"r","kind":"tool","status":"pending","details":{},"ownerConversationId":"c"}"#
-        .utf8)
-    var approval = try JSONDecoder().decode(Approval.self, from: data)
-    XCTAssertTrue(ApprovalPresentation.isPending(approval))
-    approval.status = "accepted"
-    XCTAssertEqual(ApprovalPresentation.status(approval), "Approved")
-    for (state, label) in [
-      ("running", "Running"), ("completed", "Completed"), ("failed", "Failed"),
-    ] {
-      approval.details["actionState"] = .string(state)
-      XCTAssertEqual(ApprovalPresentation.status(approval), label)
-      XCTAssertFalse(ApprovalPresentation.isPending(approval))
-    }
-    approval.status = "declined"
-    XCTAssertEqual(ApprovalPresentation.status(approval), "Denied")
-    approval.status = "expired"
-    XCTAssertEqual(ApprovalPresentation.status(approval), "Expired")
-  }
 }

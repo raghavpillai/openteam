@@ -7,7 +7,7 @@ interface Options {
   localUrl: string;
   localToken: string;
   getToken: () => Promise<string | null>;
-  getIdentity: () => Promise<{ label: string; localToolPermission: "always" | "ask" | "never" }>;
+  getIdentity: () => Promise<{ label: string }>;
   fetch?: typeof fetch;
   retryMs?: number;
 }
@@ -58,14 +58,6 @@ export class DesktopMachineEnrollment {
     return this.fetcher(`${enrollment.serverUrl}/api/v0/machines/channel${path}`, {
       ...init, headers: { ...this.headers(enrollment), ...Object.fromEntries(new Headers(init.headers)) }, redirect: "error",
     });
-  }
-
-  async review(value: unknown) {
-    const enrollment = this.current;
-    if (!enrollment) throw new Error("Connect this desktop to OpenTeam before reviewing local actions");
-    const response = await this.channel(enrollment, "/review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value), signal: AbortSignal.timeout(20_000) });
-    if (!response.ok) throw new Error(`Auto Review service failed (${response.status})`);
-    return response.json();
   }
 
   isConnected() { return !!this.current; }

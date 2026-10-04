@@ -1,6 +1,5 @@
 import {
   ApiError,
-  ResolveApprovalInput,
   SendMessageInput,
   UpdateBotInput,
 } from "@openteam/contracts";
@@ -24,10 +23,6 @@ export async function conversationRoutes(context: RouteContext): Promise<Respons
     const subagents = snapshot.subagents.filter(
       (subagent) => subagent.parentChannelId === channel?.id
     );
-    const approvalRunIds = new Set([
-      ...runIds,
-      ...subagents.flatMap((subagent) => (subagent.currentRunId ? [subagent.currentRunId] : [])),
-    ]);
     return json({
       bot,
       messages: channel
@@ -35,7 +30,6 @@ export async function conversationRoutes(context: RouteContext): Promise<Respons
         : [],
       runs,
       runItems: snapshot.runItems.filter((item) => runIds.has(item.runId)),
-      approvals: snapshot.approvals.filter((approval) => approvalRunIds.has(approval.runId)),
       subagents,
     });
   }
@@ -57,10 +51,4 @@ const routes = [
     202
   ),
   effectRoute("POST", /^\/api\/runs\/([^/]+)\/cancel$/, ({ app }, id) => app.cancelRun(id)),
-  bodyRoute(
-    "POST",
-    /^\/api\/approvals\/([^/]+)\/(?:resolve|decision)$/,
-    ResolveApprovalInput,
-    ({ app }, id, input) => app.resolveApproval(id, input.decision, input.selectedItems)
-  ),
 ];

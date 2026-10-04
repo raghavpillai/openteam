@@ -2,7 +2,6 @@ import { rankPluginsLexically } from "@openteam/contracts/reference-formatters";
 import { PLUGIN_WORKFLOW_HOST_CONTEXT } from "@openteam/contracts/plugin-workflows";
 import type {
   PluginActivityView,
-  PluginBotAccessView,
   PluginConnectionStatusesView,
   PluginDynamicNamespace,
   PluginInstallView,
@@ -17,7 +16,7 @@ import {
   PLUGIN_CONNECTION_STATUS_MAX_IDS,
 } from "@openteam/contracts";
 import { Prisma, type PrismaClient } from "@openteam/db";
-import { connectionNamespace, effectiveToolPolicy, fileTransferCapabilities } from "@openteam/plugin-sdk";
+import { connectionNamespace, fileTransferCapabilities } from "@openteam/plugin-sdk";
 import type { PluginDefinition } from "../../plugins/catalog";
 import { serviceEffect } from "../service-utils";
 import {
@@ -45,17 +44,13 @@ export class PluginQueries {
   ) {}
   settings = () =>
     serviceEffect(async (): Promise<PluginSettingsView> => {
-      const [catalog, installs, botCount, policies, activity] = await Promise.all([
+      const [catalog, installs, botCount, activity] = await Promise.all([
         this.catalog(),
         this.prisma.pluginInstallation.findMany({
           include: { connections: true },
           orderBy: { installedAt: "desc" },
         }),
         this.prisma.bot.count({ where: { status: { not: "archived" } } }),
-        this.prisma.pluginToolPolicy.findMany({
-          where: { botId: null },
-          orderBy: { createdAt: "asc" },
-        }),
         this.prisma.pluginActivity.findMany({
           include: { installation: { select: { pluginKey: true } } },
           orderBy: { createdAt: "desc" },
@@ -92,14 +87,6 @@ export class PluginQueries {
           })
         ),
         botCount,
-        policies: policies.map(({ id, connectionId, botId, toolName, decision, enabled }) => ({
-          id,
-          connectionId,
-          botId,
-          toolName,
-          decision,
-          enabled,
-        })),
         activity: activity.map(
           (entry): PluginActivityView => ({
             id: entry.id,
@@ -171,87 +158,6 @@ export class PluginQueries {
       };
     });
 
-  botAccess = (pluginKey: string, queryValue: string, offsetValue: number, limitValue: number) =>
-    serviceEffect(async (): Promise<PluginBotAccessView> => {
-      const query = queryValue
-        .normalize("NFKC")
-        .replace(/\s+/g, " ")
-        .trim()
-        .slice(0, PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH);
-      const offset = Number.isInteger(offsetValue) ? Math.max(0, offsetValue) : 0;
-      const limit = Number.isInteger(limitValue)
-        ? Math.max(1, Math.min(PLUGIN_BOT_ACCESS_PAGE_SIZE, limitValue))
-        : PLUGIN_BOT_ACCESS_PAGE_SIZE;
-      const installation = await this.prisma.pluginInstallation.findUnique({
-        where: { pluginKey },
-        select: { id: true },
-      });
-      if (!installation) {
-        throw new ApiError(404, "plugin_not_installed", "Plugin is not installed");
-      }
-      const where: Prisma.BotWhereInput = {
-        status: { not: "archived" },
-        ...(query ? { name: { contains: query, mode: "insensitive" } } : {}),
-      };
-      const [total, bots] = await Promise.all([
-        this.prisma.bot.count({ where }),
-        this.prisma.bot.findMany({
-          where,
-          select: {
-            id: true,
-            name: true,
-            icon: true,
-            color: true,
-          },
-          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-          skip: offset,
-          take: limit,
-        }),
-      ]);
-      const botIds = bots.map((bot) => bot.id);
-      if (botIds.length === 0) {
-        return { pluginKey, query, offset, total, bots: [] };
-      }
-      const [grants, enablements] = await Promise.all([
-        this.prisma.botPluginConnectionGrant.findMany({
-          where: {
-            botId: { in: botIds },
-            enabled: true,
-            connection: { installationId: installation.id },
-          },
-          select: { botId: true, connectionId: true },
-          orderBy: [{ botId: "asc" }, { connectionId: "asc" }],
-        }),
-        this.prisma.botPluginEnablement.findMany({
-          where: {
-            installationId: installation.id,
-            botId: { in: botIds },
-            enabled: true,
-            skillsEnabled: true,
-          },
-          select: { botId: true },
-        }),
-      ]);
-      const grantsByBot = new Map<string, string[]>();
-      for (const grant of grants) {
-        const connectionIds = grantsByBot.get(grant.botId) ?? [];
-        connectionIds.push(grant.connectionId);
-        grantsByBot.set(grant.botId, connectionIds);
-      }
-      const skillsEnabled = new Set(enablements.map((enablement) => enablement.botId));
-      return {
-        pluginKey,
-        query,
-        offset,
-        total,
-        bots: bots.map((bot) => ({
-          ...bot,
-          skillsEnabled: skillsEnabled.has(bot.id),
-          grantedConnectionIds: grantsByBot.get(bot.id) ?? [],
-        })),
-      };
-    });
-
   searchCatalog = async (queryValue: string): Promise<unknown> => {
     const query = queryValue.trim().toLowerCase();
     const installed = new Set(
@@ -280,9 +186,7 @@ export class PluginQueries {
     const installation = await this.prisma.pluginInstallation.findUnique({
       where: { pluginKey },
       include: {
-        connections: {
-          include: { policies:{where:{botId:null}}, _count: { select: { grants: { where: { enabled: true } } } } },
-        },
+        connections: true,
       },
     });
     if (!plugin && !installation) throw new ApiError(404, "plugin_not_found", "Plugin not found");
@@ -328,15 +232,13 @@ export class PluginQueries {
           server_id: connectionNamespace(connection.id,connection.alias),
           name: connection.name,
           pluginKey: installation.pluginKey,
-          toolCount: toolSnapshot(connection.toolSnapshot).filter(tool=>effectiveToolPolicy(connection.policies,tool.name,"",tool.defaultDecision).enabled).length,
-          disabledToolCount: toolSnapshot(connection.toolSnapshot).filter(tool=>!effectiveToolPolicy(connection.policies,tool.name,"",tool.defaultDecision).enabled).length,
+          toolCount: toolSnapshot(connection.toolSnapshot).length,
           customInstructions: connection.instructions ?? "",
           statusMessage: connection.statusMessage,
           alias: connection.alias,
           status: connection.status,
           transport: connection.transport,
           auth: connection.authType,
-          grantedBotCount: connection._count.grants,
         })) ?? [],
     };
   };
@@ -347,8 +249,6 @@ export class PluginQueries {
         where: connectionId ? { id: connectionId } : undefined,
         include: {
           installation: { select: { pluginKey: true, name: true } },
-          policies:{where:{botId:null}},
-          _count: { select: { grants: { where: { enabled: true } } } },
         },
         orderBy: { createdAt: "asc" },
       })
@@ -365,49 +265,27 @@ export class PluginQueries {
           alias: connection.alias,
           status: connection.status,
           statusMessage: connection.statusMessage,
-          toolCount: toolSnapshot(connection.toolSnapshot).filter(tool=>effectiveToolPolicy(connection.policies,tool.name,"",tool.defaultDecision).enabled).length,
-          disabledToolCount: toolSnapshot(connection.toolSnapshot).filter(tool=>!effectiveToolPolicy(connection.policies,tool.name,"",tool.defaultDecision).enabled).length,
-          grantedBotCount: connection._count.grants,
+          toolCount: toolSnapshot(connection.toolSnapshot).length,
           lastCheckedAt: connection.lastCheckedAt?.toISOString() ?? null,
         }))
       ),
   });
 
   dynamicNamespaces = async (botId: string): Promise<PluginDynamicNamespace[]> => {
-    const grants = await this.prisma.botPluginConnectionGrant.findMany({
+    const connections = await this.prisma.pluginConnection.findMany({
       where: {
-        botId,
-        enabled: true,
-        connection: {
-          status: { in: ["ready", "needs_auth", "error"] },
-          installation: {
-            status: "installed",
-            mode: { not: "disabled" },
-            enablements: { some: { botId, enabled: true } },
-          },
-        },
+        status: { in: ["ready", "needs_auth", "error"] },
+        installation: { status: "installed" },
       },
-      include: {
-        connection: {
-          include: {
-            installation: true,
-            policies: { where: { OR: [{ botId: null }, { botId }] } },
-          },
-        },
-      },
-      orderBy: { connection: { createdAt: "asc" } },
+      include: { installation: true },
+      orderBy: { createdAt: "asc" },
     });
-    return grants.map(({ connection }) => ({
+    return connections.map((connection) => ({
       name: connectionNamespace(connection.id,connection.alias),
       description: `${connection.installation.name}: ${connection.name}${connection.instructions ? `\nSaved instructions: ${connection.instructions}` : ""}`,
       namespaceStatus: statusForRuntime(connection.status),
-      fileTransfers: fileTransferCapabilities(connection.installation.pluginKey, connection.policies, toolSnapshot(connection.toolSnapshot), botId),
-      tools: toolSnapshot(connection.toolSnapshot)
-        .filter(
-          (tool) =>
-            effectiveToolPolicy(connection.policies, tool.name, botId, tool.defaultDecision).enabled
-        )
-        .map((tool) => ({
+      fileTransfers: fileTransferCapabilities(connection.installation.pluginKey),
+      tools: toolSnapshot(connection.toolSnapshot).map((tool) => ({
           connectionId: connection.id,
           name: tool.name,
           description: tool.description,
@@ -418,16 +296,10 @@ export class PluginQueries {
   };
 
   skillInstructions = async (botId: string): Promise<string> => {
-    const enablements = await this.prisma.botPluginEnablement.findMany({
-      where: {
-        botId,
-        enabled: true,
-        skillsEnabled: true,
-        installation: { status: "installed" },
-      },
-      include: { installation: true },
+    const installations = await this.prisma.pluginInstallation.findMany({
+      where: { status: "installed" },
     });
-    const sections = enablements.flatMap(({ installation }) => {
+    const sections = installations.flatMap((installation) => {
       const plugin = definitionFromManifest(installation.manifest);
       return (plugin?.skills ?? []).map(
         (skill) =>
@@ -448,16 +320,10 @@ export class PluginQueries {
 
   composer = (botId: string) =>
     serviceEffect(async () => {
-      const [namespaces, enablements, privateSkills] = await Promise.all([
+      const [namespaces, installations, privateSkills] = await Promise.all([
         this.dynamicNamespaces(botId),
-        this.prisma.botPluginEnablement.findMany({
-          where: {
-            botId,
-            enabled: true,
-            skillsEnabled: true,
-            installation: { status: "installed", mode: { not: "disabled" } },
-          },
-          include: { installation: true },
+        this.prisma.pluginInstallation.findMany({
+          where: { status: "installed" },
         }),
         this.prisma.pluginPrivateSkill.findMany({
           where: { enabledBotIds: { array_contains: [botId] } },
@@ -473,7 +339,7 @@ export class PluginQueries {
             kind: "connection" as const,
             status: namespace.namespaceStatus,
           })),
-          ...enablements.flatMap(({ installation }) =>
+          ...installations.flatMap((installation) =>
             (definitionFromManifest(installation.manifest)?.skills ?? []).map((skill) => ({
               id: `${installation.id}:${skill.name}`,
               label: skill.name,

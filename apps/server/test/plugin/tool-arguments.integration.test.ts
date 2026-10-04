@@ -5,7 +5,7 @@ import { PluginService } from "../../src/services/plugin-service";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 test.skipIf(!databaseUrl)(
-  "reviewed authentication retries reuse the exact newly created account",
+  "direct authentication replays the exact newly created account",
   async () => {
     const db = createPrismaClient(databaseUrl!);
     const service = new PluginService(db);
@@ -17,9 +17,7 @@ test.skipIf(!databaseUrl)(
     let attempts = 0;
     Object.assign(service, {
       authenticate: (id: string) =>
-        ++attempts === 1
-          ? Effect.fail(new Error("Fixture authentication interrupted"))
-          : Effect.succeed({ id, authenticated: true }),
+        (++attempts, Effect.succeed({ id, authenticated: true })),
     });
     try {
       await db.bot.create({
@@ -56,41 +54,24 @@ test.skipIf(!databaseUrl)(
         action: "AuthenticateMcpServer",
         arguments: { server_id: source.pluginKey, account_label: "work" },
       };
-      await expect(service.requestAction(request)).rejects.toThrow("waiting for user confirmation");
-      const approval = await db.approval.findUniqueOrThrow({
-        where: { upstreamRequestId: `plugin-action:${callId}` },
-      });
-      await expect(service.resolveAction(approval.details, "accept")).rejects.toThrow(
-        "interrupted"
-      );
-      await expect(service.requestAction(request)).rejects.toThrow("waiting for user confirmation");
-      const pinnedId = (approval.details as any).rawArguments.createAccountId;
-      expect(await service.resolveAction(approval.details, "accept")).toEqual({
-        id: pinnedId,
-        authenticated: true,
-      });
-      expect(await db.pluginConnection.count({ where: { installationId } })).toBe(2);
-      await expect(
-        service.requestAction({ ...request, action: "UninstallMcpServer" })
-      ).rejects.toThrow("another action");
-      await expect(
-        service.resolveToolArguments("AuthenticateMcpServer", { createAccountId: pinnedId })
-      ).rejects.toThrow("assigned by the approval service");
-      await db.approval.update({
-        where: { id: approval.id },
-        data: { status: "accepted", decision: "accept" },
-      });
-      expect(await service.requestAction(request)).toMatchObject({ status: "accepted", completed: false }); // An old approval without an operation receipt is not proof of success.
-      const serverArgs = await service.resolveToolArguments("AddMcpServer", {
+      const result=await service.requestAction(request) as any;
+      const pinnedId=result.actionResult.id;
+      expect(result).toMatchObject({completed:true,actionResult:{authenticated:true}});
+      expect(await service.requestAction(request)).toMatchObject({actionResult:{id:pinnedId}});
+      expect(attempts).toBe(1);
+      expect(await db.pluginConnection.count({where:{installationId}})).toBe(2);
+      await expect(service.requestAction({...request,action:"UninstallMcpServer"})).rejects.toThrow("another action");
+      await expect(service.resolveToolArguments("AuthenticateMcpServer",{createAccountId:pinnedId})).rejects.toThrow("assigned by the action service");
+      const serverArgs = {
         name: "Reviewed fixture",
         url: "https://fixture.example.test/mcp",
-      });
-      const serverAction = { action: "AddMcpServer", rawArguments: serverArgs };
-      const created = (await service.resolveAction(serverAction, "accept")) as {
+      };
+      const serverAction={...request,callId:crypto.randomUUID(),action:"AddMcpServer",arguments:serverArgs};
+      const created = ((await service.requestAction(serverAction)) as any).actionResult as {
         installationId: string;
       };
       addedInstallationId = created.installationId;
-      expect(await service.resolveAction(serverAction, "accept")).toEqual(created);
+      expect(await service.requestAction(serverAction)).toMatchObject({actionResult:created});
       expect(await db.pluginInstallation.count({ where: { id: addedInstallationId } })).toBe(1);
     } finally {
       await service.close();

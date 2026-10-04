@@ -11,7 +11,6 @@ test("discovered file tools move real box bytes over the private bridge and retu
   const bytes = Buffer.from([0, 255, 128, 12, 37, 50, 9]);
   await writeFile(sourcePath, bytes);
   const calls: any[] = [];
-  const reviews: any[] = [];
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
@@ -26,11 +25,10 @@ test("discovered file tools move real box bytes over the private bridge and retu
         return Response.json({
           connectionId: "exact-connection",
           connectionName: "Fixture Drive",
-          decision: "prompt",
         });
       }
       expect(body.tool).toBe("ExecuteConnectorTransfer");
-      expect(body.arguments.reviewed).toBe(true);
+      expect(body.arguments).not.toHaveProperty("reviewed");
       expect(body.arguments.input.connection).toBe("exact-connection");
       if (body.arguments.tool === "upload_file") {
         expect(Buffer.from(await request.arrayBuffer())).toEqual(bytes);
@@ -42,10 +40,6 @@ test("discovered file tools move real box bytes over the private bridge and retu
   });
   const runtime = new RuntimeTools({} as never, server.url.origin, "synthetic-control", root, root);
   Object.assign(runtime, {
-    requestHostApproval: async (...args: any[]) => {
-      reviews.push(args);
-      return "accept";
-    },
   });
   const active = {
     runtimeProfile: "agent",
@@ -82,9 +76,8 @@ test("discovered file tools move real box bytes over the private bridge and retu
     const metadata = downloaded.details;
     expect(downloaded.content[0].text).toContain("Downloaded");
     expect(await readFile(metadata.boxPath)).toEqual(bytes);
-    expect(JSON.stringify([uploaded, downloaded, reviews])).not.toContain(bytes.toString("base64"));
+    expect(JSON.stringify([uploaded, downloaded])).not.toContain(bytes.toString("base64"));
     expect(JSON.stringify([uploaded, downloaded])).not.toContain("synthetic-control");
-    expect(reviews).toHaveLength(2);
     expect(calls).toHaveLength(4);
     await symlink("/etc", join(root, "escape"));
     const refused = await invoke.execute("escape", {

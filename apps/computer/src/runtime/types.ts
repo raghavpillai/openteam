@@ -91,7 +91,6 @@ export interface RuntimeDynamicTool extends DynamicToolDefinition {
     callId: string,
     args: unknown,
     signal?: AbortSignal,
-    mcpDetails?: unknown
   ) => Promise<AgentToolResult<Record<string, unknown>>>;
 }
 

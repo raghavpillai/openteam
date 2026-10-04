@@ -107,11 +107,10 @@ export const toolSnapshot = (value: unknown): PluginToolDefinition[] =>
     : [];
 
 export const publicTools = (value: unknown) =>
-  toolSnapshot(value).map(({ name, description, risk, defaultDecision }) => ({
+  toolSnapshot(value).map(({ name, description, risk }) => ({
     name,
     description,
     risk,
-    defaultDecision,
   }));
 
 export const statusForRuntime = (status: string): PluginDynamicNamespace["namespaceStatus"] => {

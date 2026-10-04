@@ -232,12 +232,11 @@ describe("desktop loading and packaging boundaries", () => {
     expect(source).toContain("authenticatePlugin:");
     expect(source).toContain("configurePluginConnection:");
     expect(source).toContain("pluginConnectionStatuses:");
-    expect(source).toContain("pluginBotAccess:");
     expect(source).toContain('from "@openteam/contracts/plugin-settings"');
-    expect(pluginScaleSource).toContain('from "@openteam/contracts/plugin-settings"');
+    expect(pluginScaleSource).toContain('from "@openteam/contracts"');
   });
 
-  test("loads plugin policy controls only after entering plugin details", async () => {
+  test("loads plugin connection controls only after entering plugin details", async () => {
     const [settingsSource, detailSource] = await Promise.all([
       readDesktopFile("src/renderer/components/openteam/plugin-settings.tsx"),
       readDesktopFile("src/renderer/components/openteam/plugin-settings-detail.tsx"),
@@ -247,11 +246,8 @@ describe("desktop loading and packaging boundaries", () => {
     expect(settingsSource).not.toContain('from "../ui/select"');
     const pluginView = await readDesktopFile("src/renderer/components/openteam/plugin-detail-view.tsx");
     expect(pluginView).toContain('import("./plugin-settings-detail")');
-    expect(pluginView).toContain("onOpenChange={setBotAccessExpanded}");
-    expect(pluginView).toContain("setBotAccessOffset(botAccess.offset +");
     expect(settingsSource).not.toContain("loadMoreBotAccess");
     expect(detailSource).toContain('from "../ui/select"');
-    expect(detailSource).toContain("PluginPolicySelect");
   });
 
   test("keeps About and each Settings section in independently audited lazy modules", async () => {
@@ -267,7 +263,6 @@ describe("desktop loading and packaging boundaries", () => {
     expect(app).toContain('import("./components/openteam/settings/about")');
     expect(app).toContain('import("./components/openteam/settings/panel")');
     expect(app).toContain('import("./components/openteam/settings/general")');
-    expect(app).toContain('import("./components/openteam/settings/general-bot")');
     expect(shell).toContain('import("./general")');
     expect(shell).toContain('import("./computer")');
     expect(shell).toContain('import("./server")');
@@ -275,7 +270,6 @@ describe("desktop loading and packaging boundaries", () => {
     expect(shell).toContain('import("./updates")');
     expect(shell).toContain("attempts < 120");
     expect(shell).not.toContain("Copyright © 2026 OpenTeam contributors");
-    expect(general).toContain('import("./general-bot")');
     expect(about).toContain("Copyright © 2026 OpenTeam contributors");
 
     for (const boundary of [
@@ -283,7 +277,6 @@ describe("desktop loading and packaging boundaries", () => {
       "settingsShell",
       "settingsAbout",
       "settingsGeneral",
-      "settingsGeneralBot",
       "settingsComputer",
       "settingsServer",
       "settingsProviders",

@@ -419,9 +419,7 @@ const readLazyClosures = async () => {
       pluginStudio: ["src/renderer/components/openteam/plugins/package-studio.tsx"],
       privateSkills: ["src/renderer/components/openteam/plugins/private-skills.tsx"],
       settingsMicrophone: ["src/renderer/components/openteam/settings/microphone.tsx"],
-      settingsNative: ["src/renderer/components/openteam/settings/native-capabilities.tsx"],
       settingsTranscription: ["src/renderer/components/openteam/settings/transcription.tsx"],
-      settingsWebhooks: ["src/renderer/components/openteam/settings/automation-webhooks.tsx"],
       basicMarkdown: ["src/renderer/components/ai-elements/message-response.tsx"],
       advancedRich: ["src/renderer/components/ai-elements/message-response/rich.tsx"],
       cjk: [
@@ -467,12 +465,10 @@ const readLazyClosures = async () => {
       settingsInitial: [
         "src/renderer/components/openteam/settings/panel.tsx",
         "src/renderer/components/openteam/settings/general.tsx",
-        "src/renderer/components/openteam/settings/general-bot.tsx",
       ],
       settingsShell: ["src/renderer/components/openteam/settings/panel.tsx"],
       settingsAbout: ["src/renderer/components/openteam/settings/about.tsx"],
       settingsGeneral: ["src/renderer/components/openteam/settings/general.tsx"],
-      settingsGeneralBot: ["src/renderer/components/openteam/settings/general-bot.tsx"],
       settingsComputer: ["src/renderer/components/openteam/settings/computer.tsx"],
       settingsServer: ["src/renderer/components/openteam/settings/server.tsx"],
       settingsProviders: ["src/renderer/components/openteam/settings/providers.tsx"],

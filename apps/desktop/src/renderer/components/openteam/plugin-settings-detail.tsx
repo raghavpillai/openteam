@@ -25,35 +25,3 @@ export function PluginAuthSelect({
     </Select>
   );
 }
-
-export function PluginPolicySelect({
-  disabled,
-  label,
-  onChange,
-  value,
-}: {
-  disabled: boolean;
-  label: string;
-  onChange: (value: PluginPolicyDecision) => void;
-  value: PluginPolicyDecision;
-}) {
-  return (
-    <Select
-      disabled={disabled}
-      onValueChange={(next) => onChange(next as PluginPolicyDecision)}
-      value={value}
-    >
-      <SelectTrigger
-        aria-label={label}
-        className="h-7 rounded-[7px] border-black/[0.07] bg-background px-2 text-[10.5px] shadow-none dark:border-white/[0.09]"
-      >
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="deny">Deny</SelectItem>
-        <SelectItem value="prompt">Ask first</SelectItem>
-        <SelectItem value="allow">Allow</SelectItem>
-      </SelectContent>
-    </Select>
-  );
-}

@@ -1,5 +1,5 @@
 import { buildUserFormSubmittedAck, buildUserFormDismissedAck } from "./reference-form-results";
-import type { UserFormReceipt } from "./review-cards";
+import type { UserFormReceipt } from "./user-forms";
 
 export function formatUserFormReceipt(receipt: UserFormReceipt): string {
   if (receipt.status === "escalated") return `The user chose to complete ${receipt.title ? `“${receipt.title}”` : "the form"} on the screen instead. Nothing was filled and no secret values were returned.`;

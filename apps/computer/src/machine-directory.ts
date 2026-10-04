@@ -1,5 +1,5 @@
 import { HOST_BRIDGE_PATHS,parseHostMachinesResponse,type HostMachine } from "@openteam/contracts/service-protocol";
-export interface RegisteredMachine {machineId:string;label:string;bridgeUrl:string|null;transport?:string;localToolPermission?:"always"|"ask"|"never";enabled:boolean;connected?:boolean}
+export interface RegisteredMachine {machineId:string;label:string;bridgeUrl:string|null;transport?:string;enabled:boolean;connected?:boolean}
 export class MachineDirectory {
   constructor(private readonly serverUrl:string,private readonly token:string,private readonly defaultBridge:string,private readonly fetcher:typeof fetch=fetch){}
   private async request(path:string,body?:unknown,signal?:AbortSignal){
@@ -37,7 +37,7 @@ export class MachineDirectory {
       try{await this.request("/register",{bridgeUrl:this.defaultBridge},signal);rows=await this.registered(signal);}catch{signal?.throwIfAborted();}
     }
     return Promise.all(rows.map(async row=>{
-      let machine:HostMachine={machineId:row.machineId,label:row.label,localToolPermission:row.localToolPermission ?? "ask"};let connected=false;
+      let machine:HostMachine={machineId:row.machineId,label:row.label};let connected=false;
       if(row.transport === "relay")return {...machine,connected:row.enabled && !!row.connected};
       if(row.enabled)try{
         const response=await this.fetcher(`${row.bridgeUrl}${HOST_BRIDGE_PATHS.machines}`,{method:"POST",headers:{authorization:`Bearer ${this.token}`,"content-type":"application/json"},body:"{}",redirect:"error",signal:signal?AbortSignal.any([signal,AbortSignal.timeout(5_000)]):AbortSignal.timeout(5_000)});

@@ -207,7 +207,7 @@ describe("shared desktop and iOS product policy", () => {
         message({ type: "event", event: { type: "name-changed", from: "Old", to: "New" } })
       )
     ).toBe("Renamed to New");
-    expect(isActiveRunStatus("waiting_approval")).toBe(true);
+    expect(isActiveRunStatus("waiting_approval")).toBe(false);
     expect(isActiveRunStatus("completed")).toBe(false);
     expect(hasTransientRoutineExecution([{ status: "completed" }, { status: "running" }])).toBe(
       true

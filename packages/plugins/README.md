@@ -1,6 +1,6 @@
 # Plugins
 
-See [Using and developing plugins](../../docs/usage/plugins.md) for account setup, Bot access, provider requirements, package examples, and contribution guidance.
+See [Using and developing plugins](../../docs/usage/plugins.md) for account setup, provider requirements, package examples, and contribution guidance.
 
 Every plugin belongs in `packages/plugins/<plugin-name>/`. The same structure applies to every author. Most contributions change one directory. `scripts/generate.ts` discovers the directories, runs the shared validator, and builds `_generated/registry.json` automatically during the server build. Do not edit the generated registry or add provider imports to the server.
 
@@ -9,9 +9,9 @@ Every plugin belongs in `packages/plugins/<plugin-name>/`. The same structure ap
 1. Open **Plugins → Manage plugins → Develop** on desktop, or **Plugins → Manage → Develop** on mobile.
 2. Select **Skills**, **Remote MCP**, **Packaged MCP**, or **Hybrid**, then create a package. The packaged examples include a working connector and use the runtime already on the Bot computer.
 3. Edit the definition in the app, or load a folder/ZIP from your graphical editor. Loading the same package key updates its draft. The installed version stays pinned until you review and apply an update.
-4. Validate and save, then install for testing. In **Installed**, configure each account, connect it, and use **Test tool**. Confirm a test that can modify data. Enable the package and grant the account to a test Bot to verify normal Bot calls and approvals.
+4. Validate and save, then install for testing. In **Installed**, configure each account, connect it, and use **Test tool**. Use a connected account to verify normal Bot calls.
 5. Test another account, a restart, disabled tools, changed requirements, and removal. Check skills and their supporting files separately from connector authentication.
-6. Export the ZIP. Imports and exports retain text and binary assets. Saved account values, headers, environment values, OAuth sessions, grants, and activity are stored separately and are not exported.
+6. Export the ZIP. Imports and exports retain text and binary assets. Saved account values, headers, environment values, OAuth sessions and activity are stored separately and are not exported.
 7. Use GitHub’s web editor to add the package directory and open a pull request. Include its purpose, provider setup documentation, required scopes, supported account types, and the tests you ran. No OpenBot command-line workflow is needed.
 
 ## Package structure
@@ -28,7 +28,7 @@ If a provider requires OAuth authorization extensions, set `configuration.oauthA
 
 ## Multiple provider accounts
 
-Gmail, Google Calendar, Google Drive, and the other account-based connectors support multiple accounts. In **Manage plugins → Installed**, select a plugin, enter a **New account name** (for example, `work` or `personal`), and choose **Add account**. Select the new account, configure it, authorize it in the browser, and grant it to the Bots that should use it. Each account keeps its own credentials, tools, policies, activity, and Bot grants. Gmail, Calendar, and Drive are separate connectors; authorizing Gmail does not also authorize Calendar or Drive.
+Gmail, Google Calendar, Google Drive, and the other account-based connectors support multiple accounts. In **Manage plugins → Installed**, select a plugin, enter a **New account name** (for example, `work` or `personal`), and choose **Add account**. Select the new account, configure it, authorize it in the browser. Each account keeps its own credentials, tools and activity. Gmail, Calendar, and Drive are separate connectors; authorizing Gmail does not also authorize Calendar or Drive.
 
 The Google packages use public REST APIs through packaged MCP servers. Enable the corresponding Google API, create an OAuth web client, and configure accounts in the UI. No Developer Preview enrollment is needed. Each account has independent tokens and a callback URL registered with the application. See the full guide for Google's Testing-mode refresh-token lifetime and Workspace administrator restrictions.
 
@@ -44,7 +44,7 @@ For packaged browser OAuth, declare `oauth.authorizationServer` (`issuer`, `auth
 
 Portable root `plugin.json` and `.cursor-plugin/plugin.json` packages can import
 skills, MCP declarations, supported configuration variables, rules, commands,
-agents, and supported lifecycle hooks. The Bot's **Instructions and hooks**
+Installed plugins and their connected accounts are available to all bots.
 setting controls execution of those workflow components. Import warnings identify
 unsupported component options; disabled agent permissions are not broadened.
 
@@ -55,7 +55,7 @@ deployment's own application. Packages that omit authentication metadata show
 a warning; use the provider's OpenTeam registry package for its configured OAuth
 flow, or declare the required authentication method in the plugin definition before installing.
 
-Account IDs define runtime namespaces, so renaming an account does not change routing. Tool enabled state and approval preference are independent. Workspace deny/disabled policy takes precedence over Bot preferences. Required/default packages enable capabilities for Bots but never automatically share private accounts. Updates review changed components and setup; compatible account IDs, credentials, grants and policies survive. Removing a source leaves installed snapshots available.
+Account IDs define runtime namespaces, so renaming an account does not change routing. Installed packages provide tools and runtime components to all bots. Connected tools execute directly. Updates review changed components and setup; compatible account IDs, credentials survive. Removing a source leaves installed snapshots available.
 
 Repository CI and the UI use `@openteam/plugin-sdk` validation. The SDK is portable and contains no database, provider, app or runtime dependency. Runtime implementation remains in the computer/server adapters; client screens use shared contracts.
 

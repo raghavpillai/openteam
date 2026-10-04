@@ -519,7 +519,7 @@ export class ChannelService {
     if (
       !run ||
       run.origin === "user" ||
-      !["queued", "running", "waiting_approval"].includes(run.status)
+      !["queued", "running"].includes(run.status)
     ) {
       return;
     }
@@ -533,7 +533,7 @@ export class ChannelService {
           where: {
             id: runId,
             origin: { not: "user" },
-            status: { in: ["queued", "running", "waiting_approval"] },
+            status: { in: ["queued", "running"] },
           },
           data: {
             status: "cancelled",

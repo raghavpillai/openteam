@@ -220,7 +220,7 @@ export class SubagentService {
         where: { id: currentRunId },
         include: { conversation: true },
       });
-      if (!run || !["running", "waiting_approval"].includes(run.status)) {
+      if (!run || !["running"].includes(run.status)) {
         throw new ApiError(409, "subagent_not_running", "The subagent is not currently running");
       }
       const clientMessageId = `subagent-steer:${callId}`;
@@ -648,14 +648,6 @@ export class SubagentService {
           select: { id: true, status: true },
         })
       : null;
-    const pendingApprovals = currentRun && ["running", "waiting_approval"].includes(currentRun.status)
-      ? await this.prisma.approval.findMany({
-          where: { runId: currentRun.id, status: "pending" },
-          orderBy: { createdAt: "asc" },
-          take: 8,
-          select: { id: true, details: true },
-        })
-      : [];
     // Prompt fingerprints are persisted as tool-kind diagnostics, not agent actions.
     // Filter before the recent-call limit so diagnostics cannot hide real activity.
     const activityWhere: Prisma.RunItemWhereInput = {
@@ -681,15 +673,6 @@ export class SubagentService {
       subagent_type: subagent.subagentType,
       status: subagent.status,
       run_status: currentRun?.status ?? null,
-      pending_approvals: pendingApprovals.map((approval) => {
-        const details = approval.details && typeof approval.details === "object" && !Array.isArray(approval.details)
-          ? approval.details as Record<string, unknown> : {};
-        return {
-          id: approval.id,
-          summary: typeof details.summary === "string" ? details.summary.slice(0, 500) : null,
-          reason: typeof details.reason === "string" ? details.reason.slice(0, 500) : null,
-        };
-      }),
       elapsed_seconds: Math.max(
         0,
         Math.round((end.getTime() - (subagent.startedAt ?? subagent.createdAt).getTime()) / 1_000)
@@ -724,7 +707,7 @@ export class SubagentService {
         return { subagent_id: botSubagentId(subagent.id), status: current.status, error: current.error, result: current.result };
       }
       const parent = await this.prisma.run.findUnique({ where: { id: attempt.parentRunId }, select: { status: true } });
-      if (!parent || !["running", "waiting_approval"].includes(parent.status)) {
+      if (!parent || !["running"].includes(parent.status)) {
         throw new ApiError(409, "parent_not_running", "The foreground task's parent is no longer running");
       }
       if (Date.now() >= deadline) return { foregroundPending: true, subagent_id: botSubagentId(subagent.id), attempt_id: attempt.id };

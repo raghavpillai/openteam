@@ -522,7 +522,7 @@ describe("mobile-safe OpenTeam client", () => {
       })) as unknown as typeof globalThis.fetch;
     const client = createOpenTeamClient({ baseUrl: "http://openteam.test", fetch });
 
-    await expect(client.resolveApproval("approval-1", "accept")).rejects.toMatchObject({
+    await expect(client.cancelRun("run-1")).rejects.toMatchObject({
       name: "OpenTeamClientError",
       code: "stale",
       status: 409,
@@ -603,7 +603,6 @@ describe("mobile-safe OpenTeam client", () => {
     expect(snapshot.channelRounds).toEqual([]);
     expect(snapshot.runs).toEqual([]);
     expect(snapshot.runItems).toEqual([]);
-    expect(snapshot.approvals).toEqual([]);
     expect(snapshot.subagents).toEqual([]);
   });
 });

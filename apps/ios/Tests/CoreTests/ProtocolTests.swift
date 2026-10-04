@@ -14,7 +14,6 @@ final class ProtocolTests: XCTestCase {
     XCTAssertEqual(snapshot.latestMessages.count, 7)
     XCTAssertEqual(snapshot.bots[0].dmChannelId, "channel-research")
     XCTAssertEqual(snapshot.latestMessages[1].replyTo, "message-1")
-    XCTAssertEqual(snapshot.pendingApprovals[0].status, "pending")
   }
   func testThreadAncestryHandlesUnorderedNestedCyclicAndMissingReplies() throws {
     var root = try fixture().latestMessages[0]

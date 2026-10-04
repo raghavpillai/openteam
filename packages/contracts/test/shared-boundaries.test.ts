@@ -59,7 +59,7 @@ describe("shared boundary codecs", () => {
     ).toBe("ok");
     expect(
       parseHostMachinesResponse({
-        machines: [{ machineId: "this-computer", label: "Mac", localToolPermission: "ask" }],
+        machines: [{ machineId: "this-computer", label: "Mac", }],
       }).machines
     ).toHaveLength(1);
   });

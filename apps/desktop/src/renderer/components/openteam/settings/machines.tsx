@@ -28,7 +28,7 @@ export function MachineSettings() {
   return <>
     <SectionLabel>Connected computers</SectionLabel>
     <SettingsGroup>
-      <p className="py-2 text-xs text-foreground-secondary">Connect the OpenTeam desktop app to this server on each computer. It joins automatically and stays listed when offline. Each computer keeps its own execution permissions.</p>
+      <p className="py-2 text-xs text-foreground-secondary">Connect the OpenTeam desktop app to this server on each computer. It joins automatically and stays listed when offline. </p>
       {local && !local.connected && <p role="status" className="py-2 text-xs text-foreground-secondary">{local.error ?? (local.configured ? "Connecting this computer…" : "Sign in to connect this computer.")}</p>}
       {machines.map(machine => <div key={machine.machineId} className="flex items-center gap-3 py-2 text-xs">
         <div className="min-w-0 flex-1"><div>{machine.label}{local?.machineId === machine.machineId ? " (this computer)" : ""} · {!machine.enabled ? "Disabled" : machine.connected ? "Online" : "Offline"}</div><div className="truncate text-foreground-secondary">{machine.transport === "relay" ? "Desktop app connection" : machine.bridgeUrl}</div></div>

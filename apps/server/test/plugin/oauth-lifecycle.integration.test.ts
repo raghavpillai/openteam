@@ -85,14 +85,6 @@ test.skipIf(!databaseUrl)(
         )
       ).toContain("Account A");
       expect(fixture.observations.refreshes).toBeGreaterThan(0);
-      await Effect.runPromise(
-        service.setPolicy(added.connectionId, {
-          botId: null,
-          toolName: "echo",
-          decision: "prompt",
-          enabled: false,
-        })
-      );
       fixture.notifyToolsChanged();
       for (let attempt = 0; attempt < 60; attempt++) {
         connection = await prisma.pluginConnection.findUniqueOrThrow({
@@ -102,11 +94,6 @@ test.skipIf(!databaseUrl)(
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
       expect(JSON.stringify(connection.toolSnapshot)).toContain("new_tool");
-      expect(
-        await prisma.pluginToolPolicy.findFirst({
-          where: { connectionId: added.connectionId, toolName: "echo", botId: null },
-        })
-      ).toMatchObject({ decision: "prompt", enabled: false });
       await authorize(second.id, "cancel");
       expect(
         await prisma.pluginConnection.findUniqueOrThrow({ where: { id: second.id } })

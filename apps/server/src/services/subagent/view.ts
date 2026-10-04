@@ -36,7 +36,7 @@ export const subagentActivityView = (attempt: StoredAttempt): Snapshot["subagent
   runInBackground: attempt.runInBackground,
   status: attempt.status as Snapshot["subagents"][number]["status"],
   // Completion text is a private parent wake. The renderer only needs durable
-  // lineage for active-task rows and child approvals; do not project the
+  // lineage for active-task rows; do not project the
   // child's result or failure payload into the client snapshot.
   summary: null,
   errorMessage: null,

@@ -6,7 +6,6 @@ import { Effect } from "effect";
 import type { ComputerTurnRequest } from "@openteam/contracts";
 import { AppService } from "../../server/src/app-service";
 import { WakeWorker } from "../src/worker";
-import { loadAutoReviewContext } from "../../server/src/services/auto-review-context";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 test.skipIf(!databaseUrl)(
@@ -90,8 +89,6 @@ test.skipIf(!databaseUrl)(
             if (input.content.includes("WP_SHELL_FINISHED")) {
               final = "WP_SHELL_SILENT: background shell completed.";
             } else if (input.content.includes("WP_ROUTINE_CHILD_RESULT")) {
-              const review = await loadAutoReviewContext(app!.prisma, { runId: input.runId, botId: input.botId } as any);
-              expect(review.some(message => message.source === "routine" && message.content === "WP_WAIT_CHILD")).toBe(true);
               final = "WP_FINAL_SILENT: child and verification completed.";
             } else if (input.content.includes("WP_WAIT_CHILD")) {
               await call("Task", { description: "Gated routine child", prompt: "WP_ROUTINE_CHILD", subagent_type: "executor", run_in_background: true });

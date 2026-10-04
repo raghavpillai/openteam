@@ -40,40 +40,7 @@ const record = (value: unknown, label: string): Record<string, unknown> => {
   return value as Record<string, unknown>;
 };
 
-const permissionUpdate = (value: unknown) => {
-  const input = record(value, "Permission update");
-  if (
-    input.machineLabel !== undefined &&
-    (typeof input.machineLabel !== "string" ||
-      !input.machineLabel.trim() ||
-      input.machineLabel.length > 80)
-  ) {
-    throw new Error("Machine label is invalid");
-  }
-  if (
-    input.localToolPermission !== undefined &&
-    !["always", "ask", "never"].includes(String(input.localToolPermission))
-  ) {
-    throw new Error("Local tool permission is invalid");
-  }
-  if (input.autoReviewEnabled !== undefined && typeof input.autoReviewEnabled !== "boolean") {
-    throw new Error("Auto Review setting is invalid");
-  }
-  return value;
-};
 
-const permissionRule = (value: unknown) => {
-  const input = record(value, "Permission rule");
-  if (
-    !["allow", "block"].includes(String(input.kind)) ||
-    typeof input.instruction !== "string" ||
-    !input.instruction.trim() ||
-    input.instruction.length > 1_000
-  ) {
-    throw new Error("Permission rule is invalid");
-  }
-  return value;
-};
 
 const downloadRequests = (value: unknown) => {
   if (!Array.isArray(value) || value.length === 0 || value.length > 24) {
@@ -199,24 +166,15 @@ contextBridge.exposeInMainWorld("openteam", {
       return () => ipcRenderer.removeListener("openteam:plugin-oauth:result", listener);
     },
   },
-  permissions: {
+  computer: {
       cancelSavedLoginSetup: () => ipcRenderer.invoke("openteam:capabilities:cancel-login"),
       syncSavedLogins: (connectionId?: string) => ipcRenderer.invoke("openteam:capabilities:sync-logins", connectionId),
-      setSavedLoginAlwaysAllow: (connectionId: string, alwaysAllow: boolean) => ipcRenderer.invoke("openteam:capabilities:allow-logins", { connectionId, alwaysAllow }),
     importSavedLoginToken: (token: string) => ipcRenderer.invoke("openteam:capabilities:import-login-token", token),
     listSavedLogins: () => ipcRenderer.invoke("openteam:capabilities:logins"),
     getCapabilities: () => ipcRenderer.invoke("openteam:capabilities:get"),
-    updateCapabilities: (input: { revoke?: "cookies" | "credentials" | "messages"; removeCredentialConnection?: string; messagesSendAll?: boolean }) => ipcRenderer.invoke("openteam:capabilities:update", input),
-    get: () => ipcRenderer.invoke("openteam:permissions:get"),
-    update: (request: {
-      machineLabel?: string;
-      localToolPermission?: "always" | "ask" | "never";
-      autoReviewEnabled?: boolean;
-    }) => ipcRenderer.invoke("openteam:permissions:update", permissionUpdate(request)),
-    addRule: (request: { kind: "allow" | "block"; instruction: string }) =>
-      ipcRenderer.invoke("openteam:permissions:add-rule", permissionRule(request)),
-    removeRule: (request: { kind: "allow" | "block"; instruction: string }) =>
-      ipcRenderer.invoke("openteam:permissions:remove-rule", permissionRule(request)),
+    updateCapabilities: (input: { revoke?: "credentials"; removeCredentialConnection?: string }) => ipcRenderer.invoke("openteam:capabilities:update", input),
+    get: () => ipcRenderer.invoke("openteam:computer:get"),
+    update: (request: { machineLabel: string }) => ipcRenderer.invoke("openteam:computer:update", request),
   },
   files: {
     downloadAll: (files: Array<{ fileName: string; url: string }>) =>

@@ -47,4 +47,4 @@ Add the subscription in **Settings → Server → Automation event subscriptions
 
 ## When a routine fails
 
-Open its **Run history** to see which runs failed, then check the conversation for the bot's message about the problem. Common causes are a disconnected plugin account, an expired model sign-in, or an approval waiting in the conversation. Fix the cause, then use **Test run** to check. See [troubleshooting](../manage/troubleshooting.md).
+Open its **Run history** to see which runs failed, then check the conversation for the bot's message about the problem. Common causes are a disconnected plugin account, an expired model sign-in, or missing information in the conversation. Fix the cause, then use **Test run** to check. See [troubleshooting](../manage/troubleshooting.md).

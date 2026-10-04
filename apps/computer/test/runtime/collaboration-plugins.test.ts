@@ -36,13 +36,7 @@ for (const [key, skillCount, commands] of [
     };
     const events: Record<string, (event: any) => Promise<any>> = {};
     await pluginComponentsExtension(
-      { pluginRuntimePackages: [pkg] } as any,
-      async () => {
-        throw new Error("These workflows have no inference hooks");
-      },
-      async () => {
-        throw new Error("These workflows have no approval hooks");
-      }
+      { pluginRuntimePackages: [pkg] } as any
     ).factory({
       on: (name: string, handler: any) => {
         events[name] = handler;
@@ -104,11 +98,7 @@ test("original command names and legacy aliases dispatch without ambiguous flat 
   const events: Record<string, (event: any) => Promise<any>> = {};
   const install = async (packages: PluginRuntimePackage[]) => {
     await pluginComponentsExtension(
-      { pluginRuntimePackages: packages } as any,
-      async () => {
-        throw new Error("Unexpected hook");
-      },
-      async () => false
+      { pluginRuntimePackages: packages } as any
     ).factory({
       on: (name: string, handler: any) => {
         events[name] = handler;
@@ -150,11 +140,7 @@ test.skipIf(process.env.OPENTEAM_TEST_UPSTREAM_SOURCES !== "1")(
     expect(pkg.commands).toHaveLength(6);
     const events: Record<string, (event: any) => Promise<any>> = {};
     await pluginComponentsExtension(
-      { pluginRuntimePackages: [pkg] } as any,
-      async () => {
-        throw new Error("Unexpected hook");
-      },
-      async () => false
+      { pluginRuntimePackages: [pkg] } as any
     ).factory({
       on: (name: string, handler: any) => {
         events[name] = handler;

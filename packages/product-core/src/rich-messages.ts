@@ -239,7 +239,7 @@ export const projectRichMessage = (
 
 /** Human-visible receipt: labels and statuses only, never values or page snapshots. */
 export const userFormOutcome = (
-  form: import("@openteam/contracts/review-cards").UserForm,
+  form: import("@openteam/contracts/user-forms").UserForm,
   metadata: Record<string, unknown>
 ): { summary: string; fields: Array<{ id: string; label: string; status: string }> } => {
   const state = String(metadata.cardState ?? "pending");

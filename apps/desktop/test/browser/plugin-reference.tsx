@@ -99,19 +99,16 @@ const connection: PluginConnectionView = {
       name: "search_repositories",
       description: "Search repositories.",
       risk: "read",
-      defaultDecision: "allow",
     },
     {
       name: "pull_request_read",
       description: "Read pull requests and diffs.",
       risk: "read",
-      defaultDecision: "allow",
     },
     {
       name: "issue_write",
       description: "Create or update an issue.",
       risk: "write",
-      defaultDecision: "prompt",
     },
   ],
 };
@@ -172,13 +169,6 @@ const settings: PluginSettingsView = {
     },
   ],
   botCount: 3,
-  policies: connection.tools.map((tool) => ({
-    id: `sample-policy-${tool.name}`,
-    connectionId: connection.id,
-    botId: null,
-    toolName: tool.name,
-    decision: tool.defaultDecision,
-  })),
   activity: [],
 };
 const bots = [
@@ -240,18 +230,6 @@ api.uninstallPlugin = async (key) => {
   if (plugin) plugin.installed = false;
 };
 api.pluginManagement = async () => structuredClone(management);
-api.pluginBotAccess = async () => ({
-  pluginKey: "github",
-  offset: 0,
-  limit: 60,
-  total: 3,
-  bots: bots.map((bot) => ({
-    ...bot,
-    enabled: bot.name === "Engineering",
-    skillsEnabled: false,
-    grantedConnectionIds: bot.name === "Engineering" ? [connection.id] : [],
-  })),
-});
 api.bots = async () => bots as Awaited<ReturnType<typeof api.bots>>;
 api.pluginPackage = async (key) => ({
   definition: structuredClone(definitions.find((p) => p.key === key) as PluginDefinition),

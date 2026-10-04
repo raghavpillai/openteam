@@ -201,7 +201,7 @@ export class GroupAdministration {
         const activeRuns = await tx.run.findMany({
           where: {
             channelId,
-            status: { in: ["queued", "running", "waiting_approval"] },
+            status: { in: ["queued", "running"] },
           },
           select: { id: true },
         });
@@ -226,10 +226,6 @@ export class GroupAdministration {
               completedAt,
               error: { code: "group_deleted" },
             },
-          });
-          await tx.approval.updateMany({
-            where: { runId: { in: runIds }, status: "pending" },
-            data: { status: "expired", resolvedAt: completedAt },
           });
         }
         await tx.channel.delete({ where: { id: channelId } });

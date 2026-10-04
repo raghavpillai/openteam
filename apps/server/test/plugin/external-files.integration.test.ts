@@ -4,7 +4,7 @@ import { PluginConnectors } from "../../src/services/plugin/connectors";
 import { Effect } from "effect";
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 test.skipIf(!databaseUrl)(
-  "native delivery respects legacy send review, binds reviewed bytes, and cannot replay sends",
+  "native delivery executes directly, binds staged bytes, and cannot replay sends",
   async () => {
     const db = createPrismaClient(databaseUrl!);
     const botId = crypto.randomUUID();
@@ -43,8 +43,6 @@ test.skipIf(!databaseUrl)(
           description: "Fixture",
           manifest: {},
           status: "installed",
-          mode: "enabled",
-          enablements: { create: { botId, enabled: true } },
         },
       });
       const connection = await db.pluginConnection.create({
@@ -57,8 +55,6 @@ test.skipIf(!databaseUrl)(
           status: "ready",
           configuration: {},
           credentials: {},
-          grants: { create: { botId, enabled: true } },
-          policies: { create: { botId, toolName: "slack_send_message", decision: "prompt" } },
         },
       });
       const service = new PluginConnectors(
@@ -96,31 +92,21 @@ test.skipIf(!databaseUrl)(
           },
         ],
       };
-      await expect(service.deliverConnectedChannel(request)).rejects.toThrow("requires review");
-      expect(writes).toBe(0);
+      await service.deliverConnectedChannel(request);
+      expect(writes).toBe(3);
       await expect(
         service.deliverConnectedChannel({
           ...request,
-          reviewedExternal: true,
           files: [{ ...request.files[0]!, bytes: Buffer.from("abd") }],
         })
       ).rejects.toThrow("changed");
-      expect(writes).toBe(0);
-      await service.deliverConnectedChannel({ ...request, reviewedExternal: true });
       expect(writes).toBe(3);
-      await service.deliverConnectedChannel({ ...request, reviewedExternal: true });
+      await service.deliverConnectedChannel({ ...request, });
       expect(writes).toBe(3);
-      await db.pluginToolPolicy.updateMany({
-        where: { connectionId: connection.id },
-        data: { decision: "deny" },
-      });
-      await expect(
-        service.deliverConnectedChannel({
-          ...request,
-          callId: crypto.randomUUID(),
-          reviewedExternal: true,
-        })
-      ).rejects.toThrow("policy");
+      await service.deliverConnectedChannel({ ...request, });
+      expect(writes).toBe(3);
+      await db.pluginConnection.update({where:{id:connection.id},data:{status:"disconnected"}});
+      await expect(service.deliverConnectedChannel({...request,callId:crypto.randomUUID()})).rejects.toThrow();
       expect(writes).toBe(3);
     } finally {
       globalThis.fetch = original;

@@ -13,7 +13,6 @@ import type {
 } from "@openteam/contracts/plugin-management";
 import type {
   AddCustomMcpInput,
-  ApprovalDecision,
   AssetRef,
   BotTranscriptView,
   BotView,
@@ -35,7 +34,6 @@ import type {
   DuplicateBotInput,
   InferenceProviderAuthSessionView,
   MessageDeliveryStatusView,
-  PluginBotAccessView,
   PluginConnectionStatusesView,
   PluginSettingsView,
   ReactToChannelMessageInput,
@@ -55,7 +53,6 @@ import type {
   ServerSettingsView,
   SetChannelHiddenInput,
   SetChannelMembersInput,
-  SetPluginToolPolicyInput,
   SidebarPreferences,
   SystemVersionView,
   UpdateBotInput,
@@ -171,7 +168,7 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         body: audio,
         signal,
       }),
-    machines: () => transport.request<Array<{machineId:string;label:string;bridgeUrl:string|null;transport?:string;localToolPermission?:string;connected:boolean;enabled:boolean}>>("/api/v0/server-settings/machines"),
+    machines: () => transport.request<Array<{machineId:string;label:string;bridgeUrl:string|null;transport?:string;connected:boolean;enabled:boolean}>>("/api/v0/server-settings/machines"),
     computerDisplay: () => transport.request<{width:number;height:number}>("/api/v0/server-settings/computer-display"),
     saveComputerDisplay: (value:{width:number;height:number}) => transport.request<{width:number;height:number}>("/api/v0/server-settings/computer-display",{method:"PATCH",body:JSON.stringify(value)}),
     registerMachine: (bridgeUrl:string) => transport.request("/api/v0/server-settings/machines",{method:"POST",body:JSON.stringify({bridgeUrl})}),
@@ -317,11 +314,6 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       }),
     rollbackPlugin: (key: string) =>
       transport.request(`/api/v0/plugins/${encodeURIComponent(key)}/rollback`, { method: "POST" }),
-    setPluginMode: (key: string, mode: "optional" | "default" | "required" | "disabled") =>
-      transport.request(`/api/v0/plugins/${encodeURIComponent(key)}/mode`, {
-        method: "POST",
-        body: JSON.stringify({ mode }),
-      }),
     syncPluginSkills: () => transport.request("/api/v0/plugins/sync", { method: "POST" }),
     savePluginSkill: (id: string | null, input: PluginSkillInput) =>
       transport.request<{ id: string }>(
@@ -340,20 +332,6 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         `/api/v0/plugin-connections/status?${params}`
       );
     },
-    pluginBotAccess: (
-      pluginKey: string,
-      query: { query?: string; offset?: number; limit?: number; signal?: AbortSignal } = {}
-    ) => {
-      const params = new URLSearchParams();
-      if (query.query) params.set("q", query.query);
-      if (query.offset !== undefined) params.set("offset", String(query.offset));
-      if (query.limit !== undefined) params.set("limit", String(query.limit));
-      const suffix = params.size > 0 ? `?${params}` : "";
-      return transport.request<PluginBotAccessView>(
-        `/api/v0/plugins/${encodeURIComponent(pluginKey)}/bot-access${suffix}`,
-        { signal: query.signal }
-      );
-    },
     installPlugin: (pluginKey: string, values?: Record<string, string | number | boolean>) =>
       transport.request("/api/v0/plugins/install", {
         method: "POST",
@@ -367,16 +345,6 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
     uninstallPlugin: (pluginKey: string) =>
       transport.request(`/api/v0/plugins/${encodeURIComponent(pluginKey)}`, {
         method: "DELETE",
-      }),
-    setPluginEnablement: (
-      pluginKey: string,
-      botId: string,
-      enabled: boolean,
-      skillsEnabled = enabled
-    ) =>
-      transport.request(`/api/v0/plugins/${encodeURIComponent(pluginKey)}/enablement`, {
-        method: "POST",
-        body: JSON.stringify({ botId, enabled, skillsEnabled }),
       }),
     connectPlugin: (connectionId: string) =>
       transport.request(`/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/connect`, {
@@ -431,16 +399,6 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         `/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/instructions`,
         { method: "PATCH", body: JSON.stringify({ instructions }) }
       ),
-    setPluginGrant: (connectionId: string, botId: string, enabled: boolean) =>
-      transport.request(`/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/grant`, {
-        method: "POST",
-        body: JSON.stringify({ botId, enabled }),
-      }),
-    setPluginPolicy: (connectionId: string, input: SetPluginToolPolicyInput) =>
-      transport.request(`/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/policy`, {
-        method: "POST",
-        body: JSON.stringify(input),
-      }),
     bootstrap: () => transport.request<ClientBootstrapView>("/api/v0/client-bootstrap"),
     listenForEvents: async (
       after: string,
@@ -685,9 +643,9 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
           body: JSON.stringify({ value, clientId: createId() }),
         }
       ),
-    mutateReviewAction: (messageId: string, action: "approve" | "cancel" | "refresh" | "import" | "unpublish", clientId?: string) =>
-      transport.request<RichMessageMutationView & { botId?: string }>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/review-action`, { method: "POST", body: JSON.stringify({ action, clientId }) }),
-    reviewRecipe: (messageId: string) => transport.request<import("@openteam/contracts").BotRecipe>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/review-action/recipe`),
+    mutateSharedTemplate: (messageId: string, action: "import" | "unpublish", clientId?: string) =>
+      transport.request<RichMessageMutationView & { botId?: string }>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/bot-template`, { method: "POST", body: JSON.stringify({ action, clientId }) }),
+    sharedTemplateRecipe: (messageId: string) => transport.request<import("@openteam/contracts").BotRecipe>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/bot-template/recipe`),
     mutateExternalDraft: (messageId: string, action: "save" | "send" | "cancel" | "refresh", edits?: Record<string, unknown>) =>
       transport.request<RichMessageMutationView>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/external-draft`, { method: "POST", body: JSON.stringify({ action, edits }) }),
     submitUserForm: (messageId: string, values: Record<string, string | boolean>, saveToVault = false) =>
@@ -710,11 +668,6 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       ),
     cancelRun: (runId: string) =>
       transport.request(`/api/v0/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }),
-    resolveApproval: (approvalId: string, decision: ApprovalDecision, selectedItems?: readonly string[]) =>
-      transport.request(`/api/v0/approvals/${encodeURIComponent(approvalId)}/resolve`, {
-        method: "POST",
-        body: JSON.stringify({ decision, selectedItems }),
-      }),
     registerPushDevice: (input: RegisterPushDeviceInput) =>
       transport.request("/api/v0/notification-devices", {
         method: "POST",

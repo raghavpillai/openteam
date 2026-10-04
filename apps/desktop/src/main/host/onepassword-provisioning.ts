@@ -8,7 +8,7 @@ import {
 } from "./capability-settings";
 
 export type SavedLoginBackend = (
-  operation: "import-token" | "view" | "disconnect" | "operation" | "sync" | "always-allow",
+  operation: "import-token" | "view" | "disconnect" | "operation" | "sync",
   input?: unknown,
   signal?: AbortSignal
 ) => Promise<any>;
@@ -42,15 +42,6 @@ export class OnePasswordProvisioning {
   async sync(connectionId?: string) {
     return applySavedLoginConnections(this.settings, await this.backend("sync", { connectionId }));
   }
-  async setAlwaysAllow(connectionId: string, alwaysAllow: boolean) {
-    if (typeof alwaysAllow !== "boolean") throw new Error("Invalid saved-login permission");
-    const rows = await this.backend("always-allow", { connectionId, alwaysAllow });
-    await this.settings.mutate((settings) => ({
-      ...settings,
-      revocationEpoch: (settings.revocationEpoch ?? 0) + 1,
-    }));
-    return applySavedLoginConnections(this.settings, rows);
-  }
   async disconnect(connectionId: string) {
     await this.backend("disconnect", { connectionId });
     return this.settings.update({ removeCredentialConnection: connectionId });
@@ -63,8 +54,6 @@ async function applySavedLoginConnections(settings: CapabilitySettingsStore, row
     account: identifier(row.accountId),
     vault: identifier(row.vaultId),
     vaultName: String(row.vaultName),
-    alwaysAllow: row.alwaysAllow === true,
-    permissionRevision: Number(row.permissionRevision ?? 0),
     generation: Number(row.generation ?? 0),
     lifecycleState: String(row.lifecycleState ?? "active"),
     itemCount: Number(row.itemCount ?? 0),
@@ -75,16 +64,14 @@ async function applySavedLoginConnections(settings: CapabilitySettingsStore, row
     const connections = remote;
     if (JSON.stringify(connections) === JSON.stringify(credentialConnections(settings)))
       return settings;
-    const permissions = (providers: CredentialProviderConnection[]) =>
+    const connectionVersions = (providers: CredentialProviderConnection[]) =>
       JSON.stringify(
         providers.map((row) => ({
           id: credentialConnectionId(row),
-          alwaysAllow: row.alwaysAllow === true,
           generation: row.generation ?? 0,
-          permissionRevision: row.permissionRevision ?? 0,
         }))
       );
-    const changed = permissions(connections) !== permissions(credentialConnections(settings));
+    const changed = connectionVersions(connections) !== connectionVersions(credentialConnections(settings));
     return {
       ...settings,
       credentialProviders: connections,

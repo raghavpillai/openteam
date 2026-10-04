@@ -97,7 +97,7 @@ export async function reconcileRoutineExecution(tx: Prisma.TransactionClient, ru
     orderBy: { createdAt: "desc" },
     select: { id: true, status: true, completedAt: true, error: true },
   });
-  if (family.some((entry) => ["queued", "running", "waiting_approval"].includes(entry.status)))
+  if (family.some((entry) => ["queued", "running"].includes(entry.status)))
     return;
   if (
     await tx.subagentAttempt.count({
@@ -129,7 +129,7 @@ export async function reconcileRoutineExecution(tx: Prisma.TransactionClient, ru
         ? "cancelled"
         : "failed";
   const updated = await tx.routineExecution.updateMany({
-    where: { runId: rootId, status: { in: ["queued", "running", "waiting_approval"] } },
+    where: { runId: rootId, status: { in: ["queued", "running"] } },
     data: {
       status,
       completedAt: final.completedAt ?? new Date(),
@@ -171,7 +171,7 @@ export async function automationContinuationRoute(
 export const AUTOMATION_RUN_INSTRUCTIONS = [
   "## Automation run: parent-mediated communication",
   "You are running a saved automation in a separate context with the parent's work capabilities. Complete its instruction autonomously. This mode overrides instructions elsewhere to acknowledge work or communicate directly.",
-  "You cannot mutate the visible chat, send to the user or another agent, react, ask a question, or surface a form, handoff, connector, draft, or share card. Local execution and Auto-review approvals remain available.",
+  "You cannot mutate the visible chat, send to the user or another agent, react, ask a question, or surface a form, handoff, connector, draft, or share card. Local execution remains available.",
   "Discover cursor.WakeParent with GetDynamicTools and invoke it with CallDynamicTool. WakeParent is the only route that wakes the parent to communicate outside this automation. Old instructions naming SendMessage or SendToUser mean: call WakeParent with the complete payload instead.",
   "If the saved instruction requires notifying, reminding, telling, or asking the user, you MUST call WakeParent even when the work succeeded. Also use it when the parent must message another agent, make a decision, or take over a blocker. Include the complete result and what the parent should do in message. A successful WakeParent immediately ends your turn; nothing afterward is delivered.",
   "For work that can wait until the parent's next natural boundary, finish with a concise, complete final assistant message. Only that final message is saved silently as the automation result. It does not wake the parent or reach the user. Stay quiet by default; no acknowledgements or progress narration.",
@@ -200,7 +200,7 @@ export async function wakeAutomationParent(
       run.botId !== context.botId ||
       run.origin !== "routine" ||
       run.channelId !== context.channelId ||
-      !["running", "waiting_approval"].includes(run.status)
+      !["running"].includes(run.status)
     ) {
       throw new ApiError(
         403,
@@ -285,7 +285,7 @@ export async function saveSilentAutomationResult(tx: Prisma.TransactionClient, r
   if (
     family.some(
       (entry) =>
-        entry.id !== runId && ["queued", "running", "waiting_approval"].includes(entry.status)
+        entry.id !== runId && ["queued", "running"].includes(entry.status)
     )
   )
     return;

@@ -93,18 +93,6 @@ final class AppStore {
   func activeRuns(_ id: String) -> [Run] {
     (state.bootstrap?.activeRuns ?? []).filter { $0.channelId == id && $0.isActive }
   }
-  func approvals(_ channel: Channel) -> [Approval] {
-    let runIDs = Set(activeRuns(channel.id).map(\.id))
-    let pending = (state.bootstrap?.pendingApprovals ?? []).filter {
-      runIDs.contains($0.runId) || $0.ownerConversationId == bot(for: channel)?.conversationId
-        || $0.ownerConversationId == channel.id
-    }
-    var result = Dictionary(
-      (state.approvals?[channel.id] ?? []).map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
-    for approval in pending where result[approval.id] == nil { result[approval.id] = approval }
-    return result.values.sorted { $0.id < $1.id }
-  }
-
   func start() async {
     #if DEBUG
       let args = ProcessInfo.processInfo.arguments
@@ -629,8 +617,6 @@ final class AppStore {
     let snapshot = try await api.get(
       "/api/v0/channels/\(API.segment(id))/client-state", as: ChannelState.self)
     guard epoch == generation, !Task.isCancelled else { return }
-    if state.approvals == nil { state.approvals = [:] }
-    state.approvals?[id] = snapshot.approvals
     persist()
   }
   func merge(_ incoming: [Message], channel: String) {

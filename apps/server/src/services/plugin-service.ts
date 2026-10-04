@@ -1,7 +1,6 @@
-import { setTimeout as delay } from "node:timers/promises";
+import { createHash } from "node:crypto";
 import { equalOAuthState, validateDesktopCallback, parseManualCallback, oauthCallbackMode, MANUAL_OAUTH_REDIRECT, type PluginOAuthDesktopContext } from "../plugins/oauth-callback";
 import type { PluginOAuthCallbackInput } from "@openteam/contracts/plugin-management";
-import { cancelPendingPluginWork } from "./plugin/pending-work";
 import { pluginToolArguments } from "./plugin/tool-arguments";
 import { connectionNamespace } from "@openteam/plugin-sdk";
 import type { ConfigurePluginConnectionInput, PluginTestInput } from "@openteam/contracts";
@@ -20,7 +19,6 @@ import {
   validateValues,
   type ConfigValue,
 } from "@openteam/plugin-sdk";
-import { PluginAccess } from "./plugin/access";
 import { PluginConnectors } from "./plugin/connectors";
 import { PluginInstallations } from "./plugin/installations";
 import { PluginInvocations } from "./plugin/invocations";
@@ -58,7 +56,6 @@ export class PluginService {
 
   private readonly connectors: PluginConnectors;
 
-  private readonly access: PluginAccess;
   readonly configuration: PluginConfiguration;
   readonly management: PluginManagement;
 
@@ -108,7 +105,6 @@ export class PluginService {
       (id, transport) => this.stopRuntime(id, transport)
     );
 
-    this.access = new PluginAccess(prisma);
     this.configuration = new PluginConfiguration(prisma, this.publicUrl, (id, transport) =>
       this.stopRuntime(id, transport)
     );
@@ -213,8 +209,6 @@ export class PluginService {
 
   pollConnectionStatuses = forwardServiceMethod(() => this.queries.pollConnectionStatuses);
 
-  botAccess = forwardServiceMethod(() => this.queries.botAccess);
-
   searchCatalog = forwardServiceMethod(() => this.queries.searchCatalog);
 
   catalogDetail = forwardServiceMethod(() => this.queries.catalogDetail);
@@ -227,70 +221,53 @@ export class PluginService {
     callId: string;
     action: string;
     arguments: unknown;
-  }): Promise<unknown> => {
-    const existing = await this.prisma.approval.findUnique({
-      where: { upstreamRequestId: `plugin-action:${request.callId}` },
+  }, signal?: AbortSignal): Promise<unknown> => {
+    signal?.throwIfAborted();
+    const scope = "plugin-action";
+    const key = request.callId;
+    const requestHash = createHash("sha256").update(canonicalJson({
+      runId: request.runId, botId: request.botId,
+      action: request.action, arguments: request.arguments,
+    })).digest("hex");
+    const where = { scope_key: { scope, key } };
+    const completedResponse = async (response: unknown) => ({
+      ...jsonObject(response),
+      ...await this.connectionStatuses() as object,
+      ...(request.action === "InstallPlugin" ? {
+        detail: await this.catalogDetail(String(pluginToolArguments(request.action, request.arguments).pluginKey)),
+      } : {}),
     });
-    if (existing && (existing.runId !== request.runId || jsonObject(existing.details).botId !== request.botId || jsonObject(existing.details).action !== request.action))
-      throw new ApiError(409, "plugin_action_mismatch", "This tool call belongs to another action");
-    if (existing && existing.status !== "pending") {
-      const details = jsonObject(existing.details);
-      const args = jsonObject(details.rawArguments);
-      // Preserve the reviewed outcome. Acceptance by itself is not proof of a successful action.
-      return {
-        status: existing.status,
-        completed: existing.status === "accepted" && details.actionResult != null && !details.actionError,
-        ...(details.actionError ? {error:details.actionError} : {}),
-        actionResult: details.actionResult,
-        ...(existing.status === "accepted" ? await this.connectionStatuses() as object : {}),
-        ...(existing.status === "accepted" && request.action === "InstallPlugin" && typeof args.pluginKey === "string" ? { detail: await this.catalogDetail(args.pluginKey) } : {}),
-      };
+    const replay = (record: { requestHash: string; status: string; response: unknown }) => {
+      if (record.requestHash !== requestHash)
+        throw new ApiError(409, "plugin_action_mismatch", "This tool call belongs to another action");
+      if (record.status === "completed") return completedResponse(record.response);
+      throw new ApiError(409, "plugin_action_in_progress", "This action has already started; inspect its result before retrying");
+    };
+    const existing = await this.prisma.idempotencyRecord.findUnique({ where });
+    if (existing) return replay(existing);
+    const args = await this.resolveToolArguments(request.action, request.arguments);
+    signal?.throwIfAborted();
+    try {
+      await this.prisma.idempotencyRecord.create({ data: {
+        scope, key, requestHash, expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60_000),
+      } });
+    } catch (error) {
+      const winner = await this.prisma.idempotencyRecord.findUnique({ where });
+      if (winner) return replay(winner);
+      throw error;
     }
-    if (!existing) {
-      request = { ...request, arguments: await this.resolveToolArguments(request.action, request.arguments) };
-      await this.prisma.approval.create({
-        data: {
-          runId: request.runId,
-          upstreamRequestId: `plugin-action:${request.callId}`,
-          requestMethod: "plugin/action",
-          kind: "permissions",
-          details: toJson({
-            action: request.action,
-            arguments: redact(request.arguments),
-            rawArguments: request.arguments,
-            botId: request.botId,
-            effect: `Confirm ${request.action} in OpenTeam. The tool continues with the result after review.`,
-          }),
-        },
-      });
-    }
-    throw new ApiError(
-      409,
-      "plugin_action_required",
-      `${request.action} is waiting for user confirmation`
-    );
+    // Claim before execution so simultaneous callers cannot repeat an install or write.
+    signal?.throwIfAborted();
+    const actionResult = await this.executeAction(request.action, args);
+    const response = { status: "completed", completed: true, actionResult };
+    await this.prisma.idempotencyRecord.update({ where, data: {
+      status: "completed", response: toJson(response),
+    } });
+    return completedResponse(response);
   };
 
-  async waitForAction(request:Parameters<PluginService["requestAction"]>[0],signal?:AbortSignal) {
-    for (;;) {
-      signal?.throwIfAborted();
-      try {return await this.requestAction(request);}
-      catch(error){if(!(error instanceof ApiError)||error.code!=="plugin_action_required")throw error;}
-      await delay(250,undefined,{signal});
-    }
-  }
-
-  resolveAction = async (
-    detailsValue: unknown,
-    decision: "accept" | "decline" | "cancel"
-  ): Promise<unknown> => {
-    if (decision !== "accept") return { status: decision === "decline" ? "declined" : "cancelled" };
-    const details = jsonObject(detailsValue);
-    const action = details.action;
-    const args = pluginToolArguments(String(action), details.rawArguments);
-    if (typeof action !== "string") {
-      throw new ApiError(409, "plugin_action_invalid", "Plugin action is missing its name");
-    }
+  private executeAction = async (action: string, rawArguments: unknown): Promise<unknown> => {
+    const args = pluginToolArguments(action, rawArguments);
     if (action === "InstallPlugin") {
       if (typeof args.pluginKey !== "string")
         throw new ApiError(400, "plugin_key_required", "pluginKey is required");
@@ -319,7 +296,7 @@ export class PluginService {
               : undefined,
           ...(oauth ? { oauth: { clientId: String(oauth.CLIENT_ID), clientSecret: typeof oauth.CLIENT_SECRET === "string" ? oauth.CLIENT_SECRET : undefined, scopes: stringArray(oauth.scopes) } } : {}),
           alias: typeof args.accountLabel === "string" ? args.accountLabel : undefined,
-          reviewedRequestId: typeof args.createServerId === "string" ? args.createServerId : undefined,
+          installationRequestId: typeof args.createServerId === "string" ? args.createServerId : undefined,
         })
       );
     }
@@ -376,7 +353,7 @@ export class PluginService {
   resolveToolArguments = async (action: string, value: unknown) => {
     const args = pluginToolArguments(action, value);
     for (const key of ["connectionIds", "createAccountLabel", "createAccountId", "createServerId"]) if (key in args)
-      throw new ApiError(400, "private_plugin_argument", `${key} is assigned by the approval service`);
+      throw new ApiError(400, "private_plugin_argument", `${key} is assigned by the action service`);
     if (action === "AddMcpServer") args.createServerId = crypto.randomUUID();
     if (action === "RestartMcpServers" && !args.connectionId && !args.server_id) {
       args.connectionIds = (await this.prisma.pluginConnection.findMany({
@@ -424,21 +401,6 @@ export class PluginService {
         (entry) => entry.name === input.toolName
       );
       if (!tool) throw new ApiError(404, "plugin_tool_not_found", "Tool not found");
-      const policy = await this.prisma.pluginToolPolicy.findFirst({
-        where: { connectionId, botId: null, toolName: tool.name },
-      });
-      if (policy?.enabled === false || policy?.decision === "deny")
-        throw new ApiError(
-          403,
-          "plugin_tool_denied",
-          "Enable this tool and allow testing before running it"
-        );
-      if (tool.risk !== "read" && input.confirmSideEffect !== true)
-        throw new ApiError(
-          409,
-          "plugin_test_confirmation_required",
-          "Review and confirm this tool's possible side effects before testing"
-        );
       validateJsonSchema(tool.inputSchema, input.arguments);
       const result = await this.transport.testConnection(connection, tool.name, input.arguments);
       await this.prisma.pluginActivity.create({
@@ -846,7 +808,7 @@ export class PluginService {
         const prior = await this.prisma.pluginConnection.findUnique({ where: { id: reviewedAccountId } });
         if (prior) {
           if (prior.installationId !== source.installationId || prior.connectorKey !== source.connectorKey || prior.alias !== alias)
-            throw new ApiError(409, "connection_review_changed", "The reviewed account changed; request a new approval");
+            throw new ApiError(409, "plugin_connection_changed", "The account changed; start a new action");
           return { id: prior.id, alias: prior.alias, status: prior.status };
         }
       }
@@ -898,13 +860,6 @@ export class PluginService {
         });
         const tools = toolSnapshot(source.toolSnapshot);
         if (tools.length) {
-          await tx.pluginToolPolicy.createMany({
-            data: tools.map((tool) => ({
-              connectionId: created.id,
-              toolName: tool.name,
-              decision: tool.defaultDecision,
-            })),
-          });
         }
         await tx.pluginActivity.create({
           data: {
@@ -946,7 +901,6 @@ export class PluginService {
   removeAccount = (connectionId: string) =>
     serviceEffect(async () => {
       const connection = await this.connectionOrThrow(connectionId);
-      await this.prisma.$transaction((tx) => cancelPendingPluginWork(tx, [connectionId]));
       const siblings = await this.prisma.pluginConnection.count({
         where: {
           installationId: connection.installationId,
@@ -974,7 +928,6 @@ export class PluginService {
             connectedAt: null,
           },
         });
-        await this.prisma.botPluginConnectionGrant.deleteMany({ where: { connectionId } });
         return { removed: true, reset: true };
       }
       await this.stopRuntime(connectionId, connection.transport);
@@ -1010,21 +963,9 @@ export class PluginService {
       return Effect.runPromise(this.connect(connectionId));
     });
 
-  setGrant = forwardServiceMethod(() => this.access.setGrant);
-
-  setEnablement = (pluginKey: string, botId: string, enabled: boolean, skillsEnabled = enabled) =>
-    this.access.setEnablement(pluginKey, botId, enabled, skillsEnabled);
-
-  setPolicy = forwardServiceMethod(() => this.access.setPolicy);
-
   dynamicNamespaces = forwardServiceMethod(() => this.queries.dynamicNamespaces);
 
   invoke = (request: Parameters<PluginInvocations["invoke"]>[0]) => this.invocations.invoke(request);
-
-  /** Only human review-card endpoints call this; never exposed through PluginCall. */
-  invokeReviewed = (request: Parameters<PluginInvocations["invoke"]>[0]) => this.invocations.invoke(request, true);
-
-  resolveInvocation = forwardServiceMethod(() => this.invocations.resolveInvocation);
 
   private async executeInvocation(callId: string): Promise<unknown> {
     return this.transport.executeInvocation(callId);
@@ -1081,22 +1022,6 @@ export class PluginService {
           "Connection setup changed while connecting. Try again with the current settings."
         );
       this.assertAvailable(current);
-      const saved = await tx.pluginToolPolicy.findMany({
-        where: { connectionId: connection.id, botId: null },
-        select: { toolName: true },
-      });
-      const newTools = tools.filter(
-        (tool) => !saved.some((policy) => policy.toolName === tool.name)
-      );
-      if (newTools.length) {
-        await tx.pluginToolPolicy.createMany({
-          data: newTools.map((candidate) => ({
-            connectionId: connection.id,
-            toolName: candidate.name,
-            decision: candidate.defaultDecision,
-          })),
-        });
-      }
       const value = await tx.pluginConnection.update({
         where: { id: connection.id },
         data: {
@@ -1124,12 +1049,11 @@ export class PluginService {
     });
   }
 
-  private assertAvailable(connection: { installation: { mode: string; status: string } }) {
+  private assertAvailable(connection: { installation: { status: string } }) {
     if (
-      connection.installation.mode === "disabled" ||
-      connection.installation.status !== "installed"
+      !["installed", "disabled"].includes(connection.installation.status)
     )
-      throw new ApiError(403, "plugin_disabled", "This plugin is disabled by workspace policy");
+      throw new ApiError(403, "plugin_disabled", "This plugin is not installed");
   }
 
   private validateConfiguration(connection: {
@@ -1182,7 +1106,7 @@ export class PluginService {
       const connections = await this.prisma.pluginConnection.findMany({
         where: {
           transport: "stdio",
-          installation: { status: "installed", mode: { not: "disabled" } },
+          installation: { status: "installed" },
           OR: [
             { status: "ready" },
             { status: "error", statusMessage: { startsWith: "Local runtime unavailable:" } },

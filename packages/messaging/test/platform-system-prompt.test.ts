@@ -191,7 +191,8 @@ describe("Grok-derived platform prompt integration", () => {
     expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("Background completion notifications");
     expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain("image-generation tools");
     expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain("do not assume a separate search tool");
-    expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("actual tool flow");
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain("Respect each computer's local permission setting");
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("Do not add permission requests, approval cards, or confirmation steps");
   });
 
   test("the copied question-widget example passes OpenTeam's real send validation", () => {

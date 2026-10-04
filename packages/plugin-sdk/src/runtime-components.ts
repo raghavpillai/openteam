@@ -30,9 +30,7 @@ export const PLUGIN_HOOK_EVENTS = [
 export type PluginHookEvent = (typeof PLUGIN_HOOK_EVENTS)[number];
 export interface PluginHook {
   event: PluginHookEvent;
-  command?: string;
-  prompt?: string;
-  model?: string;
+  command: string;
   timeout: number;
   matcher?: string;
   loopLimit?: number;
@@ -176,14 +174,13 @@ export function parsePluginRuntimeComponents(
         throw new Error(`Invalid hooks: ${event}`);
       for (const candidate of candidates) {
         const hook = objectValue(candidate);
-        const prompt = hook.type === "prompt" ? hook.prompt : undefined;
-        const command = hook.type !== "prompt" ? hook.command : undefined;
+        const command = hook.command;
         if (
-          typeof (command ?? prompt) !== "string" ||
-          !(command ?? prompt) ||
-          String(command ?? prompt).length > 20_000
+          typeof command !== "string" ||
+          !command ||
+          command.length > 20_000
         )
-          throw new Error(`Invalid hook command/prompt: ${event}`);
+          throw new Error(`Invalid hook command: ${event}`);
         if (hook.matcher !== undefined) {
           if (typeof hook.matcher !== "string" || hook.matcher.length > 512)
             throw new Error("Invalid hook matcher");
@@ -194,9 +191,7 @@ export function parsePluginRuntimeComponents(
           throw new Error("Hook timeout must be between 0 and 300 seconds");
         result.hooks.push({
           event: event as PluginHookEvent,
-          command: command as string | undefined,
-          prompt: prompt as string | undefined,
-          model: typeof hook.model === "string" ? hook.model : undefined,
+          command: command as string,
           timeout,
           matcher: hook.matcher as string | undefined,
           loopLimit:

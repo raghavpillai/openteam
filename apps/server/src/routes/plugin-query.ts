@@ -1,8 +1,6 @@
 import { pluginManagementRoutes } from "./plugin-management";
 import {
   ApiError,
-  PLUGIN_BOT_ACCESS_PAGE_SIZE,
-  PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH,
   PLUGIN_CONNECTION_ID_MAX_LENGTH,
   PLUGIN_CONNECTION_STATUS_MAX_IDS,
 } from "@openteam/contracts";
@@ -36,33 +34,6 @@ export async function pluginQueryRoutes(context: RouteContext): Promise<Response
     }
     return json(await run(app.pluginConnectionStatuses(connectionIds)));
   }
-  const pluginBotAccessMatch = path.match(/^\/api\/plugins\/([^/]+)\/bot-access$/);
-  if (request.method === "GET" && pluginBotAccessMatch?.[1]) {
-    const query = url.searchParams.get("q") ?? "";
-    if (query.length > PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH) {
-      throw new ApiError(
-        400,
-        "invalid_query_parameter",
-        `q cannot exceed ${PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH} characters`
-      );
-    }
-    const offset = boundedQueryInteger(url.searchParams.get("offset"), 0, 100_000, "offset");
-    const limit = boundedQueryInteger(
-      url.searchParams.get("limit"),
-      PLUGIN_BOT_ACCESS_PAGE_SIZE,
-      PLUGIN_BOT_ACCESS_PAGE_SIZE,
-      "limit"
-    );
-    if (limit < 1) {
-      throw new ApiError(400, "invalid_query_parameter", "limit must be at least 1");
-    }
-    return json(
-      await run(
-        app.pluginBotAccess(decodeURIComponent(pluginBotAccessMatch[1]), query, offset, limit)
-      )
-    );
-  }
-
   return dispatchRoutes(context, routes);
 }
 

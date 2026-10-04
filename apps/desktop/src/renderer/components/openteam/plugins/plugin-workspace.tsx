@@ -240,7 +240,7 @@ export default function PluginWorkspace({
                 <div className="flex flex-wrap items-center gap-2">
                   {catalog && (
                     <PluginButton onClick={() => onOpen(catalog)}>
-                      Bot access and plugin details
+                      Plugin details
                     </PluginButton>
                   )}
                   <PluginButton
@@ -250,13 +250,13 @@ export default function PluginWorkspace({
                     Export package
                   </PluginButton>
                   <PluginButton
-                    disabled={operation.busy || packageView?.mode === "required"}
+                    disabled={operation.busy}
                     onClick={() =>
                       remove === key
                         ? void operation.run(async () => {
                             await api.uninstallPlugin(key);
                             setKey("");
-                          }, "Plugin, accounts, and grants removed.")
+                          }, "Plugin and accounts removed.")
                         : setRemove(key)
                     }
                   >
@@ -269,7 +269,7 @@ export default function PluginWorkspace({
                     open={Boolean(packageView.update || packageView.skillSyncStatus === "error")}
                   >
                     <summary className="cursor-pointer text-sm font-medium">
-                      Package version, updates, and workspace policy
+                      Package version and updates
                     </summary>
                     <div className="mt-4 grid gap-4">
                       <p className="text-xs text-foreground-secondary">
@@ -297,30 +297,6 @@ export default function PluginWorkspace({
                           </PluginButton>
                         </div>
                       )}
-                      <PluginField label="Workspace installation policy">
-                        <select
-                          className={inputClass}
-                          value={packageView.mode}
-                          disabled={operation.busy}
-                          onChange={(event) =>
-                            void operation.run(() =>
-                              api.setPluginMode(
-                                key,
-                                event.target.value as PluginPackageView["mode"]
-                              )
-                            )
-                          }
-                        >
-                          <option value="optional">Optional — Bots opt in</option>
-                          <option value="default">Default — enabled for Bots</option>
-                          <option value="required">Required — Bots cannot disable</option>
-                          <option value="disabled">Disabled by workspace</option>
-                        </select>
-                      </PluginField>
-                      <p className="text-xs text-foreground-secondary">
-                        Account grants remain explicit. Making a plugin required does not share your
-                        accounts automatically.
-                      </p>
                       {packageView.update && (
                         <section className="rounded-lg bg-blue-500/10 p-3">
                           <p className="font-medium">
@@ -392,7 +368,7 @@ export default function PluginWorkspace({
                   </>
                 ) : (
                   <p className="text-sm text-foreground-secondary">
-                    This package provides skills. Open Bot access to enable them for your Bots.
+                    This package provides skills for your Bots.
                   </p>
                 )}
               </>

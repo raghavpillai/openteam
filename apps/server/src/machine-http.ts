@@ -4,7 +4,6 @@ import type { MachineService } from "./services/machine-service";
 /** Device credentials authorize only this machine's channel, never general API access. */
 export async function machineChannelResponse(
   machines: MachineService, request: Request, path: string,
-  review: (value: unknown) => Promise<unknown>,
   savedLogin?: (value: unknown) => Promise<unknown>,
 ) {
   const machine = await machines.authenticate(request);
@@ -42,7 +41,6 @@ export async function machineChannelResponse(
     await machines.heartbeat(machine.machineId, input);
     return Response.json(await machines.relay.poll(machine.machineId, connectionId, input.active as string[], request.signal));
   }
-  if (path === `${prefix}/review` && request.method === "POST") return Response.json(await review(await readJson()));
   if (path === `${prefix}/saved-login` && request.method === "POST" && savedLogin) {
     if (!machines.relay.connected(machine.machineId)) throw new ApiError(409, "machine_offline", "Connect this computer before using saved logins");
     return Response.json(await savedLogin(await readJson()), { headers: { "cache-control": "no-store" } });

@@ -34,7 +34,7 @@ const contracts: Record<string, ToolContract> = adapt(reference);
 // access that the runtime correctly refuses; the status endpoint is scoped.
 contracts.CheckSubagent!.description = contracts.CheckSubagent!.description.replace(
   "Returns its status, how long it has been running, the tool calls it has made recently, and a path to its live transcript you can Read for the full play-by-play.",
-  "Returns an active worker's status, elapsed time, recent tool-call names and statuses, and pending approvals. Finished workers cannot be inspected here; their results are delivered automatically when they finish. Use cursor.ReadTranscript with subagent_id for saved observable activity, including finished workers. Any transcript_path is diagnostic metadata; private child session files cannot be opened with Read."
+  "Returns an active worker's status, elapsed time, recent tool-call names and statuses. Finished workers cannot be inspected here; their results are delivered automatically when they finish. Use cursor.ReadTranscript with subagent_id for saved observable activity, including finished workers. Any transcript_path is diagnostic metadata; private child session files cannot be opened with Read."
 );
 // DOM-first observations replace the older capture's implicit screenshots.
 // Keep argument schemas unchanged and reserve images for explicit visual tools.
@@ -161,7 +161,7 @@ for (const excluded of ["CloudAgent", "GenerateImage", "request_scm_connect"])
   );
 const send = contracts.SendToUser!;
 export const SEND_TO_USER_BATCH_GUIDANCE =
-  "When several separate text replies to the same conversation are fully ready, emit their SendToUser calls together in one assistant response, in display order, instead of waiting for a model round trip between messages. Keep end_turn false until the final call. Do not batch messages whose content depends on a preceding tool result, user input, or approval.";
+  "When several separate text replies to the same conversation are fully ready, emit their SendToUser calls together in one assistant response, in display order, instead of waiting for a model round trip between messages. Keep end_turn false until the final call. Do not batch messages whose content depends on a preceding tool result, or user input.";
 send.inputSchema.properties.type.enum = send.inputSchema.properties.type.enum.filter(
   (type: string) => type !== "cursor-agent"
 );

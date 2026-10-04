@@ -64,26 +64,13 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)(
       expect(stored.token).not.toContain(complete.token);
       expect(view[0]?.generation).toBe(1);
       expect(view[0]).toMatchObject({
-        alwaysAllow: false,
-        permissionRevision: 1,
         itemCount: 1,
         lifecycleState: "active",
         lastSyncErrorCode: null,
       });
       expect(view[0]?.lastSuccessfulSyncAt).toBeInstanceOf(Date);
-      await expect(service.setAlwaysAllow({ connectionId, alwaysAllow: "true" })).rejects.toThrow();
-      expect((await service.setAlwaysAllow({ connectionId, alwaysAllow: true }))[0]).toMatchObject({
-        alwaysAllow: true,
-        permissionRevision: 2,
-      });
-      duringRead = () =>
-        service.setAlwaysAllow({ connectionId, alwaysAllow: false }).then(() => undefined);
-      await expect(
-        service.operation({ operation: "get", accountId, vaultId, itemId: "fixture-login" })
-      ).rejects.toThrow("connection changed");
+      expect(await service.operation({ operation: "get", accountId, vaultId, itemId: "fixture-login" })).toMatchObject({id:"fixture-login"});
       expect((await service.view())[0]).toMatchObject({
-        alwaysAllow: false,
-        permissionRevision: 3,
         lastSyncErrorCode: null,
       });
       duringRead = undefined;
@@ -165,15 +152,14 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)(
       failRead = false;
       const result = await service.importToken({ token: ` ${token} ` });
       expect(result).toHaveLength(1);
-      expect(result[0]).toMatchObject({ id: connectionId, vaultName: "Existing Engineering Vault", itemCount: 1, alwaysAllow: false });
+      expect(result[0]).toMatchObject({ id: connectionId, vaultName: "Existing Engineering Vault", itemCount: 1, });
       expect(JSON.stringify(result)).not.toContain(token);
       const stored = await db.savedLoginConnection.findUniqueOrThrow({ where: { id: connectionId } });
       expect(cipher.decrypt(stored.token!, connectionId)).toBe(token);
       await service.operation({ operation: "list", accountId: "service-account", vaultId });
       expect(tokens.at(-1)).toBe(token);
-      await service.setAlwaysAllow({ connectionId, alwaysAllow: true });
       await service.importToken({ token: "ops_synthetic_renewed_manual_token" });
-      expect((await service.view())[0]).toMatchObject({ generation: 2, alwaysAllow: false, permissionRevision: 3 });
+      expect((await service.view())[0]).toMatchObject({ generation: 2, });
       await service.disconnect(connectionId);
       expect((await db.savedLoginConnection.findUniqueOrThrow({ where: { id: connectionId } })).token).toBeNull();
       expect(await service.view()).toEqual([]);
@@ -185,7 +171,7 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)(
 );
 
 test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)(
-  "one token connects multiple existing vaults atomically with independent permissions and disconnects",
+  "one token connects multiple existing vaults atomically with independent connections and disconnects",
   async () => {
     const db = createPrismaClient(process.env.OPENTEAM_TEST_DATABASE_URL!);
     const first = crypto.randomUUID(), second = crypto.randomUUID();
@@ -208,12 +194,9 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)(
       failure = false;
       const rows = await service.importToken({ token });
       expect(rows.map(row => row.vaultName).sort()).toEqual(["Existing Family", "Existing Work"]);
-      expect(rows.every(row => row.alwaysAllow === false)).toBe(true);
       const records = await db.savedLoginConnection.findMany({ where: { vaultId: { in: [first, second] } } });
       for (const row of records) expect(cipher.decrypt(row.token!, row.id)).toBe(token);
       expect(records[0]!.token).not.toBe(records[1]!.token);
-      await service.setAlwaysAllow({ connectionId: firstId, alwaysAllow: true });
-      expect((await service.view()).find(row => row.id === secondId)?.alwaysAllow).toBe(false);
       await service.disconnect(firstId);
       await expect(service.operation({ operation: "list", accountId: "service-account", vaultId: first })).rejects.toThrow("Renew");
       await service.operation({ operation: "list", accountId: "service-account", vaultId: second });

@@ -179,7 +179,6 @@ const drawChat = () =>
         selectedBot={bots[0]}
         botById={botById}
         agentNameById={emptyMap}
-        approvalsByRun={emptyMap}
         itemsByRun={emptyMap}
         capabilities={CLIENT_CAPABILITIES}
         messages={[...messages]}

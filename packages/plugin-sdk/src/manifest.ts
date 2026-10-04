@@ -195,10 +195,9 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
       if (tools.has(tool.name)) throw new Error(`Duplicate tool: ${tool.name}`);
       tools.add(tool.name);
       if (
-        !["read", "write", "destructive"].includes(tool.risk) ||
-        !["deny", "prompt", "allow"].includes(tool.defaultDecision)
+        !["read", "write", "destructive"].includes(tool.risk)
       )
-        throw new Error(`Invalid tool policy: ${tool.name}`);
+        throw new Error(`Invalid tool risk: ${tool.name}`);
       if (!Object.keys(objectValue(tool.inputSchema)).length)
         throw new Error(`Tool schema is required: ${tool.name}`);
     }

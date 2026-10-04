@@ -204,7 +204,7 @@ export const mobileFixture: ClientSnapshot = {
       id: "run-research",
       botId: "bot-research",
       conversationId: "conversation-research",
-      status: "waiting_approval",
+      status: "running",
       runtimeTurnId: "turn-1",
       origin: "user",
       channelId: "channel-research",
@@ -215,24 +215,6 @@ export const mobileFixture: ClientSnapshot = {
     },
   ],
   runItems: [],
-  approvals: [
-    {
-      id: "approval-1",
-      runId: "run-research",
-      runItemId: null,
-      kind: "computer_action",
-      status: "pending",
-      details: {
-        title: "Open the reference app",
-        description: "Continue the live iPhone walkthrough.",
-      },
-      createdAt: now,
-      ownerConversationId: "conversation-research",
-      parentRunId: "run-research",
-      parentToolCallId: null,
-      subagentId: null,
-    },
-  ],
   subagents: [],
   runtime: {
     server: "ready",

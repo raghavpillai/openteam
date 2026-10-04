@@ -22,7 +22,6 @@ import { pluginQueryRoutes } from "./routes/plugin-query";
 import { routineRoutes } from "./routes/routine";
 import { settingsRoutes } from "./routes/settings";
 import { transcriptionRoutes } from "./routes/transcription";
-import { parseAutoReviewInput } from "./services/auto-review-service";
 import { systemVersion } from "./system-version";
 import { ScreenVncProxy, type VncConnection } from "./screen-vnc";
 
@@ -94,7 +93,7 @@ const server = Bun.serve<VncConnection>({
       }
       if (path.startsWith("/api/machines/channel/")) {
         requestServer.timeout(networkRequest, 0);
-        return await machineChannelResponse(app.machines, request, path, value => app.autoReview.review(parseAutoReviewInput(value)), value => app.savedLogins.operation(value));
+        return await machineChannelResponse(app.machines, request, path, value => app.savedLogins.operation(value));
       }
       const machineRelay = path.match(/^\/api\/internal\/machines\/([\da-f-]{36})\/bridge(\/.*)$/i);
       if (machineRelay) {
@@ -113,7 +112,7 @@ const server = Bun.serve<VncConnection>({
         return await receiveAutomationWebhook(request, binding, (binding.secretEnv ? process.env[binding.secretEnv] : "") ?? "", (owner, event) => app.routines.dispatchEvent(owner, event));
       }
       const publicTemplate = path.match(/^\/api\/templates\/([a-f0-9-]{36})$/i);
-      if (request.method === "GET" && publicTemplate?.[1]) return json(await app.reviewRecipe(publicTemplate[1], true));
+      if (request.method === "GET" && publicTemplate?.[1]) return json(await app.sharedTemplateRecipe(publicTemplate[1], true));
       if (request.method === "GET" && path === "/api/auth/config") {
         return json({ mode: authMode });
       }
@@ -191,16 +190,6 @@ const server = Bun.serve<VncConnection>({
       if (request.method === "POST" && path === "/api/internal/shell-completions") {
         if (!authorizedInternal(request)) return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
         return json(await app.messaging.completeShell(await parseBody(request, ShellCompletionInput)));
-      }
-      if (request.method === "POST" && path === "/api/internal/permissions/auto-review") {
-        if (!authorizedInternal(request)) {
-          return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
-        }
-        return json(await run(app.reviewPermission(parseAutoReviewInput(await request.json()))));
-      }
-      if (request.method === "POST" && path === "/api/internal/permissions/review-action") {
-        if (!authorizedInternal(request)) return json({ error: "Unauthorized" }, 401);
-        return await app.reviewPolicy.action(await request.json());
       }
       if (request.method === "POST" && path === "/api/internal/broadcast") {
         if (!authorizedInternal(request)) {

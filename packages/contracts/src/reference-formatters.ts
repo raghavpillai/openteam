@@ -93,10 +93,10 @@ function describeCredential(view) {
   const browser = ` \xB7 browser login${view.siteMatch != null ? ` ${view.siteMatch} match` : ""}`;
   return `- "${view.title}" (${view.category}${sites}${browser} \xB7 Auto fill ${view.autoFill ? "on" : "off"}) \u2014 credential_id: ${view.credentialId} \xB7 connection_id: ${view.connectionId} \xB7 catalog_revision: ${view.catalogRevision}`;
 }
-const AUTO_FILL_ON_GUIDANCE = "Auto fill is on for this login, so no approval card is needed: OpenTeam fills it on its own as soon as that sign-in page is the focused page in the box browser. Do not send a credential-request for it. Have the subagent bring the page to the front, wait a moment, and re-check, then continue from whatever the page shows; send a credential-request only if the login fields are still empty after that.";
-const AUTO_FILL_RULE = "Auto fill on means OpenTeam fills that login on its own, with no approval card, once its sign-in page is the focused page in the box browser and it is the only saved login matching that page. Auto fill off means the user approves each fill through a credential-request.";
-const CREDENTIAL_REQUEST_GUIDANCE = 'For a website Login/Password item with Auto fill off (or one that did not fill on its own), send {"type":"credential-request","credential":{"kind":"browser-login","credential_id":"\u2026","connection_id":"\u2026","catalog_revision":"\u2026","site":"https://current.example/login","purpose":"sign in to continue the requested task"}}. Use the URL computerUse reports, never one of the saved item URLs above. OpenTeam treats `site` as a hint, selects an actual open page allowed by the item\'s target rules, binds approval to that live origin, then re-checks and fills that same host. You never receive either value, and you never ask the user to type or paste a password. Continue with computerUse to submit; use request_box_help only for a remaining SSO, passkey, 2FA, captcha, or payment step.';
-const COOKIE_ORIGIN_APPROVAL_FAILURE_BY_STAGE = {
+const AUTO_FILL_ON_GUIDANCE = "OpenTeam fills the only saved login matching the focused sign-in page automatically. Bring that page to the front, then check the result. If the fields remain empty, use a credential-request to fill privately.";
+const AUTO_FILL_RULE = "Saved logins fill privately in the focused browser page when exactly one login matches. Multiple matches require selecting the intended saved login.";
+const CREDENTIAL_REQUEST_GUIDANCE = 'For a saved website login that did not fill automatically, send {"type":"credential-request","credential":{"kind":"browser-login","credential_id":"…","connection_id":"…","catalog_revision":"…","site":"https://current.example/login","purpose":"sign in to continue the requested task"}}. Use the live URL reported by computerUse. The host selects the matching open page, verifies its origin, and fills privately. You never receive the credential values. Continue with computerUse to submit; hand off user-only authentication when required.';
+const COOKIE_IMPORT_FAILURE_BY_STAGE = {
   enumerate: "the desktop failed while listing Chrome cookies, so nothing could be selected",
   collect: "the desktop failed while collecting the granted cookies",
   inject: "the box failed while injecting them into its browser"
@@ -108,7 +108,7 @@ function describeGrants(grants) {
   if (grants.length === 0) return "no origins";
   return grants.map((grant) => `${grant.origin} on ${grant.profileId}`).join(", ");
 }
-function formatCookieOriginApprovalOutcome(outcome) {
+function formatChromeCookieImportOutcome(outcome) {
   if (outcome.kind === "listed") {
     if (outcome.items.length === 0) {
       return "No Chrome cookie origins are available to request.";
@@ -127,16 +127,16 @@ function formatCookieOriginApprovalOutcome(outcome) {
     return outcome.message;
   }
   if (outcome.kind === "failed") {
-    if (outcome.injected > 0) return `The user chose ${outcome.decision} for ${describeGrants(outcome.grants)}. Injected ${outcome.injected} cookie(s), but injection stopped before ${outcome.failed} remaining cookie(s). Some logins may already be active. Do not retry unless the user asks.`;
+    if (outcome.injected > 0) return `Imported cookies for ${describeGrants(outcome.grants)}. Injected ${outcome.injected} cookie(s), but injection stopped before ${outcome.failed} remaining cookie(s). Some logins may already be active. Do not retry unless the user asks.`;
     if (outcome.errorClass === "ChromeCookieImportPermissionError" || outcome.errorClass === "ChromeSafeStoragePermissionError") {
-      return `The user chose ${outcome.decision} for ${describeGrants(outcome.grants)}, but ${COOKIE_ORIGIN_APPROVAL_FAILURE_BY_STAGE[outcome.stage]} (${outcome.errorClass}). No cookies were injected. Ask the user to turn on OpenTeam in System Settings \u2192 Privacy & Security \u2192 Full Disk Access and Automation (Finder), click Always Allow on Chrome Safe Storage, then retry.`;
+      return `Cookie import for ${describeGrants(outcome.grants)} failed because ${COOKIE_IMPORT_FAILURE_BY_STAGE[outcome.stage]} (${outcome.errorClass}). No cookies were injected. Ask the user to turn on OpenTeam in System Settings \u2192 Privacy & Security \u2192 Full Disk Access and Automation (Finder), click Always Allow on Chrome Safe Storage, then retry.`;
     }
-    return `The user chose ${outcome.decision} for ${describeGrants(outcome.grants)}, but ${COOKIE_ORIGIN_APPROVAL_FAILURE_BY_STAGE[outcome.stage]} (${outcome.errorClass}). No cookies were injected. Tell the user Chrome cookie import failed; do not retry unless they ask.`;
+    return `Cookie import for ${describeGrants(outcome.grants)} failed because ${COOKIE_IMPORT_FAILURE_BY_STAGE[outcome.stage]} (${outcome.errorClass}). No cookies were injected. Tell the user Chrome cookie import failed; do not retry unless they ask.`;
   }
   if (outcome.decision === "deny") {
     return "The user denied Chrome cookie access. Do not retry unless they ask.";
   }
-  return `The user chose ${outcome.decision} for ${describeGrants(outcome.grants)}. Injected ${outcome.injected} cookie(s).`;
+  return `Imported cookies for ${describeGrants(outcome.grants)}. Injected ${outcome.injected} cookie(s).`;
 }
 function truncationNotice(result, spansWholeHistory) {
   if (result.truncated === void 0) return void 0;
@@ -356,4 +356,4 @@ function buildUserFormRemapReceipt(outcome) {
     `The held values for this form are now discarded (one remap per form).${anyFailed ? " For a field that did not land, do NOT immediately re-issue a form for it: the user already typed it once. Continue the task if the page moved on, or hand the user the screen with request_box_help; re-ask with a new request_user_form only if the step cannot proceed any other way." : ""} Take a fresh page SNAPSHOT (not a screenshot) before the next action, and click the site's submit control yourself.]`
   ].join("\n");
 }
-export { formatBytes2, describeUploadFileOutcome, formatBytes, describeDownloadFileOutcome, renderCredentialProviderStatus, credentialSiteHost, describeCredential, describeCookieOriginRequestEntry, describeGrants, formatCookieOriginApprovalOutcome, truncationNotice, renderContactsResult, MCP_LABEL_HOSTILE_CHARS, encodeMcpAccountLabelForListing, DEFAULT_MCP_CONNECTOR_INSTRUCTIONS, getDefaultMcpCustomInstruction, truncateOneLine, describeInstalled, describeInstalledList, describePluginInstallState, describePluginIncludes, describePluginSummary, describePluginFields, describePluginDetail, PLUGIN_QUERY_MIN_TOKEN_LENGTH, tokenizePluginQuery, scorePluginForToken, rankPluginsLexically, formatOutputLocationSize, describeOutputLocation, SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME, SAND_REMAP_USER_FORM_TARGETS_CALL_HINT, REMAP_FAILED_STATUS_BY_KIND, buildUserFormRemapReceipt, AUTO_FILL_ON_GUIDANCE, AUTO_FILL_RULE, CREDENTIAL_REQUEST_GUIDANCE };
+export { formatBytes2, describeUploadFileOutcome, formatBytes, describeDownloadFileOutcome, renderCredentialProviderStatus, credentialSiteHost, describeCredential, describeCookieOriginRequestEntry, describeGrants, formatChromeCookieImportOutcome, truncationNotice, renderContactsResult, MCP_LABEL_HOSTILE_CHARS, encodeMcpAccountLabelForListing, DEFAULT_MCP_CONNECTOR_INSTRUCTIONS, getDefaultMcpCustomInstruction, truncateOneLine, describeInstalled, describeInstalledList, describePluginInstallState, describePluginIncludes, describePluginSummary, describePluginFields, describePluginDetail, PLUGIN_QUERY_MIN_TOKEN_LENGTH, tokenizePluginQuery, scorePluginForToken, rankPluginsLexically, formatOutputLocationSize, describeOutputLocation, SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME, SAND_REMAP_USER_FORM_TARGETS_CALL_HINT, REMAP_FAILED_STATUS_BY_KIND, buildUserFormRemapReceipt, AUTO_FILL_ON_GUIDANCE, AUTO_FILL_RULE, CREDENTIAL_REQUEST_GUIDANCE };

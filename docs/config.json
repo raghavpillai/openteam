@@ -113,8 +113,8 @@
           "file": "configuration/apps.md"
         },
         {
-          "title": "Approvals and privacy",
-          "file": "configuration/approvals.md"
+          "title": "Privacy and connected services",
+          "file": "configuration/privacy.md"
         }
       ]
     },

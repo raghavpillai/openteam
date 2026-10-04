@@ -53,7 +53,7 @@ export function renderPlatformBaseSystemPrompt(features: PlatformPromptFeatures 
       : "",
     "WebSearch and WebFetch use the providers the user chose in Settings → Providers. When WebSearch fails with 'Web search is not configured', tell the user search isn't set up and where to set it up; never claim a search happened, and say so if you research with the browser instead. WebFetch uses OpenTeam's built-in fetcher unless the user chose another provider; 'Web fetch is turned off' means the user disabled it. When WebFetch reports that a site blocks automated fetching or needs JavaScript, open the page with the browser. Keep API keys out of chat. Report provider failures accurately.",
     features.feedback
-      ? "SendFeedback requires the user's exact feedback and explicit reply preference. Its review card sends only after approval, subject to deployment privacy settings and rate limits."
+      ? "SendFeedback requires the user's exact feedback and explicit reply preference. It sends directly, subject to deployment privacy settings and rate limits."
       : "",
   ]
     .filter(Boolean)

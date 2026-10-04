@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { WakeWorker } from "../src/worker";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
-for (const status of ["completed", "failed", "cancelled", "interrupted", "running", "waiting_approval"] as const) {
-  test.skipIf(!databaseUrl)(`a ${status} run's unexpired lease ${["running", "waiting_approval"].includes(status) ? "protects active work" : "does not block the next message after a crash"}`, async () => {
+for (const status of ["completed", "failed", "cancelled", "interrupted", "running"] as const) {
+  test.skipIf(!databaseUrl)(`a ${status} run's unexpired lease ${["running"].includes(status) ? "protects active work" : "does not block the next message after a crash"}`, async () => {
     const root = await mkdtemp(join(tmpdir(), "terminal-lease-"));
     const keys = ["DATABASE_URL", "OPENTEAM_WORKSPACE_ROOT", "OPENTEAM_AGENT_DATA_ROOT"] as const;
     const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
@@ -24,7 +24,7 @@ for (const status of ["completed", "failed", "cancelled", "interrupted", "runnin
       const next = await db.run.create({ data: { botId, conversationId, channelId, userMessageId: crypto.randomUUID(), status: "queued" } });
       await db.inboxEvent.create({ data: { botId, conversationId, runId: next.id, idempotencyKey: crypto.randomUUID(), type: "user.message", payload: { content: "Continue after restart", clientId: crypto.randomUUID(), channelId } } });
       const claimed = await (worker as unknown as { claim(id: string): Promise<{ runId: string } | null> }).claim(botId);
-      if (["running", "waiting_approval"].includes(status)) {
+      if (["running"].includes(status)) {
         expect(claimed).toBeNull();
         expect(await db.botRunLease.findFirst({ where: { botId } })).toMatchObject({ runId: old.id, ownerId: "prior-worker" });
       } else {

@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import type { BotRecipe, ChannelMessageView } from "@openteam/contracts";
 import "../../src/renderer/styles.css";
 import { api } from "../../src/renderer/client/openteam-api";
-import { ReviewActionCard } from "../../src/renderer/components/openteam/review-action-card";
+import { SharedTemplateCard } from "../../src/renderer/components/openteam/shared-template-card";
 
 // Manual browser QA: this fixture has no external side effects. All mutations
 // are recorded visibly so read-only review can be distinguished from publishing.
@@ -50,15 +50,15 @@ const message = {
   id: "synthetic-template",
   content: "",
   metadata: {
-    type: "review-action",
-    cardState: "pending",
-    review: { kind: "template", recipe, version: 1 },
+    type: "bot-template",
+    cardState: "published",
+    template: { recipe, version: 1 },
   },
 } as ChannelMessageView;
 let failNext = false;
 let reflect: (actions: string[]) => void = () => undefined;
 const actions: string[] = [];
-api.mutateReviewAction = (async (_id: string, action: string) => {
+api.mutateSharedTemplate = (async (_id: string, action: string) => {
   actions.push(action);
   reflect([...actions]);
   await new Promise((resolve) => setTimeout(resolve, 150));
@@ -72,13 +72,13 @@ api.mutateReviewAction = (async (_id: string, action: string) => {
       metadata: {
         ...(message.metadata as object),
         cardState:
-          action === "unpublish" ? "unpublished" : action === "cancel" ? "canceled" : "published",
+          action === "unpublish" ? "unpublished" : "published",
       },
     },
     ...(action === "import" ? { botId: "synthetic-import" } : {}),
   };
-}) as typeof api.mutateReviewAction;
-api.reviewRecipe = async () => recipe;
+}) as typeof api.mutateSharedTemplate;
+api.sharedTemplateRecipe = async () => recipe;
 function Fixture() {
   const [log, setLog] = useState<string[]>([]);
   const [failing, setFailing] = useState(false);
@@ -101,7 +101,7 @@ function Fixture() {
       <output aria-label="Mutation log" className="mb-4 block text-[13px]">
         {JSON.stringify(log)}
       </output>
-      <ReviewActionCard message={message} />
+      <SharedTemplateCard message={message} />
     </main>
   );
 }

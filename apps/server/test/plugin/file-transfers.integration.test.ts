@@ -4,7 +4,7 @@ import { ConnectorFileTransfers } from "../../src/services/plugin/file-transfers
 import { createHash } from "node:crypto";
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 test.skipIf(!databaseUrl)(
-  "file transfers pin account, hash, policy and call identity and do not replay writes after restart",
+  "file transfers pin account, hash and call identity and do not replay writes after restart",
   async () => {
     const db = createPrismaClient(databaseUrl!);
     const botId = crypto.randomUUID();
@@ -33,8 +33,6 @@ test.skipIf(!databaseUrl)(
           description: "Fixture",
           manifest: {},
           status: "installed",
-          mode: "enabled",
-          enablements: { create: { botId, enabled: true } },
         },
       });
       const connection = await db.pluginConnection.create({
@@ -47,7 +45,6 @@ test.skipIf(!databaseUrl)(
           status: "ready",
           configuration: {},
           credentials: {},
-          grants: { create: { botId, enabled: true } },
         },
       });
       const service = () =>
@@ -73,16 +70,10 @@ test.skipIf(!databaseUrl)(
       };
       expect(await service().prepare(context, raw)).toMatchObject({
         connectionId: connection.id,
-        decision: "prompt",
       });
-      await expect(
-        service().execute(context, { ...raw, bytesBase64: bytes.toString("base64") })
-      ).rejects.toThrow("approval");
-      expect(writes).toBe(0);
       await expect(
         service().execute(context, {
           ...raw,
-          reviewed: true,
           bytesBase64: Buffer.from("abd").toString("base64"),
         })
       ).rejects.toThrow("changed");
@@ -90,7 +81,6 @@ test.skipIf(!databaseUrl)(
       expect(
         await service().execute(context, {
           ...raw,
-          reviewed: true,
           bytesBase64: bytes.toString("base64"),
         })
       ).toMatchObject({ id: "uploaded" });
@@ -98,7 +88,6 @@ test.skipIf(!databaseUrl)(
       expect(
         await service().execute(context, {
           ...raw,
-          reviewed: true,
           bytesBase64: bytes.toString("base64"),
         })
       ).toMatchObject({ id: "uploaded" });
@@ -110,17 +99,14 @@ test.skipIf(!databaseUrl)(
         const failedContext={...context,callId:crypto.randomUUID()};
         await service().prepare(failedContext,raw);
         providerFailure=Object.assign(new Error("Private provider diagnostic"),{status});
-        const result=await service().execute(failedContext,{...raw,reviewed:true,bytesBase64:bytes.toString("base64")});
+        const result=await service().execute(failedContext,{...raw,bytesBase64:bytes.toString("base64")});
         expect(result).toMatchObject({outcome:{kind}});
         expect(JSON.stringify(result)).not.toContain("Private provider diagnostic");
         const before=writes;
-        await expect(service().execute(failedContext,{...raw,reviewed:true,bytesBase64:bytes.toString("base64")})).rejects.toThrow("uncertain");
+        await expect(service().execute(failedContext,{...raw,bytesBase64:bytes.toString("base64")})).rejects.toThrow("uncertain");
         expect(writes).toBe(before);
       }
-      await db.botPluginConnectionGrant.updateMany({
-        where: { connectionId: connection.id, botId },
-        data: { enabled: false },
-      });
+      await db.pluginConnection.delete({where:{id:connection.id}});
       expect(await service().prepare({ ...context, callId: crypto.randomUUID() }, raw))
         .toMatchObject({outcome:{kind:"unknown_connection",available:[]}});
       expect(writes).toBe(5);

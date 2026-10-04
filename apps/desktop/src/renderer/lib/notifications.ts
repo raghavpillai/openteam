@@ -1,7 +1,6 @@
 import { notificationAvatarDataUrl } from "./notification-avatar";
 import type { ClientSnapshot, RunView } from "@openteam/contracts";
 import {
-  notificationApprovalReason,
   notificationMessageInputReason,
   notificationMessagePreview,
 } from "@openteam/contracts/notification-content";
@@ -48,11 +47,6 @@ export const desktopNotificationSnapshot = (
     if (!prior || message.createdAt >= prior.createdAt)
       latestByChannel.set(message.channelId, message);
   }
-  const pendingApprovalByRun = new Map(
-    snapshot.approvals
-      .filter((approval) => approval.status === "pending")
-      .map((approval) => [approval.runId, approval] as const)
-  );
   const botById = new Map(snapshot.bots.map((bot) => [bot.id, bot] as const));
   return {
     cursor: snapshot.cursor,
@@ -80,7 +74,6 @@ export const desktopNotificationSnapshot = (
       const bot = botById.get(channel.members[0]?.botId ?? "");
       if (!bot) return [];
       const run = activeRuns.get(bot.id);
-      const approval = run ? pendingApprovalByRun.get(run.id) : undefined;
       const latest = latestByChannel.get(channel.id);
       const latestIsBot = latest?.senderBotId === bot.id;
       return [
@@ -92,9 +85,7 @@ export const desktopNotificationSnapshot = (
           hiddenFromSidebar: bot.hiddenFromSidebar,
           isRunning: Boolean(run),
           awaitingReason:
-            run?.status === "waiting_approval"
-              ? notificationApprovalReason(approval?.details)
-              : latestIsBot
+            latestIsBot
                 ? notificationMessageInputReason(latest)
                 : null,
           lastMessageId: latestIsBot ? latest.id : null,
@@ -224,21 +215,6 @@ export const deriveAgentNotifications = (
   const previousMessages = latestMessageIds(previous);
   const currentMessages = latestMessageIds(current);
   const events: AgentNotificationEvent[] = [];
-
-  for (const [channelId, run] of currentRuns) {
-    if (!previousChannels.has(channelId) || run.status !== "waiting_approval") continue;
-    if (previousRuns.get(channelId)?.status === "waiting_approval") continue;
-    const channel = channelById.get(channelId);
-    const bot = botById.get(run.botId);
-    if (!channel || !bot) continue;
-    events.push({
-      botId: bot.id,
-      channelId,
-      kind: "agent-needs-input",
-      title: bot.name,
-      body: `${channel.name} needs your input`,
-    });
-  }
 
   for (const [channelId, run] of previousRuns) {
     if (!previousChannels.has(channelId) || currentRuns.has(channelId)) continue;

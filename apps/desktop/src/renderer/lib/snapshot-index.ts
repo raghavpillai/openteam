@@ -1,5 +1,4 @@
 import type {
-  ApprovalView,
   BotView,
   ChannelMessageView,
   ChannelRoundView,
@@ -57,7 +56,6 @@ function useStableGrouped<T extends { id: string }>(values: T[], keyOf: (value: 
 const messageChannel = (message: ChannelMessageView) => message.channelId;
 const runChannel = (run: RunView) => run.channelId ?? "";
 const itemRun = (item: RunItemView) => item.runId;
-const approvalRun = (approval: ApprovalView) => approval.runId;
 const subagentChannel = (subagent: SubagentActivityView) => subagent.parentChannelId;
 const roundChannel = (round: ChannelRoundView) => round.channelId;
 const EMPTY_BOTS: BotView[] = [];
@@ -65,7 +63,6 @@ const EMPTY_CHANNELS: ChannelView[] = [];
 const EMPTY_MESSAGES: ChannelMessageView[] = [];
 const EMPTY_RUNS: RunView[] = [];
 const EMPTY_ITEMS: RunItemView[] = [];
-const EMPTY_APPROVALS: ApprovalView[] = [];
 const EMPTY_SUBAGENTS: SubagentActivityView[] = [];
 const EMPTY_ROUNDS: ChannelRoundView[] = [];
 
@@ -75,7 +72,6 @@ export function useSnapshotIndex(snapshot: ClientSnapshot | null): SnapshotIndex
   const channelMessages = snapshot?.channelMessages ?? EMPTY_MESSAGES;
   const runs = snapshot?.runs ?? EMPTY_RUNS;
   const runItems = snapshot?.runItems ?? EMPTY_ITEMS;
-  const approvals = snapshot?.approvals ?? EMPTY_APPROVALS;
   const subagents = snapshot?.subagents ?? EMPTY_SUBAGENTS;
   const channelRounds = snapshot?.channelRounds ?? EMPTY_ROUNDS;
   const botById = useMemo(() => new Map(bots.map((bot) => [bot.id, bot])), [bots]);
@@ -99,7 +95,6 @@ export function useSnapshotIndex(snapshot: ClientSnapshot | null): SnapshotIndex
   const messagesByChannel = useStableGrouped(channelMessages, messageChannel);
   const runsByChannel = useStableGrouped(runs, runChannel);
   const itemsByRun = useStableGrouped(runItems, itemRun);
-  const approvalsByRun = useStableGrouped(approvals, approvalRun);
   const subagentsByChannel = useStableGrouped(subagents, subagentChannel);
   const roundsByChannel = useStableGrouped(channelRounds, roundChannel);
   const latestMessageByChannel = useMemo(
@@ -125,7 +120,6 @@ export function useSnapshotIndex(snapshot: ClientSnapshot | null): SnapshotIndex
       messagesByChannel,
       runsByChannel,
       itemsByRun,
-      approvalsByRun,
       subagentsByChannel,
       roundsByChannel,
       latestMessageByChannel,
@@ -134,7 +128,6 @@ export function useSnapshotIndex(snapshot: ClientSnapshot | null): SnapshotIndex
     [
       activeRunByChannel,
       agentNameById,
-      approvalsByRun,
       subagentsByChannel,
       botById,
       channelById,

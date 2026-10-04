@@ -16,7 +16,7 @@ struct ChatActivityFooter: View {
   private var activity: RobotAvatarMode? {
     let runs = store.activeRuns(channel.id)
     return !showsActivity || runs.isEmpty ? nil
-      : runs.contains { $0.status == "waiting_approval" } ? .idle : .thinking
+      : .thinking
   }
   var body: some View {
     VStack(spacing: 0) {

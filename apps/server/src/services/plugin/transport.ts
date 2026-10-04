@@ -11,7 +11,6 @@ import {
   packagedAccessToken,
 } from "../../plugins/packaged-oauth";
 import { toJson } from "../service-utils";
-import { effectiveToolPolicy } from "@openteam/plugin-sdk";
 import {
   boundPluginResult,
   jsonObject,
@@ -67,18 +66,13 @@ export class PluginTransport {
       const current = await this.prisma.pluginConnection.findUnique({
         where: { id: invocation.connectionId },
         include: {
-          installation: { include: { enablements: { where: { botId: invocation.botId } } } },
-          grants: { where: { botId: invocation.botId } },
-          policies: { where: { OR: [{ botId: null }, { botId: invocation.botId }] } },
+          installation: true,
         },
       });
       if (
         !current ||
         current.status !== "ready" ||
-        current.installation.status !== "installed" ||
-        current.installation.mode === "disabled" ||
-        !current.installation.enablements[0]?.enabled ||
-        !current.grants[0]?.enabled
+        current.installation.status !== "installed"
       )
         throw new ApiError(
           403,
@@ -90,19 +84,7 @@ export class PluginTransport {
       );
       if (!tool)
         throw new ApiError(404, "plugin_tool_not_found", "The tool is no longer available");
-      const policy = effectiveToolPolicy(
-        current.policies,
-        tool.name,
-        invocation.botId,
-        tool.defaultDecision
-      );
-      if (!policy.enabled || policy.decision === "deny")
-        throw new ApiError(
-          403,
-          "plugin_tool_denied",
-          "The tool was disabled or denied before this call could run"
-        );
-      // Claim once, including approvals accepted concurrently in multiple clients.
+      // Claim once, including simultaneous requests from multiple clients.
       const claim = await this.prisma.pluginInvocation.updateMany({
         where: { callId, status: "running", error: { not: "Executing" } },
         data: { error: "Executing" },
@@ -322,7 +304,6 @@ export class PluginTransport {
         description: typeof tool.description === "string" ? tool.description : "",
         inputSchema: jsonObject(tool.inputSchema),
         risk: destructive ? "destructive" : readOnly ? "read" : "write",
-        defaultDecision: readOnly && !destructive ? "allow" : "prompt",
       };
     });
   }

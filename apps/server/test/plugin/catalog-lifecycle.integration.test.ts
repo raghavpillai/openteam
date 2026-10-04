@@ -60,7 +60,6 @@ for (const catalog of pluginCatalog) {
             review.definition.files![`${skill.path}/SKILL.md`]!
           );
         }
-        await Effect.runPromise(service.setEnablement(catalog.key, botId, true, true));
         const context = await pluginRuntimeContext(prisma, botId);
         for (const skill of review.definition.skills)
           expect(context.skillInstructions).toContain(skill.name);
@@ -91,9 +90,6 @@ for (const catalog of pluginCatalog) {
               ?.supportsLoopbackRedirect !== false
           );
           expect(account.credentials).toEqual({ values: {} });
-          expect(
-            await prisma.botPluginConnectionGrant.count({ where: { connectionId: account.id } })
-          ).toBe(0);
           if (account.transport === "builtin") {
             await Effect.runPromise(service.connect(account.id));
             const result = await Effect.runPromise(
@@ -102,7 +98,6 @@ for (const catalog of pluginCatalog) {
             expect(JSON.stringify(result)).toContain("42");
           }
         }
-        await Effect.runPromise(service.setEnablement(catalog.key, botId, false, false));
         expect(await pluginRuntimeContext(prisma, botId)).toEqual({
           dynamicNamespaces: [],
           pluginRuntimePackages: [],

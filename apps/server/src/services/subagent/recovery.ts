@@ -1,4 +1,4 @@
-export const SUBAGENT_RECOVERY_RUN_STATUSES = ["queued", "running", "waiting_approval"] as const;
+export const SUBAGENT_RECOVERY_RUN_STATUSES = ["queued", "running"] as const;
 
 export const subagentRestartError = {
   code: "runtime_restart",

@@ -10,7 +10,7 @@ Before connecting, configure an HTTPS address for your OpenTeam server. Tailscal
 2. Open [Your Apps](https://api.slack.com/apps), select **Create New App → From a manifest**, and paste [slack-app-manifest.json](slack-app-manifest.json). Replace its example redirect URL with the exact OpenTeam callback URL. Choose your workspace, review, and create the app.
 3. In the Slack app dashboard, open **Agents** and turn on **Enable Slack MCP Server**. OAuth can succeed while discovery fails if this switch is off.
 4. From **Basic Information**, copy the client ID and client secret into OpenTeam. Choose **Save and authorize**, select the workspace, and approve access.
-5. Run a small read test, such as searching for your own user or listing your channels. Check the actual tool result before granting Bot access.
+5. Run a small read test, such as searching for your own user or listing your channels. Check the actual tool result before using the account.
 
 The manifest requests the user-token scopes in [Slack's MCP tool reference](https://docs.slack.dev/ai/slack-mcp-server/#oauth-scopes-needed-on-user-token-for-different-tools), including search, files, channel history, users, messages, canvases, and lists. You may remove capabilities you do not need: reduce scopes in both Slack and OpenTeam, reauthorize, and disable the corresponding tools. Workspace policy or Slack plan restrictions can still limit individual tools.
 
@@ -26,7 +26,7 @@ They cover everyday workspace tasks as well as Slack app development. The
 developer workflows may need the Slack CLI and Node.js or Python on the Bot's
 computer; installing this plugin does not install or authenticate those tools.
 
-Enable **Instructions and hooks** for the Bot to load the workflows, then grant
+Installed plugins and their connected accounts are available to all bots.
 the intended Slack account. Commands are:
 
 - `/slack:summarize-channel #channel`
@@ -42,15 +42,15 @@ it. Existing account and tool policies continue to apply.
 The original MIT-licensed package is retained byte for byte in `upstream/`,
 including its manifest, skills, commands, references, and license. See
 [UPSTREAM.md](UPSTREAM.md). OpenTeam's account setup remains in the outer
-`plugin.json`; shared runtime code maps provider tool names to granted accounts.
+`plugin.json`; shared runtime code maps provider tool names to connected accounts.
 There are no OpenTeam instruction files inserted into the original workflows.
 Both the original flat commands (such as `/standup`) and the namespaced forms
 above work; a flat name is available only when it is unambiguous.
 
 This update retains the connection key, scopes, and OAuth setup, so applying it
-preserves existing account credentials and grants.
+preserves existing account credentials.
 After applying the update, choose **Reconnect** to refresh tools with the saved
-authorization, then enable **Instructions and hooks** for the intended Bot.
+Installed plugins and their connected accounts are available to all bots.
 
 ## Validation
 

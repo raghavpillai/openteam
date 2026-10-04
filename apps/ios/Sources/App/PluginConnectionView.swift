@@ -23,7 +23,6 @@ struct PluginConnectionView: View {
   @State private var method = "none"
   @State private var callbackMode = "auto"
   @State private var operation = FormOperation()
-  @State private var remove = false
   @State private var loaded = false
   @State private var setupExpanded = false
   var onChange: () async -> Void = {}
@@ -228,12 +227,17 @@ struct PluginConnectionView: View {
             Button("Add another account") {
               Task { await addAccount() }
             }.disabled(newAlias.count < 2 || newAlias.count > 80)
-            Button("Remove account", role: .destructive) { remove = true }
+            Button("Remove account", role: .destructive) {
+              Task {
+                if await operation.run({ _ = try await store.request(path + "/account", method: "DELETE") }) {
+                  await onChange(); dismiss()
+                }
+              }
+            }
           }
         }
         Section {
           DisclosureGroup("Tools and troubleshooting") {
-            NavigationLink("Tool permissions") { PluginToolPoliciesView(connection: connection) }
             NavigationLink("Test a tool") { PluginToolTestView(connection: connection) }
             Button("Restart connection") { perform("/restart", success: "Connection restarted.") }
           }
@@ -247,18 +251,6 @@ struct PluginConnectionView: View {
         secrets = [:]
         env = "{}"
         headers = "{}"
-      }
-      .confirmationDialog("Remove this account?", isPresented: $remove, titleVisibility: .visible) {
-        Button("Remove account", role: .destructive) {
-          Task {
-            if await operation.run({
-              _ = try await store.request(path + "/account", method: "DELETE")
-            }) {
-              await onChange()
-              dismiss()
-            }
-          }
-        }
       }
   }
   private func load() async {
@@ -389,72 +381,12 @@ struct PluginConnectionView: View {
   }
 }
 
-struct PluginToolPoliciesView: View {
-  @Environment(AppStore.self) private var store
-  let connection: JSON
-  @State private var data: JSON = .null
-  @State private var botID = ""
-  @State private var operation = FormOperation()
-  var body: some View {
-    NativeForm {
-      FormStatus(operation: operation)
-      Picker("Applies to", selection: $botID.hapticSelection("plugin.scope")) {
-        Text("All bots").tag("")
-        ForEach(store.bots) { Text($0.name).tag($0.id) }
-      }
-      ForEach(connection["tools"].array, id: \.self) { tool in
-        Section(tool["name"].string) {
-          Text(tool["description"].string).font(.subheadline).foregroundStyle(NativePalette.muted)
-          Picker(
-            "Permission",
-            selection: Binding(
-              get: {
-                data["policies"].array.first {
-                  $0["connectionId"] == connection["id"] && $0["toolName"] == tool["name"]
-                    && $0["botId"].string == botID
-                }?["decision"].string ?? tool["defaultDecision"].string
-              },
-              set: { decision in
-                let current =
-                  data["policies"].array.first {
-                    $0["connectionId"] == connection["id"] && $0["toolName"] == tool["name"]
-                      && $0["botId"].string == botID
-                  }?["decision"].string ?? tool["defaultDecision"].string
-                guard decision != current else { return }
-                NativeHaptics.play(.selection, source: "plugin.policy")
-                Task {
-                  await operation.run(successEffect: nil) {
-                    _ = try await store.request(
-                      "/api/v0/plugin-connections/\(API.segment(connection["id"].string))/policy",
-                      method: "POST",
-                      body: .object([
-                        "botId": botID.isEmpty ? .null : .string(botID), "toolName": tool["name"],
-                        "decision": .string(decision),
-                      ]))
-                    data = try await store.request("/api/v0/plugins")
-                  }
-                }
-              })
-          ) {
-            Text("Ask each time").tag("prompt")
-            Text("Allow").tag("allow")
-            Text("Deny").tag("deny")
-          }
-        }
-      }
-    }.navigationTitle("Tool permissions").disabled(operation.busy).task {
-      await operation.run(feedback: false) { data = try await store.request("/api/v0/plugins") }
-    }
-  }
-}
-
 struct PluginToolTestView: View {
   @Environment(AppStore.self) private var store
   let connection: JSON
   @State private var tool = ""
   @State private var arguments = "{}"
   @State private var result = ""
-  @State private var confirm = false
   @State private var operation = FormOperation()
   var body: some View {
     NativeForm {
@@ -468,16 +400,7 @@ struct PluginToolTestView: View {
       }
       Section { JSONTextEditor(text: $arguments, label: "Arguments") }
       FormStatus(operation: operation)
-      Button("Run test") { confirm = true }.disabled(tool.isEmpty || operation.busy)
-      if !result.isEmpty {
-        Section("Result") {
-          Text(result).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-        }
-      }
-    }.navigationTitle("Test a tool").confirmationDialog(
-      "Run this tool on your connected account?", isPresented: $confirm, titleVisibility: .visible
-    ) {
-      Button("Run tool") {
+      Button("Run test") {
         Task {
           await operation.run {
             let response = try await store.request(
@@ -486,14 +409,16 @@ struct PluginToolTestView: View {
               body: .object([
                 "toolName": .string(tool),
                 "arguments": try FormValidation.json(arguments, label: "Arguments"),
-                "confirmSideEffect": .bool(true),
               ]))
             result = UserFacingError.redact(response["result"].pretty)
           }
         }
+      }.disabled(tool.isEmpty || operation.busy)
+      if !result.isEmpty {
+        Section("Result") {
+          Text(result).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+        }
       }
-    } message: {
-      Text("Tools can make changes to connected services. Review the arguments before running.")
-    }
+    }.navigationTitle("Test a tool")
   }
 }

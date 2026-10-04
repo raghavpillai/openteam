@@ -28,7 +28,7 @@ describe("chat performance and functionality reconciliation", () => {
     expect(chat).toContain("@openteam/product-core");
     expect(chat).toContain('import("./file-attachment")');
     expect(chat).toContain("onOpenRoutine={onOpenRoutine}");
-    expect(chat).toContain("approvalPresentation(approval)");
+    expect(chat).not.toContain("approvalPresentation");
     expect(chat).toContain("@openteam/product-core");
     expect(chat).not.toContain('details.type === "autoReview"');
     expect(chat).not.toContain('details.type === "localTool"');

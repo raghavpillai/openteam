@@ -66,5 +66,5 @@ If the wrong account connected, sign out of the service in your browser, then ch
 | Redirect or callback mismatch | Register the exact callback shown in OpenTeam. If you changed your server address, update it with the service too. |
 | Wrong account connected | Sign out of the service in your browser, then choose **Reauthorize** under **Manage → Accounts and settings** |
 | Signed in, but a tool fails | Check the account's permissions, the app's scopes, and any workspace restrictions |
-| A bot can't use the tool | Check **Bot access** on the plugin's page, then check that the tool is turned on and its policy under **Manage → Accounts and settings** |
+| A bot can't use the tool | Check that the account is connected and the tool is available |
 | The connection stopped working | Under **Manage → Accounts and settings**, choose **Restart / refresh tools**, then **Reauthorize** if that doesn't fix it |

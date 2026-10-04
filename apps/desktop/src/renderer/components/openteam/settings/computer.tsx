@@ -1,58 +1,44 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
-import { SectionLabel, SettingsGroup, SettingsRow } from "./ui";
-const NativeCapabilitySettings = lazy(() => import("./native-capabilities").then(module => ({ default: module.NativeCapabilitySettings })));
+import { SectionLabel, SettingsGroup } from "./ui";
 import { MachineSettings } from "./machines";
 
 export default function ComputerSettings() {
-  const [permissions, setPermissions] = useState<OpenTeamPermissionSettings | null>(null);
+  const [computer, setComputer] = useState<OpenTeamComputerSettings | null>(null);
   const [machineLabel, setMachineLabel] = useState("");
   const [permissionError, setPermissionError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    window.openteam?.permissions
+    window.openteam?.computer
       .get()
       .then((value) => {
         if (!active) return;
-        setPermissions(value);
+        setComputer(value);
         setMachineLabel(value.machine.label);
       })
       .catch(
         (error) =>
           active &&
-          setPermissionError(clientErrorMessage(error, "Could not load computer permissions"))
+          setPermissionError(clientErrorMessage(error, "Could not load computer settings"))
       );
     return () => {
       active = false;
     };
   }, []);
 
-  const updatePermission = (
-    localToolPermission: OpenTeamPermissionSettings["localToolPermission"]
-  ) => {
-    setPermissionError(null);
-    void window.openteam?.permissions
-      .update({ localToolPermission })
-      .then(setPermissions)
-      .catch((error) =>
-        setPermissionError(clientErrorMessage(error, "Could not update computer permissions"))
-      );
-  };
-
   const saveMachineLabel = () => {
     const label = machineLabel.trim();
-    if (!permissions || !label || label === permissions.machine.label) return;
+    if (!computer || !label || label === computer.machine.label) return;
     setPermissionError(null);
-    void window.openteam?.permissions
+    void window.openteam?.computer
       .update({ machineLabel: label })
       .then((value) => {
-        setPermissions(value);
+        setComputer(value);
         setMachineLabel(value.machine.label);
       })
       .catch((error) =>
-        setPermissionError(clientErrorMessage(error, "Could not update computer permissions"))
+        setPermissionError(clientErrorMessage(error, "Could not update computer settings"))
       );
   };
 
@@ -84,9 +70,9 @@ export default function ComputerSettings() {
             <button
               className="inline-flex h-8 items-center rounded-[8px] bg-black/[0.08] px-3 text-[12px] text-foreground disabled:text-foreground-tertiary dark:bg-white/[0.09]"
               disabled={
-                !permissions ||
+                !computer ||
                 !machineLabel.trim() ||
-                machineLabel.trim() === permissions.machine.label
+                machineLabel.trim() === computer.machine.label
               }
               onClick={saveMachineLabel}
               type="button"
@@ -95,35 +81,8 @@ export default function ComputerSettings() {
             </button>
           </div>
         </div>
-        <SettingsRow
-          anchors={["local-execution"]}
-          control={
-            <Select
-              disabled={!permissions}
-              onValueChange={(value) =>
-                updatePermission(value as OpenTeamPermissionSettings["localToolPermission"])
-              }
-              value={permissions?.localToolPermission ?? "ask"}
-            >
-              <SelectTrigger
-                aria-label="Execution on this computer"
-                className="h-7 rounded-[8px] border-black/[0.055] bg-black/[0.035] px-2 text-[12px] shadow-none dark:border-white/[0.07] dark:bg-white/[0.07]"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ask">Ask every time</SelectItem>
-                <SelectItem value="always">Always allow</SelectItem>
-                <SelectItem value="never">Never allow</SelectItem>
-              </SelectContent>
-            </Select>
-          }
-          description="Let OpenTeam open files and run tasks on your computer. Auto-review still checks everything first."
-          title="Execution on this computer"
-        />
       </SettingsGroup>
       <MachineSettings />
-      <Suspense fallback={null}><NativeCapabilitySettings /></Suspense>
       {permissionError ? (
         <div className="mt-3 px-2 text-[12px] text-red-600 dark:text-red-400">
           {permissionError}

@@ -1,6 +1,6 @@
 import type {ClientSnapshot} from '../../../packages/contracts/src/index';
 export function contentScene(snapshot: ClientSnapshot, scene:string) {
-  snapshot.runs=[];snapshot.approvals=[];
+  snapshot.runs=[];
   const message:any={id:'content-fixture',sequence:'400',channelId:'channel-research',sender:'bot',senderBotId:'bot-research',sourceRunId:null,content:'',metadata:{},createdAt:'2026-09-16T12:00:00.000Z'};
   if(scene==='widget-completed')message.metadata={type:'widget',widget:{prompt:'Choose a route',options:[{label:'Alpha',value:'alpha'},{label:'Beta',value:'beta'}],allowCustom:true,multiSelect:true},respondedValue:'alpha\nbeta\nGamma'};
   if(scene==='type-size')message.content='Hello';

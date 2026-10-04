@@ -3,7 +3,6 @@ import { isRuntimeEngine, normalizePiReasoningLevel, type PiReasoningLevel } fro
 
 export const COMPUTER_API_PATHS = {
   turns: "/v1/turns",
-  approvalResolution: "/v1/approvals/resolve",
   inference: "/v1/infer",
   inferenceProviders: "/v1/inference/providers",
   inferenceSettingsVerify: "/v1/inference/settings/verify",
@@ -29,8 +28,6 @@ export const HOST_BRIDGE_PATHS = {
   read: "/v1/read",
   transfer: "/v1/file-transfer",
   machines: "/v1/machines",
-  autoReview: "/v1/auto-review",
-  permissionUpdate: "/v1/permissions/update",
   capabilities: "/v1/capabilities",
 } as const;
 
@@ -38,7 +35,7 @@ export const HOST_INLINE_OUTPUT_MAX_BYTES = 100_000;
 // Streaming transport is limited only by representable file sizes and available storage.
 export const HOST_TRANSFER_MAX_BYTES = Number.MAX_SAFE_INTEGER;
 
-export interface HostTransferRequest extends HostApprovalTokens {
+export interface HostTransferRequest {
   direction: "read" | "write";
   path: string;
   machineId: string;
@@ -65,15 +62,6 @@ export function parseHostTransferRequest(value: unknown): HostTransferRequest {
     path,
     machineId,
     ...(value.direction === "write" ? { bytes: Number(value.bytes) } : {}),
-    // File transfers need the same supervisor provenance as other host tools.
-    // Without it, Auto Review cannot retrieve the authorizing conversation.
-    ...(value.reviewContext === undefined ? {} : { reviewContext: parseHostReviewContext(value.reviewContext) }),
-    ...(value.localApproval === "allow-once" || value.localApproval === "always"
-      ? { localApproval: value.localApproval }
-      : {}),
-    ...(value.autoReviewApproval === "allow-once" || value.autoReviewApproval === "always"
-      ? { autoReviewApproval: value.autoReviewApproval }
-      : {}),
   };
 }
 
@@ -131,37 +119,6 @@ export const parseComputerEvent = (value: unknown): ComputerEvent => {
         requiredString(value[field], field);
       }
       break;
-    case "approval.requested":
-      for (const field of ["approvalId", "requestMethod", "turnId", "itemId"] as const) {
-        requiredString(value[field], field);
-      }
-      break;
-    case "approval.action": {
-      const approvalId = requiredString(value.approvalId, "approvalId");
-      const turnId = requiredString(value.turnId, "turnId");
-      if (!["running", "completed", "failed"].includes(String(value.status)))
-        throw new Error("Approval action status is invalid");
-      if (value.decision !== "accept" && value.decision !== "always_allow")
-        throw new Error("Approval action decision is invalid");
-      if (
-        value.selectedItems !== undefined &&
-        (!Array.isArray(value.selectedItems) ||
-          value.selectedItems.length > 32 ||
-          value.selectedItems.some((item) => typeof item !== "string" || item.length > 4096))
-      )
-        throw new Error("Approval action selection is invalid");
-      // Only public decision metadata crosses this event boundary.
-      return {
-        type,
-        approvalId,
-        turnId,
-        decision: value.decision,
-        status: value.status as "running" | "completed" | "failed",
-        ...(value.selectedItems === undefined
-          ? {}
-          : { selectedItems: value.selectedItems as string[] }),
-      };
-    }
     case "context.state":
       requiredString(value.contextSessionId, "contextSessionId");
       if (typeof value.epoch !== "number" || !Array.isArray(value.archives)) {
@@ -301,59 +258,19 @@ export const parseAgentDirectorySnapshot = (value: unknown): AgentDirectorySnaps
   };
 };
 
-export type HostLocalToolPermission = "always" | "ask" | "never";
-export type HostApprovalToken = "allow-once" | "always";
-
-export interface HostApprovalTokens {
-  capabilityApprovals?: Array<{
-    token: string;
-    decision: HostApprovalToken;
-    selectedItems?: readonly string[];
-  }>;
-  localApproval?: HostApprovalToken;
-  autoReviewApproval?: HostApprovalToken;
-  /** Supervisor-only provenance; never a model-facing tool argument. */
-  reviewContext?: HostReviewContext;
-}
-
-export interface HostReviewContext {
-  runId: string;
-  botId: string;
-}
-export function parseHostReviewContext(value: unknown): HostReviewContext | undefined {
-  if (value === undefined) return undefined;
-  if (
-    !isRecord(value) ||
-    ![value.runId, value.botId].every(
-      (id) => typeof id === "string" && /^[\da-f]{8}(-[\da-f]{4}){3}-[\da-f]{12}$/i.test(id)
-    )
-  )
-    throw new Error("Invalid review execution context");
-  return { runId: value.runId as string, botId: value.botId as string };
-}
-
-export interface HostApprovalRequest {
-  gate: "local" | "auto-review" | "capability";
-  requestMethod: "openteam/localTool" | "openteam/autoReview" | "openteam/capability";
-  /** Opaque, short-lived action binding. Not part of the visible card. */
-  token?: string;
-  details: Record<string, unknown>;
-}
-
 export interface HostMachine {
   machineId: string;
   label: string;
-  localToolPermission: HostLocalToolPermission;
 }
 
-export interface HostReadRequest extends HostApprovalTokens {
+export interface HostReadRequest {
   path: string;
   offset?: number;
   limit?: number;
   machineId?: string;
 }
 
-export interface HostShellRequest extends HostApprovalTokens {
+export interface HostShellRequest {
   command: string;
   working_directory?: string;
   block_until_ms?: number;
@@ -447,19 +364,6 @@ export const parseShellAwaitResponse = (value: unknown): ShellAwaitResponse => {
   return value as unknown as ShellAwaitResponse;
 };
 
-export interface HostPermissionUpdateRequest {
-  machineId?: string;
-  localToolPermission: HostLocalToolPermission;
-}
-
-export interface HostAutoReviewRequest extends HostApprovalTokens {
-  surface: "boxShell" | "mcp" | "computer" | "browser" | "automationWrite" | "cloudAgent" | "subagentLaunch";
-  summary: string;
-  target: string;
-  command?: string;
-  arguments?: Record<string, unknown>;
-}
-
 export interface HostReadResponse {
   kind: "text" | "image";
   text?: string;
@@ -487,20 +391,6 @@ export interface HostMachinesResponse {
   machines: HostMachine[];
 }
 
-const approvalTokens = (value: Record<string, unknown>): HostApprovalTokens => {
-  const tokens: HostApprovalTokens = {};
-  const reviewContext = parseHostReviewContext(value.reviewContext);
-  if (reviewContext) tokens.reviewContext = reviewContext;
-  for (const field of ["localApproval", "autoReviewApproval"] as const) {
-    const token = value[field];
-    if (token !== undefined && token !== "allow-once" && token !== "always") {
-      throw new Error(`${field} is invalid`);
-    }
-    if (token) tokens[field] = token;
-  }
-  return tokens;
-};
-
 export const parseHostShellRequest = (value: unknown): HostShellRequest => {
   const input = isRecord(value) ? value : {};
   const command = requiredString(input.command, "ExternalShell command");
@@ -524,7 +414,6 @@ export const parseHostShellRequest = (value: unknown): HostShellRequest => {
     ...(typeof input.block_until_ms === "number" ? { block_until_ms: input.block_until_ms } : {}),
     ...(typeof input.description === "string" ? { description: input.description } : {}),
     ...(typeof input.machineId === "string" ? { machineId: input.machineId } : {}),
-    ...approvalTokens(input),
   };
 };
 
@@ -545,59 +434,8 @@ export const parseHostReadRequest = (value: unknown): HostReadRequest => {
     ...(typeof input.offset === "number" ? { offset: input.offset } : {}),
     ...(typeof input.limit === "number" ? { limit: input.limit } : {}),
     ...(typeof input.machineId === "string" ? { machineId: input.machineId } : {}),
-    ...approvalTokens(input),
   };
 };
-
-export const parseHostPermissionUpdateRequest = (value: unknown): HostPermissionUpdateRequest => {
-  const input = isRecord(value) ? value : {};
-  if (input.machineId !== undefined && typeof input.machineId !== "string") {
-    throw new Error("machineId must be a string");
-  }
-  if (!["always", "ask", "never"].includes(String(input.localToolPermission))) {
-    throw new Error("Invalid local computer permission");
-  }
-  return {
-    ...(typeof input.machineId === "string" ? { machineId: input.machineId } : {}),
-    localToolPermission: input.localToolPermission as HostLocalToolPermission,
-  };
-};
-
-export const parseHostAutoReviewRequest = (value: unknown): HostAutoReviewRequest => {
-  const input = isRecord(value) ? value : {};
-  if (
-    !["boxShell", "mcp", "computer", "browser", "automationWrite", "cloudAgent", "subagentLaunch"].includes(
-      String(input.surface)
-    )
-  ) {
-    throw new Error("Auto Review surface is invalid");
-  }
-  const summary = requiredString(input.summary, "Auto Review summary");
-  const target = requiredString(input.target, "Auto Review target");
-  if (input.command !== undefined && typeof input.command !== "string") {
-    throw new Error("Auto Review command must be a string");
-  }
-  if (input.arguments !== undefined && !isRecord(input.arguments)) {
-    throw new Error("Auto Review arguments must be an object");
-  }
-  return {
-    surface: input.surface as HostAutoReviewRequest["surface"],
-    summary,
-    target,
-    ...(typeof input.command === "string" ? { command: input.command } : {}),
-    ...(isRecord(input.arguments) ? { arguments: input.arguments } : {}),
-    ...approvalTokens(input),
-  };
-};
-
-export const isHostApprovalRequest = (value: unknown): value is HostApprovalRequest =>
-  isRecord(value) &&
-  ["local", "auto-review", "capability"].includes(String(value.gate)) &&
-  ["openteam/localTool", "openteam/autoReview", "openteam/capability"].includes(
-    String(value.requestMethod)
-  ) &&
-  (value.gate !== "capability" || typeof value.token === "string") &&
-  isRecord(value.details);
 
 export const parseHostReadResponse = (value: unknown): HostReadResponse => {
   if (
@@ -639,8 +477,7 @@ export const parseHostMachinesResponse = (value: unknown): HostMachinesResponse 
     if (
       !isRecord(machine) ||
       typeof machine.machineId !== "string" ||
-      typeof machine.label !== "string" ||
-      !["always", "ask", "never"].includes(String(machine.localToolPermission))
+      typeof machine.label !== "string"
     ) {
       throw new Error("Physical-host machine is invalid");
     }

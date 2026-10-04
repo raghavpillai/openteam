@@ -15,13 +15,13 @@ describe("OpenTeam release compatibility", () => {
     expect(openTeamCompatibility("1.3.1", "1.3.0")).toBe("update-recommended");
     expect(openTeamCompatibility("1.3.0", "1.3.1")).toBe("update-recommended");
     expect(openTeamCompatibility("1.3.0", "1.3.0", null)).toBe("unknown");
-    expect(openTeamCompatibility("1.3.0", "1.3.0", 2)).toBe("client-update-required");
+    expect(openTeamCompatibility("1.3.0", "1.3.0", 3)).toBe("client-update-required");
     expect(openTeamCompatibility("1.3.0", "1.3.0", 0)).toBe("server-update-required");
   });
 
   test("honors a server-provided overlapping compatibility window", () => {
     expect(
-      openTeamCompatibility("1.3.9", "1.4.0", 1, {
+      openTeamCompatibility("1.3.9", "1.4.0", 2, {
         minimumClientVersion: "1.3.0",
         maximumClientVersionExclusive: "1.5.0",
       })

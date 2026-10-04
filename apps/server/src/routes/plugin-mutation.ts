@@ -9,9 +9,6 @@ import {
   InstallPluginInput,
   RenamePluginAccountInput,
   SetMcpInstructionsInput,
-  SetPluginEnablementInput,
-  SetPluginGrantInput,
-  SetPluginToolPolicyInput,
 } from "@openteam/contracts";
 import { json, parseBody } from "../http";
 import { type RouteContext, run } from "./context";
@@ -113,18 +110,6 @@ const routes = [
   ),
   bodyRoute(
     "POST",
-    /^\/api\/plugins\/([^/]+)\/enablement$/,
-    SetPluginEnablementInput,
-    ({ app }, id, input) =>
-      app.setPluginEnablement(
-        decodeURIComponent(id),
-        input.botId,
-        input.enabled,
-        input.skillsEnabled
-      )
-  ),
-  bodyRoute(
-    "POST",
     /^\/api\/plugin-connections\/([^/]+)\/configure$/,
     ConfigurePluginConnectionInput,
     ({ app }, id, input) => app.configurePluginConnection(id, input)
@@ -146,17 +131,5 @@ const routes = [
   ),
   effectRoute("DELETE", /^\/api\/plugin-connections\/([^/]+)\/account$/, ({ app }, id) =>
     app.removePluginAccount(id)
-  ),
-  bodyRoute(
-    "POST",
-    /^\/api\/plugin-connections\/([^/]+)\/grant$/,
-    SetPluginGrantInput,
-    ({ app }, id, input) => app.setPluginGrant(id, input.botId, input.enabled)
-  ),
-  bodyRoute(
-    "POST",
-    /^\/api\/plugin-connections\/([^/]+)\/policy$/,
-    SetPluginToolPolicyInput,
-    ({ app }, id, input) => app.setPluginPolicy(id, input)
   ),
 ];

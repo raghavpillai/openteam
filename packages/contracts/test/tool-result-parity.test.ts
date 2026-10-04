@@ -59,7 +59,7 @@ describe("reference result and parser fixtures", () => {
     );
     expect(
       renderDesktopResult(
-        "request_cookie_origin_approval",
+        "import_chrome_cookies",
         {
           kind: "listed",
           items: [{ origin: "example.com", profileId: "Default", profileDisplayName: "Person 1" }],
@@ -162,20 +162,16 @@ describe("reference result and parser fixtures", () => {
     expect(output).toContain("[status unavailable] Unknown receipt");
     expect(output.indexOf("[completed] WebFetch")).toBeLessThan(output.indexOf("[running] Read"));
   });
-  test("subagent observations expose approval waits and queued state to the model", () => {
+  test("subagent observations expose running and queued state to the model", () => {
     const worker = {
       subagent_id: "worker-example", subagent_type: "executor", description: "Independent task",
-      status: "running", run_status: "waiting_approval", elapsed_seconds: 30,
-      pending_approvals: [{ id: "approval-example", summary: "Open a local document", reason: "Review required" }],
+      status: "running", run_status: "running", elapsed_seconds: 30,
     };
     const detail = renderControlResult("CheckSubagent", worker, {});
-    expect(detail).toContain("waiting_approval");
-    expect(detail).toContain("approval-example");
-    expect(detail).toContain("Review required");
+    expect(detail).toContain("running");
     const list = renderControlResult("CheckSubagent", { subagents: [worker] }, {});
-    expect(list).toContain("waiting_approval");
-    expect(list).toContain("1 pending approval");
-    const queued = renderControlResult("CheckSubagent", { ...worker, status: "queued", run_status: null, pending_approvals: [] }, {});
+    expect(list).toContain("running");
+    const queued = renderControlResult("CheckSubagent", { ...worker, status: "queued", run_status: null }, {});
     expect(queued).toContain("queued");
     expect(queued).not.toContain("running for");
   });

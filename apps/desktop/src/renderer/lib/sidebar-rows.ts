@@ -8,8 +8,7 @@ export type SidebarChannelRow = {
 };
 
 export function sidebarRowIsWorking(row: SidebarChannelRow) {
-  const needsAttention = row.running?.status === "waiting_approval";
-  return Boolean((row.running && !needsAttention) || row.hasActiveTask);
+  return Boolean(row.running && ["queued", "running"].includes(row.running.status) || row.hasActiveTask);
 }
 
 export type SidebarUnreadRowMetric = {

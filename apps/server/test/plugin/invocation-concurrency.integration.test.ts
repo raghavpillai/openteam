@@ -46,7 +46,6 @@ async function fixture() {
   )!;
   const connection = installation.connections[0]!;
   await Effect.runPromise(service.connect(connection.id));
-  for (const bot of bots) await Effect.runPromise(service.setGrant(connection.id, bot.id, true));
   const request = (
     index: number,
     callId: string,
@@ -83,7 +82,6 @@ databaseTest(
         f.service.addAccount(request.connectionId, "Second account")
       );
       await Effect.runPromise(f.service.connect(account.id));
-      await Effect.runPromise(f.service.setGrant(account.id, request.botId, true));
       for (const reused of [
         f.request(1, callId),
         { ...request, runId: f.request(1, callId).runId },
@@ -126,30 +124,3 @@ databaseTest(
     }
   }
 );
-
-databaseTest("parallel plugin calls create only one outstanding approval per run", async () => {
-  const f = await fixture();
-  try {
-    const requests = Array.from({ length: 8 }, () =>
-      f.request(0, crypto.randomUUID(), "remember_note", { note: "one reviewed effect" })
-    );
-    const results = await Promise.allSettled(requests.map((request) => f.service.invoke(request)));
-    expect(
-      results.every(
-        (result) =>
-          result.status === "rejected" && result.reason.code === "plugin_approval_required"
-      )
-    ).toBe(true);
-    expect(
-      await f.db.approval.count({ where: { runId: requests[0]!.runId, status: "pending" } })
-    ).toBe(1);
-    expect(await f.db.pluginInvocation.count({ where: { runId: requests[0]!.runId } })).toBe(1);
-    await expect(
-      f.service.invoke(
-        f.request(0, crypto.randomUUID(), "remember_note", { note: "different effect" })
-      )
-    ).rejects.toMatchObject({ code: "plugin_approval_pending" });
-  } finally {
-    await f.cleanup();
-  }
-});

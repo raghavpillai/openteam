@@ -57,7 +57,7 @@ public enum MobilePluginAuthorization {
   }
 }
 
-/// Native approval can finish after the client's connect request times out.
+/// Provider sign-in can finish after the client's connect request times out.
 /// Keep checking for that acknowledgement without polling idle accounts forever.
 public struct PluginConnectionRecovery {
   private var deadline: Date?

@@ -75,7 +75,6 @@ const fixture = (count: number): ClientSnapshot => ({
   channelRounds: [],
   runs: [],
   runItems: [],
-  approvals: [],
   subagents: [],
 });
 const measurements: ReturnType<typeof measure>[] = [];

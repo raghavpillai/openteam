@@ -9,7 +9,7 @@ export interface RoutineExecutionView {
   status:
     | "queued"
     | "running"
-    | "waiting_approval"
+
     | "completed"
     | "failed"
     | "cancelled"

@@ -25,7 +25,7 @@ The summary prompt requests a factual handoff with these sections, omitting empt
 - **Task and context:** current objective, project, and scope.
 - **Decisions and constraints:** corrected values, exact identifiers, preferences, restrictions, and authorization boundaries.
 - **Progress and evidence:** completed actions and observed results, separated from plans and unverified claims.
-- **Current state:** active work, blockers, pending approvals, and relevant browser/computer state.
+- **Current state:** active work, blockers, missing information, and relevant browser/computer state.
 - **Next steps:** remaining work and prerequisites in order.
 
 Later compactions preserve relevant facts from earlier summaries and merge subsequent corrections. Corrections are applied in message order, with one authoritative current value per field; an older summary calling a value “latest” cannot override a subsequent correction. Each handoff must stand alone: exact still-relevant ledger values cannot be replaced with references to earlier summaries. Temporary subtasks do not erase older unfinished objectives. A restriction on echoing facts in user-facing replies remains in force, while the internal summary retains those facts. The shorter-output retry retains the same requirements. The summarizer cannot execute tools.

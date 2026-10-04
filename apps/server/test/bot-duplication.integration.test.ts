@@ -216,15 +216,12 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
           name: "Test plugin",
           publisher: "test",
           manifest: {},
-          enablements: { create: { botId: f.source.id, enabled: true, skillsEnabled: true } },
           connections: {
             create: {
               connectorKey: "test",
               name: "Test",
               transport: "http",
               authType: "none",
-              grants: { create: { botId: f.source.id, enabled: false } },
-              policies: { create: { botId: f.source.id, toolName: "send", decision: "deny" } },
             },
           },
         },
@@ -254,9 +251,6 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
           conversation: true,
           channelMemberships: true,
           routines: { include: { revisions: true, executions: true } },
-          pluginEnablements: true,
-          pluginConnectionGrants: true,
-          pluginToolPolicies: true,
           contextSessions: true,
           promptSnapshot: true,
         },
@@ -320,9 +314,6 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
           )
         ).toEqual([]);
       }
-      expect(stored.pluginEnablements).toMatchObject([{ enabled: true, skillsEnabled: true }]);
-      expect(stored.pluginConnectionGrants).toMatchObject([{ enabled: false }]);
-      expect(stored.pluginToolPolicies).toMatchObject([{ toolName: "send", decision: "deny" }]);
       await prisma.bot.update({ where: { id: duplicate.id }, data: { status: "active" } });
       const context = await f.store.promptContext(duplicate.id);
       expect(context.memoryRender).not.toContain("BOT_LOCAL_MEMORY_MARKER");

@@ -10,28 +10,28 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
-export function ReviewActionCard({ message }: { message: ChannelMessageView }) {
+export function SharedTemplateCard({ message }: { message: ChannelMessageView }) {
   const inFlight = useRef(false);
   const metadata = message.metadata as Record<string, unknown>;
-  const review = metadata.review as Record<string, any>;
-  const [state, setState] = useState(String(metadata.cardState ?? "pending"));
+  const template = metadata.template as Record<string, any>;
+  const [state, setState] = useState(String(metadata.cardState ?? "published"));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [imported, setImported] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [importId] = useState(() => crypto.randomUUID());
-  useEffect(() => setState(String(metadata.cardState ?? "pending")), [metadata.cardState]);
-  const act = async (action: "approve" | "cancel" | "refresh" | "import" | "unpublish") => {
+  useEffect(() => setState(String(metadata.cardState ?? "published")), [metadata.cardState]);
+  const act = async (action: "import" | "unpublish") => {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
     setError("");
     try {
-      const result = await api.mutateReviewAction(message.id, action, importId);
+      const result = await api.mutateSharedTemplate(message.id, action, importId);
       setState(String((result.message.metadata as Record<string, unknown>).cardState));
       if (result.botId) setImported(true);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "The review could not be completed");
+      setError(error instanceof Error ? error.message : "The template action could not be completed");
     } finally {
       inFlight.current = false;
       setBusy(false);
@@ -39,7 +39,7 @@ export function ReviewActionCard({ message }: { message: ChannelMessageView }) {
   };
   const download = async () => {
     try {
-      const recipe = await api.reviewRecipe(message.id);
+      const recipe = await api.sharedTemplateRecipe(message.id);
       const url = URL.createObjectURL(
         new Blob([JSON.stringify(recipe, null, 2)], { type: "application/json" })
       );
@@ -52,21 +52,13 @@ export function ReviewActionCard({ message }: { message: ChannelMessageView }) {
       setError("The template could not be downloaded");
     }
   };
-  const template = review.kind === "template";
-  if (template) {
-    const recipe = review.recipe as BotRecipe;
+  {
+    const recipe = template.recipe as BotRecipe;
     const tint = /^#[0-9a-f]{6}$/i.test(recipe.profile.avatarColor ?? "")
       ? recipe.profile.avatarColor!
       : "#5bc67a";
-    const publishable = state === "pending" || state === "unpublished";
-    const primaryLabel = publishable
-      ? "Publish"
-      : state === "published"
-        ? imported
-          ? null
-          : "Use template"
-        : null;
-    const primaryAction = () => void act(publishable ? "approve" : "import");
+    const primaryLabel = state === "published" && !imported ? "Use template" : null;
+    const primaryAction = () => void act("import");
     return (
       <>
         <div className="rich-message-card flex w-[300px] max-w-full flex-col gap-3 rounded-[14px] bg-message-assistant p-3 text-[13px] leading-[18px]">
@@ -78,7 +70,7 @@ export function ReviewActionCard({ message }: { message: ChannelMessageView }) {
               />
               {state === "published"
                 ? "Published"
-                : state === "pending" || state === "unpublished"
+                : state === "unpublished"
                   ? "Unpublished"
                   : String(metadata.outcomeText ?? state)}
             </span>
@@ -135,11 +127,6 @@ export function ReviewActionCard({ message }: { message: ChannelMessageView }) {
                 <DropdownMenuItem onSelect={() => void download()}>
                   Download template JSON
                 </DropdownMenuItem>
-                {state === "pending" && (
-                  <DropdownMenuItem disabled={busy} onSelect={() => void act("cancel")}>
-                    Cancel draft
-                  </DropdownMenuItem>
-                )}
                 {state === "published" && (
                   <DropdownMenuItem disabled={busy} onSelect={() => void act("unpublish")}>
                     Unpublish
@@ -161,7 +148,7 @@ export function ReviewActionCard({ message }: { message: ChannelMessageView }) {
         </div>
         <TemplateDetails
           recipe={recipe}
-          version={Number(review.version)}
+          version={Number(template.version)}
           open={detailsOpen}
           onOpenChange={setDetailsOpen}
           action={primaryLabel}
@@ -173,46 +160,4 @@ export function ReviewActionCard({ message }: { message: ChannelMessageView }) {
       </>
     );
   }
-  return (
-    <div className="rich-message-card flex w-full max-w-[560px] flex-col gap-3 rounded-2xl bg-[#eeeeee] p-4 text-sm dark:bg-[#262626]">
-      <strong className="font-medium">Review product feedback</strong>
-      <p className="whitespace-pre-wrap">{review.message}</p>
-      <p>To: {review.destination}</p>
-      <p>{review.wantsResponse ? "Request a reply from support" : "No reply requested"}</p>
-      {state === "pending" ? (
-        <div className="flex justify-end gap-3">
-          <button disabled={busy} onClick={() => void act("cancel")}>
-            Cancel
-          </button>
-          <button
-            className="rounded-lg bg-foreground px-3 py-2 text-background"
-            disabled={busy}
-            onClick={() => void act("approve")}
-          >
-            {busy ? "Working…" : "Send feedback"}
-          </button>
-        </div>
-      ) : (
-        <>
-          <p>
-            {state === "published"
-              ? "Published"
-              : state === "sending"
-                ? "Sending…"
-                : String(metadata.outcomeText ?? state)}
-          </p>
-          {state === "sending" && (
-            <button disabled={busy} onClick={() => void act("refresh")}>
-              Check delivery
-            </button>
-          )}
-        </>
-      )}
-      {error && (
-        <p role="alert" className="text-red-600">
-          {error}
-        </p>
-      )}
-    </div>
-  );
 }

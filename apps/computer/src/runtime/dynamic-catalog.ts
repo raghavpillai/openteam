@@ -292,7 +292,7 @@ export function dynamicCatalog(
         inputSchema: tool.inputSchema,
         source: tool.source,
         decodeArguments: (args: unknown) => args,
-        execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal, mcpDetails?: unknown) =>
+        execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal,) =>
           callControlPlaneTool(
             turn,
             callId,
@@ -302,7 +302,6 @@ export function dynamicCatalog(
               namespace: namespace.name,
               toolName: tool.name,
               arguments: args,
-              mcpDetails,
             },
             signal
           ),

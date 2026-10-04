@@ -57,7 +57,7 @@ export class ExternalDraftService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly messaging: AgentMessaging,
-    private readonly plugins: Pick<PluginService, "invoke" | "invokeReviewed">
+    private readonly plugins: Pick<PluginService, "invoke">
   ) {}
   private async verify(botId: string, runId: string, draft: ExternalDraft, prefix: string) {
     const read = async (toolName: string, args: unknown) =>
@@ -231,7 +231,7 @@ export class ExternalDraftService {
           );
         const invoke = async (suffix: string, toolName: string, args: unknown) =>
           connectorRecord(
-            await this.plugins.invokeReviewed({
+            await this.plugins.invoke({
               connectionId: draft.providerIdentifier,
               botId,
               runId,

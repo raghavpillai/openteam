@@ -4,26 +4,6 @@ import type {
   PluginSettingsView,
 } from "@openteam/contracts";
 
-export {
-  PLUGIN_BOT_ACCESS_PAGE_SIZE,
-  PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH,
-} from "@openteam/contracts/plugin-settings";
-
-export const pluginBotAccessWindow = <T extends { name: string }>(
-  bots: readonly T[],
-  queryValue: string,
-  limit: number
-): { items: T[]; total: number } => {
-  const query = queryValue.trim().toLocaleLowerCase();
-  const matching = query
-    ? bots.filter((bot) => bot.name.toLocaleLowerCase().includes(query))
-    : bots;
-  return {
-    items: matching.slice(0, Math.max(1, Math.trunc(limit))),
-    total: matching.length,
-  };
-};
-
 const mergeConnectionStatus = (
   connection: PluginConnectionView,
   status: PluginConnectionStatusesView["connections"][number] | undefined
@@ -43,7 +23,7 @@ const mergeConnectionStatus = (
   };
 };
 
-/** Merge a small status poll without replacing catalog, policies, activity, or access state. */
+/** Merge a small status poll without replacing catalog or activity. */
 export const mergePluginConnectionStatuses = (
   settings: PluginSettingsView,
   statuses: PluginConnectionStatusesView

@@ -163,14 +163,6 @@
   background: #00c9722c;
   color: #38d591;
 }
-.permission-spinner {
-  width: 12px;
-  height: 12px;
-  border: 1.5px solid color-mix(in srgb, currentColor 30%, transparent);
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-}
 .permission-widget {
   max-width: none;
   line-height: 20px;
@@ -327,80 +319,9 @@ button.widget-option[aria-pressed="true"] {
   font-weight: 500;
   line-height: 18px;
 }
-.permission-approval .permission-button {
-  font-weight: 420;
-  box-shadow: none;
-}
-.approval-status {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 18px;
-  letter-spacing: -0.08px;
-}
-.approval-status-pending {
-  padding-left: 4px;
-  gap: 4px;
-  background: #ff980017;
-  color: #c27400;
-}
-.approval-status-pending .permission-spinner {
-  width: 14px;
-  height: 14px;
-  margin: 0 0 0 0;
-}
-.approval-status-denied {
-  background: #ff263c17;
-  color: #c21d2e;
-}
-.approval-status-allowed {
-  background: #00c97217;
-  color: #009957;
-}
-.approval-status-muted {
-  background: var(--permission-tint);
-  color: var(--permission-secondary);
-}
-.approval-status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.approval-status-denied .approval-status-dot {
-  background: #ff263c;
-}
-.approval-status-allowed .approval-status-dot {
-  background: #00c972;
-}
-[data-theme="dark"] .approval-status-pending {
-  background: #ff98002c;
-  color: #ffaf38;
-}
-[data-theme="dark"] .approval-status-denied {
-  background: #ff263c2c;
-  color: #ff5667;
-}
-[data-theme="dark"] .approval-status-allowed {
-  background: #00c9722c;
-  color: #38d591;
-}
 
 .permission-secondary {
   color: var(--permission-secondary);
-}
-.credential-approval {
-  width: 100%;
-  min-width: 0;
-  background: #77777717;
-}
-.credential-approval .permission-button-primary {
-  background: #070707;
 }
 .permission-pill-danger {
   background: #ff263c17;
@@ -498,13 +419,6 @@ button.widget-option[aria-pressed="true"] {
   outline: 2px solid var(--permission-text);
   outline-offset: 2px;
 }
-[data-theme="dark"] .credential-approval {
-  background: #7777772c;
-}
-[data-theme="dark"] .credential-approval .permission-button-primary {
-  background: #fafafa;
-  color: #141414;
-}
 
 .permission-button:not(.permission-button-primary):not(.permission-button-outline):not(
     .permission-button-ghost
@@ -523,9 +437,6 @@ button.widget-option[aria-pressed="true"] {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .permission-spinner {
-    animation: none;
-  }
 }
 
 .permission-pill-muted {
@@ -578,16 +489,7 @@ button.widget-option[aria-pressed="true"] {
   background: var(--permission-selected);
 }
 
-.permission-approval-spinner {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  animation: spin 1s linear infinite;
-}
 @media (prefers-reduced-motion: reduce) {
-  .permission-approval-spinner {
-    animation: none;
-  }
 }
 
 button.widget-option:hover:not([aria-pressed="true"]) {

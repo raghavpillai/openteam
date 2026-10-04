@@ -1,5 +1,5 @@
 import "./permission-cards.css";
-import { ReviewActionCard } from "./review-action-card";
+import { SharedTemplateCard } from "./shared-template-card";
 import { parseExternalDraft } from "@openteam/contracts/external-draft";
 import { ExternalDraftCard } from "./external-draft-card";
 import type {
@@ -30,7 +30,7 @@ import { API_BASE } from "../../client/http";
 import { api } from "../../client/openteam-api";
 import { cn } from "../../lib/cn";
 import { openComputerHandoff } from "../../lib/computer-handoff";
-import { parseUserForm } from "@openteam/contracts/review-cards";
+import { parseUserForm } from "@openteam/contracts/user-forms";
 import { UserFormCard } from "./user-form-card";
 
 const editableTarget = (target: EventTarget | null) =>
@@ -579,8 +579,8 @@ function ComputerHandoffCard({
 
 export function RichMessage({ message }: { message: ChannelMessageView }) {
   const metadata = record(message.metadata);
-  if (metadata.type === "review-action" && metadata.review && typeof metadata.review === "object")
-    return <ReviewActionCard message={message} />;
+  if (metadata.type === "bot-template" && metadata.template && typeof metadata.template === "object")
+    return <SharedTemplateCard message={message} />;
   if (metadata.type === "external-draft") {
     try {
       return <ExternalDraftCard draft={parseExternalDraft(metadata.draft)} message={message} />;

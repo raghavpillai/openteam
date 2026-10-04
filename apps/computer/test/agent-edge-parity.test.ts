@@ -74,24 +74,6 @@ test("staging ordinary and empty deliverables preserves names and denies hidden/
   } finally { await rm(root,{recursive:true,force:true}); }
 });
 
-test("review keeps omitted directory arguments and receives the effective persisted target", async()=>{
-  const root=await mkdtemp(join(tmpdir(),"edge-review-"));
-  const server=Bun.serve({port:0,hostname:"127.0.0.1",fetch:()=>Response.json({environment:{}})});
-  try {
-    await mkdir(join(root,"sub"));
-    const runtime=new RuntimeTools({} as never,server.url.origin,"fixture",root,root) as any;
-    const native=runtime.nativeToolExecutor as NativeToolExecutor;
-    const reviews:any[]=[];
-    native.autoReviewAction=async(input:any)=>{reviews.push(input)};
-    const active={runtimeProfile:"agent",botId:"edge-review",runId:"run",cwd:root,queue:{push:()=>{}},pendingReviewIds:new Set()} as any;
-    await runtime.executeScopedTool(active,"one","Shell",{command:`cd '${root}/sub'`});
-    await runtime.executeScopedTool(active,"two","Shell",{command:"pwd"});
-    expect(reviews[1].arguments).toEqual({command:"pwd"});
-    expect(reviews[1].target).toBe(join(root,"sub"));
-  } finally {server.stop(true);await rm(root,{recursive:true,force:true});}
-});
-
-
 test("workspace delivery stages private runner files without changing source permissions or state policy", async () => {
   const root = await mkdtemp(join(tmpdir(), "private-delivery-"));
   const options = {workspace:join(root,"workspace"),agentData:join(root,"state"),home:join(root,"home"),temporary:join(root,"tmp")};

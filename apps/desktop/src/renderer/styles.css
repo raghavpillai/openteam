@@ -1170,26 +1170,10 @@ textarea,
   max-width: 100%;
 }
 
-.approval-copy-button {
-  opacity: 1;
-  transition:
-    color 120ms ease,
-    background-color 120ms ease,
-    border-color 120ms ease,
-    opacity 120ms ease;
-}
 
 @media (hover: hover) and (pointer: fine) {
-  .approval-copy-button {
-    pointer-events: none;
-    opacity: 0;
-  }
 
   .approval-code-figure:hover .approval-copy-button,
-  .approval-copy-button:focus-visible {
-    pointer-events: auto;
-    opacity: 1;
-  }
 }
 
 .bot-scrollbar::-webkit-scrollbar,

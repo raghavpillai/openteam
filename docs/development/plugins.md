@@ -26,15 +26,15 @@ Saving a draft doesn't change any installed copy of the plugin.
 
 1. Choose **Install for testing**.
 2. Set up an account if the plugin needs one, and run a small read with **Test a tool** under **Manage → Accounts and settings**.
-3. Give a test bot access, and try the real workflow in chat.
+3. Try the real workflow in chat.
 
 Check what happens with missing credentials, service errors, and reconnecting. For tools that change data, test with data you don't mind losing.
 
-Write clear tool descriptions and input schemas, since bots rely on them to pick the right tool. Mark which tools read and which write, so users can set sensible [tool policies](../configuration/approvals.md#control-plugin-access).
+Write clear tool descriptions and input schemas, since bots rely on them to pick the right tool. Mark which tools read and which write, so users can set sensible [tool policies](../configuration/privacy.md#control-plugin-access).
 
 ## Share it
 
-Choose **Export ZIP** to package the plugin. Exports never include connected accounts, credentials, or bot access settings, so keep secrets in account setup rather than in plugin files.
+Choose **Export ZIP** to package the plugin. Exports never include connected accounts, credentials, so keep secrets in account setup rather than in plugin files.
 
 To release an update, publish the new package with the same key, and raise the version so people can tell releases apart. When the changed package reaches someone's server, for example through a plugin source, they review the changes and choose **Apply reviewed update**.
 

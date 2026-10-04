@@ -25,14 +25,14 @@ describe("plugin catalog", () => {
     expect(new Set(pluginCatalog.map((plugin) => plugin.key)).size).toBe(pluginCatalog.length);
   });
 
-  test("fixture tools declare schemas and conservative write defaults", () => {
+  test("fixture tools declare schemas and write metadata", () => {
     const fixture = createUtilityPluginFixture();
     expect(pluginCatalog.some((plugin) => plugin.key === fixture.key)).toBe(false);
     const connector = fixture?.connections[0];
     expect(connector?.transport).toBe("builtin");
     expect(connector?.tools.map((tool) => tool.name)).toEqual(["echo", "add", "remember_note"]);
-    expect(connector?.tools.find((tool) => tool.name === "remember_note")?.defaultDecision).toBe(
-      "prompt"
+    expect(connector?.tools.find((tool) => tool.name === "remember_note")?.risk).toBe(
+      "write"
     );
   });
 

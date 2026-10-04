@@ -158,9 +158,7 @@ const lazyBudgets: Record<string, number> = {
   pluginStudio: 30_000,
   privateSkills: 20_000,
   settingsMicrophone: 12_000,
-  settingsNative: 25_000,
   settingsTranscription: 12_000,
-  settingsWebhooks: 12_000,
   basicMarkdown: 600_000,
   advancedRich: 600_000,
   cjk: 600_000,
@@ -194,7 +192,6 @@ const lazyBudgets: Record<string, number> = {
   settingsShell: 10_000,
   settingsAbout: 10_000,
   settingsGeneral: 30_000,
-  settingsGeneralBot: 30_000,
   settingsComputer: 31_000,
   settingsServer: 35_000,
   // Search and Fetch pages with inlined 40 px WebP logos (~10 KB of the total).

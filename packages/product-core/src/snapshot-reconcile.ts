@@ -10,7 +10,6 @@ export type SnapshotCaches = Record<
   | "channelRounds"
   | "runs"
   | "runItems"
-  | "approvals"
   | "subagents",
   EntityCache
 >;
@@ -22,7 +21,6 @@ export const createSnapshotCaches = (): SnapshotCaches => ({
   channelRounds: new Map(),
   runs: new Map(),
   runItems: new Map(),
-  approvals: new Map(),
   subagents: new Map(),
 });
 
@@ -66,7 +64,6 @@ export const reconcileClientSnapshot = (
   const channelRounds = Array.isArray(next.channelRounds) ? next.channelRounds : [];
   const runs = Array.isArray(next.runs) ? next.runs : [];
   const runItems = Array.isArray(next.runItems) ? next.runItems : [];
-  const approvals = Array.isArray(next.approvals) ? next.approvals : [];
   const subagents = Array.isArray(next.subagents) ? next.subagents : [];
   const reconciled: ClientSnapshot = {
     ...next,
@@ -84,7 +81,6 @@ export const reconcileClientSnapshot = (
     channelRounds: reconcileEntities(caches.channelRounds, channelRounds, previous?.channelRounds),
     runs: reconcileEntities(caches.runs, runs, previous?.runs),
     runItems: reconcileEntities(caches.runItems, runItems, previous?.runItems),
-    approvals: reconcileEntities(caches.approvals, approvals, previous?.approvals),
     subagents: reconcileEntities(caches.subagents, subagents, previous?.subagents),
   };
   if (
@@ -97,7 +93,6 @@ export const reconcileClientSnapshot = (
     previous.channelRounds === reconciled.channelRounds &&
     previous.runs === reconciled.runs &&
     previous.runItems === reconciled.runItems &&
-    previous.approvals === reconciled.approvals &&
     previous.subagents === reconciled.subagents
   ) {
     return previous;

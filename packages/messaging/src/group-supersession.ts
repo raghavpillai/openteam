@@ -67,10 +67,6 @@ export async function supersedeGroupUserTurns(
           where: { runId: delivery.run.id, status: { in: ["pending", "processing"] } },
           data: { status: "completed", completedAt, error },
         });
-        await tx.approval.updateMany({
-          where: { runId: delivery.run.id, status: "pending" },
-          data: { status: "expired", resolvedAt: completedAt },
-        });
         runIds.push(delivery.run.id);
       }
       await tx.channelDelivery.update({

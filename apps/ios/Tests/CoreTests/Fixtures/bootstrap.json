@@ -141,7 +141,7 @@
         "reactions": [
           {
             "by": "me",
-            "emoji": "❤️"
+            "emoji": "\u2764\ufe0f"
           }
         ]
       },
@@ -154,7 +154,7 @@
       "sender": "user",
       "senderBotId": null,
       "sourceRunId": null,
-      "content": "Yes — focus on the iPhone experience and the reuse boundary.",
+      "content": "Yes \u2014 focus on the iPhone experience and the reuse boundary.",
       "metadata": {
         "replyTo": "message-1"
       },
@@ -167,7 +167,7 @@
       "sender": "agent",
       "senderBotId": "bot-research",
       "sourceRunId": "run-research",
-      "content": "On it. I’m separating verified behavior from assumptions before writing the mobile shell.",
+      "content": "On it. I\u2019m separating verified behavior from assumptions before writing the mobile shell.",
       "metadata": {
         "address": "t3a0"
       },
@@ -196,7 +196,7 @@
       "sender": "agent",
       "senderBotId": "bot-research",
       "sourceRunId": "run-research",
-      "content": "Thanks — I’m using it to verify the control and navigation layer now.",
+      "content": "Thanks \u2014 I\u2019m using it to verify the control and navigation layer now.",
       "metadata": {
         "toAgent": {
           "id": "bot-ops",
@@ -239,7 +239,7 @@
       "id": "run-research",
       "botId": "bot-research",
       "conversationId": "conversation-research",
-      "status": "waiting_approval",
+      "status": "running",
       "runtimeTurnId": "turn-1",
       "origin": "user",
       "channelId": "channel-research",
@@ -250,24 +250,6 @@
     }
   ],
   "runItems": [],
-  "approvals": [
-    {
-      "id": "approval-1",
-      "runId": "run-research",
-      "runItemId": null,
-      "kind": "computer_action",
-      "status": "pending",
-      "details": {
-        "title": "Open the reference app",
-        "description": "Continue the live iPhone walkthrough."
-      },
-      "createdAt": "2026-08-28T12:00:00.000Z",
-      "ownerConversationId": "conversation-research",
-      "parentRunId": "run-research",
-      "parentToolCallId": null,
-      "subagentId": null
-    }
-  ],
   "subagents": [],
   "runtime": {
     "server": "ready",
@@ -290,7 +272,7 @@
         "reactions": [
           {
             "by": "me",
-            "emoji": "❤️"
+            "emoji": "\u2764\ufe0f"
           }
         ]
       },
@@ -303,7 +285,7 @@
       "sender": "user",
       "senderBotId": null,
       "sourceRunId": null,
-      "content": "Yes — focus on the iPhone experience and the reuse boundary.",
+      "content": "Yes \u2014 focus on the iPhone experience and the reuse boundary.",
       "metadata": {
         "replyTo": "message-1"
       },
@@ -316,7 +298,7 @@
       "sender": "agent",
       "senderBotId": "bot-research",
       "sourceRunId": "run-research",
-      "content": "On it. I’m separating verified behavior from assumptions before writing the mobile shell.",
+      "content": "On it. I\u2019m separating verified behavior from assumptions before writing the mobile shell.",
       "metadata": {
         "address": "t3a0"
       },
@@ -345,7 +327,7 @@
       "sender": "agent",
       "senderBotId": "bot-research",
       "sourceRunId": "run-research",
-      "content": "Thanks — I’m using it to verify the control and navigation layer now.",
+      "content": "Thanks \u2014 I\u2019m using it to verify the control and navigation layer now.",
       "metadata": {
         "toAgent": {
           "id": "bot-ops",
@@ -387,7 +369,7 @@
       "id": "run-research",
       "botId": "bot-research",
       "conversationId": "conversation-research",
-      "status": "waiting_approval",
+      "status": "running",
       "runtimeTurnId": "turn-1",
       "origin": "user",
       "channelId": "channel-research",
@@ -395,24 +377,6 @@
       "error": null,
       "createdAt": "2026-08-28T11:42:00.000Z",
       "updatedAt": "2026-08-28T12:00:00.000Z"
-    }
-  ],
-  "pendingApprovals": [
-    {
-      "id": "approval-1",
-      "runId": "run-research",
-      "runItemId": null,
-      "kind": "computer_action",
-      "status": "pending",
-      "details": {
-        "title": "Open the reference app",
-        "description": "Continue the live iPhone walkthrough."
-      },
-      "createdAt": "2026-08-28T12:00:00.000Z",
-      "ownerConversationId": "conversation-research",
-      "parentRunId": "run-research",
-      "parentToolCallId": null,
-      "subagentId": null
     }
   ]
 }

@@ -174,16 +174,6 @@ export const agentNotificationPresentation = (input: {
   };
 };
 
-export const notificationApprovalReason = (details: unknown): string => {
-  const record = notificationMetadata(details);
-  for (const key of ["reason", "message", "description", "command", "title"]) {
-    if (typeof record[key] === "string" && record[key].trim()) {
-      return truncateNotificationText(record[key]);
-    }
-  }
-  return "Waiting for your input.";
-};
-
 export const notificationMessageInputReason = (message: {
   content?: string | null;
   metadata?: unknown;
@@ -203,8 +193,6 @@ export const notificationMessageInputReason = (message: {
       "user_form",
       "secret-request",
       "secret_request",
-      "permission_request",
-      "approval_required",
     ].includes(type)
   ) {
     return null;
@@ -255,7 +243,7 @@ export const notificationMessagePreview = (message: {
   }
   if (["sent_link", "link"].includes(type)) return "Sent a link.";
   if (
-    ["secret-request", "secret_request", "permission_request", "approval_required"].includes(type)
+    ["secret-request", "secret_request"].includes(type)
   ) {
     return "Waiting for your input.";
   }

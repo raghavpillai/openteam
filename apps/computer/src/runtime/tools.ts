@@ -1,6 +1,4 @@
-import { ShellReviewEscalation } from "./shell-review-escalation";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
-import { isPendingReviewControl } from "./pending-review-controls";
 import { onlyPendingBackgroundWork } from "./background-status";
 import { spoolFile } from "@openteam/plugin-sdk/file-spool";
 import { agentReadStream, agentWriteStream } from "../agent-file-stream";
@@ -13,7 +11,7 @@ import { renderDesktopResult, renderControlResult } from "@openteam/contracts/to
 import {
   describeUploadFileOutcome,
   describeDownloadFileOutcome,
-  formatCookieOriginApprovalOutcome,
+  formatChromeCookieImportOutcome,
 } from "@openteam/contracts/reference-formatters";
 import { parseReferenceArguments } from "@openteam/contracts/reference-parsers";
 import { HostShellCompletions } from "../host-shell-completions";
@@ -33,7 +31,6 @@ import { type AgentToolResult, defineTool } from "@earendil-works/pi-coding-agen
 import {
   AwaitShellInput,
   AUTOMATION_PARENT_ONLY_TOOLS,
-  type ApprovalDecision,
   CALL_DYNAMIC_TOOL_TOOL,
   CallDynamicToolInput,
   COMPUTER_USE_TOOL,
@@ -77,8 +74,6 @@ import {
 } from "../dynamic-tool-gateway";
 import { assertGraphicalShellBoundary } from "../graphical-shell-policy";
 import {
-  HostApprovalRequiredError,
-  type HostApprovalTokens,
   NativeToolExecutor,
 } from "../native-tool-executor";
 import type { ScreenBroker } from "../screen-broker";
@@ -113,7 +108,6 @@ export const LEGACY_EXTERNAL_NATIVE_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 export class RuntimeTools {
-  private readonly shellReviewEscalation = new ShellReviewEscalation();
   private readonly shellWaits = new Map<string, Set<AbortController>>();
   interruptShellWaits(runId: string) {
     for (const wait of this.shellWaits.get(runId) ?? [])
@@ -206,13 +200,6 @@ export class RuntimeTools {
     );
     this.turnSecrets.set(active, environment);
     return environment;
-  }
-  cancelApprovals(runId: string): void {
-    for (const pending of this.pendingApprovals.values()) {
-      if (pending.runId === runId) {
-        pending.settle(undefined, new Error("The run ended before the approval was resolved"));
-      }
-    }
   }
   constructor(
     private readonly screens: ScreenBroker,
@@ -391,78 +378,6 @@ export class RuntimeTools {
     );
   }
 
-  private readonly pendingApprovals = new Map<
-    string,
-    {
-      runId: string;
-      screenBotId: string;
-      settled: Promise<void>;
-      settle: (decision?: ApprovalDecision, error?: Error) => void;
-      select?: (items?: readonly string[]) => void;
-    }
-  >();
-
-  resolveApproval(
-    approvalId: string,
-    decision: ApprovalDecision,
-    selectedItems?: readonly string[]
-  ): void {
-    const pending = this.pendingApprovals.get(approvalId);
-    if (!pending) throw new Error("This approval is no longer pending");
-    pending.select?.(selectedItems);
-    pending.settle(decision);
-  }
-
-  private async assertNoPendingReview(active: ActiveTurn, signal?: AbortSignal): Promise<void> {
-    const pending = [...this.pendingApprovals.values()].filter(
-      (review) => review.screenBotId === active.screenBotId
-    );
-    if (!pending.length) return;
-    // The owning turn already waits on its approval. A sibling worker must not
-    // burn model turns repeatedly retrying the same shared-screen gate.
-    if (pending.every((review) => review.runId !== active.runId)) {
-      this.assertCurrentInput(active);
-      signal?.throwIfAborted();
-      // The foreground coordinator must remain able to stop/check workers or
-      // report the blocker. Waiting here prevents its entire parallel tool
-      // batch from finishing, so it cannot choose those control operations.
-      // This is only an error result: the pending approval remains untouched.
-      if (active.runtimeProfile === "agent") {
-        throw new Error(
-          "Another run on this computer is waiting for approval. This action was not executed. cursor.CheckSubagent and cursor.ReadTranscript remain available for inspection; cursor.StopSubagent remains available to cancel the waiting worker. MessageSubagent and side effects are blocked while approval is pending. Use those existing control tools when appropriate, or report the blocker and await the user's decision; do not retry blocked actions."
-        );
-      }
-      // Steering is drained after the tool batch. Wake this non-executing wait
-      // so the model can process a correction or stop request without resolving
-      // (or inheriting permission from) the other run's pending approval.
-      const controller = new AbortController();
-      const waits = this.shellWaits.get(active.runId) ?? new Set<AbortController>();
-      waits.add(controller);
-      this.shellWaits.set(active.runId, waits);
-      const waitSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
-      let onAbort: (() => void) | undefined;
-      try {
-        await Promise.race([
-          Promise.all(pending.map((review) => review.settled)),
-          new Promise<never>((_, reject) => {
-            onAbort = () => reject(waitSignal.reason ?? new DOMException("Aborted", "AbortError"));
-            waitSignal.addEventListener("abort", onAbort, { once: true });
-            if (waitSignal.aborted) onAbort();
-          }),
-        ]);
-      } finally {
-        if (onAbort) waitSignal.removeEventListener("abort", onAbort);
-        waits.delete(controller);
-        if (!waits.size) this.shellWaits.delete(active.runId);
-      }
-      signal?.throwIfAborted();
-      // Never replay an action chosen before the approval was resolved. It may
-      // now be stale, and resolution does not authorize this worker's action.
-      throw new Error("The shared approval wait ended. This action was not executed; inspect current task state before choosing a new action.");
-    }
-    throw new Error("Another action is waiting for approval; no new side effect may start yet.");
-  }
-
   private assertCurrentInput(active: ActiveTurn): void {
     // Pi drains steering after the current tool batch. If a correction arrived
     // during inference, do not execute that response's now-stale tool calls first.
@@ -534,7 +449,7 @@ export class RuntimeTools {
           parameters: Type.Unsafe<Record<string, unknown>>(COMPUTER_USE_TOOL.inputSchema),
           executionMode: "sequential",
           execute: (callId, args, signal) =>
-            this.reviewGraphicalAction(active, callId, "Computer", args, signal, () =>
+            this.executeGraphicalAction(active, signal, () =>
               this.callComputerUse(active, args, signal)
             ),
         });
@@ -546,7 +461,7 @@ export class RuntimeTools {
             parameters: Type.Unsafe<Record<string, unknown>>(tool.inputSchema),
             executionMode: "sequential",
             execute: (callId, args, signal) =>
-              this.reviewGraphicalAction(active, callId, tool.name, args, signal, () =>
+              this.executeGraphicalAction(active, signal, () =>
                 this.callBrowserForTurn(active, tool.name, args, signal)
               ),
           })
@@ -579,10 +494,7 @@ export class RuntimeTools {
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     this.assertCurrentInput(active);
-    return this.nativeToolExecutor.withReviewContext(
-      { runId: active.runId, botId: active.botId },
-      () => this.executeScopedTool(active, callId, tool, args, signal)
-    );
+    return this.executeScopedTool(active, callId, tool, args, signal);
   }
 
   private async executeScopedTool(
@@ -614,18 +526,6 @@ export class RuntimeTools {
     // Consume once, even on failure. This is not a retry or a new action grant.
     if (queuedAttachment) active.pendingDeliveryAttachments?.delete(callId);
     if (queuedCleanup) active.pendingDeliveryCleanup?.delete(callId);
-    if (
-      ![
-        "Read",
-        "RecallMemory",
-        "GetDynamicTools",
-        "ListSections",
-        "Screenshot",
-        "ListMachines",
-        "CallDynamicTool",
-      ].includes(tool) && !isPendingReviewControl(tool, args)
-    )
-      await this.assertNoPendingReview(active, signal);
     if (active.requestSource === "automation" && AUTOMATION_PARENT_ONLY_TOOLS.has(tool)) {
       throw new Error("Use WakeParent to hand this communication to the parent agent");
     }
@@ -635,7 +535,7 @@ export class RuntimeTools {
       (args as Record<string, unknown>)?.type === "credential-request"
     ) {
       if (active.runtimeProfile === "subagent" || active.requestSource === "automation")
-        throw new Error("Saved-login approval must be requested by the parent bot");
+        throw new Error("Saved-login use must be requested by the parent bot");
       const credential = (args as { credential?: Record<string, unknown> }).credential;
       if (
         !credential ||
@@ -650,20 +550,14 @@ export class RuntimeTools {
         credential.site as string
       );
       try {
-        return await this.executeHostTool(
-          active,
-          callId,
-          "UseSavedCredential",
-          signal,
-          async (approvals) => {
+        return await (async () => {
             const values = await this.nativeToolExecutor.desktopCapability(
               "UseSavedCredential",
               active.screenBotId,
               { ...credential, site: binding.origin },
               signal,
               callId,
-              active.channelId,
-              approvals
+              active.channelId
             );
             signal?.throwIfAborted();
             this.rememberBrowserValues(active.screenBotId, [values.password, values.username]);
@@ -684,14 +578,13 @@ export class RuntimeTools {
                 {
                   type: "text" as const,
                   text: filled
-                    ? "Approved login filled on the bound page. Continue in the browser to submit; values were kept private."
-                    : "The approved login document or fields changed. Inspect the page before requesting further help.",
+                    ? "Saved login filled on the bound page. Continue in the browser to submit; values were kept private."
+                    : "The saved login document or fields changed. Inspect the page before requesting further help.",
                 },
               ],
               details: { filled, origin: binding.origin },
             };
-          }
-        );
+          })();
       } finally {
         await browser.releaseLoginBinding(binding);
       }
@@ -703,9 +596,8 @@ export class RuntimeTools {
         if (active.subagentType) {
           throw new Error("Graphical subagents cannot target the user's local computer");
         }
-        return this.executeHostTool(active, callId, tool, signal, this.shellReviewEscalation.wrap(active, [shellInput.machineId, shellInput.working_directory ?? null], shellInput, async (approvals) => {
-          const result = await this.nativeToolExecutor.externalShell(shellInput, signal, approvals);
-          this.shellReviewEscalation.invalidate(active);
+        return (async () => {
+          const result = await this.nativeToolExecutor.externalShell(shellInput, signal);
           if (
             result.details.status === "running" &&
             typeof result.details.shell_id === "string" &&
@@ -721,33 +613,13 @@ export class RuntimeTools {
             });
           }
           return result;
-        }));
+        })();
       }
       const environment =
         active.subagentType === "computerUse"
           ? await this.screens.commandEnvironment(active.screenBotId, active.cwd)
           : undefined;
       const secretEnvironment = await this.processSecrets(active, signal);
-      const effectiveDirectory = await this.nativeToolExecutor.shellWorkingDirectory(shellInput, active.cwd, active.botId);
-      await this.executeHostTool(active, callId, tool, signal, this.shellReviewEscalation.wrap(active, ["box", effectiveDirectory], shellInput, (approvals) =>
-        this.nativeToolExecutor.autoReviewAction(
-          {
-            surface: "boxShell",
-            summary: shellInput.description ?? "Run a command on the bot computer",
-            target: effectiveDirectory,
-            command: shellInput.command,
-            arguments: {
-              command: shellInput.command,
-              ...(shellInput.working_directory == null ? {} : { working_directory: shellInput.working_directory }),
-            },
-          },
-          signal,
-          approvals
-        ))
-      );
-      await this.assertNoPendingReview(active, signal);
-      // A command can change persistent shell state; old blocks need fresh review.
-      this.shellReviewEscalation.invalidate(active);
       return this.nativeToolExecutor.shell(
         shellInput,
         active.cwd,
@@ -768,9 +640,8 @@ export class RuntimeTools {
         if (active.subagentType) {
           throw new Error("Graphical subagents cannot target the user's local computer");
         }
-        return this.executeHostTool(active, callId, tool, signal, (approvals) =>
-          this.nativeToolExecutor.externalRead(readInput, signal, approvals)
-        );
+        return (() =>
+          this.nativeToolExecutor.externalRead(readInput, signal))();
       }
       const secrets = Object.values(await this.processSecrets(active, signal));
       const result = await this.nativeToolExecutor.read(readInput, active.cwd);
@@ -783,23 +654,19 @@ export class RuntimeTools {
     }
     if (tool === EXTERNAL_SHELL_TOOL.name) {
       const input = Schema.decodeUnknownSync(ShellToolInput)(args);
-      return this.executeHostTool(active, callId, tool, signal, (approvals) =>
+      return (() =>
         this.nativeToolExecutor.externalShell(
           { ...input, machineId: input.machineId ?? "this-computer" },
-          signal,
-          approvals
-        )
-      );
+          signal
+        ))();
     }
     if (tool === EXTERNAL_READ_TOOL.name) {
       const input = Schema.decodeUnknownSync(ReadToolInput)(args);
-      return this.executeHostTool(active, callId, tool, signal, (approvals) =>
+      return (() =>
         this.nativeToolExecutor.externalRead(
           { ...input, machineId: input.machineId ?? "this-computer" },
-          signal,
-          approvals
-        )
-      );
+          signal
+        ))();
     }
     if (tool === LIST_MACHINES_TOOL.name) {
       return this.nativeToolExecutor.listMachines(signal);
@@ -841,260 +708,11 @@ export class RuntimeTools {
     return this.callControlPlaneTool(active, callId, tool, args, signal);
   }
 
-  private async executeHostTool<T>(
-    active: ActiveTurn,
-    callId: string,
-    toolName: string,
-    signal: AbortSignal | undefined,
-    execute: (approvals: HostApprovalTokens) => Promise<T>
-  ): Promise<T> {
-    const approvals: HostApprovalTokens = {};
-    const actions = new Map<
-      string,
-      { decision: "accept" | "always_allow"; selectedItems?: readonly string[] }
-    >();
-    const report = (status: "running" | "completed" | "failed") => {
-      for (const [approvalId, decision] of actions)
-        active.queue.push({
-          type: "approval.action",
-          approvalId,
-          turnId: active.turnId,
-          status,
-          ...decision,
-        });
-    };
-    try {
-      for (;;) {
-        try {
-          const result = await execute(approvals);
-          const outcome = result as { isError?: boolean; details?: { filled?: boolean } } | null;
-          report(
-            outcome?.isError === true || outcome?.details?.filled === false ? "failed" : "completed"
-          );
-          return result;
-        } catch (error) {
-          if (!(error instanceof HostApprovalRequiredError)) throw error;
-          let selectedItems: readonly string[] | undefined;
-          let requestedId: string | undefined;
-          const decision = await this.requestHostApproval(
-            active,
-            callId,
-            error,
-            signal,
-            (items) => {
-              selectedItems = items;
-            },
-            (id) => {
-              requestedId = id;
-            }
-          );
-          if (error.approval.gate === "capability") {
-            if ((decision === "accept" || decision === "always_allow") && error.approval.token) {
-              const presentation = error.approval.details.presentation as
-                | { kind?: string }
-                | undefined;
-              if (
-                requestedId &&
-                ["saved-login", "cookie-import"].includes(presentation?.kind ?? "")
-              ) {
-                actions.set(requestedId, {
-                  decision,
-                  ...(selectedItems === undefined ? {} : { selectedItems }),
-                });
-                active.queue.push({
-                  type: "approval.action",
-                  approvalId: requestedId,
-                  turnId: active.turnId,
-                  status: "running",
-                  decision,
-                  ...(selectedItems === undefined ? {} : { selectedItems }),
-                });
-              }
-              (approvals.capabilityApprovals ??= []).push({
-                token: error.approval.token,
-                decision: decision === "always_allow" ? "always" : "allow-once",
-                ...(selectedItems === undefined ? {} : { selectedItems }),
-              });
-              continue;
-            }
-            throw new Error("The user denied this native action. Do not retry it unless asked.");
-          }
-          if (decision === "accept") {
-            if (error.approval.gate === "local") approvals.localApproval = "allow-once";
-            else approvals.autoReviewApproval = "allow-once";
-            continue;
-          }
-          if (decision === "always_allow") {
-            if (error.approval.gate === "local") approvals.localApproval = "always";
-            else approvals.autoReviewApproval = "always";
-            continue;
-          }
-          if (decision === "never" && error.approval.gate === "local") {
-            const machineId = error.approval.details.machineId;
-            if (typeof machineId === "string") {
-              await this.nativeToolExecutor.setLocalToolPermission(machineId, "never", signal);
-            }
-            throw new Error(
-              "Local computer tools are disabled. Do not retry this action on the user's computer."
-            );
-          }
-          if (error.approval.gate === "auto-review") {
-            const reason =
-              typeof error.approval.details.reason === "string"
-                ? error.approval.details.reason
-                : "The user denied the reviewed action";
-            throw new Error(
-              `Auto-review blocked this action: ${reason}. Do not retry the same action.`
-            );
-          }
-          const action = toolName.toLowerCase().includes("shell") ? "Command" : "Action";
-          throw new Error(
-            `${action} failed to spawn: The user declined this action on their computer. Do not retry it. Do something else, use your own computer instead (Shell, Read), or ask them what they would prefer.`
-          );
-        }
-      }
-    } catch (error) {
-      report("failed");
-      throw error;
-    }
-  }
-
-  async approvePluginHook(
-    active: ActiveTurn,
-    callId: string,
-    reason: string,
-    input: Record<string, unknown>
-  ): Promise<boolean> {
-    const decision = await this.requestHostApproval(
-      active,
-      callId,
-      new HostApprovalRequiredError({
-        gate: "auto-review",
-        requestMethod: "openteam/autoReview",
-        details: {
-          type: "autoReview",
-          gate: "auto-review",
-          action: "mcp",
-          toolName: String(input.tool_name ?? "plugin hook"),
-          summary: reason,
-          reason: "An installed plugin requires review",
-          arguments: input,
-          supportsAlwaysAllow: false,
-        },
-      }),
-      active.pluginAbortController?.signal
-    );
-    return decision === "accept";
-  }
-
-  private requestHostApproval(
-    active: ActiveTurn,
-    callId: string,
-    error: HostApprovalRequiredError,
-    signal?: AbortSignal,
-    select?: (items?: readonly string[]) => void,
-    requested?: (approvalId: string) => void
-  ): Promise<ApprovalDecision> {
-    if (signal?.aborted) return Promise.reject(new DOMException("Approval aborted", "AbortError"));
-    const approvalId = crypto.randomUUID();
-    let notifySettled!: () => void;
-    const settled = new Promise<void>((resolve) => { notifySettled = resolve; });
-    return new Promise<ApprovalDecision>((resolveDecision, reject) => {
-      const onAbort = () => settle(undefined, new DOMException("Approval aborted", "AbortError"));
-      const settle = (decision?: ApprovalDecision, approvalError?: Error) => {
-        if (!this.pendingApprovals.delete(approvalId)) return;
-        notifySettled();
-        signal?.removeEventListener("abort", onAbort);
-        if (approvalError) reject(approvalError);
-        else if (decision) resolveDecision(decision);
-        else reject(new Error("Approval ended without a decision"));
-      };
-      this.pendingApprovals.set(approvalId, {
-        runId: active.runId,
-        screenBotId: active.screenBotId,
-        settled,
-        settle,
-        select,
-      });
-      signal?.addEventListener("abort", onAbort, { once: true });
-      requested?.(approvalId);
-      active.queue.push({
-        type: "approval.requested",
-        approvalId,
-        requestMethod: error.approval.requestMethod,
-        turnId: active.turnId,
-        itemId: callId,
-        details: error.approval.details,
-      });
-    });
-  }
-
-  private async reviewGraphicalAction<T>(
-    active: ActiveTurn,
-    callId: string,
-    tool: string,
-    args: unknown,
-    signal: AbortSignal | undefined,
-    execute: () => Promise<T>
-  ): Promise<T> {
+  private async executeGraphicalAction<T>(active: ActiveTurn, signal: AbortSignal | undefined, execute: () => Promise<T>): Promise<T> {
+    signal?.throwIfAborted();
     this.assertCurrentInput(active);
-    return this.nativeToolExecutor.withReviewContext(
-      { runId: active.runId, botId: active.botId },
-      async () => {
-        if (active.endTurnRequested) throw new Error("The turn has ended");
-        await this.assertNoPendingReview(active, signal);
-        const validateNativeReview = tool === "Computer"
-          ? await this.screens.guardAgentReview(active.screenBotId, active.cwd) : undefined;
-        const closeBrowser = tool === "browser_tabs" && (args as any)?.action === "close"
-          ? this.browserUseSessions?.get(active.botId) : undefined;
-        const closeTarget = closeBrowser?.tabCloseReviewTarget(args as { index?: unknown });
-        const reviewBrowser = this.browserUseSessions?.get(active.botId);
-        const fileInput = tool === "browser_click"
-          ? await reviewBrowser?.fileInputReviewTarget(args as Record<string, unknown>) : undefined;
-        const uploadTarget = tool === "browser_file_upload"
-          ? await reviewBrowser?.uploadReviewTarget(args as Record<string, unknown>) : undefined;
-        try {
-          if (
-            ![
-              "browser_snapshot",
-              "browser_find",
-              "browser_wait_for",
-              "browser_get_bounding_box",
-              "browser_take_screenshot",
-              "browser_console_messages",
-              "browser_network_requests",
-            ].includes(tool) &&
-            !(tool === "browser_tabs" && (args as Record<string, unknown>)?.action === "list")
-          ) {
-            await this.executeHostTool(active, callId, tool, signal, (approvals) =>
-              this.nativeToolExecutor.autoReviewAction(
-                {
-                  surface: tool.startsWith("browser_") ? "browser" : "computer",
-                  summary: tool.startsWith("browser_") ? `Use dedicated browser tool ${tool}` : `Use native desktop tool ${tool}`,
-                  target: active.screenBotId,
-                  arguments: { ...(args as Record<string, unknown>), tool,
-                    nativeScreenObservation: tool === "Computer" ? true : undefined,
-                    // Never let model-supplied arguments forge runtime evidence.
-                    browserObservedTarget: closeTarget ?? fileInput?.observation ?? uploadTarget },
-                },
-                signal,
-                approvals
-              )
-            );
-          }
-          signal?.throwIfAborted();
-          await this.assertNoPendingReview(active, signal);
-          validateNativeReview?.();
-          if (closeTarget && JSON.stringify(closeBrowser!.tabCloseReviewTarget(args as { index?: unknown })) !== JSON.stringify(closeTarget))
-            throw new Error("Browser tab changed while awaiting review. Inspect the current tabs before requesting closure again.");
-          await fileInput?.validate();
-          if (uploadTarget) await reviewBrowser!.assertUploadReviewTarget(args as Record<string, unknown>, uploadTarget);
-          return await execute();
-        } finally {
-          await fileInput?.dispose();
-        }
-      }
-    );
+    if (active.endTurnRequested) throw new Error("The turn has ended");
+    return execute();
   }
 
   private async callComputerUse(
@@ -1309,12 +927,6 @@ export class RuntimeTools {
     target?: string,
     focused = false
   ): Promise<boolean> {
-    if (
-      [...this.pendingApprovals.values()].some(
-        (pending) => pending.screenBotId === active.screenBotId
-      )
-    )
-      return false;
     const site = target ?? (await browser.currentLoginSite());
     if (!site) return false;
     let binding: Awaited<ReturnType<BrowserUseSession["loginBinding"]>> | undefined;
@@ -1371,23 +983,16 @@ export class RuntimeTools {
     signal?: AbortSignal,
     callId?: string
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const output = await this.executeHostTool(
-      active,
-      callId ?? crypto.randomUUID(),
-      name,
-      signal,
-      (approvals) =>
+    const output = await (() =>
         this.nativeToolExecutor.desktopCapability(
           name,
           active.botId,
           args,
           signal,
           callId,
-          active.channelId,
-          approvals
-        )
-    );
-    if (name === "request_cookie_origin_approval" && output.kind === "collected") {
+          active.channelId
+        ))();
+    if (name === "import_chrome_cookies" && output.kind === "collected") {
       signal?.throwIfAborted();
       let injected = 0,
         failed = output.cookies.length;
@@ -1421,7 +1026,7 @@ export class RuntimeTools {
         decision: output.decision ?? "approve_once",
       };
       return {
-        content: [{ type: "text", text: formatCookieOriginApprovalOutcome(outcome) }],
+        content: [{ type: "text", text: formatChromeCookieImportOutcome(outcome) }],
         details: { imported: injected, failed },
       };
     }
@@ -1588,39 +1193,6 @@ export class RuntimeTools {
           ],
           details: { ...prepared.result },
         };
-      let reviewed = false;
-      if (prepared.decision === "prompt") {
-        const decision = await this.requestHostApproval(
-          active,
-          callId,
-          new HostApprovalRequiredError({
-            gate: "auto-review",
-            requestMethod: "openteam/autoReview",
-            details: {
-              type: "autoReview",
-              gate: "auto-review",
-              action: "mcp",
-              toolName: tool,
-              summary: `${tool === "upload_file" ? "Upload to" : "Download from"} ${prepared.connectionName}`,
-              reason: "This connected account requires approval for file transfers",
-              arguments: {
-                ...input,
-                connection: prepared.connectionId,
-                sha256: staged.sha256,
-                sizeBytes: staged.sizeBytes,
-              },
-              supportsAlwaysAllow: false,
-            },
-          }),
-          signal
-        );
-        if (decision !== "accept")
-          return outcomeResult({
-            kind: "rejected",
-            message: "The user declined the transfer. Do not retry unless asked.",
-          });
-        reviewed = true;
-      }
       const envelope = {
         runId: active.runId,
         botId: active.botId,
@@ -1629,7 +1201,7 @@ export class RuntimeTools {
         deliveryId: active.deliveryId,
         callId,
         tool: "ExecuteConnectorTransfer",
-        arguments: { ...staged, input: { ...input, connection: prepared.connectionId }, reviewed },
+        arguments: { ...staged, input: { ...input, connection: prepared.connectionId } },
       };
       const response = await fetch(`${this.serverUrl}/api/v0/internal/connector-transfer`, {
         method: "POST",
@@ -1713,7 +1285,7 @@ export class RuntimeTools {
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     const cleanup: Array<() => Promise<void>> = [];
     try {
-      if (["SendToUser", "ReviewedExternalFileDelivery"].includes(tool) && args && typeof args === "object") {
+      if (tool === "SendToUser" && args && typeof args === "object") {
         const input = args as Record<string, any>;
         const stage = async (url: string) => {
           const file = await stageAttachment(url, {
@@ -1759,7 +1331,7 @@ export class RuntimeTools {
         "SetMcpInstructions",
       ].includes(tool)
         ? 24 * 60 * 60_000
-        : ["SendToUser", "ReviewedExternalFileDelivery"].includes(tool)
+        : tool === "SendToUser"
           ? 5 * 60_000
           : ["request_user_form", "DraftExternalMessage"].includes(tool)
             ? 120_000
@@ -1787,38 +1359,6 @@ export class RuntimeTools {
     });
     const body = (await response.json()) as unknown;
     if (!response.ok) {
-      const failure = (body as { error?: { code?: string; message?: string; details?: unknown } })
-        ?.error;
-      if (tool === "SendToUser" && failure?.code === "external_file_review_required") {
-        const decision = await this.requestHostApproval(
-          active,
-          callId,
-          new HostApprovalRequiredError({
-            gate: "auto-review",
-            requestMethod: "openteam/autoReview",
-            details: {
-              type: "autoReview",
-              gate: "auto-review",
-              action: "mcp",
-              toolName: "SendToUser",
-              summary: "Deliver these files to the connected channel",
-              reason: failure.message ?? "Account policy requires review",
-              arguments: failure.details,
-              supportsAlwaysAllow: false,
-            },
-          }),
-          signal ?? AbortSignal.timeout(15 * 60_000)
-        );
-        if (decision !== "accept")
-          throw new Error("File delivery declined. Do not retry unless asked.");
-        return this.callControlPlaneTool(
-          active,
-          callId,
-          "ReviewedExternalFileDelivery",
-          args,
-          signal
-        );
-      }
       const message =
         body && typeof body === "object" && "error" in body
           ? JSON.stringify((body as { error: unknown }).error)
@@ -1871,7 +1411,6 @@ export class RuntimeTools {
     if (
       [
         SEND_TO_USER_TOOL.name,
-        "ReviewedExternalFileDelivery",
         REQUEST_BOX_HELP_TOOL.name,
         "request_user_form",
         "DraftExternalMessage",
@@ -1915,16 +1454,15 @@ export class RuntimeTools {
     };
   }
 
-  private executeReviewedTask(
+  private executeTask(
     active: ActiveTurn,
     callId: string,
     args: TaskInput,
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    return this.executeHostTool(active, callId, TASK_TOOL.name, signal, async (approvals) => {
-      await this.nativeToolExecutor.autoReviewTask(args, signal, approvals, active.taskConfiguration);
+    return (async () => {
       return this.callControlPlaneTool(active, callId, TASK_TOOL.name, args, signal);
-    });
+    })();
   }
 
   private async executeTodoWrite(
@@ -1973,7 +1511,7 @@ export class RuntimeTools {
     return dynamicCatalog(
       (...args) => this.callControlPlaneTool(...args),
       (turn, callId, args, signal) => this.executeTodoWrite(turn, callId, args, signal),
-      (...args) => this.executeReviewedTask(...args),
+      (...args) => this.executeTask(...args),
       active,
       (turn, _callId, args, signal) => this.awaitShellForTurn(turn, args, signal),
       [
@@ -2157,15 +1695,13 @@ export class RuntimeTools {
                   };
                 },
                 execute: (turn, callId, args, signal) =>
-                  this.executeHostTool(turn, callId, name, signal, (approvals) =>
+                  (() =>
                     this.nativeToolExecutor.copyFile(
                       name === "CopyToBox" ? "toBox" : "fromBox",
                       args as Parameters<NativeToolExecutor["copyFile"]>[1],
                       turn.cwd,
-                      signal,
-                      approvals
-                    )
-                  ),
+                      signal
+                    ))(),
               };
             })),
       ]
@@ -2258,41 +1794,7 @@ export class RuntimeTools {
       }
       if (active.endTurnRequested && !finishCleanup)
         throw new Error("The turn has ended; wait for the next user message");
-      if (
-        !(
-          input.namespace === "cursor" &&
-          (isPendingReviewControl(input.toolName, resolved.arguments) || [
-            "AwaitShell",
-            "WebFetch",
-            "WebSearch",
-            "ListAgents",
-            "ListGroups",
-            "CheckSubagent",
-            "SearchPlugins",
-            "GetPlugin",
-            "GetMcpServerStatus",
-            "read_sibling_thread",
-            "ReadTranscript",
-            "ListCredentials",
-            "GetCredentialProviderStatus",
-          ].includes(input.toolName))
-        )
-      )
-        await this.assertNoPendingReview(active, signal);
-      if (input.namespace !== "cursor")
-        await this.executeHostTool(active, callId, input.toolName, signal, (approvals) =>
-          this.nativeToolExecutor.autoReviewAction(
-            {
-              surface: "mcp",
-              summary: `Call ${input.namespace}.${input.toolName}`,
-              target: input.namespace,
-              arguments: { tool: input.toolName, input: resolved.arguments },
-            },
-            signal,
-            approvals
-          )
-        );
-      const result = await resolved.tool.execute(active, callId, resolved.arguments, signal, resolved.mcpDetails);
+      const result = await resolved.tool.execute(active, callId, resolved.arguments, signal);
       return finishCleanup && !("isError" in result && result.isError)
         ? {...result, details: {...result.details, deliveryCleanup: true}}
         : result;

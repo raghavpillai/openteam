@@ -4,7 +4,6 @@ import type {
   PackagePreview,
   PluginDefinition,
   PluginField,
-  PluginInstallationMode,
   PluginSetup,
 } from "@openteam/plugin-sdk";
 
@@ -25,9 +24,6 @@ export const PluginUrlInput = Schema.Struct({
 });
 export const PluginDraftInput = Schema.Struct({ definition: Schema.Unknown });
 export const PluginUpdateInput = Schema.Struct({ digest: Schema.String });
-export const PluginModeInput = Schema.Struct({
-  mode: Schema.Literal("optional", "default", "required", "disabled"),
-});
 export const PluginConfigurationInput = Schema.Struct({
   values: Schema.optional(Values),
   secrets: Schema.optional(
@@ -149,7 +145,6 @@ export interface PluginManagementView {
 export interface PluginPackageView {
   definition: PluginDefinition;
   digest: string;
-  mode: PluginInstallationMode;
   skillSyncStatus: string;
   skillSyncError: string | null;
   hasRollback: boolean;

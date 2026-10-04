@@ -5,7 +5,6 @@ const settingsSource = (
     [
       "settings/panel.tsx",
       "settings/general.tsx",
-      "settings/general-bot.tsx",
       "settings/computer.tsx",
       "settings/updates.tsx",
     ].map((file) =>
@@ -34,8 +33,8 @@ describe("desktop settings controls", () => {
   test("keeps the settings controls with real handlers", () => {
     expect(settingsSource).toContain('aria-label="Theme"');
     expect(settingsSource).toContain("Sign Out");
-    expect(settingsSource).toContain("Auto-review");
-    expect(settingsSource).toContain("Execution on this computer");
+    expect(settingsSource).not.toContain("Auto-review");
+    expect(settingsSource).not.toContain("Execution on this computer");
     expect(settingsSource).toContain("Check for Updates");
   });
 });

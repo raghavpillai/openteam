@@ -29,7 +29,7 @@
     "./version-compatibility": "./src/version-compatibility.ts",
     "./robot-avatar": "./src/robot-avatar.ts",
     "./plugin-management": "./src/plugin-management.ts",
-    "./review-cards": "./src/review-cards.ts",
+    "./user-forms": "./src/user-forms.ts",
     "./external-draft": "./src/external-draft.ts",
     "./bot-recipe": "./src/bot-recipe.ts",
     "./web-search": "./src/web-search.ts",

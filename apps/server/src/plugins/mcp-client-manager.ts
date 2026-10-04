@@ -33,7 +33,6 @@ const toolDefinition = (candidate: {
     description: candidate.description ?? "",
     inputSchema: candidate.inputSchema ?? { type: "object" },
     risk: destructive ? "destructive" : readOnly ? "read" : "write",
-    defaultDecision: readOnly && !destructive ? "allow" : "prompt",
   };
 };
 

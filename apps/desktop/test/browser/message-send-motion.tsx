@@ -98,7 +98,6 @@ async function scenario(kind: "bot_dm" | "group", historyCount: number, delay: n
               selectedBot={bot}
               botById={botById}
               agentNameById={emptyMap}
-              approvalsByRun={emptyMap}
               itemsByRun={emptyMap}
               capabilities={CLIENT_CAPABILITIES}
               messages={[...messages]}

@@ -1,7 +1,7 @@
 import { spoolFile, type StagedFile } from "@openteam/plugin-sdk/file-spool";
 import { createHash } from "node:crypto";
 import type { PrismaClient } from "@openteam/db";
-import { fileTransferPolicy, connectionNamespace } from "@openteam/plugin-sdk";
+import { connectionNamespace } from "@openteam/plugin-sdk";
 import {
   parseConnectorTransfer,
   CONNECTOR_TRANSFER_MAX_BYTES,
@@ -27,12 +27,9 @@ export class ConnectorFileTransfers {
       where: {
         installation: {
           status: "installed",
-          mode: { not: "disabled" },
-          enablements: { some: { botId, enabled: true } },
         },
-        grants: { some: { botId, enabled: true } },
       },
-      include: { installation: true, policies: { where: { OR: [{ botId }, { botId: null }] } } },
+      include: { installation: true },
     });
     const available = connections.filter((c) => providers.has(c.installation.pluginKey));
     const matches = available.filter((c) =>
@@ -51,18 +48,14 @@ export class ConnectorFileTransfers {
     const connection = matches[0]!;
     if (connection.status !== "ready")
       throw Object.assign(new Error("Authenticate this file connection before transferring files"),{outcome:{kind:"needs_auth"}});
-    // Respect both the unified action's policy and existing connector file policy.
-    const policy = fileTransferPolicy(connection.policies, toolSnapshot(connection.toolSnapshot), botId, tool as "upload_file" | "download_file");
-    if (!policy.enabled)
-      throw Object.assign(new Error("File transfer is denied by this account's tool policy"), {outcome:{kind:"rejected",message:"This account's file policy denies the transfer."}});
-    return { connection, decision: policy.decision };
+    return { connection };
   }
   async prepare(context: Context, raw: Record<string, any>) {
     const input = parseConnectorTransfer(raw.tool, raw.input);
     let resolved: Awaited<ReturnType<ConnectorFileTransfers["resolve"]>>;
     try { resolved=await this.resolve(context.botId,input.connection,raw.tool); }
     catch(error) { if((error as any).outcome)return {outcome:(error as any).outcome}; throw error; }
-    const {connection,decision}=resolved;
+    const {connection}=resolved;
     const fingerprint = createHash("sha256")
       .update(
         canonicalJson({
@@ -99,7 +92,6 @@ export class ConnectorFileTransfers {
       connectionId: connection.id,
       connectionName: connection.name,
       provider: connection.installation.pluginKey,
-      decision,
       fingerprint,
       status: previous?.status ?? "prepared",
       ...(previous?.status === "completed" ? { result: previous.result } : {}),
@@ -110,7 +102,7 @@ export class ConnectorFileTransfers {
     let resolved: Awaited<ReturnType<ConnectorFileTransfers["resolve"]>>;
     try { resolved = await this.resolve(context.botId, input.connection, raw.tool); }
     catch (error) { if ((error as any).outcome) return {outcome:(error as any).outcome}; throw error; }
-    const { connection, decision } = resolved;
+    const { connection } = resolved;
     const record = await this.db.connectorFileTransfer.findUnique({
       where: { callId: context.callId },
     });
@@ -133,8 +125,6 @@ export class ConnectorFileTransfers {
     )
       throw new Error("Transfer was not prepared for this exact account and file");
     if (record.status === "completed" && raw.tool === "upload_file") return record.result;
-    if (decision === "prompt" && raw.reviewed !== true)
-      throw new Error("This transfer needs user approval");
     if (
       raw.tool === "upload_file" && !transfer.upload &&
       (!raw.sha256 ||
@@ -146,13 +136,13 @@ export class ConnectorFileTransfers {
     )
       throw new Error("Invalid upload staging envelope");
     const bytes = transfer.upload ? Bun.file(transfer.upload.path) : raw.tool === "upload_file" ? Buffer.from(raw.bytesBase64, "base64") : undefined;
-    if (transfer.upload && (transfer.upload.sizeBytes !== raw.sizeBytes || transfer.upload.sha256 !== raw.sha256)) throw new Error("Staged file bytes changed after review");
+    if (transfer.upload && (transfer.upload.sizeBytes !== raw.sizeBytes || transfer.upload.sha256 !== raw.sha256)) throw new Error("Staged file bytes changed after staging");
     if (
       Buffer.isBuffer(bytes) &&
       (bytes.length !== raw.sizeBytes ||
         createHash("sha256").update(bytes).digest("hex") !== raw.sha256)
     )
-      throw new Error("Staged file bytes changed after review");
+      throw new Error("Staged file bytes changed after staging");
     const claim = await this.db.connectorFileTransfer.updateMany({
       where: {
         callId: context.callId,

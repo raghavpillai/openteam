@@ -26,8 +26,7 @@ test("stopping a native call prevents the rest of its action batch", async () =>
     await expect(runtime.callComputerUse(
       { botId: "worker", screenBotId: "owner", cwd: workspace, lastGraphicalSurface: "computer" },
       { action: "click", x: 10, y: 10, then: [{ action: "type", text: "must not be typed" }] },
-      controller.signal,
-    )).rejects.toThrow("Stopped by user");
+      controller.signal)).rejects.toThrow("Stopped by user");
     expect(applied).toEqual(["click"]);
   } finally { await rm(workspace, { recursive: true, force: true }); }
 });

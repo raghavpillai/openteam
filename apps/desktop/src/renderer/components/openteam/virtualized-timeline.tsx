@@ -127,7 +127,6 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
     (index: number) => {
       const entry = entries[index];
       if (!entry) return 72;
-      if (entry.type === "approval") return 180;
       if (entry.type === "a2a") return 40;
       if (entry.type === "thinking") return 36;
       if (entry.type === "context_gap") return 52;

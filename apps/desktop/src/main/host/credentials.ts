@@ -2,7 +2,7 @@ import {credentialConnections, credentialConnectionId} from "./capability-settin
 import { createHash } from "node:crypto";
 import { credentialRules, matchCredentialRules } from "./credential-domain";
 import { type NativeCommand } from "./native-command";
-import type { CapabilitySettingsStore, NativeConsent } from "./capability-settings";
+import type { CapabilitySettingsStore } from "./capability-settings";
 export function credentialOrigin(site: string): string {
   const url = new URL(site.includes("://") ? site : `https://${site}`);
   const loopback =
@@ -28,7 +28,6 @@ const credentialJson = (text: string): any => {
 export class SavedCredentials {
   constructor(
     private readonly settings: CapabilitySettingsStore,
-    private readonly consent: NativeConsent,
     private readonly run: NativeCommand = async () => { throw new Error("Connect a 1Password service account. Local vault reads are disabled."); }
   ) {}
   async status(signal?: AbortSignal) {
@@ -75,8 +74,6 @@ export class SavedCredentials {
     ); } catch { signal?.throwIfAborted(); unavailableConnections.push(credentialConnectionId(config)); continue; }
     if (!Array.isArray(raw)) { unavailableConnections.push(credentialConnectionId(config)); continue; }
     const connection_id = `1password:${config.account}:${config.vault}`;
-    const permissions = await this.settings.read();
-    const alwaysAllow = credentialConnections(permissions).find(row => credentialConnectionId(row) === connection_id)?.alwaysAllow === true;
     const credentials = raw.flatMap((item) => {
       const sites = (Array.isArray(item.urls) ? item.urls : []).flatMap((url: any) => {
         try {
@@ -97,7 +94,7 @@ export class SavedCredentials {
         provider_revision: itemRevision(item),
         sites,
         targetRules,
-        autoFill: alwaysAllow,
+        autoFill: true,
       };
       return [
         {
@@ -138,18 +135,7 @@ export class SavedCredentials {
       throw new Error(
         "The saved login changed, was revoked, or does not match this live origin. List credentials again."
       );
-    const connectionAlwaysAllow = credentialConnections(await this.settings.read()).find(row => credentialConnectionId(row) === item.connection_id)?.alwaysAllow === true;
-    const automaticAllowed = item.autoFill && matchCredentialRules(item.targetRules, origin) && (connectionAlwaysAllow || matches.length === 1);
-    if (args.automatic === true && (!automaticAllowed || matches.length !== 1)) return { skipped: true };
-    if (args.automatic !== true && !automaticAllowed) {
-      const decision = await this.consent({
-        title: "Use saved login?",
-        presentation: { kind: "saved-login", title: item.title, site: origin, category: item.category, purpose: String(args.purpose ?? "Sign in to continue the task") },
-        detail: `${item.title}\n${origin}\n${String(args.purpose ?? "Sign in to continue the task")}\n\nOpenTeam will fill this browser page. The bot never receives the username or password.`,
-      });
-      if (decision === "deny")
-        throw new Error("Saved login use denied. Do not retry unless asked.");
-    }
+    if (args.automatic === true && matches.length !== 1) return { skipped: true };
     const fresh = await this.list({ site: origin }, signal);
     if (
       !fresh.credentials.some(

@@ -18,7 +18,7 @@ A good request says what finished work looks like. Include the files or links it
 
 > Turn these meeting notes into a decision log. Include the decision, owner, and next step. Mark unknown owners instead of guessing, and attach a Markdown file.
 
-If the task needs one of your accounts, such as Gmail or GitHub, [connect a plugin](../usage/plugins.md) and give this bot access. Signing in to a model provider doesn't connect your other accounts.
+If the task needs one of your accounts, such as Gmail or GitHub, [connect a plugin](../usage/plugins.md) . Signing in to a model provider doesn't connect your other accounts.
 
 ## Follow up
 

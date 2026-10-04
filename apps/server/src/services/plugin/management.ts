@@ -1,4 +1,3 @@
-import { cancelPendingPluginWork } from "./pending-work";
 import { createHash } from "node:crypto";
 import {
   ApiError,
@@ -17,7 +16,6 @@ import {
   validatePackageFiles,
   type PackagePreview,
   type PluginDefinition,
-  type PluginInstallationMode,
 } from "@openteam/plugin-sdk";
 import { exportPackageArchive, importPackageArchive } from "@openteam/plugin-sdk/archive";
 import { parseOpenTeamMarketplace } from "../../plugins/openteam-marketplace";
@@ -362,7 +360,6 @@ export class PluginManagement {
       return {
         definition,
         digest,
-        mode: (installation?.mode ?? "optional") as PluginInstallationMode,
         skillSyncStatus: installation?.skillSyncStatus ?? "pending",
         skillSyncError: installation?.skillSyncError ?? null,
         hasRollback: Boolean(installation?.previousManifest),
@@ -401,10 +398,6 @@ export class PluginManagement {
         installation.connections.map((connection) => this.stop(connection.id, connection.transport))
       );
       await this.prisma.$transaction(async (tx) => {
-        await cancelPendingPluginWork(
-          tx,
-          installation.connections.map((connection) => connection.id)
-        );
         // The UI review is tied to this installed snapshot as well as the candidate digest.
         const locked = await tx.pluginInstallation.updateMany({
           where: { id: installation.id, updatedAt: installation.updatedAt },
@@ -535,63 +528,6 @@ export class PluginManagement {
       });
       await this.sync();
       return { updated: true, version: next.version };
-    });
-  setMode = (key: string, mode: PluginInstallationMode) =>
-    serviceEffect(async () => {
-      const installation = await this.prisma.pluginInstallation.findUnique({
-        where: { pluginKey: key },
-        include: { connections: true },
-      });
-      if (!installation) throw new ApiError(404, "plugin_not_installed", "Plugin not installed");
-      if (mode === "disabled")
-        await Promise.all(
-          installation.connections.map((connection) =>
-            this.stop(connection.id, connection.transport)
-          )
-        );
-      await this.prisma.$transaction(async (tx) => {
-        if (mode === "disabled")
-          await cancelPendingPluginWork(
-            tx,
-            installation.connections.map((connection) => connection.id)
-          );
-        await tx.pluginInstallation.update({
-          where: { id: installation.id },
-          data: { mode, status: mode === "disabled" ? "disabled" : "installed" },
-        });
-        if (mode === "disabled")
-          await tx.pluginConnection.updateMany({
-            where: { installationId: installation.id },
-            data: { runtimeGeneration: { increment: 1 }, status: "disconnected" },
-          });
-        if (mode === "required" || mode === "default") {
-          const bots = await tx.bot.findMany({
-            where: { status: { not: "archived" } },
-            select: { id: true },
-          });
-          for (const bot of bots) {
-            await tx.botPluginEnablement.upsert({
-              where: { botId_installationId: { botId: bot.id, installationId: installation.id } },
-              create: {
-                botId: bot.id,
-                installationId: installation.id,
-                enabled: true,
-                skillsEnabled: true,
-              },
-              update: { enabled: true, skillsEnabled: true },
-            });
-          }
-        }
-        await tx.pluginActivity.create({
-          data: {
-            installationId: installation.id,
-            kind: "plugin.mode_changed",
-            summary: `${installation.name} installation policy: ${mode}`,
-          },
-        });
-      });
-      await this.sync();
-      return { mode };
     });
   retrySync = () =>
     serviceEffect(async () => {

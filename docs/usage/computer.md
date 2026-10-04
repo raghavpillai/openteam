@@ -42,13 +42,7 @@ With your permission, a bot can:
 
 Bots don't get a view of your screen or control of your mouse and keyboard. They work through commands and files.
 
-To control access, open **Settings → Computer → Execution on this computer** and choose:
-
-| Setting | What happens |
-| --- | --- |
-| **Ask every time** | You approve each action |
-| **Always allow** | Bots run actions without asking. If [auto-review](../configuration/approvals.md#auto-review) is on, it still checks each one. Contacts, Messages, Chrome sign-ins, and saved logins still ask separately. |
-| **Never allow** | Bots can't run commands, read or copy files, or use Mac access or saved logins on this computer |
+Bots execute commands, transfers, and available native tools directly on enrolled computers. To stop access, disable the computer under **Settings → Computer → Computers** or close the desktop app.
 
 Your computer may ask you to grant OpenTeam permissions, such as access to Contacts. To read Messages, turn on Full Disk Access for OpenTeam in **System Settings → Privacy & Security**; macOS doesn't ask for this one.
 

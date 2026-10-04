@@ -2,7 +2,7 @@
 export function visualFixture(base: any, scene: string) {
   const snapshot = structuredClone(base);
   const botTemplate = snapshot.bots[0], channelTemplate = snapshot.channels[0], runTemplate = snapshot.runs[0];
-  snapshot.bots=[]; snapshot.channels=[]; snapshot.channelMessages=[]; snapshot.runs=[]; snapshot.approvals=[];
+  snapshot.bots=[]; snapshot.channels=[]; snapshot.channelMessages=[]; snapshot.runs=[];
   const sidebar = { version:2, pinnedIds:[], unreadIds:[] as string[], unassignedCollapsed:false, sections:[] as any[], sectionByChannel:{}, channelOrderByGroup:{} as Record<string,string[]> };
   const date=new Date(); date.setHours(22,45,0,0);
   function bot(id:string,name:string,color:string,icon:string,description="") {

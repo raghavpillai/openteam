@@ -13,7 +13,8 @@ describe("OpenTeam deep-link routing parity", () => {
       if (parsed?.kind === "settings") expect(settingsViewForAnchor(parsed.anchor)).toBeString();
     }
     expect(settingsViewForAnchor("update-status")).toBe("updates");
-    expect(settingsViewForAnchor("local-execution")).toBe("computer");
+    expect(parseOpenTeamDeepLink("openteam://app/v1/settings?id=local-execution")).toBeNull();
+    expect(parseOpenTeamDeepLink("openteam://app/v1/settings?id=auto-review")).toBeNull();
     expect(settingsViewForAnchor("inference-provider")).toBe("server");
     expect(settingsViewForAnchor("web-search-provider")).toBe("providers");
     expect(settingsViewForAnchor("web-fetch-provider")).toBe("providers");

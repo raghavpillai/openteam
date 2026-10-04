@@ -51,7 +51,7 @@ export const TRANSCRIPT_FINGERPRINT_TTL_MS = 5_000;
 export const TRANSCRIPT_FINGERPRINT_CACHE_MAX_ENTRIES = 1_024;
 
 export const computerEventQueuesPushNotification = (event: ComputerEvent): boolean =>
-  event.type === "approval.requested" || event.type === "turn.completed";
+  event.type === "turn.completed";
 
 interface TranscriptFingerprintEntry {
   value: string;
@@ -728,7 +728,7 @@ export class WakeWorker {
   private async recoverRoutineExecutions(): Promise<void> {
     const executions = await this.prisma.routineExecution.findMany({
       where: {
-        status: { in: ["queued", "running", "waiting_approval"] },
+        status: { in: ["queued", "running"] },
         OR: [{ runId: { not: null } }, { channelMessageId: { not: null } }],
         routine: {
           OR: [{ bot: { status: "active" } }, { channel: { kind: "group", archivedAt: null } }],
@@ -769,7 +769,7 @@ export class WakeWorker {
       if (
         !execution ||
         !execution.routine.channelId ||
-        !["queued", "running", "waiting_approval"].includes(execution.status)
+        !["queued", "running"].includes(execution.status)
       ) {
         return;
       }
@@ -792,7 +792,7 @@ export class WakeWorker {
       const updated = await tx.routineExecution.updateMany({
         where: {
           id: execution.id,
-          status: { in: ["queued", "running", "waiting_approval"] },
+          status: { in: ["queued", "running"] },
         },
         data: {
           status,
@@ -1353,7 +1353,7 @@ export class WakeWorker {
           await this.messaging.acknowledgePlatformPrompt(claimed.botId, claimed.contextSessionId, platformPrompt);
         }
         await this.projection.apply(claimed.runId, claimed.conversationId, claimed.botId, event);
-        // Only approval and completion transitions can enqueue a push. Token
+        // Only completion transitions can enqueue a push. Token
         // deltas are frequent and previously caused two empty outbox scans
         // per NDJSON event; the 2s safety timer still covers every other path.
         if (computerEventQueuesPushNotification(event)) {
@@ -1523,14 +1523,6 @@ export class WakeWorker {
           });
         }
       }
-      await tx.approval.updateMany({
-        where: {
-          runId: claimed.runId,
-          status: "pending",
-          requestMethod: { not: "plugin/tool" },
-        },
-        data: { status: "expired", resolvedAt: new Date() },
-      });
       await this.messaging.promoteUndeliveredSteers(
         tx,
         claimed.runId,
@@ -1634,8 +1626,7 @@ export class WakeWorker {
       execution.status === "completed"
         ? "ok"
         : execution.status === "queued" ||
-            execution.status === "running" ||
-            execution.status === "waiting_approval"
+            execution.status === "running"
           ? "running"
           : "error";
     await this.prisma.routine.update({

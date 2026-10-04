@@ -34,7 +34,7 @@ Google's guide to [creating credentials](https://developers.google.com/workspace
    - **HTTP server:** choose **Continue to Google**, then choose your account and approve access. Your browser ends on a page that doesn't load; that's expected. Copy the full address from the address bar, paste it into **Paste the browser address here** in OpenTeam, and choose **Complete sign-in**.
 
    If Google warns that it hasn't verified the app, continue anyway; it's the app you just created.
-3. Back on the plugin's page, under **Bot access**, turn on the account for the bots that should use it.
+Installed plugins and their connected accounts are available to all bots.
 
 To check the account, open **Manage → Accounts and settings**, choose the account, and run one of these under **Test a tool**:
 

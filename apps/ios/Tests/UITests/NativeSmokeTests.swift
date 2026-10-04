@@ -192,19 +192,4 @@ final class NativeSmokeTests: XCTestCase {
     capture("native-offline-recovered", app)
   }
 
-  func testApprovalResolvesOnServer() async throws {
-    let app = try await launch()
-    app.buttons["channel-channel-research"].tap()
-    let approve = app.buttons["approve-approval-1"]
-    XCTAssertTrue(approve.waitForExistence(timeout: 10))
-    if !approve.isHittable { app.swipeUp() }
-    capture("native-approval", app)
-    approve.tap()
-    let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: approve)
-    await fulfillment(of: [gone], timeout: 10)
-    let (data, _) = try await URLSession.shared.data(
-      from: base.appendingPathComponent("__qa/state"))
-    let state = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-    XCTAssertEqual((state["approvals"] as! [[String: Any]])[0]["status"] as? String, "accepted")
-  }
 }

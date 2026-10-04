@@ -39,7 +39,6 @@ public struct SavedState: Codable, Sendable {
   public var messages: [String: [Message]] = [:]
   public var drafts: [String: Draft] = [:]
   public var outbox: [PendingSend] = []
-  public var approvals: [String: [Approval]]?
   public init() {}
 }
 

@@ -7,17 +7,11 @@ import { TranscriptSenderAvatar, TranscriptSenderName } from "./transcript-sende
 import "./group-chat.css";
 import { ConversationTimestampPeek, TimestampedEntry } from "../ai-elements/timestamp-peek";
 import type { PromptDraft } from "../ai-elements/prompt-input";
-import { PermissionIcon } from "./permission-icon";
-import { PermissionSpinner } from "./permission-spinner";
-import { NativeApprovalCard, type NativeApprovalPresentation } from "./native-approval-card";
 import "./permission-cards.css";
 import { usePluginMentions } from "../../hooks/use-plugin-mentions";
-import { PluginApprovalNextStep } from "./plugins/plugin-approval-next-step";
 import { DeliveryFooter } from "./delivery-footer";
 import { sendProgressOwner } from "../../lib/send-progress";
 import type {
-  ApprovalDecision,
-  ApprovalView,
   AssetRef,
   BotView,
   ChannelMessageView,
@@ -29,7 +23,6 @@ import type {
   SubagentActivityView,
 } from "@openteam/contracts";
 import {
-  approvalPresentation,
   channelMessageAddress,
   type DurableSendPayload,
   type DurableSendRecord,
@@ -94,7 +87,6 @@ import {
   shouldShowIdleGapTimestamp,
 } from "../../lib/message-timestamps";
 import { addContextGaps } from "../../lib/search-context";
-import { conversationApprovals } from "../../lib/subagent-activity";
 import { mergeThreadTrayPin, type ThreadTrayPin } from "../../lib/thread-pin";
 import { deriveThreads, isBranchedMessage } from "../../lib/threads";
 import {
@@ -157,7 +149,6 @@ interface ChatPaneProps {
   runs: RunView[];
   subagents: SubagentActivityView[];
   itemsByRun: ReadonlyMap<string, RunItemView[]>;
-  approvalsByRun: ReadonlyMap<string, ApprovalView[]>;
   botById: ReadonlyMap<string, BotView>;
   activeRun?: RunView;
   runtime: ClientSnapshot["runtime"];
@@ -195,17 +186,6 @@ const runGroupsEqual = <T,>(
   previous: ReadonlyMap<string, T[]>,
   next: ReadonlyMap<string, T[]>
 ) => runs.every((run) => previous.get(run.id) === next.get(run.id));
-
-const subagentApprovalGroupsEqual = (
-  subagents: SubagentActivityView[],
-  previous: ReadonlyMap<string, ApprovalView[]>,
-  next: ReadonlyMap<string, ApprovalView[]>
-) =>
-  subagents.every(
-    (subagent) =>
-      !subagent.currentRunId ||
-      previous.get(subagent.currentRunId) === next.get(subagent.currentRunId)
-  );
 
 const chatPanePropsEqual = (previous: ChatPaneProps, next: ChatPaneProps) =>
   previous.composerFocusRequest === next.composerFocusRequest &&
@@ -246,9 +226,7 @@ const chatPanePropsEqual = (previous: ChatPaneProps, next: ChatPaneProps) =>
   previous.onOpenRoutine === next.onOpenRoutine &&
   previous.onOpenBotChat === next.onOpenBotChat &&
   previous.onOpenBotProfile === next.onOpenBotProfile &&
-  runGroupsEqual(next.runs, previous.itemsByRun, next.itemsByRun) &&
-  runGroupsEqual(next.runs, previous.approvalsByRun, next.approvalsByRun) &&
-  subagentApprovalGroupsEqual(next.subagents, previous.approvalsByRun, next.approvalsByRun);
+  runGroupsEqual(next.runs, previous.itemsByRun, next.itemsByRun);
 
 type MessageGroupPosition = "single" | "first" | "middle" | "last";
 type ThinkingPhase = "hidden" | "visible" | "exiting";
@@ -794,398 +772,6 @@ const MessageRow = memo(function MessageRow({
   );
 });
 
-const approvalCardClass =
-  "permission-surface permission-approval flex w-full min-w-0 flex-col gap-3 rounded-2xl bg-[#eeeeee] p-3 text-[13px] text-[#141414] dark:bg-[#262626] dark:text-[#f0f0f0]";
-const approvalContentClass = "flex w-full min-w-0 flex-col items-start gap-1";
-const approvalTitleClass =
-  "min-w-0 flex-1 text-[14px] font-medium leading-5 tracking-[-0.15px]";
-const approvalSecondaryTextClass = "permission-secondary";
-const approvalPrimaryButtonClass = "permission-button permission-button-primary";
-const approvalSecondaryButtonClass = "permission-button permission-button-outline";
-
-const isLocalApproval = (approval: ApprovalView) =>
-  approvalPresentation(approval).kind === "local-tool";
-
-const isPendingLocalApproval = (approval: ApprovalView) =>
-  approval.status === "pending" && isLocalApproval(approval);
-
-const isResolvedLocalApproval = (approval: ApprovalView) =>
-  approval.status !== "pending" && isLocalApproval(approval);
-
-export function ApprovalCard({
-  approval,
-  onResolve,
-}: {
-  approval: ApprovalView;
-  onResolve: (decision: ApprovalDecision, selectedItems?: readonly string[]) => Promise<void>;
-}) {
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const inFlight = useRef(false);
-  const [resolving, setResolving] = useState(false);
-  const [error, setError] = useState("");
-  const latest = useRef(approval);
-  latest.current = approval;
-  useEffect(() => {
-    if (approval.status !== "pending") setError("");
-  }, [approval.status]);
-  const resolve = async (decision: ApprovalDecision, selectedItems?: readonly string[]) => {
-    if (inFlight.current || latest.current.status !== "pending") return;
-    inFlight.current = true;
-    setResolving(true);
-    setError("");
-    try {
-      await onResolve(decision, selectedItems);
-    } catch {
-      if (latest.current.status === "pending")
-        setError("We couldn't confirm your decision. Check this card before trying again.");
-    } finally {
-      inFlight.current = false;
-      setResolving(false);
-    }
-  };
-  const feedback = error ? <p role="alert" className="text-xs text-red-600">{error}</p> : null;
-  const presentation = approvalPresentation(approval);
-  const {
-    details,
-    detailsLabel,
-    effect,
-    heading,
-    machineLabel,
-    pending,
-    proposedRule,
-    rawDetails,
-    reason,
-    resolution,
-    reviewSummary,
-    statusLabel,
-    supportsAlwaysAllow,
-    supportsNever,
-    taskReview,
-    visibleArguments,
-  } = presentation;
-  useEffect(() => {
-    if (!pending) setDetailsOpen(false);
-  }, [pending]);
-  const localTool = presentation.kind === "local-tool";
-  const autoReview = presentation.kind === "auto-review";
-  const pluginSetup = ["InstallPlugin", "AuthenticateMcpServer", "AddMcpServer"].includes(String(details.action));
-
-  const nativePresentation = details.presentation as NativeApprovalPresentation | undefined;
-  if (details.type === "nativeCapability" && (nativePresentation?.kind === "saved-login" || nativePresentation?.kind === "cookie-import"))
-    return <NativeApprovalCard approval={approval} presentation={nativePresentation} busy={resolving} error={error} onResolve={resolve} />;
-
-  if (localTool) {
-    if (!pending) {
-      return (
-        <div
-          aria-label="Local tool permission result"
-          className={cn(
-            "permission-surface permission-local-outcome",
-            approvalSecondaryTextClass
-          )}
-          data-approval-id={approval.id}
-          data-approval-status={approval.status}
-          data-local-tool-permission-result=""
-          title={statusLabel}
-        >
-          <span className="min-w-0 truncate">{statusLabel}</span>
-        </div>
-      );
-    }
-
-    return (
-      <div
-        aria-label="Local tool permission"
-        className={approvalCardClass}
-        data-approval-id={approval.id}
-        data-approval-status={approval.status}
-        data-local-tool-permission=""
-      >
-        <div className={approvalContentClass}>
-          <div className="flex w-full min-w-0 items-start gap-2">
-            <span className="inline-flex h-[22px] shrink-0 items-center">
-              <span className="inline-flex size-4 items-start"><PermissionIcon name="warning" className="size-3.5 text-[#c24e00] dark:text-[#ff8838]" /></span>
-            </span>
-            <div className={approvalTitleClass}>{effect ?? heading}</div>
-            <button
-              aria-label="Deny once"
-              className="grid size-5 shrink-0 place-items-center rounded-md text-[#141414]/60 outline-none hover:bg-[#141414]/[0.04] hover:text-[#141414] focus-visible:ring-2 focus-visible:ring-ring/30 dark:text-[#f0f0f0]/60 dark:hover:bg-[#f0f0f0]/[0.04] dark:hover:text-[#f0f0f0]"
-              disabled={resolving}
-              onClick={() => void resolve("decline")}
-              type="button"
-            >
-              <PermissionIcon name="close" className="size-2.5" />
-            </button>
-          </div>
-
-          <div
-            className={cn(
-              "text-[12px] font-medium leading-4 [overflow-wrap:anywhere]",
-              approvalSecondaryTextClass
-            )}
-          >
-            {machineLabel}
-          </div>
-          <div
-            className={cn(
-              "text-[13px] leading-[18px] tracking-[-0.08px] [overflow-wrap:anywhere]",
-              approvalSecondaryTextClass
-            )}
-          >
-            {"This applies to OpenTeam and every Bot. It can always be changed in Settings."}
-          </div>
-
-          {rawDetails ? (
-            <ApprovalDetails
-              detailsLabel={detailsLabel}
-              open={detailsOpen}
-              rawDetails={rawDetails}
-              setOpen={setDetailsOpen}
-            />
-          ) : null}
-        </div>
-
-        {feedback}
-        <div className="flex flex-wrap gap-2">
-          {supportsAlwaysAllow ? (
-            <Button
-              className={approvalPrimaryButtonClass}
-              disabled={resolving}
-              onClick={() => void resolve("always_allow")}
-            >
-              Always allow
-            </Button>
-          ) : null}
-          <Button
-            className={approvalSecondaryButtonClass}
-            disabled={resolving}
-              onClick={() => void resolve("accept")}
-            variant="outline"
-          >
-            Allow once
-          </Button>
-          {supportsNever ? (
-            <Button
-              className={approvalSecondaryButtonClass}
-              disabled={resolving}
-              onClick={() => void resolve("never")}
-              variant="outline"
-            >
-              Never
-            </Button>
-          ) : null}
-        </div>
-      </div>
-    );
-  }
-
-  if (autoReview) {
-    return (
-      <div
-        aria-label="Auto-review approval"
-        className={approvalCardClass}
-        data-approval-id={approval.id}
-        data-approval-status={approval.status}
-        data-auto-review-approval=""
-      >
-        <div className={approvalContentClass}>
-          <div className="flex w-full min-w-0 items-start gap-2">
-            <div className={approvalTitleClass}>{presentation.title}</div>
-            <span className={cn("approval-status", pending ? "approval-status-pending" : approval.status === "declined" ? "approval-status-denied" : approval.status === "accepted" ? "approval-status-allowed" : "approval-status-muted")}>
-              {pending ? <PermissionSpinner /> : <span aria-hidden="true" className="approval-status-dot" />}
-              <span>{statusLabel}</span>
-            </span>
-          </div>
-
-          {!taskReview ? (
-            <>
-              <div
-                className={cn(
-                  "text-[12px] font-medium leading-4 [overflow-wrap:anywhere]",
-                  approvalSecondaryTextClass
-                )}
-              >
-                Runs on your local computer
-              </div>
-              <div className="text-[13px] leading-[1.45] [overflow-wrap:anywhere]">
-                {reviewSummary}
-              </div>
-            </>
-          ) : null}
-          {pending && reason ? (
-            <div
-              className={cn(
-                "text-[13px] leading-[18px] tracking-[-0.08px] [overflow-wrap:anywhere]",
-                approvalSecondaryTextClass
-              )}
-            >
-              {reason}
-            </div>
-          ) : null}
-
-          {!pending && resolution === "always_allow" ? (
-            <div
-              className={cn(
-                "text-[13px] leading-[18px] tracking-[-0.08px] [overflow-wrap:anywhere]",
-                approvalSecondaryTextClass
-              )}
-            >
-              {`A rule always allowing this was added to your Auto-review settings${
-                proposedRule ? `: “${proposedRule}”` : ""
-              }`}
-            </div>
-          ) : null}
-          {rawDetails ? (
-            <ApprovalDetails
-              detailsLabel={detailsLabel}
-              open={detailsOpen}
-              rawDetails={rawDetails}
-              setOpen={setDetailsOpen}
-            />
-          ) : null}
-
-        </div>
-
-        {pending && feedback}
-        {pending ? (
-          <div className="flex flex-wrap gap-2">
-            <Button className={approvalPrimaryButtonClass} disabled={resolving}
-              onClick={() => void resolve("accept")}>
-              Allow once
-            </Button>
-            {supportsAlwaysAllow ? (
-              <Button
-                className={approvalSecondaryButtonClass}
-                disabled={resolving}
-              onClick={() => void resolve("always_allow")}
-                variant="outline"
-              >
-                Always allow
-              </Button>
-            ) : null}
-            <Button
-              className={approvalSecondaryButtonClass}
-              disabled={resolving}
-              onClick={() => void resolve("decline")}
-              variant="outline"
-            >
-              Deny
-            </Button>
-          </div>
-        ) : null}
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className="rounded-xl border border-amber-500/25 bg-amber-500/8 p-3 text-sm"
-      data-approval-id={approval.id}
-      data-approval-status={approval.status}
-    >
-      <div className="mb-2 flex items-center gap-2 font-medium">
-        {pending ? (
-          <CircleAlert className="size-4 text-amber-500" />
-        ) : (
-          <Check className="size-4 text-foreground-secondary" />
-        )}
-        {pending ? (localTool ? effect : heading) : pluginSetup && details.actionError ? "Plugin action failed" : statusLabel}
-      </div>
-      {pending && localTool ? (
-        <p className="mb-2 text-xs leading-5 text-muted-foreground">
-          {typeof details.machineLabel === "string" ? details.machineLabel : "This computer"}. This
-          applies to OpenTeam and every Bot and can be changed in Settings.
-        </p>
-      ) : !localTool && effect ? (
-        <p className="mb-2 text-xs leading-5 text-muted-foreground">{effect}</p>
-      ) : null}
-      {visibleArguments && typeof visibleArguments === "object" ? (
-        <pre className="mb-3 max-h-40 overflow-auto rounded-lg bg-black/[0.04] p-2 whitespace-pre-wrap text-[11px] text-muted-foreground dark:bg-white/[0.05]">
-          {JSON.stringify(visibleArguments, null, 2)}
-        </pre>
-      ) : null}
-      {pending && feedback}
-      {pending && (
-        <div className="flex flex-wrap gap-2">
-          <Button disabled={resolving}
-              onClick={() => void resolve("decline")} size="sm" variant="outline">
-            Deny once
-          </Button>
-          {supportsAlwaysAllow ? (
-            <Button disabled={resolving}
-              onClick={() => void resolve("always_allow")} size="sm" variant="outline">
-              Always allow
-            </Button>
-          ) : null}
-          <Button disabled={resolving}
-              onClick={() => void resolve("accept")} size="sm">
-            <Check className="size-3.5" /> Allow once
-          </Button>
-          {supportsNever ? (
-            <Button disabled={resolving}
-              onClick={() => void resolve("never")} size="sm" variant="outline">
-              Never
-            </Button>
-          ) : null}
-        </div>
-      )}
-      {pluginSetup && approval.status === "accepted" ? <PluginApprovalNextStep details={details} /> : null}
-    </div>
-  );
-}
-
-function ApprovalDetails({
-  detailsLabel,
-  open,
-  rawDetails,
-  setOpen,
-}: {
-  detailsLabel: string;
-  open: boolean;
-  rawDetails: string;
-  setOpen: React.Dispatch<React.SetStateAction<boolean>>;
-}) {
-  return (
-    <div className="approval-disclosure flex w-full min-w-0 flex-col gap-1 pb-1">
-      <button
-        aria-expanded={open}
-        className={cn(
-          "inline-flex items-center gap-1.5 self-start text-[13px] font-normal leading-[18px] outline-none hover:text-[#141414] focus-visible:ring-2 focus-visible:ring-ring/30 dark:hover:text-[#f0f0f0]",
-          approvalSecondaryTextClass
-        )}
-        onClick={() => setOpen((value) => !value)}
-        type="button"
-      >
-        {open ? (
-          <span className="grid size-3.5 place-items-center"><PermissionIcon name="down" className="size-2.5" /></span>
-        ) : (
-          <span className="grid size-3.5 place-items-center"><PermissionIcon name="right" className="size-2.5" /></span>
-        )}
-        {open ? `Hide the ${detailsLabel}` : `Show the ${detailsLabel}`}
-      </button>
-      {open ? (
-        <div className="approval-code-figure relative w-full min-w-0 rounded-lg bg-[#141414]/[0.04] dark:bg-[#f0f0f0]/[0.04]">
-          <pre
-            className={cn(
-              "bot-scrollbar max-h-40 overflow-auto whitespace-pre px-3 py-2 font-mono text-[13px] leading-5",
-              approvalSecondaryTextClass
-            )}
-          >
-            {rawDetails}
-          </pre>
-          <button
-            aria-label="Copy code"
-            className="approval-copy-button absolute right-1.5 top-1.5 grid size-6 place-items-center rounded-md border-[0.5px] border-[#141414]/[0.08] bg-[#fcfcfc] text-[#141414]/60 shadow-[0_1px_3px_#0000001f] outline-none hover:bg-[#f7f7f7] hover:text-[#141414] focus-visible:ring-2 focus-visible:ring-ring/30 dark:border-[#f0f0f0]/[0.08] dark:bg-[#383838] dark:text-[#f0f0f0]/60 dark:hover:bg-[#444] dark:hover:text-[#f0f0f0]"
-            onClick={() => void navigator.clipboard.writeText(rawDetails)}
-            type="button"
-          >
-            <Copy className="size-3.5" strokeWidth={1.7} />
-          </button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
 
 const BotThinkingSlot = memo(function BotThinkingSlot({
   bot,
@@ -1304,7 +890,6 @@ export const ChatPane = memo(function ChatPane({
   runs,
   subagents,
   itemsByRun,
-  approvalsByRun,
   botById,
   activeRun,
   runtime,
@@ -1537,21 +1122,6 @@ export const ChatPane = memo(function ChatPane({
     () => new Map(mainMessages.map((message, index) => [message.id, index] as const)),
     [mainMessages]
   );
-  const approvals = useMemo(
-    () => conversationApprovals(runs, subagents, approvalsByRun),
-    [approvalsByRun, runs, subagents]
-  );
-  const hasPendingApproval = approvals.some((approval) => approval.status === "pending");
-  const pendingLocalApproval = useMemo(
-    () =>
-      approvals
-        .filter(isPendingLocalApproval)
-        .sort(
-          (left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
-        )
-        .at(-1) ?? null,
-    [approvals]
-  );
   const timeline = useMemo(() => {
     const ordered: MessageTimelineEntry[] = mainMessageRecords
       .map(
@@ -1572,19 +1142,11 @@ export const ChatPane = memo(function ChatPane({
         ? visibleContextMessageIds.has(entry.message.id)
         : entry.entries.some((candidate) => visibleContextMessageIds.has(candidate.message.id))
     );
-    return [
-      ...messageTimeline,
-      ...approvals.map((approval) => ({
-        type: "approval" as const,
-        id: approval.id,
-        createdAt: approval.createdAt,
-        approval,
-      })),
-    ].sort(
+    return messageTimeline.sort(
       (left, right) =>
         new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
     );
-  }, [approvals, channel.kind, mainMessageRecords, visibleContextMessageIds]);
+  }, [channel.kind, mainMessageRecords, visibleContextMessageIds]);
   const replyingTo = replyTarget?.channelId === channel.id ? replyTarget.message : null;
   const replyToMessage = useCallback(
     (message: ChannelMessageView) => {
@@ -1736,7 +1298,6 @@ export const ChatPane = memo(function ChatPane({
     if (channel.kind !== "group") return undefined;
     const activeRuns = runs.filter(
       (run) => run.channelId === channel.id && ["queued", "running"].includes(run.status)
-        && !(approvalsByRun.get(run.id) ?? []).some((approval) => approval.status === "pending")
     );
     const retained = new Set<string>();
     for (const run of activeRuns) {
@@ -1746,10 +1307,10 @@ export const ChatPane = memo(function ChatPane({
     }
     committedGroupRuns.current = retained;
     return groupChatActivity(activeRuns, botById, itemsByRun, retained);
-  }, [approvalsByRun, botById, channel.id, channel.kind, itemsByRun, runs]);
+  }, [botById, channel.id, channel.kind, itemsByRun, runs]);
   const showThinkingIndicator = groupActivity
     ? groupActivity.workers.length + groupActivity.readers.length > 0
-    : Boolean(activeRun && !hasPendingApproval && !(visibleMessages.length === 0 && onboardingInProgress));
+    : Boolean(activeRun && !(visibleMessages.length === 0 && onboardingInProgress));
   const thinkingPhase = useThinkingPresence(
     showThinkingIndicator,
     channel.kind === "group" ? 160 : THINKING_EXIT_MS
@@ -1769,9 +1330,7 @@ export const ChatPane = memo(function ChatPane({
     ? channel.kind === "group" && mainMessages.at(-1)?.sender !== "agent" ? 52 : 40
     : 0;
   const renderedTimeline = useMemo(() => {
-    const transcriptTimeline = timeline.filter(
-      (entry) => entry.type !== "approval" || !isPendingLocalApproval(entry.approval)
-    );
+    const transcriptTimeline = timeline;
     if (thinkingPhase === "hidden") return transcriptTimeline;
     return [
       ...transcriptTimeline,
@@ -1799,25 +1358,11 @@ export const ChatPane = memo(function ChatPane({
       ? null
       : { index, messageId: focusMessage.messageId, nonce: focusMessage.nonce };
   }, [focusMessage, messagesById, renderedTimeline]);
-  const resolveApproval = useCallback(
-    (approvalId: string, decision: ApprovalDecision, selectedItems?: readonly string[]) =>
-      mutate(() => api.resolveApproval(approvalId, decision, selectedItems)).then((value) => {
-        const body = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-        const result =
-          body.result && typeof body.result === "object"
-            ? (body.result as Record<string, unknown>)
-            : {};
-        if (typeof result.authorizationUrl === "string") {
-          window.open(result.authorizationUrl, "_blank", "noopener,noreferrer");
-        }
-      }),
-    [mutate]
-  );
   return (
     <div
       className={cn(
         "relative flex size-full min-h-0 flex-col bg-background",
-        active && channel.kind !== "agent_dm" && !onboardingInProgress && !pendingLocalApproval &&
+        active && channel.kind !== "agent_dm" && !onboardingInProgress &&
           "chat-composer-overlap"
       )}
       data-chat-drop-target=""
@@ -1837,7 +1382,7 @@ export const ChatPane = memo(function ChatPane({
                 className="mx-auto mb-2 w-full max-w-[640px] rounded-lg border border-border bg-muted/45 px-3 py-2 text-xs text-muted-foreground"
                 role="status"
               >
-                Older run details are summarized; active runs and pending approvals remain visible.
+                Older run details are summarized; active runs remain visible.
               </div>
             )}
             {threadContextTruncated && (
@@ -1928,19 +1473,6 @@ export const ChatPane = memo(function ChatPane({
                           peer={entry.peerId ? botById.get(entry.peerId) : undefined}
                           peerName={entry.peerName ?? "another agent"}
                         />
-                      ) : entry.type === "approval" ? (
-                        <div
-                          className={
-                            isResolvedLocalApproval(entry.approval)
-                              ? "mt-2 w-full min-w-0"
-                              : "mr-auto mt-2 w-full min-w-0 max-w-[min(88%,520px,calc(100%-82px))]"
-                          }
-                        >
-                          <ApprovalCard
-                            approval={entry.approval}
-                            onResolve={(decision, selectedItems) => resolveApproval(entry.approval.id, decision, selectedItems)}
-                          />
-                        </div>
                       ) : (
                         <MessageRow
                           animateEntrance={entry.animateEntrance}
@@ -2033,7 +1565,7 @@ export const ChatPane = memo(function ChatPane({
             )}
           </ConversationContent>
           <ConversationViewportAnchor
-            active={composerExpanded || pendingAttachmentCount > 0 || Boolean(pendingLocalApproval)}
+            active={composerExpanded || pendingAttachmentCount > 0}
           />
           <ConversationScrollButton
             authoritativeMessageCount={messages.length}
@@ -2074,17 +1606,6 @@ export const ChatPane = memo(function ChatPane({
           data-composer-dock=""
           style={{ marginTop: "calc(-1 * var(--composer-overlap, 0px))" }}
         >
-          {pendingLocalApproval ? (
-            <div
-              className="pointer-events-auto relative z-[3] w-full min-w-0 px-4 pb-2"
-              data-local-tool-permission-dock=""
-            >
-              <ApprovalCard
-                approval={pendingLocalApproval}
-                onResolve={(decision, selectedItems) => resolveApproval(pendingLocalApproval.id, decision, selectedItems)}
-              />
-            </div>
-          ) : (
             <PromptInput
               focusRequest={composerFocusRequest}
               transcriptionConfigured={runtime.transcription === "configured" && !threadState?.open}
@@ -2129,7 +1650,6 @@ export const ChatPane = memo(function ChatPane({
                   : null
               }
             />
-          )}
         </div>
       )}
       {threadState && (

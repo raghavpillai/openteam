@@ -1,4 +1,4 @@
-export const OPENTEAM_API_PROTOCOL_VERSION = 1;
+export const OPENTEAM_API_PROTOCOL_VERSION = 2;
 
 export interface OpenTeamClientCompatibilityPolicy {
   minimumClientVersion?: string | null;

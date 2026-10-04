@@ -6,7 +6,6 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { NATIVE_TOOL_NAMES } from "@openteam/contracts";
 import { BROWSER_USE_TOOLS } from "../../src/browser/use";
 import { BotCompactionArchiveStore, BotCompactionCoordinator } from "../../src/bot-compaction";
-import { HostApprovalRequiredError } from "../../src/native-tool-executor";
 import {
   CLOSING_SEND_NUDGE_PROMPT,
   ComputerRuntime,
@@ -20,7 +19,7 @@ const runtimeTools = () => (new ComputerRuntime() as unknown as { tools: unknown
 test('background status evidence comes only from active server records', async () => {
   const runtime = runtimeTools() as any;
   const previousFetch = globalThis.fetch;
-  const pending = {subagent_id: 'worker', status: 'running', run_status: 'waiting_approval'};
+  const pending = {subagent_id: 'worker', status: 'running', run_status: 'running'};
   const fixtures: Array<[unknown, boolean]> = [
     [pending, true],
     [{...pending, status: 'queued', run_status: null}, true],
@@ -283,82 +282,12 @@ describe("specialized subagent tool surfaces", () => {
   });
 });
 
-describe("local computer approval broker", () => {
-  const runtimeHarness = () => {
-    const events: Array<Record<string, unknown>> = [];
-    const runtime = runtimeTools() as unknown as {
-      executeHostTool(
-        active: { runId: string; turnId: string; queue: { push(event: unknown): void } },
-        callId: string,
-        toolName: string,
-        signal: AbortSignal | undefined,
-        execute: (approvals: Record<string, unknown>) => Promise<unknown>
-      ): Promise<unknown>;
-      resolveApproval(approvalId: string, decision: "accept" | "decline"): void;
-    };
-    const active = {
-      runId: "run-1",
-      turnId: "run-1",
-      queue: { push: (event: unknown) => events.push(event as Record<string, unknown>) },
-    };
-    return { active, events, runtime };
-  };
-
-  test("pauses one host call and retries it with a one-shot token after approval", async () => {
-    const { active, events, runtime } = runtimeHarness();
-    const attempts: Array<Record<string, unknown>> = [];
-    const execution = runtime.executeHostTool(
-      active,
-      "call-1",
-      "Shell",
-      undefined,
-      async (approvals) => {
-        attempts.push({ ...approvals });
-        if (attempts.length === 1) {
-          throw new HostApprovalRequiredError({
-            gate: "local",
-            requestMethod: "openteam/localTool",
-            details: { type: "localTool", machineId: "machine-1" },
-          });
-        }
-        return { content: [{ type: "text", text: "ran" }], details: {} };
-      }
-    );
-    await Promise.resolve();
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({
-      type: "approval.requested",
-      requestMethod: "openteam/localTool",
-      itemId: "call-1",
-    });
-    runtime.resolveApproval(String(events[0]?.approvalId), "accept");
-    expect(await execution).toMatchObject({ content: [{ type: "text", text: "ran" }] });
-    expect(attempts).toEqual([{}, { localApproval: "allow-once" }]);
-  });
-
-  test("turns denial into a do-not-retry tool error without a second host call", async () => {
-    const { active, events, runtime } = runtimeHarness();
-    let attempts = 0;
-    const execution = runtime.executeHostTool(active, "call-2", "Shell", undefined, async () => {
-      attempts += 1;
-      throw new HostApprovalRequiredError({
-        gate: "local",
-        requestMethod: "openteam/localTool",
-        details: { type: "localTool", machineId: "machine-1" },
-      });
-    });
-    await Promise.resolve();
-    runtime.resolveApproval(String(events[0]?.approvalId), "decline");
-    await expect(execution).rejects.toThrow("Do not retry it");
-    expect(attempts).toBe(1);
-  });
-
+describe("local computer routing", () => {
   test("routes Shell by machineId while keeping omitted machineId in the box", async () => {
     const calls: string[] = [];
     const runtime = runtimeTools() as unknown as {
       processSecrets: () => Promise<Record<string, string>>;
       nativeToolExecutor: {
-        autoReviewAction: (...args: unknown[]) => Promise<void>;
         shell: (...args: unknown[]) => Promise<unknown>;
         externalShell: (...args: unknown[]) => Promise<unknown>;
       };
@@ -371,9 +300,6 @@ describe("local computer approval broker", () => {
       ): Promise<unknown>;
     };
     runtime.processSecrets = async () => ({});
-    runtime.nativeToolExecutor.autoReviewAction = async () => {
-      calls.push("review");
-    };
     runtime.nativeToolExecutor.shell = async () => {
       calls.push("box");
       return { content: [{ type: "text", text: "box" }], details: {} };
@@ -395,7 +321,7 @@ describe("local computer approval broker", () => {
       command: "pwd",
       machineId: "machine-1",
     });
-    expect(calls).toEqual(["review", "box", "host"]);
+    expect(calls).toEqual(["box", "host"]);
   });
 });
 

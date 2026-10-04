@@ -6,7 +6,7 @@ import {
 
 describe("subagent restart recovery parity", () => {
   test("fails queued children as well as children already executing", () => {
-    expect(SUBAGENT_RECOVERY_RUN_STATUSES).toEqual(["queued", "running", "waiting_approval"]);
+    expect(SUBAGENT_RECOVERY_RUN_STATUSES).toEqual(["queued", "running"]);
   });
 
   test("tells the parent to relaunch work instead of implying an automatic resume", () => {

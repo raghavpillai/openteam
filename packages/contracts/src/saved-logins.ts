@@ -2,8 +2,6 @@ export interface CredentialProviderConnection {
   account: string;
   vault: string;
   vaultName?: string;
-  alwaysAllow?: boolean;
-  permissionRevision?: number;
   generation?: number;
   lifecycleState?: string;
   itemCount?: number;

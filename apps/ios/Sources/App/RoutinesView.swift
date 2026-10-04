@@ -8,7 +8,6 @@ private func routineDate(_ value: String) -> Date? {
 
 private func routineStatus(_ value: String) -> String {
   switch value {
-  case "waiting_approval": "Needs approval"
   case "queued": "Waiting to run"
   default: value.replacingOccurrences(of: "_", with: " ").capitalized
   }
@@ -268,11 +267,11 @@ struct RoutineEditor: View {
         }
         .task(
           id: executions.contains {
-            ["queued", "running", "waiting_approval"].contains($0["status"].string)
+            ["queued", "running"].contains($0["status"].string)
           }
         ) {
           while executions.contains(where: {
-            ["queued", "running", "waiting_approval"].contains($0["status"].string)
+            ["queued", "running"].contains($0["status"].string)
           }), !Task.isCancelled {
             do {
               try await Task.sleep(for: .seconds(1.5))

@@ -5,7 +5,6 @@ import {
   OPENTEAM_DEEP_LINK_EVENT,
   parseOpenTeamDeepLink,
 } from "../../src/renderer/lib/app-deep-links";
-import { PluginApprovalNextStep } from "../../src/renderer/components/openteam/plugins/plugin-approval-next-step";
 import "../../src/renderer/styles.css";
 const origin = new URLSearchParams(location.search).get("server");
 const nativeOAuth = new URLSearchParams(location.search).get("nativeOAuth") === "fixture";
@@ -37,9 +36,9 @@ function Fixture() {
     <TooltipProvider>
       <button onClick={() => setOpen(true)}>Open plugins</button>
       {reviewPlugin ? (
-        <PluginApprovalNextStep
-          details={{ action: "InstallPlugin", arguments: { pluginKey: reviewPlugin } }}
-        />
+        <button onClick={() => {setTarget({pluginId:reviewPlugin,nonce:Date.now()});setOpen(true);}}>
+          Open plugin setup
+        </button>
       ) : null}
       <PluginDialog open={open} onOpenChange={setOpen} target={target} />
     </TooltipProvider>

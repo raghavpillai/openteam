@@ -12,6 +12,5 @@ export const normalizeClientSnapshot = (snapshot: ClientSnapshot): ClientSnapsho
   channelRounds: Array.isArray(snapshot.channelRounds) ? snapshot.channelRounds : [],
   runs: Array.isArray(snapshot.runs) ? snapshot.runs : [],
   runItems: Array.isArray(snapshot.runItems) ? snapshot.runItems : [],
-  approvals: Array.isArray(snapshot.approvals) ? snapshot.approvals : [],
   subagents: Array.isArray(snapshot.subagents) ? snapshot.subagents : [],
 });

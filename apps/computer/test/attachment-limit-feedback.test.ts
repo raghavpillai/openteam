@@ -17,8 +17,7 @@ test("oversized archive reports actual and allowed bytes without staging or chan
     await handle.truncate(maximum + 1); // Sparse file: exercise the real size check without allocating the archive.
     await handle.close();
     await expect(stageAttachment(pathToFileURL(source).href,options)).rejects.toThrow(
-      `Attachment is ${maximum + 1} bytes; the limit for this file type is ${maximum} bytes`,
-    );
+      `Attachment is ${maximum + 1} bytes; the limit for this file type is ${maximum} bytes`);
     expect((await stat(source)).size).toBe(maximum + 1);
     expect(await readdir(options.workspace)).toEqual([]);
     await expect(stageAttachment(pathToFileURL(options.home).href,options)).rejects.toThrow("Attachment must be a regular file");

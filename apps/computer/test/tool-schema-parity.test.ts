@@ -128,7 +128,7 @@ describe("captured tool contract wiring", () => {
       "text", "attachment", "widget", "secret-request", "credential-request",
     ]);
     expect(actual.inputSchema.properties.type.description).toBe(
-      "text for chat messages, attachment for actual files or standalone media, widget for an interactive question with selectable options, secret-request to ask the user for a credential through a secure masked input (never a chat paste), credential-request to ask the user to approve one-time browser fill of a saved login."
+      "text for chat messages, attachment for files, widget for missing information, secret-request for secure credential entry, credential-request for direct private saved-login filling."
     );
     expect(actual.inputSchema.properties).not.toHaveProperty("bcId");
   });

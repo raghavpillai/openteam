@@ -8,7 +8,7 @@ Send the task along with the files, links, and decisions the bot needs. Say wher
 
 > Read the attached proposal, list any missing requirements, and draft questions for the vendor. Keep everything in this chat; don't contact them.
 
-When a bot asks a question or needs your approval, it waits for your answer in the conversation.
+When a bot asks a question or needs information, it waits for your answer in the conversation.
 
 ## Reply, attach, and search
 

@@ -18,7 +18,7 @@ const fixtureLogin = {
   updated_at: "2026-01-01",
   urls: [{ href: "https://example.test/login" }],
 };
-test("saved credentials expose metadata only, bind exact origin/revision, and respect disconnect during approval", async () => {
+test("saved credentials expose metadata only, bind exact origin/revision, and execute without consent and respect disconnect", async () => {
   const root = await mkdtemp(join(tmpdir(), "openteam-credentials-test-"));
   try {
     const settings = new CapabilitySettingsStore(join(root, "settings.json"));
@@ -28,11 +28,6 @@ test("saved credentials expose metadata only, bind exact origin/revision, and re
     let revoke = false;
     const provider = new SavedCredentials(
       settings,
-      async () => {
-        consent++;
-        if (revoke) await settings.update({ revoke: "credentials" });
-        return "once";
-      },
       async (_file, args) => {
         expect(args).toContain("fixture-account");
         if (args[0] === "whoami") return "{}";
@@ -65,7 +60,8 @@ test("saved credentials expose metadata only, bind exact origin/revision, and re
       origin: "https://example.test",
     });
     expect(gets).toBe(1);
-    revoke = true;
+    expect(consent).toBe(0);
+    await settings.update({ revoke: "credentials" });
     await expect(provider.use({ ...item, site: "https://example.test" })).rejects.toThrow();
     expect(gets).toBe(1);
   } finally {
@@ -85,7 +81,7 @@ test("credential matching uses private suffixes and automatic use admits only ex
   expect(matchCredentialRules(local, "http://localhost:3401")).toBe(false);
 });
 
-test("Chrome import decrypts only approved profile/host pairs, verifies v24 domain hash, and supports revocation", async () => {
+test("Chrome import decrypts only requested profile/host pairs, verifies v24 domain hash, and preserves cookie metadata", async () => {
   const root = await mkdtemp(join(tmpdir(), "openteam-chrome-test-"));
   const password = "synthetic-keychain-password";
   const encrypt = (domain: string, value: string) => {
@@ -127,11 +123,6 @@ test("Chrome import decrypts only approved profile/host pairs, verifies v24 doma
     let reads = 0;
     const cookies = new ChromeCookies(
       settings,
-      async (input) => {
-        decisions++;
-        if (selectedItems) input.selectItems?.(selectedItems);
-        return "always";
-      },
       async (file, args, signal) => {
         if (file.endsWith("security")) {
           reads++;
@@ -157,20 +148,17 @@ test("Chrome import decrypts only approved profile/host pairs, verifies v24 doma
     ]);
     expect(result.cookies).toHaveLength(1);
     expect(result.cookies![0]!.value).toBe("private-.example.test");
-    expect(decisions).toBe(1);
+    expect(decisions).toBe(0);
     await cookies.collect("bot-a", [".example.test"]);
-    expect(decisions).toBe(1);
+    expect(decisions).toBe(0);
     await cookies.collect("bot-b", [".example.test"]);
-    expect(decisions).toBe(2);
-    await settings.update({ revoke: "cookies" });
+    expect(decisions).toBe(0);
     await cookies.collect("bot-a", [".example.test"]);
-    expect(decisions).toBe(3);
-    await settings.update({ revoke: "cookies" });
+    expect(decisions).toBe(0);
     selectedItems = [JSON.stringify(["Default", ".example.test"])];
     const scoped = await cookies.collect("bot-a", [".example.test", ".other.test"]);
-    expect(scoped.grants?.map((item) => item.origin)).toEqual([".example.test"]);
-    expect(scoped.cookies?.map((item) => item.domain)).toEqual([".example.test"]);
-    expect((await settings.read()).cookieGrants).toEqual([JSON.stringify(["bot-a", "Default", ".example.test"])]);
+    expect(scoped.grants?.map((item) => item.origin)).toEqual([".example.test", ".other.test"]);
+    expect(scoped.cookies?.map((item) => item.domain)).toEqual([".example.test", ".other.test"]);
 
     expect(() =>
       decryptChromeCookie(
@@ -216,7 +204,7 @@ test("multiple vaults retain separate identities, report attention, and disconne
  try {
   const settings=new CapabilitySettingsStore(join(root,"settings.json"));
   await settings.mutate(current => ({ ...current, credentialProviders: [{account:"one",vault:"personal"},{account:"two",vault:"work"}] }));
-  const provider=new SavedCredentials(settings,async()=>"deny",async(_file,args)=>{
+  const provider=new SavedCredentials(settings,async(_file,args)=>{
    if(args.includes("two"))throw new Error("locked fixture vault");
    return JSON.stringify([fixtureLogin]);
   });
@@ -224,7 +212,5 @@ test("multiple vaults retain separate identities, report attention, and disconne
   const list=await provider.list({});expect(list.credentials).toHaveLength(1);expect(list.unavailableConnections).toHaveLength(1);
   await settings.update({removeCredentialConnection:"1password:two:work"});
   expect(await provider.status()).toMatchObject({connectionCount:1,connectionsNeedingAttention:0});
-  await settings.update({messagesSendAll:true});expect((await settings.read()).messagesSendAll).toBe(true);
-  await settings.update({revoke:"messages"});expect((await settings.read()).messagesSendAll).toBe(false);
  }finally{await rm(root,{recursive:true,force:true});}
 });

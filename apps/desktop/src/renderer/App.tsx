@@ -100,7 +100,6 @@ const SettingsPanel = lazy(async () => {
   const [module] = await Promise.all([
     import("./components/openteam/settings/panel"),
     import("./components/openteam/settings/general"),
-    import("./components/openteam/settings/general-bot"),
   ]);
   return {
     default: module.SettingsPanel,
@@ -1201,7 +1200,6 @@ export default function App() {
                         }
                         activeRun={index.activeRunByChannel.get(channelId)}
                         agentNameById={index.agentNameById}
-                        approvalsByRun={index.approvalsByRun}
                         botById={index.botById}
                         channel={channel}
                         composerFocusRequest={composerFocus?.channelId === channelId ? composerFocus.nonce : undefined}
@@ -1256,7 +1254,6 @@ export default function App() {
                         activityTruncated={false}
                         threadContextTruncated={false}
                         agentNameById={index.agentNameById}
-                        approvalsByRun={index.approvalsByRun}
                         botById={index.botById}
                         channel={a2aExchangeChannel}
                         capabilities={capabilities}

@@ -184,7 +184,6 @@ export const resolveDynamicTool = <Tool extends DynamicToolDefinition>(
   namespace: DynamicNamespaceDefinition<Tool>;
   tool: Tool;
   arguments: unknown;
-  mcpDetails: unknown;
 } => {
   const key = dynamicToolKey(input.namespace, input.toolName);
   const namespace = catalog.find((candidate) => candidate.name === input.namespace);
@@ -199,22 +198,11 @@ export const resolveDynamicTool = <Tool extends DynamicToolDefinition>(
   if (!discoveredTools.has(key)) {
     throw new Error(`Call GetDynamicTools for ${key} before invoking it`);
   }
-  // The shared call contract permits a display annotation for every namespace.
-  // Built-in execution has no metadata channel: consume only that annotation.
-  // MCP approval fields are namespace-specific, never an authorization bypass.
-  const displayOnlyMetadata = input.mcpDetails !== null &&
-    typeof input.mcpDetails === "object" && !Array.isArray(input.mcpDetails) &&
-    Object.keys(input.mcpDetails).length === 1 &&
-    typeof (input.mcpDetails as { description?: unknown }).description === "string";
-  if (namespace.kind === "first-party" && input.mcpDetails !== undefined && !displayOnlyMetadata) {
-    throw new Error(`mcpDetails must be omitted for first-party namespace ${namespace.name}`);
-  }
 
   return {
     namespace,
     tool,
     arguments: tool.decodeArguments(decodeDynamicArguments(input.arguments)),
-    mcpDetails: namespace.kind === "mcp" ? input.mcpDetails : undefined,
   };
 };
 

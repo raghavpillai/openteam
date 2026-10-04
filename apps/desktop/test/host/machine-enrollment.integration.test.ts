@@ -15,7 +15,7 @@ import { DesktopMachineEnrollment } from "../../src/main/host/machine-enrollment
 import { loadMachineIdentity } from "../../src/main/host/machine-identity";
 import { startHostBridge } from "../../src/main/host/bridge";
 import { executeHostJob, terminateHostChildren } from "../../src/main/host/jobs";
-import { createPermissionSettingsStore } from "../../src/main/permission-settings";
+import { createComputerSettingsStore } from "../../src/main/computer-settings";
 
 async function eventually(check: () => Promise<boolean>, description: string) {
   const deadline = Date.now() + 8_000;
@@ -27,7 +27,7 @@ async function eventually(check: () => Promise<boolean>, description: string) {
 }
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 
-test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)("two desktops enroll, stream operations, enforce permissions, reconnect and revoke without replay", async () => {
+test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)("two desktops enroll, stream operations, reconnect and revoke without replay", async () => {
   const db = createPrismaClient(process.env.OPENTEAM_TEST_DATABASE_URL!);
   const root = await mkdtemp(join(tmpdir(), "enrollment-e2e-"));
   const userId = crypto.randomUUID(), sessionId = crypto.randomUUID();
@@ -39,7 +39,7 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)("two desktops enroll, strea
   const api = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 0, async fetch(request) {
     try {
       const path = new URL(request.url).pathname.replace(/^\/api\/v0\//, "/api/");
-      if (path.startsWith("/api/machines/channel/")) return await machineChannelResponse(machines, request, path, async () => ({ decision: "allow", reason: "Fixture" }));
+      if (path.startsWith("/api/machines/channel/")) return await machineChannelResponse(machines, request, path);
       const authorization = request.headers.get("authorization");
       if (path === "/api/machines/enroll" && authorization === `Bearer ${ownerToken}`) {
         const result = await machines.enroll(await request.json(), sessionId);
@@ -65,15 +65,15 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)("two desktops enroll, strea
     for (const label of ["Fixture laptop", "Fixture workstation"]) {
       const directory = join(root, label.replaceAll(" ", "-"));
       const machineId = await loadMachineIdentity(join(directory, "machine-id")); machineIds.push(machineId);
-      const permissions = createPermissionSettingsStore(join(directory, "permissions.json"));
-      await permissions.update({ localToolPermission: "always" });
+      const computerSettings = createComputerSettingsStore(join(directory, "computer-settings.json"));
+      await computerSettings.update({ });
       const token = crypto.randomUUID();
-      const bridge = await startHostBridge({ hostname: "127.0.0.1", port: 0, token, terminalDir: join(directory, "terminals"), permissionSettings: permissions, autoReviewMode: "enforce", machineId, machineLabel: label, reviewAction: async () => ({ decision: "allow", reason: "Synthetic fixture" }), runJob: executeHostJob, capabilities:{handle:async()=>({machineId})} as never });
+      const bridge = await startHostBridge({ hostname: "127.0.0.1", port: 0, token, terminalDir: join(directory, "terminals"), computerSettings, machineId, machineLabel: label, runJob: executeHostJob, capabilities:{handle:async()=>({machineId})} as never });
       bridges.push(bridge);
       const address = bridge.address(); if (!address || typeof address === "string") throw new Error("Expected TCP bridge");
-      const client = new DesktopMachineEnrollment({ machineId, localToken: token, localUrl: `http://127.0.0.1:${address.port}`, getToken: async () => ownerToken, getIdentity: async () => ({ label, localToolPermission: (await permissions.read()).localToolPermission }), retryMs: 30 });
+      const client = new DesktopMachineEnrollment({ machineId, localToken: token, localUrl: `http://127.0.0.1:${address.port}`, getToken: async () => ownerToken, getIdentity: async () => ({ label, }), retryMs: 30 });
       clients.push(client); client.configure(api.url.origin);
-      fixtures.push({ machineId, directory, permissions, client });
+      fixtures.push({ machineId, directory, computerSettings, client });
     }
     const first = fixtures[0]!, second = fixtures[1]!;
     await eventually(async () => (await machines.list()).filter(m => machineIds.includes(m.machineId) && m.connected).length === 2, "both machines online");
@@ -92,7 +92,7 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)("two desktops enroll, strea
       expect(await executor.desktopCapability("FixtureIdentity",botId,{},undefined,undefined,channelId)).toEqual({machineId:fixture.machineId});
     }
     expect(await machines.preferred(crypto.randomUUID(),channelId)).toEqual({machineId:null});
-    await expect(machines.enroll({machineId:crypto.randomUUID(),label:"Unauthorized",localToolPermission:"ask"},null)).rejects.toThrow("Sign in");
+    await expect(machines.enroll({machineId:crypto.randomUUID(),label:"Unauthorized",},null)).rejects.toThrow("Sign in");
     expect((await fetch(`${api.url.origin}/api/v0/machines/enroll`, { method: "POST", body: "{}" })).status).toBe(401);
     const firstCredential = credentials.get(first.machineId)!;
     const deviceHeaders = (id: string, credential: string) => ({ authorization: `Bearer ${credential}`, "x-openteam-machine-id": id });
@@ -101,16 +101,12 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)("two desktops enroll, strea
 
     const marker = join(first.directory, "result.txt");
     const shell = { machineId: first.machineId, command: `printf enrolled > '${marker}'`, working_directory: first.directory };
-    await first.permissions.update({ localToolPermission: "ask" });
-    expect((await post(endpoint, "/v1/shell", shell)).status).toBe(409);
-    expect(await Bun.file(marker).exists()).toBe(false);
-    expect((await post(endpoint, "/v1/shell", { ...shell, localApproval: "allow-once" })).status).toBe(200);
+    await first.computerSettings.update({ });
+    expect((await post(endpoint, "/v1/shell", shell)).status).toBe(200);
     expect(await readFile(marker, "utf8")).toBe("enrolled");
-    expect((await first.permissions.read()).localToolPermission).toBe("ask");
     expect((await post(secondEndpoint, "/v1/shell", shell)).status).toBe(400);
-    await first.permissions.update({ localToolPermission: "never" });
-    expect((await post(endpoint, "/v1/read", { machineId: first.machineId, path: marker })).status).toBe(403);
-    await first.permissions.update({ localToolPermission: "always" });
+    await first.computerSettings.update({ });
+    await first.computerSettings.update({ });
     expect((await post(endpoint, "/v1/read", { machineId: first.machineId, path: marker })).status).toBe(200);
     const started = await post(endpoint, "/v1/shell", { machineId: first.machineId, command: `printf 'ready\n'; sleep 0.3; exit 7`, working_directory: first.directory, block_until_ms: 0 });
     expect(started.status).toBe(200);

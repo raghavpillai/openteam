@@ -1,6 +1,4 @@
 import type {
-PluginBotAccessItemView,
-PluginBotAccessView,
 PluginCatalogItemView,
 PluginConnectionView,
 PluginInstallView,
@@ -23,16 +21,7 @@ Search
 import { lazy,Suspense,useEffect,useId,useMemo,useState } from "react";
 import { api } from "../../client/openteam-api";
 import { cn } from "../../lib/cn";
-import {
-PLUGIN_BOT_ACCESS_PAGE_SIZE,
-PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH,
-pluginBotAccessWindow
-} from "../../lib/plugin-settings-scale";
-
 const loadPluginSettingsDetail = () => import("./plugin-settings-detail");
-const PluginPolicySelect = lazy(() =>
-  loadPluginSettingsDetail().then((module) => ({ default: module.PluginPolicySelect }))
-);
 const PluginAuthSelect = lazy(() =>
   loadPluginSettingsDetail().then((module) => ({ default: module.PluginAuthSelect }))
 );
@@ -321,11 +310,7 @@ function DetailBlock({
         ? "skill"
         : label === "Accounts"
           ? "account"
-          : label === "Bot access"
-            ? "bot"
-            : label === "Tool policies"
-              ? "tool"
-              : "event";
+          : "event";
   return (
     <section className="mt-6">
       <h3 className="mb-2 px-3.5 text-[13px] font-normal text-foreground-tertiary">{label}</h3>
@@ -824,12 +809,10 @@ function ConnectionSettingsRow({
 }
 
 export function PluginDetail({
-  accessEpoch,
   busy,
   data,
   plugin,
   onAddAccount,
-  onGrant,
   onAuthenticate,
   onCancelAuthentication,
   onConfigureToken,
@@ -837,24 +820,16 @@ export function PluginDetail({
   onConfigureCallback,
   onInstructions,
   onInstall,
-  onPolicy,
   onRemoveAccount,
   onRename,
   onRemove,
   onRestart,
-  onSkill,
   onToggle,
 }: {
-  accessEpoch: number;
   busy: string | null;
   data: PluginSettingsView;
   plugin: PluginCatalogItemView;
   onAddAccount: (connection: PluginConnectionView, alias: string) => Promise<boolean>;
-  onGrant: (
-    connection: PluginConnectionView,
-    bot: PluginBotAccessItemView,
-    enabled: boolean
-  ) => void;
   onAuthenticate: (connection: PluginConnectionView) => void;
   onCancelAuthentication: (connection: PluginConnectionView) => void;
   onConfigureToken: (connection: PluginConnectionView, token: string) => void;
@@ -865,80 +840,23 @@ export function PluginDetail({
   onConfigureCallback?: (connection: PluginConnectionView, input: OAuthCallbackSettings) => void;
   onInstructions: (connection: PluginConnectionView, instructions: string) => void;
   onInstall: (plugin: PluginCatalogItemView, values?: Record<string, string>) => void;
-  onPolicy: (connectionId: string, toolName: string, decision: "deny" | "prompt" | "allow") => void;
   onRemoveAccount: (connection: PluginConnectionView) => void;
   onRename: (connection: PluginConnectionView, alias: string) => Promise<boolean>;
   onRemove: (plugin: PluginCatalogItemView) => void;
   onRestart: (connection: PluginConnectionView) => void;
-  onSkill: (pluginKey: string, bot: PluginBotAccessItemView, enabled: boolean) => void;
   onToggle: (connection: PluginConnectionView) => void;
 }) {
   const [setupValues, setSetupValues] = useState<Record<string, string>>({});
   const [setupAccountId, setSetupAccountId] = useState<string | null>(null);
   const [dismissedSetupIds, setDismissedSetupIds] = useState<string[]>([]);
-  const [confirmUninstall, setConfirmUninstall] = useState(false);
-  const [botAccessExpanded, setBotAccessExpanded] = useState(false);
-  const [botAccessQuery, setBotAccessQuery] = useState("");
-  const [botAccessOffset, setBotAccessOffset] = useState(0);
-  const [botAccess, setBotAccess] = useState<PluginBotAccessView | null>(null);
-  const [botAccessLoading, setBotAccessLoading] = useState(false);
-  const [botAccessError, setBotAccessError] = useState<string | null>(null);
   const install = installFor(data, plugin.key);
   const connections = install?.connections ?? [];
-  const hasBotAccess = Boolean(install && (install.connections.length || install.hasSkills));
-  const botAccessScope = install ? `${accessEpoch}:${install.id}` : "";
   const setupConnection =
     connections.find((c) => c.id === setupAccountId && c.status !== "ready") ??
     connections.find((c) => !dismissedSetupIds.includes(c.id) && c.status !== "ready" && (!c.configured || plugin.setup?.kind === "none"));
   const recentActivity = data.activity
     .filter((entry) => entry.pluginKey === plugin.key)
     .slice(0, 8);
-  useEffect(() => {
-    if (!botAccessScope || !hasBotAccess) {
-      setBotAccess(null);
-      return;
-    }
-    if (!botAccessExpanded) return;
-    const controller = new AbortController();
-    setBotAccess(null);
-    setBotAccessError(null);
-    const timer = window.setTimeout(
-      () => {
-        setBotAccessLoading(true);
-        api
-          .pluginBotAccess(plugin.key, {
-            query: botAccessQuery,
-            offset: botAccessOffset,
-            limit: PLUGIN_BOT_ACCESS_PAGE_SIZE,
-            signal: controller.signal,
-          })
-          .then(setBotAccess)
-          .catch((cause) => {
-            if (!controller.signal.aborted) setBotAccessError(errorMessage(cause));
-          })
-          .finally(() => {
-            if (!controller.signal.aborted) setBotAccessLoading(false);
-          });
-      },
-      botAccessQuery ? 150 : 0
-    );
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [
-    botAccessExpanded,
-    botAccessOffset,
-    botAccessQuery,
-    botAccessScope,
-    hasBotAccess,
-    plugin.key,
-  ]);
-  const botAccessWindow = useMemo(
-    () => pluginBotAccessWindow(botAccess?.bots ?? [], "", PLUGIN_BOT_ACCESS_PAGE_SIZE),
-    [botAccess]
-  );
-  const visibleBots = botAccessWindow.items;
   return (
     <div className="bot-scrollbar min-h-0 flex-1 overflow-y-auto px-8 pb-8 max-sm:px-5">
       <div className="group/plugin-heading flex items-center gap-3 pt-1">
@@ -978,20 +896,13 @@ export function PluginDetail({
           <button
             className={cn(secondaryButton, "h-9 px-4")}
             disabled={busy === plugin.key}
-            onClick={() => setConfirmUninstall(true)}
+            onClick={() => onRemove(plugin)}
             type="button"
           >
             Uninstall
           </button>
         )}
       </div>
-      {confirmUninstall && install ? <div role="alert" className="mt-4 rounded-lg border border-red-500/20 p-3 text-[12px]">
-        <p>Uninstall {plugin.name}? This removes its accounts, saved authentication and access for all Bots.</p>
-        <div className="mt-2 flex gap-2">
-          <button className={secondaryButton} type="button" disabled={Boolean(busy)} onClick={() => setConfirmUninstall(false)}>Cancel</button>
-          <button className={primaryButton} type="button" disabled={Boolean(busy)} onClick={() => onRemove(plugin)}>Confirm uninstall</button>
-        </div>
-      </div> : null}
       <p className="mt-4 max-w-[720px] text-[12px] leading-[18px] text-foreground-secondary">
         {plugin.description}
       </p>
@@ -1106,192 +1017,6 @@ export function PluginDetail({
                 </span>
               </div>
             ))}
-        </DetailBlock>
-      ) : null}
-
-      {install && (connections.length || install.hasSkills) && data.botCount > 0 ? (
-        <DetailBlock
-          count={botAccessQuery ? (botAccess?.total ?? 0) : data.botCount}
-          label="Bot access"
-          onOpenChange={setBotAccessExpanded}
-          open={false}
-        >
-          {botAccessExpanded ? (
-            <>
-              {botAccessQuery || data.botCount > PLUGIN_BOT_ACCESS_PAGE_SIZE ? (
-                <div className="border-t border-black/[0.055] p-2 first:border-t-0 dark:border-white/[0.065]">
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3 -translate-y-1/2 text-foreground-tertiary" />
-                    <input
-                      aria-label="Filter Bot access"
-                      className="h-8 w-full rounded-[8px] border border-black/[0.07] bg-background pl-8 pr-2.5 text-[11px] outline-none placeholder:text-foreground-tertiary focus:border-black/15 dark:border-white/[0.09] dark:focus:border-white/20"
-                      maxLength={PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH}
-                      onChange={(event) => {
-                        setBotAccessOffset(0);
-                        setBotAccessQuery(event.target.value);
-                      }}
-                      placeholder="Filter Bots"
-                      value={botAccessQuery}
-                    />
-                  </div>
-                </div>
-              ) : null}
-              {connections.map((connection) => (
-                <div
-                  className="flex min-h-10 items-center gap-3 border-t border-black/[0.055] px-3 first:border-t-0 dark:border-white/[0.065]"
-                  key={connection.id}
-                >
-                  <span className="min-w-[145px] flex-1 truncate text-[11.5px]">
-                    {connection.name} · {connection.alias}
-                  </span>
-                  <div className="flex flex-wrap justify-end gap-3">
-                    {visibleBots.map((bot) => {
-                      const checked = bot.grantedConnectionIds.includes(connection.id);
-                      const key = `${connection.id}:${bot.id}`;
-                      return (
-                        <div
-                          className="flex items-center gap-1.5 text-[10.5px] text-foreground-secondary"
-                          key={bot.id}
-                        >
-                          <span className="max-w-24 truncate">{bot.name}</span>
-                          <SquareToggle
-                            busy={busy === key}
-                            checked={checked}
-                            label={`${checked ? "Revoke" : "Grant"} ${connection.name} ${connection.alias} account for ${bot.name}`}
-                            onClick={() => onGrant(connection, bot, !checked)}
-                          />
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-              {install.hasSkills ? (
-                <div className="flex min-h-10 items-center gap-3 border-t border-black/[0.055] px-3 dark:border-white/[0.065]">
-                  <span className="min-w-[145px] flex-1 truncate text-[11.5px]">Instructions and hooks</span>
-                  <div className="flex flex-wrap justify-end gap-3">
-                    {visibleBots.map((bot) => {
-                      const checked = bot.skillsEnabled;
-                      const key = `skill:${plugin.key}:${bot.id}`;
-                      return (
-                        <div
-                          className="flex items-center gap-1.5 text-[10.5px] text-foreground-secondary"
-                          key={bot.id}
-                        >
-                          <span className="max-w-24 truncate">{bot.name}</span>
-                          <SquareToggle
-                            busy={busy === key}
-                            checked={checked}
-                            label={`${checked ? "Disable" : "Enable"} ${plugin.name} instructions and hooks for ${bot.name}`}
-                            onClick={() => onSkill(plugin.key, bot, !checked)}
-                          />
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null}
-              {botAccess &&
-              (botAccess.offset > 0 ||
-                botAccess.offset + botAccess.bots.length < botAccess.total) ? (
-                <div className="flex h-9 items-center justify-between border-t border-black/[0.055] px-3 text-[10.5px] text-foreground-secondary dark:border-white/[0.065]">
-                  <button
-                    className="inline-flex items-center gap-1 hover:text-foreground disabled:opacity-35"
-                    disabled={botAccessLoading || botAccess.offset === 0}
-                    onClick={() =>
-                      setBotAccessOffset(
-                        Math.max(0, botAccess.offset - PLUGIN_BOT_ACCESS_PAGE_SIZE)
-                      )
-                    }
-                    type="button"
-                  >
-                    <ChevronLeft className="size-3" /> Previous
-                  </button>
-                  <span>
-                    {botAccess.bots.length ? botAccess.offset + 1 : 0}–
-                    {botAccess.offset + botAccess.bots.length} of {botAccess.total}
-                  </span>
-                  <button
-                    className="inline-flex items-center gap-1 hover:text-foreground disabled:opacity-35"
-                    disabled={
-                      botAccessLoading ||
-                      botAccess.offset + botAccess.bots.length >= botAccess.total
-                    }
-                    onClick={() =>
-                      setBotAccessOffset(botAccess.offset + PLUGIN_BOT_ACCESS_PAGE_SIZE)
-                    }
-                    type="button"
-                  >
-                    Next <ChevronRight className="size-3" />
-                  </button>
-                </div>
-              ) : null}
-              {botAccessLoading && !botAccess ? (
-                <div className="grid h-12 place-items-center border-t border-black/[0.055] dark:border-white/[0.065]">
-                  <LoaderCircle className="size-3.5 animate-spin text-foreground-tertiary" />
-                </div>
-              ) : null}
-              {botAccess && botAccess.total === 0 ? (
-                <div className="border-t border-black/[0.055] px-3 py-3 text-[10.5px] text-foreground-tertiary dark:border-white/[0.065]">
-                  No Bots match that filter.
-                </div>
-              ) : null}
-              {botAccessError ? (
-                <div className="border-t border-black/[0.055] px-3 py-3 text-[10.5px] text-red-600 dark:border-white/[0.065] dark:text-red-400">
-                  {botAccessError}
-                </div>
-              ) : null}
-            </>
-          ) : null}
-        </DetailBlock>
-      ) : null}
-
-      {connections.some((connection) => connection.tools.length) ? (
-        <DetailBlock
-          count={connections.reduce((total, connection) => total + connection.tools.length, 0)}
-          label="Tool policies"
-          open={false}
-        >
-          {connections.flatMap((connection) =>
-            connection.tools.map((tool) => {
-              const policy = data.policies.find(
-                (candidate) =>
-                  candidate.connectionId === connection.id &&
-                  candidate.botId === null &&
-                  candidate.toolName === tool.name
-              );
-              const key = `${connection.id}:${tool.name}`;
-              return (
-                <div
-                  className="flex min-h-10 items-center gap-3 border-t border-black/[0.055] px-3 first:border-t-0 dark:border-white/[0.065]"
-                  key={key}
-                >
-                  <span className="min-w-0 flex-1 text-[11.5px]">
-                    <span className="block truncate">{tool.name}</span>
-                    {connections.length > 1 && (
-                      <span className="block truncate text-[10.5px] text-foreground-tertiary">
-                        {connection.name} · {connection.alias}
-                      </span>
-                    )}
-                  </span>
-                  <Suspense
-                    fallback={
-                      <span className="inline-flex h-7 items-center rounded-[7px] border border-black/[0.07] bg-background px-2 text-[10.5px] capitalize text-foreground-secondary dark:border-white/[0.09]">
-                        {policy?.decision ?? tool.defaultDecision}
-                      </span>
-                    }
-                  >
-                    <PluginPolicySelect
-                      disabled={busy === key}
-                      label={`Policy for ${tool.name} on ${connection.name} ${connection.alias} account`}
-                      onChange={(value) => onPolicy(connection.id, tool.name, value)}
-                      value={policy?.decision ?? tool.defaultDecision}
-                    />
-                  </Suspense>
-                </div>
-              );
-            })
-          )}
         </DetailBlock>
       ) : null}
 

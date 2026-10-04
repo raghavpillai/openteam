@@ -14,9 +14,6 @@ export const SETTINGS_PALETTE_SECTIONS = [
       "mode",
       "sign out",
       "logout",
-      "auto review",
-      "rules",
-      "permissions",
     ],
   },
   {
@@ -24,7 +21,7 @@ export const SETTINGS_PALETTE_SECTIONS = [
     label: "Computer",
     icon: "computer",
     target: "computers",
-    keywords: ["computer", "machines", "local execution", "host", "permissions", "run tasks"],
+    keywords: ["computer", "machines", "local execution", "host", "run tasks"],
   },
   {
     id: "updates",

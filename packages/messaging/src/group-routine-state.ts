@@ -54,7 +54,7 @@ export async function groupRoutineState(tx: Prisma.TransactionClient, rootMessag
     completedAt: completedTimes.length ? new Date(Math.max(...completedTimes)) : null,
     active:
       rounds.some((round) => ["queued", "running"].includes(round.status)) ||
-      continuations.some((run) => ["queued", "running", "waiting_approval"].includes(run.status)) ||
+      continuations.some((run) => ["queued", "running"].includes(run.status)) ||
       children.some((child) => ["provisioning", "queued", "running"].includes(child.status)),
     failed:
       rounds.some((round) => round.status === "failed") ||

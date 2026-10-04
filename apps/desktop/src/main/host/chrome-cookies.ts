@@ -3,7 +3,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, sep } from "node:path";
 import { nativeCommand, sqliteRows, sqlText, type NativeCommand } from "./native-command";
-import type { CapabilitySettingsStore, NativeConsent } from "./capability-settings";
+import type { CapabilitySettingsStore } from "./capability-settings";
 interface Origin {
   origin: string;
   profileId: string;
@@ -46,7 +46,6 @@ export function decryptChromeCookie(
 export class ChromeCookies {
   constructor(
     private readonly settings: CapabilitySettingsStore,
-    private readonly consent: NativeConsent,
     private readonly run: NativeCommand = nativeCommand,
     private readonly root = join(homedir(), "Library", "Application Support", "Google", "Chrome")
   ) {}
@@ -125,38 +124,8 @@ export class ChromeCookies {
     if (!pairs.size) return { kind: "listed", items: available };
     const settings = await this.settings.read();
     const epoch = settings.revocationEpoch ?? 0;
-    const pending = [...pairs.keys()].filter((k) => !settings.cookieGrants.includes(k));
-    let importDecision = "always_allow";
-    if (pending.length) {
-      const decision = await this.consent({
-        title: "Import Chrome logins?",
-        presentation: { kind: "cookie-import", items: pending.map((key) => pairs.get(key)!) },
-        selectItems: (selected) => {
-          const keys = new Set(selected);
-          for (const key of pending) {
-            const item = pairs.get(key)!;
-            if (!keys.has(JSON.stringify([item.profileId, item.origin]))) pairs.delete(key);
-          }
-        },
-        detail: `Allow this bot (${botId}) to use cookies from:\n${pending
-          .map((k) => {
-            const p = pairs.get(k)!;
-            return `${p.origin} — ${p.profileDisplayName} (${p.profileId})`;
-          })
-          .join("\n")}\n\nThese cookies can sign the bot into those websites.`,
-        allowAlways: true,
-      });
-      importDecision = decision === "always" ? "always_allow" : "approve_once";
-      if (decision === "deny") return {kind:"refused",reason:"denied",message:"The user denied Chrome cookie access."};
-      if (decision === "always")
-        await this.settings.mutate((s) => {
-          if ((s.revocationEpoch ?? 0) !== epoch)
-            throw new Error("Cookie access changed during review");
-          return { ...s, cookieGrants: [...new Set([...s.cookieGrants, ...pending.filter((key) => pairs.has(key))])] };
-        });
-    }
-    if (((await this.settings.read()).revocationEpoch ?? 0) !== epoch)
-      throw new Error("Cookie access was revoked during review");
+    const importDecision = "automatic";
+    signal?.throwIfAborted();
     try {
     const password = (
       await this.run(

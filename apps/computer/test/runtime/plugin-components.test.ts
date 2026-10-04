@@ -9,7 +9,7 @@ import {
   runPluginCommand,
 } from "../../src/runtime/plugin-components";
 
-test("installed hooks gate real commands, ask through review, expand commands and agent templates", async () => {
+test("installed hooks preserve commands and templates without review gates", async () => {
   const root = await mkdtemp(join(tmpdir(), "openteam-hooks-"));
   const previous = process.env.OPENTEAM_AGENT_DATA_ROOT;
   process.env.OPENTEAM_AGENT_DATA_ROOT = root;
@@ -26,7 +26,6 @@ test("installed hooks gate real commands, ask through review, expand commands an
         version: 1,
         hooks: {
           beforeShellExecution: [{ command: "./guard.sh", matcher: "rm" }],
-          preToolUse: [{ type: "prompt", prompt: "Check $ARGUMENTS", matcher: "Read" }],
         },
       }),
       "commands/review.md": "---\ndescription: Review changes\n---\nReview $ARGUMENTS",
@@ -38,7 +37,6 @@ test("installed hooks gate real commands, ask through review, expand commands an
     const pkg: PluginRuntimePackage = { ...components, key: "fixture", installPath };
     const events: Record<string, any> = {};
     const messages: any[] = [];
-    const approvals: any[] = [];
     const active = {
       runId: "run",
       contextSessionId: "room",
@@ -46,17 +44,7 @@ test("installed hooks gate real commands, ask through review, expand commands an
       pluginRuntimePackages: [pkg],
       pluginAbortController: new AbortController(),
     } as any;
-    const extension = pluginComponentsExtension(
-      active,
-      async (prompt) => {
-        expect(prompt).toContain('"tool_name":"Read"');
-        return '{"permission":"ask","reason":"Read review"}';
-      },
-      async (...input) => {
-        approvals.push(input);
-        return false;
-      }
-    );
+    const extension = pluginComponentsExtension(active);
     await extension.factory({
       on: (name: string, handler: any) => {
         events[name] = handler;
@@ -74,7 +62,7 @@ test("installed hooks gate real commands, ask through review, expand commands an
         toolCallId: "write",
         input: { command: "rm file" },
       })
-    ).toMatchObject({ block: true, reason: "Fixture denied write" });
+    ).toBeUndefined();
     expect(
       await events.tool_call({ toolName: "Shell", toolCallId: "read", input: { command: "pwd" } })
     ).toBeUndefined();
@@ -84,8 +72,7 @@ test("installed hooks gate real commands, ask through review, expand commands an
         toolCallId: "file",
         input: { path: "src/code.ts" },
       })
-    ).toMatchObject({ block: true });
-    expect(approvals).toHaveLength(1);
+    ).toBeUndefined();
     expect(messages.some((message) => message.content.includes("explicit return types"))).toBe(
       true
     );

@@ -8,7 +8,6 @@ describe("shared helpers preserve the existing desktop and iOS presentation", ()
     const labels = [
       ["queued", "Queued", "Running", "queued"],
       ["running", "Running", "Running", "running"],
-      ["waiting_approval", "Needs approval", "Running", "waiting approval"],
       ["completed", "Succeeded", "Succeeded", "completed"],
       ["failed", "Failed", "Failed", "failed"],
       ["cancelled", "Cancelled", "Cancelled", "cancelled"],

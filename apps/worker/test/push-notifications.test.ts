@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  approvalReason,
   claimOutboxDeliveries,
   deliverablePushDeviceWhere,
   enqueuePushNotification,
@@ -357,13 +356,8 @@ describe("push notification content", () => {
   test("drains only for stream events that can enqueue a push", () => {
     expect(computerEventQueuesPushNotification({ type: "agent.delta" } as never)).toBeFalse();
     expect(computerEventQueuesPushNotification({ type: "context.state" } as never)).toBeFalse();
-    expect(computerEventQueuesPushNotification({ type: "approval.requested" } as never)).toBeTrue();
+    expect(computerEventQueuesPushNotification({ type: "approval.requested" } as never)).toBeFalse();
     expect(computerEventQueuesPushNotification({ type: "turn.completed" } as never)).toBeTrue();
-  });
-  test("prefers a bounded approval reason and normalizes whitespace", () => {
-    expect(approvalReason({ reason: "  Approve\nthis   command  " })).toBe("Approve this command");
-    expect(approvalReason({ command: "bun test" })).toBe("bun test");
-    expect(approvalReason(null)).toBe("Waiting for your input.");
   });
 
   test("truncates by grapheme without splitting a joined emoji family", () => {
@@ -395,7 +389,6 @@ describe("push notification content", () => {
         botId: "bot",
         channelId: "channel",
         runId: "run",
-        approvalId: "approval",
         title: "Probe needs you",
         body: "Approve the command",
         deepLink: "openteam:///chat/channel",

@@ -5,7 +5,7 @@ import {MachineDirectory} from "../../computer/src/machine-directory";
 test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)("registered machines survive disconnects and route selected computers",async()=>{
  const db=createPrismaClient(process.env.OPENTEAM_TEST_DATABASE_URL!);
  const id=crypto.randomUUID();let online=true;
- const bridge=Bun.serve({hostname:"127.0.0.1",port:0,fetch(request){expect(request.headers.get("authorization")).toBe("Bearer fixture");return online ? Response.json({machines:[{machineId:id,label:"Fixture laptop",localToolPermission:"always"}]}) : new Response(null,{status:503});}});
+ const bridge=Bun.serve({hostname:"127.0.0.1",port:0,fetch(request){expect(request.headers.get("authorization")).toBe("Bearer fixture");return online ? Response.json({machines:[{machineId:id,label:"Fixture laptop",}]}) : new Response(null,{status:503});}});
  const service=new MachineService(db,"fixture");
  const api=Bun.serve({hostname:"127.0.0.1",port:0,async fetch(request){const path=new URL(request.url).pathname;if(path.endsWith("/observe"))return Response.json(await service.observe(await request.json()));return Response.json(await service.list());}});
  try {
@@ -30,7 +30,7 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)("auth-disabled enrollment i
  const disabled=new MachineService(db,"fixture",undefined,undefined,true),required=new MachineService(db,"fixture");
  const machineId=crypto.randomUUID();
  try{
-  const result=await disabled.enroll({machineId,label:"Local fixture",localToolPermission:"ask"},null);
+  const result=await disabled.enroll({machineId,label:"Local fixture",},null);
   const request=new Request("http://fixture/channel",{headers:{authorization:`Bearer ${result.credential}`,"x-openteam-machine-id":machineId}});
   expect((await disabled.authenticate(request)).machineId).toBe(machineId);
   await expect(required.authenticate(request)).rejects.toThrow("no longer authorized");

@@ -17,9 +17,6 @@ import { TranscriptionStore } from "./transcription/store";
 import { PgBoss } from "pg-boss";
 import { EventWakeup } from "./event-wakeup";
 import { AdministrationService } from "./services/administration-service";
-import { expireTimedOutApprovals } from "./services/approval-lifecycle";
-import { type AutoReviewInput, AutoReviewService } from "./services/auto-review-service";
-import { loadAutoReviewContext } from "./services/auto-review-context";
 import { BotService } from "./services/bot-service";
 import { ChannelService } from "./services/channel-service";
 import { InternalToolService } from "./services/internal-tool-service";
@@ -32,7 +29,6 @@ import { ScreenService } from "./services/screen-service";
 import { SearchService } from "./services/search-service";
 import { forwardServiceMethod, serviceEffect } from "./services/service-utils";
 import { SavedLoginService } from "./services/saved-login-service";
-import { ReviewPolicyService } from "./services/review-policy-service";
 import { WebProviderSettingsService } from "./services/web-provider-settings";
 import { SettingsService } from "./services/settings-service";
 import { SnapshotService } from "./services/snapshot-service";
@@ -49,7 +45,6 @@ export class AppService {
   readonly transcription: TranscriptionService;
   readonly webProviders: WebProviderSettingsService;
   readonly savedLogins: SavedLoginService;
-  readonly reviewPolicy: ReviewPolicyService;
   readonly automationWebhooks: AutomationWebhooksService;
   private readonly settings: SettingsService;
 
@@ -72,7 +67,6 @@ export class AppService {
   readonly plugins: PluginService;
   readonly machines: MachineService;
   readonly richMessages: RichMessageService;
-  readonly autoReview: AutoReviewService;
   readonly runs: RunService;
   readonly screens: ScreenService;
   readonly searchIndex: SearchService;
@@ -81,8 +75,7 @@ export class AppService {
   readonly notifications: NotificationService;
   readonly eventWakeup: EventWakeup;
   private queueReady = false;
-  private reviewRecoveryTimer: ReturnType<typeof setInterval> | null = null;
-  private approvalExpiryTimer: ReturnType<typeof setInterval> | null = null;
+  private deliveryRecoveryTimer: ReturnType<typeof setInterval> | null = null;
   private eventPruneTimer: ReturnType<typeof setInterval> | null = null;
   private assetCleanupTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -184,22 +177,9 @@ export class AppService {
       this.screens,
       this.bots
     );
-    this.autoReview = new AutoReviewService(
-      (path, init) => this.computerFetch(path, init),
-      () => this.agentData.loadInferenceSettings(),
-      (context) => loadAutoReviewContext(this.prisma, context)
-    );
-    this.reviewPolicy = new ReviewPolicyService(this.prisma, this.autoReview);
     this.runs = new RunService(
       this.prisma,
-      (path, init) => this.computerFetch(path, init),
-      (callId, decision) => this.plugins.resolveInvocation(callId, decision),
-      (details, decision) => this.plugins.resolveAction(details, decision),
-      (connectionId, botId, toolName) =>
-        Effect.runPromise(
-          this.plugins.setPolicy(connectionId, { botId, toolName, decision: "allow" })
-        ),
-      this.messaging
+      (path, init) => this.computerFetch(path, init)
     );
     this.todos = new TodoService(this.prisma);
     this.administration = new AdministrationService(
@@ -278,19 +258,13 @@ export class AppService {
       await this.boss.createQueue("maintenance");
       this.queueReady = true;
       await this.recover();
-      await this.richMessages.recoverPendingReviews();
-      this.reviewRecoveryTimer = setInterval(() => {
+      await this.richMessages.recoverPendingDeliveries();
+      this.deliveryRecoveryTimer = setInterval(() => {
         void this.richMessages
-          .recoverPendingReviews()
-          .catch((error) => console.error("review recovery", error));
+          .recoverPendingDeliveries()
+          .catch((error) => console.error("delivery recovery", error));
       }, 30_000);
-      this.reviewRecoveryTimer.unref?.();
-      this.approvalExpiryTimer = setInterval(() => {
-        void this.expirePendingApprovals().catch((error) =>
-          console.error("approval expiry", error)
-        );
-      }, 60_000);
-      this.approvalExpiryTimer.unref?.();
+      this.deliveryRecoveryTimer.unref?.();
       // Asset pruning can scan a large history and filesystem. Keep the
       // lifecycle behavior without extending the server's critical startup path.
       queueMicrotask(() => {
@@ -343,13 +317,9 @@ export class AppService {
 
   close = () =>
     Effect.promise(async () => {
-      if (this.reviewRecoveryTimer) {
-        clearInterval(this.reviewRecoveryTimer);
-        this.reviewRecoveryTimer = null;
-      }
-      if (this.approvalExpiryTimer) {
-        clearInterval(this.approvalExpiryTimer);
-        this.approvalExpiryTimer = null;
+      if (this.deliveryRecoveryTimer) {
+        clearInterval(this.deliveryRecoveryTimer);
+        this.deliveryRecoveryTimer = null;
       }
       if (this.eventPruneTimer) {
         clearInterval(this.eventPruneTimer);
@@ -515,9 +485,9 @@ export class AppService {
   reactToMessage = forwardServiceMethod(() => this.channels.reactToMessage);
 
   respondToWidget = forwardServiceMethod(() => this.richMessages.respondToWidget);
-  mutateReviewAction = forwardServiceMethod(() => this.richMessages.reviewActions.mutate);
-  reviewRecipe = (id: string, publicOnly = false) =>
-    this.richMessages.reviewActions.recipe(id, publicOnly);
+  mutateSharedTemplate = forwardServiceMethod(() => this.richMessages.sharedTemplates.mutate);
+  sharedTemplateRecipe = (id: string, publicOnly = false) =>
+    this.richMessages.sharedTemplates.recipe(id, publicOnly);
   mutateExternalDraft = forwardServiceMethod(() => this.richMessages.externalDrafts.mutate);
   submitUserForm = forwardServiceMethod(() => this.richMessages.submitUserForm);
   userFormPrefill = forwardServiceMethod(() => this.richMessages.formPrefill);
@@ -533,8 +503,6 @@ export class AppService {
   pluginSettings = forwardServiceMethod(() => this.plugins.settings);
 
   pluginConnectionStatuses = forwardServiceMethod(() => this.plugins.pollConnectionStatuses);
-
-  pluginBotAccess = forwardServiceMethod(() => this.plugins.botAccess);
 
   rootSettings = forwardServiceMethod(() => this.settings.rootSettings);
 
@@ -594,15 +562,8 @@ export class AppService {
 
   setMcpInstructions = forwardServiceMethod(() => this.plugins.setInstructions);
 
-  setPluginGrant = forwardServiceMethod(() => this.plugins.setGrant);
-
-  setPluginEnablement = forwardServiceMethod(() => this.plugins.setEnablement);
-
-  setPluginPolicy = forwardServiceMethod(() => this.plugins.setPolicy);
-
   cancelRun = forwardServiceMethod(() => this.runs.cancel);
 
-  resolveApproval = forwardServiceMethod(() => this.runs.resolveApproval);
 
   snapshot = forwardServiceMethod(() => this.snapshots.full);
 
@@ -643,12 +604,6 @@ export class AppService {
 
   markChannelRead = forwardServiceMethod(() => this.notifications.markChannelRead);
 
-  reviewPermission = (input: AutoReviewInput) =>
-    Effect.tryPromise({
-      try: () => this.autoReview.review(input),
-      catch: (error) => error as Error,
-    });
-
   search = forwardServiceMethod(() => this.searchIndex.search);
 
   health = forwardServiceMethod(() => this.snapshots.health);
@@ -669,10 +624,6 @@ export class AppService {
     return recover(this.prisma, this.boss, this.messaging, (path, init) =>
       this.computerFetch(path, init)
     );
-  }
-
-  private async expirePendingApprovals(): Promise<void> {
-    await expireTimedOutApprovals(this.prisma, new Date());
   }
 
   private computerFetch(path: string, init: RequestInit): Promise<Response> {

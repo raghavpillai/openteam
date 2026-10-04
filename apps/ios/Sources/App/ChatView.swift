@@ -187,12 +187,6 @@ struct ChatView: View {
           .font(.footnote).frame(maxWidth: .infinity).padding(14).disabled(busy))
       })
     }
-    for approval in store.approvals(channel) {
-      result.append(NativeHistoryItem(id: "approval-" + approval.id, scrollID: approval.id,
-        version: (try? JSON.encode(approval).hashValue) ?? 0) {
-        AnyView(ApprovalCard(approval: approval).padding(.horizontal, 16).padding(.top, 12).environment(store).environment(modals))
-      })
-    }
     result.append(NativeHistoryItem(id: "bottom", scrollID: "bottom", version: hasLater.hashValue) {
       AnyView(ChatActivityFooter(channel: channel, showsActivity: !hasLater).environment(store).environment(modals))
     })

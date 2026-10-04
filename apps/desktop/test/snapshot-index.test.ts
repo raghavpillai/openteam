@@ -97,7 +97,6 @@ function fixture(): ClientSnapshot {
         updatedAt: stamp,
       },
     ],
-    approvals: [],
     subagents: [
       {
         id: "subagent-1",
@@ -209,7 +208,6 @@ describe("desktop snapshot index", () => {
       "channelRounds",
       "runs",
       "runItems",
-      "approvals",
       "subagents",
     ]) {
       delete legacySnapshot[key];
@@ -227,7 +225,6 @@ describe("desktop snapshot index", () => {
     expect(reconciled.channelRounds).toEqual([]);
     expect(reconciled.runs).toEqual([]);
     expect(reconciled.runItems).toEqual([]);
-    expect(reconciled.approvals).toEqual([]);
     expect(reconciled.subagents).toEqual([]);
   });
 

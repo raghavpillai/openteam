@@ -6,7 +6,6 @@ import {
   publishChannelNotification,
   publishMessageNotification,
 } from "@openteam/messaging";
-import { approvalReason } from "./push-notifications";
 import { postgresJson } from "./postgres-json";
 
 const json = (value: unknown): Prisma.InputJsonValue =>
@@ -200,7 +199,7 @@ export class Projection {
           const started = await tx.run.updateMany({
             where: {
               id: runId,
-              status: { in: ["queued", "running", "waiting_approval"] },
+              status: { in: ["queued", "running"] },
             },
             data: {
               runtimeTurnId: event.turnId,
@@ -340,110 +339,6 @@ export class Projection {
         }
         break;
       }
-      case "approval.action":
-        await this.prisma.$transaction(async (tx) => {
-          const approval = await tx.approval.findFirst({
-            where: {
-              upstreamRequestId: event.approvalId,
-              runId,
-              requestMethod: "openteam/capability",
-            },
-          });
-          if (!approval) return;
-          const details = approval.details as Record<string, any>;
-          if (!["saved-login", "cookie-import"].includes(details.presentation?.kind)) return;
-          if (event.decision === "always_allow" && details.supportsAlwaysAllow !== true)
-            throw new Error("Unsupported native approval decision");
-          if (event.selectedItems !== undefined) {
-            const offered = new Set(
-              details.presentation?.kind === "cookie-import"
-                ? details.presentation.items.map((item: any) =>
-                    JSON.stringify([item.profileId, item.origin])
-                  )
-                : []
-            );
-            if (!event.selectedItems.length || event.selectedItems.some((key) => !offered.has(key)))
-              throw new Error("Native action reported unreviewed sites");
-          }
-          const patch = {
-            actionState: event.status,
-            resolution: event.decision,
-            ...(event.selectedItems === undefined ? {} : { selectedItems: event.selectedItems }),
-          };
-          // The runtime emits this only after a human decision. Persisting it also
-          // handles autofill completing before the initiating HTTP response returns.
-          const changed = await tx.$executeRaw`
-            UPDATE "Approval" a SET
-              "details" = a."details" || ${JSON.stringify(patch)}::jsonb,
-              "status" = 'accepted', "decision" = ${event.decision}, "resolvedAt" = COALESCE(a."resolvedAt", CURRENT_TIMESTAMP),
-              "updatedAt" = CURRENT_TIMESTAMP
-            WHERE a."upstreamRequestId" = ${event.approvalId} AND a."runId" = ${runId}::uuid
-              AND a."requestMethod" = 'openteam/capability'
-              AND a."status" IN ('pending', 'accepted')
-              AND a."details" #>> '{presentation,kind}' IN ('saved-login', 'cookie-import')
-              AND COALESCE(a."details" ->> 'actionState', 'running') = 'running'
-              AND EXISTS (SELECT 1 FROM "Run" r WHERE r."id" = a."runId"
-                AND r."status" IN ('queued', 'running', 'waiting_approval'))
-          `;
-          if (changed) await this.event(tx, "approval.action", runId, event);
-        });
-        break;
-      case "approval.requested":
-        await this.prisma.$transaction(async (tx) => {
-          const runItem = await tx.runItem.findUnique({
-            where: {
-              runId_upstreamItemId: { runId, upstreamItemId: event.itemId },
-            },
-          });
-          await tx.approval.upsert({
-            where: { upstreamRequestId: event.approvalId },
-            create: {
-              runId,
-              runItemId: runItem?.id,
-              upstreamRequestId: event.approvalId,
-              requestMethod: event.requestMethod,
-              kind: event.requestMethod.includes("fileChange") ? "file_change" : "command",
-              details: json(event.details),
-            },
-            update: {},
-          });
-          const waiting = await tx.run.updateMany({
-            where: {
-              id: runId,
-              status: { in: ["queued", "running"] },
-            },
-            data: { status: "waiting_approval" },
-          });
-          if (runItem) {
-            await tx.runItem.update({
-              where: { id: runItem.id },
-              data: { status: "waiting_approval" },
-            });
-          }
-          await this.event(tx, "approval.requested", runId, event);
-          if (waiting.count > 0) {
-            const target = await this.notificationTarget(tx, runId);
-            if (target) {
-              const presentation = agentNotificationPresentation({
-                kind: "agent-needs-input",
-                botName: target.bot.name,
-                body: approvalReason(event.details),
-              });
-              await publishChannelNotification(tx, `notification:needs-input:${event.approvalId}`, {
-                schemaVersion: 1,
-                kind: "agent-needs-input",
-                botId: target.bot.id,
-                channelId: target.channel.id,
-                runId,
-                approvalId: event.approvalId,
-                title: presentation.title,
-                body: presentation.body,
-                deepLink: `openteam:///chat/${target.channel.id}`,
-              });
-            }
-          }
-        });
-        break;
       case "compaction":
         await this.prisma.$transaction(async (tx) => {
           const contextSession = await tx.contextSession.findUniqueOrThrow({
@@ -540,7 +435,7 @@ export class Projection {
           await tx.runItem.updateMany({
             where: {
               runId,
-              status: { in: ["pending", "running", "waiting_approval"] },
+              status: { in: ["pending", "running"] },
             },
             data: { status: finalItemStatus, completedAt: new Date() },
           });
@@ -553,20 +448,6 @@ export class Projection {
           if (current.origin === "routine" && finalStatus === "completed") {
             await saveSilentAutomationResult(tx, runId);
           }
-          await tx.approval.updateMany({
-            where: {
-              runId,
-              status: "pending",
-              requestMethod: { not: "plugin/tool" },
-            },
-            data: { status: "expired", resolvedAt: new Date() },
-          });
-          await tx.$executeRaw`
-            UPDATE "Approval" SET "details" = "details" || '{"actionState":"failed"}'::jsonb,
-              "updatedAt" = CURRENT_TIMESTAMP
-            WHERE "runId" = ${runId}::uuid AND "requestMethod" = 'openteam/capability'
-              AND "details" ->> 'actionState' = 'running'
-          `;
           await this.event(tx, "run.completed", runId, {
             ...event,
             runId,

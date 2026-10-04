@@ -154,7 +154,7 @@ export const routineExecutionStatusPresentation = (
   // rename the desktop activity indicator or the native editor's existing rows.
   if (style === "raw")
     return { ...routineExecutionStatusPresentation(status), label: status.replace("_", " ") };
-  if (style === "activity" && ["queued", "running", "waiting_approval"].includes(status)) {
+  if (style === "activity" && ["queued", "running"].includes(status)) {
     return { label: "Running", tone: "muted" };
   }
   switch (status) {
@@ -166,8 +166,6 @@ export const routineExecutionStatusPresentation = (
       return { label: "Cancelled", tone: "muted" };
     case "skipped":
       return { label: "Skipped", tone: "muted" };
-    case "waiting_approval":
-      return { label: "Needs approval", tone: "muted" };
     case "queued":
       return { label: "Queued", tone: "muted" };
     case "running":

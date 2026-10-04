@@ -10,16 +10,9 @@ const withoutMarketplace = (prisma: unknown) => {
 };
 
 describe("bounded plugin settings projections", () => {
-  test("initial settings omit Bot and grant fan-out and query only global policies", async () => {
-    let policyQuery: unknown;
+  test("initial settings use bounded installation and activity projections", async () => {
     const service = withoutMarketplace({
       pluginInstallation: { findMany: async () => [] },
-      pluginToolPolicy: {
-        findMany: async (args: unknown) => {
-          policyQuery = args;
-          return [];
-        },
-      },
       pluginActivity: { findMany: async () => [] },
       bot: {
         count: async () => 1_000,
@@ -34,10 +27,8 @@ describe("bounded plugin settings projections", () => {
       catalog: [],
       installs: [],
       botCount: 1_000,
-      policies: [],
       activity: [],
     });
-    expect(policyQuery).toMatchObject({ where: { botId: null } });
   });
 
   test("status polling uses one bounded query without package files or artwork", async () => {
@@ -110,7 +101,7 @@ describe("bounded plugin settings projections", () => {
     expect(query?.values).toHaveLength(PLUGIN_CONNECTION_STATUS_MAX_IDS);
   });
 
-  test("agent-facing status counts grants in SQL instead of materializing Bot rows", async () => {
+  test("agent-facing status loads installations without Bot access tables", async () => {
     let query: unknown;
     const service = withoutMarketplace({
       pluginConnection: {
@@ -125,7 +116,7 @@ describe("bounded plugin settings projections", () => {
               status: "ready",
               statusMessage: null,
               toolSnapshot: [],
-              _count: { grants: 1_000 },
+              _count: { },
               lastCheckedAt: null,
             },
           ];
@@ -134,81 +125,11 @@ describe("bounded plugin settings projections", () => {
     });
 
     const result = (await service.connectionStatuses()) as {
-      connections: Array<{ grantedBotCount: number }>;
+      connections: Array<{ id: string; status: string }>;
     };
     expect(query).toMatchObject({
-      include: { _count: { select: { grants: { where: { enabled: true } } } } },
+      include: { installation: {select:{name:true,pluginKey:true}} },
     });
-    expect(result.connections[0]?.grantedBotCount).toBe(1_000);
-  });
-
-  test("Bot access searches all 1,000 Bots but materializes only one 60-row page", async () => {
-    const queries: Record<string, unknown> = {};
-    const bots = Array.from({ length: 60 }, (_, index) => ({
-      id: `bot-${index}`,
-      name: `Audit Bot ${index}`,
-      icon: "●",
-      color: "#4f7cff",
-    }));
-    const service = withoutMarketplace({
-      pluginInstallation: {
-        findUnique: async (args: unknown) => {
-          queries.installation = args;
-          return { id: "installation-1" };
-        },
-      },
-      bot: {
-        count: async (args: unknown) => {
-          queries.count = args;
-          return 1_000;
-        },
-        findMany: async (args: unknown) => {
-          queries.bots = args;
-          return bots;
-        },
-      },
-      botPluginConnectionGrant: {
-        findMany: async (args: unknown) => {
-          queries.grants = args;
-          return [{ botId: "bot-0", connectionId: "connection-1" }];
-        },
-      },
-      botPluginEnablement: {
-        findMany: async (args: unknown) => {
-          queries.enablements = args;
-          return [{ botId: "bot-1" }];
-        },
-      },
-    });
-
-    const result = await Effect.runPromise(service.botAccess("audit", "  Audit   Bot  ", 0, 500));
-    expect(result.query).toBe("Audit Bot");
-    expect(result.total).toBe(1_000);
-    expect(result.bots).toHaveLength(60);
-    expect(result.bots[0]).toMatchObject({
-      id: "bot-0",
-      skillsEnabled: false,
-      grantedConnectionIds: ["connection-1"],
-    });
-    expect(result.bots[1]).toMatchObject({
-      id: "bot-1",
-      skillsEnabled: true,
-      grantedConnectionIds: [],
-    });
-    expect(queries.bots).toMatchObject({
-      where: { status: { not: "archived" }, name: { contains: "Audit Bot", mode: "insensitive" } },
-      skip: 0,
-      take: 60,
-    });
-    expect(queries.grants).toMatchObject({
-      where: {
-        botId: { in: bots.map((bot) => bot.id) },
-        enabled: true,
-        connection: { installationId: "installation-1" },
-      },
-    });
-    expect(queries.enablements).toMatchObject({
-      where: { botId: { in: bots.map((bot) => bot.id) }, installationId: "installation-1" },
-    });
-  });
+    expect(result.connections[0]).toMatchObject({id:"connection-1",status:"ready"});
+  });;
 });

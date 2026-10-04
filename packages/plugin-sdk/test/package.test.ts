@@ -3,7 +3,6 @@ import {
   applySecretEdits,
   connectionNamespace,
   discoverAllTools,
-  effectiveToolPolicy,
   exportPackage,
   importPackage,
   parsePluginDefinition,
@@ -248,28 +247,6 @@ test("configuration validates scalar types and preserves exact values", () => {
       }
     )
   ).toEqual({ keep: "first", replace: "new" });
-});
-test("account namespaces and tool permissions are independent of display names", () => {
-  expect(connectionNamespace("id-one")).not.toBe(connectionNamespace("id-two"));
-  expect(
-    effectiveToolPolicy(
-      [{ botId: null, toolName: "read", enabled: false, decision: "allow" }],
-      "read",
-      "bot",
-      "allow"
-    )
-  ).toEqual({ enabled: false, decision: "allow" });
-  expect(
-    effectiveToolPolicy(
-      [
-        { botId: null, toolName: "read", decision: "deny" },
-        { botId: "bot", toolName: "read", decision: "allow" },
-      ],
-      "read",
-      "bot",
-      "allow"
-    ).decision
-  ).toBe("deny");
 });
 test("MCP discovery follows pages and rejects repeated cursors", async () => {
   const seen: Array<string | undefined> = [];

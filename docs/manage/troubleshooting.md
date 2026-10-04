@@ -47,7 +47,7 @@ Then sign in again. Don't reset your keychain or delete saved credentials to get
 
 ## A bot doesn't respond
 
-1. Scroll the conversation for a question or approval request that's waiting for you.
+1. Scroll the conversation for a question or form that's waiting for you.
 2. Run `openteam doctor` to check your model provider. Sign-ins can expire and accounts can run out of quota. To reconnect, see [model providers](../configuration/models.md#check-the-connection).
 3. If the bot is working on your own computer, make sure the desktop app is open and connected.
 
@@ -62,7 +62,7 @@ For work on your own computer, check **Settings → Computer** in the desktop ap
 ## A plugin is connected but tasks fail
 
 1. In **Marketplace → Manage → Accounts and settings**, use **Test a tool** to check that the connection works.
-2. Check that the bot has access under **Bot access**, and that the tool's policy isn't **Deny**.
+Installed plugins and their connected accounts are available to all bots.
 3. Check the account's permissions and quota on the service's side.
 
 For sign-in and callback errors, see [connecting accounts](../integrations/accounts.md#troubleshooting).

@@ -32,7 +32,7 @@ Your conversations, files, and memory are stored on your server. Your model prov
 
 ## Does signing in to ChatGPT or Claude connect my other accounts?
 
-No. Your model provider, web search, voice transcription, and each plugin are set up separately. Connecting a plugin also doesn't give every bot access; you choose which bots can use it.
+No. Your model provider, web search, voice transcription, and each plugin are set up separately. All bots can use installed plugins and connected accounts.
 
 ## Can other people use my server?
 

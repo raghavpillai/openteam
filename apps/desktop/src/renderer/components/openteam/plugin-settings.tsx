@@ -4,11 +4,7 @@ PluginConnectionView,
 PluginInstallView,
 PluginSettingsView
 } from "@openteam/contracts";
-import {
-executePluginAccessTransition,
-planPluginConnectionGrant,
-planPluginSkillAccess,
-} from "@openteam/product-core/plugin-access";
+
 import { pluginAuthorization,pluginNeedsSetup } from "@openteam/product-core/plugin-authorization";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import {
@@ -108,7 +104,7 @@ export function PluginDialog({
   const [data, setData] = useState<PluginSettingsView | null>(null);
   const [savedLoginsConnected, setSavedLoginsConnected] = useState(false);
   const refreshSavedLogins = useCallback(() => {
-    void window.openteam?.permissions.getCapabilities().then(value => setSavedLoginsConnected(value.credentialProviders.length > 0)).catch(() => undefined);
+    void window.openteam?.computer.getCapabilities().then(value => setSavedLoginsConnected(value.credentialProviders.length > 0)).catch(() => undefined);
   }, []);
   useEffect(() => { if (open) refreshSavedLogins(); }, [open, refreshSavedLogins]);
   useEffect(() => { window.addEventListener("openteam:saved-logins-changed", refreshSavedLogins); return () => window.removeEventListener("openteam:saved-logins-changed", refreshSavedLogins); }, [refreshSavedLogins]);
@@ -494,7 +490,6 @@ export function PluginDialog({
             />
           ) : selected ? (
             <PluginDetail
-              accessEpoch={settingsEpoch}
               busy={busy}
               data={data}
               key={selected.key}
@@ -518,20 +513,6 @@ export function PluginDialog({
                     openAutomaticPluginSignIn(account.oauthCallbackMode, result.authorizationUrl);
                   }
                 }).then((success) => success || created);
-              }}
-              onGrant={(connection, bot, enabled) => {
-                const transition = planPluginConnectionGrant(
-                  selected.key,
-                  bot,
-                  connection.id,
-                  enabled
-                );
-                void mutate(`${connection.id}:${bot.id}`, () =>
-                  executePluginAccessTransition(transition, {
-                    setEnablement: api.setPluginEnablement,
-                    setGrant: api.setPluginGrant,
-                  })
-                );
               }}
               onAuthenticate={authenticateConnection}
               onCancelAuthentication={cancelAuthentication}
@@ -560,11 +541,6 @@ export function PluginDialog({
               onInstall={(plugin, values) =>
                 void mutate(plugin.key, () => installAndConnect(plugin, values))
               }
-              onPolicy={(connectionId, toolName, decision) =>
-                void mutate(`${connectionId}:${toolName}`, () =>
-                  api.setPluginPolicy(connectionId, { botId: null, toolName, decision })
-                )
-              }
               onRemoveAccount={(connection) =>
                 void mutate(connection.id, () => api.removePluginAccount(connection.id))
               }
@@ -572,15 +548,6 @@ export function PluginDialog({
                 mutate(connection.id, () => api.renamePluginAccount(connection.id, alias))
               }
               onRemove={(plugin) => void mutate(plugin.key, () => api.uninstallPlugin(plugin.key))}
-              onSkill={(pluginKey, bot, enabled) => {
-                const transition = planPluginSkillAccess(pluginKey, bot, enabled);
-                void mutate(`skill:${pluginKey}:${bot.id}`, () =>
-                  executePluginAccessTransition(transition, {
-                    setEnablement: api.setPluginEnablement,
-                    setGrant: api.setPluginGrant,
-                  })
-                );
-              }}
               onRestart={(connection) =>
                 void mutate(connection.id, () => api.restartPluginConnection(connection.id))
               }

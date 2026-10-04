@@ -55,7 +55,6 @@ struct NativePreferencesView: View {
         Text("OpenTeam follows your iPhone’s language, text size and time zone.").font(.footnote)
           .foregroundStyle(NativePalette.muted)
       }
-      Section { NavigationLink("Auto-review rules") { AutoReviewRulesView() } }
     }.navigationTitle("Preferences").navigationBarTitleDisplayMode(.inline)
   }
 }

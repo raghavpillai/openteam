@@ -110,34 +110,6 @@ const notificationProjection = ({
 };
 
 describe("OpenTeam-compatible notification transitions", () => {
-  test("notifies only on the first transition into waiting for input", async () => {
-    const harness = notificationProjection();
-    const projection = harness.projection;
-
-    await projection.apply("run-1", "conversation-1", "bot-1", {
-      type: "approval.requested",
-      approvalId: "approval-1",
-      turnId: "turn-1",
-      itemId: "item-1",
-      requestMethod: "item/commandExecution/requestApproval",
-      details: { reason: "Approve this command" },
-    });
-    await projection.apply("run-1", "conversation-1", "bot-1", {
-      type: "approval.requested",
-      approvalId: "approval-2",
-      turnId: "turn-1",
-      itemId: "item-2",
-      requestMethod: "item/fileChange/requestApproval",
-      details: { reason: "Approve this edit" },
-    });
-
-    expect(harness.status()).toBe("waiting_approval");
-    expect(harness.deliveries).toHaveLength(1);
-    expect(harness.deliveries[0]?.payload).toMatchObject({
-      kind: "agent-needs-input",
-      approvalId: "approval-1",
-    });
-  });
 
   test("a cancelled run still notifies when it produced a new bot message", async () => {
     const harness = notificationProjection({ initialStatus: "cancelled" });

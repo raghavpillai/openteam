@@ -219,12 +219,9 @@ const assertNoActiveWork = async (): Promise<void> => {
   const activeRuns = developmentDatabaseCount(
     `SELECT count(*) FROM "Run" WHERE status IN ('running', 'queued')`
   );
-  const pendingApprovals = developmentDatabaseCount(
-    `SELECT count(*) FROM "Approval" WHERE status = 'pending'`
-  );
-  if (activeRuns || pendingApprovals) {
+  if (activeRuns) {
     throw new Error(
-      `Refusing to stop the development stack: ${activeRuns} active runs and ${pendingApprovals} pending approvals`
+      `Refusing to stop the development stack: ${activeRuns} active runs`
     );
   }
 };

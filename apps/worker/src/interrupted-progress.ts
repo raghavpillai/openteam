@@ -27,7 +27,7 @@ export function interruptedProgress(items: Item[], reason: string): string {
 
 export async function finalizeInterruptedItems(tx: Prisma.TransactionClient, runId: string, cancelled: boolean): Promise<void> {
   const items = await tx.runItem.findMany({ where: { runId, OR: [
-    { status: { in: ["pending", "running", "waiting_approval"] } },
+    { status: { in: ["pending", "running"] } },
     // turn.completed may have finalized the row before the worker observed the
     // failure, while its streamed content still says inProgress.
     { status: { in: ["failed", "cancelled"] }, content: { path: ["status"], equals: "inProgress" } },

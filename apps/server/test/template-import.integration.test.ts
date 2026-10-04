@@ -26,7 +26,6 @@ test('template import materializes memories, skills and setup workflows once, ac
   expect(await readdir(join(root, 'data/agents', botId, 'template-routines'))).toHaveLength(1);
   const bot = await prisma.bot.findUniqueOrThrow({ where: { id: botId } }); expect(bot.templateRecipe).toBeNull(); expect(bot.instructions).toContain('On the first conversation'); expect(bot.instructions).toContain('Research');
   expect(await prisma.routine.count({ where: { botId } })).toBe(0);
-  expect(await prisma.botPluginConnectionGrant.count({ where: { botId } })).toBe(0);
   // Reinitializing after user edits must not replay the seed over the live state.
   await prisma.bot.update({ where: { id: botId }, data: { instructions: 'User edited instructions' } });
   const restarted = new AgentDataStore(prisma, { root: join(root, 'data'), workspaceRoot: root }); await restarted.initializeBot(botId);

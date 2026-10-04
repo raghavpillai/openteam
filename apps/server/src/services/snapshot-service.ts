@@ -12,7 +12,6 @@ import {
   type Snapshot,
 } from "@openteam/contracts";
 import { Prisma, type PrismaClient } from "@openteam/db";
-import { approvalViews } from "./approval-view";
 import { serviceEffect } from "./service-utils";
 import {
   channelUnreadCounts,
@@ -41,7 +40,6 @@ export const CHANNEL_CLIENT_STATE_LIMITS = {
   channelRounds: 100,
   runs: 100,
   runItems: 1_000,
-  approvals: 200,
   subagents: 100,
 } as const;
 
@@ -108,7 +106,6 @@ export class SnapshotService {
         messages,
         runs,
         runItems,
-        approvals,
         subagentAttempts,
         cursor,
         runtime,
@@ -130,7 +127,6 @@ export class SnapshotService {
         this.prisma.message.findMany({ orderBy: { createdAt: "asc" } }),
         this.prisma.run.findMany({ orderBy: { createdAt: "asc" } }),
         this.prisma.runItem.findMany({ orderBy: { createdAt: "asc" } }),
-        this.prisma.approval.findMany({ orderBy: { createdAt: "asc" } }),
         this.prisma.subagentAttempt.findMany({
           include: {
             subagent: { select: { id: true, parentBotId: true, subagentType: true } },
@@ -177,7 +173,6 @@ export class SnapshotService {
           createdAt: item.createdAt.toISOString(),
           updatedAt: item.updatedAt.toISOString(),
         })),
-        approvals: approvalViews(approvals, runs, subagentAttempts),
         subagents: subagentAttempts.map(subagentActivityView),
         runtime,
       } as Snapshot;
@@ -228,17 +223,9 @@ export class SnapshotService {
         channelUnreadCounts(this.prisma, channelIds),
       ]);
     const runIds = runs.map((run) => run.id);
-    const approvalRunIds = [
-      ...runIds,
-      ...subagentAttempts.flatMap((attempt) => (attempt.childRunId ? [attempt.childRunId] : [])),
-    ];
-    const [runItems, approvals] = await Promise.all([
+    const [runItems] = await Promise.all([
       this.prisma.runItem.findMany({
         where: { runId: { in: runIds }, kind: { notIn: ["agent_message", "reasoning"] } },
-        orderBy: { createdAt: "asc" },
-      }),
-      this.prisma.approval.findMany({
-        where: { runId: { in: approvalRunIds } },
         orderBy: { createdAt: "asc" },
       }),
     ]);
@@ -267,7 +254,6 @@ export class SnapshotService {
         createdAt: item.createdAt.toISOString(),
         updatedAt: item.updatedAt.toISOString(),
       })),
-      approvals: approvalViews(approvals, runs, subagentAttempts),
       subagents: subagentAttempts.map(subagentActivityView),
       runtime,
     } as ClientSnapshot;
@@ -327,7 +313,7 @@ export class SnapshotService {
         this.prisma.run.findMany({
           where: {
             channelId: { in: channelIds },
-            status: { in: ["queued", "running", "waiting_approval"] },
+            status: { in: ["queued", "running"] },
           },
           orderBy: { createdAt: "asc" },
         }),
@@ -350,17 +336,6 @@ export class SnapshotService {
         }),
         channelUnreadCounts(this.prisma, channelIds),
       ]);
-    const approvalRunIds = [
-      ...activeRuns.map((run) => run.id),
-      ...subagentAttempts.flatMap((attempt) => (attempt.childRunId ? [attempt.childRunId] : [])),
-    ];
-    const approvals = await this.prisma.approval.findMany({
-      where: {
-        runId: { in: approvalRunIds },
-        status: "pending",
-      },
-      orderBy: { createdAt: "asc" },
-    });
     return {
       cursor: startCursor?.sequence.toString() ?? "0",
       workspace: workspaceView(this.workspaceRoot),
@@ -380,7 +355,6 @@ export class SnapshotService {
       ),
       latestMessages: messageViews(latestMessages),
       activeRuns: runViews(activeRuns),
-      pendingApprovals: approvalViews(approvals, activeRuns, subagentAttempts),
       channelRounds: roundViews(channelRounds),
       subagents: subagentAttempts.map(subagentActivityView),
       runtime,
@@ -539,14 +513,14 @@ export class SnapshotService {
           take: roundLimit + 1,
         }),
         this.prisma.run.findMany({
-          where: { channelId, status: { in: ["queued", "running", "waiting_approval"] } },
+          where: { channelId, status: { in: ["queued", "running"] } },
           orderBy: { createdAt: "desc" },
           take: runLimit + 1,
         }),
         this.prisma.run.findMany({
           where: {
             channelId,
-            status: { notIn: ["queued", "running", "waiting_approval"] },
+            status: { notIn: ["queued", "running"] },
           },
           orderBy: { createdAt: "desc" },
           take: runLimit + 1,
@@ -589,15 +563,8 @@ export class SnapshotService {
       const currentRunIds = new Set(currentRuns.map((run) => run.id));
       const selectedCurrentRunIds = runIds.filter((runId) => currentRunIds.has(runId));
       const selectedRecentRunIds = runIds.filter((runId) => !currentRunIds.has(runId));
-      const approvalRunIds = [
-        ...runIds,
-        ...subagentAttempts.items.flatMap((attempt) =>
-          attempt.childRunId ? [attempt.childRunId] : []
-        ),
-      ];
       const runItemLimit = CHANNEL_CLIENT_STATE_LIMITS.runItems;
-      const approvalLimit = CHANNEL_CLIENT_STATE_LIMITS.approvals;
-      const [currentRunItems, recentRunItems, pendingApprovals, recentApprovals] =
+      const [currentRunItems, recentRunItems] =
         await Promise.all([
           this.prisma.runItem.findMany({
             where: {
@@ -615,19 +582,8 @@ export class SnapshotService {
             orderBy: { createdAt: "desc" },
             take: runItemLimit + 1,
           }),
-          this.prisma.approval.findMany({
-            where: { runId: { in: approvalRunIds }, status: "pending" },
-            orderBy: { createdAt: "desc" },
-            take: approvalLimit + 1,
-          }),
-          this.prisma.approval.findMany({
-            where: { runId: { in: approvalRunIds }, status: { not: "pending" } },
-            orderBy: { createdAt: "desc" },
-            take: approvalLimit + 1,
-          }),
         ]);
       const runItems = selectBoundedActivity(currentRunItems, recentRunItems, runItemLimit);
-      const approvals = selectBoundedActivity(pendingApprovals, recentApprovals, approvalLimit);
       return {
         channelId,
         revision: revision?.sequence.toString() ?? "0",
@@ -638,13 +594,11 @@ export class SnapshotService {
           createdAt: item.createdAt.toISOString(),
           updatedAt: item.updatedAt.toISOString(),
         })) as ClientSnapshot["runItems"],
-        approvals: approvalViews(approvals.items, runs.items, subagentAttempts.items),
         subagents: subagentAttempts.items.map(subagentActivityView),
         truncated: {
           channelRounds: rounds.truncated,
           runs: runs.truncated,
           runItems: runItems.truncated,
-          approvals: approvals.truncated,
           subagents: subagentAttempts.truncated,
         },
       };

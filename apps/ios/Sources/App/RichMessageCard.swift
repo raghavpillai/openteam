@@ -1,138 +1,5 @@
 import SwiftUI
 
-struct ApprovalCard: View {
-  @Environment(AppStore.self) private var store
-  let approval: Approval
-  @State private var excluded: Set<String> = []
-  private var items: [JSON] { approval.details["presentation"]["items"].array }
-  private var cookieImport: Bool {
-    approval.details["presentation"]["kind"].string == "cookie-import"
-  }
-  private var pending: Bool { ApprovalPresentation.isPending(approval) }
-  private func key(_ item: JSON) -> String {
-    ApprovalPresentation.siteKey(profileID: item["profileId"].string, origin: item["origin"].string)
-  }
-  private var selected: [String] { items.map(key).filter { !excluded.contains($0) } }
-  var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Text(title).font(.body.weight(.medium))
-      let detail = approval.details
-      ForEach(["description", "summary", "reason", "effect", "machineLabel"], id: \.self) { key in
-        if !detail[key].string.isEmpty {
-          Text(detail[key].string).font(["description", "summary"].contains(key) ? .body : .subheadline)
-            .foregroundStyle(["description", "summary"].contains(key) ? NativePalette.text : NativePalette.muted)
-        }
-      }
-      if cookieImport {
-        let profiles = Array(Set(items.map { $0["profileId"].string })).sorted()
-        ForEach(profiles, id: \.self) { profile in
-          let group = items.filter { $0["profileId"].string == profile }
-          VStack(alignment: .leading, spacing: 10) {
-            let name = group.first?["profileDisplayName"].string ?? profile
-            if pending {
-              Toggle(
-                name,
-                isOn: Binding(
-                  get: { group.allSatisfy { !excluded.contains(key($0)) } },
-                  set: { value in
-                    for item in group {
-                      if value { excluded.remove(key(item)) } else { excluded.insert(key(item)) }
-                    }
-                  })
-              ).fontWeight(.semibold).tint(NativePalette.toggle)
-            } else {
-              Text(name).font(.headline)
-            }
-            ForEach(group, id: \.self) { item in
-              if pending {
-                Toggle(
-                  item["origin"].string,
-                  isOn: Binding(
-                    get: { !excluded.contains(key(item)) },
-                    set: { value in
-                      if value { excluded.remove(key(item)) } else { excluded.insert(key(item)) }
-                    })
-                ).tint(NativePalette.toggle).accessibilityIdentifier(
-                  "approval-site-" + item["profileId"].string + "-" + item["origin"].string)
-              } else if detail["selectedItems"] == .null
-                || detail["selectedItems"].array.contains(.string(key(item)))
-              {
-                Label(item["origin"].string, systemImage: "globe")
-              }
-            }
-          }
-        }
-        if pending {
-          Text("\(selected.count) sites selected · up to 32 per approval").font(.caption)
-            .foregroundStyle(NativePalette.muted)
-        }
-      }
-      if detail["arguments"] != .null {
-        DisclosureGroup("Action details") {
-          Text(detail["arguments"].pretty).font(.system(.caption, design: .monospaced))
-            .textSelection(.enabled)
-        }
-      }
-      if pending {
-        HStack {
-          Button("Deny", role: .destructive) { act("decline") }.buttonStyle(.bordered)
-          Spacer()
-          Button("Approve once") { act("accept") }.buttonStyle(PrimaryActionStyle())
-            .accessibilityIdentifier("approve-" + approval.id)
-            .disabled(cookieImport && (selected.isEmpty || selected.count > 32))
-        }
-        if detail["supportsAlwaysAllow"].bool {
-          if !detail["proposedRule"].string.isEmpty {
-            Text("Always allow: " + detail["proposedRule"].string).font(.caption)
-          }
-          Button("Always allow") { act("always_allow") }.disabled(
-            cookieImport && (selected.isEmpty || selected.count > 32))
-        }
-        if detail["supportsNever"].bool {
-          Button("Never allow", role: .destructive) { act("never") }
-        }
-      } else {
-        let status = ApprovalPresentation.status(approval)
-        HStack(spacing: 6) {
-          if status == "Running" { ProgressView().tint(receiptColor(status)) }
-          Label(status, systemImage: ["Failed", "Denied", "Cancelled", "Expired"].contains(status)
-            ? "xmark.circle.fill" : "checkmark.circle.fill")
-        }.font(.system(size: 15, weight: .medium)).foregroundStyle(receiptColor(status))
-          .frame(maxWidth: .infinity).frame(minHeight: 38)
-          .background(receiptColor(status).opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
-
-        if !detail["actionError"].string.isEmpty {
-          Text(UserFacingError.message(APIError(detail["actionError"].string))).font(.footnote)
-        }
-      }
-    }.padding(14).background(NativePalette.surface, in: RoundedRectangle(cornerRadius: 18))
-      .disabled(store.busy.contains(path))
-  }
-  var title: String {
-    [
-      approval.details["title"].string, approval.details["toolName"].string,
-      cookieImport ? "Chrome site access" : "Approval request",
-    ].first { !$0.isEmpty }!
-  }
-  private func receiptColor(_ status: String) -> Color {
-    if ["Failed", "Denied", "Cancelled", "Expired"].contains(status) { return NativePalette.widgetDanger }
-    if status == "Running" { return NativePalette.link }
-    return NativePalette.receiptCheck
-  }
-  var path: String { "/api/v0/approvals/\(API.segment(approval.id))/resolve" }
-  func act(_ decision: String) {
-    Task {
-      var body: [String: JSON] = ["decision": .string(decision)]
-      if cookieImport, ["accept", "always_allow"].contains(decision) {
-        body["selectedItems"] = .array(selected.map(JSON.string))
-      }
-      await store.mutate(
-        path, body: .object(body), successFeedback: .success, feedbackSource: "approval.resolve")
-      if let id = store.activeChannel { await store.loadHistory(id) }
-    }
-  }
-}
-
 extension JSON {
   var pretty: String {
     let e = JSONEncoder()
@@ -167,9 +34,9 @@ struct RichMessageCard: View {
     meta["cardState"].string.isEmpty ? "pending" : meta["cardState"].string
   }
   private var supported: Bool {
-    [
+    return [
       "widget", "secret-request", "computer-handoff", "user-form", "external-draft",
-      "review-action", "credential-request",
+      "bot-template",
     ].contains(type)
   }
   var body: some View {
@@ -182,12 +49,7 @@ struct RichMessageCard: View {
         case "computer-handoff": handoff
         case "user-form": form
         case "external-draft": externalDraft
-        case "review-action": review
-        case "credential-request":
-          Label("Saved login request", systemImage: "key").font(.headline)
-          Text(meta["credential"]["site"].string)
-          Text("Review the associated approval to continue.").font(.subheadline).foregroundStyle(
-            NativePalette.muted)
+        case "bot-template": sharedTemplate
         default: EmptyView()
         }
       }.padding(type == "widget" ? 14 : 16).background(
@@ -524,38 +386,20 @@ struct RichMessageCard: View {
       Button("Check delivery") { act("external-draft", body: ["action": .string("refresh")]) }
     }
   }
-  @ViewBuilder var review: some View {
-    let review = meta["review"]
-    let template = review["kind"].string == "template"
-    Text(template ? review["recipe"]["profile"]["name"].string : "Review product feedback").font(
-      .headline)
-    Text(template ? review["recipe"]["profile"]["description"].string : review["message"].string)
-    if template {
-      DisclosureGroup("Complete template") {
-        Text(review["recipe"].pretty).font(.system(.caption, design: .monospaced)).textSelection(
-          .enabled)
-      }
-      ShareLink("Export template", item: review["recipe"].pretty)
-    } else {
-      Text("To: " + review["destination"].string).font(.caption)
-    }
-    if state == "pending" {
-      HStack {
-        Button("Cancel") { reviewAction("cancel") }
-        Spacer()
-        Button(template ? "Publish this version" : "Send feedback") { reviewAction("approve") }
-      }
-    } else {
-      Text(meta["outcomeText"].string.isEmpty ? state.capitalized : meta["outcomeText"].string)
-      if state == "sending" { Button("Check delivery") { reviewAction("refresh") } }
-      if template && state == "published" {
-        Button("Create a bot from this template") { reviewAction("import") }
-        Button("Unpublish") { reviewAction("unpublish") }
-      }
+  @ViewBuilder var sharedTemplate: some View {
+    let template = meta["template"]
+    Text(template["recipe"]["profile"]["name"].string).font(.headline)
+    Text(template["recipe"]["profile"]["description"].string)
+    DisclosureGroup("Complete template") { Text(template["recipe"].pretty).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
+    ShareLink("Export template", item: template["recipe"].pretty)
+    Text(meta["outcomeText"].string.isEmpty ? state.capitalized : meta["outcomeText"].string)
+    if state == "published" {
+      Button("Create a bot from this template") { templateAction("import") }
+      Button("Unpublish") { templateAction("unpublish") }
     }
   }
-  func reviewAction(_ action: String) {
-    act("review-action", body: ["action": .string(action), "clientId": .string(importID)])
+  func templateAction(_ action: String) {
+    act("bot-template", body: ["action": .string(action), "clientId": .string(importID)])
   }
   func draftAction(_ action: String) {
     var edits: [String: JSON] = ["body": .string(bodyText)]

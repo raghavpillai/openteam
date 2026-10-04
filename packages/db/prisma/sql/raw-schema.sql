@@ -283,25 +283,6 @@ DROP TRIGGER IF EXISTS openteam_event_notify ON "Event";
 CREATE TRIGGER openteam_event_notify AFTER INSERT ON "Event"
   FOR EACH ROW EXECUTE FUNCTION openteam_notify_event();
 
--- A NULL botId is the connection-wide policy. PostgreSQL's ordinary compound
--- unique constraint does not deduplicate NULL values. Preserve the strictest
--- existing preference while repairing rows written by older installations.
-WITH policy_preferences AS (
-  SELECT "connectionId", "toolName", bool_and(enabled) AS enabled,
-    CASE WHEN bool_or(decision = 'deny') THEN 'deny'
-         WHEN bool_or(decision = 'prompt') THEN 'prompt' ELSE 'allow' END AS decision
-  FROM "PluginToolPolicy" WHERE "botId" IS NULL GROUP BY "connectionId", "toolName"
-)
-UPDATE "PluginToolPolicy" p SET enabled = preferences.enabled,
-  decision = preferences.decision::"PluginToolDecision"
-FROM policy_preferences preferences
-WHERE p."botId" IS NULL AND p."connectionId" = preferences."connectionId" AND p."toolName" = preferences."toolName";
-DELETE FROM "PluginToolPolicy" older USING "PluginToolPolicy" newer
-WHERE older."botId" IS NULL AND newer."botId" IS NULL
-  AND older."connectionId" = newer."connectionId" AND older."toolName" = newer."toolName" AND older.id > newer.id;
-CREATE UNIQUE INDEX IF NOT EXISTS "PluginToolPolicy_global_unique"
-ON "PluginToolPolicy" ("connectionId", "toolName") WHERE "botId" IS NULL;
-
 -- Web tools: one selected provider per tool, and per-tool provider rows holding the API key
 -- and last connection check. Provider lists match packages/contracts/src/web-search.ts.
 -- Move legacy keys into WebToolProvider before the constraints below forbid them, and drop

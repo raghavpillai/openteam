@@ -6,9 +6,6 @@ export const credentialConnectionId = (provider: CredentialProviderConnection) =
 export const credentialConnections = (settings: CapabilitySettings): CredentialProviderConnection[] => settings.credentialProviders;
 export interface CapabilitySettings {
   credentialProviders: CredentialProviderConnection[];
-  messagesSendAll?: boolean;
-  cookieGrants: string[];
-  messagesGrants: string[];
   revocationEpoch?: number;
 }
 export class CapabilitySettingsStore {
@@ -19,15 +16,12 @@ export class CapabilitySettingsStore {
       const value = JSON.parse(await readFile(this.path, "utf8"));
       return {
         credentialProviders: value.credentialProviders ?? [],
-        messagesSendAll: value.messagesSendAll === true,
-        cookieGrants: value.cookieGrants ?? [],
-        messagesGrants: value.messagesGrants ?? [],
         revocationEpoch: value.revocationEpoch ?? 0,
       };
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "ENOENT")
         throw new Error("Native capability settings could not be read");
-      return { credentialProviders: [], cookieGrants: [], messagesGrants: [] };
+      return { credentialProviders: [] };
     }
   }
   mutate(
@@ -48,17 +42,13 @@ export class CapabilitySettingsStore {
     return result;
   }
   update(input: {
-    revoke?: "cookies" | "credentials" | "messages";
+    revoke?: "credentials";
     removeCredentialConnection?: string;
-    messagesSendAll?: boolean;
   }) {
-    if (Object.keys(input).some(key => !["revoke", "removeCredentialConnection", "messagesSendAll"].includes(key)))
-      throw new Error("Unknown native capability setting");
+    if (Object.keys(input).some(key => !["revoke", "removeCredentialConnection"].includes(key))) throw new Error("Unknown credential setting");
+    if (input.revoke !== undefined && input.revoke !== "credentials") throw new Error("Invalid credential setting");
     return this.mutate((current) => {
       current.revocationEpoch = (current.revocationEpoch ?? 0) + 1;
-      if (input.revoke === "cookies") current.cookieGrants = [];
-      if (input.revoke === "messages") {current.messagesGrants = []; current.messagesSendAll = false;}
-      if (input.messagesSendAll !== undefined) { if(typeof input.messagesSendAll !== "boolean") throw new Error("Invalid Messages send setting"); current.messagesSendAll = input.messagesSendAll; }
       if (input.revoke === "credentials") {
         current.credentialProviders = [];
       }
@@ -70,10 +60,3 @@ export class CapabilitySettingsStore {
     });
   }
 }
-export type NativeConsent = (input: {
-  title: string;
-  detail: string;
-  allowAlways?: boolean;
-  selectItems?: (items: readonly string[]) => void;
-  presentation?: { kind: "saved-login"; title: string; site: string; category: string; purpose: string } | { kind: "cookie-import"; items: Array<{ origin: string; profileId: string; profileDisplayName: string }> };
-}) => Promise<"once" | "always" | "deny">;

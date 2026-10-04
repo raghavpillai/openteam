@@ -22,7 +22,7 @@ export const computerEventStream = (
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {
           // Retain the same read across heartbeats: never advance or buffer the
-          // producer while a foreground child or approval is still pending.
+          // producer while a foreground child is still pending.
           pending ??= iterator.next();
           const result = await Promise.race([
             pending,

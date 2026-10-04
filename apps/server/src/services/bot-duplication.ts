@@ -88,9 +88,6 @@ export async function duplicateBot(
           include: {
             subagentIdentity: { select: { id: true } },
             routines: { where: { deletedAt: null } },
-            pluginEnablements: true,
-            pluginConnectionGrants: true,
-            pluginToolPolicies: true,
           },
         });
         if (!source || source.status === "archived" || source.subagentIdentity) {
@@ -182,31 +179,6 @@ export async function duplicateBot(
             },
           });
         }
-        // Reuse account installations/connections, including the source's restrictions.
-        // Credentials, invocations, and activity history are never duplicated.
-        await tx.botPluginEnablement.createMany({
-          data: source.pluginEnablements.map((entry) => ({
-            botId,
-            installationId: entry.installationId,
-            enabled: entry.enabled,
-            skillsEnabled: entry.skillsEnabled,
-          })),
-        });
-        await tx.botPluginConnectionGrant.createMany({
-          data: source.pluginConnectionGrants.map((entry) => ({
-            botId,
-            connectionId: entry.connectionId,
-            enabled: entry.enabled,
-          })),
-        });
-        await tx.pluginToolPolicy.createMany({
-          data: source.pluginToolPolicies.map((entry) => ({
-            botId,
-            connectionId: entry.connectionId,
-            toolName: entry.toolName,
-            decision: entry.decision,
-          })),
-        });
         await agentData.copyBotConfigurationFiles(tx, sourceId, botId);
         await appendEvent(tx, "bot.created", botId, {
           botId,

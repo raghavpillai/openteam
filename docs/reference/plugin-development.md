@@ -161,9 +161,9 @@ Only `access_type` and `prompt` are applied from authorization extensions. State
 
 Document provider API enablement, application registration, callback restrictions, required scopes, supported account/workspace types, plan requirements, and any enrollment dependency. Do not assume that dynamic registration is available or that a user has the provider's administrative permissions.
 
-## Tool behavior and approvals
+## Tool behavior
 
-Give every tool a useful description and an accurate JSON input schema. Declare read-only and destructive MCP annotations accurately. For discovered tools, a read-only, non-destructive tool defaults to allow; other tools default to an approval prompt. Static tool definitions use `risk: "read" | "write" | "destructive"` and `defaultDecision: "allow" | "prompt" | "deny"`.
+Give every tool a useful description and an accurate JSON input schema. Declare read-only and destructive MCP annotations accurately. Static tool definitions use `risk: "read" | "write" | "destructive"` as descriptive metadata. Tools execute directly.
 
 Support paginated tool discovery if the server has more tools than one response can contain. OpenTeam also handles tool-list change notifications. Return provider failures as failures rather than success-shaped text, and keep tokens out of results and logs. Never infer permissions solely from a successful `tools/list` response.
 
@@ -183,7 +183,7 @@ Record what actually passed and any provider prerequisites that prevented valida
 - Reloaded draft, reviewed package update, changed setup requirements, previous-version restore, and removal.
 - ZIP export/import round trip with no account values or secrets included.
 
-Use a configured inference provider for the Bot conversation checks. A successful settings-screen tool test does not cover model-driven tool selection or the conversation approval flow. Keep connector tests alongside its implementation; shared SDK/runtime behavior belongs in the existing SDK/server/computer test suites.
+Use a configured inference provider for the Bot conversation checks. A successful settings-screen tool test does not cover model-driven tool selection or the conversation execution flow. Keep connector tests alongside its implementation; shared SDK/runtime behavior belongs in the existing SDK/server/computer test suites.
 
 ## Contributing to the repository
 
@@ -207,7 +207,7 @@ For source distribution, **Sources** accepts a catalog document containing a `pl
 
 ## Import compatibility
 
-The importer accepts OpenTeam `plugin.json` packages and supported agent/Cursor-style packages, including `.cursor-plugin/plugin.json`. It imports supported skills, MCP declarations, and configuration variables. Enabled packages now execute agent lifecycle hooks and load rules, commands and agent templates. In Bot access, **Instructions and hooks** controls these components along with skills. Disabled packages and bots without that enablement contribute no runtime components. Package cache revisions pin the installed files used for a turn.
+Installed plugins and their connected accounts are available to all bots.
 
 Command hooks run as the bot computer's unprivileged execution identity with sanitized environment variables, JSON stdin/stdout, a timeout and a 64 KiB output limit. Exit 2 or an explicit deny blocks a pre-action hook; ask uses the existing review flow; other command failures follow the documented fail-open hook behavior and produce a diagnostic. Prompt hooks use the configured inference provider, with an optional provider-qualified model override. Tool hooks, prompt submission, session lifecycle, compaction observation, response/thought observations and bounded stop follow-ups are supported. Background subagent completion is observed on its separate run; it is not a synchronous parent `subagentStop` callback.
 

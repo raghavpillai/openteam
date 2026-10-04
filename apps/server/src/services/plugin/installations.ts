@@ -1,4 +1,3 @@
-import { cancelPendingPluginWork } from "./pending-work";
 import { ApiError } from "@openteam/contracts";
 import {
   fieldsForConnector,
@@ -40,20 +39,6 @@ export class PluginInstallations {
             manifest: manifestJson(plugin),
           },
         });
-        const bots = await tx.bot.findMany({
-          where: { status: { not: "archived" } },
-          select: { id: true },
-        });
-        if (bots.length) {
-          await tx.botPluginEnablement.createMany({
-            data: bots.map((bot) => ({
-              botId: bot.id,
-              installationId: created.id,
-              enabled: false,
-              skillsEnabled: false,
-            })),
-          });
-        }
         for (const connector of plugin.connections) {
           const fields = fieldsForConnector(plugin, connector.key);
           const setupValues = validateValues(
@@ -122,15 +107,6 @@ export class PluginInstallations {
               toolSnapshot: toJson(connector.tools),
             },
           });
-          if (connector.tools.length) {
-            await tx.pluginToolPolicy.createMany({
-              data: connector.tools.map((candidate) => ({
-                connectionId: connection.id,
-                toolName: candidate.name,
-                decision: candidate.defaultDecision,
-              })),
-            });
-          }
         }
         await tx.pluginActivity.create({
           data: {
@@ -160,7 +136,7 @@ export class PluginInstallations {
     auth?: "none" | "token" | "oauth";
     oauth?: { clientId: string; clientSecret?: string; scopes: string[] };
     alias?: string;
-    reviewedRequestId?: string;
+    installationRequestId?: string;
   }) =>
     serviceEffect(async () => {
       const name = input.name.trim();
@@ -198,9 +174,9 @@ export class PluginInstallations {
           ? { command, args: [...(input.args ?? [])], ...(input.cwd ? { cwd: input.cwd } : {}) }
           : {}),
       };
-      const pluginKey = `custom-mcp-${input.reviewedRequestId ?? crypto.randomUUID()}`;
+      const pluginKey = `custom-mcp-${input.installationRequestId ?? crypto.randomUUID()}`;
       const installation = await this.prisma.$transaction(async (tx) => {
-        if (input.reviewedRequestId) {
+        if (input.installationRequestId) {
           const prior = await tx.pluginInstallation.findUnique({
             where: { pluginKey },
             include: { connections: true },
@@ -211,7 +187,7 @@ export class PluginInstallations {
               throw new ApiError(
                 409,
                 "reviewed_server_changed",
-                "The reviewed server changed; request a new approval"
+                "The server definition changed; create a new request"
               );
             return { installation: prior, connection };
           }
@@ -299,12 +275,6 @@ export class PluginInstallations {
         include: { connections: { select: { id: true, transport: true } } },
       });
       if (!installation) throw new ApiError(404, "plugin_not_installed", "Plugin not installed");
-      if (installation.mode === "required")
-        throw new ApiError(
-          403,
-          "plugin_required",
-          "Change the workspace installation policy before removing this required plugin"
-        );
       await Promise.all(
         installation.connections.map((connection) =>
           this.stopRuntime(connection.id, connection.transport)
@@ -318,10 +288,6 @@ export class PluginInstallations {
             metadata: { pluginKey },
           },
         });
-        await cancelPendingPluginWork(
-          tx,
-          installation.connections.map((connection) => connection.id)
-        );
         await tx.pluginInstallation.delete({ where: { id: installation.id } });
         await appendEvent(tx, "plugin.uninstalled", installation.id, { pluginKey });
       });

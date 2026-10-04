@@ -237,7 +237,6 @@ struct PluginDetailView: View {
   @State private var accessFailure: String?
   @State private var accessLoading = false
   @State private var accessGeneration = UUID()
-  @State private var removal = false
   @State private var setup: [String: JSON] = [:]
   @State private var operation = FormOperation()
   @State private var botQuery = ""
@@ -294,54 +293,7 @@ struct PluginDetailView: View {
         }
         Section {
           FormStatus(operation: operation)
-          Button("Uninstall plugin", role: .destructive) { removal = true }.disabled(operation.busy)
-        }
-        Section("Bot access") {
-          TextField("Search bots", text: $botQuery).textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .focused($botSearchFocused).submitLabel(.done).onSubmit { botSearchFocused = false }
-          if let accessFailure {
-            InlineFailure(message: accessFailure)
-            Button("Retry bot access") { Task { await loadAccess() } }
-          }
-          if accessLoading { ProgressView("Loading bots…") }
-          if !accessLoading, accessFailure == nil, access["bots"].array.isEmpty {
-            Text(botQuery.isEmpty ? "No bots available." : "No bots match your search.")
-              .foregroundStyle(NativePalette.muted)
-          }
-          ForEach(access["bots"].array.map { $0["id"].string }, id: \.self) { botID in
-            let bot = access["bots"].array.first { $0["id"].string == botID } ?? .null
-            Group {
-              Toggle(
-                "Enable for " + bot["name"].string,
-                isOn: Binding(
-                  get: { bot["skillsEnabled"].bool },
-                  set: { value in Task { await setAccess(bot: bot, enabled: value) } }))
-              ForEach(plugin["connections"].array, id: \.self) { account in
-                Toggle(
-                  "Allow "
-                    + (account["alias"].string.isEmpty
-                      ? account["name"].string : account["alias"].string),
-                  isOn: Binding(
-                    get: { bot["grantedConnectionIds"].array.contains(account["id"]) },
-                    set: { value in
-                      Task {
-                        await setAccess(bot: bot, enabled: value, account: account["id"].string)
-                      }
-                    })
-                )
-                .font(.subheadline)
-              }
-            }.tint(NativePalette.toggle).disabled(operation.busy || accessLoading)
-          }
-          Text(
-            "Enable the plugin and choose which accounts this bot may use. Account access is saved separately."
-          )
-          .font(.footnote).foregroundStyle(NativePalette.muted)
-          if access["bots"].array.count < access["total"].int {
-            Button("Load more bots") { Task { await loadAccess(more: true) } }.disabled(
-              accessLoading)
-          }
+          Button("Uninstall plugin", role: .destructive) { Task { await uninstall() } }.disabled(operation.busy)
         }
       } else {
         if !plugin["setupFields"].array.isEmpty {
@@ -368,11 +320,6 @@ struct PluginDetailView: View {
         } catch {}
       }
       .onDisappear { setup = [:] }
-      .confirmationDialog(
-        "Uninstall \(plugin["name"].string)?", isPresented: $removal, titleVisibility: .visible
-      ) {
-        Button("Uninstall", role: .destructive) { Task { await uninstall() } }
-      }
   }
   private func connectionBinding(_ id: String) -> Binding<JSON> {
     Binding(

@@ -59,12 +59,9 @@ app.whenReady().then(async () => {
       await until(() => document.querySelector('[role="alert"]')?.textContent.includes('cancelled'), 'cancelled import');
       window.fixtureMode = undefined;
       button('Connect 1Password').click();
-      const permission = () => document.querySelector('[aria-label="Always allow saved logins in Existing Work Vault"]');
-      await until(() => permission() && !document.querySelector('input[type="password"]'), 'connect and clear token');
-      check(!permission().checked, 'Manual connection broadened permissions');
+      const connection = () => document.querySelector('[aria-label="Connected 1Password vaults"]');
+      await until(() => connection()?.textContent.includes('Existing Work Vault') && !document.querySelector('input[type="password"]'), 'connect and clear token');
       check(!document.body.textContent.includes('ops_synthetic_manual_token'), 'Token exposed in UI');
-      permission().click();
-      await until(() => permission().checked && !permission().disabled, 'enable connection');
       window.fixtureSyncFailure = true;
       button('Sync').click();
       await until(() => document.body.textContent.includes('Could not sync'), 'failed sync');
@@ -78,10 +75,9 @@ app.whenReady().then(async () => {
       check(document.querySelector('input[type="password"]').value === '', 'Renewal retained secret');
       await enterToken();
       button('Connect 1Password').click();
-      await until(() => permission() && !document.querySelector('input[type="password"]'), 'renew and clear token');
-      check(!permission().checked, 'Renewal retained old approval');
+      await until(() => connection() && !document.querySelector('input[type="password"]'), 'renew and clear token');
       button('Disconnect').click();
-      await until(() => !permission(), 'disconnect');
+      await until(() => !connection(), 'disconnect');
       document.querySelector('[aria-label="Back to Marketplace"]').click();
       await until(() => button('Connect 1Password'), 'disconnected marketplace status');
       check(!button('Manage 1Password'), 'Disconnected vault still marked connected');
@@ -90,8 +86,7 @@ app.whenReady().then(async () => {
       await until(() => document.querySelector('input[type="password"]'), 'reconnect token form');
       await enterToken();
       button('Connect 1Password').click();
-      await until(() => permission() && document.body.textContent.includes('Existing Family Vault'), 'reconnect multiple existing vaults');
-      check(document.querySelector('[aria-label="Always allow saved logins in Existing Family Vault"]'), 'Second vault permission missing');
+      await until(() => connection()?.textContent.includes('Existing Work Vault') && document.body.textContent.includes('Existing Family Vault'), 'reconnect multiple existing vaults');
       if (marketplace) {
         document.querySelector('[aria-label="Back to Marketplace"]').click();
         await until(() => button('Manage 1Password'), 'connected marketplace status');
@@ -101,9 +96,9 @@ app.whenReady().then(async () => {
         [...document.querySelectorAll('[role="menuitem"]')].find(el => el.textContent.trim() === 'Your plugins').click();
         await until(() => document.body.textContent.includes('Shared saved logins'), 'installed native connection');
         button('Manage 1Password').click();
-        await until(() => permission(), 'reopen native connection');
+        await until(() => connection(), 'reopen native connection');
       }
-      return { marketplace, manualOnly: true, existingVaults: true, multipleVaults: true, invalidToken: true, cancellation: true, defaultAsk: true, permissionToggle: true, syncRecovery: true, manualRenewal: true, disconnectReconnect: true, noLocalRead: true };
+      return { marketplace, manualOnly: true, existingVaults: true, multipleVaults: true, invalidToken: true, cancellation: true, syncRecovery: true, manualRenewal: true, disconnectReconnect: true, noLocalRead: true };
 
     })()`);
     fs.writeFileSync(path.join(output, "results.json"), JSON.stringify(result, null, 2));

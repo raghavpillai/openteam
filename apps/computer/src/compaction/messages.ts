@@ -424,7 +424,7 @@ Current decisions, preferences, restrictions, authorization boundaries, and reje
 What was actually done, changed, tested, or delivered and the observed result. Distinguish verified outcomes from plans, attempts, hypotheses, and unverified claims. Include relevant failures, their causes if known, and fixes. A tool call whose result is pending at the snapshot is neither a success nor a failure; do not recommend retrying it merely because its result is not yet available. Do not claim tests, sends, submissions, commits, or deployments occurred unless the history establishes them.
 
 ### Current state
-Active work, unresolved blockers, open questions, and pending user answers or approvals. For browser/computer work, preserve relevant tabs, pages, form state, files, running jobs, and action receipts when known. State what remains unsent, unsubmitted, or unverified so it is not accidentally repeated or finalized.
+Active work, unresolved blockers, open questions, and pending user answers. For browser/computer work, preserve relevant tabs, pages, form state, files, running jobs, and action receipts when known. State what remains unsent, unsubmitted, or unverified so it is not accidentally repeated or finalized.
 
 ### Next steps
 The next concrete action and remaining work in order, including any prerequisites. If the task is complete, say so instead of inventing more work.

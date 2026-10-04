@@ -75,8 +75,8 @@
       "hardenedRuntime": false,
       "extendInfo": {
         "NSMicrophoneUsageDescription": "OpenTeam uses the microphone when you record a voice note or test your input. Only voice notes are sent to your server for transcription.",
-        "NSContactsUsageDescription": "OpenTeam searches Contacts when you allow a bot to find a person.",
-        "NSAppleEventsUsageDescription": "OpenTeam reads and sends Messages only after you approve the requested access or message."
+        "NSContactsUsageDescription": "OpenTeam searches Contacts to find a person when needed for your task.",
+        "NSAppleEventsUsageDescription": "OpenTeam reads and sends Messages to carry out your tasks."
       },
       "category": "public.app-category.productivity",
       "target": [
@@ -134,7 +134,6 @@
     "test:message-send-motion": "bun scripts/test-message-send-motion.ts",
     "test:computer-view": "bun scripts/test-computer-view.ts",
     "test:sidebar-parity": "bun scripts/test-sidebar-parity.ts",
-    "test:permission-cards": "bun scripts/test-permission-cards.ts",
     "test:provider-settings": "bun scripts/test-provider-settings.ts",
     "test:parity-review": "bun scripts/test-parity-review.ts",
     "test:update-ui": "bun scripts/test-desktop-update-ui.ts",

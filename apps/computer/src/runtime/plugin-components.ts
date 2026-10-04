@@ -12,13 +12,6 @@ import type { ActiveTurn } from "./types";
 import { PLUGIN_WORKFLOW_HOST_CONTEXT } from "@openteam/contracts/plugin-workflows";
 
 type ObjectValue = Record<string, any>;
-type InferHook = (
-  prompt: string,
-  model: string | undefined,
-  timeoutMs: number,
-  signal?: AbortSignal
-) => Promise<string>;
-type ApproveHook = (callId: string, reason: string, input: ObjectValue) => Promise<boolean>;
 const object = (value: unknown): ObjectValue =>
   value && typeof value === "object" && !Array.isArray(value) ? value : {};
 const textParts = (content: any) =>
@@ -108,9 +101,7 @@ export function expandPluginAgent(
 }
 
 export function pluginComponentsExtension(
-  active: ActiveTurn,
-  infer: InferHook,
-  approve: ApproveHook
+  active: ActiveTurn
 ): { name: string; hidden: boolean; factory: ExtensionFactory } {
   const packages = active.pluginRuntimePackages ?? [];
   const prefixes = (pkg: PluginRuntimePackage, name: string) => {
@@ -163,15 +154,7 @@ export function pluginComponentsExtension(
             };
             let output: ObjectValue;
             try {
-              if (hook.prompt) {
-                const encoded = JSON.stringify(input);
-                const prompt = hook.prompt.includes("$ARGUMENTS")
-                  ? hook.prompt.replaceAll("$ARGUMENTS", encoded)
-                  : `${hook.prompt}\n${encoded}`;
-                output = object(
-                  JSON.parse(await infer(prompt, hook.model, hook.timeout * 1000, signal))
-                );
-              } else {
+              {
                 const root = await realpath(pkg.installPath);
                 const allowed = await realpath(
                   resolve(process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data", "plugins/cache")
@@ -186,9 +169,7 @@ export function pluginComponentsExtension(
                   hook.timeout * 1000
                 );
                 output =
-                  response.code === 2
-                    ? { permission: "deny", reason: "Plugin hook blocked the action" }
-                    : response.code === 0 && response.output.trim()
+                  response.code === 0 && response.output.trim()
                       ? object(JSON.parse(response.output))
                       : {};
               }
@@ -197,30 +178,6 @@ export function pluginComponentsExtension(
               inject(pkg.key, `${event} hook failed; no hook decision was applied.`);
               continue;
             }
-            const reason = String(
-              output.user_message ??
-                output.reason ??
-                output.agent_message ??
-                `Plugin ${pkg.key} blocked this action`
-            ).slice(0, 8000);
-            if (
-              blocking &&
-              (output.permission === "deny" ||
-                output.decision === "deny" ||
-                output.continue === false ||
-                output.ok === false)
-            )
-              return { block: true, reason, context };
-            if (
-              blocking &&
-              output.permission === "ask" &&
-              !(await approve(String(data.tool_call_id ?? `plugin:${event}`), reason, input))
-            )
-              return {
-                block: true,
-                reason: "The user declined the plugin review. Do not retry.",
-                context,
-              };
             if (typeof output.additional_context === "string")
               context.push(output.additional_context.slice(0, 32_000));
             if (typeof output.agent_message === "string")
@@ -239,11 +196,10 @@ export function pluginComponentsExtension(
               });
             }
           }
-        return { block: false, context };
+        return { context };
       };
       pi.on("input", async (event) => {
         const result = await run("beforeSubmitPrompt", { prompt: event.text }, true);
-        if (result.block) throw new Error(result.reason);
         for (const pkg of packages)
           for (const command of pkg.commands) {
             const prefix = prefixes(pkg, command.name).find(
@@ -266,7 +222,6 @@ export function pluginComponentsExtension(
         if (!started) {
           started = true;
           const result = await run("sessionStart", {}, true);
-          if (result.block) throw new Error(result.reason);
           context.push(...result.context);
         }
         for (const pkg of packages) {
@@ -346,7 +301,6 @@ export function pluginComponentsExtension(
         ];
         for (const name of events) {
           const result = await run(name, data, true);
-          if (result.block) return { block: true, reason: result.reason };
           for (const text of result.context) inject(name, text);
         }
       });

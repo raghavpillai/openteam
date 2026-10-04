@@ -117,8 +117,6 @@ export class BotService {
               conversation: { create: { id: conversationId } },
             },
           });
-          const defaultPlugins = await tx.pluginInstallation.findMany({ where: { status: "installed", mode: { in: ["default", "required"] } }, select: { id: true } });
-          if (defaultPlugins.length) await tx.botPluginEnablement.createMany({ data: defaultPlugins.map((installation) => ({ botId, installationId: installation.id, enabled: true, skillsEnabled: true })) });
           await tx.channel.create({
             data: {
               id: dmChannelId,
@@ -430,7 +428,7 @@ export class BotService {
             await tx.run.updateMany({
               where: {
                 id: child.currentRunId,
-                status: { in: ["queued", "running", "waiting_approval"] },
+                status: { in: ["queued", "running"] },
               },
               data: {
                 status: "cancelled",
@@ -451,10 +449,6 @@ export class BotService {
                 completedAt: deletedAt,
                 error: { code: "parent_archived" },
               },
-            });
-            await tx.approval.updateMany({
-              where: { runId: child.currentRunId, status: "pending" },
-              data: { status: "expired", resolvedAt: deletedAt },
             });
           }
           await appendEvent(tx, "subagent.stopped", child.id, {

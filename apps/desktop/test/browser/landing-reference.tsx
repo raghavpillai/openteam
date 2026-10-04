@@ -242,7 +242,6 @@ function Reference() {
               <div className="relative min-w-0 flex-1">
                 <ChatPane
                   agentNameById={agentNameById}
-                  approvalsByRun={new Map()}
                   botById={botById}
                   capabilities={CLIENT_CAPABILITIES}
                   channel={selected}

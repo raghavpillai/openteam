@@ -10,7 +10,7 @@ import managed from '../src/prompts/managed-skills.json';
 import { AgentDataStore } from '../src/agent-data';
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
 
-test('catalog copies verified site recipes exactly and declares unsupported backend workflows',()=>{
+test('catalog preserves verified recipes with documented action-review adaptations',()=>{
   expect(source.skills).toHaveLength(47);
   expect(managed.skills).toHaveLength(45);
   const installed=new Map(managed.skills.map(s=>[s.id,s.content]));
@@ -24,8 +24,10 @@ test('catalog copies verified site recipes exactly and declares unsupported back
       continue;
     }
     expect(hash(installed.get(item.id)!)).toBe(record.installedSha256!);
-    if(item.id.startsWith('site-playbooks-'))expect(installed.get(item.id)).toBe(item.content.replaceAll('RequestUserForm', 'request_user_form'));
+    if(item.id.startsWith('site-playbooks-') && record.status !== 'adapted')expect(installed.get(item.id)).toBe(item.content.replaceAll('RequestUserForm', 'request_user_form'));
   }
+  expect(installed.get('site-playbooks-doordash')).not.toContain("widget's yes");
+  expect(installed.get('site-playbooks-doordash')).not.toContain('lines the widget read back');
   for(const item of managed.skills){
     const front=yaml(item.content.split('---')[1]!);
     expect(front.name).toBe(item.id);expect(front.description.trim().length).toBeGreaterThan(10);

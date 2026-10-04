@@ -42,7 +42,7 @@ try {
     reviews++;
     return "once" as const;
   };
-  const credentials = new SavedCredentials(settings, consent, async (_file, args) =>
+  const credentials = new SavedCredentials(settings, async (_file, args) =>
     args[1] === "list"
       ? JSON.stringify([item])
       : args[1] === "get"
@@ -66,7 +66,6 @@ try {
   } as unknown as MacMessages;
   const capabilities = new HostCapabilities(
     settings,
-    consent,
     messages,
     credentials,
     undefined,
@@ -77,9 +76,7 @@ try {
     token: "synthetic-bridge-token",
     port: 0,
     terminalDir: root,
-    permissionSettings: { read: async () => ({ localToolPermission: "ask" }) } as never,
-    autoReviewMode: "enforce",
-    reviewAction: async () => ({ decision: "allow", reason: "fixture" }) as never,
+    computerSettings: { read: async () => ({version:1,machineLabel:"Fixture"}) } as never,
     runJob: async () => {
       throw new Error("No host jobs allowed in fixture");
     },
@@ -108,7 +105,7 @@ try {
   assert.deepEqual(await call("AutomaticSavedCredential", { site: "http://127.0.0.1:19999" }), {
     skipped: true,
   });
-  await settings.mutate(current => ({ ...current, credentialProviders: current.credentialProviders.map(row => ({ ...row, alwaysAllow: true })) }));
+  await settings.mutate(current => ({ ...current, credentialProviders: current.credentialProviders.map(row => ({ ...row, })) }));
   const automatic = await call("AutomaticSavedCredential", { site: "http://127.0.0.1:19999" });
   assert.equal(automatic.password, "synthetic-password-123");
   assert.equal(reviews, 0);

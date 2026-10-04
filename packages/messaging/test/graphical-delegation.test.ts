@@ -26,7 +26,6 @@ describe("main-agent graphical delegation instructions", () => {
     const instructions = subagentSpecializationInstructions("computerUse");
     expect(instructions).toContain("Inspect a browser_snapshot");
     expect(instructions).toContain("inspect the fresh final screenshot");
-    expect(instructions).toContain("policy denials never justify changing tools");
     expect(instructions).toContain("OPENTEAM_BROWSER_DEBUG_PORT");
     expect(instructions).toContain("playwright-core");
     expect(instructions).toContain("Never use pkill -f");

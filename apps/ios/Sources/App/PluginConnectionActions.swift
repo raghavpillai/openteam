@@ -47,7 +47,7 @@ struct PluginConnectionActions: View {
     }
     if presentation.connected {
       Text(
-        "This account is ready to use. Choose which bots can use it under Bot access on the plugin page."
+        "This account is ready to use."
       )
       .font(.footnote).foregroundStyle(NativePalette.muted)
     } else if presentation.connecting {

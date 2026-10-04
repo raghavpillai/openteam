@@ -14,7 +14,7 @@ const message = (createdAt: string) => ({ createdAt }) as ChannelMessageView;
 const run = (id: string) => ({ id }) as RunView;
 
 describe("sidebar row reconciliation", () => {
-  test("shows working presence only for active work, not approval waits", () => {
+  test("shows working presence only for active work, terminal work", () => {
     expect(sidebarRowIsWorking({ channel: channel("idle", "2026-08-27T10:00:00.000Z") })).toBe(
       false
     );
@@ -26,8 +26,8 @@ describe("sidebar row reconciliation", () => {
     ).toBe(true);
     expect(
       sidebarRowIsWorking({
-        channel: channel("approval", "2026-08-27T10:00:00.000Z"),
-        running: { status: "waiting_approval" } as RunView,
+        channel: channel("completed", "2026-08-27T10:00:00.000Z"),
+        running: { status: "completed" } as RunView,
       })
     ).toBe(false);
     expect(

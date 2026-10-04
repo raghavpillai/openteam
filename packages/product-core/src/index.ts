@@ -10,7 +10,6 @@ export * from "./markdown";
 export * from "./mentions";
 export * from "./message-window";
 export * from "./messages";
-export * from "./plugin-access";
 export * from "./redaction";
 export * from "./rich-messages";
 export * from "./routines";

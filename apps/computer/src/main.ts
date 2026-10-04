@@ -3,7 +3,6 @@ import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   type BotTranscriptView,
-  ComputerApprovalResolution,
   ComputerSteerRequest,
   ComputerTurnRequest,
   ScreenActionInput,
@@ -606,7 +605,7 @@ const server = Bun.serve({
         const events = await runtime.run(input);
         const body = computerEventStream(events, undefined, {
           onCancel: async () => {
-            // A disconnected worker must not leave tools or approval waits
+            // A disconnected worker must not leave tools or child tasks
             // alive on a run it has already marked interrupted.
             await runtime.cancel(input.runId).catch(() => {});
           },
@@ -642,12 +641,6 @@ const server = Bun.serve({
           contextSessionMatch[1],
           typeof body.sessionPath === "string" ? body.sessionPath : undefined
         );
-        return json({ ok: true });
-      }
-
-      if (request.method === "POST" && url.pathname === COMPUTER_API_PATHS.approvalResolution) {
-        const input = Schema.decodeUnknownSync(ComputerApprovalResolution)(await request.json());
-        await runtime.resolveApproval(input.approvalId, input.decision, input.selectedItems);
         return json({ ok: true });
       }
 

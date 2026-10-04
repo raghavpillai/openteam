@@ -987,7 +987,7 @@ const ChannelRow = memo(function ChannelRow({
   dragHandleRef?: (element: HTMLButtonElement | null) => void;
 }) {
   const { channel, latest, running } = row;
-  const needsAttention = running?.status === "waiting_approval";
+  const needsAttention = false;
   const working = sidebarRowIsWorking(row);
   const author = latest?.senderBotId ? botById.get(latest.senderBotId)?.name : null;
   const bot = channel.kind === "bot_dm" ? botById.get(channel.members[0]?.botId ?? "") : undefined;
@@ -1272,7 +1272,7 @@ function DraggablePinnedTile({
   onMoveToSection: (channelId: string, sectionId: string | null) => void;
 }) {
   const { channel } = row;
-  const needsAttention = row.running?.status === "waiting_approval";
+  const needsAttention = false;
   const working = sidebarRowIsWorking(row);
   const bot = channel.kind === "bot_dm" ? botById.get(channel.members[0]?.botId ?? "") : undefined;
   const { ref, handleRef, isDragging } = useDraggable({
@@ -1996,7 +1996,7 @@ function CompactChannelTile({
   tabIndex?: number;
 }) {
   const { channel } = row;
-  const needsAttention = row.running?.status === "waiting_approval";
+  const needsAttention = false;
   const working = sidebarRowIsWorking(row);
 
   return (

@@ -1,4 +1,4 @@
-import { ApiError, PluginConfigurationInput, PluginDraftInput, PluginModeInput, PluginPackageInput, PluginSkillInput, PluginTestInput, PluginUpdateInput, PluginUrlInput } from "@openteam/contracts";
+import { ApiError, PluginConfigurationInput, PluginDraftInput, PluginPackageInput, PluginSkillInput, PluginTestInput, PluginUpdateInput, PluginUrlInput } from "@openteam/contracts";
 import { json } from "../http";
 import { type RouteContext, run } from "./context";
 import { bodyRoute, dispatchRoutes, effectRoute } from "./dispatch";
@@ -45,7 +45,6 @@ const routes = [
   effectRoute("GET", /^\/api\/plugins\/([^/]+)\/package$/, ({ app }, id) => app.plugins.management.package(decodeURIComponent(id))),
   bodyRoute("POST", /^\/api\/plugins\/([^/]+)\/update$/, PluginUpdateInput, ({ app }, id, input) => app.plugins.management.update(decodeURIComponent(id), input.digest)),
   effectRoute("POST", /^\/api\/plugins\/([^/]+)\/rollback$/, ({ app }, id) => app.plugins.management.update(decodeURIComponent(id), "", true)),
-  bodyRoute("POST", /^\/api\/plugins\/([^/]+)\/mode$/, PluginModeInput, ({ app }, id, input) => app.plugins.management.setMode(decodeURIComponent(id), input.mode)),
   effectRoute("POST", "/api/plugins/sync", ({ app }) => app.plugins.management.retrySync()),
   effectRoute("GET", /^\/api\/plugin-connections\/([^/]+)\/configuration$/, ({ app }, id) => app.plugins.configuration.get(id)),
   bodyRoute("PUT", /^\/api\/plugin-connections\/([^/]+)\/configuration$/, PluginConfigurationInput, ({ app }, id, input) => app.plugins.configuration.save(id, input)),

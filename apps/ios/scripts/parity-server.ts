@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { FunctionalFixtures } from "./functional-fixtures";
 import { contentScene } from "./content-fixtures";
 import { validateFixtureRequest } from "./validate-fixture-request";
-import { validateUserFormValues } from "../../../packages/contracts/src/review-cards";
+import { validateUserFormValues } from "../../../packages/contracts/src/user-forms";
 import { DEFAULT_FETCH_PROVIDER, WEB_PROVIDER_LISTS, WEB_TOOLS, webProviderInfo, type WebProviderInfo, type WebTool } from "../../../packages/contracts/src/web-search";
 
 const port = Number(process.env.SWIFT_PARITY_PORT || 19997);
@@ -58,7 +58,7 @@ function emit(topic = "channel.message.created", entityId: string | null = null)
 }
 function bootstrap(): ClientBootstrapView {
   return { cursor: String(sequence), workspace: snapshot.workspace, bots: snapshot.bots, channels: snapshot.channels,
-    latestMessages: pagedHistory ? snapshot.channelMessages.slice(-60) : snapshot.channelMessages, activeRuns: snapshot.runs, pendingApprovals: snapshot.approvals.filter(a => a.status === "pending"),
+    latestMessages: pagedHistory ? snapshot.channelMessages.slice(-60) : snapshot.channelMessages, activeRuns: snapshot.runs,
     channelRounds: [], subagents: [], runtime: snapshot.runtime, capabilities: { } as any };
 }
 const response = (data: unknown, status = 200) => Response.json(data, { status });
@@ -168,7 +168,7 @@ const server = Bun.serve({
       if ("searchResults" in input) searchResults = input.searchResults;
       emit("snapshot.reset"); return response({ ok: true });
     }
-    if (path === "/__qa/state") return response({ messages: snapshot.channelMessages, requests: requestLog, settings, approvals: snapshot.approvals, bots: snapshot.bots, channels: snapshot.channels, memories, routines, routineExecutions, contentReceipts, screen, configuration:functionality.configuration, pluginSettings:functionality.settings(snapshot.bots), sources:functionality.sources, skills:functionality.skills, webProviders: { ...webProvidersView(), patches: webProviders.patches, checks: webProviders.checks } });
+    if (path === "/__qa/state") return response({ messages: snapshot.channelMessages, requests: requestLog, settings, bots: snapshot.bots, channels: snapshot.channels, memories, routines, routineExecutions, contentReceipts, screen, configuration:functionality.configuration, pluginSettings:functionality.settings(snapshot.bots), sources:functionality.sources, skills:functionality.skills, webProviders: { ...webProvidersView(), patches: webProviders.patches, checks: webProviders.checks } });
     if (path === "/__qa/haptics") {
       if (method === "POST") hapticAudit.push(input);
       if (method === "DELETE") hapticAudit = [];
@@ -247,7 +247,7 @@ const server = Bun.serve({
       const page = pagedHistory ? messages.slice(-60) : messages;
       return response({ channelId, messages: page, threadContext: [], threadContextTruncated: false, beforeSequence: page[0]?.sequence ?? null, hasMore: pagedHistory && messages.length > page.length, revision: String(sequence) });
     }
-    if (path.endsWith("/client-state")) return response({ channelId: path.split("/")[4], revision: String(sequence), channelRounds: [], runs: snapshot.runs, runItems: [], approvals: snapshot.approvals, subagents: [], truncated: { channelRounds:false, runs:false, runItems:false, approvals:false, subagents:false } });
+    if (path.endsWith("/client-state")) return response({ channelId: path.split("/")[4], revision: String(sequence), channelRounds: [], runs: snapshot.runs, runItems: [], subagents: [], truncated: { channelRounds:false, runs:false, runItems:false, subagents:false } });
     if (path.includes("/message-deliveries/")) {
       const message = deliveries.get(path.split("/").at(-1)!);
       return response({ clientId: path.split("/").at(-1), status: message ? "accepted" : "not_found", message: message ?? null, acceptedAtMs: message ? Date.now() : null });
@@ -289,7 +289,6 @@ const server = Bun.serve({
       const reactions=own?previous.filter(r=>!(r.emoji===input.emoji&&r.by==='me')):[...previous,{by:'me',emoji:input.emoji}];
       message.metadata = { ...(message.metadata as object), reactions }; emit("channel.message.updated", message.channelId); return response({ message, messageId: message.id, emoji:input.emoji, reacted:!own, removed:own, runId:null });
     }
-    if (path.includes("/approvals/") && path.endsWith("/resolve")) { const approval = snapshot.approvals.find(a => a.id === path.split("/")[4])!; approval.status = input.decision === "decline" ? "declined" : "accepted"; snapshot.runs = []; emit("approval.resolved"); return response({ status:approval.status }); }
     if (path === "/api/v0/bots" && method === "POST") {
       const id = randomUUID(), now = new Date().toISOString();
       const bot = { ...snapshot.bots[0], id, name:input.name, title:input.name, description:input.description ?? "", instructions:input.instructions ?? "", color:input.color ?? "#FD6A3A", icon:input.icon ?? "hexagon", conversationId:"conversation-"+id, dmChannelId:"channel-"+id, createdAt:now, updatedAt:now };
@@ -327,7 +326,7 @@ const server = Bun.serve({
       else {Object.assign(routine,input);routine.revision++;if(path.endsWith("/pause"))routine.enabled=false;if(path.endsWith("/resume"))routine.enabled=true;}
       emit("routine.updated");return response(routine);
     }
-    if (path === "/api/v0/plugins") return response({ catalog: [], installs: [], policies: [], activity: [], botCount:snapshot.bots.length });
+    if (path === "/api/v0/plugins") return response({ catalog: [], installs: [], activity: [], botCount:snapshot.bots.length });
     if (path === "/api/v0/plugin-management") return response({ sources:[], drafts:[], skills:[] });
     if (path.startsWith("/api/v0/plugins/composer")) return response({ items:[] });
     if (path.includes("/memories")) {

@@ -7,6 +7,6 @@ export function onlyPendingBackgroundWork(body: unknown): boolean {
   }
   if (typeof value.subagent_id !== "string") return false;
   if (!["provisioning", "queued", "running"].includes(String(value.status))) return false;
-  return ["queued", "running", "waiting_approval"].includes(String(value.run_status)) ||
+  return ["queued", "running"].includes(String(value.run_status)) ||
     (value.run_status === null && value.status !== "running");
 }

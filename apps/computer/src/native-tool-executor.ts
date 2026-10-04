@@ -1,6 +1,4 @@
 import { MachineDirectory } from "./machine-directory";
-import { AsyncLocalStorage } from "node:async_hooks";
-import type { HostReviewContext } from "@openteam/contracts/service-protocol";
 import type { TaskConfiguration } from "@openteam/contracts/task-configuration";
 import { Readable } from "node:stream";
 import { agentReadStream, agentWriteStream } from "./agent-file-stream";
@@ -25,15 +23,10 @@ import {
   HOST_BRIDGE_PATHS,
   HOST_INLINE_OUTPUT_MAX_BYTES,
   HOST_TRANSFER_MAX_BYTES,
-  type HostApprovalRequest,
-  type HostApprovalTokens,
-  type HostAutoReviewRequest,
   type HostMachine,
-  type HostPermissionUpdateRequest,
   type HostReadRequest,
   type HostShellRequest,
   imageMimeTypeForPath,
-  isHostApprovalRequest,
   parseHostMachinesResponse,
   parseHostReadResponse,
   parseHostShellResponse,
@@ -66,25 +59,12 @@ const textResult = (
   details,
 });
 
-export type { HostApprovalRequest, HostApprovalTokens, HostMachine };
 export interface CopyFileInput { computer_path?: string; box_path?: string; machineId: string }
 
-export class HostApprovalRequiredError extends Error {
-  constructor(readonly approval: HostApprovalRequest) {
-    super("User approval is required");
-    this.name = "HostApprovalRequiredError";
-  }
-}
-
 export class NativeToolExecutor {
-  private readonly reviewContexts = new AsyncLocalStorage<HostReviewContext>();
-  withReviewContext<T>(context: HostReviewContext, execute: () => T): T {
-    return this.reviewContexts.run(context, execute);
-  }
-  /** Private supervisor transport. Never return this envelope from a model tool. */
-  async desktopCapability(tool: string, botId: string, args: unknown, signal?: AbortSignal, callId?: string, channelId?: string, approvals: HostApprovalTokens = {}): Promise<Record<string, any>> {
+  async desktopCapability(tool: string, botId: string, args: unknown, signal?: AbortSignal, callId?: string, channelId?: string): Promise<Record<string, any>> {
     const machineId = await this.machines?.preferred(botId, channelId, signal);
-    return this.hostFetch(HOST_BRIDGE_PATHS.capabilities, { tool, botId, arguments: args, callId, machineId, ...approvals, chatApproval: true }, signal, undefined, 15 * 60_000);
+    return this.hostFetch(HOST_BRIDGE_PATHS.capabilities, { tool, botId, arguments: args, callId, machineId }, signal, undefined, 15 * 60_000);
   }
   private readonly shellJobs: ShellJobRegistry;
   private readonly terminalDir: string;
@@ -301,10 +281,9 @@ export class NativeToolExecutor {
 
   async externalShell(
     input: ShellToolInput,
-    signal?: AbortSignal,
-    approvals: HostApprovalTokens = {}
+    signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const request = { ...input, ...approvals } satisfies HostShellRequest;
+    const request = { ...input } satisfies HostShellRequest;
     const response = await this.hostFetch(
       HOST_BRIDGE_PATHS.shell,
       request,
@@ -319,10 +298,9 @@ export class NativeToolExecutor {
 
   async externalRead(
     input: ReadToolInput,
-    signal?: AbortSignal,
-    approvals: HostApprovalTokens = {}
+    signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const request = { ...input, ...approvals } satisfies HostReadRequest;
+    const request = { ...input } satisfies HostReadRequest;
     const response = await this.hostFetch(
       HOST_BRIDGE_PATHS.read,
       request,
@@ -357,7 +335,7 @@ export class NativeToolExecutor {
     });
   }
 
-  async copyFile(direction: "toBox" | "fromBox", input: CopyFileInput, cwd: string, signal?: AbortSignal, approvals: HostApprovalTokens = {}) {
+  async copyFile(direction: "toBox" | "fromBox", input: CopyFileInput, cwd: string, signal?: AbortSignal) {
     const toBox = direction === "toBox";
     const boxPath = localPath(input.box_path ?? `uploads/${basename(input.computer_path!)}`, cwd);
     const computerPath = input.computer_path ?? basename(boxPath);
@@ -366,7 +344,7 @@ export class NativeToolExecutor {
     const sourceSize = toBox ? undefined : (await stat(boxPath)).size;
     const permit = await this.hostFetch<{ transferId: string; path: string }>(HOST_BRIDGE_PATHS.transfer, {
       direction: toBox ? "read" : "write", path: computerPath, machineId: input.machineId,
-      ...(sourceSize !== undefined ? { bytes: sourceSize } : {}), ...approvals,
+      ...(sourceSize !== undefined ? { bytes: sourceSize } : {}),
     }, signal);
     const source = toBox ? undefined : agentReadStream(boxPath, signal);
     let size=sourceSize ?? 0;
@@ -396,71 +374,6 @@ export class NativeToolExecutor {
   private async machineLabel(machineId: string, signal?: AbortSignal): Promise<string> {
     try { const rows = this.machines ? await this.machines.registered(signal) : (await this.hostFetch(HOST_BRIDGE_PATHS.machines,{},signal,parseHostMachinesResponse)).machines; return rows.find(machine=>machine.machineId === machineId)?.label ?? machineId; }
     catch { return machineId; }
-  }
-
-  async autoReviewTask(
-    input: TaskInput,
-    signal?: AbortSignal,
-    approvals: HostApprovalTokens = {},
-    configuration?: Pick<TaskConfiguration, "combinedComputerUse"> | null
-  ): Promise<void> {
-    const task = `Run a task on OpenTeam's computer: “${input.prompt}”`;
-    const request = {
-      surface: "subagentLaunch",
-      // This is a display label, not the review payload. Keep the complete task
-      // in arguments so the classifier still reviews every requested action.
-      summary: task.slice(0, 500),
-      target: input.subagent_type ?? "generalPurpose",
-      arguments: {
-        task,
-        prompt: input.prompt,
-        description: input.description,
-        subagent_type: input.subagent_type ?? "generalPurpose",
-        ...(input.subagent_type === "computerUse" && configuration ? {
-          runtimeCapabilities: {
-            source: "runtime task configuration",
-            tools: configuration.combinedComputerUse ? ["browser_*", "Computer"] : ["Computer"],
-            guidance: "These are available tools, not additional authorization. The delegated prompt and each action must still obey the user's requested modality and scope.",
-          },
-        } : {}),
-        ...(input.resume ? { resume: input.resume } : {}),
-        ...(input.file_attachments?.length ? { file_attachments: input.file_attachments } : {}),
-        ...(input.run_in_background !== undefined
-          ? { run_in_background: input.run_in_background }
-          : {}),
-      },
-      ...approvals,
-    } satisfies HostAutoReviewRequest;
-    await this.autoReviewAction(request, signal);
-  }
-
-  async autoReviewAction(input: HostAutoReviewRequest, signal?: AbortSignal, approvals: HostApprovalTokens = {}): Promise<void> {
-    if (this.serverUrl) {
-      const response = await fetch(`${this.serverUrl}/api/v0/internal/permissions/review-action`, {
-        method: "POST", headers: { authorization: `Bearer ${this.controlToken}`, "content-type": "application/json" },
-        body: JSON.stringify({ ...input, ...approvals, reviewContext: this.reviewContexts.getStore() }),
-        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000),
-      });
-      const result = await response.json().catch(() => ({})) as Record<string, any>;
-      if (response.status === 409 && isHostApprovalRequest(result.approval)) throw new HostApprovalRequiredError(result.approval);
-      if (!response.ok || result.allowed !== true) {
-        const message = typeof result.error === "string" ? result.error
-          : typeof result.error?.message === "string" ? result.error.message
-          : `Auto Review did not authorize the action (HTTP ${response.status})`;
-        throw new Error(message);
-      }
-      return;
-    }
-    await this.hostFetch(HOST_BRIDGE_PATHS.autoReview, { ...input, ...approvals }, signal);
-  }
-
-  async setLocalToolPermission(
-    machineId: string,
-    localToolPermission: HostMachine["localToolPermission"],
-    signal?: AbortSignal
-  ): Promise<void> {
-    const request = { machineId, localToolPermission } satisfies HostPermissionUpdateRequest;
-    await this.hostFetch(HOST_BRIDGE_PATHS.permissionUpdate, request, signal);
   }
 
   private async readLocal(
@@ -604,7 +517,7 @@ export class NativeToolExecutor {
         authorization: `Bearer ${this.controlToken}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({ ...(body as Record<string, unknown>), reviewContext: this.reviewContexts.getStore() }),
+      body: JSON.stringify(body),
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     }).catch((error) => {
       throw new Error(
@@ -617,13 +530,6 @@ export class NativeToolExecutor {
         ? (value as Record<string, unknown>)
         : {};
     if (!response.ok) {
-      if (
-        response.status === 409 &&
-        envelope.error === "approval_required" &&
-        isHostApprovalRequest(envelope.approval)
-      ) {
-        throw new HostApprovalRequiredError(envelope.approval);
-      }
       throw new Error(
         typeof envelope.error === "string"
           ? envelope.error

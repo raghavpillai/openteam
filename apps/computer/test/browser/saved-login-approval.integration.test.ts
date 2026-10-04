@@ -10,10 +10,10 @@ import { startHostBridge } from "../../../desktop/src/main/host/bridge";
 import { HostCapabilities } from "../../../desktop/src/main/host/capabilities";
 import { CapabilitySettingsStore } from "../../../desktop/src/main/host/capability-settings";
 import { SavedCredentials } from "../../../desktop/src/main/host/credentials";
-import { createPermissionSettingsStore } from "../../../desktop/src/main/permission-settings";
+import { createComputerSettingsStore } from "../../../desktop/src/main/computer-settings";
 
 test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)(
-  "real runtime → native bridge → chat approval → private browser fill keeps values out of events and results",
+  "real runtime → native bridge → direct private browser fill keeps values out of events and results",
   async () => {
     const root = await mkdtemp(join(tmpdir(), "saved-login-e2e-"));
     const pageServer = Bun.serve({
@@ -55,9 +55,6 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)(
     };
     const native = new HostCapabilities(
       settings,
-      async () => {
-        throw new Error("No native dialog should open");
-      },
       undefined,
       undefined,
       undefined,
@@ -70,9 +67,7 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)(
       hostname: "127.0.0.1",
       port: 0,
       terminalDir: join(root, "terminals"),
-      permissionSettings: createPermissionSettingsStore(join(root, "permissions.json")),
-      autoReviewMode: "off",
-      reviewAction: async () => ({ decision: "allow", reason: "Fixture" }),
+      computerSettings: createComputerSettingsStore(join(root, "permissions.json")),
       runJob: async () => ({}),
       capabilities: native,
     });
@@ -96,7 +91,6 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)(
     const botId = crypto.randomUUID();
     (tools as any).browserUseSessions.set(botId, session);
     const events: any[] = [];
-    let approve = true;
     const active: any = {
       turnId: "fixture-turn",
       botId,
@@ -108,16 +102,12 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)(
       queue: {
         push(event: any) {
           events.push(event);
-          if (event.type === "approval.requested") {
-            expect(secretReads).toBe(0);
-            tools.resolveApproval(event.approvalId, approve ? "accept" : "decline");
-          }
         },
       },
     };
     try {
       await session.execute("browser_navigate", { url: pageServer.url.origin });
-      const catalog = await new SavedCredentials(settings, async () => "deny", command).list({
+      const catalog = await new SavedCredentials(settings, command).list({
         site: pageServer.url.origin,
       });
       const { credential_id, connection_id, catalog_revision } = catalog.credentials[0]!;
@@ -136,13 +126,11 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)(
       expect(result.details.filled).toBe(true);
       expect(secretReads).toBe(1);
       expect(JSON.stringify({ events, result })).not.toContain("SYNTHETIC-PRIVATE-VALUE");
-      expect(events[0].details.type).toBe("nativeCapability");
-      expect(events.filter(event => event.type === "approval.action").map(event => event.status)).toEqual(["running", "completed"]);
+      expect(events.filter(event => event.type === "approval.action").map(event => event.status)).toEqual([]);
       expect(events.filter(event => event.type === "approval.action").every(event => event.decision === "accept")).toBe(true);
       const page = await (session as any).ensurePage();
       expect(await page.locator("#password").inputValue()).toBe("SYNTHETIC-PRIVATE-VALUE");
-      // Exercise the combined worker's real model-facing tools, including its review
-      // wrapper, against the same live session that received the private login.
+      // Exercise the combined worker against the session that received the private login.
       const combined = tools.customTools({ ...active, runtimeProfile: "subagent", subagentType: "computerUse",
         taskConfiguration: { combinedComputerUse: true, executorProfiles: [] } });
       expect(combined.some(tool => tool.name === "Computer")).toBe(true);
@@ -160,24 +148,19 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)(
       (session as any).fillSavedLogin = async () => false;
       const changed = await (tools as any).executeOpenTeamTool(active, "changed-call", "SendToUser", {type:"credential-request", credential});
       expect(changed.details.filled).toBe(false);
-      expect(events.filter(event => event.type === "approval.action").map(event => event.status)).toEqual(["running", "failed"]);
+      expect(events.filter(event => event.type === "approval.action").map(event => event.status)).toEqual([]);
       (session as any).fillSavedLogin = async () => { throw new Error("SYNTHETIC-PRIVATE-VALUE"); };
       events.length = 0; secretReads = 0;
       await expect((tools as any).executeOpenTeamTool(active, "failed-call", "SendToUser", {type:"credential-request", credential})).rejects.toThrow();
-      expect(events.filter(event => event.type === "approval.action").map(event => event.status)).toEqual(["running", "failed"]);
+      expect(events.filter(event => event.type === "approval.action").map(event => event.status)).toEqual([]);
       expect(JSON.stringify(events)).not.toContain("SYNTHETIC-PRIVATE-VALUE");
       (session as any).fillSavedLogin = fill;
       events.length = 0; secretReads = 0;
-      approve = false;
-      await expect(
-        (tools as any).executeOpenTeamTool(active, "denied-call", "SendToUser", {
-          type: "credential-request",
-          credential,
-        })
-      ).rejects.toThrow("denied");
-      expect(secretReads).toBe(0);
-      expect(events.filter(event => event.type === "approval.action")).toHaveLength(0);
-      expect(await page.locator("#password").inputValue()).toBe("");
+      const direct = await (tools as any).executeOpenTeamTool(active,"legacy-deny-call","SendToUser",{type:"credential-request",credential});
+      expect(direct.details.filled).toBe(true);
+      expect(secretReads).toBe(1);
+      expect(events.filter(event=>event.type.startsWith("approval."))).toHaveLength(0);
+      expect(await page.locator("#password").inputValue()).toBe("SYNTHETIC-PRIVATE-VALUE");
     } finally {
       await browser.close();
       await driver.stop();

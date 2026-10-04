@@ -10,22 +10,21 @@ import "../../src/renderer/styles.css";
 if (window.openteam) throw new Error("Settings QA requires an isolated fixture");
 window.fetch = async () => { throw new Error("External network disabled in settings fixture"); };
 const calls: unknown[] = [];
-let permissions = {
-  version: 1, localToolPermission: "ask", machine: { machineId: "qa", label: "QA computer" },
-  autoReview: { isEnabled: true, allowInstructions: [], blockInstructions: [] },
+let computer = {
+  version: 1, machineLabel: "QA computer", machine: {machineId:"qa",label:"QA computer"},
 };
 let transcription = { ...defaultTranscriptionSettings, hasApiKey: false, configured: false };
 const providerStates = (tool: "search" | "fetch") => Object.fromEntries(WEB_PROVIDER_LISTS[tool].map((provider) => [provider.id, { secretSaved: false, ready: !provider.fields.some((field) => field.required), check: null }]));
 let providers: any = { search: { selected: null, providers: providerStates("search") }, fetch: { selected: "builtin", providers: providerStates("fetch") } };
-const capabilities = { credentialProviders: [], cookieGrants: [], messagesGrants: [] };
+const capabilities = { credentialProviders: [], };
 Object.assign(window, { settingsQACalls: calls, openteam: {
   auth: { machineStatus: async () => ({ machineId: "qa", connected: true, configured: true, error: null }) },
-  permissions: {
-    get: async () => permissions,
+  computer: {
+    get: async () => computer,
     update: async (input: any) => {
-      calls.push({ type: "permissions", input });
-      permissions = { ...permissions, ...(input.localToolPermission ? { localToolPermission: input.localToolPermission } : {}), machine: { ...permissions.machine, label: input.machineLabel ?? permissions.machine.label } };
-      return permissions;
+      calls.push({ type: "computer", input });
+      computer = { ...computer, machineLabel: input.machineLabel ?? computer.machineLabel, machine: {...computer.machine,label:input.machineLabel ?? computer.machine.label} };
+      return computer;
     },
     getCapabilities: async () => capabilities,
     savedLoginAccounts: async () => [],

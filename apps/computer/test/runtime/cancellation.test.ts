@@ -8,10 +8,7 @@ test("cancellation is accepted during session setup and signals pending work", a
   const stopped: string[] = [];
   const internals = runtime as unknown as {
     activeByRun: Map<string, ActiveTurn>;
-    tools: { cancelApprovals: (id: string) => void; interruptShellWaits: (id: string) => void };
-  };
-  internals.tools.cancelApprovals = (id) => {
-    stopped.push(`approval:${id}`);
+    tools: { interruptShellWaits: (id: string) => void };
   };
   internals.tools.interruptShellWaits = (id) => {
     stopped.push(`wait:${id}`);
@@ -23,7 +20,7 @@ test("cancellation is accepted during session setup and signals pending work", a
   await runtime.cancel("starting");
   expect(controller.signal.aborted).toBe(true);
   expect(internals.activeByRun.get("starting")?.endTurnRequested).toBe(true);
-  expect(stopped).toEqual(["approval:starting", "wait:starting"]);
+  expect(stopped).toEqual(["wait:starting"]);
   expect(() => controller.signal.throwIfAborted()).toThrow();
   await expect(runtime.cancel("missing")).rejects.toThrow("not actively executing");
 });

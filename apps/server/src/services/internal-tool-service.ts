@@ -52,8 +52,6 @@ export class InternalToolService {
 
   execute = (request: DynamicToolCallRequest, transfer: {upload?:import("@openteam/plugin-sdk/file-spool").StagedFile;stream?:boolean} = {}) =>
     serviceEffect(async (signal) => {
-      const reviewedExternal=request.tool==="ReviewedExternalFileDelivery";
-      if(reviewedExternal)request={...request,tool:"SendToUser"};
       const run = await this.prisma.run.findUnique({
         where: { id: request.runId },
         include: {
@@ -70,7 +68,7 @@ export class InternalToolService {
         run.conversationId !== request.conversationId ||
         run.channelId !== request.channelId ||
         run.deliveryId !== request.deliveryId ||
-        !["running", "waiting_approval"].includes(run.status)
+        !["running"].includes(run.status)
       ) {
         throw new ApiError(409, "tool_context_invalid", "Dynamic tool context is not active");
       }
@@ -103,7 +101,7 @@ export class InternalToolService {
       if (run.origin === "routine" && AUTOMATION_PARENT_ONLY_TOOLS.has(request.tool)) {
         throw new ApiError(403, "automation_tool_forbidden", "Use WakeParent to hand this communication or review to the parent agent");
       }
-      if (!reviewedExternal) request={...request,arguments:normalizeMainToolArguments(request.tool,request.arguments)};
+      request={...request,arguments:normalizeMainToolArguments(request.tool,request.arguments)};
       if (request.tool === "WakeParent") {
         if (childIdentity) throw new ApiError(403, "wake_parent_unavailable", "Only the automation itself can wake its parent");
         return wakeAutomationParent(this.messaging, context, Schema.decodeUnknownSync(WakeParentInput)(request.arguments));
@@ -181,8 +179,8 @@ export class InternalToolService {
       if (request.tool === "SendFeedback" || request.tool === "create_bot_share_json") {
         if (!this.richMessages) throw new Error("Review service unavailable");
         return request.tool === "SendFeedback"
-          ? this.richMessages.reviewActions.sendFeedback(context, request.arguments, signal)
-          : this.richMessages.reviewActions.stage(context, request.tool, request.arguments);
+          ? this.richMessages.feedback.send(context, request.arguments, signal)
+          : this.richMessages.sharedTemplates.publish(context, request.arguments);
       }
       if (request.tool === "DraftExternalMessage") {
         if (!this.richMessages) throw new Error("Draft service unavailable");
@@ -236,13 +234,13 @@ export class InternalToolService {
           "SetMcpInstructions",
         ].includes(request.tool)
       ) {
-        return this.plugins.waitForAction({
+        return this.plugins.requestAction({
           runId: request.runId,
           botId: request.botId,
           callId: request.callId,
           action: request.tool,
           arguments: request.arguments,
-        },signal);
+        }, signal);
       }
       if (request.tool === "PluginCall") {
         const input =
@@ -264,8 +262,6 @@ export class InternalToolService {
           callId: request.callId,
           toolName: input.toolName,
           arguments: input.arguments ?? {},
-          mcpDetails: input.mcpDetails,
-          allowReviewUI: run.origin !== "routine" && !automationChild,
         });
       }
       if (request.tool === "update_state") {
@@ -377,7 +373,7 @@ export class InternalToolService {
           Schema.decodeUnknownSync(SendToAgentInput)(request.arguments)
         );
       } else if (request.tool === "SendToUser") {
-        if ((request.arguments as Record<string, unknown>)?.type === "credential-request") throw new ApiError(400,"desktop_credential_request_required","Saved-login requests must run through the active desktop browser so approval is bound to its document");
+        if ((request.arguments as Record<string, unknown>)?.type === "credential-request") throw new ApiError(400,"desktop_credential_request_required","Saved-login requests must run through the active desktop browser so the fill is bound to its document");
         validateSendToUserInput(request.arguments);
         const input = Schema.decodeUnknownSync(AgentSendToUserInput)(request.arguments);
         if (input.type === "secret-request" && input.secret?.name) {
@@ -402,7 +398,6 @@ export class InternalToolService {
               address: input.channel,
               content,
               files,
-              reviewedExternal,
             });
             result = {
               acknowledgement: {

@@ -112,19 +112,9 @@ for (const provider of ["slack", "granola"] as const) {
           provider === "slack" ? "client_secret_post" : "none"
         );
         await Effect.runPromise(service.renameAccount(account.id, "work"));
-        await Effect.runPromise(service.setEnablement(definition.key, botId, true, true));
-        await Effect.runPromise(service.setGrant(account.id, botId, true));
-        await Effect.runPromise(
-          service.setPolicy(account.id, {
-            botId: null,
-            toolName: "echo",
-            decision: "deny",
-            enabled: false,
-          })
-        );
         const before = await prisma.pluginConnection.findUniqueOrThrow({
           where: { id: account.id },
-          include: { grants: true, policies: true },
+          include: { },
         });
         const namespaces = (await pluginRuntimeContext(prisma, botId)).dynamicNamespaces;
         await Effect.runPromise(service.management.saveDraft(draftId, definition));
@@ -136,15 +126,13 @@ for (const provider of ["slack", "granola"] as const) {
         ).toBe("ready");
         const after = await prisma.pluginConnection.findUniqueOrThrow({
           where: { id: account.id },
-          include: { grants: true, policies: true },
+          include: { },
         });
         // The existing update flow requests rediscovery; it must reuse authorization.
         expect(after.status).toBe("disconnected");
         expect(after.alias).toBe("work");
         expect(after.credentials).toEqual(before.credentials);
         expect(after.configuration).toEqual(before.configuration);
-        expect(after.grants).toEqual(before.grants);
-        expect(after.policies).toEqual(before.policies);
         await Effect.runPromise(service.connect(account.id));
         const context = await pluginRuntimeContext(prisma, botId);
         expect(context.dynamicNamespaces).toEqual(namespaces);
@@ -162,23 +150,17 @@ for (const provider of ["slack", "granola"] as const) {
           service.testTool(account.id, { toolName: "whoami", arguments: {} })
         );
         expect(JSON.stringify(result)).toContain("Account A");
-        // Instruction enablement and account grants remain independent after the update.
-        await Effect.runPromise(service.setEnablement(definition.key, botId, true, false));
         const toolsOnly = await pluginRuntimeContext(prisma, botId);
-        expect(toolsOnly.pluginRuntimePackages).toEqual([]);
-        expect(toolsOnly.skillInstructions).toBe("");
+        expect(toolsOnly.pluginRuntimePackages).toHaveLength(1);
+        expect(toolsOnly.skillInstructions).toBe(context.skillInstructions);
         expect(toolsOnly.dynamicNamespaces).toEqual(namespaces);
-        await Effect.runPromise(service.setEnablement(definition.key, botId, true, true));
-        await Effect.runPromise(service.setGrant(account.id, botId, false));
         const ungranted = await pluginRuntimeContext(prisma, botId);
         expect(ungranted.pluginRuntimePackages).toHaveLength(1);
-        expect(ungranted.dynamicNamespaces).toEqual([]);
+        expect(ungranted.dynamicNamespaces).toEqual(namespaces);
         const unrelated = await pluginRuntimeContext(prisma, crypto.randomUUID());
-        expect(unrelated).toEqual({
-          dynamicNamespaces: [],
-          skillInstructions: "",
-          pluginRuntimePackages: [],
-        });
+        expect(unrelated.dynamicNamespaces).toEqual(namespaces);
+        expect(unrelated.pluginRuntimePackages).toHaveLength(1);
+        expect(unrelated.skillInstructions).toBe(ungranted.skillInstructions);
       } finally {
         await service.close();
         fixture.close();

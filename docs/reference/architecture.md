@@ -34,7 +34,7 @@ container, separate from bot processes and client apps.
    apps, and configured mobile push notifications can alert you when you are away.
 
 Server-side turns and schedules continue when a client closes, as long as the host and Docker
-keep running. The OpenTeam desktop app supplies the approval bridge for launching delegated
+keep running. The OpenTeam desktop app supplies the host bridge for launching delegated
 tasks, including computer-use workers, and accessing the physical host. Keep that app running
 when work needs the bridge.
 

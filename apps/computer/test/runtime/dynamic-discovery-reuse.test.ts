@@ -64,23 +64,11 @@ describe("retained dynamic discovery", () => {
   test("runtime dispatch reuses retained schemas but still invokes the ordinary tool executor", async () => {
     const tools = (new ComputerRuntime() as any).tools;
     let invocations = 0;
-    let reviews = 0;
-    let denied = false;
-    tools.nativeToolExecutor.autoReviewAction = async () => {
-      reviews++;
-      if (denied) throw new Error("Fixture review denied");
-      return { allowed: true };
-    };
     tools.dynamicCatalog = () => [{ ...catalog[0], tools: [{ ...catalog[0]!.tools[0], execute: async () => {
       invocations++; return { content: [{ type: "text", text: "42" }], details: {} };
     } }] }];
     const active: any = { contextSessionId: "reuse-fixture", discoveredDynamicTools: new Set(), dynamicDiscoveryMessages: history() };
     expect(await tools.callDynamicTool(active, "invoke", call)).toMatchObject({ content: [{ text: "42" }] });
-    expect(invocations).toBe(1);
-    expect(reviews).toBe(1);
-    denied = true;
-    await expect(tools.callDynamicTool(active, "denied", call)).rejects.toThrow("Fixture review denied");
-    expect(reviews).toBe(2);
     expect(invocations).toBe(1);
     active.dynamicDiscoveryMessages = [];
     await expect(tools.callDynamicTool(active, "compacted", call)).rejects.toThrow("Call GetDynamicTools");

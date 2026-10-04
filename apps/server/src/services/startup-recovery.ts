@@ -1,7 +1,6 @@
 import type { PrismaClient } from "@openteam/db";
 import { type AgentMessaging, renderSubagentRevivalPrompt } from "@openteam/messaging";
 import type { PgBoss } from "pg-boss";
-import { expirePendingApprovalsAfterRestart } from "./approval-lifecycle";
 import type { ComputerFetch } from "./service-utils";
 import { appendEvent } from "./service-utils";
 import { SUBAGENT_RECOVERY_RUN_STATUSES, subagentRestartError } from "./subagent/recovery";
@@ -37,7 +36,7 @@ export async function recover(
       },
     });
     const interrupted = await tx.run.updateMany({
-      where: { status: { in: ["running", "waiting_approval"] } },
+      where: { status: { in: ["running"] } },
       data: {
         status: "interrupted",
         completedAt: now,
@@ -47,7 +46,6 @@ export async function recover(
         },
       },
     });
-    await expirePendingApprovalsAfterRestart(tx, now);
     for (const subagent of interruptedSubagents) {
       const attempt = subagent.currentRunId
         ? await tx.subagentAttempt.findUnique({
@@ -150,7 +148,7 @@ export async function recover(
         await tx.run.updateMany({
           where: {
             id: child.currentRunId,
-            status: { in: ["queued", "running", "waiting_approval", "interrupted"] },
+            status: { in: ["queued", "running", "interrupted"] },
           },
           data: {
             status: "cancelled",
@@ -171,10 +169,6 @@ export async function recover(
             completedAt: now,
             error: { code: "parent_archived" },
           },
-        });
-        await tx.approval.updateMany({
-          where: { runId: child.currentRunId, status: "pending" },
-          data: { status: "expired", resolvedAt: now },
         });
         await tx.botRunLease.deleteMany({ where: { runId: child.currentRunId } });
       }

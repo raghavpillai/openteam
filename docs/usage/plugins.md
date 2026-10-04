@@ -22,17 +22,17 @@ Slack, Granola, and Notion include provider skills alongside their tools. See [t
 
 1. Open **Marketplace** and choose **Add** on the plugin. The plugin's page opens.
 2. Under **Accounts**, follow the setup steps. Depending on the plugin, you sign in through your browser, paste a token, or enter the details of an app you registered with the service. See [connecting accounts](../integrations/accounts.md) for what each plugin needs.
-3. Under **Bot access**, turn on the account for each bot that should use it. If the plugin includes skills, such as Notion or Granola, also turn on **Instructions and hooks** for those bots.
+3. Once the account connects, its tools and bundled instructions are available to all bots.
 
 Then try it in chat:
 
 > List my five most recently updated GitHub repositories.
 
-Adding a plugin doesn't give every bot access. Each bot only sees the accounts you turn on for it. To check which account is connected, [test a tool](../integrations/accounts.md#check-the-connected-account).
+All bots can use installed plugins and connected accounts. To check which account is connected, [test a tool](../integrations/accounts.md#check-the-connected-account).
 
 ## Connect more than one account
 
-To connect a second account, such as a work and a personal Gmail, choose **Add Another Account** under **Accounts** on the plugin's page. Give it a clear name, sign in, and choose which bots can use it.
+To connect a second account, such as a work and a personal Gmail, choose **Add Another Account** under **Accounts** on the plugin's page. Give it a clear name, sign in.
 
 Gmail, Google Calendar, and Google Drive are separate plugins. Connecting one doesn't connect the others.
 
@@ -42,14 +42,9 @@ Create an internal Slack app in your workspace and enter its client ID and clien
 
 The Slack connection needs an HTTPS OpenTeam address. For a private deployment, use Tailscale Serve and keep Tailscale connected on your devices. Copy the exact callback URL from OpenTeam's account settings into the Slack app, enable **Agents → Enable Slack MCP Server**, then save the credentials in OpenTeam and authorize the workspace. The [Slack setup guide](../../packages/plugins/slack/README.md) includes a ready-to-use app manifest.
 
-## Control what bots can do
+## Connected tools
 
-Two settings on the plugin's page work together:
-
-- **Bot access** decides which bots can use each account.
-- **Tool policies** decide what happens when a bot uses a tool: **Allow**, **Ask first**, or **Deny**. On desktop, policies apply to all bots.
-
-Use **Ask first** for tools that send, post, or delete. To hide a tool from bots entirely, turn it off under **Manage → Accounts and settings**. Choosing **Always allow** on an approval lets that bot skip **Ask first** for that tool on that account. A **Deny** policy still applies. See [approvals and privacy](../configuration/approvals.md).
+Bots execute connected tools directly. Disconnect or remove an account to stop its use. Provider account scopes determine which operations the service accepts.
 
 ## Manage a plugin
 
@@ -59,8 +54,8 @@ Open **Marketplace → Manage → Accounts and settings** and choose the plugin 
 | --- | --- |
 | **Restart / refresh tools** | Reconnects and reloads the plugin's tools |
 | **Reauthorize** | Signs in again, for accounts that sign in through the browser |
-| **Disconnect** | Stops the connection. The sign-in, bot access, and policies are kept. |
-| **Remove account** | Deletes the account and its bot access. If it's the plugin's only account, it's reset instead. |
+| **Disconnect** | Stops the connection. The sign-in is kept. |
+| **Remove account** | Deletes the account. If it's the plugin's only account, it's reset instead. |
 | **Apply reviewed update** | Installs a new version after you review the changes |
 | **Uninstall** | Removes the plugin and all its accounts |
 

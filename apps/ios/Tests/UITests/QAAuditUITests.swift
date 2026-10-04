@@ -160,49 +160,19 @@ import XCTest
     XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
     return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
   }
-  func testChromeSelectionAndExecutionReceipts() async throws {
+  func testLegacyApprovalsAreHidden() async throws {
     let app = try await launch("approval")
-    let site = app.switches["approval-site-Profile 2-example.com"]
-    XCTAssertTrue(site.waitForExistence(timeout: 10))
-    (site.switches.firstMatch.exists ? site.switches.firstMatch : site).tap()
-    XCTAssertEqual(site.value as? String, "0")
-    app.buttons["approve-qa-chrome"].tap()
-    XCTAssertTrue(app.staticTexts["Running"].waitForExistence(timeout: 10))
-    let receipt = try await control("/__audit/receipt")
-    let details = (receipt["approval"] as? [String: Any])?["details"] as? [String: Any]
-    XCTAssertEqual(
-      Set(details?["selectedItems"] as? [String] ?? []),
-      Set(["[\"Profile 1\",\"example.com\"]", "[\"Profile 2\",\"docs.example.com\"]"]))
-    _ = try await control("/__audit/action-state", ["state": "completed"])
-    XCTAssertTrue(app.staticTexts["Completed"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.switches["approval-site-Profile 2-example.com"].exists)
     XCTAssertFalse(app.buttons["approve-qa-chrome"].exists)
-    capture("completed-approval-receipt", app)
-    _ = try await control("/__audit/action-state", ["state": "failed"])
-    XCTAssertTrue(app.staticTexts["Failed"].waitForExistence(timeout: 10))
-    capture("failed-approval-receipt", app)
   }
-  func testAutoReviewRulesSaveAndReload() async throws {
+
+  func testRetiredReviewRulesAreAbsent() async throws {
     let app = try await launch("rules", openChat: false)
     app.buttons["settings-button"].tap()
     let more = app.buttons["More preferences"]
     for _ in 0..<7 where !more.isHittable { app.swipeUp() }
     more.tap()
-    app.buttons["Auto-review rules"].tap()
-    let existing = app.textFields["review-allow-0"]
-    XCTAssertTrue(existing.waitForExistence(timeout: 8))
-    app.buttons["Add allow rule"].tap()
-    let added = app.textFields["review-allow-1"]
-    added.tap()
-    added.typeText("Inspect QA logs")
-    let save = app.buttons["save-review-rules"]
-    for _ in 0..<5 where !save.isHittable { app.swipeUp() }
-    save.tap()
-    let policy = try await control("/__audit/receipt")["policy"] as? [String: Any]
-    XCTAssertEqual(
-      policy?["allowInstructions"] as? [String], ["Read public documentation", "Inspect QA logs"])
-    app.buttons["Reload saved rules"].tap()
-    XCTAssertEqual(added.value as? String, "Inspect QA logs")
-    capture("saved-auto-review-rules", app)
+    XCTAssertFalse(app.buttons["Auto-review rules"].exists)
+    XCTAssertFalse(app.buttons["save-review-rules"].exists)
   }
-
 }

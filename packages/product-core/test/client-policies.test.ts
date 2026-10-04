@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ChannelMessageView, RoutineView } from "@openteam/contracts";
 import {
-  approvalPresentation,
   attachmentOverflowMessage,
   classifyDurableSendError,
   commonMarkdownFeatures,
@@ -59,47 +58,7 @@ const routine = (overrides: Partial<RoutineView> = {}): RoutineView => ({
   ...overrides,
 });
 
-describe("shared client presentation and editing policy", () => {
-  test("projects local-tool and auto-review approvals consistently", () => {
-    expect(
-      approvalPresentation({
-        status: "pending",
-        details: {
-          type: "localTool",
-          action: "readFile",
-          machineLabel: "Studio Mac",
-          arguments: { path: "/tmp/report.txt" },
-          supportsAlwaysAllow: true,
-        },
-      })
-    ).toMatchObject({
-      kind: "local-tool",
-      pending: true,
-      machineLabel: "Studio Mac",
-      localCapability: "read files on",
-      rawDetails: "/tmp/report.txt",
-      supportsAlwaysAllow: true,
-    });
-
-    expect(
-      approvalPresentation({
-        status: "accepted",
-        details: {
-          type: "autoReview",
-          action: "runCommand",
-          resolution: "always_allow",
-          reason: "The command changes local state.",
-          arguments: { command: "bun test" },
-        },
-      })
-    ).toMatchObject({
-      kind: "auto-review",
-      pending: false,
-      title: "The Bot wants to run a command",
-      statusLabel: "Always allowed",
-      rawDetails: "bun test",
-    });
-  });
+describe("shared client presentation and editing policy", () => {;
 
   test("never flattens event or composite schedules from a simple client", () => {
     const event = routine({ scheduleKind: "event", schedule: "event:github", schedules: [] });

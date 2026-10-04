@@ -318,16 +318,8 @@ export interface RootSidebarSection {
 interface AccountScopedRootSettings {
   mcpCustomInstructions?: string;
   mcpCustomInstructionsByServerId?: Record<string, string>;
-  mcpDisabledToolsByServerId?: Record<string, string[]>;
-  autoReviewInstructions?: {
-    isEnabled: boolean;
-    allowInstructions: string;
-    blockInstructions: string;
-  };
   agentDefaultModel?: string;
   computerUseModel?: string;
-  localToolPermission?: unknown;
-  localToolPermissionCeiling?: unknown;
 }
 
 export interface RootSettings extends AccountScopedRootSettings {
@@ -462,7 +454,6 @@ const defaultRootSettings = (): RootSettings => ({
   mcpBoxServers: [],
   mcpCustomInstructions: "",
   mcpCustomInstructionsByServerId: {},
-  mcpDisabledToolsByServerId: {},
   autoUpdateWhenIdleOptIn: false,
   egressTunnelEnabled: false,
   webauthnProxyEnabled: true,
@@ -512,38 +503,11 @@ const parseAccountScopedSettings = (input: unknown, label: string): AccountScope
       `${label}.mcpCustomInstructionsByServerId`
     );
   }
-  if (value.mcpDisabledToolsByServerId !== undefined) {
-    parsed.mcpDisabledToolsByServerId = stringArrayRecord(
-      value.mcpDisabledToolsByServerId,
-      `${label}.mcpDisabledToolsByServerId`
-    );
-  }
-  if (value.autoReviewInstructions !== undefined) {
-    const review = parseJsonObject(
-      JSON.stringify(value.autoReviewInstructions),
-      `${label}.autoReviewInstructions`
-    );
-    if (
-      typeof review.isEnabled !== "boolean" ||
-      typeof review.allowInstructions !== "string" ||
-      typeof review.blockInstructions !== "string"
-    ) {
-      throw new Error(`${label}.autoReviewInstructions is malformed`);
-    }
-    parsed.autoReviewInstructions = {
-      isEnabled: review.isEnabled,
-      allowInstructions: review.allowInstructions,
-      blockInstructions: review.blockInstructions,
-    };
-  }
   for (const key of ["agentDefaultModel", "computerUseModel"] as const) {
     if (value[key] !== undefined) {
       if (typeof value[key] !== "string") throw new Error(`${label}.${key} must be a string`);
       parsed[key] = value[key];
     }
-  }
-  for (const key of ["localToolPermission", "localToolPermissionCeiling"] as const) {
-    if (value[key] !== undefined) parsed[key] = value[key];
   }
   return parsed;
 };

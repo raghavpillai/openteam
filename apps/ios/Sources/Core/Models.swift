@@ -205,15 +205,7 @@ public struct Run: Codable, Identifiable, Sendable {
   public var botId: String
   public var channelId: String?
   public var status: String
-  public var isActive: Bool { ["queued", "running", "waiting_approval"].contains(status) }
-}
-public struct Approval: Codable, Identifiable, Sendable {
-  public var id: String
-  public var runId: String
-  public var kind: String
-  public var status: String
-  public var details: JSON
-  public var ownerConversationId: String
+  public var isActive: Bool { ["queued", "running"].contains(status) }
 }
 public struct Bootstrap: Codable, Sendable {
   public var cursor: String
@@ -221,7 +213,6 @@ public struct Bootstrap: Codable, Sendable {
   public var channels: [Channel]
   public var latestMessages: [Message]
   public var activeRuns: [Run]
-  public var pendingApprovals: [Approval]
   public var runtime: JSON
 }
 public struct History: Codable, Sendable {
@@ -249,7 +240,6 @@ public struct ChannelState: Decodable, Sendable {
   public var channelId: String
   public var revision: String
   public var runs: [Run]
-  public var approvals: [Approval]
 }
 public struct ProductEvent: Decodable, Sendable {
   public var sequence: String

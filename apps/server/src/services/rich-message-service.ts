@@ -1,6 +1,7 @@
 import type { BotService } from "./bot-service";
 import { storeProcessSecret } from "./process-secrets";
-import { ReviewActionService } from "./review-action-service";
+import { FeedbackService } from "./feedback-service";
+import { SharedTemplateService } from "./shared-template-service";
 import {
   ApiError,
   type ComputerHandoffMutationInput,
@@ -104,7 +105,8 @@ export const dismissMoveOnWidgets = async (
   `);
 
 export class RichMessageService {
-  readonly reviewActions: ReviewActionService;
+  readonly sharedTemplates: SharedTemplateService;
+  readonly feedback: FeedbackService;
   readonly externalDrafts: ExternalDraftService;
   constructor(
     private readonly prisma: PrismaClient,
@@ -112,15 +114,15 @@ export class RichMessageService {
     private readonly plugins: PluginService,
     private readonly screens: ScreenService,
     bots?: BotService
-  ) { this.externalDrafts = new ExternalDraftService(prisma, messaging, plugins); this.reviewActions = new ReviewActionService(prisma, messaging, bots); }
+  ) { this.externalDrafts = new ExternalDraftService(prisma, messaging, plugins); this.sharedTemplates = new SharedTemplateService(prisma, messaging, bots); this.feedback = new FeedbackService(prisma); }
 
   private recovering: Promise<void> | null = null;
-  recoverPendingReviews(): Promise<void> {
+  recoverPendingDeliveries(): Promise<void> {
     if (this.recovering) return this.recovering;
     this.recovering = (async () => {
-      const messages = await this.prisma.channelMessage.findMany({ where: { channel: { archivedAt: null }, AND: [{ metadata: { path: ["cardState"], equals: "sending" } }, { OR: [{ metadata: { path: ["type"], equals: "external-draft" } }, { metadata: { path: ["type"], equals: "review-action" } }] }] }, orderBy: { sequence: "asc" }, take: 100 });
+      const messages = await this.prisma.channelMessage.findMany({ where: { channel: { archivedAt: null }, AND: [{ metadata: { path: ["cardState"], equals: "sending" } }, { metadata: { path: ["type"], equals: "external-draft" } }] }, orderBy: { sequence: "asc" }, take: 100 });
       for (const message of messages) {
-        const service = metadataRecord(message.metadata).type === "external-draft" ? this.externalDrafts : this.reviewActions;
+        const service = this.externalDrafts;
         await Effect.runPromise(service.mutate(message.id, { action: "refresh" }));
       }
     })().finally(() => { this.recovering = null; });

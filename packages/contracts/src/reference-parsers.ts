@@ -64,7 +64,7 @@ const sendParameters = external_exports.object({
     "`iMessage` or `SMS` to force one. Omit (or `auto`) to try iMessage, then SMS only if the address is not on iMessage. Ignored with `chatId`, whose guid already carries the service."
   ),
   recipientName: external_exports.string().optional().describe(
-    "The recipient's name exactly as FindContacts returned it, shown to the user on the approval card beside the number. Only used with `to`; a `chatId` send shows the chat guid alone. Omit when you do not have one."
+    "The recipient's name exactly as FindContacts returned it, recorded beside the number in the result. Only used with `to`; a `chatId` send shows the chat guid alone. Omit when you do not have one."
   )
 });
 const checkPermissionsParameters = external_exports.object({});
@@ -77,8 +77,8 @@ const listCredentialsParameters = external_exports.object({
   )
 });
 const credentialProviderStatusParameters = external_exports.object({}).strict();
-const COOKIE_ORIGIN_APPROVAL_MAX_ORIGINS = 32;
-const requestCookieOriginApprovalParameters = external_exports.object({
+const COOKIE_IMPORT_MAX_ORIGINS = 32;
+const chromeCookieImportParameters = external_exports.object({
   origins: external_exports.array(
     external_exports.union([
       external_exports.string(),
@@ -89,8 +89,8 @@ const requestCookieOriginApprovalParameters = external_exports.object({
         )
       })
     ])
-  ).max(COOKIE_ORIGIN_APPROVAL_MAX_ORIGINS).optional().describe(
-    "Chrome cookie hosts to request. Omit or pass [] to list available profile and origin pairs. A bare host asks across every profile that has it; pass { origin, profileId } to ask for one profile only. Pass one or more entries to open the approval dialog and wait."
+  ).max(COOKIE_IMPORT_MAX_ORIGINS).optional().describe(
+    "Chrome cookie hosts to import. Omit or pass [] to list available profile and origin pairs. A bare host imports across every profile that has it; pass { origin, profileId } to import from one profile only. Pass one or more entries to import those cookies."
   )
 });
 const uploadFileParameters = external_exports.object({
@@ -218,7 +218,7 @@ function normalizeDestinationPath(raw) {
   }
   return normalized;
 }
-const schemas = { FindContacts:findContactsParameters, FindIMessageChats:findChatsParameters, ChatItems:chatItemsParameters, SearchIMessages:searchParameters, IMessageActivity:activityParameters, FetchIMessageAttachment:fetchAttachmentParameters, SendIMessage:sendParameters, CheckIMessagePermissions:checkPermissionsParameters, ListCredentials:listCredentialsParameters, GetCredentialProviderStatus:credentialProviderStatusParameters, request_cookie_origin_approval:requestCookieOriginApprovalParameters, upload_file:uploadFileParameters, download_file:downloadFileParameters };
+const schemas = { FindContacts:findContactsParameters, FindIMessageChats:findChatsParameters, ChatItems:chatItemsParameters, SearchIMessages:searchParameters, IMessageActivity:activityParameters, FetchIMessageAttachment:fetchAttachmentParameters, SendIMessage:sendParameters, CheckIMessagePermissions:checkPermissionsParameters, ListCredentials:listCredentialsParameters, GetCredentialProviderStatus:credentialProviderStatusParameters, import_chrome_cookies:chromeCookieImportParameters, upload_file:uploadFileParameters, download_file:downloadFileParameters };
 export function parseReferenceArguments(name: string, raw: unknown): Record<string, any> {
  const schema = schemas[name]; if(!schema) throw new Error('No reference parser: '+name);
  const args = schema.parse(raw);

@@ -4,7 +4,7 @@ import { BOT_AVATAR_COLOR_NAMES } from "./bot-avatar";
 export { validateProcessSecretName } from "./process-secrets";
 import { MAX_INLINE_IMAGE_URL_LENGTH, MAX_TASK_ATTACHMENTS, isTaskMediaPath } from "./media-input";
 import cursorToolsDocument from "./cursor-tools.json";
-export * from "./review-cards";
+export * from "./user-forms";
 export { formatUserFormReceipt } from "./user-form-receipts";
 import nativeToolsDocument from "./native-tools.json";
 import type { ClientCapabilities } from "./capabilities";
@@ -87,7 +87,7 @@ export type ConversationContinuity = typeof ConversationContinuity.Type;
 export const RunStatus = Schema.Literal(
   "queued",
   "running",
-  "waiting_approval",
+
   "completed",
   "failed",
   "cancelled",
@@ -147,15 +147,6 @@ export const RunItemKind = Schema.Literal(
   "error"
 );
 export type RunItemKind = typeof RunItemKind.Type;
-
-export const ApprovalDecision = Schema.Literal(
-  "accept",
-  "always_allow",
-  "decline",
-  "never",
-  "cancel"
-);
-export type ApprovalDecision = typeof ApprovalDecision.Type;
 
 export const CreateBotInput = Schema.Struct({
   clientRequestId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
@@ -227,7 +218,6 @@ export interface AgentNotificationPayload {
   botId: string;
   channelId: string;
   runId: string;
-  approvalId?: string;
   title: string;
   body: string;
   deepLink: string;
@@ -474,11 +464,11 @@ export const SendToAgentInput = Schema.Struct({
 export type SendToAgentInput = typeof SendToAgentInput.Type;
 
 export const AgentSendToUserInput = Schema.Struct({
-  type: Schema.Literal("text", "attachment", "widget", "secret-request", "credential-request", "computer-handoff", "user-form", "external-draft", "review-action"),
+  type: Schema.Literal("text", "attachment", "widget", "secret-request", "credential-request", "computer-handoff", "user-form", "external-draft", "bot-template"),
   credential: Schema.optional(Schema.Struct({kind:Schema.Literal("browser-login"),credential_id:Schema.String,connection_id:Schema.String,catalog_revision:Schema.String,site:Schema.String,purpose:Schema.String})),
   form: Schema.optional(Schema.Unknown),
   draft: Schema.optional(Schema.Unknown),
-  review: Schema.optional(Schema.Unknown),
+  template: Schema.optional(Schema.Unknown),
   end_turn: Schema.optional(Schema.Boolean),
   content: Schema.optional(Schema.String),
   url: Schema.optional(Schema.String),
@@ -639,8 +629,6 @@ export const ShellToolInput = Schema.Struct({
   description: Schema.optional(Schema.String),
   working_directory: Schema.optional(Schema.String),
   machineId: Schema.optional(Schema.String),
-  request_smart_mode_approval: Schema.optional(Schema.Boolean),
-  smart_mode_block_reason: Schema.optional(Schema.String),
 });
 export type ShellToolInput = typeof ShellToolInput.Type;
 
@@ -671,7 +659,6 @@ export const CallDynamicToolInput = Schema.Struct({
   namespace: Schema.String,
   toolName: Schema.String,
   arguments: Schema.optional(Schema.Union(Schema.Record({ key: Schema.String, value: Schema.Unknown }), Schema.String)),
-  mcpDetails: Schema.optional(Schema.Unknown),
 });
 export type CallDynamicToolInput = typeof CallDynamicToolInput.Type;
 
@@ -736,32 +723,10 @@ export const SetMcpInstructionsInput = Schema.Struct({
 });
 export type SetMcpInstructionsInput = typeof SetMcpInstructionsInput.Type;
 
-export const SetPluginGrantInput = Schema.Struct({
-  botId: Schema.String,
-  enabled: Schema.Boolean,
-});
-export type SetPluginGrantInput = typeof SetPluginGrantInput.Type;
-
-export const SetPluginEnablementInput = Schema.Struct({
-  botId: Schema.String,
-  enabled: Schema.Boolean,
-  skillsEnabled: Schema.optional(Schema.Boolean),
-});
-export type SetPluginEnablementInput = typeof SetPluginEnablementInput.Type;
-
-export const SetPluginToolPolicyInput = Schema.Struct({
-  botId: Schema.NullOr(Schema.String),
-  toolName: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200)),
-  decision: Schema.Literal("deny", "prompt", "allow"),
-  enabled: Schema.optional(Schema.Boolean),
-});
-export type SetPluginToolPolicyInput = typeof SetPluginToolPolicyInput.Type;
-
 export interface PluginCatalogToolView {
   name: string;
   description: string;
   risk: "read" | "write" | "destructive";
-  defaultDecision: "deny" | "prompt" | "allow";
 }
 
 export interface PluginCatalogConnectionView {
@@ -836,7 +801,7 @@ export interface PluginInstallView {
   name: string;
   description: string;
   publisher: string;
-  status: "installed" | "disabled" | "error";
+  status: "installed" | "error";
   installedAt: string;
   hasSkills: boolean;
   connections: PluginConnectionView[];
@@ -856,14 +821,6 @@ export interface PluginSettingsView {
   catalog: PluginCatalogItemView[];
   installs: PluginInstallView[];
   botCount: number;
-  policies: Array<{
-    id: string;
-    connectionId: string;
-    botId: string | null;
-    toolName: string;
-    decision: "deny" | "prompt" | "allow";
-    enabled?: boolean;
-  }>;
   activity: PluginActivityView[];
 }
 
@@ -882,23 +839,6 @@ export interface PluginConnectionStatusView {
 
 export interface PluginConnectionStatusesView {
   connections: PluginConnectionStatusView[];
-}
-
-export interface PluginBotAccessItemView {
-  id: string;
-  name: string;
-  icon: string;
-  color: string;
-  skillsEnabled: boolean;
-  grantedConnectionIds: string[];
-}
-
-export interface PluginBotAccessView {
-  pluginKey: string;
-  query: string;
-  offset: number;
-  total: number;
-  bots: PluginBotAccessItemView[];
 }
 
 export const ScreenActionInput = Schema.Union(
@@ -1284,12 +1224,6 @@ export const DynamicToolCallRequest = Schema.Struct({
 });
 export type DynamicToolCallRequest = typeof DynamicToolCallRequest.Type;
 
-export const ResolveApprovalInput = Schema.Struct({
-  decision: ApprovalDecision,
-  selectedItems: Schema.optional(Schema.Array(Schema.String)),
-});
-export type ResolveApprovalInput = typeof ResolveApprovalInput.Type;
-
 export const ComputerTurnRequest = Schema.Struct({
   runId: Schema.String,
   botId: Schema.String,
@@ -1348,13 +1282,6 @@ export const ShellCompletionInput = Schema.Struct({
 });
 export type ShellCompletionInput = typeof ShellCompletionInput.Type;
 
-export const ComputerApprovalResolution = Schema.Struct({
-  approvalId: Schema.String,
-  decision: ApprovalDecision,
-  selectedItems: Schema.optional(Schema.Array(Schema.String)),
-});
-export type ComputerApprovalResolution = typeof ComputerApprovalResolution.Type;
-
 export type ComputerEvent =
   | {
       type: "session.attached";
@@ -1376,22 +1303,6 @@ export type ComputerEvent =
   | { type: "item.started"; turnId: string; item: unknown }
   | { type: "agent.delta"; turnId: string; itemId: string; delta: string }
   | { type: "item.completed"; turnId: string; item: unknown }
-  | {
-      type: "approval.requested";
-      approvalId: string;
-      requestMethod: string;
-      turnId: string;
-      itemId: string;
-      details: unknown;
-    }
-  | {
-      type: "approval.action";
-      decision: "accept" | "always_allow";
-      selectedItems?: readonly string[];
-      approvalId: string;
-      turnId: string;
-      status: "running" | "completed" | "failed";
-    }
   | {
       type: "context.state";
       contextSessionId: string;
@@ -1672,25 +1583,6 @@ export interface RunView {
   updatedAt: string;
 }
 
-export interface ApprovalView {
-  id: string;
-  /** Runtime run that emitted the approval. For subagents this is the child run. */
-  runId: string;
-  runItemId: string | null;
-  kind: string;
-  status: string;
-  details: unknown;
-  createdAt: string;
-  /** Parent conversation that owns and renders the approval. */
-  ownerConversationId: string;
-  /** Parent turn that launched the Task, or runId for a parent-owned approval. */
-  parentRunId: string;
-  /** Task invocation that owns a child approval. A resume has its own id. */
-  parentToolCallId: string | null;
-  /** Reusable child session for a child approval. */
-  subagentId: string | null;
-}
-
 export interface SubagentActivityView {
   /** Immutable Task attempt id. This is runtime state, not a transcript entry. */
   id: string;
@@ -1730,7 +1622,6 @@ export interface Snapshot {
   messages: MessageView[];
   runs: RunView[];
   runItems: RunItemView[];
-  approvals: ApprovalView[];
   subagents: SubagentActivityView[];
   runtime: {
     server: "ready" | "degraded";
@@ -1754,7 +1645,6 @@ export interface ClientBootstrapView {
   channels: ClientSnapshot["channels"];
   latestMessages: ClientSnapshot["channelMessages"];
   activeRuns: ClientSnapshot["runs"];
-  pendingApprovals: ClientSnapshot["approvals"];
   channelRounds: ClientSnapshot["channelRounds"];
   subagents: ClientSnapshot["subagents"];
   runtime: ClientSnapshot["runtime"];
@@ -1777,13 +1667,11 @@ export interface ChannelClientState {
   channelRounds: ClientSnapshot["channelRounds"];
   runs: ClientSnapshot["runs"];
   runItems: ClientSnapshot["runItems"];
-  approvals: ClientSnapshot["approvals"];
   subagents: ClientSnapshot["subagents"];
   truncated: {
     channelRounds: boolean;
     runs: boolean;
     runItems: boolean;
-    approvals: boolean;
     subagents: boolean;
   };
 }

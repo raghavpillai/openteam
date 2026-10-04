@@ -1,5 +1,4 @@
 /** Portable package definitions. These types never depend on a client, database, or runtime. */
-export type ToolDecision = "deny" | "prompt" | "allow";
 export type ConfigValue = string | number | boolean;
 export interface PluginField {
   key: string;
@@ -34,7 +33,6 @@ export interface PluginToolDefinition {
   name: string;
   description: string;
   risk: "read" | "write" | "destructive";
-  defaultDecision: ToolDecision;
   inputSchema: Readonly<Record<string, unknown>>;
 }
 export interface PluginConnectorDefinition {
@@ -108,4 +106,3 @@ export type SecretEdit =
   | { action: "keep" }
   | { action: "clear" }
   | { action: "replace"; value: string };
-export type PluginInstallationMode = "optional" | "default" | "required" | "disabled";

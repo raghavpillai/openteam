@@ -10,7 +10,7 @@ export class FunctionalFixtures {
   configuration: any = { connectionId: "fixture-connection", namespace: "fixture", endpoint: "https://fixture.invalid/mcp", command: null, args: [], cwd: null, values: {region:"east"}, fields: [{key:"region",label:"Region",type:"string",required:true,secret:false},{key:"token",label:"API token",required:true,secret:true}], configuredSecrets:["token"], headerNames:[],environmentNames:[], setup:null,callbackUrl:"",tokenEndpointAuthMethod:"none" };
   catalog = [{key:"fixture-notes",name:"Fixture Notes",description:"An isolated notes plugin for native contract tests.",publisher:"OpenTeam QA",version:"1.0.0",installed:false,setupFields:[],connections:[],hasSkills:true}];
   connection = {id:"fixture-connection",revision:"1",pluginKey:"fixture-notes",connectorKey:"notes",name:"Notes",alias:"Main",transport:"http",auth:"token",status:"ready",statusMessage:null,instructions:"Keep notes concise.",canAuthenticate:false,configured:true,command:null,tools:[{name:"list_notes",description:"List fixture notes.",risk:"read",defaultDecision:"prompt"}]};
-  settings(bots: any[]) {return {catalog:this.catalog,installs:this.installs,policies:this.policies,activity:[],botCount:bots.length};}
+  settings(bots: any[]) {return {catalog:this.catalog,installs:this.installs,activity:[],botCount:bots.length};}
   async handle(path: string, method: string, input: any, url: URL, bots: any[]): Promise<Response | null> {
     const reply = (body: any,status=200) => Response.json(body,{status});
     if(path === "/api/v0/plugins") return reply(this.settings(bots));

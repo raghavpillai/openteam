@@ -69,7 +69,6 @@ const snapshot = (): ClientSnapshot => ({
   channelRounds: [],
   runs: [],
   runItems: [],
-  approvals: [],
   subagents: [],
   runtime: {
     server: "ready",

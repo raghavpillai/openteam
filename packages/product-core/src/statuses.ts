@@ -1,7 +1,7 @@
 import type { RunStatus } from "@openteam/contracts";
 import type { RoutineExecutionView } from "@openteam/contracts/routine-types";
 
-export type ActiveRunStatus = Extract<RunStatus, "queued" | "running" | "waiting_approval">;
+export type ActiveRunStatus = Extract<RunStatus, "queued" | "running">;
 export type TransientRoutineExecutionStatus = Extract<
   RoutineExecutionView["status"],
   ActiveRunStatus
@@ -10,7 +10,7 @@ export type TransientRoutineExecutionStatus = Extract<
 export const ACTIVE_RUN_STATUSES: ReadonlySet<ActiveRunStatus> = new Set([
   "queued",
   "running",
-  "waiting_approval",
+
 ]);
 
 export const isActiveRunStatus = (status: string): status is ActiveRunStatus =>

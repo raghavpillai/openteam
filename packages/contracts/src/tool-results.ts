@@ -6,7 +6,7 @@ import {
   CREDENTIAL_REQUEST_GUIDANCE,
   describeCredential,
   renderCredentialProviderStatus,
-  formatCookieOriginApprovalOutcome,
+  formatChromeCookieImportOutcome,
   renderContactsResult,
   truncationNotice,
 } from "./reference-formatters";
@@ -53,7 +53,7 @@ export function renderDesktopResult(
       CREDENTIAL_REQUEST_GUIDANCE,
     ].join("\n");
   }
-  if (name === "request_cookie_origin_approval") return formatCookieOriginApprovalOutcome(output);
+  if (name === "import_chrome_cookies") return formatChromeCookieImportOutcome(output);
   if (name === "FindContacts") return renderContactsResult(output);
   if (["ChatItems", "FindIMessageChats", "SearchIMessages"].includes(name)) {
     const notice = truncationNotice(output, name === "ChatItems" && args.chatGuid === undefined);
@@ -133,19 +133,12 @@ export function renderControlResult(
     if (result.target === "avatar" && result.cleared)
       return "Cleared your picture — back to the default.";
   }
-  if (name === "create_bot_share_json" && result.staged)
-    return `Staged unpublished version ${result.version} of "${args.profile?.name}". It is not public until you confirm it.`;
-  if (name === "request_user_form" && result.sent)
-    return "Showed the form to the user; your turn is over. When they submit, the host fills the browser and resumes you with a per-field receipt (fill statuses only — never the submitted values). If they dismiss it, you'll be resumed with that outcome. If they choose to do the step on the screen instead, the host hands them the box directly (same as request_box_help) and you'll be resumed when they hand it back." + (result.preflightNote ? `\n\n${result.preflightNote}` : "");
-  if (name === "request_box_help" && result.sent)
-    return "Handed the box to the user. They have control now; wait for them to hand it back, and you'll be resumed automatically.";
+  if (name === "create_bot_share_json" && result.published)
+    return `Published bot template version ${result.version}. Verify the returned artifact before sharing it.`;
   if (name === "SendFeedback" && result.feedbackStatus) {
     if (result.feedbackStatus === "sent") return `Feedback sent to the configured OpenTeam support destination. They ${result.wantsResponse ? "asked for a reply" : "did not ask for a reply"}. Confirm to the user that it went through.`;
-    if (result.feedbackStatus === "dismissed") return "Feedback was not sent: the user did not approve sending it. Do not retry; ask the user what they would like to do instead.";
     return String(result.outcome ?? "Feedback could not be confirmed. Do not retry automatically.");
   }
-  if (name === "SendFeedback" && result.sent)
-    return "Feedback is staged for user review. Nothing has been sent to the feedback endpoint yet.";
   if (name === "TodoWrite" && Array.isArray(result.todos)) {
     let text =
       "Successfully updated TODOs. Make sure to follow and update your TODO list as you make progress. Cancel and add new TODO tasks as needed when the user makes a correction or follow-up request.";
@@ -185,16 +178,12 @@ export function renderControlResult(
         : `${Math.floor(seconds / 60)}m${seconds % 60 ? ` ${seconds % 60}s` : ""}`;
     const describe = (sub: any, detailed: boolean) => {
       const calls = sub.recent_tool_calls ?? [];
-      const approvals = Array.isArray(sub.pending_approvals) ? sub.pending_approvals : [];
       const status = typeof sub.status === "string" ? sub.status : "status unavailable";
       const runStatus = typeof sub.run_status === "string" ? `; run: ${sub.run_status}` : "";
       const lines = [
-        `- ${sub.subagent_id} [${sub.subagent_type}] "${sub.description}" — ${status}${runStatus}; elapsed ${elapsed(sub.elapsed_seconds)}, ${sub.tool_call_count ?? calls.length} tool call(s)${approvals.length ? `, ${approvals.length} pending approval(s)` : ""}`,
+        `- ${sub.subagent_id} [${sub.subagent_type}] "${sub.description}" — ${status}${runStatus}; elapsed ${elapsed(sub.elapsed_seconds)}, ${sub.tool_call_count ?? calls.length} tool call(s)`,
       ];
       if (detailed) {
-        for (const approval of approvals) {
-          lines.push(`  Pending approval ${approval.id}${approval.summary ? `: ${approval.summary}` : ""}${approval.reason ? ` — ${approval.reason}` : ""}`);
-        }
         lines.push(
           calls.length ? "  Recent activity (oldest → newest):" : "  No tool activity recorded yet."
         );

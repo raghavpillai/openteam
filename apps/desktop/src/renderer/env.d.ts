@@ -21,28 +21,15 @@ interface Window {
       close(): Promise<void>;
       onResult(callback: (result: { connectionId: string; status: "ready" | "cancelled" | "error"; message?: string }) => void): () => void;
     };
-    permissions: {
+    computer: {
       cancelSavedLoginSetup(): Promise<void>;
-      syncSavedLogins(connectionId?: string): ReturnType<NonNullable<Window["openteam"]>["permissions"]["getCapabilities"]>;
-      setSavedLoginAlwaysAllow(connectionId: string, alwaysAllow: boolean): ReturnType<NonNullable<Window["openteam"]>["permissions"]["getCapabilities"]>;
-      importSavedLoginToken(token: string): ReturnType<NonNullable<Window["openteam"]>["permissions"]["getCapabilities"]>;
+      syncSavedLogins(connectionId?: string): ReturnType<NonNullable<Window["openteam"]>["computer"]["getCapabilities"]>;
+      importSavedLoginToken(token: string): ReturnType<NonNullable<Window["openteam"]>["computer"]["getCapabilities"]>;
       listSavedLogins(): Promise<{ connected: boolean; credentials: Array<{credential_id: string; connection_id: string; title: string; sites: string[]; autoFill: boolean}> }>;
-      getCapabilities(): Promise<{ credentialProviders: Array<import("@openteam/contracts/saved-logins").CredentialProviderConnection>; messagesSendAll?:boolean; cookieGrants: string[]; messagesGrants: string[] }>;
-      updateCapabilities(input: { revoke?: "cookies" | "credentials" | "messages"; removeCredentialConnection?: string; messagesSendAll?: boolean }): Promise<{ credentialProviders: Array<import("@openteam/contracts/saved-logins").CredentialProviderConnection>; messagesSendAll?:boolean; cookieGrants: string[]; messagesGrants: string[] }>;
-      get: () => Promise<OpenTeamPermissionSettings>;
-      update: (request: {
-        machineLabel?: string;
-        localToolPermission?: OpenTeamPermissionSettings["localToolPermission"];
-        autoReviewEnabled?: boolean;
-      }) => Promise<OpenTeamPermissionSettings>;
-      addRule: (request: {
-        kind: "allow" | "block";
-        instruction: string;
-      }) => Promise<OpenTeamPermissionSettings>;
-      removeRule: (request: {
-        kind: "allow" | "block";
-        instruction: string;
-      }) => Promise<OpenTeamPermissionSettings>;
+      getCapabilities(): Promise<{ credentialProviders: Array<import("@openteam/contracts/saved-logins").CredentialProviderConnection> }>;
+      updateCapabilities(input: { revoke?: "credentials"; removeCredentialConnection?: string }): Promise<{ credentialProviders: Array<import("@openteam/contracts/saved-logins").CredentialProviderConnection> }>;
+      get: () => Promise<OpenTeamComputerSettings>;
+      update: (request: { machineLabel: string }) => Promise<OpenTeamComputerSettings>;
     };
     files: {
       downloadAll: (
@@ -120,17 +107,11 @@ interface OpenTeamAuthTokenStorageResult {
   backend: string;
 }
 
-interface OpenTeamPermissionSettings {
+interface OpenTeamComputerSettings {
   version: 1;
-  localToolPermission: "always" | "ask" | "never";
   machine: {
     machineId: string;
     label: string;
-  };
-  autoReview: {
-    isEnabled: boolean;
-    allowInstructions: string[];
-    blockInstructions: string[];
   };
 }
 

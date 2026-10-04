@@ -93,7 +93,6 @@ export async function createPluginFlowFixture(databaseUrl: string, options: { pu
     plugins: service,
     pluginSettings: service.settings,
     pluginConnectionStatuses: service.pollConnectionStatuses,
-    pluginBotAccess: service.botAccess,
     installPlugin: service.install,
     uninstallPlugin: service.uninstall,
     addCustomMcp: service.addCustomMcp,
@@ -107,9 +106,6 @@ export async function createPluginFlowFixture(databaseUrl: string, options: { pu
     renamePluginAccount: service.renameAccount,
     removePluginAccount: service.removeAccount,
     setMcpInstructions: service.setInstructions,
-    setPluginEnablement: service.setEnablement,
-    setPluginGrant: service.setGrant,
-    setPluginPolicy: service.setPolicy,
   } as unknown as AppService;
   return {
     db,

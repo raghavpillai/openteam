@@ -42,8 +42,6 @@ export class SavedLoginService {
         vaultId: true,
         vaultName: true,
         generation: true,
-        alwaysAllow: true,
-        permissionRevision: true,
         itemCount: true,
         lastSuccessfulSyncAt: true,
         lastSyncErrorCode: true,
@@ -53,25 +51,6 @@ export class SavedLoginService {
       ...row,
       lifecycleState: row.lastSyncErrorCode === "provider-rejected" ? "provider-rejected" : "active",
     }));
-  }
-  async setAlwaysAllow(input: any) {
-    if (
-      typeof input?.alwaysAllow !== "boolean" ||
-      typeof input.connectionId !== "string" ||
-      !/^1password:[a-zA-Z0-9_.-]{1,256}:[a-zA-Z0-9_.-]{1,256}$/.test(input.connectionId)
-    )
-      throw invalid();
-    const result = await this.db.savedLoginConnection.updateMany({
-      where: { id: input.connectionId, enabled: true },
-      data: { alwaysAllow: input.alwaysAllow, permissionRevision: { increment: 1 } },
-    });
-    if (!result.count)
-      throw new ApiError(
-        404,
-        "saved_login_not_found",
-        "This saved-login connection is unavailable"
-      );
-    return this.view();
   }
   async sync(input?: any) {
     const connectionId = input?.connectionId;
@@ -135,7 +114,6 @@ export class SavedLoginService {
         const data = {
           accountId: "service-account", vaultId: vault.id, vaultName: vault.title,
           token: encrypted, enabled: true, generation: (current?.generation ?? 0) + 1,
-          alwaysAllow: false, permissionRevision: (current?.permissionRevision ?? 0) + 1,
           // The provider controls imported-token expiry; do not invent a lifetime.
           itemCount: vault.itemCount, lastSuccessfulSyncAt: new Date(), lastSyncErrorCode: null,
         };
@@ -152,8 +130,6 @@ export class SavedLoginService {
         data: {
           token: null,
           enabled: false,
-          alwaysAllow: false,
-          permissionRevision: { increment: 1 },
           generation: { increment: 1 },
         },
       });
@@ -184,8 +160,7 @@ export class SavedLoginService {
       });
       if (
         !current?.enabled ||
-        current.generation !== connection.generation ||
-        current.permissionRevision !== connection.permissionRevision
+        current.generation !== connection.generation
       )
         throw invalid();
       const item = (value: any, full: boolean) => ({
@@ -220,7 +195,6 @@ export class SavedLoginService {
             id: connection.id,
             enabled: true,
             generation: connection.generation,
-            permissionRevision: connection.permissionRevision,
           },
           data: {
             itemCount: output.length,
@@ -238,7 +212,6 @@ export class SavedLoginService {
           id: connection.id,
           enabled: true,
           generation: connection.generation,
-          permissionRevision: connection.permissionRevision,
         },
         data: {
           lastSyncErrorCode:

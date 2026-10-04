@@ -18,7 +18,7 @@ actually received; an older receipt cannot clear a newer message or reaction.
 
 Queued pushes have a short grace period for read receipts and are checked again
 under the push authorization lock before sending. Read, withdrawn, muted, and
-resolved-approval alerts are skipped. Every delivered alert includes the sequences
+settled-input alerts are skipped. Every delivered alert includes the sequences
 needed for selective removal. Read synchronization updates badges and clears only
 covered alerts on the other device.
 

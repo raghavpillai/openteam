@@ -8,7 +8,7 @@ import {
   validateUserFormValues,
   type UserForm,
   type UserFormField,
-} from "@openteam/contracts/review-cards";
+} from "@openteam/contracts/user-forms";
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../../client/openteam-api";
 

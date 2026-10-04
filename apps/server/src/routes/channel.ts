@@ -101,9 +101,9 @@ export async function channelRoutes(context: RouteContext): Promise<Response | u
     );
   }
   const secretSubmissionMatch = path.match(/^\/api\/channel-messages\/([^/]+)\/secret$/);
-  const reviewMatch = path.match(/^\/api\/channel-messages\/([^/]+)\/review-action(?:\/(recipe))?$/);
-  if (reviewMatch?.[1] && request.method === "GET" && reviewMatch[2]) return json(await app.reviewRecipe(decodeURIComponent(reviewMatch[1])));
-  if (reviewMatch?.[1] && request.method === "POST" && !reviewMatch[2]) return json(await run(app.mutateReviewAction(decodeURIComponent(reviewMatch[1]), await request.json())));
+  const templateMatch = path.match(/^\/api\/channel-messages\/([^/]+)\/bot-template(?:\/(recipe))?$/);
+  if (templateMatch?.[1] && request.method === "GET" && templateMatch[2]) return json(await app.sharedTemplateRecipe(decodeURIComponent(templateMatch[1])));
+  if (templateMatch?.[1] && request.method === "POST" && !templateMatch[2]) return json(await run(app.mutateSharedTemplate(decodeURIComponent(templateMatch[1]), await request.json())));
   const draftMatch = path.match(/^\/api\/channel-messages\/([^/]+)\/external-draft$/);
   if (request.method === "POST" && draftMatch?.[1]) return json(await run(app.mutateExternalDraft(decodeURIComponent(draftMatch[1]), await request.json())));
   const formMatch = path.match(/^\/api\/channel-messages\/([^/]+)\/user-form(?:\/(prefill))?$/);

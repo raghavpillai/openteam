@@ -59,7 +59,7 @@ export const DESKTOP_CAPABILITY_TOOLS = [
   ),
   definition(
     "SendIMessage",
-    "Send the exact text after user review. Specify exactly one of a verified chatId GUID or recipient to (E.164 number/email). recipientName is display metadata only. Never retry an uncertain send.",
+    "Send the exact requested text directly. Specify exactly one of a verified chatId GUID or recipient to (E.164 number/email). recipientName is display metadata only. Never retry an uncertain send.",
     {
       text: string,
       to: string,
@@ -76,7 +76,7 @@ export const DESKTOP_CAPABILITY_TOOLS = [
   ),
   definition(
     "ListCredentials",
-    "Search configured 1Password login metadata, never values. At a login pass the current site URL. To use a matching item, SendToUser type credential-request with credential {kind:browser-login, credential_id, connection_id, catalog_revision, site, purpose}. Approval binds to a live browser page; values remain private.",
+    "Search configured 1Password login metadata, never values. At a login pass the current site URL. To use a matching item, SendToUser type credential-request with credential {kind:browser-login, credential_id, connection_id, catalog_revision, site, purpose}. Filling binds to a live browser page; values remain private.",
     { site: string, query: string }
   ),
   definition(
@@ -85,8 +85,8 @@ export const DESKTOP_CAPABILITY_TOOLS = [
     {}
   ),
   definition(
-    "request_cookie_origin_approval",
-    "Omit origins to list available Chrome profile/origin pairs. Pass listed hosts or {origin,profileId} to approve import into the bot browser. Grants are scoped to that bot, profile and host and can be revoked in Computer settings.",
+    "import_chrome_cookies",
+    "Omit origins to list available Chrome profile/origin pairs. Pass listed hosts or {origin,profileId} to import cookies directly into the bot browser. Only the requested profiles and hosts are imported.",
     {
       origins: {
         type: "array",

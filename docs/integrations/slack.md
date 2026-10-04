@@ -22,13 +22,12 @@ Keep the app internal to your workspace. Slack doesn't allow unlisted public app
 
 1. In OpenTeam, choose **Save credentials and continue**, pick your workspace, and approve access.
 2. To check the connection, open **Manage → Accounts and settings**, choose the Slack account, and run a small read under **Test a tool**.
-3. Under **Bot access** on the plugin's page, turn on the account for the bots that should use it.
+Installed plugins and their connected accounts are available to all bots.
 
 Start with a read-only request:
 
 > Find recent decisions about the website launch and summarize them with links. Don't post anything to Slack.
 
-Set sending and posting tools to **Ask first** until you trust how a bot uses them. See [approvals and privacy](../configuration/approvals.md#control-plugin-access).
 
 To limit what bots can do in Slack, turn tools off or set them to **Deny** under **Manage → Accounts and settings**.
 

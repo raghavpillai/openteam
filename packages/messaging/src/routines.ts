@@ -913,7 +913,7 @@ export class RoutineService {
       const active = await tx.routineExecution.count({
         where: {
           routineId: routine.id,
-          status: { in: ["queued", "running", "waiting_approval"] },
+          status: { in: ["queued", "running"] },
         },
       });
       if (active > 0 && !event) {
@@ -1412,7 +1412,7 @@ export class RoutineService {
         const active = await tx.routineExecution.count({
           where: {
             routineId: routine.id,
-            status: { in: ["queued", "running", "waiting_approval"] },
+            status: { in: ["queued", "running"] },
           },
         });
         if (routine.scheduleKind === "event") {

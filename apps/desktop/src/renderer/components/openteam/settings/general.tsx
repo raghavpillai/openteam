@@ -14,7 +14,6 @@ import type { MicrophoneControlProps } from "./microphone";
 import { SectionLabel, SettingsGroup, SettingsRow } from "./ui";
 const MicrophoneSettings = lazy(() => import("./microphone").then(module => ({ default: module.MicrophoneSettings })));
 
-const GeneralBotSettings = lazy(() => import("./general-bot"));
 
 const SettingsSelectContent = ({ children }: PropsWithChildren) => (
   <SelectContent
@@ -124,9 +123,6 @@ export default function GeneralSettings() {
 
       <Suspense fallback={null}><MicrophoneSettings renderControl={renderMicrophoneControl} /></Suspense>
 
-      <Suspense fallback={null}>
-        <GeneralBotSettings />
-      </Suspense>
     </>
   );
 }

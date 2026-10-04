@@ -1,7 +1,6 @@
 import {
   type AgentNotificationPayload,
   agentNotificationDeliveryPolicy,
-  notificationApprovalReason,
   PUSH_DELIVERY_ADVISORY_LOCK,
   type PushNotificationPayload,
   truncateNotificationText,
@@ -50,7 +49,6 @@ const errorMessage = (error: unknown): string =>
 
 export const truncateNotificationBody = truncateNotificationText;
 
-export const approvalReason = notificationApprovalReason;
 
 type QueuedAgentNotificationPayload = Omit<AgentNotificationPayload, "badgeCount"> & {
   badgeCount?: number;
@@ -437,10 +435,6 @@ export class PushNotificationDispatcher {
       channel.hiddenFromSidebar
     )
       return false;
-    if (payload.approvalId) {
-      const approval = await tx.approval.findUnique({ where: { id: payload.approvalId } });
-      if (approval?.status !== "pending") return false;
-    }
     if (payload.notificationSequence) {
       const activity = await tx.channelNotification.findUnique({
         where: { sequence: BigInt(payload.notificationSequence) },

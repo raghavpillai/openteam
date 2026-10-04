@@ -114,7 +114,7 @@ export class BrowserUseSession {
   async assertUploadReviewTarget(args: JsonObject, expected: unknown) {
     const binding = expected && typeof expected === "object" ? this.uploadReviews.get(expected) : undefined;
     if (!binding || binding.page !== await this.ensurePage(this.viewId(args)))
-      throw new Error("File chooser changed during approval review");
+      throw new Error("File chooser changed before file attachment");
     await this.uploads.assert(binding.page, binding.state);
   }
   private async respondToUpload(args: JsonObject) {

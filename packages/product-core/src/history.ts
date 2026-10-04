@@ -254,7 +254,6 @@ export const snapshotFromBootstrap = (bootstrap: ClientBootstrapView): ClientSna
   channelRounds: bootstrap.channelRounds,
   runs: bootstrap.activeRuns,
   runItems: [],
-  approvals: bootstrap.pendingApprovals,
   subagents: bootstrap.subagents,
   runtime: bootstrap.runtime,
 });
@@ -327,10 +326,6 @@ export const mergeChannelState = (
       snapshot.runItems.filter((item) => !replacedRunIds.has(item.runId)),
       state.runItems
     ),
-    approvals: uniqueEntitiesById(
-      snapshot.approvals.filter((approval) => !replacedRunIds.has(approval.runId)),
-      state.approvals
-    ),
     subagents: uniqueEntitiesById(
       snapshot.subagents.filter((subagent) => subagent.parentChannelId !== state.channelId),
       state.subagents
@@ -341,17 +336,13 @@ export const mergeChannelState = (
 export const mergeBootstrapActivityStates = (
   bootstrap: ClientBootstrapView,
   states: readonly ChannelClientState[]
-): Pick<ClientSnapshot, "channelRounds" | "runs" | "runItems" | "approvals" | "subagents"> => ({
+): Pick<ClientSnapshot, "channelRounds" | "runs" | "runItems" | "subagents"> => ({
   channelRounds: uniqueEntitiesById(
     bootstrap.channelRounds,
     ...states.map((state) => state.channelRounds)
   ),
   runs: uniqueEntitiesById(bootstrap.activeRuns, ...states.map((state) => state.runs)),
   runItems: uniqueEntitiesById(...states.map((state) => state.runItems)),
-  approvals: uniqueEntitiesById(
-    bootstrap.pendingApprovals,
-    ...states.map((state) => state.approvals)
-  ),
   subagents: uniqueEntitiesById(bootstrap.subagents, ...states.map((state) => state.subagents)),
 });
 

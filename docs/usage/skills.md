@@ -38,7 +38,7 @@ Skills that bots save are available to all your bots. They don't appear under **
 
 ## Skills from plugins
 
-Some plugins come with skills, such as instructions for working with that service. To turn them on for a bot, open the plugin's page and, under **Bot access**, turn on **Instructions and hooks** for that bot. To use the plugin's tools, the bot also needs access to its account.
+Some installed plugins include skills and runtime instructions. These load for all bots.
 
 | Plugin | Included skills |
 | --- | --- |

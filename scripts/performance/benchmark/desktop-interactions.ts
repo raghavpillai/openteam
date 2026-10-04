@@ -50,7 +50,6 @@ const notificationFixture = (count: number) =>
       createdAt: `2026-01-01T00:${String(index % 60).padStart(2, "0")}:00.000Z`,
     })),
     runs: [],
-    approvals: [],
   }) as never;
 
 const notificationSelection = [1_000, 10_000].map((count) => {

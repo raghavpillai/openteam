@@ -43,7 +43,7 @@ function settings() {
     installs: catalog.filter(p => installed.has(p.key)).map(p => ({
       ...p, id: p.key + "-installation", pluginKey: p.key, status: "installed",
       connections: [connection(p.key)],
-    })), policies: [], activity: [], botCount: 12,
+    })), activity: [], botCount: 12,
   };
 }
 const server = Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 40, async fetch(request) {

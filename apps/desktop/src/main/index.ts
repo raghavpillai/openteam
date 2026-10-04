@@ -43,7 +43,6 @@ import { CapabilitySettingsStore } from "./host/capability-settings";
 import { NativeActionReceipts } from "./host/action-receipts";
 import { isAddressInUseError } from "./host/bridge-listener";
 import { HostJobManager } from "./host/job-manager";
-import type { AutoReviewMode, AutoReviewResult, HostAction } from "./host/permissions";
 import {
   type DesktopAgentNotificationState,
   DesktopNotificationManager,
@@ -51,13 +50,10 @@ import {
   parseNotificationChannels,
 } from "./notifications";
 import {
-  type AutoReviewRuleKind,
-  createPermissionSettingsStore,
-  synchronizePermissionSettings,
-  type LocalToolPermission,
-  type PermissionSettings,
-  type PermissionSettingsStore,
-} from "./permission-settings";
+  createComputerSettingsStore,
+  type ComputerSettings,
+  type ComputerSettingsStore,
+} from "./computer-settings";
 import { ServerUpdater } from "./server-updater";
 import {
   classifyDesktopUpdateError,
@@ -72,7 +68,7 @@ ipcMain.handle("openteam:window-visibility", (event) => {
   return isMainWindowVisible();
 });
 let authTokenStore: DesktopAuthTokenStore | null = null;
-let permissionSettings: PermissionSettingsStore | null = null;
+let computerSettings: ComputerSettingsStore | null = null;
 let desktopNotifications: DesktopNotificationManager | null = null;
 let durableSendJournals: DurableSendJournalStore | null = null;
 const activeNotifications = new Set<Notification>();
@@ -676,7 +672,6 @@ ipcMain.handle("openteam:machine:connect", (event, serverUrl: unknown) => {
   if (enrollmentServerUrl !== nextServerUrl) pluginOAuth.closeAll();
   enrollmentServerUrl = nextServerUrl;
   machineEnrollment?.configure(enrollmentServerUrl);
-  void syncReviewPolicy().catch(() => {});
   return { machineId: localMachine.machineId };
 });
 
@@ -880,11 +875,11 @@ ipcMain.handle("openteam:notifications:open-settings", async (event) => {
   await shell.openExternal("ms-settings:notifications");
 });
 
-const requirePermissionSettings = (event: Electron.IpcMainInvokeEvent) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents || !permissionSettings) {
-    throw new Error("Permission settings are unavailable");
+const requireComputerSettings = (event: Electron.IpcMainInvokeEvent) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || !computerSettings) {
+    throw new Error("Computer settings are unavailable");
   }
-  return permissionSettings;
+  return computerSettings;
 };
 
 const nativeSettings = () => new CapabilitySettingsStore(join(app.getPath("userData"), "native-capabilities.json"));
@@ -924,18 +919,17 @@ const savedLoginCommand = () => brokerCredentialCommand(sharedCapabilitySettings
 ipcMain.handle("openteam:capabilities:cancel-login", event => { requireAuthSender(event); savedLoginProvisioning?.cancel(); });
 ipcMain.handle("openteam:capabilities:import-login-token", (event, token: string) => { requireAuthSender(event); return provisioning().importToken(token); });
 ipcMain.handle("openteam:capabilities:sync-logins", (event, connectionId?: string) => { requireAuthSender(event); return provisioning().sync(connectionId); });
-ipcMain.handle("openteam:capabilities:allow-logins", (event, input: { connectionId: string; alwaysAllow: boolean }) => { requireAuthSender(event); return provisioning().setAlwaysAllow(input.connectionId, input.alwaysAllow); });
 
 ipcMain.handle("openteam:capabilities:get", async (event) => {
-  requirePermissionSettings(event); return provisioning().refresh().catch(() => sharedCapabilitySettings().read());
+  requireComputerSettings(event); return provisioning().refresh().catch(() => sharedCapabilitySettings().read());
 });
 ipcMain.handle("openteam:capabilities:logins", async (event) => {
-  requirePermissionSettings(event);
+  requireComputerSettings(event);
   const { SavedCredentials } = await import("./host/credentials");
-  return new SavedCredentials(sharedCapabilitySettings(), async () => "deny", savedLoginCommand()).list({});
+  return new SavedCredentials(sharedCapabilitySettings(), savedLoginCommand()).list({});
 });
 ipcMain.handle("openteam:capabilities:update", async (event, input: unknown) => {
-  requirePermissionSettings(event);
+  requireComputerSettings(event);
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Invalid native settings");
   const update = input as { removeCredentialConnection?: string; revoke?: string };
   if (update.removeCredentialConnection) await provisioning().disconnect(update.removeCredentialConnection);
@@ -945,98 +939,13 @@ ipcMain.handle("openteam:capabilities:update", async (event, input: unknown) => 
   return sharedCapabilitySettings().update(input);
 });
 
-const syncReviewPolicy = async (settings?: PermissionSettings) => {
-  const current = settings ?? await permissionSettings?.read();
-  const serverUrl = enrollmentServerUrl;
-  if (!serverUrl || !current) return;
-  const token = (await authTokenStore?.read())?.token;
-  if (enrollmentServerUrl !== serverUrl) throw new Error("The server changed while syncing Auto Review settings");
-  const headers = { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) };
-  const endpoint = `${serverUrl}/api/v0/server-settings/auto-review`;
-  if (!settings) {
-    const response = await net.fetch(endpoint, { headers, signal: AbortSignal.timeout(10_000) });
-    if (!response.ok) throw new Error("Could not load Auto Review settings from the server");
-    const remote = await response.json() as PermissionSettings["autoReview"] & { configured: boolean };
-    if (enrollmentServerUrl !== serverUrl) throw new Error("The server changed while syncing Auto Review settings");
-    if (remote.configured) { await permissionSettings?.update({ autoReview: remote }); return; }
-  }
-  const response = await net.fetch(endpoint, { method: "PATCH", headers, body: JSON.stringify(current.autoReview), signal: AbortSignal.timeout(10_000) });
-  if (!response.ok) throw new Error("Auto Review settings could not sync to the bot computer. Reconnect and try again.");
-};
-const syncedPermissionSettingsView = async (settings: PermissionSettings) => { await syncReviewPolicy(settings); return permissionSettingsView(settings); };
-const permissionSettingsView = (settings: PermissionSettings) => ({
-  ...settings,
-  machine: {
-    ...localMachine,
-    label: settings.machineLabel ?? localMachine.label,
-  },
+const computerSettingsView = (settings: ComputerSettings) => ({
+  ...settings, machine: { ...localMachine, label: settings.machineLabel ?? localMachine.label },
 });
-
-ipcMain.handle("openteam:permissions:get", async (event) => {
-  const settings = requirePermissionSettings(event);
-  await syncReviewPolicy().catch(() => {});
-  return permissionSettingsView(await settings.read());
-});
-ipcMain.handle("openteam:permissions:update", async (event, value: unknown) => {
-  const input =
-    value && typeof value === "object" && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : {};
-  const localToolPermission = ["always", "ask", "never"].includes(String(input.localToolPermission))
-    ? (input.localToolPermission as LocalToolPermission)
-    : undefined;
-  const machineLabel =
-    typeof input.machineLabel === "string" && input.machineLabel.trim()
-      ? input.machineLabel.trim().slice(0, 80)
-      : undefined;
-  const autoReviewEnabled =
-    typeof input.autoReviewEnabled === "boolean" ? input.autoReviewEnabled : undefined;
-  if (
-    machineLabel === undefined &&
-    localToolPermission === undefined &&
-    autoReviewEnabled === undefined
-  ) {
-    throw new Error("No valid permission setting was provided");
-  }
-  return syncedPermissionSettingsView(
-    await requirePermissionSettings(event).update({
-      machineLabel,
-      localToolPermission,
-      autoReviewEnabled,
-    })
-  );
-});
-
-const permissionRuleInput = (value: unknown): { kind: AutoReviewRuleKind; instruction: string } => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Permission rule input must be an object");
-  }
-  const input = value as Record<string, unknown>;
-  if (
-    !["allow", "block"].includes(String(input.kind)) ||
-    typeof input.instruction !== "string" ||
-    !input.instruction.trim() ||
-    input.instruction.length > 1_000
-  ) {
-    throw new Error("Permission rule is invalid");
-  }
-  return {
-    kind: input.kind as AutoReviewRuleKind,
-    instruction: input.instruction.trim(),
-  };
-};
-
-ipcMain.handle("openteam:permissions:add-rule", async (event, value: unknown) => {
-  const input = permissionRuleInput(value);
-  return syncedPermissionSettingsView(
-    await requirePermissionSettings(event).addRule(input.kind, input.instruction)
-  );
-});
-ipcMain.handle("openteam:permissions:remove-rule", async (event, value: unknown) => {
-  const input = permissionRuleInput(value);
-  return syncedPermissionSettingsView(
-    await requirePermissionSettings(event).removeRule(input.kind, input.instruction)
-  );
+ipcMain.handle("openteam:computer:get", async event => computerSettingsView(await requireComputerSettings(event).read()));
+ipcMain.handle("openteam:computer:update", async (event, input: unknown) => {
+  if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some(key => key !== "machineLabel") || typeof (input as any).machineLabel !== "string" || !(input as any).machineLabel.trim()) throw new Error("A computer label is required");
+  return computerSettingsView(await requireComputerSettings(event).update({ machineLabel: (input as any).machineLabel }));
 });
 
 ipcMain.handle("openteam:performance-snapshot", async (event) => {
@@ -1170,8 +1079,8 @@ if (!hasSingleInstanceLock) {
           return new Response("Not found", { status: 404 });
         }
       });
-      permissionSettings = createPermissionSettingsStore(
-        join(app.getPath("userData"), "permission-settings.json")
+      computerSettings = createComputerSettingsStore(
+        join(app.getPath("userData"), "computer-settings.json")
       );
       desktopNotifications = new DesktopNotificationManager({
         isFocused: () => mainWindow?.isFocused() ?? false,
@@ -1238,74 +1147,16 @@ if (!hasSingleInstanceLock) {
       });
       const legacyBridge = token !== "local-compose-only-change-me";
       const bridgeToken = legacyBridge ? token : randomBytes(32).toString("base64url");
-      const configuredMode = process.env.OPENTEAM_AUTO_REVIEW_MODE;
-      const autoReviewMode: AutoReviewMode = ["off", "shadow", "enforce"].includes(
-        configuredMode ?? ""
-      )
-        ? (configuredMode as AutoReviewMode)
-        : "enforce";
-      const reviewAction = async (
-        action: HostAction,
-        rules: { allowInstructions: string[]; blockInstructions: string[] }
-      ): Promise<AutoReviewResult> => {
-        if (machineEnrollment?.isConnected()) {
-          return await machineEnrollment.review({ ...action, allowInstructions: rules.allowInstructions, blockInstructions: rules.blockInstructions }) as AutoReviewResult;
-        }
-        const serverUrl = process.env.OPENTEAM_SERVER_URL ?? "http://127.0.0.1:8787";
-        const response = await fetch(`${serverUrl}/api/v0/internal/permissions/auto-review`, {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${token}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            ...action,
-            allowInstructions: rules.allowInstructions,
-            blockInstructions: rules.blockInstructions,
-          }),
-          signal: AbortSignal.timeout(16_000),
-        });
-        if (!response.ok) {
-          return {
-            decision: "reject",
-            reason: `Auto Review service failed (${response.status})`,
-          };
-        }
-        const result = (await response.json()) as Partial<AutoReviewResult>;
-        if (
-          !["allow", "block", "reject"].includes(String(result.decision)) ||
-          typeof result.reason !== "string"
-        ) {
-          return {
-            decision: "reject",
-            reason: "Auto Review returned an invalid response",
-          };
-        }
-        return {
-          decision: result.decision as AutoReviewResult["decision"],
-          reason: result.reason.slice(0, 500),
-          ...(typeof result.proposedRule === "string"
-            ? { proposedRule: result.proposedRule.slice(0, 500) }
-            : {}),
-        };
-      };
       const startBridge = (bridgePort: number) => startHostBridge({
           token: bridgeToken,
           port: bridgePort,
           hostname: legacyBridge ? "0.0.0.0" : "127.0.0.1",
           terminalDir: join(app.getPath("userData"), "host-terminals"),
-          permissionSettings: synchronizePermissionSettings(permissionSettings!, syncReviewPolicy),
-          autoReviewMode,
+          computerSettings: computerSettings!,
           machineId: localMachine.machineId,
           machineLabel: localMachine.label,
-          reviewAction,
           runJob: hostJobs.run,
-          capabilities: new HostCapabilities(sharedCapabilitySettings(), async (input) => {
-            const buttons = input.allowAlways ? ["Deny", "Approve once", "Always allow"] : ["Deny", "Approve once"];
-            const result = await dialog.showMessageBox({ type: "question", title: input.title, message: input.title,
-              detail: input.detail, buttons, defaultId: 0, cancelId: 0, noLink: true });
-            return result.response === 2 ? "always" : result.response === 1 ? "once" : "deny";
-          }, undefined, undefined, undefined, process.platform, new NativeActionReceipts(join(app.getPath("userData"), "native-action-receipts.json")), savedLoginCommand()),
+          capabilities: new HostCapabilities(sharedCapabilitySettings(), undefined, undefined, undefined, process.platform, new NativeActionReceipts(join(app.getPath("userData"), "native-action-receipts.json")), savedLoginCommand()),
         });
       try { hostBridge = await startBridge(port); }
       catch (error) {
@@ -1320,8 +1171,8 @@ if (!hasSingleInstanceLock) {
         localToken: bridgeToken,
         getToken: async () => (await authTokenStore!.read()).token,
         getIdentity: async () => {
-          const settings = await permissionSettings!.read();
-          return { label: settings.machineLabel ?? localMachine.label, localToolPermission: settings.localToolPermission };
+          const settings = await computerSettings!.read();
+          return { label: settings.machineLabel ?? localMachine.label };
         },
       });
       if (enrollmentServerUrl) machineEnrollment.configure(enrollmentServerUrl);

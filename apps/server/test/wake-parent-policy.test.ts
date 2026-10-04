@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { InternalToolService } from "../src/services/internal-tool-service";
 
 for (const mode of ["automation", "automation-child", "ordinary-child"] as const) {
-  test(`${mode} derives connector review permissions from the run, ignoring tool arguments`, async () => {
+  test(`${mode} executes connectors using the owning Bot`, async () => {
     let invocation: Record<string, unknown> | undefined;
     const prisma = {
       run: { findUnique: async ({ where }: { where: { id: string } }) => where.id === "parent-run"
@@ -14,8 +14,7 @@ for (const mode of ["automation", "automation-child", "ordinary-child"] as const
     };
     const plugins = { invoke: async (input: Record<string, unknown>) => { invocation = input; return { ok: true }; } };
     const service = new InternalToolService(prisma as never, {} as never, {} as never, async () => {}, {} as never, {} as never, {} as never, plugins as never);
-    await Effect.runPromise(service.execute({ runId: "current", botId: "bot", conversationId: "conversation", channelId: "channel", deliveryId: null, callId: "call", tool: "PluginCall", arguments: { connectionId: "connection", toolName: "inspect", arguments: {}, allowReviewUI: true } }));
-    expect(invocation?.allowReviewUI).toBe(mode === "ordinary-child");
+    await Effect.runPromise(service.execute({ runId: "current", botId: "bot", conversationId: "conversation", channelId: "channel", deliveryId: null, callId: "call", tool: "PluginCall", arguments: { connectionId: "connection", toolName: "inspect", arguments: {} } }));
     expect(invocation?.botId).toBe(mode === "automation" ? "bot" : "parent");
   });
 }

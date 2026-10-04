@@ -15,11 +15,11 @@ export class MachineService {
       if (row.enabled && row.transport === "direct" && probe && row.bridgeUrl) try {
         const machine = await this.probe(row.bridgeUrl);
         connected = machine.machineId === row.machineId;
-        if (connected) Object.assign(row, await this.db.hostMachine.update({ where: { machineId: row.machineId }, data: { label: machine.label, localToolPermission: machine.localToolPermission, lastSeenAt: new Date() } }));
+        if (connected) Object.assign(row, await this.db.hostMachine.update({ where: { machineId: row.machineId }, data: { label: machine.label, lastSeenAt: new Date() } }));
       } catch { /* Offline machines remain in the roster. */ }
       else if (row.transport === "direct" && !probe) connected = !!(row.lastSeenAt && Date.now() - row.lastSeenAt.getTime() < 60_000);
       // Never return enrollment credentials or session identifiers to clients/tools.
-      return { machineId: row.machineId, label: row.label, bridgeUrl: row.bridgeUrl, transport: row.transport, enabled: row.enabled, localToolPermission: row.localToolPermission, lastSeenAt: row.lastSeenAt, connected: row.enabled && connected };
+      return { machineId: row.machineId, label: row.label, bridgeUrl: row.bridgeUrl, transport: row.transport, enabled: row.enabled, lastSeenAt: row.lastSeenAt, connected: row.enabled && connected };
     }));
   }
 
@@ -45,18 +45,18 @@ export class MachineService {
     const machine = await this.probe(url.origin);
     const existing = await this.db.hostMachine.findUnique({ where: { machineId: machine.machineId } });
     if (existing && (existing.transport === "relay" || existing.bridgeUrl !== url.origin)) throw new ApiError(409, "machine_identity_conflict", "This computer ID already belongs to another connection");
-    return this.db.hostMachine.upsert({ where: { machineId: machine.machineId }, create: { machineId: machine.machineId, label: machine.label, bridgeUrl: url.origin, localToolPermission: machine.localToolPermission, lastSeenAt: new Date() }, update: { label: machine.label, localToolPermission: machine.localToolPermission, lastSeenAt: new Date(), enabled: true } });
+    return this.db.hostMachine.upsert({ where: { machineId: machine.machineId }, create: { machineId: machine.machineId, label: machine.label, bridgeUrl: url.origin, lastSeenAt: new Date() }, update: { label: machine.label, lastSeenAt: new Date(), enabled: true } });
   }
 
   async enroll(raw: unknown, authSessionId: string | null) {
-    const input = raw as { machineId?: unknown; label?: unknown; localToolPermission?: unknown };
-    if (!input || typeof input.machineId !== "string" || !/^[\da-f]{8}(-[\da-f]{4}){3}-[\da-f]{12}$/i.test(input.machineId) || typeof input.label !== "string" || !input.label.trim() || input.label.length > 200 || !["ask", "always", "never"].includes(String(input.localToolPermission))) throw new ApiError(400, "machine_identity_invalid", "Invalid desktop identity");
+    const input = raw as { machineId?: unknown; label?: unknown };
+    if (!input || typeof input.machineId !== "string" || !/^[\da-f]{8}(-[\da-f]{4}){3}-[\da-f]{12}$/i.test(input.machineId) || typeof input.label !== "string" || !input.label.trim() || input.label.length > 200) throw new ApiError(400, "machine_identity_invalid", "Invalid desktop identity");
     if (!await this.sessionValid(authSessionId)) throw new ApiError(401, "unauthorized", "Sign in again to connect this computer");
     const credential = randomBytes(32).toString("base64url");
     await this.db.$transaction(async tx => {
       const existing = await tx.hostMachine.findUnique({ where: { machineId: input.machineId as string } });
       if (existing && (!existing.enabled || existing.transport !== "relay")) throw new ApiError(403, "machine_disabled", "This computer is disabled. Enable it in Connected computers before reconnecting.");
-      const data = { label: (input.label as string).trim(), transport: "relay", credentialHash: hash(credential), authSessionId, localToolPermission: input.localToolPermission as string, lastSeenAt: null };
+      const data = { label: (input.label as string).trim(), transport: "relay", credentialHash: hash(credential), authSessionId, lastSeenAt: null };
       await tx.hostMachine.upsert({ where: { machineId: input.machineId as string }, create: { machineId: input.machineId as string, ...data }, update: data });
     });
     this.relay.disconnect(input.machineId);
@@ -99,9 +99,9 @@ export class MachineService {
   }
 
   async heartbeat(machineId: string, raw: unknown) {
-    const input = raw as { label?: unknown; localToolPermission?: unknown };
-    if (typeof input?.label !== "string" || !input.label.trim() || input.label.length > 200 || !["ask", "always", "never"].includes(String(input.localToolPermission))) throw new ApiError(400, "machine_identity_invalid", "Invalid desktop status");
-    await this.db.hostMachine.updateMany({ where: { machineId, enabled: true, transport: "relay" }, data: { label: input.label.trim(), localToolPermission: input.localToolPermission as string, lastSeenAt: new Date() } });
+    const input = raw as { label?: unknown };
+    if (typeof input?.label !== "string" || !input.label.trim() || input.label.length > 200) throw new ApiError(400, "machine_identity_invalid", "Invalid desktop status");
+    await this.db.hostMachine.updateMany({ where: { machineId, enabled: true, transport: "relay" }, data: { label: input.label.trim(), lastSeenAt: new Date() } });
   }
 
   async revokeSession(authSessionId: string) {

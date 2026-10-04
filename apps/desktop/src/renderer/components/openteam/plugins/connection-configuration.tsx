@@ -37,10 +37,8 @@ export function ConnectionConfiguration({
   const [testTool, setTestTool] = useState("");
   const [testArgs, setTestArgs] = useState("{}");
   const [testResult, setTestResult] = useState("");
-  const [testArmed, setTestArmed] = useState(false);
   const automaticCallbackMode = config?.callbackUrl.startsWith("https://") ? "server" : "manual";
   const resolvedCallbackMode = callbackMode === "auto" ? automaticCallbackMode : callbackMode;
-  const [removeArmed, setRemoveArmed] = useState(false);
   const load = useCallback(async () => {
     const next = await api.pluginConfiguration(connection.id);
     setConfig(next);
@@ -456,13 +454,9 @@ export function ConnectionConfiguration({
           )}
           <PluginButton
             disabled={operation.busy}
-            onClick={() =>
-              removeArmed
-                ? void operation.run(() => api.removePluginAccount(connection.id))
-                : setRemoveArmed(true)
-            }
+            onClick={() => void operation.run(() => api.removePluginAccount(connection.id))}
           >
-            {removeArmed ? "Confirm remove account credentials and grants" : "Remove account"}
+            Remove account
           </PluginButton>
         </div>
       </section>
@@ -488,61 +482,12 @@ export function ConnectionConfiguration({
       </PluginField>
       <section className="grid gap-2">
         <h4 className="font-medium">Tools ({connection.tools.length})</h4>
-        <p className="text-xs text-foreground-secondary">
-          Disabled tools are hidden from Bots. Approval controls apply independently.
-        </p>
-        {connection.tools.map((tool) => {
-          const policy = settings.policies.find(
-            (candidate) =>
-              candidate.connectionId === connection.id && candidate.toolName === tool.name
-          );
-          return (
-            <div
-              className="flex items-center gap-3 rounded-lg border border-black/10 p-3 dark:border-white/10"
-              key={tool.name}
-            >
-              <input
-                type="checkbox"
-                aria-label={`Enable ${tool.name}`}
-                disabled={operation.busy}
-                checked={policy?.enabled !== false}
-                onChange={(event) =>
-                  void operation.run(() =>
-                    api.setPluginPolicy(connection.id, {
-                      botId: null,
-                      toolName: tool.name,
-                      decision: policy?.decision ?? tool.defaultDecision,
-                      enabled: event.target.checked,
-                    })
-                  )
-                }
-              />
-              <div className="min-w-0 flex-1">
-                <p className="break-all text-sm">{tool.name}</p>
-                <p className="line-clamp-2 text-xs text-foreground-secondary">{tool.description}</p>
-              </div>
-              <select
-                aria-label={`Approval for ${tool.name}`}
-                className="rounded-lg bg-transparent p-2 text-sm"
-                disabled={operation.busy}
-                value={policy?.decision ?? tool.defaultDecision}
-                onChange={(event) =>
-                  void operation.run(() =>
-                    api.setPluginPolicy(connection.id, {
-                      botId: null,
-                      toolName: tool.name,
-                      decision: event.target.value as "allow" | "prompt" | "deny",
-                    })
-                  )
-                }
-              >
-                <option value="allow">Allow</option>
-                <option value="prompt">Ask first</option>
-                <option value="deny">Deny</option>
-              </select>
-            </div>
-          );
-        })}
+        {connection.tools.map((tool) => (
+          <div className="rounded-lg border border-black/10 p-3 dark:border-white/10" key={tool.name}>
+            <p className="break-all text-sm">{tool.name}</p>
+            <p className="line-clamp-2 text-xs text-foreground-secondary">{tool.description}</p>
+          </div>
+        ))}
       </section>
       {connection.tools.length > 0 && (
         <section className="grid gap-3 rounded-xl border border-black/10 p-4 dark:border-white/10">
@@ -553,7 +498,6 @@ export function ConnectionConfiguration({
             value={testTool}
             onChange={(event) => {
               setTestTool(event.target.value);
-              setTestArmed(false);
               setTestResult("");
             }}
           >
@@ -571,36 +515,22 @@ export function ConnectionConfiguration({
               value={testArgs}
               onChange={(event) => {
                 setTestArgs(event.target.value);
-                setTestArmed(false);
-              }}
+                }}
             />
           </PluginField>
-          {testArmed && (
-            <p className="text-sm">
-              This tool may change provider data. Review the arguments above before confirming.
-            </p>
-          )}
           <PluginButton
             disabled={operation.busy || !testTool || connection.status !== "ready"}
             onClick={() => {
-              const sideEffect =
-                connection.tools.find((tool) => tool.name === testTool)?.risk !== "read";
-              if (sideEffect && !testArmed) {
-                setTestArmed(true);
-                return;
-              }
               void operation.run(async () => {
                 const response = await api.testPluginConnection(connection.id, {
                   toolName: testTool,
                   arguments: JSON.parse(testArgs),
-                  confirmSideEffect: sideEffect,
                 });
                 setTestResult(JSON.stringify(response.result, null, 2));
-                setTestArmed(false);
-              });
+                });
             }}
           >
-            {testArmed ? "Confirm and run test" : "Run test"}
+            Run test
           </PluginButton>
           {testResult && (
             <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-black/5 p-3 text-xs dark:bg-white/5">

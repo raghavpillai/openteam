@@ -1,98 +1,22 @@
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { RuntimeTools } from "../../src/runtime/tools";
 
-test("box shell waits for a chat decision, blocks concurrent side effects, and executes the approved command once", async () => {
-  const root = await mkdtemp(join(tmpdir(), "shell-review-"));
-  const reviews: any[] = [];
-  const api = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    async fetch(request) {
-      const input = (await request.json()) as any;
-      if (new URL(request.url).pathname.endsWith("/tools/call"))
-        return Response.json({ environment: {} });
-      reviews.push(input);
-      return input.autoReviewApproval
-        ? Response.json({ allowed: true })
-        : Response.json(
-            {
-              error: "approval_required",
-              approval: {
-                gate: "auto-review",
-                requestMethod: "openteam/autoReview",
-                details: {
-                  type: "autoReview",
-                  reason: "Fixture review",
-                  supportsAlwaysAllow: false,
-                },
-              },
-            },
-            { status: 409 }
-          );
-    },
-  });
-  const tools = new RuntimeTools({} as any, api.url.origin, "fixture-control", root, root);
-  let requested!: (event: any) => void;
-  const approval = new Promise<any>((resolve) => {
-    requested = resolve;
-  });
-  const botId = crypto.randomUUID(),
-    runId = crypto.randomUUID();
-  const active: any = {
-    botId,
-    runId,
-    screenBotId: botId,
-    cwd: root,
-    queue: { push: requested },
-    requestSource: "user",
-    runtimeProfile: "main",
-  };
-  const target = join(root, "approved.txt"),
-    unintended = join(root, "unintended.txt");
+test("box shell executes directly without classifier calls or approval events", async () => {
+  const root = await mkdtemp(join(tmpdir(), "direct-shell-"));
+  const requests: string[] = [], events: unknown[] = [];
+  const api = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(request) { requests.push(new URL(request.url).pathname); return Response.json({ environment: {} }); } });
+  const tools = new RuntimeTools({} as any, api.url.origin, "fixture-control", root, root) as any;
+  const active: any = { botId: crypto.randomUUID(), runId: crypto.randomUUID(), screenBotId: crypto.randomUUID(), cwd: root, queue: { push: (event: unknown) => events.push(event) }, requestSource: "user", runtimeProfile: "main" };
   try {
-    await expect((tools as any).executeOpenTeamTool(active, "initial-shell", "Shell", {
-      command: `printf approved > '${target}'`,
-      block_until_ms: 1000,
-    })).rejects.toThrow("Block reason: Fixture review");
-    expect(await Bun.file(target).exists()).toBe(false);
-    const work = (tools as any).executeOpenTeamTool(active, "review-shell", "Shell", {
-      command: `printf approved > '${target}'`,
-      block_until_ms: 1000,
-      request_smart_mode_approval: true,
-      smart_mode_block_reason: "Fixture review",
-    });
-    const event = await approval;
-    expect(await Bun.file(target).exists()).toBe(false);
-    await expect(
-      (tools as any).executeOpenTeamTool(active, "other-shell", "Shell", {
-        command: `touch '${unintended}'`,
-      })
-    ).rejects.toThrow("waiting for approval");
-    let siblingSettled = false;
-    const sibling = (tools as any).executeOpenTeamTool(
-      { ...active, runId: crypto.randomUUID(), botId: crypto.randomUUID() },
-      "sibling-shell", "Shell", { command: `touch '${unintended}'` }
-    ).then(
-      () => "unexpected execution",
-      (error: Error) => error.message
-    ).finally(() => { siblingSettled = true; });
-    await Bun.sleep(25);
-    expect(siblingSettled).toBe(false);
-    expect(reviews).toHaveLength(1);
-    tools.resolveApproval(event.approvalId, "accept");
-    await work;
-    expect(await sibling).toContain("This action was not executed");
-    expect(await readFile(target, "utf8")).toBe("approved");
-    expect(await Bun.file(unintended).exists()).toBe(false);
-    expect(reviews).toHaveLength(2);
-    expect(reviews[0]).toMatchObject({ surface: "boxShell", reviewContext: { runId, botId } });
-    expect(reviews[1].command).toBe(reviews[0].command);
-  } finally {
-    tools.cancelApprovals(runId);
-    api.stop(true);
-    await rm(root, { recursive: true, force: true });
-  }
-}, 10000);
+    const file = join(root, "result.txt");
+    await tools.executeOpenTeamTool(active, "shell", "Shell", { command: `printf done > '${file}'`, block_until_ms: 1000 });
+    expect(await readFile(file, "utf8")).toBe("done");
+    expect(requests.some(path => path.includes("permissions"))).toBe(false);
+    expect(events).toEqual([]);
+    active.pendingSteers = [{ content: "Stop" }];
+    await expect(tools.executeOpenTeamTool(active, "stale", "Shell", { command: "echo stale" })).rejects.toThrow("newer instruction");
+  } finally { api.stop(true); await rm(root, { recursive: true, force: true }); }
+});

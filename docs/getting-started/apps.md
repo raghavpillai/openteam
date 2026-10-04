@@ -23,7 +23,7 @@ You can also build the app yourself with Xcode by following the [iPhone app inst
 Enter your server URL and sign in. On iPhone, you can:
 
 - Chat with bots, send files and photos, and dictate messages with voice notes
-- Answer approval requests
+- Answer questions and forms
 - Watch a bot's screen and take control when it needs you
 - Add, edit, and run routines
 - Set up plugins and private skills

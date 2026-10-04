@@ -27,9 +27,6 @@ describe("server semantic merge guard", () => {
       "setTimelineEventSink",
       "appendAgentTimelineEvent",
       "plugins.syncFileCaches",
-      "new AutoReviewService",
-      "plugins.resolveInvocation",
-      "plugins.resolveAction",
       "listGroupRoutines",
       "createGroupRoutine",
       "loadRootSettingsForClient",
@@ -51,7 +48,6 @@ describe("server semantic merge guard", () => {
 
     for (const route of [
       "/api/internal/tools/call",
-      "/api/internal/permissions/auto-review",
       "/api/internal/broadcast",
       "/api/plugin-oauth/callback",
       "/api/plugin-connections/status",
@@ -67,7 +63,6 @@ describe("server semantic merge guard", () => {
       "plugin-connections\\/([^/]+)\\/restart",
       "plugin-connections\\/([^/]+)\\/instructions",
       "plugin-connections\\/([^/]+)\\/account",
-      "plugins\\/([^/]+)\\/bot-access",
       "channels\\/([^/]+)\\/routines",
       "channels\\/([^/]+)\\/profile",
       "channels\\/([^/]+)\\/avatar",

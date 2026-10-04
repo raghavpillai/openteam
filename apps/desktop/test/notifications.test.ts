@@ -12,7 +12,6 @@ const base = {
   channels: [{ id: "channel", name: "Probe" }],
   channelMessages: [{ id: "before", channelId: "channel", createdAt: "2026-01-01T00:00:00Z" }],
   runs: [],
-  approvals: [],
 } as unknown as ClientSnapshot;
 
 describe("OpenTeam-compatible notification transitions", () => {
@@ -46,15 +45,6 @@ describe("OpenTeam-compatible notification transitions", () => {
         },
       ],
     } as ClientSnapshot;
-    const waiting = {
-      ...running,
-      runs: [{ ...running.runs[0], status: "waiting_approval" }],
-    } as ClientSnapshot;
-    expect(deriveAgentNotifications(running, waiting).map(({ kind }) => kind)).toEqual([
-      "agent-needs-input",
-    ]);
-    expect(deriveAgentNotifications(waiting, waiting)).toEqual([]);
-
     const done = {
       ...base,
       channelMessages: [
@@ -128,7 +118,6 @@ describe("OpenTeam-compatible notification transitions", () => {
         },
       ],
       runs: [],
-      approvals: [],
     } as unknown as ClientSnapshot;
 
     expect(desktopNotificationSnapshot(snapshot, new Set()).agents[0]).toMatchObject({
@@ -175,7 +164,6 @@ describe("OpenTeam-compatible notification transitions", () => {
           updatedAt: "2026-01-01T00:00:02Z",
         },
       ],
-      approvals: [],
     } as unknown as ClientSnapshot;
 
     expect(desktopNotificationSnapshot(snapshot, new Set()).agents).toEqual([

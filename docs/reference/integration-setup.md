@@ -18,7 +18,7 @@ The Google packages request offline access and explicit account selection. Each 
 
 ### Google capabilities and limits
 
-The 1.2.0 packages cover the published Google MCP tool inputs using public REST APIs. They also retain the earlier OpenTeam argument aliases. All write and destructive tools default to asking for approval.
+The 1.2.0 packages cover the published Google MCP tool inputs using public REST APIs. They also retain the earlier OpenTeam argument aliases. Connected tools execute directly.
 
 | Plugin | Included capabilities |
 | --- | --- |
@@ -44,7 +44,7 @@ The manifest and package scopes cover Slack's published MCP tools. To limit acce
 
 ## Linear and Notion
 
-Both use the provider's hosted MCP service with dynamic OAuth registration. [Verify the connected identity](../integrations/accounts.md#check-the-connected-account) before granting bot access. Notion skills require separate enablement; their inventory and provenance are in the [package README](../../packages/plugins/notion/README.md).
+Both use the provider's hosted MCP service with dynamic OAuth registration. [Verify the connected identity](../integrations/accounts.md#check-the-connected-account) before using the account. Notion skills require separate enablement; their inventory and provenance are in the [package README](../../packages/plugins/notion/README.md).
 
 ## 1Password setup
 

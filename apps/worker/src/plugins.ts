@@ -1,7 +1,6 @@
 import type { PluginDynamicNamespace } from "@openteam/contracts";
 import {
   connectionNamespace,
-  effectiveToolPolicy,
   fileTransferCapabilities,
   parsePluginRuntimeComponents,
   pluginWorkflowRoot,
@@ -36,61 +35,25 @@ export const pluginRuntimeContext = async (
   skillInstructions: string;
   pluginRuntimePackages: PluginRuntimePackage[];
 }> => {
-  const [grants, enablements] = await Promise.all([
-    prisma.botPluginConnectionGrant.findMany({
-      where: {
-        botId,
-        enabled: true,
-        connection: {
-          status: { in: ["ready", "needs_auth", "error"] },
-          installation: {
-            status: "installed",
-            mode: { not: "disabled" },
-            enablements: { some: { botId, enabled: true } },
-          },
-        },
-      },
-      include: {
-        connection: {
-          include: {
-            installation: true,
-            policies: { where: { OR: [{ botId: null }, { botId }] } },
-          },
-        },
-      },
-      orderBy: { connection: { createdAt: "asc" } },
+  const [connections, installations] = await Promise.all([
+    prisma.pluginConnection.findMany({
+      where: { status: { in: ["ready", "needs_auth", "error"] },
+        installation: { status: "installed" } },
+      include: { installation: true }, orderBy: { createdAt: "asc" },
     }),
-    prisma.botPluginEnablement.findMany({
-      where: {
-        botId,
-        enabled: true,
-        skillsEnabled: true,
-        installation: { status: "installed", mode: { not: "disabled" } },
-      },
-      include: { installation: true },
-    }),
+    prisma.pluginInstallation.findMany({where:{status:"installed"}}),
   ]);
 
-  const dynamicNamespaces: PluginDynamicNamespace[] = grants.map(({ connection }) => ({
+  const dynamicNamespaces: PluginDynamicNamespace[] = connections.map((connection) => ({
     name: connectionNamespace(connection.id, connection.alias),
     description: `${connection.installation.name}: ${connection.name} (${connection.alias})${connection.instructions ? `\n${connection.instructions}` : ""}`,
     namespaceStatus: runtimeStatus(connection.status),
-    fileTransfers: fileTransferCapabilities(
-      connection.installation.pluginKey,
-      connection.policies,
-      Array.isArray(connection.toolSnapshot)
-        ? (connection.toolSnapshot
-            .map(objectValue)
-            .filter((tool) => typeof tool.name === "string") as any)
-        : [],
-      botId
-    ),
+    fileTransfers: fileTransferCapabilities(connection.installation.pluginKey),
     tools: Array.isArray(connection.toolSnapshot)
       ? connection.toolSnapshot.flatMap((candidate) => {
           const tool = objectValue(candidate);
           if (
-            typeof tool.name !== "string" ||
-            !effectiveToolPolicy(connection.policies, tool.name, botId, "prompt").enabled
+            typeof tool.name !== "string"
           )
             return [];
           return [
@@ -106,7 +69,7 @@ export const pluginRuntimeContext = async (
       : [],
   }));
 
-  const skills = enablements.flatMap(({ installation }) => {
+  const skills = installations.flatMap((installation) => {
     const manifest = objectValue(installation.manifest);
     return Array.isArray(manifest.skills)
       ? manifest.skills.flatMap((candidate) => {
@@ -135,7 +98,7 @@ export const pluginRuntimeContext = async (
     .then((text) => JSON.parse(text))
     .catch(() => ({}));
   const pluginRuntimePackages: PluginRuntimePackage[] = [];
-  for (const { installation } of enablements) {
+  for (const installation of installations) {
     const manifest = objectValue(installation.manifest);
     const files = objectValue(manifest.files) as Record<string, string>;
     const components = parsePluginRuntimeComponents(files);

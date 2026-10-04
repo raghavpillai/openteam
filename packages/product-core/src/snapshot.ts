@@ -1,5 +1,4 @@
 import type {
-  ApprovalView,
   BotView,
   ChannelMessageView,
   ChannelRoundView,
@@ -21,7 +20,6 @@ export interface SnapshotIndex {
   messagesByChannel: ReadonlyMap<string, ChannelMessageView[]>;
   runsByChannel: ReadonlyMap<string, RunView[]>;
   itemsByRun: ReadonlyMap<string, RunItemView[]>;
-  approvalsByRun: ReadonlyMap<string, ApprovalView[]>;
   subagentsByChannel: ReadonlyMap<string, SubagentActivityView[]>;
   roundsByChannel: ReadonlyMap<string, ChannelRoundView[]>;
   latestMessageByChannel: ReadonlyMap<string, ChannelMessageView>;
@@ -60,7 +58,6 @@ export const createSnapshotIndex = (snapshot: ClientSnapshot): SnapshotIndex => 
   const messagesByChannel = new Map<string, ChannelMessageView[]>();
   const runsByChannel = new Map<string, RunView[]>();
   const itemsByRun = new Map<string, RunItemView[]>();
-  const approvalsByRun = new Map<string, ApprovalView[]>();
   const subagentsByChannel = new Map<string, SubagentActivityView[]>();
   const roundsByChannel = new Map<string, ChannelRoundView[]>();
   const latestMessageByChannel = new Map<string, ChannelMessageView>();
@@ -74,7 +71,6 @@ export const createSnapshotIndex = (snapshot: ClientSnapshot): SnapshotIndex => 
     selectActiveRun(activeRunByChannel, run);
   }
   for (const item of snapshot.runItems) append(itemsByRun, item.runId, item);
-  for (const approval of snapshot.approvals) append(approvalsByRun, approval.runId, approval);
   for (const subagent of snapshot.subagents ?? []) {
     append(subagentsByChannel, subagent.parentChannelId, subagent);
   }
@@ -86,7 +82,6 @@ export const createSnapshotIndex = (snapshot: ClientSnapshot): SnapshotIndex => 
     messagesByChannel,
     runsByChannel,
     itemsByRun,
-    approvalsByRun,
     subagentsByChannel,
     roundsByChannel,
     latestMessageByChannel,
@@ -99,7 +94,6 @@ export interface ChannelRowProjection {
   bot: BotView | null;
   latest: ChannelMessageView | null;
   activeRun: RunView | null;
-  hasApproval: boolean;
 }
 
 export const selectChannelRows = (
@@ -120,12 +114,6 @@ export const selectChannelRows = (
           bot,
           latest: index.latestMessageByChannel.get(channel.id) ?? null,
           activeRun,
-          hasApproval: Boolean(
-            activeRun &&
-              (index.approvalsByRun.get(activeRun.id) ?? []).some(
-                (approval) => approval.status === "pending"
-              )
-          ),
         },
       ];
     })

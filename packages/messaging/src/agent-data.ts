@@ -995,12 +995,19 @@ export class AgentDataStore {
   }
 
   private async syncManagedSkills(): Promise<void> {
-    if (process.env.OPENTEAM_MANAGED_SKILLS === "false") {
-      for (const skill of managedSkills.skills) await rm(join(this.managedSkillsDirectory(), skill.id), { recursive: true, force: true });
+    const directory = this.managedSkillsDirectory();
+    const enabled = process.env.OPENTEAM_MANAGED_SKILLS !== "false";
+    const activeIds = new Set(enabled ? managedSkills.skills.map((skill) => skill.id) : []);
+    // This directory is owned by the managed catalog. Retire removed workflows
+    // before checking the cache, including when its metadata is missing or stale.
+    for (const id of await listDirectories(directory)) {
+      if (!activeIds.has(id)) await rm(join(directory, id), { recursive: true, force: true });
+    }
+    if (!enabled) {
       await atomicWrite(join(this.managedSkillsDirectory(), "cache.json"), jsonFile({ version: "disabled", skills: [] }), 0o444);
       return;
     }
-    // Retired OpenTeam-only helper; the supported navigation recipe is inline.
+    // Remove the retired helper from older managed caches.
     await rm(join(this.managedSkillsDirectory(), "flight-booking", "google-flights-url.cjs"), { force: true });
     const cachePath = join(this.managedSkillsDirectory(), "cache.json");
     const current = await readText(cachePath);

@@ -1,5 +1,12 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { formatPiModelRef, type PiModelRef } from "@openteam/contracts";
+import { formatPiModelRef, type PiModelRef, type SubagentType } from "@openteam/contracts";
+import type { Api, Model } from "@earendil-works/pi-ai";
+
+export const assertGraphicalModel = (model: Model<Api>, subagentType: SubagentType | null): void => {
+  if ((subagentType === "computerUse" || subagentType === "browserUse") && !model.input.includes("image")) {
+    throw new Error(`${model.provider}/${model.id} is configured without image input and cannot inspect screenshots for ${subagentType}. Choose an image-capable model in model settings, then retry.`);
+  }
+};
 
 // Pi's bundled catalog can outlive provider retirements, including in models-store.json.
 // https://learn.chatgpt.com/docs/models#deprecated-codex-models (2026-08-31)

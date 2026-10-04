@@ -37,6 +37,10 @@ const positive = (v: unknown, fallback: number) =>
   Number.isSafeInteger(v) && Number(v) > 0 ? Number(v) : fallback;
 const validId = (v: unknown): v is string =>
   typeof v === "string" && v.length > 0 && v.length <= 256 && !/[\p{Cc}\p{Cf}]/u.test(v);
+const advertisedInput = (entry: Entry): ChatModel["input"] | undefined => {
+  if (!Array.isArray(entry.input_modalities)) return undefined;
+  return entry.input_modalities.includes("image") ? ["text", "image"] : ["text"];
+};
 const reasoningLevel = (value: unknown): PiReasoningLevel | undefined => {
   const normalized = value === "none" ? "off" : value;
   return typeof normalized === "string" &&
@@ -407,7 +411,8 @@ export class ChatProviderRegistry {
                     thinkingLevelMap: advertised.levelMap,
                   }
                 : {}),
-              input: existing?.input ?? ["text"],
+              // Live capabilities override stale persisted/bundled model metadata.
+              input: advertisedInput(m) ?? existing?.input ?? ["text"],
               cost: existing?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
               contextWindow: positive(
                 m.context_window ?? m.max_input_tokens ?? m.inputTokenLimit,

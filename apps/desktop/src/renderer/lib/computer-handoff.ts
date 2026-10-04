@@ -3,6 +3,7 @@ export const COMPUTER_HANDOFF_OPEN_EVENT = "openteam:computer-handoff-open";
 export interface ComputerHandoffOpenDetail {
   botId: string;
   messageId: string;
+  reason?: string;
 }
 
 export const openComputerHandoff = (detail: ComputerHandoffOpenDetail): void => {

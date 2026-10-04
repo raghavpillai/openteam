@@ -566,7 +566,6 @@ export class ScreenBroker {
         ),
       ]);
       this.assertSessionStarting(session);
-      this.openApp(session, "terminal");
       // A listening VNC endpoint can precede XFCE's first painted frame. Do
       // not hand a native-only worker a black screen without its launchers.
       await this.waitForEndpoint(async () => {

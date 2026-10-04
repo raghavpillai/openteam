@@ -2711,6 +2711,9 @@ export class AgentMessaging {
           channelId: channel.id,
           sender: "agent",
           senderBotId: context.botId,
+          OR: ["widget", "secret-request", "computer-handoff", "user-form"].map((type) => ({
+            metadata: { path: ["type"], equals: type },
+          })),
         },
         orderBy: { sequence: "desc" },
       });
@@ -2720,10 +2723,15 @@ export class AgentMessaging {
         !Array.isArray(awaitingUser.metadata)
           ? (awaitingUser.metadata as Record<string, unknown>)
           : null;
+      // An unanswered card ends only the turn that created it. Later turns,
+      // including completions of delegated work, must still deliver results.
+      // Leave earlier cards available without locking the conversation.
+      const awaitingThisTurn = awaitingUser?.sourceRunId === context.runId;
       if (
+        awaitingThisTurn &&
         awaitingMetadata &&
         ["widget", "secret-request", "computer-handoff", "user-form"].includes(String(awaitingMetadata.type)) &&
-        !["submitted", "dismissed", "sent", "failed", "unknown", "draft-created"].includes(String(awaitingMetadata.cardState)) &&
+        !["submitted", "dismissed", "escalated", "sent", "failed", "unknown", "draft-created"].includes(String(awaitingMetadata.cardState)) &&
         typeof awaitingMetadata.respondedValue !== "string" &&
         awaitingMetadata.widgetDismissed !== true &&
         awaitingMetadata.secretProvided !== true &&

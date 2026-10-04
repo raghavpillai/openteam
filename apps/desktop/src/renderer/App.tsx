@@ -617,7 +617,7 @@ export default function App() {
   );
   useEffect(() => {
     const openHandoff = (event: Event) => {
-      const { botId, messageId } = (event as CustomEvent<ComputerHandoffOpenDetail>).detail;
+      const { botId, messageId, reason } = (event as CustomEvent<ComputerHandoffOpenDetail>).detail;
       const channel = snapshot?.channels.find(
         (candidate) =>
           candidate.kind === "bot_dm" && candidate.members.some((member) => member.botId === botId)
@@ -627,7 +627,7 @@ export default function App() {
       setInspectorMode("summary");
       setDetailsOpen(true);
       enableScreen(botId);
-      setComputerHandoff({ botId, messageId });
+      setComputerHandoff({ botId, messageId, reason });
     };
     window.addEventListener(COMPUTER_HANDOFF_OPEN_EVENT, openHandoff);
     return () => window.removeEventListener(COMPUTER_HANDOFF_OPEN_EVENT, openHandoff);

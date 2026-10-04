@@ -62,7 +62,28 @@ const fixture = () => {
 };
 
 describe("computer handoff lifecycle", () => {
+  for (const action of ["skip", "complete", "dismiss"] as const) {
+    test(`returns control and resumes once after an escalated form is ${action}`, async () => {
+      message.metadata = { type: "user-form", cardState: "escalated", form: { id: "form-1", title: "Google sign-in" } };
+      const { service, takeovers, wakes } = fixture();
+      const result = await Effect.runPromise(service.mutateComputerHandoff(message.id, { action, clientId: "desktop-client-1" }));
+      expect(result.accepted).toBe(true);
+      expect(takeovers).toEqual([false]);
+      expect(wakes).toHaveLength(1);
+      const duplicate = await Effect.runPromise(service.mutateComputerHandoff(message.id, { action, clientId: "desktop-client-1" }));
+      expect(duplicate.accepted).toBe(false);
+      expect(wakes).toHaveLength(1);
+    });
+  }
+  test("a pending form cannot be completed through computer controls", async () => {
+    message.metadata = { type: "user-form", cardState: "pending", form: { id: "form-1" } };
+    const { service, takeovers, wakes } = fixture();
+    await expect(Effect.runPromise(service.mutateComputerHandoff(message.id, { action: "complete", clientId: "desktop-client-1" }))).rejects.toThrow("Live computer handoff not found");
+    expect(takeovers).toEqual([]);
+    expect(wakes).toEqual([]);
+  });
   test("leases on start, releases on completion, and enqueues one resume", async () => {
+    message.metadata = { type: "computer-handoff", computerHandoff: { reason: "Finish 2FA" } };
     const { events, service, takeovers, wakes } = fixture();
     const started = await Effect.runPromise(
       service.mutateComputerHandoff("message-1", {

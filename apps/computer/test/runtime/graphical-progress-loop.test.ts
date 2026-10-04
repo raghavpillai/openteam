@@ -14,7 +14,7 @@ test("real Pi loop spaces durable checkpoints without extra inference and keeps 
   const requests: any[] = [];
   const model: Model<"openai-completions"> = {
     id: "progress-fixture", name: "Progress fixture", provider: "openai", api: "openai-completions",
-    baseUrl: "https://offline.invalid/v1", reasoning: false, input: ["text"], contextWindow: 100_000,
+    baseUrl: "https://offline.invalid/v1", reasoning: false, input: ["text", "image"], contextWindow: 100_000,
     maxTokens: 4_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   };
   let session: any;

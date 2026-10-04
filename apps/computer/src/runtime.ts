@@ -44,7 +44,7 @@ import {
 } from "./bot-compaction";
 import { ComputerEventQueue } from "./computer-event-queue";
 import { InferenceProviderService } from "./inference-providers";
-import { requireInferenceModel } from "./inference-models";
+import { assertGraphicalModel, requireInferenceModel } from "./inference-models";
 import { decodeInlineImages, loadAttachmentImages } from "./runtime/attachments";
 import {
   compactionExtension,
@@ -702,7 +702,13 @@ export class ComputerRuntime {
   ): Promise<AgentSession> {
     const modelRuntime = this.modelRuntime;
     if (!modelRuntime) throw new Error("Pi model runtime is not initialized");
-    const model = this.resolveModel(modelRef);
+    let model = this.resolveModel(modelRef);
+    if ((active.subagentType === "computerUse" || active.subagentType === "browserUse") && !model.input.includes("image")) {
+      // Refresh stale saved capabilities before rejecting a graphical task.
+      await this.inferenceProviders.verify({ ...modelRef, reasoning: active.reasoning });
+      model = this.resolveModel(modelRef);
+    }
+    assertGraphicalModel(model, active.subagentType);
     const thinkingLevel = clampThinkingLevel(model, active.reasoning);
     const persistReserve = botPiPersistReserve(model.contextWindow ?? 0);
     const settingsManager = SettingsManager.inMemory({

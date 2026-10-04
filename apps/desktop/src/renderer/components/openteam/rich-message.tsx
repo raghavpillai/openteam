@@ -522,7 +522,7 @@ function ComputerHandoffCard({
       const next = record(result.message.metadata).computerHandoffState;
       if (typeof next === "string") setState(next);
       if (action === "start" && next === "active" && message.senderBotId) {
-        openComputerHandoff({ botId: message.senderBotId, messageId: message.id });
+        openComputerHandoff({ botId: message.senderBotId, messageId: message.id, reason: String(record(metadata.computerHandoff).reason ?? message.content) });
       } else if (
         !result.accepted &&
         !["completed", "skipped", "dismissed"].includes(String(next))

@@ -31,9 +31,10 @@ app.whenReady().then(async () => {
   }
   const resourceReport = await runScenario("", "RESOURCE_REFRESH_RESULT ",
     new URL("authenticated-resource-refresh.html", process.env.COMPUTER_VIEW_URL).href);
+  const handoffReport = await runScenario("inspector&handoff-controls", "HANDOFF_CONTROLS_RESULT ");
   fs.writeFileSync(
     path.join(process.env.COMPUTER_VIEW_DIR, "results.json"),
-    JSON.stringify({ reports, vncReports, resourceReport })
+    JSON.stringify({ reports, vncReports, resourceReport, handoffReport })
   );
   app.quit();
 });

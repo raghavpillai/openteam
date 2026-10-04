@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import {
   ChatProviderRegistry,
   isChatModel,
@@ -95,6 +96,30 @@ async function fixture(custom: Record<string, unknown> = {}) {
   };
 }
 describe("provider-first chat registry", () => {
+  test("live modalities repair stale capabilities and preserve conservative defaults", async () => {
+    const f = await fixture();
+    f.connected.clear();
+    f.connected.add("openai");
+    // The known fixture is text-only, just like the affected persisted Azure model.
+    f.state.body = { data: [
+      { id: "gpt-chat", input_modalities: ["text", "image"] },
+      { id: "gpt-6-new-vision", input_modalities: ["text", "image", "audio"] },
+      { id: "gpt-6-new-text", input_modalities: ["text"] },
+      { id: "gpt-6-unknown" },
+    ] };
+    const catalog = await f.registry.catalog("openai");
+    expect(catalog.models.map(m => [m.id, m.input])).toEqual([
+      ["gpt-chat", ["text", "image"]],
+      ["gpt-6-new-vision", ["text", "image"]],
+      ["gpt-6-new-text", ["text"]],
+      ["gpt-6-unknown", ["text"]],
+    ]);
+    f.runtime.registerProvider("openai", { models: [{ ...catalog.models[0]!, input: ["text", "image"] }] } as never);
+    f.state.body = { data: [{ id: "gpt-chat", input_modalities: ["text"] }] };
+    expect((await f.registry.catalog("openai")).models[0]?.input).toEqual(["text"]);
+    f.state.body = { data: [{ id: "gpt-chat" }] };
+    expect((await f.registry.catalog("openai")).models[0]?.input).toEqual(["text", "image"]);
+  });
   test("exposes only Anthropic, OpenAI auth modes, and explicitly added custom providers", async () => {
     const f = await fixture();
     const catalog = await f.registry.catalog();
@@ -272,6 +297,7 @@ describe("provider-first chat registry", () => {
           slug: "gpt-6.1-sol",
           display_name: "GPT-6.1 Sol",
           visibility: "list",
+          input_modalities: ["text", "image"],
           supported_reasoning_levels: [
             { effort: "low" },
             { effort: "medium" },
@@ -285,6 +311,7 @@ describe("provider-first chat registry", () => {
     const [model] = (await f.registry.catalog("openai-codex")).models;
     expect(model).toMatchObject({
       id: "gpt-6.1-sol",
+      input: ["text", "image"],
       reasoningLevels: ["low", "medium", "high"],
       defaultReasoningLevel: "low",
       thinkingLevelMap: {
@@ -312,10 +339,17 @@ describe("provider-first chat registry", () => {
     const persisted = JSON.parse(await readFile(f.path, "utf8"));
     expect(persisted.providers["openai-codex"].models[0]).toMatchObject({
       id: "gpt-6.1-sol",
+      input: ["text", "image"],
       reasoningLevels: ["low", "medium", "high"],
       defaultReasoningLevel: "low",
       thinkingLevelMap: { off: null, low: "low" },
     });
+    const restarted = await ModelRuntime.create({
+      credentials: new InMemoryCredentialStore(), modelsPath: f.path,
+      modelsStorePath: join(f.path, '..', 'restart-models-store.json'), refreshOnCreate: false,
+    });
+    await restarted.refresh({ allowNetwork: false });
+    expect(restarted.getModel("openai-codex", "gpt-6.1-sol")?.input).toEqual(["text", "image"]);
   });
   test("Google-compatible custom endpoints filter generation methods", async () => {
     const f = await fixture({

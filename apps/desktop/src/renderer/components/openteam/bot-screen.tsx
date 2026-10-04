@@ -44,7 +44,7 @@ export function BotScreen({
   bot: BotView;
   active: boolean;
   enabled: boolean;
-  handoff?: { botId: string; messageId: string } | null;
+  handoff?: { botId: string; messageId: string; reason?: string } | null;
   onEnable: () => void;
   onHandoffFinished?: () => void;
   onRetry?: () => Promise<void>;
@@ -266,11 +266,12 @@ export function BotScreen({
           the full-window computer outside that containing block. */}
       {open && createPortal(
         <div className="fixed inset-0 z-[70] flex flex-col bg-black/[0.94] text-white">
-          <header className="electron-drag flex h-11 shrink-0 items-center justify-end gap-1 border-b border-white/[0.035] px-1">
+          <div aria-hidden="true" className="electron-drag h-11 shrink-0" />
+          <header className="electron-no-drag flex shrink-0 flex-wrap items-center justify-end gap-2 border-b border-white/[0.035] px-3 py-2">
             {handoff ? (
               <>
-                <span className="mr-auto truncate px-3 text-sm text-white/70">
-                  Complete the requested step
+                <span className="mr-auto min-w-0 basis-full text-sm text-white/85 sm:flex-1 sm:basis-auto">
+                  {handoff.reason || "Complete the requested step"}
                 </span>
                 <Button
                   className="electron-no-drag text-white/70 hover:bg-white/[0.055] hover:text-white"
@@ -306,6 +307,7 @@ export function BotScreen({
               <TooltipContent>Close computer view</TooltipContent>
             </Tooltip>
           </header>
+          {error && viewerReady && <p className="shrink-0 px-3 py-2 text-sm text-red-300" role="alert">{error}</p>}
           <main
             className="flex min-h-0 flex-1 items-center justify-center p-2"
             onClick={(event) => event.target === event.currentTarget && closeViewer()}
@@ -313,7 +315,7 @@ export function BotScreen({
           >
             <div
               className="relative aspect-[16/10] w-full overflow-hidden rounded-[6px] bg-[#1b1d1f]"
-              style={{ maxWidth: "calc((100vh - 60px) * 1.6)" }}
+              style={{ maxWidth: "min(100%, calc((100vh - 144px) * 1.6))", maxHeight: "100%" }}
             >
               {viewerReady ? (
                 <VncComputer key={bot.id} botId={bot.id} name={bot.name}

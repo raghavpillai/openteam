@@ -111,6 +111,7 @@ api.screenStatus = async () => screen;
 api.screenVncSession = async () => { throw new ClientError("Unsupported", "not_found", 404); };
 api.screenFrameUrl = () => frameUrl;
 let actionCount = 0;
+let handoffMutations = 0;
 api.screenAction = async () => {
   actionCount += 1;
   return screen;
@@ -122,6 +123,8 @@ api.screenTakeover = async (_botId, active) => {
 api.releaseScreenTakeover = () => {};
 api.releaseComputerHandoff = () => {};
 api.mutateComputerHandoff = async (_id, action) => {
+  if (new URLSearchParams(location.search).has("handoff-controls") && handoffMutations++ === 0)
+    throw new ClientError("Synthetic handoff failure", "handoff_failed", 503);
   const state = {
     start: "active",
     complete: "completed",
@@ -137,7 +140,7 @@ function Reference() {
   const initialHandoff = new URLSearchParams(window.location.search).get("state") !== "card";
   const [detailsOpen, setDetailsOpen] = useState(initialHandoff);
   const [screenEnabled, setScreenEnabled] = useState(initialHandoff);
-  const [handoff, setHandoff] = useState(initialHandoff ? { botId: bot.id, messageId } : null);
+  const [handoff, setHandoff] = useState<{ botId: string; messageId: string; reason?: string } | null>(initialHandoff ? { botId: bot.id, messageId, reason: "Sign in to Northstar so I can check the account's pricing and SSO settings." } : null);
   const [handoffState, setHandoffState] = useState<RichMessageComputerHandoffState>(
     initialHandoff ? "active" : "requested"
   );
@@ -249,6 +252,33 @@ document.documentElement.dataset.theme =
 const root = createRoot(document.getElementById("root")!);
 import.meta.hot?.dispose(() => root.unmount());
 root.render(<Reference />);
+
+if (new URLSearchParams(location.search).has("handoff-controls")) {
+  void (async () => {
+    const waitFor = async (check: () => boolean) => {
+      for (let i = 0; i < 100; i++) {
+        if (check()) return;
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      throw new Error("Handoff controls did not reach the expected state");
+    };
+    try {
+      const skip = () => [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Skip this step");
+      await waitFor(() => !!skip());
+      const header = skip()!.closest("header")!;
+      const top = header.getBoundingClientRect().top;
+      if (top < 44 || !header.textContent?.includes("Sign in to Northstar")) throw new Error("Handoff instruction overlaps window controls or is missing");
+      skip()!.click();
+      await waitFor(() => !!document.querySelector('[role="alert"]'));
+      if (skip()!.disabled) throw new Error("Skip stayed disabled after failure");
+      skip()!.click();
+      await waitFor(() => !document.querySelector('[aria-label="Close computer view"]'));
+      console.log("HANDOFF_CONTROLS_RESULT " + JSON.stringify({ top, mutations: handoffMutations, passed: true }));
+    } catch (error) {
+      console.log("HANDOFF_CONTROLS_RESULT " + JSON.stringify({ error: String(error), passed: false }));
+    }
+  })();
+}
 
 if (new URLSearchParams(location.search).has("vnc-required")) {
   const run = async () => {

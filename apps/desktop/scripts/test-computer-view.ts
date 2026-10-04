@@ -46,6 +46,8 @@ try {
     throw new Error("Unsupported servers must require VNC instead of using legacy input");
   if (result.resourceReport.error || result.resourceReport.checks.length !== 11)
     throw new Error(result.resourceReport.error ?? "Resource lifecycle checks did not complete");
+  if (!result.handoffReport.passed || result.handoffReport.mutations !== 2)
+    throw new Error(result.handoffReport.error ?? "Handoff controls did not recover and close");
 } finally {
   await server.close();
   await rm(directory, { recursive: true, force: true });

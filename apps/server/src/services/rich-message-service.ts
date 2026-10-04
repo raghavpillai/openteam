@@ -364,14 +364,16 @@ export class RichMessageService {
           });
           const metadata = metadataRecord(message?.metadata);
           const handoff = stringRecord(metadata.computerHandoff);
+          const form = stringRecord(metadata.form);
+          const escalatedForm = metadata.type === "user-form" &&
+            metadata.cardState === "escalated" && typeof form?.id === "string";
           if (
             !message ||
             message.sender !== "agent" ||
             !message.senderBotId ||
             message.channel.archivedAt ||
-            metadata.type !== "computer-handoff" ||
-            !handoff ||
-            typeof handoff.reason !== "string"
+            !(escalatedForm || (metadata.type === "computer-handoff" &&
+              handoff && typeof handoff.reason === "string"))
           ) {
             throw new ApiError(
               404,

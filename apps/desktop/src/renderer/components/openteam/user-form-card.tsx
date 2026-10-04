@@ -68,7 +68,7 @@ export function UserFormCard({ message, form }: { message: ChannelMessageView; f
         const next = result.message.metadata as Record<string, unknown>;
         setLocalMetadata(next);
         if (mode === "escalated" && next.cardState === "escalated" && message.senderBotId)
-          openComputerHandoff({ botId: message.senderBotId, messageId: message.id });
+          openComputerHandoff({ botId: message.senderBotId, messageId: message.id, reason: form.instruction || form.title });
       }
     } catch {
       // Provider errors can echo submitted values. Never display their raw text.

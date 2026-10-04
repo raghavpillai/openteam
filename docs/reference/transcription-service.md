@@ -61,6 +61,8 @@ For OpenAI or Deepgram, use `--provider openai` or `--provider deepgram` and pas
 
 `openteam doctor` includes a **Voice notes / Transcription** check. It reads the configured provider through the server using the installation control token and checks that the model is discoverable from the server's network. No microphone, audio upload, or billed transcription is used for diagnostics.
 
+Deepgram's public `/models` endpoint does not authenticate API keys. Its diagnostic check first validates the key using `/auth/token`, then checks the batch model catalog, recognizing `nova-3` as the alias for the general model. The key-validation response is discarded. See [Deepgram authentication](https://developers.deepgram.com/guides/fundamentals/authenticating).
+
 - Not configured or disabled: warning; the rest of OpenTeam still works.
 - Listed model and valid connection: pass. This verifies discovery, not transcription quality.
 - Discovery unsupported (404/405) or model not listed: warning; try a note to verify a service that loads models on demand.

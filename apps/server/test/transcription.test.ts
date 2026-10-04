@@ -445,9 +445,16 @@ describe("Deepgram transcription", () => {
   };
   const catalog = {
     stt: [
-      { name: "nova-3", canonical_name: "nova-3", uuid: "model-uuid", batch: true },
-      { name: "nova-3", canonical_name: "nova-3", batch: true },
-      { name: "nova-2", canonical_name: "nova-2", batch: true },
+      {
+        name: "general",
+        canonical_name: "nova-3-general",
+        architecture: "nova-3",
+        uuid: "model-uuid",
+        batch: true,
+      },
+      { name: "general", canonical_name: "nova-3-general", architecture: "nova-3", batch: true },
+      { name: "general", canonical_name: "nova-2-general", architecture: "nova-2", batch: true },
+      { name: "medical", canonical_name: "nova-3-medical", architecture: "nova-3", batch: true },
       { name: "flux-general-en", canonical_name: "flux-general-en", batch: false },
     ],
     tts: [{ name: "aura-2" }],
@@ -525,19 +532,74 @@ describe("Deepgram transcription", () => {
     const service = new TranscriptionService(
       config,
       fakeFetch((url, init) => {
-        expect(url).toBe(`${deepgram.baseUrl}/models`);
         expect(new Headers(init.headers).get("authorization")).toBe(`Token ${deepgram.apiKey}`);
         expect(init.body).toBeUndefined();
+        if (url === `${deepgram.baseUrl}/auth/token`)
+          return Response.json({ api_key: deepgram.apiKey });
+        expect(url).toBe(`${deepgram.baseUrl}/models`);
         return Response.json(catalog);
       })
     );
     const { apiKey: _key, ...draft } = deepgram;
-    expect(await service.models(draft)).toEqual({ models: ["nova-2", "nova-3"] });
+    expect(await service.models(draft)).toEqual({
+      models: ["nova-2-general", "nova-3-general", "nova-3-medical"],
+    });
     expect(await readFile(config.path, "utf8")).toBe(before);
     expect((await service.check()).status).toBe("ready");
     await config.save({ ...draft, model: "model-uuid" });
     expect((await service.check()).status).toBe("ready");
+    await config.save({ ...draft, model: "nova-3-general" });
+    expect((await service.check()).status).toBe("ready");
+    await config.save({ ...draft, model: "nova-4" });
+    expect((await service.check()).status).toBe("unverified");
     await config.save({ ...draft, model: "flux-general-en" });
+    expect((await service.check()).status).toBe("unverified");
+  });
+
+  test("rejects an invalid key even when the public model catalog is reachable", async () => {
+    const config = await store();
+    await config.save(deepgram);
+    const urls: string[] = [];
+    const service = new TranscriptionService(
+      config,
+      fakeFetch((url, init) => {
+        urls.push(url);
+        expect(init.body).toBeUndefined();
+        return url.endsWith("/auth/token")
+          ? new Response(deepgram.apiKey, { status: 401 })
+          : Response.json(catalog);
+      })
+    );
+    const check = await service.check();
+    expect(check).toMatchObject({ level: "fail", status: "unavailable" });
+    expect(check.detail).not.toContain(deepgram.apiKey);
+    expect(urls).toEqual([`${deepgram.baseUrl}/auth/token`]);
+  });
+
+  test("does not verify a general alias from a specialty-only catalog", async () => {
+    const config = await store();
+    await config.save(deepgram);
+    const service = new TranscriptionService(
+      config,
+      fakeFetch(() =>
+        Response.json({
+          stt: [
+            {
+              name: "medical",
+              canonical_name: "nova-3-medical",
+              architecture: "nova-3",
+              batch: true,
+            },
+            {
+              name: "general",
+              canonical_name: "nova-3-general",
+              architecture: "nova-3",
+              batch: false,
+            },
+          ],
+        })
+      )
+    );
     expect((await service.check()).status).toBe("unverified");
   });
 

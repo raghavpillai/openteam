@@ -181,10 +181,21 @@ export class TranscriptionService {
       };
     try {
       const settings = await this.store.credentials();
+      const signal = AbortSignal.timeout(8_000);
+      // Deepgram's public model catalog does not validate the supplied API key.
+      if (settings.provider === "deepgram") {
+        const auth = await this.fetchImpl(`${settings.baseUrl}/auth/token`, {
+          headers: providerHeaders(settings),
+          redirect: "error",
+          signal,
+        });
+        await auth.body?.cancel();
+        if (!auth.ok) throw providerFailure(auth.status);
+      }
       const response = await this.fetchImpl(`${settings.baseUrl}/models`, {
         headers: providerHeaders(settings),
         redirect: "error",
-        signal: AbortSignal.timeout(8_000),
+        signal,
       });
       if (response.status === 404 || response.status === 405) {
         await response.body?.cancel();
@@ -218,7 +229,10 @@ export class TranscriptionService {
           (m) =>
             m.id === settings.model ||
             (settings.provider === "deepgram" &&
-              (m.name === settings.model || m.uuid === settings.model))
+              (m.name === settings.model ||
+                m.uuid === settings.model ||
+                // Bare model families select their general model in Deepgram's API.
+                (m.name === "general" && m.architecture === settings.model)))
         )
       )
         return {

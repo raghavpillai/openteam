@@ -9,6 +9,7 @@ import {
 } from "streamdown";
 import { useAuthenticatedResource } from "../../../hooks/use-authenticated-resource";
 import { OPENTEAM_DEEP_LINK_EVENT } from "../../../lib/app-deep-links";
+import { normalizeMessageMath } from "./math-markdown";
 
 export { OPENTEAM_DEEP_LINK_EVENT } from "../../../lib/app-deep-links";
 
@@ -38,22 +39,8 @@ export const botMermaidOptions: MermaidOptions = {
   },
 };
 
-const normalizeLatexDelimiters = (markdown: string) =>
-  markdown
-    .split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`)/g)
-    .map((segment, index) => {
-      if (index % 2 === 1) return segment;
-      return segment
-        .replace(
-          /\\\[([\s\S]*?)\\\]/g,
-          (_match, expression: string) => `$$\n${expression.trim()}\n$$`
-        )
-        .replace(/\\\(([^\n]*?)\\\)/g, (_match, expression: string) => `$${expression}$`);
-    })
-    .join("");
-
 export const prepareMessageMarkdown = (markdown: string) =>
-  normalizeLatexDelimiters(markdown)
+  normalizeMessageMath(markdown)
     .replace(/(\]\(\s*)sand-msg:/gi, `$1${SANITIZED_MESSAGE_LINK_PREFIX}`)
     .replace(/(\]\(\s*)openteam:/gi, `$1${SANITIZED_OPENTEAM_LINK_PREFIX}`);
 

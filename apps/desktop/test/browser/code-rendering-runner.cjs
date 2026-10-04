@@ -86,6 +86,20 @@ app.whenReady().then(async () => {
       assert(deepLink==='openteam://app/v1/settings?id=theme','Application link changed');
       assert(document.querySelector('[data-streamdown="mermaid-block-actions"]').querySelectorAll('button').length>=2,'Mermaid controls disappeared');
       reports.push({name:'mixed code, inline code, tables, CJK, math, Mermaid controls and app links'});
+      for (const [source,mathCount] of [
+        ['**Best balance: United at 11:00**, about $4 cheaper than Ramp. Lufthansa is the fastest. Love Field also appeared, but it is $1,944. Prices can change.',0],
+        ['**Price:** $4 cheaper than $1,944. Solve $x+1=2$.',1],
+        ['**Price:** $4 cheaper. Solve $2+2=4$; the other fare is $1,944.',1],
+      ]) {
+        window.renderCode(null);await wait(20);
+        window.renderMarkdown(source);
+        const message=await settle('.bot-markdown');
+        assert(message.querySelectorAll('.katex').length===mathCount,'Currency changed the equation count');
+        assert(message.textContent.includes('$4 cheaper'),'Currency lost its dollar sign or spaces');
+        assert(message.textContent.includes('$1,944.'),'Second price lost its dollar sign');
+        assert(message.querySelector('[data-streamdown="strong"]'),'Existing bold formatting disappeared');
+      }
+      reports.push({name:'flight prices remain readable alongside inline equations and bold formatting'});
       window.renderCode('const findMe = 42;\\n'.repeat(1500));await settle('[data-highlighted=true]');
       return reports;
     })()`);

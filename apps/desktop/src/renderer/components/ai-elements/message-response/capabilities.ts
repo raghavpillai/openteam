@@ -1,3 +1,5 @@
+import { escapeCurrencyDollars } from "./math-markdown";
+
 export type AdvancedMessageCapabilities = {
   cjk: boolean;
   code: boolean;
@@ -52,7 +54,7 @@ export const detectAdvancedMessageCapabilities = (content: string): AdvancedMess
   return {
     cjk: CJK_PATTERN.test(prose),
     code,
-    math: MATH_PATTERN.test(prose),
+    math: MATH_PATTERN.test(escapeCurrencyDollars(prose)),
     mermaid,
   };
 };

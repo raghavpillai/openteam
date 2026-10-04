@@ -49,7 +49,7 @@
 .bot-markdown [data-streamdown="unordered-list"],
 .bot-markdown [data-streamdown="ordered-list"] {
   margin: 0 0 10px !important;
-  padding-left: 21px;
+  padding-left: 20px;
   list-style-position: outside;
 }
 
@@ -65,8 +65,12 @@
   padding: 0 !important;
 }
 
+.bot-markdown [data-streamdown="list-item"]::marker {
+  color: #696969;
+}
+
 .bot-markdown [data-streamdown="list-item"] + [data-streamdown="list-item"] {
-  margin-top: 5px;
+  margin-top: 4.5px;
 }
 
 .bot-markdown [data-streamdown="list-item"] > [data-streamdown="unordered-list"],
@@ -104,12 +108,17 @@
 }
 
 .bot-markdown [data-streamdown="inline-code"] {
+  border: 0.5px solid #cecece;
   border-radius: 4px;
   background: #e3e3e3;
-  padding: 1px 4px;
-  color: #bd2e34;
+  padding: 0 4px;
+  color: #c21d2f;
   font-family: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
-  font-size: 0.94em;
+  font-size: 0.93em;
+  font-weight: 400;
+  line-height: normal;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 .bot-markdown [data-streamdown="link"],
@@ -175,6 +184,7 @@
 }
 
 .bot-markdown [data-streamdown="code-block"] {
+  font-weight: 400;
   display: block !important;
   position: relative;
   margin: 8px 0 !important;
@@ -259,6 +269,10 @@
 }
 
 :root[data-theme="dark"] {
+  .bot-markdown [data-streamdown="list-item"]::marker {
+    color: #a8a8a8;
+  }
+
   .bot-markdown [data-streamdown="blockquote"] {
     border-left-color: #555555;
     color: #b6b6b6;
@@ -275,6 +289,7 @@
   }
 
   .bot-markdown [data-streamdown="inline-code"] {
+    border-color: #484848;
     background: #343434;
     color: #ff5b63;
   }

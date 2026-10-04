@@ -169,6 +169,18 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
   );
   draw();
   await pause(250);
+  const composer = document.querySelector<HTMLDivElement>('[role="textbox"][aria-label="Message"]')!;
+  composer.focus();
+  document.execCommand("insertText", false, "x");
+  await pause();
+  document.execCommand("delete");
+  await pause();
+  check(composer.matches(":empty"), "Deleting the last character left markup hiding the placeholder");
+  check(
+    Boolean(composer.dataset.placeholder) &&
+      !["none", "normal", '""'].includes(getComputedStyle(composer, "::before").content),
+    "Empty composer did not restore its placeholder"
+  );
   const first = msg("", widget("Widget parity — pick any options", true));
   messages.push(first);
   draw();
@@ -189,7 +201,10 @@ async function scenario(theme: string, kind: "bot_dm" | "group") {
   check(
     style.animationDuration === "0.32s" &&
       style.padding === "12px" &&
-      style.borderRadius === "16px",
+      style.borderTopLeftRadius === "6px" &&
+      style.borderTopRightRadius === "18px" &&
+      style.borderBottomLeftRadius === "18px" &&
+      style.borderBottomRightRadius === "18px",
     "Widget card motion/geometry mismatch"
   );
   console.log(`WIDGET_CAPTURE ${theme}-${kind}-pending`);

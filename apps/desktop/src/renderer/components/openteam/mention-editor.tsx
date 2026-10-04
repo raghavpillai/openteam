@@ -245,7 +245,9 @@ export function MentionEditor({
       }
       return;
     }
-    if (!editor.textContent) return;
+    // Chromium leaves a <br> after deleting the final character. It has no
+    // textContent, but still prevents the :empty placeholder from appearing.
+    if (!editor.hasChildNodes()) return;
     const keepCaret = document.activeElement === editor;
     editor.replaceChildren();
     if (keepCaret) {

@@ -600,7 +600,7 @@ const MessageRow = memo(function MessageRow({
               </div>
             )}
             <div className={`flex min-w-0 flex-1 ${from === "user" ? "justify-end" : "justify-start"}`}>
-              <div className={cn(
+              <div data-role={from} data-group-position={groupPosition} className={cn(
                 "message-with-actions relative min-w-0",
                 display.richMessage ? "w-full" : "w-fit",
                 display.richMessage && !isWidget

@@ -557,6 +557,10 @@ textarea,
   }
 }
 
+.message-with-actions > .rich-message-card {
+  border-radius: 18px;
+}
+
 .message-bubble {
   max-width: min(88%, 640px, calc(100% - 82px));
   border-radius: 18px;
@@ -564,6 +568,7 @@ textarea,
   background: var(--message-assistant);
   color: var(--message-assistant-foreground);
   font-size: 14px;
+  font-weight: 420;
   line-height: 20px;
   letter-spacing: 0;
   overflow-wrap: anywhere;
@@ -579,21 +584,29 @@ textarea,
   max-width: 100%;
 }
 
+.message-with-actions[data-role="user"][data-group-position="middle"] > .rich-message-card,
+.message-with-actions[data-role="user"][data-group-position="last"] > .rich-message-card,
 .message-bubble[data-role="user"][data-group-position="middle"],
 .message-bubble[data-role="user"][data-group-position="last"] {
   border-start-end-radius: 6px;
 }
 
+.message-with-actions[data-role="user"][data-group-position="first"] > .rich-message-card,
+.message-with-actions[data-role="user"][data-group-position="middle"] > .rich-message-card,
 .message-bubble[data-role="user"][data-group-position="first"],
 .message-bubble[data-role="user"][data-group-position="middle"] {
   border-end-end-radius: 6px;
 }
 
+.message-with-actions[data-role="assistant"][data-group-position="middle"] > .rich-message-card,
+.message-with-actions[data-role="assistant"][data-group-position="last"] > .rich-message-card,
 .message-bubble[data-role="assistant"][data-group-position="middle"],
 .message-bubble[data-role="assistant"][data-group-position="last"] {
   border-start-start-radius: 6px;
 }
 
+.message-with-actions[data-role="assistant"][data-group-position="first"] > .rich-message-card,
+.message-with-actions[data-role="assistant"][data-group-position="middle"] > .rich-message-card,
 .message-bubble[data-role="assistant"][data-group-position="first"],
 .message-bubble[data-role="assistant"][data-group-position="middle"] {
   border-end-start-radius: 6px;
@@ -725,7 +738,8 @@ textarea,
   width: 100%;
   color: inherit;
   font-size: 14px;
-  line-height: 20px;
+  font-weight: 420;
+  line-height: 22px;
   white-space: normal;
 }
 

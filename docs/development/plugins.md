@@ -30,7 +30,7 @@ Saving a draft doesn't change any installed copy of the plugin.
 
 Check what happens with missing credentials, service errors, and reconnecting. For tools that change data, test with data you don't mind losing.
 
-Write clear tool descriptions and input schemas, since bots rely on them to pick the right tool. Mark which tools read and which write, so users can set sensible [tool policies](../configuration/privacy.md#control-plugin-access).
+Write clear tool descriptions and input schemas, since bots rely on them to pick the right tool. Make it clear when a tool changes data or sends information to an external service.
 
 ## Share it
 

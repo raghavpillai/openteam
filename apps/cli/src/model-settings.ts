@@ -31,7 +31,7 @@ export interface ModelCatalog {
 }
 export interface TranscriptionDraft {
   enabled: boolean;
-  provider: "openai" | "openai-compatible";
+  provider: "openai" | "deepgram" | "openai-compatible";
   baseUrl: string;
   model: string;
   language: string;
@@ -80,7 +80,7 @@ const transcription = (value: unknown): TranscriptionView => {
   if (
     !object(value) ||
     typeof value.enabled !== "boolean" ||
-    !["openai", "openai-compatible"].includes(String(value.provider)) ||
+    !["openai", "deepgram", "openai-compatible"].includes(String(value.provider)) ||
     !["baseUrl", "model", "language"].every((key) => typeof value[key] === "string") ||
     typeof value.hasApiKey !== "boolean" ||
     typeof value.configured !== "boolean"

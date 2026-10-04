@@ -296,6 +296,9 @@ describe("transcription model discovery", () => {
           data: [
             { id: "gpt-5" },
             { id: "gpt-4o-transcribe" },
+            { id: "gpt-transcribe" },
+            { id: "gpt-live-transcribe" },
+            { id: "gpt-realtime-whisper" },
             { id: "whisper-1" },
             { id: "text-embedding-3-small" },
             { id: "gpt-4o-mini-tts" },
@@ -313,7 +316,7 @@ describe("transcription model discovery", () => {
         baseUrl: "https://api.openai.com/v1",
         apiKey: "synthetic-key",
       })
-    ).toEqual({ models: ["gpt-4o-transcribe", "opaque", "whisper-1"] });
+    ).toEqual({ models: ["gpt-4o-transcribe", "gpt-transcribe", "opaque", "whisper-1"] });
   });
   test("uses draft settings without enabling transcription or modifying its file", async () => {
     const config = await store();
@@ -428,5 +431,238 @@ describe("transcription model discovery", () => {
           "Could not load transcription models. Check the base URL, credentials and connection, or enter a model ID manually.",
       });
     }
+  });
+});
+
+describe("Deepgram transcription", () => {
+  const deepgram = {
+    ...settings,
+    provider: "deepgram" as const,
+    baseUrl: "https://api.deepgram.com/v1",
+    model: "nova-3",
+    language: "",
+    apiKey: "synthetic-deepgram-key",
+  };
+  const catalog = {
+    stt: [
+      { name: "nova-3", canonical_name: "nova-3", uuid: "model-uuid", batch: true },
+      { name: "nova-3", canonical_name: "nova-3", batch: true },
+      { name: "nova-2", canonical_name: "nova-2", batch: true },
+      { name: "flux-general-en", canonical_name: "flux-general-en", batch: false },
+    ],
+    tts: [{ name: "aura-2" }],
+  };
+
+  test("requires its own key, encrypts it, and never inherits another provider's key", async () => {
+    const config = await store();
+    await config.save({ ...settings, apiKey: "synthetic-custom-key" });
+    const { apiKey: _key, ...draft } = deepgram;
+    await expect(config.save(draft)).rejects.toThrow("Deepgram API key");
+    await expect(config.discoveryCredentials(draft)).rejects.toThrow("Deepgram API key");
+    const view = await config.save({ ...deepgram, baseUrl: "https://different.test/v1" });
+    expect(view).toMatchObject({ configured: true, hasApiKey: true, baseUrl: deepgram.baseUrl });
+    expect(view).not.toHaveProperty("apiKey");
+    expect(await readFile(config.path, "utf8")).not.toContain(deepgram.apiKey);
+    expect(
+      (await new TranscriptionStore(config.path, () => "a".repeat(40)).credentials()).apiKey
+    ).toBe(deepgram.apiKey);
+    await config.save({ ...settings, enabled: false });
+    expect((await config.view()).hasApiKey).toBe(false);
+  });
+
+  test.each([
+    "",
+    "fr",
+    "multi",
+  ])("uploads raw audio with native authentication and language %j", async (language) => {
+    const config = await store();
+    await config.save({ ...deepgram, language });
+    const recording = new Uint8Array(128).fill(42);
+    const service = new TranscriptionService(
+      config,
+      fakeFetch(async (url, init) => {
+        const endpoint = new URL(url);
+        expect(`${endpoint.origin}${endpoint.pathname}`).toBe(`${deepgram.baseUrl}/listen`);
+        expect(endpoint.searchParams.get("model")).toBe("nova-3");
+        expect(endpoint.searchParams.get("smart_format")).toBe("true");
+        expect(endpoint.searchParams.get("language")).toBe(language || null);
+        expect(endpoint.searchParams.get("detect_language")).toBe(language ? null : "true");
+        expect(new Headers(init.headers).get("authorization")).toBe(`Token ${deepgram.apiKey}`);
+        expect(new Headers(init.headers).get("content-type")).toBe("audio/wav");
+        expect(init.redirect).toBe("error");
+        expect(init.signal).toBeDefined();
+        expect(init.body).toBeInstanceOf(Blob);
+        expect(new Uint8Array(await (init.body as Blob).arrayBuffer())).toEqual(recording);
+        return Response.json({
+          results: {
+            channels: [
+              {
+                alternatives: [
+                  { transcript: "  Hello from Deepgram.  " },
+                  { transcript: "Wrong alternative" },
+                ],
+              },
+            ],
+          },
+        });
+      })
+    );
+    expect(
+      await service.transcribe(
+        new Request("http://local", {
+          method: "POST",
+          body: recording,
+          headers: { "content-type": "audio/wav" },
+        })
+      )
+    ).toEqual({ text: "Hello from Deepgram." });
+  });
+
+  test("browses only batch speech models and checks discovery without sending audio", async () => {
+    const config = await store();
+    await config.save(deepgram);
+    const before = await readFile(config.path, "utf8");
+    const service = new TranscriptionService(
+      config,
+      fakeFetch((url, init) => {
+        expect(url).toBe(`${deepgram.baseUrl}/models`);
+        expect(new Headers(init.headers).get("authorization")).toBe(`Token ${deepgram.apiKey}`);
+        expect(init.body).toBeUndefined();
+        return Response.json(catalog);
+      })
+    );
+    const { apiKey: _key, ...draft } = deepgram;
+    expect(await service.models(draft)).toEqual({ models: ["nova-2", "nova-3"] });
+    expect(await readFile(config.path, "utf8")).toBe(before);
+    expect((await service.check()).status).toBe("ready");
+    await config.save({ ...draft, model: "model-uuid" });
+    expect((await service.check()).status).toBe("ready");
+    await config.save({ ...draft, model: "flux-general-en" });
+    expect((await service.check()).status).toBe("unverified");
+  });
+
+  test("sends the native Deepgram request over HTTP with the original audio bytes", async () => {
+    const recording = new Uint8Array(128).fill(42);
+    const upstream = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        const url = new URL(request.url);
+        expect(request.method).toBe("POST");
+        expect(url.pathname).toBe("/v1/listen");
+        expect(url.searchParams.get("model")).toBe("nova-3");
+        expect(request.headers.get("authorization")).toBe(`Token ${deepgram.apiKey}`);
+        expect(request.headers.get("content-type")).toBe("audio/mp4");
+        expect(new Uint8Array(await request.arrayBuffer())).toEqual(recording);
+        return Response.json({
+          results: { channels: [{ alternatives: [{ transcript: "Native HTTP transcript" }] }] },
+        });
+      },
+    });
+    try {
+      const config = await store();
+      await config.save(deepgram);
+      const service = new TranscriptionService(
+        config,
+        fakeFetch((url, init) => {
+          const endpoint = new URL(url);
+          return fetch(`${upstream.url.origin}${endpoint.pathname}${endpoint.search}`, init);
+        })
+      );
+      expect(
+        await service.transcribe(
+          new Request("http://local", {
+            method: "POST",
+            body: recording,
+            headers: { "content-type": "audio/mp4" },
+          })
+        )
+      ).toEqual({ text: "Native HTTP transcript" });
+    } finally {
+      await upstream.stop(true);
+    }
+  });
+
+  test.each([401, 429])("redacts HTTP %i transcription and diagnostic failures", async (status) => {
+    const config = await store();
+    await config.save(deepgram);
+    const service = new TranscriptionService(
+      config,
+      fakeFetch(() => new Response(deepgram.apiKey, { status }))
+    );
+    await expect(service.transcribe(audio())).rejects.toMatchObject({
+      code: "transcription_provider_error",
+      status: status === 429 ? 429 : 502,
+    });
+    const check = await service.check();
+    expect(check.level).toBe("fail");
+    expect(check.detail).not.toContain(deepgram.apiKey);
+  });
+
+  test.each([
+    {},
+    { results: { channels: [] } },
+    { results: { channels: [{ alternatives: [{ transcript: 42 }] }] } },
+  ])("rejects malformed transcript %j", async (body) => {
+    const config = await store();
+    await config.save(deepgram);
+    const service = new TranscriptionService(
+      config,
+      fakeFetch(() => Response.json(body))
+    );
+    await expect(service.transcribe(audio())).rejects.toMatchObject({
+      code: "invalid_transcription_response",
+    });
+  });
+
+  test("empty speech is recoverable and malformed catalogs fail discovery and diagnostics", async () => {
+    const config = await store();
+    await config.save(deepgram);
+    const empty = new TranscriptionService(
+      config,
+      fakeFetch(() =>
+        Response.json({ results: { channels: [{ alternatives: [{ transcript: " " }] }] } })
+      )
+    );
+    await expect(empty.transcribe(audio())).rejects.toMatchObject({ code: "no_speech" });
+    const malformed = new TranscriptionService(
+      config,
+      fakeFetch(() => Response.json({ stt: [{ canonical_name: "bad\u001b", batch: true }] }))
+    );
+    await expect(malformed.models(deepgram)).rejects.toMatchObject({
+      code: "model_discovery_failed",
+    });
+    expect((await malformed.check()).status).toBe("invalid");
+  });
+});
+
+describe("GPT Transcribe requests", () => {
+  test.each([
+    "",
+    "en",
+  ])("uses JSON defaults and plural language hints for language %j", async (language) => {
+    const config = await store();
+    await config.save({
+      ...settings,
+      provider: "openai",
+      model: "gpt-transcribe",
+      language,
+      apiKey: "synthetic-openai-key",
+    });
+    const service = new TranscriptionService(
+      config,
+      fakeFetch((url, init) => {
+        expect(url).toBe("https://api.openai.com/v1/audio/transcriptions");
+        expect(new Headers(init.headers).get("authorization")).toBe("Bearer synthetic-openai-key");
+        const form = init.body as FormData;
+        expect(form.get("model")).toBe("gpt-transcribe");
+        expect(form.get("file")).toBeInstanceOf(Blob);
+        expect(form.get("response_format")).toBeNull();
+        expect(form.get("language")).toBeNull();
+        expect(form.getAll("languages[]")).toEqual(language ? [language] : []);
+        return Response.json({ text: "Current model transcript", languages: [{ code: "en" }] });
+      })
+    );
+    expect(await service.transcribe(audio())).toEqual({ text: "Current model transcript" });
   });
 });

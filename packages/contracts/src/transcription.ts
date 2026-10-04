@@ -1,7 +1,7 @@
 /** Voice notes are uploaded after recording; these settings are independent of chat inference. */
 export interface TranscriptionSettings {
   enabled: boolean;
-  provider: "openai" | "openai-compatible";
+  provider: "openai" | "deepgram" | "openai-compatible";
   baseUrl: string;
   model: string;
   language: string;

@@ -139,7 +139,7 @@ export const modelFixture = () => {
         configured:
           value.enabled &&
           Boolean(value.baseUrl && value.model) &&
-          (value.provider !== "openai" || hasApiKey),
+          (value.provider === "openai-compatible" || hasApiKey),
       };
       return { ...transcription };
     },

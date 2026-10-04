@@ -22,7 +22,7 @@ export function parseTranscriptionSettings(input: unknown): TranscriptionSetting
   const value = input as Record<string, unknown>;
   if (
     typeof value.enabled !== "boolean" ||
-    !["openai", "openai-compatible"].includes(String(value.provider))
+    !["openai", "deepgram", "openai-compatible"].includes(String(value.provider))
   ) {
     throw invalid("Choose a transcription provider and whether voice notes are enabled.");
   }
@@ -39,11 +39,16 @@ export function parseTranscriptionSettings(input: unknown): TranscriptionSetting
   let baseUrl = string("baseUrl", 2048);
   const model = string("model", 256);
   const language = string("language", 20);
-  if (language && !/^[a-z]{2,3}(?:-[A-Za-z]{2,4})?$/.test(language))
+  if (
+    language &&
+    !(value.provider === "deepgram" && language === "multi") &&
+    !/^[a-z]{2,3}(?:-[A-Za-z]{2,4})?$/.test(language)
+  )
     throw invalid(
-      "Use a language code such as en, or leave language blank for automatic detection."
+      "Use a language code such as en, multi for Deepgram multilingual audio, or leave language blank for automatic detection."
     );
   if (value.provider === "openai") baseUrl = "https://api.openai.com/v1";
+  if (value.provider === "deepgram") baseUrl = "https://api.deepgram.com/v1";
   if (baseUrl) {
     let url: URL;
     try {
@@ -159,7 +164,9 @@ export class TranscriptionStore {
       configured:
         keyValid &&
         view.enabled &&
-        Boolean(view.baseUrl && view.model && (view.provider !== "openai" || encryptedApiKey)),
+        Boolean(
+          view.baseUrl && view.model && (view.provider === "openai-compatible" || encryptedApiKey)
+        ),
     };
   }
 
@@ -192,7 +199,11 @@ export class TranscriptionStore {
   }
 
   /** Resolve credentials for model discovery without persisting the draft or enabling audio. */
-  async discoveryCredentials(input: unknown): Promise<{ baseUrl: string; apiKey: string | null }> {
+  async discoveryCredentials(input: unknown): Promise<{
+    provider: TranscriptionSettings["provider"];
+    baseUrl: string;
+    apiKey: string | null;
+  }> {
     if (!input || typeof input !== "object" || Array.isArray(input))
       throw invalid("Transcription settings are required.");
     const parsed = parseTranscriptionSettings({ ...input, enabled: false });
@@ -206,9 +217,11 @@ export class TranscriptionStore {
           ? this.decrypt(previous.encryptedApiKey)
           : null
         : parsed.apiKey;
-    if (parsed.provider === "openai" && !apiKey)
-      throw invalid("Enter an OpenAI API key before browsing transcription models.");
-    return { baseUrl: parsed.baseUrl, apiKey };
+    if (parsed.provider !== "openai-compatible" && !apiKey)
+      throw invalid(
+        `Enter ${parsed.provider === "openai" ? "an OpenAI" : "a Deepgram"} API key before browsing transcription models.`
+      );
+    return { provider: parsed.provider, baseUrl: parsed.baseUrl, apiKey };
   }
 
   save(input: unknown): Promise<TranscriptionSettingsView> {
@@ -228,8 +241,10 @@ export class TranscriptionStore {
             : parsed.apiKey === null
               ? null
               : this.encrypt(parsed.apiKey);
-        if (parsed.enabled && parsed.provider === "openai" && !encryptedApiKey)
-          throw invalid("An OpenAI API key is required to enable transcription.");
+        if (parsed.enabled && parsed.provider !== "openai-compatible" && !encryptedApiKey)
+          throw invalid(
+            `${parsed.provider === "openai" ? "An OpenAI" : "A Deepgram"} API key is required to enable transcription.`
+          );
         const { apiKey: _key, ...settings } = parsed;
         const document: StoredSettings = { ...settings, version: 1, encryptedApiKey };
         await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });

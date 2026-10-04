@@ -4,6 +4,7 @@ import {
   MAX_VOICE_NOTE_BYTES,
   type TranscriptionCheck,
   type TranscriptionResult,
+  type TranscriptionSettings,
 } from "@openteam/contracts/transcription";
 import type { TranscriptionStore } from "./store";
 
@@ -21,6 +22,30 @@ const AUDIO_FORMATS: Record<string, string> = {
   "audio/ogg": "ogg",
   "audio/flac": "flac",
 };
+
+type ProviderCredentials = Pick<TranscriptionSettings, "provider"> & { apiKey: string | null };
+const providerHeaders = ({ provider, apiKey }: ProviderCredentials): HeadersInit =>
+  apiKey ? { authorization: `${provider === "deepgram" ? "Token" : "Bearer"} ${apiKey}` } : {};
+
+/** Deepgram's catalog separates batch-capable speech models from TTS and streaming-only models. */
+function providerModels(
+  body: unknown,
+  provider: TranscriptionSettings["provider"]
+): Record<string, unknown>[] {
+  const catalog = body as { stt?: unknown; data?: unknown } | null;
+  const models = provider === "deepgram" ? catalog?.stt : catalog?.data;
+  if (!Array.isArray(models)) throw new Error("Invalid catalog");
+  return models
+    .map((model: unknown) => {
+      if (!model || typeof model !== "object") throw new Error("Invalid catalog");
+      const value = model as Record<string, unknown>;
+      const id = provider === "deepgram" ? (value.canonical_name ?? value.name) : value.id;
+      if (typeof id !== "string" || !id || id.length > 256 || /[\p{Cc}\p{Cf}]/u.test(id))
+        throw new Error("Invalid catalog");
+      return provider === "deepgram" ? { ...value, id, task: "transcription" } : value;
+    })
+    .filter((model) => provider !== "deepgram" || model.batch === true);
+}
 
 async function boundedBytes(
   response: Request | Response,
@@ -101,7 +126,7 @@ export class TranscriptionService {
     const settings = await this.store.discoveryCredentials(input);
     try {
       const response = await this.fetchImpl(`${settings.baseUrl}/models`, {
-        headers: settings.apiKey ? { authorization: `Bearer ${settings.apiKey}` } : {},
+        headers: providerHeaders(settings),
         redirect: "error",
         signal: AbortSignal.timeout(8_000),
       });
@@ -116,27 +141,15 @@ export class TranscriptionService {
         throw providerFailure(response.status);
       }
       const body = JSON.parse(new TextDecoder().decode(await boundedBytes(response, 1024 * 1024)));
-      if (
-        !Array.isArray(body?.data) ||
-        body.data.some(
-          (m: unknown) =>
-            !m ||
-            typeof m !== "object" ||
-            typeof (m as { id?: unknown }).id !== "string" ||
-            !(m as { id: string }).id ||
-            (m as { id: string }).id.length > 256 ||
-            /[\p{Cc}\p{Cf}]/u.test((m as { id: string }).id)
-        )
-      )
-        throw new Error("Invalid catalog");
+      const models = providerModels(body, settings.provider);
       return {
         models: [
           ...new Set<string>(
-            body.data
+            models
               .filter((m: Record<string, unknown>) =>
                 isTranscriptionModel(m, settings.baseUrl !== "https://api.openai.com/v1")
               )
-              .map((m: { id: string }) => m.id)
+              .map((m) => m.id as string)
           ),
         ].sort(),
       };
@@ -169,7 +182,7 @@ export class TranscriptionService {
     try {
       const settings = await this.store.credentials();
       const response = await this.fetchImpl(`${settings.baseUrl}/models`, {
-        headers: settings.apiKey ? { authorization: `Bearer ${settings.apiKey}` } : {},
+        headers: providerHeaders(settings),
         redirect: "error",
         signal: AbortSignal.timeout(8_000),
       });
@@ -187,21 +200,27 @@ export class TranscriptionService {
         throw providerFailure(response.status);
       }
       const body = JSON.parse(new TextDecoder().decode(await boundedBytes(response, 1024 * 1024)));
-      if (
-        !Array.isArray(body.data) ||
-        !body.data.every(
-          (m: unknown) =>
-            m && typeof m === "object" && typeof (m as { id?: unknown }).id === "string"
-        )
-      ) {
+      let models: Record<string, unknown>[];
+      try {
+        models = providerModels(body, settings.provider);
+      } catch {
         return {
           level: "fail",
           status: "invalid",
           detail:
-            "The base URL did not return an OpenAI-compatible model list. Check its API path (usually /v1).",
+            settings.provider === "deepgram"
+              ? "Deepgram did not return a valid speech-to-text model list. Try again later."
+              : "The base URL did not return an OpenAI-compatible model list. Check its API path (usually /v1).",
         };
       }
-      if (!body.data.some((m: { id: string }) => m.id === settings.model))
+      if (
+        !models.some(
+          (m) =>
+            m.id === settings.model ||
+            (settings.provider === "deepgram" &&
+              (m.name === settings.model || m.uuid === settings.model))
+        )
+      )
         return {
           level: "warn",
           status: "unverified",
@@ -254,19 +273,38 @@ export class TranscriptionService {
           "The recording is empty or too short. Try speaking for longer."
         );
       request.signal.throwIfAborted();
-      const body = new FormData();
-      body.append(
-        "file",
-        new Blob([bytes as BlobPart], { type: mimeType }),
-        `voice-note.${extension}`
-      );
-      body.append("model", settings.model);
-      body.append("response_format", "json");
-      if (settings.language) body.append("language", settings.language);
-      const response = await this.fetchImpl(`${settings.baseUrl}/audio/transcriptions`, {
+      let url = `${settings.baseUrl}/audio/transcriptions`;
+      let body: BodyInit;
+      const headers = new Headers(providerHeaders(settings));
+      if (settings.provider === "deepgram") {
+        const endpoint = new URL(`${settings.baseUrl}/listen`);
+        endpoint.searchParams.set("model", settings.model);
+        endpoint.searchParams.set("smart_format", "true");
+        if (settings.language) endpoint.searchParams.set("language", settings.language);
+        else endpoint.searchParams.set("detect_language", "true");
+        url = endpoint.toString();
+        body = new Blob([bytes as BlobPart], { type: mimeType });
+        headers.set("content-type", mimeType);
+      } else {
+        const form = new FormData();
+        form.append(
+          "file",
+          new Blob([bytes as BlobPart], { type: mimeType }),
+          `voice-note.${extension}`
+        );
+        form.append("model", settings.model);
+        const gptTranscribe =
+          settings.provider === "openai" && /^gpt-transcribe(?:-|$)/.test(settings.model);
+        // GPT Transcribe returns JSON by default and accepts plural language hints.
+        if (!gptTranscribe) form.append("response_format", "json");
+        if (settings.language)
+          form.append(gptTranscribe ? "languages[]" : "language", settings.language);
+        body = form;
+      }
+      const response = await this.fetchImpl(url, {
         method: "POST",
         body,
-        headers: settings.apiKey ? { authorization: `Bearer ${settings.apiKey}` } : {},
+        headers,
         redirect: "error",
         signal,
       });
@@ -277,13 +315,17 @@ export class TranscriptionService {
       const result = JSON.parse(
         new TextDecoder().decode(await boundedBytes(response, 1024 * 1024, signal))
       );
-      if (typeof result?.text !== "string" || result.text.length > 100_000)
+      const transcript =
+        settings.provider === "deepgram"
+          ? result?.results?.channels?.[0]?.alternatives?.[0]?.transcript
+          : result?.text;
+      if (typeof transcript !== "string" || transcript.length > 100_000)
         throw new ApiError(
           502,
           "invalid_transcription_response",
           "The transcription provider returned an invalid transcript."
         );
-      const text = result.text.trim();
+      const text = transcript.trim();
       if (!text)
         throw new ApiError(422, "no_speech", "No speech was detected. Try recording again.");
       request.signal.throwIfAborted();

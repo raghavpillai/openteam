@@ -364,6 +364,7 @@ describe("interactive model editor", () => {
     await s.load();
     await press(s, "right");
     await activate(s, "transcription-provider");
+    expect(s.transcription?.model).toBe("gpt-transcribe");
     await activate(s, "save");
     expect(screen(s)).toContain("Chat sign-in cannot be used");
     expect(calls.transcription).toHaveLength(0);
@@ -375,6 +376,38 @@ describe("interactive model editor", () => {
     await activate(s, "test");
     expect(calls.checks).toBe(1);
     expect(screen(s)).toContain("Send a voice note");
+  });
+  test("Deepgram is selectable with Nova-3, requires a separate key, and supports multilingual audio", async () => {
+    const { session: s, calls } = modelFixture();
+    await s.load();
+    await press(s, "right");
+    expect(screen(s)).toContain("local MLX / Parakeet");
+    await activate(s, "transcription-provider");
+    await edit(s, "apiKey", "synthetic-openai-key");
+    await activate(s, "transcription-provider");
+    expect(s.transcription).toMatchObject({
+      provider: "deepgram",
+      baseUrl: "https://api.deepgram.com/v1",
+      model: "nova-3",
+    });
+    expect(s.transcription).not.toHaveProperty("apiKey");
+    expect(screen(s)).toContain("Required for Deepgram transcription");
+    expect(screen(s)).toContain("Deepgram");
+    await activate(s, "save");
+    expect(calls.transcription).toHaveLength(0);
+    expect(screen(s)).toContain("Deepgram API key");
+    await edit(s, "apiKey", "synthetic-deepgram-key");
+    await edit(s, "language", "multi");
+    await activate(s, "save");
+    expect(calls.transcription[0]).toMatchObject({
+      provider: "deepgram",
+      model: "nova-3",
+      language: "multi",
+    });
+    expect(s.savedTranscription?.configured).toBe(true);
+    await activate(s, "transcription-provider");
+    expect(s.transcription).toMatchObject({ provider: "openai-compatible", language: "" });
+    expect(screen(s)).toContain("Optional for private services");
   });
   test("transcription discovery reads drafts without saving and supports searchable selection", async () => {
     const { session: s, calls } = modelFixture();

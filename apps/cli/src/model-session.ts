@@ -31,7 +31,11 @@ const draftOf = (value: TranscriptionView): TranscriptionDraft => ({
   language: value.language,
 });
 const endpoint = (value: TranscriptionDraft) =>
-  value.provider === "openai" ? "https://api.openai.com/v1" : value.baseUrl.replace(/\/+$/, "");
+  value.provider === "openai"
+    ? "https://api.openai.com/v1"
+    : value.provider === "deepgram"
+      ? "https://api.deepgram.com/v1"
+      : value.baseUrl.replace(/\/+$/, "");
 
 export type ModelExit = boolean | { connectProvider: string; authType?: "oauth" | "api_key" };
 export class ModelSession implements InteractiveSession<ModelExit> {
@@ -303,9 +307,14 @@ export class ModelSession implements InteractiveSession<ModelExit> {
           kind: "cycle",
           id: "transcription-provider",
           label: "Provider",
-          value: t.provider === "openai" ? "OpenAI" : "Custom / OpenAI-compatible",
+          value:
+            t.provider === "openai"
+              ? "OpenAI"
+              : t.provider === "deepgram"
+                ? "Deepgram"
+                : "Custom / OpenAI-compatible",
         },
-        t.provider === "openai"
+        t.provider !== "openai-compatible"
           ? { kind: "field", label: "Base URL", value: t.baseUrl }
           : this.text("baseUrl", "Base URL", t.baseUrl, "http://audio-server:8000/v1"),
         this.text("transcription-model", "Model", t.model, "Transcription model ID"),
@@ -316,8 +325,8 @@ export class ModelSession implements InteractiveSession<ModelExit> {
           typeof t.apiKey === "string" ? t.apiKey : "",
           this.hasSavedKey
             ? "Saved; blank keeps it"
-            : t.provider === "openai"
-              ? "Required for OpenAI transcription"
+            : t.provider !== "openai-compatible"
+              ? `Required for ${t.provider === "openai" ? "OpenAI" : "Deepgram"} transcription`
               : "Optional for private services",
           true
         ),
@@ -331,7 +340,23 @@ export class ModelSession implements InteractiveSession<ModelExit> {
               } as SessionRow,
             ]
           : []),
-        this.text("language", "Language", t.language, "Automatic (or en, fr, ...)"),
+        this.text(
+          "language",
+          "Language",
+          t.language,
+          t.provider === "deepgram"
+            ? "Automatic (or en, fr, multi, ...)"
+            : "Automatic (or en, fr, ...)"
+        ),
+        ...(t.provider === "openai-compatible"
+          ? [
+              {
+                kind: "note",
+                text: "For local MLX / Parakeet, enter your server URL and model mlx-community/parakeet-tdt-0.6b-v3.",
+                tone: "muted",
+              } as SessionRow,
+            ]
+          : []),
         {
           kind: "note",
           text: "The API key is separate from your chat sign-in. Changing the endpoint does not transfer the saved key.",
@@ -452,7 +477,11 @@ export class ModelSession implements InteractiveSession<ModelExit> {
       if (value) t.apiKey = value;
       else delete t.apiKey;
     } else if (id === "language") {
-      if (value && !/^[a-z]{2,3}(?:-[A-Za-z]{2,4})?$/.test(value))
+      if (
+        value &&
+        !(t.provider === "deepgram" && value === "multi") &&
+        !/^[a-z]{2,3}(?:-[A-Za-z]{2,4})?$/.test(value)
+      )
         throw new Error(
           "Use a language code such as en, or leave it blank for automatic detection."
         );
@@ -544,9 +573,9 @@ export class ModelSession implements InteractiveSession<ModelExit> {
           const t = this.transcription!;
           if (t.enabled && (!t.baseUrl || !t.model))
             throw new Error("Enter a base URL and model before enabling voice notes.");
-          if (t.enabled && t.provider === "openai" && !t.apiKey && !this.hasSavedKey)
+          if (t.enabled && t.provider !== "openai-compatible" && !t.apiKey && !this.hasSavedKey)
             throw new Error(
-              "Enter an OpenAI API key to enable transcription. Chat sign-in cannot be used for voice notes."
+              `Enter ${t.provider === "openai" ? "an OpenAI" : "a Deepgram"} API key to enable transcription. Chat sign-in cannot be used for voice notes.`
             );
           this.savedTranscription = await this.api.saveTranscription(t, signal);
           this.transcription = draftOf(this.savedTranscription);
@@ -679,9 +708,16 @@ export class ModelSession implements InteractiveSession<ModelExit> {
       else this.transcription!.apiKey = null;
     } else if (row.id === "transcription-provider") {
       const t = this.transcription!;
-      t.provider = t.provider === "openai" ? "openai-compatible" : "openai";
-      t.baseUrl = t.provider === "openai" ? "https://api.openai.com/v1" : "";
-      t.model = t.provider === "openai" ? "whisper-1" : "";
+      t.provider =
+        t.provider === "openai-compatible"
+          ? "openai"
+          : t.provider === "openai"
+            ? "deepgram"
+            : "openai-compatible";
+      t.baseUrl = t.provider === "openai-compatible" ? "" : endpoint(t);
+      t.model =
+        t.provider === "openai" ? "gpt-transcribe" : t.provider === "deepgram" ? "nova-3" : "";
+      if (t.language === "multi") t.language = "";
       delete t.apiKey;
     } else return this.action(row.id, signal);
     return CONTINUE;

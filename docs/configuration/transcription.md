@@ -19,14 +19,14 @@ Check names, numbers, and instructions in the transcript before sending, especia
 
 Voice notes need a transcription service. Set it up once on the server and it works in all your apps.
 
-1. Open **Settings → Server → Transcription**.
-2. Choose **OpenAI** or **Custom / OpenAI-compatible**.
-3. For OpenAI, enter your API key; the base URL and model are filled in. For another service, enter its base URL, model, and API key if it needs one. Leave **Language** blank to detect it automatically.
+1. Run `openteam model` on the server host and select the **Transcription** tab. The desktop settings panel currently directs you to configure transcription on the server.
+2. Choose **OpenAI**, **Deepgram**, or **Custom / OpenAI-compatible**.
+3. For OpenAI or Deepgram, enter that service's API key; the base URL and model are filled in (`gpt-transcribe` for OpenAI, `nova-3` for Deepgram). For another service, enter its base URL, model, and API key if it needs one. Leave **Language** blank to detect it automatically. Deepgram also accepts `multi` for supported languages mixed within one recording.
 4. Turn on **Voice notes**.
-5. Choose **Save transcription**, then **Test connection**.
+5. Choose **Save transcription**, then **Test saved connection**.
 6. Record a short note to check that it works.
 
-Transcription uses its own API key. A ChatGPT or Claude sign-in for chat doesn't cover it. You can also set up transcription from the host with `openteam model`.
+Transcription uses its own API key. A ChatGPT or Claude sign-in for chat doesn't cover it. Changing the default model for new selections does not migrate an existing saved model.
 
 To choose a microphone on desktop, open **Settings → General → System → Microphone**.
 
@@ -34,8 +34,10 @@ To choose a microphone on desktop, open **Settings → General → System → Mi
 
 Any service with an OpenAI-compatible transcription API works, as long as the OpenTeam server can reach it. To run one on an Apple silicon Mac, see the [self-hosted transcription guide](../reference/transcription-service.md#self-host-on-an-apple-silicon-mac).
 
+The bundled local MLX / Parakeet service is configured under **Custom / OpenAI-compatible**. Set its reachable base URL (for example, `http://audio-server:18080/v1`), model `mlx-community/parakeet-tdt-0.6b-v3`, and the key used to start the service. Selecting a custom provider does not start or install the local service.
+
 ## Troubleshooting
 
 - **The microphone button is unavailable:** transcription is turned off or not set up on the server.
 - **Recording doesn't start:** check that OpenTeam has microphone permission in your device's settings.
-- **Transcription fails:** use **Test connection** in settings, then try a short recording. If a note fails, retry or discard it; it wasn't sent.
+- **Transcription fails:** use **Test saved connection** in `openteam model`, then try a short recording. If a note fails, retry or discard it; it wasn't sent.

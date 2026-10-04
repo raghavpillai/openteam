@@ -12,13 +12,59 @@ import { createOpenTeamClient } from "../../packages/client-core/src/client";
 import { createOpenTeamAuthClient } from "../../packages/client-core/src/auth";
 import { checkTranscription } from "../../apps/cli/src/transcription-check";
 import { installationPaths } from "../../apps/cli/src/config";
+import type { TranscriptionSettings } from "../../packages/contracts/src/transcription";
 
 const argument = (name: string, fallback = "") => {
   const index = process.argv.indexOf(name);
   return index === -1 ? fallback : process.argv[index + 1]!;
 };
 const repository = resolve(import.meta.dirname, "../..");
-if (process.argv.includes("--ios-app")) throw new Error("Use apps/ios/scripts/real-server-qa.ts and the RealServer Xcode scheme for native iOS transcription QA; --ios-app was the retired React Native harness.");
+if (process.argv.includes("--help")) {
+  console.log(`Usage: bun scripts/transcription/test-e2e.ts [options]
+  --provider openai-compatible|openai|deepgram  (default: openai-compatible)
+  --provider-url URL                         Custom service base URL
+  --model MODEL                              Override the provider's default model
+  --api-key-file FILE                        Read the provider key from a private file
+  --api-key-env NAME                         Read the provider key from an environment variable
+  --native-postgres                          Use local PostgreSQL instead of disposable Docker
+Uses synthetic audio, disposable QA bots/database, and the real desktop recording UI.`);
+  process.exit(0);
+}
+if (process.argv.includes("--ios-app"))
+  throw new Error(
+    "Use apps/ios/scripts/real-server-qa.ts and the RealServer Xcode scheme for native iOS transcription QA; --ios-app was the retired React Native harness."
+  );
+const provider = argument("--provider", "openai-compatible") as TranscriptionSettings["provider"];
+assert(
+  ["openai", "deepgram", "openai-compatible"].includes(provider),
+  "Choose a supported transcription provider"
+);
+const providerUrl = argument(
+  "--provider-url",
+  provider === "openai"
+    ? "https://api.openai.com/v1"
+    : provider === "deepgram"
+      ? "https://api.deepgram.com/v1"
+      : "http://127.0.0.1:18080/v1"
+);
+const model = argument(
+  "--model",
+  provider === "openai"
+    ? "gpt-transcribe"
+    : provider === "deepgram"
+      ? "nova-3"
+      : "mlx-community/parakeet-tdt-0.6b-v3"
+);
+const keyFile = argument("--api-key-file");
+const keyEnv = argument("--api-key-env");
+assert(!(keyFile && keyEnv), "Choose either --api-key-file or --api-key-env");
+const apiKey = keyFile
+  ? (await readFile(resolve(keyFile), "utf8")).trim()
+  : keyEnv
+    ? process.env[keyEnv]?.trim()
+    : undefined;
+assert(!keyEnv || apiKey, "The selected API key environment variable is empty");
+assert(provider === "openai-compatible" || apiKey, "A cloud provider API key is required");
 const directory = await mkdtemp(join(tmpdir(), "openteam-transcription-e2e-"));
 const name = `openteam-transcription-qa-${randomUUID().slice(0, 8)}`;
 const secret = () => randomBytes(32).toString("hex");
@@ -26,10 +72,6 @@ const dbPassword = secret(),
   controlToken = secret(),
   authSecret = secret(),
   ownerPassword = secret();
-const providerUrl = argument("--provider-url", "http://127.0.0.1:18080/v1");
-const model = argument("--model", "mlx-community/parakeet-tdt-0.6b-v3");
-const keyFile = argument("--api-key-file");
-const apiKey = keyFile ? (await readFile(resolve(keyFile), "utf8")).trim() : undefined;
 const reports: unknown[] = [];
 let server: ReturnType<typeof Bun.spawn> | undefined;
 let createdDatabase = false;
@@ -39,7 +81,7 @@ const computer = Bun.serve({
   hostname: "127.0.0.1",
   port: 0,
   fetch(request) {
-    return new URL(request.url).pathname === "/health"
+    return ["/health", "/health/authenticated"].includes(new URL(request.url).pathname)
       ? Response.json({ status: "ready", inference: { ready: true, authenticated: true } })
       : Response.json({ ok: true });
   },
@@ -204,7 +246,7 @@ try {
 
   const settings = {
     enabled: true,
-    provider: "openai-compatible" as const,
+    provider,
     baseUrl: providerUrl,
     model,
     language: "",
@@ -223,7 +265,10 @@ try {
     { mode: 0o600 }
   );
   assert.equal((await checkTranscription(installationPaths(directory))).level, "pass");
-  record("owner saves encrypted provider settings and real CLI doctor verifies Parakeet");
+  record("owner saves encrypted provider settings and real CLI doctor verifies the model", {
+    provider,
+    model,
+  });
 
   const fixture = join(directory, "speech.wav");
   await run([
@@ -260,9 +305,22 @@ try {
     "libopus",
     join(directory, "speech.webm"),
   ]);
+  await run([
+    "ffmpeg",
+    "-nostdin",
+    "-y",
+    "-v",
+    "error",
+    "-i",
+    fixture,
+    "-c:a",
+    "aac",
+    join(directory, "speech.m4a"),
+  ]);
   for (const [extension, mime] of [
     ["wav", "audio/wav"],
     ["webm", "audio/webm"],
+    ["m4a", "audio/mp4"],
   ]) {
     const start = performance.now();
     const result = await client.transcribeAudio(

@@ -21,6 +21,8 @@ const model = Bun.serve({
   hostname: "127.0.0.1",
   port: 0,
   async fetch(request) {
+    if (request.method === "GET")
+      return Response.json({ data: [{ id: "voice-qa", object: "model" }] });
     const body = await request.json();
     requests.push({ runId: inferenceRunId, body });
     const chunk = {
@@ -74,6 +76,10 @@ const computer = Bun.serve({
   port: 0,
   async fetch(request) {
     const path = new URL(request.url).pathname;
+    if (path === "/health" || path === "/health/authenticated")
+      return Response.json({ status: "ready", inference: { ready: true, authenticated: true } });
+    if (path === "/v1/task-capabilities")
+      return Response.json({ desktopAvailable: false, boxAvailable: false });
     if (path === "/v1/turns") {
       const input = await request.json();
       inferenceRunId = input.runId;

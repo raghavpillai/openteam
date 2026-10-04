@@ -4,11 +4,15 @@ For recording controls and provider setup, see [Voice notes](../configuration/tr
 
 ## Provider contract
 
-The OpenTeam server sends `POST <baseUrl>/audio/transcriptions` with multipart `file`, `model`, `response_format=json`, optional `language`, and optional Bearer authentication. The service must return `{ "text": "..." }` and accept WAV and WebM recordings. Other protocols require an adapter. See [OpenAI speech-to-text documentation](https://developers.openai.com/api/docs/guides/speech-to-text).
+For custom OpenAI-compatible providers, the OpenTeam server sends `POST <baseUrl>/audio/transcriptions` with multipart `file`, `model`, `response_format=json`, optional `language`, and optional Bearer authentication. The service must return `{ "text": "..." }` and accept the recording formats used by your clients (WAV/WebM on desktop and M4A on iPhone). See [OpenAI speech-to-text documentation](https://developers.openai.com/api/docs/guides/speech-to-text).
 
 Use a URL reachable from the server container, including `/v1` when required. Container `localhost` does not reach the host Mac. Only the server needs access to the transcription service; mobile continues using its normal OpenTeam URL.
 
-OpenAI defaults to `https://api.openai.com/v1` and `whisper-1`; another supported transcription model can be entered manually. Clients refresh server capabilities approximately every 30 seconds or when reopened. A disabled, incomplete, or unsupported configuration leaves the microphone visible but disabled.
+New OpenAI selections default to `https://api.openai.com/v1` and `gpt-transcribe`, OpenAI's recommended model for recorded speech. That model returns JSON by default and uses `languages[]` for the optional language hint. Older models retain `response_format=json` and `language`. Another supported transcription model can be entered manually; existing saved model selections are preserved.
+
+Deepgram uses its native API at `https://api.deepgram.com/v1` with `nova-3` as the default. Recordings are sent as raw audio to `/listen` with `Authorization: Token`, `model`, and `smart_format=true`. A blank language sets `detect_language=true`; a language code or `multi` sets `language` instead. The server extracts the first channel's best transcript and returns the same `{ "text": "..." }` result to clients. Model browsing and diagnostics use Deepgram's `/models` catalog and include only batch-capable speech-to-text models. See [Deepgram's recorded-audio API](https://developers.deepgram.com/reference/speech-to-text/listen-pre-recorded) and [models and languages](https://developers.deepgram.com/docs/models-languages-overview).
+
+Clients refresh server capabilities approximately every 30 seconds or when reopened. A disabled, incomplete, or unsupported configuration leaves the microphone visible but disabled.
 
 ## Client behavior
 
@@ -40,6 +44,20 @@ Install ffmpeg first if needed (`brew install ffmpeg`). The key-generation comma
 The helper loads the model before serving requests, authenticates every endpoint, exposes `/health` and `/v1/models`, and accepts one note at a time. It normalizes audio using ffmpeg and deletes its temporary files afterward. Requests cannot choose a different model or invoke model-management endpoints. For persistent hosting, run the same command using launchd with absolute paths and a PATH containing ffmpeg. The first start may download missing model files; later starts reuse the Hugging Face cache.
 
 ## Doctor and operating limits
+
+### Run end-to-end checks
+
+On a development Mac with Bun, Docker, ffmpeg, and the desktop dependencies installed, run `bun scripts/transcription/test-e2e.ts --help` for the test options. For a reachable local service:
+
+```sh
+bun scripts/transcription/test-e2e.ts \
+  --provider-url http://audio-server:18080/v1 \
+  --api-key-file /path/to/transcription/api-key
+```
+
+For OpenAI or Deepgram, use `--provider openai` or `--provider deepgram` and pass `--api-key-file` or `--api-key-env OPENAI_API_KEY` / `--api-key-env DEEPGRAM_API_KEY`. Cloud tests send short synthetic recordings and incur normal provider charges. The test creates a disposable PostgreSQL database and QA bots, checks WAV/WebM/M4A uploads, desktop recording and review/send, and exact transcript delivery to the worker and Pi. It does not change an installed server's configuration or use the physical microphone. Test reports and a desktop screenshot are saved in the printed temporary artifact directory.
+
+### Diagnostics
 
 `openteam doctor` includes a **Voice notes / Transcription** check. It reads the configured provider through the server using the installation control token and checks that the model is discoverable from the server's network. No microphone, audio upload, or billed transcription is used for diagnostics.
 

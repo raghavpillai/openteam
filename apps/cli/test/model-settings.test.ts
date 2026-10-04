@@ -12,6 +12,20 @@ const fixture = () => {
   return { ...f, client: createModelSettingsAPI(f.paths) };
 };
 describe("interactive model HTTP settings", () => {
+  test("accepts Deepgram settings returned by the server and retains no credentials", async () => {
+    const { client } = fixture();
+    const saved = await client.saveTranscription({
+      enabled: true,
+      provider: "deepgram",
+      baseUrl: "https://api.deepgram.com/v1",
+      model: "nova-3",
+      language: "",
+      apiKey: "synthetic-deepgram-key",
+    });
+    expect(saved).toMatchObject({ provider: "deepgram", configured: true, hasApiKey: true });
+    expect(saved).not.toHaveProperty("apiKey");
+    expect(await client.transcription()).toEqual(saved);
+  });
   test("preserves subscription/API metadata without retaining extra credential fields", async () => {
     const { client, api } = fixture();
     const catalog = api.catalog;

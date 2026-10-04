@@ -57,8 +57,8 @@ export function formatIdleGapTimestamp(createdAt: string, now = new Date(), time
   const messageDay = calendarDate(date, timeZone);
   const daysAgo = currentDay.ordinal - messageDay.ordinal;
   const format = getFormatters(timeZone);
-  const time = format.time.format(date).replace(/\s/g, "").toLowerCase();
-  if (daysAgo === 0) return time;
+  const time = format.time.format(date);
+  if (daysAgo === 0) return `Today ${time}`;
   if (daysAgo === 1) return `Yesterday ${time}`;
   const calendar = (currentDay.year === messageDay.year ? format.sameYear : format.otherYear).format(date);
   return `${calendar} ${time}`;

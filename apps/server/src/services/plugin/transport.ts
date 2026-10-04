@@ -288,16 +288,18 @@ export class PluginTransport {
     id: string;
     configuration: Prisma.JsonValue;
     credentials?: Prisma.JsonValue;
+    runtimeGeneration?: number;
   }): Promise<PluginToolDefinition[]> {
-    const response = await this.callComputer(`/v1/mcp/connections/${connection.id}/discover`, {
-      configuration: await this.stdioConfiguration(connection),
-    });
+    const response = await this.callComputer(`/v1/mcp/connections/${connection.id}/discover`, await this.stdioRuntime(connection));
     return this.stdioTools(response.tools);
   }
 
   async stdioStatus(connectionId: string) {
     if (!this.computerFetch) throw new Error("Computer runtime is unavailable");
-    const response = await this.computerFetch(`/v1/mcp/connections/${connectionId}`, { method: "GET" });
+    const response = await this.computerFetch(`/v1/mcp/connections/${connectionId}`, {
+      method: "GET",
+      signal: AbortSignal.timeout(10_000),
+    });
     if (!response.ok) throw new Error(`Computer MCP status failed (${response.status})`);
     const value = jsonObject(await response.json());
     if (!["starting", "ready", "error", "stopped"].includes(String(value.state)))
@@ -322,13 +324,14 @@ export class PluginTransport {
   }
 
   private async callStdio(
-    connection: { id: string; configuration: Prisma.JsonValue; credentials?: Prisma.JsonValue },
+    connection: { id: string; configuration: Prisma.JsonValue; credentials?: Prisma.JsonValue; runtimeGeneration?: number },
     toolName: string,
     args: unknown
   ): Promise<unknown> {
-    const configuration = await this.stdioConfiguration(connection);
+    const { configuration, runtimeGeneration } = await this.stdioRuntime(connection);
     const response = await this.callComputer(`/v1/mcp/connections/${connection.id}/call`, {
       configuration,
+      runtimeGeneration,
       toolName,
       arguments: args,
     });
@@ -338,10 +341,15 @@ export class PluginTransport {
     });
   }
 
-  private async stdioConfiguration(connection: {
+  private async stdioConfiguration(connection: { id: string; configuration: Prisma.JsonValue; credentials?: Prisma.JsonValue }) {
+    return (await this.stdioRuntime(connection)).configuration;
+  }
+
+  private async stdioRuntime(connection: {
     id: string;
     configuration: Prisma.JsonValue;
     credentials?: Prisma.JsonValue;
+    runtimeGeneration?: number;
   }) {
     // A database lock serializes refreshes across server processes, including rotating tokens.
     return this.prisma.$transaction(
@@ -351,6 +359,8 @@ export class PluginTransport {
           where: { id: connection.id },
           include: { installation: { select: { manifest: true } } },
         });
+        if (connection.runtimeGeneration !== undefined && connection.runtimeGeneration !== current.runtimeGeneration)
+          throw new Error("Connection setup changed while preparing the runtime");
         const definition = definitionFromManifest(current.installation.manifest);
         const configuration = runtimeConfiguration(current);
         const oauth = definition?.connections.find(
@@ -369,7 +379,7 @@ export class PluginTransport {
           env = { ...env, [oauth.accessTokenEnv]: await packagedAccessToken(provider, oauth) };
         }
         // Never send client secrets, refresh tokens, or setup values to the child process.
-        return {
+        return { runtimeGeneration: current.runtimeGeneration, configuration: {
           runtime: configuration.runtime,
           provider: configuration.provider,
           command: configuration.command,
@@ -378,7 +388,7 @@ export class PluginTransport {
           env: { ...env, OPENTEAM_PLUGIN_ACCOUNT_ID: current.id },
           packageFiles: definition?.files ?? {},
           packageBinaryFiles: definition?.binaryFiles ?? {},
-        };
+        } };
       },
       { maxWait: 40_000, timeout: 40_000 }
     );
@@ -415,13 +425,19 @@ export class PluginTransport {
     return token;
   }
 
-  async stopRuntime(connectionId: string, transport: string): Promise<void> {
+  async stopRuntime(connectionId: string, transport: string, generation?: number): Promise<void> {
     if (transport === "http") {
       await this.http.close(connectionId);
       return;
     }
     if (transport === "stdio" && this.computerFetch) {
-      await this.computerFetch(`/v1/mcp/connections/${connectionId}`, { method: "DELETE" }).catch(
+      const connection = generation === undefined
+        ? await this.prisma.pluginConnection.findUnique({ where: { id: connectionId }, select: { runtimeGeneration: true } })
+        : { runtimeGeneration: generation };
+      await this.computerFetch(`/v1/mcp/connections/${connectionId}`, {
+        method: "DELETE",
+        headers: connection ? { "x-openteam-mcp-generation": String(connection.runtimeGeneration) } : undefined,
+      }).catch(
         () => undefined
       );
     }

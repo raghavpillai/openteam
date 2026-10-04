@@ -711,9 +711,11 @@ export class PluginService {
     });
 
   private readonly connectionStarts = new Map<string, ReturnType<PluginService["beginConnect"]>>();
+  private readonly connectionStops = new Map<string, ReturnType<PluginService["disconnectConnection"]>>();
 
   connect = (connectionId: string, sessionId: string | null = null) =>
     serviceEffect(async () => {
+      await this.connectionStops.get(connectionId);
       const existing = this.connectionStarts.get(connectionId);
       if (existing) return existing;
       const pending = this.beginConnect(connectionId, sessionId);
@@ -778,15 +780,22 @@ export class PluginService {
     const updated = await this.markReady(connection, tools);
     return { id: updated.id, status: updated.status, toolCount: tools.length };
     };
-  disconnect = (connectionId: string) =>
-    serviceEffect(async () => {
+  disconnect = (connectionId: string) => serviceEffect(async () => {
+    const existing = this.connectionStops.get(connectionId);
+    if (existing) return existing;
+    const pending = this.disconnectConnection(connectionId);
+    this.connectionStops.set(connectionId, pending);
+    try { return await pending; }
+    finally { if (this.connectionStops.get(connectionId) === pending) this.connectionStops.delete(connectionId); }
+  });
+
+  private async disconnectConnection(connectionId: string) {
       const connection = await this.prisma.pluginConnection.findUnique({
         where: { id: connectionId },
       });
       if (!connection) throw new ApiError(404, "connection_not_found", "Connection not found");
-      await this.stopRuntime(connectionId, connection.transport);
-      await this.prisma.$transaction(async (tx) => {
-        await tx.pluginConnection.update({
+      const generation = await this.prisma.$transaction(async (tx) => {
+        const disconnected = await tx.pluginConnection.update({
           where: { id: connectionId },
           data: {
             status: "disconnected",
@@ -804,9 +813,14 @@ export class PluginService {
           },
         });
         await appendEvent(tx, "plugin.connection.disconnected", connectionId, {});
+        return disconnected.runtimeGeneration;
       });
+      // New explicit connects wait for this stop; a timed-out old request no
+      // longer occupies the shared-start slot and is fenced on the computer.
+      this.connectionStarts.delete(connectionId);
+      await this.stopRuntime(connectionId, connection.transport, generation);
       return { disconnected: true };
-    });
+  }
 
   addAccount = (connectionId: string, aliasValue: string, reviewedAccountId?: string) =>
     serviceEffect(async () => {
@@ -975,13 +989,32 @@ export class PluginService {
       return { id: connectionId, instructions };
     });
 
+  private readonly connectionRestarts = new Map<string, ReturnType<PluginService["restartConnection"]>>();
+
   restart = (connectionId: string) =>
     serviceEffect(async () => {
-      const connection = await this.connectionOrThrow(connectionId);
-      await this.stopRuntime(connectionId, connection.transport);
-      await this.connectionStarts.get(connectionId)?.catch(() => undefined);
-      return Effect.runPromise(this.connect(connectionId));
+      const existing = this.connectionRestarts.get(connectionId);
+      if (existing) return existing;
+      const pending = this.restartConnection(connectionId);
+      this.connectionRestarts.set(connectionId, pending);
+      try { return await pending; }
+      finally { if (this.connectionRestarts.get(connectionId) === pending) this.connectionRestarts.delete(connectionId); }
     });
+
+  private async restartConnection(connectionId: string) {
+      await this.connectionStops.get(connectionId);
+      const connection = await this.connectionOrThrow(connectionId);
+      const updated = await this.prisma.pluginConnection.updateMany({
+        where: { id: connectionId, runtimeGeneration: connection.runtimeGeneration },
+        data: { runtimeGeneration: { increment: 1 } },
+      });
+      if (!updated.count) throw new ApiError(409, "plugin_connection_changed", "Connection setup changed while restarting");
+      await this.stopRuntime(connectionId, connection.transport, connection.runtimeGeneration + 1);
+      this.connectionStarts.delete(connectionId);
+      if ((await this.connectionOrThrow(connectionId)).runtimeGeneration !== connection.runtimeGeneration + 1)
+        throw new ApiError(409, "plugin_connection_changed", "Connection setup changed while restarting");
+      return Effect.runPromise(this.connect(connectionId));
+  }
 
   dynamicNamespaces = forwardServiceMethod(() => this.queries.dynamicNamespaces);
 
@@ -1186,12 +1219,13 @@ export class PluginService {
   private async discoverStdio(connection: {
     id: string;
     configuration: Prisma.JsonValue;
+    runtimeGeneration?: number;
   }): Promise<PluginToolDefinition[]> {
     return this.transport.discoverStdio(connection);
   }
 
-  private async stopRuntime(connectionId: string, transport: string): Promise<void> {
-    return this.transport.stopRuntime(connectionId, transport);
+  private async stopRuntime(connectionId: string, transport: string, generation?: number): Promise<void> {
+    return this.transport.stopRuntime(connectionId, transport, generation);
   }
 }
 

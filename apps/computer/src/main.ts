@@ -571,8 +571,8 @@ const server = Bun.serve({
 
       const mcpDiscoverMatch = url.pathname.match(/^\/v1\/mcp\/connections\/([^/]+)\/discover$/);
       if (request.method === "POST" && mcpDiscoverMatch?.[1]) {
-        const body = (await request.json()) as { configuration?: unknown };
-        return json({ tools: await stdioMcp.discover(mcpDiscoverMatch[1], body.configuration) });
+        const body = (await request.json()) as { configuration?: unknown; runtimeGeneration?: number };
+        return json({ tools: await stdioMcp.discover(mcpDiscoverMatch[1], body.configuration, body.runtimeGeneration) });
       }
 
       const mcpCallMatch = url.pathname.match(/^\/v1\/mcp\/connections\/([^/]+)\/call$/);
@@ -581,6 +581,7 @@ const server = Bun.serve({
           configuration?: unknown;
           toolName?: unknown;
           arguments?: unknown;
+          runtimeGeneration?: number;
         };
         if (typeof body.toolName !== "string") return json({ error: "toolName is required" }, 400);
         return json({
@@ -588,7 +589,8 @@ const server = Bun.serve({
             mcpCallMatch[1],
             body.configuration,
             body.toolName,
-            body.arguments
+            body.arguments,
+            body.runtimeGeneration
           ),
         });
       }
@@ -598,7 +600,8 @@ const server = Bun.serve({
         return json(stdioMcp.status(mcpConnectionMatch[1]));
       }
       if (request.method === "DELETE" && mcpConnectionMatch?.[1]) {
-        await stdioMcp.close(mcpConnectionMatch[1]);
+        const generation = request.headers.get("x-openteam-mcp-generation");
+        await stdioMcp.close(mcpConnectionMatch[1], generation === null ? undefined : Number(generation));
         return json({ ok: true });
       }
 

@@ -49,9 +49,16 @@ const normalized = (value: unknown): StdioMcpConfiguration => {
   };
 };
 
+const fingerprintOf = (value: unknown): string => JSON.stringify(value, (_key, entry) =>
+  entry && typeof entry === "object" && !Array.isArray(entry)
+    ? Object.fromEntries(Object.entries(entry).sort(([a], [b]) => a.localeCompare(b)))
+    : entry
+);
+
 export class StdioMcpManager {
   private readonly clients = new Map<string, ManagedStdioClient>();
   private readonly closing = new Map<string, Promise<void>>();
+  private readonly generations = new Map<string, number>();
   private readonly packages: PluginPackageCache;
 
   constructor(
@@ -61,9 +68,10 @@ export class StdioMcpManager {
     this.packages = new PluginPackageCache(cacheDirectory);
   }
 
-  async discover(connectionId: string, input: unknown): Promise<unknown[]> {
+  async discover(connectionId: string, input: unknown, generation = 0): Promise<unknown[]> {
     const refresh = this.clients.get(connectionId)?.state === "ready";
-    const managed = await this.get(connectionId, input);
+    const managed = await this.get(connectionId, input, generation);
+    this.assertCurrentGeneration(connectionId, generation);
     return refresh ? this.refreshTools(managed) : managed.tools;
   }
 
@@ -83,9 +91,11 @@ export class StdioMcpManager {
     connectionId: string,
     input: unknown,
     toolName: string,
-    args: unknown
+    args: unknown,
+    generation = 0
   ): Promise<unknown> {
-    const managed = await this.get(connectionId, input);
+    const managed = await this.get(connectionId, input, generation);
+    this.assertCurrentGeneration(connectionId, generation);
     return managed.client.callTool(
       {
         name: toolName,
@@ -99,7 +109,12 @@ export class StdioMcpManager {
     );
   }
 
-  async close(connectionId: string): Promise<void> {
+  async close(connectionId: string, generation?: number): Promise<void> {
+    if (generation !== undefined) {
+      this.validateGeneration(generation);
+      if (generation < (this.generations.get(connectionId) ?? 0)) return;
+      this.generations.set(connectionId, generation);
+    }
     const closing = this.closing.get(connectionId);
     if (closing) return closing;
     const managed = this.clients.get(connectionId);
@@ -121,12 +136,30 @@ export class StdioMcpManager {
     );
   }
 
-  private async get(connectionId: string, input: unknown): Promise<ManagedStdioClient> {
+  private validateGeneration(generation: number) {
+    if (!Number.isSafeInteger(generation) || generation < 0) throw new Error("Invalid MCP runtime generation");
+  }
+
+  private assertCurrentGeneration(connectionId: string, generation: number) {
+    this.validateGeneration(generation);
+    if (generation < (this.generations.get(connectionId) ?? 0))
+      throw new Error("MCP connection changed; stale request rejected");
+  }
+
+  private async get(connectionId: string, input: unknown, generation: number): Promise<ManagedStdioClient> {
     const closing = this.closing.get(connectionId);
     if (closing) await closing;
-    const fingerprint = JSON.stringify(input);
+    this.assertCurrentGeneration(connectionId, generation);
+    const currentGeneration = this.generations.get(connectionId) ?? 0;
+    if (generation > currentGeneration) {
+      // Fence before teardown. Check again after close: a newer disconnect or
+      // reconnect may arrive while this request is waiting for the old child.
+      await this.close(connectionId, generation);
+      return this.get(connectionId, input, generation);
+    }
+    const fingerprint = fingerprintOf(input);
     const { env: _env, ...launchConfiguration } = objectValue(input);
-    const launchFingerprint = JSON.stringify(launchConfiguration);
+    const launchFingerprint = fingerprintOf(launchConfiguration);
     const existing = this.clients.get(connectionId);
     if (existing?.fingerprint === fingerprint) {
       if (existing.state === "error") throw new Error(existing.error);
@@ -137,7 +170,7 @@ export class StdioMcpManager {
     // in-progress login or let a stale launch definition replace a newer one.
     if (existing?.state === "ready" && existing.launchFingerprint === launchFingerprint) {
       await this.close(connectionId);
-      return this.get(connectionId, input);
+      return this.get(connectionId, input, generation);
     }
     if (existing) throw new Error("MCP configuration changed; reconnect to apply it");
     const client = new Client({ name: "openteam-computer", version: "0.0.0" });

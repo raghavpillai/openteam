@@ -3,6 +3,7 @@
 /* Keep native disclosure markers, spacing and typography intact. */
 details.animated-disclosure::details-content {
   interpolate-size: allow-keywords;
+  interactivity: inert;
   block-size: 0;
   overflow: clip;
   content-visibility: hidden;
@@ -11,6 +12,7 @@ details.animated-disclosure::details-content {
 }
 details.animated-disclosure[open]::details-content {
   block-size: auto;
+  interactivity: auto;
   content-visibility: visible;
   /* Release clipping when expansion finishes so focus rings stay intact. */
   overflow: visible;

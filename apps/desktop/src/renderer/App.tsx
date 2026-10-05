@@ -1222,6 +1222,7 @@ export default function App() {
                         hasOlder={historyStatus?.hasOlder ?? false}
                         historyGeneration={historyStatus?.generation ?? 0}
                         historyMode={historyStatus?.mode ?? "latest"}
+                        initialHistoryPending={historyStatus?.initialLoading ?? true}
                         itemsByRun={index.itemsByRun}
                         messages={index.messagesByChannel.get(channelId) ?? []}
                         loadingNewer={historyStatus?.loadingNewer ?? false}

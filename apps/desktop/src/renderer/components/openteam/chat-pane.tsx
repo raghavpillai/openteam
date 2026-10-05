@@ -103,6 +103,7 @@ import {
   MessageActions,
   MessageContent,
   MessageResponse,
+  MessageRendererBoundary,
 } from "../ai-elements/message";
 import { PromptInput } from "../ai-elements/prompt-input";
 import { Button } from "../ui/button";
@@ -160,6 +161,7 @@ interface ChatPaneProps {
   threadContextTruncated?: boolean;
   focusMessage: { messageId: string; nonce: number } | null;
   historyGeneration?: number;
+  initialHistoryPending?: boolean;
   historyMode?: "latest" | "history" | "context";
   hasOlder?: boolean;
   hasNewer?: boolean;
@@ -210,6 +212,7 @@ const chatPanePropsEqual = (previous: ChatPaneProps, next: ChatPaneProps) =>
   previous.threadContextTruncated === next.threadContextTruncated &&
   previous.focusMessage === next.focusMessage &&
   previous.historyGeneration === next.historyGeneration &&
+  previous.initialHistoryPending === next.initialHistoryPending &&
   previous.historyMode === next.historyMode &&
   previous.hasOlder === next.hasOlder &&
   previous.hasNewer === next.hasNewer &&
@@ -318,6 +321,8 @@ const messageImages = (message: ChannelMessageView) => {
     .map((attachment) => ({
       url: api.assetUrl(attachment),
       alt: attachment.alt ?? attachment.fileName,
+      width: attachment.width,
+      height: attachment.height,
     }));
   if (canonical.length > 0) return canonical;
 
@@ -325,7 +330,7 @@ const messageImages = (message: ChannelMessageView) => {
   if (!Array.isArray(legacyImages)) return [];
   return legacyImages.flatMap((image) => {
     if (!image || typeof image !== "object" || Array.isArray(image)) return [];
-    const { url, alt } = image as Record<string, unknown>;
+    const { url, alt, width, height } = image as Record<string, unknown>;
     if (
       typeof url !== "string" ||
       !(
@@ -336,7 +341,12 @@ const messageImages = (message: ChannelMessageView) => {
     ) {
       return [];
     }
-    return [{ url, ...(typeof alt === "string" ? { alt } : {}) }];
+    return [{
+      url,
+      ...(typeof alt === "string" ? { alt } : {}),
+      ...(typeof width === "number" ? { width } : {}),
+      ...(typeof height === "number" ? { height } : {}),
+    }];
   });
 };
 
@@ -628,9 +638,11 @@ const MessageRow = memo(function MessageRow({
                   >
                     <MessageImageGallery images={images} />
                     {fileAttachments.length > 0 && (
-                      <Suspense fallback={null}>
+                      <MessageRendererBoundary content={`Attachment previews unavailable.\n${fileAttachments.map((file) => file.fileName).join("\n")}`}>
+                      <Suspense fallback={<div data-chat-layout-pending className="h-[61px] w-[246px] max-w-full" />}>
                         <MessageFileAttachments attachments={fileAttachments} />
                       </Suspense>
+                      </MessageRendererBoundary>
                     )}
                     {stagedFileAttachments.map((attachment) => (
                       <article
@@ -908,6 +920,7 @@ export const ChatPane = memo(function ChatPane({
   threadContextTruncated = false,
   focusMessage,
   historyGeneration = 0,
+  initialHistoryPending = false,
   historyMode = "latest",
   hasOlder,
   hasNewer,
@@ -1387,6 +1400,7 @@ export const ChatPane = memo(function ChatPane({
           <ConversationTopDivider />
           <ConversationTimestampPeek />
           <ConversationContent
+            initialContentPending={initialHistoryPending}
             overlayScrollbars
             className="max-w-none gap-1 px-4 pt-11"
             style={{ paddingBottom: `calc(${24 + restingThinkingSpace}px + var(--composer-overlap, 0px))` }}
@@ -1670,6 +1684,7 @@ export const ChatPane = memo(function ChatPane({
       )}
       {threadState && (
         <ThreadTray
+          key={threadState.pin.root.id}
           transcriptionConfigured={runtime.transcription === "configured"}
           botById={botById}
           deliveries={channelSends}

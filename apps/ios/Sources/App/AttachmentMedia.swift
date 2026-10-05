@@ -51,6 +51,7 @@ struct AttachmentView: View {
   @State private var loading = false
   @State private var failure: String?
   private var isImage: Bool { asset.mimeType.hasPrefix("image/") }
+  private var previewSize: CGSize { AttachmentImageFile.previewSize(width: asset.width, height: asset.height) }
   private var galleryID: String { messageID + ":" + asset.id + ":" + asset.fileName }
   private var gallery: [GalleryItem] {
     let items = store.messages(channelID).flatMap { message in
@@ -72,15 +73,17 @@ struct AttachmentView: View {
         } else { Task { await load(open: true) } }
       } label: {
         if isImage {
-          if let image = loaded?.image {
-            Image(uiImage: image).resizable().scaledToFit().frame(maxWidth: 260, maxHeight: 240)
-              .clipShape(RoundedRectangle(cornerRadius: 16))
-          } else {
-            ZStack {
-              RoundedRectangle(cornerRadius: 16).fill(NativePalette.surface)
-              if loading { ProgressView() } else { Image(systemName: "photo").foregroundStyle(NativePalette.muted) }
-            }.frame(width: 240, height: 150)
-          }
+          ZStack {
+            NativePalette.surface
+            if let image = loaded?.image {
+              Image(uiImage: image).resizable().scaledToFit()
+            } else if failure != nil {
+              Label("Image unavailable", systemImage: "arrow.clockwise").font(.caption)
+                .foregroundStyle(NativePalette.muted)
+            } else if loading { ProgressView() }
+            else { Image(systemName: "photo").foregroundStyle(NativePalette.muted) }
+          }.frame(width: previewSize.width, height: previewSize.height)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
         } else {
           HStack(spacing: 10) {
             Image(systemName: archive ? "archivebox" : "doc")
@@ -96,8 +99,10 @@ struct AttachmentView: View {
             .background(NativePalette.assistant, in: RoundedRectangle(cornerRadius: 20))
         }
       }.buttonStyle(.plain).disabled(loading && !isImage)
-        .accessibilityLabel("Open " + asset.fileName).accessibilityIdentifier("attachment-" + asset.id)
-      if let failure { InlineFailure(message: failure) { Task { await load(open: !isImage) } } }
+        .accessibilityLabel("Open " + asset.fileName)
+        .accessibilityValue(failure != nil ? "Failed" : loaded != nil ? "Loaded" : "Loading")
+        .accessibilityIdentifier("attachment-" + asset.id)
+      if let failure, !isImage { InlineFailure(message: failure) { Task { await load(open: true) } } }
     }
     .task(id: asset.id) { if isImage { await load(open: false) } }
   }

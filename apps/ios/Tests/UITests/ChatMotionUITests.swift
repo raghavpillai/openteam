@@ -21,6 +21,240 @@ import XCTest
     attachment.lifetime = .keepAlways
     add(attachment)
   }
+  func testDelayedImagePreservesVisibleTranscriptGeometry() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "initial-media-layout"])
+    try await control("__qa/control", ["failures": [
+      "GET /api/v0/assets/layout-portrait": ["delayMs": 12000, "count": 10],
+    ]])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--ui-testing-delay-document", "--server", base.absoluteString,
+      "--appearance", "dark", "--open-channel", "visual-chat"]
+    app.launch()
+    defer { app.terminate() }
+    let marker = app.staticTexts["Layout settled marker"]
+    XCTAssertTrue(marker.waitForExistence(timeout: 15))
+    let spinner = app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
+    XCTAssertTrue(spinner.waitForNonExistence(timeout: 15))
+    let picture = app.buttons["attachment-layout-portrait"]
+    XCTAssertTrue(picture.isHittable)
+    let initial = picture.frame
+    let start = Date()
+    var samples: [[String: Double]] = []
+    for _ in 0..<28 {
+      let frame = picture.frame
+      samples.append(["seconds": Date().timeIntervalSince(start), "x": frame.minX,
+        "y": frame.minY, "width": frame.width, "height": frame.height, "markerY": marker.frame.midY])
+      try await Task.sleep(for: .milliseconds(500))
+    }
+    let evidence = XCTAttachment(data: try JSONSerialization.data(withJSONObject: samples, options: .prettyPrinted),
+      uniformTypeIdentifier: "public.json")
+    evidence.name = "visible-media-geometry"
+    evidence.lifetime = .keepAlways
+    add(evidence)
+    capture("visible-media-final", app)
+    let first = try XCTUnwrap(samples.first)
+    for sample in samples {
+      for key in ["x", "y", "width", "height", "markerY"] {
+        XCTAssertEqual(sample[key]!, first[key]!, accuracy: 1, "Visible media changed: \(key)")
+      }
+    }
+    XCTAssertEqual(initial.width, 120, accuracy: 1)
+    XCTAssertEqual(initial.height, 240, accuracy: 1)
+  }
+  func testFailedInitialHistoryDoesNotPresentBootstrapPreviewAsFullChat() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "history-pages"])
+    try await control("__qa/control", ["failures": [
+      "GET /api/v0/channels/visual-chat/history": ["status": 503, "count": 100],
+    ]])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString, "--open-channel", "visual-chat"]
+    app.launch()
+    defer { app.terminate() }
+    XCTAssertTrue(app.buttons["chat-load-error"].waitForExistence(timeout: 12),
+      "The single bootstrap preview must not masquerade as the complete conversation")
+    XCTAssertFalse(app.staticTexts["Page message 180"].isHittable)
+    // Exercise retry while the failure is stable; clearing it first lets the
+    // automatic recovery remove the button before XCTest can synthesize a tap.
+    app.buttons["chat-load-error"].tap()
+    XCTAssertTrue(app.buttons["chat-load-error"].exists)
+    try await control("__qa/control", ["failures": [:]])
+    XCTAssertTrue(app.buttons["chat-load-error"].waitForNonExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Page message 180"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Page message 179"].exists)
+  }
+  func testColdLaunchKeepsSavedHistoryReadableWhenRefreshFails() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "history-pages"])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--qa-session", UUID().uuidString,
+      "--server", base.absoluteString, "--open-channel", "visual-chat"]
+    app.launch()
+    defer { app.terminate() }
+    let spinner = app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
+    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 15))
+    XCTAssertTrue(spinner.waitForNonExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Page message 179"].exists)
+    // Persist through the normal background lifecycle, then create a new process.
+    XCUIDevice.shared.press(.home)
+    app.terminate()
+    try await control("__qa/control", ["failures": [
+      "GET /api/v0/channels/visual-chat/history": ["status": 503, "count": 100],
+    ]])
+    app.launch()
+    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 15))
+    XCTAssertTrue(spinner.waitForNonExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Page message 180"].isHittable)
+    XCTAssertTrue(app.staticTexts["Page message 179"].exists)
+    XCTAssertFalse(app.buttons["chat-load-error"].exists)
+  }
+  func testSwitchingChatsWhileHistoryLoadsKeepsTheSelectedConversation() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "navigation-layout"])
+    try await control("__qa/control", ["failures": [
+      "GET /api/v0/channels/visual-chat/history": ["delayMs": 5000, "count": 2],
+    ]])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--ui-testing-delay-document", "--server", base.absoluteString]
+    app.launch()
+    defer { app.terminate() }
+    XCTAssertTrue(app.buttons["channel-visual-chat"].waitForExistence(timeout: 15))
+    app.buttons["channel-visual-chat"].tap()
+    let spinner = app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
+    XCTAssertTrue(spinner.waitForExistence(timeout: 3))
+    app.buttons["chat-back"].tap()
+    XCTAssertTrue(app.buttons["channel-visual-other"].waitForExistence(timeout: 5))
+    app.buttons["channel-visual-other"].tap()
+    XCTAssertTrue(spinner.waitForNonExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Other chat latest"].isHittable)
+    let y = app.staticTexts["Other chat latest"].frame.midY
+    try await Task.sleep(for: .seconds(5))
+    XCTAssertTrue(app.staticTexts["Other chat latest"].isHittable)
+    XCTAssertEqual(app.staticTexts["Other chat latest"].frame.midY, y, accuracy: 1)
+    XCTAssertFalse(app.staticTexts["Main chat latest"].exists)
+    for (id, label) in [("visual-chat", "Main chat latest"), ("visual-other", "Other chat latest"),
+                        ("visual-chat", "Main chat latest")] {
+      app.buttons["chat-back"].tap()
+      XCTAssertTrue(app.buttons["channel-" + id].waitForExistence(timeout: 5))
+      app.buttons["channel-" + id].tap()
+      XCTAssertTrue(app.staticTexts[label].waitForExistence(timeout: 15))
+      XCTAssertTrue(spinner.waitForNonExistence(timeout: 15))
+      XCTAssertTrue(app.staticTexts[label].isHittable)
+      let y = app.staticTexts[label].frame.midY
+      try await Task.sleep(for: .milliseconds(700))
+      XCTAssertEqual(app.staticTexts[label].frame.midY, y, accuracy: 1)
+    }
+  }
+  func testBackgroundRefreshPreservesTheMessageBeingRead() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "history-pages"])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString, "--open-channel", "visual-chat"]
+    app.launch()
+    defer { app.terminate() }
+    let spinner = app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
+    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 15))
+    XCTAssertTrue(spinner.waitForNonExistence(timeout: 15))
+    app.tables["chat-history"].swipeDown()
+    XCTAssertTrue(app.buttons["Latest messages"].waitForExistence(timeout: 5))
+    let candidates = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Page message '")).allElementsBoundByIndex
+    let anchor = try XCTUnwrap(candidates.first(where: { $0.isHittable && $0.frame.midY > 180 && $0.frame.midY < 650 }))
+    let label = anchor.label
+    let y = anchor.frame.midY
+    XCUIDevice.shared.press(.home)
+    try await control("__qa/motion", ["active": false, "content": "Arrived while backgrounded"])
+    app.activate()
+    XCTAssertTrue(app.staticTexts[label].waitForExistence(timeout: 15))
+    try await Task.sleep(for: .seconds(3))
+    XCTAssertEqual(app.staticTexts[label].frame.midY, y, accuracy: 2)
+    XCTAssertTrue(app.buttons["Latest messages"].exists)
+    app.buttons["Latest messages"].tap()
+    XCTAssertTrue(app.staticTexts["Arrived while backgrounded"].waitForExistence(timeout: 10))
+  }
+  func testInitialMediaAndDocumentsKeepTheirPositions() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "initial-media-layout"])
+    try await control("__qa/control", ["failures": [
+      "GET /api/v0/assets/layout-portrait": ["delayMs": 6000, "count": 10],
+    ]])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--ui-testing-delay-document", "--server", base.absoluteString,
+      "--appearance", "dark", "--open-channel", "visual-chat"]
+    app.launch()
+    defer { app.terminate() }
+    let spinner = app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
+    XCTAssertTrue(spinner.waitForExistence(timeout: 10))
+    XCTAssertTrue(spinner.waitForNonExistence(timeout: 15))
+    let marker = app.staticTexts["Layout settled marker"]
+    XCTAssertTrue(marker.isHittable)
+    let picture = app.buttons["attachment-layout-portrait"]
+    XCTAssertTrue(picture.exists)
+    let frame = picture.frame
+    XCTAssertEqual(frame.width, 120, accuracy: 1)
+    XCTAssertEqual(frame.height, 240, accuracy: 1)
+    let markerY = marker.frame.midY
+    let document = app.descendants(matching: .any).matching(identifier: "message-visual-message-visual-chat-3").firstMatch
+    let documentFrame = document.frame
+    for _ in 0..<12 {
+      try await Task.sleep(for: .milliseconds(500))
+      XCTAssertEqual(marker.frame.midY, markerY, accuracy: 1)
+      XCTAssertEqual(picture.frame.minY, frame.minY, accuracy: 1)
+      XCTAssertEqual(picture.frame.height, frame.height, accuracy: 1)
+      XCTAssertEqual(document.frame.minY, documentFrame.minY, accuracy: 1)
+      XCTAssertEqual(document.frame.height, documentFrame.height, accuracy: 1)
+    }
+    XCTAssertEqual(picture.value as? String, "Loaded")
+    capture("initial-media-layout-settled", app)
+    app.buttons["chat-back"].tap()
+    XCTAssertTrue(app.buttons["channel-visual-chat"].waitForExistence(timeout: 5))
+    app.buttons["channel-visual-chat"].tap()
+    XCTAssertTrue(marker.waitForExistence(timeout: 10))
+    XCTAssertTrue(spinner.waitForNonExistence(timeout: 10))
+    XCTAssertEqual(marker.frame.midY, markerY, accuracy: 1)
+    XCTAssertEqual(picture.frame.height, frame.height, accuracy: 1)
+  }
+  func testFailedImageKeepsItsReservedFrame() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "initial-media-layout"])
+    try await control("__qa/control", ["failures": [
+      "GET /api/v0/assets/layout-portrait": ["delayMs": 4000, "status": 503, "count": 10],
+    ]])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--server", base.absoluteString, "--open-channel", "visual-chat"]
+    app.launch()
+    defer { app.terminate() }
+    let marker = app.staticTexts["Layout settled marker"]
+    XCTAssertTrue(marker.waitForExistence(timeout: 15))
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch.waitForNonExistence(timeout: 15))
+    let picture = app.buttons["attachment-layout-portrait"]
+    let frame = picture.frame
+    let markerY = marker.frame.midY
+    let failed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == 'Failed'"), object: picture)
+    XCTAssertEqual(XCTWaiter.wait(for: [failed], timeout: 10), .completed)
+    XCTAssertEqual(picture.frame.minY, frame.minY, accuracy: 1)
+    XCTAssertEqual(picture.frame.height, frame.height, accuracy: 1)
+    XCTAssertEqual(marker.frame.midY, markerY, accuracy: 1)
+    XCTAssertEqual(picture.label, "Open portrait.png")
+  }
+  func testStalledDocumentFallsBackToText() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "initial-media-layout"])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--ui-testing-stall-document", "--server", base.absoluteString,
+      "--open-channel", "visual-chat"]
+    app.launch()
+    defer { app.terminate() }
+    let spinner = app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
+    XCTAssertTrue(spinner.waitForExistence(timeout: 10))
+    XCTAssertTrue(spinner.waitForNonExistence(timeout: 15))
+    let marker = app.staticTexts["Layout settled marker"]
+    XCTAssertTrue(marker.isHittable)
+    let frame = marker.frame
+    try await Task.sleep(for: .seconds(5))
+    XCTAssertEqual(marker.frame.minY, frame.minY, accuracy: 1)
+    XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "rich-markdown").firstMatch.exists)
+  }
   func testComposerFocusAtTextAndPaddingInBothAppearances() async throws {
     continueAfterFailure = false
     for appearance in ["dark", "light"] {

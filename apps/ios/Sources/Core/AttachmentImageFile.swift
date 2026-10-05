@@ -5,6 +5,15 @@ import ImageIO
 /// requested by a message row on the main actor. Never decode a full-size photo
 /// just to display its chat preview or the gallery's thumbnail strip.
 public enum AttachmentImageFile {
+  /// The inline frame must not depend on when image bytes finish decoding.
+  public static func previewSize(width: Int?, height: Int?) -> CGSize {
+    guard let width, let height, width > 0, height > 0 else {
+      return CGSize(width: 240, height: 150)
+    }
+    let scale = min(1, 260 / Double(width), 240 / Double(height))
+    return CGSize(width: Double(width) * scale, height: Double(height) * scale)
+  }
+
   public static func write(_ data: Data, named name: String) async throws -> URL {
     try Task.checkCancellation()
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

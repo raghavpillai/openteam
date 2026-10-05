@@ -121,6 +121,30 @@ final class ProtocolTests: XCTestCase {
     XCTAssertFalse(MessageMerge.less("0003", "3"))
     XCTAssertTrue(MessageMerge.less("9", "10"))
   }
+  func testHistoryCompletionSurvivesRestartAndMigratesPreviewOnlyCaches() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let store = try DiskStore(directory: dir, scope: "history-readiness")
+    var state = SavedState()
+    state.bootstrap = try fixture()
+    let preview = try XCTUnwrap(state.bootstrap?.latestMessages.first)
+    state.messages[preview.channelId] = [preview]
+    state.loadedHistoryChannels = [preview.channelId, "empty-chat"]
+    try store.save(state)
+    XCTAssertEqual(try store.load().loadedHistoryChannels, [preview.channelId, "empty-chat"])
+    var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
+    legacy.removeValue(forKey: "loadedHistoryChannels")
+    try JSONSerialization.data(withJSONObject: legacy).write(to: store.url)
+    XCTAssertEqual(try store.load().loadedHistoryChannels, [], "A saved preview is not a loaded page")
+    var earlier = preview
+    earlier.id = "cached-earlier-message"
+    state.messages[preview.channelId] = [earlier, preview]
+    legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
+    legacy.removeValue(forKey: "loadedHistoryChannels")
+    try JSONSerialization.data(withJSONObject: legacy).write(to: store.url)
+    XCTAssertEqual(try store.load().loadedHistoryChannels, [preview.channelId])
+    XCTAssertEqual(try store.load().messages[preview.channelId]?.count, 2)
+  }
   func testOutboxNonceReplyAndDraftSurviveRestartAndStayIsolated() throws {
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: dir) }

@@ -1,7 +1,15 @@
 // Source-owned adaptation of AI Elements message.tsx.
 // https://elements.ai-sdk.dev/components/message
 import { messageContainsMarkdownSyntax } from "@openteam/product-core/markdown";
-import { type ComponentProps, type HTMLAttributes, lazy, memo, Suspense } from "react";
+import {
+  Component,
+  type ComponentProps,
+  type HTMLAttributes,
+  type ReactNode,
+  lazy,
+  memo,
+  Suspense,
+} from "react";
 import { cn } from "../../lib/cn";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
@@ -66,6 +74,27 @@ const messageContainsDesktopMarkup = (content: string) =>
 export const messageNeedsMarkdown = (content: string) =>
   messageContainsDesktopMarkup(content) || messageNeedsAdvancedRenderer(content);
 
+export class MessageRendererBoundary extends Component<
+  { content: string; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    // Failed renderer imports must leave readable content and release the
+    // opening barrier. Raw text has synchronous, measurable geometry.
+    return this.state.failed ? (
+      <span data-chat-renderer-fallback className="whitespace-pre-wrap">
+        {this.props.content}
+      </span>
+    ) : (
+      this.props.children
+    );
+  }
+}
+
 export const MessageResponse = memo(function MessageResponse({ children }: { children: string }) {
   const capabilities = advancedMessageCapabilitiesFor(children);
   if (!messageContainsDesktopMarkup(children) && !capabilities) {
@@ -73,20 +102,38 @@ export const MessageResponse = memo(function MessageResponse({ children }: { chi
   }
   if (capabilities) {
     // Begin the selected plug-in requests in parallel with the lazy Streamdown
-    // renderer. The rich component consumes this same cached promise.
-    void loadAdvancedMessagePlugins(capabilities);
+    // renderer.
+    // The renderer consumes this same promise inside the boundary below.
+    // Handle speculative rejection until the lazy component mounts.
+    void loadAdvancedMessagePlugins(capabilities).catch(() => {});
   }
   if (capabilities) {
     return (
-      <Suspense fallback={<span className="whitespace-pre-wrap">{children}</span>}>
-        <AdvancedMessageResponse capabilities={capabilities}>{children}</AdvancedMessageResponse>
-      </Suspense>
+      <MessageRendererBoundary content={children}>
+        <Suspense
+          fallback={
+            <span data-chat-layout-pending className="whitespace-pre-wrap">
+              {children}
+            </span>
+          }
+        >
+          <AdvancedMessageResponse capabilities={capabilities}>{children}</AdvancedMessageResponse>
+        </Suspense>
+      </MessageRendererBoundary>
     );
   }
   return (
-    <Suspense fallback={<span className="whitespace-pre-wrap">{children}</span>}>
-      <MarkdownMessageResponse>{children}</MarkdownMessageResponse>
-    </Suspense>
+    <MessageRendererBoundary content={children}>
+      <Suspense
+        fallback={
+          <span data-chat-layout-pending className="whitespace-pre-wrap">
+            {children}
+          </span>
+        }
+      >
+        <MarkdownMessageResponse>{children}</MarkdownMessageResponse>
+      </Suspense>
+    </MessageRendererBoundary>
   );
 });
 

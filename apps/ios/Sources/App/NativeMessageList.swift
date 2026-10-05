@@ -1,6 +1,12 @@
 import SwiftUI
 import UIKit
 
+/// Asynchronous document views participate in the first-paint barrier. Media
+/// with a reserved frame need not finish downloading before history is shown.
+@MainActor protocol HistoryLayoutReadiness {
+  var historyLayoutReady: Bool { get }
+}
+
 /// Views are constructed only for reusable visible cells, never for the entire
 /// transcript. Stable delivery IDs keep a pending send's cell when it is accepted.
 struct NativeHistoryItem {
@@ -401,13 +407,19 @@ struct NativeMessageList: UIViewControllerRepresentable {
         guard let self, !self.positioned, !self.updating else { return }
         self.table.layoutIfNeeded()
         guard self.initialLayoutGeneration == generation else { return }
+        guard self.visibleDocumentsReady else {
+          // WebKit can be quiet for much longer than a layout debounce while
+          // parsing diagrams or starting its process. Silence is not readiness.
+          self.didLayout()
+          return
+        }
         self.positioned = true
         self.following = self.initialTarget == "bottom"
         self.onPositioned()
         self.reportScroll()
       }
       settle = work
-      if initialLayout == .nextLayout {
+      if initialLayout == .nextLayout && visibleDocumentsReady {
         DispatchQueue.main.async(execute: work)
       } else {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
@@ -431,6 +443,14 @@ struct NativeMessageList: UIViewControllerRepresentable {
       restore(readingAnchor)
     }
     if positioned { reportScroll() }
+  }
+
+  private var visibleDocumentsReady: Bool {
+    func ready(_ view: UIView) -> Bool {
+      if let document = view as? HistoryLayoutReadiness, !document.historyLayoutReady { return false }
+      return view.subviews.allSatisfy(ready)
+    }
+    return table.visibleCells.allSatisfy(ready)
   }
 
   private func applyPendingRequest() {
@@ -699,5 +719,27 @@ struct NativeMessageList: UIViewControllerRepresentable {
   override func layoutSubviews() {
     super.layoutSubviews()
     didLayout?()
+    #if DEBUG
+    if ProcessInfo.processInfo.arguments.contains("--ui-testing-layout-geometry") {
+      // Read native frames in rotation tests: WebKit's remote accessibility
+      // nodes can disappear or return zero rectangles during a width change.
+      var documents: [[String: Any]] = []
+      func collect(_ view: UIView) {
+        if let document = view as? HistoryLayoutReadiness {
+          let frame = view.convert(view.bounds, to: self)
+          if frame.intersects(bounds), view.alpha > 0 {
+            documents.append(["width": view.bounds.width, "height": view.bounds.height,
+              "y": frame.minY, "ready": document.historyLayoutReady])
+          }
+        }
+        for child in view.subviews { collect(child) }
+      }
+      for cell in visibleCells { collect(cell) }
+      documents.sort { ($0["y"] as? CGFloat ?? 0) < ($1["y"] as? CGFloat ?? 0) }
+      if let data = try? JSONSerialization.data(withJSONObject: documents) {
+        accessibilityValue = String(data: data, encoding: .utf8)
+      }
+    }
+    #endif
   }
 }

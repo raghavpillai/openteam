@@ -9,6 +9,8 @@ import { Dialog, DialogContent, DialogDescription, DialogPortal, DialogTitle } f
 export interface DisplayImage {
   url: string;
   alt?: string;
+  width?: number;
+  height?: number;
 }
 
 export function ImageAttachment({
@@ -23,19 +25,24 @@ export function ImageAttachment({
   variant?: "composer" | "message" | "message-grid";
 }) {
   const [open, setOpen] = useState(false);
-  const [naturalSize, setNaturalSize] = useState<{ height: number; width: number } | null>(null);
   const label = image.alt?.trim() || "Image";
   const rawSource = image.url.startsWith("/api/")
     ? new URL(image.url, API_BASE).toString()
     : image.url;
   const source = useAuthenticatedResource(rawSource);
-  const messageWidth = naturalSize
-    ? Math.min(naturalSize.width, 320, (naturalSize.width / naturalSize.height) * 300)
-    : 320;
+  // Reserve the frame from attachment metadata before fetching/decoding bytes.
+  // Legacy images keep the fallback frame even after load, so revisiting a chat
+  // or remounting a virtual row cannot change its height.
+  const hasDimensions =
+    typeof image.width === "number" && Number.isFinite(image.width) && image.width > 0 &&
+    typeof image.height === "number" && Number.isFinite(image.height) && image.height > 0;
+  const width = hasDimensions ? image.width! : 320;
+  const height = hasDimensions ? image.height! : 180;
+  const messageWidth = Math.min(width, 320, (width / height) * 300);
   const messageStyle =
     variant === "message"
       ? {
-          aspectRatio: naturalSize ? `${naturalSize.width} / ${naturalSize.height}` : "16 / 9",
+          aspectRatio: `${width} / ${height}`,
           width: `${messageWidth}px`,
         }
       : undefined;
@@ -53,32 +60,25 @@ export function ImageAttachment({
         <button
           aria-label={`Open ${label}`}
           className={cn(
-            "relative block overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+            "absolute inset-0 block overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
             "size-full"
           )}
           onClick={() => (onOpen ? onOpen() : setOpen(true))}
           style={{ cursor: "zoom-in" }}
           type="button"
         >
-          <img
-            alt={label}
-            className={cn(
-              variant === "message" ? "size-full object-contain" : "size-full object-cover"
-            )}
-            decoding="async"
-            loading={variant === "composer" ? "eager" : "lazy"}
-            onContextMenu={(event) => event.stopPropagation()}
-            onLoad={(event) => {
-              if (variant !== "message") return;
-              const { naturalHeight, naturalWidth } = event.currentTarget;
-              setNaturalSize((current) =>
-                current?.height === naturalHeight && current.width === naturalWidth
-                  ? current
-                  : { height: naturalHeight, width: naturalWidth }
-              );
-            }}
-            src={source ?? undefined}
-          />
+          {source ? (
+            <img
+              alt={label}
+              className={cn(
+                variant === "message" ? "size-full object-contain" : "size-full object-cover"
+              )}
+              decoding="async"
+              loading={variant === "composer" ? "eager" : "lazy"}
+              onContextMenu={(event) => event.stopPropagation()}
+              src={source}
+            />
+          ) : null}
         </button>
         {onRemove && (
           <button

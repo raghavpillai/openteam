@@ -82,6 +82,9 @@ final class AppStore {
   }
   func channel(_ id: String) -> Channel? { channels.first { $0.id == id } }
   func messages(_ id: String) -> [Message] { state.messages[id] ?? [] }
+  func hasCachedHistory(_ id: String) -> Bool {
+    histories[id] != nil || state.loadedHistoryChannels?.contains(id) == true
+  }
   func visibleMessages(_ id: String) -> [Message] {
     guard let window = historyWindows[id] else { return messages(id) }
     return messages(id).filter { window.contains($0) }
@@ -630,6 +633,7 @@ final class AppStore {
     state.outbox.removeAll { accepted.contains($0.id) }
   }
   private func install(_ page: History) {
+    state.loadedHistoryChannels = (state.loadedHistoryChannels ?? []).union([page.channelId])
     histories[page.channelId] = page
     historyWindows[page.channelId] = HistoryWindow(
       messages: page.messages, hasEarlier: page.hasMore, hasLater: false)

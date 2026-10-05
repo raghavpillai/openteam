@@ -14,7 +14,15 @@ export function visualFixture(base: any, scene: string) {
     const row={id:`visual-message-${channel}-${index}`,clientId:null,sequence:String(index),channelId:channel,sender,senderBotId:sender==="agent"?"bot-"+channel:null,sourceRunId:null,content,metadata:{type:"text",...metadata},createdAt:new Date(date.getTime()+index*1000).toISOString()};
     snapshot.channelMessages.push(row); return row;
   }
-  if (scene === "group-avatars") {
+  if (scene === "navigation-layout") {
+    for (const [id, name] of [["visual-chat", "Main chat"], ["visual-other", "Other chat"]]) {
+      const {channel} = bot(id!, name!, "#00B8A9", "owl");
+      for (let i = 1; i <= 60; i++) message(channel.id, "agent",
+        i === 60 ? `${name} latest` : i % 15 === 0
+          ? `## ${name} details\n\n- First item\n- Second item\n- Third item`
+          : `${name} message ${i}`, i);
+    }
+  } else if (scene === "group-avatars") {
     for (const count of [2, 3, 4, 5, 12]) {
       const id = `visual-group-${count}`;
       const group = {...channelTemplate, id, name: count === 5 ? "Hey" : `${count} bots`, kind:"group", members:[], hasAvatar:false};
@@ -101,7 +109,17 @@ export function visualFixture(base: any, scene: string) {
       date.setHours(14,40,0,0);
       rows.forEach(([sender,content],i)=>{ if(content==="Hi")date.setHours(14,52,0,0); message(channel.id,sender,content,i+1); });
     } else
-    if(scene === "empty-chat") {
+    if (scene === "initial-media-layout") {
+      message(channel.id, "agent", "## Setup details\n\n" +
+        "- A formatted message whose height arrives from WebKit.\n".repeat(8), 1);
+      message(channel.id, "user", "Can you set this up?", 2, { attachments: [{
+        assetId: "layout-portrait", fileName: "portrait.png", mimeType: "image/png",
+        byteSize: 100, kind: "image", width: 400, height: 800,
+      }] });
+      message(channel.id, "agent", "## Next steps\n\n1. Review the settings.\n2. Save the changes.\n\n" +
+        "| Task | Status |\n| --- | --- |\n| Layout | $x^2 + y^2$ |", 3);
+      message(channel.id, "agent", "Layout settled marker", 4);
+    } else if(scene === "empty-chat") {
       // No messages: initial positioning must still dismiss the native spinner.
     } else if(scene === "history-pages" || scene === "window-history") {
       for (let i = 1; i <= 180; i++) message(channel.id, i % 2 ? "user" : "agent", `Page message ${i}`, i);

@@ -5,6 +5,16 @@ import XCTest
 @testable import OpenTeamCore
 
 @MainActor final class AttachmentImageFileTests: XCTestCase {
+  func testPreviewReservesMetadataSizeAndStableLegacyFallback() {
+    XCTAssertEqual(AttachmentImageFile.previewSize(width: 400, height: 800), CGSize(width: 120, height: 240))
+    XCTAssertEqual(AttachmentImageFile.previewSize(width: 800, height: 400), CGSize(width: 260, height: 130))
+    XCTAssertEqual(AttachmentImageFile.previewSize(width: 80, height: 60), CGSize(width: 80, height: 60))
+    for dimensions in [(nil, nil), (400, nil), (0, 10), (10, -1)] as [(Int?, Int?)] {
+      XCTAssertEqual(AttachmentImageFile.previewSize(width: dimensions.0, height: dimensions.1),
+        CGSize(width: 240, height: 150))
+    }
+  }
+
   private func photo(orientation: Int = 1) throws -> Data {
     let context = try XCTUnwrap(CGContext(
       data: nil, width: 2400, height: 1200, bitsPerComponent: 8, bytesPerRow: 0,

@@ -18,16 +18,18 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import { api } from "../../client/openteam-api";
 import { useVirtualWindow } from "../../hooks/use-virtual-window";
+import { useInitialConversationLayout } from "../../hooks/use-initial-conversation-layout";
 import { DeliveryFooter } from "./delivery-footer";
 import { sendProgressOwner } from "../../lib/send-progress";
 import type { MentionOption } from "../../lib/mentions";
-import { MessageContent, MessageResponse } from "../ai-elements/message";
+import { MessageContent, MessageResponse, MessageRendererBoundary } from "../ai-elements/message";
 import { PromptInput } from "../ai-elements/prompt-input";
 import { BotAvatar } from "./avatar";
 import { MessageImageGallery } from "./image-attachment";
@@ -66,7 +68,12 @@ const ThreadMessage = ({
   const images = [
     ...display.attachments
       .filter((attachment) => attachment.kind === "image")
-      .map((attachment) => ({ url: api.assetUrl(attachment), alt: attachment.alt })),
+      .map((attachment) => ({
+        url: api.assetUrl(attachment),
+        alt: attachment.alt ?? attachment.fileName,
+        width: attachment.width,
+        height: attachment.height,
+      })),
     ...stagedImages.map((attachment) => ({
       url: attachment.previewUri as string,
       alt: attachment.alt ?? attachment.fileName,
@@ -91,9 +98,11 @@ const ThreadMessage = ({
           <div className={`flex flex-col gap-1.5 ${from === "user" ? "items-end" : "items-start"}`}>
             <MessageImageGallery images={images} />
             {display.files.length > 0 && (
-              <Suspense fallback={null}>
+              <MessageRendererBoundary content={`Attachment previews unavailable.\n${display.files.map((file) => file.fileName).join("\n")}`}>
+              <Suspense fallback={<div data-chat-layout-pending className="h-[61px] w-[246px] max-w-full" />}>
                 <MessageFileAttachments attachments={display.files} />
               </Suspense>
+              </MessageRendererBoundary>
             )}
             {stagedFiles.map((attachment) => (
               <article
@@ -174,6 +183,10 @@ export function ThreadTray({
   ) => Promise<unknown> | undefined;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const layoutReady = useInitialConversationLayout(
+    contentRef, scrollRef, open, false, `${root.id}:${focusMessageId ?? ""}`
+  );
   const [composerRecovery, setComposerRecovery] = useState<{
     id: string;
     payload: DurableSendPayload;
@@ -225,6 +238,8 @@ export function ThreadTray({
     if (!recovery) return;
     setComposerRecovery({ id: recovery.nonce, payload: recovery.payload, message: recovery.failure?.message, durable: true });
   }, [composerRecovery, messages, recoveries]);
+  const focusIndex = focusMessageId
+    ? messages.findIndex((message) => message.id === focusMessageId) : -1;
   const { measureElement, scrollToIndex, totalSize, virtualItems } = useVirtualWindow({
     count: messages.length,
     estimateSize,
@@ -233,23 +248,15 @@ export function ThreadTray({
     maxItems: 70,
     overscan: 500,
     scrollRef,
+    activeIndex: !layoutReady && focusIndex >= 0 ? focusIndex : undefined,
+    revealActiveItem: false,
   });
-  useEffect(() => {
-    if (!open || !focusMessageId) return;
-    const index = messages.findIndex((message) => message.id === focusMessageId);
-    if (index < 0) return;
-    scrollToIndex(index, { align: "center" });
-    const timer = window.setTimeout(() => {
-      const row = scrollRef.current?.querySelector<HTMLElement>(
-        `[data-thread-message-id="${CSS.escape(focusMessageId)}"]`
-      );
-      row?.scrollIntoView({
-        block: "center",
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
-      });
-    }, 80);
-    return () => window.clearTimeout(timer);
-  }, [focusMessageId, messages, open, scrollToIndex]);
+  useLayoutEffect(() => {
+    // Keep the search target mounted and centered as estimated row heights
+    // become real measurements. Reveal only after this position has settled.
+    if (!open || layoutReady || focusIndex < 0) return;
+    scrollToIndex(focusIndex, { align: "center" });
+  }, [focusIndex, layoutReady, open, scrollToIndex, totalSize]);
   return (
     <div
       aria-hidden={!open}
@@ -293,7 +300,8 @@ export function ThreadTray({
         )}
         {/* biome-ignore lint/a11y/useSemanticElements: The virtualized rows need a non-list positioning wrapper between the scrollport and rows. */}
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4" ref={scrollRef} role="list">
-          <div className="relative w-full" style={{ height: totalSize }}>
+          <div className="relative w-full" ref={contentRef} aria-hidden={!layoutReady} inert={!layoutReady}
+            style={{ height: totalSize, opacity: layoutReady ? 1 : 0 }}>
             {virtualItems.map((virtualItem) => {
               const message = messages[virtualItem.index];
               if (!message) return null;
@@ -333,6 +341,11 @@ export function ThreadTray({
             })}
           </div>
         </div>
+        {open && !layoutReady && (
+          <div className="pointer-events-none absolute inset-0 grid place-items-center" role="status" aria-label="Loading thread">
+            <span className="size-5 animate-spin rounded-full border-2 border-muted-foreground/25 border-t-muted-foreground" />
+          </div>
+        )}
         <div className="shrink-0 border-t pt-3">
           <PromptInput
             transcriptionConfigured={transcriptionConfigured && open}

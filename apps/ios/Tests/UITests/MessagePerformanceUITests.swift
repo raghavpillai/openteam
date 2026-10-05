@@ -8,7 +8,7 @@ final class MessagePerformanceUITests: XCTestCase {
     ProcessInfo.processInfo.environment["MESSAGE_PERFORMANCE_SERVER"] ?? "http://127.0.0.1:19996"
   }
 
-  func history(_ scene: String) async throws -> XCUIApplication {
+  func history(_ scene: String, layoutGeometry: Bool = false) async throws -> XCUIApplication {
     continueAfterFailure = false
     let base = server
     var request = URLRequest(url: URL(string: base + "/__qa/scene")!)
@@ -22,6 +22,7 @@ final class MessagePerformanceUITests: XCTestCase {
       "--ui-testing", "--server", base, "--appearance", "dark",
       "--open-channel", "visual-chat",
     ]
+    if layoutGeometry { app.launchArguments.append("--ui-testing-layout-geometry") }
     let start = Date()
     app.launch()
     XCTAssertTrue(
@@ -101,21 +102,24 @@ final class MessagePerformanceUITests: XCTestCase {
   }
 
   func testMarkdownResizesAcrossViewportWidths() async throws {
-    let app = try await history("performance-rich")
+    let app = try await history("performance-rich", layoutGeometry: true)
     defer { XCUIDevice.shared.orientation = .portrait }
-    let row = app.descendants(matching: .any)
-      .matching(identifier: "message-visual-message-visual-chat-200").firstMatch
-    XCTAssertTrue(row.waitForExistence(timeout: 12))
-    let document = row.webViews.firstMatch
-    XCTAssertTrue(document.waitForExistence(timeout: 12))
-    let portrait = document.frame
+    func geometry() throws -> CGRect {
+      let value = try XCTUnwrap(app.tables["chat-history"].value as? String)
+      let documents = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(value.utf8)) as? [[String: Any]])
+      let document = try XCTUnwrap(documents.last)
+      XCTAssertEqual(document["ready"] as? Bool, true)
+      return CGRect(x: 0, y: try XCTUnwrap(document["y"] as? Double),
+        width: try XCTUnwrap(document["width"] as? Double),
+        height: try XCTUnwrap(document["height"] as? Double))
+    }
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading")
+      .firstMatch.waitForNonExistence(timeout: 15))
+    let portrait = try geometry()
     XCTAssertGreaterThan(portrait.height, 80)
     XCUIDevice.shared.orientation = .landscapeLeft
     try await Task.sleep(for: .seconds(3))
-    // WKWebView accessibility descendants can retain an invalid zero frame after rotation.
-    // Reacquire the visible document from the current accessibility tree.
-    let landscape = app.webViews.allElementsBoundByIndex.map(\.frame)
-      .filter { $0.width > portrait.width + 50 && $0.height > 80 }.last ?? .zero
+    let landscape = try geometry()
     XCTAssertGreaterThan(landscape.width, portrait.width + 50)
     XCTAssertGreaterThan(landscape.height, 80)
     XCTAssertLessThanOrEqual(landscape.height, portrait.height + 8,
@@ -123,8 +127,7 @@ final class MessagePerformanceUITests: XCTestCase {
     XCTAssertFalse(app.buttons["Latest messages"].exists)
     XCUIDevice.shared.orientation = .portrait
     try await Task.sleep(for: .seconds(3))
-    let restored = app.webViews.allElementsBoundByIndex.map(\.frame)
-      .filter { $0.width > 0 && abs($0.width - portrait.width) < 8 }.last ?? .zero
+    let restored = try geometry()
     XCTAssertEqual(restored.height, portrait.height, accuracy: 8)
     XCTAssertFalse(app.buttons["Latest messages"].exists)
     let measurements = XCTAttachment(string: "portrait=\(portrait), landscape=\(landscape), restored=\(restored)")

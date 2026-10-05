@@ -7,6 +7,7 @@ import { ScrollArea } from "radix-ui";
 import { cn } from "../../lib/cn";
 import { recordPerformance } from "../../lib/performance";
 import { Button } from "../ui/button";
+import { useInitialConversationLayout } from "../../hooks/use-initial-conversation-layout";
 
 export const Conversation = ({ className, ...props }: ComponentProps<typeof StickToBottom>) => (
   <StickToBottom
@@ -23,10 +24,29 @@ export const ConversationContent = ({
   children,
   scrollClassName,
   overlayScrollbars = false,
+  initialContentPending = false,
   ...props
-}: ComponentProps<typeof StickToBottom.Content> & { overlayScrollbars?: boolean }) => {
+}: ComponentProps<typeof StickToBottom.Content> & {
+  overlayScrollbars?: boolean;
+  initialContentPending?: boolean;
+}) => {
   const [viewportReady, setViewportReady] = useState(false);
   const context = useStickToBottomContext();
+  const layoutReady = useInitialConversationLayout(
+    context.contentRef, context.scrollRef, viewportReady, initialContentPending
+  );
+  const loading = !layoutReady && (
+    <div className="pointer-events-none absolute inset-0 grid place-items-center" role="status" aria-label="Loading messages">
+      <span className="size-5 animate-spin rounded-full border-2 border-muted-foreground/25 border-t-muted-foreground" />
+    </div>
+  );
+  const layoutProps = {
+    "aria-busy": !layoutReady,
+    "aria-hidden": !layoutReady,
+    "data-chat-layout-ready": layoutReady,
+    inert: !layoutReady,
+    style: { ...props.style, opacity: layoutReady ? 1 : 0 },
+  };
   // Descendant layout effects run before the scrollport's ref is attached.
   // Mount the transcript in a second commit, still before the first paint, so
   // its virtualizer can measure and position against the real scrollport.
@@ -38,24 +58,29 @@ export const ConversationContent = ({
           ref={context.scrollRef}
           className={cn("conversation-scroll conversation-overlay-scroll h-full w-full", scrollClassName)}
         >
-          <div {...props} ref={context.contentRef} className={cn("mx-auto flex w-full max-w-4xl flex-col gap-6 py-8", className)}>
+          <div {...props} {...layoutProps} ref={context.contentRef} className={cn("mx-auto flex w-full max-w-4xl flex-col gap-6 py-8", className)}>
             {viewportReady ? (typeof children === "function" ? children(context) : children) : null}
           </div>
         </ScrollArea.Viewport>
         <ScrollArea.Scrollbar orientation="vertical" className="conversation-overlay-bar">
           <ScrollArea.Thumb className="conversation-overlay-thumb" />
         </ScrollArea.Scrollbar>
+        {loading}
       </ScrollArea.Root>
     );
   }
   return (
-    <StickToBottom.Content
-      className={cn("mx-auto flex w-full max-w-4xl flex-col gap-6 py-8", className)}
-      scrollClassName={cn("conversation-scroll overflow-y-auto", scrollClassName)}
-      {...props}
-    >
-      {viewportReady ? children : null}
-    </StickToBottom.Content>
+    <>
+      <StickToBottom.Content
+        className={cn("mx-auto flex w-full max-w-4xl flex-col gap-6 py-8", className)}
+        scrollClassName={cn("conversation-scroll overflow-y-auto", scrollClassName)}
+        {...props}
+        {...layoutProps}
+      >
+        {viewportReady ? children : null}
+      </StickToBottom.Content>
+      {loading}
+    </>
   );
 };
 

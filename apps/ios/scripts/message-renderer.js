@@ -1,13 +1,15 @@
-let renderVersion=0,lastHeight=0,lastWidth=0,mathTokens=[],activeLease="";
+let renderVersion=0,lastHeight=0,lastWidth=0,mathTokens=[],activeLease="",layoutReady=false,lastReady=false;
 marked.use({extensions:[
   {name:'mathDisplay',level:'block',start:src=>src.indexOf('$$'),tokenizer(src){const m=/^\$\$([\s\S]+?)\$\$(?:\n|$)/.exec(src);if(m)return {type:'mathDisplay',raw:m[0],text:m[1]}},renderer(token){const index=mathTokens.push({text:token.text,display:true})-1;return '<div class="math-placeholder math-index-'+index+'"></div>'}},
   {name:'mathInline',level:'inline',start(src){const match=/\$|\\[([]/.exec(src);return match?.index},tokenizer(src){const m=/^\$([^\s$](?:[^$\n]*?[^\s$])?)\$(?!\d)|^\\\(([\s\S]+?)\\\)|^\\\[([\s\S]+?)\\\]/.exec(src);if(m)return {type:'mathInline',raw:m[0],text:m[1]??m[2]??m[3],display:!!m[3]}},renderer(token){const index=mathTokens.push({text:token.text,display:token.display})-1;return '<span class="math-placeholder math-index-'+index+'"></span>'}}
 ]});
-function reportHeight(){const bounds=document.getElementById('message').getBoundingClientRect(),h=Math.ceil(bounds.height),width=bounds.width;if(h!==lastHeight||width!==lastWidth){lastHeight=h;lastWidth=width;window.webkit?.messageHandlers?.height?.postMessage({height:h,width,lease:activeLease})}}
+function reportHeight(){const bounds=document.getElementById('message').getBoundingClientRect(),h=Math.ceil(bounds.height),width=bounds.width;if(h!==lastHeight||width!==lastWidth||layoutReady!==lastReady){lastHeight=h;lastWidth=width;lastReady=layoutReady;window.webkit?.messageHandlers?.height?.postMessage({height:h,width,lease:activeLease,ready:layoutReady})}}
 new ResizeObserver(reportHeight).observe(document.getElementById('message'));
-window.renderMessage=async function(source,dark,fontSize,colors,lease){
-  activeLease=lease;lastHeight=-1;lastWidth=-1;
+window.renderMessage=async function(source,dark,fontSize,colors,lease,delay=0){
+  activeLease=lease;lastHeight=-1;lastWidth=-1;layoutReady=false;
   const version=++renderVersion,root=document.getElementById('message');
+  if(delay)await new Promise(resolve=>setTimeout(resolve,delay));
+  if(version!==renderVersion)return;
   for(const [role,value] of Object.entries(colors))document.body.style.setProperty('--'+role,value);
   document.body.style.color=colors.text;document.body.style.fontSize=fontSize+'px';
   // Never trust model-produced HTML or links. Network requests are also disabled by CSP.
@@ -22,5 +24,7 @@ window.renderMessage=async function(source,dark,fontSize,colors,lease){
     try{const {svg}=await mermaid.render('diagram-'+version+'-'+index++,text);if(version!==renderVersion)return;const div=document.createElement('div');div.innerHTML=DOMPurify.sanitize(svg,{USE_PROFILES:{svg:true,svgFilters:true},FORBID_TAGS:['foreignObject'],FORBID_ATTR:['href','xlink:href','onload']});host.replaceWith(div)}
     catch{if(version!==renderVersion)return;host.classList.add('diagram-error');host.textContent='Diagram could not be rendered.\n'+text}
   }
-  if(version===renderVersion){reportHeight();document.fonts.ready.then(reportHeight)}
+  // Font metrics (especially math) must settle before native history is revealed.
+  await document.fonts.ready;
+  if(version===renderVersion){layoutReady=true;reportHeight()}
 };

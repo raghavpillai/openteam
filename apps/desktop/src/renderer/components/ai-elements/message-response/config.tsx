@@ -26,6 +26,13 @@ export const streamdownControls: ControlsConfig = {
 export { botShikiTheme } from "./code-theme";
 
 export const botMermaidOptions: MermaidOptions = {
+  errorComponent: ({ chart, error, retry }) => (
+    <div data-chat-diagram-error className="rounded-lg bg-muted p-3 text-sm">
+      <p>{error}</p>
+      <pre className="overflow-x-auto whitespace-pre-wrap">{chart}</pre>
+      <button onClick={retry} type="button">Retry diagram</button>
+    </div>
+  ),
   config: {
     theme: "base",
     themeVariables: {
@@ -134,14 +141,22 @@ function MessageImage({
   ...props
 }: ComponentProps<"img"> & { node?: unknown }) {
   const source = useAuthenticatedResource(typeof src === "string" ? src : null);
+  const width = Number(props.width);
+  const height = Number(props.height);
+  const knownSize = Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0;
+  const frameWidth = knownSize ? Math.min(width, 320, (width / height) * 300) : 320;
   return (
-    <img
-      {...props}
-      alt={alt ?? ""}
-      src={source ?? undefined}
-      loading="lazy"
-      data-streamdown="image"
-    />
+    <span className="relative inline-block max-w-full overflow-hidden align-middle rounded-lg bg-muted"
+      style={{ width: frameWidth, aspectRatio: knownSize ? `${width} / ${height}` : "16 / 9" }}>
+      <img
+        {...props}
+        alt={alt ?? ""}
+        src={source ?? undefined}
+        loading="lazy"
+        data-streamdown="image"
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain" }}
+      />
+    </span>
   );
 }
 

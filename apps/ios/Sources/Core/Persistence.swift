@@ -37,6 +37,8 @@ public struct SavedState: Codable, Sendable {
   public var bootstrap: Bootstrap?
   public var sidebar: JSON?
   public var messages: [String: [Message]] = [:]
+  /// A bootstrap preview alone is not a downloaded conversation page.
+  public var loadedHistoryChannels: Set<String>? = []
   public var drafts: [String: Draft] = [:]
   public var outbox: [PendingSend] = []
   public init() {}
@@ -54,7 +56,17 @@ public struct DiskStore: Sendable {
   }
   public func load() throws -> SavedState {
     guard FileManager.default.fileExists(atPath: url.path) else { return SavedState() }
-    return try JSONDecoder().decode(SavedState.self, from: Data(contentsOf: url))
+    var state = try JSONDecoder().decode(SavedState.self, from: Data(contentsOf: url))
+    if state.loadedHistoryChannels == nil {
+      // Older caches did not record page completion. Preserve transcripts with
+      // messages beyond their saved bootstrap previews, without trusting a
+      // preview-only cache as a fully loaded conversation.
+      let previews = Set(state.bootstrap?.latestMessages.map(\.id) ?? [])
+      state.loadedHistoryChannels = Set(state.messages.compactMap { channel, messages in
+        messages.contains(where: { !previews.contains($0.id) }) ? channel : nil
+      })
+    }
+    return state
   }
   public func save(_ state: SavedState) throws {
     let data = try JSONEncoder().encode(state)

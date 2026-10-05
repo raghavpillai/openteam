@@ -42,6 +42,7 @@ import { createSnapshotCaches, reconcileClientSnapshot } from "../lib/snapshot-r
 export type OpenTeamMutation = <T>(operation: () => Promise<T>) => Promise<T>;
 
 export interface ChannelHistoryStatus {
+  initialLoading: boolean;
   generation: number;
   mode: "latest" | "history" | "context";
   hasOlder: boolean;
@@ -823,15 +824,21 @@ export function useOpenTeam() {
   );
 
   useEffect(() => {
-    if (initialRefreshStarted.current) return;
-    initialRefreshStarted.current = true;
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    const start = async () => {
-      await refresh();
-      if (!cancelled && !snapshotRef.current) retryTimer = setTimeout(start, 3_000);
+    const retryIfNeeded = () => {
+      if (!cancelled && !snapshotRef.current) {
+        retryTimer = setTimeout(async () => {
+          await refresh();
+          retryIfNeeded();
+        }, 3_000);
+      }
     };
-    void start();
+    // Effect remounts must reclaim retry ownership even when the initial
+    // request is already running. The disposed effect cannot schedule it.
+    const initial = initialRefreshStarted.current ? refreshInFlight.current : refresh();
+    initialRefreshStarted.current = true;
+    void Promise.resolve(initial).then(retryIfNeeded);
     return () => {
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
@@ -949,14 +956,34 @@ export function useOpenTeam() {
     [refresh]
   );
 
+  const legacySnapshot = legacyMode.current ? snapshot : null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: The revision deliberately invalidates projections derived from mutable history refs.
   const historyByChannel = useMemo(() => {
     const status = new Map<string, ChannelHistoryStatus>();
+    if (legacySnapshot) {
+      // Legacy snapshots already contain complete transcripts; there is no
+      // separate history request whose completion could release the spinner.
+      const counts = new Map<string, number>();
+      for (const message of legacySnapshot.channelMessages) {
+        counts.set(message.channelId, (counts.get(message.channelId) ?? 0) + 1);
+      }
+      for (const channel of legacySnapshot.channels) {
+        status.set(channel.id, {
+          initialLoading: false, generation: 0, mode: "latest",
+          hasOlder: false, hasNewer: false, hasNewerGap: false,
+          loadingOlder: false, loadingNewer: false,
+          loadedMessages: counts.get(channel.id) ?? 0, retainedBytes: 0,
+          activityTruncated: false, threadContextTruncated: false,
+        });
+      }
+      return status;
+    }
     for (const [channelId, history] of histories.current) {
       const state = channelStates.current.get(channelId);
       const window = historyWindows.current.get(channelId) ?? emptyChannelMessageWindow();
       const context = window.context;
       status.set(channelId, {
+        initialLoading: history.loading && history.loadedAt === 0,
         generation: window.generation,
         mode: context ? "context" : window.primaryHasNewerGap ? "history" : "latest",
         hasOlder: context?.hasMoreBefore ?? history.hasMore,
@@ -973,7 +1000,7 @@ export function useOpenTeam() {
       });
     }
     return status;
-  }, [historyRevision]);
+  }, [historyRevision, legacySnapshot]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: The revision deliberately invalidates projections derived from mutable history refs.
   const threadContextMessageIdsByChannel = useMemo(() => {

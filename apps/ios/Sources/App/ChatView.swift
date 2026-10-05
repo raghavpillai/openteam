@@ -30,8 +30,8 @@ struct ChatView: View {
   @State private var requestedInitialHistory = false
   private var hasLater: Bool { store.historyWindows[channel.id]?.hasLater == true }
   private var showsLoadError: Bool {
-    store.historyLoadFailures.contains(channel.id) && store.histories[channel.id] == nil
-      && store.messages(channel.id).isEmpty && pendingMessages.isEmpty
+    store.historyLoadFailures.contains(channel.id) && !store.hasCachedHistory(channel.id)
+      && pendingMessages.isEmpty
   }
   private var showsLatestButton: Bool {
     didPositionHistory && (hasLater || (!bottomVisible && !followsLatest))
@@ -93,7 +93,7 @@ struct ChatView: View {
         openingReadSequence = channel.notificationState?["lastReadSequence"].string
         didCaptureBoundary = true
       }
-      if store.histories[channel.id] != nil {
+      if store.hasCachedHistory(channel.id) {
         resolveOpeningBoundary()
         historyAvailable = true
       }

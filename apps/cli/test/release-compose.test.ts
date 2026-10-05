@@ -47,6 +47,11 @@ describe("release Compose rendering", () => {
     expect(rendered).toContain("caddy:2.11.4-alpine@sha256:");
     expect(rendered).toContain("${OPENTEAM_VIEWER_BIND_HOST:-127.0.0.1}:6200-6299");
     expect(rendered).toContain("OPENTEAM_AUTH_URL: ${OPENTEAM_AUTH_URL");
+    const worker = rendered.split("  worker:")[1]!.split("\n  caddy:")[0]!;
+    expect(worker).toContain("OPENTEAM_APNS_KEY_ID: ${OPENTEAM_APNS_KEY_ID:-}");
+    expect(worker).toContain("OPENTEAM_APNS_TEAM_ID: ${OPENTEAM_APNS_TEAM_ID:-}");
+    expect(worker).toContain("OPENTEAM_APNS_TOPIC: ${OPENTEAM_APNS_TOPIC:-dev.openbot.mobile}");
+    expect(worker).toContain("OPENTEAM_APNS_PRIVATE_KEY: ${OPENTEAM_APNS_PRIVATE_KEY:-}");
     expect(rendered).not.toContain("OPENTEAM_WEB_SEARCH_");
     expect(rendered).not.toContain("OPENTEAM_PI_PROVIDER");
     expect(rendered).not.toContain("OPENTEAM_PI_MODEL");

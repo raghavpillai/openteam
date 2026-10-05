@@ -46,7 +46,7 @@ const cases: Array<[string, string, boolean?]> = [
   ["model-401", "reconnect it", true],
   ["model-quota", "quota or billing", true],
   ["model-timeout", "network access", true],
-  ["healthy", "ALL SYSTEMS READY", true],
+  ["healthy", "READY WITH NOTES", true],
 ];
 
 // The stub only responds to diagnostic commands; unexpected commands fail closed.
@@ -54,6 +54,7 @@ const cases: Array<[string, string, boolean?]> = [
 const stub = `#!${process.execPath}
 import { appendFileSync } from 'node:fs';
 import { SERVER_PROBE, WORKER_PROBE, STORAGE_PROBE } from ${JSON.stringify(resolve(import.meta.dir, "../src/doctor-probes.ts"))};
+import { NOTIFICATION_STATE_PROBE, APNS_CONFIGURATION_PROBE } from ${JSON.stringify(resolve(import.meta.dir, "../src/doctor-notifications.ts"))};
 const scenario = process.env.OPENTEAM_TEST_SCENARIO;
 const args = process.argv.slice(2);
 const standalone = process.argv[1].endsWith('docker-compose');
@@ -101,6 +102,8 @@ if (args.includes('exec')) {
     ok(JSON.stringify(errors[scenario] ? {ok:false,error:errors[scenario]} : {ok:true}));
   }
   if (scenario === 'probe-invalid') ok('{broken');
+  if (script.includes(NOTIFICATION_STATE_PROBE)) ok(JSON.stringify({ total: 0, eligible: 0, invalid: 0, topics: [], failed: 0, waiting: 0 }));
+  if (script.includes(APNS_CONFIGURATION_PROBE)) ok(JSON.stringify({ missing: ['OPENTEAM_APNS_KEY_ID','OPENTEAM_APNS_TEAM_ID','OPENTEAM_APNS_PRIVATE_KEY'], issue: null, topic: 'dev.openteam.mobile.swift' }));
   const labels = script.includes(SERVER_PROBE) ? ['Database','Pending jobs','Run leases','Computer API']
     : script.includes(WORKER_PROBE) ? ['Worker heartbeat','Queue round trip']
     : script.includes(STORAGE_PROBE) ? args.includes('computer') ? ['workspace'] : ['agents','assets'] : [];
@@ -144,6 +147,15 @@ describe.skipIf(process.platform === "win32")("doctor command failure matrix", (
         const bin = join(directory, "bin");
         mkdirSync(bin);
         const calls = join(directory, "calls.jsonl");
+        // This matrix tests Docker/configuration failures, not whichever ports
+        // the developer's live stack currently uses. Port probes have their own
+        // real-socket tests in doctor.test.ts.
+        const preload = join(directory, "ports-preload.ts");
+        const portsModule = resolve(import.meta.dir, "../src/ports.ts");
+        writeFileSync(
+          preload,
+          `import { mock } from "bun:test";\nconst ports = await import(${JSON.stringify(portsModule)});\nmock.module(${JSON.stringify(portsModule)}, () => ({ ...ports, firstUnavailablePort: async () => null }));\n`
+        );
         const paths = installationPaths(join(directory, "installation"));
         const before = new Map<string, string>();
         if (installed) {
@@ -180,6 +192,8 @@ describe.skipIf(process.platform === "win32")("doctor command failure matrix", (
         const child = Bun.spawn(
           [
             process.execPath,
+            "--preload",
+            preload,
             resolve(import.meta.dir, "../src/main.ts"),
             "doctor",
             "--dir",

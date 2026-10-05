@@ -210,6 +210,15 @@ Human-facing commands use a consistent terminal layout: grouped help, a service 
 changes. Model listings highlight the saved selection and thinking level and retain complete model
 identifiers. `status` exits `2` when required services or initialization jobs are not ready, including
 a missing worker even if the API responds. Use `doctor` for deeper connection and storage checks.
+Doctor also checks iOS push registrations and their login sessions, APNs credentials in the running
+worker, P-256 signing-key validity, app bundle-ID matches, and recent push errors or overdue pushes.
+Missing APNs credentials warn for installations without an eligible iPhone and fail when an eligible
+iPhone needs push delivery. Configure `OPENTEAM_APNS_KEY_ID`, `OPENTEAM_APNS_TEAM_ID`,
+`OPENTEAM_APNS_PRIVATE_KEY` (PEM, with escaped newlines if needed), and `OPENTEAM_APNS_TOPIC`
+in the installation environment; the distributed iOS app uses `dev.openbot.mobile`. Compose must pass
+these values into the worker, which must be recreated after changing them.
+These server-side checks run on Linux and macOS, do not send test alerts, and do not prove Apple
+accepted the credentials. Verify delivery on a real iPhone after resolving configuration errors.
 Output wraps to the terminal width and respects `NO_COLOR` and `TERM=dumb`. Redirected output has
 no color escapes; `--version`, update JSON progress, and raw Docker log streams keep their existing
 formats. Human update progress shows each phase as it happens.

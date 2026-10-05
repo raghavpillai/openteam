@@ -105,6 +105,12 @@ const checkAction = (check: DoctorCheck): string | undefined => {
       if (/server connection|installation credentials/i.test(check.detail))
         return "Run openteam status and check the server connection and installation control token. Inspect openteam logs server before testing transcription again.";
       return "Open Settings → Server → Transcription, check the provider URL, model and key, then use Test connection.";
+    case "iOS push registration":
+      return "Open the iPhone app connected to this server, sign in, and check Settings → Notifications. Retry notifications or turn them off and on to register again.";
+    case "iOS push credentials":
+      return "Configure OPENTEAM_APNS_KEY_ID, OPENTEAM_APNS_TEAM_ID, OPENTEAM_APNS_PRIVATE_KEY and OPENTEAM_APNS_TOPIC for the worker. The topic must match the iOS app bundle ID (dev.openbot.mobile for the distributed app). Ensure Compose passes these values into the worker and recreate it after changes.";
+    case "iOS push delivery":
+      return "Inspect openteam logs worker for APNs delivery errors and check the push credentials and device registration. Verify a real alert on the iPhone with the conversation closed and Focus allowing OpenTeam.";
   }
   if (check.label.includes("storage"))
     return "Check that the reported volume is writable by the service's user and has free space. Inspect openteam logs for storage errors.";
@@ -138,7 +144,9 @@ export const doctorNextSteps = (
     // Resolve prerequisites before recommending dependent service or provider actions.
     if (
       dockerBlocked &&
-      ["SERVICES", "AI CONNECTION", "VOICE NOTES", "STORAGE"].includes(group(check))
+      ["SERVICES", "AI CONNECTION", "VOICE NOTES", "NOTIFICATIONS", "STORAGE"].includes(
+        group(check)
+      )
     )
       continue;
     if (dockerBlocked && check.label === "Owner account") continue;
@@ -203,6 +211,7 @@ export const renderCompactDoctor = (
 };
 
 const group = ({ label }: DoctorCheck): string => {
+  if (label.startsWith("iOS push ")) return "NOTIFICATIONS";
   if (label === "Transcription") return "VOICE NOTES";
   if (["Inference", "AI connection"].includes(label)) return "AI CONNECTION";
   if (label.includes("storage")) return "STORAGE";
@@ -279,7 +288,14 @@ export const renderDoctor = (
     }
   };
   if (!result.ok) appendNextSteps();
-  const groups = ["HOST & SETUP", "SERVICES", "AI CONNECTION", "VOICE NOTES", "STORAGE"];
+  const groups = [
+    "HOST & SETUP",
+    "SERVICES",
+    "AI CONNECTION",
+    "VOICE NOTES",
+    "NOTIFICATIONS",
+    "STORAGE",
+  ];
   const priority = { fail: 0, warn: 1, pass: 2 };
   for (const name of groups) {
     const checks = result.checks

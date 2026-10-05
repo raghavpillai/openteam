@@ -19,6 +19,7 @@ import {
   viewerPorts,
 } from "../src/doctor";
 import { SERVER_PROBE, WORKER_PROBE, STORAGE_PROBE } from "../src/doctor-probes";
+import { NOTIFICATION_STATE_PROBE, APNS_CONFIGURATION_PROBE } from "../src/doctor-notifications";
 import { doctorCommand } from "../src/lifecycle";
 import type { CommandRunner, RunOptions, RunResult } from "../src/process";
 
@@ -123,6 +124,14 @@ const installedFixture = () => {
   });
   class DoctorRunner implements CommandRunner {
     running = ["postgres", "server", "worker", "computer"];
+    notifications = {
+      total: 0,
+      eligible: 0,
+      invalid: 0,
+      topics: [] as string[],
+      failed: 0,
+      waiting: 0,
+    };
     probes: Array<{ args: readonly string[]; options?: RunOptions }> = [];
     result: RunResult = { status: 0, stdout: '{"ok":true}\n', stderr: "" };
     run(command: string, args: readonly string[], options?: RunOptions): RunResult {
@@ -155,6 +164,26 @@ const installedFixture = () => {
         };
       if (args.includes("exec") && !options?.input) {
         const script = args.at(-1)!;
+        if (script.includes(NOTIFICATION_STATE_PROBE))
+          return {
+            status: 0,
+            stdout: JSON.stringify(this.notifications),
+            stderr: "",
+          };
+        if (script.includes(APNS_CONFIGURATION_PROBE))
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              missing: [
+                "OPENTEAM_APNS_KEY_ID",
+                "OPENTEAM_APNS_TEAM_ID",
+                "OPENTEAM_APNS_PRIVATE_KEY",
+              ],
+              issue: null,
+              topic: "dev.openteam.mobile.swift",
+            }),
+            stderr: "",
+          };
         const labels = script.includes(SERVER_PROBE)
           ? ["Database", "Pending jobs", "Run leases", "Computer API"]
           : script.includes(WORKER_PROBE)
@@ -183,6 +212,23 @@ const installedFixture = () => {
 };
 
 describe("doctor model API connection", () => {
+  test("healthy containers do not hide missing APNs credentials or delivery failures", async () => {
+    const { paths, runner } = installedFixture();
+    runner.notifications = {
+      total: 1,
+      eligible: 1,
+      invalid: 0,
+      topics: ["dev.openbot.mobile"],
+      failed: 87,
+      waiting: 0,
+    };
+    const result = await runDoctor(paths, runner, "openteam", { deepChecks: true });
+    expect(result.ok).toBe(false);
+    expect(result.checks.find((c) => c.label === "Compose services")?.level).toBe("pass");
+    expect(result.checks.find((c) => c.label === "iOS push registration")?.level).toBe("pass");
+    expect(result.checks.find((c) => c.label === "iOS push credentials")?.level).toBe("fail");
+    expect(result.checks.find((c) => c.label === "iOS push delivery")?.level).toBe("fail");
+  });
   test("optional transcription setup warns while provider failure makes doctor fail", async () => {
     const { paths, state, runner } = installedFixture();
     const missing = await runDoctor(paths, runner, "openteam", { deepChecks: true });

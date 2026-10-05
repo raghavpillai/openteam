@@ -49,6 +49,7 @@ import type { CommandRunner } from "./process";
 import { inspectPublicReadiness } from "./public-readiness";
 import { readRuntimeInferenceSettings } from "./runtime-settings";
 import { foreignServerDetected, foreignServerMessage } from "./stack";
+import { runNotificationChecks } from "./doctor-notifications";
 
 export { firstUnavailablePort, portAvailable, suggestApiPort, viewerPorts } from "./ports";
 
@@ -435,6 +436,8 @@ export const runDoctor = async (
         "Computer API",
       ]);
       probeService("worker", WORKER_PROBE, ["Worker heartbeat", "Queue round trip"]);
+      options.onProgress?.("Checking notification registrations and push delivery");
+      checks.push(...runNotificationChecks(project, runningServices ?? new Set()));
       options.onProgress?.("Verifying storage permissions");
       probeService("server", STORAGE_PROBE, ["Server agent storage", "Server asset storage"], true);
       probeService("worker", STORAGE_PROBE, ["Worker agent storage", "Worker asset storage"], true);

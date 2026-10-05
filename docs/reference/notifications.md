@@ -11,6 +11,15 @@ the live activity projection, including when its macOS window is minimized or
 closed into the background. Quitting desktop stops desktop alerts. Each client
 suppresses alerts for its visible conversation; other conversations can alert.
 
+`openteam doctor` checks iOS registration eligibility, the running worker's APNs configuration and
+P-256 signing key, bundle-ID matches, and recent delivery errors or overdue pending pushes.
+The release Compose template passes `OPENTEAM_APNS_KEY_ID`, `OPENTEAM_APNS_TEAM_ID`,
+`OPENTEAM_APNS_PRIVATE_KEY`, and `OPENTEAM_APNS_TOPIC` to the worker; the default release topic is
+`dev.openbot.mobile`. A local server still needs APNs credentials for remote iPhone pushes.
+Desktop alerts and alerts generated locally on the phone do not need APNs credentials.
+Doctor never treats a delivered outbox row as proof of an actual alert: skipped or retired pushes can
+also have that status. A real device test must still verify OS permissions, Focus, and a visible alert.
+
 Read receipts carry both a message sequence and a notification sequence. Reactions
 use the latter because a new reaction can refer to a message read days earlier.
 Both cursors advance monotonically. Clients acknowledge the activity they have

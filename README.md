@@ -6,7 +6,7 @@ Chat with bots that can browse the web, use a Linux desktop, and work with your 
 Each bot keeps its conversation, memory, and browser logins between tasks. Watch its screen,
 take over when needed, or come back when the work is done.
 
-[Get started](#get-started) · [Apps](#apps) · [Documentation](docs/README.md) ·
+[Website](https://openteam.so) · [Get started](#get-started) · [Download apps](#apps) · [Documentation](docs/README.md) ·
 [Develop from source](docs/development/from-source.md)
 
 [![OpenTeam desktop and iPhone apps showing the same vendor comparison and weekday pricing check](docs/images/openteam-desktop-mobile.png)](docs/images/openteam-desktop-mobile.png)

@@ -16,6 +16,8 @@ Read [CLI guidance](../plaid-setup/references/cli.md). Resolve computer, environ
 | Investment activity | `investments transactions --start-date YYYY-MM-DD --end-date YYYY-MM-DD` |
 | Loans/credit cards | `liabilities` |
 
+For pending replacements, refunds, recurring payments, or null product data, read [edge cases](references/edge-cases.md).
+
 Check help for flags. Paginate lists with `--count`/`--offset`; never treat one page or sync deltas as a full ledger. Filter account IDs when necessary.
 
-Keep currencies/accounts separate; distinguish cash/assets from credit-card or loan debt. Positive transaction amounts are outflows; negative are inflows. Separate pending replacements, refunds, and transfers when totaling spending. Missing available balance means unknown. State period, available freshness, truncation, and unavailable products. For errors, use `plaid-troubleshooting`; never invent financial data.
+Keep currencies/accounts separate; distinguish cash/assets from credit-card or loan debt. Positive transaction amounts are outflows; negative are inflows. Separate pending replacements, refunds, and transfers when totaling spending. Missing available balances and null product data mean unknown, not zero. Empty older periods do not prove zero activity. State period, available freshness, truncation, and unavailable products. For errors, use `plaid-troubleshooting`; never invent financial data.

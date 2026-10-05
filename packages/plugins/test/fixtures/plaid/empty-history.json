@@ -1,0 +1,12 @@
+{
+  "synthetic": true,
+  "requested_period": [
+    "2025-01-01",
+    "2025-12-31"
+  ],
+  "response": {
+    "transactions": [],
+    "total_transactions": 0
+  },
+  "connection_observed_history_start": "2026-07-08"
+}

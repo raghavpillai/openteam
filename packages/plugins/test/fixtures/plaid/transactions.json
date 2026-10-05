@@ -1,0 +1,243 @@
+{
+  "synthetic": true,
+  "requested_period": [
+    "2026-09-01",
+    "2026-09-30"
+  ],
+  "initial_ledger": [
+    {
+      "transaction_id": "pending-cafe",
+      "account_id": "credit-usd",
+      "amount": 40,
+      "name": "Cafe",
+      "merchant_name": "Cafe",
+      "category": [
+        "Food and Drink"
+      ],
+      "iso_currency_code": "USD",
+      "pending": true,
+      "date": "2026-09-15"
+    },
+    {
+      "transaction_id": "shop",
+      "account_id": "credit-usd",
+      "amount": 100,
+      "name": "Shop",
+      "merchant_name": "Shop",
+      "category": [
+        "Shops"
+      ],
+      "iso_currency_code": "USD",
+      "pending": false,
+      "date": "2026-09-15"
+    },
+    {
+      "transaction_id": "refund",
+      "account_id": "credit-usd",
+      "amount": -20,
+      "name": "Shop return",
+      "merchant_name": "Shop return",
+      "category": [
+        "Shops"
+      ],
+      "iso_currency_code": "USD",
+      "pending": false,
+      "date": "2026-09-15"
+    },
+    {
+      "transaction_id": "old-refund",
+      "account_id": "credit-usd",
+      "amount": -10,
+      "name": "Shop refund for August purchase",
+      "merchant_name": "Shop refund for August purchase",
+      "category": [
+        "Shops"
+      ],
+      "iso_currency_code": "USD",
+      "pending": false,
+      "date": "2026-09-15"
+    },
+    {
+      "transaction_id": "payroll",
+      "account_id": "checking-usd",
+      "amount": -3000,
+      "name": "Payroll",
+      "merchant_name": "Payroll",
+      "category": [
+        "Transfer",
+        "Payroll"
+      ],
+      "iso_currency_code": "USD",
+      "pending": false,
+      "date": "2026-09-15"
+    },
+    {
+      "transaction_id": "card-credit",
+      "account_id": "credit-usd",
+      "amount": -1000,
+      "name": "Card payment",
+      "merchant_name": "Card payment",
+      "category": [
+        "Payment",
+        "Credit Card"
+      ],
+      "iso_currency_code": "USD",
+      "pending": false,
+      "date": "2026-09-15"
+    },
+    {
+      "transaction_id": "card-debit",
+      "account_id": "checking-usd",
+      "amount": 1000,
+      "name": "Card payment",
+      "merchant_name": "Card payment",
+      "category": [
+        "Payment",
+        "Credit Card"
+      ],
+      "iso_currency_code": "USD",
+      "pending": false,
+      "date": "2026-09-15"
+    },
+    {
+      "transaction_id": "transfer",
+      "account_id": "checking-usd",
+      "amount": -200,
+      "name": "Transfer",
+      "merchant_name": "Transfer",
+      "category": [
+        "Transfer",
+        "Credit"
+      ],
+      "iso_currency_code": "USD",
+      "pending": false,
+      "date": "2026-09-15"
+    },
+    {
+      "transaction_id": "euro-purchase",
+      "account_id": "credit-eur",
+      "amount": 25,
+      "name": "Hotel",
+      "merchant_name": "Hotel",
+      "category": [
+        "Travel"
+      ],
+      "iso_currency_code": "EUR",
+      "pending": false,
+      "date": "2026-09-15"
+    },
+    {
+      "transaction_id": "pending-kiosk",
+      "account_id": "credit-usd",
+      "amount": 20,
+      "name": "Kiosk",
+      "merchant_name": "Kiosk",
+      "category": [
+        "Shops"
+      ],
+      "iso_currency_code": "USD",
+      "pending": true,
+      "date": "2026-09-15"
+    },
+    {
+      "transaction_id": "posted-kiosk",
+      "account_id": "credit-usd",
+      "amount": 20,
+      "name": "Kiosk",
+      "merchant_name": "Kiosk",
+      "category": [
+        "Shops"
+      ],
+      "iso_currency_code": "USD",
+      "pending": false,
+      "date": "2026-09-15"
+    }
+  ],
+  "sync_batches": [
+    {
+      "added": [
+        {
+          "transaction_id": "posted-cafe",
+          "account_id": "credit-usd",
+          "amount": 45,
+          "name": "Cafe",
+          "merchant_name": "Cafe",
+          "category": [
+            "Food and Drink"
+          ],
+          "iso_currency_code": "USD",
+          "pending": false,
+          "date": "2026-09-15",
+          "pending_transaction_id": "pending-cafe"
+        }
+      ],
+      "modified": [
+        {
+          "transaction_id": "shop",
+          "account_id": "credit-usd",
+          "amount": 120,
+          "name": "Shop",
+          "merchant_name": "Shop",
+          "category": [
+            "Shops"
+          ],
+          "iso_currency_code": "USD",
+          "pending": false,
+          "date": "2026-09-15"
+        }
+      ],
+      "removed": [
+        {
+          "transaction_id": "pending-cafe",
+          "account_id": "credit-usd"
+        }
+      ],
+      "cursor": "fixture-cursor-1"
+    },
+    {
+      "added": [
+        {
+          "transaction_id": "posted-cafe",
+          "account_id": "credit-usd",
+          "amount": 45,
+          "name": "Cafe",
+          "merchant_name": "Cafe",
+          "category": [
+            "Food and Drink"
+          ],
+          "iso_currency_code": "USD",
+          "pending": false,
+          "date": "2026-09-15",
+          "pending_transaction_id": "pending-cafe"
+        }
+      ],
+      "modified": [
+        {
+          "transaction_id": "shop",
+          "account_id": "credit-usd",
+          "amount": 120,
+          "name": "Shop",
+          "merchant_name": "Shop",
+          "category": [
+            "Shops"
+          ],
+          "iso_currency_code": "USD",
+          "pending": false,
+          "date": "2026-09-15"
+        }
+      ],
+      "removed": [
+        {
+          "transaction_id": "pending-cafe",
+          "account_id": "credit-usd"
+        }
+      ],
+      "cursor": "fixture-cursor-1"
+    }
+  ],
+  "notes": [
+    "The repeated batch is intentional.",
+    "The old-refund is a refund posted in September for an August purchase.",
+    "The two Kiosk IDs have no replacement linkage."
+  ]
+}

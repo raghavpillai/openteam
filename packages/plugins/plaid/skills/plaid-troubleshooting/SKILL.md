@@ -12,7 +12,7 @@ Read [CLI guidance](../plaid-setup/references/cli.md). Check version/help and ma
 | Missing CLI | `plaid-setup` |
 | Invalid keys | Check environment and flag/env/config precedence; Sandbox and Production secrets differ. |
 | Missing/wrong bank | List Items and select or connect the intended bank. |
-| Product unavailable | Check consent, developer entitlement, and institution support; another connection may not help. |
+| Product unavailable/null | Use the financial-data [API helper](../plaid-financial-data/references/edge-cases.md) to verify consent/product errors hidden by the CLI. Check consent, entitlement and institution support; do not infer zero holdings/debt. |
 | Login/consent required | User reauthentication; the pinned CLI lacks update mode. Do not replace the Item without instruction. |
 | Link looks connected but no Item | Check CLI callback errors and localhost/tunnel access. |
 | Not ready, rate limit, network | Follow documented guidance with bounded retries; report persistent failure. |

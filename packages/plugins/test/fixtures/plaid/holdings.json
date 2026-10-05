@@ -1,0 +1,72 @@
+{
+  "synthetic": true,
+  "accounts": [
+    {
+      "account_id": "invest-usd",
+      "name": "Brokerage",
+      "type": "investment",
+      "balances": {
+        "current": 250,
+        "iso_currency_code": "USD"
+      }
+    },
+    {
+      "account_id": "invest-eur",
+      "name": "Brokerage EUR",
+      "type": "investment",
+      "balances": {
+        "current": 30,
+        "iso_currency_code": "EUR"
+      }
+    }
+  ],
+  "securities": [
+    {
+      "security_id": "stock-usd",
+      "name": "Example US equity",
+      "ticker_symbol": "EXUS",
+      "type": "equity",
+      "iso_currency_code": "USD"
+    },
+    {
+      "security_id": "cash",
+      "name": "Cash",
+      "type": "cash",
+      "iso_currency_code": "USD"
+    },
+    {
+      "security_id": "stock-eur",
+      "name": "Example EU equity",
+      "ticker_symbol": "EXEU",
+      "type": "equity",
+      "iso_currency_code": "EUR"
+    }
+  ],
+  "holdings": [
+    {
+      "account_id": "invest-usd",
+      "security_id": "stock-usd",
+      "quantity": 2,
+      "institution_price": 100,
+      "institution_value": 200,
+      "cost_basis": 180,
+      "iso_currency_code": "USD"
+    },
+    {
+      "account_id": "invest-usd",
+      "security_id": "cash",
+      "quantity": 1,
+      "institution_price": 50,
+      "institution_value": 50,
+      "iso_currency_code": "USD"
+    },
+    {
+      "account_id": "invest-eur",
+      "security_id": "stock-eur",
+      "quantity": 3,
+      "institution_price": 10,
+      "institution_value": 30,
+      "iso_currency_code": "EUR"
+    }
+  ]
+}

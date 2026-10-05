@@ -8,6 +8,10 @@ Credentials resolve flags > environment > config. Use secure process input/local
 
 An Item is a bank login containing one or more accounts. Select `--item <id-or-alias>`; `--all` spans connections in the active environment. Sandbox is simulated. CLI config and Items persist on the execution computer; this package has no separate OpenTeam connected-account entry.
 
+## Scope
+
+The pinned CLI covers Link/Items, balances, transaction lists/sync, holdings/activity and liabilities. The financial-data skill also provides a read-only Python helper for recurring streams and verifying product errors that this CLI may hide. It does not expose the entire Plaid API: no payments, Auth/Identity, statements, income, update mode, force refresh, or webhooks.
+
 ## Production Link
 
 The CLI serves Link on localhost and rejects forwarded callback hosts. Prefer a browser on the execution computer. A requested private tunnel must preserve the original localhost Host/Origin upstream, callback path/query, and state. Simply forwarding an external Host can display “Connected” while saving no Item. Verify Item list/get. This CLI page is not Plaid Hosted Link; Hosted Link needs a separate API implementation.

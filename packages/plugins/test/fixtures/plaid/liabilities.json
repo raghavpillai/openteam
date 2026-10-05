@@ -1,0 +1,84 @@
+{
+  "synthetic": true,
+  "accounts": [
+    {
+      "account_id": "card-a",
+      "name": "Credit A",
+      "type": "credit",
+      "balances": {
+        "current": 400,
+        "available": 600,
+        "limit": 1000,
+        "iso_currency_code": "USD"
+      }
+    },
+    {
+      "account_id": "card-b",
+      "name": "Credit B",
+      "type": "credit",
+      "balances": {
+        "current": 0,
+        "available": null,
+        "iso_currency_code": "USD"
+      }
+    },
+    {
+      "account_id": "student",
+      "name": "Student loan",
+      "type": "loan",
+      "balances": {
+        "current": 10000,
+        "iso_currency_code": "USD"
+      }
+    },
+    {
+      "account_id": "mortgage",
+      "name": "Mortgage",
+      "type": "loan",
+      "balances": {
+        "current": 200000,
+        "iso_currency_code": "USD"
+      }
+    }
+  ],
+  "liabilities": {
+    "credit": [
+      {
+        "account_id": "card-a",
+        "minimum_payment_amount": 25,
+        "next_payment_due_date": "2026-10-20",
+        "aprs": [
+          {
+            "apr_type": "purchase_apr",
+            "apr_percentage": 20.5
+          }
+        ]
+      },
+      {
+        "account_id": "card-b",
+        "minimum_payment_amount": null,
+        "next_payment_due_date": null,
+        "aprs": []
+      }
+    ],
+    "student": [
+      {
+        "account_id": "student",
+        "minimum_payment_amount": 80,
+        "interest_rate_percentage": 4.5,
+        "next_payment_due_date": "2026-10-15"
+      }
+    ],
+    "mortgage": [
+      {
+        "account_id": "mortgage",
+        "next_monthly_payment": 1000,
+        "interest_rate": {
+          "percentage": 6.1,
+          "type": "fixed"
+        },
+        "next_payment_due_date": "2026-11-01"
+      }
+    ]
+  }
+}

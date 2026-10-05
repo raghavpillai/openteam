@@ -43,4 +43,4 @@ OpenTeam doesn't encrypt plain `http://` addresses. That's fine on your home net
 
 ## Notifications
 
-To get alerts when a bot finishes or needs you, see [notifications](../configuration/apps.md#notifications).
+To get alerts when a bot finishes or needs you, see [notifications](../configuration/apps.md#notifications). For iPhone push credentials and server setup, follow [mobile notifications](../configuration/mobile-notifications.md).

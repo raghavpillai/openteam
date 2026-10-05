@@ -113,6 +113,10 @@
           "file": "configuration/apps.md"
         },
         {
+          "title": "Mobile notifications",
+          "file": "configuration/mobile-notifications.md"
+        },
+        {
           "title": "Privacy and connected services",
           "file": "configuration/privacy.md"
         }

@@ -16,6 +16,10 @@ Use `--json` for financial queries; stdout is data and stderr is diagnostics. Pr
 
 An Item is a bank login/connection containing one or more accounts. Product commands accept `--item <id-or-alias>` or `--all`. Select the intended Item explicitly when multiple exist; use `--all` only for an all-connections request. Environment and connection selection are separate. Sandbox data is simulated.
 
+## Production Link browser access
+
+The pinned CLI serves Link on localhost and validates callback Host, Origin, and state. Prefer a browser on the execution computer. A user-requested private tunnel must preserve the original localhost Host/Origin upstream and the callback path/query; simply forwarding the port with the external Host can show “Connected” in the browser while the CLI rejects the callback. Verify Item list/get before reporting success. The CLI's localhost page is not Plaid Hosted Link; Hosted Link requires a separate API implementation.
+
 ## Cleanup
 
 Plugin uninstall does not uninstall this CLI or disconnect banks. Item removal revokes that connection; CLI logout only removes local Dashboard/API credentials. Run each only for the user's requested cleanup. Remove only this package's managed version directory when explicitly asked to remove its installed CLI; leave existing Homebrew/shared installations to their own package manager. Clearing the CLI's whole config can affect other Items and developer credentials, so establish the intended scope first.

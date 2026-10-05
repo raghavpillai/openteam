@@ -65,6 +65,8 @@ struct NativeMessageList: UIViewControllerRepresentable {
   private var scrollingToTarget = false
   private var dragDirection: CGFloat = 0
   private var readingAnchor: Anchor?
+  private var relocationSnapshot: UIView?
+  private var relocationReveal: DispatchWorkItem?
   private var reported: (Bool, Bool)?
   private var lastBounds = CGSize.zero
   private var lastContent = CGSize.zero
@@ -148,7 +150,18 @@ struct NativeMessageList: UIViewControllerRepresentable {
     items = Dictionary(uniqueKeysWithValues: values.map { ($0.id, $0) })
     if let request, request.token != lastRequest {
       lastRequest = request.token
-      pendingRequest = request
+      var resolved = request
+      // A distant destination replaces the bounded history window. Animating
+      // from its old numeric offset would briefly display unrelated messages
+      // from the replacement window before reaching the requested row.
+      let target = request.id == "bottom"
+        ? values.last(where: { $0.id != "bottom" && $0.id != "later" })
+        : values.first(where: { $0.scrollID == request.id })
+      if positioned, let target,
+        !displayedIDs.contains(target.id) {
+        resolved.animated = false
+      }
+      pendingRequest = resolved
     }
     let previousIDs = orderedIDs
     orderedIDs = ids
@@ -191,6 +204,24 @@ struct NativeMessageList: UIViewControllerRepresentable {
     let changes = pendingChanges
     pendingChanges.removeAll()
     let anchor = positioned ? captureAnchor(forContentUpdate: true) : nil
+    if positioned, next != displayedIDs, let anchor, !next.contains(anchor.id) {
+      // Diffable snapshots expose the new page at the old numeric offset until
+      // their completion runs. Keep the old pixels over that intermediate
+      // layout; reveal only after the requested destination has settled.
+      relocationReveal?.cancel()
+      if relocationSnapshot == nil, let snapshot = table.snapshotView(afterScreenUpdates: false) {
+        snapshot.frame = table.frame
+        snapshot.backgroundColor = UIColor(NativePalette.background)
+        snapshot.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        snapshot.isUserInteractionEnabled = false
+        snapshot.accessibilityElementsHidden = true
+        view.addSubview(snapshot)
+        relocationSnapshot = snapshot
+        // The table intentionally draws beyond its viewport beneath glass.
+        // Hide that overflow too while the captured viewport is displayed.
+        table.layer.isHidden = true
+      }
+    }
     // A history-window replacement removes rows before/after the viewport.
     // Preserve its anchor even during a drag or fling; leaving the old offset
     // in the new window can cascade through every boundary in one gesture.
@@ -269,6 +300,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
       }
       self.applyPendingRequest()
       self.didLayout()
+      self.revealRelocation()
     }
     if resize {
       // Reconfigure and resize the hosting cell inside the same UIKit animation
@@ -408,7 +440,27 @@ struct NativeMessageList: UIViewControllerRepresentable {
     pendingRequest = nil
     following = request.id == "bottom"
     scroll(to: request.id, animated: request.animated && !UIAccessibility.isReduceMotionEnabled)
+    revealRelocation()
     reportScroll()
+  }
+  private func revealRelocation() {
+    guard relocationSnapshot != nil else { return }
+    relocationReveal?.cancel()
+    let work = DispatchWorkItem { [weak self] in
+      guard let self else { return }
+      if self.updating || self.positioning || self.pendingRequest != nil || self.scrollingToTarget {
+        self.revealRelocation()
+        return
+      }
+      self.table.layoutIfNeeded()
+      self.didLayout()
+      self.relocationSnapshot?.removeFromSuperview()
+      self.relocationSnapshot = nil
+      self.table.layer.isHidden = false
+      self.relocationReveal = nil
+    }
+    relocationReveal = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
   }
   private func scroll(to id: String, animated: Bool) {
     stopFooterFollow()

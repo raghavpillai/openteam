@@ -257,9 +257,12 @@ struct ChatView: View {
     }
   }
   private func jumpToLatest() async {
+    let animated = !hasLater
     if hasLater, !(await store.loadLatest(channel.id)) { return }
     followsLatest = true
-    scrollRequest = HistoryScrollRequest(id: "bottom")
+    // Loading latest replaces a server history page. Its offsets cannot be
+    // used as the starting point of an animation through the previous page.
+    scrollRequest = HistoryScrollRequest(id: "bottom", animated: animated)
   }
   private func focus(_ id: String) {
     followsLatest = false

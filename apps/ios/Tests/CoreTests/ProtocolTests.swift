@@ -15,6 +15,22 @@ final class ProtocolTests: XCTestCase {
     XCTAssertEqual(snapshot.bots[0].dmChannelId, "channel-research")
     XCTAssertEqual(snapshot.latestMessages[1].replyTo, "message-1")
   }
+  func testWorkspaceResponsesDecodeAfterServerRemovesApprovals() throws {
+    let url = Bundle.module.url(
+      forResource: "bootstrap", withExtension: "json", subdirectory: "Fixtures")!
+    var payload = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
+    payload.removeValue(forKey: "pendingApprovals")
+    let snapshot = try JSONDecoder().decode(
+      Bootstrap.self, from: JSONSerialization.data(withJSONObject: payload))
+    XCTAssertEqual(snapshot.bots.count, 3)
+    XCTAssertEqual(snapshot.latestMessages.count, 7)
+
+    let state = try JSONDecoder().decode(
+      ChannelState.self,
+      from: Data(#"{"channelId":"channel-research","revision":"1","runs":[]}"#.utf8))
+    XCTAssertEqual(state.channelId, "channel-research")
+    XCTAssertTrue(state.runs.isEmpty)
+  }
   func testThreadAncestryHandlesUnorderedNestedCyclicAndMissingReplies() throws {
     var root = try fixture().latestMessages[0]
     root.id = "root"

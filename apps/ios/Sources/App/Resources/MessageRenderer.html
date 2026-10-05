@@ -3727,15 +3727,15 @@ cytoscape/dist/cytoscape.esm.mjs:
 */
 globalThis["mermaid"] = globalThis.__esbuild_esm_mermaid_nm["mermaid"].default;
 
-;let renderVersion=0,lastHeight=0,mathTokens=[],activeLease="";
+;let renderVersion=0,lastHeight=0,lastWidth=0,mathTokens=[],activeLease="";
 marked.use({extensions:[
   {name:'mathDisplay',level:'block',start:src=>src.indexOf('$$'),tokenizer(src){const m=/^\$\$([\s\S]+?)\$\$(?:\n|$)/.exec(src);if(m)return {type:'mathDisplay',raw:m[0],text:m[1]}},renderer(token){const index=mathTokens.push({text:token.text,display:true})-1;return '<div class="math-placeholder math-index-'+index+'"></div>'}},
   {name:'mathInline',level:'inline',start(src){const match=/\$|\\[([]/.exec(src);return match?.index},tokenizer(src){const m=/^\$([^\s$](?:[^$\n]*?[^\s$])?)\$(?!\d)|^\\\(([\s\S]+?)\\\)|^\\\[([\s\S]+?)\\\]/.exec(src);if(m)return {type:'mathInline',raw:m[0],text:m[1]??m[2]??m[3],display:!!m[3]}},renderer(token){const index=mathTokens.push({text:token.text,display:token.display})-1;return '<span class="math-placeholder math-index-'+index+'"></span>'}}
 ]});
-function reportHeight(){const h=Math.ceil(document.getElementById('message').getBoundingClientRect().height);if(h!==lastHeight){lastHeight=h;window.webkit?.messageHandlers?.height?.postMessage({height:h,lease:activeLease})}}
+function reportHeight(){const bounds=document.getElementById('message').getBoundingClientRect(),h=Math.ceil(bounds.height),width=bounds.width;if(h!==lastHeight||width!==lastWidth){lastHeight=h;lastWidth=width;window.webkit?.messageHandlers?.height?.postMessage({height:h,width,lease:activeLease})}}
 new ResizeObserver(reportHeight).observe(document.getElementById('message'));
 window.renderMessage=async function(source,dark,fontSize,colors,lease){
-  activeLease=lease;lastHeight=-1;
+  activeLease=lease;lastHeight=-1;lastWidth=-1;
   const version=++renderVersion,root=document.getElementById('message');
   for(const [role,value] of Object.entries(colors))document.body.style.setProperty('--'+role,value);
   document.body.style.color=colors.text;document.body.style.fontSize=fontSize+'px';

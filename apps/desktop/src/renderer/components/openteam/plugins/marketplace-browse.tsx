@@ -5,10 +5,7 @@ import type {
   PluginSettingsView,
 } from "@openteam/contracts";
 import type { PluginPrivateSkillView } from "@openteam/contracts/plugin-management";
-import {
-  pluginMatchesMarketplaceCategory,
-  type PluginMarketplaceCategory,
-} from "@openteam/client-core/plugin-marketplace";
+import { pluginMatchesMarketplaceCategory } from "@openteam/client-core/plugin-marketplace";
 import { Check, ChevronLeft, ChevronRight, LoaderCircle, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../../../client/openteam-api";
@@ -170,18 +167,9 @@ export function MarketplaceView({
           <section className="mb-7" key={section.name}>
             <div className="mb-2 flex items-center justify-between px-2">
               <h3 className="text-[14px] font-medium">{section.name}</h3>
-              {grouped && section.plugins.length > 6 && (
-                <button
-                  className="text-[12px] text-foreground-secondary hover:text-foreground"
-                  onClick={() => setCategory(section.name as PluginMarketplaceCategory)}
-                  type="button"
-                >
-                  View all
-                </button>
-              )}
             </div>
             <div className={cn("grid gap-x-4", grouped && "grid-cols-2 max-sm:grid-cols-1")}>
-              {(grouped ? section.plugins.slice(0, 6) : section.plugins).map((plugin) => (
+              {section.plugins.map((plugin) => (
                 <PluginRow
                   key={plugin.key}
                   plugin={plugin}

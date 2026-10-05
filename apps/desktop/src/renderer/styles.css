@@ -65,6 +65,13 @@
     animation-duration: 0ms;
   }
 }
+/* Transcript arrivals are animated once by their message row. Historical
+ * cards and their buttons must not replay an entrance whenever remounted. */
+.message-row .rich-message-card,
+.message-row .rich-message-submit {
+  animation: none;
+}
+
 /* The desktop only uses this small subset of tw-animate-css. Keeping the
  * utilities local avoids shipping its full property/theme registry while
  * preserving the existing Radix transition classes and timings. */

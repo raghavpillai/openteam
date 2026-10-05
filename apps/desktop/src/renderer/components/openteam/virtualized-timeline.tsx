@@ -114,10 +114,15 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
     (index: number) => {
       const entry = entries[index];
       if (!entry) return 0;
-      let version = entryVersions.get(entry);
+      // Timeline wrappers are rebuilt on sends and navigation. Retain measured
+      // message heights until the underlying message actually changes.
+      const measurementIdentity = entry.type === "message" && "message" in entry
+        && typeof entry.message === "object" && entry.message !== null
+        ? entry.message : entry;
+      let version = entryVersions.get(measurementIdentity);
       if (version === undefined) {
         version = ++nextEntryVersion;
-        entryVersions.set(entry, version);
+        entryVersions.set(measurementIdentity, version);
       }
       return version;
     },
@@ -203,6 +208,7 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
     viewportReportFrame.current = window.requestAnimationFrame(() => {
       viewportReportFrame.current = null;
       reportVisibleMessagesRef.current();
+      saveConversationScrollStateRef.current();
     });
   }, []);
 
@@ -244,7 +250,9 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
 
   useLayoutEffect(() => {
     if (scrollInitialized) saveConversationScrollStateRef.current();
-    return () => saveConversationScrollStateRef.current();
+    // Scroll events already persist the reading anchor. During deletion React
+    // may have removed surrounding transcript nodes before this cleanup runs;
+    // measuring then overwrites the saved anchor with collapsing geometry.
   }, [scrollInitialized]);
 
   useEffect(

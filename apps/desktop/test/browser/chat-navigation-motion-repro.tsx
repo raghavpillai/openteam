@@ -163,7 +163,7 @@ function scroll(end: boolean) {
   port!.dispatchEvent(new Event("scroll"));
 }
 (async () => {
-  await step("open existing history", render, ["history-199"]);
+  await step("open existing history", render);
   await step("switch away (warm pane)", () => {
     active = false;
     render();
@@ -171,13 +171,13 @@ function scroll(end: boolean) {
   await step("switch back (warm pane)", () => {
     active = true;
     render();
-  }, ["history-199"]);
+  });
   await step("reopen chat (new pane)", () => {
     visit++;
     render();
-  }, ["history-199"]);
+  });
   await step("scroll away", () => scroll(false));
-  await step("scroll back to existing widget", () => scroll(true), ["history-199"]);
+  await step("scroll back to existing widget", () => scroll(true));
   await step("new plain message arrives", () => {
     messages = [
       ...messages,
@@ -199,9 +199,9 @@ function scroll(end: boolean) {
   await step("switch back after arrival", () => {
     active = true;
     render();
-  }, ["history-199", "new-plain"]);
+  });
   await step("scroll away after arrival", () => scroll(false));
-  await step("scroll back after arrival", () => scroll(true), ["history-199", "new-plain"]);
+  await step("scroll back after arrival", () => scroll(true));
   await step("refresh same message list", () => {
     messages = [...messages];
     render();
@@ -213,9 +213,9 @@ function scroll(end: boolean) {
   await step("switch back after refresh", () => {
     active = true;
     render();
-  }, ["history-199"]);
+  });
   await step("scroll away after refresh", () => scroll(false));
-  await step("scroll back after refresh", () => scroll(true), ["history-199"]);
+  await step("scroll back after refresh", () => scroll(true));
   check(
     document.querySelector('[data-message-id="new-plain"]'),
     "New message must still be displayed"

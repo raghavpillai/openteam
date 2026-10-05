@@ -62,6 +62,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -367,6 +368,8 @@ const MessageRow = memo(function MessageRow({
   onOpenBotProfile,
   threadReplyCount,
   animateEntrance,
+  entranceKey,
+  onConsumeEntrance,
   pending,
   delivery,
   sendingSinceMs,
@@ -390,6 +393,8 @@ const MessageRow = memo(function MessageRow({
   onOpenBotProfile?: (botId: string) => void;
   threadReplyCount: number;
   animateEntrance: boolean;
+  entranceKey: string;
+  onConsumeEntrance: (key: string) => void;
   pending: boolean;
   delivery: DurableSendRecord | null;
   sendingSinceMs: number | null;
@@ -398,6 +403,9 @@ const MessageRow = memo(function MessageRow({
   onResendSend: (nonce: string) => Promise<void>;
 }) {
   const [entranceActive, setEntranceActive] = useState(animateEntrance);
+  useLayoutEffect(() => {
+    if (entranceActive) onConsumeEntrance(entranceKey);
+  }, [entranceActive, entranceKey, onConsumeEntrance]);
   const channelEvent = channelNameChangedEventFor(message);
   const routineEvent = routineChangedEventFor(message);
   const from =
@@ -542,7 +550,7 @@ const MessageRow = memo(function MessageRow({
         <Message
           className={`group/message${separatedFromPrevious && !hasAgentGutter ? " mt-3" : ""}`}
           data-group-author={hasAgentGutter || undefined}
-          data-enter={entranceActive && !display.richMessage ? "new" : undefined}
+          data-enter={entranceActive ? "new" : undefined}
           data-message-address={channelMessageAddress(message)}
           data-message-id={message.id}
           data-failed={delivery?.phase === "failed" || undefined}
@@ -963,6 +971,12 @@ export const ChatPane = memo(function ChatPane({
   } | null>(null);
   const threadCloseTimer = useRef<number | null>(null);
   const knownMessageIds = useRef<Set<string> | null>(null);
+  // Virtualization and chat switches remount rows. An arrival belongs to the
+  // stable delivery key, rather than to each mounted instance of that row.
+  const consumedEntrances = useRef(new Set<string>());
+  const consumeEntrance = useCallback((key: string) => {
+    consumedEntrances.current.add(key);
+  }, []);
   const knownMessageChannelId = useRef(channel.id);
   const knownMessageHistoryMode = useRef(historyMode);
   const knownLatestMessageId = useRef<string | null>(null);
@@ -1475,7 +1489,9 @@ export const ChatPane = memo(function ChatPane({
                         />
                       ) : (
                         <MessageRow
-                          animateEntrance={entry.animateEntrance}
+                          animateEntrance={entry.animateEntrance && !consumedEntrances.current.has(entry.id)}
+                          entranceKey={entry.id}
+                          onConsumeEntrance={consumeEntrance}
                           canInteract={
                             canSend &&
                             !entry.pending &&

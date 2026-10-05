@@ -195,7 +195,12 @@ export const statusFixture = (id: StatusScenarioId) => {
     hostname: "127.0.0.1",
     port: 0,
     fetch(request) {
-      requests.push(new URL(request.url).pathname);
+      const url = new URL(request.url);
+      // The CLI is configured below to use 127.0.0.1. Local development-server
+      // discovery also probes ephemeral ports using localhost; keep those
+      // unrelated requests outside the read-only CLI request assertion.
+      if (url.hostname !== "127.0.0.1") return new Response("Wrong fixture host", { status: 421 });
+      requests.push(url.pathname);
       if (["stopped", "no-containers", "health-503"].includes(id))
         return new Response("unavailable", { status: 503 });
       if (id === "health-invalid") return new Response("<html>wrong server</html>");

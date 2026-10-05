@@ -100,6 +100,43 @@ final class MessagePerformanceUITests: XCTestCase {
     XCTAssertLessThanOrEqual(input.frame.maxY, app.keyboards.firstMatch.frame.minY)
   }
 
+  func testMarkdownResizesAcrossViewportWidths() async throws {
+    let app = try await history("performance-rich")
+    defer { XCUIDevice.shared.orientation = .portrait }
+    let row = app.descendants(matching: .any)
+      .matching(identifier: "message-visual-message-visual-chat-200").firstMatch
+    XCTAssertTrue(row.waitForExistence(timeout: 12))
+    let document = row.webViews.firstMatch
+    XCTAssertTrue(document.waitForExistence(timeout: 12))
+    let portrait = document.frame
+    XCTAssertGreaterThan(portrait.height, 80)
+    XCUIDevice.shared.orientation = .landscapeLeft
+    try await Task.sleep(for: .seconds(3))
+    // WKWebView accessibility descendants can retain an invalid zero frame after rotation.
+    // Reacquire the visible document from the current accessibility tree.
+    let landscape = app.webViews.allElementsBoundByIndex.map(\.frame)
+      .filter { $0.width > portrait.width + 50 && $0.height > 80 }.last ?? .zero
+    XCTAssertGreaterThan(landscape.width, portrait.width + 50)
+    XCTAssertGreaterThan(landscape.height, 80)
+    XCTAssertLessThanOrEqual(landscape.height, portrait.height + 8,
+      "A wider document must not adopt a stale inflated height")
+    XCTAssertFalse(app.buttons["Latest messages"].exists)
+    XCUIDevice.shared.orientation = .portrait
+    try await Task.sleep(for: .seconds(3))
+    let restored = app.webViews.allElementsBoundByIndex.map(\.frame)
+      .filter { $0.width > 0 && abs($0.width - portrait.width) < 8 }.last ?? .zero
+    XCTAssertEqual(restored.height, portrait.height, accuracy: 8)
+    XCTAssertFalse(app.buttons["Latest messages"].exists)
+    let measurements = XCTAttachment(string: "portrait=\(portrait), landscape=\(landscape), restored=\(restored)")
+    measurements.name = "markdown-viewport-geometry"
+    measurements.lifetime = .keepAlways
+    add(measurements)
+    let capture = XCTAttachment(screenshot: app.screenshot())
+    capture.name = "markdown-after-viewport-width-roundtrip"
+    capture.lifetime = .keepAlways
+    add(capture)
+  }
+
   func testMixedDocumentScrolling() async throws {
     scroll(try await history("performance-rich"))
   }

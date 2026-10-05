@@ -117,7 +117,7 @@ describe.skipIf(process.platform === "win32")("actual status and health CLI comm
         }
         expect(outputs[0]).toBe(outputs[1]);
         for (const [file, content] of f.before) expect(readFileSync(file, "utf8")).toBe(content);
-        expect(f.requests.every((path) => path === "/api/v0/health")).toBe(true);
+        expect(f.requests).toEqual(f.requests.map(() => "/api/v0/health"));
         if (existsSync(env.OPENTEAM_TEST_CALLS)) {
           const calls = readFileSync(env.OPENTEAM_TEST_CALLS, "utf8")
             .trim()

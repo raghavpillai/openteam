@@ -9,7 +9,19 @@ if [[ $# -gt 1 || ( "$mode" != "--check" && "$mode" != "--install" ) ]]; then
   exit 2
 fi
 
+writable_parent() {
+  local candidate="$1"
+  while [[ ! -d "$candidate" && "$candidate" != / ]]; do
+    candidate="$(dirname "$candidate")"
+  done
+  [[ -w "$candidate" && -x "$candidate" ]]
+}
 install_dir="${OPENTEAM_PLAID_CLI_DIR:-$HOME/.local/share/openteam/plaid-cli/$version}"
+if [[ -z "${OPENTEAM_PLAID_CLI_DIR:-}" ]] && ! writable_parent "$install_dir"; then
+  if [[ -d /workspace && -w /workspace ]]; then
+    install_dir="/workspace/.local/share/openteam/plaid-cli/$version"
+  fi
+fi
 if [[ "$install_dir" != /* ]]; then
   echo "OPENTEAM_PLAID_CLI_DIR must be an absolute path." >&2
   exit 2
@@ -47,7 +59,10 @@ else
   exit 1
 fi
 
-temporary="$(mktemp -d)"
+mkdir -p "$install_dir"
+chmod 700 "$install_dir"
+# Stage on the destination filesystem: the Bot computer mounts /tmp noexec.
+temporary="$(mktemp -d "$install_dir/.install.XXXXXX")"
 trap 'rm -rf "$temporary"' EXIT
 archive="$temporary/plaid.tar.gz"
 url="https://releases.plaid.com/plaid-cli/releases/$version/plaid-cli_${version}_${platform}.tar.gz"
@@ -64,7 +79,5 @@ if [[ "$("$temporary/plaid" --version)" != "$version" ]]; then
   echo "Plaid release version mismatch; nothing installed." >&2
   exit 1
 fi
-mkdir -p "$install_dir"
-chmod 700 "$install_dir"
 install -m 755 "$temporary/plaid" "$executable"
 printf '%s\n' "$executable"

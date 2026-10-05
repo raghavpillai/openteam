@@ -1,20 +1,18 @@
 # Plaid
 
-An OpenTeam skills package over the [official Plaid CLI](https://plaid.com/docs/resources/cli/). Uses your own Plaid credentials and bank consent. Published by OpenTeam.
+OpenTeam skills using the [official Plaid CLI](https://plaid.com/docs/resources/cli/) with your API keys.
 
-| Skill | Example request |
+| Skill | Use |
 | --- | --- |
-| `plaid-setup` | Set up Plaid on my connected Mac using my existing API keys. |
-| `plaid-connections` | Connect my bank, or show the accounts in my existing connection. |
-| `plaid-financial-data` | Show checking-account transactions for September. |
-| `plaid-troubleshooting` | Help resolve this Plaid connection error. |
+| `plaid-setup` | Install CLI; configure Sandbox/Production. |
+| `plaid-connections` | Connect/list/disconnect banks and accounts. |
+| `plaid-financial-data` | Balances, spending, transactions, investments, loans. |
+| `plaid-troubleshooting` | Credentials, consent, product and connection errors. |
 
-Add Plaid in Marketplace, then ask a Bot to set it up. Setup installs a checksum-verified official CLI on the selected computer; Marketplace Add alone does not run it. The installer supports macOS and Linux on ARM64 and x64 without Homebrew. Existing official Homebrew installations can also be used.
+Install the plugin, then ask a Bot to set up Plaid on your chosen computer. Setup downloads a checksum-verified CLI (macOS/Linux, ARM64/x64); plugin installation alone doesn't install it. Production requires eligible Plaid access and user bank consent. Link uses a localhost callback; remote browser access needs a correctly configured private tunnel.
 
-Credentials and CLI configuration live on the execution computer, outside the package. Local computer execution requires that computer to be connected and allowed by its execution policy. Sandbox contains test data; real banks require Production access and the appropriate Plaid products. The user completes bank login and consent in Hosted Link.
+Credentials and bank Items live on that computer. Multiple bank connections are supported; separate developer profiles and automatic background sync are not included. This package has no MCP or OpenTeam connected-account entry.
 
-There is no MCP server or connected-account entry in OpenTeam for this package. The Bot uses Shell and the skills; bank connections are managed by the CLI. Multiple bank Items are supported, but this package does not add isolated developer-account profiles or automatic background synchronization.
+Uninstall removes skills only. CLI removal, credential cleanup, and bank disconnection are separate operations. Removing an Item disconnects all its accounts without closing them.
 
-Uninstalling the plugin removes its skills, not the CLI, credentials, or bank authorization. Removing a Plaid Item disconnects all accounts in that Item; it does not close the bank accounts. Ask for the particular cleanup you want.
-
-The installer pins `20260909-fcd14fe6` and checks Plaid's published archive hashes. To update that pin, review the [official Homebrew formula](https://github.com/plaid/homebrew-plaid-cli/blob/main/Formula/plaid.rb), update all four hashes in `skills/plaid-setup/scripts/ensure-cli.sh`, and recheck command help. CLI binaries are downloaded on first setup and are not redistributed in this package.
+Pinned CLI: `20260909-fcd14fe6`. For upgrades, review [Plaid's formula](https://github.com/plaid/homebrew-plaid-cli/blob/main/Formula/plaid.rb), update the installer version/hashes, and recheck help.

@@ -1,25 +1,21 @@
 ---
 name: plaid-financial-data
-description: Retrieve and summarize connected-bank balances, transactions, investment holdings or activity, and liabilities through the official Plaid CLI.
+description: Read bank balances, analyze spending and transactions, or retrieve investments and liabilities with Plaid.
 ---
 
 # Plaid financial data
 
-Read [shared CLI guidance](../plaid-setup/references/cli.md). Resolve the computer, environment, Item/account, and date range from the request. If setup or a connection is missing, use the corresponding Plaid skill.
-
-Use the requested command with `--json` and the selected `--item <id-or-alias>` (or `--all` when requested):
+Read [CLI guidance](../plaid-setup/references/cli.md). Resolve computer, environment, connection/account, and period. Use `<cli> <command> --item <id-or-alias> --json`; use `--all` for requested cross-bank analysis.
 
 | Data | Command |
 | --- | --- |
-| Balances | `<cli> balance` |
-| Transactions | `<cli> transactions list --start-date YYYY-MM-DD --end-date YYYY-MM-DD` |
-| Incremental transaction changes | `<cli> transactions sync` |
-| Holdings | `<cli> investments holdings` |
-| Investment activity | `<cli> investments transactions --start-date YYYY-MM-DD --end-date YYYY-MM-DD` |
-| Credit cards, student loans, mortgages | `<cli> liabilities` |
+| Balances | `balance` |
+| Transactions | `transactions list --start-date YYYY-MM-DD --end-date YYYY-MM-DD` |
+| Changes since prior sync | `transactions sync` |
+| Holdings | `investments holdings` |
+| Investment activity | `investments transactions --start-date YYYY-MM-DD --end-date YYYY-MM-DD` |
+| Loans/credit cards | `liabilities` |
 
-Check each command's help before choosing flags. For date-range analysis, paginate list commands with `--count` and `--offset` until the range is complete; a first page is not a full month's spending. Filter account IDs from the returned data when the CLI has no account-level flag. Incremental sync returns changes, not a complete ledger; do not calculate totals from a delta or promise a persistent ledger that this package does not maintain.
+Check help for flags. Paginate lists with `--count`/`--offset`; never treat one page or sync deltas as a full ledger. Filter account IDs when necessary.
 
-Preserve currency and account boundaries. Separate pending transactions and avoid double-counting them with posted replacements. For Transactions, positive amounts are outflows and negative amounts are inflows; distinguish transfers and refunds when computing spending. Missing available balance is unknown, not zero. State the requested period, data timestamp/freshness when provided, and any truncation or unavailable product. Plaid data may lag the bank; don't describe an unspecified timestamp as real-time.
-
-Return a concise answer or table, with masked account labels and material assumptions. Diagnose failures with `plaid-troubleshooting`; never replace inaccessible financial data with estimates presented as facts.
+Keep currencies/accounts separate; distinguish cash/assets from credit-card or loan debt. Positive transaction amounts are outflows; negative are inflows. Separate pending replacements, refunds, and transfers when totaling spending. Missing available balance means unknown. State period, available freshness, truncation, and unavailable products. For errors, use `plaid-troubleshooting`; never invent financial data.

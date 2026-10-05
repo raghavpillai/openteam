@@ -1,15 +1,13 @@
 ---
 name: plaid-connections
-description: Connect a bank with Plaid Link, list existing bank connections and their accounts, or remove a selected connection.
+description: Connect banks with Plaid Link, list connections and accounts, or disconnect a selected bank connection.
 ---
 
 # Plaid connections
 
-Read [shared CLI guidance](../plaid-setup/references/cli.md). Run `plaid-setup` if the selected computer lacks the CLI or credentials.
+Read [CLI guidance](../plaid-setup/references/cli.md); use `plaid-setup` if needed.
 
-- **List:** `<cli> item list`, then `<cli> item get --item <id-or-alias>` for the requested connection's accounts. Show institution, Item ID, account name/type, and last four digits. Do not expose tokens.
-- **Connect:** Check `<cli> link --help`, choose products for the requested use case, and run `<cli> link --products <comma-separated-products> --additional-consented-products ''` on the execution computer. The empty additional-products value avoids the CLI's default extra investment/liability consent; include additional products only when requested. In Sandbox, use `<cli> sandbox link --products <products>` for test data. The user completes real bank login, MFA, and account consent in Plaid Link. Production Link starts a localhost callback server: the user's browser must reach that execution computer. Prefer the user's local computer for first-time connection; a remote Bot's localhost URL is not reachable from the user's browser without a configured tunnel. Keep the Shell job alive with `AwaitShell` if needed; use only the URL the CLI actually provides. Verify success with Item list/get, then a small requested product read. Do not create another Item just because the user already has one that can serve the request.
-- **Disconnect:** Resolve the exact Item first and explain that removing it disconnects every account inside it; it does not close any bank account. If the user explicitly requested that identified connection's removal, run `<cli> item remove --item <id-or-alias> --force`, then verify it is absent from the list. If they asked to remove only one account inside a multi-account Item, clarify scope rather than removing the whole Item.
-- **Reconnect:** Use `plaid-troubleshooting` for login-required or revoked-consent errors. Do not invent an update/relink command or silently remove and recreate the Item.
-
-Return the connection result and account summary, or the remaining user step. A launched Link flow alone is not a connected bank.
+- List: `<cli> item list`, then `item get --item <id-or-alias>`. Report bank, Item ID, account type/name, and last four digits. Default list output avoids exposing tokens.
+- Connect: `<cli> link --products <products> --additional-consented-products ''`. Include extra products only when requested. Sandbox: `sandbox link --products <products>`. The user handles bank login/MFA/consent. Production needs a browser that reaches the CLI's localhost server; see the reference for remote access. Keep the job alive with `AwaitShell`. Verify Item list/get and a small read; a browser's “Connected” message alone is insufficient.
+- Disconnect: identify the exact Item. Removal disconnects all its accounts, not the bank accounts themselves. For an authorized removal: `item remove --item <id-or-alias> --force`; verify absence. Clarify requests to remove just one account inside a multi-account Item.
+- Reconnect: use `plaid-troubleshooting`; the pinned CLI has no update/relink command.

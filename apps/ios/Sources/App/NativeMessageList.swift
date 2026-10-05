@@ -191,6 +191,11 @@ struct NativeMessageList: UIViewControllerRepresentable {
     let changes = pendingChanges
     pendingChanges.removeAll()
     let anchor = positioned ? captureAnchor(forContentUpdate: true) : nil
+    // A history-window replacement removes rows before/after the viewport.
+    // Preserve its anchor even during a drag or fling; leaving the old offset
+    // in the new window can cascade through every boundary in one gesture.
+    let preservesScrollingAnchor = next != displayedIDs && !following
+      && anchor.map { next.contains($0.id) } == true
     let arrival = pendingArrival
     let resize = pendingResize && next == displayedIDs && !UIAccessibility.isReduceMotionEnabled
       && !table.isDragging && !table.isDecelerating
@@ -234,7 +239,8 @@ struct NativeMessageList: UIViewControllerRepresentable {
       self.updating = false
       self.followingResize = false
       self.table.layer.removeAnimation(forKey: "widget-bottom-follow")
-      if let anchor, (!resize || !self.following), !self.table.isDragging, !self.table.isDecelerating {
+      if let anchor, (!resize || !self.following),
+        preservesScrollingAnchor || (!self.table.isDragging && !self.table.isDecelerating) {
         self.readingAnchor = self.following ? nil : anchor
         self.restore(anchor)
       }
@@ -282,13 +288,23 @@ struct NativeMessageList: UIViewControllerRepresentable {
           self.table.layer.add(movement, forKey: "widget-bottom-follow")
         }
       }
-    } else { source.apply(snapshot, animatingDifferences: false, completion: completed) }
+    } else {
+      source.apply(snapshot, animatingDifferences: false) {
+        if preservesScrollingAnchor {
+          // UIKit finishes adjusting its old estimated offset after invoking
+          // the snapshot completion. Restore after that correction, while
+          // keeping scroll callbacks blocked from advancing another window.
+          DispatchQueue.main.async(execute: completed)
+        } else { completed() }
+      }
+    }
   }
   /// Keep UIKit's layout and accessibility working set bounded as well as its
   /// onscreen cells. Crossing either boundary shifts a contiguous overlapping
   /// window and retains the visible message's pixel position.
   private func advanceWindowIfNeeded() {
     guard positioned, !updating, !positioning, !scrollingToTarget, !following,
+      !table.isDragging, !table.isDecelerating,
       let paths = table.indexPathsForVisibleRows, !paths.isEmpty else { return }
     let previous = windowStart
     // Only advance in the user's direction. A short-message viewport can span
@@ -376,10 +392,10 @@ struct NativeMessageList: UIViewControllerRepresentable {
         table.setContentOffset(bottomOffset, animated: false)
       }
       positioning = false
-    } else if resized && !following && !table.isDragging && !table.isDecelerating,
+    } else if !following && !table.isDragging && !table.isDecelerating,
       !scrollingToTarget, let readingAnchor {
       // Self-sizing hosting/document cells can finish after the snapshot's
-      // completion. Preserve the same reading position through those updates.
+      // completion, including offset-only corrections with unchanged size.
       restore(readingAnchor)
     }
     if positioned { reportScroll() }
@@ -468,6 +484,12 @@ struct NativeMessageList: UIViewControllerRepresentable {
       return
     }
     guard positioned, !updating, !positioning else { return }
+    // Self-sizing can correct only the offset, without changing contentSize.
+    // While idle, such a correction must retain the last reading anchor too.
+    if !following, !table.isDragging, !table.isDecelerating,
+      !scrollingToTarget, let readingAnchor {
+      restore(readingAnchor)
+    }
     if table.isDragging {
       let velocity = table.panGestureRecognizer.velocity(in: table).y
       if abs(velocity) > 1 { dragDirection = velocity }
@@ -490,10 +512,17 @@ struct NativeMessageList: UIViewControllerRepresentable {
     reportScroll()
   }
   private func endScroll() {
-    dragDirection = 0
+    // Programmatic anchor restoration can end UIKit's deceleration. Its
+    // intermediate geometry must not replace the anchor being restored.
+    guard !updating, !positioning else { return }
     if atBottom { following = true }
     readingAnchor = following ? nil : captureAnchor()
     feedback.end()
+    // Shift the overlapping window once the gesture has settled. Replacing
+    // rows during a fling lets UIKit apply offset corrections in its old
+    // coordinate space, even after restoring the new window's anchor.
+    advanceWindowIfNeeded()
+    dragDirection = 0
     reportScroll()
   }
   private func reportScroll() {

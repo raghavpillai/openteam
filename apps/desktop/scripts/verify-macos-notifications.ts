@@ -78,6 +78,7 @@ if (!allowAdHoc) {
   }
   const entitlementOutput = `${entitlements.stdout.toString()}\n${entitlements.stderr.toString()}`;
   for (const entitlement of [
+    "com.apple.security.device.audio-input",
     "com.apple.security.cs.allow-jit",
     "com.apple.security.cs.allow-unsigned-executable-memory",
     "com.apple.security.cs.disable-library-validation",

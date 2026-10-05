@@ -133,12 +133,14 @@ describe("macOS distribution release", () => {
     expect(source).toContain("flags=.*\\bruntime\\b");
     expect(source).toContain('"--entitlements"');
     expect(source).toContain('"--xml"');
+    expect(source).toContain("com.apple.security.device.audio-input");
     expect(source).toContain("com.apple.security.cs.allow-jit");
     expect(source).toContain('"spctl"');
     expect(source).toContain('"stapler"');
     expect(source).toContain('"validate"');
     expect(source).toContain("dev.openteam.desktop");
     for (const entitlement of [
+      "com.apple.security.device.audio-input",
       "com.apple.security.cs.allow-jit",
       "com.apple.security.cs.allow-unsigned-executable-memory",
       "com.apple.security.cs.disable-library-validation",

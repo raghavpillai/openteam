@@ -18,7 +18,7 @@ The pinned CLI covers Link/Items, balances, transaction lists/sync, holdings/act
 
 For a user on another computer or phone, use the connections skill's [Hosted Link flow](../../plaid-connections/references/hosted-link.md). The bundled helper creates a Plaid-hosted URL and retrieves completion through outbound API requests, then saves Items into this CLI config.
 
-The native CLI serves Link on localhost and rejects forwarded callback hosts. Use it with a browser on the execution computer. A requested private tunnel must preserve the original localhost Host/Origin upstream, callback path/query, and state. Simply forwarding an external Host can display “Connected” while saving no Item. Verify Item list/get.
+The native CLI's localhost Link is an alternative for a browser on the execution computer. It rejects forwarded callback hosts; use Hosted Link for remote devices. Verify saved accounts before claiming success.
 
 ## Cleanup
 

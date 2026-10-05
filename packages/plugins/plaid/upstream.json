@@ -1,4 +1,4 @@
 {
   "origin": "openteam",
-  "description": "OpenTeam-authored CLI skills, following Slack's workflow structure. The CLI is downloaded separately from Plaid's official releases."
+  "description": "OpenTeam-authored skills with Hosted Link and API helpers, following Slack's workflow structure. The CLI is downloaded separately from Plaid's official releases."
 }

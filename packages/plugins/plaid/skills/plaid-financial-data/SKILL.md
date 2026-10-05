@@ -1,11 +1,13 @@
 ---
 name: plaid-financial-data
-description: Read bank balances, analyze spending and transactions, or retrieve investments and liabilities with Plaid.
+description: Read bank balances, analyze spending and recurring payments, or retrieve transactions, investments and liabilities with Plaid.
 ---
 
 # Plaid financial data
 
 Read [CLI guidance](../plaid-setup/references/cli.md). Resolve computer, environment, connection/account, and period. Use `<cli> <command> --item <id-or-alias> --json`; use `--all` for requested cross-bank analysis.
+
+Hosted Link Items use the same CLI config and commands. Reuse saved connections; if bank login just finished, use `plaid-connections` to complete its session first.
 
 | Data | Command |
 | --- | --- |

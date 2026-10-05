@@ -3,34 +3,34 @@
   "key": "plaid",
   "version": "1.0.0",
   "name": "Plaid",
-  "description": "Connect your banks and query balances, transactions, investments, and loans with your own Plaid credentials.",
+  "description": "Connect banks from any device and query balances, transactions, recurring payments, investments, and loans with your own Plaid credentials.",
   "publisher": "OpenTeam",
   "category": "Finance and Legal",
   "featured": false,
   "components": ["skills"],
   "connections": [],
   "icon": "assets/icon.png",
-  "homepageUrl": "https://plaid.com/docs/resources/cli/",
+  "homepageUrl": "https://plaid.com/docs/link/hosted-link/",
   "installationSteps": [
     "Install this plugin, then ask a Bot to set up Plaid on your connected computer or its Linux computer.",
-    "Provide your own Plaid credentials through secure input on that computer. Production access is required for real banks.",
-    "Ask to connect a bank and complete Plaid Link yourself, then try a balance or transaction query.",
+    "The Bot asks for your Plaid client ID and environment's secret if missing. Production access is required for real banks.",
+    "Open the Bot's Hosted Link URL on your laptop or phone, complete bank login, then say done so it saves and verifies the connection.",
     "Uninstalling the plugin removes its skills; the separately installed CLI, credentials, and bank connections require separate cleanup."
   ],
   "skills": [
     {
       "name": "plaid-setup",
-      "description": "Set up Plaid: choose a computer, install the official CLI, and configure your own credentials and environment.",
+      "description": "Prepare the CLI and Python helpers, request missing Plaid keys, and configure the chosen computer and environment.",
       "path": "skills/plaid-setup"
     },
     {
       "name": "plaid-connections",
-      "description": "Connect a bank through Plaid Link, list bank connections and accounts, or remove a selected connection.",
+      "description": "Connect banks through Hosted Link from any device, resume sessions, list accounts, or remove a selected connection.",
       "path": "skills/plaid-connections"
     },
     {
       "name": "plaid-financial-data",
-      "description": "Query and summarize Plaid balances, transactions, investments, or liabilities for connected accounts.",
+      "description": "Query balances, transactions, recurring payments, investments, or liabilities for connected accounts.",
       "path": "skills/plaid-financial-data"
     },
     {

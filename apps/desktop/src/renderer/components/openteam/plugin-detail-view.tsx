@@ -22,6 +22,7 @@ import { Accordion } from "radix-ui";
 import { lazy,Suspense,useEffect,useMemo,useState } from "react";
 import { api } from "../../client/openteam-api";
 import { cn } from "../../lib/cn";
+import { AnimatedCollapse } from "../ui/animated-collapse";
 const loadPluginSettingsDetail = () => import("./plugin-settings-detail");
 const PluginAuthSelect = lazy(() =>
   loadPluginSettingsDetail().then((module) => ({ default: module.PluginAuthSelect }))
@@ -313,8 +314,8 @@ function DetailAccordion({
             <ChevronDown className="size-3.5 text-foreground-tertiary transition-transform duration-200 ease-out group-data-[state=open]:rotate-180 motion-reduce:transition-none" />
           </Accordion.Trigger>
         </Accordion.Header>
-        <Accordion.Content className="plugin-detail-accordion-content" inert={!expanded} aria-hidden={!expanded}>
-          {children}
+        <Accordion.Content forceMount inert={!expanded} aria-hidden={!expanded}>
+          <AnimatedCollapse open={expanded}>{children}</AnimatedCollapse>
         </Accordion.Content>
       </Accordion.Item>
     </Accordion.Root>

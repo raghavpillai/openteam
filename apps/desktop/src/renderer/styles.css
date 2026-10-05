@@ -18,22 +18,16 @@ details.animated-disclosure[open]::details-content {
     content-visibility 200ms allow-discrete, overflow 200ms step-end allow-discrete;
 }
 .animated-collapse {
-  animation-duration: 200ms;
-  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  interpolate-size: allow-keywords;
+  height: 0;
+  overflow: clip;
+  transition: height 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .animated-collapse[data-state="open"] {
-  animation-name: disclosure-open;
-}
-.animated-collapse[data-state="closed"] {
-  animation-name: disclosure-close;
-}
-@keyframes disclosure-open {
-  from { height: 0; overflow: hidden; }
-  to { height: var(--radix-collapsible-content-height); overflow: hidden; }
-}
-@keyframes disclosure-close {
-  from { height: var(--radix-collapsible-content-height); overflow: hidden; }
-  to { height: 0; overflow: hidden; }
+  height: auto;
+  overflow: visible;
+  transition: height 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    overflow 200ms step-end allow-discrete;
 }
 @media (prefers-reduced-motion: reduce) {
   details.animated-disclosure::details-content,
@@ -41,7 +35,7 @@ details.animated-disclosure[open]::details-content {
     transition: none;
   }
   .animated-collapse[data-state] {
-    animation: none;
+    transition: none;
   }
 }
 

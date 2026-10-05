@@ -1,6 +1,6 @@
 import type { PluginConnectionView } from "@openteam/contracts";
 import { Check, LoaderCircle, SquarePen, Plus, Settings2 } from "lucide-react";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { AnimatedCollapse } from "../../ui/animated-collapse";
 import { cn } from "../../../lib/cn";
 import { pluginAuthorization } from "@openteam/product-core/plugin-authorization";
@@ -170,9 +170,10 @@ export function AddPluginAccount({
   const formId = useId();
   const [alias, setAlias] = useState("");
   const [connector, setConnector] = useState(connections[0]?.connectorKey ?? "");
-  const focusLabel = useCallback((input: HTMLInputElement | null) => {
-    input?.focus({ preventScroll: true });
-  }, []);
+  const labelRef = useRef<HTMLInputElement>(null);
+  useLayoutEffect(() => {
+    if (open) labelRef.current?.focus({ preventScroll: true });
+  }, [open]);
   const choices = [...new Map(connections.map((c) => [c.connectorKey, c])).values()];
   return (
     <div className="border-t border-black/[0.065] [overflow-anchor:none] dark:border-white/[0.07]">
@@ -212,7 +213,7 @@ export function AddPluginAccount({
             </select>
           )}
           <input
-            ref={focusLabel}
+            ref={labelRef}
             aria-label="New account label"
             placeholder="Label this account, e.g. work or personal"
             className="h-8 min-w-0 flex-1 rounded-md border border-black/10 bg-background px-2 text-[12px] outline-none dark:border-white/10"

@@ -84,6 +84,20 @@ the push dispatcher, and desktop delivery/dismissal. Expo HTTP is replaced by a
 recording transport, so this test never sends notifications to real devices.
 Run it against a dedicated migrated database using `OPENTEAM_TEST_DATABASE_URL`.
 
+`apps/worker/test/apns-runtime.integration.test.ts` checks CLI imports, encrypted
+storage, key rotation, and signing in a persistent Node worker using PostgreSQL
+and a recording APNs transport. It verifies live configuration changes without
+sending alerts to real devices.
+
+On October 5, 2026, a separate local test imported an existing Apple key through
+the CLI into an isolated PostgreSQL stack. The already-running Node worker loaded
+the saved credentials without restarting, the installation environment stayed
+unchanged, and all three Doctor notification checks passed. Apple's production
+APNs endpoint returned HTTP 200 for “OpenTeam APNs Check Oct 5,” and the recipient
+confirmed seeing the alert on their physical iPhone. This validates the tested
+key, CLI import, live reload, and real-device delivery; the Azure deployment was
+unchanged, and the broader cross-device acceptance checks below still apply.
+
 Client tests cover unchanged-message reaction reads, partial reads, monotonic
 cursors, late foreground alerts, and retrying failed native cleanup. The Swift
 policy can also be checked directly on macOS:

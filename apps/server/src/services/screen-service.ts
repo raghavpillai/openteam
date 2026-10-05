@@ -1,3 +1,4 @@
+import { formPreparationFailureMessage } from "@openteam/contracts";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { extname, join, relative, sep } from "node:path";
 import { ApiError, type ScreenActionInput, type ScreenStatusView } from "@openteam/contracts";
@@ -83,12 +84,14 @@ export class ScreenService {
         signal: AbortSignal.timeout(60_000),
       }
     );
-    if (!response.ok)
+    if (!response.ok) {
+      const diagnostic = action === "prepare" ? formPreparationFailureMessage(await response.json().catch(() => undefined)) : undefined;
       throw new ApiError(
         409,
-        "form_host_unavailable",
-        "The form could not be processed on the computer. No values were put in the conversation. Check the browser and retry."
+        diagnostic ? "form_preflight_failed" : "form_host_unavailable",
+        diagnostic ?? "The form could not be processed on the computer. No values were put in the conversation. Check the browser and retry."
       );
+    }
     return response.json();
   }
 

@@ -42,7 +42,18 @@ contracts.browser_navigate!.description = contracts.browser_navigate!.descriptio
   "with a screenshot", "with page text and current element refs. Use browser_take_screenshot for visual evidence"
 );
 contracts.browser_click!.description = "Click an element by ref from the latest returned page state or browser_snapshot. Scrolls the element into view first. Returns page text and current element refs. Use browser_take_screenshot for visual evidence.";
-contracts.browser_snapshot!.description = "Capture a structured snapshot of the current page with [ref=eN] handles for interactive elements. The snapshot inspects reachable shadow roots and frames, including reachable cross-origin frames; frames it cannot inspect are called out in a trailing note. Refs are tied to the latest snapshot for that tab. Use this for page structure and choosing what to click or type; use browser_take_screenshot for visual evidence.";
+contracts.browser_snapshot!.description = "Capture a structured snapshot of the current page with [ref=eN] handles for interactive elements. The snapshot inspects reachable shadow roots and frames, including reachable cross-origin frames; frames it cannot inspect are called out in a trailing note. Refs stay valid across snapshots of this page load; they go stale on navigation, when the element is gone, or when its role or name changes. Reuse a ref until then. Use this for page structure and choosing what to click or type; use browser_take_screenshot for visual evidence.";
+
+// Ref lifetime is an OpenTeam adaptation; keep the captured artifact intact.
+function adaptStableRefLifetime(value: any): void {
+  if (!value || typeof value !== "object") return;
+  for (const [key, child] of Object.entries(value)) {
+    if (key === "description" && typeof child === "string")
+      value[key] = child.replace("refs stay valid until the next snapshot or navigation", "refs stay valid across observations until navigation, element removal, or role/name changes");
+    else adaptStableRefLifetime(child);
+  }
+}
+adaptStableRefLifetime(contracts.request_user_form!.inputSchema);
 
 // Observed element-target captures; retain our tab routing and current refs.
 contracts.browser_take_screenshot!.description = "Save a screenshot of the current page. Use fullPage for the full scrollable page, or target for one element by current snapshot ref or unique CSS selector. fullPage and target cannot be combined. element is a human-readable label, not a selector.";

@@ -25,6 +25,9 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)("reference snapshots 
   snapshot=text(await session.execute("browser_fill",{ref:ref("Masked number"),element:"Masked number",value:"12345"}));
   const page=await (session as any).ensurePage();expect(await page.locator('#masked').inputValue()).toBe("12345");
   const binding=(await session.formPages("127.0.0.1"))[0]!;
+  const replacement={id:"replacement",label:"Replaceable",type:"text" as const,target:{kind:"ref" as const,value:ref("Replaceable")}};
+  const code={id:"code",label:"Code",type:"otp" as const,target:{kind:"selector" as const,value:'#otp input:first-child'}};
+  await session.prepareForm(binding,{title:"Reviewed fields",instruction:"Fixture",domain:"127.0.0.1",fields:[replacement,code]});
   const previous=ref("Replaceable");await page.locator('#replaceable').evaluate((node:HTMLElement)=>node.replaceWith(node.cloneNode(true)));
   expect(await session.fillForm(binding,{id:"replacement",label:"Replaceable",type:"text",target:{kind:"ref",value:previous}},"private replacement")).toBe(true);
   expect(await page.locator('#replaceable').inputValue()).toBe("private replacement");

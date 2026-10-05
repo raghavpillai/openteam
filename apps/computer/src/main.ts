@@ -1,3 +1,5 @@
+import { FormPreparationError } from "./user-form-host";
+import { FORM_PREPARATION_FAILURE_MESSAGES } from "@openteam/contracts";
 import { timingSafeEqual } from "node:crypto";
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -490,8 +492,14 @@ const server = Bun.serve({
           saveToVault?: boolean;
           mode?: string;
         };
-        if (action === "prepare")
-          return json(await runtime.userForms.prepare(botId!, formId!, input.form));
+        if (action === "prepare") {
+          try { return json(await runtime.userForms.prepare(botId!, formId!, input.form)); }
+          catch (error) {
+            const kinds = error instanceof FormPreparationError ? error.failureKinds : [(error as { kind?: string })?.kind];
+            const safe = [...new Set(kinds.filter(kind => typeof kind === "string" && Object.hasOwn(FORM_PREPARATION_FAILURE_MESSAGES, kind)))];
+            return json({ error: "form_preflight_failed", failureKinds: safe }, 400);
+          }
+        }
         if (action === "prefill") return json(await runtime.userForms.prefill(botId!, formId!));
         if (action === "dismiss")
           return json(

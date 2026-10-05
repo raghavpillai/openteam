@@ -285,3 +285,24 @@ export function parseUserFormReceipt(raw: unknown): UserFormReceipt {
       : {}),
   };
 }
+
+/** Status-only preparation diagnostics. Never accept raw driver error text. */
+export const FORM_PREPARATION_FAILURE_MESSAGES: Record<string, string> = {
+  target_missing: "The form target is missing or ambiguous. Inspect a fresh browser snapshot and choose the intended control.",
+  target_unavailable: "The form target is not an enabled editable control. Inspect a fresh browser snapshot.",
+  hidden_target: "The form target is hidden. Choose the visible control from a fresh browser snapshot.",
+  page_moved: "The form document changed. Inspect the current page and request fresh targets.",
+  domain_mismatch: "The form tab changed domain. Open the intended page before requesting the form.",
+  in_unreachable_frame: "The form target is in an inaccessible frame. Use browser handoff if a fresh snapshot cannot reach it.",
+  in_closed_shadow: "The form target is inside an inaccessible shadow root. Use browser handoff.",
+  ambiguous_tab: "More than one browser tab matches the form domain. Keep only the intended matching tab open.",
+  tab_missing: "No live browser tab matches the form domain. Open the page before requesting the form.",
+};
+export function formPreparationFailureMessage(raw: unknown): string | undefined {
+  if (!raw || typeof raw !== "object" || (raw as any).error !== "form_preflight_failed") return;
+  const kinds = (raw as any).failureKinds;
+  if (!Array.isArray(kinds)) return;
+  const messages = [...new Set(kinds.filter(kind => typeof kind === "string" && Object.hasOwn(FORM_PREPARATION_FAILURE_MESSAGES, kind))
+    .map(kind => FORM_PREPARATION_FAILURE_MESSAGES[kind]))];
+  return messages.length ? messages.join(" ") : undefined;
+}

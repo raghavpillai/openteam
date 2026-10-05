@@ -15,14 +15,21 @@ import {
   type UserFormValues,
 } from "@openteam/contracts";
 
+export class FormPreparationError extends Error {
+  constructor(message: string, readonly failureKinds: string[]) { super(message); }
+}
+
 export interface FormPageBinding {
   pageId: string;
   domain: string;
   sessionId?: string;
   url?: string;
+  documentId?: string;
+  fieldDocuments?: Record<string, string>;
 }
 export interface FormBrowser {
   prepare(form: UserForm): Promise<{ binding: FormPageBinding; reachable: string[]; failureKinds?:Record<string,string> }>;
+  rebind?(binding: FormPageBinding, form: UserForm): Promise<FormPageBinding>;
   fill(binding: FormPageBinding, field: UserFormField, value: string | boolean): Promise<boolean>;
   submit(binding: FormPageBinding, field: UserFormField): Promise<boolean>;
   snapshot(binding: FormPageBinding): Promise<string>;
@@ -209,7 +216,7 @@ export class UserFormHost {
         const unfillable = structural ? buildUserFormUnfillableResult(form,skipped) : `No requested fields are reachable on the page. The form was not shown and nothing was asked of the user. ${preflightNote}`;
         form.fields = form.fields.filter((field) => !field.target || reachable.has(field.id));
         if (!form.fields.some((field) => field.target))
-          throw new Error(unfillable);
+          throw new FormPreparationError(unfillable, Object.values(skipped));
         binding = prepared.binding;
       }
       state.forms[formId] = { botId, form, binding, createdAt: Date.now(),preflightNote };
@@ -348,7 +355,18 @@ export class UserFormHost {
       const original = saved.form;
       saved.form = { ...original, fields, submitAfterFill: false };
       // A remap explicitly binds new targets on the same consented host.
-      if (saved.binding) delete saved.binding.url;
+      if (saved.binding) {
+        const browser = await this.browser(botId);
+        if (browser.rebind) {
+          try { saved.binding = await browser.rebind(saved.binding, saved.form); }
+          catch {
+            // Keep the stale binding: its document guard refuses any write.
+            saved.binding = { ...saved.binding, documentId: undefined, fieldDocuments: undefined };
+          }
+        } else if (saved.binding.documentId) {
+          saved.binding = { ...saved.binding, documentId: undefined, fieldDocuments: undefined };
+        } else delete saved.binding.url; // Legacy/mock adapters without document binding.
+      }
       const receipt = await this.fill(formId, saved, held, true);
       saved.form = original;
       delete saved.remapProcessing;

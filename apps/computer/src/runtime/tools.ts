@@ -867,13 +867,14 @@ export class RuntimeTools {
               candidates.set(binding.pageId, { binding: { ...binding, sessionId }, ...prepared });
           }
         if (candidates.size !== 1)
-          throw new Error(
+          throw Object.assign(new Error(
             candidates.size
               ? "More than one browser tab matches this form domain. Keep the intended tab open and close the other matching tab before requesting the form."
               : "No live browser tab matches the form domain. Open the page before requesting the form."
-          );
+          ), { kind: candidates.size ? "ambiguous_tab" : "tab_missing" });
         return [...candidates.values()][0]!;
       },
+      rebind: async (binding, form) => (await resolveSession(binding)).rebindForm(binding, form),
       canSave: async (binding, field) =>
         (await resolveSession(binding)).formCanSave(binding, field),
       fill: async (binding, field, value) =>

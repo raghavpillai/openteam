@@ -237,6 +237,8 @@ async function recoverErrorPage(context, page) {
 }
 
 const frameRefsByPage = new WeakMap();
+// Keep eN refs unique across document replacements in the same tab.
+const refCounterByPage = new WeakMap();
 
 const REF_LOOKUP_FN = ({ ref: r, token }) => {
 	if (token !== undefined && globalThis.__sandRefState?.frameToken !== token) return "missing";
@@ -244,7 +246,10 @@ const REF_LOOKUP_FN = ({ ref: r, token }) => {
 	if (refs == null || typeof refs.get !== "function") return "missing";
 	const el = refs.get(r);
 	if (el !== undefined && el !== null) {
-		return el.isConnected === false ? "detached" : el;
+		if (el.isConnected === false) return "detached";
+		const state = globalThis.__sandRefState;
+		if (state?.stableRefs && (!state.refIsCurrent || !state.refIsCurrent(r, el))) return "missing";
+		return el;
 	}
 	const held = globalThis.__sandRefState?.byRef?.get(r);
 	const node = held != null && typeof held.deref === "function" ? held.deref() : undefined;
@@ -306,6 +311,12 @@ const SNAPSHOT_FN = (opts) => {
 	}
 	if (state.stableRefs === undefined) {
 		state.stableRefs = opts.stableRefs === true;
+	} else if (opts.stableRefs === true && state.stableRefs === false) {
+		// Upgrade an already open positional document without reloading a login.
+		// Retire its refs and keep the counter floor so no old ID is reassigned.
+		state.byRef.clear();
+		state.byElement = new WeakMap();
+		state.stableRefs = true;
 	}
 	const stableRefs = state.stableRefs === true;
 	const refStart = typeof opts.refStart === "number" ? opts.refStart : 0;
@@ -666,6 +677,10 @@ const SNAPSHOT_FN = (opts) => {
 		if (/^h[1-6]$/.test(tag)) return "heading";
 		return tag;
 	};
+	state.refIsCurrent = (ref, el) => {
+		const cached = state.byElement.get(el);
+		return cached?.ref === ref && cached.role === roleOf(el) && cached.rawName === nameOf(el);
+	};
 	const describe = (el, depth) => {
 		const role = roleOf(el);
 		let name = nameOf(el);
@@ -717,7 +732,7 @@ const SNAPSHOT_FN = (opts) => {
 					if (cached !== undefined) state.byRef.delete(cached.ref);
 					state.counter += 1;
 					ref = "e" + String(state.counter);
-					state.byElement.set(el, { ref: ref, role: role, name: name });
+					state.byElement.set(el, { ref: ref, role: role, name: name, rawName: nameOf(el) });
 				}
 				state.byRef.set(ref, new WeakRef(el));
 			} else {
@@ -1139,7 +1154,7 @@ function recordRefOwners(refOwners, lines, owner) {
 
 async function snapshotAcrossFrames(context, page, opts) {
 	const scoped = typeof opts.selector === "string";
-	const main = await snapshotFrame(context, page, page, { ...opts, refStart: 0 });
+	const main = await snapshotFrame(context, page, page, { ...opts, refStart: opts.stableRefs ? (refCounterByPage.get(page) ?? 0) : 0 });
 	const lines = [...main.lines];
 	const refOwners = {};
 	recordRefOwners(refOwners, main.lines, null);
@@ -1149,6 +1164,7 @@ async function snapshotAcrossFrames(context, page, opts) {
 	let closedShadowSuspects = main.closedShadowSuspects ?? 0;
 	let selectorDiagnosis = main.selector;
 	const finish = () => {
+		if (opts.stableRefs) refCounterByPage.set(page, nextRef);
 		if (unreachable > 0) lines.push("(" + String(unreachable) + UNREACHABLE_FRAMES_NOTE);
 		return {
 			lines,
@@ -1364,8 +1380,9 @@ async function fillCommitState(element, value) {
 	return element.evaluate(FILL_COMMIT_STATE_FN, value);
 }
 
-async function typeFillValuePerKey(page, element, value, secret) {
+async function typeFillValuePerKey(page, element, value, secret, beforeWrite) {
 	if (secret !== true) {
+		await beforeWrite?.();
 		await page.keyboard.type(value, { delay: 20 });
 		return;
 	}
@@ -1380,6 +1397,7 @@ async function typeFillValuePerKey(page, element, value, secret) {
 	);
 	try {
 		for (const char of value) {
+			await beforeWrite?.();
 			if (!(await element.evaluate(SECRET_FILL_FOCUS_IN_SCOPE_FN))) {
 				throw new Error(
 					"The page moved keyboard focus away from the target while a secret was being typed, so the fill was stopped. Hand the user the screen if this recurs.",
@@ -1621,7 +1639,7 @@ const MARK_SECRET_FILL_FN = (el, value) => {
 	return topReached;
 };
 
-const referenceFill = async ({ request, page, element: suppliedElement = undefined }: any) => {
+const referenceFill = async ({ request, page, element: suppliedElement = undefined, beforeWrite = undefined }: any) => {
 		const viewId = "";
 		const element = suppliedElement ?? await writeTargetHandle(page, request.ref);
 		// What the LIVE control says it is, read from the exact element the write
@@ -1674,7 +1692,7 @@ const referenceFill = async ({ request, page, element: suppliedElement = undefin
 				// a bulk insert would clamp to the first box and read as a
 				// committed-looking single character.
 				await element.click({ timeout: ACTION_TIMEOUT_MS });
-				await typeFillValuePerKey(page, element, request.value, request.secret);
+				await typeFillValuePerKey(page, element, request.value, request.secret, beforeWrite);
 				if ((await element.evaluate(SPLIT_CHAR_COMMIT_FN, request.value)) === "swallowed") {
 					throw new Error(
 						"The target is a split-character code widget and the typed characters did not distribute across its boxes, so the code was left unfilled. Hand the user the screen if this recurs.",
@@ -1682,6 +1700,7 @@ const referenceFill = async ({ request, page, element: suppliedElement = undefin
 				}
 				summary += " (distributed per key across the split-character code widget)";
 			} else {
+				await beforeWrite?.();
 				await element.fill(request.value);
 				// Masked controls can cancel the single bulk insertText that element.fill
 				// performs (their beforeinput handlers only accept one key at a time), so
@@ -1692,12 +1711,13 @@ const referenceFill = async ({ request, page, element: suppliedElement = undefin
 				// paths fails the op instead of pretending, with no value in the error.
 				if ((await fillCommitState(element, request.value)) === "swallowed") {
 					await element.click({ timeout: ACTION_TIMEOUT_MS });
+					await beforeWrite?.();
 					await element
 						.fill("")
 						.catch((failure) =>
 							noteIgnoredFailure("clearing the masked control before per-key typing", failure),
 						);
-					await typeFillValuePerKey(page, element, request.value, request.secret);
+					await typeFillValuePerKey(page, element, request.value, request.secret, beforeWrite);
 					if ((await fillCommitState(element, request.value)) === "swallowed") {
 						throw new Error(
 							"The control did not keep the inserted text: an input mask on the page rejected both the set-value insert and per-key typing, so the field was left unfilled.",

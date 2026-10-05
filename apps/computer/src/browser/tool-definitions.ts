@@ -46,7 +46,7 @@ export const BROWSER_USE_TOOLS: readonly BrowserUseToolDefinition[] = [
   {
     name: "browser_snapshot",
     description:
-      "Capture a structured ARIA snapshot with [ref=eN] handles for interactive elements. It pierces open shadow roots and same-origin iframes; cross-origin frames are called out but not inspected. Refs point to exact nodes from this tab's latest snapshot. The explicit >>> selector combinator re-roots each following stage at the previous match.",
+      "Capture a structured ARIA snapshot with [ref=eN] handles for interactive elements. It inspects reachable shadow roots and frames, including reachable cross-origin frames; inaccessible frames are called out. Refs stay valid across snapshots of this page load; they go stale on navigation, when the element is gone, or when its role or name changes. Reuse a ref until then. The explicit >>> selector combinator re-roots each following stage at the previous match.",
     inputSchema: objectToolSchema({
       viewId,
       interactive: { type: "boolean" },

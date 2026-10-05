@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { runBrowserCode } from "./run-code";
 import { findPageLines } from "./find";
 import { saveLargeBrowserOutput } from "./output";
@@ -416,7 +417,9 @@ export class BrowserUseSession {
         const candidates=[];
         for(const frame of page.frames())if(sameOriginFrame(page.url(),frame.url())){
           const locator=frame.getByLabel(field.label,{exact:true});
-          if(await locator.count()===1){const candidate=await locator.elementHandle();if(candidate)candidates.push(candidate);}
+          const count = await locator.count();
+          if (count > 1) throw Object.assign(new Error("The form label is ambiguous"), { kind: "target_missing" });
+          if(count===1){const candidate=await locator.elementHandle();if(candidate)candidates.push(candidate);}
         }
         if(candidates.length!==1)throw Object.assign(new Error("The form control was replaced and its label is no longer unambiguous"),{kind:"page_moved"});
         handle=candidates[0] as ElementHandle<HTMLElement>;
@@ -438,13 +441,51 @@ export class BrowserUseSession {
     return handle;
   }
 
+  // Stored in the encrypted host binding, never an ElementHandle. A reconnect
+  // to the same live document works; a reload or browser restart cannot match.
+  private async formDocumentId(frame: Frame): Promise<string> {
+    return frame.evaluate(token => {
+      const doc = document as Document & { __openteamFormDocumentId?: string };
+      return doc.__openteamFormDocumentId ??= token;
+    }, randomUUID());
+  }
+
+  private async verifyFormDocument(page: Page, binding: FormPageBinding, field: UserFormField, handle: ElementHandle<HTMLElement>) {
+    const expected = binding.fieldDocuments?.[field.id];
+    const live = await page.evaluate(() => (document as Document & { __openteamFormDocumentId?: string }).__openteamFormDocumentId);
+    const matches = expected && binding.documentId && live === binding.documentId &&
+      await handle.evaluate((node, token) => node.isConnected &&
+        (node.ownerDocument as Document & { __openteamFormDocumentId?: string }).__openteamFormDocumentId === token, expected).catch(() => false);
+    if (!matches) throw Object.assign(new Error("The reviewed form document changed; inspect the page and explicitly remap"), { kind: "page_moved" });
+  }
+
+  async rebindForm(binding: FormPageBinding, form: UserForm): Promise<FormPageBinding> {
+    // Remapping consents to new controls on the original tab and host, never
+    // another same-domain tab. It never submits automatically.
+    const fresh: FormPageBinding = { pageId: binding.pageId, domain: binding.domain, sessionId: binding.sessionId };
+    const page = await this.formPage(fresh);
+    fresh.url = page.url();
+    const prepared = await this.prepareForm(fresh, form);
+    if (prepared.reachable.length !== form.fields.filter(field => field.target).length)
+      throw Object.assign(new Error("Remapped controls are unavailable"), { kind: "target_missing" });
+    return fresh;
+  }
+
   async prepareForm(binding: FormPageBinding, form: UserForm): Promise<{reachable:string[];failureKinds:Record<string,string>}> {
     const page = await this.formPage(binding); const reachable: string[] = [], failureKinds:Record<string,string> = {};
+    binding.documentId = await this.formDocumentId(page.mainFrame());
+    binding.fieldDocuments = {};
     for (const field of form.fields) if (field.target) {
       try {
         const handle = await editableHandle(await this.formHandle(page, field)) as ElementHandle<HTMLElement>;
         if (await handle.evaluate(WRITE_TARGET_IS_HIDDEN_FN) || await writeTargetFrameIsHidden(page,handle)) failureKinds[field.id]="hidden_target";
-        else if (await handle.evaluate((node) => node.isConnected && !node.hasAttribute("disabled") && !node.hasAttribute("readonly") && (node.matches("input,textarea,select") || node.isContentEditable))) reachable.push(field.id);
+        else if (await handle.evaluate((node) => node.isConnected && !node.hasAttribute("disabled") && !node.hasAttribute("readonly") && (node.matches("input,textarea,select") || node.isContentEditable))) {
+          const owner = await handle.ownerFrame();
+          if (!owner) throw new Error("Form frame unavailable");
+          binding.fieldDocuments[field.id] = await this.formDocumentId(owner);
+          await this.verifyFormDocument(page, binding, field, handle);
+          reachable.push(field.id);
+        }
         else failureKinds[field.id]="target_unavailable";
       } catch(error) { failureKinds[field.id]=(error as any).kind ?? "target_missing"; }
     }
@@ -456,6 +497,7 @@ export class BrowserUseSession {
     const handle = await editableHandle(await this.formHandle(page, field)) as ElementHandle<HTMLElement>;
     if (await handle.evaluate(WRITE_TARGET_IS_HIDDEN_FN) || await writeTargetFrameIsHidden(page, handle)) throw new Error("target_hidden");
     if (!await handle.evaluate(node => node.isConnected && !node.hasAttribute("disabled") && !node.hasAttribute("readonly"))) throw new Error("target_unavailable");
+    await this.verifyFormDocument(page, binding, field, handle);
     if (field.type === "checkbox") {
       if (typeof value !== "boolean") return false;
       await handle.setChecked(value);
@@ -465,10 +507,13 @@ export class BrowserUseSession {
     this.registerPrivateValues([value]);
     const secret = true; // Every submitted form value is write-only, including nonsecret fields.
     if (field.type === "select") {
+      await markSecretFill(handle, value);
+      await this.verifyFormDocument(page, binding, field, handle);
       await handle.selectOption(value);
       return handle.evaluate((node, expected) => (node as HTMLSelectElement).value === expected, value);
     }
-    await referenceFill({ page, element: handle, request: { ref: field.target?.value, element: field.label, value, secret } });
+    await referenceFill({ page, element: handle, request: { ref: field.target?.value, element: field.label, value, secret },
+      beforeWrite: () => this.verifyFormDocument(page, binding, field, handle) });
     return true;
   }
 
@@ -483,6 +528,7 @@ export class BrowserUseSession {
   async submitForm(binding: FormPageBinding, field: UserFormField): Promise<boolean> {
     const page = await this.formPage(binding); const handle = await this.formHandle(page, field);
     if (!(await handle.evaluate((node, domain) => node.isConnected && location.hostname.toLowerCase() === domain, binding.domain))) return false;
+    await this.verifyFormDocument(page, binding, field, handle);
     await handle.press("Enter"); return true;
   }
 
@@ -757,7 +803,11 @@ export class BrowserUseSession {
     });
     page.on("framenavigated", frame => {
       this.uploads.clear(page);
-      if (frame === page.mainFrame()) history.navigationStart = history.next;
+      if (frame === page.mainFrame()) {
+        history.navigationStart = history.next;
+        frameRefsByPage.delete(page);
+        void this.clearRefs(page);
+      }
     });
     page.on("close", () => {
       this.uploads.clear(page);
@@ -961,10 +1011,11 @@ export class BrowserUseSession {
       interactive: args.interactive === true,
       maxDepth: typeof args.maxDepth === "number" ? args.maxDepth : 20,
       selector: typeof args.selector === "string" && args.selector.length ? args.selector : undefined,
-      stableRefs: false,
+      stableRefs: true,
       findText: args.findText === true,
     });
-    frameRefsByPage.set(page, result.refOwners);
+    // Scoped observations must retain ownership of previously issued refs.
+    frameRefsByPage.set(page, { ...frameRefsByPage.get(page), ...result.refOwners });
     return result;
   }
 

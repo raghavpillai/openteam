@@ -1,0 +1,37 @@
+{
+  "synthetic": true,
+  "responses": [
+    {
+      "error": {
+        "code": "INVALID_API_KEYS",
+        "type": "INVALID_INPUT",
+        "message": "invalid client_id or secret provided",
+        "request_id": "fixture-key-error"
+      }
+    },
+    {
+      "error": {
+        "code": "INVALID_ACCESS_TOKEN",
+        "type": "INVALID_INPUT",
+        "message": "access token invalid",
+        "request_id": "fixture-token-error"
+      }
+    },
+    {
+      "error": {
+        "code": "ITEM_LOGIN_REQUIRED",
+        "type": "ITEM_ERROR",
+        "message": "the user must reauthenticate the Item",
+        "request_id": "fixture-bank-login"
+      }
+    },
+    {
+      "error": {
+        "code": "ADDITIONAL_CONSENT_REQUIRED",
+        "type": "ITEM_ERROR",
+        "message": "additional product consent required",
+        "request_id": "fixture-consent"
+      }
+    }
+  ]
+}

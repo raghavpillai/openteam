@@ -1,0 +1,45 @@
+{
+  "simulation_only": true,
+  "transactions_by_currency": {
+    "USD": {
+      "gross_purchases": 185,
+      "refunds": 30,
+      "net_spending": 155,
+      "pending": 20
+    },
+    "EUR": {
+      "gross_purchases": 25,
+      "refunds": 0,
+      "net_spending": 25,
+      "pending": 0
+    }
+  },
+  "final_row_ids": [
+    "card-credit",
+    "card-debit",
+    "euro-purchase",
+    "old-refund",
+    "payroll",
+    "pending-kiosk",
+    "posted-cafe",
+    "posted-kiosk",
+    "refund",
+    "shop",
+    "transfer"
+  ],
+  "holdings_value_by_currency": {
+    "USD": 250,
+    "EUR": 30
+  },
+  "checks": [
+    "Do not merge pending-kiosk and posted-kiosk without replacement linkage.",
+    "Remove pending-cafe and retain posted-cafe at its settled amount.",
+    "Upsert shop at its modified amount; replay the batch without duplicates.",
+    "Keep card repayments, payroll and transfers outside purchase refunds.",
+    "Count cross-period refunds by the stated posting-date convention.",
+    "Preserve unknown minimum payment and APR on card-b.",
+    "Identify bank reauthentication separately from invalid API keys and missing product consent.",
+    "Do not execute any reconnect/removal against synthetic authentication fixtures.",
+    "An empty 2025 response does not establish zero activity."
+  ]
+}

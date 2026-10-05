@@ -131,7 +131,10 @@ private struct MarkdownDocument: UIViewRepresentable {
       _ controller: WKUserContentController, didReceive message: WKScriptMessage
     ) {
       if let value = message.body as? [String: Any], value["lease"] as? String == lease,
-        let height = value["height"] as? Double, height.isFinite, height >= 0,
+        let height = value["height"] as? Double, let width = value["width"] as? Double,
+        let nativeWidth = message.webView?.bounds.width,
+        DocumentHeightMeasurement.isValid(
+          height: height, width: width, viewportWidth: Double(nativeWidth)),
         abs(parent.height - CGFloat(height)) > 0.5 {
         parent.height = max(1, CGFloat(height))
       }

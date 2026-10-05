@@ -33,7 +33,7 @@ def config_path():
     return home / "config.json"
 
 
-def select(config, args):
+def credentials(config):
     if not isinstance(config, dict):
         raise ValueError("CLI config must be an object")
     environment = os.environ.get("PLAID_ENV") or config.get("env", "sandbox")
@@ -47,6 +47,11 @@ def select(config, args):
     secret = os.environ.get("PLAID_SECRET") or profile.get("secret")
     if not isinstance(client, str) or not isinstance(secret, str) or not client or not secret:
         raise ValueError("Configure credentials on this computer before querying")
+    return environment, client, secret, profile
+
+
+def select(config, args):
+    environment, client, secret, profile = credentials(config)
     items = profile.get("items", [])
     if not isinstance(items, list) or any(not isinstance(i, dict) or not isinstance(i.get("item_id"), str) or not i.get("item_id") for i in items):
         raise ValueError("CLI Item config is invalid")
@@ -76,13 +81,10 @@ def redact(value, secrets):
     return value
 
 
-def query(environment, command, client, secret, item, dates):
-    token = item.get("access_token")
-    if not isinstance(token, str) or not token:
-        return {"error": {"code": "MISSING_ACCESS_TOKEN", "message": "Selected Item has no token"}}
-    payload = {"client_id": client, "secret": secret, "access_token": token, **dates}
+def request_raw(environment, endpoint, client, secret, extra):
+    payload = {"client_id": client, "secret": secret, **extra}
     request = urllib.request.Request(
-        "https://" + environment + ".plaid.com" + ENDPOINTS[command],
+        "https://" + environment + ".plaid.com" + endpoint,
         json.dumps(payload).encode(), {"Content-Type": "application/json"}, method="POST",
     )
     status = 200
@@ -102,11 +104,18 @@ def query(environment, command, client, secret, item, dates):
     if not isinstance(data, dict):
         return {"error": {"code": "INVALID_API_RESPONSE"}}
     if status >= 400 or data.get("error_code"):
-        result = {"error": {"code": data.get("error_code", "HTTP_ERROR"),
-                            "type": data.get("error_type"), "message": data.get("error_message"),
-                            "request_id": data.get("request_id"), "http_status": status}}
-    else:
-        result = data
+        return {"error": {"code": data.get("error_code", "HTTP_ERROR"),
+                          "type": data.get("error_type"), "message": data.get("error_message"),
+                          "request_id": data.get("request_id"), "http_status": status}}
+    return data
+
+
+def query(environment, command, client, secret, item, dates):
+    token = item.get("access_token")
+    if not isinstance(token, str) or not token:
+        return {"error": {"code": "MISSING_ACCESS_TOKEN", "message": "Selected Item has no token"}}
+    result = request_raw(environment, ENDPOINTS[command], client, secret,
+                         {"access_token": token, **dates})
     return redact(result, [client, secret, token])
 
 

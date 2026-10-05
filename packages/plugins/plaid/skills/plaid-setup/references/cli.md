@@ -12,11 +12,13 @@ An Item is a bank login containing one or more accounts. Select `--item <id-or-a
 
 ## Scope
 
-The pinned CLI covers Link/Items, balances, transaction lists/sync, holdings/activity and liabilities. The financial-data skill also provides a read-only Python helper for recurring streams and verifying product errors that this CLI may hide. It does not expose the entire Plaid API: no payments, Auth/Identity, statements, income, update mode, force refresh, or webhooks.
+The pinned CLI covers Link/Items, balances, transaction lists/sync, holdings/activity and liabilities. Bundled Python helpers add remote Hosted Link, recurring streams and product-error verification. This is not the entire Plaid API: no payments, Auth/Identity data queries, statements, income, update mode, force refresh, or webhooks.
 
 ## Production Link
 
-The CLI serves Link on localhost and rejects forwarded callback hosts. Prefer a browser on the execution computer. A requested private tunnel must preserve the original localhost Host/Origin upstream, callback path/query, and state. Simply forwarding an external Host can display “Connected” while saving no Item. Verify Item list/get. This CLI page is not Plaid Hosted Link; Hosted Link needs a separate API implementation.
+For a user on another computer or phone, use the connections skill's [Hosted Link flow](../../plaid-connections/references/hosted-link.md). The bundled helper creates a Plaid-hosted URL and retrieves completion through outbound API requests, then saves Items into this CLI config.
+
+The native CLI serves Link on localhost and rejects forwarded callback hosts. Use it with a browser on the execution computer. A requested private tunnel must preserve the original localhost Host/Origin upstream, callback path/query, and state. Simply forwarding an external Host can display “Connected” while saving no Item. Verify Item list/get.
 
 ## Cleanup
 

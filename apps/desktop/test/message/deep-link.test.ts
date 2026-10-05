@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { prepareMessageMarkdown } from "../../src/renderer/components/ai-elements/message-response/config";
+import { prepareMessageMarkdown } from "../../src/renderer/components/ai-elements/message-response/markdown-source";
 
 describe("OpenTeam in-app links", () => {
   test("preserves source-compatible settings and plugin links for safe in-app routing", () => {

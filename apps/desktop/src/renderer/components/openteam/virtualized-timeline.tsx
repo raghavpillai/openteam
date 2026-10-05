@@ -37,6 +37,7 @@ const measurementsForConversation = (id: string, generation: number) => {
 
 interface PendingScrollAnchor {
   automatic: boolean;
+  pageKey: string;
   direction: "older" | "newer";
   key: string;
   maxErrorPx: number;
@@ -81,6 +82,11 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
   const { scrollRef, stopScroll, state } = useStickToBottomContext();
   const contentRef = useRef<HTMLDivElement>(null);
   const focusWindowRef = useRef<{ key: string; expiresAt: number } | null>(null);
+  const [dismissedFocusKey, setDismissedFocusKey] = useState<string | null>(null);
+  const focusKey = focus ? `${focus.messageId}:${focus.nonce}` : null;
+  const pageKey = `${entries.length}:${entries[0]?.id}:${entries.at(-1)?.id}`;
+  const pageKeyRef = useRef(pageKey);
+  pageKeyRef.current = pageKey;
   const loadingRequest = useRef(false);
   const lastOlderLoadStartedAt = useRef(0);
   const lastNewerLoadStartedAt = useRef(0);
@@ -116,9 +122,13 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
       if (!entry) return 0;
       // Timeline wrappers are rebuilt on sends and navigation. Retain measured
       // message heights until the underlying message actually changes.
-      const measurementIdentity = entry.type === "message" && "message" in entry
-        && typeof entry.message === "object" && entry.message !== null
-        ? entry.message : entry;
+      const measurementIdentity =
+        entry.type === "message" &&
+        "message" in entry &&
+        typeof entry.message === "object" &&
+        entry.message !== null
+          ? entry.message
+          : entry;
       let version = entryVersions.get(measurementIdentity);
       if (version === undefined) {
         version = ++nextEntryVersion;
@@ -156,7 +166,9 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
     virtualItems,
   } = useVirtualWindow({
     count: entries.length,
-    activeIndex: focus?.index,
+    // User scrolling releases the search target. Retaining it as active makes
+    // pagination reveal it again whenever its index changes in the new page.
+    activeIndex: focusKey !== dismissedFocusKey ? focus?.index : undefined,
     estimateSize,
     getKey,
     scrollRef,
@@ -292,6 +304,7 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
       if (!key) return null;
       const anchor = {
         automatic,
+        pageKey: pageKeyRef.current,
         direction,
         key,
         maxErrorPx: 0,
@@ -443,7 +456,14 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
     let previousTop = viewport.scrollTop;
     const onScroll = () => {
       const nextTop = viewport.scrollTop;
-      if (!pendingScrollAnchor.current) {
+      const anchor = pendingScrollAnchor.current;
+      if (anchor?.pageKey === pageKeyRef.current) {
+        // A wheel fling keeps moving after its final input event. Track that
+        // movement while the response is pending instead of restoring an old
+        // offset on a loading-state render or a later measurement frame.
+        anchor.viewportOffset -= nextTop - previousTop;
+      }
+      if (!anchor) {
         if (nextTop < previousTop - 1) viewportFill.current = "older-first";
         else if (nextTop > previousTop + 1) viewportFill.current = "newer-first";
       }
@@ -495,7 +515,7 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
   useLayoutEffect(() => {
     void totalSize;
     const anchor = pendingScrollAnchor.current;
-    if (!anchor) return;
+    if (!anchor || anchor.pageKey === pageKey) return;
     const anchorIndex = entries.findIndex((entry) => `${entry.type}:${entry.id}` === anchor.key);
     if (anchorIndex < 0) {
       anchor.survived = false;
@@ -537,10 +557,17 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
       window.cancelAnimationFrame(firstFrame);
       if (secondFrame !== null) window.cancelAnimationFrame(secondFrame);
     };
-  }, [entries, finishScrollAnchor, sampleScrollAnchor, scrollIndexToViewportOffset, totalSize]);
+  }, [
+    entries,
+    finishScrollAnchor,
+    pageKey,
+    sampleScrollAnchor,
+    scrollIndexToViewportOffset,
+    totalSize,
+  ]);
 
   useLayoutEffect(() => {
-    if (!focus || !scrollInitialized) return;
+    if (!focus || !scrollInitialized || focusKey === dismissedFocusKey) return;
     const key = `${focus.messageId}:${focus.nonce}`;
     if (focusWindowRef.current?.key !== key) {
       focusWindowRef.current = { key, expiresAt: performance.now() + 1_000 };
@@ -574,13 +601,14 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
       }
     }, 80);
     return () => window.clearTimeout(timer);
-  }, [focus, scrollInitialized, scrollToIndex, stopScroll, totalSize]);
+  }, [dismissedFocusKey, focus, focusKey, scrollInitialized, scrollToIndex, stopScroll, totalSize]);
 
   useEffect(() => {
     const viewport = scrollRef.current;
     if (!viewport) return;
     const cancelFocusWindow = () => {
       if (focusWindowRef.current) focusWindowRef.current.expiresAt = 0;
+      setDismissedFocusKey(focusKey);
       pendingScrollAnchor.current = null;
     };
     viewport.addEventListener("wheel", cancelFocusWindow, { passive: true });
@@ -593,7 +621,7 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
       viewport.removeEventListener("pointerdown", cancelFocusWindow);
       viewport.removeEventListener("keydown", cancelFocusWindow);
     };
-  }, [scrollRef]);
+  }, [focusKey, scrollRef]);
 
   return (
     // biome-ignore lint/a11y/useSemanticElements: Virtualization requires a single explicitly-sized positioning element.

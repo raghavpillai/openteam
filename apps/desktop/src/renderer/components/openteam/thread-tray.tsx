@@ -245,8 +245,13 @@ export function ThreadTray({
     estimateSize,
     getKey,
     initialViewportSize: 600,
+    // Measure each newly mounted window before paint, including fast scrolling.
+    initialScroll: focusIndex >= 0
+      ? { index: focusIndex, align: "center" }
+      : { index: 0, viewportOffset: 0 },
     maxItems: 70,
-    overscan: 500,
+    // Keep nearby replies mounted through rapid wheel bursts.
+    overscan: 1_200,
     scrollRef,
     activeIndex: !layoutReady && focusIndex >= 0 ? focusIndex : undefined,
     revealActiveItem: false,
@@ -295,7 +300,7 @@ export function ThreadTray({
             className="shrink-0 border-b bg-muted/35 px-4 py-2 text-[11px] text-muted-foreground"
             role="status"
           >
-            Some older replies are omitted from this open thread snapshot.
+            Some replies are omitted from this open thread snapshot.
           </div>
         )}
         {/* biome-ignore lint/a11y/useSemanticElements: The virtualized rows need a non-list positioning wrapper between the scrollport and rows. */}

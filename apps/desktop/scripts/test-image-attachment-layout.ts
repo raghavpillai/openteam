@@ -8,6 +8,9 @@ const require = createRequire(import.meta.url);
 const directory = await mkdtemp(join(tmpdir(), "openteam-image-layout-"));
 const conversation = process.argv.includes("--conversation");
 const navigation = process.argv.includes("--navigation");
+const reducedMotion = process.argv.includes("--reduced-motion");
+if (reducedMotion && !navigation && !conversation)
+  throw new Error("Reduced-motion checks require --navigation or --conversation");
 const rendererFailureArgument = process.argv.find(
   (arg) => arg === "--renderer-failure" || arg.startsWith("--renderer-failure=")
 );
@@ -18,7 +21,8 @@ if (rendererFailure && !conversation) throw new Error("Renderer failures require
 if (rendererFailure && !["markdown", "plugin", "file"].includes(rendererFailure))
   throw new Error("Unknown renderer failure mode");
 const withoutRendererBoundary = process.argv.includes("--without-renderer-boundary");
-if (withoutRendererBoundary && !rendererFailure) throw new Error("Boundary control requires an injected failure");
+if (withoutRendererBoundary && !rendererFailure)
+  throw new Error("Boundary control requires an injected failure");
 // An audit control can replace only these production modules, while executing
 // the exact same fixture, dependencies, delays, and assertions as the fixed run.
 const control = process.argv.find((arg) => arg.startsWith("--control-dir="))?.slice(14);
@@ -41,10 +45,15 @@ const server = await createServer({
             enforce: "pre" as const,
             async load(id: string) {
               const path = relative(resolve(import.meta.dir, ".."), id.split("?")[0]!);
-              if (withoutRendererBoundary && path === "src/renderer/components/ai-elements/message.tsx") {
+              if (
+                withoutRendererBoundary &&
+                path === "src/renderer/components/ai-elements/message.tsx"
+              ) {
                 const source = await readFile(id.split("?")[0]!, "utf8");
-                const handler = "  static getDerivedStateFromError() {\n    return { failed: true };\n  }\n";
-                if (!source.includes(handler)) throw new Error("Renderer boundary control no longer matches");
+                const handler =
+                  "  static getDerivedStateFromError() {\n    return { failed: true };\n  }\n";
+                if (!source.includes(handler))
+                  throw new Error("Renderer boundary control no longer matches");
                 return source.replace(handler, "");
               }
               if (control && controlFiles.has(path))
@@ -94,6 +103,7 @@ try {
     `
     const {app, BrowserWindow} = require('electron');
     const fs = require('node:fs');
+    if (${reducedMotion}) app.commandLine.appendSwitch('force-prefers-reduced-motion');
     app.setPath('userData', ${JSON.stringify(join(directory, "profile"))});
     app.whenReady().then(async () => {
       const win = new BrowserWindow({show: false, width: 920, height: 740,
@@ -105,7 +115,7 @@ try {
           app.quit();
         }
       });
-      await win.loadURL(${JSON.stringify(`${server.resolvedUrls!.local[0]}test/browser/${navigation ? "navigation-startup.html" : `${conversation ? "initial-conversation" : "image-attachment"}-layout.html`}${rendererFailure ? `?rendererFailure=${rendererFailure}` : ""}`)});
+      await win.loadURL(${JSON.stringify(`${server.resolvedUrls!.local[0]}test/browser/${navigation ? "navigation-startup.html" : `${conversation ? "initial-conversation" : "image-attachment"}-layout.html`}${rendererFailure ? `?rendererFailure=${rendererFailure}` : reducedMotion ? "?reducedMotion=1" : ""}`)});
     }).catch(error => {console.error(error); app.exit(1)});
   `
   );

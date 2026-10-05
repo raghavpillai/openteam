@@ -1089,11 +1089,12 @@ export const ChatPane = memo(function ChatPane({
       open: true,
       pin: mergeThreadTrayPin({
         replies: threads.get(focusedThreadRootId)?.replies ?? [],
+        focusMessageId: focusMessage?.messageId,
         root,
         truncated: threadContextTruncated,
       }),
     });
-  }, [focusMessage?.nonce, focusedThreadRootId, messagesById, threadContextTruncated, threads]);
+  }, [focusMessage?.messageId, focusMessage?.nonce, focusedThreadRootId, messagesById, threadContextTruncated, threads]);
 
   useEffect(() => {
     setThreadState((current) => {
@@ -1106,13 +1107,14 @@ export const ChatPane = memo(function ChatPane({
         ...current,
         pin: mergeThreadTrayPin({
           previous: current.pin,
+          focusMessageId: focusedThreadRootId === rootId ? focusMessage?.messageId : null,
           replies: liveThread?.replies ?? [],
           root: root ?? current.pin.root,
           truncated: threadContextTruncated,
         }),
       };
     });
-  }, [messagesById, threadContextTruncated, threads]);
+  }, [focusMessage?.messageId, focusedThreadRootId, messagesById, threadContextTruncated, threads]);
   const mainMessageRecords = useMemo(
     () =>
       visibleMessages.filter(({ message }) => {

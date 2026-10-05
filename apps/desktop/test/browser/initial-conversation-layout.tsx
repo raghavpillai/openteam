@@ -138,6 +138,10 @@ const geometry = () => {
   return [previous.y, previous.height, message.y, message.height];
 };
 async function run() {
+  if (new URLSearchParams(location.search).has("reducedMotion")) {
+    check(matchMedia("(prefers-reduced-motion: reduce)").matches, "Reduced motion was not enabled");
+    reports.push("browser really enables reduced motion");
+  }
   // Keep the scroll implementation identical across first mount and revisit.
   // Modules remain loaded in this browser; these are not cold-process timings.
   for (const overlay of [true, false]) {

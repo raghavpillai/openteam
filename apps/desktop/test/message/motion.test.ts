@@ -58,8 +58,9 @@ test("message entrance and acknowledgement motion match OpenTeam", async () => {
   expect(threadTray).toContain("messageDisplayProjection(message)");
   expect(threadTray).toContain("MessageImageGallery");
   expect(threadTray).toContain("MessageFileAttachments");
-  expect(threadTray).toContain('window.matchMedia("(prefers-reduced-motion: reduce)").matches');
-  expect(threadTray).toContain('? "auto" : "smooth"');
+  // Thread search now positions while hidden, with no post-reveal scrolling
+  // animation. The real geometry and reduced-motion checks live in the
+  // navigation-startup Electron suite, rather than requiring the old timer.
   expect(threadTray).toContain('data-staged-attachment=""');
   expect(durableSends).toContain("scopeIsActive");
   expect(durableSends).toContain("!scopeIsActive() || desktopSendTransportDown()");

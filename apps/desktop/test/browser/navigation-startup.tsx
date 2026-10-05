@@ -59,6 +59,14 @@ async function run(name: string, test: () => Promise<void>) {
 const check = (condition: unknown, message: string) => {
   if (!condition) throw new Error(message);
 };
+if (new URLSearchParams(location.search).has("reducedMotion")) {
+  await run("browser really enables reduced motion", async () => {
+    check(
+      matchMedia("(prefers-reduced-motion: reduce)").matches,
+      "Reduced-motion preference was not applied"
+    );
+  });
+}
 await run("cold legacy snapshot opens without a permanent loading indicator", async () => {
   Object.assign(api, {
     bootstrap: async () => {
@@ -197,6 +205,50 @@ await run("switching directly between search-result threads waits for the new la
   }
   check(revealedY !== undefined, "second thread never finished preparing");
   check(document.querySelector('[data-thread-message-id="b-25"]'), "second thread did not open");
+  async function verifyTarget(targetID: string) {
+    let initialY: number | undefined;
+    for (let i = 0; i < 100; i++) {
+      await new Promise(requestAnimationFrame);
+      const tray = document.querySelector("[data-thread-tray]");
+      const content = tray?.querySelector('[role="list"] > div');
+      if (content?.getAttribute("aria-hidden") !== "false") continue;
+      check(
+        !content.querySelector("[data-chat-layout-pending]"),
+        `${targetID}: unfinished content visible`
+      );
+      const target = content
+        .querySelector(`[data-thread-message-id="${targetID}"]`)
+        ?.getBoundingClientRect();
+      const port = tray!.querySelector('[role="list"]')!.getBoundingClientRect();
+      check(target, `${targetID}: focused row missing from visible thread`);
+      if (target) {
+        check(
+          target.bottom > port.top && target.top < port.bottom,
+          `${targetID}: focus outside viewport ${JSON.stringify({ target: target.toJSON(), viewport: port.toJSON(), scrollTop: tray!.querySelector('[role="list"]')!.scrollTop })}`
+        );
+        const y = target.top - port.top;
+        if (initialY !== undefined)
+          check(Math.abs(initialY - y) <= 1, `${targetID}: moved after reveal`);
+        initialY = y;
+      }
+    }
+    check(initialY !== undefined, `${targetID}: never became readable`);
+  }
+  for (const target of ["b-5", "b-35", "a-5", "b-10", "a-35", "b-40"]) {
+    render(target);
+    await pause(40);
+    await verifyTarget(target);
+  }
+  reports.push(
+    "same-thread and cross-thread search focus stays visible and stable across six changes"
+  );
+  for (const target of ["a-25", "b-25", "a-5", "b-35", "a-10", "b-25"]) {
+    render(target);
+    await new Promise(requestAnimationFrame);
+  }
+  await pause(40);
+  await verifyTarget("b-25");
+  reports.push("six rapid thread changes settle on the last selected target");
 });
 root.render(null);
 console.log(

@@ -145,6 +145,27 @@ struct NativeMessageList: UIViewControllerRepresentable {
       }.margins(.all, 0).minSize(width: 0, height: 0)
       return cell
     }
+    #if DEBUG
+    if ProcessInfo.processInfo.arguments.contains("--ui-testing-scroll-geometry") {
+      table.scrollGeometry = { [weak self] in
+        guard let self else { return nil }
+        let viewport = self.view.safeAreaLayoutGuide.layoutFrame
+        let rows: [[String: Any]] = self.table.visibleCells.compactMap { cell in
+          guard let path = self.table.indexPath(for: cell),
+            let id = self.source.itemIdentifier(for: path), let item = self.items[id] else { return nil }
+          let frame = cell.convert(cell.bounds, to: self.view)
+          guard frame.intersects(viewport) else { return nil }
+          return ["id": item.scrollID, "y": frame.minY, "height": frame.height]
+        }.sorted { ($0["y"] as? CGFloat ?? 0) < ($1["y"] as? CGFloat ?? 0) }
+        let value: [String: Any] = ["rows": rows, "mounted": self.displayedIDs.count,
+          "offset": self.table.contentOffset.y, "following": self.following,
+          "viewportTop": viewport.minY, "viewportBottom": viewport.maxY,
+          "moving": self.table.isDragging || self.table.isDecelerating || self.positioning || self.updating || self.scrollingToTarget]
+        guard let data = try? JSONSerialization.data(withJSONObject: value) else { return nil }
+        return String(data: data, encoding: .utf8)
+      }
+    }
+    #endif
   }
 
   func update(_ values: [NativeHistoryItem], request: HistoryScrollRequest?) {
@@ -153,6 +174,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
     let old = items
     let changed = Set(values.filter { old[$0.id]?.version != $0.version }.map(\.id))
     let oldVisible = displayedIDs
+    let visibleAnchorID = positioned ? captureAnchor()?.id : nil
     items = Dictionary(uniqueKeysWithValues: values.map { ($0.id, $0) })
     if let request, request.token != lastRequest {
       lastRequest = request.token
@@ -180,6 +202,13 @@ struct NativeMessageList: UIViewControllerRepresentable {
     } else if let first = oldVisible.first, let index = ids.firstIndex(of: first) {
       windowStart = min(index, max(0, ids.count - windowSize))
     } else { windowStart = min(windowStart, max(0, ids.count - windowSize)) }
+    // A pagination control can remain at index zero while a large page is
+    // prepended. Keep the actual visible message inside the native window.
+    if pendingRequest == nil, !following, let visibleAnchorID,
+      let index = ids.firstIndex(of: visibleAnchorID),
+      !(windowStart..<windowStart + windowSize).contains(index) {
+      windowStart = min(max(0, index - windowSize / 2), max(0, ids.count - windowSize))
+    }
     let next = windowIDs
     guard oldVisible != next || !changed.isDisjoint(with: next) else {
       applyPendingRequest()
@@ -362,7 +391,9 @@ struct NativeMessageList: UIViewControllerRepresentable {
       table.contentSize.height - table.bounds.height + table.adjustedContentInset.bottom))
   }
   private var atBottom: Bool {
-    windowStart + displayedIDs.count == orderedIDs.count && bottomOffset.y - table.contentOffset.y <= 2
+    // The bottom of search context is not the live end of the conversation.
+    items["later"] == nil && windowStart + displayedIDs.count == orderedIDs.count
+      && bottomOffset.y - table.contentOffset.y <= 2
   }
 
   private func didLayout() {
@@ -579,7 +610,13 @@ struct NativeMessageList: UIViewControllerRepresentable {
   }
   func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { endScroll() }
   func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+    // UIKit can deliver this callback while an anchor restoration cancels an
+    // earlier scroll. Do not replace that anchor with intermediate geometry.
+    guard !positioning, scrollingToTarget else { return }
     scrollingToTarget = false
+    // A real animation may finish during a snapshot. Clear its state, but let
+    // the snapshot completion restore/report the saved anchor after layout.
+    guard !updating else { return }
     if !following { readingAnchor = captureAnchor() }
     reportScroll()
   }
@@ -716,6 +753,13 @@ struct NativeMessageList: UIViewControllerRepresentable {
 
 @MainActor private final class HistoryTable: UITableView {
   var didLayout: (() -> Void)?
+  #if DEBUG
+  var scrollGeometry: (() -> String?)?
+  override var accessibilityValue: String? {
+    get { scrollGeometry?() ?? super.accessibilityValue }
+    set { super.accessibilityValue = newValue }
+  }
+  #endif
   override func layoutSubviews() {
     super.layoutSubviews()
     didLayout?()

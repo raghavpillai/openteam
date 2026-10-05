@@ -8,7 +8,7 @@ final class MessagePerformanceUITests: XCTestCase {
     ProcessInfo.processInfo.environment["MESSAGE_PERFORMANCE_SERVER"] ?? "http://127.0.0.1:19996"
   }
 
-  func history(_ scene: String, layoutGeometry: Bool = false) async throws -> XCUIApplication {
+  func history(_ scene: String, layoutGeometry: Bool = false, scrollGeometry: Bool = false) async throws -> XCUIApplication {
     continueAfterFailure = false
     let base = server
     var request = URLRequest(url: URL(string: base + "/__qa/scene")!)
@@ -23,6 +23,7 @@ final class MessagePerformanceUITests: XCTestCase {
       "--open-channel", "visual-chat",
     ]
     if layoutGeometry { app.launchArguments.append("--ui-testing-layout-geometry") }
+    if scrollGeometry { app.launchArguments.append("--ui-testing-scroll-geometry") }
     let start = Date()
     app.launch()
     XCTAssertTrue(
@@ -219,7 +220,11 @@ final class MessagePerformanceUITests: XCTestCase {
         $0.frame.midY > 200 && $0.frame.midY < 650 && $0.isHittable
       })
     let identifier = anchor.identifier
-    let y = anchor.frame.minY
+    // A SwiftUI accessibility wrapper can briefly report a zero frame when
+    // the row reconfigures. The native cell owns its transcript position.
+    let cell = app.tables["chat-history"].cells.containing(.any, identifier: identifier).firstMatch
+    let beforeFrame = cell.frame
+    XCTAssertGreaterThan(beforeFrame.height, 0)
     var request = URLRequest(
       url: URL(string: server + "/api/v0/channels/visual-chat/messages")!)
     request.httpMethod = "POST"
@@ -230,10 +235,13 @@ final class MessagePerformanceUITests: XCTestCase {
     let (_, response) = try await URLSession.shared.data(for: request)
     XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
     try await Task.sleep(for: .seconds(3))
-    XCTAssertEqual(
-      app.descendants(matching: .any).matching(identifier: identifier).firstMatch.frame.minY, y,
-      accuracy: 8,
+    let afterFrame = cell.frame
+    XCTAssertGreaterThan(afterFrame.height, 0)
+    XCTAssertTrue(app.tables["chat-history"].frame.intersects(afterFrame))
+    XCTAssertEqual(afterFrame.minY, beforeFrame.minY, accuracy: 8,
       "Incoming messages should not move the reading position")
+    XCTAssertEqual(afterFrame.height, beforeFrame.height, accuracy: 8,
+      "Incoming messages should not resize the message being read")
     XCTAssertTrue(latest.exists)
     latest.tap()
     XCTAssertTrue(
@@ -275,4 +283,165 @@ final class MessagePerformanceUITests: XCTestCase {
     XCTAssertTrue(app.staticTexts["Page message 180"].waitForExistence(timeout: 8))
     XCTAssertFalse(app.buttons["Latest messages"].exists)
   }
+
+  private struct ScrollRow: Codable {
+    let id: String
+    let y: Double
+    let height: Double
+    var number: Int? { Int(id.split(separator: "-").last ?? "") }
+  }
+  private struct ScrollFrame: Codable {
+    let rows: [ScrollRow]
+    let mounted: Int
+    let offset: Double
+    let following: Bool
+    let moving: Bool
+    let viewportTop: Double
+    let viewportBottom: Double
+    var messages: [ScrollRow] { rows.filter { $0.number != nil } }
+  }
+  private func scrollFrame(_ app: XCUIApplication) throws -> ScrollFrame {
+    let value = try XCTUnwrap(app.tables["chat-history"].value as? String)
+    let frame = try JSONDecoder().decode(ScrollFrame.self, from: Data(value.utf8))
+    XCTAssertLessThanOrEqual(frame.mounted, 80, "Native history window must stay bounded")
+    XCTAssertFalse(frame.messages.isEmpty, "Scrolling exposed an empty transcript")
+    for (previous, next) in zip(frame.rows, frame.rows.dropFirst()) {
+      XCTAssertLessThanOrEqual(previous.y + previous.height, next.y + 1, "Rows overlap")
+      if let a = previous.number, let b = next.number {
+        XCTAssertEqual(b, a + 1, "Visible transcript skipped or reordered messages")
+      }
+    }
+    return frame
+  }
+  private func stableScrollFrame(_ app: XCUIApplication) async throws -> ScrollFrame {
+    var previous = try scrollFrame(app)
+    // XCTest can return while a fast swipe is still decelerating.
+    for _ in 0..<40 {
+      if !previous.moving { break }
+      try await Task.sleep(for: .milliseconds(150))
+      previous = try scrollFrame(app)
+    }
+    XCTAssertFalse(previous.moving, "Scroll never settled")
+    for _ in 0..<3 {
+      try await Task.sleep(for: .milliseconds(150))
+      let next = try scrollFrame(app)
+      if next.messages.map(\.id) != previous.messages.map(\.id) {
+        let geometry = XCTAttachment(data: try JSONEncoder().encode([previous, next]), uniformTypeIdentifier: "public.json")
+        geometry.name = "unexpected-idle-geometry"; geometry.lifetime = .keepAlways; add(geometry)
+      }
+      // A sub-point edge sliver can enter/leave the viewport without a reading
+      // position change. Apply the same 1pt tolerance to visibility and position.
+      for (frame, other) in [(previous, next), (next, previous)] {
+        for row in frame.messages where !other.messages.contains(where: { $0.id == row.id }) {
+          let visible = min(row.y + row.height, frame.viewportBottom) - max(row.y, frame.viewportTop)
+          XCTAssertLessThanOrEqual(visible, 1, "Idle transcript changed a visible message")
+        }
+      }
+      for a in previous.messages {
+        guard let b = next.messages.first(where: { $0.id == a.id }) else { continue }
+        XCTAssertEqual(a.y, b.y, accuracy: 1, "Reading position drifted after the gesture")
+        XCTAssertEqual(a.height, b.height, accuracy: 1, "A visible row resized after settling")
+      }
+      previous = next
+    }
+    return previous
+  }
+  private func stressScroll(_ app: XCUIApplication, phases: [(Bool, Bool, Int)], name: String) async throws {
+    var evidence: [[String: Any]] = []
+    let first = try await stableScrollFrame(app)
+    var oldest = try XCTUnwrap(first.messages.first?.number)
+    var newest = try XCTUnwrap(first.messages.last?.number)
+    for (older, fast, count) in phases {
+      for iteration in 0..<count {
+        let before = try scrollFrame(app)
+        let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.72, dy: older ? 0.32 : 0.75))
+        let to = app.coordinate(withNormalizedOffset: CGVector(dx: 0.72, dy: older ? 0.75 : 0.32))
+        if fast {
+          if older { app.tables["chat-history"].swipeDown(velocity: .fast) }
+          else { app.tables["chat-history"].swipeUp(velocity: .fast) }
+        } else {
+          from.press(forDuration: 0.02, thenDragTo: to,
+            withVelocity: .slow, thenHoldForDuration: 0.1)
+        }
+        let frame = try await stableScrollFrame(app)
+        let low = try XCTUnwrap(frame.messages.first?.number)
+        let high = try XCTUnwrap(frame.messages.last?.number)
+        let oldLow = try XCTUnwrap(before.messages.first?.number)
+        if older { XCTAssertLessThanOrEqual(low, oldLow + 1, "Upward history browsing moved toward newer messages") }
+        else { XCTAssertGreaterThanOrEqual(low, oldLow - 1, "Downward browsing moved toward older messages") }
+        oldest = min(oldest, low); newest = max(newest, high)
+        evidence.append(["older": older, "fast": fast, "iteration": iteration,
+          "first": low, "last": high, "offset": frame.offset, "mounted": frame.mounted])
+        let load = app.buttons[older ? "Load earlier messages" : "Load later messages"]
+        if load.exists && load.isHittable {
+          let anchor = try XCTUnwrap(frame.messages.first)
+          load.tap()
+          try await Task.sleep(for: .milliseconds(400))
+          let loaded = try await stableScrollFrame(app)
+          if !loaded.messages.contains(where: { $0.id == anchor.id }) {
+            let geometry = XCTAttachment(data: try JSONEncoder().encode([frame, loaded]), uniformTypeIdentifier: "public.json")
+            geometry.name = "unexpected-pagination-geometry"; geometry.lifetime = .keepAlways; add(geometry)
+          }
+          let retained = try XCTUnwrap(loaded.messages.first { $0.id == anchor.id })
+          // Removing a timestamp can shrink the row; preserve its message bottom.
+          XCTAssertEqual(retained.y + retained.height, anchor.y + anchor.height, accuracy: 8)
+        }
+      }
+    }
+    let attachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: evidence, options: .prettyPrinted), uniformTypeIdentifier: "public.json")
+    attachment.name = name + "-scroll-geometry"; attachment.lifetime = .keepAlways; add(attachment)
+    XCTAssertGreaterThan(newest - oldest, 60, "Stress test did not traverse enough history")
+    let capture = XCTAttachment(screenshot: app.screenshot())
+    capture.name = name + "-finished"; capture.lifetime = .keepAlways; add(capture)
+  }
+  func testFastSlowAndReversingLongTextHistory() async throws {
+    let app = try await history("performance-text", scrollGeometry: true)
+    defer { app.terminate() }
+    try await stressScroll(app, phases: [(true, true, 24), (true, false, 6),
+      (false, true, 8), (true, false, 3), (false, false, 3), (true, true, 4), (false, true, 4)], name: "text")
+  }
+  func testFastSlowAndReversingRichHistory() async throws {
+    let app = try await history("performance-rich", scrollGeometry: true)
+    defer { app.terminate() }
+    try await stressScroll(app, phases: [(true, true, 24), (true, false, 6),
+      (false, true, 8), (true, false, 3), (false, false, 3), (true, true, 4), (false, true, 4)], name: "rich")
+  }
+  func testSearchResultCanBrowseOlderAndNewerHistory() async throws {
+    let app = try await history("performance-text", scrollGeometry: true)
+    defer { app.terminate() }
+    app.buttons["chat-back"].tap()
+    app.buttons["search-button"].tap()
+    let field = app.textFields["search-input"]
+    XCTAssertTrue(field.waitForExistence(timeout: 5))
+    field.typeText("History item 500.")
+    let result = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "History item 500.")).firstMatch
+    XCTAssertTrue(result.waitForExistence(timeout: 10))
+    result.tap()
+    XCTAssertTrue(app.tables["chat-history"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch.waitForNonExistence(timeout: 15))
+    let frame = try await stableScrollFrame(app)
+    XCTAssertTrue(frame.messages.contains { $0.number == 500 }, "Search did not reveal its target")
+    try await stressScroll(app, phases: [(true, true, 8), (false, true, 16),
+      (true, false, 4), (false, false, 4), (true, true, 4)], name: "search")
+  }
+
+  func testUnloadedSearchResultCanBrowseBothPageBoundaries() async throws {
+    let app = try await history("history-pages", scrollGeometry: true)
+    defer { app.terminate() }
+    app.buttons["chat-back"].tap()
+    app.buttons["search-button"].tap()
+    let field = app.textFields["search-input"]
+    XCTAssertTrue(field.waitForExistence(timeout: 5))
+    field.typeText("Page message 80")
+    let result = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Page message 80")).firstMatch
+    XCTAssertTrue(result.waitForExistence(timeout: 10))
+    result.tap()
+    XCTAssertTrue(app.tables["chat-history"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch.waitForNonExistence(timeout: 15))
+    let frame = try await stableScrollFrame(app)
+    XCTAssertTrue(frame.messages.contains { $0.number == 80 }, "Search did not reveal its target")
+    try await stressScroll(app, phases: [(true, true, 16), (false, true, 32),
+      (true, false, 4), (false, false, 4), (true, true, 4)], name: "paged-search")
+  }
+
 }

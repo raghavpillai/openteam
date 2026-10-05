@@ -128,6 +128,7 @@
     "typecheck": "bun run scripts/check-renderer-boundary.ts && tsc -p tsconfig.json",
     "test": "bun test --pass-with-no-tests",
     "test:code-rendering": "bun scripts/test-code-rendering.ts",
+    "test:scroll-stress": "bun scripts/test-scroll-stress.ts",
     "test:conversation-layout": "bun scripts/test-conversation-layout.ts",
     "test:image-attachment-layout": "bun scripts/test-image-attachment-layout.ts",
     "test:initial-conversation-layout": "bun scripts/test-image-attachment-layout.ts --conversation",

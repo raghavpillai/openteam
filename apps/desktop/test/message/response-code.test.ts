@@ -5,7 +5,7 @@ import {
   codeHighlighterCacheLimits,
   getCodeHighlighterCacheStats,
 } from "../../src/renderer/components/ai-elements/message-response/code";
-import { botShikiTheme } from "../../src/renderer/components/ai-elements/message-response/config";
+import { botShikiTheme } from "../../src/renderer/components/ai-elements/message-response/code-theme";
 import languages from "../../src/renderer/components/ai-elements/message-response/code-languages.json";
 import { bundledLanguagesInfo } from "shiki/langs";
 

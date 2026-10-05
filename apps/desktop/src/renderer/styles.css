@@ -1683,7 +1683,10 @@ textarea,
     scroll-behavior: auto !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    /* A nonzero duration activates the default transition-property: all even
+     * on elements with no transition. Virtual heights/offsets must update in
+     * the same layout pass as their scroll correction. */
+    transition-duration: 0s !important;
   }
 
   .message-row[data-pending],

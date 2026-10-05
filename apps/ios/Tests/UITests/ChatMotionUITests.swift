@@ -194,17 +194,29 @@ import XCTest
     XCTAssertEqual(frame.width, 120, accuracy: 1)
     XCTAssertEqual(frame.height, 240, accuracy: 1)
     let markerY = marker.frame.midY
-    let document = app.descendants(matching: .any).matching(identifier: "message-visual-message-visual-chat-3").firstMatch
+    // SwiftUI can briefly publish a zero accessibility frame when the button's
+    // loading content changes. Measure the native row that positions the chat.
+    let mediaRow = app.tables["chat-history"].cells.containing(.button, identifier: "attachment-layout-portrait").firstMatch
+    let mediaFrame = mediaRow.frame
+    XCTAssertGreaterThan(mediaFrame.height, 0)
+    let document = app.tables["chat-history"].cells.containing(.any, identifier: "message-visual-message-visual-chat-3").firstMatch
     let documentFrame = document.frame
+    XCTAssertGreaterThan(documentFrame.height, 0)
     for _ in 0..<12 {
       try await Task.sleep(for: .milliseconds(500))
       XCTAssertEqual(marker.frame.midY, markerY, accuracy: 1)
-      XCTAssertEqual(picture.frame.minY, frame.minY, accuracy: 1)
-      XCTAssertEqual(picture.frame.height, frame.height, accuracy: 1)
+      let currentMediaFrame = mediaRow.frame
+      XCTAssertEqual(currentMediaFrame.minY, mediaFrame.minY, accuracy: 1)
+      XCTAssertEqual(currentMediaFrame.height, mediaFrame.height, accuracy: 1)
       XCTAssertEqual(document.frame.minY, documentFrame.minY, accuracy: 1)
       XCTAssertEqual(document.frame.height, documentFrame.height, accuracy: 1)
     }
     XCTAssertEqual(picture.value as? String, "Loaded")
+    let loadedFrame = picture.frame
+    XCTAssertEqual(loadedFrame.minX, frame.minX, accuracy: 1)
+    XCTAssertEqual(loadedFrame.minY, frame.minY, accuracy: 1)
+    XCTAssertEqual(loadedFrame.width, frame.width, accuracy: 1)
+    XCTAssertEqual(loadedFrame.height, frame.height, accuracy: 1)
     capture("initial-media-layout-settled", app)
     app.buttons["chat-back"].tap()
     XCTAssertTrue(app.buttons["channel-visual-chat"].waitForExistence(timeout: 5))
@@ -288,6 +300,16 @@ import XCTest
 
   func testHistoryScrollDismissesKeyboardAndPreservesDraft() async throws {
     continueAfterFailure = false
+    func waitForKeyboard(_ app: XCUIApplication, visible: Bool) -> Bool {
+      let predicate = NSPredicate { _, _ in
+        // UIKit can keep a keyboard accessibility node below the screen after
+        // on-drag dismissal. Its existence alone does not mean it is visible.
+        let frames = app.keyboards.allElementsBoundByIndex.map { $0.frame }
+        let onScreen = frames.contains { !$0.isEmpty && app.frame.intersects($0) }
+        return onScreen == visible
+      }
+      return XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: nil)], timeout: 3) == .completed
+    }
     for appearance in ["light", "dark"] {
       try await control("__qa/scene", ["scene": "history-pages"])
       let app = XCUIApplication()
@@ -298,7 +320,7 @@ import XCTest
       XCTAssertTrue(input.waitForExistence(timeout: 15))
       XCTAssertTrue(app.staticTexts["Page message 180"].waitForExistence(timeout: 15))
       input.tap()
-      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+      XCTAssertTrue(waitForKeyboard(app, visible: true))
       input.typeText("Keep this draft")
       // Both directions must dismiss, including browsing older messages and
       // scrolling back toward the latest, without sending or clearing a draft.
@@ -307,12 +329,13 @@ import XCTest
         start.press(forDuration: 0.05,
           thenDragTo: start.withOffset(CGVector(dx: 0, dy: dy)),
           withVelocity: .slow, thenHoldForDuration: 0.1)
-        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3),
+        XCTAssertTrue(waitForKeyboard(app, visible: false),
           "Scrolling history must dismiss the keyboard in either direction")
+        XCTAssertGreaterThan(input.frame.minY, app.frame.maxY * 0.8)
         XCTAssertEqual(input.value as? String, "Keep this draft")
         capture("scroll-dismiss-\(appearance)-\(dy)", app)
         input.tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+        XCTAssertTrue(waitForKeyboard(app, visible: true))
       }
       input.typeText(" reopened")
       // A native field tap positions the caret where tapped; insertion needn't

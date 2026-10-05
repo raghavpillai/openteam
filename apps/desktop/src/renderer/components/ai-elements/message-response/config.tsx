@@ -9,12 +9,10 @@ import {
 } from "streamdown";
 import { useAuthenticatedResource } from "../../../hooks/use-authenticated-resource";
 import { OPENTEAM_DEEP_LINK_EVENT } from "../../../lib/app-deep-links";
-import { normalizeMessageMath } from "./math-markdown";
+import { SANITIZED_MESSAGE_LINK_PREFIX, SANITIZED_OPENTEAM_LINK_PREFIX } from "./markdown-source";
+export { prepareMessageMarkdown } from "./markdown-source";
 
 export { OPENTEAM_DEEP_LINK_EVENT } from "../../../lib/app-deep-links";
-
-const SANITIZED_MESSAGE_LINK_PREFIX = "streamdown:sand-msg:";
-const SANITIZED_OPENTEAM_LINK_PREFIX = "streamdown:openteam:";
 
 export const streamdownControls: ControlsConfig = {
   code: { copy: true, download: false },
@@ -45,11 +43,6 @@ export const botMermaidOptions: MermaidOptions = {
     },
   },
 };
-
-export const prepareMessageMarkdown = (markdown: string) =>
-  normalizeMessageMath(markdown)
-    .replace(/(\]\(\s*)sand-msg:/gi, `$1${SANITIZED_MESSAGE_LINK_PREFIX}`)
-    .replace(/(\]\(\s*)openteam:/gi, `$1${SANITIZED_OPENTEAM_LINK_PREFIX}`);
 
 export const messageUrlTransform: UrlTransform = (url, key, node) =>
   url.startsWith(SANITIZED_MESSAGE_LINK_PREFIX) || url.startsWith(SANITIZED_OPENTEAM_LINK_PREFIX)

@@ -4,7 +4,7 @@ const source = (path: string) =>
   Bun.file(new URL(`../src/renderer/${path}`, import.meta.url)).text();
 
 describe("desktop shared client controllers", () => {
-  test("polls a normal screen without acquiring exclusive graphical control", async () => {
+  test("polls screen status and acquires graphical control only while the viewer is open", async () => {
     const screen = await source("components/openteam/bot-screen.tsx");
 
     expect(screen).toContain("SCREEN_STATUS_POLL_MS");
@@ -13,8 +13,9 @@ describe("desktop shared client controllers", () => {
     expect(screen).toContain("intervalMs: SCREEN_STATUS_POLL_MS");
     expect(screen).toContain("immediate: false");
     expect(screen).not.toContain("createScreenSessionController");
-    expect(screen).toContain("if (!handoff || !open || !enabled) return;");
+    expect(screen).toContain("if (!open) return;");
     expect(screen).toContain(".screenTakeover(bot.id, true)");
+    expect(screen).toContain("if (!viewer.mounted || !viewer.open || viewer.botId !== bot.id) return api.screenTakeover(bot.id, false);");
     expect(screen).not.toContain("api.releaseScreenTakeover");
   });
 

@@ -6,8 +6,8 @@ Chat with bots that can browse the web, use a Linux desktop, and work with your 
 Each bot keeps its conversation, memory, and browser logins between tasks. Watch its screen,
 take over when needed, or come back when the work is done.
 
-[Website](https://openteam.so) · [Get started](#get-started) · [Download apps](#apps) · [Documentation](docs/README.md) ·
-[Develop from source](docs/development/from-source.md)
+[Website](https://openteam.so) · [Get started](#get-started) · [Download apps](#apps) · [Documentation](https://openteam.so/docs) ·
+[Develop from source](https://openteam.so/docs/development/from-source)
 
 [![OpenTeam desktop and iPhone apps showing the same vendor comparison and weekday pricing check](docs/images/openteam-desktop-mobile.png)](docs/images/openteam-desktop-mobile.png)
 
@@ -28,7 +28,7 @@ take over when needed, or come back when the work is done.
 
 You need an **x64 or arm64 machine** with a running **Docker Engine for Linux containers** and
 **Docker Compose 2.20+**. We recommend **8 GB RAM** and **8 GB free disk**. On macOS and Windows,
-Docker Desktop supplies the engine and Compose. See the [requirements](docs/getting-started/installation.md#requirements).
+Docker Desktop supplies the engine and Compose. See the [requirements](https://openteam.so/docs/getting-started/installation#requirements).
 
 ### 1. Install the server
 
@@ -54,7 +54,7 @@ Create your OpenTeam username and password, then connect a model provider. Setup
 ChatGPT (Codex) or Claude (Claude Code) sign-in, OpenAI, Anthropic, or OpenRouter API keys, and
 compatible custom endpoints.
 You can skip the provider step and connect one later with `openteam setup`; bots need a
-connected provider to run. See [provider setup](docs/configuration/models.md#connect-a-provider).
+connected provider to run. See [provider setup](https://openteam.so/docs/configuration/models#connect-a-provider).
 
 Setup defaults to a private connection over your LAN or VPN and prints your **server URL**.
 For a public HTTPS address or other connection options, use `openteam setup --advanced`.
@@ -85,17 +85,17 @@ openteam setup     # Connect or change your model provider
 openteam update    # Update the CLI and server with backup and rollback
 ```
 
-See [server commands](docs/manage/server.md), [remote access](docs/configuration/remote-access.md),
-[backups](docs/manage/backups.md), and [troubleshooting](docs/manage/troubleshooting.md) for ongoing operation.
+See [server commands](https://openteam.so/docs/manage/server), [remote access](https://openteam.so/docs/configuration/remote-access),
+[backups](https://openteam.so/docs/manage/backups), and [troubleshooting](https://openteam.so/docs/manage/troubleshooting) for ongoing operation.
 
 ## Documentation
 
-- [Server settings](docs/configuration/server.md): where to change each setting after setup.
-- [Plugins](docs/usage/plugins.md): connect accounts and control bot access.
-- [How hosting works](docs/overview/architecture.md): what runs where and what needs to stay on.
-- [Development from source](docs/development/from-source.md): run from source and run checks.
+- [Server settings](https://openteam.so/docs/configuration/server): where to change each setting after setup.
+- [Plugins](https://openteam.so/docs/usage/plugins): connect accounts and control bot access.
+- [How hosting works](https://openteam.so/docs/overview/architecture): what runs where and what needs to stay on.
+- [Development from source](https://openteam.so/docs/development/from-source): run from source and run checks.
 
-Browse [all documentation](docs/README.md) for feature guides and implementation notes.
+Browse [all documentation](https://openteam.so/docs) for feature guides and implementation notes.
 
 ## License
 

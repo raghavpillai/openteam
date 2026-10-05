@@ -8,6 +8,7 @@ import {
   ComputerSteerRequest,
   ComputerTurnRequest,
   ScreenActionInput,
+  ScreenClipboardInput,
   ScreenPauseInput,
   ScreenTakeoverInput,
   serverInferenceSettings,
@@ -548,6 +549,14 @@ const server = Bun.serve({
             "cache-control": "no-store, max-age=0",
           },
         });
+      }
+
+      const clipboardMatch = url.pathname.match(/^\/v1\/screens\/([^/]+)\/clipboard$/);
+      if (request.method === "POST" && clipboardMatch?.[1]) {
+        const body = await request.json() as { cwd?: string; input?: unknown };
+        const cwd = safePath(body.cwd ?? workspaceRoot);
+        const input = Schema.decodeUnknownSync(ScreenClipboardInput)(body.input);
+        return json(await screens.clipboard(clipboardMatch[1], cwd, input, request.signal));
       }
 
       const actionMatch = url.pathname.match(/^\/v1\/screens\/([^/]+)\/actions$/);

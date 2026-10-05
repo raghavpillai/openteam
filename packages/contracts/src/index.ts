@@ -893,6 +893,20 @@ export const ScreenActionInput = Schema.Union(
 );
 export type ScreenActionInput = typeof ScreenActionInput.Type;
 
+export const ScreenClipboardInput = Schema.Union(
+  Schema.Struct({
+    action: Schema.Literal("paste"),
+    text: Schema.String.pipe(Schema.maxLength(1_000_000)),
+    shift: Schema.optional(Schema.Boolean),
+  }),
+  Schema.Struct({
+    action: Schema.Literal("copy", "cut"),
+    shift: Schema.optional(Schema.Boolean),
+  })
+);
+export type ScreenClipboardInput = typeof ScreenClipboardInput.Type;
+export interface ScreenClipboardView { text?: string }
+
 const ComputerUseActionName = Schema.Literal(
   "screenshot",
   "click",

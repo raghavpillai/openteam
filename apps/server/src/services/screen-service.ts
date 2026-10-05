@@ -1,7 +1,7 @@
 import { formPreparationFailureMessage } from "@openteam/contracts";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { extname, join, relative, sep } from "node:path";
-import { ApiError, type ScreenActionInput, type ScreenStatusView } from "@openteam/contracts";
+import { ApiError, type ScreenActionInput, type ScreenClipboardInput, type ScreenClipboardView, type ScreenStatusView } from "@openteam/contracts";
 import type { PrismaClient } from "@openteam/db";
 import { Effect } from "effect";
 
@@ -224,6 +224,24 @@ export class ScreenService {
           throw new ApiError(409, "screen_action_rejected", await response.text());
         }
         return this.toView(bot.id, (await response.json()) as ComputerScreenStatus);
+      },
+      catch: ScreenService.toError,
+    });
+
+  clipboard = (botId: string, input: ScreenClipboardInput, signal?: AbortSignal) =>
+    Effect.tryPromise({
+      try: async () => {
+        const bot = await this.requireActiveBot(botId);
+        const response = await this.computerFetch(`/v1/screens/${bot.id}/clipboard`, {
+          method: "POST",
+          body: JSON.stringify({ cwd: bot.defaultDirectory, input }),
+          signal: AbortSignal.any([AbortSignal.timeout(10_000), ...(signal ? [signal] : [])]),
+        });
+        if (!response.ok) {
+          throw new ApiError(response.status === 404 ? 501 : 409, "screen_clipboard_rejected",
+            response.status === 404 ? "Update your OpenTeam server to use clipboard sharing." : "The computer clipboard operation failed. Check the screen before trying again.");
+        }
+        return await response.json() as ScreenClipboardView;
       },
       catch: ScreenService.toError,
     });

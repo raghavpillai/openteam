@@ -3,6 +3,7 @@ import {
   CreateGroupInput,
   DuplicateBotInput,
   ScreenActionInput,
+  ScreenClipboardInput,
   ScreenPauseInput,
   ScreenTakeoverInput,
 } from "@openteam/contracts";
@@ -84,6 +85,12 @@ const routes = [
     app.listGroups(url.searchParams.get("includeHidden") === "1")
   ),
   effectRoute("GET", /^\/api\/bots\/([^/]+)\/screen$/, ({ app }, id) => app.screenStatus(id)),
+  bodyRoute(
+    "POST",
+    /^\/api\/bots\/([^/]+)\/screen\/clipboard$/,
+    ScreenClipboardInput,
+    ({ app, request }, id, input) => app.screenClipboard(id, input, request.signal)
+  ),
   bodyRoute(
     "POST",
     /^\/api\/bots\/([^/]+)\/screen\/actions$/,

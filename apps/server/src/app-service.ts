@@ -454,6 +454,7 @@ export class AppService {
   botAvatar = forwardServiceMethod(() => this.screens.avatar);
 
   screenAction = forwardServiceMethod(() => this.screens.action);
+  screenClipboard = forwardServiceMethod(() => this.screens.clipboard);
 
   screenTakeover = forwardServiceMethod(() => this.screens.takeover);
 

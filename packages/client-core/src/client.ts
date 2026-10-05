@@ -13,6 +13,8 @@ import type {
 } from "@openteam/contracts/plugin-management";
 import type {
   AddCustomMcpInput,
+  ScreenClipboardInput,
+  ScreenClipboardView,
   AssetRef,
   BotTranscriptView,
   BotView,
@@ -696,6 +698,11 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
           method: "POST",
           body: JSON.stringify(input),
         }
+      ),
+    screenClipboard: (botId: string, input: ScreenClipboardInput, signal?: AbortSignal) =>
+      transport.request<ScreenClipboardView>(
+        `/api/v0/bots/${encodeURIComponent(botId)}/screen/clipboard`,
+        { method: "POST", body: JSON.stringify(input), signal }
       ),
     setScreenTakeover: (botId: string, active: boolean) =>
       transport.request<ScreenStatusView>(

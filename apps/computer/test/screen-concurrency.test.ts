@@ -27,6 +27,14 @@ const fixture = async () => {
 };
 
 describe("concurrent screen requests", () => {
+  test("clipboard input requires human control and canceled requests do not start a desktop", async () => {
+    const { broker, starts } = await fixture();
+    const canceled = new AbortController(); canceled.abort();
+    await expect(broker.clipboard("never-start", "/workspace", { action: "copy" }, canceled.signal)).rejects.toThrow();
+    expect(starts).toHaveLength(0);
+    await expect(broker.clipboard("no-lease", "/workspace", { action: "paste", text: "must not arrive" })).rejects.toThrow("Take control");
+    expect(starts).toHaveLength(1);
+  });
   test("failed post-action capture preserves the action receipt without repeating input", async () => {
     const {broker, home} = await fixture();
     await broker.ensure("capture-failure", "/workspace");

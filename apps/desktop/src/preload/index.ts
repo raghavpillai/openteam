@@ -123,6 +123,20 @@ const notificationSnapshot = (value: unknown) => {
 
 contextBridge.exposeInMainWorld("openteam", {
   platform: process.platform,
+  clipboard: {
+    readText: (): Promise<string> => ipcRenderer.invoke("openteam:computer-clipboard-read"),
+    writeText: (text: string): Promise<void> => ipcRenderer.invoke("openteam:computer-clipboard-write", text),
+    setComputerActive: (active: boolean) => {
+      if (typeof active === "boolean") ipcRenderer.send("openteam:computer-clipboard-active", active);
+    },
+    onComputerAction: (callback: (action: "copy" | "cut" | "paste") => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, action: unknown) => {
+        if (action === "copy" || action === "cut" || action === "paste") callback(action);
+      };
+      ipcRenderer.on("openteam:computer-clipboard", listener);
+      return () => ipcRenderer.removeListener("openteam:computer-clipboard", listener);
+    },
+  },
   onMenuAction: (callback: (action: ApplicationMenuAction) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, action: unknown) => {
       if (action === "about" || action === "updates" || action === "settings") callback(action);

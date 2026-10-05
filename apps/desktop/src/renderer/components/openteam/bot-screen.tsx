@@ -53,6 +53,13 @@ export function BotScreen({
   const [error, setError] = useState<string | null>(null);
   const [frameRevision, setFrameRevision] = useState(Date.now());
   const [open, setOpen] = useState(false);
+  const viewerState = useRef({ open, botId: bot.id, mounted: true });
+  viewerState.current.open = open;
+  viewerState.current.botId = bot.id;
+  useEffect(() => {
+    viewerState.current.mounted = true;
+    return () => { viewerState.current.mounted = false; };
+  }, []);
   const recordViewerReady = useCallback(() => {
     if (!viewerOpenedAt.current) return;
     recordPerformance("view.desktop-ready", performance.now() - viewerOpenedAt.current, { botId: bot.id });
@@ -187,13 +194,15 @@ export function BotScreen({
     if (!screen) void refreshStatus();
   }, [bot.id, handoff, onEnable, refreshStatus, screen]);
   useEffect(() => {
-    if (!handoff || !open) return;
+    if (!open) return;
     let active = true;
+    let pending: Promise<ScreenStatusView> | undefined;
     const poller = createSerialPoller({
       intervalMs: SCREEN_TAKEOVER_HEARTBEAT_MS,
       task: async () => {
         try {
-          const next = await api.screenTakeover(bot.id, true);
+          pending = api.screenTakeover(bot.id, true);
+          const next = await pending;
           if (active) setScreen(next);
         } catch (cause) {
           if (active) setError(clientErrorMessage(cause, "Could not keep computer control"));
@@ -206,6 +215,14 @@ export function BotScreen({
       active = false;
       poller.stop();
       window.removeEventListener(WINDOW_VISIBILITY_EVENT, poller.wake);
+      if (!handoff) {
+        // Wait for an in-flight acquisition before releasing; a reopened viewer
+        // keeps its lease, while closing or changing bots returns control.
+        void Promise.resolve(pending).catch(() => undefined).then(() => {
+          const viewer = viewerState.current;
+          if (!viewer.mounted || !viewer.open || viewer.botId !== bot.id) return api.screenTakeover(bot.id, false);
+        }).catch(() => { /* The bounded lease expires if the server is offline. */ });
+      }
     };
   }, [bot.id, handoff, open]);
   const viewerReady = screen?.state === "ready";
@@ -320,6 +337,7 @@ export function BotScreen({
               {viewerReady ? (
                 <VncComputer key={bot.id} botId={bot.id} name={bot.name}
                   serverUrl={API_BASE} createSession={api.screenVncSession}
+                  clipboard={(input, signal) => api.screenClipboard(bot.id, input, signal)}
                   onReady={recordViewerReady} onClose={closeViewer} />
               ) : (
                 <div className="absolute inset-0 grid place-items-center text-center">

@@ -944,6 +944,23 @@ ipcMain.handle("openteam:capabilities:update", async (event, input: unknown) => 
 const computerSettingsView = (settings: ComputerSettings) => ({
   ...settings, machine: { ...localMachine, label: settings.machineLabel ?? localMachine.label },
 });
+let computerClipboardActive = false;
+ipcMain.on("openteam:computer-clipboard-active", (event, active: unknown) => {
+  if (event.sender === mainWindow?.webContents && typeof active === "boolean") computerClipboardActive = active;
+});
+ipcMain.handle("openteam:computer-clipboard-read", event => {
+  requireAuthSender(event);
+  if (!computerClipboardActive) throw new Error("Focus the computer before using its clipboard.");
+  const text = clipboard.readText();
+  if (Buffer.byteLength(text, "utf8") > 4_000_000) throw new Error("Clipboard text is too large.");
+  return text;
+});
+ipcMain.handle("openteam:computer-clipboard-write", (event, text: unknown) => {
+  requireAuthSender(event);
+  if (!computerClipboardActive) throw new Error("Focus the computer before using its clipboard.");
+  if (typeof text !== "string" || Buffer.byteLength(text, "utf8") > 4_000_000) throw new Error("Clipboard text is too large.");
+  clipboard.writeText(text);
+});
 ipcMain.handle("openteam:computer:get", async event => computerSettingsView(await requireComputerSettings(event).read()));
 ipcMain.handle("openteam:computer:update", async (event, input: unknown) => {
   if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some(key => key !== "machineLabel") || typeof (input as any).machineLabel !== "string" || !(input as any).machineLabel.trim()) throw new Error("A computer label is required");
@@ -1072,6 +1089,10 @@ if (!hasSingleInstanceLock) {
             ) {
               void checkForDesktopUpdate();
             }
+          }, (action, window) => {
+            if (!computerClipboardActive || window !== mainWindow) return false;
+            mainWindow?.webContents.send("openteam:computer-clipboard", action);
+            return true;
           })
         )
       );

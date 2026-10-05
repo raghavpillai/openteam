@@ -1,6 +1,12 @@
 interface Window {
   openteam?: {
     platform: string;
+    clipboard?: {
+      readText(): Promise<string>;
+      writeText(text: string): Promise<void>;
+      setComputerActive(active: boolean): void;
+      onComputerAction(callback: (action: "copy" | "cut" | "paste") => void): () => void;
+    };
     onMenuAction?: (listener: (action: "about" | "updates" | "settings") => void) => () => void;
     visibility?: { subscribe: (callback: (visible: boolean) => void) => () => void };
     auth: {

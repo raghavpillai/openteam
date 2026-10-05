@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { ScreenVncSessionView } from "@openteam/contracts";
+import type { ScreenClipboardInput, ScreenClipboardView, ScreenVncSessionView } from "@openteam/contracts";
 import VncComputer from "../../src/renderer/components/openteam/vnc-computer";
 import "../../src/renderer/styles.css";
 
@@ -15,6 +15,14 @@ const createSession = async (botId: string, signal: AbortSignal): Promise<Screen
   if (!response.ok) throw Object.assign(new Error("VNC session request failed"), { status: response.status });
   return response.json();
 };
+const clipboard = async (input: ScreenClipboardInput, signal: AbortSignal): Promise<ScreenClipboardView> => {
+  const response = await fetch(`${config.base}/api/v0/bots/${encodeURIComponent(config.botId)}/screen/clipboard`, {
+    method: "POST", signal, headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw new Error("Computer clipboard transfer failed.");
+  return response.json();
+};
 function Reference() {
   const [open, setOpen] = useState(true);
   const [connections, setConnections] = useState(0);
@@ -25,7 +33,7 @@ function Reference() {
     </div>
     <div style={{ position: "relative", height: "calc(100vh - 50px)" }}>
       {open && <VncComputer botId={config.botId} name={config.label} serverUrl={config.base}
-        createSession={createSession} onReady={ready} onClose={() => setOpen(false)} />}
+        createSession={createSession} clipboard={clipboard} onReady={ready} onClose={() => setOpen(false)} />}
     </div>
   </div>;
 }

@@ -2,7 +2,8 @@ import { type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { chmod, chown, cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ComputerUseActionInput, ScreenActionInput } from "@openteam/contracts";
+import type { ComputerUseActionInput, ScreenActionInput, ScreenClipboardInput, ScreenClipboardView } from "@openteam/contracts";
+import { performClipboardOperation } from "./screen/clipboard";
 import { spawnAgentProcess as spawn, agentProcessIdentity, assignAgentOwnership } from "./agent-process";
 import { BrowserBroker } from "./browser/broker";
 import { BrowserProfileAuthority } from "./browser/profile-authority";
@@ -227,6 +228,20 @@ export class ScreenBroker {
           break;
       }
       return this.statusFor(session);
+    });
+  }
+
+  async clipboard(botId: string, cwd: string, input: ScreenClipboardInput, externalSignal?: AbortSignal): Promise<ScreenClipboardView> {
+    externalSignal?.throwIfAborted();
+    const session = await this.readySession(botId, cwd);
+    return this.withInput(session, "human", async () => {
+      if (session.humanTakeoverUntil <= Date.now()) throw new Error("Take control before using the computer clipboard");
+      session.humanTakeoverUntil = Date.now() + TAKEOVER_TTL_MS;
+      const signal = AbortSignal.any([AbortSignal.timeout(8_000), ...(externalSignal ? [externalSignal] : [])]);
+      return performClipboardOperation(input, environment(this.home, session), signal, child => {
+        session.processes.push(child);
+        child.once("exit", () => removeProcess(session, child));
+      });
     });
   }
 

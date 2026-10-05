@@ -29,6 +29,7 @@ Your installation:
   start         Start OpenTeam after account setup
   stop          Stop OpenTeam
   logs          View troubleshooting logs
+  notifications Configure iOS push credentials or show their status
   uninstall     Remove OpenTeam services and CLI
 
 Models and accounts:
@@ -43,6 +44,35 @@ ${directoryOption}
 
 Run "openteam <command> --help" for command options.`,
 
+  notifications: `${heading("openteam notifications <command>", "Manage iOS push delivery credentials on the running server.")}
+
+Commands:
+  configure     Import APNs credentials and apply them live
+  status        Show configuration status without exposing the signing key
+
+${directoryOption}
+${helpHint}`,
+  "notifications-configure": `${heading("openteam notifications configure [options]", "Validate and save APNs credentials encrypted in the database. Workers read changes before their next push; no restart is needed.")}
+
+Options:
+  --config <file>        Import JSON with keyId, teamId, topic, privateKeyFile
+                        (key path is relative to the JSON file)
+  --key-file <file>      Import an Apple .p8 key directly instead of JSON
+  --key-id <id>          Apple key ID (with --key-file)
+  --team-id <id>         Apple team ID (with --key-file)
+  --topic <bundle-id>    App bundle ID (with --key-file)
+${directoryOption}
+${helpHint}
+
+Example:
+  openteam notifications configure --key-file ./AuthKey.p8 --key-id ABCDE12345 --team-id FGHIJ67890 --topic dev.openbot.mobile
+
+Local validation checks the key format and signing ability. It does not prove Apple acceptance or phone delivery.`,
+  "notifications-status": `${heading("openteam notifications status [options]", "Show the saved APNs configuration source and local validation status. The signing key is never returned.")}
+
+Options:
+${directoryOption}
+${helpHint}`,
   install: `${heading(
     "openteam install [options]",
     "Install the OpenTeam server stack, run guided setup, and wait for it to become healthy."

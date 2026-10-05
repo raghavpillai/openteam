@@ -108,7 +108,7 @@ const checkAction = (check: DoctorCheck): string | undefined => {
     case "iOS push registration":
       return "Open the iPhone app connected to this server, sign in, and check Settings → Notifications. Retry notifications or turn them off and on to register again.";
     case "iOS push credentials":
-      return "Configure OPENTEAM_APNS_KEY_ID, OPENTEAM_APNS_TEAM_ID, OPENTEAM_APNS_PRIVATE_KEY and OPENTEAM_APNS_TOPIC for the worker. The topic must match the iOS app bundle ID (dev.openbot.mobile for the distributed app). Ensure Compose passes these values into the worker and recreate it after changes.";
+      return "Run openteam notifications configure --config ./apns.json to import the APNs key and apply it live. The topic must match the iOS app bundle ID (dev.openbot.mobile for the distributed app). Then run openteam notifications status and openteam doctor.";
     case "iOS push delivery":
       return "Inspect openteam logs worker for APNs delivery errors and check the push credentials and device registration. Verify a real alert on the iPhone with the conversation closed and Focus allowing OpenTeam.";
   }

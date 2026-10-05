@@ -36,6 +36,7 @@ import {
   providerRemoveCommand,
 } from "./providers";
 import { modelCommand } from "./model-command";
+import { notificationsCommand } from "./notifications";
 import { setupCommand } from "./setup";
 
 const main = async (): Promise<void> => {
@@ -107,6 +108,10 @@ const main = async (): Promise<void> => {
       break;
     case "model-use":
       await modelUseCommand(paths, runner, options);
+      break;
+    case "notifications-configure":
+    case "notifications-status":
+      await notificationsCommand(paths, options);
       break;
     case "account-update":
       await accountUpdateCommand(paths, runner, {

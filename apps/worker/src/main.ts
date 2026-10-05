@@ -10,11 +10,15 @@ await Effect.runPromise(
     catch: (error) => (error instanceof Error ? error : new Error(String(error))),
   })
 );
-const stopDiagnostics = await startWorkerDiagnostics(worker.boss, undefined, () =>
-  checkWorkerDependencies({
-    ...worker,
-    roots: [worker.agentData.root, worker.agentData.assetRoot],
-  })
+const stopDiagnostics = await startWorkerDiagnostics(
+  worker.boss,
+  undefined,
+  () =>
+    checkWorkerDependencies({
+      ...worker,
+      roots: [worker.agentData.root, worker.agentData.assetRoot],
+    }),
+  () => worker.pushNotifications.configurationStatus()
 );
 
 const shutdown = async () => {

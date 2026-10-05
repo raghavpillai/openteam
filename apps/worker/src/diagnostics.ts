@@ -17,7 +17,8 @@ export const startWorkerDiagnostics = async (
     "createQueue" | "work" | "send" | "getJobById" | "deleteJob" | "offWork" | "deleteQueue"
   >,
   paths = { socket: DOCTOR_SOCKET, heartbeat: DOCTOR_HEARTBEAT },
-  dependencies: () => Promise<void> = async () => {}
+  dependencies: () => Promise<void> = async () => {},
+  notifications?: () => Promise<unknown>
 ): Promise<() => Promise<void>> => {
   const instance = randomUUID();
   const queue = `${DOCTOR_QUEUE}-${createHash("sha256").update(`${hostname()}:${paths.socket}`).digest("hex").slice(0, 16)}`;
@@ -99,6 +100,17 @@ export const startWorkerDiagnostics = async (
   let inFlight: ReturnType<typeof queueTest> | null = null;
   const server = createServer(async (request, response) => {
     response.setHeader("content-type", "application/json");
+    if (request.method === "GET" && request.url === "/notifications" && notifications) {
+      try {
+        const status = await notifications();
+        response.writeHead(200).end(JSON.stringify(status));
+      } catch {
+        response
+          .writeHead(503)
+          .end(JSON.stringify({ error: "APNs configuration could not be inspected" }));
+      }
+      return;
+    }
     if (request.method !== "POST" || request.url !== "/queue") {
       response.writeHead(404).end();
       return;

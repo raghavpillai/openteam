@@ -1,3 +1,4 @@
+import { ApnsSettingsStore } from "@openteam/db/apns-settings";
 import {
   type AgentNotificationPayload,
   agentNotificationDeliveryPolicy,
@@ -188,8 +189,12 @@ export class PushNotificationDispatcher {
     private readonly request: typeof fetch = fetch,
     private readonly accessToken = process.env.EXPO_ACCESS_TOKEN?.trim() || null,
     private readonly authMode = pushAuthenticationModeFromEnvironment(),
-    private readonly apns = new ApnsClient()
+    private readonly apns = new ApnsClient(async () => (await new ApnsSettingsStore(prisma).load()).config)
   ) {}
+
+  async configurationStatus() {
+    return new ApnsSettingsStore(this.prisma).status();
+  }
 
   async drain(): Promise<void> {
     if (this.draining) return;

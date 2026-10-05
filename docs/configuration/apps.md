@@ -31,7 +31,7 @@ To get notified when a bot finishes or needs your input:
 
 You won't get alerts for the conversation you're looking at. Group chats don't have their own setting; you're notified when a bot posts in a group if that bot's **Notifications** setting is on.
 
-On iPhone, turn on **Notifications** in Settings, and choose which bots notify you under **Bot notifications**. These are the same per-bot settings as on desktop. Push notifications also need Apple push credentials on your server, which currently means [running the server from source](../development/from-source.md). See the [server configuration reference](../reference/server-configuration.md).
+On iPhone, turn on **Notifications** in Settings, and choose which bots notify you under **Bot notifications**. These are the same per-bot settings as on desktop. Push notifications also need Apple push credentials on your server, which you can import with `openteam notifications configure`. Changes apply live without a restart. See the [notification configuration reference](../reference/notifications.md).
 
 ### If notifications don't arrive
 

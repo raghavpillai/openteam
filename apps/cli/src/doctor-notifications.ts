@@ -16,6 +16,23 @@ try {
 `;
 
 export const APNS_CONFIGURATION_PROBE = String.raw`
+// New workers inspect the effective database setting through their diagnostics socket.
+// Fall back only on 404/missing socket for workers released before runtime settings.
+const runtime = await new Promise((resolve, reject) => {
+  const request = require("node:http").get({ socketPath: "/tmp/openteam-worker-doctor.sock", path: "/notifications", timeout: 5000 }, (response) => {
+    let body = "";
+    response.on("data", (chunk) => { if (body.length < 16384) body += chunk; });
+    response.on("end", () => {
+      if (response.statusCode === 404) return resolve(null);
+      if (response.statusCode !== 200) return reject(new Error("Runtime APNs check failed"));
+      try { resolve(JSON.parse(body)); } catch { reject(new Error("Invalid runtime APNs status")); }
+    });
+    response.on("error", reject);
+  });
+  request.on("timeout", () => request.destroy(new Error("Runtime APNs check timed out")));
+  request.on("error", (error) => error.code === "ENOENT" || error.code === "ECONNREFUSED" ? resolve(null) : reject(error));
+});
+if (runtime) { console.log(JSON.stringify(runtime)); return; }
 const { createPrivateKey, sign } = require("node:crypto");
 const { readFileSync } = require("node:fs");
 const keyID = process.env.OPENTEAM_APNS_KEY_ID?.trim();
@@ -60,7 +77,7 @@ interface ApnsConfiguration {
 }
 
 const missingKeys = ["OPENTEAM_APNS_KEY_ID", "OPENTEAM_APNS_TEAM_ID", "OPENTEAM_APNS_PRIVATE_KEY"];
-const issues = ["key-file", "identifiers", "topic", "signing-key"];
+const issues = ["key-file", "identifiers", "topic", "signing-key", "runtime-settings"];
 const stateIsValid = (value: NotificationState): boolean =>
   value != null &&
   [value.total, value.eligible, value.invalid, value.failed, value.waiting].every(
@@ -98,19 +115,21 @@ export const notificationChecks = (
   ];
   const problem = !config
     ? "Could not inspect APNs configuration in the running worker."
-    : config.issue === "key-file"
-      ? "The worker cannot read its APNs signing-key file."
-      : config.missing.length
-        ? `Missing in the running worker: ${config.missing.join(", ")}.`
-        : config.issue === "identifiers"
-          ? "APNs key ID and team ID must each contain 10 uppercase letters or digits."
-          : config.issue === "topic"
-            ? "OPENTEAM_APNS_TOPIC is not a valid app bundle ID."
-            : config.issue === "signing-key"
-              ? "The APNs signing key must be a valid P-256 .p8 private key."
-              : state?.topics.some((topic) => topic !== config.topic)
-                ? "The worker's OPENTEAM_APNS_TOPIC does not match a registered iOS app bundle ID."
-                : null;
+    : config.issue === "runtime-settings"
+      ? "The worker cannot read or decrypt its saved APNs configuration; import it again and check database access."
+      : config.issue === "key-file"
+        ? "The worker cannot read its APNs signing-key file."
+        : config.missing.length
+          ? `Missing in the running worker: ${config.missing.join(", ")}.`
+          : config.issue === "identifiers"
+            ? "APNs key ID and team ID must each contain 10 uppercase letters or digits."
+            : config.issue === "topic"
+              ? "OPENTEAM_APNS_TOPIC is not a valid app bundle ID."
+              : config.issue === "signing-key"
+                ? "The APNs signing key must be a valid P-256 .p8 private key."
+                : state?.topics.some((topic) => topic !== config.topic)
+                  ? "The worker's APNs topic does not match a registered iOS app bundle ID."
+                  : null;
   checks.push({
     label: "iOS push credentials",
     level: problem

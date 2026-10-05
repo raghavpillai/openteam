@@ -22,6 +22,17 @@ The file also holds four generated secrets (`OPENTEAM_POSTGRES_PASSWORD`, `OPENT
 `OPENTEAM_AUTH_SECRET`, `OPENTEAM_PROXY_SECRET`), the release version, and the image registry
 prefix. Leave those alone. The owner password and inference-provider credentials are never stored here.
 
+## Live iOS push settings
+
+Use `openteam notifications configure --config ./apns.json` to import Apple push credentials,
+and `openteam notifications status` to inspect them. See [notifications](notifications.md) for the JSON
+format and key-file options. These settings live in PostgreSQL, with the signing key encrypted using
+the installation control token. Workers read changes before their next push; no restart is needed.
+The database setting overrides legacy `OPENTEAM_APNS_*` environment values. The installation `.env`
+still supplies container settings and shared secrets; Docker Compose reads it with `--env-file` and
+passes configured values into each container's environment. App and provider settings have separate
+runtime storage and are not all managed through `.env`.
+
 ## Manual settings
 
 For options unavailable in guided setup, edit `.env` in the install directory and run `openteam stop` followed by `openteam start`. The environment table lists these as set "by hand". A value only reaches a container if its Compose configuration passes it through.
@@ -57,7 +68,7 @@ normally writes a value; "Restart" says whether a change needs a container resta
 | `OPENTEAM_MARKETPLACE_FILE` | empty | by hand | yes | Custom plugin catalog path |
 | `OPENTEAM_ENFORCE_AUTOMATION_MINIMUM` | enabled unless `false` | by hand | yes | Enforce the 5-minute routine minimum; set `false` to opt out |
 | `EXPO_ACCESS_TOKEN` | empty | by hand | yes | Expo push token |
-| `OPENTEAM_APNS_KEY_ID`, `OPENTEAM_APNS_TEAM_ID`, `OPENTEAM_APNS_TOPIC`, `OPENTEAM_APNS_PRIVATE_KEY` | unset; topic defaults to `dev.openteam.mobile.swift` | by hand | yes | Apple push delivery for the native iPhone app. The topic must match the app's bundle ID. Only the development Compose file passes these to the worker; released installs don't support them yet. The worker also reads `OPENTEAM_APNS_PRIVATE_KEY_FILE`, but neither Compose file passes it. |
+| `OPENTEAM_APNS_KEY_ID`, `OPENTEAM_APNS_TEAM_ID`, `OPENTEAM_APNS_TOPIC`, `OPENTEAM_APNS_PRIVATE_KEY` | unset; release topic defaults to `dev.openbot.mobile`, source stack to `dev.openteam.mobile.swift` | legacy manual fallback | yes (environment only) | Used when no database APNs setting is saved. Prefer `openteam notifications configure` for live changes. Both Compose templates pass these values to the worker. `OPENTEAM_APNS_PRIVATE_KEY_FILE` requires a mounted key and a Compose override. |
 | `OPENTEAM_BOX_COPY_IN` | `0` | by hand | yes | Copy snapshot store in on boot |
 | `OPENTEAM_MCP_OAUTH_CLIENT_ID`, `OPENTEAM_MCP_OAUTH_CLIENT_SECRET` | unset | by hand | yes | Fallback OAuth client for MCP plugins |
 

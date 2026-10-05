@@ -1329,3 +1329,14 @@ model ComputerDisplaySettings {
   height Int @default(800)
   updatedAt DateTime @updatedAt
 }
+
+// Deployment-wide APNs credentials. The signing key is encrypted using the
+// installation control token, which is shared by the server and worker.
+model ApnsSettings {
+  id                  String   @id @default("global")
+  keyId               String
+  teamId              String
+  topic               String
+  encryptedPrivateKey String
+  updatedAt           DateTime @updatedAt
+}

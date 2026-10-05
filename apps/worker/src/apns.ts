@@ -1,5 +1,5 @@
 import { createHash, createPrivateKey, sign } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { apnsEnvironmentConfiguration } from "@openteam/db/apns-settings";
 import { connect, type ClientHttp2Session } from "node:http2";
 import {
   agentNotificationDeliveryPolicy,
@@ -83,30 +83,29 @@ export function apnsPayload(
 
 export class ApnsClient {
   private token: { value: string; created: number } | undefined;
+  private configurationHash: string | undefined;
   private sessions = new Map<string, ClientHttp2Session>();
   constructor(
-    private readonly configuration?: ApnsConfiguration,
+    private readonly configuration?: ApnsConfiguration | (() => Promise<ApnsConfiguration>),
     private readonly transport?: ApnsTransport
   ) {}
 
-  private config(): ApnsConfiguration {
-    if (this.configuration) return this.configuration;
-    const keyId = process.env.OPENTEAM_APNS_KEY_ID?.trim();
-    const teamId = process.env.OPENTEAM_APNS_TEAM_ID?.trim();
-    const topic = process.env.OPENTEAM_APNS_TOPIC?.trim() || "dev.openteam.mobile.swift";
-    let privateKey = process.env.OPENTEAM_APNS_PRIVATE_KEY?.replace(/\\n/g, "\n");
-    if (!privateKey && process.env.OPENTEAM_APNS_PRIVATE_KEY_FILE) {
-      try {
-        privateKey = readFileSync(process.env.OPENTEAM_APNS_PRIVATE_KEY_FILE, "utf8");
-      } catch {
-        throw new Error("The APNs signing-key file could not be read");
-      }
-    }
-    if (!keyId || !teamId || !privateKey)
+  private async config(): Promise<ApnsConfiguration> {
+    const config =
+      typeof this.configuration === "function"
+        ? await this.configuration()
+        : (this.configuration ?? apnsEnvironmentConfiguration());
+    if (!config.keyId || !config.teamId || !config.privateKey)
       throw new Error(
-        "Native iOS push needs OPENTEAM_APNS_KEY_ID, OPENTEAM_APNS_TEAM_ID and an APNs signing key"
+        "Native iOS push needs APNs key ID, team ID and a signing key; run openteam notifications configure"
       );
-    return { keyId, teamId, topic, privateKey };
+    const hash = createHash("sha256").update(JSON.stringify(config)).digest("hex");
+    if (hash !== this.configurationHash) {
+      this.token = undefined;
+      this.close();
+      this.configurationHash = hash;
+    }
+    return config;
   }
   private authorization(config: ApnsConfiguration): string {
     const now = Math.floor(Date.now() / 1000);
@@ -134,9 +133,9 @@ export class ApnsClient {
     badgeCount: number,
     deliveryKey: string
   ): Promise<ApnsResult> {
-    const config = this.config();
+    const config = await this.config();
     if (device.apnsTopic !== config.topic)
-      throw new Error("The native app bundle ID does not match OPENTEAM_APNS_TOPIC");
+      throw new Error("The native app bundle ID does not match the configured APNs topic");
     if (
       !["development", "production"].includes(device.apnsEnvironment ?? "") ||
       !/^(?:[a-f0-9]{2}){32,100}$/i.test(device.pushToken) ||

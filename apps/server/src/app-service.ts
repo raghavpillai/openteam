@@ -1,3 +1,4 @@
+import { ApnsSettingsStore } from "@openteam/db/apns-settings";
 import { MachineService } from "./services/machine-service";
 import { AutomationWebhooksService } from "./services/automation-webhooks";
 import { ApiError, type UploadAssetInput } from "@openteam/contracts";
@@ -43,6 +44,7 @@ const ASSET_ID = /^[a-f0-9]{64}$/;
 
 export class AppService {
   readonly transcription: TranscriptionService;
+  readonly apnsSettings: ApnsSettingsStore;
   readonly webProviders: WebProviderSettingsService;
   readonly savedLogins: SavedLoginService;
   readonly automationWebhooks: AutomationWebhooksService;
@@ -84,6 +86,7 @@ export class AppService {
   ) {
     const databaseUrl = process.env.DATABASE_URL;
     this.prisma = createPrismaClient(databaseUrl);
+    this.apnsSettings = new ApnsSettingsStore(this.prisma);
     this.webProviders = new WebProviderSettingsService(this.prisma, async (request) => {
       // Checks run in the computer so they exercise the same code as the agent's tools.
       const response = await this.computerFetch("/v1/web-providers/check", {

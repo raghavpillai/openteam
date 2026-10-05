@@ -3,6 +3,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:http";
 import {
   APNS_CONFIGURATION_PROBE,
   NOTIFICATION_STATE_PROBE,
@@ -37,8 +38,8 @@ describe("Doctor notification readiness", () => {
     const result = { ok: false, installed: true, checks };
     const output = renderDoctor(result, { color: false, width: 100 });
     expect(output).toContain("NOTIFICATIONS");
-    expect(doctorNextSteps(result).join("\n")).toContain("Ensure Compose passes");
-    expect(doctorNextSteps(result).join("\n")).toContain("recreate it");
+    expect(doctorNextSteps(result).join("\n")).toContain("notifications configure");
+    expect(doctorNextSteps(result).join("\n")).toContain("apply it live");
   });
 
   test("APNs is optional for installations without an eligible iPhone", () => {
@@ -141,12 +142,18 @@ const { privateKey } = generateKeyPairSync("ec", {
   privateKeyEncoding: { format: "pem", type: "pkcs8" },
   publicKeyEncoding: { format: "pem", type: "spki" },
 });
-const runConfig = async (env: Record<string, string>) => {
-  const child = Bun.spawn(["node", "-e", APNS_CONFIGURATION_PROBE], {
-    env: { PATH: process.env.PATH, ...env },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+const runConfig = async (env: Record<string, string>, socketPath?: string) => {
+  const script = socketPath
+    ? APNS_CONFIGURATION_PROBE.replace("/tmp/openteam-worker-doctor.sock", socketPath)
+    : APNS_CONFIGURATION_PROBE;
+  const child = Bun.spawn(
+    ["node", "-e", `(async () => {${script}})().catch(() => process.exitCode = 1)`],
+    {
+      env: { PATH: process.env.PATH, ...env },
+      stdout: "pipe",
+      stderr: "pipe",
+    }
+  );
   const output = await new Response(child.stdout).text();
   expect(await child.exited).toBe(0);
   expect(output).not.toContain(privateKey);
@@ -161,6 +168,26 @@ const credentials = {
 };
 
 describe("real APNs worker configuration probe", () => {
+  test("uses the worker's live database setting even when its environment credentials differ", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "openteam-apns-socket-"));
+    const socket = join(directory, "doctor.sock");
+    let issue: string | null = null;
+    const server = createServer((request, response) => {
+      expect(request.url).toBe("/notifications");
+      response.end(JSON.stringify({ ...config, source: "database", issue }));
+    });
+    await new Promise<void>((resolve) => server.listen(socket, resolve));
+    try {
+      expect(await runConfig({}, socket)).toMatchObject({ ...config, source: "database" });
+      issue = "runtime-settings";
+      const status = await runConfig(credentials, socket);
+      expect(status.issue).toBe("runtime-settings");
+      expect(check(notificationChecks(state, status), "iOS push credentials").level).toBe("fail");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
   test("reports missing credentials without requiring a phone or contacting Apple", async () => {
     expect(await runConfig({})).toEqual({
       missing,

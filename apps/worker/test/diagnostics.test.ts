@@ -27,7 +27,8 @@ const post = (socketPath: string, path = "/queue", method = "POST") =>
 
 const fixture = async (
   mode: "ready" | "failed" | "hung" | "foreign" | "dependencies" | "dependencies-hung" = "ready",
-  queueLatencyMs = 0
+  queueLatencyMs = 0,
+  notifications?: () => Promise<unknown>
 ) => {
   const directory = await mkdtemp(join(tmpdir(), "ot-doc-"));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
@@ -66,16 +67,42 @@ const fixture = async (
     offWork: async () => {},
     deleteQueue: async () => {},
   } as unknown as PgBoss;
-  const stop = await startWorkerDiagnostics(boss, paths, async () => {
-    dependencyCalls++;
-    if (mode === "dependencies-hung") return new Promise(() => {});
-    if (mode === "dependencies") throw new Error("secret database connection string");
-  });
+  const stop = await startWorkerDiagnostics(
+    boss,
+    paths,
+    async () => {
+      dependencyCalls++;
+      if (mode === "dependencies-hung") return new Promise(() => {});
+      if (mode === "dependencies") throw new Error("secret database connection string");
+    },
+    notifications
+  );
   cleanups.push(stop);
   return { paths, deleted, queues, dependencyCalls: () => dependencyCalls };
 };
 
 describe("worker diagnostics", () => {
+  test("reads current APNs status without sending a notification or consuming a queue job", async () => {
+    let source = "environment";
+    const { paths, deleted } = await fixture("ready", 0, async () => ({
+      source,
+      topic: "dev.openbot.mobile",
+      missing: [],
+      issue: null,
+    }));
+    expect((await post(paths.socket, "/notifications", "GET")).body.source).toBe("environment");
+    source = "database";
+    expect((await post(paths.socket, "/notifications", "GET")).body.source).toBe("database");
+    expect(deleted).toEqual([]);
+  });
+  test("runtime APNs diagnostic failures never expose exception text", async () => {
+    const { paths } = await fixture("ready", 0, async () => {
+      throw new Error("secret-signing-key");
+    });
+    const response = await post(paths.socket, "/notifications", "GET");
+    expect(response.status).toBe(503);
+    expect(JSON.stringify(response.body)).not.toContain("secret-signing-key");
+  });
   test("publishes a private heartbeat and confirms processing through the registered consumer", async () => {
     const { paths, deleted, queues } = await fixture();
     const heartbeat = JSON.parse(await readFile(paths.heartbeat, "utf8"));

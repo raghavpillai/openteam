@@ -213,10 +213,26 @@ a missing worker even if the API responds. Use `doctor` for deeper connection an
 Doctor also checks iOS push registrations and their login sessions, APNs credentials in the running
 worker, P-256 signing-key validity, app bundle-ID matches, and recent push errors or overdue pushes.
 Missing APNs credentials warn for installations without an eligible iPhone and fail when an eligible
-iPhone needs push delivery. Configure `OPENTEAM_APNS_KEY_ID`, `OPENTEAM_APNS_TEAM_ID`,
-`OPENTEAM_APNS_PRIVATE_KEY` (PEM, with escaped newlines if needed), and `OPENTEAM_APNS_TOPIC`
-in the installation environment; the distributed iOS app uses `dev.openbot.mobile`. Compose must pass
-these values into the worker, which must be recreated after changing them.
+iPhone needs push delivery. Import APNs credentials with:
+
+```sh
+openteam notifications configure --config ./apns.json
+openteam notifications status
+openteam doctor
+```
+
+`apns.json` contains `keyId`, `teamId`, `topic` (the distributed app uses
+`dev.openbot.mobile`) and `privateKeyFile`, a path to the Apple `.p8` key relative to the JSON file.
+Alternatively, use `--key-file ./AuthKey.p8 --key-id ABCDE12345 --team-id FGHIJ67890 --topic dev.openbot.mobile`.
+The CLI validates locally and imports through the running server's authenticated settings API.
+The signing key is encrypted in PostgreSQL with the installation control token; it is never returned
+by the status API. Back up the database and installation `.env` together, and retain your Apple key
+so you can import it again if the installation control token changes.
+Workers read this setting before each push and refresh their Apple authentication token and connections
+when it changes. Neither the deployment nor the worker needs to restart. The database setting takes
+precedence over legacy `OPENTEAM_APNS_*` environment credentials; editing those environment values
+still requires worker recreation. Older releases need one update to gain this command and runtime support.
+
 These server-side checks run on Linux and macOS, do not send test alerts, and do not prove Apple
 accepted the credentials. Verify delivery on a real iPhone after resolving configuration errors.
 Output wraps to the terminal width and respects `NO_COLOR` and `TERM=dumb`. Redirected output has

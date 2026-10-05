@@ -18,9 +18,11 @@ export type CommandName =
   | "model-list"
   | "model-use"
   | "account-update"
+  | "notifications-configure"
+  | "notifications-status"
   | "uninstall";
 
-export type HelpTopic = "global" | CommandName | "provider" | "model" | "account";
+export type HelpTopic = "global" | CommandName | "provider" | "model" | "account" | "notifications";
 
 export interface CliOptions {
   command: CommandName | "help" | "version";
@@ -58,6 +60,11 @@ export interface CliOptions {
   maxTokens?: string;
   reasoning?: boolean;
   noAuth?: boolean;
+  apnsConfig?: string;
+  apnsKeyFile?: string;
+  apnsKeyId?: string;
+  apnsTeamId?: string;
+  apnsTopic?: string;
 }
 
 const commands = new Set<CommandName>([
@@ -78,6 +85,8 @@ const commands = new Set<CommandName>([
   "model-list",
   "model-use",
   "account-update",
+  "notifications-configure",
+  "notifications-status",
   "uninstall",
 ]);
 
@@ -131,6 +140,14 @@ const commandFlags: Record<CommandName, ReadonlySet<string>> = {
   "model-list": new Set(),
   "model-use": new Set(["--thinking"]),
   "account-update": new Set(["--username", "--password"]),
+  "notifications-configure": new Set([
+    "--config",
+    "--key-file",
+    "--key-id",
+    "--team-id",
+    "--topic",
+  ]),
+  "notifications-status": new Set(),
   uninstall: new Set(["--yes", "-y", "--purge"]),
 };
 
@@ -184,7 +201,10 @@ const helpTopicFromArguments = (parts: readonly string[]): HelpTopic => {
   const topic = rawTopic === "health" ? "status" : rawTopic;
   if (!topic || topic === "--help" || topic === "-h") return "global";
   if (extra.length > 0) throw new CliError(`Unknown help topic: ${parts.join(" ")}`);
-  if (topic === "provider") {
+  if (topic === "notifications") {
+    if (!action) return "notifications";
+    if (["configure", "status"].includes(action)) return `notifications-${action}` as HelpTopic;
+  } else if (topic === "provider") {
     if (!action) return "provider";
     if (["list", "login", "logout", "add", "remove"].includes(action)) {
       return `provider-${action}` as HelpTopic;
@@ -222,7 +242,17 @@ const valueFlags = new Map<
   | "thinking"
   | "contextWindow"
   | "maxTokens"
+  | "apnsConfig"
+  | "apnsKeyFile"
+  | "apnsKeyId"
+  | "apnsTeamId"
+  | "apnsTopic"
 >([
+  ["--config", "apnsConfig"],
+  ["--key-file", "apnsKeyFile"],
+  ["--key-id", "apnsKeyId"],
+  ["--team-id", "apnsTeamId"],
+  ["--topic", "apnsTopic"],
   ["--dir", "directory"],
   ["--install-dir", "directory"],
   ["--version", "version"],
@@ -252,6 +282,12 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
   if (["version", "--version", "-v"].includes(rawCommand)) {
     return emptyOptions("version");
   }
+  const notificationAction = rawCommand === "notifications" ? rawRest[0] : undefined;
+  if (rawCommand === "notifications" && (!notificationAction || notificationAction.startsWith("-")))
+    return emptyOptions("help", "notifications");
+  if (rawCommand === "notifications" && !["configure", "status"].includes(notificationAction!))
+    throw new CliError("Unknown notifications command; use configure or status.");
+  const nestedNotifications = rawCommand === "notifications";
   const nestedAccountUpdate = rawCommand === "account" && rawRest[0] === "update";
   const providerAction = rawCommand === "provider" ? rawRest[0] : undefined;
   const modelAction = rawCommand === "model" ? rawRest[0] : undefined;
@@ -275,26 +311,29 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
       `Unknown model command: ${modelAction}.${suggestion ? ` Did you mean "${suggestion}"?` : ""}`
     );
   }
-  const command = nestedAccountUpdate
-    ? "account-update"
-    : nestedProviderList
-      ? "provider-list"
-      : nestedProviderLogin
-        ? "provider-login"
-        : nestedProviderLogout
-          ? "provider-logout"
-          : nestedProviderAdd
-            ? "provider-add"
-            : nestedProviderRemove
-              ? "provider-remove"
-              : nestedModelList
-                ? "model-list"
-                : nestedModelUse
-                  ? "model-use"
-                  : rawCommand === "health"
-                    ? "status"
-                    : rawCommand;
+  const command = nestedNotifications
+    ? `notifications-${notificationAction}`
+    : nestedAccountUpdate
+      ? "account-update"
+      : nestedProviderList
+        ? "provider-list"
+        : nestedProviderLogin
+          ? "provider-login"
+          : nestedProviderLogout
+            ? "provider-logout"
+            : nestedProviderAdd
+              ? "provider-add"
+              : nestedProviderRemove
+                ? "provider-remove"
+                : nestedModelList
+                  ? "model-list"
+                  : nestedModelUse
+                    ? "model-use"
+                    : rawCommand === "health"
+                      ? "status"
+                      : rawCommand;
   let rest =
+    nestedNotifications ||
     nestedAccountUpdate ||
     nestedProviderList ||
     nestedProviderLogin ||
@@ -310,7 +349,7 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
       return emptyOptions("help", command as CommandName);
     }
     if (
-      ["provider", "model", "account"].includes(rawCommand) &&
+      ["provider", "model", "account", "notifications"].includes(rawCommand) &&
       (!rawRest[0] || rawRest[0].startsWith("-"))
     ) {
       return emptyOptions("help", rawCommand as HelpTopic);

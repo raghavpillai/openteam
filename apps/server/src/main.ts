@@ -1,3 +1,4 @@
+import { internalNotificationsRoute } from "./routes/internal-notifications";
 import { machineChannelResponse } from "./machine-http";
 import { connectorTransferResponse, boundedRequest } from "./connector-transfer-http";
 import { automationWebhookBinding, receiveAutomationWebhook } from "./automation-webhooks";
@@ -212,6 +213,8 @@ const server = Bun.serve<VncConnection>({
           return json({ error: { code: "method_not_allowed", message: "Method not allowed" } }, 405);
         return json(await app.webProviders.credentials(path.includes("/web-fetch/") ? "fetch" : "search"));
       }
+      if (path === "/api/internal/server-settings/notifications")
+        return internalNotificationsRoute(request, app.apnsSettings, authorizedInternal);
       if (request.method === "PATCH" && path === "/api/internal/server-settings/inference") {
         if (!authorizedInternal(request)) {
           return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);

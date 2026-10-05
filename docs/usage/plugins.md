@@ -14,9 +14,12 @@ Plugins connect your bots to services such as Gmail, GitHub, Slack, and Notion. 
 | Linear | Find, create, and update issues, projects, and comments |
 | Notion | Work with pages for documents, research, meetings, and tasks |
 | Granola | Use meeting notes, decisions, and action items |
+| Plaid | Set up the official CLI with your own keys, connect banks, and query financial data |
 | 1Password saved logins | Fill website logins from vaults connected with a service-account token |
 
 Slack, Granola, and Notion include provider skills alongside their tools. See [the included skills and how to enable them](skills.md#skills-from-plugins). Gmail, Google Calendar, and Google Drive provide tools without bundled skills.
+
+Plaid is a skills-only integration. After adding it, ask a Bot to set up Plaid on the computer that should hold your credentials. Its setup skill installs the CLI separately; bank connections live in that computer's CLI configuration rather than OpenTeam's Accounts section. See the [Plaid guide](../../packages/plugins/plaid/README.md).
 
 ## Add a plugin
 

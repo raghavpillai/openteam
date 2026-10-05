@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "key": "plaid",
+  "version": "1.0.0",
+  "name": "Plaid",
+  "description": "Connect your banks and query balances, transactions, investments, and loans with your own Plaid credentials.",
+  "publisher": "OpenTeam",
+  "category": "Finance and Legal",
+  "featured": false,
+  "components": ["skills"],
+  "connections": [],
+  "icon": "assets/icon.png",
+  "homepageUrl": "https://plaid.com/docs/resources/cli/",
+  "installationSteps": [
+    "Install this plugin, then ask a Bot to set up Plaid on your connected computer or its Linux computer.",
+    "Provide your own Plaid credentials through secure input on that computer. Production access is required for real banks.",
+    "Ask to connect a bank and complete Plaid Link yourself, then try a balance or transaction query.",
+    "Uninstalling the plugin removes its skills; the separately installed CLI, credentials, and bank connections require separate cleanup."
+  ],
+  "skills": [
+    {
+      "name": "plaid-setup",
+      "description": "Set up Plaid: choose a computer, install the official CLI, and configure your own credentials and environment.",
+      "path": "skills/plaid-setup"
+    },
+    {
+      "name": "plaid-connections",
+      "description": "Connect a bank through Plaid Link, list bank connections and accounts, or remove a selected connection.",
+      "path": "skills/plaid-connections"
+    },
+    {
+      "name": "plaid-financial-data",
+      "description": "Query and summarize Plaid balances, transactions, investments, or liabilities for connected accounts.",
+      "path": "skills/plaid-financial-data"
+    },
+    {
+      "name": "plaid-troubleshooting",
+      "description": "Diagnose Plaid CLI setup, credential, product-access, or bank connection errors.",
+      "path": "skills/plaid-troubleshooting"
+    }
+  ]
+}

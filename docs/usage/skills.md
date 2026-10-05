@@ -45,6 +45,7 @@ Some installed plugins include skills and runtime instructions. These load for a
 | [Slack](../../packages/plugins/slack/README.md#skills-and-commands) | 8: `slack-messaging`, `slack-search`, `slack-docs`, `slack-api`, `slack-cli`, `create-slack-app`, `test-slack-app`, and `block-kit` |
 | [Granola](../../packages/plugins/granola/README.md) | 3: `granola-context`, `granola-prep`, and `granola-review` |
 | [Notion](../../packages/plugins/notion/README.md) | 14: `search`, `find`, `create-page`, `create-task`, `create-database-row`, `database-query`, `knowledge-capture`, `meeting-intelligence`, `research-documentation`, `spec-to-implementation`, `tasks-plan`, `tasks-build`, `tasks-explain-diff`, and `tasks-setup` |
+| [Plaid](../../packages/plugins/plaid/README.md) | 4: `plaid-setup`, `plaid-connections`, `plaid-financial-data`, and `plaid-troubleshooting` |
 
 Gmail, Google Calendar, Google Drive, GitHub, and Linear provide tools without bundled skills. You can create a private skill that uses those tools.
 

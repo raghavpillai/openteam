@@ -19,7 +19,7 @@ Plus,
 Search
 } from "lucide-react";
 import { Accordion } from "radix-ui";
-import { lazy,Suspense,useEffect,useMemo,useState } from "react";
+import { lazy,Suspense,useEffect,useLayoutEffect,useMemo,useRef,useState } from "react";
 import { api } from "../../client/openteam-api";
 import { cn } from "../../lib/cn";
 import { AnimatedCollapse } from "../ui/animated-collapse";
@@ -396,6 +396,7 @@ function SquareToggle({
 function PluginSetupCard({
   busy,
   connection,
+  focusRequest,
   plugin,
   onAuthenticate,
   onConfigureOAuth,
@@ -404,6 +405,7 @@ function PluginSetupCard({
 }: {
   busy: boolean;
   connection: PluginConnectionView;
+  focusRequest: number;
   plugin: PluginCatalogItemView;
   onAuthenticate: () => void;
   onConfigureOAuth: (input: { clientId: string; clientSecret: string; scope: string }) => void;
@@ -413,6 +415,17 @@ function PluginSetupCard({
   const setup = plugin.setup;
   const [values, setValues] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState<string | null>(null);
+  const sectionRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const section = sectionRef.current;
+    if (!focusRequest || !section) return;
+    const target = section.querySelector<HTMLElement>("input:required") ??
+      section.querySelector<HTMLElement>("input") ??
+      section.querySelector<HTMLElement>("[data-setup-action]:not(:disabled)") ?? section;
+    section.scrollIntoView({ block: "start", behavior: "instant" });
+    target.scrollIntoView({ block: "nearest", behavior: "instant" });
+    target.focus({ preventScroll: true });
+  }, [focusRequest]);
   useEffect(() => {
     if (connection.configured) setValues({});
   }, [connection.id, connection.configured]);
@@ -458,6 +471,9 @@ function PluginSetupCard({
 
   return (
     <section
+      ref={sectionRef}
+      tabIndex={-1}
+      aria-label={setup.title}
       className={cn(
         "mt-5 overflow-hidden rounded-[12px] border",
         ready
@@ -588,6 +604,7 @@ function PluginSetupCard({
                   </span>
                   <input
                     aria-label={field.label}
+                    required={field.required}
                     className="h-8 w-full rounded-[7px] border border-black/[0.08] bg-background px-2.5 text-[10.5px] outline-none placeholder:text-foreground-tertiary focus:border-black/20 dark:border-white/10 dark:bg-[#1d1d1d] dark:focus:border-white/20"
                     onChange={(event) =>
                       setValues((current) => ({ ...current, [field.key]: event.target.value }))
@@ -616,6 +633,7 @@ function PluginSetupCard({
             </p>
           ) : null}
           <button
+            data-setup-action
             className={cn(primaryButton, "mt-3")}
             disabled={busy || requiresHttps || (!connection.configured && missingRequired)}
             onClick={submit}
@@ -866,12 +884,12 @@ export function PluginDetail({
   advancedSettings?: React.ReactNode;
 }) {
   const [setupValues, setSetupValues] = useState<Record<string, string>>({});
-  const [setupAccountId, setSetupAccountId] = useState<string | null>(null);
+  const [setupRequest, setSetupRequest] = useState<{ accountId: string; sequence: number } | null>(null);
   const [dismissedSetupIds, setDismissedSetupIds] = useState<string[]>([]);
   const install = installFor(data, plugin.key);
   const connections = install?.connections ?? [];
   const setupConnection =
-    connections.find((c) => c.id === setupAccountId && c.status !== "ready") ??
+    connections.find((c) => c.id === setupRequest?.accountId && c.status !== "ready") ??
     connections.find((c) => !dismissedSetupIds.includes(c.id) && c.status !== "ready" && (!c.configured || plugin.setup?.kind === "none"));
   const recentActivity = data.activity
     .filter((entry) => entry.pluginKey === plugin.key)
@@ -957,7 +975,9 @@ export function PluginDetail({
                 onRemove={() => onRemoveAccount(connection)}
                 onCancelAuthentication={() => onCancelAuthentication(connection)}
                 onConnect={() => {
-                  if (!connection.configured && plugin.setup) setSetupAccountId(connection.id);
+                  if (!connection.configured && plugin.setup) {
+                    setSetupRequest(request => ({ accountId: connection.id, sequence: (request?.sequence ?? 0) + 1 }));
+                  }
                   else if (connection.auth === "oauth" && connection.status === "needs_auth")
                     onAuthenticate(connection);
                   else onRestart(connection);
@@ -993,10 +1013,11 @@ export function PluginDetail({
               key={setupConnection.id}
               busy={busy === setupConnection.id}
               connection={setupConnection}
+              focusRequest={setupRequest?.accountId === setupConnection.id ? setupRequest.sequence : 0}
               onAuthenticate={() => onAuthenticate(setupConnection)}
               onConfigureOAuth={(input) => onConfigureOAuth(setupConnection, input)}
               onConfigureToken={(token) => onConfigureToken(setupConnection, token)}
-              onDismiss={() => { setDismissedSetupIds(ids => [...ids, setupConnection.id]); setSetupAccountId(null); }}
+              onDismiss={() => { setDismissedSetupIds(ids => [...ids, setupConnection.id]); setSetupRequest(null); }}
               plugin={plugin}
             />
           ) : null}

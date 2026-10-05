@@ -1,6 +1,7 @@
 import type { PluginConnectionView } from "@openteam/contracts";
 import { Check, LoaderCircle, SquarePen, Plus, Settings2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
+import { AnimatedCollapse } from "../../ui/animated-collapse";
 import { cn } from "../../../lib/cn";
 import { pluginAuthorization } from "@openteam/product-core/plugin-authorization";
 import { PluginAuthorization } from "./plugin-authorization";
@@ -29,6 +30,7 @@ export function PluginAccountRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const settingsId = useId();
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [alias, setAlias] = useState(connection.alias);
   useEffect(() => setAlias(connection.alias), [connection.alias]);
@@ -90,6 +92,7 @@ export function PluginAccountRow({
             <button
               aria-label={`${connection.alias} account settings`}
               aria-expanded={expanded}
+              aria-controls={settingsId}
               title="Account settings"
               className={cn(
                 iconButton,
@@ -147,7 +150,9 @@ export function PluginAccountRow({
       </div>
       <PluginAuthorization connection={connection} busy={busy} onCancel={onCancelAuthentication} onRetry={onConnect} />
       {connection.statusMessage && !ready && !authorization ? <p role="status" className="px-3.5 pb-3 text-[11px] text-foreground-secondary">{connection.statusMessage}</p> : null}
-      {expanded && <div className="px-3 pb-3">{children}</div>}
+      <AnimatedCollapse open={expanded} id={settingsId}>
+        <div className="px-3 pb-3">{children}</div>
+      </AnimatedCollapse>
     </div>
   );
 }
@@ -162,12 +167,16 @@ export function AddPluginAccount({
   onAdd: (connection: PluginConnectionView, alias: string) => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
+  const formId = useId();
   const [alias, setAlias] = useState("");
   const [connector, setConnector] = useState(connections[0]?.connectorKey ?? "");
+  const focusLabel = useCallback((input: HTMLInputElement | null) => {
+    input?.focus({ preventScroll: true });
+  }, []);
   const choices = [...new Map(connections.map((c) => [c.connectorKey, c])).values()];
   return (
-    <div className="border-t border-black/[0.065] dark:border-white/[0.07]">
-      {open ? (
+    <div className="border-t border-black/[0.065] [overflow-anchor:none] dark:border-white/[0.07]">
+      <AnimatedCollapse open={open} id={formId}>
         <form
           data-plugin-account-editor
           className="flex flex-wrap items-center gap-2 p-3"
@@ -203,7 +212,7 @@ export function AddPluginAccount({
             </select>
           )}
           <input
-            autoFocus
+            ref={focusLabel}
             aria-label="New account label"
             placeholder="Label this account, e.g. work or personal"
             className="h-8 min-w-0 flex-1 rounded-md border border-black/10 bg-background px-2 text-[12px] outline-none dark:border-white/10"
@@ -224,17 +233,20 @@ export function AddPluginAccount({
             Cancel
           </button>
         </form>
-      ) : (
+      </AnimatedCollapse>
+      <AnimatedCollapse open={!open}>
         <button
           type="button"
           className="flex min-h-[42px] w-full cursor-pointer items-center gap-1.5 px-3.5 text-left text-[13px] text-foreground-secondary outline-none transition-colors duration-120 ease-out hover:bg-foreground/[0.08] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 disabled:cursor-default disabled:opacity-45"
           disabled={busy}
+          aria-expanded={open}
+          aria-controls={formId}
           onClick={() => setOpen(true)}
         >
           <Plus className="size-3.5" />
           Add Another Account
         </button>
-      )}
+      </AnimatedCollapse>
     </div>
   );
 }

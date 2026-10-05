@@ -95,7 +95,7 @@ export default function PluginWorkspace({
                 </div>
                 {packageView && (
                   <details
-                    className="rounded-xl border border-black/10 p-4 dark:border-white/10"
+                    className="animated-disclosure rounded-xl border border-black/10 p-4 dark:border-white/10"
                     open={Boolean(packageView.update || packageView.skillSyncStatus === "error")}
                   >
                     <summary className="cursor-pointer text-sm font-medium">

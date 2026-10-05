@@ -8,7 +8,8 @@ import {
 } from "@openteam/contracts/web-search";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { Ban, Check, ChevronRight, CircleCheck, CircleX, ExternalLink, LoaderCircle, TriangleAlert } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
+import { AnimatedCollapse } from "../../ui/animated-collapse";
 import { api } from "../../../client/openteam-api";
 import { cn } from "../../../lib/cn";
 import { SettingsGroup, SettingsHeading } from "./ui";
@@ -88,6 +89,7 @@ function toolWarning(tool: WebTool, view: WebProvidersView): { tone: Tone; text:
 }
 
 export default function ProvidersSettings() {
+  const contentId = useId();
   const [view, setView] = useState<WebProvidersView | null>(null);
   const [page, setPage] = useState<WebTool | null>(null);
   // Unsaved edits on the open page.
@@ -270,7 +272,7 @@ export default function ProvidersSettings() {
         {providerStatus(info, state)}
         {/* Fixed columns keep statuses and chevrons aligned, with or without a key field. */}
         {keyed ? (
-          <ChevronRight className={cn("size-3.5 shrink-0 text-foreground-tertiary transition-transform", open && "rotate-90")} />
+          <ChevronRight className={cn("size-3.5 shrink-0 text-foreground-tertiary transition-transform duration-200 ease-out motion-reduce:transition-none", open && "rotate-90")} />
         ) : (
           <span className="size-3.5 shrink-0" />
         )}
@@ -281,7 +283,7 @@ export default function ProvidersSettings() {
         <div className="flex items-center gap-2.5">
           {radio(info.id, `Use ${info.name} for ${tool}`)}
           {keyed ? (
-            <button aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none" onClick={() => toggle(info.id)} type="button">
+            <button aria-expanded={open} aria-controls={`${contentId}-${tool}-${info.id}`} className="flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none" onClick={() => toggle(info.id)} type="button">
               {label}
             </button>
           ) : (
@@ -302,7 +304,7 @@ export default function ProvidersSettings() {
             <span className="w-[72px] shrink-0" />
           )}
         </div>
-        {open ? (
+        <AnimatedCollapse open={open} id={`${contentId}-${tool}-${info.id}`}>
           <div className="mt-2.5 space-y-2 pl-[54px]">
             <div className="flex items-center gap-2">
               <input
@@ -363,7 +365,7 @@ export default function ProvidersSettings() {
               </button>
             ) : null}
           </div>
-        ) : null}
+        </AnimatedCollapse>
       </div>
     );
   };

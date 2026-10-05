@@ -66,6 +66,25 @@
   border-radius: 14px;
   background: #77777717;
 }
+.plugin-detail-accordion-content {
+  overflow: hidden;
+  animation-duration: 200ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+.plugin-detail-accordion-content[data-state="open"] {
+  animation-name: plugin-accordion-open;
+}
+.plugin-detail-accordion-content[data-state="closed"] {
+  animation-name: plugin-accordion-close;
+}
+@keyframes plugin-accordion-open {
+  from { height: 0; opacity: 0; }
+  to { height: var(--radix-accordion-content-height); opacity: 1; }
+}
+@keyframes plugin-accordion-close {
+  from { height: var(--radix-accordion-content-height); opacity: 1; }
+  to { height: 0; opacity: 0; }
+}
 @keyframes plugin-push-in {
   from {
     transform: translateX(100%);
@@ -132,7 +151,8 @@
 @media (prefers-reduced-motion: reduce) {
   .plugin-dialog[data-state],
   .plugin-overlay[data-state],
-  .plugin-page[data-direction] {
+  .plugin-page[data-direction],
+  .plugin-detail-accordion-content[data-state] {
     animation: none;
   }
 }

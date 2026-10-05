@@ -114,7 +114,7 @@ export function PrivateSkills({
               onChange={(event) => setBody(event.target.value)}
             />
           </PluginField>
-          <details>
+          <details className="animated-disclosure">
             <summary className="cursor-pointer text-sm">Supporting files</summary>
             <PluginField
               label="Relative file paths and text content"

@@ -36,7 +36,7 @@ export function MachineSettings() {
           ? <button type="button" disabled={busy} onClick={() => void change(() => api.setMachineEnabled(machine.machineId, !machine.enabled))}>{machine.enabled ? "Disable" : "Enable"}</button>
           : <button type="button" disabled={busy} onClick={() => void change(() => api.removeMachine(machine.machineId))}>Remove</button>}
       </div>)}
-      <details className="text-xs"><summary>Connect a bridge manually</summary>
+      <details className="animated-disclosure text-xs"><summary>Connect a bridge manually</summary>
       <form className="flex gap-2 py-2" onSubmit={event => { event.preventDefault(); void change(async () => { await api.registerMachine(address); setAddress(""); }); }}>
         <input aria-label="Computer bridge URL" type="url" required placeholder="http://computer.local:port" value={address} onChange={event => setAddress(event.target.value)} className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-xs" />
         <button type="submit" disabled={busy || !address.trim()} className="text-xs">Add computer</button>

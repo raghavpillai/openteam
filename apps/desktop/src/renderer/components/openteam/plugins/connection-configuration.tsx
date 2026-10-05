@@ -269,7 +269,7 @@ export function ConnectionConfiguration({
           )}
         </PluginField>
       ))}
-      {config.runtime !== "desktop" && <details className="rounded-xl border border-black/10 p-3 dark:border-white/10">
+      {config.runtime !== "desktop" && <details className="animated-disclosure rounded-xl border border-black/10 p-3 dark:border-white/10">
         <summary className="cursor-pointer text-[12px] font-medium">Server settings</summary>
         <div className="mt-4 grid gap-4">
           {connection.transport === "http" && (

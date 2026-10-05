@@ -3,6 +3,7 @@ import { ChevronDown } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../../../lib/cn";
 import { visiblePluginCategoryCount } from "../../../lib/plugin-category-layout";
+import { AnimatedCollapse } from "../../ui/animated-collapse";
 
 const chip =
   "inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-full border border-black/[0.06] bg-black/[0.04] px-2.5 text-[13px] leading-4 text-foreground-secondary outline-none transition-colors duration-120 ease-out hover:bg-black/[0.08] focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:border-white/[0.06] dark:bg-white/[0.04] dark:hover:bg-white/[0.08]";
@@ -60,29 +61,29 @@ export function MarketplaceCategories({
     </button>
   );
   return (
-    <div className="relative mt-3 grid shrink-0 gap-2" role="group" aria-label="Plugin categories">
+    <div className="relative mt-3 grid shrink-0" role="group" aria-label="Plugin categories">
       <div className="flex min-w-0 gap-2">
         {PLUGIN_MARKETPLACE_CATEGORIES.slice(0, visibleCount).map(renderCategory)}
         {visibleCount < PLUGIN_MARKETPLACE_CATEGORIES.length && (
           <button
             aria-expanded={expanded}
-            aria-controls={expanded ? extraId : undefined}
+            aria-controls={extraId}
             className={chip}
             type="button"
             onClick={() => setExpanded((value) => !value)}
           >
             {expanded ? "Hide" : "More"}
             <ChevronDown
-              className={cn("size-3 transition-transform duration-120 ease-out", expanded && "rotate-180")}
+              className={cn("size-3 transition-transform duration-200 ease-out motion-reduce:transition-none", expanded && "rotate-180")}
             />
           </button>
         )}
       </div>
-      {expanded && visibleCount < PLUGIN_MARKETPLACE_CATEGORIES.length && (
-        <div className="flex flex-wrap gap-2" id={extraId}>
+      <AnimatedCollapse open={expanded && visibleCount < PLUGIN_MARKETPLACE_CATEGORIES.length} id={extraId}>
+        <div className="flex flex-wrap gap-2 pt-2">
           {PLUGIN_MARKETPLACE_CATEGORIES.slice(visibleCount).map(renderCategory)}
         </div>
-      )}
+      </AnimatedCollapse>
       <div
         aria-hidden="true"
         className="pointer-events-none invisible absolute inset-0 overflow-hidden"

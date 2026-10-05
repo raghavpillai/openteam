@@ -18,7 +18,8 @@ LoaderCircle,
 Plus,
 Search
 } from "lucide-react";
-import { lazy,Suspense,useEffect,useId,useMemo,useState } from "react";
+import { Accordion } from "radix-ui";
+import { lazy,Suspense,useEffect,useMemo,useState } from "react";
 import { api } from "../../client/openteam-api";
 import { cn } from "../../lib/cn";
 const loadPluginSettingsDetail = () => import("./plugin-settings-detail");
@@ -281,6 +282,45 @@ export function CustomMcpView({
   );
 }
 
+function DetailAccordion({
+  children,
+  summary,
+  onOpenChange,
+  open = false,
+}: {
+  children: React.ReactNode;
+  summary: React.ReactNode;
+  onOpenChange?: (open: boolean) => void;
+  open?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(open);
+  return (
+    <Accordion.Root
+      type="single"
+      collapsible
+      value={expanded ? "content" : ""}
+      onValueChange={(value) => {
+        const nextOpen = value === "content";
+        setExpanded(nextOpen);
+        onOpenChange?.(nextOpen);
+      }}
+      className="plugin-management-card overflow-hidden"
+    >
+      <Accordion.Item value="content">
+        <Accordion.Header>
+          <Accordion.Trigger className="group flex min-h-[42px] w-full cursor-pointer items-center px-3.5 py-3 text-left text-[13px] font-normal leading-[18px] outline-none transition-colors duration-120 ease-out hover:bg-black/[0.08] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 motion-reduce:transition-none dark:hover:bg-white/[0.08]">
+            <span className="flex-1">{summary}</span>
+            <ChevronDown className="size-3.5 text-foreground-tertiary transition-transform duration-200 ease-out group-data-[state=open]:rotate-180 motion-reduce:transition-none" />
+          </Accordion.Trigger>
+        </Accordion.Header>
+        <Accordion.Content className="plugin-detail-accordion-content" inert={!expanded} aria-hidden={!expanded}>
+          {children}
+        </Accordion.Content>
+      </Accordion.Item>
+    </Accordion.Root>
+  );
+}
+
 function DetailBlock({
   children,
   count,
@@ -296,8 +336,6 @@ function DetailBlock({
   onOpenChange?: (open: boolean) => void;
   open?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(open);
-  const contentId = useId();
   const singular =
     label === "Connectors"
       ? "connector"
@@ -309,29 +347,13 @@ function DetailBlock({
   return (
     <section className="mt-6">
       <h3 className="mb-2 px-3.5 text-[13px] font-normal text-foreground-tertiary">{label}</h3>
-      <div className="overflow-hidden rounded-[14px] bg-[#77777717]">
-        <button
-          aria-expanded={expanded}
-          aria-controls={expanded ? contentId : undefined}
-          className="flex min-h-[42px] w-full cursor-pointer items-center rounded-[14px] px-3.5 py-3 text-left text-[13px] leading-[18px] outline-none transition-colors duration-120 ease-out hover:bg-black/[0.08] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 aria-expanded:rounded-b-none dark:hover:bg-white/[0.08]"
-          onClick={() => {
-            setExpanded(!expanded);
-            onOpenChange?.(!expanded);
-          }}
-          type="button"
-        >
-          <span className="flex-1">
-            {summary ?? `${count} ${singular}${count === 1 ? "" : "s"}`}
-          </span>
-          <ChevronDown
-            className={cn(
-              "size-3.5 text-foreground-tertiary transition-transform duration-120 ease-out",
-              expanded && "rotate-180"
-            )}
-          />
-        </button>
-        {expanded && <div id={contentId}>{children}</div>}
-      </div>
+      <DetailAccordion
+        summary={summary ?? `${count} ${singular}${count === 1 ? "" : "s"}`}
+        open={open}
+        onOpenChange={onOpenChange}
+      >
+        {children}
+      </DetailAccordion>
     </section>
   );
 }
@@ -536,7 +558,7 @@ function PluginSetupCard({
           ) : null}
 
           {setup.requiredScopes.length ? (
-            <details className="mt-3 text-[10px] text-foreground-secondary">
+            <details className="animated-disclosure mt-3 text-[10px] text-foreground-secondary">
               <summary className="cursor-pointer select-none text-foreground-secondary">
                 Required provider scopes ({setup.requiredScopes.length})
               </summary>
@@ -842,7 +864,6 @@ export function PluginDetail({
   onToggle: (connection: PluginConnectionView) => void;
   advancedSettings?: React.ReactNode;
 }) {
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [setupValues, setSetupValues] = useState<Record<string, string>>({});
   const [setupAccountId, setSetupAccountId] = useState<string | null>(null);
   const [dismissedSetupIds, setDismissedSetupIds] = useState<string[]>([]);
@@ -902,8 +923,8 @@ export function PluginDetail({
         {plugin.description}
       </p>
 
-      {plugin.installationSteps?.length ? <details className="mt-4 text-[12px]"><summary className="cursor-pointer">Installation steps</summary><ol className="mt-2 list-decimal space-y-1 pl-5">{plugin.installationSteps.map(step => <li key={step}>{step}</li>)}</ol></details> : null}
-      {!install && plugin.setup ? <details className="mt-3 text-[12px]"><summary className="cursor-pointer">Provider setup: {plugin.setup.title}</summary><p className="mt-2">{plugin.setup.description}</p><ol className="mt-2 list-decimal space-y-1 pl-5">{plugin.setup.steps.map(step => <li key={step}>{step}</li>)}</ol>{plugin.setup.documentationUrl && <a href={plugin.setup.documentationUrl} target="_blank" rel="noreferrer" className="underline">Provider setup guide</a>}</details> : null}
+      {plugin.installationSteps?.length ? <details className="animated-disclosure mt-4 text-[12px]"><summary className="cursor-pointer">Installation steps</summary><ol className="mt-2 list-decimal space-y-1 pl-5">{plugin.installationSteps.map(step => <li key={step}>{step}</li>)}</ol></details> : null}
+      {!install && plugin.setup ? <details className="animated-disclosure mt-3 text-[12px]"><summary className="cursor-pointer">Provider setup: {plugin.setup.title}</summary><p className="mt-2">{plugin.setup.description}</p><ol className="mt-2 list-decimal space-y-1 pl-5">{plugin.setup.steps.map(step => <li key={step}>{step}</li>)}</ol>{plugin.setup.documentationUrl && <a href={plugin.setup.documentationUrl} target="_blank" rel="noreferrer" className="underline">Provider setup guide</a>}</details> : null}
       {!install && plugin.setupFields.length ? (
         <div className="mt-5 grid grid-cols-2 gap-2 rounded-[10px] bg-black/[0.035] p-3 dark:bg-white/[0.045] max-sm:grid-cols-1">
           {plugin.setupFields.map((field) => (
@@ -1032,12 +1053,9 @@ export function PluginDetail({
       </section>
       {install && advancedSettings ? <section className="mt-6">
         <h3 className="mb-2 px-3.5 text-[13px] text-foreground-tertiary">Settings</h3>
-        <div className="plugin-management-card overflow-hidden">
-          <button type="button" aria-expanded={advancedOpen} className="flex min-h-[42px] w-full cursor-pointer items-center justify-between px-3.5 text-left text-[13px] outline-none hover:bg-foreground/[0.05] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500" onClick={() => setAdvancedOpen(!advancedOpen)}>
-            Advanced settings <ChevronDown className={cn("size-3.5 transition-transform duration-200", advancedOpen && "rotate-180")} />
-          </button>
-          {advancedOpen && <div className="border-t border-foreground/10 p-4">{advancedSettings}</div>}
-        </div>
+        <DetailAccordion summary="Advanced settings">
+          <div className="border-t border-foreground/10 p-4">{advancedSettings}</div>
+        </DetailAccordion>
       </section> : null}
       {recentActivity.length ? (
         <DetailBlock count={recentActivity.length} label="Activity" open={false}>

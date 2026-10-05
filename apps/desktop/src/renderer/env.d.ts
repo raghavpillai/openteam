@@ -68,6 +68,15 @@ interface Window {
       }) => Promise<OpenTeamServerUpdateStatus>;
       onServerProgress: (listener: (status: OpenTeamServerUpdateStatus) => void) => () => void;
     };
+    microphone: {
+      status: () => Promise<{
+        permission: "not-determined" | "granted" | "denied" | "restricted" | "unknown";
+        canOpenSettings: boolean;
+        canRequestPermission: boolean;
+      }>;
+      requestPermission: () => Promise<boolean>;
+      openSettings: () => Promise<void>;
+    };
     notifications: {
       sync: (snapshot: {
         cursor?: string;

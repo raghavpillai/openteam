@@ -23,6 +23,7 @@ import {
   net,
   protocol,
   shell,
+  systemPreferences,
 } from "electron";
 import type { AppUpdater } from "electron-updater";
 import { applicationMenuTemplate } from "./application-menu";
@@ -875,6 +876,43 @@ ipcMain.handle("openteam:notifications:open-settings", async (event) => {
     return;
   }
   await shell.openExternal("ms-settings:notifications");
+});
+
+const requireMicrophoneWindow = (event: Electron.IpcMainInvokeEvent) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error("Microphone settings are unavailable");
+  }
+};
+
+ipcMain.handle("openteam:microphone:status", (event) => {
+  requireMicrophoneWindow(event);
+  const supported = process.platform === "darwin" || process.platform === "win32";
+  return {
+    permission: supported ? systemPreferences.getMediaAccessStatus("microphone") : "unknown",
+    canOpenSettings: supported,
+    canRequestPermission: process.platform === "darwin",
+  };
+});
+
+ipcMain.handle("openteam:microphone:request-permission", (event) => {
+  requireMicrophoneWindow(event);
+  if (process.platform !== "darwin") {
+    throw new Error("Use system settings to allow microphone access.");
+  }
+  return systemPreferences.askForMediaAccess("microphone");
+});
+
+ipcMain.handle("openteam:microphone:open-settings", async (event) => {
+  requireMicrophoneWindow(event);
+  if (process.platform === "darwin") {
+    await shell.openExternal(
+      "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+    );
+  } else if (process.platform === "win32") {
+    await shell.openExternal("ms-settings:privacy-microphone");
+  } else {
+    throw new Error("Open your system's microphone settings to manage access.");
+  }
 });
 
 const requireComputerSettings = (event: Electron.IpcMainInvokeEvent) => {

@@ -22,7 +22,7 @@ Desktop Enter stops recording for review; the arrow transcribes and sends. A sec
 
 Desktop microphone selection is saved per computer and shared across app windows. If the chosen input disconnects, recording tries the system default once and retains the preference. Permission denial does not trigger fallback. Recording requests echo cancellation, noise suppression, and automatic gain control.
 
-The local input meter requests permission only when clicked. It stops after 30 seconds, cancellation, settings closure, app hiding, an input change, or disconnection. It never records or uploads audio.
+Desktop General settings show the selected microphone and microphone access status. Checking permission does not activate the microphone. Users can request access or open the system’s microphone privacy settings; the status refreshes when they return to OpenTeam.
 
 ## Self-host on an Apple silicon Mac
 

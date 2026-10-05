@@ -29,6 +29,7 @@ Voice notes need a transcription service. Set it up once on the server and it wo
 Transcription uses its own API key. A ChatGPT or Claude sign-in for chat doesn't cover it. Changing the default model for new selections does not migrate an existing saved model.
 
 To choose a microphone on desktop, open **Settings → General → System → Microphone**.
+The **Microphone access** row shows whether permission is allowed, blocked, or not yet requested. Choose **Enable microphone** to request access, or **System settings** to manage it on macOS or Windows. The status refreshes when you return to OpenTeam.
 
 ## Use your own transcription service
 
@@ -40,4 +41,5 @@ The bundled local MLX / Parakeet service is configured under **Custom / OpenAI-c
 
 - **The microphone button is unavailable:** transcription is turned off or not set up on the server.
 - **Recording doesn't start:** check that OpenTeam has microphone permission in your device's settings.
+- **No speech was detected:** check the selected microphone, connection, mute control, and system input volume. Use your system’s sound settings to check whether the input meter moves while you speak. An allowed permission status does not verify that the microphone captures sound.
 - **Transcription fails:** use **Test saved connection** in `openteam model`, then try a short recording. If a note fails, retry or discard it; it wasn't sent.

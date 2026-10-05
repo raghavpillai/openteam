@@ -1,5 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { renderMicrophoneControl } from "../../src/renderer/components/openteam/settings/general";
 import { MicrophoneSettings } from "../../src/renderer/components/openteam/settings/microphone";
 import { PromptInput } from "../../src/renderer/components/ai-elements/prompt-input";
 import { api } from "../../src/renderer/client/openteam-api";
@@ -65,6 +66,34 @@ const media = Object.assign(new EventTarget(), {
   },
 });
 Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: media });
+let systemPermission = "not-determined";
+let permissionRequests = 0;
+let settingsOpened = 0;
+let nativeStatusFails = false;
+Object.defineProperty(window, "openteam", {
+  configurable: true,
+  value: {
+    microphone: {
+      status: async () => {
+        if (nativeStatusFails) throw new Error("Native status unavailable");
+        return { permission: systemPermission, canOpenSettings: true, canRequestPermission: true };
+      },
+      requestPermission: async () => {
+        permissionRequests++;
+        systemPermission = "granted";
+        return true;
+      },
+      openSettings: async () => {
+        settingsOpened++;
+      },
+    },
+  },
+});
+// Chromium permission can disagree with the OS; the native result must take precedence.
+Object.defineProperty(navigator, "permissions", {
+  configurable: true,
+  value: { query: async () => Object.assign(new EventTarget(), { state: "granted" }) },
+});
 const button = (text: string) =>
   [...document.querySelectorAll<HTMLButtonElement>("button")].find(
     (item) => item.textContent === text || item.getAttribute("aria-label") === text
@@ -75,21 +104,41 @@ const choose = async (id: string) => {
   selector().dispatchEvent(new Event("change", { bubbles: true }));
   await pause();
 };
-const renderSettings = async () => {
+const renderSettings = async (preview = false) => {
   root.render(
     <React.StrictMode>
-      <MicrophoneSettings />
+      <MicrophoneSettings
+        renderControl={
+          preview
+            ? renderMicrophoneControl
+            : ({ options, onValueChange, ...props }) => (
+                <select
+                  aria-label="Microphone"
+                  {...props}
+                  onChange={(event) => onValueChange(event.target.value)}
+                >
+                  {options.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              )
+        }
+      />
     </React.StrictMode>
   );
-  await waitFor(() => Boolean(selector()?.querySelector('option[value="headset"]')), "Device list");
+  await waitFor(
+    () =>
+      preview
+        ? Boolean(document.querySelector('[aria-label="Microphone"]'))
+        : Boolean(selector()?.querySelector('option[value="headset"]')),
+    "Device list"
+  );
 };
 const unmount = async () => {
   root.render(null);
   await pause();
-};
-const startTest = async () => {
-  button("Test microphone").click();
-  await waitFor(() => Boolean(document.querySelector('[role="meter"]')), "Microphone test started");
 };
 
 async function run() {
@@ -97,6 +146,73 @@ async function run() {
   localStorage.removeItem(MICROPHONE_STORAGE_KEY);
   await renderSettings();
   assert(requests.length === 0, "Opening settings accessed microphone");
+  await waitFor(
+    () => document.body.textContent!.includes("Not requested"),
+    "OS permission not requested"
+  );
+  assert(permissionRequests === 0, "Opening settings requested system permission");
+  button("Enable microphone").click();
+  await waitFor(
+    () => document.body.textContent!.includes("Allowed"),
+    "Permission allowed after enable"
+  );
+  assert(
+    permissionRequests === 1 && requests.length === 0,
+    "Enable did not request OS permission without capture"
+  );
+  systemPermission = "denied";
+  window.dispatchEvent(new Event("focus"));
+  await waitFor(
+    () => document.body.textContent!.includes("Blocked"),
+    "Native denied overrides browser granted"
+  );
+  button("System settings").click();
+  await pause();
+  assert(
+    settingsOpened === 1 && requests.length === 0,
+    "Settings action accessed microphone or failed to open settings"
+  );
+  systemPermission = "restricted";
+  window.dispatchEvent(new Event("focus"));
+  await pause();
+  assert(
+    document.body.textContent!.includes("Blocked"),
+    "Restricted OS access was shown as allowed"
+  );
+  systemPermission = "granted";
+  window.dispatchEvent(new Event("focus"));
+  await waitFor(
+    () => document.body.textContent!.includes("Allowed"),
+    "Refresh permission on return from system settings"
+  );
+  reports.push(
+    "system permission status overrides browser permission, enables on click, and refreshes after returning from settings without capturing audio"
+  );
+
+  nativeStatusFails = true;
+  window.dispatchEvent(new Event("focus"));
+  await waitFor(
+    () => document.body.textContent!.includes("Unknown"),
+    "Failed native check must not report allowed"
+  );
+  const nativeBridge = (window as any).openteam.microphone;
+  (window as any).openteam.microphone = undefined;
+  window.dispatchEvent(new Event("focus"));
+  await waitFor(
+    () => document.body.textContent!.includes("Allowed"),
+    "Browser permission fallback without native bridge"
+  );
+  assert(
+    document.body.textContent!.includes("Allowed") && !button("System settings"),
+    "Browser-only permission did not fall back to browser status"
+  );
+  (window as any).openteam.microphone = nativeBridge;
+  nativeStatusFails = false;
+  window.dispatchEvent(new Event("focus"));
+  await waitFor(() => Boolean(button("System settings")), "Native settings action recovered");
+  reports.push(
+    "failed OS permission checks stay unknown; browser-only sessions use browser status and native checks recover"
+  );
   assert(selector().options.length === 3, "Outputs leaked into microphone choices");
   await choose("usb-mic");
   await unmount();
@@ -135,105 +251,20 @@ async function run() {
   assert(selector().options.length === 3, "Stale device enumeration replaced current devices");
   reports.push("hot-plug refresh preserves the preferred microphone and ignores stale enumeration");
 
-  await startTest();
-  await waitFor(
-    () => Number(document.querySelector('[role="meter"]')?.getAttribute("aria-valuenow")) > 10,
-    "Real audio level"
-  );
-  assert(
-    (requests.at(-1)!.audio as MediaTrackConstraints).deviceId &&
-      JSON.stringify(requests.at(-1)).includes("usb-mic"),
-    "Test ignored selected input"
-  );
-  assert(uploads === 0, "Microphone test uploaded audio");
-  button("Stop microphone test").click();
-  await waitFor(() => active.size === 0, "Stop releases microphone");
-  reports.push(
-    "local test uses the chosen microphone and real Web Audio metering without uploading"
-  );
-
-  await startTest();
-  await choose("headset");
-  assert(active.size === 0, "Changing device left previous test running");
-  await startTest();
-  await unmount();
-  assert(active.size === 0, "Closing settings leaked microphone");
-  await renderSettings();
-  localStorage.setItem(MICROPHONE_STORAGE_KEY, "usb-mic");
+  localStorage.setItem(MICROPHONE_STORAGE_KEY, "headset");
   window.dispatchEvent(new StorageEvent("storage", { key: MICROPHONE_STORAGE_KEY }));
   await pause();
-  assert(selector().value === "usb-mic", "Preference did not sync across client windows");
-  reports.push(
-    "device changes, closing settings, and client-window preference updates release tests"
-  );
-
-  let resolvePermission!: (stream: MediaStream) => void;
-  capture = () =>
-    new Promise((resolve) => {
-      resolvePermission = resolve;
-    });
-  button("Test microphone").click();
-  await waitFor(
-    () => Boolean(button("Cancel microphone test")),
-    "Pending permission can be cancelled"
-  );
-  button("Cancel microphone test").click();
-  resolvePermission(await synthesize());
-  await pause();
+  assert(selector().value === "headset", "Preference did not sync across client windows");
+  await choose("usb-mic");
   assert(
-    active.size === 0 && !document.querySelector('[role="meter"]'),
-    "Cancelled permission started a test"
+    requests.length === 0 && uploads === 0 && active.size === 0,
+    "Settings captured or uploaded audio"
   );
-  reports.push("cancelling an unanswered permission request releases its late audio stream");
-
-  const beforeDenied = requests.length;
-  capture = async () => {
-    throw new DOMException("Denied", "NotAllowedError");
-  };
-  button("Test microphone").click();
-  await waitFor(
-    () => document.body.textContent!.includes("Allow microphone access"),
-    "Denied message"
-  );
-  assert(requests.length === beforeDenied + 1, "Permission denial retried another input");
-  capture = async () => {
-    throw new DOMException("Missing", "NotFoundError");
-  };
-  button("Test microphone").click();
-  await waitFor(
-    () => document.body.textContent!.includes("No microphone found"),
-    "Missing microphone message"
-  );
-  reports.push("permission denial and missing hardware produce distinct actionable errors");
-
-  capture = async (constraints) => {
-    if ((constraints.audio as MediaTrackConstraints).deviceId)
-      throw new DOMException("Disconnected", "NotReadableError");
-    return synthesize();
-  };
-  await startTest();
-  assert(document.body.textContent!.includes("Using system default"), "Fallback notice missing");
   assert(
-    !JSON.stringify(requests.at(-1)).includes("deviceId"),
-    "Fallback still requested missing device"
+    !document.body.textContent!.includes("Microphone test"),
+    "Removed microphone test is still shown"
   );
-  assert(selector().value === "usb-mic", "Fallback forgot preferred microphone");
-  [...active][0]!.dispatchEvent(new Event("ended"));
-  await waitFor(
-    () => active.size === 0 && document.body.textContent!.includes("Microphone disconnected"),
-    "Disconnected test cleanup"
-  );
-  reports.push("unavailable selection falls back once and a disconnected test releases its audio");
-
-  capture = synthesize;
-  await startTest();
-  await waitFor(
-    () => document.body.textContent!.includes("Microphone test finished"),
-    "Automatic 30-second stop",
-    32_000
-  );
-  assert(active.size === 0 && uploads === 0, "Automatic stop leaked audio or uploaded the test");
-  reports.push("microphone tests automatically stop after 30 seconds");
+  reports.push("microphone selection syncs across windows without a test row or audio capture");
 
   await unmount();
   root.render(
@@ -271,9 +302,7 @@ async function run() {
     "Voice transcript"
   );
   assert(uploads === 1 && active.size === 0, "Recording did not upload once and release input");
-  reports.push(
-    "actual MediaRecorder and composer share saved selection and fallback with the microphone test"
-  );
+  reports.push("actual MediaRecorder and composer use the saved microphone and fallback");
 
   capture = synthesize;
   document.querySelector<HTMLButtonElement>('[aria-label="Record voice note"]')!.click();
@@ -293,14 +322,31 @@ async function run() {
   );
   await unmount();
   await renderSettings();
-  (window as any).prepareMicrophoneScreenshot = async () => {
-    await startTest();
+  (window as any).voiceScreenshotStates = [
+    "microphone-not-requested",
+    "microphone-blocked",
+    "microphone-allowed",
+    "microphone-blocked-narrow",
+    "microphone-allowed-dark",
+  ];
+  (window as any).prepareVoiceScreenshot = async (state: string) => {
+    await unmount();
+    systemPermission = state.includes("not-requested")
+      ? "not-determined"
+      : state.includes("blocked")
+        ? "denied"
+        : "granted";
+    document.documentElement.dataset.theme = state.includes("dark") ? "dark" : "light";
+    document.body.style.maxWidth = state.includes("narrow") ? "500px" : "800px";
+    await renderSettings(true);
     await waitFor(
-      () => Number(document.querySelector('[role="meter"]')?.getAttribute("aria-valuenow")) > 10,
-      "Screenshot level"
+      () =>
+        Boolean(document.querySelector('[role="status"]')) &&
+        !document.body.textContent!.includes("Checking…"),
+      "Screenshot permission ready"
     );
   };
-  (window as any).finishMicrophoneScreenshot = unmount;
+  (window as any).finishVoiceScreenshot = unmount;
   return { reports, uploads };
 }
 run()

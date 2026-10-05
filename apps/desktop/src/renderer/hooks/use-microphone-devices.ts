@@ -1,4 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { useMicrophonePermission } from "./use-microphone-permission";
 import {
   MICROPHONE_ACCESS_EVENT,
   readMicrophonePreference,
@@ -9,7 +10,7 @@ export function useMicrophoneDevices() {
   const deviceId = useSyncExternalStore(subscribeMicrophonePreference, readMicrophonePreference);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "unsupported">("loading");
-  const [permission, setPermission] = useState<PermissionState | "unknown">("unknown");
+  const access = useMicrophonePermission();
   useEffect(() => {
     const media = navigator.mediaDevices;
     if (!media?.enumerateDevices) {
@@ -18,7 +19,6 @@ export function useMicrophoneDevices() {
     }
     let active = true;
     let sequence = 0;
-    let permissionStatus: PermissionStatus | undefined;
     const refresh = async () => {
       const request = ++sequence;
       try {
@@ -35,21 +35,6 @@ export function useMicrophoneDevices() {
         if (active && request === sequence) setStatus("error");
       }
     };
-    const permissionChanged = () => {
-      if (!active || !permissionStatus) return;
-      setPermission(permissionStatus.state);
-      void refresh();
-    };
-    // Querying permission does not request it or activate the microphone.
-    void navigator.permissions
-      ?.query({ name: "microphone" as PermissionName })
-      .then((value) => {
-        if (!active) return;
-        permissionStatus = value;
-        permissionChanged();
-        value.addEventListener("change", permissionChanged);
-      })
-      .catch(() => undefined);
     void refresh();
     media.addEventListener("devicechange", refresh);
     window.addEventListener("focus", refresh);
@@ -59,8 +44,7 @@ export function useMicrophoneDevices() {
       media.removeEventListener("devicechange", refresh);
       window.removeEventListener("focus", refresh);
       window.removeEventListener(MICROPHONE_ACCESS_EVENT, refresh);
-      permissionStatus?.removeEventListener("change", permissionChanged);
     };
   }, []);
-  return { deviceId, devices, status, permission };
+  return { deviceId, devices, status, ...access };
 }

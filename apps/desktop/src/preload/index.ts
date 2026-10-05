@@ -246,6 +246,11 @@ contextBridge.exposeInMainWorld("openteam", {
       return () => ipcRenderer.removeListener("openteam:server-update-progress", handler);
     },
   },
+  microphone: {
+    status: () => ipcRenderer.invoke("openteam:microphone:status"),
+    requestPermission: () => ipcRenderer.invoke("openteam:microphone:request-permission"),
+    openSettings: () => ipcRenderer.invoke("openteam:microphone:open-settings"),
+  },
   notifications: {
     sync: (snapshot: unknown) =>
       ipcRenderer.send("openteam:notifications:sync", notificationSnapshot(snapshot)),

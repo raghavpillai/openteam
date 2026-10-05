@@ -26,9 +26,9 @@ const SettingsSelectContent = ({ children }: PropsWithChildren) => (
 );
 
 // Reuse the selector already loaded for Theme; device discovery stays lazy.
-const renderMicrophoneControl = ({ options, ...props }: MicrophoneControlProps) => (
+export const renderMicrophoneControl = ({ options, ...props }: MicrophoneControlProps) => (
   <Select {...props}>
-    <SelectTrigger aria-label="Microphone" className="h-7 w-auto max-w-[220px] rounded-[8px] border-input bg-subtle px-2 text-[12px] shadow-none">
+    <SelectTrigger aria-label="Microphone" className="h-7 w-auto max-w-[220px] rounded-[8px] border-black/[0.055] bg-black/[0.035] px-2 text-[12px] shadow-none dark:border-white/[0.07] dark:bg-white/[0.07] [&>span]:truncate">
       <SelectValue />
     </SelectTrigger>
     <SettingsSelectContent>

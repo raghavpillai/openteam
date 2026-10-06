@@ -10,7 +10,7 @@ describe("OpenTeam marketplace", () => {
     const source = new OpenTeamMarketplaceSource(undefined, bundledOpenTeamMarketplace);
     const plugins = await source.plugins();
 
-    expect(plugins).toHaveLength(8);
+    expect(plugins).toHaveLength(9);
     expect(plugins.some(plugin => plugin.key === "1password")).toBe(false);
     expect(plugins.map((plugin) => plugin.key)).not.toContain("openteam-utility-lab");
     expect(plugins.map((plugin) => plugin.key)).not.toContain("onedrive");
@@ -20,6 +20,7 @@ describe("OpenTeam marketplace", () => {
     expect(plugins.map((plugin) => plugin.key)).toContain("slack");
     expect(plugins.map((plugin) => plugin.key)).toContain("notion");
     expect(plugins.map((plugin) => plugin.key)).toContain("linear");
+    expect(plugins.map((plugin) => plugin.key)).toContain("plaid");
     expect(plugins.map((plugin) => plugin.key)).not.toContain("atlassian");
     expect(plugins.map((plugin) => plugin.key)).not.toContain("asana");
     expect(plugins.map((plugin) => plugin.key)).not.toContain("research-playbook");

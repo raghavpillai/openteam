@@ -1,12 +1,15 @@
-# Slack
+# Slack (managed)
 
 This package connects to Slack's official MCP server using a Slack application owned by your deployment. Internal apps can use it without a Marketplace listing. Unlisted distributed apps cannot use Slack MCP.
+
+For browser-session access without a Slack app, use [Slack (stealth)](../slack-stealth/README.md).
+The managed plugin retains the `slack` package and connection keys, so the name update preserves existing accounts and authorization.
 
 Your OpenTeam server stores the app credentials and account authorization and connects directly to Slack's hosted MCP server. Create the internal app once for your workspace, then use it for the OpenTeam accounts in that workspace.
 
 Before connecting, configure an HTTPS address for your OpenTeam server. Tailscale Serve works for a private deployment; keep Tailscale connected on the devices used to sign in. This package uses a server callback, so callback paste is not available.
 
-1. Install Slack from **Marketplace**, then open the plugin's account settings. Copy the displayed OAuth callback URL.
+1. Install **Slack (managed)** from **Marketplace**, then open the plugin's account settings. Copy the displayed OAuth callback URL.
 2. Open [Your Apps](https://api.slack.com/apps), select **Create New App → From a manifest**, and paste [slack-app-manifest.json](slack-app-manifest.json). Replace its example redirect URL with the exact OpenTeam callback URL. Choose your workspace, review, and create the app.
 3. In the Slack app dashboard, open **Agents** and turn on **Enable Slack MCP Server**. OAuth can succeed while discovery fails if this switch is off.
 4. From **Basic Information**, copy the client ID and client secret into OpenTeam. Choose **Save and authorize**, select the workspace, and approve access.

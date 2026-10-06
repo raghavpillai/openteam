@@ -1,0 +1,33 @@
+{
+  "repository": "korotovsky/slack-mcp-server",
+  "version": "v1.3.0",
+  "revision": "a079b3cd4d5836d791c942a9fc107987e7865b37",
+  "build": {
+    "toolchain": "go1.25.9",
+    "sourceDigest": "88f5653d9dda8dc345c9e6204b1726946d8731ce5a93a92b9d18a239dd11658b",
+    "timestamp": "2026-05-14T22:46:32Z",
+    "flags": [
+      "-trimpath",
+      "-buildvcs=false",
+      "-mod=readonly",
+      "-ldflags",
+      "-s -w -X github.com/korotovsky/slack-mcp-server/pkg/version.CommitHash=a079b3cd4d5836d791c942a9fc107987e7865b37 -X github.com/korotovsky/slack-mcp-server/pkg/version.Version=v1.3.0 -X github.com/korotovsky/slack-mcp-server/pkg/version.BuildTime=2026-05-14T22:46:32Z -X github.com/korotovsky/slack-mcp-server/pkg/version.BinaryName=slack-mcp-server"
+    ]
+  },
+  "binaries": {
+    "linux-x64": {
+      "path": "connector/bin/linux-x64.gz",
+      "sha256": "aad5012c294651adf026fa0e5dc8df2638c6e3c8ef27e30f122e01cfb657a17d",
+      "size": 16646328,
+      "gzipSha256": "3f78e9e152cafdd84cd26ed98646634ad40ceaf1d7c092bfa5a22c1bb195edb5",
+      "gzipSize": 7249185
+    },
+    "linux-arm64": {
+      "path": "connector/bin/linux-arm64.gz",
+      "sha256": "e19caf16357d17973618cf688db336ac7aed466a9cecb92206f03c20b0e86c12",
+      "size": 15794360,
+      "gzipSha256": "ef0043e228eb28b5fb4dd02ff3cadab3090d0d0cfb6032aa267fbff21b7bdba2",
+      "gzipSize": 6777553
+    }
+  }
+}

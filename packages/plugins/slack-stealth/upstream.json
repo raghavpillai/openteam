@@ -1,0 +1,10 @@
+{
+  "repository": "korotovsky/slack-mcp-server",
+  "revision": "a079b3cd4d5836d791c942a9fc107987e7865b37",
+  "directory": "",
+  "delivery": "reference",
+  "license": "MIT",
+  "files": {
+    "LICENSE": "c9c83612abe6c352b95a2fc1146638accdd5b348b21cdef333cc78f756e22397"
+  }
+}

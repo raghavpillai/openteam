@@ -2,6 +2,11 @@
 
 Connect Slack so bots can search channels, read threads, send messages, and work with canvases, using your Slack account's access.
 
+Choose **Slack (managed)** for Slack's official MCP server with an authorized app.
+Choose **Slack (stealth)** for browser-session access without an app; see the
+[stealth setup guide](../../packages/plugins/slack-stealth/README.md). The plugins
+have separate accounts. The instructions below apply to **Slack (managed)**.
+
 ## Before you start
 
 - Your server needs an HTTPS address, because Slack returns you to it after you sign in. See [Tailscale HTTPS](../configuration/remote-access.md#tailscale-https) or [public HTTPS](../configuration/remote-access.md#public-domain-with-automatic-https).
@@ -9,7 +14,7 @@ Connect Slack so bots can search channels, read threads, send messages, and work
 
 ## 1. Create a Slack app
 
-1. In OpenTeam, choose **Add** on Slack in **Marketplace**, and copy the **Authorized redirect URI** from the plugin's page.
+1. In OpenTeam, choose **Add** on **Slack (managed)** in **Marketplace**, and copy the **Authorized redirect URI** from the plugin's page.
 2. Open [Slack's app dashboard](https://api.slack.com/apps), choose **Create New App → From a manifest**, and pick your workspace.
 3. Paste OpenTeam's [Slack app manifest](../../packages/plugins/slack/slack-app-manifest.json). Replace its example redirect URL with the URI you copied from OpenTeam.
 4. Review the permissions and create the app.

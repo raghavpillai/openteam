@@ -28,6 +28,10 @@ const AvatarPicker = lazy(() =>
 const BotScreen = lazy(() =>
   import("./bot-screen").then((module) => ({ default: module.BotScreen }))
 );
+// Memory management remains conversational; do not expose this unfinished entry point.
+// const BotMemoryButton = lazy(() =>
+//   import("./bot-memory").then((module) => ({ default: module.BotMemoryButton }))
+// );
 const RoutineEditor = lazy(() =>
   import("./routine-panel").then((module) => ({ default: module.RoutineEditor }))
 );
@@ -510,6 +514,7 @@ export const Inspector = memo(function Inspector({
                 : `${bot.name}'s screen`}
             </div>
           </section>
+          {/* <BotMemoryButton bot={bot} active={active} /> */}
           <RoutinesSummary
             active={active}
             ownerId={bot.id}

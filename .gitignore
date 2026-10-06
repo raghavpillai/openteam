@@ -16,5 +16,6 @@ apps/desktop/release-local/
 /artifacts/
 /findings/
 /output/
+/launch/
 apps/landing/.generated/
 /.agents/skills/openteam-macos-release/

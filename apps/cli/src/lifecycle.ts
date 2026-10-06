@@ -27,7 +27,7 @@ import {
   writeManifest,
 } from "./config";
 import { CLI_VERSION, DEFAULT_REPOSITORY, PROJECT_NAME } from "./constants";
-import { type ComposeProject, requireComposeProject } from "./docker";
+import { type ComposeProject, DOCKER_OUTPUT_HINT, requireComposeProject } from "./docker";
 import { printDoctor, runDoctor } from "./doctor";
 import { doctorNextSteps } from "./doctor-ui";
 import { CliError } from "./errors";
@@ -514,8 +514,13 @@ const updateCommandUnlocked = async (
       : recovery.status === 0
         ? " and restarted"
         : ", but it could not be restarted";
+    // The durable worker's console is update.log, so Docker's output is there, not "above".
+    const cause = (error instanceof Error ? error.message : String(error)).replace(
+      DOCKER_OUTPUT_HINT,
+      `see ${paths.updateLog}`
+    );
     throw new CliError(
-      `Update failed and the previous Compose configuration was restored${recoveryDetail}${databaseRecoveryError ? `; database restore also failed: ${databaseRecoveryError}` : ""}: ${error instanceof Error ? error.message : error}`
+      `Update failed and the previous Compose configuration was restored${recoveryDetail}${databaseRecoveryError ? `; database restore also failed: ${databaseRecoveryError}` : ""}: ${cause}`
     );
   }
   const completion = cliPromotion

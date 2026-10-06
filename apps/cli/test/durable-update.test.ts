@@ -15,6 +15,7 @@ import {
   durableUpdateCommand,
   runUpdateWorker,
   UPDATE_WORKER_JOB_ENV,
+  updateLogFailure,
   updateWorkerArguments,
   updateWorkerJobId,
 } from "../src/durable-update";
@@ -256,5 +257,91 @@ describe("durable one-command update", () => {
       phase: "error",
       message: "fixture signature rejected",
     });
+  });
+
+  test("records a refused target so followers report it at once and in full", async () => {
+    const paths = fixture();
+    const now = new Date().toISOString();
+    writeManifest(paths, {
+      schemaVersion: 1,
+      repository: "owner/repo",
+      version: "1.3.0",
+      composeUrl: "https://example.com/openteam-compose.yaml",
+      installedAt: now,
+      updatedAt: now,
+    });
+    const installed = "/usr/local/bin/openteam";
+    const jobId = randomUUID();
+    let staged = false;
+    await expect(
+      runUpdateWorker(
+        paths,
+        parseArguments(["update", "--version", "1.2.0"]),
+        { run: () => ({ status: 1, stdout: "", stderr: "unexpected runner call" }) },
+        jobId,
+        {
+          executable: installed,
+          argv: [installed, installed, "update", "--version", "1.2.0"],
+          platform: "linux",
+          architecture: "x64",
+          versions: { bun: "1.4.2" },
+          standaloneExecutable: true,
+          stageCli: async () => {
+            staged = true;
+            throw new Error("must not download a CLI for a refused target");
+          },
+        }
+      )
+    ).rejects.toThrow("Refusing to downgrade OpenTeam 1.3.0 to 1.2.0");
+    expect(staged).toBe(false);
+    expect(readUpdateState(paths)).toMatchObject({
+      jobId,
+      status: "error",
+      phase: "error",
+      fromVersion: "1.3.0",
+      targetVersion: "1.2.0",
+      message:
+        "Refusing to downgrade OpenTeam 1.3.0 to 1.2.0. Use --allow-downgrade only for an intentional recovery.",
+    });
+  });
+
+  test("does not overwrite the state of another live update", async () => {
+    const paths = fixture();
+    const activeJob = randomUUID();
+    mkdirSync(paths.updateLock, { mode: 0o700 });
+    writeFileSync(
+      join(paths.updateLock, "owner.json"),
+      `${JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })}\n`
+    );
+    writeUpdateState(paths, state(activeJob, "running", "checking"));
+    await expect(
+      runUpdateWorker(
+        paths,
+        parseArguments(["update", "--version", "1.3.0"]),
+        { run: () => ({ status: 1, stdout: "", stderr: "unexpected runner call" }) },
+        randomUUID(),
+        { executable: "/usr/bin/node", argv: ["/usr/bin/node", "/app/openteam.js", "update"] }
+      )
+    ).rejects.toThrow("Another OpenTeam update is already running");
+    expect(readUpdateState(paths)).toMatchObject({ jobId: activeJob, status: "running" });
+  });
+
+  test("recovers a wrapped worker error from the update log", () => {
+    const log = [
+      "Updating OpenTeam 1.2.3 → 1.3.0…",
+      "  ╭──────────────────────────────╮",
+      "  │ OPENTEAM / error             │",
+      "  │ COMMAND FAILED               │",
+      "  ╰──────────────────────────────╯",
+      "",
+      "  \x1b[31m✗\x1b[0m Refusing prerelease 1.4.0-beta.1 on the stable channel. Use --allow-prerelease to opt",
+      "    in.",
+      "",
+    ].join("\n");
+    expect(updateLogFailure(log)).toBe(
+      "Refusing prerelease 1.4.0-beta.1 on the stable channel. Use --allow-prerelease to opt in."
+    );
+    expect(updateLogFailure("openteam: worker crashed\n")).toBe("worker crashed");
+    expect(updateLogFailure("\n\n")).toBeNull();
   });
 });

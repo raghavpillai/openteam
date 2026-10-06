@@ -14,11 +14,13 @@ export interface ComposeCommand {
   supported: boolean;
 }
 
+export const DOCKER_OUTPUT_HINT = "see the Docker output above";
+
 const usefulFailure = (result: RunResult): string =>
   result.stderr.trim() ||
   result.stdout.trim() ||
   result.error?.message ||
-  "command failed; see the Docker output above";
+  `command failed; ${DOCKER_OUTPUT_HINT}`;
 
 export const dockerVersion = (runner: CommandRunner): RunResult =>
   runner.run("docker", ["--version"]);

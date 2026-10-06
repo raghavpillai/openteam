@@ -19,6 +19,11 @@ export async function discoverPackages(directory = root): Promise<PluginDefiniti
       !["node_modules", "src", "dist", "scripts", "test"].includes(entry.name)
   );
   for (const folder of folders) {
+    const nativeBuild = join(directory, folder.name, "connector/build.ts");
+    if (await Bun.file(nativeBuild).exists()) {
+      const build = Bun.spawn([process.execPath, nativeBuild], { stdout: "inherit", stderr: "inherit" });
+      if (await build.exited !== 0) throw new Error(`Cannot build native connector for ${folder.name}`);
+    }
     const provenanceFile = Bun.file(join(directory, folder.name, "upstream.json"));
     const provenance = (await provenanceFile.exists()) ? await provenanceFile.json() : null;
     const files: Record<string, string> = {};

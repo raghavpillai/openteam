@@ -69,4 +69,9 @@ test("portable export contains the executable and both verified archives within 
   expect(imported.binaryFiles?.["connector/bin/linux-x64.gz"]).toBe(original.binaryFiles?.["connector/bin/linux-x64.gz"]);
   expect(imported.binaryFiles?.["connector/bin/linux-arm64.gz"]).toBe(original.binaryFiles?.["connector/bin/linux-arm64.gz"]);
   expect(imported.setup?.fields.every((field) => field.secret && field.default === undefined)).toBe(true);
+  expect(imported.files?.["upstream/cmd/slack-mcp-server/main.go"]).toContain("package main");
+  expect(imported.files?.["upstream/go.mod"]).toContain("module github.com/korotovsky/slack-mcp-server");
+  expect(imported.files?.["upstream/LICENSE"]).toContain("Copyright (c) 2025 Dmitrii Korotovskii");
+  expect(imported.files?.["NOTICE.md"]).toContain("MIT license");
+  expect(JSON.parse(imported.files!["connector/release.json"]!).build.toolchain).toBe("go1.25.9");
 });

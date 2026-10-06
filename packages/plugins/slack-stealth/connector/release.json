@@ -2,22 +2,32 @@
   "repository": "korotovsky/slack-mcp-server",
   "version": "v1.3.0",
   "revision": "a079b3cd4d5836d791c942a9fc107987e7865b37",
+  "build": {
+    "toolchain": "go1.25.9",
+    "sourceDigest": "88f5653d9dda8dc345c9e6204b1726946d8731ce5a93a92b9d18a239dd11658b",
+    "timestamp": "2026-05-14T22:46:32Z",
+    "flags": [
+      "-trimpath",
+      "-buildvcs=false",
+      "-mod=readonly",
+      "-ldflags",
+      "-s -w -X github.com/korotovsky/slack-mcp-server/pkg/version.CommitHash=a079b3cd4d5836d791c942a9fc107987e7865b37 -X github.com/korotovsky/slack-mcp-server/pkg/version.Version=v1.3.0 -X github.com/korotovsky/slack-mcp-server/pkg/version.BuildTime=2026-05-14T22:46:32Z -X github.com/korotovsky/slack-mcp-server/pkg/version.BinaryName=slack-mcp-server"
+    ]
+  },
   "binaries": {
     "linux-x64": {
       "path": "connector/bin/linux-x64.gz",
-      "url": "https://github.com/korotovsky/slack-mcp-server/releases/download/v1.3.0/slack-mcp-server-linux-amd64",
-      "sha256": "d1525962e9b9dbfdd2eaf48d0a81ca1eca7d8f1862b8d34931b812c850b3e568",
-      "size": 16699576,
-      "gzipSha256": "e6b9f71c004481f7cb8924cab7ca1b59ad277cadf4b4261bdf3012ecbc44156c",
-      "gzipSize": 7171924
+      "sha256": "aad5012c294651adf026fa0e5dc8df2638c6e3c8ef27e30f122e01cfb657a17d",
+      "size": 16646328,
+      "gzipSha256": "3f78e9e152cafdd84cd26ed98646634ad40ceaf1d7c092bfa5a22c1bb195edb5",
+      "gzipSize": 7249185
     },
     "linux-arm64": {
       "path": "connector/bin/linux-arm64.gz",
-      "url": "https://github.com/korotovsky/slack-mcp-server/releases/download/v1.3.0/slack-mcp-server-linux-arm64",
-      "sha256": "a307a48d16c2261346bdc257274cdcdb8b2027c867dc971b41d52cef36472c88",
-      "size": 15859896,
-      "gzipSha256": "7929c2218304fa278c0eb69b04a7e5cd1278300c8547d6e9b9e9fffef426157f",
-      "gzipSize": 6683467
+      "sha256": "e19caf16357d17973618cf688db336ac7aed466a9cecb92206f03c20b0e86c12",
+      "size": 15794360,
+      "gzipSha256": "ef0043e228eb28b5fb4dd02ff3cadab3090d0d0cfb6032aa267fbff21b7bdba2",
+      "gzipSize": 6777553
     }
   }
 }

@@ -1,0 +1,23 @@
+{
+  "repository": "korotovsky/slack-mcp-server",
+  "version": "v1.3.0",
+  "revision": "a079b3cd4d5836d791c942a9fc107987e7865b37",
+  "binaries": {
+    "linux-x64": {
+      "path": "connector/bin/linux-x64.gz",
+      "url": "https://github.com/korotovsky/slack-mcp-server/releases/download/v1.3.0/slack-mcp-server-linux-amd64",
+      "sha256": "d1525962e9b9dbfdd2eaf48d0a81ca1eca7d8f1862b8d34931b812c850b3e568",
+      "size": 16699576,
+      "gzipSha256": "e6b9f71c004481f7cb8924cab7ca1b59ad277cadf4b4261bdf3012ecbc44156c",
+      "gzipSize": 7171924
+    },
+    "linux-arm64": {
+      "path": "connector/bin/linux-arm64.gz",
+      "url": "https://github.com/korotovsky/slack-mcp-server/releases/download/v1.3.0/slack-mcp-server-linux-arm64",
+      "sha256": "a307a48d16c2261346bdc257274cdcdb8b2027c867dc971b41d52cef36472c88",
+      "size": 15859896,
+      "gzipSha256": "7929c2218304fa278c0eb69b04a7e5cd1278300c8547d6e9b9e9fffef426157f",
+      "gzipSize": 6683467
+    }
+  }
+}

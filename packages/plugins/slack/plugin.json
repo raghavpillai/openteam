@@ -1,8 +1,8 @@
 {
   "key": "slack",
-  "version": "1.2.0",
-  "name": "Slack",
-  "description": "Search channels, read threads, send messages, and work with canvases.",
+  "version": "1.2.1",
+  "name": "Slack (managed)",
+  "description": "Search channels, read threads, send messages, and work with canvases through an authorized Slack app.",
   "publisher": "Slack",
   "category": "Inbox & Collaboration",
   "featured": true,
@@ -11,7 +11,7 @@
   "setup": {
     "kind": "oauth_client",
     "connectionKey": "slack",
-    "title": "Connect Slack",
+    "title": "Connect Slack (managed)",
     "description": "Register an internal or Marketplace Slack app, then authorize a workspace.",
     "documentationUrl": "https://docs.slack.dev/ai/slack-mcp-server",
     "steps": [
@@ -76,7 +76,7 @@
   "connections": [
     {
       "key": "slack",
-      "name": "Slack",
+      "name": "Slack (managed)",
       "transport": "http",
       "auth": "oauth",
       "endpoint": "https://mcp.slack.com/mcp",

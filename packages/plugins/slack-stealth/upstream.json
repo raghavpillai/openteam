@@ -1,0 +1,13 @@
+{
+  "repository": "korotovsky/slack-mcp-server",
+  "revision": "a079b3cd4d5836d791c942a9fc107987e7865b37",
+  "directory": "",
+  "delivery": "reference",
+  "license": "MIT",
+  "files": {
+    "LICENSE": "c9c83612abe6c352b95a2fc1146638accdd5b348b21cdef333cc78f756e22397",
+    "README.md": "fe5c4cb415eaa4cab4c52dd679214defa2067cc2550bf9b0e7fc39dac9595efd",
+    "docs/01-authentication-setup.md": "8b4a7fcfdc7a5ea3382c17bed6301c96db723ca11ee7d122c4f03ad112bc1e6e",
+    "docs/03-configuration-and-usage.md": "90d95f04082660b195ce7129fa95c7b4b72666ebf74042012be0ae7a9ca620c6"
+  }
+}

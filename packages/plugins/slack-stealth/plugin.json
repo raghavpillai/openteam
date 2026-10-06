@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "key": "slack-stealth",
+  "version": "1.0.0",
+  "name": "Slack (stealth)",
+  "description": "Search Slack, read channels and threads, send messages, and add reactions using your browser session.",
+  "publisher": "OpenTeam",
+  "category": "Inbox & Collaboration",
+  "featured": true,
+  "components": ["mcp"],
+  "homepageUrl": "https://github.com/korotovsky/slack-mcp-server",
+  "icon": "assets/icon.png",
+  "setup": {
+    "kind": "none",
+    "connectionKey": "slack-stealth",
+    "title": "Connect your Slack session",
+    "description": "Use your signed-in Slack browser session. No Slack app registration or OAuth client is required.",
+    "documentationUrl": "https://github.com/korotovsky/slack-mcp-server/blob/v1.3.0/docs/01-authentication-setup.md",
+    "steps": [
+      "Sign in to the Slack workspace you want to connect in your browser.",
+      "Use the upstream authentication guide to find the workspace's browser token (xoxc-) and its d session cookie (xoxd-). Enter them only in the secret fields below, never in chat.",
+      "Save the account settings and choose Connect. Wait for the account to show Connected, then check its available tools.",
+      "Test a small read, such as listing your channels. Messages and reactions act as your Slack user, within your account's access.",
+      "If Slack expires or revokes the session, replace both secret fields with credentials from your current session and reconnect. Stealth refers to app-free setup; Slack and workspace security systems can still observe activity."
+    ],
+    "fields": [
+      {
+        "key": "SLACK_BROWSER_TOKEN",
+        "label": "Slack browser token",
+        "type": "string",
+        "placeholder": "xoxc-…",
+        "required": true,
+        "secret": true,
+        "helpText": "The browser token for this workspace, stored in your OpenTeam account settings."
+      },
+      {
+        "key": "SLACK_SESSION_COOKIE",
+        "label": "Slack session cookie",
+        "type": "string",
+        "placeholder": "xoxd-…",
+        "required": true,
+        "secret": true,
+        "helpText": "The value of Slack's d cookie. Treat it as a login credential."
+      }
+    ],
+    "requiredScopes": []
+  },
+  "connections": [
+    {
+      "key": "slack-stealth",
+      "name": "Slack (stealth)",
+      "transport": "stdio",
+      "auth": "none",
+      "endpoint": "",
+      "tools": [],
+      "configuration": {
+        "command": "bun",
+        "args": ["${PLUGIN_ROOT}/connector/server.mjs"],
+        "env": {
+          "SLACK_MCP_XOXC_TOKEN": "${SLACK_BROWSER_TOKEN}",
+          "SLACK_MCP_XOXD_TOKEN": "${SLACK_SESSION_COOKIE}"
+        }
+      }
+    }
+  ],
+  "skills": [],
+  "installationSteps": [
+    "Install Slack (stealth) from Marketplace.",
+    "Open account settings and save your Slack browser token and session cookie in the secret fields.",
+    "Connect the account and verify a read tool returns data from the intended workspace.",
+    "Configure tool access in Accounts and settings. Add another account for each additional Slack workspace."
+  ]
+}

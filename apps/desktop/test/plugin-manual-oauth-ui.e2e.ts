@@ -9,9 +9,10 @@ if (!process.env.OPENTEAM_TEST_DATABASE_URL)
   throw new Error("A disposable test database is required");
 const fixture = await createPluginFlowFixture(process.env.OPENTEAM_TEST_DATABASE_URL, {
   callbackMode: "auto",
+  authSessions: ["fixture-browser-session"],
 });
-const client = createOpenTeamClient({ baseUrl: fixture.server.url.origin });
-const output = resolve("findings/oauth-unified-20260921");
+const client = createOpenTeamClient({ baseUrl: fixture.server.url.origin, getAuthToken: () => "fixture-browser-session" });
+const output = resolve(import.meta.dirname, "../../../findings/oauth-agent-handoff");
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch({
   executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -35,13 +36,24 @@ await context.route("**/*", (route) => {
 const assert = (condition: unknown, message: string) => {
   if (!condition) throw new Error(message);
 };
+const handoffCallId = crypto.randomUUID();
 try {
+  const pluginKey = fixture.definitions[0]!.key;
+  await client.installPlugin(pluginKey);
+  const installed = (await client.pluginSettings()).installs.find(row => row.pluginKey === pluginKey)!.connections[0]!;
+  const handoff = await fixture.service.requestAction({
+    botId: crypto.randomUUID(), runId: crypto.randomUUID(), callId: handoffCallId,
+    action: "AuthenticateMcpServer", arguments: { connectionId: installed.id },
+  }) as { actionResult: { requiresUserAction: boolean; setupUrl: string } };
+  assert(handoff.actionResult.requiresUserAction, "Agent must hand off manual authentication to the UI");
+  assert((await client.pluginConnectionStatuses([installed.id])).connections[0]?.authorizationUrl === null, "Agent must not create an ownerless attempt");
   await page.goto(
-    `http://127.0.0.1:63387/test/browser/plugin-lifecycle.html?server=${encodeURIComponent(fixture.server.url.origin)}`
+    `http://127.0.0.1:63387/test/browser/plugin-lifecycle.html?server=${encodeURIComponent(fixture.server.url.origin)}&authSession=fixture-browser-session&reviewPlugin=${encodeURIComponent(pluginKey)}`
   );
-  await page.getByRole("button", { name: "Open Flow OAuth", exact: true }).click();
+  await page.getByRole("button", { name: "Open plugin setup", exact: true }).waitFor();
+  await page.evaluate(url => window.dispatchEvent(new CustomEvent("openteam:deep-link", { detail: { url } })), handoff.actionResult.setupUrl);
   await page.getByText("Installation steps", { exact: true }).click();
-  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.getByText("Before you sign in", { exact: true }).waitFor();
   assert(context.pages().length === 1, "HTTP sign-in must not open the provider before the instructions");
   await page.getByText(/The browser may say it can’t open the page/).waitFor();
@@ -65,6 +77,43 @@ try {
     "Callback must use a masked dedicated field"
   );
   await page.screenshot({ path: resolve(output, "manual-waiting.png"), fullPage: true });
+  const pendingConnection = (await client.pluginSettings()).installs.find(row => row.pluginKey === fixture.definitions[0]!.key)!.connections[0]!;
+  const makeOrphan = async () => {
+    const row = await fixture.db.pluginConnection.findUniqueOrThrow({ where: { id: pendingConnection.id } });
+    const credentials = row.credentials as any;
+    await fixture.db.pluginConnection.update({ where: { id: row.id }, data: {
+      credentials: { ...credentials, oauth: { ...credentials.oauth, callbackSessionId: null } },
+    } });
+  };
+  await makeOrphan();
+  await input.fill(callback);
+  await page.getByRole("button", { name: "Complete sign-in", exact: true }).click();
+  await page.getByText("This sign-in was started in another session. Select Start again to sign in here.", { exact: true }).waitFor();
+  await page.screenshot({ path: resolve(output, "manual-session-recovery.png"), fullPage: true });
+  // Restart immediately, before expiry, using the real account-row callback.
+  await page.getByRole("button", { name: "Start again", exact: true }).click();
+  await page.getByText("Before you sign in", { exact: true }).waitFor();
+  const replaced = await fixture.db.pluginConnection.findUniqueOrThrow({ where: { id: pendingConnection.id } });
+  const replacedOAuth = (replaced.credentials as any).oauth;
+  assert(replacedOAuth.callbackSessionId === "fixture-browser-session", "Restart must bind the attempt to the UI session");
+  assert(replacedOAuth.state !== new URL(callback).searchParams.get("state"), "Restart must invalidate the old state");
+  let staleRejected = false;
+  try { await client.finishManualPluginAuthentication(pendingConnection.id, callback); }
+  catch { staleRejected = true; }
+  assert(staleRejected, "Old callback must fail after restart");
+  // Cancel also recovers an orphan without waiting for expiry or using the DB to clear it.
+  await makeOrphan();
+  await page.getByRole("button", { name: "Cancel sign-in", exact: true }).click();
+  await page.getByRole("button", { name: "Sign in", exact: true }).waitFor();
+  assert((await client.pluginConnectionStatuses([pendingConnection.id])).connections[0]?.authorizationUrl === null, "Cancel must clear the orphan");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.getByText("Before you sign in", { exact: true }).waitFor();
+  const reopened = context.waitForEvent("page");
+  await page.getByRole("button", { name: "Continue to browser", exact: true }).click();
+  const freshProvider = await reopened;
+  const freshReturned = context.waitForEvent("request", request => new URL(request.url()).port === "42813");
+  await freshProvider.getByRole("button", { name: "Authorize Account A", exact: true }).click();
+  callback = (await freshReturned).url();
   await input.fill(callback);
   await page.getByRole("button", { name: "Complete sign-in", exact: true }).click();
   await page.getByText("Connected", { exact: true }).first().waitFor();
@@ -124,11 +173,16 @@ try {
         passed: true,
         checks: [
           "registry instructions",
+          "agent handoff opens plugin settings without creating an OAuth attempt",
           "HTTP instructions before browser handoff",
           "HTTPS opens immediately with its server callback",
           "local-browser sign-in",
           "failed loopback page",
           "masked callback form",
+          "session-specific recovery feedback",
+          "immediate Start again binds a new UI-owned attempt",
+          "old callback rejected after restart",
+          "Cancel sign-in clears a legacy orphan",
           "backend completion and discovery",
           "connected UI",
           "tool execution",
@@ -143,5 +197,6 @@ try {
   console.log("Manual OAuth UI end-to-end passed");
 } finally {
   await browser.close();
+  await fixture.db.idempotencyRecord.deleteMany({ where: { scope: "plugin-action", key: handoffCallId } });
   await fixture.close();
 }

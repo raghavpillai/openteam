@@ -2,6 +2,7 @@ import type { PluginConnectionView } from "@openteam/contracts";
 import { pluginAuthorization } from "@openteam/product-core/plugin-authorization";
 import { api } from "../../../client/openteam-api";
 import { useEffect, useState } from "react";
+import { OpenTeamClientError } from "@openteam/client-core/http";
 
 /** Manual sign-in stays in OpenTeam until the user has read the copy/paste steps. */
 export function openAutomaticPluginSignIn(callbackMode: string | undefined, url: string) {
@@ -17,7 +18,7 @@ export function PluginAuthorization({
   connection: PluginConnectionView;
   busy: boolean;
   onCancel: () => void;
-  onRetry: () => void;
+  onRetry: (force?: boolean) => void;
 }) {
   const [callbackUrl, setCallbackUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -41,9 +42,12 @@ export function PluginAuthorization({
     try {
       await api.finishManualPluginAuthentication(connection.id, value);
       setFeedback("Authorization received. Refreshing connection status…");
-    } catch {
+    } catch (error) {
       const status = await api.pluginConnectionStatuses([connection.id]).catch(() => null);
-      setFeedback(status?.connections[0]?.status === "ready" ? "Connected." : "Could not finish sign-in. Copy the entire address from the browser’s final page and try pasting it again. If this sign-in expired, start again.");
+      setFeedback(status?.connections[0]?.status === "ready" ? "Connected." :
+        error instanceof OpenTeamClientError && error.code === "plugin_oauth_session_changed"
+          ? "This sign-in was started in another session. Select Start again to sign in here."
+          : "Could not finish sign-in. Copy the entire address from the browser’s final page and try pasting it again. If this sign-in expired, start again.");
     } finally { setSubmitting(false); }
   };
   const action =
@@ -69,7 +73,7 @@ export function PluginAuthorization({
       {feedback && <p role="status" className="mt-2 text-[12px]">{feedback}</p>}
       <div className="mt-2 flex gap-2">
         {session.expired ? (
-          <button className={action} type="button" disabled={busy || submitting} onClick={onRetry}>
+          <button className={action} type="button" disabled={busy || submitting} onClick={() => onRetry(true)}>
             Try again
           </button>
         ) : manual ? (
@@ -80,7 +84,7 @@ export function PluginAuthorization({
             {openedBrowser ? "Reopen sign-in" : google ? "Continue to Google" : "Continue to browser"}
           </button>
         ) : window.openteam?.pluginOAuth ? (
-          <button className={action} type="button" disabled={busy || submitting} onClick={onRetry}>
+          <button className={action} type="button" disabled={busy || submitting} onClick={() => onRetry()}>
             Reopen sign-in
           </button>
         ) : (
@@ -88,6 +92,9 @@ export function PluginAuthorization({
             Reopen sign-in
           </a>
         )}
+        {!session.expired && <button className={action} type="button" disabled={busy || submitting} onClick={() => onRetry(true)}>
+          Start again
+        </button>}
         <button className={action} type="button" disabled={busy || submitting} onClick={onCancel}>
           Cancel sign-in
         </button>

@@ -114,8 +114,8 @@ const routes = [
     ConfigurePluginConnectionInput,
     ({ app }, id, input) => app.configurePluginConnection(id, input)
   ),
-  effectRoute("POST", /^\/api\/plugin-connections\/([^/]+)\/restart$/, ({ app }, id) =>
-    app.restartPluginConnection(id)
+  effectRoute("POST", /^\/api\/plugin-connections\/([^/]+)\/restart$/, ({ app, authenticatedSessionId }, id) =>
+    app.restartPluginConnection(id, authenticatedSessionId)
   ),
   bodyRoute(
     "PATCH",

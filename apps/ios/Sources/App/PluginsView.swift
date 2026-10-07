@@ -10,10 +10,8 @@ struct PluginListView: View {
   @State private var installedOnly = false
   // Keep aligned with client-core/plugin-marketplace.ts.
   private let categories = [
-    "All", "Featured", "Team plugins", "Agent Orchestration", "Canvas",
-    "Customer Support", "Data & Analytics", "Design", "Documents and Files", "Finance and Legal",
-    "Inbox and Collaboration", "Infrastructure", "MCP", "Payments", "Productivity", "Research",
-    "Sales", "Scheduling",
+    "All", "Featured", "Team plugins", "Agent Orchestration", "Documents and Files",
+    "Finance and Legal", "Inbox and Collaboration", "MCP", "Productivity", "Scheduling",
   ]
   @State private var failure: String?
   @State private var loading = true

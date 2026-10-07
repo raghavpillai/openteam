@@ -75,7 +75,6 @@ try {
     ] as const) {
       await performComputerUseAction(action, env);
       await new Promise((resolve) => setTimeout(resolve, 150));
-      await session.focusedLoginSite();
     }
     if (accept) {
       const geometry = (

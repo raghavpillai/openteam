@@ -7,7 +7,7 @@ import { outOfProcessPlaywright } from "../../src/browser/playwright-driver";
 
 // Fresh browser, localhost page, synthetic credentials; never adopts user tabs.
 test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)(
-  "saved logins block direct and transformed CDP reads before protocol dispatch",
+  "private values block direct and transformed CDP reads before protocol dispatch",
   async () => {
     const root = await mkdtemp(join(tmpdir(), "private-cdp-fixture-"));
     const server = Bun.serve({
@@ -32,14 +32,9 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)(
       });
       expect((ordinary.details.result as any).result.value).toBe(4);
 
-      const binding = await session.loginBinding(server.url.origin);
-      try {
-        expect(await session.fillSavedLogin(binding, {
-          origin: server.url.origin, username: "fixture-user", password: "SYNTHETIC-cdp-secret-42",
-        })).toBe(true);
-      } finally { await session.releaseLoginBinding(binding); }
-
       const page = await (session as any).ensurePage();
+      session.registerPrivateValues(["SYNTHETIC-cdp-secret-42"]);
+      await page.locator("#password").fill("SYNTHETIC-cdp-secret-42");
       expect(await page.locator("#password").inputValue()).toBe("SYNTHETIC-cdp-secret-42");
       let protocolSessions = 0;
       const openSession = context.newCDPSession.bind(context);

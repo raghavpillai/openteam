@@ -1,7 +1,9 @@
 import { validateProcessSecretName, ApiError } from "@openteam/contracts";
 import type { Prisma, PrismaClient } from "@openteam/db";
+import { SavedLoginTokenCipher } from "./saved-login-token";
 
 type Database = PrismaClient | Prisma.TransactionClient;
+const ONEPASSWORD_TOKEN_NAME = "OP_SERVICE_ACCOUNT_TOKEN";
 
 export async function storeProcessSecret(
   db: Database,
@@ -41,7 +43,8 @@ export async function storeProcessSecret(
 
 export async function processEnvironment(
   db: Database,
-  botId: string
+  botId: string,
+  cipher = new SavedLoginTokenCipher()
 ): Promise<Record<string, string>> {
   const child = await db.subagent.findUnique({
     where: { childBotId: botId },
@@ -51,9 +54,26 @@ export async function processEnvironment(
   const secrets = await db.processSecret.findMany({
     where: { ownerKey: { in: ["personal", `bot:${root}`] } },
   });
-  return Object.fromEntries(
+  const environment: Record<string, string> = Object.fromEntries(
     secrets
       .sort((a, b) => Number(a.ownerKey !== "personal") - Number(b.ownerKey !== "personal"))
       .map((secret) => [validateProcessSecretName(secret.name), secret.value])
   );
+  // The owner's connected 1Password service account authenticates `op` in box processes.
+  // A named secret with the same name takes precedence.
+  if (!environment[ONEPASSWORD_TOKEN_NAME]) {
+    const connection = await db.savedLoginConnection.findFirst({
+      where: { enabled: true, token: { not: null } },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true, token: true },
+    });
+    if (connection?.token) {
+      try {
+        environment[ONEPASSWORD_TOKEN_NAME] = cipher.decrypt(connection.token, connection.id);
+      } catch {
+        /* The deployment secret changed; reconnecting 1Password restores access. */
+      }
+    }
+  }
+  return environment;
 }

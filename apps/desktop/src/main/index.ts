@@ -966,7 +966,7 @@ ipcMain.handle("openteam:capabilities:get", async (event) => {
 ipcMain.handle("openteam:capabilities:logins", async (event) => {
   requireComputerSettings(event);
   const { SavedCredentials } = await import("./host/credentials");
-  return new SavedCredentials(sharedCapabilitySettings(), savedLoginCommand()).list({});
+  return new SavedCredentials(sharedCapabilitySettings(), savedLoginCommand()).list();
 });
 ipcMain.handle("openteam:capabilities:update", async (event, input: unknown) => {
   requireComputerSettings(event);
@@ -1233,7 +1233,7 @@ if (!hasSingleInstanceLock) {
           machineId: localMachine.machineId,
           machineLabel: localMachine.label,
           runJob: hostJobs.run,
-          capabilities: new HostCapabilities(sharedCapabilitySettings(), undefined, undefined, undefined, process.platform, new NativeActionReceipts(join(app.getPath("userData"), "native-action-receipts.json")), savedLoginCommand()),
+          capabilities: new HostCapabilities(sharedCapabilitySettings(), undefined, undefined, process.platform, new NativeActionReceipts(join(app.getPath("userData"), "native-action-receipts.json"))),
         });
       try { hostBridge = await startBridge(port); }
       catch (error) {

@@ -72,30 +72,6 @@ function describeDownloadFileOutcome(outcome, request3) {
       return `${outcome.message} Nothing was downloaded; try again in a moment or tell the user.`;
   }
 }
-function renderCredentialProviderStatus(status) {
-  switch (status.kind) {
-    case "not-connected":
-      return "Credential provider status: not connected. Saved item count: 0.";
-    case "connected":
-      return `Credential provider status: connected. Connections: ${status.connectionCount}. Saved item count: ${status.itemCount}. Connections needing renewal or attention: ${status.connectionsNeedingAttention}. This is metadata only; credential values are never returned.`;
-  }
-}
-function credentialSiteHost(raw) {
-  try {
-    return new URL(raw.includes("://") ? raw : `https://${raw}`).hostname;
-  } catch {
-    return raw;
-  }
-}
-function describeCredential(view) {
-  const siteHosts = [...new Set(view.sites.map(credentialSiteHost))];
-  const sites = siteHosts.length > 0 ? ` \xB7 ${siteHosts.slice(0, 2).join(", ")}` : "";
-  const browser = ` \xB7 browser login${view.siteMatch != null ? ` ${view.siteMatch} match` : ""}`;
-  return `- "${view.title}" (${view.category}${sites}${browser} \xB7 Auto fill ${view.autoFill ? "on" : "off"}) \u2014 credential_id: ${view.credentialId} \xB7 connection_id: ${view.connectionId} \xB7 catalog_revision: ${view.catalogRevision}`;
-}
-const AUTO_FILL_ON_GUIDANCE = "OpenTeam fills the only saved login matching the focused sign-in page automatically. Bring that page to the front, then check the result. If the fields remain empty, use a credential-request to fill privately.";
-const AUTO_FILL_RULE = "Saved logins fill privately in the focused browser page when exactly one login matches. Multiple matches require selecting the intended saved login.";
-const CREDENTIAL_REQUEST_GUIDANCE = 'For a saved website login that did not fill automatically, send {"type":"credential-request","credential":{"kind":"browser-login","credential_id":"…","connection_id":"…","catalog_revision":"…","site":"https://current.example/login","purpose":"sign in to continue the requested task"}}. Use the live URL reported by computerUse. The host selects the matching open page, verifies its origin, and fills privately. You never receive the credential values. Continue with computerUse to submit; hand off user-only authentication when required.';
 const COOKIE_IMPORT_FAILURE_BY_STAGE = {
   enumerate: "the desktop failed while listing Chrome cookies, so nothing could be selected",
   collect: "the desktop failed while collecting the granted cookies",
@@ -356,4 +332,4 @@ function buildUserFormRemapReceipt(outcome) {
     `The held values for this form are now discarded (one remap per form).${anyFailed ? " For a field that did not land, do NOT immediately re-issue a form for it: the user already typed it once. Continue the task if the page moved on, or hand the user the screen with request_box_help; re-ask with a new request_user_form only if the step cannot proceed any other way." : ""} Take a fresh page SNAPSHOT (not a screenshot) before the next action, and click the site's submit control yourself.]`
   ].join("\n");
 }
-export { formatBytes2, describeUploadFileOutcome, formatBytes, describeDownloadFileOutcome, renderCredentialProviderStatus, credentialSiteHost, describeCredential, describeCookieOriginRequestEntry, describeGrants, formatChromeCookieImportOutcome, truncationNotice, renderContactsResult, MCP_LABEL_HOSTILE_CHARS, encodeMcpAccountLabelForListing, DEFAULT_MCP_CONNECTOR_INSTRUCTIONS, getDefaultMcpCustomInstruction, truncateOneLine, describeInstalled, describeInstalledList, describePluginInstallState, describePluginIncludes, describePluginSummary, describePluginFields, describePluginDetail, PLUGIN_QUERY_MIN_TOKEN_LENGTH, tokenizePluginQuery, scorePluginForToken, rankPluginsLexically, formatOutputLocationSize, describeOutputLocation, SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME, SAND_REMAP_USER_FORM_TARGETS_CALL_HINT, REMAP_FAILED_STATUS_BY_KIND, buildUserFormRemapReceipt, AUTO_FILL_ON_GUIDANCE, AUTO_FILL_RULE, CREDENTIAL_REQUEST_GUIDANCE };
+export { formatBytes2, describeUploadFileOutcome, formatBytes, describeDownloadFileOutcome, describeCookieOriginRequestEntry, describeGrants, formatChromeCookieImportOutcome, truncationNotice, renderContactsResult, MCP_LABEL_HOSTILE_CHARS, encodeMcpAccountLabelForListing, DEFAULT_MCP_CONNECTOR_INSTRUCTIONS, getDefaultMcpCustomInstruction, truncateOneLine, describeInstalled, describeInstalledList, describePluginInstallState, describePluginIncludes, describePluginSummary, describePluginFields, describePluginDetail, PLUGIN_QUERY_MIN_TOKEN_LENGTH, tokenizePluginQuery, scorePluginForToken, rankPluginsLexically, formatOutputLocationSize, describeOutputLocation, SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME, SAND_REMAP_USER_FORM_TARGETS_CALL_HINT, REMAP_FAILED_STATUS_BY_KIND, buildUserFormRemapReceipt };

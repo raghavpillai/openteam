@@ -43,7 +43,6 @@ test("native screenshot observation does not request a browser launch", async ()
     screens: {
       actComputerUse: async () => { events.push("capture-native-frame"); return frame; },
       browserEndpointForAgent: async () => { events.push("request-browser-launch"); throw new Error("no browser open"); },
-      existingBrowserEndpointForAgent: async () => null,
     },
     browserUseSessions: new Map(), browserSessionScreens: new Map(),
   });
@@ -52,55 +51,6 @@ test("native screenshot observation does not request a browser launch", async ()
     expect(result.details.coordinateSpace).toBe("desktop");
     expect(events).toEqual(["capture-native-frame"]);
   } finally { await rm(workspace, {recursive: true, force: true}); }
-});
-
-import { ScreenBroker } from "../../src/screen-broker";
-
-test("passive endpoint probes only the requested existing desktop", async () => {
-  const broker: any = Object.create(ScreenBroker.prototype);
-  const probes: string[] = [];
-  Object.assign(broker, {
-    sessions: new Map([
-      ["owner", {state:"ready", browserDebugPort:9341, humanTakeoverUntil:0, agentInputPaused:false}],
-      ["other", {state:"ready", browserDebugPort:9342, humanTakeoverUntil:0, agentInputPaused:false}],
-      ["starting", {state:"starting", browserDebugPort:9343}],
-    ]),
-    browserIsReady: async (url: string) => { probes.push(url); return true; },
-    openApp: () => { throw new Error("must not launch"); },
-    ensure: () => { throw new Error("must not create desktop"); },
-  });
-  expect(await broker.existingBrowserEndpointForAgent("missing")).toBeNull();
-  expect(await broker.existingBrowserEndpointForAgent("starting")).toBeNull();
-  expect(await broker.existingBrowserEndpointForAgent("owner")).toBe("http://127.0.0.1:9341");
-  expect(probes).toEqual(["http://127.0.0.1:9341"]);
-  broker.browserIsReady = async () => false;
-  expect(await broker.existingBrowserEndpointForAgent("owner")).toBeNull();
-});
-
-test("passive observation preserves input pause and human takeover", async () => {
-  const broker: any = Object.create(ScreenBroker.prototype);
-  const session = {state:"ready", browserDebugPort:9341, humanTakeoverUntil:0, agentInputPaused:true};
-  Object.assign(broker, {sessions:new Map([["owner",session]]), browserIsReady:async () => {throw new Error("must not probe during takeover");}});
-  await expect(broker.existingBrowserEndpointForAgent("owner")).rejects.toThrow("paused");
-  session.agentInputPaused=false;session.humanTakeoverUntil=Date.now()+60000;
-  await expect(broker.existingBrowserEndpointForAgent("owner")).rejects.toThrow();
-});
-
-test("existing browser gets observed, unrelated browser does not", async () => {
-  const runtime: any=Object.create(RuntimeTools.prototype);
-  const expected={connected:true};
-  const unrelated={connected:true};
-  const endpoints: string[]=[];
-  Object.assign(runtime, {
-    screens:{existingBrowserEndpointForAgent:async (id:string)=>id==="owner"?"existing-endpoint":null,
-      browserEndpointForAgent:async()=>{throw new Error("passive observation must not launch");}},
-    formBrowser:async (_id:string,endpoint:string)=>{endpoints.push(endpoint);},
-    browserUseSessions:new Map([["unrelated-worker",unrelated],["current-worker",expected]]),
-    browserSessionScreens:new Map([["unrelated-worker","other"],["current-worker","owner"]]),
-  });
-  expect(await runtime.privateBrowser({screenBotId:"owner"},false)).toBe(expected);
-  expect(endpoints).toEqual(["existing-endpoint"]);
-  await expect(runtime.privateBrowser({screenBotId:"missing"},false)).rejects.toThrow("No live browser");
 });
 
 test("explicit browser operation retains intentional launch path", async () => {

@@ -373,7 +373,6 @@ export class InternalToolService {
           Schema.decodeUnknownSync(SendToAgentInput)(request.arguments)
         );
       } else if (request.tool === "SendToUser") {
-        if ((request.arguments as Record<string, unknown>)?.type === "credential-request") throw new ApiError(400,"desktop_credential_request_required","Saved-login requests must run through the active desktop browser so the fill is bound to its document");
         validateSendToUserInput(request.arguments);
         const input = Schema.decodeUnknownSync(AgentSendToUserInput)(request.arguments);
         if (input.type === "secret-request" && input.secret?.name) {

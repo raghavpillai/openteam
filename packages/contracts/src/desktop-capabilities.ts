@@ -75,16 +75,6 @@ export const DESKTOP_CAPABILITY_TOOLS = [
     {}
   ),
   definition(
-    "ListCredentials",
-    "Search configured 1Password login metadata, never values. At a login pass the current site URL. To use a matching item, SendToUser type credential-request with credential {kind:browser-login, credential_id, connection_id, catalog_revision, site, purpose}. Filling binds to a live browser page; values remain private.",
-    { site: string, query: string }
-  ),
-  definition(
-    "GetCredentialProviderStatus",
-    "Report saved-login provider connection health and setup guidance; no secret values are returned.",
-    {}
-  ),
-  definition(
     "import_chrome_cookies",
     "Omit origins to list available Chrome profile/origin pairs. Pass listed hosts or {origin,profileId} to import cookies directly into the bot browser. Only the requested profiles and hosts are imported.",
     {

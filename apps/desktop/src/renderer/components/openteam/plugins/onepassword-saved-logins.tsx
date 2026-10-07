@@ -46,7 +46,7 @@ export function OnePasswordSavedLogins({ logoUrl, onChanged }: { logoUrl: string
       <p className="mb-5 text-[13px] leading-5 text-foreground-secondary">Share existing 1Password vaults with OpenTeam through a service account token, so it can sign in to sites on its computer.</p>
       {mode === "manual" ? (
         <form className="space-y-4" onSubmit={event => { event.preventDefault(); void run(async () => { apply(await computer!.importSavedLoginToken(token.trim())); }); }}>
-          <p className="text-[13px] leading-5">Paste a 1Password service account token with read access to the vaults you want to share. All vaults selected for that token will be connected. OpenTeam keeps the token encrypted and uses it to fill saved logins on its computer.</p>
+          <p className="text-[13px] leading-5">Paste a 1Password service account token with read access to the vaults you want to share. All vaults selected for that token will be connected. OpenTeam keeps the token encrypted and gives it to the 1Password CLI on its computer, so it can look up and use these logins when a task needs them.</p>
           <ol className="list-decimal space-y-3 pl-4 text-[13px] leading-5 text-foreground-secondary">
             <li>Choose the existing vaults containing the logins you want OpenTeam to use. You can also create a separate vault if you prefer.</li>
             <li>On 1Password.com, open Developer → Service Accounts and create a service account. Select those vaults and grant read-only access. <a className="text-blue-500 underline" href="https://www.1password.dev/service-accounts/get-started" target="_blank" rel="noreferrer">How to create a service account</a></li>
@@ -58,7 +58,7 @@ export function OnePasswordSavedLogins({ logoUrl, onChanged }: { logoUrl: string
         </form>
       ) : (
         <div className="space-y-4">
-          <p className="text-[13px] leading-5 text-foreground-secondary">Connect existing vaults with a service account token. Login reads use the service account on the server.</p>
+          <p className="text-[13px] leading-5 text-foreground-secondary">Connect existing vaults with a service account token. OpenTeam reads them with the 1Password CLI on its computer.</p>
           <button className={button} disabled={busy || !computer} onClick={() => { setMode("manual"); setToken(""); setError(""); }}>Add service account token</button>
           {!computer ? <p className="text-[13px]">Open the OpenTeam desktop app to connect 1Password.</p> : null}
         </div>
@@ -71,7 +71,6 @@ export function OnePasswordSavedLogins({ logoUrl, onChanged }: { logoUrl: string
           return <div key={id} className="space-y-3 rounded-xl bg-foreground/5 p-4 text-[13px]">
             <div className="font-medium">{row.vaultName}</div><p className="text-foreground-secondary">{row.itemCount ?? 0} saved logins · {row.lifecycleState ?? "active"}</p>
             {row.lastSyncErrorCode ? <p className="text-red-600">Could not sync. Check 1Password access, then sync or renew.</p> : null}
-            <p className="text-xs text-foreground-secondary">A saved login fills automatically when its website matches and there is a single matching login.</p>
             <div className="flex flex-wrap gap-2"><button className={button} disabled={busy} onClick={() => void run(async () => apply(await computer!.syncSavedLogins(id)))}>Sync</button><button className={button} disabled={busy} onClick={() => { setMode("manual"); setToken(""); setError(""); }}>Renew access</button><button className={button} disabled={busy} onClick={() => void run(async () => apply(await computer!.updateCapabilities({ removeCredentialConnection: id })))}>Disconnect</button></div>
           </div>;
         })}

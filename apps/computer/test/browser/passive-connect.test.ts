@@ -17,7 +17,6 @@ test("passive attachment creates no tab in shared or isolated browser",async()=>
   const session=await BrowserUseSession.connect("http://127.0.0.1:9341",folder,true,folder,undefined,false);
   expect(session.connected).toBe(true);
   expect(creations).toBe(0);
-  expect(await session.focusedLoginSite()).toBeNull();
   await BrowserUseSession.connect("http://127.0.0.1:9341",folder,false,folder,undefined,false);
   expect(creations).toBe(0);
  }finally{driverSpy.mockRestore();await rm(folder,{recursive:true,force:true});}

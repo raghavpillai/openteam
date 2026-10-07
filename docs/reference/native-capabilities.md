@@ -1,6 +1,6 @@
 # Native capabilities and unified file transfers
 
-The main-agent runtime exposes the thirteen optional capabilities added in the September 14 parity implementation: `upload_file`, `download_file`, eight Mac Contacts/Messages tools, `ListCredentials`, `GetCredentialProviderStatus`, and `import_chrome_cookies`. These are adapters to the captured source-visible tool contracts, not a claim to reproduce xAI's private services.
+The main-agent runtime exposes the thirteen optional capabilities added in the September 14 parity implementation: `upload_file`, `download_file`, eight Mac Contacts/Messages tools, and `import_chrome_cookies`. Saved logins are not a desktop capability; see [Saved logins](#saved-logins). These are adapters to the captured source-visible tool contracts, not a claim to reproduce xAI's private services.
 
 ## Connected-service files
 
@@ -27,11 +27,13 @@ Every send requires a native recipient/body review. Text and addresses are passe
 
 ## Saved logins
 
-Saved logins are connected and managed only in Marketplace → **Login and Credential Management → 1Password**, using a **manual service-account token**. The marketplace page provides sync, renewal, disconnect, and reconnect controls. On 1Password.com, create a service account, select one or more existing vaults, grant read-only access, then paste the token into OpenTeam. No particular vault name or new vault is required. All vaults selected for the token are connected. No local 1Password app, CLI installation, desktop account discovery, or CLI integration is needed.
+Saved logins are connected and managed only in Marketplace → **Login and Credential Management → 1Password**, using a **manual service-account token**. The marketplace page provides sync, renewal, disconnect, and reconnect controls. On 1Password.com, create a service account, select one or more existing vaults, grant read-only access, then paste the token into OpenTeam. No particular vault name or new vault is required. All vaults selected for the token are connected. No local 1Password app, desktop account discovery, or CLI integration on the user's computer is needed.
 
 The server discovers the vaults accessible to the token and validates that every vault is readable before saving any connection. Each vault has its own connection, sync status and disconnect control. A failure to read any granted vault rejects the entire import without partial registration. The user must select read-only permission when creating the token; the SDK does not expose a permission introspection endpoint here, so the server verifies readable vault scope and only performs reads. Token expiry belongs to the provider; OpenTeam does not invent an expiry date. Renewal reopens token entry, replaces access to the same vault.
 
-Ongoing reads use the backend's 1Password SDK and the scoped service-account token, never the user's local CLI or vault. No OAuth app registration, developer client ID, or shared vendor credential is needed. Users need permission to create service accounts in their own 1Password account.
+The agent uses the vaults through the 1Password CLI (`op`) installed on its computer. Every box process, including graphical subagents' Shell, receives the connected token as `OP_SERVICE_ACCOUNT_TOKEN`; a named process secret with that name takes precedence. The agent can list items, read usernames and passwords, and generate one-time codes, and types them into the browser itself. Values the agent reads enter its transcript and the inference provider's context; the token value is redacted from Shell and Read output. There is no automatic or passive filling. The settings page uses the backend's 1Password SDK for import, sync and the saved-login list. No OAuth app registration, developer client ID, or shared vendor credential is needed. Users need permission to create service accounts in their own 1Password account.
+
+1Password limits service accounts to 1,000 reads per hour per token and, on Individual, Families and Teams plans, a combined daily request budget shared by every service account in the account (1,000 per 24 hours on Individual and Families). `op item list` and `op item get` use one or a few requests each, so on-demand lookups fit easily; avoid polling or repeated listing loops.
 
 Tokens are encrypted with AES-256-GCM before database storage, using a domain-separated key derived from the existing `OPENTEAM_AUTH_SECRET` (or `BETTER_AUTH_SECRET`) and authenticated connection IDs. Keep the deployment secret stable when restoring the database; changing it requires reconnecting saved logins. Tokens never appear in connection metadata or model results.
 
@@ -39,14 +41,8 @@ Tokens are encrypted with AES-256-GCM before database storage, using a domain-se
 
 Setup supports cancellation and retrying registration. Disconnect removes this deployment's stored access; it does not delete the service account at 1Password.
 
-Each connection tracks item count, last successful sync, provider status and generation. Renewal and disconnection invalidate in-flight fills. Passive filling requires one matching login.
+Each connection tracks item count, last successful sync, provider status and generation.
 Backend calls have a 30-second deadline. After a lost registration response, refresh connection metadata or paste the token again; this never creates a new service account in 1Password. Error messages use static guidance rather than raw provider output.
-
-`ListCredentials` returns metadata, target rules and revision identifiers, never passwords. Domain matching uses the Public Suffix List including private suffixes; exact host/port rules apply to loopback and nonstandard-port URLs. The credential request is `SendToUser` with `type: "credential-request"` and the discovered credential ID, connection ID, catalog revision, current site and purpose.
-
-Credential filling binds the live browser document, exact origin, and actual empty login fields. Navigation, replacement fields, changed credentials, revocation, or conflicting usernames invalidate the fill. The tool fills fields without submitting the form. Credential matching honors provider website rules, including permitted HTTPS subdomains; it does not implicitly allow other ports or unrelated domains. Private sessions continue to restrict CDP, including encoded or transformed reads of filled passwords.
-
-Credential values stay on the private bridge/browser path. Browser text results redact known values, private fields are masked in screenshots, and unrestricted CDP inspection is disabled after private data enters the session. This is a concrete handling boundary, not a guarantee against every derived encoding or behavior of a malicious website.
 
 ## Chrome login import
 

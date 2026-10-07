@@ -39,24 +39,9 @@ describe("reference result and parser fixtures", () => {
     expect(parseReferenceArguments("FindIMessageChats", { query: "", limit: 500 })).toMatchObject({
       limit: 500,
     });
-    expect(() => parseReferenceArguments("GetCredentialProviderStatus", { extra: true })).toThrow();
+    expect(() => parseReferenceArguments("GetCredentialProviderStatus", {})).toThrow();
   });
   test("desktop metadata is rendered without private transport fields", () => {
-    expect(
-      renderDesktopResult(
-        "GetCredentialProviderStatus",
-        {
-          kind: "connected",
-          connectionCount: 1,
-          itemCount: 2,
-          connectionsNeedingAttention: 0,
-          private: "no",
-        },
-        {}
-      )
-    ).toBe(
-      "Credential provider status: connected. Connections: 1. Saved item count: 2. Connections needing renewal or attention: 0. This is metadata only; credential values are never returned."
-    );
     expect(
       renderDesktopResult(
         "import_chrome_cookies",

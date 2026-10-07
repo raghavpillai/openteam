@@ -453,18 +453,19 @@ describe("API contracts", () => {
     expect(NATIVE_TOOL_NAMES).not.toContain("SendMessage");
   });
 
-  test("pins delivery contracts including named secrets and saved-login requests", () => {
+  test("pins delivery contracts including named secrets", () => {
     const sendToUser = NATIVE_TOOLS.find((tool) => tool.name === "SendToUser");
     const reactToMessage = NATIVE_TOOLS.find((tool) => tool.name === "ReactToMessage");
     const sendToAgent = CURSOR_TOOLS.find((tool) => tool.tool === "SendToAgent");
 
-    expect(sendToUser?.description).toContain('credential-request');
+    expect(sendToUser?.description).not.toContain('credential-request');
+    expect(sendToUser?.description).not.toContain('ListCredentials');
     expect(sendToUser?.description).not.toContain('cursor-agent');
     const schema = sendToUser!.inputSchema as any;
-    expect(schema.properties.type.enum).toEqual(['text','attachment','widget','secret-request','credential-request']);
+    expect(schema.properties.type.enum).toEqual(['text','attachment','widget','secret-request']);
     expect(schema.properties.secret.properties).toHaveProperty('name');
     expect(schema.properties.secret.properties).toHaveProperty('connector');
-    expect(schema.properties.credential).toHaveProperty('properties');
+    expect(schema.properties).not.toHaveProperty('credential');
     expect(reactToMessage!.inputSchema).toEqual(referenceTool('ReactToMessage').inputSchema);
     expect(sendToAgent!.inputSchema).toEqual(referenceTool('SendToAgent').inputSchema);
   });

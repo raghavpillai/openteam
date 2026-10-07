@@ -568,7 +568,7 @@ test('browser workers retain their parent desktop session and steering cancels o
   const tools = runtimeTools() as any;
   tools.screens.browserEndpointForAgent = async () => 'http://unused-test-endpoint';
   const used: string[] = [];
-  const makeBrowser = (name: string) => ({connected:true, configureUploads(){}, registerPrivateValues(){}, watchLoginFocus(){return () => {};},
+  const makeBrowser = (name: string) => ({connected:true, configureUploads(){}, registerPrivateValues(){},
     async execute(tool: string, _args: unknown, signal?: AbortSignal) {
       used.push(name);
       if (tool === 'browser_wait_for') await new Promise((_,reject) => {signal!.addEventListener('abort',()=>reject(signal!.reason),{once:true});});

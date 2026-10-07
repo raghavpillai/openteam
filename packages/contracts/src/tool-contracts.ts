@@ -173,18 +173,24 @@ for (const excluded of ["CloudAgent", "GenerateImage", "request_scm_connect"])
 const send = contracts.SendToUser!;
 export const SEND_TO_USER_BATCH_GUIDANCE =
   "When several separate text replies to the same conversation are fully ready, emit their SendToUser calls together in one assistant response, in display order, instead of waiting for a model round trip between messages. Keep end_turn false until the final call. Do not batch messages whose content depends on a preceding tool result, or user input.";
+// Saved logins are read with the 1Password CLI on the box, not filled by the host.
 send.inputSchema.properties.type.enum = send.inputSchema.properties.type.enum.filter(
-  (type: string) => type !== "cursor-agent"
+  (type: string) => type !== "cursor-agent" && type !== "credential-request"
 );
 delete send.inputSchema.properties.bcId;
-send.inputSchema.properties.type.description = send.inputSchema.properties.type.description.replace(
-  /cursor-agent to reference a Cursor cloud agent by its bcId \(renders as a card that opens the agent in Cursor on click\), /,
-  ""
-);
-send.description = send.description.replace(
-  /Use \{"type":"cursor-agent"[^}]*\} to reference a Cursor cloud agent:[\s\S]*?(?=Use \{"type":"widget")/,
-  ""
-);
+delete send.inputSchema.properties.credential;
+send.inputSchema.properties.type.description = send.inputSchema.properties.type.description
+  .replace(
+    /cursor-agent to reference a Cursor cloud agent by its bcId \(renders as a card that opens the agent in Cursor on click\), /,
+    ""
+  )
+  .replace(", credential-request for direct private saved-login filling", "");
+send.description = send.description
+  .replace(
+    /Use \{"type":"cursor-agent"[^}]*\} to reference a Cursor cloud agent:[\s\S]*?(?=Use \{"type":"widget")/,
+    ""
+  )
+  .replace(/For a connected saved browser login, use ListCredentials[^.]*\. /, "");
 // Retain private connector-key requests and personal scope supported by this deployment.
 const localSecret = native.native.find((tool) => tool.name === "SendToUser")!.parameters.properties
   .secret!;

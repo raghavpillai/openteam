@@ -96,8 +96,8 @@ export function ConnectionConfiguration({
     <div className="grid gap-5">
       {operation.feedback}
       <PluginAuthorization connection={connection} busy={operation.busy}
-        onRetry={() => void operation.run(async () => {
-          const result = await api.authenticatePlugin(connection.id);
+        onRetry={(force = false) => void operation.run(async () => {
+          const result = await api.authenticatePlugin(connection.id, force);
           openAutomaticPluginSignIn(connection.oauthCallbackMode, result.authorizationUrl);
         })}
         onCancel={() => { const session = pluginAuthorization(connection); if (session) void operation.run(() => api.cancelPluginAuthentication(connection.id, session.state)); }} />

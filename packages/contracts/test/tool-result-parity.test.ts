@@ -233,6 +233,27 @@ describe("reference result and parser fixtures", () => {
       )
     ).toContain("1 MCP server(s) failed to restart");
   });
+  test("agent authentication handoff exposes setup instructions without provider URLs or secrets", () => {
+    const rendered = renderControlResult("AuthenticateMcpServer", {
+      completed: true,
+      actionResult: {
+        requiresUserAction: true,
+        pluginId: "gmail",
+        accountLabel: "work",
+        instructions: "Start sign-in in OpenTeam. If an older attempt is pending, select Start again.",
+        authorizationUrl: "https://provider.test/?state=private-state",
+        codeVerifier: "private-verifier",
+      },
+      connections: [],
+    }, { server_id: "mcp-gmail" });
+    expect(rendered).toContain("Sign-in requires user action");
+    expect(rendered).toContain('account "work"');
+    expect(rendered).toContain("openteam://app/v1/plugin/add?id=gmail");
+    expect(rendered).toContain("Start again");
+    expect(rendered).not.toContain("private-state");
+    expect(rendered).not.toContain("private-verifier");
+    expect(rendered).not.toContain("Authenticated");
+  });
   test("plugin search ranks individual tokens across names, skills and descriptions", () => {
     const rows = [
       { name: "z", displayName: "Z", category: "other", description: "word documents", skills: [] },

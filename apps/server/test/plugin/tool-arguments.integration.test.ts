@@ -16,7 +16,7 @@ test.skipIf(!databaseUrl)(
     let addedInstallationId: string | undefined;
     let attempts = 0;
     Object.assign(service, {
-      authenticate: (id: string) =>
+      authenticateFromAgent: (id: string) =>
         (++attempts, Effect.succeed({ id, authenticated: true })),
     });
     try {

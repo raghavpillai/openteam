@@ -87,13 +87,14 @@ export function DesktopHeader({
   );
 
   return (
-    <header className="pointer-events-none absolute inset-x-0 top-0 z-30 flex h-11 items-center bg-background">
+    // The whole bar moves the window; buttons opt out via the global no-drag rule.
+    <header className="electron-drag pointer-events-none absolute inset-x-0 top-0 z-30 flex h-11 items-center bg-background">
       {selected ? (
         <>
           <div className={cn("flex h-full min-w-0 flex-1 items-center", selected.kind === "group" ? "px-3" : "px-4")}>
             <h2
               aria-label={selected.name}
-              className="electron-drag pointer-events-auto inline-flex h-6 max-w-full items-center gap-1.5 overflow-hidden"
+              className="pointer-events-auto inline-flex h-6 max-w-full items-center gap-1.5 overflow-hidden"
               data-chat-header-title=""
             >
               {directChannel ? (
@@ -154,7 +155,7 @@ export function DesktopHeader({
 
           <div
             className={cn(
-              "electron-no-drag pointer-events-auto relative h-full shrink-0 overflow-hidden",
+              "pointer-events-auto relative h-full shrink-0 overflow-hidden",
               !detailsOpen && !selectedBot && selected.kind !== "group" && "w-0"
             )}
             style={{

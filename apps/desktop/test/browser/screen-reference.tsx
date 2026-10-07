@@ -265,15 +265,17 @@ if (new URLSearchParams(location.search).has("handoff-controls")) {
     try {
       const skip = () => [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Skip this step");
       await waitFor(() => !!skip());
-      const header = skip()!.closest("header")!;
-      const top = header.getBoundingClientRect().top;
-      if (top < 44 || !header.textContent?.includes("Sign in to Northstar")) throw new Error("Handoff instruction overlaps window controls or is missing");
+      const reason = [...skip()!.closest("header")!.querySelectorAll("span")]
+        .find(span => span.textContent?.includes("Sign in to Northstar"));
+      // macOS draws the window buttons within x 16–76px and y 14–29px.
+      const { left, top } = reason?.getBoundingClientRect() ?? { left: 0, top: 0 };
+      if (!reason || (left < 76 && top < 29)) throw new Error("Handoff instruction overlaps window controls or is missing");
       skip()!.click();
       await waitFor(() => !!document.querySelector('[role="alert"]'));
       if (skip()!.disabled) throw new Error("Skip stayed disabled after failure");
       skip()!.click();
       await waitFor(() => !document.querySelector('[aria-label="Close computer view"]'));
-      console.log("HANDOFF_CONTROLS_RESULT " + JSON.stringify({ top, mutations: handoffMutations, passed: true }));
+      console.log("HANDOFF_CONTROLS_RESULT " + JSON.stringify({ left, top, mutations: handoffMutations, passed: true }));
     } catch (error) {
       console.log("HANDOFF_CONTROLS_RESULT " + JSON.stringify({ error: String(error), passed: false }));
     }
@@ -310,6 +312,13 @@ if (new URLSearchParams(location.search).has("regression")) {
       return;
     }
     const bounds = overlay.getBoundingClientRect();
+    const area = overlay.querySelector("main")!;
+    const screenBounds = area.firstElementChild!.getBoundingClientRect();
+    const style = getComputedStyle(area);
+    const available = {
+      width: area.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+      height: area.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
+    };
     console.log(
       "COMPUTER_VIEW_RESULT " +
         JSON.stringify({
@@ -326,6 +335,14 @@ if (new URLSearchParams(location.search).has("regression")) {
             bounds.top === 0 &&
             bounds.width === innerWidth &&
             bounds.height === innerHeight,
+          screen: { top: screenBounds.top, width: screenBounds.width, height: screenBounds.height },
+          // The screen should take all the space it can; leftover space means
+          // the viewer is reserving room for chrome that is not there.
+          fillsArea:
+            screenBounds.width <= available.width + 0.5 &&
+            screenBounds.height <= available.height + 0.5 &&
+            (Math.abs(screenBounds.width - available.width) < 1 ||
+              Math.abs(screenBounds.height - available.height) < 1),
         })
     );
   };

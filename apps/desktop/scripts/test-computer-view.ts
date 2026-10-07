@@ -40,6 +40,8 @@ try {
     result.reports.some((report: { fullWindow?: boolean }) => !report.fullWindow)
   )
     throw new Error("Computer view must fill the window outside the animated inspector");
+  if (result.reports.some((report: { fillsArea?: boolean }) => !report.fillsArea))
+    throw new Error("Computer screen must fill the space below the viewer header");
   if (result.vncReports.length !== 2 || result.vncReports.some((report: {
     error?: string; actionCount: number; iframeCount: number; updateRequired: boolean;
   }) => report.error || report.actionCount !== 0 || report.iframeCount !== 0 || !report.updateRequired))

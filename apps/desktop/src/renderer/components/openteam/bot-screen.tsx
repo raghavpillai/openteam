@@ -283,11 +283,12 @@ export function BotScreen({
           the full-window computer outside that containing block. */}
       {open && createPortal(
         <div className="fixed inset-0 z-[70] flex flex-col bg-black/[0.94] text-white">
-          <div aria-hidden="true" className="electron-drag h-11 shrink-0" />
-          <header className="electron-no-drag flex shrink-0 flex-wrap items-center justify-end gap-2 border-b border-white/[0.035] px-3 py-2">
+          {/* One draggable title row; content starts past the macOS window
+              buttons, which end at x=76px. */}
+          <header className="electron-drag flex min-h-11 shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 border-b border-white/[0.035] py-1.5 pl-[88px] pr-3">
             {handoff ? (
               <>
-                <span className="mr-auto min-w-0 basis-full text-sm text-white/85 sm:flex-1 sm:basis-auto">
+                <span className="mr-auto min-w-0 basis-full py-2 text-[13px] leading-4 text-white/85 md:flex-1 md:basis-0 md:py-0">
                   {handoff.reason || "Complete the requested step"}
                 </span>
                 <Button
@@ -326,13 +327,14 @@ export function BotScreen({
           </header>
           {error && viewerReady && <p className="shrink-0 px-3 py-2 text-sm text-red-300" role="alert">{error}</p>}
           <main
-            className="flex min-h-0 flex-1 items-center justify-center p-2"
+            className="flex min-h-0 flex-1 items-center justify-center p-2 [container-type:size]"
             onClick={(event) => event.target === event.currentTarget && closeViewer()}
             onKeyDown={(event) => event.key === "Escape" && closeViewer()}
           >
+            {/* The largest 16:10 screen that fits the space below the header. */}
             <div
-              className="relative aspect-[16/10] w-full overflow-hidden rounded-[6px] bg-[#1b1d1f]"
-              style={{ maxWidth: "min(100%, calc((100vh - 144px) * 1.6))", maxHeight: "100%" }}
+              className="relative aspect-[16/10] overflow-hidden rounded-[6px] bg-[#1b1d1f]"
+              style={{ width: "min(100cqw, 160cqh)" }}
             >
               {viewerReady ? (
                 <VncComputer key={bot.id} botId={bot.id} name={bot.name}

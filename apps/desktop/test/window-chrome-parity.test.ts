@@ -14,6 +14,17 @@ describe("Bot window chrome parity", () => {
     expect(main).toContain("trafficLightPosition: { x: 16, y: 15 }");
   });
 
+  test("lets the whole chat header move the window while its buttons stay clickable", async () => {
+    const [header, styles] = await Promise.all([
+      source("renderer/components/openteam/desktop-header.tsx"),
+      source("renderer/styles.css"),
+    ]);
+
+    expect(header).toContain('<header className="electron-drag pointer-events-none absolute');
+    expect(header).not.toContain('"electron-no-drag pointer-events-auto relative h-full');
+    expect(styles).toMatch(/\.electron-no-drag,\s*button,/);
+  });
+
   test("matches the top-right and compact-sidebar bottom edge spacing", async () => {
     const [header, sidebar] = await Promise.all([
       source("renderer/components/openteam/desktop-header.tsx"),

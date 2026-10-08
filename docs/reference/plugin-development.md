@@ -90,6 +90,8 @@ Report missing checks and unresolved failures with references to the evidence.
 
 When a skill declares a `path` and omits its body, package import loads the `SKILL.md` there. Supporting files retain their relative paths. An inline skill can instead provide a `body` in the definition.
 
+A skill is given to each Bot's main agent. To give its full text to subagents as well, list the agents that receive it in `agents`: `main`, `executor`, `browserUse`, `computerUse`, `videoReview`, or `watchVideo`. For example, a website sign-in skill declares `"agents": ["main", "browserUse", "computerUse"]` so browser and desktop workers can use it. Leave `main` out only when the main agent never needs the skill. Browser and desktop workers still receive no plugin connections or tools.
+
 The schema and validation live in [SDK types](../../packages/plugin-sdk/src/types.ts) and [manifest validation](../../packages/plugin-sdk/src/manifest.ts). Use the shared importer for packages containing skill files; a raw manifest is not the fully resolved package definition.
 
 ## Add an MCP connection

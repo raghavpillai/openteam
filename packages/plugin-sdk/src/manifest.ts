@@ -2,7 +2,7 @@ import { isSecretKey } from "./configuration";
 import { assertComputerMcpRuntime } from "./desktop-runtime";
 import { isAllowedEnvironmentName } from "./environment";
 import { PLUGIN_ICON_MAX_BASE64_LENGTH } from "./icons";
-import type { PluginDefinition, PluginField } from "./types";
+import type { PluginDefinition, PluginField, PluginSkillAgent, PluginSkillDefinition } from "./types";
 
 export const objectValue = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value)
@@ -20,6 +20,20 @@ export const safePackagePath = (path: string): string => {
     throw new Error(`Unsafe package path: ${path}`);
   return normalized;
 };
+export const PLUGIN_SKILL_AGENTS: readonly PluginSkillAgent[] = [
+  "main",
+  "executor",
+  "videoReview",
+  "watchVideo",
+  "computerUse",
+  "browserUse",
+];
+/** Skills that do not name their agents are for the main agent only. */
+export const skillIsForAgent = (
+  skill: PluginSkillDefinition | Readonly<Record<string, unknown>>,
+  agent: PluginSkillAgent
+): boolean =>
+  Array.isArray(skill.agents) ? skill.agents.includes(agent) : agent === "main";
 const identifier = /^[a-z0-9](?:[a-z0-9.-]{0,158}[a-z0-9])?$/;
 const requireText = (value: unknown, label: string, limit = 20_000): void => {
   if (typeof value !== "string" || !value.trim() || value.length > limit)
@@ -227,6 +241,14 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
     )
       throw new Error("Invalid skill content");
     if (skill.path) safePackagePath(skill.path);
+    if (
+      skill.agents !== undefined &&
+      (!Array.isArray(skill.agents) ||
+        !skill.agents.length ||
+        skill.agents.some((agent) => !PLUGIN_SKILL_AGENTS.includes(agent)) ||
+        new Set(skill.agents).size !== skill.agents.length)
+    )
+      throw new Error(`Invalid skill agents: ${skill.name}`);
   }
   if (plugin.installationSteps !== undefined) {
     if (!Array.isArray(plugin.installationSteps) || plugin.installationSteps.length > 30)

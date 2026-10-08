@@ -31,7 +31,8 @@
     {
       "name": "1password",
       "description": "Sign in to websites with the user's saved 1Password logins and one-time codes. Use whenever a site asks for a username, password, or verification code.",
-      "path": "skills/1password"
+      "path": "skills/1password",
+      "agents": ["main", "browserUse", "computerUse"]
     }
   ]
 }

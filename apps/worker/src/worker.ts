@@ -38,7 +38,8 @@ import {
   lockGroupExecution,
 } from "@openteam/messaging";
 import { fromPrisma, type Job, type JobWithMetadata, PgBoss } from "pg-boss";
-import { pluginRuntimeContext } from "./plugins";
+import { pluginRuntimeContext, pluginSkillInstructions } from "./plugins";
+import type { PluginSkillAgent } from "@openteam/plugin-sdk";
 import { Projection } from "./projection";
 import { workContinuously } from "./queue-dispatch";
 import { memoryInferenceSettings } from "./memory-inference";
@@ -196,10 +197,11 @@ export const subagentRuntimeOwners = (
 export const subagentLoadsPluginContext = (subagentType: SubagentType | null): boolean =>
   subagentType !== "computerUse" && subagentType !== "browserUse";
 
-export const pluginSkillPromptForRuntime = (
+/** Plugin skills name the agents they are for; the main agent is the default. */
+export const pluginSkillAgent = (
   runtimeProfile: "agent" | "subagent",
-  skillInstructions: string
-): string => (runtimeProfile === "agent" ? skillInstructions : "");
+  subagentType: SubagentType | null
+): PluginSkillAgent | null => (runtimeProfile === "agent" ? "main" : subagentType);
 
 export const wakeResetsSelfSummaryCount = (inboxType: string): boolean =>
   ![
@@ -1242,10 +1244,13 @@ export class WakeWorker {
     let completion: Extract<ComputerEvent, { type: "turn.completed" }> | null = null;
     try {
       await this.reconcileContextState(claimed);
+      const skillAgent = pluginSkillAgent(claimed.runtimeProfile, claimed.subagentType);
       const [pluginContext, inference, configuredTasks] = await Promise.all([
         subagentLoadsPluginContext(claimed.subagentType)
-          ? pluginRuntimeContext(this.prisma, claimed.pluginBotId)
-          : Promise.resolve({ dynamicNamespaces: [], skillInstructions: "", pluginRuntimePackages: [] }),
+          ? pluginRuntimeContext(this.prisma, claimed.pluginBotId, skillAgent)
+          : pluginSkillInstructions(this.prisma, claimed.pluginBotId, skillAgent).then((skillInstructions) => ({
+              dynamicNamespaces: [], skillInstructions, pluginRuntimePackages: [],
+            })),
         this.agentData.loadInferenceSettings(),
         this.agentData.loadTaskConfiguration(),
       ]);
@@ -1258,10 +1263,8 @@ export class WakeWorker {
         combinedComputerUse: claimed.combinedComputerUse ?? selectedTasks.combinedComputerUse };
       // Plugin skills are global/read-only inputs. User workflows are rendered
       // later by platformInstructions and therefore win on conflict.
-      const platformPrompt = await this.messaging.platformPrompt(claimed.botId, claimed.contextSessionId, pluginSkillPromptForRuntime(
-        claimed.runtimeProfile,
-        pluginContext.skillInstructions
-      ), claimed.memoryConversationId, taskConfiguration);
+      const platformPrompt = await this.messaging.platformPrompt(claimed.botId, claimed.contextSessionId,
+        pluginContext.skillInstructions, claimed.memoryConversationId, taskConfiguration);
       // Replay failed user inputs whose durable-session delivery was never
       // acknowledged. Runtime message IDs prevent duplication after a lost ack.
       const missed = claimed.runtimeProfile === "agent" && claimed.origin !== "routine" ? await this.prisma.inboxEvent.findMany({ where: { botId: claimed.botId, conversationId: claimed.conversationId, deliveryMode: "turn", runId: { not: claimed.runId }, run: { channelId: claimed.channelId, origin: "user", status: { in: ["failed", "interrupted"] }, inputDeliveredAt: null } }, orderBy: { createdAt: "asc" }, take: 20 }) : [];
@@ -1308,7 +1311,7 @@ export class WakeWorker {
         instructions,
         userInfo: platformPrompt.userInfo,
         userInfoEpoch: platformPrompt.userInfoEpoch ?? undefined,
-        connectorInstructions: pluginSkillPromptForRuntime(claimed.runtimeProfile, pluginContext.skillInstructions),
+        connectorInstructions: pluginContext.skillInstructions,
         agentProfileSnapshot: platformPrompt.agentProfileSnapshot ?? undefined,
         memorySnapshot: platformPrompt.memorySnapshot ?? undefined,
         todoUpdate: platformPrompt.todoUpdate,

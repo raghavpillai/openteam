@@ -38,7 +38,7 @@ Skills that bots save are available to all your bots. They don't appear under **
 
 ## Skills from plugins
 
-Some installed plugins include skills and runtime instructions. These load for all bots.
+Some installed plugins include skills and runtime instructions. These load for all bots. A plugin can also give a skill to the browser and desktop workers that bots start; 1Password does this so those workers can sign in to websites.
 
 | Plugin | Included skills |
 | --- | --- |
@@ -46,6 +46,7 @@ Some installed plugins include skills and runtime instructions. These load for a
 | [Granola](../../packages/plugins/granola/README.md) | 3: `granola-context`, `granola-prep`, and `granola-review` |
 | [Notion](../../packages/plugins/notion/README.md) | 14: `search`, `find`, `create-page`, `create-task`, `create-database-row`, `database-query`, `knowledge-capture`, `meeting-intelligence`, `research-documentation`, `spec-to-implementation`, `tasks-plan`, `tasks-build`, `tasks-explain-diff`, and `tasks-setup` |
 | [Plaid](../../packages/plugins/plaid/README.md) | 4: `plaid-setup`, `plaid-connections`, `plaid-financial-data`, and `plaid-troubleshooting` |
+| [1Password](../../packages/plugins/1password/README.md) | 1: `1password` |
 
 Gmail, Google Calendar, Google Drive, GitHub, and Linear provide tools without bundled skills. You can create a private skill that uses those tools.
 

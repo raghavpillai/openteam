@@ -10,6 +10,7 @@ import {
   parsePluginDefinition,
   pluginIconUrl,
   scopedProcessEnvironment,
+  skillIsForAgent,
   substituteConfiguration,
   validateValues,
 } from "../src";
@@ -221,6 +222,17 @@ describe("portable plugin packages", () => {
     expect(() =>
       parsePluginDefinition({ ...definition, connections: [{ ...definition.connections[0], setup }] })
     ).toThrow("Environment setup fields");
+  });
+  test("skills name the agents that receive them and default to the main agent", () => {
+    const definition = importPackage(files).definition;
+    const skill = { name: "sign-in", description: "Sign in", body: "Use the CLI." };
+    const shared = parsePluginDefinition({ ...definition, skills: [{ ...skill, agents: ["main", "browserUse"] }] });
+    expect(skillIsForAgent(shared.skills[0]!, "browserUse")).toBe(true);
+    expect(skillIsForAgent(shared.skills[0]!, "computerUse")).toBe(false);
+    expect(skillIsForAgent(skill, "main")).toBe(true);
+    expect(skillIsForAgent(skill, "browserUse")).toBe(false);
+    for (const agents of [[], ["browser"], ["main", "main"], "main"])
+      expect(() => parsePluginDefinition({ ...definition, skills: [{ ...skill, agents }] })).toThrow("Invalid skill agents");
   });
   test("retains Cursor hook configuration for runtime execution", () => {
     const { "plugin.json": manifest, ...rest } = files;

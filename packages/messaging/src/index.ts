@@ -2050,6 +2050,7 @@ export class AgentMessaging {
         bot.subagentIdentity.subagentType === "browserUse"
           ? ""
           : `Your current timezone is ${this.defaultTimeZone}.`,
+        connectorInstructions.trim(),
         todoContext.length > 0
           ? `Your durable task list:\n${todoContext.join("\n")}`
           : "Your durable task list is empty.",

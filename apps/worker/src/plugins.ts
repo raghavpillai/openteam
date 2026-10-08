@@ -4,7 +4,9 @@ import {
   fileTransferCapabilities,
   parsePluginRuntimeComponents,
   pluginWorkflowRoot,
+  skillIsForAgent,
   type PluginRuntimePackage,
+  type PluginSkillAgent,
 } from "@openteam/plugin-sdk";
 import { PLUGIN_WORKFLOW_HOST_CONTEXT } from "@openteam/contracts/plugin-workflows";
 import { readFile } from "node:fs/promises";
@@ -27,9 +29,66 @@ const runtimeStatus = (status: string): PluginDynamicNamespace["namespaceStatus"
 const namespaceName = (pluginKey: string, alias: string): string =>
   `${pluginKey.replaceAll("-", "_")}_${alias.replace(/[^A-Za-z0-9_]+/g, "_")}`;
 
+type Installation = Awaited<ReturnType<PrismaClient["pluginInstallation"]["findMany"]>>[number];
+
+// Each agent receives the full text of the skills declared for it. Private
+// skills are enabled per Bot and stay with its main agent.
+const renderSkillInstructions = async (
+  prisma: PrismaClient,
+  botId: string,
+  installations: Installation[],
+  agent: PluginSkillAgent | null
+): Promise<string> => {
+  if (!agent) return "";
+  const root = process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data";
+  const skills = installations.flatMap((installation) => {
+    const manifest = objectValue(installation.manifest);
+    return Array.isArray(manifest.skills)
+      ? manifest.skills.flatMap((candidate) => {
+          const skill = objectValue(candidate);
+          if (typeof skill.name !== "string" || typeof skill.body !== "string") return [];
+          if (!skillIsForAgent(skill, agent)) return [];
+          const description =
+            typeof skill.description === "string" ? `${skill.description}\n\n` : "";
+          return [
+            `### ${installation.name}: ${skill.name}\n${description}${skill.body}\n\nSupporting files: find pluginId ${JSON.stringify(installation.pluginKey)} and skill ${JSON.stringify(skill.name)} in ${root}/plugin-skills/cache.json. Resolve relative file links from that SKILL.md directory.`,
+          ];
+        })
+      : [];
+  });
+  if (agent === "main") {
+    const privateSkills = await prisma.pluginPrivateSkill.findMany({
+      where: { enabledBotIds: { array_contains: [botId] } },
+    });
+    skills.push(
+      ...privateSkills.map(
+        (skill) =>
+          `### Private skill: ${skill.name}\n${skill.description}\n\n${skill.body}\n\nSupporting files: find pluginId ${JSON.stringify(`private-${skill.id}`)} in ${root}/plugin-skills/cache.json and resolve links from its SKILL.md directory.`
+      )
+    );
+  }
+  return skills.length
+    ? `\n\n## Installed plugin skills\n\n${PLUGIN_WORKFLOW_HOST_CONTEXT}\n\n${skills.join("\n\n")}`
+    : "";
+};
+
+/** Skill text alone, for workers that receive no plugin tools or runtime packages. */
+export const pluginSkillInstructions = async (
+  prisma: PrismaClient,
+  botId: string,
+  agent: PluginSkillAgent | null
+): Promise<string> =>
+  renderSkillInstructions(
+    prisma,
+    botId,
+    await prisma.pluginInstallation.findMany({ where: { status: "installed" } }),
+    agent
+  );
+
 export const pluginRuntimeContext = async (
   prisma: PrismaClient,
-  botId: string
+  botId: string,
+  agent: PluginSkillAgent | null = "main"
 ): Promise<{
   dynamicNamespaces: PluginDynamicNamespace[];
   skillInstructions: string;
@@ -69,30 +128,6 @@ export const pluginRuntimeContext = async (
       : [],
   }));
 
-  const skills = installations.flatMap((installation) => {
-    const manifest = objectValue(installation.manifest);
-    return Array.isArray(manifest.skills)
-      ? manifest.skills.flatMap((candidate) => {
-          const skill = objectValue(candidate);
-          if (typeof skill.name !== "string" || typeof skill.body !== "string") return [];
-          const description =
-            typeof skill.description === "string" ? `${skill.description}\n\n` : "";
-          return [
-            `### ${installation.name}: ${skill.name}\n${description}${skill.body}\n\nSupporting files: find pluginId ${JSON.stringify(installation.pluginKey)} and skill ${JSON.stringify(skill.name)} in ${process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data"}/plugin-skills/cache.json. Resolve relative file links from that SKILL.md directory.`,
-          ];
-        })
-      : [];
-  });
-
-  const privateSkills = await prisma.pluginPrivateSkill.findMany({
-    where: { enabledBotIds: { array_contains: [botId] } },
-  });
-  skills.push(
-    ...privateSkills.map(
-      (skill) =>
-        `### Private skill: ${skill.name}\n${skill.description}\n\n${skill.body}\n\nSupporting files: find pluginId ${JSON.stringify(`private-${skill.id}`)} in ${process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data"}/plugin-skills/cache.json and resolve links from its SKILL.md directory.`
-    )
-  );
   const root = process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data";
   const cache = await readFile(join(root, "plugin-skills/cache.json"), "utf8")
     .then((text) => JSON.parse(text))
@@ -150,8 +185,6 @@ export const pluginRuntimeContext = async (
   return {
     dynamicNamespaces,
     pluginRuntimePackages,
-    skillInstructions: skills.length
-      ? `\n\n## Installed plugin skills\n\n${PLUGIN_WORKFLOW_HOST_CONTEXT}\n\n${skills.join("\n\n")}`
-      : "",
+    skillInstructions: await renderSkillInstructions(prisma, botId, installations, agent),
   };
 };

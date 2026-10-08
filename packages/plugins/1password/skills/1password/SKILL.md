@@ -1,6 +1,6 @@
 ---
 name: 1password
-description: Use 1Password saved logins, passwords, and one-time codes through the 1Password CLI, and set up the CLI and a service account token.
+description: Sign in to websites with the user's saved 1Password logins and one-time codes. Use whenever a site asks for a username, password, or verification code.
 ---
 
 # 1Password

@@ -20,7 +20,7 @@
   "skills": [
     {
       "name": "1password",
-      "description": "Set up the 1Password CLI and sign in to websites with saved logins and one-time codes.",
+      "description": "Sign in to websites with the user's saved 1Password logins and one-time codes. Use whenever a site asks for a username, password, or verification code.",
       "path": "skills/1password"
     }
   ]

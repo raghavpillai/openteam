@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "key": "imessage-ssh",
+  "version": "1.0.0",
+  "name": "iMessage over SSH",
+  "description": "Read and search Messages on a reachable Mac from your cloud bots. Connect your own SSH gateway endpoint; no OpenTeam desktop app is required.",
+  "publisher": "OpenTeam",
+  "category": "Productivity",
+  "featured": false,
+  "components": ["mcp", "skills"],
+  "icon": "assets/icon.png",
+  "installationSteps": [
+    "Install this package's reader on the Mac signed in to Messages. Enable SSH and grant the remote user access to Messages history.",
+    "Run the included gateway on your VM host or another machine that can SSH to that Mac. Keep its dedicated SSH key on that host.",
+    "Configure the gateway endpoint and token below, then connect and test imessage_status. The endpoint must be reachable from the OpenTeam server.",
+    "The Mac must remain online. This version reads chats and messages; it does not send, modify messages, download attachments, or resolve Contacts names."
+  ],
+  "setup": {
+    "kind": "token",
+    "connectionKey": "imessage-ssh",
+    "title": "Connect your iMessage gateway",
+    "description": "Connect the endpoint that runs SSH on your behalf. Use an internal HTTP address on a trusted private network, or override the MCP URL with your HTTPS endpoint. SSH credentials remain on the gateway host.",
+    "documentationUrl": "https://support.apple.com/guide/mac-help/allow-a-remote-computer-to-access-your-mac-mchlp1066/mac",
+    "steps": [
+      "Follow connector/SETUP.md in this package to install the restricted Mac reader and host-side gateway.",
+      "Enter the gateway host and port, such as host.docker.internal:8799. A Mac IP alone is not a gateway endpoint.",
+      "Configure the gateway token using the secret field. For public routing, set the connection's MCP URL to your HTTPS address ending in /mcp.",
+      "Run imessage_status in Test tool, then ask a bot to find a conversation. No public listener on the Mac is required."
+    ],
+    "fields": [
+      {"key": "GATEWAY_ADDRESS", "label": "Gateway host and port", "type": "string", "required": true, "secret": false, "placeholder": "host.docker.internal:8799", "helpText": "The host running gateway.py, reachable from the OpenTeam server. For HTTPS, override the connection's MCP URL."},
+      {"key": "token", "label": "Gateway token", "type": "string", "required": true, "secret": true, "helpText": "The random token from the gateway's private token file. Never enter an SSH private key here."}
+    ],
+    "requiredScopes": []
+  },
+  "connections": [{"key": "imessage-ssh", "name": "iMessage gateway", "transport": "http", "auth": "token", "endpoint": "http://${GATEWAY_ADDRESS}/mcp", "tools": []}],
+  "skills": [{"name": "imessage-remote", "description": "Read and search iMessage or SMS history on a Mac through a configured remote SSH gateway, including connection troubleshooting.", "path": "skills/imessage-remote"}]
+}

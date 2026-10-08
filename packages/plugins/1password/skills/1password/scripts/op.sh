@@ -2,7 +2,7 @@
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-executable="$(bash "$script_dir/ensure-cli.sh" --check)"
+executable="$(bash "$script_dir/ensure-cli.sh" --check 2>/dev/null || bash "$script_dir/ensure-cli.sh" --install)"
 
 # The CLI uses the first existing config folder below and refuses one owned by
 # another user. OpenTeam's unprivileged tool runner may find ~/.config/op owned

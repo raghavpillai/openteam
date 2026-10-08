@@ -44,7 +44,7 @@ export class PluginQueries {
   ) {}
   settings = () =>
     serviceEffect(async (): Promise<PluginSettingsView> => {
-      const [catalog, installs, botCount, activity] = await Promise.all([
+      const [catalog, installs, botCount, activity, pluginSecrets] = await Promise.all([
         this.catalog(),
         this.prisma.pluginInstallation.findMany({
           include: { connections: true },
@@ -55,6 +55,10 @@ export class PluginQueries {
           include: { installation: { select: { pluginKey: true } } },
           orderBy: { createdAt: "desc" },
           take: 100,
+        }),
+        this.prisma.processSecret.findMany({
+          where: { ownerKey: { startsWith: "plugin:" } },
+          select: { ownerKey: true, name: true },
         }),
       ]);
       const installedKeys = new Set(installs.map((install) => install.pluginKey));
@@ -81,6 +85,9 @@ export class PluginQueries {
             status: install.status,
             installedAt: install.installedAt.toISOString(),
             hasSkills: Boolean(definitionFromManifest(install.manifest)?.components.some(kind=>kind!=="mcp")),
+            configuredEnvironment: pluginSecrets
+              .filter((secret) => secret.ownerKey === `plugin:${install.pluginKey}`)
+              .map((secret) => secret.name),
             connections: install.connections.map((connection) =>
               connectionView(this.publicUrl, install.pluginKey, connection, definitionFromManifest(install.manifest))
             ),

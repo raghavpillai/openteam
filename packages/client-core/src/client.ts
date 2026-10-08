@@ -348,6 +348,11 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       transport.request(`/api/v0/plugins/${encodeURIComponent(pluginKey)}`, {
         method: "DELETE",
       }),
+    updatePluginEnvironment: (pluginKey: string, values: Record<string, string>) =>
+      transport.request<{ updated: string[] }>(
+        `/api/v0/plugins/${encodeURIComponent(pluginKey)}/environment`,
+        { method: "PUT", body: JSON.stringify({ values }) }
+      ),
     connectPlugin: (connectionId: string) =>
       transport.request(`/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/connect`, {
         method: "POST",

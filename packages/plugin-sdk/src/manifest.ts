@@ -24,8 +24,9 @@ const requireText = (value: unknown, label: string, limit = 20_000): void => {
   if (typeof value !== "string" || !value.trim() || value.length > limit)
     throw new Error(`Invalid ${label}`);
 };
-const validateFields = (fields: readonly PluginField[]): void => {
+const validateFields = (fields: readonly PluginField[], allowEnvironment = false): void => {
   const keys = new Set<string>();
+  const environment = new Set<string>();
   for (const field of fields) {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(field.key) || keys.has(field.key))
       throw new Error(`Invalid or duplicate setup field: ${field.key}`);
@@ -44,6 +45,18 @@ const validateFields = (fields: readonly PluginField[]): void => {
       throw new Error(`Credential setup fields must use secret: true: ${field.key}`);
     if (field.secret && field.default !== undefined)
       throw new Error(`Secret defaults are not allowed: ${field.key}`);
+    if (field.environment !== undefined) {
+      if (
+        !allowEnvironment ||
+        !field.secret ||
+        (field.type ?? "string") !== "string" ||
+        typeof field.environment !== "string" ||
+        !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(field.environment) ||
+        environment.has(field.environment)
+      )
+        throw new Error(`Environment setup fields must be unique plugin-level secrets: ${field.key}`);
+      environment.add(field.environment);
+    }
     if (
       field.enum &&
       (!Array.isArray(field.enum) ||
@@ -220,7 +233,7 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
       throw new Error("Invalid installation instructions");
     for (const step of plugin.installationSteps) requireText(step, "installation step", 4000);
   }
-  validateFields(plugin.setupFields ?? []);
+  validateFields(plugin.setupFields ?? [], true);
   for (const setup of [plugin.setup, ...plugin.connections.map((connection) => connection.setup)]) {
     if (!setup) continue;
     if (setup.connectionKey && !connectorKeys.has(setup.connectionKey))

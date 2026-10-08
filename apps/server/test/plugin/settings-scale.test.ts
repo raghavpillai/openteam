@@ -14,6 +14,7 @@ describe("bounded plugin settings projections", () => {
     const service = withoutMarketplace({
       pluginInstallation: { findMany: async () => [] },
       pluginActivity: { findMany: async () => [] },
+      processSecret: { findMany: async () => [] },
       bot: {
         count: async () => 1_000,
         findMany: async () => {

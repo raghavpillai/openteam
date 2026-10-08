@@ -39,7 +39,12 @@ for (const catalog of pluginCatalog) {
             conversation: { create: {} },
           },
         });
-        await Effect.runPromise(service.install(catalog.key));
+        const requiredSetup = Object.fromEntries(
+          (catalog.setupFields ?? [])
+            .filter((field) => field.required && field.default === undefined)
+            .map((field) => [field.key, `fixture-${field.key}`])
+        );
+        await Effect.runPromise(service.install(catalog.key, requiredSetup));
         const review = await Effect.runPromise(service.management.package(catalog.key));
         expect(review.skillSyncStatus).toBe("ready");
         expect(review.update).toBeNull();

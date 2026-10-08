@@ -51,7 +51,7 @@ Gmail, Google Calendar, Google Drive, GitHub, and Linear provide tools without b
 
 Provider skills keep their original upstream instructions. Installing or updating Granola and Notion fetches their pinned skills automatically; you don't need to copy files yourself. Updating a plugin updates its included skills. Your private skills remain separate.
 
-Slack and Granola also include commands. For example, ask for `/slack:summarize-channel #general` or `/granola-brief <meeting or topic>`. See their package guides for all commands and any extra setup. Slack's app-development skills may need the Slack CLI and a language runtime on the bot computer. The 1Password skill installs the 1Password CLI on the bot computer and asks for a service account token.
+Slack and Granola also include commands. For example, ask for `/slack:summarize-channel #general` or `/granola-brief <meeting or topic>`. See their package guides for all commands and any extra setup. Slack's app-development skills may need the Slack CLI and a language runtime on the bot computer. The 1Password skill installs the 1Password CLI on the bot computer the first time it runs and uses the token entered when the plugin was added.
 
 ## Test and improve a skill
 

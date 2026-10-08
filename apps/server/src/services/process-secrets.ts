@@ -39,6 +39,38 @@ export async function storeProcessSecret(
   }
 }
 
+const pluginOwner = (pluginKey: string) => `plugin:${pluginKey}`;
+
+/** Secrets entered in a plugin's setup; every Bot's processes receive them like personal secrets. */
+export async function storePluginEnvironment(
+  db: Database,
+  pluginKey: string,
+  values: Array<[name: string, value: string]>
+) {
+  for (const [name, value] of values) {
+    validateProcessSecretName(name);
+    if (!value.trim() || value.length > 20_000)
+      throw new ApiError(400, "secret_invalid", "A secret must contain 1–20000 characters");
+    await db.processSecret.upsert({
+      where: { ownerKey_name: { ownerKey: pluginOwner(pluginKey), name } },
+      create: { ownerKey: pluginOwner(pluginKey), name, value, botId: null },
+      update: { value },
+    });
+  }
+}
+
+export async function clearPluginEnvironment(db: Database, pluginKey: string) {
+  await db.processSecret.deleteMany({ where: { ownerKey: pluginOwner(pluginKey) } });
+}
+
+export async function pluginEnvironmentNames(db: Database, pluginKey: string): Promise<string[]> {
+  const secrets = await db.processSecret.findMany({
+    where: { ownerKey: pluginOwner(pluginKey) },
+    select: { name: true },
+  });
+  return secrets.map((secret) => secret.name);
+}
+
 export async function processEnvironment(
   db: Database,
   botId: string
@@ -49,11 +81,19 @@ export async function processEnvironment(
   });
   const root = child?.parentBotId ?? botId;
   const secrets = await db.processSecret.findMany({
-    where: { ownerKey: { in: ["personal", `bot:${root}`] } },
+    where: {
+      OR: [
+        { ownerKey: { in: ["personal", `bot:${root}`] } },
+        { ownerKey: { startsWith: "plugin:" } },
+      ],
+    },
   });
+  // Later sources override earlier ones: plugin setup, then personal, then this Bot.
+  const precedence = (ownerKey: string) =>
+    ownerKey.startsWith("plugin:") ? 0 : ownerKey === "personal" ? 1 : 2;
   return Object.fromEntries(
     secrets
-      .sort((a, b) => Number(a.ownerKey !== "personal") - Number(b.ownerKey !== "personal"))
+      .sort((a, b) => precedence(a.ownerKey) - precedence(b.ownerKey))
       .map((secret) => [validateProcessSecretName(secret.name), secret.value])
   );
 }

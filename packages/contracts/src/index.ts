@@ -685,6 +685,11 @@ export const InstallPluginInput = Schema.Struct({
 });
 export type InstallPluginInput = typeof InstallPluginInput.Type;
 
+export const UpdatePluginEnvironmentInput = Schema.Struct({
+  values: Schema.Record({ key: Schema.String, value: Schema.String }),
+});
+export type UpdatePluginEnvironmentInput = typeof UpdatePluginEnvironmentInput.Type;
+
 export const AddCustomMcpInput = Schema.Struct({
   name: Schema.String.pipe(Schema.minLength(2), Schema.maxLength(100)),
   url: Schema.optional(Schema.String.pipe(Schema.minLength(8), Schema.maxLength(2_000))),
@@ -803,6 +808,8 @@ export interface PluginInstallView {
   status: "installed" | "error";
   installedAt: string;
   hasSkills: boolean;
+  /** Environment variable names whose setup secrets are stored; never their values. */
+  configuredEnvironment: string[];
   connections: PluginConnectionView[];
 }
 

@@ -388,6 +388,8 @@ export class PluginService {
 
   uninstall = forwardServiceMethod(() => this.installations.uninstall);
 
+  updateEnvironment = forwardServiceMethod(() => this.installations.updateEnvironment);
+
   testTool = (connectionId: string, input: PluginTestInput) =>
     serviceEffect(async () => {
       const connection = await this.connectionOrThrow(connectionId);

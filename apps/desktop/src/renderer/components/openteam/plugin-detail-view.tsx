@@ -861,6 +861,7 @@ export function PluginDetail({
   onRemove,
   onRestart,
   onToggle,
+  onUpdateEnvironment,
 }: {
   busy: string | null;
   data: PluginSettingsView;
@@ -881,9 +882,11 @@ export function PluginDetail({
   onRemove: (plugin: PluginCatalogItemView) => void;
   onRestart: (connection: PluginConnectionView) => void;
   onToggle: (connection: PluginConnectionView) => void;
+  onUpdateEnvironment?: (plugin: PluginCatalogItemView, values: Record<string, string>) => Promise<boolean>;
   advancedSettings?: React.ReactNode;
 }) {
   const [setupValues, setSetupValues] = useState<Record<string, string>>({});
+  const [environmentValues, setEnvironmentValues] = useState<Record<string, string>>({});
   const [setupRequest, setSetupRequest] = useState<{ accountId: string; sequence: number } | null>(null);
   const [dismissedSetupIds, setDismissedSetupIds] = useState<string[]>([]);
   const install = installFor(data, plugin.key);
@@ -960,6 +963,49 @@ export function PluginDetail({
             </label>
           ))}
         </div>
+      ) : null}
+      {install && onUpdateEnvironment && plugin.setupFields.some((field) => field.environment) ? (
+        <form
+          className="mt-5 rounded-[10px] bg-black/[0.035] p-3 dark:bg-white/[0.045]"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const values = Object.fromEntries(
+              Object.entries(environmentValues).filter(([, value]) => value.trim())
+            );
+            void onUpdateEnvironment(plugin, values).then((saved) => {
+              if (saved) setEnvironmentValues({});
+            });
+          }}
+        >
+          <div className="grid grid-cols-2 gap-2 max-sm:grid-cols-1">
+            {plugin.setupFields
+              .filter((field) => field.environment)
+              .map((field) => (
+                <label className="space-y-1" key={field.key}>
+                  <span className="block text-[10.5px] text-foreground-secondary">
+                    {field.label} ·{" "}
+                    {install.configuredEnvironment?.includes(field.environment!) ? "Saved" : "Not set"}
+                  </span>
+                  <input
+                    className="h-8 w-full rounded-[7px] border border-black/[0.08] bg-background px-2.5 text-[11px] outline-none dark:border-white/[0.09]"
+                    onChange={(event) =>
+                      setEnvironmentValues((current) => ({ ...current, [field.key]: event.target.value }))
+                    }
+                    placeholder="Enter a new value to replace it"
+                    type="password"
+                    value={environmentValues[field.key] ?? ""}
+                  />
+                </label>
+              ))}
+          </div>
+          <button
+            className={cn(secondaryButton, "mt-2 h-8 px-3")}
+            disabled={busy === plugin.key || !Object.values(environmentValues).some((value) => value.trim())}
+            type="submit"
+          >
+            Save
+          </button>
+        </form>
       ) : null}
 
       {connections.length ? (

@@ -554,6 +554,9 @@ export function PluginDialog({
                 mutate(connection.id, () => api.renamePluginAccount(connection.id, alias))
               }
               onRemove={(plugin) => void mutate(plugin.key, () => api.uninstallPlugin(plugin.key))}
+              onUpdateEnvironment={(plugin, values) =>
+                mutate(plugin.key, () => api.updatePluginEnvironment(plugin.key, values))
+              }
               onRestart={(connection) =>
                 void mutate(connection.id, () => api.restartPluginConnection(connection.id))
               }

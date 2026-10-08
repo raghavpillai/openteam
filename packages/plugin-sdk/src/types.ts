@@ -10,6 +10,8 @@ export interface PluginField {
   enum?: ConfigValue[];
   placeholder?: string;
   helpText?: string | null;
+  /** Plugin-level secrets only: also expose the value to Bot computer processes under this name. */
+  environment?: string;
 }
 export interface PluginSetup {
   kind: "none" | "token" | "oauth" | "oauth_client";

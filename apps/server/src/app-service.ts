@@ -543,6 +543,8 @@ export class AppService {
 
   uninstallPlugin = forwardServiceMethod(() => this.plugins.uninstall);
 
+  updatePluginEnvironment = forwardServiceMethod(() => this.plugins.updateEnvironment);
+
   connectPlugin = forwardServiceMethod(() => this.plugins.connect);
 
   disconnectPlugin = forwardServiceMethod(() => this.plugins.disconnect);

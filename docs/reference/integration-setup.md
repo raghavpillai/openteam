@@ -48,7 +48,7 @@ Both use the provider's hosted MCP service with dynamic OAuth registration. [Ver
 
 ## 1Password setup
 
-The **1Password** plugin is a skill. After installing it, ask a bot to set up 1Password: it installs the 1Password CLI on its computer and asks for a read-only service account token through the secure secret input, saved as the personal `OP_SERVICE_ACCOUNT_TOKEN` secret. Create the service account on 1Password.com under Developer → Service Accounts. See the [package guide](../../packages/plugins/1password/README.md).
+The **1Password** plugin is a skill. Create a read-only service account on 1Password.com under Developer → Service Accounts, then add the plugin in the Marketplace and paste its token. Every bot's computer receives it as `OP_SERVICE_ACCOUNT_TOKEN`, and the skill installs the 1Password CLI the first time it runs. Replace the token on the plugin page after rotating it. See the [package guide](../../packages/plugins/1password/README.md).
 
 ## Granola setup
 

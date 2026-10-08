@@ -3,7 +3,9 @@ import {
   applySecretEdits,
   connectionNamespace,
   discoverAllTools,
+  environmentFields,
   exportPackage,
+  fieldsForConnector,
   importPackage,
   parsePluginDefinition,
   pluginIconUrl,
@@ -200,6 +202,23 @@ describe("portable plugin packages", () => {
         ],
       })
     ).toThrow("Secret defaults");
+  });
+  test("environment setup fields are unique plugin-level secrets kept from connectors", () => {
+    const definition = importPackage(files).definition;
+    const field = { key: "API_TOKEN", label: "Token", secret: true, required: true, environment: "SERVICE_TOKEN" };
+    const parsed = parsePluginDefinition({ ...definition, setupFields: [field] });
+    expect(environmentFields(parsed)).toEqual([field]);
+    expect(fieldsForConnector(parsed, parsed.connections[0]!.key).map((entry) => entry.key)).not.toContain("API_TOKEN");
+    for (const setupFields of [
+      [{ ...field, key: "REGION", secret: false }],
+      [field, { ...field, key: "OTHER_TOKEN" }],
+      [{ ...field, environment: "1INVALID" }],
+    ])
+      expect(() => parsePluginDefinition({ ...definition, setupFields })).toThrow("Environment setup fields");
+    const setup = { kind: "none", connectionKey: null, title: "Setup", description: "Setup", documentationUrl: null, steps: [], fields: [field], requiredScopes: [] };
+    expect(() =>
+      parsePluginDefinition({ ...definition, connections: [{ ...definition.connections[0], setup }] })
+    ).toThrow("Environment setup fields");
   });
   test("retains Cursor hook configuration for runtime execution", () => {
     const { "plugin.json": manifest, ...rest } = files;

@@ -27,19 +27,25 @@ test.skipIf(!gateway)(
 );
 
 test.skipIf(!gateway)(
-  "the agent identity can run the packaged 1Password CLI with its own config directory",
+  "the agent identity can run the packaged 1Password CLI after /home/box is re-owned",
   async () => {
     const { spawnSync } = await import("node:child_process");
-    const { statSync } = await import("node:fs");
-    const config = statSync("/home/box/.config/op");
-    expect(config.uid).toBe(1001);
-    expect(config.mode & 0o777).toBe(0o700);
+    const { mkdirSync, chownSync, chmodSync } = await import("node:fs");
+    // The compose init services re-own /home/box; ~/.config/op must not be relied on.
+    mkdirSync("/home/box/.config/op", { recursive: true });
+    chownSync("/home/box/.config/op", 1000, 1000);
+    chmodSync("/home/box/.config/op", 0o700);
     const run = (args: string[]) =>
       spawnSync("op", args, {
         uid: 1001,
         gid: 1000,
         encoding: "utf8",
-        env: { PATH: process.env.PATH, HOME: "/home/box", OP_SERVICE_ACCOUNT_TOKEN: "ops_invalid-test-token" },
+        env: {
+          PATH: process.env.PATH,
+          HOME: "/home/box",
+          OP_CONFIG_DIR: "/tmp/openteam-op",
+          OP_SERVICE_ACCOUNT_TOKEN: "ops_invalid-test-token",
+        },
       });
     const version = run(["--version"]);
     expect(version.status).toBe(0);

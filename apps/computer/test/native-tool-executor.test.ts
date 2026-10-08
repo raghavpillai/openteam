@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -81,6 +81,17 @@ describe("native computer tools", () => {
   });
 
   const shellTest = process.env.CI === "true" && process.platform === "darwin" ? test.skip : test;
+
+  shellTest("Shell keeps the 1Password CLI config outside the re-owned home directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openteam-native-shell-op-"));
+    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
+    const result = await executor.shell(
+      { command: 'printf "%s" "$OP_CONFIG_DIR"', working_directory: root, block_until_ms: 5_000 },
+      root
+    );
+    expect((result.content[0] as any).text).toContain("/tmp/openteam-op");
+    await rm(root, { recursive: true, force: true });
+  });
 
   shellTest("Shell executes foreground commands and records a terminal log", async () => {
     const root = await mkdtemp(join(tmpdir(), "openteam-native-shell-"));

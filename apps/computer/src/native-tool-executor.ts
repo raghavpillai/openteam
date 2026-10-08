@@ -37,6 +37,9 @@ import { agentFileIO } from "./agent-file-io";
 import { protectedAgentDataPath } from "@openteam/contracts/agent-file-access";
 
 const DEFAULT_BLOCK_MS = 30_000;
+// The compose init services re-own /home/box before the computer starts, and the
+// 1Password CLI refuses a config directory the agent does not own. Keep it on tmpfs.
+export const ONEPASSWORD_CLI_ENVIRONMENT = { OP_CONFIG_DIR: "/tmp/openteam-op" } as const;
 
 export const sanitizedShellEnvironment = (
   source: NodeJS.ProcessEnv,
@@ -138,7 +141,11 @@ export class NativeToolExecutor {
     const environmentCapture = createShellEnvironmentCapture(dirname(savedEnvironment.path));
     const child = spawn("/bin/bash", ["--noprofile", "--norc", "-c", `${SHELL_ENVIRONMENT_CAPTURE}\n${input.command}`], {
       cwd: workingDirectory,
-      env: { ...sanitizedShellEnvironment(savedEnvironment.environment, workingDirectory), ...routing.secretEnvironment },
+      env: {
+        ...sanitizedShellEnvironment(savedEnvironment.environment, workingDirectory),
+        ...ONEPASSWORD_CLI_ENVIRONMENT,
+        ...routing.secretEnvironment,
+      },
       ...agentProcessIdentity(),
       detached: true,
       stdio: ["ignore", "pipe", "pipe", environmentCapture.fd],

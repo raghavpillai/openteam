@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "key": "imessage-ssh",
   "version": "1.0.0",
-  "name": "iMessage over SSH",
+  "name": "iMessage (SSH)",
   "description": "Read and search Messages on a reachable Mac from your cloud bots. Connect your own SSH gateway endpoint; no OpenTeam desktop app is required.",
   "publisher": "OpenTeam",
   "category": "Productivity",

@@ -83,7 +83,7 @@ include them.
 
 ## Connect through Marketplace
 
-Install **iMessage over SSH**. Set **Gateway host and port** and **Gateway token**
+Install **iMessage (SSH)**. Set **Gateway host and port** and **Gateway token**
 in its account configuration. The default endpoint is `http://HOST:PORT/mcp`.
 For HTTPS, use the account's MCP URL override. The normal token connection sends
 `Authorization: Bearer …`; do not put tokens in URLs or skills.

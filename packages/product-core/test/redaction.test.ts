@@ -33,6 +33,14 @@ describe("diagnostic credential redaction", () => {
   });
 
   test("uses safe client fallbacks without exposing credentials", () => {
+    expect(
+      clientErrorMessage(
+        new Error(
+          "Error invoking remote method 'openteam:updates:update-server': Error: Update failed"
+        ),
+        "Fallback"
+      )
+    ).toBe("Update failed");
     expect(clientErrorMessage(null, "Could not complete the request.")).toBe(
       "Could not complete the request."
     );

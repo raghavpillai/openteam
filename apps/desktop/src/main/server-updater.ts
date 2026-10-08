@@ -107,6 +107,7 @@ interface PersistedUpdateState {
   fromVersion: string;
   targetVersion: string | null;
   message: string;
+  workerPid?: number;
 }
 
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -250,24 +251,34 @@ const readPersistedUpdateState = (
   }
 };
 
-const persistedUpdateIsActive = (installation: Installation | null): boolean => {
+const processIsAlive = (pid: unknown): boolean => {
+  if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid < 1) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+};
+
+/**
+ * Matches the CLI's own check: a standalone CLI records its worker PID while it stages the
+ * target CLI, before the server transaction takes the update lock.
+ */
+const persistedUpdateIsActive = (
+  installation: Installation | null,
+  persisted: PersistedUpdateState
+): boolean => {
   if (!installation) return false;
   try {
     const owner = JSON.parse(
       readFileSync(join(installation.directory, "update.lock", "owner.json"), "utf8")
     ) as { pid?: unknown };
-    if (typeof owner.pid !== "number" || !Number.isSafeInteger(owner.pid) || owner.pid < 1) {
-      return false;
-    }
-    try {
-      process.kill(owner.pid, 0);
-      return true;
-    } catch (error) {
-      return (error as NodeJS.ErrnoException).code === "EPERM";
-    }
+    if (processIsAlive(owner.pid)) return true;
   } catch {
-    return false;
+    // No server transaction holds the lock yet.
   }
+  return processIsAlive(persisted.workerPid);
 };
 
 const manualCommand = (version: string | null) =>
@@ -315,52 +326,90 @@ const fetchVersion = async (
   }
 };
 
+/** A POSIX shell exits 127 when the remote `openteam` command is not on its PATH. */
+const REMOTE_COMMAND_NOT_FOUND = 127;
+
+/**
+ * Non-interactive SSH sessions skip login profiles, so the installer's default ~/.local/bin is
+ * usually missing from PATH. The fallback adds it through `sh`, which any login shell can run.
+ */
+export const remoteOpenTeamCommand = (
+  args: readonly string[],
+  useDefaultInstallPath = false
+): string[] =>
+  useDefaultInstallPath
+    ? [
+        "sh",
+        "-c",
+        `'PATH="$HOME/.local/bin:$PATH"; export PATH; exec openteam "$@"'`,
+        "openteam",
+        ...args,
+      ]
+    : ["openteam", ...args];
+
+/** The CLI prints its final error as a wrapped `✗` block; return the whole message. */
+export const updaterFailureMessage = (output: string, code: number | null): string => {
+  const lines = output.replace(/\x1b\[[0-9;]*m/g, "").split(/\r?\n/);
+  const start = lines.findLastIndex((line) => line.trimStart().startsWith("✗ "));
+  if (start < 0) {
+    return lines.findLast((line) => line.trim())?.trim() || `Updater exited with code ${code}`;
+  }
+  const message = [lines[start]?.trimStart().slice(2).trim() ?? ""];
+  for (const line of lines.slice(start + 1)) {
+    if (!/^\s{3,}\S/.test(line)) break;
+    message.push(line.trim());
+  }
+  return message.join(" ");
+};
+
 const fetchRemoteUpdateProgress = async (options: {
   target: string;
   executable: string;
   environment: NodeJS.ProcessEnv;
   spawnUpdater: SpawnUpdater;
 }): Promise<UpdateEvent | null> => {
-  let child: UpdaterProcess;
-  try {
-    child = options.spawnUpdater(
-      options.executable,
-      [
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "StrictHostKeyChecking=yes",
-        "-o",
-        "ConnectTimeout=5",
-        options.target,
-        "openteam",
-        "status",
-        "--json-progress",
-      ],
-      { env: options.environment, stdio: ["ignore", "pipe", "pipe"] }
-    );
-  } catch {
-    return null;
-  }
-  const lines = new BoundedUpdateLineBuffer();
-  let latest: UpdateEvent | null = null;
-  child.stdout.setEncoding("utf8");
-  child.stderr.resume();
-  child.stdout.on("data", (chunk: string) => {
-    for (const line of lines.push(chunk)) latest = parseUpdateEvent(line) ?? latest;
-  });
-  return new Promise((resolvePromise) => {
-    const timeout = setTimeout(() => child.kill(), 8_000);
-    timeout.unref?.();
-    child.once("error", () => {
-      clearTimeout(timeout);
-      resolvePromise(null);
+  const query = (useDefaultInstallPath: boolean) =>
+    new Promise<{ code: number | null; latest: UpdateEvent | null }>((resolvePromise) => {
+      let child: UpdaterProcess;
+      try {
+        child = options.spawnUpdater(
+          options.executable,
+          [
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "StrictHostKeyChecking=yes",
+            "-o",
+            "ConnectTimeout=5",
+            options.target,
+            ...remoteOpenTeamCommand(["status", "--json-progress"], useDefaultInstallPath),
+          ],
+          { env: options.environment, stdio: ["ignore", "pipe", "pipe"] }
+        );
+      } catch {
+        resolvePromise({ code: null, latest: null });
+        return;
+      }
+      const lines = new BoundedUpdateLineBuffer();
+      let latest: UpdateEvent | null = null;
+      child.stdout.setEncoding("utf8");
+      child.stderr.resume();
+      child.stdout.on("data", (chunk: string) => {
+        for (const line of lines.push(chunk)) latest = parseUpdateEvent(line) ?? latest;
+      });
+      const timeout = setTimeout(() => child.kill(), 8_000);
+      timeout.unref?.();
+      child.once("error", () => {
+        clearTimeout(timeout);
+        resolvePromise({ code: null, latest: null });
+      });
+      child.once("close", (code) => {
+        clearTimeout(timeout);
+        resolvePromise({ code, latest });
+      });
     });
-    child.once("close", () => {
-      clearTimeout(timeout);
-      resolvePromise(latest);
-    });
-  });
+  const first = await query(false);
+  return first.code === REMOTE_COMMAND_NOT_FOUND ? (await query(true)).latest : first.latest;
 };
 
 export class ServerUpdater {
@@ -410,7 +459,7 @@ export class ServerUpdater {
     const updateMethod = locallyManaged ? "local" : remoteTarget ? "ssh" : "manual";
     const updaterAvailable = updateMethod !== "manual";
     const persisted = locallyManaged ? readPersistedUpdateState(installation) : null;
-    if (persisted?.status === "running" && persistedUpdateIsActive(installation)) {
+    if (persisted?.status === "running" && persistedUpdateIsActive(installation, persisted)) {
       this.snapshot = {
         serverUrl,
         currentVersion: installation?.version ?? persisted.fromVersion,
@@ -558,7 +607,7 @@ export class ServerUpdater {
       "--json-progress",
     ];
     const remoteTarget = normalizeSshTarget(sshTarget);
-    const remoteUpdateArguments = [
+    const remoteUpdateArguments = (useDefaultInstallPath: boolean) => [
       "-o",
       "BatchMode=yes",
       "-o",
@@ -570,89 +619,95 @@ export class ServerUpdater {
       "-o",
       "ServerAliveCountMax=4",
       remoteTarget ?? "",
-      "openteam",
-      "update",
-      ...(targetVersion ? ["--version", targetVersion] : []),
-      "--json-progress",
+      ...remoteOpenTeamCommand(
+        ["update", ...(targetVersion ? ["--version", targetVersion] : []), "--json-progress"],
+        useDefaultInstallPath
+      ),
     ];
     const local = before.updateMethod === "local";
-    const child = (this.options.spawnUpdater ?? spawn)(
-      local ? this.options.executablePath : (this.options.sshExecutable ?? "ssh"),
-      local ? localUpdateArguments : remoteUpdateArguments,
-      {
-        env: {
-          ...environment,
-          ...(local ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
-          PATH: [...new Set(pathEntries)].join(delimiter),
-        },
-        stdio: ["ignore", "pipe", "pipe"],
-      }
-    );
-    this.child = child;
     let output = "";
-    const progressLines = new BoundedUpdateLineBuffer();
     let completedVersion: string | null = null;
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      output = appendBoundedOutput(output, chunk);
-      for (const line of progressLines.push(chunk)) {
-        const event = parseUpdateEvent(line);
-        if (!event) continue;
-        if (event.phase === "complete" && event.version && isOpenTeamVersion(event.version)) {
-          completedVersion = event.version;
-        }
-        publish({
-          status: event.phase === "complete" ? "updated" : "updating",
-          phase: event.phase,
-          message: event.message,
-          currentVersion:
-            event.phase === "complete"
-              ? (completedVersion ?? targetVersion ?? before.currentVersion)
-              : before.currentVersion,
-          jobId: event.jobId ?? this.snapshot?.jobId ?? null,
-          safeToCloseDesktop: event.safeToCloseDesktop === true,
+    const runUpdater = (useDefaultInstallPath: boolean) =>
+      new Promise<number | null>((resolveAttempt, rejectAttempt) => {
+        const child = (this.options.spawnUpdater ?? spawn)(
+          local ? this.options.executablePath : (this.options.sshExecutable ?? "ssh"),
+          local ? localUpdateArguments : remoteUpdateArguments(useDefaultInstallPath),
+          {
+            env: {
+              ...environment,
+              ...(local ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
+              PATH: [...new Set(pathEntries)].join(delimiter),
+            },
+            stdio: ["ignore", "pipe", "pipe"],
+          }
+        );
+        this.child = child;
+        output = "";
+        const progressLines = new BoundedUpdateLineBuffer();
+        child.stdout.setEncoding("utf8");
+        child.stderr.setEncoding("utf8");
+        child.stdout.on("data", (chunk: string) => {
+          output = appendBoundedOutput(output, chunk);
+          for (const line of progressLines.push(chunk)) {
+            const event = parseUpdateEvent(line);
+            if (!event) continue;
+            if (event.phase === "complete" && event.version && isOpenTeamVersion(event.version)) {
+              completedVersion = event.version;
+            }
+            publish({
+              status: event.phase === "complete" ? "updated" : "updating",
+              phase: event.phase,
+              message: event.message,
+              currentVersion:
+                event.phase === "complete"
+                  ? (completedVersion ?? targetVersion ?? before.currentVersion)
+                  : before.currentVersion,
+              jobId: event.jobId ?? this.snapshot?.jobId ?? null,
+              safeToCloseDesktop: event.safeToCloseDesktop === true,
+            });
+          }
         });
-      }
-    });
-    child.stderr.on("data", (chunk: string) => {
-      output = appendBoundedOutput(output, chunk);
-    });
+        child.stderr.on("data", (chunk: string) => {
+          output = appendBoundedOutput(output, chunk);
+        });
+        child.once("error", rejectAttempt);
+        child.once("close", resolveAttempt);
+      });
 
-    return new Promise<ServerUpdateStatus>((resolvePromise, reject) => {
-      child.once("error", (error) => {
-        this.child = null;
-        const message = safeErrorMessage(error);
-        publish({ status: "error", message, safeToCloseDesktop: false });
-        reject(new Error(message));
-      });
-      child.once("close", async (code) => {
-        this.child = null;
-        if (code !== 0) {
-          const message = redactSensitiveText(
-            output.trim().split(/\r?\n/).at(-1) || `Updater exited with code ${code}`
-          );
-          publish({ status: "error", message, safeToCloseDesktop: false });
-          reject(new Error(message));
-          return;
-        }
-        const release = await fetchVersion(this.options.fetcher ?? fetch, serverUrl);
-        const installed = readManagedInstallation(this.options.environment ?? process.env);
-        const currentVersion =
-          completedVersion ?? release?.releaseVersion ?? installed?.version ?? targetVersion;
-        publish({
-          status: "updated",
-          phase: "complete",
-          message: currentVersion
-            ? `Server and computer updated to ${currentVersion}`
-            : "Server and computer update completed",
-          currentVersion,
-          apiProtocolVersion:
-            release?.apiProtocolVersion ?? this.snapshot?.apiProtocolVersion ?? null,
-          safeToCloseDesktop: false,
-        });
-        resolvePromise(this.snapshot as ServerUpdateStatus);
-      });
+    let code: number | null;
+    try {
+      code = await runUpdater(false);
+      if (!local && code === REMOTE_COMMAND_NOT_FOUND) code = await runUpdater(true);
+    } catch (error) {
+      this.child = null;
+      const message = safeErrorMessage(error);
+      publish({ status: "error", message, safeToCloseDesktop: false });
+      throw new Error(message);
+    }
+    this.child = null;
+    if (code !== 0) {
+      const message = redactSensitiveText(
+        !local && code === REMOTE_COMMAND_NOT_FOUND
+          ? `The openteam command was not found on ${remoteTarget}. Install the OpenTeam CLI there or add its directory to the PATH used by non-interactive SSH sessions.`
+          : updaterFailureMessage(output, code)
+      );
+      publish({ status: "error", message, safeToCloseDesktop: false });
+      throw new Error(message);
+    }
+    const release = await fetchVersion(this.options.fetcher ?? fetch, serverUrl);
+    const installed = readManagedInstallation(this.options.environment ?? process.env);
+    const currentVersion =
+      completedVersion ?? release?.releaseVersion ?? installed?.version ?? targetVersion;
+    publish({
+      status: "updated",
+      phase: "complete",
+      message: currentVersion
+        ? `Server and computer updated to ${currentVersion}`
+        : "Server and computer update completed",
+      currentVersion,
+      apiProtocolVersion: release?.apiProtocolVersion ?? this.snapshot?.apiProtocolVersion ?? null,
+      safeToCloseDesktop: false,
     });
+    return this.snapshot as ServerUpdateStatus;
   }
 }

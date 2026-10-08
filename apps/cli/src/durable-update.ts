@@ -116,11 +116,32 @@ export const reportActiveUpdate = (paths: InstallationPaths, options: CliOptions
   return true;
 };
 
+/** Recover the worker's final error, which the CLI renders as a wrapped `✗` block. */
+export const updateLogFailure = (contents: string): string | null => {
+  const lines = contents
+    .slice(-MAX_LOG_ERROR_BYTES)
+    .replace(/\x1b\[[0-9;]*m/g, "")
+    .split(/\r?\n/);
+  const start = lines.findLastIndex((line) => line.trimStart().startsWith("✗ "));
+  if (start < 0) {
+    return (
+      lines
+        .findLast((line) => line.trim())
+        ?.trim()
+        .replace(/^openteam:\s*/, "") || null
+    );
+  }
+  const message = [lines[start]?.trimStart().slice(2) ?? ""];
+  for (const line of lines.slice(start + 1)) {
+    if (!/^\s{3,}\S/.test(line)) break;
+    message.push(line.trim());
+  }
+  return message.join(" ").trim() || null;
+};
+
 const logFailure = (paths: InstallationPaths): string | null => {
   try {
-    const contents = readFileSync(paths.updateLog, "utf8");
-    const tail = contents.slice(-MAX_LOG_ERROR_BYTES).trim().split(/\r?\n/).at(-1);
-    return tail?.replace(/^openteam:\s*/, "") || null;
+    return updateLogFailure(readFileSync(paths.updateLog, "utf8"));
   } catch {
     return null;
   }
@@ -210,12 +231,74 @@ const numericPid = (value: string | undefined): number | null => {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 };
 
+const requestedVersion = (options: CliOptions): string | null => {
+  try {
+    return options.version ? normalizeVersion(options.version) : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Persist a failure the worker hit before its update transaction recorded one (for example a
+ * refused downgrade), so followers report it at once and in full. Never overwrite another live
+ * job's state.
+ */
+const recordWorkerFailure = (
+  paths: InstallationPaths,
+  options: CliOptions,
+  jobId: string,
+  error: unknown
+): void => {
+  try {
+    const current = readUpdateState(paths);
+    const sameJob = current?.jobId === jobId;
+    if (
+      sameJob
+        ? current.status !== "running"
+        : current?.status === "running" && activeUpdateProcess(paths) !== null
+    ) {
+      return;
+    }
+    const now = new Date().toISOString();
+    writeUpdateState(paths, {
+      schemaVersion: 1,
+      jobId,
+      workerPid: process.pid,
+      status: "error",
+      phase: "error",
+      fromVersion: sameJob ? current.fromVersion : (readManifest(paths)?.version ?? "unknown"),
+      targetVersion: sameJob ? current.targetVersion : requestedVersion(options),
+      message: error instanceof Error ? error.message : String(error),
+      startedAt: sameJob ? current.startedAt : now,
+      updatedAt: now,
+    });
+  } catch {
+    // The worker log still holds the failure when the state cannot be written.
+  }
+};
+
 export const runUpdateWorker = async (
   paths: InstallationPaths,
   options: CliOptions,
   runner: CommandRunner,
   jobId: string,
   dependencies: DurableUpdateDependencies = {}
+): Promise<void> => {
+  try {
+    await runUpdateWorkerSteps(paths, options, runner, jobId, dependencies);
+  } catch (error) {
+    recordWorkerFailure(paths, options, jobId, error);
+    throw error;
+  }
+};
+
+const runUpdateWorkerSteps = async (
+  paths: InstallationPaths,
+  options: CliOptions,
+  runner: CommandRunner,
+  jobId: string,
+  dependencies: DurableUpdateDependencies
 ): Promise<void> => {
   const executable = dependencies.executable ?? process.execPath;
   const argv = dependencies.argv ?? process.argv;

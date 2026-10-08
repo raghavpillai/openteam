@@ -224,7 +224,7 @@ export class BrowserUseSession {
   // The runtime endpoint belongs to one bot desktop. Native Chrome and its
   // managed workers must see the same tabs; explicit false retains an isolated
   // lease for callers that intentionally share an endpoint with unrelated work.
-  static async connect(endpoint: string, artifactDirectory: string, adoptExisting = true, downloadDirectory = join(homedir(), "Downloads"), lease?: { targets: Map<string, string>; selected: string | null; nextId: number }, createInitialPage = true): Promise<BrowserUseSession> {
+  static async connect(endpoint: string, artifactDirectory: string, adoptExisting = true, downloadDirectory = join(homedir(), "Downloads"), lease?: { targets: Map<string, string>; selected: string | null; nextId: number }): Promise<BrowserUseSession> {
     const driver = await outOfProcessPlaywright();
     const browser = await driver.playwright.chromium.connectOverCDP(endpoint);
     const context = browser.contexts()[0];
@@ -255,9 +255,8 @@ export class BrowserUseSession {
         const latest = session.leasedPages().at(-1);
         if (latest) session.currentViewId = session.idFor(latest);
       }
-    } else if (!lease && createInitialPage) session.trackPage(await context.newPage());
-    // Passive desktop observation must not create a tab/window after capture.
-    if (createInitialPage) await session.ensurePage();
+    } else if (!lease) session.trackPage(await context.newPage());
+    await session.ensurePage();
     return session;
   }
 

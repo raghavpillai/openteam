@@ -39,9 +39,9 @@ export async function storeProcessSecret(
   }
 }
 
-const pluginOwner = (pluginKey: string) => `plugin:${pluginKey}`;
+export const pluginSecretOwner = (pluginKey: string) => `plugin:${pluginKey}`;
 
-/** Secrets entered in a plugin's setup; every Bot's processes receive them like personal secrets. */
+/** Secrets entered in a plugin's setup; every Bot's processes receive them. */
 export async function storePluginEnvironment(
   db: Database,
   pluginKey: string,
@@ -49,26 +49,25 @@ export async function storePluginEnvironment(
 ) {
   for (const [name, value] of values) {
     validateProcessSecretName(name);
-    if (!value.trim() || value.length > 20_000)
+    if (!value || value.length > 20_000)
       throw new ApiError(400, "secret_invalid", "A secret must contain 1–20000 characters");
     await db.processSecret.upsert({
-      where: { ownerKey_name: { ownerKey: pluginOwner(pluginKey), name } },
-      create: { ownerKey: pluginOwner(pluginKey), name, value, botId: null },
+      where: { ownerKey_name: { ownerKey: pluginSecretOwner(pluginKey), name } },
+      create: { ownerKey: pluginSecretOwner(pluginKey), name, value, botId: null },
       update: { value },
     });
   }
 }
 
 export async function clearPluginEnvironment(db: Database, pluginKey: string) {
-  await db.processSecret.deleteMany({ where: { ownerKey: pluginOwner(pluginKey) } });
+  await db.processSecret.deleteMany({ where: { ownerKey: pluginSecretOwner(pluginKey) } });
 }
 
-export async function pluginEnvironmentNames(db: Database, pluginKey: string): Promise<string[]> {
-  const secrets = await db.processSecret.findMany({
-    where: { ownerKey: pluginOwner(pluginKey) },
-    select: { name: true },
+/** Keep only the named plugin secrets, e.g. after an update renames or drops a field. */
+export async function retainPluginEnvironment(db: Database, pluginKey: string, names: string[]) {
+  await db.processSecret.deleteMany({
+    where: { ownerKey: pluginSecretOwner(pluginKey), name: { notIn: names } },
   });
-  return secrets.map((secret) => secret.name);
 }
 
 export async function processEnvironment(
@@ -88,12 +87,15 @@ export async function processEnvironment(
       ],
     },
   });
-  // Later sources override earlier ones: plugin setup, then personal, then this Bot.
+  // Later sources override earlier ones: personal, then plugin setup, then this Bot.
   const precedence = (ownerKey: string) =>
-    ownerKey.startsWith("plugin:") ? 0 : ownerKey === "personal" ? 1 : 2;
+    ownerKey === "personal" ? 0 : ownerKey.startsWith("plugin:") ? 1 : 2;
   return Object.fromEntries(
     secrets
-      .sort((a, b) => precedence(a.ownerKey) - precedence(b.ownerKey))
+      .sort(
+        (a, b) =>
+          precedence(a.ownerKey) - precedence(b.ownerKey) || a.ownerKey.localeCompare(b.ownerKey)
+      )
       .map((secret) => [validateProcessSecretName(secret.name), secret.value])
   );
 }

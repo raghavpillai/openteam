@@ -13,19 +13,22 @@ import { definitionFromManifest, hasPlaceholder, manifestJson } from "./values";
 import { resolveUpstreamPlugin } from "../../plugins/upstream-package";
 import { clearPluginEnvironment, storePluginEnvironment } from "../process-secrets";
 
-/** Values for setup fields that are delivered to Bot computer processes. */
+/** Provided values for setup fields delivered to Bot computer processes; missing ones stay unset. */
 const environmentValues = (
   plugin: PluginDefinition,
-  values: Record<string, ConfigValue>,
-  complete: boolean
+  values: Record<string, ConfigValue>
 ): Array<[string, string]> => {
   const fields = environmentFields(plugin);
   let validated: Record<string, ConfigValue>;
   try {
     validated = validateValues(
       fields,
-      Object.fromEntries(Object.entries(values).filter(([key]) => fields.some((field) => field.key === key))),
-      complete
+      Object.fromEntries(
+        Object.entries(values)
+          .filter(([key]) => fields.some((field) => field.key === key))
+          .map(([key, value]) => [key, typeof value === "string" ? value.trim() : value])
+      ),
+      false
     );
   } catch (error) {
     throw new ApiError(400, "plugin_setup_invalid", (error as Error).message);
@@ -54,7 +57,19 @@ export class PluginInstallations {
         return { id: existing.id, installed: true };
       }
       const plugin = await resolveUpstreamPlugin(candidate);
-      const environment = environmentValues(plugin, values, true);
+      const environment = environmentValues(plugin, values);
+      const names = environmentFields(plugin).map((field) => field.environment!);
+      if (names.length) {
+        const others = await this.prisma.pluginInstallation.findMany({ select: { name: true, manifest: true } });
+        const conflict = others.find((other) => {
+          const definition = definitionFromManifest(other.manifest);
+          return definition
+            ? environmentFields(definition).some((field) => names.includes(field.environment!))
+            : false;
+        });
+        if (conflict)
+          throw new ApiError(409, "plugin_environment_conflict", `${conflict.name} already provides one of this plugin's environment variables`);
+      }
       const installation = await this.prisma.$transaction(async (tx) => {
         const created = await tx.pluginInstallation.create({
           data: {
@@ -299,15 +314,19 @@ export class PluginInstallations {
   /** Replace plugin setup secrets delivered to Bot computer processes, e.g. a rotated token. */
   updateEnvironment = (pluginKey: string, values: Record<string, ConfigValue>) =>
     serviceEffect(async () => {
-      const installation = await this.prisma.pluginInstallation.findUnique({ where: { pluginKey } });
-      if (!installation) throw new ApiError(404, "plugin_not_installed", "Plugin not installed");
-      const plugin = definitionFromManifest(installation.manifest);
-      if (!plugin) throw new ApiError(409, "plugin_manifest_invalid", "Plugin package is invalid");
-      const environment = environmentValues(plugin, values, false);
-      if (!environment.length)
-        throw new ApiError(400, "plugin_setup_invalid", "Enter a new value to save");
-      await storePluginEnvironment(this.prisma, pluginKey, environment);
-      return { updated: environment.map(([name]) => name) };
+      return this.prisma.$transaction(async (tx) => {
+        // Serializes with uninstall so a replaced secret cannot outlive its plugin.
+        const [installation] = await tx.$queryRaw<Array<{ manifest: unknown }>>`
+          SELECT "manifest" FROM "PluginInstallation" WHERE "pluginKey" = ${pluginKey} FOR UPDATE`;
+        if (!installation) throw new ApiError(404, "plugin_not_installed", "Plugin not installed");
+        const plugin = definitionFromManifest(installation.manifest);
+        if (!plugin) throw new ApiError(409, "plugin_manifest_invalid", "Plugin package is invalid");
+        const environment = environmentValues(plugin, values);
+        if (!environment.length)
+          throw new ApiError(400, "plugin_setup_invalid", "Enter a new value to save");
+        await storePluginEnvironment(tx, pluginKey, environment);
+        return { updated: environment.map(([name]) => name) };
+      });
     });
 
   uninstall = (pluginKey: string) =>
@@ -323,6 +342,7 @@ export class PluginInstallations {
         )
       );
       await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT 1 FROM "PluginInstallation" WHERE "id" = ${installation.id} FOR UPDATE`;
         await tx.pluginActivity.create({
           data: {
             kind: "plugin.uninstalled",

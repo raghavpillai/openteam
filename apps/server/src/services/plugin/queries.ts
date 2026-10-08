@@ -34,6 +34,7 @@ import {
   statusForRuntime,
   toolSnapshot,
 } from "./values";
+import { pluginSecretOwner } from "../process-secrets";
 
 export class PluginQueries {
   constructor(
@@ -86,7 +87,7 @@ export class PluginQueries {
             installedAt: install.installedAt.toISOString(),
             hasSkills: Boolean(definitionFromManifest(install.manifest)?.components.some(kind=>kind!=="mcp")),
             configuredEnvironment: pluginSecrets
-              .filter((secret) => secret.ownerKey === `plugin:${install.pluginKey}`)
+              .filter((secret) => secret.ownerKey === pluginSecretOwner(install.pluginKey))
               .map((secret) => secret.name),
             connections: install.connections.map((connection) =>
               connectionView(this.publicUrl, install.pluginKey, connection, definitionFromManifest(install.manifest))

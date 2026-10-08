@@ -1,6 +1,7 @@
 export * from "./types";
 export * from "./manifest";
 export * from "./configuration";
+export * from "./environment";
 export * from "./package";
 export * from "./discovery";
 export * from "./desktop-runtime";

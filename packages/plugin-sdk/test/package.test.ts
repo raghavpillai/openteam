@@ -213,6 +213,8 @@ describe("portable plugin packages", () => {
       [{ ...field, key: "REGION", secret: false }],
       [field, { ...field, key: "OTHER_TOKEN" }],
       [{ ...field, environment: "1INVALID" }],
+      [{ ...field, environment: "NODE_OPTIONS" }],
+      [{ ...field, environment: "PATH" }],
     ])
       expect(() => parsePluginDefinition({ ...definition, setupFields })).toThrow("Environment setup fields");
     const setup = { kind: "none", connectionKey: null, title: "Setup", description: "Setup", documentationUrl: null, steps: [], fields: [field], requiredScopes: [] };

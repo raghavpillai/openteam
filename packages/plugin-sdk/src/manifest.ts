@@ -1,5 +1,6 @@
 import { isSecretKey } from "./configuration";
 import { assertComputerMcpRuntime } from "./desktop-runtime";
+import { isAllowedEnvironmentName } from "./environment";
 import { PLUGIN_ICON_MAX_BASE64_LENGTH } from "./icons";
 import type { PluginDefinition, PluginField } from "./types";
 
@@ -50,8 +51,7 @@ const validateFields = (fields: readonly PluginField[], allowEnvironment = false
         !allowEnvironment ||
         !field.secret ||
         (field.type ?? "string") !== "string" ||
-        typeof field.environment !== "string" ||
-        !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(field.environment) ||
+        !isAllowedEnvironmentName(field.environment) ||
         environment.has(field.environment)
       )
         throw new Error(`Environment setup fields must be unique plugin-level secrets: ${field.key}`);

@@ -19,7 +19,7 @@ chmod 2770 /home/box/Downloads /home/box/Documents
 # Older volumes may have these parents owned by the desktop UID with mode 0700.
 # Grant traversal only on the parents; do not recursively expose .local/share
 # or the supervisor-owned credential directories.
-for runner_dir in /home/box/.local /home/box/.cache /home/box/.local/lib /home/box/.local/bin /home/box/.cache/pip /home/box/.cache/uv /home/box/.cache/fontconfig /home/box/.cache/dconf /home/box/.config /home/box/.config/libreoffice; do
+for runner_dir in /home/box/.local /home/box/.cache /home/box/.local/lib /home/box/.local/bin /home/box/.cache/pip /home/box/.cache/uv /home/box/.cache/fontconfig /home/box/.cache/dconf /home/box/.config /home/box/.config/libreoffice /home/box/.config/op; do
   if [ -L "$runner_dir" ]; then
     echo "refusing redirected runner package directory: $runner_dir" >&2
     exit 1
@@ -33,6 +33,11 @@ for runner_dir in /home/box/.local/lib /home/box/.local/bin /home/box/.cache/pip
   chown -R "$agent_uid:$agent_gid" "$runner_dir"
   chmod 2770 "$runner_dir"
 done
+# The 1Password CLI refuses a config directory the runner does not own, and the
+# compose init services re-own /home/box before every start.
+mkdir -p /home/box/.config/op
+chown -R "$agent_uid:$agent_gid" /home/box/.config/op
+chmod 0700 /home/box/.config/op
 
 # The inference supervisor owns Pi credentials. Agent-launched shells and GUI
 # processes run as the unprivileged runner identity and share only workspace,

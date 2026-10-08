@@ -25,3 +25,29 @@ test.skipIf(!gateway)(
   },
   35_000
 );
+
+test.skipIf(!gateway)(
+  "the agent identity can run the packaged 1Password CLI with its own config directory",
+  async () => {
+    const { spawnSync } = await import("node:child_process");
+    const { statSync } = await import("node:fs");
+    const config = statSync("/home/box/.config/op");
+    expect(config.uid).toBe(1001);
+    expect(config.mode & 0o777).toBe(0o700);
+    const run = (args: string[]) =>
+      spawnSync("op", args, {
+        uid: 1001,
+        gid: 1000,
+        encoding: "utf8",
+        env: { PATH: process.env.PATH, HOME: "/home/box", OP_SERVICE_ACCOUNT_TOKEN: "ops_invalid-test-token" },
+      });
+    const version = run(["--version"]);
+    expect(version.status).toBe(0);
+    expect(version.stdout.trim()).toBe("2.40.0");
+    // No network here: whoami must fail on the token, never on the config directory.
+    const whoami = run(["whoami"]);
+    expect(whoami.status).not.toBe(0);
+    expect(whoami.stderr).not.toMatch(/not owned by the current user|permission denied/i);
+  },
+  35_000
+);

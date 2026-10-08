@@ -6,6 +6,7 @@ import {
   PLATFORM_BASE_SYSTEM_PROMPT,
   renderPlatformBaseSystemPrompt,
   renderPlatformRuntimeInstructions,
+  renderSavedLoginInstructions,
 } from "../src/platform-system-prompt";
 import { REQUEST_BOX_HELP_TOOL, SEND_TO_USER_TOOL } from "@openteam/contracts";
 import { referenceTool } from "@openteam/contracts/tool-contracts";
@@ -66,6 +67,7 @@ const mainAgent = (id: string) => {
       channel: { findMany: async () => [] },
       projectMember: { findMany: async () => [] },
       botConnectorState: { findMany: async () => [] },
+      savedLoginConnection: { findMany: async () => [] },
       routine: { findMany: async () => [] },
     },
   });
@@ -235,4 +237,16 @@ describe("Grok-derived platform prompt integration", () => {
     expect(prompt).not.toContain("/home/box");
     expect(prompt).not.toContain("UTC-7");
   });
+});
+
+test("1Password state is current and steers sign-ins to the op CLI", () => {
+  const connected = renderSavedLoginInstructions(["Main", "Team \"Ops\""]);
+  expect(connected).toContain("1Password is connected now");
+  expect(connected).toContain('"Main", "Team \\"Ops\\""');
+  expect(connected).toContain("OP_SERVICE_ACCOUNT_TOKEN");
+  expect(connected).toContain("even if earlier conversation or memory says 1Password was unavailable");
+  expect(connected).toContain("Never use a 1Password browser extension");
+  const disconnected = renderSavedLoginInstructions([]);
+  expect(disconnected).toContain("1Password is not connected");
+  expect(disconnected).not.toContain("OP_SERVICE_ACCOUNT_TOKEN");
 });

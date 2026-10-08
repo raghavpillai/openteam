@@ -49,6 +49,7 @@ export { groupRoutineState } from "./group-routine-state";
 import {
   renderPlatformBaseSystemPrompt,
   renderPlatformRuntimeInstructions,
+  renderSavedLoginInstructions,
 } from "./platform-system-prompt";
 import { resolveTimeZone, timestampUserTurn } from "./timestamps";
 import type { PromptSectionReceipt } from "./prompt-sections";
@@ -2078,7 +2079,7 @@ export class AgentMessaging {
       include: { project: true },
       orderBy: { joinedAt: "asc" },
     });
-    const [recentPeers, groupRows, disconnected, routines, pendingRichMessages] = await Promise.all(
+    const [recentPeers, groupRows, disconnected, routines, pendingRichMessages, savedLoginVaults] = await Promise.all(
       [
         this.prisma.bot.findMany({
           where: {
@@ -2152,6 +2153,11 @@ export class AgentMessaging {
           LIMIT 50
         `
         ),
+        this.prisma.savedLoginConnection.findMany({
+          where: { enabled: true, token: { not: null } },
+          select: { vaultName: true },
+          orderBy: { vaultName: "asc" },
+        }),
       ]
     );
     const groups = groupRows.slice(0, PLATFORM_PROMPT_GROUP_LIMIT);
@@ -2240,6 +2246,7 @@ export class AgentMessaging {
       disconnected.length > 0
         ? `Disconnected connector platforms: ${disconnected.map(({ platform }) => platform).join(", ")}`
         : "No connector platform is marked disconnected.",
+      renderSavedLoginInstructions(savedLoginVaults.map(({ vaultName }) => vaultName)),
       agentPrompt.warnings.length > 0
         ? `Agent-data filesystem warnings. Invalid settings/skill/automation edits were preserved and fallback values may be active; fix them before relying on those edits:\n${agentPrompt.warnings.map((warning) => `- ${warning}`).join("\n")}`
         : "",

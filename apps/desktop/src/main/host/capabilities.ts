@@ -1,18 +1,16 @@
 import { DESKTOP_MESSAGES_TOOLS } from "@openteam/contracts/desktop-capability-names";
 import type { MacMessages } from "./messages";
 import { ChromeCookies } from "./chrome-cookies";
-import { CapabilitySettingsStore } from "./capability-settings";
 import type { NativeActionReceipts } from "./action-receipts";
 export class HostCapabilities {
   private readonly cookies: ChromeCookies;
   constructor(
-    readonly settings: CapabilitySettingsStore,
     private messages?: MacMessages,
     cookies?: ChromeCookies,
     private readonly platform = process.platform,
     private readonly receipts?: NativeActionReceipts
   ) {
-    this.cookies = cookies ?? new ChromeCookies(settings);
+    this.cookies = cookies ?? new ChromeCookies();
   }
   async handle(value: unknown, signal?: AbortSignal): Promise<any> {
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid desktop request");

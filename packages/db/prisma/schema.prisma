@@ -1234,22 +1234,6 @@ model PluginPrivateSkill {
   updatedAt  DateTime @updatedAt
 }
 
-// Singleton configuration owned by the server, separate from agent-visible state.
-model SavedLoginConnection {
-  id String @id
-  accountId String
-  vaultId String
-  vaultName String
-  token String?
-  generation Int @default(0)
-  enabled Boolean @default(true)
-  itemCount Int @default(0)
-  lastSuccessfulSyncAt DateTime?
-  lastSyncErrorCode String?
-  updatedAt DateTime @updatedAt
-  @@unique([accountId, vaultId])
-}
-
 
 model TaskSettings {
   id String @id @default("global")

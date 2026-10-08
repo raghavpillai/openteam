@@ -48,7 +48,7 @@ Both use the provider's hosted MCP service with dynamic OAuth registration. [Ver
 
 ## 1Password setup
 
-The **1Password** marketplace entry shares one or more existing vaults selected for a service account for saved browser logins. Setup uses only a manually created service-account token; no local app or CLI is needed. Tokens are encrypted and ongoing reads use the backend SDK. See [saved-login setup](native-capabilities.md#saved-logins).
+The **1Password** plugin is a skill. After installing it, ask a bot to set up 1Password: it installs the 1Password CLI on its computer and asks for a read-only service account token through the secure secret input, saved as the personal `OP_SERVICE_ACCOUNT_TOKEN` secret. Create the service account on 1Password.com under Developer → Service Accounts. See the [package guide](../../packages/plugins/1password/README.md).
 
 ## Granola setup
 

@@ -9,17 +9,6 @@ export async function settingsRoutes(context: RouteContext): Promise<Response | 
     if (request.method === "GET") return json(await run(app.taskSettings()));
     if (request.method === "PATCH") return json(await run(app.updateTaskSettings(await request.json().catch(() => null))));
   }
-  if (path === "/api/server-settings/saved-logins" && request.method === "GET") return json(await app.savedLogins.view());
-  const savedLogin = path.match(/^\/api\/server-settings\/saved-logins\/(import-token|disconnect|sync)$/);
-  if (savedLogin && request.method === "POST") {
-    const input = await request.json();
-    const operation = savedLogin[1];
-    const result = operation === "import-token" ? await app.savedLogins.importToken(input)
-      : operation === "sync" ? await app.savedLogins.sync(input)
-      : await app.savedLogins.disconnect(String((input as any)?.connectionId));
-    return json(result, 200, { "cache-control": "no-store" });
-  }
-
   if (path === "/api/machines/enroll" && request.method === "POST") {
     return json(await app.machines.enroll(await request.json(), context.authenticatedSessionId));
   }

@@ -1,4 +1,3 @@
-import { OnePasswordProvisioning, brokerCredentialCommand, type SavedLoginBackend } from "./host/onepassword-provisioning";
 import { randomBytes } from "node:crypto";
 import { loadMachineIdentity } from "./host/machine-identity";
 import { DesktopMachineEnrollment } from "./host/machine-enrollment";
@@ -41,7 +40,6 @@ import { discardDeliveryFiles, readDeliveryFile, stageDeliveryFile } from "./del
 import { DurableSendJournalStore } from "./durable-send-journal-store";
 import { startHostBridge } from "./host/bridge";
 import { HostCapabilities } from "./host/capabilities";
-import { CapabilitySettingsStore } from "./host/capability-settings";
 import { NativeActionReceipts } from "./host/action-receipts";
 import { isAddressInUseError } from "./host/bridge-listener";
 import { HostJobManager } from "./host/job-manager";
@@ -922,63 +920,6 @@ const requireComputerSettings = (event: Electron.IpcMainInvokeEvent) => {
   return computerSettings;
 };
 
-const nativeSettings = () => new CapabilitySettingsStore(join(app.getPath("userData"), "native-capabilities.json"));
-let capabilitySettings: CapabilitySettingsStore | undefined;
-const sharedCapabilitySettings = () => capabilitySettings ??= nativeSettings();
-const savedLoginBackend: SavedLoginBackend = async (operation, input, signal) => {
-  if (operation === "operation") {
-    if (!machineEnrollment) throw new Error("Connect this desktop before using saved logins");
-    return machineEnrollment.savedLoginOperation(input, signal);
-  }
-  const serverUrl = enrollmentServerUrl;
-  if (!serverUrl) throw new Error("Connect to your OpenTeam server before setting up saved logins");
-  const token = (await authTokenStore?.read())?.token;
-  if (enrollmentServerUrl !== serverUrl) throw new Error("The server changed during saved-login setup");
-  const response = await net.fetch(`${serverUrl}/api/server-settings/saved-logins${operation === "view" ? "" : `/${operation}`}`, {
-    method: operation === "view" ? "GET" : "POST",
-    headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-    ...(operation === "view" ? {} : { body: JSON.stringify(input) }), signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(30_000)]),
-  });
-  if (!response.ok) throw new Error("The saved-login server request failed. Check the token’s vault access and your server connection, then retry.");
-  return response.json();
-};
-let savedLoginProvisioning: OnePasswordProvisioning | undefined;
-let provisioningServerUrl: string | null = null;
-const provisioning = () => {
-  if (!savedLoginProvisioning || provisioningServerUrl !== enrollmentServerUrl) {
-    const serverUrl = enrollmentServerUrl;
-    provisioningServerUrl = serverUrl;
-    savedLoginProvisioning = new OnePasswordProvisioning(sharedCapabilitySettings(), (operation, input, signal) => {
-      if (!serverUrl || enrollmentServerUrl !== serverUrl) throw new Error("The server changed during 1Password setup. Reconnect to the original server to finish setup.");
-      return savedLoginBackend(operation, input, signal);
-    });
-  }
-  return savedLoginProvisioning;
-};
-const savedLoginCommand = () => brokerCredentialCommand(sharedCapabilitySettings(), savedLoginBackend);
-ipcMain.handle("openteam:capabilities:cancel-login", event => { requireAuthSender(event); savedLoginProvisioning?.cancel(); });
-ipcMain.handle("openteam:capabilities:import-login-token", (event, token: string) => { requireAuthSender(event); return provisioning().importToken(token); });
-ipcMain.handle("openteam:capabilities:sync-logins", (event, connectionId?: string) => { requireAuthSender(event); return provisioning().sync(connectionId); });
-
-ipcMain.handle("openteam:capabilities:get", async (event) => {
-  requireComputerSettings(event); return provisioning().refresh().catch(() => sharedCapabilitySettings().read());
-});
-ipcMain.handle("openteam:capabilities:logins", async (event) => {
-  requireComputerSettings(event);
-  const { SavedCredentials } = await import("./host/credentials");
-  return new SavedCredentials(sharedCapabilitySettings(), savedLoginCommand()).list();
-});
-ipcMain.handle("openteam:capabilities:update", async (event, input: unknown) => {
-  requireComputerSettings(event);
-  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Invalid native settings");
-  const update = input as { removeCredentialConnection?: string; revoke?: string };
-  if (update.removeCredentialConnection) await provisioning().disconnect(update.removeCredentialConnection);
-  if (update.revoke === "credentials") for (const provider of (await sharedCapabilitySettings().read()).credentialProviders ?? []) {
-    await provisioning().disconnect(`1password:${provider.account}:${provider.vault}`);
-  }
-  return sharedCapabilitySettings().update(input);
-});
-
 const computerSettingsView = (settings: ComputerSettings) => ({
   ...settings, machine: { ...localMachine, label: settings.machineLabel ?? localMachine.label },
 });
@@ -1233,7 +1174,7 @@ if (!hasSingleInstanceLock) {
           machineId: localMachine.machineId,
           machineLabel: localMachine.label,
           runJob: hostJobs.run,
-          capabilities: new HostCapabilities(sharedCapabilitySettings(), undefined, undefined, process.platform, new NativeActionReceipts(join(app.getPath("userData"), "native-action-receipts.json"))),
+          capabilities: new HostCapabilities(undefined, undefined, process.platform, new NativeActionReceipts(join(app.getPath("userData"), "native-action-receipts.json"))),
         });
       try { hostBridge = await startBridge(port); }
       catch (error) {

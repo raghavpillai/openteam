@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "key": "1password",
+  "version": "2.0.0",
+  "name": "1Password",
+  "description": "Sign in to websites with saved logins and one-time codes from your 1Password vaults, through the 1Password CLI and a read-only service account.",
+  "publisher": "OpenTeam",
+  "category": "Login and Credential Management",
+  "featured": false,
+  "components": ["skills"],
+  "connections": [],
+  "icon": "assets/icon.png",
+  "homepageUrl": "https://www.1password.dev/service-accounts/get-started",
+  "installationSteps": [
+    "On 1Password.com, open Developer → Service Accounts and create a service account with read-only access to the vaults to share. Built-in Personal, Private, and Employee vaults cannot be shared with service accounts.",
+    "Install this plugin, then ask a Bot to set up 1Password. It installs the CLI and asks for the service account token through a secure input.",
+    "Bots then sign in to websites with matching saved logins and one-time codes when a task needs them.",
+    "Uninstalling removes the skill only. Remove the OP_SERVICE_ACCOUNT_TOKEN secret, or revoke the service account at 1Password, to end access."
+  ],
+  "skills": [
+    {
+      "name": "1password",
+      "description": "Set up the 1Password CLI and sign in to websites with saved logins and one-time codes.",
+      "path": "skills/1password"
+    }
+  ]
+}

@@ -60,14 +60,6 @@ export function renderPlatformBaseSystemPrompt(features: PlatformPromptFeatures 
     .join("\n\n");
 }
 
-/** Current 1Password state, rendered every turn so it outranks remembered availability. */
-export function renderSavedLoginInstructions(vaultNames: string[]): string {
-  if (!vaultNames.length)
-    return "1Password is not connected, so Shell's `op` CLI has no vault access. The user can connect a service account in Marketplace → 1Password.";
-  const vaults = vaultNames.map((name) => JSON.stringify(name)).join(", ");
-  return `1Password is connected now. Shell's \`op\` CLI is signed in through OP_SERVICE_ACCOUNT_TOKEN for you and your subagents, with read access to these vaults: ${vaults}. For any saved login or one-time code, follow the 1Password section of the box-desktop skill and give browser subagents the item and vault IDs, even if earlier conversation or memory says 1Password was unavailable. Never use a 1Password browser extension for saved logins.`;
-}
-
 /** Deployment paths and current bot identity must never come from a capture. */
 export function renderPlatformRuntimeInstructions(input: {
   agentDataRoot: string;

@@ -29,12 +29,6 @@ interface Window {
       onResult(callback: (result: { connectionId: string; status: "ready" | "cancelled" | "error"; message?: string }) => void): () => void;
     };
     computer: {
-      cancelSavedLoginSetup(): Promise<void>;
-      syncSavedLogins(connectionId?: string): ReturnType<NonNullable<Window["openteam"]>["computer"]["getCapabilities"]>;
-      importSavedLoginToken(token: string): ReturnType<NonNullable<Window["openteam"]>["computer"]["getCapabilities"]>;
-      listSavedLogins(): Promise<{ connected: boolean; credentials: Array<{credential_id: string; connection_id: string; title: string; sites: string[]; autoFill: boolean}> }>;
-      getCapabilities(): Promise<{ credentialProviders: Array<import("@openteam/contracts/saved-logins").CredentialProviderConnection> }>;
-      updateCapabilities(input: { revoke?: "credentials"; removeCredentialConnection?: string }): Promise<{ credentialProviders: Array<import("@openteam/contracts/saved-logins").CredentialProviderConnection> }>;
       get: () => Promise<OpenTeamComputerSettings>;
       update: (request: { machineLabel: string }) => Promise<OpenTeamComputerSettings>;
     };

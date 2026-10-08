@@ -141,7 +141,6 @@
     "test:provider-settings": "bun scripts/test-provider-settings.ts",
     "test:parity-review": "bun scripts/test-parity-review.ts",
     "test:update-ui": "bun scripts/test-desktop-update-ui.ts",
-    "test:saved-logins": "bun scripts/test-saved-logins.ts",
     "test:native:e2e": "bun test/host/fixtures/capability-integration.ts",
     "test:chat-transition-motion": "bun scripts/analyze-chat-transitions.ts"
   },

@@ -94,7 +94,7 @@ const server = Bun.serve<VncConnection>({
       }
       if (path.startsWith("/api/machines/channel/")) {
         requestServer.timeout(networkRequest, 0);
-        return await machineChannelResponse(app.machines, request, path, value => app.savedLogins.operation(value));
+        return await machineChannelResponse(app.machines, request, path);
       }
       const machineRelay = path.match(/^\/api\/internal\/machines\/([\da-f-]{36})\/bridge(\/.*)$/i);
       if (machineRelay) {

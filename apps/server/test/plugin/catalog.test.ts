@@ -105,7 +105,7 @@ describe("plugin catalog", () => {
   });
 
   test("rejects duplicate connector identities", () => {
-    const source = pluginCatalog[0];
+    const source = pluginCatalog.find((plugin) => plugin.connections.length > 0);
     const connector = source?.connections[0];
     if (!source || !connector) throw new Error("Expected the bundled fixture connector");
     expect(() =>

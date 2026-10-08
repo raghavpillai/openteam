@@ -75,7 +75,6 @@ client identities are retained as source, never adopted as our application.
 | Package | Original source | Delivery and host exception |
 | --- | --- | --- |
 | Slack | `slackapi/slack-skills-plugin` | MIT files bundled unchanged; deployment-owned OAuth app |
-| 1Password | `1Password/cursor-plugin` | MIT files bundled unchanged; desktop MCP bridge; desktop mount hook inactive on Bot computer |
 | Granola | `granola-inc/granola-cursor-plugin` | Original files fetched and verified on install; no license declared at pin |
 | Notion | `makenotion/cursor-notion-plugin` | Original files fetched and verified on install; no license declared at pin |
 | Linear | `linear/cursor-plugin` | Original files fetched and verified on install; no license declared at pin; MCP only |

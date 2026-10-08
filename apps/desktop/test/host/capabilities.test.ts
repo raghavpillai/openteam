@@ -4,49 +4,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createCipheriv, createHash, pbkdf2Sync } from "node:crypto";
 import { Database } from "bun:sqlite";
-import { CapabilitySettingsStore } from "../../src/main/host/capability-settings";
-import { SavedCredentials } from "../../src/main/host/credentials";
 import { ChromeCookies, decryptChromeCookie } from "../../src/main/host/chrome-cookies";
 import { MacMessages, validateMessageSend } from "../../src/main/host/messages";
 import { nativeCommand } from "../../src/main/host/native-command";
-
-const fixtureLogin = {
-  id: "fixture-login",
-  title: "Example account",
-  category: "LOGIN",
-  updated_at: "2026-01-01",
-  urls: [{ href: "https://example.test/login" }],
-};
-test("saved login listing exposes metadata only and respects disconnect", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openteam-credentials-test-"));
-  try {
-    const settings = new CapabilitySettingsStore(join(root, "settings.json"));
-    await settings.mutate(current => ({ ...current, credentialProviders: [{ account: "fixture-account", vault: "fixture-vault" }] }));
-    const calls: string[][] = [];
-    const provider = new SavedCredentials(settings, async (_file, args) => {
-      calls.push(args);
-      return JSON.stringify([fixtureLogin]);
-    });
-    const list = await provider.list();
-    expect(list).toEqual({
-      connected: true,
-      unavailableConnections: [],
-      credentials: [{
-        credential_id: "fixture-login",
-        connection_id: "1password:fixture-account:fixture-vault",
-        title: "Example account",
-        category: "LOGIN",
-        sites: ["https://example.test"],
-      }],
-    });
-    expect(calls).toEqual([["item", "list", "--categories=Login,Password", "--account", "fixture-account", "--vault", "fixture-vault", "--format=json"]]);
-    await settings.update({ revoke: "credentials" });
-    expect(await provider.list()).toEqual({ connected: false, credentials: [], unavailableConnections: [] });
-    expect(calls).toHaveLength(1);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
 
 test("Chrome import decrypts only requested profile/host pairs, verifies v24 domain hash, and preserves cookie metadata", async () => {
   const root = await mkdtemp(join(tmpdir(), "openteam-chrome-test-"));
@@ -84,12 +44,10 @@ test("Chrome import decrypts only requested profile/host pairs, verifies v24 dom
       );
     expect(db.query("SELECT host_key FROM cookies").all()).toHaveLength(2);
     db.close(true);
-    const settings = new CapabilitySettingsStore(join(root, "settings.json"));
     let decisions = 0;
     let selectedItems: string[] | undefined;
     let reads = 0;
     const cookies = new ChromeCookies(
-      settings,
       async (file, args, signal) => {
         if (file.endsWith("security")) {
           reads++;
@@ -164,20 +122,4 @@ test("Messages sends validate recipient and pass body as argv, never executable 
     verified: false,
   });
   expect(calls).toBe(1);
-});
-
-test("multiple vaults retain separate identities, report unavailable vaults, and disconnect individually", async()=>{
- const root=await mkdtemp(join(tmpdir(),"multiple-vault-fixture-"));
- try {
-  const settings=new CapabilitySettingsStore(join(root,"settings.json"));
-  await settings.mutate(current => ({ ...current, credentialProviders: [{account:"one",vault:"personal"},{account:"two",vault:"work"}] }));
-  const provider=new SavedCredentials(settings,async(_file,args)=>{
-   if(args.includes("two"))throw new Error("locked fixture vault");
-   return JSON.stringify([fixtureLogin]);
-  });
-  const list=await provider.list();
-  expect(list.connected).toBe(true);expect(list.credentials).toHaveLength(1);expect(list.unavailableConnections).toEqual(["1password:two:work"]);
-  await settings.update({removeCredentialConnection:"1password:two:work"});
-  expect((await provider.list()).unavailableConnections).toEqual([]);
- }finally{await rm(root,{recursive:true,force:true});}
 });

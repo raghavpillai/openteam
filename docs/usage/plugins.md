@@ -15,7 +15,7 @@ Plugins connect your bots to services such as Gmail, GitHub, Slack, and Notion. 
 | Notion | Work with pages for documents, research, meetings, and tasks |
 | Granola | Use meeting notes, decisions, and action items |
 | Plaid | Bring your own keys, connect banks through Hosted Link from any device, and query financial data |
-| 1Password saved logins | Fill website logins from vaults connected with a service-account token |
+| 1Password | Sign in to websites with saved logins and one-time codes from vaults shared with a service account |
 
 Slack, Granola, and Notion include provider skills alongside their tools. See [the included skills and how to enable them](skills.md#skills-from-plugins). Gmail, Google Calendar, and Google Drive provide tools without bundled skills.
 

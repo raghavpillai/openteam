@@ -173,7 +173,7 @@ for (const excluded of ["CloudAgent", "GenerateImage", "request_scm_connect"])
 const send = contracts.SendToUser!;
 export const SEND_TO_USER_BATCH_GUIDANCE =
   "When several separate text replies to the same conversation are fully ready, emit their SendToUser calls together in one assistant response, in display order, instead of waiting for a model round trip between messages. Keep end_turn false until the final call. Do not batch messages whose content depends on a preceding tool result, or user input.";
-// Saved logins are read with the 1Password CLI on the box, not filled by the host.
+// Host-side saved-login filling is retired, so credential-request is not offered.
 send.inputSchema.properties.type.enum = send.inputSchema.properties.type.enum.filter(
   (type: string) => type !== "cursor-agent" && type !== "credential-request"
 );

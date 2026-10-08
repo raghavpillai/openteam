@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { Database } from "bun:sqlite";
-import { CapabilitySettingsStore } from "../../../src/main/host/capability-settings";
 import { HostCapabilities } from "../../../src/main/host/capabilities";
 import { NativeActionReceipts } from "../../../src/main/host/action-receipts";
 import { MacMessages } from "../../../src/main/host/messages";
@@ -26,7 +25,6 @@ try {
     await sqliteRows(nativeCommand, join(root, "fixture.db"), "SELECT * FROM fixture"),
     [{ id: 1, text: "synthetic 🦊" }]
   );
-  const settings = new CapabilitySettingsStore(join(root, "settings.json"));
   let sends = 0;
   const messages = {
     execute: async (name: string) => {
@@ -38,7 +36,6 @@ try {
     },
   } as unknown as MacMessages;
   const capabilities = new HostCapabilities(
-    settings,
     messages,
     undefined,
     "darwin",

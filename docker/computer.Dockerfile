@@ -112,21 +112,6 @@ RUN apt-get update \
 
 COPY --from=ghcr.io/astral-sh/uv:0.8.14 /uv /uvx /usr/local/bin/
 
-# 1Password CLI for saved logins; the server supplies OP_SERVICE_ACCOUNT_TOKEN to box processes.
-RUN set -eu; \
-  arch="$(dpkg --print-architecture)"; \
-  case "$arch" in \
-    amd64) sha=74277219e8da60958c00f9aee9d2023225e98fdda8bfd2156a5d9e85e0edaab3 ;; \
-    arm64) sha=0e8ac99ee93d661aa725dc24a5ef8bf344741d224064a5dfb469dc689faec86a ;; \
-    *) echo "Unsupported architecture for the 1Password CLI: $arch" >&2; exit 1 ;; \
-  esac; \
-  curl -fsSLo /tmp/op.zip "https://cache.agilebits.com/dist/1P/op2/pkg/v2.40.0/op_linux_${arch}_v2.40.0.zip"; \
-  echo "$sha  /tmp/op.zip" | sha256sum -c -; \
-  unzip -p /tmp/op.zip op > /usr/local/bin/op; \
-  chmod 0755 /usr/local/bin/op; \
-  rm /tmp/op.zip; \
-  op --version
-
 COPY --from=build --chown=box:box /app/node_modules /app/node_modules
 COPY --from=build --chown=box:box /app/apps/computer/node_modules /app/apps/computer/node_modules
 COPY --from=build --chown=box:box /app/apps/computer/dist/main.js /app/apps/computer/dist/main.js

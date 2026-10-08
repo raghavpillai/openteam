@@ -189,12 +189,6 @@ contextBridge.exposeInMainWorld("openteam", {
     },
   },
   computer: {
-      cancelSavedLoginSetup: () => ipcRenderer.invoke("openteam:capabilities:cancel-login"),
-      syncSavedLogins: (connectionId?: string) => ipcRenderer.invoke("openteam:capabilities:sync-logins", connectionId),
-    importSavedLoginToken: (token: string) => ipcRenderer.invoke("openteam:capabilities:import-login-token", token),
-    listSavedLogins: () => ipcRenderer.invoke("openteam:capabilities:logins"),
-    getCapabilities: () => ipcRenderer.invoke("openteam:capabilities:get"),
-    updateCapabilities: (input: { revoke?: "credentials"; removeCredentialConnection?: string }) => ipcRenderer.invoke("openteam:capabilities:update", input),
     get: () => ipcRenderer.invoke("openteam:computer:get"),
     update: (request: { machineLabel: string }) => ipcRenderer.invoke("openteam:computer:update", request),
   },

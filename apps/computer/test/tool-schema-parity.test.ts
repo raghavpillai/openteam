@@ -71,7 +71,7 @@ describe("captured tool contract wiring", () => {
         : []),
     ]);
     expect(Object.keys(reference)).toHaveLength(77);
-    // Saved logins are read with the 1Password CLI on the box instead of desktop tools.
+    // The saved-login desktop tools are retired.
     const retired = ["ListCredentials", "GetCredentialProviderStatus"];
     for (const name of Object.keys(reference).filter((name) => !retired.includes(name))) {
       const visible = catalog.find((t) => t.name === name);

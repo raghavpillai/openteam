@@ -7,7 +7,8 @@ DROP TABLE IF EXISTS "BotPluginEnablement";
 DROP TABLE IF EXISTS "PluginToolPolicy";
 ALTER TABLE IF EXISTS "PluginInvocation" DROP COLUMN IF EXISTS "decision";
 ALTER TABLE IF EXISTS "PluginInstallation" DROP COLUMN IF EXISTS "mode";
-ALTER TABLE IF EXISTS "SavedLoginConnection" DROP COLUMN IF EXISTS "alwaysAllow", DROP COLUMN IF EXISTS "permissionRevision";
+-- Saved logins moved to the 1Password plugin skill; its token is an ordinary process secret.
+DROP TABLE IF EXISTS "SavedLoginConnection";
 ALTER TABLE IF EXISTS "HostMachine" DROP COLUMN IF EXISTS "localToolPermission";
 
 DO $$

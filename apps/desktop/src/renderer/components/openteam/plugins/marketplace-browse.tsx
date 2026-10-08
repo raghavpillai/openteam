@@ -12,7 +12,6 @@ import { api } from "../../../client/openteam-api";
 import { pluginAuthorization, pluginNeedsSetup } from "@openteam/product-core/plugin-authorization";
 import { cn } from "../../../lib/cn";
 import { PluginMark } from "./plugin-mark";
-import { SAVED_LOGINS_KEY } from "./saved-logins-catalog";
 import { MarketplaceCategories } from "./marketplace-categories";
 
 const pill =
@@ -71,7 +70,7 @@ function PluginRow({
         </span>
       </button>
       {action ??
-        (plugin.key === SAVED_LOGINS_KEY ? <button className={pill} onClick={() => plugin.installed ? onOpen(plugin) : onInstall?.(plugin)} type="button">{plugin.installed ? "Manage 1Password" : "Connect 1Password"}</button> : plugin.installed ? (
+        (plugin.installed ? (
           <span className="inline-flex items-center gap-1 px-1 text-[12px] text-foreground-secondary">
             <Check className="size-3 text-emerald-600" />
             Added
@@ -91,7 +90,7 @@ function PluginRow({
 }
 
 export function InstalledPluginsSummary({ data, onShowInstalled }: { data: PluginSettingsView; onShowInstalled: () => void }) {
-  const installedCount = data.installs.length + (data.catalog.some(p => p.key === SAVED_LOGINS_KEY && p.installed) ? 1 : 0);
+  const installedCount = data.installs.length;
   return (
       <button
         aria-label="Your plugins"
@@ -200,7 +199,6 @@ export function InstalledPluginsView({
   onManage,
   onRetry,
   catalogFallback,
-  savedLogins,
 }: {
   data: PluginSettingsView;
   busy: string | null;
@@ -208,7 +206,6 @@ export function InstalledPluginsView({
   onManage: () => void;
   onRetry: (connection: PluginConnectionView) => void;
   catalogFallback: (install: PluginInstallView) => PluginCatalogItemView;
-  savedLogins?: PluginCatalogItemView;
   query: string;
   onQueryChange: (value: string) => void;
 }) {
@@ -241,7 +238,6 @@ export function InstalledPluginsView({
             <h3 className="text-[12px] text-foreground-secondary">Installed</h3>
           </div>
           <div className="grid grid-cols-2 gap-x-4 max-sm:grid-cols-1">
-            {savedLogins && matches(savedLogins.name) ? <PluginRow plugin={savedLogins} onOpen={onOpen} subtitle="Shared saved logins" /> : null}
             {installs.map((install) => {
               const plugin =
                 install.catalog ??
@@ -284,7 +280,7 @@ export function InstalledPluginsView({
               );
             })}
           </div>
-          {!installs.length && !savedLogins && (
+          {!installs.length && (
             <p className="px-2 py-4 text-[13px] text-foreground-secondary">
               {query ? "No installed plugins found." : "No plugins installed yet."}
             </p>

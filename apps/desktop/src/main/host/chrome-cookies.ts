@@ -3,7 +3,6 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, sep } from "node:path";
 import { nativeCommand, sqliteRows, sqlText, type NativeCommand } from "./native-command";
-import type { CapabilitySettingsStore } from "./capability-settings";
 interface Origin {
   origin: string;
   profileId: string;
@@ -45,7 +44,6 @@ export function decryptChromeCookie(
 }
 export class ChromeCookies {
   constructor(
-    private readonly settings: CapabilitySettingsStore,
     private readonly run: NativeCommand = nativeCommand,
     private readonly root = join(homedir(), "Library", "Application Support", "Google", "Chrome")
   ) {}
@@ -122,8 +120,6 @@ export class ChromeCookies {
         pairs.set(JSON.stringify([botId, pair.profileId, pair.origin]), pair);
     }
     if (!pairs.size) return { kind: "listed", items: available };
-    const settings = await this.settings.read();
-    const epoch = settings.revocationEpoch ?? 0;
     const importDecision = "automatic";
     signal?.throwIfAborted();
     try {
@@ -180,8 +176,6 @@ export class ChromeCookies {
         });
       }
     }
-    if (((await this.settings.read()).revocationEpoch ?? 0) !== epoch)
-      throw new Error("Cookie access was revoked during collection");
     return { kind: "collected", decision: importDecision, grants: [...pairs.values()], cookies };
     } catch (error) {
       signal?.throwIfAborted();

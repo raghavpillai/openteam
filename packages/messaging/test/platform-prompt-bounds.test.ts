@@ -126,7 +126,6 @@ describe("bounded platform target context", () => {
         },
         projectMember: { findMany: async () => [] },
         botConnectorState: { findMany: async () => [] },
-        savedLoginConnection: { findMany: async () => [] },
         routine: { findMany: async () => [] },
       },
     });

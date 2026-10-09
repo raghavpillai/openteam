@@ -172,7 +172,8 @@ struct ChatView: View {
         hash.combine(store.online)
       }
       result.append(NativeHistoryItem(id: row.id, scrollID: row.scrollID, version: hash.finalize(),
-        anchorToBottom: row.timestamp != nil, animatesResize: animatesResize) {
+        anchorToBottom: row.timestamp != nil, animatesResize: animatesResize,
+        prefetch: RichMarkdownView.prefetcher(row)) {
         AnyView(MessageArrival(animate: timelineCache.consumeArrival(row), isUser: row.isUser) {
           timelineRow(row)
         }.padding(.horizontal, 16)
@@ -963,7 +964,8 @@ struct ThreadPage: View {
       case .pending(let send): hash.combine(send.input.content); hash.combine(send.failure)
       }
       result.append(NativeHistoryItem(id: row.id, scrollID: row.scrollID, version: hash.finalize(),
-        anchorToBottom: row.timestamp != nil, animatesResize: animatesResize) {
+        anchorToBottom: row.timestamp != nil, animatesResize: animatesResize,
+        prefetch: RichMarkdownView.prefetcher(row)) {
         AnyView(MessageArrival(animate: timelineCache.consumeArrival(row), isUser: row.isUser) {
           VStack(alignment: .leading, spacing: 12) {
             if let date = row.timestamp {

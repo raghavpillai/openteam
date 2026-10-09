@@ -125,7 +125,7 @@ const server = Bun.serve({
     let input: any = {};
     if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) { try { input = await request.json(); } catch {} }
     if (path === "/__qa/reset" && method === "POST") { reset(); emit("snapshot.reset"); return response({ ok: true }); }
-    if (path === "/__qa/scene" && method === "POST") { reset(); const visual=visualFixture(snapshot,input.scene); snapshot=visual.snapshot; settings=visual.sidebar; pagedHistory=input.scene==="history-pages"; sequence=Math.max(100,...snapshot.channelMessages.map(m=>Number(m.sequence))); emit("snapshot.reset"); return response({ok:true}); }
+    if (path === "/__qa/scene" && method === "POST") { reset(); const visual=visualFixture(snapshot,input.scene); snapshot=visual.snapshot; settings=visual.sidebar; pagedHistory=["history-pages","scroll-mixed-pages"].includes(input.scene); sequence=Math.max(100,...snapshot.channelMessages.map(m=>Number(m.sequence))); emit("snapshot.reset"); return response({ok:true}); }
     if (path === "/__qa/content" && method === "POST") { snapshot=contentScene(snapshot,input.scene); if(input.scene==='routine-event')routines=[{id:'routine-event-fixture',name:'Morning summary',prompt:'Summarize the morning',schedule:'0 9 * * 1-5',scheduleKind:'cron',timezone:'America/New_York',enabled:false,revision:1,nextRunAt:null,latestExecution:null}]; sequence=400; emit("snapshot.reset"); return response({ok:true}); }
     if (path === "/__qa/motion" && method === "POST") {
       const channel = snapshot.channels.find(c => c.id === "visual-chat");
@@ -134,6 +134,14 @@ const server = Bun.serve({
       snapshot.runs = input.active ? [{...mobileFixture.runs[0]!, id:"motion-run", botId:bot.id, conversationId:bot.conversationId, channelId:channel.id, status:"running"}] : [];
       if (input.content) snapshot.channelMessages.push({id:randomUUID(),clientId:null,sequence:String(++sequence),channelId:channel.id,sender:"agent",senderBotId:bot.id,sourceRunId:"motion-run",content:input.content,metadata:{type:"text"},createdAt:new Date().toISOString()});
       emit("snapshot.reset"); return response({ok:true});
+    }
+    if (path === "/__qa/update-message" && method === "POST") {
+      // Server-side edits of an existing row: reactions, card answers or content.
+      const message: any = snapshot.channelMessages.find(m => m.id === input.id);
+      if (!message) return response({error:"Unknown message"},404);
+      if (typeof input.content === "string") message.content = input.content;
+      if (input.metadata) message.metadata = {...message.metadata, ...input.metadata};
+      emit("channel.message.updated", message.channelId); return response({ok:true});
     }
     if (path === "/__qa/group-reply" && method === "POST") {
       const channel = snapshot.channels.find(c => c.id === input.channelId && c.kind === "group");

@@ -74,6 +74,15 @@ Record the simulator concurrently with `idb video --fps 120 --udid <udid> <file>
 and inspect actual frame timestamps and the reported screen refresh limit;
 requesting 120 fps does not establish physical-device 120 Hz performance.
 
+For scroll smoothness investigations, add `--trace-scroll-frames` to a DEBUG chat
+launch. Once scrolling is idle it saves `tmp/scroll-frames.json` in the app
+container: each display frame's committed row positions and heights, the finger
+location and list state (numeric geometry and message IDs only).
+`python3 apps/ios/scripts/scroll-frame-report.py --simulator <udid>` reports layout
+shifts, one-frame jumps, finger drift, blank documents and dropped frames. The
+fixture's `scroll-mixed` and `scroll-mixed-pages` scenes combine every row
+renderer, and `POST /__qa/update-message` edits an existing row in place.
+
 For real transcription, the `RealServer` scheme's
 `RealServerUITests/testLiveVoiceTranscriptionAndDraftPreservation` uses
 `scripts/real-server-qa.ts`. The retired React Native `--ios-app` transcription

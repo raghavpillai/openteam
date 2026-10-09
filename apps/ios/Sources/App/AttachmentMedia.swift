@@ -35,6 +35,28 @@ struct LoadedAttachment: Identifiable {
   }
 }
 
+/// Decoded chat previews survive cell recycling. A photo scrolled back into view
+/// is drawn in its row's first layout, instead of flashing a placeholder while
+/// the original downloads and decodes again. Cleared with the account's data.
+@MainActor enum AttachmentPreviewCache {
+  private final class Entry {
+    let value: LoadedAttachment
+    init(_ value: LoadedAttachment) { self.value = value }
+  }
+  private static let values: NSCache<NSString, Entry> = {
+    let cache = NSCache<NSString, Entry>()
+    cache.totalCostLimit = 48 * 1024 * 1024
+    return cache
+  }()
+  private static func key(_ asset: Asset) -> NSString { (asset.assetId + ":" + asset.fileName) as NSString }
+  static func value(_ asset: Asset) -> LoadedAttachment? { values.object(forKey: key(asset))?.value }
+  static func save(_ value: LoadedAttachment, for asset: Asset) {
+    let cost = value.image.map { Int($0.size.width * $0.size.height * $0.scale * $0.scale * 4) } ?? 0
+    values.setObject(Entry(value), forKey: key(asset), cost: cost)
+  }
+  static func clear() { values.removeAllObjects() }
+}
+
 struct GalleryItem: Identifiable {
   let id: String
   let asset: Asset
@@ -50,6 +72,12 @@ struct AttachmentView: View {
   @State private var loaded: LoadedAttachment?
   @State private var loading = false
   @State private var failure: String?
+  init(asset: Asset, channelID: String, messageID: String) {
+    self.asset = asset
+    self.channelID = channelID
+    self.messageID = messageID
+    _loaded = State(initialValue: AttachmentPreviewCache.value(asset))
+  }
   private var isImage: Bool { asset.mimeType.hasPrefix("image/") }
   private var previewSize: CGSize { AttachmentImageFile.previewSize(width: asset.width, height: asset.height) }
   private var galleryID: String { messageID + ":" + asset.id + ":" + asset.fileName }
@@ -134,6 +162,7 @@ struct AttachmentView: View {
     do {
       let file = try await LoadedAttachment.fetch(asset, store: store)
       guard !isImage || file.image != nil else { throw APIError("This image could not be loaded.") }
+      if isImage { AttachmentPreviewCache.save(file, for: asset) }
       loaded = file
       failure = nil
       if open { presentFile(loaded) }

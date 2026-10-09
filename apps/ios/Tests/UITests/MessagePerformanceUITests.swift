@@ -406,6 +406,43 @@ final class MessagePerformanceUITests: XCTestCase {
     try await stressScroll(app, phases: [(true, true, 24), (true, false, 6),
       (false, true, 8), (true, false, 3), (false, false, 3), (true, true, 4), (false, true, 4)], name: "rich")
   }
+  func testFastSlowAndReversingMixedMediaHistory() async throws {
+    // WebKit documents, diagrams, photos, files, cards and replies size
+    // asynchronously or differ from estimates; none may move settled rows.
+    let app = try await history("scroll-mixed", scrollGeometry: true)
+    defer { app.terminate() }
+    try await stressScroll(app, phases: [(true, true, 16), (true, false, 6),
+      (false, true, 8), (true, false, 3), (false, false, 3), (true, true, 4), (false, true, 4)], name: "mixed")
+  }
+
+  func testIncomingDocumentsAtLatestEndWithTheLatestMessage() async throws {
+    let app = try await history("scroll-mixed")
+    let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
+      .waitForNonExistence(timeout: 15))
+    for round in 1...3 {
+      // A reply that arrives while the chat is open or reopened from a
+      // notification: its document sizes during or after the scroll to it.
+      for content in [
+        "## Deploy \(round)\n\n- API is healthy\n- Worker restarted\n- Cache warmed\n\n| Region | Status |\n| --- | --- |\n| us-west | Ready |",
+        "Follow-up \(round) after the deploy.",
+      ] {
+        var request = URLRequest(url: URL(string: server + "/__qa/motion")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["content": content])
+        let (_, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+      }
+      let latest = app.staticTexts["Follow-up \(round) after the deploy."]
+      XCTAssertTrue(latest.waitForExistence(timeout: 10))
+      try await Task.sleep(for: .seconds(2))
+      XCTAssertLessThanOrEqual(latest.frame.maxY, input.frame.minY,
+        "The latest message must end above the composer after its document sizes")
+      XCTAssertFalse(app.buttons["Latest messages"].exists)
+    }
+  }
+
   func testSearchResultCanBrowseOlderAndNewerHistory() async throws {
     let app = try await history("performance-text", scrollGeometry: true)
     defer { app.terminate() }

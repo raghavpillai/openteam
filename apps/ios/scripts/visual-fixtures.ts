@@ -119,6 +119,39 @@ export function visualFixture(base: any, scene: string) {
       message(channel.id, "agent", "## Next steps\n\n1. Review the settings.\n2. Save the changes.\n\n" +
         "| Task | Status |\n| --- | --- |\n| Layout | $x^2 + y^2$ |", 3);
       message(channel.id, "agent", "Layout settled marker", 4);
+    } else if(scene === "scroll-mixed" || scene === "scroll-mixed-pages") {
+      // Every row renderer in one transcript: native text/code, WebKit documents
+      // and diagrams, fixed-size media, files, cards, replies and reactions.
+      const image = (id:string, width?:number, height?:number) => ({ assetId:id, fileName:id+".png",
+        mimeType:"image/png", byteSize:46000, kind:"image", ...(width ? { width, height } : {}) });
+      const kinds: Array<(i:number) => ["user"|"agent", string, any?]> = [
+        i => ["user", `Can you check item ${i}?`],
+        i => ["agent", `Item ${i}. ${"Here is a plain native paragraph that wraps across several lines in the bubble. ".repeat(3)}`],
+        i => ["agent", `## Summary ${i}\n\n- First finding about the deploy\n- Second finding with **bold** text\n- Third finding that is a little longer and wraps onto another line`],
+        i => ["user", `Photo ${i}`, { attachments:[image("gallery-"+i, 545, 341)] }],
+        i => ["agent", `Status ${i}\n\n| Service | State |\n| --- | --- |\n| API | Ready |\n| Worker | $x^2 + y^2$ |`],
+        i => ["agent", `Code ${i}:\n\`\`\`swift\nlet value = items.map { $0.id }\nprint(value)\n\`\`\``],
+        i => i % 3 === 0
+          ? ["agent", `Diagram ${i}\n\n\`\`\`mermaid\nflowchart LR\n A[Draft] --> B[Review]\n B --> C[Done]\n\`\`\``]
+          : ["agent", `Short reply ${i}.`],
+        i => ["user", `Reply to ${i - 1}`, { replyTo:`visual-message-visual-chat-${i - 1}` }],
+        i => ["agent", `Screenshot ${i}`, { attachments:[image("gallery-"+i)] }],
+        i => ["agent", "", { type:"widget", widget:{ prompt:`Choose a route ${i}`, multiSelect:true, options:[
+          { label:"Alpha", value:"alpha", description:"The first route" }, { label:"Beta", value:"beta" }, { label:"Gamma", value:"gamma" }] } }],
+        i => ["agent", "", { attachment:{ assetId:"7".repeat(64), fileName:`archive-${i}.zip`, mimeType:"application/zip", byteSize:38000, kind:"file" } }],
+        i => ["agent", `Reaction target ${i}`, { reactions:[{ emoji:"👍", by:"me" }, { emoji:"🎉", by:"bot-ops" }] }],
+        i => ["agent", `# Report ${i}\n\nThe first paragraph explains the context in some detail so that the document is tall.\n\n> A quoted caveat that spans a couple of lines in the rendered document.\n\n1. Step one\n2. Step two\n3. Step three`],
+        i => ["user", `Two photos ${i}`, { attachments:[image("layout-portrait", 400, 800), image("gallery-"+i, 545, 341)] }],
+        i => ["agent", `Identifier ${i}: DEPLOYMENT_TOKEN_IDENTIFIER_${i}_ABCDEFGHIJKLMNOP was rotated.`],
+        i => ["agent", "", { type:"widget", widget:{ prompt:`Pick one ${i}`, options:[{ label:"Alpha", value:"alpha" }, { label:"Beta", value:"beta" }] }, respondedValue:"alpha" }],
+      ];
+      const count = scene === "scroll-mixed-pages" ? 400 : 240;
+      for (let i = 1; i <= count; i++) {
+        const [sender, content, metadata] = kinds[i % kinds.length]!(i);
+        const row = message(channel.id, sender, content, i, metadata ?? {});
+        // Insert a timestamp row roughly every dozen messages.
+        row.createdAt = new Date(date.getTime() - (count - i) * 1000 - Math.floor((count - i) / 12) * 600_000).toISOString();
+      }
     } else if(scene === "empty-chat") {
       // No messages: initial positioning must still dismiss the native spinner.
     } else if(scene === "history-pages" || scene === "window-history") {

@@ -1,123 +1,70 @@
-# iMessage gateway setup
+# Connect a Mac
 
-The path is **OpenTeam server → authenticated MCP endpoint → SSH → Mac reader**.
-The gateway can run on the OpenTeam VM host, another private machine, or directly
-beside the bot computer. Its host must reach the Mac; OpenTeam must reach the
-gateway. No changes to OpenTeam's server or computer images are needed.
+In Marketplace → iMessage (SSH) → account settings, enter **Mac SSH destination**
+(`yourname@100.64.0.10`) and choose **Connect**. This is the only account field.
+Connect checks actual database access before exposing the four read-only tools.
+No gateway address, token, SSH private key, or Mac desktop app installation is required.
 
-The Mac needs Messages signed in, its history downloaded, Python 3 at
-`/usr/bin/python3`, and Remote Login enabled for the relevant user. Grant remote
-users disk access in macOS Sharing settings if the database is denied. See
-[Apple's Remote Login instructions](https://support.apple.com/guide/mac-help/allow-a-remote-computer-to-access-your-mac-mchlp1066/mac).
-The Mac must stay awake and reachable for fresh reads. This package never writes
-to Messages and has no send operation.
+The OpenTeam host must already have passwordless SSH access to this user on the
+Mac and a verified host key in its `~/.ssh/known_hosts`. The Mac needs Remote Login,
+Python 3 at `/usr/bin/python3`, and readable `~/Library/Messages/chat.db`.
+macOS permissions or Apple Account sign-in may require the user on the Mac.
+Existing downloaded history can be read while signed out; new messages require sync.
 
-## Provision the Mac connection
+The host automatically checks the database, installs the packaged reader, and
+authorizes a dedicated restricted key on first connection. Later operations use
+that restricted key. It cannot open a shell or forward ports. Other Mac SSH keys
+are preserved. Messages, including synced SMS/RCS, are read locally on the Mac.
+This version cannot send messages or download attachments.
 
-On the gateway host, create a private directory and dedicated key:
+## Deployment internals — for the host administrator or deployment agent
 
-```sh
-mkdir -p ~/.config/openteam-imessage
-chmod 700 ~/.config/openteam-imessage
-ssh-keygen -t ed25519 -N '' -f ~/.config/openteam-imessage/id_ed25519 -C openteam-imessage-readonly
-```
+The path is **agent tool → computer's packaged stdio connector → internal host
+bridge → SSH → Mac reader**. The computer uses OpenTeam's existing MCP runtime.
+SSH keys stay on the host. The internal bridge token is provisioned automatically
+outside the plugin and Marketplace account; users never enter it.
 
-Transfer only the `.pub` file to the Mac. Run this package's installer on the Mac:
-
-```sh
-python3 connector/install-reader.py --public-key /path/to/id_ed25519.pub
-```
-
-It installs `~/.local/share/openteam-imessage/reader.py` and adds a `restrict`
-authorized key with a forced command. The key cannot open a shell, forward ports,
-or select another program. Existing authorized keys are preserved. Run the
-installer again with the same key to update the reader.
-
-Copy the Mac's `/etc/ssh/ssh_host_ed25519_key.pub` through a trusted channel, and
-create a `known_hosts` entry on the gateway: `MAC_HOST ssh-ed25519 PUBLIC_KEY`.
-For a nonstandard SSH port, use `[MAC_HOST]:PORT` as the first field. Do not trust
-an unverified `ssh-keyscan` result or disable host-key checking.
-
-## Run the gateway
-
-Copy `gateway.py` and `reader.py` together to the gateway host. `reader.py` supplies
-request validation there; all database reads still execute on the Mac.
-Generate a token into a private file using your provisioning tool or secret
-manager. For example, this writes one without displaying it:
+On a Linux Docker/systemd deployment, run this once as the host user whose SSH
+access should be used, from the package's connector directory:
 
 ```sh
-python3 - <<'PY'
-import os, secrets
-from pathlib import Path
-p = Path.home() / '.config/openteam-imessage/token'
-with os.fdopen(os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as f:
-    f.write(secrets.token_urlsafe(32) + '\n')
-PY
+python3 install-host.py --computer-container openteam-computer-1
 ```
 
-Create a local `config.json` with your own connection values:
+This installs/updates the host service, generates an internal token, discovers
+the computer's Docker bridge address, and writes the internal connection into
+the computer's persistent home with mode 0600. The listener binds only to that
+private bridge interface. The host user needs Docker access, a systemd user
+session, and lingering enabled for service persistence after logout. If needed,
+an administrator enables lingering with `loginctl enable-linger USER`.
+No server/container rebuild is required. Re-run provisioning if Docker networking
+changes or the computer's persistent home is replaced.
 
-```json
-{
-  "ssh_target": "youruser@mac-private-address",
-  "ssh_port": 22,
-  "identity_file": "/home/youruser/.config/openteam-imessage/id_ed25519",
-  "known_hosts_file": "/home/youruser/.config/openteam-imessage/known_hosts",
-  "token_file": "/home/youruser/.config/openteam-imessage/token"
-}
-```
+This provisioning script is included with the plugin; it is **not yet wired into
+the general OpenTeam deployment installer**. A new deployment needs this one-time
+host provisioning before the single-field Marketplace flow works. Existing
+`~/.config/openteam-imessage/config.json` restricted connections migrate automatically.
 
-Start it with `python3 gateway.py --config /path/to/config.json`. By default it
-binds `127.0.0.1:8799`. For Docker callers, bind specifically to a reachable
-private host interface using `--bind PRIVATE_IP`; container `localhost` is not
-the VM host. `host.docker.internal` requires an existing host-gateway mapping on
-Linux. A private VPN address also works if the server container can reach it.
-For public access, put the loopback listener behind an authenticated HTTPS
-reverse proxy. Do not publish its plain HTTP port to the internet.
+For a new Mac, first establish and verify the host user's normal SSH connection.
+Do not disable host-key checking or automatically trust `ssh-keyscan` output.
+The bridge creates one restricted key per `user@host` and installs the reader
+using the host's existing authorized connection. Only validated destinations
+and fixed packaged operations are accepted; no arbitrary command/SQL tool exists.
 
-For persistence, run the same command under a user service manager (for example,
-systemd on Linux, with user lingering enabled if it must survive logout). The gateway needs Python 3.9+ and OpenSSH; no Python packages
-or additional OpenTeam daemon are required. Keep token and SSH key files mode
-0600. Store real credentials outside the plugin directory so exports cannot
-include them.
+## Troubleshooting
 
-## Connect through Marketplace
+- Connection fails before tools appear: check the host service, private network,
+  and `/home/box/.config/openteam/imessage-bridge.json` in the computer.
+- `ssh_setup_required`: verify the host user's passwordless SSH and known_hosts,
+  Python 3 on the Mac, and Messages database permissions.
+- `ssh_unavailable`: check Mac availability, pinned host key, and restricted key.
+- `messages_unavailable`: check the Mac SSH user's disk access and local database.
 
-Install **iMessage (SSH)**. Set **Gateway host and port** and **Gateway token**
-in its account configuration. The default endpoint is `http://HOST:PORT/mcp`.
-For HTTPS, use the account's MCP URL override. The normal token connection sends
-`Authorization: Bearer …`; do not put tokens in URLs or skills.
+Use `imessage_status`, then `imessage_chats` and `imessage_history` to validate.
+Use counts when reporting diagnostics; do not print private message contents.
 
-Connect and run `imessage_status` in Test tool. Then call `imessage_chats` with
-`{"limit":1}` and `imessage_history` with a returned `chat_id`. Both operations
-are read-only. The plugin skill explains search pagination and body decoding
-limits. Fixture tests do not prove a live connection; validate from the actual
-OpenTeam server/container network.
-
-You can repeat a live read check from the gateway host without printing personal
-message content:
-
-```sh
-python3 connector/probe.py --endpoint http://PRIVATE_IP:8799/mcp --token-file ~/.config/openteam-imessage/token
-```
-
-It checks discovery, database access, a small history page, pagination and a
-search for a returned message. Empty accounts may not supply enough data to
-verify history or search; inspect the reported booleans rather than treating a
-successful connection as proof of those operations.
-
-## Limits and removal
-
-One gateway config targets one Mac/account. Run separate gateway instances and
-OpenTeam accounts for additional Macs. Rich text decoding is best effort; the
-reader labels unavailable or lossy bodies and does not download attachments or
-resolve Contacts. History pages are ordered by message ID, not a guaranteed
-send-time order. Search scans 500 rows per call and can require many calls for
-old history. The database is queried read-only, locally on the Mac, within a
-per-request transaction; it is never mounted or copied to the cloud.
-
-Uninstalling the Marketplace package removes its OpenTeam tools/skill. To revoke
-the independent infrastructure, stop the gateway, remove its dedicated key line
-from the Mac's `authorized_keys`, and delete its private config/key/token files.
-Remove `~/.local/share/openteam-imessage` only when no other configured gateway
-uses it. Do not remove unrelated keys or disable shared SSH access.
+To remove host infrastructure, stop/disable `openteam-imessage.service`, remove
+its unit and `~/.local/share/openteam-imessage`, and remove the private host config
+and computer bridge config. Revoke only this integration's restricted public-key
+entries from the Mac's authorized_keys; preserve all other keys. Remove the Mac
+reader only when no remaining integration uses it.

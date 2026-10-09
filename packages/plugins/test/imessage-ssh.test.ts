@@ -16,15 +16,19 @@ test("iMessage read-only reader, SSH restrictions and authenticated MCP endpoint
   expect(code).toBe(0);
 }, 15_000);
 
-test("iMessage Marketplace package round trips its helper, skill and configurable endpoint", () => {
+test("iMessage Marketplace package round trips its helper, skill and single SSH destination", () => {
   const plugin = pluginCatalog.find(p => p.key === "imessage-ssh")!;
   const roundtrip = importPackageArchive(exportPackageArchive(plugin)).definition;
-  for (const path of ["connector/reader.py", "connector/gateway.py", "connector/install-reader.py"])
+  for (const path of ["connector/reader.py", "connector/bridge.py", "connector/server.py", "connector/install-host.py", "connector/install-reader.py"])
     expect(roundtrip.files?.[path]).toBe(plugin.files?.[path]);
   expect(roundtrip.skills[0]!.body.trim()).toBe(plugin.skills[0]!.body.trim());
   const fields = plugin.setup!.fields;
-  const values = validateValues(fields, { GATEWAY_ADDRESS: "172.18.0.1:8799", token: "example-only" });
-  expect(substituteConfiguration(plugin.connections[0]!.endpoint, values)).toBe("http://172.18.0.1:8799/mcp");
-  expect(fields.find(f => f.key === "token")?.secret).toBe(true);
+  expect(fields.map(f => f.key)).toEqual(["SSH_TARGET"]);
+  const values = validateValues(fields, { SSH_TARGET: "raghav@100.94.42.50" });
+  expect(substituteConfiguration(plugin.connections[0]!.configuration!, values)).toMatchObject({
+    command: "python3", env: { IMESSAGE_SSH_TARGET: "raghav@100.94.42.50" },
+  });
+  expect(plugin.connections[0]!.transport).toBe("stdio");
+  expect(plugin.setup!.kind).toBe("none");
   expect(Object.keys(roundtrip.files ?? {}).some(path => /(?:^|\/)(?:id_ed25519|known_hosts|config\.json|token)$/.test(path))).toBe(false);
 });

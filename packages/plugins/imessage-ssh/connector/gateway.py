@@ -159,7 +159,13 @@ class Handler(BaseHTTPRequestHandler):
             request = json.loads(self.rfile.read(size))
         except (ValueError, UnicodeError, TimeoutError):
             return self.respond(400)
-        response = self.server.gateway.rpc(request)
+        gateway = self.server.gateway
+        if hasattr(gateway, "for_target"):
+            try:
+                gateway = gateway.for_target(self.headers.get("X-OpenTeam-SSH-Target", ""))
+            except ValueError:
+                return self.respond(400, {"error": "invalid_ssh_target"})
+        response = gateway.rpc(request)
         self.respond(202 if response is None else 200, response)
 
     def do_GET(self):

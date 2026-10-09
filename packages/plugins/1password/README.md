@@ -6,9 +6,9 @@ An OpenTeam skill for signing in to websites with saved logins and one-time code
 | --- | --- |
 | `1password` | Find saved logins and read credentials and one-time codes for sign-ins. |
 
-Create a service account on 1Password.com (Developer → Service Accounts) with read-only access to the vaults you want to share, then add the plugin and paste its token. OpenTeam gives the token to every Bot's computer processes as `OP_SERVICE_ACCOUNT_TOKEN`. The skill downloads a checksum-verified CLI (Linux, ARM64/x64) the first time it runs; on macOS, an existing `op` from 1Password's installer or Homebrew is used instead.
+Put the logins in a vault other than Personal, Private, Employee, or the default Shared vault; service accounts can't open those. On 1Password.com, create a service account (Developer → Directory → Other → Create a Service Account) with read access to that vault only, copy its token (shown once), then add the plugin and paste the token. OpenTeam gives the token to every Bot's computer processes as `OP_SERVICE_ACCOUNT_TOKEN`. The skill downloads a checksum-verified CLI (Linux, ARM64/x64) the first time it runs; on macOS, an existing `op` from 1Password's installer or Homebrew is used instead.
 
-Bots and their browser and desktop workers read the username, password, or one-time code they need and type it into the site. Values a Bot reads appear in its conversation and model context; the token itself is redacted from command output. Service accounts cannot access built-in Personal, Private, or Employee vaults.
+Bots and their browser and desktop workers read the username, password, or one-time code they need and type it into the site. Values a Bot reads appear in its conversation and model context; the token itself is redacted from command output.
 
 1Password limits service accounts to 1,000 reads per hour per token, and Individual and Families accounts to 1,000 requests per day across all service accounts. Bots look up logins only when a task needs one.
 

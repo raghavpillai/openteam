@@ -3,7 +3,7 @@
   "key": "1password",
   "version": "2.0.0",
   "name": "1Password",
-  "description": "Sign in to websites with saved logins and one-time codes from your 1Password vaults, through the 1Password CLI and a read-only service account.",
+  "description": "Bots sign in to websites with logins and one-time codes from the 1Password vaults you choose.",
   "publisher": "OpenTeam",
   "category": "Login and Credential Management",
   "featured": false,
@@ -18,14 +18,15 @@
       "required": true,
       "secret": true,
       "placeholder": "ops_…",
-      "helpText": "Read-only service account token from 1Password.com → Developer → Service Accounts.",
+      "helpText": "Shown once when you create the service account in step 2.",
       "environment": "OP_SERVICE_ACCOUNT_TOKEN"
     }
   ],
   "installationSteps": [
-    "On 1Password.com, open Developer → Service Accounts and create a service account with read-only access to the vaults to share. Built-in Personal, Private, and Employee vaults cannot be shared with service accounts.",
-    "Add this plugin and paste the service account token. Every Bot can then sign in to websites with matching saved logins and one-time codes.",
-    "Replace the token here after rotating it. Uninstalling removes the token from OpenTeam; revoke the service account at 1Password to end access there."
+    "Put the logins bots should use in a 1Password vault other than Personal, Private, Employee, or the default Shared vault. Service accounts can't open those.",
+    "On 1Password.com, go to Developer → Directory → Other → Create a Service Account. Add that vault with read access only, then copy the token. 1Password shows it only once.",
+    "Paste the token below and add the plugin. Every bot can then use those logins; passwords and codes a bot reads appear in its conversation.",
+    "To rotate the token, paste the new one on this page. Uninstalling deletes it from OpenTeam; delete the service account in 1Password to revoke access."
   ],
   "skills": [
     {

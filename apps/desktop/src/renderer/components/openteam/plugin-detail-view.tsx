@@ -945,7 +945,7 @@ export function PluginDetail({
         {plugin.description}
       </p>
 
-      {plugin.installationSteps?.length ? <details className="animated-disclosure mt-4 text-[12px]"><summary className="cursor-pointer">Installation steps</summary><ol className="mt-2 list-decimal space-y-1 pl-5">{plugin.installationSteps.map(step => <li key={step}>{step}</li>)}</ol></details> : null}
+      {plugin.installationSteps?.length ? <details className="animated-disclosure mt-4 text-[12px]" open={!install && plugin.setupFields.some((field) => field.required)}><summary className="cursor-pointer">Installation steps</summary><ol className="mt-2 list-decimal space-y-1 pl-5">{plugin.installationSteps.map(step => <li key={step}>{step}</li>)}</ol></details> : null}
       {!install && plugin.setup ? <details className="animated-disclosure mt-3 text-[12px]"><summary className="cursor-pointer">Provider setup: {plugin.setup.title}</summary><p className="mt-2">{plugin.setup.description}</p><ol className="mt-2 list-decimal space-y-1 pl-5">{plugin.setup.steps.map(step => <li key={step}>{step}</li>)}</ol>{plugin.setup.documentationUrl && <a href={plugin.setup.documentationUrl} target="_blank" rel="noreferrer" className="underline">Provider setup guide</a>}</details> : null}
       {!install && plugin.setupFields.length ? (
         <div className="mt-5 grid grid-cols-2 gap-2 rounded-[10px] bg-black/[0.035] p-3 dark:bg-white/[0.045] max-sm:grid-cols-1">
@@ -953,13 +953,17 @@ export function PluginDetail({
             <label className="space-y-1" key={field.key}>
               <span className="block text-[10.5px] text-foreground-secondary">{field.label}</span>
               <input
-                className="h-8 w-full rounded-[7px] border border-black/[0.08] bg-background px-2.5 text-[11px] outline-none dark:border-white/[0.09]"
+                className="h-8 w-full rounded-[7px] border border-black/[0.08] bg-background px-2.5 text-[11px] outline-none placeholder:text-foreground-tertiary dark:border-white/[0.09]"
                 onChange={(event) =>
                   setSetupValues((current) => ({ ...current, [field.key]: event.target.value }))
                 }
+                placeholder={field.placeholder}
                 type={field.secret ? "password" : "text"}
                 value={setupValues[field.key] ?? ""}
               />
+              {field.helpText ? (
+                <span className="block text-[9.5px] leading-3.5 text-foreground-tertiary">{field.helpText}</span>
+              ) : null}
             </label>
           ))}
         </div>

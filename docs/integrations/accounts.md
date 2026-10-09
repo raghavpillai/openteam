@@ -29,7 +29,7 @@ Create a [fine-grained personal access token](https://github.com/settings/person
 
 ## 1Password
 
-Create a service account on 1Password.com with read-only access to the vaults you want to share, then add the **1Password** plugin and paste its token. Every bot can use it; replace it on the plugin page after rotating it. See [saved logins](../usage/computer.md#sign-in-to-websites).
+Put the logins bots should use in a vault other than Personal, Private, Employee, or the default Shared vault. On 1Password.com, create a service account (Developer → Directory → Other → Create a Service Account) with read access to that vault only, then add the **1Password** plugin and paste its token, which 1Password shows only once. Every bot can use it; replace it on the plugin page after rotating it. See [saved logins](../usage/computer.md#sign-in-to-websites).
 
 The 1Password desktop app and browser extension are not used.
 

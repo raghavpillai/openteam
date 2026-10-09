@@ -30,6 +30,7 @@ function adapt(value: any): any {
   return value;
 }
 const contracts: Record<string, ToolContract> = adapt(reference);
+contracts.AuthenticateMcpServer!.description = "Request authentication for an installed MCP connection that needs sign-in. Follow the returned result: when requiresUserAction is true, show the setupUrl as an OpenTeam plugin-settings link and tell the user to start sign-in for accountLabel there. The signed-in UI must start manual or desktop sign-in; do not open an older provider URL or ask for callback URLs/codes in chat. Server-callback sign-in can start directly; the user finishes it in connection settings. Check connection status before claiming authentication succeeded.";
 // Child session paths are private in OpenTeam. Do not advertise direct Read
 // access that the runtime correctly refuses; the status endpoint is scoped.
 contracts.CheckSubagent!.description = contracts.CheckSubagent!.description.replace(

@@ -43,6 +43,7 @@ import {
 } from "./plugin/values";
 import { appendEvent, forwardServiceMethod, serviceEffect, toJson } from "./service-utils";
 import { ConnectorFileTransfers } from "./plugin/file-transfers";
+import { parseAuthMode } from "../auth-mode";
 
 const runAuthentication = async <A>(effect: Effect.Effect<A, Error>): Promise<A> => {
   const result = await Effect.runPromise(Effect.either(effect));
@@ -72,6 +73,7 @@ export class PluginService {
   private readonly marketplace = new OpenTeamMarketplaceSource();
   private readonly publicUrl =
     process.env.OPENTEAM_PUBLIC_URL ?? `http://127.0.0.1:${process.env.OPENTEAM_PORT ?? "8787"}`;
+  private readonly authMode = parseAuthMode(process.env.OPENTEAM_AUTH_MODE);
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -330,7 +332,7 @@ export class PluginService {
       }
       const connection = await this.connectionOrThrow(connectionId);
       assertComputerMcpRuntime(runtimeConfiguration(connection));
-      return runAuthentication(this.authenticate(connectionId, args.forceReauth === true));
+      return runAuthentication(this.authenticateFromAgent(connectionId, args.forceReauth === true));
     }
     if (action === "RestartMcpServers") return Effect.runPromise(this.restart(connectionId));
     if (action === "RemoveMcpAccount") return Effect.runPromise(this.removeAccount(connectionId));
@@ -437,6 +439,25 @@ export class PluginService {
 
   private authenticationStarts = new Map<string, Promise<{ connectionId: string; status: string; authorizationUrl: string }>>();
 
+  /** Agents have no browser login session. Let the user start session-bound OAuth in the UI. */
+  authenticateFromAgent = (connectionId: string, force = false) => serviceEffect(async () => {
+    const connection = await this.connectionOrThrow(connectionId);
+    this.assertAvailable(connection);
+    const mode = oauthCallbackMode(this.publicUrl, jsonObject(connection.configuration));
+    if (mode === "desktop" || (mode === "manual" && this.authMode === "required")) {
+      return {
+        connectionId,
+        status: "awaiting_user",
+        requiresUserAction: true,
+        pluginId: connection.installation.pluginKey,
+        accountLabel: connection.alias,
+        setupUrl: `openteam://app/v1/plugin/add?id=${encodeURIComponent(connection.installation.pluginKey)}`,
+        instructions: `Open this plugin in OpenTeam and start sign-in for account ${JSON.stringify(connection.alias)}${force ? " (use Reauthorize in account settings for an already connected account)" : ""}. If an older sign-in is pending, select Start again. Complete sign-in there; do not paste the callback into chat.`,
+      };
+    }
+    return runAuthentication(this.authenticate(connectionId, force));
+  });
+
   authenticate = (connectionId: string, force = false, desktop?: PluginOAuthDesktopContext, sessionId: string | null = null) => serviceEffect(async () => {
     if (!desktop) {
       const connection = await this.connectionOrThrow(connectionId);
@@ -445,6 +466,8 @@ export class PluginService {
       if (mode === "manual")
         desktop = { redirectUrl: MANUAL_OAUTH_REDIRECT, sessionId, mode: "manual" };
     }
+    if (desktop && this.authMode === "required" && !desktop.sessionId)
+      throw new ApiError(409, "plugin_oauth_session_required", "Open this connection in OpenTeam and start sign-in from your signed-in session.");
     if (desktop) validateDesktopCallback(desktop.redirectUrl);
     const existing = this.authenticationStarts.get(connectionId);
     if (existing) {
@@ -469,6 +492,10 @@ export class PluginService {
         throw new ApiError(409, "plugin_oauth_https_required", "This provider requires an HTTPS server callback. Enable Tailscale Serve or your own HTTPS domain and select Automatic or Server callback.");
       const current = jsonObject(connection.credentials);
       const previousOAuth = jsonObject(current.oauth);
+      // A crashed exchange must still be recoverable once its attempt expires.
+      if (previousOAuth.exchangeStarted && typeof previousOAuth.stateCreatedAt === "number" &&
+          Date.now() - previousOAuth.stateCreatedAt < 15 * 60_000)
+        throw new ApiError(409, "plugin_oauth_in_progress", "Sign-in is already completing. Wait for the connection status before starting again.");
       const sameCallback = desktop
         ? previousOAuth.callbackMode === (desktop.mode ?? "desktop") && previousOAuth.redirectUrl === desktop.redirectUrl && previousOAuth.callbackSessionId === desktop.sessionId
         : !["desktop", "manual"].includes(String(previousOAuth.callbackMode)) &&
@@ -591,8 +618,12 @@ export class PluginService {
     serviceEffect(async () => {
       const connection = await this.connectionOrThrow(connectionId);
       const oauth = jsonObject(jsonObject(connection.credentials).oauth);
+      // Authenticated users may discard a legacy agent-created orphan. This
+      // exception is cancellation-only; redemption still requires the owner.
+      const cancelSessionId = oauth.callbackMode === "manual" && oauth.callbackSessionId === null && sessionId !== null
+        ? null : sessionId;
       const context: PluginOAuthDesktopContext | undefined = oauth.callbackMode === "manual"
-        ? { redirectUrl: String(oauth.redirectUrl), sessionId, mode: "manual" }
+        ? { redirectUrl: String(oauth.redirectUrl), sessionId: cancelSessionId, mode: "manual" }
         : redirectUrl ? { redirectUrl: validateDesktopCallback(redirectUrl), sessionId } : undefined;
       return runAuthentication(this.cancelAuthentication(connectionId, state, context));
     });
@@ -993,17 +1024,17 @@ export class PluginService {
 
   private readonly connectionRestarts = new Map<string, ReturnType<PluginService["restartConnection"]>>();
 
-  restart = (connectionId: string) =>
+  restart = (connectionId: string, sessionId: string | null = null) =>
     serviceEffect(async () => {
       const existing = this.connectionRestarts.get(connectionId);
       if (existing) return existing;
-      const pending = this.restartConnection(connectionId);
+      const pending = this.restartConnection(connectionId, sessionId);
       this.connectionRestarts.set(connectionId, pending);
       try { return await pending; }
       finally { if (this.connectionRestarts.get(connectionId) === pending) this.connectionRestarts.delete(connectionId); }
     });
 
-  private async restartConnection(connectionId: string) {
+  private async restartConnection(connectionId: string, sessionId: string | null) {
       await this.connectionStops.get(connectionId);
       const connection = await this.connectionOrThrow(connectionId);
       const updated = await this.prisma.pluginConnection.updateMany({
@@ -1015,7 +1046,7 @@ export class PluginService {
       this.connectionStarts.delete(connectionId);
       if ((await this.connectionOrThrow(connectionId)).runtimeGeneration !== connection.runtimeGeneration + 1)
         throw new ApiError(409, "plugin_connection_changed", "Connection setup changed while restarting");
-      return Effect.runPromise(this.connect(connectionId));
+      return Effect.runPromise(this.connect(connectionId, sessionId));
   }
 
   dynamicNamespaces = forwardServiceMethod(() => this.queries.dynamicNamespaces);

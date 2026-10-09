@@ -95,7 +95,7 @@ export const PLUGIN_MANAGEMENT_TOOLS = [
   {
     name: "AuthenticateMcpServer",
     description:
-      "Request authentication for an installed MCP connection. Returns a browser authorization URL when confirmed.",
+      "Request authentication for an installed MCP connection. Follow the returned setupUrl and instructions when requiresUserAction is true: the user must start sign-in in OpenTeam. Server-callback sign-in can start directly. Never request callback URLs or codes in chat.",
     inputSchema: objectToolSchema(
       {
         connectionId: { type: "string" },

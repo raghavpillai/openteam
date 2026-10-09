@@ -12,8 +12,10 @@ import {
   normalizeSshTarget,
   parseUpdateEvent,
   readManagedInstallation,
+  remoteOpenTeamCommand,
   ServerUpdater,
   type ServerUpdateStatus,
+  updaterFailureMessage,
 } from "../src/main/server-updater";
 
 describe("bounded updater output", () => {
@@ -163,6 +165,36 @@ describe("managed server updater", () => {
       message: "Downloading components",
       jobId,
       safeToCloseDesktop: true,
+    });
+  });
+
+  test("reports a standalone CLI that is still staging its update before taking the lock", async () => {
+    const fixture = updaterFixture();
+    const jobId = randomUUID();
+    writeFileSync(
+      join(fixture.directory, "update-state.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        jobId,
+        workerPid: process.pid,
+        status: "running",
+        phase: "updating-cli",
+        fromVersion: "1.2.3",
+        targetVersion: "1.3.0",
+        message: "Downloading and verifying OpenTeam 1.3.0 command-line tools",
+      })}\n`
+    );
+    const updater = new ServerUpdater({
+      cliPath: fixture.cliPath,
+      executablePath: "/Applications/OpenTeam.app/Contents/MacOS/OpenTeam",
+      environment: fixture.environment,
+      fetcher: async () => versionResponse("1.2.3"),
+    });
+
+    await expect(updater.status("http://127.0.0.1:9444", "1.3.0")).resolves.toMatchObject({
+      status: "updating",
+      phase: "updating-cli",
+      jobId,
     });
   });
 
@@ -386,6 +418,129 @@ describe("managed server updater", () => {
     expect(spawnedArguments).toContain("openteam");
     expect(spawnedEnvironment.ELECTRON_RUN_AS_NODE).toBeUndefined();
     expect(result).toMatchObject({ status: "updated", updateMethod: "ssh" });
+  });
+});
+
+describe("server updater failures", () => {
+  test("reports the CLI's whole wrapped error instead of its last line", () => {
+    const output = [
+      '@@OPENTEAM_UPDATE@@{"phase":"checking","message":"Checking"}',
+      "  ╭────────────────╮",
+      "  │ OPENTEAM / error │",
+      "  ╰────────────────╯",
+      "",
+      "  \x1b[31m✗\x1b[0m Refusing to downgrade OpenTeam 0.0.1 to 0.0.0. Use --allow-downgrade only for an",
+      "    intentional recovery.",
+      "",
+    ].join("\n");
+    expect(updaterFailureMessage(output, 1)).toBe(
+      "Refusing to downgrade OpenTeam 0.0.1 to 0.0.0. Use --allow-downgrade only for an intentional recovery."
+    );
+    expect(updaterFailureMessage("Host key verification failed.\r\n", 255)).toBe(
+      "Host key verification failed."
+    );
+    expect(updaterFailureMessage("", 3)).toBe("Updater exited with code 3");
+  });
+
+  test("retries a remote update through the installer's default CLI directory", async () => {
+    const fixture = updaterFixture();
+    const attempts: (readonly string[])[] = [];
+    const updater = new ServerUpdater({
+      cliPath: fixture.cliPath,
+      executablePath: "/Applications/OpenTeam.app/Contents/MacOS/OpenTeam",
+      sshExecutable: "/usr/bin/ssh",
+      environment: fixture.environment,
+      fetcher: async () => versionResponse("1.3.0"),
+      spawnUpdater: (_executable, args) => {
+        attempts.push(args);
+        const child = fakeUpdaterProcess();
+        setTimeout(() => {
+          if (attempts.length === 1) {
+            child.stderr.write("bash: line 1: openteam: command not found\n");
+            child.emit("close", 127);
+            return;
+          }
+          child.stdout.write(
+            '@@OPENTEAM_UPDATE@@{"phase":"complete","message":"Updated","version":"1.3.0"}\n'
+          );
+          child.emit("close", 0);
+        }, 0);
+        return child as never;
+      },
+    });
+
+    const result = await updater.update("https://server.example", "1.3.0", "owner@server.example");
+
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0]?.slice(-5)).toEqual([
+      "openteam",
+      "update",
+      "--version",
+      "1.3.0",
+      "--json-progress",
+    ]);
+    expect(attempts[1]?.slice(-8)).toEqual(
+      remoteOpenTeamCommand(["update", "--version", "1.3.0", "--json-progress"], true)
+    );
+    expect(result).toMatchObject({ status: "updated", currentVersion: "1.3.0" });
+  });
+
+  test("explains a remote server without the OpenTeam CLI", async () => {
+    const fixture = updaterFixture();
+    let attempts = 0;
+    const updater = new ServerUpdater({
+      cliPath: fixture.cliPath,
+      executablePath: "/Applications/OpenTeam.app/Contents/MacOS/OpenTeam",
+      sshExecutable: "/usr/bin/ssh",
+      environment: fixture.environment,
+      fetcher: async () => versionResponse("1.2.3"),
+      spawnUpdater: () => {
+        attempts += 1;
+        const child = fakeUpdaterProcess();
+        setTimeout(() => {
+          child.stderr.write("sh: 1: exec: openteam: not found\n");
+          child.emit("close", 127);
+        }, 0);
+        return child as never;
+      },
+    });
+
+    await expect(
+      updater.update("https://server.example", "1.3.0", "owner@server.example")
+    ).rejects.toThrow("The openteam command was not found on owner@server.example.");
+    expect(attempts).toBe(2);
+  });
+
+  test("reads remote progress through the default CLI directory", async () => {
+    const fixture = updaterFixture();
+    const attempts: (readonly string[])[] = [];
+    const updater = new ServerUpdater({
+      cliPath: fixture.cliPath,
+      executablePath: "/Applications/OpenTeam.app/Contents/MacOS/OpenTeam",
+      sshExecutable: "/usr/bin/ssh",
+      environment: fixture.environment,
+      fetcher: async () => new Response("unavailable", { status: 503 }),
+      spawnUpdater: (_executable, args) => {
+        attempts.push(args);
+        const child = fakeUpdaterProcess();
+        setTimeout(() => {
+          if (attempts.length === 1) {
+            child.emit("close", 127);
+            return;
+          }
+          child.stdout.write(
+            '@@OPENTEAM_UPDATE@@{"phase":"pulling","message":"Pulling images","version":"1.3.0","jobId":"job-2","safeToCloseDesktop":true}\n'
+          );
+          child.emit("close", 0);
+        }, 0);
+        return child as never;
+      },
+    });
+
+    await expect(
+      updater.status("https://server.example", "1.3.0", "owner@server.example")
+    ).resolves.toMatchObject({ status: "updating", phase: "pulling", jobId: "job-2" });
+    expect(attempts[1]).toContain("sh");
   });
 });
 

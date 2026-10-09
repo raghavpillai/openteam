@@ -14,11 +14,32 @@ export interface ComposeCommand {
   supported: boolean;
 }
 
+export const DOCKER_OUTPUT_HINT = "see the Docker output above";
+
 const usefulFailure = (result: RunResult): string =>
   result.stderr.trim() ||
   result.stdout.trim() ||
   result.error?.message ||
-  "command failed; see the Docker output above";
+  `command failed; ${DOCKER_OUTPUT_HINT}`;
+
+const ADDRESS_POOLS_EXHAUSTED = "all predefined address pools have been fully subnetted";
+
+export const ADDRESS_POOLS_EXHAUSTED_ADVICE =
+  "Docker has no free subnets left for new networks. Remove unused networks with `docker network prune`, " +
+  "or, if a VPN or cloud network route overlaps Docker's 172.17-31.x / 192.168.x defaults (check `ip route`), " +
+  'set a non-overlapping pool in /etc/docker/daemon.json, e.g. {"default-address-pools":[{"base":"10.200.0.0/16","size":24}]}, ' +
+  "restart Docker, and try again.";
+
+// Inherited Compose output is not captured, so probe for subnet exhaustion directly.
+const addressPoolsExhausted = (runner: CommandRunner): boolean => {
+  const name = `openteam-subnet-probe-${process.pid}`;
+  const probe = runner.run("docker", ["network", "create", name]);
+  if (probe.status === 0) {
+    runner.run("docker", ["network", "rm", name]);
+    return false;
+  }
+  return `${probe.stderr}${probe.stdout}`.includes(ADDRESS_POOLS_EXHAUSTED);
+};
 
 export const dockerVersion = (runner: CommandRunner): RunResult =>
   runner.run("docker", ["--version"]);
@@ -128,6 +149,10 @@ export class ComposeProject {
   ): void {
     const result = this.run(args, options);
     if (result.status !== 0) {
+      const exhausted = options.inherit
+        ? args[0] === "up" && addressPoolsExhausted(this.runner)
+        : `${result.stderr}${result.stdout}`.includes(ADDRESS_POOLS_EXHAUSTED);
+      if (exhausted) throw new CliError(ADDRESS_POOLS_EXHAUSTED_ADVICE);
       throw new CliError(`Docker Compose failed: ${usefulFailure(result)}`);
     }
   }

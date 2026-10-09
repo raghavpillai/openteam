@@ -733,6 +733,9 @@ ipcMain.handle("openteam:updates:install-client", async (event) => {
   });
   const autoUpdater = await configureDesktopUpdater();
   if (!autoUpdater) throw new Error("The desktop update service is unavailable");
+  // quitAndInstall closes every window without emitting before-quit. Without this, the macOS
+  // close-to-hide handler cancels the close, so the app neither quits nor installs.
+  isQuitting = true;
   autoUpdater.quitAndInstall(false, true);
 });
 

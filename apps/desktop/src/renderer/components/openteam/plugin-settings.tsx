@@ -270,19 +270,19 @@ export function PluginDialog({
     setSelectedKey(null);
     setError(`Plugin “${target.pluginId}” is not available in this catalog.`);
   }, [data, open, target]);
-  const authenticateConnection = (connection: PluginConnectionView) => {
+  const authenticateConnection = (connection: PluginConnectionView, force = false) => {
     if (connection.status === "error") {
       void mutate(connection.id, () => api.restartPluginConnection(connection.id));
       return;
     }
     const session = pluginAuthorization(connection);
-    if (session && !session.expired && !window.openteam?.pluginOAuth) {
+    if (!force && session && !session.expired && !window.openteam?.pluginOAuth) {
       openAutomaticPluginSignIn(connection.oauthCallbackMode, session.url);
       return;
     }
     void mutate(connection.id, async () => {
       if (connection.auth !== "oauth") return api.connectPlugin(connection.id);
-      const result = await api.authenticatePlugin(connection.id);
+      const result = await api.authenticatePlugin(connection.id, force);
       openAutomaticPluginSignIn(connection.oauthCallbackMode, result.authorizationUrl);
       return result;
     });

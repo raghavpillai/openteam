@@ -26,8 +26,8 @@ describe("plugin marketplace categories", () => {
     expect(pluginMatchesMarketplaceCategory(plugin, "Documents and Files")).toBe(true);
     expect(
       pluginMatchesMarketplaceCategory(
-        { ...plugin, category: "Data Analytics" },
-        "Data & Analytics"
+        { ...plugin, category: "Finance Legal" },
+        "Finance and Legal"
       )
     ).toBe(true);
     expect(

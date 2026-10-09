@@ -581,6 +581,29 @@ describe("installed lifecycle", () => {
     expect(runner.calls.at(-1)?.args).toContain("pull");
   });
 
+  test("points a silent Docker failure at the durable update log", async () => {
+    const { paths } = fixture();
+    class SilentStartupFailure extends HealthyDockerRunner {
+      override run(command: string, args: readonly string[], options?: RunOptions): RunResult {
+        const result = super.run(command, args, options);
+        return result.stderr === "fixture startup failed" ? { ...result, stderr: "" } : result;
+      }
+    }
+    const error = await updateCommand(
+      paths,
+      parseArguments(["update", "--version", "1.3.0", ...releaseFixture()]),
+      new SilentStartupFailure(false, true)
+    ).then(
+      () => null,
+      (caught: unknown) => caught as Error
+    );
+
+    expect(error?.message).toContain(
+      `Docker Compose failed: command failed; see ${paths.updateLog}`
+    );
+    expect(error?.message).not.toContain("see the Docker output above");
+  });
+
   test("restores the database before restarting the prior release after startup fails", async () => {
     const { paths } = fixture();
     const runner = new HealthyDockerRunner(false, true);

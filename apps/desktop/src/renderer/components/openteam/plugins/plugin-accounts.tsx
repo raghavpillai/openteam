@@ -23,7 +23,7 @@ export function PluginAccountRow({
   connection: PluginConnectionView;
   busy: boolean;
   onRename: (name: string) => Promise<boolean>;
-  onConnect: () => void;
+  onConnect: (force?: boolean) => void;
   onRemove: () => void;
   onCancelAuthentication: () => void;
   children: React.ReactNode;
@@ -126,7 +126,7 @@ export function PluginAccountRow({
           </span>
         )}
         {!editing && !ready && !authorization && (
-          <button className={button} type="button" disabled={busy} onClick={onConnect}>
+          <button className={button} type="button" disabled={busy} onClick={() => onConnect()}>
             {busy ? <LoaderCircle className="size-3 animate-spin" /> : null}
             {connection.configured ? (connection.auth === "oauth" ? "Sign in" : "Connect") : "Set up"}
           </button>

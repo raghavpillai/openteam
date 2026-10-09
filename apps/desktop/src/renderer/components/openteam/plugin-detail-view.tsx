@@ -867,7 +867,7 @@ export function PluginDetail({
   data: PluginSettingsView;
   plugin: PluginCatalogItemView;
   onAddAccount: (connection: PluginConnectionView, alias: string) => Promise<boolean>;
-  onAuthenticate: (connection: PluginConnectionView) => void;
+  onAuthenticate: (connection: PluginConnectionView, force?: boolean) => void;
   onCancelAuthentication: (connection: PluginConnectionView) => void;
   onConfigureToken: (connection: PluginConnectionView, token: string) => void;
   onConfigureOAuth: (
@@ -1024,12 +1024,12 @@ export function PluginDetail({
                 onRename={(alias) => onRename(connection, alias)}
                 onRemove={() => onRemoveAccount(connection)}
                 onCancelAuthentication={() => onCancelAuthentication(connection)}
-                onConnect={() => {
+                onConnect={(force = false) => {
                   if (!connection.configured && plugin.setup) {
                     setSetupRequest(request => ({ accountId: connection.id, sequence: (request?.sequence ?? 0) + 1 }));
                   }
                   else if (connection.auth === "oauth" && connection.status === "needs_auth")
-                    onAuthenticate(connection);
+                    onAuthenticate(connection, force);
                   else onRestart(connection);
                 }}
               >

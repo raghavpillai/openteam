@@ -3,7 +3,12 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installationPaths } from "../src/config";
-import { ComposeProject, composeProcessEnvironment, findCompose } from "../src/docker";
+import {
+  ADDRESS_POOLS_EXHAUSTED_ADVICE,
+  ComposeProject,
+  composeProcessEnvironment,
+  findCompose,
+} from "../src/docker";
 import type { CommandRunner, RunOptions, RunResult } from "../src/process";
 
 class RecordingRunner implements CommandRunner {
@@ -85,5 +90,79 @@ describe("Docker Compose command selection", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+});
+
+describe("Docker Compose failure diagnosis", () => {
+  const exhausted =
+    "Error response from daemon: all predefined address pools have been fully subnetted";
+
+  class FailingUpRunner implements CommandRunner {
+    readonly calls: Array<readonly string[]> = [];
+
+    constructor(private readonly poolsExhausted: boolean) {}
+
+    run(command: string, args: readonly string[]): RunResult {
+      this.calls.push([command, ...args]);
+      if (args[0] === "compose" && args[1] === "version") {
+        return {
+          status: 0,
+          stdout: "Docker Compose version v2.30.0",
+          stderr: "",
+        };
+      }
+      if (args[0] === "network" && args[1] === "create") {
+        return this.poolsExhausted
+          ? { status: 1, stdout: "", stderr: exhausted }
+          : { status: 0, stdout: "", stderr: "" };
+      }
+      if (args[0] === "network") return { status: 0, stdout: "", stderr: "" };
+      return {
+        status: 1,
+        stdout: "",
+        stderr: this.poolsExhausted ? exhausted : "",
+      };
+    }
+  }
+
+  const withProject = (runner: CommandRunner, check: (project: ComposeProject) => void) => {
+    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-docker-"));
+    try {
+      const paths = installationPaths(directory);
+      writeFileSync(paths.compose, "name: openteam\n");
+      writeFileSync(paths.environment, "OPENTEAM_VERSION=1.3.0\n");
+      const command = findCompose(runner);
+      if (!command) throw new Error("expected Docker Compose to be available");
+      check(new ComposeProject(paths, command, runner));
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  };
+
+  test("explains exhausted Docker address pools after an inherited up fails", () => {
+    const runner = new FailingUpRunner(true);
+    withProject(runner, (project) => {
+      expect(() => project.runOrThrow(["up", "--detach"], { inherit: true })).toThrow(
+        ADDRESS_POOLS_EXHAUSTED_ADVICE
+      );
+    });
+  });
+
+  test("removes the probe network and keeps the generic error otherwise", () => {
+    const runner = new FailingUpRunner(false);
+    withProject(runner, (project) => {
+      expect(() => project.runOrThrow(["up", "--detach"], { inherit: true })).toThrow(
+        "Docker Compose failed: command failed; see the Docker output above"
+      );
+    });
+    expect(runner.calls.some((call) => call[1] === "network" && call[2] === "rm")).toBe(true);
+  });
+
+  test("recognizes exhausted address pools in captured output without probing", () => {
+    const runner = new FailingUpRunner(true);
+    withProject(runner, (project) => {
+      expect(() => project.runOrThrow(["up"])).toThrow(ADDRESS_POOLS_EXHAUSTED_ADVICE);
+    });
+    expect(runner.calls.some((call) => call[1] === "network")).toBe(false);
   });
 });

@@ -1,0 +1,4 @@
+{
+  "origin": "openteam",
+  "description": "OpenTeam-authored remote iMessage skill, read-only Mac helper, and authenticated SSH gateway. Uses Python's standard library and the host's OpenSSH client."
+}

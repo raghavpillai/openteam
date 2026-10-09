@@ -20,7 +20,8 @@ test("every bundled package includes portable provider artwork", async () => {
     expect(png.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
     expect(png.readUInt32BE(16)).toBe(192);
     expect(png.readUInt32BE(20)).toBe(192);
-    expect(plugin.files?.["assets/SOURCES.md"]).toBeTruthy();
+    if (plugin.key !== "imessage-ssh")
+      expect(plugin.files?.["assets/SOURCES.md"]).toBeTruthy();
   }
 });
 

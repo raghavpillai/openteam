@@ -1,24 +1,16 @@
 import { DESKTOP_MESSAGES_TOOLS } from "@openteam/contracts/desktop-capability-names";
 import type { MacMessages } from "./messages";
-import type { SavedCredentials } from "./credentials";
 import { ChromeCookies } from "./chrome-cookies";
-import { CapabilitySettingsStore } from "./capability-settings";
 import type { NativeActionReceipts } from "./action-receipts";
-import type { NativeCommand } from "./native-command";
 export class HostCapabilities {
-  private credentials?: SavedCredentials;
   private readonly cookies: ChromeCookies;
   constructor(
-    readonly settings: CapabilitySettingsStore,
     private messages?: MacMessages,
-    credentials?: SavedCredentials,
     cookies?: ChromeCookies,
     private readonly platform = process.platform,
-    private readonly receipts?: NativeActionReceipts,
-    private readonly credentialCommand?: NativeCommand
+    private readonly receipts?: NativeActionReceipts
   ) {
-    this.credentials = credentials;
-    this.cookies = cookies ?? new ChromeCookies(settings);
+    this.cookies = cookies ?? new ChromeCookies();
   }
   async handle(value: unknown, signal?: AbortSignal): Promise<any> {
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid desktop request");
@@ -29,7 +21,7 @@ export class HostCapabilities {
       throw new Error("Invalid desktop request");
     const { tool, botId, callId, arguments: rawArgs = {} } = value as Record<string, any>;
     const { parseReferenceArguments } = await import("@openteam/contracts/reference-parsers");
-    const args = ["ListCredentials", "GetCredentialProviderStatus", "import_chrome_cookies", ...DESKTOP_MESSAGES_TOOLS].includes(tool) ? parseReferenceArguments(tool, rawArgs) : rawArgs;
+    const args = ["import_chrome_cookies", ...DESKTOP_MESSAGES_TOOLS].includes(tool) ? parseReferenceArguments(tool, rawArgs) : rawArgs;
     if (
       typeof botId !== "string" ||
       !botId ||
@@ -38,14 +30,6 @@ export class HostCapabilities {
       Array.isArray(args)
     )
       throw new Error("Invalid desktop request");
-    if (["GetCredentialProviderStatus", "ListCredentials", "AutomaticSavedCredential", "UseSavedCredential"].includes(tool)) {
-      const { SavedCredentials } = await import("./credentials");
-      const credentials = this.credentials ??= new SavedCredentials(this.settings, this.credentialCommand);
-      if (tool === "GetCredentialProviderStatus") return credentials.status(signal);
-      if (tool === "ListCredentials") return credentials.list(args, signal);
-      if (tool === "AutomaticSavedCredential") return credentials.automatic(args.site, signal);
-      return credentials.use(args, signal);
-    }
     if (this.platform !== "darwin")
       throw new Error("Messages, Contacts and Chrome login import require a connected Mac");
     if (tool === "import_chrome_cookies")

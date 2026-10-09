@@ -1,0 +1,4 @@
+{
+  "origin": "openteam",
+  "description": "OpenTeam-authored skill using the official 1Password CLI, which is downloaded separately from 1Password's release server. The icon comes from 1Password/cursor-plugin under the bundled MIT license."
+}

@@ -76,8 +76,6 @@ CMD ["bun", "--filter", "@openteam/db", "db:deploy"]
 FROM oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61 AS server
 WORKDIR /app
 COPY --from=build /app/apps/server/dist/main.js ./main.js
-COPY --from=build /app/node_modules/.bun/@1password+sdk@0.5.0/node_modules/@1password/sdk ./node_modules/@1password/sdk
-COPY --from=build /app/node_modules/.bun/@1password+sdk-core@0.5.0/node_modules/@1password/sdk-core ./node_modules/@1password/sdk-core
 ENV NODE_ENV=production
 ENV HOME=/tmp
 ENV XDG_CACHE_HOME=/tmp/.cache

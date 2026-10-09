@@ -14,8 +14,6 @@ Some settings apply to one device, some to one bot, and some to your whole serve
 
 **Server** and **Providers** settings apply to every bot and every app connected to your server; changing the model there changes it for all bots. Theme, microphone, **Execution on this computer**, and Mac access apply only to the device you're using. The bot screen size and the list of connected computers apply to your whole server.
 
-Manage saved logins in **Marketplace → 1Password**, where you can connect vaults, sync, renew access, disconnect, or reconnect.
-
 Each bot also has its own settings. Open the bot and select its name at the top of the conversation to change its name, label, avatar, description, and notifications.
 
 ## iPhone settings

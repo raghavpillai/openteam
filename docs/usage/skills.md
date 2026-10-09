@@ -38,7 +38,7 @@ Skills that bots save are available to all your bots. They don't appear under **
 
 ## Skills from plugins
 
-Some installed plugins include skills and runtime instructions. These load for all bots.
+Some installed plugins include skills and runtime instructions. These load for all bots. A plugin can also give a skill to the browser and desktop workers that bots start; 1Password does this so those workers can sign in to websites.
 
 | Plugin | Included skills |
 | --- | --- |
@@ -46,12 +46,13 @@ Some installed plugins include skills and runtime instructions. These load for a
 | [Granola](../../packages/plugins/granola/README.md) | 3: `granola-context`, `granola-prep`, and `granola-review` |
 | [Notion](../../packages/plugins/notion/README.md) | 14: `search`, `find`, `create-page`, `create-task`, `create-database-row`, `database-query`, `knowledge-capture`, `meeting-intelligence`, `research-documentation`, `spec-to-implementation`, `tasks-plan`, `tasks-build`, `tasks-explain-diff`, and `tasks-setup` |
 | [Plaid](../../packages/plugins/plaid/README.md) | 4: `plaid-setup`, `plaid-connections`, `plaid-financial-data`, and `plaid-troubleshooting` |
+| [1Password](../../packages/plugins/1password/README.md) | 1: `1password` |
 
 Gmail, Google Calendar, Google Drive, GitHub, and Linear provide tools without bundled skills. You can create a private skill that uses those tools.
 
 Provider skills keep their original upstream instructions. Installing or updating Granola and Notion fetches their pinned skills automatically; you don't need to copy files yourself. Updating a plugin updates its included skills. Your private skills remain separate.
 
-Slack and Granola also include commands. For example, ask for `/slack:summarize-channel #general` or `/granola-brief <meeting or topic>`. See their package guides for all commands and any extra setup. Slack's app-development skills may need the Slack CLI and a language runtime on the bot computer. The 1Password skill uses the desktop's environments; its desktop mount-validation hook is inactive on the separate bot computer.
+Slack and Granola also include commands. For example, ask for `/slack:summarize-channel #general` or `/granola-brief <meeting or topic>`. See their package guides for all commands and any extra setup. Slack's app-development skills may need the Slack CLI and a language runtime on the bot computer. The 1Password skill installs the 1Password CLI on the bot computer the first time it runs and uses the token entered when the plugin was added.
 
 ## Test and improve a skill
 

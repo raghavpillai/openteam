@@ -1,11 +1,6 @@
 import { describeTrigger } from "./reference-main-parsers";
 import { renderPluginResult } from "./plugin-tool-results";
 import {
-  AUTO_FILL_ON_GUIDANCE,
-  AUTO_FILL_RULE,
-  CREDENTIAL_REQUEST_GUIDANCE,
-  describeCredential,
-  renderCredentialProviderStatus,
   formatChromeCookieImportOutcome,
   renderContactsResult,
   truncationNotice,
@@ -17,42 +12,6 @@ export function renderDesktopResult(
   output: Record<string, any>,
   args: Record<string, any>
 ): string {
-  if (name === "GetCredentialProviderStatus") {
-    if (output.kind === "unavailable")
-      return "Credential provider status: unavailable. The backend status check failed; this does not mean the provider is disconnected. Tell the user the status could not be checked and that Marketplace → 1Password remains the authoritative fallback. Diagnostic class: Error.";
-    return renderCredentialProviderStatus(output) ?? "Credential provider status: unavailable.";
-  }
-  if (name === "ListCredentials") {
-    if (!output.connected)
-      return "No 1Password vault is connected. The user can connect one in Marketplace → 1Password; suggest that if the task needs their saved credentials.";
-    const views = output.credentials ?? [],
-      site = args.site || undefined,
-      query = args.query || undefined;
-    if (!views.length)
-      return site
-        ? `No saved credential is allowed to autofill ${site}. Do not request an arbitrary item for this page. Use request_box_help if the user must sign in manually.`
-        : query
-          ? `No saved credential matches "${query}".`
-          : "The connected 1Password vault has no items visible to you.";
-    return [
-      site
-        ? `${views.length} credential(s) allowed for ${site}:`
-        : `${views.length} credential(s) available:`,
-      ...views.map((view: any) =>
-        describeCredential({
-          ...view,
-          credentialId: view.credential_id,
-          connectionId: view.connection_id,
-          catalogRevision: view.catalog_revision,
-        })
-      ),
-      "",
-      site && !query && views.length === 1 && views[0].autoFill
-        ? AUTO_FILL_ON_GUIDANCE
-        : AUTO_FILL_RULE,
-      CREDENTIAL_REQUEST_GUIDANCE,
-    ].join("\n");
-  }
   if (name === "import_chrome_cookies") return formatChromeCookieImportOutcome(output);
   if (name === "FindContacts") return renderContactsResult(output);
   if (["ChatItems", "FindIMessageChats", "SearchIMessages"].includes(name)) {

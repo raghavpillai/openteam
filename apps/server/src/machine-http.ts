@@ -4,7 +4,6 @@ import type { MachineService } from "./services/machine-service";
 /** Device credentials authorize only this machine's channel, never general API access. */
 export async function machineChannelResponse(
   machines: MachineService, request: Request, path: string,
-  savedLogin?: (value: unknown) => Promise<unknown>,
 ) {
   const machine = await machines.authenticate(request);
   const prefix = "/api/machines/channel";
@@ -40,10 +39,6 @@ export async function machineChannelResponse(
     if (!Array.isArray(input.active) || input.active.length > 32 || input.active.some(id => typeof id !== "string" || id.length > 100)) throw new ApiError(400, "machine_poll_invalid", "Invalid active requests");
     await machines.heartbeat(machine.machineId, input);
     return Response.json(await machines.relay.poll(machine.machineId, connectionId, input.active as string[], request.signal));
-  }
-  if (path === `${prefix}/saved-login` && request.method === "POST" && savedLogin) {
-    if (!machines.relay.connected(machine.machineId)) throw new ApiError(409, "machine_offline", "Connect this computer before using saved logins");
-    return Response.json(await savedLogin(await readJson()), { headers: { "cache-control": "no-store" } });
   }
   const operation = path.match(/^\/api\/machines\/channel\/requests\/([\da-f-]{36})\/(body|response|failure)$/i);
   if (operation?.[2] === "body" && request.method === "GET") return machines.relay.body(machine.machineId, connectionId, operation[1]!);

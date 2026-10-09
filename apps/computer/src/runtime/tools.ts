@@ -369,14 +369,6 @@ export class RuntimeTools {
 
   private readonly privateBrowserValues = new Map<string, Set<string>>();
   private readonly browserUseSessions = new Map<string, BrowserUseSession>();
-  private readonly loginObservers = new WeakMap<BrowserUseSession, () => void>();
-  private observeLogins(active: ActiveTurn, browser: BrowserUseSession) {
-    this.loginObservers.get(browser)?.();
-    this.loginObservers.set(
-      browser,
-      browser.watchLoginFocus((site) => this.automaticLogin(active, browser, site, true))
-    );
-  }
 
   private assertCurrentInput(active: ActiveTurn): void {
     // Pi drains steering after the current tool batch. If a correction arrived
@@ -530,65 +522,6 @@ export class RuntimeTools {
       throw new Error("Use WakeParent to hand this communication to the parent agent");
     }
     args = normalizeMainToolArguments(tool, args);
-    if (
-      tool === SEND_TO_USER_TOOL.name &&
-      (args as Record<string, unknown>)?.type === "credential-request"
-    ) {
-      if (active.runtimeProfile === "subagent" || active.requestSource === "automation")
-        throw new Error("Saved-login use must be requested by the parent bot");
-      const credential = (args as { credential?: Record<string, unknown> }).credential;
-      if (
-        !credential ||
-        credential.kind !== "browser-login" ||
-        ["credential_id", "connection_id", "catalog_revision", "site", "purpose"].some(
-          (key) => typeof credential[key] !== "string" || !credential[key]
-        )
-      )
-        throw new Error("Invalid credential-request");
-      const { browser, binding } = await this.privateLoginBinding(
-        active,
-        credential.site as string
-      );
-      try {
-        return await (async () => {
-            const values = await this.nativeToolExecutor.desktopCapability(
-              "UseSavedCredential",
-              active.screenBotId,
-              { ...credential, site: binding.origin },
-              signal,
-              callId,
-              active.channelId
-            );
-            signal?.throwIfAborted();
-            this.rememberBrowserValues(active.screenBotId, [values.password, values.username]);
-            const filled = await this.screens.withAgentBrowserInput(
-              active.screenBotId,
-              active.cwd,
-              async (leaseSignal) => {
-                signal?.throwIfAborted();
-                leaseSignal?.throwIfAborted();
-                return browser.fillSavedLogin(
-                  binding,
-                  values as { origin: string; password: string; username?: string }
-                );
-              }
-            );
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: filled
-                    ? "Saved login filled on the bound page. Continue in the browser to submit; values were kept private."
-                    : "The saved login document or fields changed. Inspect the page before requesting further help.",
-                },
-              ],
-              details: { filled, origin: binding.origin },
-            };
-          })();
-      } finally {
-        await browser.releaseLoginBinding(binding);
-      }
-    }
     if (tool === SHELL_TOOL.name) {
       const shellInput = Schema.decodeUnknownSync(ShellToolInput)(args);
       assertGraphicalShellBoundary(shellInput.command, active.subagentType);
@@ -732,12 +665,6 @@ export class RuntimeTools {
     const frame = await this.screens.actComputerUse(active.screenBotId, active.cwd, actions, signal);
     signal?.throwIfAborted();
     active.lastGraphicalSurface = "computer";
-    // Adopt the live browser after Computer/manual navigation as well as Browser tools.
-    try {
-      this.observeLogins(active, await this.privateBrowser(active, false));
-    } catch {
-      /* No live browser yet. */
-    }
     const directory = join(this.workspaceRoot, "shared", "screenshots");
     await mkdir(directory, { recursive: true });
     const path = join(directory, `${active.botId}-computer-${Date.now()}.png`);
@@ -805,21 +732,12 @@ export class RuntimeTools {
     this.browserSessionScreens.set(active.botId, active.screenBotId);
     browser.configureUploads(this.workspaceRoot, [this.agentDir]);
     browser.registerPrivateValues([...(this.privateBrowserValues.get(active.screenBotId) ?? [])]);
-    this.observeLogins(active, browser);
     const result = await browser.execute(toolName, args, signal);
     active.lastGraphicalSurface = "browser";
-    if (
-      ["browser_navigate", "browser_snapshot", "browser_tabs"].includes(toolName) &&
-      !result.details?.pendingDialog &&
-      active.requestSource !== "automation"
-    ) {
-      const filled = await this.automaticLogin(active, browser);
-      if (filled) return browser.execute("browser_snapshot", {});
-    }
     return result;
   }
 
-  private async formBrowser(botId: string, existingEndpoint?: string, createInitialPage = true): Promise<FormBrowser> {
+  private async formBrowser(botId: string, existingEndpoint?: string): Promise<FormBrowser> {
     const sessions = () =>
       [...this.browserUseSessions.entries()].filter(
         ([id, session]) =>
@@ -829,14 +747,7 @@ export class RuntimeTools {
       const endpoint = existingEndpoint ?? await this.screens.browserEndpointForAgent(botId, this.workspaceRoot);
       this.browserUseSessions.set(
         botId,
-        await BrowserUseSession.connect(
-          endpoint,
-          join(this.workspaceRoot, "shared", "screenshots"),
-          true,
-          undefined,
-          undefined,
-          createInitialPage
-        )
+        await BrowserUseSession.connect(endpoint, join(this.workspaceRoot, "shared", "screenshots"))
       );
       this.browserSessionScreens.set(botId, botId);
     }
@@ -892,82 +803,10 @@ export class RuntimeTools {
       if (id === screenBotId || this.browserSessionScreens.get(id) === screenBotId)
         session.registerPrivateValues([...saved]);
   }
-  private async privateLoginBinding(active: ActiveTurn, site: string) {
-    await this.privateBrowser(active);
-    const matches: Array<{
-      browser: BrowserUseSession;
-      binding: Awaited<ReturnType<BrowserUseSession["loginBinding"]>>;
-    }> = [];
-    const seen = new Set<BrowserUseSession>();
-    for (const [id, browser] of this.browserUseSessions)
-      if (!seen.has(browser) &&
-        browser.connected &&
-        (id === active.screenBotId || this.browserSessionScreens.get(id) === active.screenBotId)
-      ) {
-        try {
-          seen.add(browser);
-          const binding = await browser.loginBinding(site);
-          if (!matches.some((match) => match.binding.pageId === binding.pageId))
-            matches.push({ browser, binding });
-          else await browser.releaseLoginBinding(binding);
-        } catch {
-          /* Other tab lease or no eligible login. */
-        }
-      }
-    if (matches.length !== 1) {
-      await Promise.all(matches.map((match) => match.browser.releaseLoginBinding(match.binding)));
-      throw new Error(
-        "Open one unambiguous login page for this site before requesting a saved credential"
-      );
-    }
-    return matches[0]!;
-  }
-  private async automaticLogin(
-    active: ActiveTurn,
-    browser: BrowserUseSession,
-    target?: string,
-    focused = false
-  ): Promise<boolean> {
-    const site = target ?? (await browser.currentLoginSite());
-    if (!site) return false;
-    let binding: Awaited<ReturnType<BrowserUseSession["loginBinding"]>> | undefined;
-    try {
-      binding = await browser.loginBinding(site, focused);
-      const values = await this.nativeToolExecutor.desktopCapability(
-        "AutomaticSavedCredential",
-        active.screenBotId,
-        { site },
-        undefined,
-        undefined,
-        active.channelId
-      );
-      if (values.skipped || typeof values.password !== "string") return false;
-      this.rememberBrowserValues(active.screenBotId, [values.password, values.username]);
-      const bound = binding;
-      return await this.screens.withAgentBrowserInput(
-        active.screenBotId,
-        active.cwd,
-        async (signal) => {
-          signal?.throwIfAborted();
-          return browser.fillSavedLogin(
-            bound,
-            values as { origin: string; password: string; username?: string }
-          );
-        }
-      );
-    } catch {
-      return false;
-    } finally {
-      if (binding) await browser.releaseLoginBinding(binding);
-    }
-  }
 
-  private async privateBrowser(active: ActiveTurn, launch = true): Promise<BrowserUseSession> {
-    const endpoint = launch
-      ? await this.screens.browserEndpointForAgent(active.screenBotId, active.cwd)
-      : await this.screens.existingBrowserEndpointForAgent(active.screenBotId);
-    if (!endpoint) throw new Error("No live browser on this desktop");
-    await this.formBrowser(active.screenBotId, endpoint, launch);
+  private async privateBrowser(active: ActiveTurn): Promise<BrowserUseSession> {
+    const endpoint = await this.screens.browserEndpointForAgent(active.screenBotId, active.cwd);
+    await this.formBrowser(active.screenBotId, endpoint);
     const browser = [...this.browserUseSessions.entries()].find(
       ([id, session]) =>
         session.connected &&

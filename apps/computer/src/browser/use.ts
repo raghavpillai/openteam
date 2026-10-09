@@ -17,21 +17,6 @@ import type { FormPageBinding } from "../user-form-host";
 import { redactSecrets } from "@openteam/shell-jobs";
 
 type JsonObject = Record<string, unknown>;
-export interface LoginPageBinding {
-  focused?: boolean;
-  pageId: string;
-  origin: string;
-  document: ElementHandle<HTMLElement>;
-  password: ElementHandle<HTMLInputElement> | null;
-  username: ElementHandle<HTMLInputElement> | null;
-}
-export function secureLoginOrigin(site: string): string {
-  const url = new URL(site);
-  const loopback = url.hostname === "localhost" || url.hostname === "[::1]" || /^127\.\d+\.\d+\.\d+$/.test(url.hostname);
-  if (url.username || url.password || (url.protocol !== "https:" && !(url.protocol === "http:" && loopback))) throw new Error("Saved logins require HTTPS or a loopback origin");
-  return url.origin;
-}
-
 const textResult = (
   text: string,
   details: Record<string, unknown> = {}
@@ -239,7 +224,7 @@ export class BrowserUseSession {
   // The runtime endpoint belongs to one bot desktop. Native Chrome and its
   // managed workers must see the same tabs; explicit false retains an isolated
   // lease for callers that intentionally share an endpoint with unrelated work.
-  static async connect(endpoint: string, artifactDirectory: string, adoptExisting = true, downloadDirectory = join(homedir(), "Downloads"), lease?: { targets: Map<string, string>; selected: string | null; nextId: number }, createInitialPage = true): Promise<BrowserUseSession> {
+  static async connect(endpoint: string, artifactDirectory: string, adoptExisting = true, downloadDirectory = join(homedir(), "Downloads"), lease?: { targets: Map<string, string>; selected: string | null; nextId: number }): Promise<BrowserUseSession> {
     const driver = await outOfProcessPlaywright();
     const browser = await driver.playwright.chromium.connectOverCDP(endpoint);
     const context = browser.contexts()[0];
@@ -270,9 +255,8 @@ export class BrowserUseSession {
         const latest = session.leasedPages().at(-1);
         if (latest) session.currentViewId = session.idFor(latest);
       }
-    } else if (!lease && createInitialPage) session.trackPage(await context.newPage());
-    // Passive desktop observation must not create a tab/window after capture.
-    if (createInitialPage) await session.ensurePage();
+    } else if (!lease) session.trackPage(await context.newPage());
+    await session.ensurePage();
     return session;
   }
 
@@ -293,78 +277,6 @@ export class BrowserUseSession {
 
   private readonly privateValues = new Set<string>();
   registerPrivateValues(values: string[]) { for (const value of values) if (value) this.privateValues.add(value); }
-  async currentLoginSite(): Promise<string | null> {
-    try { return secureLoginOrigin((await this.ensurePage()).url()); } catch { return null; }
-  }
-  async focusedLoginSite(): Promise<string | null> {
-    const focused = [];
-    for (const page of this.leasedPages()) {
-      try { if (await page.evaluate(() => document.hasFocus() && document.visibilityState === "visible")) focused.push(secureLoginOrigin(page.url())); } catch { /* Closed or non-web page. */ }
-    }
-    return focused.length === 1 ? focused[0]! : null;
-  }
-  watchLoginFocus(fill: (site: string) => Promise<unknown>): () => void {
-    let busy = false;
-    const timer = setInterval(async () => {
-      if (!this.connected) { clearInterval(timer); return; }
-      if (busy) return;
-      busy = true;
-      try { const site = await this.focusedLoginSite(); if (site) await fill(site); } catch { /* Passive fill never interrupts browser use. */ }
-      finally { busy = false; }
-    }, 1500);
-    timer.unref();
-    return () => clearInterval(timer);
-  }
-  async loginBinding(site: string, focused = false): Promise<LoginPageBinding> {
-    const origin = secureLoginOrigin(site);
-    const candidates = this.leasedPages().filter(page => { try { return new URL(page.url()).origin === origin; } catch { return false; } });
-    if (candidates.length !== 1) throw new Error("Open exactly one browser tab for the requested login site before using its saved credential");
-    const page = candidates[0]!;
-    if (focused && !await page.evaluate(() => globalThis.document.hasFocus() && globalThis.document.visibilityState === "visible")) throw new Error("The login page is not focused");
-    const document = await page.$("html") as ElementHandle<HTMLElement> | null;
-    const visible = async (selector: string) => {
-      const handles = await page.$$(selector) as ElementHandle<HTMLInputElement>[];
-      const result: ElementHandle<HTMLInputElement>[] = [];
-      for (const handle of handles) if (await handle.evaluate(e => e.isConnected && !e.disabled && !e.readOnly && !!e.getClientRects().length)) result.push(handle); else await handle.dispose();
-      return result;
-    };
-    const passwords = await visible('input[type="password"]');
-    const users = await visible('input[autocomplete="username"],input[type="email"],input[name="username"],input[name="email"],input[id="username"]');
-    if (!document || passwords.length > 1 || users.length > 1 || (!passwords.length && !users.length)) {
-      await document?.dispose(); await Promise.all([...passwords,...users].map(h => h.dispose()));
-      throw new Error("The page has no unambiguous login fields");
-    }
-    if (passwords[0] && await passwords[0].evaluate(field => Boolean(field.value))) {
-      await document.dispose(); await Promise.all([...passwords,...users].map(handle=>handle.dispose()));
-      throw new Error("The login password field is already filled");
-    }
-    if (!passwords.length && users[0] && await users[0].evaluate(field => Boolean(field.value))) {
-      await document.dispose(); await Promise.all(users.map(handle => handle.dispose()));
-      throw new Error("The login username field is already filled");
-    }
-    return { pageId: await this.formPageId(page), origin, document, password: passwords[0] ?? null, username: users[0] ?? null, focused };
-  }
-  async releaseLoginBinding(binding: LoginPageBinding) {
-    await Promise.all([binding.document,binding.password,binding.username].map(handle => handle?.dispose().catch(() => {})));
-  }
-  async fillSavedLogin(binding: LoginPageBinding, credential: { origin: string; username?: string; password: string }): Promise<boolean> {
-    if (credential.origin !== binding.origin) throw new Error("Credential origin mismatch");
-    this.registerPrivateValues([credential.password, credential.username ?? ""]);
-    try {
-      // Element handles bind review to this exact document and these exact fields.
-      // A reload, replacement field, redirect or changed form refuses the fill.
-      const eligible = () => binding.document.evaluate((root,{origin,userField,passwordField,username,focused})=>{
-        const live=(node:HTMLInputElement|null)=>!node || (node.isConnected&&node.ownerDocument===document&&!node.disabled&&!node.readOnly&&!!node.getClientRects().length);
-        return (!focused || (document.hasFocus() && document.visibilityState === "visible"))&&root===document.documentElement&&root.isConnected&&location.origin===origin&&live(userField)&&live(passwordField)&&(!passwordField||!passwordField.value)&&(!userField?.value||userField.value===username)&&(!passwordField||!userField||passwordField.form===userField.form);
-      },{origin:binding.origin,userField:binding.username,passwordField:binding.password,username:credential.username,focused:binding.focused});
-      if(!await eligible())return false;
-      const page=await this.formPage({pageId:binding.pageId,domain:new URL(binding.origin).hostname});
-      if(binding.username && credential.username!==undefined)await referenceFill({page,element:binding.username,request:{element:"login username",value:credential.username,secret:true}});
-      if(!await eligible())return false;
-      if(binding.password)await referenceFill({page,element:binding.password,request:{element:"login password",value:credential.password,secret:true}});
-      return await binding.document.evaluate((root,origin)=>root===document.documentElement&&root.isConnected&&location.origin===origin,binding.origin);
-    } catch { return false; }
-  }
 
   async importPrivateCookies(cookies: Array<Record<string, unknown>>): Promise<{injected:number;failed:number}> {
     this.registerPrivateValues(cookies.flatMap(cookie => typeof cookie.value === "string" ? [cookie.value] : []));

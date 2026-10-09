@@ -39,12 +39,6 @@ struct PluginConnectionActions: View {
     if connection["status"].string == "error", !connection["statusMessage"].string.isEmpty {
       Text(connection["statusMessage"].string).font(.footnote).foregroundStyle(NativePalette.muted)
     }
-    if !presentation.connected, connection["pluginKey"].string == "1password" {
-      Text(
-        "Open OpenTeam and 1Password on your desktop. Unlock 1Password and approve the access request there. This page will update when the connection is ready."
-      )
-      .font(.footnote).foregroundStyle(NativePalette.muted)
-    }
     if presentation.connected {
       Text(
         "This account is ready to use."

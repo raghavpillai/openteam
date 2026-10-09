@@ -814,14 +814,7 @@ var SEND_MESSAGE_TYPES = [
   "secret-request"
 ];
 
-var SEND_MESSAGE_TYPES_WITH_CREDENTIAL_REQUEST = [
-  ...SEND_MESSAGE_TYPES,
-  "credential-request"
-];
-
 var SEND_MESSAGE_TYPE_DESCRIPTION = "text for chat messages, attachment for actual files or standalone media, widget for an interactive question with selectable options, cursor-agent to reference a Cursor cloud agent by its bcId (renders as a card that opens the agent in Cursor on click), secret-request to ask the user for a credential through a secure masked input (never a chat paste).";
-
-var SEND_MESSAGE_TYPE_DESCRIPTION_WITH_CREDENTIAL_REQUEST = `${SEND_MESSAGE_TYPE_DESCRIPTION.slice(0, -1)}, credential-request for direct private saved-login filling.`;
 
 var SEND_MESSAGE_DM_DESTINATION = "dm";
 
@@ -890,8 +883,8 @@ function validateBoxSecretKey(key) {
   return null;
 }
 
-var sendMessageObjectSchemaWithCredentialRequest = external_exports.object({
-  type: external_exports.enum(SEND_MESSAGE_TYPES_WITH_CREDENTIAL_REQUEST).describe(SEND_MESSAGE_TYPE_DESCRIPTION_WITH_CREDENTIAL_REQUEST),
+var sendMessageObjectSchema = external_exports.object({
+  type: external_exports.enum(SEND_MESSAGE_TYPES).describe(SEND_MESSAGE_TYPE_DESCRIPTION),
   content: external_exports.string().trim().optional().describe(
     "Required when type is text. The message to show to the user. Use actual newline characters for paragraph or list breaks, not literal backslash-n text."
   ),
@@ -937,18 +930,6 @@ var sendMessageObjectSchemaWithCredentialRequest = external_exports.object({
   }).optional().describe(
     "Required when type is secret-request. Asks for a credential through a masked secure input. The value never reaches you or the chat. You only learn that it was provided. Where it is saved, and whether this turn may ask, is in the tool description. Do not ask anyone to paste a token, key, or password."
   ),
-  credential: external_exports.object({
-    kind: external_exports.literal("browser-login"),
-    credential_id: external_exports.string().trim().min(1),
-    connection_id: external_exports.string().trim().min(1),
-    catalog_revision: external_exports.string().trim().min(1),
-    site: external_exports.string().trim().min(1).describe(
-      "The current browser URL or domain reported by computerUse. This is a target hint, not a saved item URL."
-    ),
-    purpose: external_exports.string().trim().min(1).describe("One honest sentence describing the immediate use, describing the use.")
-  }).strict().optional().describe(
-    "Required when type is credential-request. Fills a saved login into a matching live browser page; values never reach you."
-  )
 });
 
 var TYPE_SCOPED_SEND_MESSAGE_FIELDS = [
@@ -957,8 +938,7 @@ var TYPE_SCOPED_SEND_MESSAGE_FIELDS = [
   { field: "alt", types: ["attachment"] },
   { field: "widget", types: ["widget"] },
   { field: "bcId", types: ["cursor-agent"] },
-  { field: "secret", types: ["secret-request"] },
-  { field: "credential", types: ["credential-request"] }
+  { field: "secret", types: ["secret-request"] }
 ];
 
 function isFieldProvided(value) {
@@ -1070,16 +1050,6 @@ function refineSendMessage(value, ctx) {
       }
       return;
     }
-    case "credential-request": {
-      if (value.credential == null) {
-        ctx.addIssue({
-          code: external_exports.ZodIssueCode.custom,
-          path: ["credential"],
-          message: "credential is required when type is credential-request"
-        });
-      }
-      return;
-    }
     case "attachment": {
       const attachmentUrl = value.url;
       if (!attachmentUrl) {
@@ -1106,7 +1076,7 @@ function refineSendMessage(value, ctx) {
   }
 }
 
-var sendMessageParametersWithCredentialRequest = sendMessageObjectSchemaWithCredentialRequest.superRefine(refineSendMessage);
+var sendMessageParameters = sendMessageObjectSchema.superRefine(refineSendMessage);
 
 var reactToMessageParameters = external_exports.object({
   message_address: external_exports.string().trim().min(1).describe(
@@ -1850,11 +1820,11 @@ function describeTrigger(trigger2) {
   ].join(" or ");
 }
 
-const schemas={"update_state":sandUpdateStateParameters,"Computer":computerActionParameters,"SendToUser":sendMessageParametersWithCredentialRequest,"ReactToMessage":reactToMessageParameters,"SendFeedback":sendFeedbackParameters,"request_box_help":requestBoxHelpParameters,"DraftExternalMessage":draftExternalMessageParameters,"CheckSubagent":checkSubagentParameters,"MessageSubagent":messageSubagentParameters,"StopSubagent":stopSubagentParameters,"SendToAgent":sendToAgentLenientParameters,"CreateAgent":createAgentParameters,"UpdateAgent":updateAgentParameters,"CreateChannel":createChannelParameters,"UpdateChannel":updateChannelParameters,"CopyToBox":copyToBoxParameters,"CopyFromBox":copyFromBoxParameters,"RecallMemory":recallMemoryParameters};
+const schemas={"update_state":sandUpdateStateParameters,"Computer":computerActionParameters,"SendToUser":sendMessageParameters,"ReactToMessage":reactToMessageParameters,"SendFeedback":sendFeedbackParameters,"request_box_help":requestBoxHelpParameters,"DraftExternalMessage":draftExternalMessageParameters,"CheckSubagent":checkSubagentParameters,"MessageSubagent":messageSubagentParameters,"StopSubagent":stopSubagentParameters,"SendToAgent":sendToAgentLenientParameters,"CreateAgent":createAgentParameters,"UpdateAgent":updateAgentParameters,"CreateChannel":createChannelParameters,"UpdateChannel":updateChannelParameters,"CopyToBox":copyToBoxParameters,"CopyFromBox":copyFromBoxParameters,"RecallMemory":recallMemoryParameters};
 // Explicit deployment extensions: connector secrets and personal environment scope.
 // Keep the captured refinements for every other SendToUser field.
-const localSecretSchema = sendMessageObjectSchemaWithCredentialRequest.shape.secret.unwrap().extend({
-  name: sendMessageObjectSchemaWithCredentialRequest.shape.secret.unwrap().shape.name.optional(),
+const localSecretSchema = sendMessageObjectSchema.shape.secret.unwrap().extend({
+  name: sendMessageObjectSchema.shape.secret.unwrap().shape.name.optional(),
   connector: external_exports.string().trim().min(1).optional(),
   field: external_exports.string().trim().min(1).optional(),
   scope: external_exports.enum(["bot", "personal"]).optional(),
@@ -1864,7 +1834,7 @@ const localSecretSchema = sendMessageObjectSchemaWithCredentialRequest.shape.sec
 });
 // end_turn belongs to the invocation envelope in the captured host. Preserve it
 // here because OpenTeam receives that envelope together with the message fields.
-const adaptedSendSchema = sendMessageObjectSchemaWithCredentialRequest.extend({
+const adaptedSendSchema = sendMessageObjectSchema.extend({
   secret: localSecretSchema.optional(),
   end_turn: external_exports.boolean().optional(),
 }).superRefine(refineSendMessage);

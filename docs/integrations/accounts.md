@@ -10,7 +10,7 @@ Each plugin signs in to its service in one of a few ways. This page explains wha
 | GitHub | A fine-grained personal access token |
 | Gmail, Google Calendar, Google Drive | Your own Google OAuth app. See [Google](google.md). |
 | Slack | Your own Slack app. See [Slack](slack.md). Needs an HTTPS server address. |
-| 1Password | The 1Password app on the same Mac or Linux computer as the OpenTeam desktop app |
+| 1Password | A read-only 1Password service account token, entered when you add the plugin |
 | Custom MCP | Whatever the MCP server requires |
 
 Enter tokens and secrets only in the plugin's setup form. Never paste them into a chat.
@@ -29,9 +29,9 @@ Create a [fine-grained personal access token](https://github.com/settings/person
 
 ## 1Password
 
-Use **Marketplace → Login and Credential Management → 1Password** to connect saved browser logins. Create a service account on 1Password.com, select the existing vaults you want to share with read-only access, and paste its token into OpenTeam. See [saved logins](../usage/computer.md#sign-in-to-websites).
+Put the logins bots should use in a vault other than Personal, Private, Employee, or the default Shared vault. On 1Password.com, create a service account (Developer → Directory → Other → Create a Service Account) with read access to that vault only, then add the **1Password** plugin and paste its token, which 1Password shows only once. Every bot can use it; replace it on the plugin page after rotating it. See [saved logins](../usage/computer.md#sign-in-to-websites).
 
-The 1Password desktop app and Environments MCP setup are not used.
+The 1Password desktop app and browser extension are not used.
 
 ## Sign-in callback
 

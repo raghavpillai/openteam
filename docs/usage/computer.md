@@ -25,7 +25,7 @@ Bots' browsers share sign-ins, so once you sign in to a site on one bot's screen
 There are two ways to sign a bot in:
 
 - **Type it yourself.** Take over the bot's screen and sign in to the site directly. Never paste a password into the chat.
-- **Use saved logins.** Open **Marketplace → Login and Credential Management → 1Password** and connect vaults with a read-only service account token. Manage sync, renewal, disconnect, and reconnect on that marketplace page. Passwords are filled into the bot's browser and never appear in the conversation. Saved logins only work on HTTPS sites (and `localhost`).
+- **Use saved logins.** Add the **1Password** plugin with a read-only service account token. The bot looks up the matching login with the 1Password CLI and types it into the site. Values it reads appear in the conversation.
 
 Some sites block automated browsers or ask for extra verification. If that happens, take over to finish the step, or ask the bot to find another way.
 

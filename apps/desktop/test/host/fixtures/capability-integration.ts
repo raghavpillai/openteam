@@ -4,8 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { Database } from "bun:sqlite";
-import { CapabilitySettingsStore } from "../../../src/main/host/capability-settings";
-import { SavedCredentials } from "../../../src/main/host/credentials";
 import { HostCapabilities } from "../../../src/main/host/capabilities";
 import { NativeActionReceipts } from "../../../src/main/host/action-receipts";
 import { MacMessages } from "../../../src/main/host/messages";
@@ -27,34 +25,7 @@ try {
     await sqliteRows(nativeCommand, join(root, "fixture.db"), "SELECT * FROM fixture"),
     [{ id: 1, text: "synthetic 🦊" }]
   );
-  const settings = new CapabilitySettingsStore(join(root, "settings.json"));
-  await settings.mutate(current => ({ ...current, credentialProviders: [{ account: "fixture-account", vault: "fixture-vault" }] }));
-  const item = {
-    id: "login",
-    title: "Fixture login",
-    category: "LOGIN",
-    updated_at: "1",
-    urls: [{ href: "http://127.0.0.1:19999/login" }],
-  };
-  let reviews = 0;
   let sends = 0;
-  const consent = async () => {
-    reviews++;
-    return "once" as const;
-  };
-  const credentials = new SavedCredentials(settings, async (_file, args) =>
-    args[1] === "list"
-      ? JSON.stringify([item])
-      : args[1] === "get"
-        ? JSON.stringify({
-            ...item,
-            fields: [
-              { purpose: "USERNAME", value: "synthetic-user" },
-              { purpose: "PASSWORD", value: "synthetic-password-123" },
-            ],
-          })
-        : "{}"
-  );
   const messages = {
     execute: async (name: string) => {
       if (name === "SendIMessage") {
@@ -65,9 +36,7 @@ try {
     },
   } as unknown as MacMessages;
   const capabilities = new HostCapabilities(
-    settings,
     messages,
-    credentials,
     undefined,
     "darwin",
     new NativeActionReceipts(join(root, "receipts.json"))
@@ -98,17 +67,6 @@ try {
     return result;
   };
   assert.equal((await fetch(endpoint, { method: "POST", body: "{}" })).status, 401);
-  const list = await call("ListCredentials", { site: "http://127.0.0.1:19999" });
-  assert.equal(list.credentials.length, 1);
-  assert(!JSON.stringify(list).includes("synthetic-password"));
-  const login = list.credentials[0];
-  assert.deepEqual(await call("AutomaticSavedCredential", { site: "http://127.0.0.1:19999" }), {
-    skipped: true,
-  });
-  await settings.mutate(current => ({ ...current, credentialProviders: current.credentialProviders.map(row => ({ ...row, })) }));
-  const automatic = await call("AutomaticSavedCredential", { site: "http://127.0.0.1:19999" });
-  assert.equal(automatic.password, "synthetic-password-123");
-  assert.equal(reviews, 0);
   const profile = join(root, "chromium");
   chrome = spawn(
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -144,17 +102,11 @@ try {
   );
   await page.goto("http://127.0.0.1:19999/login");
   const browser = await BrowserUseSession.connect(`http://127.0.0.1:${port}`, root, true);
-  const stale = await browser.loginBinding(automatic.origin);
-  await page.reload();
-  assert.equal(await browser.fillSavedLogin(stale, automatic), false);
-  await browser.releaseLoginBinding(stale);
-  const binding = await browser.loginBinding(automatic.origin);
-  assert.equal(await browser.fillSavedLogin(binding, automatic), true);
-  await browser.releaseLoginBinding(binding);
-  assert.equal(await page.locator('input[type="password"]').inputValue(), automatic.password);
+  const secret = "synthetic-password-123";
+  browser.registerPrivateValues([secret]);
+  await page.locator('input[type="password"]').fill(secret);
   const snapshot = await browser.execute("browser_snapshot", {});
-  assert(!JSON.stringify(snapshot).includes(automatic.password));
-  assert(!JSON.stringify(snapshot).includes(automatic.username));
+  assert(!JSON.stringify(snapshot).includes(secret));
   await assert.rejects(
     browser.execute("browser_cdp", {
       method: "Runtime.evaluate",
@@ -185,12 +137,8 @@ try {
   await call("SendIMessage", send, sendId);
   await call("SendIMessage", send, sendId);
   assert.equal(sends, 1);
-  await settings.update({ revoke: "credentials" });
-  assert.deepEqual(await call("AutomaticSavedCredential", { site: automatic.origin }), {
-    skipped: true,
-  });
   console.log(
-    "PASS native SQLite + authenticated desktop bridge + Chrome document binding/autofill/cookies + send replay (synthetic data)"
+    "PASS native SQLite + authenticated desktop bridge + private browser values/cookies + send replay (synthetic data)"
   );
 } finally {
   if (bridge) {

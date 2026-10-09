@@ -464,8 +464,7 @@ export const SendToAgentInput = Schema.Struct({
 export type SendToAgentInput = typeof SendToAgentInput.Type;
 
 export const AgentSendToUserInput = Schema.Struct({
-  type: Schema.Literal("text", "attachment", "widget", "secret-request", "credential-request", "computer-handoff", "user-form", "external-draft", "bot-template"),
-  credential: Schema.optional(Schema.Struct({kind:Schema.Literal("browser-login"),credential_id:Schema.String,connection_id:Schema.String,catalog_revision:Schema.String,site:Schema.String,purpose:Schema.String})),
+  type: Schema.Literal("text", "attachment", "widget", "secret-request", "computer-handoff", "user-form", "external-draft", "bot-template"),
   form: Schema.optional(Schema.Unknown),
   draft: Schema.optional(Schema.Unknown),
   template: Schema.optional(Schema.Unknown),
@@ -686,6 +685,11 @@ export const InstallPluginInput = Schema.Struct({
 });
 export type InstallPluginInput = typeof InstallPluginInput.Type;
 
+export const UpdatePluginEnvironmentInput = Schema.Struct({
+  values: Schema.Record({ key: Schema.String, value: Schema.String }),
+});
+export type UpdatePluginEnvironmentInput = typeof UpdatePluginEnvironmentInput.Type;
+
 export const AddCustomMcpInput = Schema.Struct({
   name: Schema.String.pipe(Schema.minLength(2), Schema.maxLength(100)),
   url: Schema.optional(Schema.String.pipe(Schema.minLength(8), Schema.maxLength(2_000))),
@@ -804,6 +808,8 @@ export interface PluginInstallView {
   status: "installed" | "error";
   installedAt: string;
   hasSkills: boolean;
+  /** Environment variable names whose setup secrets are stored; never their values. */
+  configuredEnvironment: string[];
   connections: PluginConnectionView[];
 }
 

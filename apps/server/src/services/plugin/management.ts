@@ -8,6 +8,7 @@ import {
 import type { PrismaClient } from "@openteam/db";
 import { Effect } from "effect";
 import {
+  environmentFields,
   exportPackage,
   fieldsForConnector,
   importPackage,
@@ -21,6 +22,7 @@ import { exportPackageArchive, importPackageArchive } from "@openteam/plugin-sdk
 import { parseOpenTeamMarketplace } from "../../plugins/openteam-marketplace";
 import { resolveUpstreamPlugin } from "../../plugins/upstream-package";
 import { serviceEffect, toJson } from "../service-utils";
+import { retainPluginEnvironment } from "../process-secrets";
 import {
   canonicalJson,
   definitionFromManifest,
@@ -518,6 +520,11 @@ export class PluginManagement {
             connectorKey: { notIn: next.connections.map((connector) => connector.key) },
           },
         });
+        await retainPluginEnvironment(
+          tx,
+          installation.pluginKey,
+          environmentFields(next).map((field) => field.environment!)
+        );
         await tx.pluginActivity.create({
           data: {
             installationId: installation.id,

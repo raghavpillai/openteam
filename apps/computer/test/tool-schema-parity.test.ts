@@ -51,7 +51,7 @@ describe("captured tool contract wiring", () => {
       }
     }
   });
-  test("exposes all 77 shared contracts through the actual model-facing profiles", () => {
+  test("exposes the 75 active shared contracts through the actual model-facing profiles", () => {
     const runtime = new RuntimeTools({} as never, "http://unused.invalid", "test", "/tmp", "/tmp");
     const base = { runtimeProfile: "agent", pluginNamespaces: [] } as unknown as ActiveTurn;
     const catalog = [
@@ -71,13 +71,15 @@ describe("captured tool contract wiring", () => {
         : []),
     ]);
     expect(Object.keys(reference)).toHaveLength(77);
-    for (const name of Object.keys(reference)) {
+    // The saved-login desktop tools are retired.
+    const retired = ["ListCredentials", "GetCredentialProviderStatus"];
+    for (const name of Object.keys(reference).filter((name) => !retired.includes(name))) {
       const visible = catalog.find((t) => t.name === name);
       expect(visible, name).toBeDefined();
       expect(visible.description, name).toBe(referenceTool(name).description);
       expect(visible.inputSchema, name).toEqual(referenceTool(name).inputSchema);
     }
-    for (const excluded of ["GenerateImage", "CloudAgent", "request_scm_connect"])
+    for (const excluded of ["GenerateImage", "CloudAgent", "request_scm_connect", ...retired])
       expect(catalog.some((t) => t.name === excluded)).toBe(false);
   });
 
@@ -119,18 +121,21 @@ describe("captured tool contract wiring", () => {
       text.replaceAll("Grok Bot", "OpenTeam").replaceAll("grokbot://", "openteam://");
     const beforeCloudAgent = captured.slice(0, captured.indexOf('Use {"type":"cursor-agent"'));
     const afterCloudAgent = captured.slice(captured.indexOf('Use {"type":"widget"'));
+    const savedLoginSentence = /For a connected saved browser login, use ListCredentials[^.]*\. /;
+    expect(captured).toMatch(savedLoginSentence);
     expect(actual.description).toBe(
-      identity(beforeCloudAgent + afterCloudAgent) +
+      identity(beforeCloudAgent + afterCloudAgent).replace(savedLoginSentence, "") +
         " OpenTeam also supports secret {label,connector,field} for connector credentials, and scope:bot|personal for named environment secrets. " + SEND_TO_USER_BATCH_GUIDANCE
     );
     expect(actual.description).not.toContain('"cursor-agent"');
     expect(actual.inputSchema.properties.type.enum).toEqual([
-      "text", "attachment", "widget", "secret-request", "credential-request",
+      "text", "attachment", "widget", "secret-request",
     ]);
     expect(actual.inputSchema.properties.type.description).toBe(
-      "text for chat messages, attachment for files, widget for missing information, secret-request for secure credential entry, credential-request for direct private saved-login filling."
+      "text for chat messages, attachment for files, widget for missing information, secret-request for secure credential entry."
     );
     expect(actual.inputSchema.properties).not.toHaveProperty("bcId");
+    expect(actual.inputSchema.properties).not.toHaveProperty("credential");
   });
 
   test("the advertised secret alternatives agree with the SendToUser parser", () => {

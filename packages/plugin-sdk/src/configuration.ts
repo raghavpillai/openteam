@@ -38,9 +38,13 @@ export function validateValues(
   return result;
 }
 
+/** Plugin-level secrets delivered to Bot computer processes rather than to a connector. */
+export const environmentFields = (plugin: PluginDefinition): PluginField[] =>
+  (plugin.setupFields ?? []).filter((field) => field.environment !== undefined);
+
 export const fieldsForConnector = (plugin: PluginDefinition, key: string): PluginField[] => {
   const fields = [
-    ...(plugin.setupFields ?? []),
+    ...(plugin.setupFields ?? []).filter((field) => field.environment === undefined),
     ...((
       plugin.connections.find((c) => c.key === key)?.setup ??
       (plugin.setup?.connectionKey === key ? plugin.setup : null)

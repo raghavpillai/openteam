@@ -92,9 +92,7 @@ OPENTEAM_TEST_UPSTREAM_SOURCES=1 bun test \
 
 For real providers, [`live-read.ts`](../../apps/server/test/plugin/live-read.ts) runs
 17 representative reads against the installed `default` accounts for Slack, GitHub,
-Gmail, Calendar, Drive, Granola, Linear, and Notion. `--native` adds 1Password
-authentication and environment listing through the connected desktop. Unlock
-1Password and allow its existing list-environments authorization when prompted.
+Gmail, Calendar, Drive, Granola, Linear, and Notion.
 The runner never reads environment values, posts messages, or edits provider content.
 It prints only plugin names, tool names, and pass/fail statuses, and exits nonzero
 if any account is unavailable or a call fails.

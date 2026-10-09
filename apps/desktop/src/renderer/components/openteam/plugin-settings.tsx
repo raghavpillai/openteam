@@ -30,13 +30,11 @@ import { PluginPageStack } from "./plugins/plugin-page-stack";
 import { InstalledPluginsSummary,InstalledPluginsView,MarketplaceView } from "./plugins/marketplace-browse";
 import { openAutomaticPluginSignIn } from "./plugins/plugin-authorization";
 
-import { savedLoginsCatalog, SAVED_LOGINS_KEY } from "./plugins/saved-logins-catalog";
-const OnePasswordSavedLogins = lazy(() => import("./plugins/onepassword-saved-logins").then(module => ({ default: module.OnePasswordSavedLogins })));
 
 const loadPluginWorkspace = () => import("./plugins/plugin-workspace");
 const PluginWorkspace = lazy(loadPluginWorkspace);
 
-type MarketplacePage = "saved-logins" | "marketplace" | "installed" | "detail" | "custom" | "manage";
+type MarketplacePage = "marketplace" | "installed" | "detail" | "custom" | "manage";
 
 const secondaryButton =
   "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 cursor-pointer rounded-full bg-[#77777717] px-3 text-[13px] text-foreground outline-none transition-colors duration-120 ease-out hover:bg-[#7777772b] focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-45";
@@ -121,12 +119,6 @@ export function PluginDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const followedTarget = useRef<typeof target>(null);
   const [data, setData] = useState<PluginSettingsView | null>(null);
-  const [savedLoginsConnected, setSavedLoginsConnected] = useState(false);
-  const refreshSavedLogins = useCallback(() => {
-    void window.openteam?.computer.getCapabilities().then(value => setSavedLoginsConnected(value.credentialProviders.length > 0)).catch(() => undefined);
-  }, []);
-  useEffect(() => { if (open) refreshSavedLogins(); }, [open, refreshSavedLogins]);
-  useEffect(() => { window.addEventListener("openteam:saved-logins-changed", refreshSavedLogins); return () => window.removeEventListener("openteam:saved-logins-changed", refreshSavedLogins); }, [refreshSavedLogins]);
   const [settingsEpoch, setSettingsEpoch] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const mutating = useRef(false);
@@ -250,7 +242,6 @@ export function PluginDialog({
     }
   }, [data, page, selected, selectedKey]);
   const openDetail = (plugin: PluginCatalogItemView) => {
-    if (plugin.key === SAVED_LOGINS_KEY) { setPage("saved-logins"); setError(null); return; }
     void loadPluginDetail();
     setSelectedKey(plugin.key);
     setPage("detail");
@@ -265,7 +256,6 @@ export function PluginDialog({
         followedTarget.current?.pluginId === target.pluginId)
     )
       return;
-    if (target.pluginId === SAVED_LOGINS_KEY) { followedTarget.current = target; setPage("saved-logins"); setError(null); return; }
     const plugin =
       data.installs.find((candidate) => candidate.pluginKey === target.pluginId)?.catalog ??
       data.catalog.find((candidate) => candidate.key === target.pluginId);
@@ -336,7 +326,7 @@ export function PluginDialog({
   };
 
   const title =
-    page === "saved-logins" ? "1Password" : page === "detail" && selected
+    page === "detail" && selected
       ? selected.name
       : page === "custom"
         ? "Add custom MCP"
@@ -389,7 +379,7 @@ export function PluginDialog({
             <div className="flex w-full items-center justify-between pr-8">
               <h1 tabIndex={-1} className="text-[16px] font-semibold">Marketplace</h1>
               <div className="flex items-center gap-3">
-                {data && <InstalledPluginsSummary data={{ ...data, catalog: [savedLoginsCatalog(null, savedLoginsConnected), ...data.catalog] }} onShowInstalled={() => setPage("installed")} />}
+                {data && <InstalledPluginsSummary data={data} onShowInstalled={() => setPage("installed")} />}
                 <DropdownMenu onOpenChange={isOpen => { if (isOpen) void loadPluginWorkspace().then(module => module.preloadPluginManagement()).catch(() => undefined); }}>
                   <DropdownMenuTrigger asChild>
                     <button type="button" className={secondaryButton} aria-label="Manage plugins">
@@ -441,9 +431,8 @@ export function PluginDialog({
             onQueryChange={setBrowseQuery}
             onCategoryChange={setBrowseCategory}
             busy={busy}
-            data={{ ...data, catalog: [savedLoginsCatalog(null, savedLoginsConnected), ...data.catalog] }}
+            data={data}
             onInstall={(plugin) => {
-              if (plugin.key === SAVED_LOGINS_KEY) { openDetail(plugin); return; }
               if (plugin.connections.length || plugin.setup || plugin.setupFields.length)
                 openDetail(plugin);
               if (
@@ -469,8 +458,6 @@ export function PluginDialog({
             >
               <LoaderCircle className="size-5 animate-spin text-foreground-tertiary" />
             </div>
-          ) : page === "saved-logins" ? (
-            <OnePasswordSavedLogins logoUrl={null} onChanged={refreshSavedLogins} />
           ) : page === "installed" ? (
             <InstalledPluginsView
               query={installedQuery}
@@ -485,7 +472,6 @@ export function PluginDialog({
                   : void mutate(connection.id, () => api.restartPluginConnection(connection.id))
               }
               catalogFallback={catalogPluginForInstall}
-              savedLogins={savedLoginsConnected ? savedLoginsCatalog(null, true) : undefined}
             />
           ) : page === "manage" ? (
             <Suspense fallback={<p className="p-8 text-sm">Loading plugin management…</p>}>
@@ -568,6 +554,9 @@ export function PluginDialog({
                 mutate(connection.id, () => api.renamePluginAccount(connection.id, alias))
               }
               onRemove={(plugin) => void mutate(plugin.key, () => api.uninstallPlugin(plugin.key))}
+              onUpdateEnvironment={(plugin, values) =>
+                mutate(plugin.key, () => api.updatePluginEnvironment(plugin.key, values))
+              }
               onRestart={(connection) =>
                 void mutate(connection.id, () => api.restartPluginConnection(connection.id))
               }

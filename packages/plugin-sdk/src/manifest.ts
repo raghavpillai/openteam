@@ -1,7 +1,8 @@
 import { isSecretKey } from "./configuration";
 import { assertComputerMcpRuntime } from "./desktop-runtime";
+import { isAllowedEnvironmentName } from "./environment";
 import { PLUGIN_ICON_MAX_BASE64_LENGTH } from "./icons";
-import type { PluginDefinition, PluginField } from "./types";
+import type { PluginDefinition, PluginField, PluginSkillAgent, PluginSkillDefinition } from "./types";
 
 export const objectValue = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value)
@@ -19,13 +20,28 @@ export const safePackagePath = (path: string): string => {
     throw new Error(`Unsafe package path: ${path}`);
   return normalized;
 };
+export const PLUGIN_SKILL_AGENTS: readonly PluginSkillAgent[] = [
+  "main",
+  "executor",
+  "videoReview",
+  "watchVideo",
+  "computerUse",
+  "browserUse",
+];
+/** Skills that do not name their agents are for the main agent only. */
+export const skillIsForAgent = (
+  skill: PluginSkillDefinition | Readonly<Record<string, unknown>>,
+  agent: PluginSkillAgent
+): boolean =>
+  Array.isArray(skill.agents) ? skill.agents.includes(agent) : agent === "main";
 const identifier = /^[a-z0-9](?:[a-z0-9.-]{0,158}[a-z0-9])?$/;
 const requireText = (value: unknown, label: string, limit = 20_000): void => {
   if (typeof value !== "string" || !value.trim() || value.length > limit)
     throw new Error(`Invalid ${label}`);
 };
-const validateFields = (fields: readonly PluginField[]): void => {
+const validateFields = (fields: readonly PluginField[], allowEnvironment = false): void => {
   const keys = new Set<string>();
+  const environment = new Set<string>();
   for (const field of fields) {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(field.key) || keys.has(field.key))
       throw new Error(`Invalid or duplicate setup field: ${field.key}`);
@@ -44,6 +60,17 @@ const validateFields = (fields: readonly PluginField[]): void => {
       throw new Error(`Credential setup fields must use secret: true: ${field.key}`);
     if (field.secret && field.default !== undefined)
       throw new Error(`Secret defaults are not allowed: ${field.key}`);
+    if (field.environment !== undefined) {
+      if (
+        !allowEnvironment ||
+        !field.secret ||
+        (field.type ?? "string") !== "string" ||
+        !isAllowedEnvironmentName(field.environment) ||
+        environment.has(field.environment)
+      )
+        throw new Error(`Environment setup fields must be unique plugin-level secrets: ${field.key}`);
+      environment.add(field.environment);
+    }
     if (
       field.enum &&
       (!Array.isArray(field.enum) ||
@@ -214,13 +241,21 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
     )
       throw new Error("Invalid skill content");
     if (skill.path) safePackagePath(skill.path);
+    if (
+      skill.agents !== undefined &&
+      (!Array.isArray(skill.agents) ||
+        !skill.agents.length ||
+        skill.agents.some((agent) => !PLUGIN_SKILL_AGENTS.includes(agent)) ||
+        new Set(skill.agents).size !== skill.agents.length)
+    )
+      throw new Error(`Invalid skill agents: ${skill.name}`);
   }
   if (plugin.installationSteps !== undefined) {
     if (!Array.isArray(plugin.installationSteps) || plugin.installationSteps.length > 30)
       throw new Error("Invalid installation instructions");
     for (const step of plugin.installationSteps) requireText(step, "installation step", 4000);
   }
-  validateFields(plugin.setupFields ?? []);
+  validateFields(plugin.setupFields ?? [], true);
   for (const setup of [plugin.setup, ...plugin.connections.map((connection) => connection.setup)]) {
     if (!setup) continue;
     if (setup.connectionKey && !connectorKeys.has(setup.connectionKey))

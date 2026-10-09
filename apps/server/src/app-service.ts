@@ -29,7 +29,6 @@ import { RunService } from "./services/run-service";
 import { ScreenService } from "./services/screen-service";
 import { SearchService } from "./services/search-service";
 import { forwardServiceMethod, serviceEffect } from "./services/service-utils";
-import { SavedLoginService } from "./services/saved-login-service";
 import { WebProviderSettingsService } from "./services/web-provider-settings";
 import { SettingsService } from "./services/settings-service";
 import { SnapshotService } from "./services/snapshot-service";
@@ -46,7 +45,6 @@ export class AppService {
   readonly transcription: TranscriptionService;
   readonly apnsSettings: ApnsSettingsStore;
   readonly webProviders: WebProviderSettingsService;
-  readonly savedLogins: SavedLoginService;
   readonly automationWebhooks: AutomationWebhooksService;
   private readonly settings: SettingsService;
 
@@ -97,7 +95,6 @@ export class AppService {
       if (!response.ok) throw new Error(`Computer check failed with HTTP ${response.status}`);
       return (await response.json()) as { ok: boolean; message: string };
     });
-    this.savedLogins = new SavedLoginService(this.prisma);
     this.machines = new MachineService(
       this.prisma,
       process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me",
@@ -545,6 +542,8 @@ export class AppService {
   addCustomMcp = forwardServiceMethod(() => this.plugins.addCustomMcp);
 
   uninstallPlugin = forwardServiceMethod(() => this.plugins.uninstall);
+
+  updatePluginEnvironment = forwardServiceMethod(() => this.plugins.updateEnvironment);
 
   connectPlugin = forwardServiceMethod(() => this.plugins.connect);
 

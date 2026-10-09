@@ -292,15 +292,6 @@ export class ScreenBroker {
     return this.withInput(await this.readySession(botId, cwd), "agent", operation);
   }
 
-  /** Observe an existing browser without launching applications or starting a desktop. */
-  async existingBrowserEndpointForAgent(botId: string): Promise<string | null> {
-    const session = this.sessions.get(botId);
-    if (!session || session.state !== "ready") return null;
-    this.assertAgentControl(session);
-    const endpoint = `http://127.0.0.1:${session.browserDebugPort}`;
-    return await this.browserIsReady(endpoint) ? endpoint : null;
-  }
-
   async browserEndpointForAgent(botId: string, cwd: string): Promise<string> {
     const session = await this.readySession(botId, cwd);
     this.assertAgentControl(session);

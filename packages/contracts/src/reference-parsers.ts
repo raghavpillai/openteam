@@ -68,15 +68,6 @@ const sendParameters = external_exports.object({
   )
 });
 const checkPermissionsParameters = external_exports.object({});
-const listCredentialsParameters = external_exports.object({
-  site: external_exports.string().trim().optional().describe(
-    "Current website URL or domain. Always pass this when a browser login is blocked; only credentials allowed for that live site are returned."
-  ),
-  query: external_exports.string().trim().optional().describe(
-    "Optional service/name search when no website URL is available, e.g. reform or stripe."
-  )
-});
-const credentialProviderStatusParameters = external_exports.object({}).strict();
 const COOKIE_IMPORT_MAX_ORIGINS = 32;
 const chromeCookieImportParameters = external_exports.object({
   origins: external_exports.array(
@@ -218,7 +209,7 @@ function normalizeDestinationPath(raw) {
   }
   return normalized;
 }
-const schemas = { FindContacts:findContactsParameters, FindIMessageChats:findChatsParameters, ChatItems:chatItemsParameters, SearchIMessages:searchParameters, IMessageActivity:activityParameters, FetchIMessageAttachment:fetchAttachmentParameters, SendIMessage:sendParameters, CheckIMessagePermissions:checkPermissionsParameters, ListCredentials:listCredentialsParameters, GetCredentialProviderStatus:credentialProviderStatusParameters, import_chrome_cookies:chromeCookieImportParameters, upload_file:uploadFileParameters, download_file:downloadFileParameters };
+const schemas = { FindContacts:findContactsParameters, FindIMessageChats:findChatsParameters, ChatItems:chatItemsParameters, SearchIMessages:searchParameters, IMessageActivity:activityParameters, FetchIMessageAttachment:fetchAttachmentParameters, SendIMessage:sendParameters, CheckIMessagePermissions:checkPermissionsParameters, import_chrome_cookies:chromeCookieImportParameters, upload_file:uploadFileParameters, download_file:downloadFileParameters };
 export function parseReferenceArguments(name: string, raw: unknown): Record<string, any> {
  const schema = schemas[name]; if(!schema) throw new Error('No reference parser: '+name);
  const args = schema.parse(raw);

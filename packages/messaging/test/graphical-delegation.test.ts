@@ -80,9 +80,12 @@ describe("main-agent graphical delegation instructions", () => {
 
       const prompt = await AgentMessaging.prototype.platformPrompt.call(
         messaging as unknown as AgentMessaging,
-        "child"
+        "child",
+        undefined,
+        "\n\n## Installed plugin skills\n\nSkill declared for this worker"
       );
       expect(prompt.instructions).toContain(`running as the ${subagentType} subagent`);
+      expect(prompt.instructions).toContain("## Installed plugin skills\n\nSkill declared for this worker");
       expect(prompt.instructions).toContain("Only that final assistant message is relayed");
       expect(prompt.instructions).not.toContain("Parent profile");
       expect(prompt.instructions).not.toContain(PLATFORM_BASE_SYSTEM_PROMPT);

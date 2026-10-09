@@ -7,6 +7,7 @@ import {
   ConfigurePluginConnectionInput,
   ConnectPluginInput,
   InstallPluginInput,
+  UpdatePluginEnvironmentInput,
   RenamePluginAccountInput,
   SetMcpInstructionsInput,
 } from "@openteam/contracts";
@@ -107,6 +108,12 @@ const routes = [
   ),
   effectRoute("DELETE", /^\/api\/plugins\/([^/]+)$/, ({ app }, id) =>
     app.uninstallPlugin(decodeURIComponent(id))
+  ),
+  bodyRoute(
+    "PUT",
+    /^\/api\/plugins\/([^/]+)\/environment$/,
+    UpdatePluginEnvironmentInput,
+    ({ app }, id, input) => app.updatePluginEnvironment(decodeURIComponent(id), input.values)
   ),
   bodyRoute(
     "POST",

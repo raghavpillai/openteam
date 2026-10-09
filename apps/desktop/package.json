@@ -45,7 +45,6 @@
     "streamdown": "2.6.0",
     "tailwind-merge": "3.6.0",
     "tailwindcss": "4.3.3",
-    "tldts": "7.4.13",
     "use-stick-to-bottom": "1.1.6",
     "vite": "8.2.2",
     "wait-on": "9.1.0",
@@ -142,7 +141,6 @@
     "test:provider-settings": "bun scripts/test-provider-settings.ts",
     "test:parity-review": "bun scripts/test-parity-review.ts",
     "test:update-ui": "bun scripts/test-desktop-update-ui.ts",
-    "test:saved-logins": "bun scripts/test-saved-logins.ts",
     "test:native:e2e": "bun test/host/fixtures/capability-integration.ts",
     "test:chat-transition-motion": "bun scripts/analyze-chat-transitions.ts"
   },

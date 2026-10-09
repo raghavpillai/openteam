@@ -10,6 +10,8 @@ export interface PluginField {
   enum?: ConfigValue[];
   placeholder?: string;
   helpText?: string | null;
+  /** Plugin-level secrets only: also expose the value to Bot computer processes under this name. */
+  environment?: string;
 }
 export interface PluginSetup {
   kind: "none" | "token" | "oauth" | "oauth_client";
@@ -22,12 +24,22 @@ export interface PluginSetup {
   fields: PluginField[];
   requiredScopes: string[];
 }
+/** The main agent or a subagent type that can receive a plugin skill. */
+export type PluginSkillAgent =
+  | "main"
+  | "executor"
+  | "videoReview"
+  | "watchVideo"
+  | "computerUse"
+  | "browserUse";
 export interface PluginSkillDefinition {
   name: string;
   description: string;
   body: string;
   /** Package-relative directory; files retain their paths within this directory. */
   path?: string;
+  /** Agents whose instructions include this skill. Defaults to the main agent only. */
+  agents?: PluginSkillAgent[];
 }
 export interface PluginToolDefinition {
   name: string;

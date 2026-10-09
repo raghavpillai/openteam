@@ -1,21 +1,21 @@
-# Connect a Mac
+# Connect your Mac
 
-In Marketplace → iMessage (SSH) → account settings, enter **Mac SSH destination**
-(`yourname@100.64.0.10`) and choose **Connect**. This is the only account field.
-Connect checks actual database access before exposing the four read-only tools.
-No gateway address, token, SSH private key, or Mac desktop app installation is required.
+**Before you start:** ask your OpenTeam administrator to enable this integration
+and verify SSH access to your Mac without a password prompt.
 
-The OpenTeam host must already have passwordless SSH access to this user on the
-Mac and a verified host key in its `~/.ssh/known_hosts`. The Mac needs Remote Login,
-Python 3 at `/usr/bin/python3`, and readable `~/Library/Messages/chat.db`.
-macOS permissions or Apple Account sign-in may require the user on the Mac.
-Existing downloaded history can be read while signed out; new messages require sync.
+1. On your Mac, enable **Remote Login** and allow the SSH user to read Messages history.
+2. In **Marketplace → iMessage (SSH) → account settings**, enter your **Mac SSH address**,
+   such as `alex@100.64.0.10`. Use your Mac login username, not your Apple Account
+   email. A hostname also works. Do not include `ssh`.
+3. Choose **Connect**. OpenTeam installs a read-only helper and checks Messages
+   access. Once connected, ask your agent to find a conversation.
 
-The host automatically checks the database, installs the packaged reader, and
-authorizes a dedicated restricted key on first connection. Later operations use
-that restricted key. It cannot open a shell or forward ports. Other Mac SSH keys
-are preserved. Messages, including synced SMS/RCS, are read locally on the Mac.
-This version cannot send messages or download attachments.
+Keep the Mac online and Messages signed in for new messages to sync. This
+integration reads synced iMessage and SMS history; sending and attachment
+downloads are not supported.
+
+If Connect fails, ask your administrator to check SSH access and Messages
+permissions using the troubleshooting section below.
 
 ## Deployment internals — for the host administrator or deployment agent
 
@@ -44,6 +44,11 @@ This provisioning script is included with the plugin; it is **not yet wired into
 the general OpenTeam deployment installer**. A new deployment needs this one-time
 host provisioning before the single-field Marketplace flow works. Existing
 `~/.config/openteam-imessage/config.json` restricted connections migrate automatically.
+
+The Mac needs Python 3 at `/usr/bin/python3` and a readable
+`~/Library/Messages/chat.db` for the SSH user. Existing downloaded history can
+be read while signed out; fresh iMessage/SMS/RCS history requires syncing.
+macOS permissions or Apple Account sign-in may require the user on the Mac.
 
 For a new Mac, first establish and verify the host user's normal SSH connection.
 Do not disable host-key checking or automatically trust `ssh-keyscan` output.

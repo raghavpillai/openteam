@@ -3,7 +3,7 @@
   "key": "imessage-ssh",
   "version": "1.1.0",
   "name": "iMessage (SSH)",
-  "description": "Read and search iMessage and SMS history on your Mac over SSH. Enter your Mac\u2019s user@host; OpenTeam manages the internal connection.",
+  "description": "Read and search iMessage and SMS history from your Mac over SSH.",
   "publisher": "OpenTeam",
   "category": "Productivity",
   "featured": false,
@@ -13,32 +13,32 @@
   ],
   "icon": "assets/icon.png",
   "installationSteps": [
-    "Enter your Mac\u2019s SSH destination, such as yourname@100.64.0.10, in account settings.",
-    "Choose Connect. OpenTeam verifies SSH and Messages access and prepares the restricted reader automatically using the host\u2019s existing SSH access.",
-    "The Mac must be reachable, with Remote Login enabled and Messages history accessible to the SSH user.",
-    "This version reads history only. The Mac must stay online; sending and attachment downloads are not supported."
+    "Before you start, ask your OpenTeam administrator to enable this integration and verify SSH access to your Mac without a password prompt.",
+    "On your Mac, enable Remote Login and allow the SSH user to read Messages history. Keep the Mac online and Messages signed in for new messages to sync.",
+    "Enter your Mac username and IP address as username@IP, then choose Connect. OpenTeam installs a read-only helper and checks Messages access.",
+    "Once connected, ask your agent to find a conversation. This integration reads synced history; sending and attachment downloads are not supported."
   ],
   "setup": {
     "kind": "none",
     "connectionKey": "imessage-ssh",
     "title": "Connect your Mac",
-    "description": "Enter the Mac\u2019s SSH destination. OpenTeam keeps SSH keys on its host and manages the internal bridge.",
+    "description": "Connect your Mac to read iMessage and SMS history. Requires one-time setup by your OpenTeam administrator.",
     "documentationUrl": "https://support.apple.com/guide/mac-help/allow-a-remote-computer-to-access-your-mac-mchlp1066/mac",
     "steps": [
-      "Enter your Mac\u2019s SSH destination, such as yourname@100.64.0.10, in account settings.",
-      "Choose Connect. OpenTeam verifies SSH and Messages access and prepares the restricted reader automatically using the host\u2019s existing SSH access.",
-      "The Mac must be reachable, with Remote Login enabled and Messages history accessible to the SSH user.",
-      "This version reads history only. The Mac must stay online; sending and attachment downloads are not supported."
+      "Before you start, ask your OpenTeam administrator to enable this integration and verify SSH access to your Mac without a password prompt.",
+      "On your Mac, enable Remote Login and allow the SSH user to read Messages history. Keep the Mac online and Messages signed in for new messages to sync.",
+      "Enter your Mac username and IP address as username@IP, then choose Connect. OpenTeam installs a read-only helper and checks Messages access.",
+      "Once connected, ask your agent to find a conversation. This integration reads synced history; sending and attachment downloads are not supported."
     ],
     "fields": [
       {
         "key": "SSH_TARGET",
-        "label": "Mac SSH destination",
+        "label": "Mac SSH address",
         "type": "string",
         "required": true,
         "secret": false,
-        "placeholder": "yourname@100.64.0.10",
-        "helpText": "The OpenTeam host must already have passwordless SSH access and a verified host key for this Mac. No gateway address or token is needed."
+        "placeholder": "alex@100.64.0.10",
+        "helpText": "Use your Mac login username, not your Apple Account email, followed by @ and the Mac’s IP address or hostname. Do not include “ssh”."
       }
     ],
     "requiredScopes": []
@@ -65,7 +65,7 @@
   "skills": [
     {
       "name": "imessage-remote",
-      "description": "Read and search iMessage or SMS history on a Mac through a configured remote SSH gateway, including connection troubleshooting.",
+      "description": "Read and search iMessage or SMS history on a Mac through OpenTeam’s managed SSH connection, including connection troubleshooting.",
       "path": "skills/imessage-remote"
     }
   ]

@@ -152,7 +152,9 @@ if (result.renderer.violations.wasm.length > 0) {
 const lazyBudgets: Record<string, number> = {
   workspace: 800_000,
   largeCode: 600_000,
-  pluginDetail: 50_000,
+  // Sign-in recovery (Start again, session-mismatch guidance) and plugin setup
+  // secrets for Bot processes bring the measured October closure to 51,380 bytes.
+  pluginDetail: 52_000,
   pluginConnection: 40_000,
   pluginStudio: 30_000,
   privateSkills: 20_000,

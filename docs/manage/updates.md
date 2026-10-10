@@ -17,7 +17,7 @@ The updater:
 3. Restarts the server on the new version.
 4. Updates the `openteam` CLI once the new server is healthy.
 
-Bots pause briefly while the server restarts. You need at least 4 GB free on the drive that holds your install directory. Closing the terminal doesn't stop an update; run `openteam update` again to check on it.
+Bots pause briefly while the server restarts. Accounts that run on the bot computer, such as Gmail, Google Calendar and Google Drive, start again the next time a bot uses them; you don't need to reconnect them. You need at least 4 GB free on the drive that holds your install directory. Closing the terminal doesn't stop an update; run `openteam update` again to check on it.
 
 If the new version doesn't start, the updater rolls back to the previous version and restores the database. That backup covers the database only, not workspace files, browser sign-ins, or attachments. Keep your own [backups](backups.md).
 

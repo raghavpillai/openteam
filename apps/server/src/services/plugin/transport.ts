@@ -304,7 +304,11 @@ export class PluginTransport {
     const value = jsonObject(await response.json());
     if (!["starting", "ready", "error", "stopped"].includes(String(value.state)))
       throw new Error("Computer MCP status is invalid");
-    return { state: value.state, tools: this.stdioTools(value.tools) };
+    return {
+      state: value.state as "starting" | "ready" | "error" | "stopped",
+      tools: this.stdioTools(value.tools),
+      error: typeof value.error === "string" && value.error ? value.error : undefined,
+    };
   }
 
   private stdioTools(value: unknown): PluginToolDefinition[] {

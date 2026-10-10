@@ -286,6 +286,7 @@ export function dynamicCatalog(
       description: namespace.description,
       kind: "mcp" as const,
       namespaceStatus: namespace.namespaceStatus,
+      ...(namespace.statusMessage ? { statusMessage: namespace.statusMessage } : {}),
       tools: namespace.tools.map((tool) => ({
         name: tool.name,
         description: tool.description,

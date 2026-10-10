@@ -45,6 +45,10 @@ import { appendEvent, forwardServiceMethod, serviceEffect, toJson } from "./serv
 import { ConnectorFileTransfers } from "./plugin/file-transfers";
 import { parseAuthMode } from "../auth-mode";
 
+// Health checks before stopped processes resumed on use wrote this for every
+// connection whose process was missing after a restart.
+const STOPPED_RUNTIME_MESSAGE = "Local runtime unavailable: MCP process is not connected. Reconnect to try again.";
+
 const runAuthentication = async <A>(effect: Effect.Effect<A, Error>): Promise<A> => {
   const result = await Effect.runPromise(Effect.either(effect));
   if (Either.isLeft(result)) throw result.left;
@@ -1218,7 +1222,18 @@ export class PluginService {
             });
             continue;
           }
-          if (runtime.state !== "ready") throw new Error("MCP process is not connected. Reconnect to try again.");
+          if (runtime.state === "stopped") {
+            // A restart or plugin update stopped this process. A connection that was
+            // working starts on its next call; calls never retry a failed start.
+            if (current.status === "ready") continue;
+            if (current.statusMessage === STOPPED_RUNTIME_MESSAGE) {
+              await this.markReady(current, toolSnapshot(current.toolSnapshot), "connection.resumed");
+              continue;
+            }
+            throw new Error("Sign-in was interrupted when the computer restarted. Reconnect to try again.");
+          }
+          if (runtime.state !== "ready")
+            throw new Error(runtime.error ?? "MCP process is not connected. Reconnect to try again.");
           const tools = runtime.tools;
           if (
             current.status !== "ready" ||

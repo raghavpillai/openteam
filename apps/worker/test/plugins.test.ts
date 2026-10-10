@@ -14,3 +14,20 @@ test("workers load installed tools and skills without grants, enablements or rev
   expect(context.dynamicNamespaces[0]?.tools.map(tool=>tool.name)).toEqual(["write"]);
   expect(context.skillInstructions).toContain("Run the requested workflow.");
 });
+
+test("unavailable connections carry their stored reason to the agent", async () => {
+  const installation={name:"Fixture",pluginKey:"fixture",version:"1",status:"installed",manifest:{skills:[],files:{}}};
+  const connection=(status:string,statusMessage:string|null)=>({id:status,alias:status,name:"Fixture",connectorKey:"fixture",status,statusMessage,installation,toolSnapshot:[]});
+  const context=await pluginRuntimeContext({
+    pluginConnection:{findMany:async()=>[
+      connection("error","Local runtime unavailable: MCP process exited. Reconnect to try again."),
+      connection("ready","Earlier failure"),
+    ]},
+    pluginInstallation:{findMany:async()=>[installation]},
+    pluginPrivateSkill:{findMany:async()=>[]},
+  } as any,"bot");
+  expect(context.dynamicNamespaces.map(namespace=>[namespace.namespaceStatus,namespace.statusMessage])).toEqual([
+    ["error","Local runtime unavailable: MCP process exited. Reconnect to try again."],
+    ["ready",undefined],
+  ]);
+});

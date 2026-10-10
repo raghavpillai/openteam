@@ -21,6 +21,8 @@ export interface DynamicNamespaceDefinition<
   description: string;
   kind: "first-party" | "mcp";
   namespaceStatus: DynamicNamespaceStatus;
+  /** Why a namespace is not ready and how to recover. */
+  statusMessage?: string;
   tools: readonly Tool[];
 }
 
@@ -35,6 +37,7 @@ export interface DynamicNamespaceView {
   name: string;
   description: string;
   namespaceStatus: DynamicNamespaceStatus;
+  statusMessage?: string;
   tools: DynamicToolView[];
 }
 
@@ -138,6 +141,9 @@ export const discoverDynamicTools = (
         name: namespace.name,
         description: namespace.description,
         namespaceStatus: namespace.namespaceStatus,
+        ...(namespace.namespaceStatus !== "ready" && namespace.statusMessage
+          ? { statusMessage: namespace.statusMessage }
+          : {}),
         tools,
       };
     })
@@ -158,7 +164,7 @@ export const discoverDynamicTools = (
 /** Model-facing reference envelope; internal discovery views remain useful to the UI. */
 export function renderDynamicDiscovery(result: { namespaces: DynamicNamespaceView[] }, input: GetDynamicToolsInput): unknown {
   const tool = (t: DynamicToolView, full: boolean) => ({ tool: t.name, description: t.description, ...(full ? { inputSchema: t.inputSchema } : {}) });
-  const namespace = (n: DynamicNamespaceView, full: boolean) => ({ namespace: n.name, ...(n.namespaceStatus === "ready" ? {} : { namespaceStatus: n.namespaceStatus }), namespaceDescription: n.description, tools: n.tools.map(t => tool(t, full)) });
+  const namespace = (n: DynamicNamespaceView, full: boolean) => ({ namespace: n.name, ...(n.namespaceStatus === "ready" ? {} : { namespaceStatus: n.namespaceStatus, ...(n.statusMessage ? { namespaceStatusMessage: n.statusMessage } : {}) }), namespaceDescription: n.description, tools: n.tools.map(t => tool(t, full)) });
   if (input.toolName) return tool(result.namespaces[0]!.tools[0]!, true);
   if (input.pattern) {
     const pattern = searchPattern(input.pattern)!;
@@ -192,7 +198,7 @@ export const resolveDynamicTool = <Tool extends DynamicToolDefinition>(
   if (!namespace || !tool) throw new Error(`Unknown dynamic tool: ${key}`);
   if (namespace.namespaceStatus !== "ready") {
     throw new Error(
-      `Dynamic namespace ${namespace.name} is unavailable (${namespace.namespaceStatus})`
+      `Dynamic namespace ${namespace.name} is unavailable (${namespace.namespaceStatus})${namespace.statusMessage ? `: ${namespace.statusMessage}` : ""}`
     );
   }
   if (!discoveredTools.has(key)) {

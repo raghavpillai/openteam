@@ -119,4 +119,27 @@ describe("OpenTeam dynamic tool gateway", () => {
       }).arguments
     ).toEqual({ action: "click" });
   });;;;
+
+  test("an unavailable namespace tells the agent why and how to recover", () => {
+    const reason = "Local runtime unavailable: MCP process exited. Reconnect to try again.";
+    const unavailable = catalog("error").map((namespace) => ({ ...namespace, statusMessage: reason }));
+    const receipts = new Set<string>();
+    const input = { namespace: "openteam" };
+    const result = discoverDynamicTools(unavailable, receipts, input);
+    expect(renderDynamicDiscovery(result, input)).toMatchObject({
+      namespaceStatus: "error",
+      namespaceStatusMessage: reason,
+    });
+    expect(() =>
+      resolveDynamicTool(unavailable, receipts, {
+        namespace: "openteam",
+        toolName: "Computer",
+        arguments: { action: "click" },
+      })
+    ).toThrow(`Dynamic namespace openteam is unavailable (error): ${reason}`);
+
+    // A ready namespace never carries a stale reason.
+    const ready = catalog().map((namespace) => ({ ...namespace, statusMessage: reason }));
+    expect(JSON.stringify(renderDynamicDiscovery(discoverDynamicTools(ready, new Set(), input), input))).not.toContain(reason);
+  });
 });

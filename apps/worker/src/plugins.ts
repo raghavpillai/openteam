@@ -107,6 +107,9 @@ export const pluginRuntimeContext = async (
     name: connectionNamespace(connection.id, connection.alias),
     description: `${connection.installation.name}: ${connection.name} (${connection.alias})${connection.instructions ? `\n${connection.instructions}` : ""}`,
     namespaceStatus: runtimeStatus(connection.status),
+    ...(connection.status !== "ready" && connection.statusMessage
+      ? { statusMessage: connection.statusMessage.slice(0, 500) }
+      : {}),
     fileTransfers: fileTransferCapabilities(connection.installation.pluginKey),
     tools: Array.isArray(connection.toolSnapshot)
       ? connection.toolSnapshot.flatMap((candidate) => {

@@ -674,6 +674,8 @@ export const PluginDynamicNamespace = Schema.Struct({
   name: Schema.String,
   description: Schema.String,
   namespaceStatus: Schema.Literal("ready", "needsAuth", "error", "loading"),
+  /** Why the connection is not ready and how to recover, for the agent to relay. */
+  statusMessage: Schema.optional(Schema.String),
   tools: Schema.Array(PluginToolDescriptor),
   fileTransfers: Schema.optional(Schema.Struct({ upload: Schema.Boolean, download: Schema.Boolean })),
 });

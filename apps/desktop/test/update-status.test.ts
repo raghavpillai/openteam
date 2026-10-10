@@ -1,7 +1,25 @@
 import { describe, expect, test } from "bun:test";
-import { classifyDesktopUpdateError, parseDesktopReleaseManifest } from "../src/main/update-status";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  classifyDesktopUpdateError,
+  hasDesktopUpdateFeed,
+  parseDesktopReleaseManifest,
+} from "../src/main/update-status";
 
 describe("desktop update diagnostics", () => {
+  test("only builds with an update feed can update themselves", async () => {
+    const resources = await mkdtemp(join(tmpdir(), "openteam-update-feed-"));
+    try {
+      expect(hasDesktopUpdateFeed(resources)).toBe(false);
+      await writeFile(join(resources, "app-update.yml"), "provider: github\n");
+      expect(hasDesktopUpdateFeed(resources)).toBe(true);
+    } finally {
+      await rm(resources, { recursive: true, force: true });
+    }
+  });
+
   test("validates release manifests and refuses unsafe download URLs", () => {
     expect(
       parseDesktopReleaseManifest(

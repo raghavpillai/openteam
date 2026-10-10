@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { isOpenTeamVersion } from "@openteam/contracts/version-compatibility";
 import { safeErrorMessage } from "@openteam/product-core/redaction";
 
@@ -28,6 +30,11 @@ export interface DesktopUpdateSnapshot {
   failureKind: DesktopUpdateFailureKind | null;
   track: "stable";
 }
+
+// electron-builder writes app-update.yml only for installer targets (DMG, ZIP, AppImage).
+// Directory builds such as package:mac-local have no feed and can't update themselves.
+export const hasDesktopUpdateFeed = (resourcesPath: string): boolean =>
+  existsSync(join(resourcesPath, "app-update.yml"));
 
 export const classifyDesktopUpdateError = (
   error: unknown,

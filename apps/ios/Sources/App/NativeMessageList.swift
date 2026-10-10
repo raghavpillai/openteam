@@ -15,6 +15,9 @@ struct NativeHistoryItem {
   let version: Int
   var anchorToBottom = false
   var animatesResize = false
+  /// Prepares asynchronously sized content (WebKit documents) before the row
+  /// scrolls into view, so it is displayed at its final height.
+  var prefetch: (() -> Void)?
   let content: () -> AnyView
 }
 
@@ -34,6 +37,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
   var onScroll: (_ atBottom: Bool, _ following: Bool) -> Void = { _, _ in }
 
   func makeUIViewController(context: Context) -> HistoryListController {
+    MessageDocuments.prewarm()
     let controller = HistoryListController()
     controller.initialTarget = initialTarget
     controller.initialLayout = initialLayout
@@ -77,6 +81,10 @@ struct NativeMessageList: UIViewControllerRepresentable {
   private var lastBounds = CGSize.zero
   private var lastContent = CGSize.zero
   private var lastFooterHeight: CGFloat?
+  private var layoutRows: [String: CGRect] = [:]
+  private var layoutStart: (offset: CGFloat, rows: [String: CGRect])?
+  private var prefetched = Set<String>()
+  private var prefetchedRange: ClosedRange<Int>?
   private var followingResize = false
   private var resizePinnedOffset: CGPoint?
   private var footerDisplayLink: CADisplayLink?
@@ -89,6 +97,15 @@ struct NativeMessageList: UIViewControllerRepresentable {
   private let recordsMotion = ProcessInfo.processInfo.arguments.contains("--trace-chat-layout")
   private var motionSamples: [[Double]] = []
   private var motionRecords: [[String: Any]] = []
+  private let tracesFrames = ProcessInfo.processInfo.arguments.contains("--trace-scroll-frames")
+  private var frameTraceLink: CADisplayLink?
+  private var frameTrace: [[String: Any]] = []
+  private var lastFrameSignature = ""
+  private var frameTraceWrite: DispatchWorkItem?
+  private struct CommittedRow { let id: String; let frame: CGRect; weak var cell: UITableViewCell?; let hidden: Int }
+  private var committedRows: [CommittedRow] = []
+  private var committedOffset: CGFloat = 0
+  private var commitObserver: CFRunLoopObserver?
   #endif
   private var settle: DispatchWorkItem?
   private var initialLayoutGeneration = 0
@@ -129,6 +146,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
     table.addGestureRecognizer(outsideTap)
     table.accessibilityIdentifier = "chat-history"
     table.register(UITableViewCell.self, forCellReuseIdentifier: "message")
+    table.willLayout = { [weak self] in self?.captureLayoutStart() }
     table.didLayout = { [weak self] in self?.didLayout() }
     source = UITableViewDiffableDataSource<Int, String>(tableView: table) { [weak self] table, path, id in
       guard let self, let item = self.items[id] else { return nil }
@@ -146,6 +164,18 @@ struct NativeMessageList: UIViewControllerRepresentable {
       return cell
     }
     #if DEBUG
+    if tracesFrames {
+      let link = CADisplayLink(target: self, selector: #selector(traceFrame(_:)))
+      link.add(to: .main, forMode: .common)
+      frameTraceLink = link
+      // Runs after Core Animation's commit observer: the geometry committed for
+      // display, rather than model values changed by events earlier this turn.
+      let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, 2_000_001) {
+        [weak self] _, _ in MainActor.assumeIsolated { self?.captureCommittedGeometry() }
+      }
+      CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+      commitObserver = observer
+    }
     if ProcessInfo.processInfo.arguments.contains("--ui-testing-scroll-geometry") {
       table.scrollGeometry = { [weak self] in
         guard let self else { return nil }
@@ -193,6 +223,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
     }
     let previousIDs = orderedIDs
     orderedIDs = ids
+    prefetchedRange = nil
     if !positioned {
       centerWindow(on: initialTarget)
     } else if let request = pendingRequest {
@@ -238,7 +269,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
     let oldIDs = Set(displayedIDs)
     let changes = pendingChanges
     pendingChanges.removeAll()
-    let anchor = positioned ? captureAnchor(forContentUpdate: true) : nil
+    let anchor = positioned ? captureAnchor(forContentUpdate: true, excluding: changes) : nil
     if positioned, next != displayedIDs, let anchor, !next.contains(anchor.id) {
       // Diffable snapshots expose the new page at the old numeric offset until
       // their completion runs. Keep the old pixels over that intermediate
@@ -326,11 +357,10 @@ struct NativeMessageList: UIViewControllerRepresentable {
           self.startFooterFollow(duration: deferredFooterChange > 0
             ? ChatActivityTiming.expansion : ChatActivityTiming.collapse, from: oldOffset.y)
         } else if arrival && !UIAccessibility.isReduceMotionEnabled {
-          self.scrollingToTarget = true
-          self.table.contentOffset = oldOffset
-          UIView.animate(withDuration: 0.32, delay: 0, options: [.beginFromCurrentState, .curveEaseInOut]) {
-            self.table.contentOffset = destination
-          } completion: { _ in self.scrollingToTarget = false; self.reportScroll() }
+          // Retarget as the bottom moves. A new document or photo can finish
+          // sizing during this scroll; a fixed destination stopped short of it,
+          // leaving the latest message beneath the composer.
+          self.startFooterFollow(duration: 0.32, from: oldOffset.y)
         } else { self.table.setContentOffset(destination, animated: false) }
       }
       self.applyPendingRequest()
@@ -341,6 +371,8 @@ struct NativeMessageList: UIViewControllerRepresentable {
       // Reconfigure and resize the hosting cell inside the same UIKit animation
       // that follows its bottom edge. The old nonanimated snapshot caused a
       // height jump, followed one frame later by a content-offset jump.
+      table.animatesLayout = true
+      defer { table.animatesLayout = false }
       UIView.animate(withDuration: 0.24, delay: 0, options: [.beginFromCurrentState, .curveEaseOut]) {
         self.source.apply(snapshot, animatingDifferences: true, completion: completed)
         self.table.layoutIfNeeded()
@@ -363,6 +395,13 @@ struct NativeMessageList: UIViewControllerRepresentable {
           // keeping scroll callbacks blocked from advancing another window.
           DispatchQueue.main.async(execute: completed)
         } else { completed() }
+      }
+      // The completion runs after this frame is displayed. Restore the reading
+      // anchor before then too, or a reconfigured row (new reactions, a card
+      // answer) shows the rows around it displaced for a frame.
+      if let anchor, preservesScrollingAnchor || (!table.isDragging && !table.isDecelerating) {
+        table.layoutIfNeeded()
+        restore(anchor)
       }
     }
   }
@@ -397,10 +436,20 @@ struct NativeMessageList: UIViewControllerRepresentable {
   }
 
   private func didLayout() {
-    guard !updating, !positioning, table.bounds.height > 0, !orderedIDs.isEmpty else { return }
+    let start = layoutStart
+    layoutStart = nil
+    guard !updating, !positioning, table.bounds.height > 0, !orderedIDs.isEmpty else {
+      layoutRows = [:]
+      return
+    }
     CATransaction.begin()
     CATransaction.setDisableActions(true)
-    defer { CATransaction.commit() }
+    defer {
+      recordLayoutRows()
+      CATransaction.commit()
+    }
+    if let start, positioned, !following, !scrollingToTarget { preserveVisibleRows(from: start) }
+    prefetchNearbyRows()
     let previousBottom = max(-table.adjustedContentInset.top,
       lastContent.height - lastBounds.height + table.adjustedContentInset.bottom)
     let footerHeight = source.indexPath(for: "bottom")
@@ -417,6 +466,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
       }
     }
     let resized = table.bounds.size != lastBounds || table.contentSize != lastContent
+    let contentGrew = table.contentSize.height > lastContent.height + 0.5
     let room = table.bounds.height - table.safeAreaInsets.top - table.safeAreaInsets.bottom
     let extraTop = max(0, room - table.contentSize.height)
     if abs(table.contentInset.top - extraTop) > 0.5 {
@@ -463,6 +513,10 @@ struct NativeMessageList: UIViewControllerRepresentable {
         startFooterFollow(
           duration: footerGrowing ? ChatActivityTiming.expansion : ChatActivityTiming.collapse,
           from: previousBottom)
+      } else if contentGrew && !viewportResized && !UIAccessibility.isReduceMotionEnabled {
+        // A row near the end finished sizing (a document or photo). Follow it as
+        // an arrival does, instead of moving the whole transcript in one frame.
+        startFooterFollow(duration: ChatActivityTiming.expansion, from: table.contentOffset.y)
       } else {
         table.setContentOffset(bottomOffset, animated: false)
       }
@@ -474,6 +528,80 @@ struct NativeMessageList: UIViewControllerRepresentable {
       restore(readingAnchor)
     }
     if positioned { reportScroll() }
+  }
+
+  private func prefetchNearbyRows() {
+    guard let paths = table.indexPathsForVisibleRows, let first = paths.map(\.row).min(),
+      let last = paths.map(\.row).max(), !orderedIDs.isEmpty else { return }
+    let lower = max(0, windowStart + first - 12)
+    let upper = min(orderedIDs.count - 1, windowStart + last + 12)
+    guard lower <= upper, prefetchedRange != lower...upper else { return }
+    prefetchedRange = lower...upper
+    // Farthest first: the most recent requests are measured first.
+    let visible = (windowStart + first)...(windowStart + last)
+    let indices = (lower...upper).sorted {
+      max(visible.lowerBound - $0, $0 - visible.upperBound) > max(visible.lowerBound - $1, $1 - visible.upperBound)
+    }
+    for index in indices {
+      let id = orderedIDs[index]
+      guard let item = items[id], let prefetch = item.prefetch,
+        prefetched.insert(id + ":" + String(item.version)).inserted else { continue }
+      prefetch()
+    }
+  }
+  /// Rows' content frames after a layout pass. Scrolling changes only the offset;
+  /// the next pass compares these to find rows UIKit resized or moved.
+  private func recordLayoutRows() {
+    var rows: [String: CGRect] = [:]
+    for path in table.indexPathsForVisibleRows ?? [] {
+      if let id = source.itemIdentifier(for: path) { rows[id] = table.rectForRow(at: path) }
+    }
+    layoutRows = rows
+  }
+  /// Rows on screen before UIKit's layout pass, in the table's current geometry.
+  /// Corrections UIKit makes between passes are already reflected here.
+  private func captureLayoutStart() {
+    layoutStart = nil
+    guard positioned, !updating, !positioning, !following, !scrollingToTarget, !layoutRows.isEmpty else { return }
+    var rows: [String: CGRect] = [:]
+    for id in layoutRows.keys {
+      if let path = source.indexPath(for: id) { rows[id] = table.rectForRow(at: path) }
+    }
+    layoutStart = (table.contentOffset.y, rows)
+  }
+  /// UIKit's layout pass applies hosting-cell size changes (WebKit documents,
+  /// cards, media) by growing the row downward, and sometimes corrects an
+  /// entering row's estimated height the same way, moving every row after it.
+  /// Keep the unchanged row nearest the viewport's center in place instead: rows
+  /// above it extend upward and rows below it downward, so the content being
+  /// read does not jump during or after a scroll.
+  private func preserveVisibleRows(from start: (offset: CGFloat, rows: [String: CGRect])) {
+    let inset = table.adjustedContentInset
+    let top = start.offset + inset.top
+    let bottom = start.offset + table.bounds.height - inset.bottom
+    let center = (top + bottom) / 2
+    var anchor: (before: CGRect, after: CGRect, distance: CGFloat)?
+    for (id, before) in start.rows where before.maxY > top && before.minY < bottom {
+      guard let path = source.indexPath(for: id) else { continue }
+      let after = table.rectForRow(at: path)
+      guard abs(after.height - before.height) <= 0.5 else { continue }
+      let distance = max(0, before.minY - center, center - before.maxY)
+      if anchor.map({ distance < $0.distance }) ?? true { anchor = (before, after, distance) }
+    }
+    guard let anchor else { return }
+    let shift = (anchor.after.minY - anchor.before.minY) - (table.contentOffset.y - start.offset)
+    guard abs(shift) > 0.5 else { return }
+    var y = table.contentOffset.y + shift
+    let minimum = -inset.top
+    let maximum = max(minimum, table.contentSize.height - table.bounds.height + inset.bottom)
+    // Leave an active rubber-band overscroll alone; otherwise stay in bounds.
+    if (minimum...maximum).contains(table.contentOffset.y) { y = min(max(y, minimum), maximum) }
+    positioning = true
+    // Assigning the offset keeps UIKit's drag/deceleration running, as it does
+    // for its own estimated-height corrections.
+    table.contentOffset = CGPoint(x: table.contentOffset.x, y: y)
+    positioning = false
+    if readingAnchor != nil { readingAnchor = captureAnchor() }
   }
 
   private var visibleDocumentsReady: Bool {
@@ -529,16 +657,22 @@ struct NativeMessageList: UIViewControllerRepresentable {
     }
   }
   private struct Anchor { let id: String; let offset: CGFloat; let bottom: Bool }
-  private func captureAnchor(forContentUpdate: Bool = false) -> Anchor? {
+  private func captureAnchor(forContentUpdate: Bool = false, excluding changed: Set<String> = []) -> Anchor? {
     // Pagination controls move when a page is inserted. Anchor an actual message
     // underneath them, otherwise loading earlier history jumps to the new page.
-    guard let path = table.indexPathsForVisibleRows?.sorted().first(where: {
-      guard let id = source.itemIdentifier(for: $0) else { return false }
-      return !["earlier", "later", "bottom"].contains(id)
-    }),
-      let id = source.itemIdentifier(for: path) else { return nil }
+    let messages = (table.indexPathsForVisibleRows ?? []).sorted().compactMap { path -> (String, CGRect)? in
+      guard let id = source.itemIdentifier(for: path), !["earlier", "later", "bottom"].contains(id) else { return nil }
+      return (id, table.rectForRow(at: path))
+    }
+    // Keep the unchanged message nearest the viewport's center in place, as a
+    // layout pass does. A row above it that gains reactions, a card answer or a
+    // longer document then extends upward instead of pushing what is being read.
+    let inset = table.adjustedContentInset
+    let center = table.contentOffset.y + (inset.top + table.bounds.height - inset.bottom) / 2
+    let distance = { (rect: CGRect) in max(0, rect.minY - center, center - rect.maxY) }
+    guard let (id, rect) = messages.filter({ !changed.contains($0.0) }).min(by: { distance($0.1) < distance($1.1) })
+      ?? messages.first else { return nil }
     let bottom = forContentUpdate && bottomAnchoredIDs.contains(id) && items[id]?.anchorToBottom == false
-    let rect = table.rectForRow(at: path)
     return Anchor(id: id, offset: (bottom ? rect.maxY : rect.minY) - table.contentOffset.y, bottom: bottom)
   }
   private func restore(_ anchor: Anchor) {
@@ -618,6 +752,10 @@ struct NativeMessageList: UIViewControllerRepresentable {
     // the snapshot completion restore/report the saved anchor after layout.
     guard !updating else { return }
     if !following { readingAnchor = captureAnchor() }
+    else if bottomOffset.y - table.contentOffset.y > 2 && !UIAccessibility.isReduceMotionEnabled {
+      // Content below grew while scrolling to the latest message.
+      startFooterFollow(duration: ChatActivityTiming.expansion, from: table.contentOffset.y)
+    } else if bottomOffset.y - table.contentOffset.y > 2 { table.setContentOffset(bottomOffset, animated: false) }
     reportScroll()
   }
   private func endScroll() {
@@ -742,6 +880,90 @@ struct NativeMessageList: UIViewControllerRepresentable {
     shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
 }
 
+#if DEBUG
+/// Optional QA evidence for scroll smoothness (`--trace-scroll-frames`): each
+/// display frame's on-screen row positions and heights, the finger location and
+/// controller state, written to `tmp/scroll-frames.json` once scrolling is idle.
+/// Numeric geometry and message IDs only, never content. See
+/// `scripts/scroll-frame-report.py`.
+extension HistoryListController {
+  fileprivate func captureCommittedGeometry() {
+    guard table.window != nil else { return }
+    func hidden(_ view: UIView) -> Int {
+      (view is HistoryLayoutReadiness && view.alpha < 1 ? 1 : 0) + view.subviews.reduce(0) { $0 + hidden($1) }
+    }
+    committedOffset = table.contentOffset.y
+    // Read cells without table APIs that can make UIKit update rows outside its
+    // own layout pass, which would change the behavior being measured.
+    committedRows = table.subviews.compactMap { $0 as? UITableViewCell }.filter { !$0.isHidden }.compactMap { cell in
+      guard let path = table.indexPath(for: cell), let id = source.itemIdentifier(for: path) else { return nil }
+      return CommittedRow(id: items[id]?.scrollID ?? id, frame: cell.frame, cell: cell, hidden: hidden(cell))
+    }
+  }
+  @objc fileprivate func traceFrame(_ link: CADisplayLink) {
+    guard table.window != nil else { return }
+    // Committed geometry, or the presentation of animations committed with it.
+    let presented = table.layer.animationKeys()?.isEmpty == false
+      ? table.layer.presentation()?.bounds.origin.y ?? committedOffset : committedOffset
+    var rows: [[Any]] = []
+    var hiddenDocuments = 0
+    for row in committedRows {
+      let frame = row.cell?.layer.animationKeys()?.isEmpty == false
+        ? row.cell?.layer.presentation()?.frame ?? row.frame : row.frame
+      let y = frame.minY - presented + table.frame.minY
+      guard y + frame.height > 0, y < view.bounds.height else { continue }
+      rows.append([row.id, (Double(y) * 100).rounded() / 100, (Double(frame.height) * 100).rounded() / 100])
+      hiddenDocuments += row.hidden
+    }
+    rows.sort { ($0[1] as? Double ?? 0) < ($1[1] as? Double ?? 0) }
+    let pan = table.panGestureRecognizer
+    let finger: Double? = [.began, .changed].contains(pan.state) ? Double(pan.location(in: view).y) : nil
+    var flags = ""
+    if table.isTracking { flags += "t" }
+    if table.isDragging { flags += "d" }
+    if table.isDecelerating { flags += "D" }
+    if updating { flags += "u" }
+    if positioning { flags += "p" }
+    if scrollingToTarget { flags += "s" }
+    if following { flags += "f" }
+    if relocationSnapshot != nil { flags += "r" }
+    if table.layer.isHidden { flags += "h" }
+    if committedRows.contains(where: { $0.cell?.layer.animationKeys()?.isEmpty == false }) { flags += "a" }
+    let signature = "\(presented)|\(rows.map { "\($0[0])\($0[1])\($0[2])" })|\(hiddenDocuments)|\(flags)|\(finger ?? -1)"
+    guard signature != lastFrameSignature else { return }
+    lastFrameSignature = signature
+    var frame: [String: Any] = ["t": link.timestamp, "off": Double(presented), "model": Double(table.contentOffset.y),
+      "content": Double(table.contentSize.height), "insetTop": Double(table.contentInset.top),
+      "flags": flags, "rows": rows, "hiddenDocs": hiddenDocuments, "window": windowStart, "mounted": displayedIDs.count]
+    if let finger { frame["finger"] = finger }
+    let animations = (table.layer.animationKeys() ?? []).map { key in
+      "table:\(key):\((table.layer.animation(forKey: key) as? CAPropertyAnimation)?.keyPath ?? "")"
+    } + committedRows.compactMap(\.cell).flatMap { cell in
+      (cell.layer.animationKeys() ?? []).map { "cell:\($0)" }
+    }
+    if !animations.isEmpty { frame["animations"] = Array(Set(animations)).sorted() }
+    frameTrace.append(frame)
+    if frameTrace.count > 20_000 { frameTrace.removeFirst(5_000) }
+    // Write only once scrolling is idle, serializing off the main thread, so the
+    // trace does not cause the frame drops it is measuring.
+    frameTraceWrite?.cancel()
+    let work = DispatchWorkItem { [weak self] in
+      guard let self else { return }
+      self.frameTraceWrite = nil
+      let value: [String: Any] = ["frames": self.frameTrace,
+        "viewportTop": Double(self.view.safeAreaLayoutGuide.layoutFrame.minY),
+        "viewportBottom": Double(self.view.safeAreaLayoutGuide.layoutFrame.maxY)]
+      let url = FileManager.default.temporaryDirectory.appendingPathComponent("scroll-frames.json")
+      DispatchQueue.global(qos: .utility).async {
+        if let data = try? JSONSerialization.data(withJSONObject: value) { try? data.write(to: url, options: .atomic) }
+      }
+    }
+    frameTraceWrite = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: work)
+  }
+}
+#endif
+
 /// History paints beneath the floating glass bars, but those pixels must never
 /// receive touches belonging to the composer or header outside this viewport.
 @MainActor private final class HistoryViewport: UIView {
@@ -752,7 +974,12 @@ struct NativeMessageList: UIViewControllerRepresentable {
 }
 
 @MainActor private final class HistoryTable: UITableView {
+  var willLayout: (() -> Void)?
   var didLayout: (() -> Void)?
+  /// Self-sizing hosting cells otherwise animate each size change from inside
+  /// this layout pass, sliding every following row mid-scroll. The controller
+  /// keeps visible content in place instead; it opts in for deliberate resizes.
+  var animatesLayout = false
   #if DEBUG
   var scrollGeometry: (() -> String?)?
   override var accessibilityValue: String? {
@@ -761,7 +988,8 @@ struct NativeMessageList: UIViewControllerRepresentable {
   }
   #endif
   override func layoutSubviews() {
-    super.layoutSubviews()
+    willLayout?()
+    if animatesLayout { super.layoutSubviews() } else { UIView.performWithoutAnimation { super.layoutSubviews() } }
     didLayout?()
     #if DEBUG
     if ProcessInfo.processInfo.arguments.contains("--ui-testing-layout-geometry") {

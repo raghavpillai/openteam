@@ -58,6 +58,7 @@ import { ServerUpdater } from "./server-updater";
 import {
   classifyDesktopUpdateError,
   type DesktopUpdateSnapshot,
+  hasDesktopUpdateFeed,
   parseDesktopReleaseManifest,
 } from "./update-status";
 
@@ -79,6 +80,8 @@ let machineEnrollment: DesktopMachineEnrollment | null = null;
 let enrollmentServerUrl: string | null = null;
 const windowBackground = () => (nativeTheme.shouldUseDarkColors ? "#080808" : "#fbfbfb");
 const releasePage = "https://github.com/raghavpillai/openteam/releases/latest";
+// Builds without an update feed check the latest release and link to its download instead.
+const desktopSelfUpdates = app.isPackaged && hasDesktopUpdateFeed(process.resourcesPath);
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -112,7 +115,7 @@ const loadDesktopUpdater = () => {
 };
 
 const configureDesktopUpdater = async (): Promise<AppUpdater | null> => {
-  if (!app.isPackaged) return null;
+  if (!desktopSelfUpdates) return null;
   const autoUpdater = await loadDesktopUpdater();
   if (desktopUpdaterConfigured) return autoUpdater;
   desktopUpdaterConfigured = true;
@@ -199,7 +202,7 @@ const checkForDesktopUpdate = async (): Promise<DesktopUpdateSnapshot> => {
     failureKind: null,
   });
   try {
-    if (app.isPackaged) {
+    if (desktopSelfUpdates) {
       const autoUpdater = await configureDesktopUpdater();
       if (!autoUpdater) throw new Error("The desktop update service is unavailable");
       const result = await autoUpdater.checkForUpdates();
@@ -239,7 +242,9 @@ const checkForDesktopUpdate = async (): Promise<DesktopUpdateSnapshot> => {
       downloadUrl: release.downloadUrl,
       status: updateAvailable ? "available" : "up-to-date",
       progress: null,
-      message: updateAvailable ? null : "You’re up to date",
+      message: updateAvailable
+        ? `Desktop ${release.version} is available. This copy can’t update itself, so download the new version to replace it.`
+        : "You’re up to date",
       failureKind: null,
       track: "stable",
     };
@@ -701,7 +706,7 @@ ipcMain.handle("openteam:updates:open-download", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
     throw new Error("Update status is unavailable");
   }
-  if (app.isPackaged) {
+  if (desktopSelfUpdates) {
     const autoUpdater = await configureDesktopUpdater();
     if (!autoUpdater) throw new Error("The desktop update service is unavailable");
     if (desktopUpdateSnapshot.status !== "available") {
@@ -723,7 +728,7 @@ ipcMain.handle("openteam:updates:install-client", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
     throw new Error("Desktop update installation is unavailable");
   }
-  if (!app.isPackaged || desktopUpdateSnapshot.status !== "downloaded") {
+  if (!desktopSelfUpdates || desktopUpdateSnapshot.status !== "downloaded") {
     throw new Error("Download the desktop update before installing it");
   }
   publishDesktopUpdate({

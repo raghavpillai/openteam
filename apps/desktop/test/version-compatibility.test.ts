@@ -88,7 +88,8 @@ describe("OpenTeam release compatibility", () => {
         new URL("../src/renderer/components/openteam/settings/updates.tsx", import.meta.url)
       ).text(),
     ]);
-    expect(main).toContain('message: updateAvailable ? null : "You’re up to date"');
+    expect(main).toContain('message: result.isUpdateAvailable ? null : "You’re up to date"');
+    expect(main).toMatch(/message: updateAvailable\s*\?[^:]+:\s*"You’re up to date"/);
     expect(settings).toContain('clientUpdate?.status === "up-to-date"');
   });
 });

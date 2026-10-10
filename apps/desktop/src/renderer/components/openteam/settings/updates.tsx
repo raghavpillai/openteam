@@ -235,7 +235,7 @@ export default function UpdatesSettings() {
           }
           description={
             clientUpdate?.status === "available"
-              ? `Desktop ${clientUpdate.latestVersion} is available`
+              ? (clientUpdate.message ?? `Desktop ${clientUpdate.latestVersion} is available`)
               : clientUpdate?.status === "up-to-date"
                 ? (clientUpdate.message ?? "You’re up to date")
                 : ["downloading", "downloaded", "installing"].includes(clientUpdate?.status ?? "")

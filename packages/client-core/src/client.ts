@@ -1,3 +1,4 @@
+import type { NotificationPresenceInput, NotificationRouting } from "@openteam/contracts/notification-presence";
 import type {AutomationWebhookInput,AutomationWebhookView} from "@openteam/contracts/automation-webhooks";
 import type { WebProviderCheckInput, WebProvidersInput, WebProvidersView } from "@openteam/contracts/web-search";
 import type {
@@ -684,6 +685,9 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       transport.request(`/api/v0/notification-devices/${encodeURIComponent(installationId)}`, {
         method: "DELETE",
       }),
+    notificationPreferences: () => transport.request<NotificationRouting>("/api/v0/notification-preferences"),
+    updateNotificationPreferences: (smartEnabled: boolean) => transport.request<NotificationRouting>("/api/v0/notification-preferences", { method: "PATCH", body: JSON.stringify({ smartEnabled }) }),
+    updateNotificationPresence: (input: NotificationPresenceInput) => transport.request<NotificationRouting>("/api/v0/notification-presence", { method: "POST", body: JSON.stringify(input) }),
     markChannelRead: (channelId: string, throughSequence?: string, throughNotificationSequence?: string) =>
       transport.request<{
         channelId: string;

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { NotificationSettings } from "../../src/renderer/components/openteam/settings/notifications";
+import { SmartNotificationSettings } from "../../src/renderer/components/openteam/settings/smart-notifications";
 import { SettingsHeading } from "../../src/renderer/components/openteam/settings/ui";
 import "../../src/renderer/styles.css";
 
@@ -29,5 +30,8 @@ createRoot(document.getElementById("root")!).render(
   <main className="mx-auto grid max-w-[700px] gap-5 p-6">
     <Preview initialPermission="blocked" />
     <Preview initialPermission="allowed" />
+    <section className="rounded-[16px] border border-black/[0.07] bg-background px-8 py-7">
+      <SmartNotificationSettings />
+    </section>
   </main>
 );

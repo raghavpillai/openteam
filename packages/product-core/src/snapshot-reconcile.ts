@@ -85,6 +85,7 @@ export const reconcileClientSnapshot = (
   };
   if (
     previous &&
+    previous.notificationRouting === reconciled.notificationRouting &&
     previous.workspace === reconciled.workspace &&
     previous.runtime === reconciled.runtime &&
     previous.bots === reconciled.bots &&

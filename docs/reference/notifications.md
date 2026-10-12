@@ -11,6 +11,55 @@ the live activity projection, including when its macOS window is minimized or
 closed into the background. Quitting desktop stops desktop alerts. Each client
 suppresses alerts for its visible conversation; other conversations can alert.
 
+## Smart notifications
+
+“Pause alerts on other devices while I’m active” is enabled by default and shared
+between Settings on Mac and iPhone. When enabled:
+
+- An iPhone with OpenTeam in the foreground and notifications enabled takes
+  priority over the Mac. Desktop banners and sounds are suppressed.
+- Otherwise, an unlocked Mac running OpenTeam suppresses iPhone pushes while
+  its system idle time is under five minutes. Activity in other applications counts;
+  OpenTeam does not collect which applications you use or what you type.
+- Backgrounding OpenTeam on iPhone releases its priority. Locking or sleeping the
+  Mac, quitting OpenTeam, or reaching five minutes of system inactivity releases
+  the Mac. New notifications can then reach the iPhone.
+
+Clients renew availability every 30 seconds. Transitions are reported immediately
+when the app can reach the server; disconnected or suspended clients expire within
+60 seconds of their last accepted report. A Mac lease also expires at the five-minute
+idle boundary, even if its next heartbeat has not arrived. iPhone foreground activity
+always wins simultaneous activity, so the devices cannot mutually suppress alerts.
+
+Suppressed alerts are consumed, not deferred: they are not replayed when you leave
+a device. Unread messages, badges, and cross-device read cleanup remain unchanged.
+Disabling the setting restores independent notifications on both devices. Android
+push delivery is unchanged.
+
+Presence lives in PostgreSQL, separate from push registration. It follows the
+deployment's single-owner model and only accepts the current authentication mode
+and live sessions. Ordered lifecycle updates prevent a late heartbeat from undoing
+a background or sign-out update. Desktop receives expiring phone presence through
+the existing live snapshot stream; the worker checks the same state under its push
+authorization lock for both APNs and Expo. Older clients do not publish presence;
+new clients connected to older servers retain ordinary notification behavior.
+
+OS permissions and Focus still govern actual presentation. Electron reports native
+notification support but does not expose a reliable macOS notification-permission
+status; a supported Mac with OS alerts disabled can still count as active. A reported
+native delivery failure releases its priority, and the shared setting can disable
+suppression. Presence is best effort during network transitions, not a guarantee
+that an alert already accepted by the OS will never appear on both devices.
+
+Deploy the schema before the server and worker, then rebuild both clients. Verify
+with `apps/worker/test/notification-presence.integration.test.ts` against an isolated
+`OPENTEAM_TEST_DATABASE_URL`, desktop presence/notification tests, Swift
+`NotificationPresenceTests`, and the optional native
+`NativePushUITests/testSmartNotificationPresenceAndPreferenceFollowNativeLifecycle`
+with the loopback native push fixture. Physical-device acceptance should cover Mac
+activity in another app, lock/sleep/quit, iPhone foreground/background, disabled OS
+alerts, and a disconnected client.
+
 `openteam doctor` checks iOS registration eligibility, the running worker's APNs configuration and
 P-256 signing key, bundle-ID matches, and recent delivery errors or overdue pending pushes.
 Configure iOS push on a running installation without restarting it:

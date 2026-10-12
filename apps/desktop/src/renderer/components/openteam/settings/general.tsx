@@ -1,3 +1,4 @@
+import { SmartNotificationSettings } from "./smart-notifications";
 import { Copy } from "lucide-react";
 import { lazy, type PropsWithChildren, Suspense, useState } from "react";
 import { signOut } from "../../../client/auth";
@@ -117,6 +118,8 @@ export default function GeneralSettings() {
           </button>
         </div>
       </SettingsGroup>
+
+      <SmartNotificationSettings />
 
       <SectionLabel>Appearance</SectionLabel>
       <SettingsGroup>

@@ -155,7 +155,8 @@ export class AppService {
       },
       2_500,
       () => this.agentData.loadInferenceSettings({ allowUnconfigured: true }),
-      () => this.transcription.store.status()
+      () => this.transcription.store.status(),
+      authMode
     );
     this.channels = new ChannelService(
       this.prisma,

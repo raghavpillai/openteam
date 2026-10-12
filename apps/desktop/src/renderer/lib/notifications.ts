@@ -1,3 +1,4 @@
+import type { NotificationRouting } from "@openteam/contracts/notification-presence";
 import { notificationAvatarDataUrl } from "./notification-avatar";
 import type { ClientSnapshot, RunView } from "@openteam/contracts";
 import {
@@ -33,6 +34,7 @@ export const desktopNotificationSnapshot = (
   unreadIds: ReadonlySet<string>,
   visibleChannelId: string | null = null
 ): {
+  notificationRouting?: NotificationRouting;
   cursor: string;
   agents: DesktopAgentNotificationState[];
   channels?: Array<ChannelNotificationState & { unreadCount: number }>;
@@ -49,6 +51,7 @@ export const desktopNotificationSnapshot = (
   }
   const botById = new Map(snapshot.bots.map((bot) => [bot.id, bot] as const));
   return {
+    notificationRouting: snapshot.notificationRouting,
     cursor: snapshot.cursor,
     ...(snapshot.channels.some((channel) => channel.notificationState)
       ? {
@@ -102,6 +105,7 @@ export const desktopNotificationSnapshot = (
 
 export interface DesktopNotificationSyncTarget {
   sync: (snapshot: ReturnType<typeof desktopNotificationSnapshot>) => void;
+  clear?: () => void;
 }
 
 /**
@@ -119,6 +123,7 @@ export const syncDesktopNotificationSnapshot = (
   if (!target) return false;
   if (!snapshot) {
     pendingAvatarSync.delete(target);
+    target.clear?.();
     return false;
   }
   const projection = desktopNotificationSnapshot(snapshot, unreadIds);

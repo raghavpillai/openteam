@@ -1,3 +1,4 @@
+import type { NotificationRouting } from "./notification-presence";
 import { withReferenceContract, referenceTool } from "./tool-contracts";
 import { Schema } from "effect";
 import { BOT_AVATAR_COLOR_NAMES } from "./bot-avatar";
@@ -1630,6 +1631,7 @@ export interface SubagentActivityView {
 }
 
 export interface Snapshot {
+  notificationRouting?: NotificationRouting;
   cursor: string;
   workspace: {
     root: string;
@@ -1661,6 +1663,7 @@ export type ClientSnapshot = Omit<Snapshot, "messages">;
 
 /** Initial bounded client payload used before channel history is loaded. */
 export interface ClientBootstrapView {
+  notificationRouting?: NotificationRouting;
   cursor: string;
   workspace: ClientSnapshot["workspace"];
   bots: ClientSnapshot["bots"];
@@ -1743,3 +1746,12 @@ export * from './external-draft';
 export * from './bot-recipe';
 
 export * from "./web-search";
+
+export const UpdateNotificationPresenceInput = Schema.Struct({
+  clientId: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)),
+  sequence: Schema.Number.pipe(Schema.int(), Schema.between(0, 2_147_483_647)),
+  platform: Schema.Literal("macos", "ios"),
+  active: Schema.Boolean,
+  idleSeconds: Schema.optional(Schema.Number.pipe(Schema.finite(), Schema.between(0, 2_147_483_647))),
+});
+export const UpdateNotificationPreferencesInput = Schema.Struct({ smartEnabled: Schema.Boolean });

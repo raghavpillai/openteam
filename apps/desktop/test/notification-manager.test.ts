@@ -4,6 +4,42 @@ import {
   DesktopNotificationManager,
 } from "../src/main/notifications";
 
+test("iPhone presence consumes alerts without clearing badges or replaying them, and expires offline", () => {
+  let now = 1_000;
+  const delivered: string[] = [];
+  const badges: string[] = [];
+  const manager = new DesktopNotificationManager({
+    isFocused: () => false, isSupported: () => true,
+    deliver: event => delivered.push(event.notificationId!), setBadge: badge => badges.push(badge),
+  }, () => now);
+  const routing = { smartEnabled: true, serverTime: 1_000_000, iosActiveUntil: 1_060_000, macActiveUntil: 1_060_000 };
+  const snapshot = (sequence: number, notificationRouting = routing) => ({
+    agents: [], notificationRouting,
+    channels: [{ channelId: "chat", lastReadSequence: "0", lastReadNotificationSequence: "0",
+      notificationCursor: String(sequence), unreadCount: sequence, activityUnreadCount: 0,
+      notifications: sequence ? [{ channelId: "chat", botId: "bot", kind: "message" as const,
+        title: "Bot", body: "Hello", notificationSequence: String(sequence), messageSequence: String(sequence) }] : [],
+    }],
+  });
+  manager.sync(snapshot(0));
+  manager.sync(snapshot(1));
+  expect(delivered).toEqual([]);
+  expect(badges.at(-1)).toBe("1");
+  now += 60_000;
+  manager.sync(snapshot(1)); // Reusing an old projection cannot renew a lease.
+  expect(delivered).toEqual([]);
+  manager.sync(snapshot(2));
+  expect(delivered).toEqual(["chat:2"]);
+  manager.sync(snapshot(3, { ...routing, serverTime: 1_061_000, iosActiveUntil: 1_121_000 }));
+  expect(delivered).toEqual(["chat:2"]);
+  manager.sync(snapshot(4, { ...routing, smartEnabled: false, serverTime: 1_062_000 }));
+  expect(delivered).toEqual(["chat:2", "chat:4"]);
+  manager.clear();
+  manager.sync(snapshot(0, { ...routing, smartEnabled: false, serverTime: 1 }));
+  manager.sync(snapshot(1, { ...routing, smartEnabled: false, serverTime: 2 }));
+  expect(delivered.at(-1)).toBe("chat:1");
+});
+
 const agent = (
   patch: Partial<DesktopAgentNotificationState> = {}
 ): DesktopAgentNotificationState => ({

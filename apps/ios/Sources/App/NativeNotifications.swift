@@ -18,6 +18,47 @@ final class NativeNotifications {
   private var registeredKey: String?
   private var retiring = false
   private var pendingTap: NativePush?
+  private var presence: NotificationPresence?
+  private var foreground = UIApplication.shared.applicationState == .active
+  private var routingTime = -Double.infinity
+  private(set) var smartEnabled: Bool?
+  private(set) var changingSmartPreference = false
+
+  func setForeground(_ active: Bool) {
+    foreground = active
+    updatePresence()
+  }
+  private func updatePresence() {
+    if presence == nil, !retiring, let api {
+      let current = epoch
+      presence = NotificationPresence { [weak self] payload in
+        guard let result = try? await api.request("/api/v0/notification-presence", method: "POST", body: payload),
+          let self, self.epoch == current else { return }
+        self.applyRouting(result)
+      }
+    }
+
+    presence?.setActive(foreground && enabled && registered && !retiring &&
+      [.authorized, .provisional, .ephemeral].contains(permission))
+  }
+  private func applyRouting(_ value: JSON) {
+    guard case .number(let time) = value["serverTime"], time > routingTime,
+      case .bool(let enabled) = value["smartEnabled"] else { return }
+    routingTime = time
+    smartEnabled = enabled
+  }
+  func setSmartEnabled(_ value: Bool) async {
+    guard let api, !changingSmartPreference else { return }
+    changingSmartPreference = true
+    defer { changingSmartPreference = false }
+    let current = epoch
+    do {
+      let result = try await api.request("/api/v0/notification-preferences", method: "PATCH",
+        body: .object(["smartEnabled": .bool(value)]))
+      if current == epoch { applyRouting(result); failure = nil }
+    } catch { if current == epoch { failure = UserFacingError.message(error) } }
+  }
+
   private var reads = NotificationReads(scope: "")
   #if DEBUG && targetEnvironment(simulator)
     private var didResetQA = false
@@ -67,6 +108,10 @@ final class NativeNotifications {
     if retiring || session?.server != record.server || session?.userID != record.userID
       || session?.token != record.token
     {
+      presence?.setActive(false)
+      presence = nil
+      routingTime = -Double.infinity
+      smartEnabled = nil
       epoch = UUID()
       registeredKey = nil
       registered = false
@@ -89,6 +134,7 @@ final class NativeNotifications {
         }).flatMap { $0.scope == scope ? $0 : nil } ?? NotificationReads(scope: scope)
     }
     retiring = false
+    updatePresence()
   }
   func restoreBackgroundSession() {
     #if DEBUG
@@ -127,6 +173,7 @@ final class NativeNotifications {
         retiring = false
       } catch { failure = UserFacingError.message(error) }
     }
+    updatePresence()
     _ = await synchronize()
     await routePendingTap()
   }
@@ -156,6 +203,7 @@ final class NativeNotifications {
   func registrationFailed() {
     guard available else { return }
     registered = false
+    updatePresence()
     failure =
       "This iPhone couldn’t register for notifications. Check your connection and try again."
   }
@@ -185,11 +233,13 @@ final class NativeNotifications {
         if current == epoch {
           registeredKey = key
           registered = true
+          updatePresence()
           failure = nil
         }
       } catch {
         if current == epoch {
           registered = false
+          updatePresence()
           failure =
             "Notifications couldn’t connect to your server. " + UserFacingError.message(error)
         }
@@ -205,6 +255,8 @@ final class NativeNotifications {
   func retire() async throws {
     guard available else { return }
     retiring = true
+    presence?.setActive(false)
+    presence = nil
     epoch = UUID()
     let current = epoch
     await registering?.value
@@ -231,6 +283,10 @@ final class NativeNotifications {
     await clearDelivered()
   }
   func reset() {
+    presence?.setActive(false)
+    presence = nil
+    smartEnabled = nil
+    routingTime = -Double.infinity
     epoch = UUID()
     retiring = true
     session = nil
@@ -294,6 +350,7 @@ final class NativeNotifications {
     do {
       let value = try await api.request("/api/v0/notification-state")
       guard current == epoch, request == snapshotRequest else { return false }
+      applyRouting(value["notificationRouting"])
       let freshBadge = reads.apply(snapshot: value)
       saveReads()
       await removeReadNotifications()
@@ -440,6 +497,15 @@ struct PushNotificationSettings: View {
   private var notifications: NativeNotifications { .shared }
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
+      if let smart = notifications.smartEnabled {
+        Toggle("Pause alerts on other devices while I’m active", isOn: Binding(
+          get: { notifications.smartEnabled ?? smart },
+          set: { value in Task { await notifications.setSmartEnabled(value) } }
+        )).disabled(notifications.changingSmartPreference).tint(NativePalette.toggle)
+          .accessibilityIdentifier("smart-notifications-toggle")
+        Text("Your iPhone takes priority while OpenTeam is open. Otherwise, phone alerts pause while you’re using your Mac and resume after five minutes of inactivity.")
+          .font(.footnote).foregroundStyle(NativePalette.muted)
+      }
       Toggle(
         "Notifications",
         isOn: Binding(

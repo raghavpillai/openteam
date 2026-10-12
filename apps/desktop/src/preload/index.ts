@@ -246,6 +246,12 @@ contextBridge.exposeInMainWorld("openteam", {
     openSettings: () => ipcRenderer.invoke("openteam:microphone:open-settings"),
   },
   notifications: {
+    clear: () => ipcRenderer.send("openteam:notifications:clear"),
+    activity: () => ipcRenderer.invoke("openteam:notifications:activity"),
+    onActivityChange: (callback: () => void) => {
+      ipcRenderer.on("openteam:notifications:activity-changed", callback);
+      return () => ipcRenderer.removeListener("openteam:notifications:activity-changed", callback);
+    },
     sync: (snapshot: unknown) =>
       ipcRenderer.send("openteam:notifications:sync", notificationSnapshot(snapshot)),
     setVisibleChannel: (channelId: string | null) => {

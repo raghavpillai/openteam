@@ -6,15 +6,17 @@ export function InteractiveSwitch({
   checked,
   disabled,
   onChange,
+  label,
 }: {
   checked: boolean;
   disabled?: boolean;
   onChange: (checked: boolean) => void;
+  label?: string;
 }) {
   return (
     <button
       aria-checked={checked}
-      aria-label={checked ? "On" : "Off"}
+      aria-label={label ?? (checked ? "On" : "Off")}
       className={cn(
         "relative inline-flex h-5 w-[34px] shrink-0 rounded-full outline-none transition-colors duration-120 ease-out focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50",
         checked ? "bg-[var(--control-accent)]" : "bg-black/15 dark:bg-white/20"

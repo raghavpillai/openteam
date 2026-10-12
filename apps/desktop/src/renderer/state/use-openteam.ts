@@ -90,6 +90,7 @@ const bootstrapSnapshot = (
   const states = [...channelStates.values()];
   const activity = mergeBootstrapActivityStates(bootstrap, states);
   return {
+    notificationRouting: bootstrap.notificationRouting,
     cursor: bootstrap.cursor,
     workspace: bootstrap.workspace,
     bots: bootstrap.bots,

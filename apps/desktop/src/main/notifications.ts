@@ -9,6 +9,7 @@ import {
   type NotificationSender,
   isAgentNotificationKind,
 } from "@openteam/contracts/notification-content";
+import { desktopNotificationQuietMs, type NotificationRouting } from "@openteam/contracts/notification-presence";
 
 export type DesktopNotificationKind = AgentNotificationKind;
 
@@ -26,6 +27,7 @@ export interface DesktopAgentNotificationState {
 }
 
 export interface DesktopNotificationSnapshot {
+  notificationRouting?: NotificationRouting;
   cursor?: string;
   agents: DesktopAgentNotificationState[];
   channels?: Array<ChannelNotificationState & { unreadCount: number }>;
@@ -121,6 +123,8 @@ export class DesktopNotificationManager {
   private lastBadge = "";
   private activityCursors = new Map<string, bigint>();
   private deliveredActivity = new Map<string, ChannelNotificationView>();
+  private quietUntil = 0;
+  private routingTime = -1;
 
   constructor(
     private readonly adapter: DesktopNotificationAdapter,
@@ -149,6 +153,11 @@ export class DesktopNotificationManager {
       snapshot.cursor && /^\d+$/.test(snapshot.cursor) ? BigInt(snapshot.cursor) : null;
     if (cursor !== null && this.lastCursor !== null && cursor < this.lastCursor) return;
     if (cursor !== null) this.lastCursor = cursor;
+    const routing = snapshot.notificationRouting;
+    if (routing && routing.serverTime > this.routingTime) {
+      this.routingTime = routing.serverTime;
+      this.quietUntil = this.now() + desktopNotificationQuietMs(routing);
+    }
     if (snapshot.channels) {
       this.syncActivity(snapshot.channels);
       this.previous = snapshot;
@@ -229,6 +238,7 @@ export class DesktopNotificationManager {
       if (!event) continue;
       if (
         !agent.notificationsEnabled ||
+        this.now() < this.quietUntil ||
         agent.hiddenFromSidebar ||
         this.adapter.isFocused() ||
         !this.adapter.isSupported()
@@ -272,6 +282,7 @@ export class DesktopNotificationManager {
           continue;
         if (
           (this.adapter.isFocused() && this.visibleChannelId === channel.channelId) ||
+          this.now() < this.quietUntil ||
           !this.adapter.isSupported()
         )
           continue;
@@ -300,6 +311,8 @@ export class DesktopNotificationManager {
   }
 
   clear(): void {
+    this.quietUntil = 0;
+    this.routingTime = -1;
     for (const id of this.deliveredActivity.keys()) this.adapter.dismiss?.(id);
     this.deliveredActivity.clear();
     this.activityCursors.clear();

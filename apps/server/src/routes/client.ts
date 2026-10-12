@@ -2,6 +2,8 @@ import {
   ApiError,
   MarkChannelReadInput,
   RegisterPushDeviceInput,
+  UpdateNotificationPresenceInput,
+  UpdateNotificationPreferencesInput,
   type SearchCategory,
   UploadAssetInput,
 } from "@openteam/contracts";
@@ -40,6 +42,20 @@ export async function clientRoutes(context: RouteContext): Promise<Response | un
       ),
       201
     );
+  }
+  if (path === "/api/notification-presence" && request.method === "POST") {
+    if (authMode === "required" && !authenticatedSessionId) return json({ error: { code: "unauthorized", message: "Sign in to OpenTeam to continue" } }, 401);
+    return json(await run(app.notifications.updatePresence(
+      await parseBody(request, UpdateNotificationPresenceInput),
+      authMode === "required" ? { mode: "required", sessionId: authenticatedSessionId! } : { mode: "disabled" }
+    )), 200, { "cache-control": "no-store" });
+  }
+  if (path === "/api/notification-preferences" && request.method === "GET") {
+    return json(await run(app.notifications.routing()), 200, { "cache-control": "no-store" });
+  }
+  if (path === "/api/notification-preferences" && request.method === "PATCH") {
+    const input = await parseBody(request, UpdateNotificationPreferencesInput);
+    return json(await run(app.notifications.updatePreferences(input.smartEnabled)));
   }
   if (request.method === "GET" && path === "/api/notification-state") {
     return json(await run(app.notifications.snapshot()), 200, { "cache-control": "no-store" });

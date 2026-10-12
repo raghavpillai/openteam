@@ -207,6 +207,8 @@ describe("snapshot pagination", () => {
       {
         channel: { findFirst: async () => ({ id: channelId }) },
         channelMessage: { findMany: async () => [...rows].reverse() },
+        notificationPresence: { findMany: async () => [] },
+        notificationPreferences: { findUnique: async () => null },
         event: { findFirst: async () => ({ sequence: 2n }) },
         $queryRaw: async () => {
           rawQueryCount += 1;
@@ -255,6 +257,8 @@ describe("snapshot pagination", () => {
         channelMessage: {
           findMany: async () => [loaded],
         },
+        notificationPresence: { findMany: async () => [] },
+        notificationPreferences: { findUnique: async () => null },
         event: { findFirst: async () => ({ sequence: 500n }) },
         $queryRaw: async (query: RawQuery) => {
           rawQueryCount += 1;
@@ -307,6 +311,8 @@ describe("snapshot pagination", () => {
       {
         channel: { findFirst: async () => ({ id: channelId }) },
         channelMessage: { findMany: async () => [loaded] },
+        notificationPresence: { findMany: async () => [] },
+        notificationPreferences: { findUnique: async () => null },
         event: { findFirst: async () => ({ sequence: 4n }) },
         $queryRaw: async () => {
           cycleQueries += 1;
@@ -332,6 +338,8 @@ describe("snapshot pagination", () => {
       {
         channel: { findFirst: async () => ({ id: channelId }) },
         channelMessage: { findMany: async () => [missing] },
+        notificationPresence: { findMany: async () => [] },
+        notificationPreferences: { findUnique: async () => null },
         event: { findFirst: async () => ({ sequence: 5n }) },
         $queryRaw: async () => {
           missingQueries += 1;
@@ -371,6 +379,8 @@ describe("snapshot pagination", () => {
     }> = [];
     const service = new SnapshotService(
       {
+        notificationPresence: { findMany: async () => [] },
+        notificationPreferences: { findUnique: async () => null },
         event: {
           findFirst: () => {
             queryOrder.push("cursor");
@@ -437,6 +447,8 @@ describe("snapshot pagination", () => {
     let cursorReads = 0;
     const service = new SnapshotService(
       {
+        notificationPresence: { findMany: async () => [] },
+        notificationPreferences: { findUnique: async () => null },
         event: {
           findFirst: async () => {
             cursorReads += 1;
@@ -528,6 +540,8 @@ describe("snapshot pagination", () => {
       {
         bot: { findMany: async () => [bot] },
         channel: { findMany: async () => [channel] },
+        notificationPresence: { findMany: async () => [] },
+        notificationPreferences: { findUnique: async () => null },
         event: { findFirst: async () => ({ sequence: 43n }) },
         run: { findMany: async () => [] },
         channelRound: { findMany: async () => [] },
@@ -601,6 +615,8 @@ describe("snapshot pagination", () => {
   test("rejects future event cursors instead of leaving the stream permanently idle", async () => {
     const service = new SnapshotService(
       {
+        notificationPresence: { findMany: async () => [] },
+        notificationPreferences: { findUnique: async () => null },
         event: {
           aggregate: async () => ({ _min: { sequence: 10n }, _max: { sequence: 20n } }),
           findMany: async () => [],

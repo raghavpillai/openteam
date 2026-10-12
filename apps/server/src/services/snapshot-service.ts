@@ -1,4 +1,4 @@
-import { channelNotificationStates } from "@openteam/messaging";
+import { notificationRouting, channelNotificationStates } from "@openteam/messaging";
 import {
   ApiError,
   type ChannelClientState,
@@ -84,7 +84,8 @@ export class SnapshotService {
     private readonly isQueueReady: () => boolean | Promise<boolean>,
     private readonly runtimeProbeTimeoutMs = 2_500,
     private readonly inferenceSettings?: () => Promise<ServerInferenceSettings>,
-    transcriptionStatus?: () => Promise<"configured" | "missing" | "invalid">
+    transcriptionStatus?: () => Promise<"configured" | "missing" | "invalid">,
+    private readonly authMode: "required" | "disabled" = "required"
   ) {
     this.runtimeHealth = new RuntimeHealth(
       prisma,
@@ -145,6 +146,7 @@ export class SnapshotService {
       );
       return {
         cursor: cursor?.sequence.toString() ?? "0",
+        notificationRouting: await notificationRouting(this.prisma, this.authMode),
         workspace: workspaceView(this.workspaceRoot),
         bots: bots
           .filter((bot) => bot.conversation)
@@ -231,6 +233,7 @@ export class SnapshotService {
     ]);
     return {
       cursor: cursor?.sequence.toString() ?? "0",
+      notificationRouting: await notificationRouting(this.prisma, this.authMode),
       workspace: workspaceView(this.workspaceRoot),
       bots: bots
         .filter((bot) => bot.conversation)
@@ -338,6 +341,7 @@ export class SnapshotService {
       ]);
     return {
       cursor: startCursor?.sequence.toString() ?? "0",
+      notificationRouting: await notificationRouting(this.prisma, this.authMode),
       workspace: workspaceView(this.workspaceRoot),
       bots: bots
         .filter((bot) => bot.conversation)

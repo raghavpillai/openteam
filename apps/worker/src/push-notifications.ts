@@ -1,3 +1,5 @@
+import { suppressMobileNotification } from "@openteam/contracts/notification-presence";
+import { notificationRouting } from "@openteam/messaging";
 import { ApnsSettingsStore } from "@openteam/db/apns-settings";
 import {
   type AgentNotificationPayload,
@@ -291,8 +293,11 @@ export class PushNotificationDispatcher {
             const finalDeviceById = new Map(
               finalDevices.map((device) => [device.id, device] as const)
             );
+            const routing = sendable.some(item => item.payload.kind !== "badge-sync" && item.device.platform === "ios")
+              ? await notificationRouting(tx, this.authMode) : null;
             const allowed = await Promise.all(
-              sendable.map((item) => this.notificationIsDeliverable(tx, item.payload))
+              sendable.map((item) => item.payload.kind !== "badge-sync" && item.device.platform === "ios" && routing && suppressMobileNotification(routing)
+                ? false : this.notificationIsDeliverable(tx, item.payload))
             );
             const attempted = sendable.flatMap((item, index) => {
               const device = finalDeviceById.get(item.delivery.target);

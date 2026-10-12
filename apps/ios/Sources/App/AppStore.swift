@@ -477,6 +477,9 @@ final class AppStore {
   }
   func setForeground(_ active: Bool) {
     foreground = active
+    #if canImport(UIKit)
+      NativeNotifications.shared.setForeground(active)
+    #endif
     if active {
       #if canImport(UIKit)
         if launchComplete { Task { await NativeNotifications.shared.resume() } }

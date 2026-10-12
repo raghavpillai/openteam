@@ -1,3 +1,6 @@
+import { startNotificationPresence } from "./lib/notification-presence";
+import { authHeaders } from "./client/auth";
+import { API_BASE } from "./client/http";
 import type { PromptDraft } from "./components/ai-elements/prompt-input";
 import { BotAvatarActivityProvider } from "./components/openteam/bot-avatar-activity";
 import type { BotView, ChannelView, SearchResultView, UpdateBotInput } from "@openteam/contracts";
@@ -268,6 +271,29 @@ export default function App() {
   );
 
   useEffect(() => () => readReceipts.current.clear(), []);
+  useEffect(() => () => {
+    // Cancel avatar work and reset native presence/cursors across sign-out or server changes.
+    syncDesktopNotificationSnapshot(window.openteam?.notifications, null, new Set());
+  }, []);
+
+  useEffect(() => {
+    const native = window.openteam;
+    if (!appReady || native?.platform !== "darwin" || !native.notifications?.activity) return;
+    const headers = { "content-type": "application/json", ...authHeaders() };
+    const stop = startNotificationPresence({
+      activity: () => native.notifications.activity(),
+      subscribe: changed => native.notifications.onActivityChange(changed),
+      send: input => api.updateNotificationPresence(input),
+      release: input => {
+        // Capture the old credentials: logout/server switch must retire the old lease.
+        void fetch(`${API_BASE}/api/v0/notification-presence`, { method: "POST", headers,
+          body: JSON.stringify(input), keepalive: true }).catch(() => undefined);
+      },
+    });
+    window.addEventListener("beforeunload", stop);
+    return () => { window.removeEventListener("beforeunload", stop); stop(); };
+  }, [appReady]);
+
 
   useEffect(() => {
     const handleResize = () => setViewportWidth(window.innerWidth);

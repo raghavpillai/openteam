@@ -3078,3 +3078,5 @@ export async function buildSafeTranscript(
   events.sort((left, right) => left.at.localeCompare(right.at) || left.id.localeCompare(right.id));
   return { botId, generatedAt: new Date().toISOString(), events };
 }
+
+export { notificationRouting } from "./notification-presence";

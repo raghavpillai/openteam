@@ -114,6 +114,8 @@ describe("NotificationService", () => {
     let update: unknown = null;
     let lockCount = 0;
     const tx = {
+      notificationPresence: { updateMany: async () => ({ count: 0 }) },
+      event: { create: async () => ({}) },
       $executeRaw: async () => {
         lockCount += 1;
         return 1;
@@ -170,6 +172,8 @@ describe("NotificationService", () => {
       },
     };
     const tx = {
+      notificationPresence: { updateMany: async () => ({ count: 0 }) },
+      event: { create: async () => ({}) },
       $executeRaw: async () => 0,
       pushDevice,
     };

@@ -9,8 +9,10 @@ import {
   unreadBadgeCount,
   unreadChannelCount,
   channelNotificationStates,
+  notificationRouting,
 } from "@openteam/messaging";
 import { appendEvent, serviceEffect } from "./service-utils";
+import { notificationPresenceLifetime, type NotificationPresenceInput } from "@openteam/contracts/notification-presence";
 
 const PUSH_DELIVERY_LOCK_TIMEOUT_MS = 20_000;
 
@@ -48,6 +50,46 @@ export class NotificationService {
     private readonly prisma: PrismaClient,
     private readonly authMode: PushAuthenticationMode = "required"
   ) {}
+
+  routing = () => serviceEffect(() => notificationRouting(this.prisma, this.authMode));
+
+  updatePreferences = (smartEnabled: boolean) => serviceEffect(() => this.prisma.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PUSH_DELIVERY_ADVISORY_LOCK.namespace}, ${PUSH_DELIVERY_ADVISORY_LOCK.key})`;
+    await tx.notificationPreferences.upsert({ where: { id: "global" },
+      create: { id: "global", smartEnabled }, update: { smartEnabled } });
+    await appendEvent(tx, "notification.presence.changed", null, {});
+    return notificationRouting(tx, this.authMode);
+  }, { maxWait: PUSH_DELIVERY_LOCK_TIMEOUT_MS, timeout: PUSH_DELIVERY_LOCK_TIMEOUT_MS }));
+
+  updatePresence = (input: NotificationPresenceInput, authentication: PushRegistrationAuthentication) =>
+    serviceEffect(() => this.prisma.$transaction(async tx => {
+      if (authentication.mode !== this.authMode) throw new ApiError(409, "auth_mode_changed", "Refresh authentication");
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PUSH_DELIVERY_ADVISORY_LOCK.namespace}, ${PUSH_DELIVERY_ADVISORY_LOCK.key})`;
+      const now = new Date();
+      const sessionId = authentication.mode === "required" ? authentication.sessionId : null;
+      if (sessionId) {
+        const session = await tx.session.findUnique({ where: { id: sessionId } });
+        if (!session || session.expiresAt <= now) throw new ApiError(401, "unauthorized", "Sign in to OpenTeam to continue");
+      }
+      const expiresAt = new Date(now.getTime() + notificationPresenceLifetime(input));
+      const required = authentication.mode === "required";
+      // Sequence guards prevent late foreground/heartbeat requests reviving a released lease.
+      // Bind the random lifecycle ID to its original session and platform.
+      const changed = await tx.$executeRaw`
+        INSERT INTO "NotificationPresence" ("clientId", "sequence", "platform", "authRequired", "authSessionId", "expiresAt", "updatedAt")
+        VALUES (${input.clientId}::uuid, ${input.sequence}, ${input.platform}, ${required}, ${sessionId}, ${expiresAt}, ${now})
+        ON CONFLICT ("clientId") DO UPDATE SET "sequence" = EXCLUDED."sequence", "expiresAt" = EXCLUDED."expiresAt", "updatedAt" = EXCLUDED."updatedAt"
+        WHERE "NotificationPresence"."sequence" < EXCLUDED."sequence"
+          AND "NotificationPresence"."authRequired" = EXCLUDED."authRequired"
+          AND "NotificationPresence"."authSessionId" IS NOT DISTINCT FROM EXCLUDED."authSessionId"
+          AND "NotificationPresence"."platform" = EXCLUDED."platform"
+      `;
+      if (changed && input.platform === "ios") await appendEvent(tx, "notification.presence.changed", null, {});
+      if (input.sequence === 1) await tx.notificationPresence.deleteMany({
+        where: { updatedAt: { lt: new Date(now.getTime() - 86_400_000) } },
+      });
+      return notificationRouting(tx, this.authMode, now);
+    }, { maxWait: PUSH_DELIVERY_LOCK_TIMEOUT_MS, timeout: PUSH_DELIVERY_LOCK_TIMEOUT_MS }));
 
   register = (input: RegisterPushDeviceInput, authentication: PushRegistrationAuthentication) =>
     serviceEffect(async () => {
@@ -116,7 +158,7 @@ export class NotificationService {
       tx.channelReadState.findMany({ select: { channelId: true, lastReadSequence: true, lastReadNotificationSequence: true } }),
       unreadBadgeCount(tx),
     ]);
-    return { cursor: (event?.sequence ?? 0n).toString(), badgeCount, readStates: states.map(s => ({
+    return { notificationRouting: await notificationRouting(tx, this.authMode), cursor: (event?.sequence ?? 0n).toString(), badgeCount, readStates: states.map(s => ({
       channelId: s.channelId, lastReadSequence: s.lastReadSequence.toString(),
       lastReadNotificationSequence: s.lastReadNotificationSequence.toString(),
     })) };
@@ -132,6 +174,9 @@ export class NotificationService {
                 ${PUSH_DELIVERY_ADVISORY_LOCK.key}
               )
             `;
+          await tx.notificationPresence.updateMany({ where: { authSessionId: sessionId },
+            data: { expiresAt: new Date(0), sequence: 2_147_483_647 } });
+          await appendEvent(tx, "notification.presence.changed", null, {});
           return tx.pushDevice.updateMany({
             where: { authRequired: true, authSessionId: sessionId, enabled: true },
             data: { enabled: false },

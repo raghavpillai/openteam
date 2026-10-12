@@ -17,6 +17,9 @@ export const createDesktopLiveSyncController = (
       openTeamClient.listenForEvents(cursor, {
         ...eventHandlers,
         onOpen: () => { eventHandlers.onOpen?.(); refreshMemoryViews(); },
-        onEvent: (event) => { eventHandlers.onEvent(event); refreshMemoryViews(event); },
+        onEvent: (event) => {
+          if (event.topic === "notification.presence.changed") window.dispatchEvent(new Event("openteam:notification-preferences-changed"));
+          eventHandlers.onEvent(event); refreshMemoryViews(event);
+        },
       }, signal),
   });

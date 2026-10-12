@@ -40,6 +40,46 @@ import XCTest
     XCTFail("Native token was not registered")
     return [:]
   }
+  func waitPresence(_ active: Bool) async throws -> [String: Any] {
+    for _ in 0..<30 {
+      let value = try await request("/__push/state")
+      if let last = (value["presence"] as? [[String: Any]])?.last,
+        last["active"] as? Bool == active { return last }
+      try await Task.sleep(for: .milliseconds(200))
+    }
+    XCTFail("Native presence did not become \(active)")
+    return [:]
+  }
+  func testSmartNotificationPresenceAndPreferenceFollowNativeLifecycle() async throws {
+    let app = try await launch()
+    _ = try await waitRegistered()
+    let first = try await waitPresence(true)
+    XCUIDevice.shared.press(.home)
+    let background = try await waitPresence(false)
+    XCTAssertEqual(first["clientId"] as? String, background["clientId"] as? String)
+    XCTAssertGreaterThan(background["sequence"] as? Int ?? 0, first["sequence"] as? Int ?? 0)
+    app.activate()
+    _ = try await waitPresence(true)
+    app.buttons["settings-button"].tap()
+    let smart = app.switches["smart-notifications-toggle"]
+    if !smart.isHittable { app.swipeUp() }
+    XCTAssertTrue(smart.waitForExistence(timeout: 5))
+    (smart.switches.firstMatch.exists ? smart.switches.firstMatch : smart).tap()
+    for _ in 0..<20 {
+      if (try await request("/__push/state"))["smartEnabled"] as? Bool == false { break }
+      try await Task.sleep(for: .milliseconds(200))
+    }
+    let state = try await request("/__push/state")
+    XCTAssertEqual(state["smartEnabled"] as? Bool, false)
+    let screenshot = XCTAttachment(screenshot: app.screenshot())
+    screenshot.name = "smart-notification-settings"
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
+    let notifications = app.switches["push-notifications-toggle"]
+    if !notifications.isHittable { app.swipeUp() }
+    (notifications.switches.firstMatch.exists ? notifications.switches.firstMatch : notifications).tap()
+    _ = try await waitPresence(false)
+  }
   func read(_ channel: String, _ message: String, _ activity: String) -> [String: Any] {
     ["channelId": channel, "lastReadSequence": message, "lastReadNotificationSequence": activity]
   }

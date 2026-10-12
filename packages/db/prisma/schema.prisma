@@ -1161,6 +1161,7 @@ model Session {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   pushDevices PushDevice[]
+  notificationPresence NotificationPresence[]
 
   @@index([userId])
   @@map("session")
@@ -1323,4 +1324,23 @@ model ApnsSettings {
   topic               String
   encryptedPrivateKey String
   updatedAt           DateTime @updatedAt
+}
+
+// Ephemeral availability, distinct from push registration and read state.
+model NotificationPresence {
+  clientId String @id @db.Uuid
+  sequence Int
+  platform String
+  authRequired Boolean
+  authSessionId String?
+  authSession Session? @relation(fields: [authSessionId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  updatedAt DateTime @updatedAt
+  @@index([expiresAt])
+  @@index([authSessionId])
+}
+
+model NotificationPreferences {
+  id String @id @default("global")
+  smartEnabled Boolean @default(true)
 }

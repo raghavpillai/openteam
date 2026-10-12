@@ -40,7 +40,8 @@
     "./tool-results": "./src/tool-results.ts",
     "./reference-main-parsers": "./src/reference-main-parsers.ts",
     "./sibling-threads": "./src/sibling-threads.ts",
-    "./read-transcript": "./src/read-transcript.ts"
+    "./read-transcript": "./src/read-transcript.ts",
+    "./notification-presence": "./src/notification-presence.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun",

@@ -21,6 +21,7 @@ import {
   nativeTheme,
   net,
   protocol,
+  powerMonitor,
   shell,
   systemPreferences,
 } from "electron";
@@ -741,6 +742,7 @@ ipcMain.handle("openteam:updates:install-client", async (event) => {
   // quitAndInstall closes every window without emitting before-quit. Without this, the macOS
   // close-to-hide handler cancels the close, so the app neither quits nor installs.
   isQuitting = true;
+  mainWindow?.webContents.send("openteam:notifications:activity-changed");
   autoUpdater.quitAndInstall(false, true);
 });
 
@@ -812,7 +814,10 @@ const desktopAgentState = (value: unknown): DesktopAgentNotificationState | null
 
 const desktopNotificationSnapshot = (value: unknown): DesktopNotificationSnapshot | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const candidate = value as { cursor?: unknown; agents?: unknown; channels?: unknown };
+  const candidate = value as { notificationRouting?: unknown; cursor?: unknown; agents?: unknown; channels?: unknown };
+  const routing = candidate.notificationRouting as Record<string, unknown> | undefined;
+  if (routing !== undefined && (!routing || typeof routing !== "object" ||
+    typeof routing.smartEnabled !== "boolean" || ![routing.serverTime, routing.iosActiveUntil, routing.macActiveUntil].every(value => typeof value === "number" && Number.isFinite(value) && value >= 0))) return null;
   const agents = candidate.agents;
   const channels =
     candidate.channels === undefined ? undefined : parseNotificationChannels(candidate.channels);
@@ -827,6 +832,7 @@ const desktopNotificationSnapshot = (value: unknown): DesktopNotificationSnapsho
   const parsed = agents.map(desktopAgentState);
   return parsed.every((agent): agent is DesktopAgentNotificationState => Boolean(agent))
     ? {
+        notificationRouting: routing as unknown as DesktopNotificationSnapshot["notificationRouting"],
         agents: parsed,
         ...(candidate.cursor ? { cursor: candidate.cursor } : {}),
         ...(channels !== undefined ? { channels } : {}),
@@ -840,6 +846,10 @@ ipcMain.on("openteam:notifications:sync", (event, request: unknown) => {
   if (snapshot) desktopNotifications?.sync(snapshot);
 });
 
+ipcMain.on("openteam:notifications:clear", (event) => {
+  if (mainWindow && event.sender === mainWindow.webContents) desktopNotifications?.clear();
+});
+
 ipcMain.on("openteam:notifications:visible-channel", (event, channelId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) return;
   if (
@@ -849,6 +859,17 @@ ipcMain.on("openteam:notifications:visible-channel", (event, channelId: unknown)
     return;
   }
   desktopNotifications?.setVisibleChannel(channelId as string | null);
+});
+
+let notificationScreenLocked = false;
+let notificationSuspended = false;
+let notificationDeliveryFailed = false;
+ipcMain.handle("openteam:notifications:activity", (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Activity is unavailable");
+  const idleSeconds = powerMonitor.getSystemIdleTime();
+  return { idleSeconds, active: process.platform === "darwin" && !isQuitting &&
+    !notificationScreenLocked && !notificationSuspended && !notificationDeliveryFailed &&
+    powerMonitor.getSystemIdleState(300) !== "locked" && Notification.isSupported() && idleSeconds < 300 };
 });
 
 ipcMain.handle("openteam:notifications:status", async (event) => {
@@ -1108,6 +1129,13 @@ if (!hasSingleInstanceLock) {
       computerSettings = createComputerSettingsStore(
         join(app.getPath("userData"), "computer-settings.json")
       );
+      const activityChanged = () => mainWindow?.webContents.send("openteam:notifications:activity-changed");
+      powerMonitor.on("lock-screen", () => { notificationScreenLocked = true; activityChanged(); });
+      powerMonitor.on("unlock-screen", () => { notificationScreenLocked = false; notificationDeliveryFailed = false; activityChanged(); });
+      powerMonitor.on("suspend", () => { notificationSuspended = true; activityChanged(); });
+      powerMonitor.on("resume", () => { notificationSuspended = false; activityChanged(); });
+      powerMonitor.on("user-did-resign-active", () => { notificationScreenLocked = true; activityChanged(); });
+      powerMonitor.on("user-did-become-active", () => { notificationScreenLocked = false; activityChanged(); });
       desktopNotifications = new DesktopNotificationManager({
         isFocused: () => mainWindow?.isFocused() ?? false,
         isSupported: () => Notification.isSupported(),
@@ -1139,6 +1167,7 @@ if (!hasSingleInstanceLock) {
           };
           notification.once("close", release);
           notification.once("show", () => {
+            notificationDeliveryFailed = false;
             if (debugNotifications) {
               console.info(
                 "OpenTeam native notification shown",
@@ -1148,6 +1177,8 @@ if (!hasSingleInstanceLock) {
             }
           });
           notification.once("failed", (_event, error) => {
+            notificationDeliveryFailed = true;
+            mainWindow?.webContents.send("openteam:notifications:activity-changed");
             console.error("OpenTeam native notification failed", error);
             release();
           });
@@ -1217,6 +1248,7 @@ if (!hasSingleInstanceLock) {
 app.on("before-quit", () => {
   pluginOAuth.closeAll();
   isQuitting = true;
+  mainWindow?.webContents.send("openteam:notifications:activity-changed");
   if (desktopUpdateTimer) clearInterval(desktopUpdateTimer);
   desktopUpdateTimer = null;
   desktopNotifications?.clear();

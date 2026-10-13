@@ -232,16 +232,18 @@ try:
     demo_env.pop('NO_COLOR', None)
     code, output = execute(['/bin/sh', '/fixtures/install.sh', '--dir', str(directory / 'installation'),
         '--compose-url', url + '/openteam-compose.yaml', '--checksum-url', url + '/SHA256SUMS',
-        '--allow-unsigned'], demo_env, terminal=True, cancel_at='Username', timeout=120,
+        '--allow-unsigned'], demo_env, terminal=True, cancel_at='Tailscale HTTPS', timeout=120,
         recording='installer-continue')
     for seconds in range(5, 0, -1):
         check(f'Starting in {seconds}s' in output, 'Missing countdown step', output)
     check(code == 0 and 'cancelled' in output.lower(), 'Could not cancel fresh setup', output)
+    check('1. Connection' in ansi.sub('', output), 'Fresh setup did not start with connection options', output)
     check((directory / 'installation/installation.json').is_file(), 'Fresh setup did not install configuration', output)
     record('fresh-install-and-cancel', output)
     code, output = execute([str(cli), 'setup', '--dir', str(directory / 'installation')],
-                          env, terminal=True, cancel_at='Username')
+                          env, terminal=True, cancel_at='Tailscale HTTPS')
     check(code == 0 and 'cancelled' in output.lower(), 'Could not resume and cancel setup', output)
+    check('1. Connection' in ansi.sub('', output), 'Resumed setup did not show connection options', output)
     check('Starting in' not in output, 'Explicit setup should not count down', output)
     record('resume-setup-and-cancel', output)
     existing = {path.name: path.read_bytes() for path in (directory / 'installation').iterdir() if path.is_file()}

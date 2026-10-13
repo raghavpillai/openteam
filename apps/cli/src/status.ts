@@ -1,3 +1,4 @@
+import { tailscaleStatus } from "./tailscale-command";
 import { existsSync, readFileSync } from "node:fs";
 import { installationCommand } from "./command-ui";
 import {
@@ -93,6 +94,11 @@ export const collectStatus = async (
       `Check file access and restore damaged configuration from a known-good backup. Run ${command("doctor")} for details.`,
       error instanceof Error ? error.message : String(error)
     );
+  }
+
+  if (environment.get("OPENTEAM_ACCESS_MODE") === "tailscale") {
+    const status = await tailscaleStatus(paths, runner);
+    if (status.issue) return blocked("Tailscale HTTPS", status.issue, `Run ${command("tailscale status")} on the server host.`);
   }
 
   const cli = dockerVersion(runner);

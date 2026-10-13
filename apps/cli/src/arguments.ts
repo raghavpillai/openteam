@@ -1,6 +1,9 @@
 import { CliError } from "./errors";
 
 export type CommandName =
+  | "tailscale-enable"
+  | "tailscale-status"
+  | "tailscale-disable"
   | "install"
   | "setup"
   | "doctor"
@@ -22,7 +25,14 @@ export type CommandName =
   | "notifications-status"
   | "uninstall";
 
-export type HelpTopic = "global" | CommandName | "provider" | "model" | "account" | "notifications";
+export type HelpTopic =
+  | "global"
+  | CommandName
+  | "provider"
+  | "model"
+  | "account"
+  | "notifications"
+  | "tailscale";
 
 export interface CliOptions {
   command: CommandName | "help" | "version";
@@ -60,6 +70,8 @@ export interface CliOptions {
   maxTokens?: string;
   reasoning?: boolean;
   noAuth?: boolean;
+  json?: boolean;
+  httpsPort?: string;
   apnsConfig?: string;
   apnsKeyFile?: string;
   apnsKeyId?: string;
@@ -68,6 +80,9 @@ export interface CliOptions {
 }
 
 const commands = new Set<CommandName>([
+  "tailscale-enable",
+  "tailscale-status",
+  "tailscale-disable",
   "install",
   "setup",
   "doctor",
@@ -91,6 +106,9 @@ const commands = new Set<CommandName>([
 ]);
 
 const commandFlags: Record<CommandName, ReadonlySet<string>> = {
+  "tailscale-enable": new Set(["--https-port", "--json"]),
+  "tailscale-status": new Set(["--json"]),
+  "tailscale-disable": new Set(["--json"]),
   install: new Set([
     "--version",
     "--repository",
@@ -201,7 +219,10 @@ const helpTopicFromArguments = (parts: readonly string[]): HelpTopic => {
   const topic = rawTopic === "health" ? "status" : rawTopic;
   if (!topic || topic === "--help" || topic === "-h") return "global";
   if (extra.length > 0) throw new CliError(`Unknown help topic: ${parts.join(" ")}`);
-  if (topic === "notifications") {
+  if (topic === "tailscale") {
+    if (!action) return "tailscale";
+    if (["enable", "status", "disable"].includes(action)) return `tailscale-${action}` as HelpTopic;
+  } else if (topic === "notifications") {
     if (!action) return "notifications";
     if (["configure", "status"].includes(action)) return `notifications-${action}` as HelpTopic;
   } else if (topic === "provider") {
@@ -242,12 +263,14 @@ const valueFlags = new Map<
   | "thinking"
   | "contextWindow"
   | "maxTokens"
+  | "httpsPort"
   | "apnsConfig"
   | "apnsKeyFile"
   | "apnsKeyId"
   | "apnsTeamId"
   | "apnsTopic"
 >([
+  ["--https-port", "httpsPort"],
   ["--config", "apnsConfig"],
   ["--key-file", "apnsKeyFile"],
   ["--key-id", "apnsKeyId"],
@@ -282,6 +305,12 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
   if (["version", "--version", "-v"].includes(rawCommand)) {
     return emptyOptions("version");
   }
+  const tailscaleAction = rawCommand === "tailscale" ? rawRest[0] : undefined;
+  if (rawCommand === "tailscale" && (!tailscaleAction || tailscaleAction.startsWith("-")))
+    return emptyOptions("help", "tailscale");
+  if (rawCommand === "tailscale" && !["enable", "status", "disable"].includes(tailscaleAction!))
+    throw new CliError("Unknown tailscale command; use enable, status, or disable.");
+  const nestedTailscale = rawCommand === "tailscale";
   const notificationAction = rawCommand === "notifications" ? rawRest[0] : undefined;
   if (rawCommand === "notifications" && (!notificationAction || notificationAction.startsWith("-")))
     return emptyOptions("help", "notifications");
@@ -311,28 +340,31 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
       `Unknown model command: ${modelAction}.${suggestion ? ` Did you mean "${suggestion}"?` : ""}`
     );
   }
-  const command = nestedNotifications
-    ? `notifications-${notificationAction}`
-    : nestedAccountUpdate
-      ? "account-update"
-      : nestedProviderList
-        ? "provider-list"
-        : nestedProviderLogin
-          ? "provider-login"
-          : nestedProviderLogout
-            ? "provider-logout"
-            : nestedProviderAdd
-              ? "provider-add"
-              : nestedProviderRemove
-                ? "provider-remove"
-                : nestedModelList
-                  ? "model-list"
-                  : nestedModelUse
-                    ? "model-use"
-                    : rawCommand === "health"
-                      ? "status"
-                      : rawCommand;
+  const command = nestedTailscale
+    ? `tailscale-${tailscaleAction}`
+    : nestedNotifications
+      ? `notifications-${notificationAction}`
+      : nestedAccountUpdate
+        ? "account-update"
+        : nestedProviderList
+          ? "provider-list"
+          : nestedProviderLogin
+            ? "provider-login"
+            : nestedProviderLogout
+              ? "provider-logout"
+              : nestedProviderAdd
+                ? "provider-add"
+                : nestedProviderRemove
+                  ? "provider-remove"
+                  : nestedModelList
+                    ? "model-list"
+                    : nestedModelUse
+                      ? "model-use"
+                      : rawCommand === "health"
+                        ? "status"
+                        : rawCommand;
   let rest =
+    nestedTailscale ||
     nestedNotifications ||
     nestedAccountUpdate ||
     nestedProviderList ||
@@ -470,6 +502,10 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
       options.follow = true;
       continue;
     }
+    if (flag === "--json") {
+      options.json = true;
+      continue;
+    }
     if (flag === "--json-progress") {
       options.jsonProgress = true;
       continue;
@@ -507,6 +543,13 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
       `Unknown option for ${commandLabel(options.command as CommandName)}: ${flag}`
     );
   }
+  if (
+    options.httpsPort !== undefined &&
+    (!/^\d+$/.test(options.httpsPort) ||
+      Number(options.httpsPort) < 1 ||
+      Number(options.httpsPort) > 65535)
+  )
+    throw new CliError("--https-port must be a whole number from 1 to 65535");
   if (options.authType !== undefined) {
     const normalized = options.authType.replace("-", "_");
     if (normalized !== "oauth" && normalized !== "api_key") {

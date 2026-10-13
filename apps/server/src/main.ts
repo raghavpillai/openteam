@@ -32,7 +32,7 @@ const controlToken = process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-c
 
 const proxySecret = process.env.OPENTEAM_PROXY_SECRET ?? "";
 
-const trustPrivateForwarder = process.env.OPENTEAM_ACCESS_MODE === "proxy";
+const trustPrivateForwarder = ["proxy", "tailscale"].includes(process.env.OPENTEAM_ACCESS_MODE ?? "");
 
 const authMode = parseAuthMode(process.env.OPENTEAM_AUTH_MODE);
 

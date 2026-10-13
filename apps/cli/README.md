@@ -2,9 +2,9 @@
 
 ## Private HTTPS and plugin sign-in
 
-Setup prefers Tailscale Serve HTTPS for a detected Tailscale address when the node is running and certificates are enabled. It reuses a matching private HTTPS route, including its port (such as `:10000`), or creates one on port 443 when that port is free. The review shows the HTTPS address before setup applies it. Other routes and Funnel settings are preserved. If creation or verification fails, setup keeps private HTTP and explains how to enable HTTPS later.
+Setup always shows the Connection step, including a dedicated **Tailscale HTTPS** choice with HTTPS port selection. Eligible detected routes are recommended and existing matching private routes can be reused, including custom ports. `openteam tailscale enable [--https-port 14443]`, `openteam tailscale status`, and `openteam tailscale disable` provide explicit management after setup; all accept `--dir` and `--json`. Desktop **Settings → Server → Remote access** provides local controls and host-side instructions for remote installations.
 
-The resulting configuration uses the existing HTTPS proxy mode with loopback backend ports. A custom HTTPS domain remains available. Plugin sign-in follows `OPENTEAM_PUBLIC_URL`: HTTPS uses one stable server callback, HTTP uses manual loopback callback paste for compatible providers. Neither requires an OpenTeam-hosted service. Google registration differs by method; see [Google setup](../../docs/integrations/google.md).
+The resulting `tailscale` access mode uses loopback backend ports and a persistent private Serve mapping. Enable restarts the stack and verifies DNS, endpoint health, and TLS. Failure restores the previous configuration with an actionable error, without silently falling back to HTTP. Disable switches to local access and removes only unchanged mappings recorded as OpenTeam-owned in `tailscale-routes.json`; reused user-managed mappings and other routes/Funnel settings are preserved. Keep Tailscale running and signed in, with MagicDNS and HTTPS certificates enabled. Reconnect apps after URL changes. A custom HTTPS domain remains available. Plugin sign-in follows `OPENTEAM_PUBLIC_URL`: HTTPS uses one stable server callback, HTTP uses manual loopback callback paste for compatible providers. Neither requires an OpenTeam-hosted service. Google registration differs by method; see [Google setup](../../docs/integrations/google.md).
 
 ## First installation and prerequisites
 
@@ -245,10 +245,10 @@ Fresh installs automatically use a detected Tailscale, WireGuard, or LAN address
 access, create the OpenTeam username and password, and optionally connect an inference provider. A
 recommended model is selected automatically, or inference can be skipped and configured later. The guided choices cover
 ChatGPT Plus/Pro OAuth, Claude Pro/Max OAuth, OpenAI and Anthropic API keys, and compatible custom
-endpoints. `openteam setup --advanced` exposes other connection modes. Public HTTPS uses a bundled Caddy service:
+endpoints. `openteam setup` reviews connection modes; `--advanced` also exposes server and inference tuning. Public HTTPS uses a bundled Caddy service:
 point a domain's A/AAAA record at the VM and open inbound TCP ports 80 and 443, and Caddy obtains and
 renews the certificate automatically. No certificate needs to exist on the VM beforehand.
-Normal setup runs as one interactive session with Account, Inference, and Review sections. Left and Right
+Normal setup runs as one interactive session with Connection, Account, Inference, and Review sections. Left and Right
 move between sections, Up and Down move the highlight within a section, Enter picks the highlighted
 option or edits the highlighted field, typing replaces a highlighted field, and finishing required fields
 advances automatically. Esc cancels without changes. The Review section lists anything

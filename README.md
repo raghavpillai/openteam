@@ -57,7 +57,7 @@ You can skip the provider step and connect one later with `openteam setup`; bots
 connected provider to run. See [provider setup](https://openteam.so/docs/configuration/models#connect-a-provider).
 
 Setup defaults to a private connection over your LAN or VPN and prints your **server URL**.
-For a public HTTPS address or other connection options, use `openteam setup --advanced`.
+Setup includes private Tailscale HTTPS, public HTTPS, and existing proxy options. Use `openteam setup --advanced` for additional server settings.
 
 ### 3. Open the app
 

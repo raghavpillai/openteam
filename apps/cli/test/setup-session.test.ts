@@ -23,8 +23,8 @@ const environment = (overrides: Record<string, string> = {}) => {
   return parseEnvironment(contents);
 };
 
-const session = (overrides: Partial<SetupSessionInput> = {}): SetupSession =>
-  createSetupSession({
+const session = (overrides: Partial<SetupSessionInput> = {}): SetupSession => {
+  const setup = createSetupSession({
     version: "1.2.3",
     stages: SETUP_STAGES,
     current: environment(),
@@ -34,6 +34,9 @@ const session = (overrides: Partial<SetupSessionInput> = {}): SetupSession =>
     detectedLogins: [],
     ...overrides,
   });
+  if (!overrides.advanced) setup.handle("", { name: "right" });
+  return setup;
+};
 
 const press = (target: SetupSession, name: string, extras: Record<string, boolean> = {}) =>
   target.handle("", { name, ...extras });
@@ -89,29 +92,29 @@ describe("interactive setup session", () => {
 
   test("left and right move between sections while up and down move the highlight", () => {
     const setup = session();
-    expect(setup.view().activeStage).toBe(0);
-    expect(setup.view().title).toBe("1. Account");
+    expect(setup.view().activeStage).toBe(1);
+    expect(setup.view().title).toBe("2. Account");
     expect(highlighted(setup)).toBe("username");
     expect(rowIds(setup).some((id) => id.startsWith("access:"))).toBe(false);
 
     press(setup, "right");
-    expect(setup.view().activeStage).toBe(1);
-    expect(setup.view().title).toBe("2. Inference");
+    expect(setup.view().activeStage).toBe(2);
+    expect(setup.view().title).toBe("3. Inference");
     expect(highlighted(setup)).toBe("provider:openai-codex");
 
     press(setup, "right");
-    expect(setup.view().activeStage).toBe(2);
-    expect(setup.view().title).toBe("3. Review");
+    expect(setup.view().activeStage).toBe(3);
+    expect(setup.view().title).toBe("4. Review");
 
     press(setup, "left");
     press(setup, "left");
     press(setup, "left");
     expect(setup.view().activeStage).toBe(0);
-    expect(highlighted(setup)).toBe("username");
-    expect(setup.view().stages).toHaveLength(4);
+    expect(highlighted(setup)).toBe("access:private");
+    expect(setup.view().stages).toHaveLength(5);
   });
 
-  test("fresh setup uses the detected private address without showing connection controls", () => {
+  test("fresh setup uses the reviewed private address through account and inference", () => {
     const setup = session();
 
     expect(highlighted(setup)).toBe("username");
@@ -126,12 +129,12 @@ describe("interactive setup session", () => {
     type(setup, PASSWORD);
     enter(setup);
     expect(setup.view().mode).toBe("navigate");
-    expect(setup.view().activeStage).toBe(1);
-    expect(setup.view().completed).toEqual([true, true, false, false]);
+    expect(setup.view().activeStage).toBe(2);
+    expect(setup.view().completed).toEqual([true, true, true, false, false]);
 
     expect(highlighted(setup)).toBe("provider:openai-codex");
     enter(setup);
-    expect(setup.view().activeStage).toBe(2);
+    expect(setup.view().activeStage).toBe(3);
     expect(highlighted(setup)).toBe("apply");
     expect(setup.view().rows).toContainEqual({
       kind: "field",
@@ -140,7 +143,7 @@ describe("interactive setup session", () => {
     });
     expect(
       setup.view().rows.some((row) => row.kind === "field" && row.label === "Connection")
-    ).toBe(false);
+    ).toBe(true);
 
     const outcome = enter(setup);
     expect(outcome.type).toBe("complete");
@@ -174,7 +177,7 @@ describe("interactive setup session", () => {
     ).toHaveLength(1);
 
     expect(enter(setup)).toEqual({ type: "continue" });
-    expect(setup.view().activeStage).toBe(0);
+    expect(setup.view().activeStage).toBe(1);
     expect(highlighted(setup)).toBe("password");
     expect(setup.view().notice).toEqual({
       text: "Set your password in Account.",
@@ -202,7 +205,8 @@ describe("interactive setup session", () => {
   });
 
   test("typing replaces the highlighted field without an extra Enter", () => {
-    const setup = session({ detectedPrivateHost: null });
+    const setup = session({ advanced: true, detectedPrivateHost: null });
+    enter(setup);
     expect(highlighted(setup)).toBe("host");
 
     type(setup, "192.168.1.20");
@@ -227,6 +231,7 @@ describe("interactive setup session", () => {
       "access:https",
       "access:proxy",
       "access:http",
+      "access:tailscale",
       "host",
       "httpAck",
     ]);
@@ -241,8 +246,9 @@ describe("interactive setup session", () => {
 
   test("private mode prefills the detected address and keeps viewers on the LAN", () => {
     const setup = session({ detectedPrivateHost: "100.100.10.5", ownerConfigured: true });
-    expect(setup.view().title).toBe("1. Account");
+    expect(setup.view().title).toBe("2. Account");
     expect(setup.view().stages.map((stage) => stage.label)).toEqual([
+      "Connection",
       "Account",
       "Inference",
       "Review",
@@ -350,7 +356,11 @@ describe("interactive setup session", () => {
     const setup = session();
     press(setup, "right");
 
-    expect(setup.rows()).toContainEqual({ kind: "field", label: "Model", value: "Selected from catalog after connection" });
+    expect(setup.rows()).toContainEqual({
+      kind: "field",
+      label: "Model",
+      value: "Selected from catalog after connection",
+    });
     expect(rowIds(setup)).not.toContain("model");
     expect(rowIds(setup)).not.toContain("thinking");
     expect(rowIds(setup)).not.toContain("workerConcurrency");
@@ -364,7 +374,7 @@ describe("interactive setup session", () => {
     type(setup, "7");
 
     expect(setup.state.skipInference).toBe(true);
-    expect(setup.view().title).toBe("3. Review");
+    expect(setup.view().title).toBe("4. Review");
     expect(setup.problems()).toEqual([]);
     expect(setup.rows()).toContainEqual({
       kind: "field",
@@ -501,7 +511,7 @@ describe("interactive setup session", () => {
       currentOwnerUsername: "existing.owner",
       currentInference: { providerId: "acme", modelId: "acme-chat", reasoning: "high" },
     });
-    expect(setup.view().title).toBe("1. Account");
+    expect(setup.view().title).toBe("2. Account");
     expect(setup.view().cursorRow).toBe(-1);
     expect(setup.rows().map((row) => row.kind)).toEqual(["note", "note"]);
     press(setup, "right");
@@ -509,7 +519,7 @@ describe("interactive setup session", () => {
     expect(
       setup.rows().find((row) => row.kind === "option" && row.id === "provider:acme")
     ).toMatchObject({ label: "Keep acme", selected: true, recommended: true });
-    expect(setup.view().completed).toEqual([true, true, false, false]);
+    expect(setup.view().completed).toEqual([true, true, true, false, false]);
     expect(setup.configuration()).toMatchObject({
       accessMode: "local",
       ownerUsername: "existing.owner",

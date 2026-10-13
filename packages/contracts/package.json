@@ -41,7 +41,8 @@
     "./reference-main-parsers": "./src/reference-main-parsers.ts",
     "./sibling-threads": "./src/sibling-threads.ts",
     "./read-transcript": "./src/read-transcript.ts",
-    "./notification-presence": "./src/notification-presence.ts"
+    "./notification-presence": "./src/notification-presence.ts",
+    "./tailscale": "./src/tailscale.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun",

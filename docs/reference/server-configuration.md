@@ -54,7 +54,7 @@ normally writes a value; "Restart" says whether a change needs a container resta
 | `OPENTEAM_AUTH_SECRET` | generated | install | yes | Signs login sessions |
 | `OPENTEAM_PROXY_SECRET` | generated | install | yes | Shared secret a reverse proxy can send in `X-OpenTeam-Proxy` |
 | `OPENTEAM_AUTH_MODE` | `required` | setup | yes | `required` or `disabled` |
-| `OPENTEAM_ACCESS_MODE` | `local` | setup | yes | `https`, `proxy`, `http`, `private`, `local` |
+| `OPENTEAM_ACCESS_MODE` | `local` | setup | yes | `tailscale`, `https`, `proxy`, `http`, `private`, `local` |
 | `OPENTEAM_PUBLIC_URL` | `http://127.0.0.1:8787` | setup | yes | Client-facing base URL, plugin OAuth redirects, Caddy domain |
 | `OPENTEAM_AUTH_URL` | same as public URL | setup | yes | Base URL for the auth library |
 | `OPENTEAM_API_PORT` | `8787` | setup | yes | Host port for the API |
@@ -109,3 +109,5 @@ snapshot. Initial rollout marks candidates rather than immediately reclaiming
 old blobs. Snapshot, restore, startup repair, and collection operations serialize
 using an OS-backed SQLite lock in the store directory. Do not mutate the store
 with scripts or older processes that bypass this lock.
+
+Tailscale HTTPS is configured with `openteam setup` or `openteam tailscale enable --https-port <port>`. The public/auth URLs include the selected `.ts.net` hostname and port, backend binds are loopback, and the Compose profile is `direct`. `tailscale-routes.json` records created mappings for safe cleanup; preserve it with installation backups. Use `openteam tailscale status` to inspect live prerequisites, ownership, and HTTPS readiness, and `openteam tailscale disable` to return to local access. Reused external mappings are retained.

@@ -44,6 +44,9 @@ interface Window {
       read: (scope: string) => Promise<unknown>;
       write: (scope: string, journal: unknown) => Promise<void>;
     };
+    tailscale: {
+      request: (request: { serverUrl: string; action: "status" | "enable" | "disable"; httpsPort?: string }) => Promise<import("@openteam/contracts/tailscale").DesktopTailscaleStatus>;
+    };
     updates: {
       status: () => Promise<OpenTeamUpdateStatus>;
       check: () => Promise<OpenTeamUpdateStatus>;

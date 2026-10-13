@@ -10,7 +10,9 @@ Guided setup covers most installations. This page shows where to change each set
 | Model and reasoning level | Desktop **Settings → Server**, or `openteam model` |
 | Web search and page fetching | **Settings → Providers** on desktop or iPhone |
 | Voice transcription | Desktop **Settings → Server**, or `openteam model` |
-| Connection mode, API port, time zone, and tasks at once | `openteam setup --advanced` |
+| Connection mode, including Tailscale HTTPS | `openteam setup` |
+| Tailscale HTTPS enable, status, disable | `openteam tailscale` or desktop Settings → Server → Remote access |
+| API port, time zone, and tasks at once | `openteam setup --advanced` |
 | Username and password | `openteam account update` |
 | Accounts your bots use | **Marketplace** in the desktop app |
 

@@ -1,3 +1,4 @@
+import { validateTailscalePort } from "./tailscale-https";
 import { runInteractiveSession } from "./interactive-session";
 import { API_PORT } from "./constants";
 import type { DetectedLogin, ReusableProvider } from "./detected-logins";
@@ -60,6 +61,9 @@ export interface SetupSessionInput {
   detectedPrivateHost?: string | null;
   /** Safe Tailscale HTTPS default detected by the setup command. */
   preferredHttpsHost?: string;
+  tailscaleHost?: string;
+  tailscalePort?: string;
+  tailscaleIssue?: string | null;
   /** Vendor CLI sign-ins found on this machine that Pi can reuse. */
   detectedLogins?: readonly DetectedLogin[];
   /** Informational notes shown above the launch summary, such as a port fallback. */
@@ -102,6 +106,7 @@ interface SessionState {
   visited: boolean[];
   accessMode: AccessMode;
   host: string;
+  tailscalePort: string;
   httpAcknowledged: boolean;
   ownerUsername: string;
   ownerPassword: string | null;
@@ -153,7 +158,11 @@ const hostLabel = (mode: AccessMode): { label: string; placeholder: string } => 
 };
 
 const validateHost = (mode: AccessMode, value: string): string =>
-  mode === "proxy" ? validateProxyHost(value) : mode === "https" ? validatePublicDomain(value) : validatePublicHost(value);
+  mode === "proxy"
+    ? validateProxyHost(value)
+    : mode === "https"
+      ? validatePublicDomain(value)
+      : validatePublicHost(value);
 
 const withoutTrailingWord = (value: string): string => value.replace(/\s*\S+\s*$/, "");
 
@@ -176,7 +185,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
   const initialModel = initialProvider === currentProvider ? currentInference.modelId : "";
   const detectedPrivateHost = input.detectedPrivateHost ?? null;
   const initialAccess = input.preferredHttpsHost
-    ? "proxy"
+    ? "tailscale"
     : configuredAccessMode(input.current, fresh);
   const existingHost = existingReachableHost(input.current);
   const initialHost =
@@ -184,9 +193,8 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
     (fresh && initialAccess === "private"
       ? (detectedPrivateHost ?? "")
       : (existingHost ?? (initialAccess === "private" ? (detectedPrivateHost ?? "") : "")));
-  const needsConnectionInput = !advanced && initialAccess !== "local" && !initialHost;
-  const firstSection = advanced || needsConnectionInput ? ACCESS_SECTION : OWNER_SECTION;
-  const visibleStages = firstSection === ACCESS_SECTION ? input.stages : input.stages.slice(1);
+  const firstSection = ACCESS_SECTION;
+  const visibleStages = input.stages;
   const currentThinking = currentInference.reasoning as ThinkingLevel;
 
   const state: SessionState = {
@@ -195,6 +203,12 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
     visited: new Array<boolean>(SESSION_SECTION_COUNT).fill(false),
     accessMode: initialAccess,
     host: initialHost,
+    tailscalePort:
+      input.tailscalePort ||
+      (input.preferredHttpsHost || (initialAccess === "tailscale" ? existingHost : ""))?.split(
+        ":"
+      )[1] ||
+      "443",
     httpAcknowledged: false,
     ownerUsername: input.currentOwnerUsername || "openteam",
     ownerPassword: null,
@@ -227,7 +241,12 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
     state.provider === "custom" ? state.custom.id || "custom provider" : state.provider;
   const activeModel = (): string =>
     state.provider === "custom" ? state.custom.model : state.model;
-  const reachableHost = (): string => (state.accessMode === "local" ? "127.0.0.1" : state.host);
+  const reachableHost = (): string =>
+    state.accessMode === "tailscale"
+      ? `${input.tailscaleHost || input.preferredHttpsHost?.split(":")[0] || "<tailscale-host>"}${state.tailscalePort === "443" ? "" : `:${state.tailscalePort}`}`
+      : state.accessMode === "local"
+        ? "127.0.0.1"
+        : state.host;
   const publicUrl = (): string =>
     publicUrlFor(state.accessMode, reachableHost() || "<host>", state.apiPort);
   const reusableProvider = (): ReusableProvider | null =>
@@ -269,7 +288,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
 
   const accessRows = (): SessionRow[] => {
     const rows: SessionRow[] = [];
-    if (advanced) {
+    {
       for (const choice of ACCESS_CHOICES) {
         rows.push({
           kind: "option",
@@ -277,11 +296,20 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
           label: choice.title,
           description: choice.description,
           selected: state.accessMode === choice.value,
-          ...("recommended" in choice && choice.recommended ? { recommended: true } : {}),
+          ...(choice.value === (input.preferredHttpsHost ? "tailscale" : "private")
+            ? { recommended: true }
+            : {}),
         });
       }
     }
-    if (state.accessMode !== "local") {
+    if (state.accessMode === "tailscale") {
+      rows.push({
+        kind: "note",
+        text: input.tailscaleIssue || `HTTPS address: ${publicUrl()}`,
+        tone: input.tailscaleIssue ? "warning" : "info",
+      });
+      rows.push(textRow("tailscalePort", "Tailscale HTTPS port", state.tailscalePort));
+    } else if (state.accessMode !== "local") {
       const { label, placeholder } = hostLabel(state.accessMode);
       rows.push({ kind: "heading", text: "Address" });
       rows.push(textRow("host", label, state.host, { placeholder }));
@@ -412,11 +440,17 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
       });
     } else if (advanced) {
       rows.push({ kind: "heading", text: "Model" });
-      rows.push(textRow("model", "Model", state.model, {
-        placeholder: "Choose from catalog after connection",
-      }));
+      rows.push(
+        textRow("model", "Model", state.model, {
+          placeholder: "Choose from catalog after connection",
+        })
+      );
     } else {
-      rows.push({ kind: "field", label: "Model", value: state.model || "Selected from catalog after connection" });
+      rows.push({
+        kind: "field",
+        label: "Model",
+        value: state.model || "Selected from catalog after connection",
+      });
     }
     if (advanced) {
       rows.push({
@@ -479,8 +513,8 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
           : `${state.provider === "custom" ? state.custom.name || providerId() : providerLabel(providerId())} · ${activeModel() || "Choose from catalog after connection"}`,
       },
     ];
+    rows.unshift({ kind: "field", label: "Connection", value: accessLabel(state.accessMode) });
     if (advanced) {
-      rows.unshift({ kind: "field", label: "Connection", value: accessLabel(state.accessMode) });
       rows.push(
         { kind: "field", label: "Thinking", value: thinkingLabel(state.thinking) },
         { kind: "field", label: "API port", value: state.apiPort },
@@ -540,7 +574,19 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
 
   const problems = (): SessionProblem[] => {
     const found: SessionProblem[] = [];
-    if (state.accessMode !== "local") {
+    if (state.accessMode === "tailscale") {
+      if (input.tailscaleIssue || !(input.tailscaleHost || input.preferredHttpsHost))
+        found.push({
+          section: ACCESS_SECTION,
+          rowId: "access:tailscale",
+          message: input.tailscaleIssue || "Start Tailscale on the server host, then rerun setup.",
+        });
+      try {
+        validateTailscalePort(state.tailscalePort);
+      } catch (error) {
+        found.push({ section: ACCESS_SECTION, rowId: "tailscalePort", message: String(error) });
+      }
+    } else if (state.accessMode !== "local") {
       const { label } = hostLabel(state.accessMode);
       if (!state.host) {
         found.push({
@@ -730,6 +776,11 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
           state.ownerUsername = normalized;
         });
         break;
+      case "tailscalePort":
+        store(validateTailscalePort, (normalized) => {
+          state.tailscalePort = normalized;
+        });
+        break;
       case "apiPort":
         store(validateIntegerInRange("API port", 1, 65535), (normalized) => {
           state.apiPort = normalized;
@@ -746,9 +797,12 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
         });
         break;
       case "model":
-        store((value) => value.trim() ? validateModel(value) : "", (normalized) => {
-          state.model = normalized;
-        });
+        store(
+          (value) => (value.trim() ? validateModel(value) : ""),
+          (normalized) => {
+            state.model = normalized;
+          }
+        );
         break;
       case "custom.id":
         store(validateProviderId, (normalized) => {
@@ -894,7 +948,6 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
         } else if (row.id === "thinking") {
           const index = THINKING_LEVELS.indexOf(state.thinking);
           state.thinking = THINKING_LEVELS[(index + 1) % THINKING_LEVELS.length]!;
-
         }
         return { type: "continue" };
       case "action": {
@@ -999,7 +1052,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
 
   // Advanced setup starts on the chosen connection. The normal flow asks for an
   // address only when one could not be detected.
-  focusRow(ACCESS_SECTION, advanced ? `access:${state.accessMode}` : "host");
+  focusRow(ACCESS_SECTION, `access:${state.accessMode}`);
   focusRow(INFERENCE_SECTION, `provider:${state.provider}`);
 
   return { state, view, rows, problems, configuration, handle };

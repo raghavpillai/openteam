@@ -1,3 +1,4 @@
+import { TailscaleManager } from "./tailscale-manager";
 import { randomBytes } from "node:crypto";
 import { loadMachineIdentity } from "./host/machine-identity";
 import { DesktopMachineEnrollment } from "./host/machine-enrollment";
@@ -185,6 +186,13 @@ const scheduleDesktopUpdateChecks = () => {
   desktopUpdateTimer = setInterval(check, 6 * 60 * 60_000);
   desktopUpdateTimer.unref?.();
 };
+
+const tailscaleManager = new TailscaleManager({
+  cliPath: app.isPackaged
+    ? join(process.resourcesPath, "app.asar.unpacked", "dist-electron", "openteam-cli.js")
+    : join(import.meta.dirname, "openteam-cli.js"),
+  executablePath: process.execPath,
+});
 
 const serverUpdater = new ServerUpdater({
   cliPath: app.isPackaged
@@ -774,6 +782,11 @@ const serverUpdateRequest = (value: unknown) => {
     typeof candidate.sshTarget === "string" ? candidate.sshTarget.trim() || null : null;
   return { serverUrl: candidate.serverUrl, targetVersion, sshTarget };
 };
+
+ipcMain.handle("openteam:tailscale", async (event, value) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Tailscale management is unavailable");
+  return tailscaleManager.request(value);
+});
 
 ipcMain.handle("openteam:updates:server-status", async (event, value) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {

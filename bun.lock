@@ -23,6 +23,7 @@
         "string-width": "7.2.0",
       },
       "devDependencies": {
+        "@openteam/contracts": "workspace:*",
         "@openteam/db": "workspace:*",
         "@openteam/product-core": "workspace:*",
         "@sigstore/bundle": "4.0.0",

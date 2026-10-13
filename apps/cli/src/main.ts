@@ -37,6 +37,7 @@ import {
 } from "./providers";
 import { modelCommand } from "./model-command";
 import { notificationsCommand } from "./notifications";
+import { tailscaleCommand } from "./tailscale-command";
 import { setupCommand } from "./setup";
 
 const main = async (): Promise<void> => {
@@ -53,6 +54,11 @@ const main = async (): Promise<void> => {
   const paths = installationPaths(directory);
   const runner = new SystemCommandRunner();
   switch (options.command) {
+    case "tailscale-enable":
+    case "tailscale-status":
+    case "tailscale-disable":
+      await tailscaleCommand(paths, options, runner);
+      break;
     case "install":
       await installCommand(paths, options, runner);
       break;

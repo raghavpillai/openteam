@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { detectTailscaleHttps, ensureTailscaleHttps, tailscaleHttpsHost } from "../src/tailscale-https";
+import {
+  detectTailscaleHttps,
+  ensureTailscaleHttps,
+  tailscaleHttpsHost,
+} from "../src/tailscale-https";
 import type { CommandRunner } from "../src/process";
 import { createSetupSession } from "../src/setup-session";
 import { SETUP_STAGES, existingReachableHost, validateProxyHost } from "../src/setup-values";
@@ -54,7 +58,7 @@ test("setup prefers private Tailscale HTTPS and creates a verified persistent ro
     preferredHttpsHost: candidate.host,
   });
   expect(setup.configuration()).toMatchObject({
-    accessMode: "proxy",
+    accessMode: "tailscale",
     publicUrl: `https://${host}`,
     bindHost: "127.0.0.1",
     composeProfiles: "direct",
@@ -121,25 +125,45 @@ test("setup reuses an existing private HTTPS port without replacing another app 
   const config = matching("18789");
   const f = fixture({
     TCP: { ...config.TCP, "10000": { HTTPS: true } },
-    Web: { ...config.Web, [`${host}:10000`]: { Handlers: { "/": { Proxy: "http://127.0.0.1:8787" } } } },
+    Web: {
+      ...config.Web,
+      [`${host}:10000`]: { Handlers: { "/": { Proxy: "http://127.0.0.1:8787" } } },
+    },
   });
   const candidate = detectTailscaleHttps(f.runner, "8787")!;
   expect(candidate).toEqual({ host, port: "10000", addresses: ["100.100.10.5"] });
   const address = tailscaleHttpsHost(candidate);
   expect(validateProxyHost(address)).toBe(`${host}:10000`);
-  const setup = createSetupSession({ version: "test", stages: SETUP_STAGES, current: new Map(),
-    authenticated: true, fresh: true, ownerConfigured: true, preferredHttpsHost: address });
+  const setup = createSetupSession({
+    version: "test",
+    stages: SETUP_STAGES,
+    current: new Map(),
+    authenticated: true,
+    fresh: true,
+    ownerConfigured: true,
+    preferredHttpsHost: address,
+  });
   expect(setup.configuration().publicUrl).toBe(`https://${host}:10000`);
-  expect(existingReachableHost(new Map([["OPENTEAM_PUBLIC_URL", `https://${address}`]]))).toBe(address);
+  expect(existingReachableHost(new Map([["OPENTEAM_PUBLIC_URL", `https://${address}`]]))).toBe(
+    address
+  );
   expect(ensureTailscaleHttps(f.runner, candidate, "8787")).toBe(true);
-  expect(f.calls.some(args => args.includes("--bg"))).toBe(false);
+  expect(f.calls.some((args) => args.includes("--bg"))).toBe(false);
+  // A missing custom-port mapping can now be explicitly recreated.
   f.setServe(config);
-  expect(ensureTailscaleHttps(f.runner, candidate, "8787")).toBe(false);
-  expect(f.calls.some(args => args.includes("--bg"))).toBe(false);
+  ensureTailscaleHttps(f.runner, candidate, "8787");
+  expect(f.calls.some((args) => args.includes("--https=10000"))).toBe(true);
 });
 
 test("proxy endpoints validate ports without accepting paths or credentials", () => {
-  for (const value of [`${host}:0`, `${host}:65536`, `${host}:123/path`, `user@${host}:10000`, `${host}:abc`, `${host}:80:443`]) {
+  for (const value of [
+    `${host}:0`,
+    `${host}:65536`,
+    `${host}:123/path`,
+    `user@${host}:10000`,
+    `${host}:abc`,
+    `${host}:80:443`,
+  ]) {
     expect(() => validateProxyHost(value)).toThrow();
   }
   expect(validateProxyHost(`${host}:443`)).toBe(host);

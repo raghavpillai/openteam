@@ -1,3 +1,4 @@
+import { tailscaleStatus } from "./tailscale-command";
 import { installationCommand, renderSummary } from "./command-ui";
 import { printMessage, TerminalReport } from "./terminal";
 import { readFileSync, rmSync } from "node:fs";
@@ -360,6 +361,8 @@ export const startCommand = async (
     manifest.version,
     { skipIfReady: true }
   );
+  const tailscale = await tailscaleStatus(paths, runner, true);
+  if (tailscale.enabled && tailscale.issue) throw new CliError(tailscale.issue, 2);
   if (manifest.uninstalledAt) {
     writeManifest(paths, { ...manifest, uninstalledAt: undefined });
   }

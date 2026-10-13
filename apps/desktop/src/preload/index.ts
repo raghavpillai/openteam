@@ -214,6 +214,9 @@ contextBridge.exposeInMainWorld("openteam", {
         journal: deliveryJournal(journal),
       }),
   },
+  tailscale: {
+    request: (request: { serverUrl: string; action: "status" | "enable" | "disable"; httpsPort?: string }) => ipcRenderer.invoke("openteam:tailscale", request),
+  },
   updates: {
     status: () => ipcRenderer.invoke("openteam:updates:status"),
     check: () => ipcRenderer.invoke("openteam:updates:check"),

@@ -10,7 +10,7 @@ export const DEFAULT_RUNTIME_INFERENCE: RuntimeInferenceSettings = {
   modelId: "",
   reasoning: "medium",
 };
-export const ACCESS_MODES = ["private", "local", "https", "proxy", "http"] as const;
+export const ACCESS_MODES = ["private", "local", "https", "proxy", "http", "tailscale"] as const;
 export const CUSTOM_PROVIDER_APIS = [
   "openai-responses",
   "openai-completions",
@@ -80,6 +80,11 @@ export const ACCESS_CHOICES = [
     title: "Public address without HTTPS",
     description: "For temporary testing only. Passwords are not encrypted in transit.",
     value: "http",
+  },
+  {
+    title: "Tailscale HTTPS",
+    description: "Create a private HTTPS address with Tailscale Serve on this server.",
+    value: "tailscale",
   },
 ] as const;
 export const SETUP_STAGES: readonly SetupStage[] = [
@@ -267,14 +272,17 @@ export const validateAccessMode = (value: string): AccessMode => {
     "5": "http",
     http: "http",
     "public-http": "http",
+    "6": "tailscale",
+    tailscale: "tailscale",
   };
   const selected = aliases[normalized];
   if (selected) return selected;
-  throw new Error("Choose 1, 2, 3, 4, or 5.");
+  throw new Error("Choose 1, 2, 3, 4, 5, or 6.");
 };
 
 export const accessLabel = (value: AccessMode): string =>
   ({
+    tailscale: "Tailscale HTTPS",
     https: "Public domain with HTTPS",
     proxy: "Existing HTTPS setup",
     http: "Public address without HTTPS",
@@ -406,7 +414,7 @@ export const existingReachableHost = (current: ReadonlyMap<string, string>): str
 };
 
 export const publicUrlFor = (mode: AccessMode, host: string, apiPort: string): string => {
-  if (mode === "https" || mode === "proxy") return `https://${host}`;
+  if (mode === "https" || mode === "proxy" || mode === "tailscale") return `https://${host}`;
   const port = apiPort === "80" ? "" : `:${apiPort}`;
   return `http://${host}${port}`;
 };
@@ -425,7 +433,12 @@ export const accessModeNotes = (
   mode: AccessMode
 ): ReadonlyArray<{ text: string; tone: "info" | "success" | "warning" }> => {
   const notes: Array<{ text: string; tone: "info" | "success" | "warning" }> = [];
-  if (mode === "https") {
+  if (mode === "tailscale") {
+    notes.push({
+      text: "OpenTeam will configure Tailscale Serve. Keep Tailscale connected on all your devices. Backend ports stay on this machine only.",
+      tone: "info",
+    });
+  } else if (mode === "https") {
     notes.push({
       text: "OpenTeam will use ports 80 and 443 and keep the HTTPS certificate renewed.",
       tone: "info",

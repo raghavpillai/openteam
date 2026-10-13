@@ -12,7 +12,11 @@ Manage your server with the `openteam` command on the host.
 | `openteam stop` | Stops the server. Your data is kept. |
 | `openteam logs --follow` | Streams logs from all services |
 | `openteam setup` | Reruns guided setup, for example to change your model provider |
-| `openteam setup --advanced` | Changes connection, port, time zone, and tasks at once |
+| `openteam setup` | Changes connection mode, including Tailscale HTTPS |
+| `openteam setup --advanced` | Also changes API port, time zone, and tasks at once |
+| `openteam tailscale enable [--https-port <port>]` | Configures and verifies private HTTPS through Serve |
+| `openteam tailscale status` | Checks Tailscale, route ownership, and HTTPS readiness |
+| `openteam tailscale disable` | Returns to local access and removes unchanged OpenTeam-managed mappings |
 | `openteam model` | Chooses the model, reasoning level, and voice transcription |
 | `openteam provider` | Signs in to, signs out of, or adds model providers |
 | `openteam account update` | Changes your username or password |

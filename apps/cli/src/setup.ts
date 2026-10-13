@@ -80,7 +80,21 @@ import {
   runningServices,
 } from "./stack";
 import { SETUP_JOBS_NOTE, waitForStartup } from "./startup";
-import { detectTailscaleHttps, ensureTailscaleHttps, tailscaleHttpsHost } from "./tailscale-https";
+import {
+  assertTailscaleRouteAvailable,
+  detectTailscaleHttps,
+  inspectTailscale,
+  requireTailscale,
+  validateTailscalePort,
+  tailscaleHttpsHost,
+} from "./tailscale-https";
+import {
+  cleanManagedTailscaleRoutes,
+  ensureManagedTailscaleRoute,
+  managedTailscaleRoutes,
+  rollbackNewTailscaleRoutes,
+} from "./tailscale-state";
+import { acquireUpdateLock } from "./update-safety";
 import {
   createSetupPresentation,
   type MessageTone,
@@ -135,6 +149,9 @@ export interface SetupCommandOptions {
   /** Override private-address detection. Primarily useful for deterministic callers and tests. */
   detectedPrivateHost?: string | null;
   preferredHttpsHost?: string;
+  tailscaleHost?: string;
+  tailscalePort?: string;
+  tailscaleIssue?: string | null;
   /** Vendor CLI sign-ins to offer for reuse; `undefined` detects them. */
   detectedLogins?: readonly DetectedLogin[];
   /** Where to look for those sign-ins; defaults to this machine. */
@@ -501,7 +518,7 @@ const collectInferenceConfiguration = async (
         prompter,
         "Inference model (blank chooses from catalog after connection)",
         selectedDefault,
-        (value) => value.trim() ? validateModel(value) : ""
+        (value) => (value.trim() ? validateModel(value) : "")
       )
     : selectedDefault;
 };
@@ -521,10 +538,10 @@ export const collectSetupConfiguration = async (
   const presentation = options.presentation;
   const advanced = options.advanced ?? false;
   const currentAccess = options.preferredHttpsHost
-    ? "proxy"
+    ? "tailscale"
     : configuredAccessMode(current, options.fresh ?? false);
   let selectedAccess: SetupConfiguration["accessMode"] = currentAccess;
-  if (advanced) {
+  {
     presentation?.stage(0);
     while (true) {
       presentation?.choices(ACCESS_CHOICES);
@@ -554,9 +571,29 @@ export const collectSetupConfiguration = async (
       ? detectPrivateNetworkHost()
       : options.detectedPrivateHost;
   let reachableHost = "127.0.0.1";
-  if (selectedAccess === "https" || selectedAccess === "proxy") {
+  if (selectedAccess === "tailscale") {
+    if (options.tailscaleIssue || !(options.tailscaleHost || options.preferredHttpsHost))
+      throw new CliError(
+        options.tailscaleIssue || "Start Tailscale on the server host, then rerun setup."
+      );
+    const port = await ask(
+      prompter,
+      "Tailscale HTTPS port",
+      options.tailscalePort ||
+        options.preferredHttpsHost?.split(":")[1] ||
+        (currentAccess === "tailscale" ? existingHost?.split(":")[1] : null) ||
+        "443",
+      validateTailscalePort
+    );
+    reachableHost = tailscaleHttpsHost({
+      host: options.tailscaleHost || options.preferredHttpsHost!.split(":")[0]!,
+      addresses: [],
+      port,
+    });
+    presentation?.message(`Tailscale HTTPS address: https://${reachableHost}`, "info");
+  } else if (selectedAccess === "https" || selectedAccess === "proxy") {
     reachableHost =
-      !advanced && existingHost
+      !advanced && selectedAccess === currentAccess && existingHost
         ? existingHost
         : await askRequired(
             prompter,
@@ -566,7 +603,7 @@ export const collectSetupConfiguration = async (
           );
   } else if (selectedAccess === "http") {
     reachableHost =
-      !advanced && existingHost
+      !advanced && selectedAccess === currentAccess && existingHost
         ? existingHost
         : await askRequired(
             prompter,
@@ -575,7 +612,8 @@ export const collectSetupConfiguration = async (
             validatePublicHost
           );
   } else if (selectedAccess === "private") {
-    const defaultPrivateHost = existingHost || detectedPrivateHost;
+    const defaultPrivateHost =
+      (selectedAccess === currentAccess ? existingHost : null) || detectedPrivateHost;
     reachableHost =
       advanced || !defaultPrivateHost
         ? await askRequired(
@@ -590,7 +628,7 @@ export const collectSetupConfiguration = async (
     for (const note of accessModeNotes(selectedAccess)) presentation?.message(note.text, note.tone);
   }
 
-  presentation?.stage(advanced ? 1 : 0);
+  presentation?.stage(1);
   const currentThinking = currentInference.reasoning;
   let ownerUsername = currentOwnerUsername;
   let ownerPassword: string | undefined;
@@ -623,7 +661,7 @@ export const collectSetupConfiguration = async (
     authType: defaultProviderAuthType(currentInference.providerId),
   };
 
-  presentation?.stage(advanced ? 2 : 1);
+  presentation?.stage(2);
   if (advanced) {
     configuration.apiPort = await ask(
       prompter,
@@ -897,8 +935,8 @@ const chooseAvailableProviderModel = async (
   return models.find((model) => model.modelId === selected) ?? firstModel;
 };
 
-const configurationSummary = (configuration: SetupConfiguration, advanced: boolean) => [
-  ...(advanced ? [{ label: "Connection", value: accessLabel(configuration.accessMode) }] : []),
+const configurationSummary = (configuration: SetupConfiguration) => [
+  { label: "Connection", value: accessLabel(configuration.accessMode) },
   { label: "Address", value: configuration.publicUrl },
   { label: "Username", value: configuration.ownerUsername },
   {
@@ -935,11 +973,8 @@ const collectThroughPrompts = async (
       currentInference
     );
 
-    presentation.stage(collectOptions.advanced ? 3 : 2);
-    presentation.summary(
-      "Configuration ready",
-      configurationSummary(candidate, collectOptions.advanced ?? false)
-    );
+    presentation.stage(3);
+    presentation.summary("Configuration ready", configurationSummary(candidate));
     if (candidate.accessMode === "proxy") {
       presentation.message(
         `Proxy target: http://127.0.0.1:${candidate.apiPort} (WebSocket upgrades must be enabled).`,
@@ -961,10 +996,7 @@ const collectThroughPrompts = async (
       if (!answer || answer === "y" || answer === "yes") return candidate;
       if (answer === "n" || answer === "no") return null;
       if (answer === "b" || answer === "back") {
-        presentation.message(
-          `Returning to the ${collectOptions.advanced ? "connection" : "account"} step.`,
-          "muted"
-        );
+        presentation.message("Returning to the connection step.", "muted");
         break;
       }
       presentation.message("Enter yes, no, or back.", "warning");
@@ -972,7 +1004,7 @@ const collectThroughPrompts = async (
   }
 };
 
-export const setupCommand = async (
+const setupCommandUnlocked = async (
   paths: InstallationPaths,
   runner: CommandRunner,
   options: SetupCommandOptions = {},
@@ -1012,7 +1044,7 @@ export const setupCommand = async (
       ? readStoppedRuntimeInference(project)
       : DEFAULT_RUNTIME_INFERENCE;
   const prompter = suppliedPrompter || createTerminalPrompter();
-  const guidedStages = options.advanced ? SETUP_STAGES : SETUP_STAGES.slice(1);
+  const guidedStages = SETUP_STAGES;
   const presentation =
     options.presentation ?? createSetupPresentation({ version: CLI_VERSION, stages: guidedStages });
   const fresh = options.fresh ?? !manifest.ownerUsername;
@@ -1047,6 +1079,7 @@ export const setupCommand = async (
       });
     }
   }
+  const tailscaleInspection = inspectTailscale(runner);
   const tailscale = detectTailscaleHttps(
     runner,
     current.get("OPENTEAM_API_PORT") || String(API_PORT)
@@ -1055,8 +1088,12 @@ export const setupCommand = async (
   const privateHost = (fresh ? null : existingReachableHost(current)) ?? detectedPrivateHost;
   const preferredHttpsHost =
     tailscale &&
-    accessMode === "private" &&
-    (!privateHost || privateHost === tailscale.host || tailscale.addresses.includes(privateHost))
+    ((accessMode === "private" &&
+      (!privateHost ||
+        privateHost === tailscale.host ||
+        tailscale.addresses.includes(privateHost))) ||
+      (accessMode === "proxy" &&
+        current.get("OPENTEAM_PUBLIC_URL") === `https://${tailscaleHttpsHost(tailscale)}`))
       ? tailscaleHttpsHost(tailscale)
       : undefined;
   if (preferredHttpsHost)
@@ -1070,6 +1107,12 @@ export const setupCommand = async (
     ownerConfigured: Boolean(manifest.ownerUsername),
     detectedPrivateHost,
     preferredHttpsHost,
+    tailscaleHost: tailscaleInspection.node?.host,
+    tailscalePort:
+      accessMode === "tailscale"
+        ? new URL(current.get("OPENTEAM_PUBLIC_URL")!).port || "443"
+        : tailscale?.port,
+    tailscaleIssue: tailscaleInspection.issue,
     detectedLogins,
     loginDetection,
     presentation,
@@ -1092,18 +1135,21 @@ export const setupCommand = async (
         currentInference,
         detectedPrivateHost: collectOptions.detectedPrivateHost,
         preferredHttpsHost,
+        tailscaleHost: tailscaleInspection.node?.host,
+        tailscalePort:
+          accessMode === "tailscale"
+            ? new URL(current.get("OPENTEAM_PUBLIC_URL")!).port || "443"
+            : tailscale?.port,
+        tailscaleIssue: tailscaleInspection.issue,
         detectedLogins,
         notes,
       });
       if (configuration) {
         // The session clears itself; leave a settled record of what is being applied.
-        presentation.stage(collectOptions.advanced ? 3 : 2);
+        presentation.stage(3);
         presentation.message(`Installation: ${paths.directory}`, "muted");
         presentation.message(`Installed server release: v${manifest.version}`, "muted");
-        presentation.summary(
-          "Configuration ready",
-          configurationSummary(configuration, collectOptions.advanced ?? false)
-        );
+        presentation.summary("Configuration ready", configurationSummary(configuration));
         if (configuration.accessMode === "proxy") {
           presentation.message(
             `Proxy target: http://127.0.0.1:${configuration.apiPort} (WebSocket upgrades must be enabled).`,
@@ -1136,33 +1182,17 @@ export const setupCommand = async (
   if (configuration.apiPort !== (previousApiPort || String(API_PORT))) ownedPorts.delete("server");
   presentation.message("Checking startup ports…", "info");
   await assertPortsAvailable(runner, portRequirementsFromConfiguration(configuration, ownedPorts));
-  if (
-    tailscale &&
-    configuration.accessMode === "proxy" &&
-    configuration.publicUrl === `https://${tailscaleHttpsHost(tailscale)}`
-  ) {
-    presentation.message("Checking Tailscale HTTPS…", "info");
-    if (!ensureTailscaleHttps(runner, tailscale, configuration.apiPort)) {
-      const fallbackHost =
-        privateHost ||
-        tailscale.addresses.find((address) => !address.includes(":")) ||
-        tailscale.host;
-      configuration = {
-        ...configuration,
-        accessMode: "private",
-        ...bindHostsFor("private", fallbackHost),
-        publicUrl: publicUrlFor("private", fallbackHost, configuration.apiPort),
-      };
-      presentation.message(
-        `Tailscale HTTPS could not be configured. Keeping private HTTP at ${configuration.publicUrl}; compatible plugins will use callback paste. Enable HTTPS with Tailscale Serve, then rerun setup to switch.`,
-        "warning"
+  const previousRoutes = managedTailscaleRoutes(paths);
+  const tailscaleNode =
+    configuration.accessMode === "tailscale"
+      ? requireTailscale(runner, new URL(configuration.publicUrl).port || "443")
+      : null;
+  if (tailscaleNode) {
+    if (new URL(configuration.publicUrl).hostname !== tailscaleNode.host)
+      throw new CliError(
+        "The Tailscale hostname changed during setup. Rerun setup to review the new address."
       );
-      await assertPortsAvailable(
-        runner,
-        portRequirementsFromConfiguration(configuration, ownedPorts)
-      );
-    } else
-      presentation.message(`Tailscale HTTPS is ready at ${configuration.publicUrl}.`, "success");
+    assertTailscaleRouteAvailable(runner, tailscaleNode, configuration.apiPort);
   }
   let registeredCustomProvider: string | null = null;
   try {
@@ -1223,6 +1253,40 @@ export const setupCommand = async (
     } else {
       presentation.message("Configuration is unchanged.", "success");
     }
+    if (tailscaleNode) {
+      try {
+        ensureManagedTailscaleRoute(paths, runner, tailscaleNode, configuration.apiPort);
+        const readiness = await inspectPublicReadiness(configuration.publicUrl);
+        const failure = [readiness.dns, readiness.endpoint, readiness.tls]
+          .filter((check) => check && !check.ok)
+          .map((check) => check!.detail)
+          .join("; ");
+        if (failure) throw new CliError(`Tailscale HTTPS verification failed: ${failure}`);
+        presentation.message(
+          `Tailscale HTTPS verified at ${configuration.publicUrl}. Reconnect your apps using this address.`,
+          "success"
+        );
+      } catch (error) {
+        const cleanupErrors = rollbackNewTailscaleRoutes(paths, runner, previousRoutes);
+        writeFileAtomic(paths.environment, previousEnvironment, 0o600);
+        const recovery = project.run(["up", "--detach", "--remove-orphans"]);
+        throw new CliError(
+          `${error instanceof Error ? error.message : error} Previous configuration restored${recovery.status === 0 ? " and restarted" : "; restart failed, run openteam start"}. HTTPS was not enabled.${cleanupErrors.length ? ` Route cleanup needs attention: ${cleanupErrors.join("; ")}` : ""}`,
+          2
+        );
+      }
+    }
+    cleanManagedTailscaleRoutes(
+      paths,
+      runner,
+      tailscaleNode
+        ? {
+            host: tailscaleNode.host,
+            port: tailscaleNode.port || "443",
+            backendPort: configuration.apiPort,
+          }
+        : undefined
+    );
   } catch (error) {
     removeRegisteredCustomProvider(project, registeredCustomProvider);
     throw error;
@@ -1375,7 +1439,7 @@ export const setupCommand = async (
     presentation.message(`${configuration.model} is ready for new tasks.`, "success");
   }
 
-  presentation.stage(collectOptions.advanced ? 4 : 3);
+  presentation.stage(4);
   presentation.message("Checking the installation…", "info");
   const diagnosis = await runDoctor(paths, runner, manifest.projectName || PROJECT_NAME);
   printDoctor(diagnosis, {
@@ -1423,4 +1487,18 @@ export const setupCommand = async (
     { label: "Security", value: accessLabel(configuration.accessMode) },
     { label: "Manage", value: "openteam status · openteam doctor · openteam update" },
   ]);
+};
+
+export const setupCommand = async (
+  paths: InstallationPaths,
+  runner: CommandRunner,
+  options: SetupCommandOptions = {},
+  prompter?: SetupPrompter
+): Promise<void> => {
+  const release = acquireUpdateLock(paths);
+  try {
+    await setupCommandUnlocked(paths, runner, options, prompter);
+  } finally {
+    release();
+  }
 };

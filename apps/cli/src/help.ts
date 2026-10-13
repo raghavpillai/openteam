@@ -29,6 +29,7 @@ Your installation:
   start         Start OpenTeam after account setup
   stop          Stop OpenTeam
   logs          View troubleshooting logs
+  tailscale     Enable, inspect, or disable private Tailscale HTTPS
   notifications Configure iOS push credentials or show their status
   uninstall     Remove OpenTeam services and CLI
 
@@ -44,6 +45,38 @@ ${directoryOption}
 
 Run "openteam <command> --help" for command options.`,
 
+  tailscale: `${heading("openteam tailscale <enable|status|disable>", "Manage private HTTPS with Tailscale Serve on this server host.")}
+
+Commands:
+  enable        Configure and verify Tailscale HTTPS; restart the stack
+  status        Inspect the mapping, prerequisites, and HTTPS endpoint
+  disable       Switch to local access and remove OpenTeam-managed mappings
+
+Options:
+${directoryOption}
+${helpHint}`,
+  "tailscale-enable": `${heading("openteam tailscale enable [options]", "Configure Tailscale Serve and loopback backend ports, restart OpenTeam, and verify HTTPS. Reuses matching private routes; never replaces another application's route or enables Funnel.")}
+
+Options:
+  --https-port <port>   HTTPS listener (default: current port or 443)
+  --json                Print status as JSON
+${directoryOption}
+${helpHint}
+
+Tailscale must be running and signed in, with MagicDNS and HTTPS certificates enabled.
+On failure the previous server configuration is restored. Reconnect apps to the new URL.`,
+  "tailscale-status": `${heading("openteam tailscale status [options]", "Read-only check of Tailscale, mapping ownership, and HTTPS readiness. Exit 2 if configured HTTPS needs attention.")}
+
+Options:
+  --json                Print status as JSON
+${directoryOption}
+${helpHint}`,
+  "tailscale-disable": `${heading("openteam tailscale disable [options]", "Switch Tailscale mode to local-only access and restart OpenTeam. Remove only unchanged OpenTeam-managed mappings. Reused user-managed routes are preserved; remote apps must reconnect.")}
+
+Options:
+  --json                Print status as JSON
+${directoryOption}
+${helpHint}`,
   notifications: `${heading("openteam notifications <command>", "Manage iOS push delivery credentials on the running server.")}
 
 Commands:
@@ -102,7 +135,7 @@ Advanced release/testing options:
 
 Options:
 ${directoryOption}
-  --advanced            Also show connection, server, model, and performance settings
+  --advanced            Also show server, model, and performance settings
 ${helpHint}`,
 
   doctor: `${heading(

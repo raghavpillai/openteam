@@ -354,7 +354,7 @@ describe("interactive setup", () => {
     expect(selectionActionForKey("x", { name: "x" }, options)).toBeNull();
   });
 
-  test("quick setup keeps private networking automatic", async () => {
+  test("quick setup explicitly reviews the connection", async () => {
     const current = parseEnvironment(
       replaceEnvironmentValue(
         replaceEnvironmentValue(
@@ -367,6 +367,7 @@ describe("interactive setup", () => {
       )
     );
     const prompter = new AnswerPrompter([
+      "",
       "",
       "correct horse battery staple",
       "correct horse battery staple",
@@ -393,8 +394,8 @@ describe("interactive setup", () => {
       authenticate: true,
       authType: "oauth",
     });
-    expect(prompter.prompts).toHaveLength(4);
-    expect(prompter.prompts.some((prompt) => prompt.includes("Connection"))).toBe(false);
+    expect(prompter.prompts).toHaveLength(5);
+    expect(prompter.prompts.some((prompt) => prompt.includes("Connection"))).toBe(true);
   });
 
   test("advanced setup validates optional server settings", async () => {
@@ -453,7 +454,7 @@ describe("interactive setup", () => {
     const current = parseEnvironment(
       createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" })
     );
-    const prompter = new SelectionPrompter(["anthropic-test-secret"], ["anthropic"]);
+    const prompter = new SelectionPrompter(["anthropic-test-secret"], ["local", "anthropic"]);
 
     const configuration = await collectSetupConfiguration(current, false, prompter, {
       ownerConfigured: true,
@@ -488,7 +489,7 @@ describe("interactive setup", () => {
     const current = parseEnvironment(
       createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" })
     );
-    const prompter = new AnswerPrompter(["skip"]);
+    const prompter = new AnswerPrompter(["", "skip"]);
 
     const configuration = await collectSetupConfiguration(current, false, prompter, {
       ownerConfigured: true,
@@ -498,7 +499,7 @@ describe("interactive setup", () => {
       skipInference: true,
       authenticate: false,
     });
-    expect(prompter.prompts).toHaveLength(1);
+    expect(prompter.prompts).toHaveLength(2);
   });
 
   test("custom-provider onboarding validates every field and retries an empty password", async () => {
@@ -506,6 +507,7 @@ describe("interactive setup", () => {
       createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" })
     );
     const prompter = new AnswerPrompter([
+      "",
       "custom",
       "BAD ID",
       "acme",
@@ -550,7 +552,7 @@ describe("interactive setup", () => {
       timeZone: "UTC",
       workerConcurrency: "8",
     });
-    const prompter = new AnswerPrompter(["", "no"]);
+    const prompter = new AnswerPrompter(["", "", "no"]);
 
     const configuration = await collectSetupConfiguration(
       parseEnvironment(environment),
@@ -568,11 +570,12 @@ describe("interactive setup", () => {
     expect(prompter.prompts.some((prompt) => prompt.includes("Custom provider id"))).toBe(false);
   });
 
-  test("fresh setup defaults to the detected private network without asking", async () => {
+  test("fresh setup reviews the detected private network", async () => {
     const current = parseEnvironment(
       createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" })
     );
     const prompter = new AnswerPrompter([
+      "",
       "",
       "correct horse battery staple",
       "correct horse battery staple",
@@ -593,14 +596,14 @@ describe("interactive setup", () => {
       composeProfiles: "direct",
       authenticate: true,
     });
-    expect(prompter.prompts).toHaveLength(4);
+    expect(prompter.prompts).toHaveLength(5);
   });
 
   test("reconfiguration keeps the existing owner and does not ask for a password", async () => {
     const current = parseEnvironment(
       createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" })
     );
-    const prompter = new AnswerPrompter(["", "no"]);
+    const prompter = new AnswerPrompter(["", "", "no"]);
 
     const configuration = await collectSetupConfiguration(
       current,
@@ -809,7 +812,7 @@ describe("interactive setup", () => {
       fixture.paths,
       runner,
       { presentation: silentPresentation },
-      new AnswerPrompter(["openai", apiKey, "yes", ""])
+      new AnswerPrompter(["", "openai", apiKey, "yes", ""])
     );
 
     const actions = runner.calls.map(providerAction);
@@ -835,18 +838,23 @@ describe("interactive setup", () => {
     expect(environment).not.toContain(apiKey);
   });
 
-  test.each([false, true])("defaults to the first Codex catalog model after connection (authenticate=%s)", async (authenticate) => {
+  test.each([
+    false,
+    true,
+  ])("defaults to the first Codex catalog model after connection (authenticate=%s)", async (authenticate) => {
     const fixture = createSetupFixture();
     fixture.state.authenticated = !authenticate;
-    const runner = new SetupRunner(() => { fixture.state.authenticated = true; });
+    const runner = new SetupRunner(() => {
+      fixture.state.authenticated = true;
+    });
     runner.models.set("openai-codex", ["catalog-first", "catalog-second"]);
-    const answers = new AnswerPrompter([""]);
+    const answers = new AnswerPrompter(["", ""]);
     const prompter = sessionPrompter({ model: "", authenticate });
     prompter.question = (prompt) => answers.question(prompt);
     await setupCommand(fixture.paths, runner, { presentation: silentPresentation }, prompter);
     expect(answers.prompts).toContain("Inference model [catalog-first]: ");
     expect(fixture.state.inference.modelId).toBe("catalog-first");
-    expect(runner.calls.some(call => providerAction(call) === "login")).toBe(authenticate);
+    expect(runner.calls.some((call) => providerAction(call) === "login")).toBe(authenticate);
   });
 
   test("requires an account-backed model choice when the setup default is unavailable", async () => {
@@ -931,7 +939,7 @@ describe("interactive setup", () => {
       fixture.paths,
       runner,
       { presentation },
-      new AnswerPrompter(["skip", "yes"])
+      new AnswerPrompter(["", "skip", "yes"])
     );
 
     expect(runner.calls.some((call) => providerAction(call) === "models")).toBe(false);
@@ -952,7 +960,7 @@ describe("interactive setup", () => {
       fixture.paths,
       runner,
       { presentation: silentPresentation, detectedLogins: [] },
-      new AnswerPrompter(["claude-code", "yes", ""])
+      new AnswerPrompter(["", "claude-code", "yes", ""])
     );
 
     const login = runner.calls.find((call) => providerAction(call) === "login");
@@ -980,7 +988,7 @@ describe("interactive setup", () => {
       fixture.paths,
       runner,
       { presentation: silentPresentation },
-      new AnswerPrompter(["anthropic", apiKey, "yes", ""])
+      new AnswerPrompter(["", "anthropic", apiKey, "yes", ""])
     );
 
     const login = runner.calls.find((call) => providerAction(call) === "login");
@@ -1000,7 +1008,7 @@ describe("interactive setup", () => {
       fixture.paths,
       runner,
       { presentation: silentPresentation, detectedLogins: [] },
-      new AnswerPrompter(["openrouter", "synthetic-openrouter-key", "yes"])
+      new AnswerPrompter(["", "openrouter", "synthetic-openrouter-key", "yes"])
     );
     const login = runner.calls.find((call) => providerAction(call) === "login");
     expect(login?.args.slice(-3)).toEqual(["login", "openrouter", "api_key"]);
@@ -1023,6 +1031,7 @@ describe("interactive setup", () => {
       runner,
       { presentation: silentPresentation },
       new AnswerPrompter([
+        "",
         "custom",
         "acme",
         "Acme AI",
@@ -1116,6 +1125,7 @@ describe("interactive setup", () => {
         runner,
         { presentation: silentPresentation },
         new AnswerPrompter([
+          "",
           "custom",
           "acme",
           "Acme Replacement",
@@ -1146,6 +1156,7 @@ describe("interactive setup", () => {
         runner,
         { presentation: silentPresentation },
         new AnswerPrompter([
+          "",
           "custom",
           "acme",
           "Acme AI",
@@ -1176,6 +1187,7 @@ describe("interactive setup", () => {
         runner,
         { presentation: silentPresentation },
         new AnswerPrompter([
+          "",
           "custom",
           "acme",
           "Acme AI",
@@ -1272,7 +1284,7 @@ describe("interactive setup", () => {
         fixture.paths,
         runner,
         { presentation: silentPresentation },
-        new AnswerPrompter(["openai", apiKey, "yes", ""])
+        new AnswerPrompter(["", "openai", apiKey, "yes", ""])
       )
     ).rejects.toThrow("openteam provider login openai");
 
@@ -1498,7 +1510,7 @@ describe("interactive setup", () => {
     );
   });
 
-  test("Tailscale HTTPS failure saves a usable private HTTP deployment for callback paste", async () => {
+  test("explicit Tailscale HTTPS failure restores the previous configuration without HTTP fallback", async () => {
     const fixture = createSetupFixture({ authenticated: true });
     const runner = new SetupRunner();
     const originalRun = runner.run.bind(runner);
@@ -1522,7 +1534,7 @@ describe("interactive setup", () => {
     };
     const output: string[] = [];
     const prompter = sessionPrompter({
-      accessMode: "proxy",
+      accessMode: "tailscale",
       publicUrl: `https://${host}`,
       skipInference: true,
     });
@@ -1531,27 +1543,21 @@ describe("interactive setup", () => {
       expect(input.preferredHttpsHost).toBe(host);
       return collect(input);
     };
-    await setupCommand(
-      fixture.paths,
-      runner,
-      {
-        fresh: true,
-        detectedPrivateHost: "100.100.10.5",
-        detectedLogins: [],
-        presentation: { ...silentPresentation, message: (message) => output.push(message) },
-      },
-      prompter
-    );
-    const saved = parseEnvironment(readFileSync(fixture.paths.environment, "utf8"));
-    expect(saved.get("OPENTEAM_ACCESS_MODE")).toBe("private");
-    expect(saved.get("OPENTEAM_PUBLIC_URL")).toBe(
-      `http://100.100.10.5:${saved.get("OPENTEAM_API_PORT")}`
-    );
-    expect(saved.get("OPENTEAM_AUTH_URL")).toBe(saved.get("OPENTEAM_PUBLIC_URL"));
-    expect(saved.get("COMPOSE_PROFILES")).toBe("direct");
-    expect(
-      output.some((message) => message.includes("compatible plugins will use callback paste"))
-    ).toBe(true);
+    await expect(
+      setupCommand(
+        fixture.paths,
+        runner,
+        {
+          fresh: true,
+          detectedPrivateHost: "100.100.10.5",
+          detectedLogins: [],
+          presentation: { ...silentPresentation, message: (message) => output.push(message) },
+        },
+        prompter
+      )
+    ).rejects.toThrow("Previous configuration restored");
+    expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
+    expect(output.some((message) => message.includes("Keeping private HTTP"))).toBe(false);
   });
 
   test("cancels setup before provider validation without changing anything", async () => {
@@ -1562,7 +1568,7 @@ describe("interactive setup", () => {
       fixture.paths,
       runner,
       { presentation: silentPresentation },
-      new AnswerPrompter(["", "no"])
+      new AnswerPrompter(["", "", "no"])
     );
 
     expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);

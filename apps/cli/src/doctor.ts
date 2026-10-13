@@ -1,3 +1,4 @@
+import { tailscaleStatus } from "./tailscale-command";
 import {
   accessSync,
   existsSync,
@@ -315,7 +316,7 @@ export const runDoctor = async (
         (values.get("OPENTEAM_VIEWER_BIND_HOST") || values.get("OPENTEAM_BIND_HOST")) ===
         "127.0.0.1";
       let exposure: DoctorCheck;
-      if (accessMode === "https" || accessMode === "proxy") {
+      if (accessMode === "https" || accessMode === "proxy" || accessMode === "tailscale") {
         exposure =
           publicUrl.startsWith("https://") && apiIsLoopback && viewersAreLoopback
             ? {
@@ -324,7 +325,9 @@ export const runDoctor = async (
                 detail:
                   accessMode === "https"
                     ? `public HTTPS through bundled Caddy at ${publicUrl}; internal ports are loopback-only`
-                    : `public HTTPS through an external proxy at ${publicUrl}; OpenTeam ports are loopback-only`,
+                    : accessMode === "tailscale"
+                      ? `private Tailscale HTTPS at ${publicUrl}; OpenTeam ports are loopback-only`
+                      : `public HTTPS through an external proxy at ${publicUrl}; OpenTeam ports are loopback-only`,
               }
             : {
                 level: "fail",
@@ -387,7 +390,17 @@ export const runDoctor = async (
         });
       }
 
-      if (["https", "proxy", "http"].includes(accessMode) && publicUrl) {
+      if (accessMode === "tailscale") {
+        const status = await tailscaleStatus(paths, runner);
+        checks.push({
+          level: status.issue ? "fail" : "pass",
+          label: "Tailscale Serve",
+          detail:
+            status.issue || `${status.publicUrl} → ${status.backendUrl} (${status.ownership})`,
+          action: "Run openteam tailscale status on the server host.",
+        });
+      }
+      if (["https", "proxy", "http", "tailscale"].includes(accessMode) && publicUrl) {
         const readiness = await inspectPublicReadiness(publicUrl);
         checks.push({
           level: readiness.dns.ok ? "pass" : "fail",

@@ -1,6 +1,7 @@
 import { useDayClock } from "../../hooks/use-day-clock";
 import { ThinkingCaption } from "./thinking-caption";
 import { thinkingActivity } from "../../lib/thinking-activity";
+import { ACTIVE_ASYNC_TASK_STATUSES } from "../../lib/async-tasks";
 import { firstUnreadMessageId, groupChatActivity, type GroupActivity } from "../../lib/group-chat-presentation";
 import { GroupActivityContent } from "./group-activity";
 import { TranscriptSenderAvatar, TranscriptSenderName } from "./transcript-sender";
@@ -800,6 +801,7 @@ const BotThinkingSlot = memo(function BotThinkingSlot({
   group = false,
   groupActivity,
   groupStart = false,
+  persistent = false,
 }: {
   bot?: BotView;
   phase: ThinkingPhase;
@@ -807,6 +809,7 @@ const BotThinkingSlot = memo(function BotThinkingSlot({
   group?: boolean;
   groupActivity?: GroupActivity;
   groupStart?: boolean;
+  persistent?: boolean;
 }) {
   const name = bot?.name ?? "Bot";
   const mounted = phase !== "hidden";
@@ -828,6 +831,7 @@ const BotThinkingSlot = memo(function BotThinkingSlot({
             group && "group-activity-content"
           )}
           data-bot-thinking=""
+          data-persistent={persistent || undefined}
           data-exiting={phase === "exiting" || undefined}
           role="status"
         >
@@ -1337,16 +1341,30 @@ export const ChatPane = memo(function ChatPane({
     committedGroupRuns.current = retained;
     return groupChatActivity(activeRuns, botById, itemsByRun, retained);
   }, [botById, channel.id, channel.kind, itemsByRun, runs]);
+  const hasBackgroundTask = useMemo(
+    () =>
+      channel.kind === "bot_dm" &&
+      subagents.some(
+        (task) =>
+          task.parentChannelId === channel.id &&
+          task.parentBotId === selectedBot?.id &&
+          task.runInBackground &&
+          ACTIVE_ASYNC_TASK_STATUSES.has(task.status)
+      ),
+    [channel.id, channel.kind, selectedBot?.id, subagents]
+  );
   const showThinkingIndicator = groupActivity
     ? groupActivity.workers.length + groupActivity.readers.length > 0
-    : Boolean(activeRun && !(visibleMessages.length === 0 && onboardingInProgress));
+    : Boolean((activeRun || hasBackgroundTask) && !(visibleMessages.length === 0 && onboardingInProgress));
   const thinkingPhase = useThinkingPresence(
     showThinkingIndicator,
     channel.kind === "group" ? 160 : THINKING_EXIT_MS
   );
   const thinkingText = useMemo(() => {
-    return groupActivity?.text ?? thinkingActivity(activeRun ? itemsByRun.get(activeRun.id) : undefined);
-  }, [activeRun, groupActivity, itemsByRun]);
+    return groupActivity?.text ?? (hasBackgroundTask && !activeRun
+      ? "Working in the background"
+      : thinkingActivity(activeRun ? itemsByRun.get(activeRun.id) : undefined));
+  }, [activeRun, groupActivity, hasBackgroundTask, itemsByRun]);
   const unreadMessageId = firstUnreadMessageId(mainMessages, unreadVisit.current.through);
   const lastThinkingText = useRef({ channelId: channel.id, text: thinkingText });
   if (showThinkingIndicator || lastThinkingText.current.channelId !== channel.id) {
@@ -1489,7 +1507,7 @@ export const ChatPane = memo(function ChatPane({
                         from={entry.type === "message" && entry.message.sender === "user" ? "user" : "other"}
                       >
                       {entry.type === "thinking" ? (
-                        <BotThinkingSlot bot={entry.bot} phase={entry.phase} activity={lastThinkingText.current.text} group={channel.kind === "group"} groupStart={channel.kind === "group" && mainMessages.length > 0 && mainMessages.at(-1)?.sender !== "agent"} groupActivity={groupActivity ? { ...groupActivity, text: lastThinkingText.current.text } : undefined} />
+                        <BotThinkingSlot bot={entry.bot} phase={entry.phase} activity={lastThinkingText.current.text} persistent={hasBackgroundTask && !activeRun} group={channel.kind === "group"} groupStart={channel.kind === "group" && mainMessages.length > 0 && mainMessages.at(-1)?.sender !== "agent"} groupActivity={groupActivity ? { ...groupActivity, text: lastThinkingText.current.text } : undefined} />
                       ) : entry.type === "a2a" ? (
                         <A2AActivityRow
                           count={entry.entries.length}

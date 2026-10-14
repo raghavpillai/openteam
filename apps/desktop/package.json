@@ -134,6 +134,7 @@
     "test:navigation-startup": "bun scripts/test-image-attachment-layout.ts --navigation",
     "test:parity-edges": "bun scripts/test-desktop-parity-edges.ts",
     "test:widget-group-parity": "bun scripts/test-widget-group-parity.ts",
+    "test:background-activity": "bun scripts/test-background-activity.ts",
     "test:composer-button-parity": "bun scripts/test-composer-button-parity.ts",
     "test:message-send-motion": "bun scripts/test-message-send-motion.ts",
     "test:computer-view": "bun scripts/test-computer-view.ts",

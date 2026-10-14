@@ -747,7 +747,8 @@ textarea,
   transition: opacity 160ms ease-out;
 }
 
-.bot-thinking-content:hover .bot-thinking-label {
+.bot-thinking-content:hover .bot-thinking-label,
+.bot-thinking-content[data-persistent] .bot-thinking-label {
   opacity: 1;
 }
 

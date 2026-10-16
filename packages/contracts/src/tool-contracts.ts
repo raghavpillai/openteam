@@ -56,6 +56,18 @@ function adaptStableRefLifetime(value: any): void {
 }
 adaptStableRefLifetime(contracts.request_user_form!.inputSchema);
 
+// The human form is optional when the agent already has the needed value.
+// Keep the captured contract intact and adapt only the live description.
+contracts.request_user_form!.description = contracts.request_user_form!.description
+  .replace(
+    "Show the user a native in-chat form for a step where a page needs THEM to type — a login, a checkout address, a phone number.",
+    "Show the user a native in-chat form when they need to supply missing input. If credentials or a verification code are already available through the user's connected sources, enter them with browser_fill or browser_type instead."
+  )
+  .replace(
+    "Use this instead of asking for credentials in chat, and instead of request_box_help when the step is just typing.",
+    "Use this when the user needs to supply a value and the page fields are fillable; request_box_help is available when the tools cannot complete the step."
+  );
+
 // Observed element-target captures; retain our tab routing and current refs.
 contracts.browser_take_screenshot!.description = "Save a screenshot of the current page. Use fullPage for the full scrollable page, or target for one element by current snapshot ref or unique CSS selector. fullPage and target cannot be combined. element is a human-readable label, not a selector.";
 Object.assign(contracts.browser_take_screenshot!.inputSchema.properties, {
@@ -119,7 +131,7 @@ contracts.browser_find = {
 // Observed Grok invocation shape; bounded OpenTeam extension, not a captured full schema.
 contracts.browser_fill_form = {
   name: "browser_fill_form",
-  description: "Fill multiple ordinary form fields in one call using refs from the latest page state. Prefer this over separate fills/clicks for a form. Supports textbox values and explicit checkbox states (true/false), not toggles. Does not submit. Returns per-field outcomes and fresh page state; a failure stops the remaining fields without rolling back completed fields. Use the write-only user form for credentials instead.",
+  description: "Fill multiple form fields in one call using refs from the latest page state. Prefer this over separate fills/clicks for a form. Supports textbox values and explicit checkbox states (true/false), not toggles. Does not submit. Returns per-field outcomes and fresh page state; a failure stops the remaining fields without rolling back completed fields. Use browser_fill for password fields and split verification-code boxes. request_user_form is available when the user needs to supply missing input.",
   inputSchema: { type: "object", additionalProperties: false, required: ["fields"], properties: {
     viewId: { type: "string", minLength: 1, maxLength: 120 },
     fields: { type: "array", minItems: 1, maxItems: 20, items: {

@@ -15,6 +15,7 @@ import { publishChannelNotification, publishMessageNotification } from "./notifi
 export { publishChannelNotification, publishMessageNotification, channelNotificationStates } from "./notifications";
 import { defaultTaskConfiguration, subagentHasHistoryTools, subagentUsesParentConnectors, taskUserInfo, type TaskConfiguration } from "@openteam/contracts/task-configuration";
 import { COMBINED_GRAPHICAL_WORKER_PROMPT, GRAPHICAL_COMPLETION_INSTRUCTIONS, GRAPHICAL_DOWNLOAD_INSTRUCTIONS, GRAPHICAL_VERIFICATION_INSTRUCTIONS, EXECUTION_VERIFICATION_INSTRUCTIONS, NATIVE_DOCUMENT_INSTRUCTIONS } from "./graphical-worker-prompts";
+import { AUTHENTICATION_INSTRUCTIONS } from "./prompts/authentication";
 import {
   type AdminBroadcastInput,
   type AgentImageInput,
@@ -544,6 +545,7 @@ export const subagentSpecializationInstructions = (type: SubagentType, combinedC
       "## Your box",
       "You drive your parent agent's own desktop on a persistent Linux box with Computer, plus file reads with Read and a shell with Shell. All three share one filesystem; files, installed tools, browser logins, and the browser profile persist across turns. The box is the only computer you can reach.",
       "## Computer",
+      AUTHENTICATION_INSTRUCTIONS,
       GRAPHICAL_COMPLETION_INSTRUCTIONS,
       GRAPHICAL_DOWNLOAD_INSTRUCTIONS,
       GRAPHICAL_VERIFICATION_INSTRUCTIONS,
@@ -557,7 +559,6 @@ export const subagentSpecializationInstructions = (type: SubagentType, combinedC
       "- For browser work, launch this screen's Chromium at a known URL with `openteam-screen-launch chromium 'https://example.com'`; never launch another browser or download browser binaries. Navigate directly to exact or constructible URLs.",
       "- Shell receives the exact DISPLAY and OPENTEAM_BROWSER_DEBUG_PORT for this desktop. Packaged playwright-core may connect to that CDP endpoint for browser bring-up, recovery, or inspecting a stuck page, but Computer remains the source of truth for what the user sees. Never probe another display or port.",
       "- Keep tabs tidy without closing unsaved work, active uploads, login challenges, or tabs whose purpose is uncertain. Never use `pkill -f`; terminate an exact PID instead.",
-      "- Do not inspect cookies, browser storage, auth headers, password fields, hidden inputs, tokens, or unrelated account data. Redact sensitive values from the report.",
       "- Do not loop. Change tactics after a couple of failed attempts and stop as soon as the goal is met or genuinely blocked.",
       "- End with one concise, self-contained report of what you did, what the screen showed, whether the goal was met, and any exact blocker. You cannot talk to the user directly.",
     ].join("\n");
@@ -567,6 +568,7 @@ export const subagentSpecializationInstructions = (type: SubagentType, combinedC
       "## Your box",
       "You drive your parent agent's persistent box browser at the page level with browser_* tools, plus file reads with Read and a shell with Shell. All three share one filesystem; files, installed tools, browser logins, and the browser profile persist across turns. The box is the only computer you can reach.",
       "## Browser",
+      AUTHENTICATION_INSTRUCTIONS,
       GRAPHICAL_COMPLETION_INSTRUCTIONS,
       GRAPHICAL_DOWNLOAD_INSTRUCTIONS,
       GRAPHICAL_VERIFICATION_INSTRUCTIONS,
@@ -577,7 +579,7 @@ export const subagentSpecializationInstructions = (type: SubagentType, combinedC
       "- Browser actions already return the resulting page and screenshot, so browser_take_screenshot is normally redundant.",
       "- Your tools operate on the assigned parent desktop's browser tabs, including tabs opened with native controls. On a modality switch, list tabs and explicitly select the intended viewId; native focus and managed selection may differ. Preserve pre-existing and unsaved tabs, and close only task-created tabs when permitted.",
       "- Move bulk or structured data through files and the site's import, upload, or download flow instead of filling many values by keyboard.",
-      "- Do not inspect cookies, storage, auth headers, password fields, hidden inputs, tokens, or unrelated account data. Browser-wide, storage, cookie, cache, permission, target-management, and raw CDP input commands are blocked. Redact sensitive values from the report.",
+      "- Browser-wide, storage, cookie, cache, permission, target-management, and raw CDP input commands are blocked by the browser tools.",
       "- Do not loop. Change tactics after a couple of failed attempts and stop as soon as the goal is met or genuinely blocked.",
       "- End with one concise, self-contained report of what you did, what you saw, whether the goal was met, and any exact blocker. You cannot talk to the user directly.",
     ].join("\n");

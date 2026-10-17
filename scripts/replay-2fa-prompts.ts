@@ -17,6 +17,7 @@ import { outOfProcessPlaywright } from "../apps/computer/src/browser/playwright-
 const executablePath = process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE;
 if (!executablePath) throw new Error("Set OPENTEAM_BROWSER_TEST_EXECUTABLE to a Chromium executable");
 const container = process.env.REPLAY_COMPUTER_CONTAINER ?? "openteam-computer-1";
+const sshHost = process.env.REPLAY_SSH_HOST;
 const base = process.env.REPLAY_BASE_REF ?? "5aa47b26^";
 const output = resolve(process.env.REPLAY_OUTPUT ?? "output/2fa-prompt-replay");
 const scenarios = process.env.REPLAY_SCENARIO ? [process.env.REPLAY_SCENARIO] : ["fresh", "stuck-conversation"];
@@ -27,6 +28,10 @@ const bridgePath = `/tmp/openteam-2fa-replay-${Date.now()}.ts`;
 const code = "482917"; // Synthetic, never a real account code.
 const timestamp = () => Date.now();
 async function command(cmd: string[], input?: string) {
+  if (sshHost && cmd[0] === "docker") {
+    const quote = (argument: string) => "'" + argument.replaceAll("'", "'\\''") + "'";
+    cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", sshHost, cmd.map(quote).join(" ")];
+  }
   const process = Bun.spawn(cmd, { stdin: input === undefined ? "ignore" : new Blob([input]), stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, status] = await Promise.all([new Response(process.stdout).text(), new Response(process.stderr).text(), process.exited]);
   if (status) throw new Error(`${cmd[0]} failed (${status}): ${stderr.slice(0, 1000)}`);
@@ -58,9 +63,12 @@ const selection = (await Bun.file("/home/box/agent-data/settings.json").json()).
 const input = JSON.parse(await Bun.stdin.text());
 const model = runtime.getModels(selection.providerId).find(model => model.id === selection.modelId);
 if (!model) throw new Error("Configured model not found");
+if (input.metadataOnly) { console.log(JSON.stringify({ selection, model: { api: model.api, provider: model.provider, id: model.id } })); process.exit(0); }
 const response = await runtime.completeSimple(model, input, { reasoning: selection.reasoning === "off" ? undefined : selection.reasoning, maxTokens: 5000, signal: AbortSignal.timeout(90000) });
 console.log(JSON.stringify({ selection, response }));`;
 await command(["docker", "exec", "-i", container, "sh", "-c", 'umask 077; cat > "$1"', "sh", bridgePath], bridge);
+const metadata = JSON.parse(await command(["docker", "exec", "-i", container, "bun", bridgePath], JSON.stringify({ metadataOnly: true })));
+console.log(JSON.stringify({ selection: metadata.selection, sshHost: sshHost ?? null }));
 const toolsFor = (tool: typeof referenceTool, names: string[]) => names.map(name => {
   const contract = tool(name);
   return { name, description: contract.description, parameters: contract.inputSchema };
@@ -68,7 +76,7 @@ const toolsFor = (tool: typeof referenceTool, names: string[]) => names.map(name
 const messageTool = { name: "ChatItems", description: "Read recent iMessage messages, including service verification messages.", parameters: { type: "object", properties: {}, additionalProperties: false } };
 const text = (result: any) => result.content.filter((part: any) => part.type === "text").map((part: any) => part.text).join("\n");
 const user = (content: string) => ({ role: "user", content, timestamp: timestamp() });
-const assistant = (content: any[]) => ({ role: "assistant", content, api: "openai-completions", provider: "openrouter", model: "x-ai/grok-4.7", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: timestamp() });
+const assistant = (content: any[]) => ({ role: "assistant", content, api: metadata.model.api, provider: metadata.model.provider, model: metadata.model.id, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: timestamp() });
 const delivered = (content: string, id: string) => historyFormat === "text" ? [assistant([{ type: "text", text: content }])] : [
   { ...assistant([{ type: "toolCall", id, name: "SendToUser", arguments: { type: "text", content, end_turn: true } }]), stopReason: "toolUse" },
   { role: "toolResult", toolCallId: id, toolName: "SendToUser", content: [{ type: "text", text: "Message delivered." }], isError: false, timestamp: timestamp() },
@@ -99,6 +107,7 @@ try {
       const contract = variant === "before" ? beforeTool : referenceTool;
       const trace: any[] = [];
       let humanInputRequested = false;
+      let hitTurnLimit = false;
       const mainPrompt = [variant === "before" ? beforeMain : afterMain, MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS,
         "## Loaded in-chat-forms skill", (variant === "before" ? oldManaged : managed).skills.find((skill: any) => skill.id === "in-chat-forms").content,
         `## Current task state\nThe requested document is open at ${server.url.origin}. The browser worker reported this page:\n${snapshot}\nThe cursor namespace provides request_user_form and request_box_help. The connected iMessage namespace provides ChatItems.`,
@@ -132,7 +141,7 @@ try {
               humanInputRequested = true; result = "Waiting for the user to enter the requested value or take over the screen."; end = true;
             } else if (call.name === "Task" && actor === "main") {
               const workerPrompt = variant === "before" ? beforeWorker : subagentSpecializationInstructions("computerUse");
-              result = await loop("worker", workerPrompt, [user(call.arguments.prompt)], toolsFor(contract, ["browser_snapshot", "browser_fill", "browser_type", "browser_click", "browser_press_key"]), 8);
+              result = await loop("worker", workerPrompt, [user(call.arguments.prompt)], toolsFor(contract, ["browser_snapshot", "browser_fill", "browser_type", "browser_click", "browser_press_key"]), 16);
             } else if (actor === "worker" && call.name.startsWith("browser_")) {
               try { result = text(await session.execute(call.name, call.arguments)); }
               catch (error) { result = `Tool failed: ${error instanceof Error ? error.message : "unknown error"}`; }
@@ -142,12 +151,13 @@ try {
             if (end) return final || result;
           }
         }
+        hitTurnLimit = true;
         return final || "Reached replay turn limit";
       }
       const final = await loop("main", mainPrompt, messages, [...toolsFor(contract, ["SendToUser", "Task", "GetDynamicTools", "CallDynamicTool"]), messageTool], 10);
       const page = await (session as any).ensurePage();
       const verified = await page.getByRole("heading", { name: "Document ready", exact: true }).count() === 1;
-      const result = { scenario, variant, historyFormat, promptSha256: createHash("sha256").update(mainPrompt).digest("hex"), verified, humanInputRequested, final, trace };
+      const result = { scenario, variant, historyFormat, promptSha256: createHash("sha256").update(mainPrompt).digest("hex"), verified, humanInputRequested, hitTurnLimit, final, trace };
       results.push(result);
       await mkdir(output, { recursive: true });
       await writeFile(join(output, `${scenario}-${variant}.json`), JSON.stringify(result, null, 2) + "\n");
@@ -155,10 +165,10 @@ try {
       await context.close();
     }
   }
-  const report = { base, head: (await command(["git", "rev-parse", "HEAD"])).trim(), selection, limitations: ["Synthetic message and verification-page fixtures; no real DocuSign envelope or iMessage account was used.", "Main-agent Task calls synchronously run a graphical worker in this harness; deployment scheduling is not replayed.", "One sample per scenario and variant; the original screenshot model and complete hidden context are unknown."], results };
+  const report = { base, head: (await command(["git", "rev-parse", "HEAD"])).trim(), selection, historyFormat, sshHost: sshHost ?? null, limitations: ["Synthetic message and verification-page fixtures; no real DocuSign envelope or iMessage account was used.", "Main-agent Task calls synchronously run a graphical worker in this harness; deployment scheduling is not replayed.", "One sample per scenario and variant; reconstructed conversation history rather than the complete original hidden context."], results };
   await writeFile(join(output, "report.json"), JSON.stringify(report, null, 2) + "\n");
   console.log(`Report: ${join(output, "report.json")}`);
-  if (results.some(result => result.variant === "after" && !result.verified)) process.exitCode = 1;
+  if (results.some(result => result.variant === "after" && (!result.verified || result.hitTurnLimit))) process.exitCode = 1;
 } finally {
   await browser.close(); await driver.stop(); server.stop(true);
   await command(["docker", "exec", container, "rm", "-f", bridgePath]);

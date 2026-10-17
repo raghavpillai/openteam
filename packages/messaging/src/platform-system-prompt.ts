@@ -5,11 +5,14 @@ import grokPlatform from "./prompts/grok-platform.json";
 import { INLINE_WORKFLOWS } from "./prompts/inline-workflows";
 import { EXECUTION_EVIDENCE_INSTRUCTIONS } from "./prompts/execution-evidence";
 import { resolveTimeZone } from "./timestamps";
+import { AUTHENTICATION_INSTRUCTIONS } from "./prompts/authentication";
 
 /** Standalone, reviewed runtime asset; never load the local findings directory. */
 export const PLATFORM_SYSTEM_PROMPT_VERSION = grokPlatform.version;
-export const PLATFORM_BASE_SYSTEM_PROMPT = grokPlatform.sections
-  .map(({ text }) => text)
+export const PLATFORM_BASE_SYSTEM_PROMPT = [
+  ...grokPlatform.sections.map(({ text }) => text),
+  AUTHENTICATION_INSTRUCTIONS,
+]
   .join("\n\n");
 
 export interface PlatformPromptFeatures {
@@ -45,7 +48,7 @@ export function renderPlatformBaseSystemPrompt(features: PlatformPromptFeatures 
       ? "When the user requests a reusable bot template, use create_bot_share_json. Exclude secrets and private account data, and verify the returned artifact before sharing it."
       : "",
     features.forms !== false
-      ? "Use request_user_form for structured browser input. Values travel directly to the host; remap_user_form_targets accepts held field targets only, never values. A form card ends the current turn."
+      ? "request_user_form is available for structured input the user needs to supply. Values travel directly to the host; remap_user_form_targets accepts held field targets only, never values. A form card ends the current turn."
       : "",
     features.drafts !== false
       ? "DraftExternalMessage stages an editable email or Slack review card. Verify the connector account and destination first. The user sends or discards; creating the card sends nothing unless the user allowed every recipient for you or turned your drafts off, in which case it sends at once and the result says so. Never send a second copy through a connector. Unknown delivery outcomes require checking the destination."

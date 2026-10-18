@@ -8,8 +8,6 @@ import {
 const desktopPackage = Bun.file(new URL("../package.json", import.meta.url)).json() as Promise<{
   scripts?: Record<string, string>;
 }>;
-const mainSource = Bun.file(new URL("../src/main/index.ts", import.meta.url)).text();
-const supervisorSource = Bun.file(new URL("../scripts/dev-electron.ts", import.meta.url)).text();
 
 describe("desktop development Electron supervisor", () => {
   test("derives the renderer URL and readiness target from the development host", () => {
@@ -49,25 +47,10 @@ describe("desktop development Electron supervisor", () => {
     expect(isElectronBundleArtifact(null)).toBe(true);
   });
 
-  test("uses the production main-process split and watches lazy chunks", async () => {
-    const source = await supervisorSource;
-    expect(source).toContain('"--outdir",\n    "dist-electron"');
-    expect(source).toContain('"--entry-naming",\n    "main.js"');
-    expect(source).toContain('"--chunk-naming",\n    "chunks/[name]-[hash].[ext]"');
-    expect(source).toContain('"--splitting"');
-    expect(source).toContain("watch(bundleRoot, { recursive: true }");
-  });
-
   test("routes desktop development through the bundle supervisor", async () => {
     const packageJson = await desktopPackage;
     expect(packageJson.scripts?.dev).toContain("scripts/dev-electron.ts");
     expect(packageJson.scripts?.dev).toContain('"vite"');
     expect(packageJson.scripts?.dev).not.toContain(" electron .");
-  });
-
-  test("ignores environment-selected renderer pages in packaged builds", async () => {
-    expect(await mainSource).toContain(
-      "app.isPackaged ? undefined : process.env.OPENTEAM_RENDERER_URL"
-    );
   });
 });

@@ -14,9 +14,8 @@ const fixture = () => {
 };
 
 describe("desktop file session storage", () => {
-  test("fresh profiles and legacy encrypted sessions do not require keychain migration", async () => {
-    const { path, store, directory } = fixture();
-    writeFileSync(join(directory, "auth-session.bin"), "v10-encrypted-session");
+  test("fresh profiles start without a persisted session", async () => {
+    const { path, store } = fixture();
     expect(await store.read()).toEqual({ token: null, persistence: "disk", backend: "file" });
     expect(existsSync(path)).toBe(false);
   });

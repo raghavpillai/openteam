@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   emptySidebarPreferences,
-  normalizeSidebarPreferences,
   parseSidebarPreferences,
   toggleSidebarPinned,
 } from "../src/client-preferences";
@@ -12,21 +11,6 @@ import {
 } from "../src/service-protocol";
 
 describe("shared boundary codecs", () => {
-  test("normalizes legacy sidebar sections", () => {
-    expect(
-      normalizeSidebarPreferences({
-        pinnedIds: ["channel-1"],
-        unreadIds: [],
-        sectionByChannel: { "channel-1": "Projects" },
-      })
-    ).toMatchObject({
-      version: 2,
-      pinnedIds: ["channel-1"],
-      sections: [{ id: "legacy-section-0", name: "Projects", collapsed: false }],
-      sectionByChannel: { "channel-1": "legacy-section-0" },
-    });
-  });
-
   test("strictly validates persisted sidebar preferences", () => {
     expect(parseSidebarPreferences(emptySidebarPreferences())).toEqual(emptySidebarPreferences());
     expect(() => parseSidebarPreferences({ version: 2, pinnedIds: "bad" })).toThrow();

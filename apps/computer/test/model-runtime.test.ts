@@ -17,7 +17,7 @@ test("Claude Code and Anthropic have independent credentials, auth methods and m
     await writeFile(
       options.authPath,
       JSON.stringify({
-        anthropic: {
+        "claude-code": {
           type: "oauth",
           access: "synthetic-access",
           refresh: "synthetic-refresh",
@@ -28,7 +28,7 @@ test("Claude Code and Anthropic have independent credentials, auth methods and m
     await writeFile(
       options.settingsPath,
       JSON.stringify({
-        inference: { providerId: "anthropic", modelId: "claude-test", reasoning: "high" },
+        inference: { providerId: "claude-code", modelId: "claude-test", reasoning: "high" },
         unrelated: true,
       })
     );
@@ -58,39 +58,6 @@ test("Claude Code and Anthropic have independent credentials, auth methods and m
     await restarted.logout("claude-code");
     const again = await createModelRuntime(options);
     expect(await again.checkAuth("claude-code")).toBeUndefined();
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("migration preserves both accounts when legacy and new Claude credentials differ", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "provider-migration-conflict-"));
-  const authPath = join(dir, "auth.json");
-  const before = JSON.stringify({
-    anthropic: {
-      type: "oauth",
-      access: "legacy-access",
-      refresh: "legacy-refresh",
-      expires: Date.now() + 3600000,
-    },
-    "claude-code": {
-      type: "oauth",
-      access: "separate-access",
-      refresh: "separate-refresh",
-      expires: Date.now() + 3600000,
-    },
-  });
-  try {
-    await writeFile(authPath, before);
-    await expect(
-      createModelRuntime({
-        authPath,
-        modelsPath: join(dir, "models.json"),
-        modelsStorePath: join(dir, "store.json"),
-        allowModelNetwork: false,
-      })
-    ).rejects.toThrow("both credentials have been preserved");
-    expect(await readFile(authPath, "utf8")).toBe(before);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

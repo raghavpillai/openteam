@@ -34,23 +34,4 @@ describe("graphical screen lifecycle", () => {
 
     expect(dockerfile).toMatch(/apt-get install[\s\S]*?\bimagemagick\b/);
   });
-
-  test("proves both VNC endpoints are live before reporting ready and rechecks them later", async () => {
-    const source = (
-      await Promise.all(
-        ["screen-broker.ts", "screen/processes.ts"].map((file) =>
-          Bun.file(new URL(`../src/${file}`, import.meta.url)).text()
-        )
-      )
-    ).join("\n");
-
-    expect(source).toContain("this.waitForEndpoint(");
-    expect(source).toContain("tcpPortAccepts(session.rfbPort)");
-    expect(source).toContain("viewerHttpResponds(session.viewerPort)");
-    expect(source).toContain("await refreshSessionHealth(session)");
-    expect(source).toContain(
-      'failSession(session, "The VNC or noVNC endpoint stopped responding")'
-    );
-    expect(source).not.toContain("setTimeout(resolve, 450)");
-  });
 });

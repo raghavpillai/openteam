@@ -35,14 +35,10 @@ describe("Pi inference model references", () => {
     expect(formatPiModelRef(piModelRef("openai", "gpt-5.2"))).toBe("openai/gpt-5.2");
   });
 
-  test("accepts qualified and backwards-compatible bare model ids", () => {
+  test("accepts qualified model ids including nested provider model paths", () => {
     expect(parsePiModelRef("anthropic/claude-opus-4-1", "openai-codex")).toEqual({
       providerId: "anthropic",
       modelId: "claude-opus-4-1",
-    });
-    expect(parsePiModelRef("gpt-5.5", "openai-codex")).toEqual({
-      providerId: "openai-codex",
-      modelId: "gpt-5.5",
     });
     expect(parsePiModelRef("openrouter/anthropic/claude", "openai")).toEqual({
       providerId: "openrouter",

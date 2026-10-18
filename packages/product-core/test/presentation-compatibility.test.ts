@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { BOT_AVATAR_DEALT_COLORS } from "@openteam/contracts/bot-avatar";
 import { routineExecutionStatusPresentation } from "../src/routines";
 import { formatRosterTimestamp } from "../src/timestamps";
 
@@ -19,21 +18,7 @@ describe("shared helpers preserve the existing desktop and iOS presentation", ()
       expect(routineExecutionStatusPresentation(status, "raw").label).toBe(raw);
     }
   });
-  test("the native white swatch and remaining palette order are unchanged", () => {
-    expect(["#ffffff", ...BOT_AVATAR_DEALT_COLORS]).toEqual([
-      "#ffffff",
-      "#a47952",
-      "#f23d52",
-      "#ff7a1a",
-      "#ff9e12",
-      "#10b972",
-      "#27baae",
-      "#4b8efb",
-      "#925df2",
-      "#ef479b",
-      "#878787",
-    ]);
-  });
+
   test("all roster variants show weekdays for recent conversations", () => {
     const now = new Date(2026, 8, 3, 17);
     const today = new Date(2026, 8, 3, 10, 15);

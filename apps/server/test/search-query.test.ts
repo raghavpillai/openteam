@@ -98,19 +98,4 @@ describe("search query parsing", () => {
     expect(sql).toContain('coalesce(document."channelId", direct_channel."channelId")');
     expect(sql).toContain('coalesce(bot."name", channel."name")');
   });
-
-  test("projects canonical attachments with a legacy-image fallback", async () => {
-    const migration = await Bun.file(
-      new URL("../../../packages/db/prisma/sql/raw-schema.sql", import.meta.url)
-    ).text();
-
-    expect(migration).toContain('NEW."channelId", NEW."botId"');
-    expect(migration).toContain("NEW.\"metadata\"::jsonb -> 'attachments'");
-    expect(migration).toContain("attachment ->> 'fileName'");
-    expect(migration).toContain("attachment ->> 'assetId'");
-    expect(migration).toContain(
-      "ELSIF jsonb_typeof(NEW.\"metadata\"::jsonb -> 'images') = 'array'"
-    );
-    expect(migration).toContain("openteam.search_reindex");
-  });
 });

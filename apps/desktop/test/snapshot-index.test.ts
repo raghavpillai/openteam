@@ -187,18 +187,6 @@ describe("desktop snapshot index", () => {
     expect(second.runtime).toBe(first.runtime);
   });
 
-  test("accepts snapshots from servers that predate subagent activity", () => {
-    const { subagents: _subagents, ...legacySnapshot } = fixture();
-    const reconciled = reconcileClientSnapshot(
-      legacySnapshot as ClientSnapshot,
-      null,
-      createSnapshotCaches()
-    );
-
-    expect(reconciled.subagents).toEqual([]);
-    expect(createSnapshotIndex(reconciled).subagentsByChannel.size).toBe(0);
-  });
-
   test("normalizes omitted collections at the unvalidated HTTP boundary", () => {
     const legacySnapshot = fixture() as ClientSnapshot & Record<string, unknown>;
     for (const key of [

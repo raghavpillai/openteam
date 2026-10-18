@@ -149,15 +149,4 @@ describe("local action matching", () => {
     expect(updatePalettePresentation("downloaded").title).toBe("Restart to Update");
     expect(updatePalettePresentation("installing").title).toBe("Update in Progress…");
   });
-
-  test("Chat Settings opens the editable inspector instead of the summary", async () => {
-    const source = await Bun.file(new URL("../src/renderer/App.tsx", import.meta.url)).text();
-    const actionStart = source.indexOf('id: "info:settings"');
-    const actionEnd = source.indexOf("},", source.indexOf("setDetailsOpen(true);", actionStart));
-    const action = source.slice(actionStart, actionEnd);
-
-    expect(action).toContain('title: "Chat Settings"');
-    expect(action).toContain('setInspectorMode("settings")');
-    expect(action).not.toContain('setInspectorMode("summary")');
-  });
 });

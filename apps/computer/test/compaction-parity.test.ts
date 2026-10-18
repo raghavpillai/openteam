@@ -15,7 +15,6 @@ import {
   botDurableBlocks,
   botSummaryMessage,
   botSummaryText,
-  shouldPersistBotSummary,
   isValidBotEarlyThreshold,
   partitionForBotSummary,
   reduceBotSummaryInputMessages,
@@ -137,23 +136,16 @@ test("early thresholds lower both boundaries only when valid", () => {
   }
 });
 
-test("fractional windows round up to the first token at or above 90%", () => {
-  expect(shouldPersistBotSummary(90_000, 100_001)).toBe(false);
-  expect(shouldPersistBotSummary(90_001, 100_001)).toBe(true);
-});
-
-test("summary text joins nonempty prose parts and strips only closed legacy thinking tags", () => {
+test("summary text joins nonempty prose parts and excludes non-text content", () => {
   expect(
     botSummaryText([
       { type: "thinking", thinking: "internal" },
-      { type: "text", text: "<think>old reasoning</think>First" },
+      { type: "text", text: "First" },
       { type: "text", text: "" },
       { type: "text", text: "Second" },
       { type: "toolCall", name: "Read", id: "never-executed" },
     ])
   ).toBe("First\nSecond");
-  expect(botSummaryText("<think>unclosed")).toBe("<think>unclosed");
-  expect(botSummaryText("<think>a</think><think>b</think>")).toBe("");
 });
 
 test("only zero-length assistant envelopes are removed, including signed or whitespace content", () => {

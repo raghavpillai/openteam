@@ -30,8 +30,7 @@ describe("binary assets", () => {
     expect(assetUploadByteLimit("application/octet-stream", "clip.MOV")).toBe(200 * 1024 * 1024);
   });
 
-  test("distinguishes legacy JSON envelopes from raw JSON file uploads", () => {
-    expect(isAssetUploadEnvelope("application/json; charset=utf-8", null)).toBeTrue();
+  test("recognizes raw JSON file uploads", () => {
     expect(isAssetUploadEnvelope("application/json", "report.json")).toBeFalse();
     expect(isAssetUploadEnvelope("application/json-patch+json", null)).toBeFalse();
   });

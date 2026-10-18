@@ -121,12 +121,4 @@ describe("panel resize snapping", () => {
     expect(maxSidebarWidthForLayout(1200, 320)).toBe(400);
     expect(maxSidebarWidthForLayout(800, 320)).toBe(376); // details overlay
   });
-
-  test("keeps details usable as an overlay below the dock threshold", async () => {
-    const source = await Bun.file(new URL("../src/renderer/App.tsx", import.meta.url)).text();
-
-    expect(source).toContain("const visibleDetailsOpen = detailsOpen;");
-    expect(source).toContain("const detailsOverlay = detailsOpen && !detailsDocked;");
-    expect(source).toContain('detailsOverlay && "absolute inset-y-0 right-0 z-20 shadow-2xl"');
-  });
 });

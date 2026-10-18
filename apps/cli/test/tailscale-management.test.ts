@@ -396,21 +396,6 @@ test("owned mapping cannot be deleted after another app adds a handler", () => {
   expect(f.calls.some((c) => c.includes("off"))).toBe(false);
 });
 
-test("enable migrates a legacy matching custom-port route without touching another app on 443", async () => {
-  const f = fixture();
-  const first = mapping("443", "9000");
-  const legacy = mapping("10000");
-  f.setServe({ TCP: { ...first.TCP, ...legacy.TCP }, Web: { ...first.Web, ...legacy.Web } });
-  const before = structuredClone(f.serve);
-  await configureTailscale(f.paths, f.runner, "enable", undefined, f.dependencies);
-  expect(await tailscaleStatus(f.paths, f.runner)).toMatchObject({
-    httpsPort: "10000",
-    route: "matching",
-    ownership: "external",
-  });
-  expect(f.serve).toEqual(before);
-});
-
 test("a route created before a command timeout is tracked and rolled back", async () => {
   const f = fixture();
   f.fail((command, args) => {

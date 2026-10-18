@@ -15,7 +15,6 @@ test("doctor checks transcription through the authenticated server and reports o
     detail: "Not configured; voice notes are disabled.",
   });
   let calls = 0;
-  let legacy = false;
   let validControlToken = true;
   const server = Bun.serve({
     port: 0,
@@ -30,7 +29,7 @@ test("doctor checks transcription through the authenticated server and reports o
       );
       expect(request.method).toBe("POST");
       expect(request.headers.get("authorization")).toBe(`Bearer ${token}`);
-      return legacy ? new Response(null, { status: 401 }) : response.clone();
+      return response.clone();
     },
   });
   try {
@@ -52,19 +51,10 @@ test("doctor checks transcription through the authenticated server and reports o
       detail: "The transcription provider rejected the API key.",
     });
     expect((await checkTranscription(paths)).level).toBe("fail");
-    response = new Response("Old server", { status: 404 });
-    expect(await checkTranscription(paths)).toMatchObject({
-      level: "warn",
-      detail: expect.stringContaining("Update the server"),
-    });
     response = Response.json({ level: "invalid", detail: "bad" });
     expect((await checkTranscription(paths)).level).toBe("fail");
-    expect(calls).toBe(4);
-    legacy = true;
-    expect(await checkTranscription(paths)).toMatchObject({
-      level: "warn",
-      detail: expect.stringContaining("Update the server"),
-    });
+    expect(calls).toBe(3);
+    response = new Response(null, { status: 401 });
     validControlToken = false;
     expect((await checkTranscription(paths)).level).toBe("fail");
   } finally {

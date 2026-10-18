@@ -81,23 +81,6 @@ for (const description of ["Token has been expired or revoked.", "", "Le jeton a
   }, 20_000);
 }
 
-for (const missingRefresh of [false, true]) {
-  integration(`restart recovers a legacy error account (${missingRefresh ? "missing refresh token" : "invalid_grant"})`, async () => {
-    const f = await setup();
-    try {
-      await f.expire(f.id, missingRefresh);
-      await f.db.pluginConnection.update({ where: { id: f.id }, data: { status: "error", statusMessage: "Local runtime unavailable: Token has been expired or revoked." } });
-      f.provider.setRefreshFailure({ error: "invalid_grant" });
-      await expect(f.client.restartPluginConnection(f.id)).rejects.toThrow("Sign in to this account again");
-      expect((await f.row()).status).toBe("needs_auth");
-      expect((await f.row()).statusMessage).not.toContain("runtime");
-      f.provider.setRefreshFailure(null);
-      await f.authorize(f.id);
-      expect((await f.row()).status).toBe("ready");
-    } finally { await f.close(); }
-  });
-}
-
 for (const failure of [
   { error: "server_error", status: 503, error_description: "Provider unavailable" },
   { error: "access_denied", status: 403, error_description: "Permission denied (403)" },

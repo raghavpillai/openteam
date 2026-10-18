@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   applySecretEdits,
-  connectionNamespace,
   discoverAllTools,
   environmentFields,
   exportPackage,
@@ -147,12 +146,11 @@ describe("portable plugin packages", () => {
       Authorization: "Bearer ${API_TOKEN}",
     });
   });
-  test("package icons survive ZIP import and export and take precedence over hosted logos", () => {
+  test("package icons survive ZIP import and export", () => {
     const definition = importPackage(files).definition;
     const png =
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jG0cAAAAASUVORK5CYII=";
     definition.icon = "assets/icon.png";
-    definition.logoUrl = "https://example.com/legacy.png";
     definition.binaryFiles = { "assets/icon.png": png };
     const imported = importPackageArchive(exportPackageArchive(definition)).definition;
     expect(imported.icon).toBe("assets/icon.png");
@@ -173,17 +171,9 @@ describe("portable plugin packages", () => {
       })
     ).toThrow("256 KB");
   });
-  test("icon resolution retains legacy image URLs and lets clients render a missing-image fallback", () => {
-    for (const logoUrl of [
-      "https://example.com/icon.svg",
-      "data:image/svg+xml,%3Csvg%3E%3C/svg%3E",
-    ])
-      expect(pluginIconUrl({ logoUrl })).toBe(logoUrl);
+  test("icon resolution rejects unsafe URLs and missing icons", () => {
     expect(pluginIconUrl({})).toBeNull();
     expect(pluginIconUrl({ logoUrl: "javascript:alert(1)" })).toBeNull();
-    expect(
-      pluginIconUrl({ icon: "assets/missing.png", logoUrl: "https://example.com/icon.png" })
-    ).toBe("https://example.com/icon.png");
   });
   test("accepts event polling only on packaged connectors with a known source", () => {
     const definition = importPackage(files).definition;

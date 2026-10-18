@@ -75,7 +75,7 @@ for (const [key, skillCount, commands] of [
   });
 }
 
-test("original command names and legacy aliases dispatch without ambiguous flat names", async () => {
+test("original command names dispatch without ambiguous flat names", async () => {
   const pkg: PluginRuntimePackage = {
     key: "granola",
     installPath: "/cache/granola/upstream",
@@ -106,13 +106,13 @@ test("original command names and legacy aliases dispatch without ambiguous flat 
     } as any);
   };
   await install([pkg]);
-  for (const command of ["/granola-plan", "/granola:granola-plan", "/granola:plan"]) {
+  for (const command of ["/granola-plan", "/granola:granola-plan"]) {
     expect((await events.input!({ text: `${command} release` })).text).toBe("Plan from release");
   }
   const context = await events.before_agent_start!({ prompt: "release" });
   expect(context.message.content).toContain("Original rule.");
   expect(context.message.content).toContain('plugin_agent="granola:granola-engineer"');
-  for (const name of ["granola:granola-engineer", "granola:engineer"]) {
+  for (const name of ["granola:granola-engineer"]) {
     const expanded = expandPluginAgent([pkg], { plugin_agent: name, prompt: "Assigned work" });
     expect(expanded.prompt).toContain("Original agent instructions.");
     expect(expanded.prompt).toContain("Assigned work");

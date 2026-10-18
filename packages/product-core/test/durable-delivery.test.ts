@@ -694,25 +694,9 @@ describe("durable send controller", () => {
     tampered.records[0].payload.content = "tampered";
     expect(parseDurableSendJournal(tampered, "account-1").records).toEqual([]);
 
-    const legacy = structuredClone(journal) as unknown as {
-      schemaVersion: 1;
-      scope: string;
-      records: Array<Record<string, unknown>>;
-    };
-    legacy.schemaVersion = 1;
-    delete legacy.records[0]?.promptDigest;
-    expect(parseDurableSendJournal(legacy, "account-1").records[0]?.promptDigest).toBe(
-      journal.records[0]?.promptDigest
-    );
     expect(durableSendPromptDigest({ content: "hello" })).not.toBe(
       durableSendPromptDigest({ content: "different" })
     );
-    const oldPromptOnlyDigest = "f23ae087ce8941b05740c13f9c1296103253c6505c415b1c6bf1680aff8761bf";
-    legacy.records[0]!.promptDigest = oldPromptOnlyDigest;
-    expect(parseDurableSendJournal(legacy, "account-1").records[0]?.promptDigest).toBe(
-      journal.records[0]?.promptDigest
-    );
-    expect(journal.records[0]?.promptDigest).not.toBe(oldPromptOnlyDigest);
   });
 
   test("retires immediately when the transcript echoes the nonce before dispatch resolves", async () => {

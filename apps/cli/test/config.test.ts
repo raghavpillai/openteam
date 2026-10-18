@@ -6,7 +6,6 @@ import {
   createEnvironment,
   defaultInstallDirectory,
   detectWorkerConcurrency,
-  ensureAuthenticationSecret,
   installationPaths,
   normalizeRepository,
   normalizeVersion,
@@ -82,15 +81,6 @@ describe("installation configuration", () => {
     expect(after.get("OPENTEAM_CONTROL_TOKEN")).toBe(before.get("OPENTEAM_CONTROL_TOKEN"));
     expect(after.get("OPENTEAM_AUTH_SECRET")).toBe(before.get("OPENTEAM_AUTH_SECRET"));
     expect(after.get("OPENTEAM_POSTGRES_PASSWORD")).toBe(before.get("OPENTEAM_POSTGRES_PASSWORD"));
-  });
-
-  test("upgrades a legacy environment with independent auth and proxy secrets", () => {
-    const upgraded = parseEnvironment(
-      ensureAuthenticationSecret("OPENTEAM_VERSION=1.0.0\nOPENTEAM_AUTH_SECRET=short\n")
-    );
-    expect(upgraded.get("OPENTEAM_AUTH_SECRET")).toHaveLength(64);
-    expect(upgraded.get("OPENTEAM_PROXY_SECRET")).toHaveLength(64);
-    expect(upgraded.get("OPENTEAM_AUTH_SECRET")).not.toBe(upgraded.get("OPENTEAM_PROXY_SECRET"));
   });
 
   test("writes secret files privately and atomically", () => {

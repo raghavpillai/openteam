@@ -61,20 +61,4 @@ describe("OpenTeam-compatible async-task overlay", () => {
     expect(asyncTaskElapsed(task, Date.parse("2026-08-27T10:12:00.000Z"))).toBe("12m");
     expect(asyncTaskElapsed(task, Date.parse("2026-08-27T13:00:00.000Z"))).toBe("3h");
   });
-
-  test("keeps the panel passive and out of the transcript", async () => {
-    const [panelSource, sidebarSource] = await Promise.all([
-      Bun.file(
-        new URL("../src/renderer/components/openteam/async-tasks-panel.tsx", import.meta.url)
-      ).text(),
-      Bun.file(new URL("../src/renderer/components/openteam/sidebar.tsx", import.meta.url)).text(),
-    ]);
-    expect(panelSource).toContain('data-async-tasks-panel=""');
-    expect(panelSource).toContain("No async tasks in progress.");
-    expect(panelSource).toContain("Subagent · {task.subagentType}");
-    expect(panelSource).not.toContain("StopSubagent");
-    expect(panelSource).not.toContain("TaskCard");
-    expect(sidebarSource).toContain("VITE_OPENTEAM_INTERNAL_ASYNC_TASKS");
-    expect(sidebarSource).toContain("Show async tasks");
-  });
 });

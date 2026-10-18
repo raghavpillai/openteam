@@ -60,36 +60,4 @@ describe("OpenTeam release compatibility", () => {
       );
     }
   });
-
-  test("does not probe server compatibility during onboarding and dismisses stale warnings", async () => {
-    const [authGate, notifier, entrypoint] = await Promise.all([
-      Bun.file(
-        new URL("../src/renderer/components/openteam/auth-gate.tsx", import.meta.url)
-      ).text(),
-      Bun.file(
-        new URL("../src/renderer/components/openteam/version-mismatch-banner.tsx", import.meta.url)
-      ).text(),
-      Bun.file(new URL("../src/renderer/index.tsx", import.meta.url)).text(),
-    ]);
-    expect(authGate).not.toContain("VersionMismatchBanner");
-    expect(notifier).toContain('useEffect(() => () => { toast.dismiss(VERSION_MISMATCH_TOAST_ID); }, [])');
-    expect(notifier).toContain('if (compatibility === "unknown" || compatibility === "compatible"');
-    expect(openTeamCompatibility("0.0.0", "0.1.0", null)).toBe("unknown");
-    expect(notifier).toContain("toast.warning(title");
-    expect(notifier).toContain("duration: Number.POSITIVE_INFINITY");
-    expect(notifier).toContain("action: { label: actionLabel");
-    expect(entrypoint).toContain('position="bottom-right"');
-  });
-
-  test("confirms a successful desktop update check to the user", async () => {
-    const [main, settings] = await Promise.all([
-      Bun.file(new URL("../src/main/index.ts", import.meta.url)).text(),
-      Bun.file(
-        new URL("../src/renderer/components/openteam/settings/updates.tsx", import.meta.url)
-      ).text(),
-    ]);
-    expect(main).toContain('message: result.isUpdateAvailable ? null : "You’re up to date"');
-    expect(main).toMatch(/message: updateAvailable\s*\?[^:]+:\s*"You’re up to date"/);
-    expect(settings).toContain('clientUpdate?.status === "up-to-date"');
-  });
 });

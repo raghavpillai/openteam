@@ -30,9 +30,7 @@ test('Drive serves the pinned file tools with their exact definitions plus the e
   expect(validate('share_file',{fileId:'f',role:'reader',type:'anyone'})).toBe(false);
   expect(validate('share_file',{fileId:'f',role:'reader',type:'user',emailAddress:'not-an-email'})).toBe(false);
   expect(validate('create_file',{title:'Notes',textContent:'# Hi',contentMimeType:'text/markdown',targetMimeType:doc,parent_folder_id:'p'})).toBe(true);
-  expect(validate('create_file',{title:'Legacy',base64Content:'SGk=',contentMimeType:'text/plain',disableConversionToGoogleType:true})).toBe(true);
   expect(validate('create_file',{textContent:'no title'})).toBe(false);
-  expect(validate('list_recent_files',{snippetVerbosity:'BRIEF',excludeContentSnippets:false})).toBe(true);
   expect(validate('read_file',{fileId:'f',maxChars:250_001})).toBe(false);
 });
 
@@ -86,8 +84,8 @@ test('Drive search inlines the top three readable results as Markdown, CSV and t
   expect((await failing.call('search',{query:'x',includeContent:true})).files[0].contentError).toContain('Export failed');
 });
 
-test('Drive lists folders first, recent files by the chosen order, and keeps the legacy snippet form', async () => {
-  const h=harness(driveTools,[{files:[{id:'a'}],nextPageToken:'n'},{files:[]},{files:[{id:'r',name:'Recent'}]},{files:[{id:'s',name:'S',mimeType:'text/plain'}]},new Response('snippet text')]);
+test('Drive lists folders first and recent files by the chosen order', async () => {
+  const h=harness(driveTools,[{files:[{id:'a'}],nextPageToken:'n'},{files:[]},{files:[{id:'r',name:'Recent'}]}]);
   expect(await h.call('list_folder',{})).toEqual({files:[{id:'a'}],nextPageToken:'n'});
   let p=h.requests[0]!.url.searchParams;
   expect(p.get('q')).toBe("'root' in parents and trashed = false");expect(p.get('orderBy')).toBe('folder,name');expect(p.get('pageSize')).toBe('50');
@@ -95,9 +93,6 @@ test('Drive lists folders first, recent files by the chosen order, and keeps the
   p=h.requests[1]!.url.searchParams;expect(p.get('q')).toBe("'it\\'s' in parents and trashed = false");expect(p.get('pageSize')).toBe('200');expect(p.get('pageToken')).toBe('t');
   expect(await h.call('list_recent_files',{orderBy:'lastModifiedByMe'})).toEqual({files:[{id:'r',name:'Recent'}]});
   p=h.requests[2]!.url.searchParams;expect(p.get('orderBy')).toBe('modifiedByMeTime desc');expect(p.get('pageSize')).toBe('10');expect(p.get('q')).toBe('trashed = false');
-  const legacy=await h.call('list_recent_files',{snippetVerbosity:'BRIEF'});
-  expect(h.requests[3]!.url.searchParams.get('orderBy')).toBe('recency desc');
-  expect(legacy.files[0]).toMatchObject({title:'S',contentSnippet:'snippet text'});
 });
 
 test('Drive reads Docs as Markdown without inline images, Sheets per tab and Slides as text, resolving shortcuts', async () => {

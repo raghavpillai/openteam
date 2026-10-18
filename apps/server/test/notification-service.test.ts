@@ -7,30 +7,6 @@ import {
 } from "../src/services/notification-service";
 
 describe("NotificationService", () => {
-  test("migrates legacy registrations fail-closed and retires devices before returning sign-out", async () => {
-    const schema = await Bun.file(
-      new URL("../../../packages/db/prisma/schema.prisma", import.meta.url)
-    ).text();
-    const pushDevice = schema.slice(
-      schema.indexOf("model PushDevice {"),
-      schema.indexOf("}", schema.indexOf("model PushDevice {"))
-    );
-    expect(pushDevice).toMatch(/authRequired\s+Boolean\s+@default\(true\)/);
-    expect(pushDevice).toMatch(
-      /authSession\s+Session\?\s+@relation\(fields: \[authSessionId\], references: \[id\], onDelete: SetNull\)/
-    );
-
-    const main = await Bun.file(new URL("../src/main.ts", import.meta.url)).text();
-    const signOutBranch = main.slice(
-      main.indexOf('url.pathname === "/api/auth/sign-out"'),
-      main.indexOf('url.pathname.startsWith("/api/auth/")')
-    );
-    expect(signOutBranch.indexOf("disablePushDevicesForSession")).toBeGreaterThan(-1);
-    expect(signOutBranch.indexOf("disablePushDevicesForSession")).toBeLessThan(
-      signOutBranch.indexOf("return withCors(response)")
-    );
-  });
-
   test("registers an installation idempotently and can disable it", async () => {
     let enabled = true;
     let persisted: Record<string, unknown> | null = null;

@@ -127,13 +127,6 @@ class HostedLinkTests(unittest.TestCase):
         self.assertEqual(self.count('/item/public_token/exchange'), 2)
         self.assertEqual(self.count('/accounts/get'), 4)
 
-    def test_legacy_on_success_is_supported(self):
-        self.start()
-        self.poll = {'link_sessions':[{'on_success':{'public_token':'public-first', 'metadata':{'institution':None}}}]}
-        code, result = self.run_cli(['complete', '--session', self.sid])
-        self.assertEqual((code, result['status']), (0, 'connected'))
-        self.assertIsNone(result['items'][0]['institution_id'])
-
     def test_exit_retry_and_expiration_do_not_claim_success(self):
         self.start()
         self.poll = {'link_sessions':[{'started_at':'2026-01-01T00:00:00Z', 'finished_at':'2026-01-01T00:01:00Z'}]}

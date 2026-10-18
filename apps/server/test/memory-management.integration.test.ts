@@ -318,33 +318,6 @@ dbTest(
     })
 );
 
-dbTest(
-  "first-use list and clear migrate database-only memories before deletion, preventing reseeding",
-  async () =>
-    fixture(async ({ app, store, botId, peerId, client }) => {
-      for (const id of [botId, peerId])
-        await app.prisma.memoryFact.create({
-          data: {
-            namespace: `agent:${id}`,
-            scope: "agent",
-            tier: "profile",
-            fact: "CONTROL914 legacy database fact.",
-            factHash: "synthetic-legacy-fact",
-            writtenByBotId: id,
-          },
-        });
-      expect((await client.botMemories(botId)).memories[0]?.content).toBe(
-        "CONTROL914 legacy database fact."
-      );
-      // The other bot goes straight to clear, without a prior list/turn/migration.
-      expect((await client.clearBotMemories(peerId)).total).toBe(0);
-      expect(await store.recallMemory(peerId, { query: "CONTROL914", scope: "agent" })).toContain(
-        "(0 searched)"
-      );
-      expect((await client.botMemories(peerId)).total).toBe(0);
-    })
-);
-
 dbTest("automatic learning becomes visible only after inference and commit finish", async () =>
   fixture(async ({ app, store, botId, client }) => {
     let entered!: () => void;

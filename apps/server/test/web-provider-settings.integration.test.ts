@@ -128,24 +128,6 @@ test.skipIf(!databaseUrl)(
       expect(await service.credentials("search")).toEqual({ provider: null, apiKey: null });
       expect(await service.credentials("fetch")).toEqual({ provider: null, apiKey: null });
 
-      // Legacy endpoints keep older clients working against the new storage.
-      expect((await request("/api/server-settings/web-search", "PATCH", { provider: "tavily", apiKey: "tvly-legacy" })).status).toBe(400);
-      expect((await request("/api/server-settings/web-search", "PATCH", { provider: "brave", apiKey: "brave-legacy" })).body).toEqual({
-        provider: "brave",
-        hasApiKey: true,
-        configured: true,
-      });
-      expect((await request("/api/server-settings/web-fetch", "PATCH", { provider: "builtin" })).body).toEqual({
-        provider: "builtin",
-        hasApiKey: false,
-        configured: true,
-      });
-      expect((await request("/api/server-settings/web-search", "PATCH", { provider: "brave", apiKey: null })).body).toEqual({
-        provider: null,
-        hasApiKey: false,
-        configured: false,
-      });
-
       // Separate service instances serialize their writes through a transaction lock.
       await Promise.all([
         service.save({ search: { selected: "exa", providers: { exa: { apiKey: searchKey } } } }),
@@ -239,60 +221,6 @@ test.skipIf(!databaseUrl)("database constraints accept every catalog provider an
     await expect(Promise.resolve(prisma.webToolProvider.update({ where: exa, data: { checkStatus: "passed" } }))).rejects.toThrow();
     await expect(Promise.resolve(prisma.webSearchSettings.create({ data: { id: "another" } }))).rejects.toThrow();
     await expect(Promise.resolve(prisma.webSearchSettings.update({ where: { id: "global" }, data: { apiKey: "legacy" } }))).rejects.toThrow();
-  } finally {
-    await reset(prisma);
-    await prisma.$disconnect();
-  }
-});
-
-test.skipIf(!databaseUrl)("raw schema moves legacy keys and drops providers no longer offered", async () => {
-  // The raw-schema script reads DATABASE_URL when it is loaded.
-  process.env.DATABASE_URL = databaseUrl;
-  const { applyRawSchema } = await import("../../../packages/db/scripts/apply-raw-schema");
-  const prisma = createPrismaClient(databaseUrl!);
-  const legacy = async () => {
-    for (const table of ["WebSearchSettings", "WebFetchSettings", "WebToolProvider"])
-      await prisma.$executeRawUnsafe(`ALTER TABLE "${table}" DROP CONSTRAINT IF EXISTS "${table}_valid"`);
-    await reset(prisma);
-  };
-  const rows = async () =>
-    (await prisma.webToolProvider.findMany({ orderBy: [{ tool: "asc" }, { provider: "asc" }] })).map((row) => `${row.tool}:${row.provider}`);
-  try {
-    await legacy();
-    await prisma.webSearchSettings.create({ data: { id: "global", provider: "bing-serpapi", apiKey: "legacy-serp" } });
-    await prisma.webFetchSettings.create({ data: { id: "global", provider: "tavily", apiKey: "legacy-tavily" } });
-    await applyRawSchema();
-    const service = new WebProviderSettingsService(prisma);
-    expect(await service.credentials("search")).toEqual({ provider: "bing-serpapi", apiKey: "legacy-serp" });
-    // Tavily is no longer offered: its key is not kept and fetch falls back to built-in.
-    expect(await service.credentials("fetch")).toEqual({ provider: "builtin", apiKey: null });
-    expect(await rows()).toEqual(["search:bing-serpapi"]);
-    expect((await prisma.webSearchSettings.findUniqueOrThrow({ where: { id: "global" } })).apiKey).toBeNull();
-
-    // A legacy selection that never had a key is cleared; fetch falls back to built-in.
-    await legacy();
-    await prisma.webSearchSettings.create({ data: { id: "global", provider: "brave" } });
-    await prisma.webFetchSettings.create({ data: { id: "global", provider: "exa" } });
-    await applyRawSchema();
-    expect(await service.view()).toMatchObject({ search: { selected: null }, fetch: { selected: "builtin" } });
-
-    // Entries and selections for providers no longer offered are removed; others are kept.
-    await legacy();
-    await prisma.webSearchSettings.create({ data: { id: "global", provider: "tavily", apiKey: "legacy-tavily" } });
-    await prisma.webFetchSettings.create({ data: { id: "global", provider: "cloudflare" } });
-    await prisma.webToolProvider.createMany({
-      data: [
-        { tool: "search", provider: "searxng" },
-        { tool: "fetch", provider: "cloudflare", secret: "cf-token" },
-        { tool: "fetch", provider: "firecrawl", secret: "fc-token", checkStatus: "passed", checkMessage: "ok", checkedAt: new Date() },
-      ],
-    });
-    await applyRawSchema();
-    expect(await service.view()).toMatchObject({
-      search: { selected: null },
-      fetch: { selected: "builtin", providers: { firecrawl: { secretSaved: true, check: { status: "passed" } } } },
-    });
-    expect(await rows()).toEqual(["fetch:firecrawl"]);
   } finally {
     await reset(prisma);
     await prisma.$disconnect();

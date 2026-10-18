@@ -5,7 +5,7 @@ import XCTest
 @testable import OpenTeamCore
 
 @MainActor final class AttachmentImageFileTests: XCTestCase {
-  func testPreviewReservesMetadataSizeAndStableLegacyFallback() {
+  func testPreviewReservesMetadataSizeAndDefaultsMissingDimensions() {
     XCTAssertEqual(AttachmentImageFile.previewSize(width: 400, height: 800), CGSize(width: 120, height: 240))
     XCTAssertEqual(AttachmentImageFile.previewSize(width: 800, height: 400), CGSize(width: 260, height: 130))
     XCTAssertEqual(AttachmentImageFile.previewSize(width: 80, height: 60), CGSize(width: 80, height: 60))

@@ -15,7 +15,7 @@ final class AttachmentTests: XCTestCase {
     XCTAssertThrowsError(try AttachmentLimits.validate(byteCount: 0, mimeType: "video/mp4"))
   }
 
-  func testLegacyAndArrayAttachmentsPreserveCaptionsAndSkipMalformedEntries() throws {
+  func testArrayAttachmentsPreserveCaptionsAndSkipMalformedEntries() throws {
     let asset: JSON = .object([
       "assetId": .string(String(repeating: "a", count: 64)), "fileName": .string("Photo.png"),
       "mimeType": .string("image/png"), "kind": .string("image"), "byteSize": .number(4200),
@@ -26,7 +26,7 @@ final class AttachmentTests: XCTestCase {
     var message = try JSONDecoder().decode(Bootstrap.self, from: Data(contentsOf: url))
       .latestMessages[0]
     message.metadata = .object([
-      "attachment": asset, "attachments": .array([.null, asset]), "type": .string("attachment"),
+      "attachments": .array([.null, asset]), "type": .string("attachment"),
     ])
     message.content = "Photo.png"
     XCTAssertEqual(message.attachments.count, 1)
@@ -37,10 +37,10 @@ final class AttachmentTests: XCTestCase {
       Asset.self, from: JSONEncoder().encode(message.attachments[0]))
     XCTAssertEqual(roundTrip.height, 1000)
     XCTAssertEqual(roundTrip.alt, "Caption from the server")
-    message.metadata = .object(["attachment": asset])
+    message.metadata = .object(["attachments": .array([asset])])
     message.content = "A useful photo"
     XCTAssertEqual(message.displayContent, "A useful photo")
-    message.metadata = .object(["attachment": asset, "type": .string("attachment")])
+    message.metadata = .object(["attachments": .array([asset]), "type": .string("attachment")])
     XCTAssertEqual(message.displayContent, "A useful photo")
   }
 

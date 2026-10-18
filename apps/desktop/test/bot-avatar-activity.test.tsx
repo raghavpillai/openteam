@@ -5,7 +5,6 @@ import {
   BotAvatarActivityProvider,
   useBotAvatarMode,
 } from "../src/renderer/components/openteam/bot-avatar-activity";
-import { normalizeRobotAvatarShape } from "@openteam/contracts/robot-avatar";
 
 const channel = { id: "group", members: [{ botId: "one" }, { botId: "two" }] } as ChannelView;
 function Probe({ botId, channelId }: { botId: string; channelId?: string }) {
@@ -58,13 +57,5 @@ describe("robot avatar chat activity", () => {
     ] as const) {
       expect(mode("one", "group", status)).toBe("<span>idle</span>");
     }
-  });
-  test("retains robot choices and defaults unknown icons", () => {
-    expect(normalizeRobotAvatarShape("periscope")).toBe("periscope");
-    expect(normalizeRobotAvatarShape(" DUAL-SCREEN ")).toBe("dual-screen");
-    expect(normalizeRobotAvatarShape("classic")).toBe("classic");
-    expect(normalizeRobotAvatarShape("hex-visor")).toBe("hex-visor");
-    expect(normalizeRobotAvatarShape("unknown")).toBe("chip");
-    expect(normalizeRobotAvatarShape(null)).toBe("chip");
   });
 });

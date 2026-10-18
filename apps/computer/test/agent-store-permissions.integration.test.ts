@@ -8,7 +8,7 @@ import { BotAgentStore } from "../src/bot-agent-store";
 test.skipIf(
   process.platform !== "linux" || process.getuid?.() !== 0 || process.getgid?.() !== 1000
 )(
-  "the server UID can remove shared agent files after legacy permissions are repaired",
+  "the server UID can remove shared agent files created by the supervisor",
   async () => {
     const root = await mkdtemp("/tmp/agent-permission-qa-");
     await chmod(root, 0o750);
@@ -20,16 +20,6 @@ test.skipIf(
       await store.closeAgent(id);
       const file = join(directory, "memory", "saved.txt");
       await writeFile(file, "preserved fixture data");
-      for (const path of [
-        join(root, "agents"),
-        directory,
-        join(directory, "memory"),
-        join(directory, "automations"),
-      ]) {
-        await chmod(path, 0o750);
-      }
-      await store.openForWake(id);
-      await store.closeAgent(id);
       expect((await stat(directory)).uid).toBe(0);
       expect((await stat(directory)).mode & 0o777).toBe(0o770);
       const result = spawnSync(

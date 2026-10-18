@@ -16,25 +16,18 @@ const peers = (count: number) =>
   }));
 
 describe("bounded platform target context", () => {
-  test("keeps the target prompt constant at 1k and 10k bots while the old catalog grows", () => {
+  test("keeps the target prompt bounded at 1k and 10k bots", () => {
     const measurements = [10, 1_000, 10_000].map((count) => {
       const roster = peers(count);
       const selected = selectPlatformPromptPeers([], roster);
       const bounded = renderPlatformPromptTargetLines(selected, []).join("\n");
-      const legacy = roster.map((peer) => `- Agent ${peer.name}: ${peer.id}`).join("\n");
       return {
         count,
         boundedBytes: Buffer.byteLength(bounded),
-        legacyBytes: Buffer.byteLength(legacy),
         bounded,
       };
     });
 
-    expect(measurements.map(({ count, legacyBytes }) => ({ count, legacyBytes }))).toEqual([
-      { count: 10, legacyBytes: 289 },
-      { count: 1_000, legacyBytes: 30_889 },
-      { count: 10_000, legacyBytes: 318_889 },
-    ]);
     expect(measurements[1]?.boundedBytes).toBe(measurements[2]?.boundedBytes);
     expect(measurements[1]?.bounded).toBe(measurements[2]?.bounded);
     expect(measurements[2]?.boundedBytes).toBeLessThan(1_000);

@@ -174,18 +174,16 @@ test('Calendar lists default to now through seven local days and keep that windo
   } finally { setSystemTime(); }
 });
 
-test('Calendar list bounds resolve offset-less times and keep explicit and legacy ranges', async () => {
-  const h=harness(calendarTools,[{timeZone:'America/New_York'},{},{},{},{}]);
+test('Calendar list bounds resolve offset-less times and explicit ranges', async () => {
+  const h=harness(calendarTools,[{timeZone:'America/New_York'},{},{},{}]);
   const range=(i:number)=>['timeMin','timeMax','timeZone'].map(k=>h.requests[i]!.url.searchParams.get(k));
   await h.call('list_events',{calendarId:'team@example.com',startTime:'2026-10-30T09:00:00'});
   expect([h.requests[0]!.url.pathname,h.requests[1]!.url.pathname]).toEqual(['/users/me/calendarList/primary','/calendars/team%40example.com/events']);
   expect(range(1)).toEqual(['2026-10-30T13:00:00.000Z','2026-11-06T14:00:00.000Z',null]);
   await h.call('list_events',{startTime:'2026-11-02T00:00:00',endTime:'2026-11-03T00:00:00',timeZone:'Europe/Zurich'});
   expect(range(2)).toEqual(['2026-11-01T23:00:00.000Z','2026-11-02T23:00:00.000Z','Europe/Zurich']);
-  await h.call('list_events',{query:'review',timeMin:'2026-09-01T00:00:00Z',timeMax:'2026-09-15T00:00:00+02:00',maxResults:5});
-  expect([...range(3),h.requests[3]!.url.searchParams.get('q'),h.requests[3]!.url.searchParams.get('maxResults')]).toEqual(['2026-09-01T00:00:00.000Z','2026-09-14T22:00:00.000Z',null,'review','5']);
   await h.call('list_events',{endTime:'2026-10-01T00:00:00Z'});
-  expect(range(4)).toEqual([null,'2026-10-01T00:00:00.000Z',null]);
+  expect(range(3)).toEqual([null,'2026-10-01T00:00:00.000Z',null]);
   await expect(h.call('list_events',{startTime:'2026-11-03T00:00:00Z',endTime:'2026-11-02T00:00:00Z'})).rejects.toThrow('later than startTime');
-  expect(h.requests).toHaveLength(5);
+  expect(h.requests).toHaveLength(4);
 });

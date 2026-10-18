@@ -8,14 +8,30 @@ public enum MessagePreview {
   public static let limit = 200
   private static let markdownScanLimit = 4_096
 
-  /// The first non-empty line of a message, as plain text.
+  /// The first line of a message with visible text, as plain text. Only lines starting within
+  /// the first few thousand characters are considered, so a huge message stays cheap.
   public static func text(_ content: String, limit: Int = limit) -> String {
-    let line =
-      (content as NSString).components(separatedBy: "\n")
-      .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? ""
-    let scanned =
-      (line as NSString).length <= markdownScanLimit ? line : prefix(line, markdownScanLimit)
-    return truncate(plainText(scanned), limit: limit)
+    guard limit == Self.limit else { return uncachedText(content, limit: limit) }
+    if let cached = PreviewCache.shared[content] { return cached }
+    let text = uncachedText(content, limit: limit)
+    PreviewCache.shared[content] = text
+    return text
+  }
+
+  private static func uncachedText(_ content: String, limit: Int) -> String {
+    let head = Array(content.utf16.prefix(2 * markdownScanLimit))
+    var start = 0
+    while start < min(head.count, markdownScanLimit) {
+      let newline = head[start...].firstIndex(of: 0x0A)
+      var end = min(newline ?? head.count, start + markdownScanLimit)
+      if end > start, (0xD800...0xDBFF).contains(head[end - 1]) { end -= 1 }
+      let line = String(decoding: head[start..<end], as: UTF16.self)
+      let text = trim(line).isEmpty ? "" : plainText(line)
+      if !text.isEmpty { return truncate(text, limit: limit) }
+      guard let newline else { break }
+      start = newline + 1
+    }
+    return ""
   }
 
   /// Markdown as the plain text a reader sees, on one line.
@@ -23,15 +39,12 @@ public enum MessagePreview {
     let stripped = syntax.reduce(stripMathDelimiters(stripFormattingTags(markdown))) {
       text, rule in replace(rule.pattern, in: text, with: rule.template)
     }
-    return replace(whitespace, in: stripped, with: " ")
-      .trimmingCharacters(in: .whitespacesAndNewlines)
+    return trim(replace(whitespace, in: stripped, with: " "))
   }
 
   public static func truncate(_ value: String, limit: Int = limit) -> String {
     guard (value as NSString).length > limit else { return value }
-    let cut = prefix(value, limit - 1)
-    let end = cut.lastIndex { !$0.isWhitespace }.map { cut.index(after: $0) } ?? cut.startIndex
-    return String(cut[..<end]) + "…"
+    return trim(prefix(value, limit - 1), leading: false) + "…"
   }
 
   /// "Sent 1 image", or "Sent 3 files · 2 images, 1 PDF" for a mix.
@@ -51,8 +64,43 @@ public enum MessagePreview {
 
   public static func attachmentKind(mimeType: String?, fileName: String?) -> String {
     if let mimeType, !mimeType.isEmpty, let kind = kind(mimeType: mimeType) { return kind }
-    if let fileName, !fileName.isEmpty, let kind = kind(path: fileName) { return kind }
+    if let fileName, !fileName.isEmpty, let kind = kind(fileName: fileName) { return kind }
     return "file"
+  }
+
+  /// JavaScript's `\s`, which is also what `trim()` removes. Foundation's and ICU's whitespace
+  /// sets differ from it (U+0085, U+200B, U+FEFF), and previews must match the desktop.
+  private static let space =
+    "[\\t\\n\\u000B\\f\\r \\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]"
+  /// JavaScript's multiline `^`: the start of the text or just after LF, CR, U+2028 or U+2029.
+  private static let lineStart = "(?<![^\\n\\r\\u2028\\u2029])"
+
+  private static func isSpace(_ unit: UInt16) -> Bool {
+    switch unit {
+    case 0x09...0x0D, 0x20, 0xA0, 0x1680, 0x2000...0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000,
+      0xFEFF:
+      true
+    default: false
+    }
+  }
+
+  /// JavaScript's `trim()` (or `trimEnd()`), on UTF-16 code units.
+  static func trim(_ value: String, leading: Bool = true) -> String {
+    let units = Array(value.utf16)
+    var lower = 0
+    var upper = units.count
+    if leading { while lower < upper, isSpace(units[lower]) { lower += 1 } }
+    while upper > lower, isSpace(units[upper - 1]) { upper -= 1 }
+    if lower == 0, upper == units.count { return value }
+    return String(decoding: units[lower..<upper], as: UTF16.self)
+  }
+
+  /// Splits on one UTF-16 code unit. Foundation's `components(separatedBy:)` compares composed
+  /// characters, so it would miss a line break followed by a combining mark.
+  private static func split(_ value: String, on separator: UInt16) -> [String] {
+    value.utf16.split(separator: separator, omittingEmptySubsequences: false).map {
+      String(decoding: $0, as: UTF16.self)
+    }
   }
 
   private static func prefix(_ value: String, _ length: Int) -> String {
@@ -78,20 +126,20 @@ public enum MessagePreview {
     var fence = ""
     var fenceIndent = 0
     var openedAt = -1
-    for line in (text as NSString).components(separatedBy: "\n") {
+    for line in split(text, on: 0x0A) {
       let value = line as NSString
       let match = fenceLine.firstMatch(in: line, range: NSRange(location: 0, length: value.length))
       let marker = match.map { value.substring(with: $0.range(at: 1)) }
       let indent = match.map { $0.range.length - $0.range(at: 1).length } ?? 0
       if openedAt < 0 {
         let info = match.map { value.substring(from: $0.range.length) } ?? ""
-        if let marker, marker.first == "~" || !info.contains("`") {
+        if let marker, marker.utf16.first == 0x7E || !info.utf16.contains(0x60) {
           fence = marker
           fenceIndent = indent
           openedAt = offset
         }
-      } else if let marker, marker.first == fence.first, marker.count >= fence.count,
-        line.trimmingCharacters(in: .whitespacesAndNewlines) == marker,
+      } else if let marker, marker.utf16.first == fence.utf16.first,
+        marker.utf16.count >= fence.utf16.count, trim(line) == marker,
         indent <= fenceIndent + 3
       {
         ranges.append((openedAt, offset + value.length))
@@ -161,11 +209,11 @@ public enum MessagePreview {
   private static let formattingTags: Set<String> = [
     "u", "ins", "b", "strong", "i", "em", "s", "strike", "del", "sub", "sup", "mark", "br",
   ]
-  private static let tag = regex("<(/?)([a-zA-Z]+)\\s*(/)?>")
+  private static let tag = regex("<(/?)([a-zA-Z]+)\(space)*(/)?>")
 
   /// Removes balanced formatting tags such as `<b>…</b>` and `<br>`, leaving their text.
   private static func stripFormattingTags(_ text: String) -> String {
-    guard text.contains("<") else { return text }
+    guard text.utf16.contains(0x3C) else { return text }
     let value = text as NSString
     let code = codeRanges(text)
     var removed: [Range] = []
@@ -234,9 +282,9 @@ public enum MessagePreview {
     (regex("!\\[([^\\]]*)\\]\\([^)]*\\)"), "$1"),
     (regex("\\[([^\\]]+)\\]\\([^)]*\\)"), "$1"),
     (regex("\\\\\\$"), "\\$"),
-    (regex("^\\s{0,3}#{1,6}\\s+", lines: true), ""),
-    (regex("^\\s{0,3}>\\s?", lines: true), ""),
-    (regex("^\\s{0,3}(?:[-*+]|[0-9]+[.)])\\s+", lines: true), ""),
+    (regex("\(lineStart)\(space){0,3}#{1,6}\(space)+"), ""),
+    (regex("\(lineStart)\(space){0,3}>\(space)?"), ""),
+    (regex("\(lineStart)\(space){0,3}(?:[-*+]|[0-9]+[.)])\(space)+"), ""),
     (regex("\\*\\*([^*]+)\\*\\*"), "$1"),
     (regex("__([^_]+)__"), "$1"),
     (regex("~~([^~]+)~~"), "$1"),
@@ -244,10 +292,10 @@ public enum MessagePreview {
     (regex("(?<![A-Za-z0-9_])_([^_\\n]+)_(?![A-Za-z0-9_])"), "$1"),
     (regex("\\|"), " "),
   ]
-  private static let whitespace = regex("\\s+")
+  private static let whitespace = regex("\(space)+")
 
-  private static func regex(_ pattern: String, lines: Bool = false) -> NSRegularExpression {
-    try! NSRegularExpression(pattern: pattern, options: lines ? [.anchorsMatchLines] : [])
+  private static func regex(_ pattern: String) -> NSRegularExpression {
+    try! NSRegularExpression(pattern: pattern)
   }
 
   private static func replace(_ pattern: NSRegularExpression, in text: String, with template: String)
@@ -288,8 +336,7 @@ public enum MessagePreview {
   ]
 
   private static func kind(mimeType: String) -> String? {
-    let type = (mimeType.split(separator: ";", omittingEmptySubsequences: false).first.map(String.init) ?? "")
-      .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let type = trim(split(mimeType, on: 0x3B)[0]).lowercased()
     if type.hasPrefix("image/") { return "image" }
     if type.hasPrefix("video/") { return "video" }
     if type.hasPrefix("audio/") { return "audio" }
@@ -326,27 +373,39 @@ public enum MessagePreview {
     return kinds
   }()
 
-  private static func kind(path: String) -> String? {
-    var pathname = path
-    if let url = URL(string: path), url.scheme != nil { pathname = url.path(percentEncoded: true) }
-    pathname = pathname.removingPercentEncoding ?? pathname
-    let name =
-      pathname.split(omittingEmptySubsequences: false) { $0 == "/" || $0 == "\\" }.last.map(String.init)
-      ?? ""
-    guard let dot = name.lastIndex(of: "."), dot != name.startIndex,
-      name.index(after: dot) != name.endIndex
-    else { return nil }
-    return extensionKinds[name[name.index(after: dot)...].lowercased()]
+  private static func kind(fileName: String) -> String? {
+    let name = split(split(fileName, on: 0x2F).last ?? "", on: 0x5C).last ?? ""
+    let value = name as NSString
+    let dot = value.range(of: ".", options: [.literal, .backwards]).location
+    guard dot != NSNotFound, dot > 0, dot < value.length - 1 else { return nil }
+    return extensionKinds[value.substring(from: dot + 1).lowercased()]
+  }
+}
+
+/// Rows re-render often, and a pathological first line can take tens of milliseconds to strip.
+/// NSCache is thread-safe.
+private final class PreviewCache: @unchecked Sendable {
+  static let shared = PreviewCache()
+  private let storage: NSCache<NSString, NSString> = {
+    let storage = NSCache<NSString, NSString>()
+    storage.countLimit = 256
+    return storage
+  }()
+
+  subscript(content: String) -> String? {
+    get { storage.object(forKey: content as NSString) as String? }
+    set { if let newValue { storage.setObject(newValue as NSString, forKey: content as NSString) } }
   }
 }
 
 extension Message {
+  /// Attachments with no text of their own; the conversation list summarizes them.
+  public var isAttachmentOnly: Bool {
+    !attachments.isEmpty && MessagePreview.trim(displayContent).isEmpty
+  }
+
   /// The conversation list line for this message.
   public var previewText: String {
-    let assets = attachments
-    if !assets.isEmpty, displayContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      return MessagePreview.attachments(assets)
-    }
-    return MessagePreview.text(content)
+    isAttachmentOnly ? MessagePreview.attachments(attachments) : MessagePreview.text(content)
   }
 }

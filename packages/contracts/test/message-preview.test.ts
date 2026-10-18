@@ -27,7 +27,7 @@ describe("message previews", () => {
     expect(messagePreviewText("Revision __R1__ is delivered.")).toBe("Revision R1 is delivered.");
   });
 
-  test("uses the first non-empty line", () => {
+  test("uses the first line with visible text", () => {
     expect(
       messagePreviewText("Status update\nAll three invoices are paid.\n\nDetails follow.")
     ).toBe("Status update");
@@ -44,9 +44,20 @@ describe("message previews", () => {
       "Revenue chart"
     );
     expect(messagePreviewText("```bash\nnpm run build\n```")).toBe("bash");
-    expect(messagePreviewText("```\nnpm run build\n```")).toBe("");
+    expect(messagePreviewText("```\nnpm run build\n```")).toBe("npm run build");
     expect(messagePreviewText("---\n\nAfter the rule.")).toBe("---");
+    expect(messagePreviewText("![](https://x.test/chart.png)\n\nRevenue grew 12%")).toBe(
+      "Revenue grew 12%"
+    );
+    expect(messagePreviewText("<br>\n> \nStill here")).toBe("Still here");
+    expect(messagePreviewText("```")).toBe("");
     expect(messagePreviewText("")).toBe("");
+  });
+
+  test("only reads the start of a long message", () => {
+    expect(messagePreviewText(`${"\n".repeat(5000)}too late`)).toBe("");
+    expect(messagePreviewText(`${"y".repeat(9000)}\nnext`)).toBe(`${"y".repeat(199)}…`);
+    expect(messagePreviewText(`> \n`.repeat(100) + "Found")).toBe("Found");
   });
 
   test("drops formatting tags and math delimiters outside code", () => {
@@ -109,8 +120,7 @@ describe("message previews", () => {
     expect(
       attachmentSummaryKind({ mimeType: "application/octet-stream", fileName: "data.bin" })
     ).toBe("file");
-    expect(attachmentSummaryKind({ url: "https://example.com/files/song%20one.mp3?dl=1" })).toBe(
-      "audio"
-    );
+    expect(attachmentSummaryKind({ fileName: "music/song one.MP3" })).toBe("audio");
+    expect(attachmentSummaryKind({ fileName: ".env" })).toBe("file");
   });
 });

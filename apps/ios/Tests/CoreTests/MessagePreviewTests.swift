@@ -35,15 +35,18 @@ final class MessagePreviewTests: XCTestCase {
 
   func testTextPreviewsMatchTheSharedContract() throws {
     for example in try fixture().messages {
-      XCTAssertEqual(MessagePreview.text(example.content), example.preview, example.content)
+      // Compare code units: String equality would accept a canonically equivalent result.
+      XCTAssertEqual(
+        Array(MessagePreview.text(example.content).utf16), Array(example.preview.utf16),
+        example.content.debugDescription)
     }
   }
 
   func testAttachmentPreviewsMatchTheSharedContract() throws {
     for example in try fixture().attachments {
       XCTAssertEqual(
-        MessagePreview.attachments(example.files.map { asset($0.fileName, $0.mimeType) }),
-        example.preview)
+        Array(MessagePreview.attachments(example.files.map { asset($0.fileName, $0.mimeType) }).utf16),
+        Array(example.preview.utf16))
     }
   }
 
@@ -64,8 +67,13 @@ final class MessagePreviewTests: XCTestCase {
     XCTAssertEqual(message.previewText, "Sent 1 image")
     message.content = "Here is the **chart** you asked for.\n\n- Revenue: up"
     XCTAssertEqual(message.previewText, "Here is the chart you asked for.")
+    XCTAssertFalse(message.isAttachmentOnly)
+    message.content = "chart.png"
+    message.metadata = .object(["attachment": image, "type": .string("attachment")])
+    XCTAssertTrue(message.isAttachmentOnly)
     message.metadata = .object([:])
     message.content = "Done. The [CRM](https://docs.google.com/spreadsheets/d/1abc/edit) is updated."
     XCTAssertEqual(message.previewText, "Done. The CRM is updated.")
+    XCTAssertFalse(message.isAttachmentOnly)
   }
 }

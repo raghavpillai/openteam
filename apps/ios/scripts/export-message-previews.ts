@@ -46,6 +46,30 @@ const examples = [
   "x".repeat(5000),
   "",
   "   ",
+  // A first line with no visible text falls through to the next one.
+  "![](https://x.test/chart.png)\n\nRevenue grew 12%",
+  ">\n> quoted",
+  "* * *\nText",
+  "<br>\nText",
+  "- \nText",
+  "$$ $$\nx",
+  "```",
+  `${"\n".repeat(5000)}too late`,
+  `${"> \n".repeat(3000)}too late`,
+  `${"y".repeat(9000)}\nnext`,
+  // Whitespace and line breaks follow JavaScript's rules on every platform.
+  "\ufeff\nHello",
+  "\u200b\nHello",
+  "\ufeffHello",
+  "Hi\u0085there",
+  "Status\u0085- item",
+  "Note\u000b# not a heading",
+  "Page\u2028## break",
+  "<b\ufeff>t</b>",
+  `${"a".repeat(197)} \u200d${"b".repeat(10)}`,
+  `${"a".repeat(197)} \u0301${"b".repeat(10)}`,
+  "\u0600<br>x",
+  "*>\r\n-<br>\n*",
 ];
 
 // A fixed pseudo-random mix of markdown fragments, so Swift is checked beyond the hand-picked cases.
@@ -98,13 +122,30 @@ const fragments = [
   "https://example.com/a_b(c)",
   "😀",
   "é",
+  "<",
+  ">",
+  "#",
+  "-",
+  "\r",
+  "\r\n",
+  "\u000b",
+  "\f",
+  "\u0085",
+  "\u00a0",
+  "\u2028",
+  "\u200b",
+  "\u200d",
+  "\ufe0f",
+  "\ufeff",
+  " \u0301",
+  "\u0600",
 ];
 let seed = 20261018;
 const next = (limit: number) => {
   seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
   return Math.floor((seed / 2 ** 32) * limit);
 };
-const generated = Array.from({ length: 200 }, () =>
+const generated = Array.from({ length: 400 }, () =>
   Array.from({ length: 1 + next(24) }, () => fragments[next(fragments.length)]).join("")
 );
 
@@ -124,6 +165,8 @@ const attachmentSets = [
   [file("bundle.tar.gz", "application/gzip"), file("main.swift", "application/octet-stream")],
   [file("data.bin", "application/octet-stream")],
   [file("page.html", "text/html; charset=utf-8"), file("feed.xml", "application/atom+xml")],
+  [file("ws:x.gz", "application/octet-stream"), file("music/song one.MP3", "")],
+  [file("archive.", "application/octet-stream"), file(".env", "application/octet-stream")],
 ];
 
 const json = `${JSON.stringify(

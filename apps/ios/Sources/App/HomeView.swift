@@ -339,7 +339,7 @@ struct ChannelRow: View {
           }
         }
         HStack {
-          if last?.content.isEmpty == true, !(last?.attachments.isEmpty ?? true) {
+          if last?.isAttachmentOnly == true {
             Image(systemName: "paperclip").font(.system(size: 13))
           }
           Text(preview).font(.system(size: 15)).lineLimit(1).frame(

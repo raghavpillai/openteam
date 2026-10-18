@@ -536,7 +536,7 @@ function ChannelPreviewTooltipContent({
   row: ChannelRowData;
   botById: ReadonlyMap<string, BotView>;
 }) {
-  const { channel } = row;
+  const { channel, latest } = row;
   const working = sidebarRowIsWorking(row);
   const bot = channel.kind === "bot_dm" ? botById.get(channel.members[0]?.botId ?? "") : undefined;
   const description = working
@@ -546,7 +546,7 @@ function ChannelPreviewTooltipContent({
       : bot?.status === "failed"
         ? "Setup needs attention"
         : latestMessagePreview(row, botById) ||
-          (channel.kind === "agent_dm" ? "Private bot exchange" : "No messages yet");
+          (channel.kind === "agent_dm" ? "Private bot exchange" : latest ? "" : "No messages yet");
 
   return (
     <TooltipContent
@@ -562,9 +562,11 @@ function ChannelPreviewTooltipContent({
         </WorkingAvatar>
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{channel.name}</span>
       </div>
-      <p className="mt-1 line-clamp-2 text-[13px] font-normal leading-[18px] text-foreground-secondary">
-        {description}
-      </p>
+      {description ? (
+        <p className="mt-1 line-clamp-2 text-[13px] font-normal leading-[18px] text-foreground-secondary">
+          {description}
+        </p>
+      ) : null}
     </TooltipContent>
   );
 }

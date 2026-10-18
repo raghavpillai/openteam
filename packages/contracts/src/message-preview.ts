@@ -184,15 +184,22 @@ export const markdownToPlainText = (markdown: string): string =>
 export const truncatePreviewText = (value: string, limit = MESSAGE_PREVIEW_LIMIT): string =>
   value.length <= limit ? value : `${sliceCodeUnits(value, limit - 1).trimEnd()}…`;
 
-/** The first non-empty line of a message, as plain text. */
+/**
+ * The first line of a message with visible text, as plain text. Only lines starting within the
+ * first few thousand characters are considered, so a huge message stays cheap.
+ */
 export const messagePreviewText = (content: string, limit = MESSAGE_PREVIEW_LIMIT): string => {
-  const line = content.split("\n").find((candidate) => candidate.trim().length > 0) ?? "";
-  return truncatePreviewText(
-    markdownToPlainText(
-      line.length <= MARKDOWN_SCAN_LIMIT ? line : sliceCodeUnits(line, MARKDOWN_SCAN_LIMIT)
-    ),
-    limit
-  );
+  const head = content.slice(0, 2 * MARKDOWN_SCAN_LIMIT);
+  for (let start = 0; start < Math.min(head.length, MARKDOWN_SCAN_LIMIT); ) {
+    const newline = head.indexOf("\n", start);
+    const end = newline < 0 ? head.length : newline;
+    const line = sliceCodeUnits(head, Math.min(end, start + MARKDOWN_SCAN_LIMIT)).slice(start);
+    const text = line.trim() ? markdownToPlainText(line) : "";
+    if (text) return truncatePreviewText(text, limit);
+    if (newline < 0) break;
+    start = newline + 1;
+  }
+  return "";
 };
 
 export type AttachmentSummaryKind =
@@ -281,15 +288,8 @@ const EXTENSION_KINDS = new Map(
   )
 );
 
-const kindFromPath = (path: string): AttachmentSummaryKind | null => {
-  let pathname = path;
-  try {
-    pathname = new URL(path).pathname;
-  } catch {}
-  try {
-    pathname = decodeURIComponent(pathname);
-  } catch {}
-  const name = pathname.split(/[/\\]/).at(-1) ?? "";
+const kindFromFileName = (fileName: string): AttachmentSummaryKind | null => {
+  const name = fileName.split(/[/\\]/).at(-1) ?? "";
   const dot = name.lastIndexOf(".");
   if (dot <= 0 || dot === name.length - 1) return null;
   return EXTENSION_KINDS.get(name.slice(dot + 1).toLowerCase()) ?? null;
@@ -298,13 +298,11 @@ const kindFromPath = (path: string): AttachmentSummaryKind | null => {
 export interface AttachmentSummarySource {
   mimeType?: string | null;
   fileName?: string | null;
-  url?: string | null;
 }
 
 export const attachmentSummaryKind = (attachment: AttachmentSummarySource): AttachmentSummaryKind =>
   (attachment.mimeType ? kindFromMimeType(attachment.mimeType) : null) ??
-  (attachment.fileName ? kindFromPath(attachment.fileName) : null) ??
-  (attachment.url ? kindFromPath(attachment.url) : null) ??
+  (attachment.fileName ? kindFromFileName(attachment.fileName) : null) ??
   "file";
 
 const countedNoun = (kind: AttachmentSummaryKind, count: number): string =>

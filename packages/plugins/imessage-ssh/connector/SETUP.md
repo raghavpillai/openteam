@@ -3,6 +3,11 @@
 **Before you start:** ask your OpenTeam administrator to enable this integration
 and verify SSH access to your Mac without a password prompt.
 
+Assume the target Mac has no OpenTeam installation. OpenTeam runs on the
+deployment host; the Mac needs no OpenTeam app, CLI, service or account sign-in.
+The bridge installs and updates a standalone Python Messages helper over SSH.
+Marketplace setup takes place in your existing OpenTeam session, not on the Mac.
+
 1. On your Mac, enable **Remote Login** and allow the SSH user to read Messages history.
 2. In **Marketplace → iMessage (SSH) → account settings**, enter your **Mac SSH address**,
    such as `alex@100.64.0.10`. Use your Mac login username, not your Apple Account

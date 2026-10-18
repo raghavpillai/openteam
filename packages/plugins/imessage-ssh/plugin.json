@@ -14,7 +14,7 @@
   "icon": "assets/icon.png",
   "installationSteps": [
     "Before you start, ask your OpenTeam administrator to enable this integration and verify SSH access to your Mac without a password prompt.",
-    "On your Mac, enable Remote Login and allow the SSH user to read Messages history. Keep the Mac online and Messages signed in for new messages to sync.",
+    "On your Mac, enable Remote Login and allow the SSH user to read Messages history. Keep the Mac online and Messages signed in for new messages to sync. No OpenTeam installation or OpenTeam sign-in is needed on the Mac.",
     "Enter your Mac username and IP address as username@IP, then choose Connect. OpenTeam installs a read-only helper and checks Messages access.",
     "Once connected, ask your agent what's new or to find a conversation. This integration reads synced history, Contacts names and attachments; an administrator can separately enable SSH text replies."
   ],
@@ -26,7 +26,7 @@
     "documentationUrl": "https://support.apple.com/guide/mac-help/allow-a-remote-computer-to-access-your-mac-mchlp1066/mac",
     "steps": [
       "Before you start, ask your OpenTeam administrator to enable this integration and verify SSH access to your Mac without a password prompt.",
-      "On your Mac, enable Remote Login and allow the SSH user to read Messages history. Keep the Mac online and Messages signed in for new messages to sync.",
+      "On your Mac, enable Remote Login and allow the SSH user to read Messages history. Keep the Mac online and Messages signed in for new messages to sync. No OpenTeam installation or OpenTeam sign-in is needed on the Mac.",
       "Enter your Mac username and IP address as username@IP, then choose Connect. OpenTeam installs a read-only helper and checks Messages access.",
       "Once connected, ask your agent what's new or to find a conversation. This integration reads synced history, Contacts names and attachments; an administrator can separately enable SSH text replies."
     ],

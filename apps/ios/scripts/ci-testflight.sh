@@ -4,7 +4,7 @@ set -euo pipefail
 [[ "${CI:-}" == "true" ]] || { echo 'Run this signing setup only on an ephemeral CI runner.' >&2; exit 1; }
 repo_root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$repo_root"
-required=(IOS_DISTRIBUTION_P12_BASE64 IOS_DISTRIBUTION_P12_PASSWORD IOS_APP_PROFILE_BASE64 IOS_EXTENSION_PROFILE_BASE64 APP_STORE_CONNECT_KEY_ID APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_PRIVATE_KEY)
+required=(IOS_DISTRIBUTION_P12_BASE64 IOS_DISTRIBUTION_P12_PASSWORD IOS_APP_PROFILE_BASE64 IOS_EXTENSION_PROFILE_BASE64 IOS_SHARE_PROFILE_BASE64 APP_STORE_CONNECT_KEY_ID APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_PRIVATE_KEY)
 for name in "${required[@]}"; do
   [[ -n "${!name:-}" ]] || { echo "Missing CI secret: $name" >&2; exit 1; }
 done
@@ -24,7 +24,7 @@ python3 - <<'PY'
 import base64, os
 from pathlib import Path
 root = Path(os.environ['SIGNING_DIR'])
-for variable, filename in [('IOS_DISTRIBUTION_P12_BASE64', 'distribution.p12'), ('IOS_APP_PROFILE_BASE64', 'app.mobileprovision'), ('IOS_EXTENSION_PROFILE_BASE64', 'extension.mobileprovision')]:
+for variable, filename in [('IOS_DISTRIBUTION_P12_BASE64', 'distribution.p12'), ('IOS_APP_PROFILE_BASE64', 'app.mobileprovision'), ('IOS_EXTENSION_PROFILE_BASE64', 'extension.mobileprovision'), ('IOS_SHARE_PROFILE_BASE64', 'share.mobileprovision')]:
     (root / filename).write_bytes(base64.b64decode(os.environ[variable], validate=True))
 (root / 'AuthKey.p8').write_text(os.environ['APP_STORE_CONNECT_PRIVATE_KEY'])
 for path in root.iterdir(): path.chmod(0o600)
@@ -37,6 +37,7 @@ security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain
 security list-keychains -d user -s "$keychain"
 security cms -D -i "$signing_dir/app.mobileprovision" > "$signing_dir/app.plist"
 security cms -D -i "$signing_dir/extension.mobileprovision" > "$signing_dir/extension.plist"
+security cms -D -i "$signing_dir/share.mobileprovision" > "$signing_dir/share.plist"
 python3 - <<'PY'
 import json, os, plistlib, shutil
 from pathlib import Path
@@ -46,7 +47,7 @@ profiles = {}
 installed = []
 destination = Path.home() / 'Library/MobileDevice/Provisioning Profiles'
 destination.mkdir(parents=True, exist_ok=True)
-for name, suffix in [('app', ''), ('extension', '.notifications')]:
+for name, suffix in [('app', ''), ('extension', '.notifications'), ('share', '.share')]:
     profile = plistlib.loads((root / (name + '.plist')).read_bytes())
     bundle = release['bundleIdentifier'] + suffix
     assert profile['TeamIdentifier'] == [release['teamIdentifier']], 'Profile signing team mismatch'
@@ -72,7 +73,8 @@ xcodebuild -project apps/ios/OpenTeamNative.xcodeproj -scheme OpenTeamNative \
   -archivePath "$output/OpenTeam.xcarchive" \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY='Apple Distribution' \
   APP_PROVISIONING_PROFILE="$(cat "$signing_dir/app.uuid")" \
-  EXTENSION_PROVISIONING_PROFILE="$(cat "$signing_dir/extension.uuid")" archive
+  EXTENSION_PROVISIONING_PROFILE="$(cat "$signing_dir/extension.uuid")" \
+  SHARE_PROVISIONING_PROFILE="$(cat "$signing_dir/share.uuid")" archive
 xcodebuild -exportArchive -archivePath "$output/OpenTeam.xcarchive" \
   -exportPath "$output/export" -exportOptionsPlist "$signing_dir/ExportOptions.plist" \
   -authenticationKeyPath "$signing_dir/AuthKey.p8" \

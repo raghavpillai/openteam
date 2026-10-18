@@ -43,6 +43,7 @@ final class NotificationService: UNNotificationServiceExtension {
     lock.unlock()
     let interaction = INInteraction(intent: intent, response: nil)
     interaction.direction = .incoming
+    interaction.groupIdentifier = channelId
     interaction.identifier = "\(channelId):\(data["notificationSequence"] as? String ?? request.identifier)"
     interaction.donate { [weak self] error in
       guard let self else { return }

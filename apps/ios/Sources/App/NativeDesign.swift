@@ -234,6 +234,9 @@ private struct FadingTopBar<Bar: View>: ViewModifier {
   }
 }
 
+// The share extension compiles this file; app-only pieces use UIApplication.shared or
+// the app's gestures, which it cannot.
+#if !SHARE_EXTENSION
 private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
   var top: Top
   var bottom: Bottom
@@ -308,18 +311,22 @@ private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
     }
   }
 }
+#endif
 extension View {
   func nativeChatGlass(radius: CGFloat = 22, regularInLightMode: Bool = false) -> some View {
     modifier(NativeChatGlass(radius: radius, regularInLightMode: regularInLightMode))
   }
+  #if !SHARE_EXTENSION
   func chatFloatingBars<Top: View, Bottom: View>(
     @ViewBuilder top: () -> Top, @ViewBuilder bottom: () -> Bottom
   ) -> some View {
     modifier(ChatFloatingBars(top: top(), bottom: bottom()))
   }
+  #endif
   func fadingTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
     modifier(FadingTopBar(bar: bar()))
   }
+  #if !SHARE_EXTENSION
   func dismissKeyboardOnTap() -> some View {
     simultaneousGesture(
       TapGesture().onEnded {
@@ -327,6 +334,7 @@ extension View {
           #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
       })
   }
+  #endif
   /// Extend only the page color under the keyboard's transparent rounded corners.
   /// Content continues to avoid the keyboard, keeping fields and controls reachable.
   func nativeCanvas() -> some View {
@@ -423,6 +431,7 @@ struct PrimaryActionStyle: ButtonStyle {
 }
 
 /// Restores UIKit's interactive navigation transition when our compact chrome replaces the bar.
+#if !SHARE_EXTENSION
 struct NativeBackGesture: UIViewControllerRepresentable {
   var shouldBegin: () -> Bool = { true }
   final class Controller: UIViewController, UIGestureRecognizerDelegate {
@@ -509,3 +518,4 @@ struct NativeBackGesture: UIViewControllerRepresentable {
     controller.restore()
   }
 }
+#endif

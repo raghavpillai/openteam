@@ -1,8 +1,8 @@
 # OpenTeam for iOS
 
 The native SwiftUI iPhone/iPad client lives in `apps/ios`. The React Native app and
-its Expo/Android build have been retired. Native notification-extension sources,
-QA fixtures, asset generators, and the Xcode project are all owned here.
+its Expo/Android build have been retired. Native notification- and share-extension
+sources, QA fixtures, asset generators, and the Xcode project are all owned here.
 
 Debug installs as **OpenTeam Swift** (`dev.openteam.mobile.swift`) with an isolated
 Keychain and `openteam-swift://` links. Release installs as **OpenTeam**
@@ -74,6 +74,14 @@ Record the simulator concurrently with `idb video --fps 120 --udid <udid> <file>
 and inspect actual frame timestamps and the reported screen refresh limit;
 requesting 120 fps does not establish physical-device 120 Hz performance.
 
+The `OpenTeamShare` extension adds OpenTeam to the system share sheet. It reads the
+app's saved session from the shared Keychain group and posts directly to the server.
+Simulators never show its per-Bot conversation suggestions, because they don't start
+`coreduetd`. Run `bash apps/ios/scripts/enable-share-suggestions.sh <simulator-udid>`
+after each simulator boot, then send a message so a suggestion is recorded. On a
+simulator, tapping a suggestion still opens the sheet without that Bot chosen; the
+service that hands the choice to the extension isn't included in simulators.
+
 For scroll smoothness investigations, add `--trace-scroll-frames` to a DEBUG chat
 launch. Once scrolling is idle it saves `tmp/scroll-frames.json` in the app
 container: each display frame's committed row positions and heights, the finger
@@ -106,11 +114,14 @@ version in sync with this workspace's `package.json`, then regenerate the projec
 The tagged release workflow uses native Xcode archive/export on macOS. Its signing
 secrets and upload procedure are documented in [Releasing OpenTeam](../../.github/RELEASING.md).
 `ci-testflight.sh` is for an ephemeral CI runner, not a developer's personal keychain.
+Besides the app and notification profiles, it needs `IOS_SHARE_PROFILE_BASE64`.
 Uploading an archive does not establish Apple processing or tester availability.
 
 For local distribution, archive the Release scheme in Xcode using the configured
-team and distribute the archive through Organizer. Both the app and
-`OpenTeamNotifications` extension require matching provisioning profiles.
+team and distribute the archive through Organizer. The app and its
+`OpenTeamNotifications` and `OpenTeamShare` extensions each require a matching
+provisioning profile. The share extension's App ID is the app's bundle ID plus
+`.share`; it needs no capabilities beyond the team's Keychain access group.
 
 ## Product boundaries
 

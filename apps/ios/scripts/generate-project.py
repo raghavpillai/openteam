@@ -34,10 +34,13 @@ def configs(name, settings):
         build = dict(settings)
         if name == 'app':
             build.update(APP_DISPLAY_NAME='OpenTeam Swift' if mode == 'Debug' else 'OpenTeam', APP_URL_SCHEME='openteam-swift' if mode == 'Debug' else 'openteam')
-        if mode == 'Release' and name in ['app', 'extension']:
-            build.update(PRODUCT_BUNDLE_IDENTIFIER=release['bundleIdentifier'] + ('.notifications' if name == 'extension' else ''), CURRENT_PROJECT_VERSION=release['buildNumber'], MARKETING_VERSION=release['version'], DEVELOPMENT_TEAM=release['teamIdentifier'], PROVISIONING_PROFILE_SPECIFIER='$(APP_PROVISIONING_PROFILE)' if name == 'app' else '$(EXTENSION_PROVISIONING_PROFILE)')
+        if name == 'share':
+            build.update(APP_DISPLAY_NAME='OpenTeam Swift' if mode == 'Debug' else 'OpenTeam', APP_BUNDLE_IDENTIFIER='dev.openteam.mobile.swift' if mode == 'Debug' else release['bundleIdentifier'])
+        if mode == 'Release' and name in ['app', 'extension', 'share']:
+            build.update(PRODUCT_BUNDLE_IDENTIFIER=release['bundleIdentifier'] + {'app': '', 'extension': '.notifications', 'share': '.share'}[name], CURRENT_PROJECT_VERSION=release['buildNumber'], MARKETING_VERSION=release['version'], DEVELOPMENT_TEAM=release['teamIdentifier'], PROVISIONING_PROFILE_SPECIFIER={'app': '$(APP_PROVISIONING_PROFILE)', 'extension': '$(EXTENSION_PROVISIONING_PROFILE)', 'share': '$(SHARE_PROVISIONING_PROFILE)'}[name])
         if name == 'app': build['APNS_ENVIRONMENT'] = 'development' if mode == 'Debug' else 'production'
         build.update({'SWIFT_OPTIMIZATION_LEVEL': '-Onone' if mode == 'Debug' else '-O', 'SWIFT_ACTIVE_COMPILATION_CONDITIONS': 'DEBUG' if mode == 'Debug' else '', 'DEBUG_INFORMATION_FORMAT': 'dwarf' if mode == 'Debug' else 'dwarf-with-dsym'})
+        if name == 'share': build['SWIFT_ACTIVE_COMPILATION_CONDITIONS'] = ('DEBUG ' if mode == 'Debug' else '') + 'SHARE_EXTENSION'
         refs.append(add(name+mode, dict(isa='XCBuildConfiguration', buildSettings=build, name=mode)))
     return add(name+'-config', dict(isa='XCConfigurationList', buildConfigurations=refs, defaultConfigurationIsVisible=0, defaultConfigurationName='Release'))
 common = dict(SWIFT_VERSION='6.0', IPHONEOS_DEPLOYMENT_TARGET='18.0', SDKROOT='iphoneos', TARGETED_DEVICE_FAMILY='1,2', CLANG_ENABLE_MODULES='YES', CODE_SIGN_STYLE='Automatic')
@@ -52,7 +55,7 @@ app_target = add('app-target', dict(isa='PBXNativeTarget', name='OpenTeamNative'
 # robot artwork. This extension contains no React Native or Expo runtime.
 extension_sources = []
 extension_resources = []
-for filename, kind in [('NotificationService.swift', 'sourcecode.swift'), ('RobotNotificationAvatar.swift', 'sourcecode.swift'), ('RobotArtwork.json', 'text.json')]:
+for filename, kind in [('NotificationService.swift', 'sourcecode.swift'), ('RobotNotificationAvatar.swift', 'sourcecode.swift'), ('RobotNotificationArtwork.json', 'text.json')]:
     ref = add('notification-'+filename, dict(isa='PBXFileReference', lastKnownFileType=kind, path='NotificationService/'+filename, sourceTree='<group>'))
     objects[main]['children'].append(ref)
     build = add('notification-build-'+filename, dict(isa='PBXBuildFile', fileRef=ref))
@@ -66,10 +69,36 @@ extension_dependency = add('extension-dependency', dict(isa='PBXTargetDependency
 objects[app_target]['dependencies'].append(extension_dependency)
 embed = add('embed-extension-build', dict(isa='PBXBuildFile', fileRef=extension, settings={'ATTRIBUTES':['RemoveHeadersOnCopy']}))
 objects[app_target]['buildPhases'].append(add('embed-extensions', dict(isa='PBXCopyFilesBuildPhase', buildActionMask=2147483647, files=[embed], dstPath='', dstSubfolderSpec=13, name='Embed App Extensions', runOnlyForDeploymentPostprocessing=0)))
+# Share extension: Bot conversation suggestions in the system share sheet. It reads the app's
+# Keychain session (shared access group, no App Group) and posts through the same API client.
+share = add('share-ref', dict(isa='PBXFileReference', explicitFileType='wrapper.app-extension', path='OpenTeamShare.appex', sourceTree='BUILT_PRODUCTS_DIR'))
+objects[products]['children'].append(share)
+share_sources, share_resources = [], []
+def share_file(path, kind, ref=None, app_too=False):
+    if ref is None:
+        ref = add('share-'+path, dict(isa='PBXFileReference', lastKnownFileType=kind, path=path, sourceTree='<group>'))
+        objects[main]['children'].append(ref)
+    swift = path.endswith('.swift')
+    (share_sources if swift else share_resources).append(add('share-build-'+path, dict(isa='PBXBuildFile', fileRef=ref)))
+    if app_too:
+        objects[uid('app-sources' if swift else 'app-resources')]['files'].append(add('app-build-'+path, dict(isa='PBXBuildFile', fileRef=ref)))
+share_file('ShareExtension/ShareViewController.swift', 'sourcecode.swift')
+share_file('ShareExtension/ConversationDonation.swift', 'sourcecode.swift', app_too=True)
+share_file('NotificationService/RobotNotificationArtwork.json', 'text.json', ref=uid('notification-RobotNotificationArtwork.json'), app_too=True)
+share_file('NotificationService/RobotNotificationAvatar.swift', 'sourcecode.swift', ref=uid('notification-RobotNotificationAvatar.swift'), app_too=True)
+for path in ['Sources/Core/API.swift', 'Sources/Core/Models.swift', 'Sources/Core/ShareDirectory.swift', 'Sources/Core/UserFacingError.swift', 'Sources/Core/SessionRecord.swift', 'Sources/App/SecureSession.swift', 'Sources/App/NativeDesign.swift']:
+    share_file(path, 'sourcecode.swift')
+share_config = configs('share', dict(PRODUCT_NAME='OpenTeamShare', PRODUCT_BUNDLE_IDENTIFIER='dev.openteam.mobile.swift.share', INFOPLIST_FILE='ShareExtension/Info.plist', GENERATE_INFOPLIST_FILE='NO', CODE_SIGN_ENTITLEMENTS='ShareExtension/ShareExtension.entitlements', CURRENT_PROJECT_VERSION='1', MARKETING_VERSION='0.1.0', APPLICATION_EXTENSION_API_ONLY='YES', SKIP_INSTALL='YES', SWIFT_VERSION='5.0', LD_RUNPATH_SEARCH_PATHS=['$(inherited)', '@executable_path/Frameworks', '@executable_path/../../Frameworks']))
+share_phases = phases('share', share_resources)
+objects[uid('share-sources')]['files'] = share_sources
+share_target = add('share-target', dict(isa='PBXNativeTarget', name='OpenTeamShare', buildConfigurationList=share_config, buildPhases=share_phases, buildRules=[], dependencies=[], productName='OpenTeamShare', productReference=share, productType='com.apple.product-type.app-extension'))
+share_proxy = add('share-proxy', dict(isa='PBXContainerItemProxy', containerPortal=uid('project'), proxyType=1, remoteGlobalIDString=share_target, remoteInfo='OpenTeamShare'))
+objects[app_target]['dependencies'].append(add('share-dependency', dict(isa='PBXTargetDependency', target=share_target, targetProxy=share_proxy)))
+objects[uid('embed-extensions')]['files'].append(add('embed-share-build', dict(isa='PBXBuildFile', fileRef=share, settings={'ATTRIBUTES':['RemoveHeadersOnCopy']})))
 proxy = add('proxy', dict(isa='PBXContainerItemProxy', containerPortal=uid('project'), proxyType=1, remoteGlobalIDString=app_target, remoteInfo='OpenTeamNative'))
 dependency = add('dependency', dict(isa='PBXTargetDependency', target=app_target, targetProxy=proxy))
 test_target = add('test-target', dict(isa='PBXNativeTarget', name='OpenTeamNativeUITests', buildConfigurationList=test_config, buildPhases=phases('test'), buildRules=[], dependencies=[dependency], fileSystemSynchronizedGroups=[ui_tests], productName='OpenTeamNativeUITests', productReference=test, productType='com.apple.product-type.bundle.ui-testing'))
-project = add('project', dict(isa='PBXProject', attributes={'BuildIndependentTargetsInParallel':'YES', 'LastUpgradeCheck':'2660', 'TargetAttributes':{app_target:{'CreatedOnToolsVersion':'26.6','SystemCapabilities':{'com.apple.Push':{'enabled':1},'com.apple.BackgroundModes':{'enabled':1}}}, test_target:{'CreatedOnToolsVersion':'26.6','TestTargetID':app_target}}}, buildConfigurationList=project_config, compatibilityVersion='Xcode 16.0', developmentRegion='en', hasScannedForEncodings=0, knownRegions=['en', 'Base'], mainGroup=main, productRefGroup=products, projectDirPath='', projectRoot='', targets=[app_target, test_target, extension_target]))
+project = add('project', dict(isa='PBXProject', attributes={'BuildIndependentTargetsInParallel':'YES', 'LastUpgradeCheck':'2660', 'TargetAttributes':{app_target:{'CreatedOnToolsVersion':'26.6','SystemCapabilities':{'com.apple.Push':{'enabled':1},'com.apple.BackgroundModes':{'enabled':1}}}, test_target:{'CreatedOnToolsVersion':'26.6','TestTargetID':app_target}}}, buildConfigurationList=project_config, compatibilityVersion='Xcode 16.0', developmentRegion='en', hasScannedForEncodings=0, knownRegions=['en', 'Base'], mainGroup=main, productRefGroup=products, projectDirPath='', projectRoot='', targets=[app_target, test_target, extension_target, share_target]))
 directory = root / 'OpenTeamNative.xcodeproj'
 directory.mkdir(exist_ok=True)
 (directory / 'project.pbxproj').write_text('// !$*UTF8*$!\n' + quote(dict(archiveVersion=1, classes={}, objectVersion=77, objects=objects, rootObject=project)) + '\n')

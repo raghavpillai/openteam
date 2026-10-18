@@ -11,9 +11,11 @@ project = (root / 'OpenTeamNative.xcodeproj/project.pbxproj').read_text()
 info = plistlib.loads((root / 'Resources/Info.plist').read_bytes())
 entitlements = plistlib.loads((root / 'Resources/OpenTeam.entitlements').read_bytes())
 extension = plistlib.loads((root / 'NotificationService/Info.plist').read_bytes())
+share = plistlib.loads((root / 'ShareExtension/Info.plist').read_bytes())
+share_entitlements = plistlib.loads((root / 'ShareExtension/ShareExtension.entitlements').read_bytes())
 assert package['version'] == release['version'], 'iOS package and release versions differ'
 assert release['buildNumber'].isdigit(), 'Release build number must be numeric'
-for value in [release['bundleIdentifier'], release['bundleIdentifier'] + '.notifications', release['teamIdentifier']]:
+for value in [release['bundleIdentifier'], release['bundleIdentifier'] + '.notifications', release['bundleIdentifier'] + '.share', release['teamIdentifier']]:
     assert value in project, f'Missing signing identity: {value}'
 assert f'MARKETING_VERSION = "{release["version"]}"' in project
 assert f'CURRENT_PROJECT_VERSION = "{release["buildNumber"]}"' in project
@@ -23,9 +25,17 @@ assert entitlements['aps-environment'] == '$(APNS_ENVIRONMENT)'
 assert entitlements['keychain-access-groups'] == ['$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)']
 assert entitlements['com.apple.developer.usernotifications.communication'] is True
 assert extension['NSExtension']['NSExtensionPointIdentifier'] == 'com.apple.usernotifications.service'
-for name in ['NotificationService.swift', 'RobotNotificationAvatar.swift', 'RobotArtwork.json']:
+for name in ['NotificationService.swift', 'RobotNotificationAvatar.swift', 'RobotNotificationArtwork.json']:
     assert (root / 'NotificationService' / name).is_file()
     assert 'NotificationService/' + name in project
+# Share sheet suggestions need the intent declared by both the app and its share extension.
+assert 'INSendMessageIntent' in info['NSUserActivityTypes']
+assert share['NSExtension']['NSExtensionPointIdentifier'] == 'com.apple.share-services'
+assert share['NSExtension']['NSExtensionAttributes']['IntentsSupported'] == ['INSendMessageIntent']
+assert isinstance(share['NSExtension']['NSExtensionAttributes']['NSExtensionActivationRule'], dict), 'App Review rejects TRUEPREDICATE'
+# The extension reads the app's session item, which lives in the app's default access group.
+assert share_entitlements['keychain-access-groups'] == ['$(AppIdentifierPrefix)$(APP_BUNDLE_IDENTIFIER)']
+assert 'APP_BUNDLE_IDENTIFIER' in project and 'OpenTeamShare.appex' in project
 for key in ['NSCameraUsageDescription', 'NSMicrophoneUsageDescription', 'NSLocalNetworkUsageDescription', 'NSPhotoLibraryAddUsageDescription']:
     assert info.get(key), f'Missing usage description: {key}'
 assert 'NSSpeechRecognitionUsageDescription' not in info

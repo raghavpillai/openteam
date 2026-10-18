@@ -939,6 +939,13 @@ final class AppStore {
         guard let committed = state.outbox.first(where: { $0.id == pending.id }) else { continue }
         let message = try await api.send(
           channel: channel, bot: bot(for: channel), input: committed.input)
+        #if canImport(UIKit)
+          let donatedBot = bot(for: channel)
+          Task {
+            let image = await ConversationDonation.avatar(channel: channel, bot: donatedBot, api: api)
+            ConversationDonation.donateSent(channel: channel, bot: donatedBot, image: image)
+          }
+        #endif
         guard epoch == generation else { return }
         merge([message], channel: channel.id)
         persist()
@@ -1078,6 +1085,7 @@ final class AppStore {
       if !testing { try SecureSession.clear() }
       #if canImport(UIKit)
         NativeNotifications.shared.reset()
+        ConversationDonation.forgetAll()
       #endif
       lifecycle?.cancel()
       generation = UUID()
@@ -1170,6 +1178,9 @@ final class AppStore {
         }
       #endif
       try LocalDataReset.erase(directories: directories)
+      #if canImport(UIKit)
+        ConversationDonation.forgetAll()
+      #endif
       URLCache.shared.removeAllCachedResponses()
       HTTPCookieStorage.shared.cookies?.forEach { HTTPCookieStorage.shared.deleteCookie($0) }
       if let domain = Bundle.main.bundleIdentifier {

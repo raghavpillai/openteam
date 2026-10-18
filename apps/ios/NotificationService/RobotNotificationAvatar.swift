@@ -1,10 +1,11 @@
 import UIKit
 
 /// Draws the shared SVG primitives locally, including their affine face projection.
-/// Artwork.json is generated from design-tokens by generate-notification-artwork.ts.
+/// RobotNotificationArtwork.json is generated from design-tokens by generate-notification-artwork.ts.
 enum RobotNotificationAvatar {
-  private static let artwork: [String: [[String: Any]]] = {
-    guard let url = Bundle.main.url(forResource: "RobotArtwork", withExtension: "json"),
+  // Also bundled by the app and share extension; the app's Core RobotArtwork.json is a different format.
+  nonisolated(unsafe) private static let artwork: [String: [[String: Any]]] = {
+    guard let url = Bundle.main.url(forResource: "RobotNotificationArtwork", withExtension: "json"),
           let data = try? Data(contentsOf: url),
           let value = try? JSONSerialization.jsonObject(with: data) as? [String: [[String: Any]]] else { return [:] }
     return value

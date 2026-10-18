@@ -41,5 +41,3 @@ The [install directory](../getting-started/installation.md#where-openteam-is-ins
 - `installation.json`: a record of how the server was installed
 
 Setup and updates maintain these files, so change settings with the CLI instead of editing them. Don't put model API keys in `.env`; connect providers with `openteam setup` or in the app. Include this directory in your [backups](../manage/backups.md).
-
-For less common options, such as running behind a proxy on another machine, see the [server configuration reference](../reference/server-configuration.md).

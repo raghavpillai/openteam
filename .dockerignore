@@ -22,3 +22,5 @@ apps/ios/**
 **/artifacts
 output
 packages/db/src/generated
+
+packages/plugins/_generated

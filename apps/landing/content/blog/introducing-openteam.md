@@ -31,7 +31,7 @@ OpenTeam's goal fits in one line: self-hosted AI agents that keep working on you
 
 **A machine you own.** Conversations, files, memory and website sign-ins stay on your server. You pick the model provider, or run a local model so requests stay on your hardware too.
 
-None of these ideas is new. xAI's [Grok Bot](https://x.ai/news/introducing-grok-bot), launched on August 11, brought the first three together as a hosted service. OpenTeam follows the same design, and its agent tools, prompt and built-in skills are built for [compatibility with Grok Bot's](https://github.com/raghavpillai/openteam/blob/main/docs/reference/platform-system-prompt.md). The difference is the fourth idea: it's open source, and it runs on hardware you control with the model provider you choose.
+None of these ideas is new. xAI's [Grok Bot](https://x.ai/news/introducing-grok-bot), launched on August 11, brought the first three together as a hosted service. OpenTeam follows the same design, and its agent tools, prompt and built-in skills are built for compatibility with Grok Bot's. The difference is the fourth idea: it's open source, and it runs on hardware you control with the model provider you choose.
 
 ## What each bot gets
 

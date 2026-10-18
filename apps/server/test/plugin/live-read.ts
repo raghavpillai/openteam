@@ -1,5 +1,5 @@
 // Opt-in acceptance checks against connected accounts, never part of bun test.
-// Run with the server's environment; see docs/reference/development.md.
+// Run with the server's DATABASE_URL, OPENTEAM_COMPUTER_URL, and OPENTEAM_CONTROL_TOKEN.
 import { createPrismaClient } from "@openteam/db";
 import { Effect } from "effect";
 import { PluginService } from "../../src/services/plugin-service";

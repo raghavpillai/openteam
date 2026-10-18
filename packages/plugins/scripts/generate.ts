@@ -1,4 +1,4 @@
-import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
+import { readdir, readFile, writeFile, mkdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import {
@@ -39,9 +39,15 @@ export async function discoverPackages(directory = root): Promise<PluginDefiniti
       for (const entry of await readdir(join(directory, folder.name, path), {
         withFileTypes: true,
       })) {
-        if (entry.name === "node_modules" || entry.name === ".git" || entry.name === ".DS_Store")
+        if (["node_modules", ".git", ".DS_Store", "__pycache__"].includes(entry.name))
           continue;
         const relative = path ? `${path}/${entry.name}` : entry.name;
+        // Connector tests belong in the repository, not in installed packages.
+        if (relative.startsWith("connector/") && (
+          (entry.isDirectory() && ["test", "tests", "__tests__", "fixtures", "__snapshots__"].includes(entry.name)) ||
+          /\.(test|spec)\.[^.]+$/.test(entry.name) ||
+          /^test_.*\.py$/.test(entry.name)
+        )) continue;
         if (relative === "upstream.json") continue;
         if (entry.isSymbolicLink())
           throw new Error(`Plugin packages cannot contain symlinks: ${folder.name}/${relative}`);
@@ -99,9 +105,14 @@ export async function discoverPackages(directory = root): Promise<PluginDefiniti
 if (import.meta.main) {
   const plugins = await discoverPackages();
   await mkdir(join(root, "_generated"), { recursive: true });
-  await writeFile(
-    join(root, "_generated", "registry.json"),
-    `${JSON.stringify(plugins, null, 2)}\n`
-  );
+  // Parallel workspace checks must never read a partially written catalog.
+  const target = join(root, "_generated", "registry.json");
+  const temporary = `${target}.${process.pid}.tmp`;
+  try {
+    await writeFile(temporary, `${JSON.stringify(plugins, null, 2)}\n`);
+    await rename(temporary, target);
+  } finally {
+    await rm(temporary, { force: true });
+  }
   console.log(`Validated and packaged ${plugins.length} plugins`);
 }

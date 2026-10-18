@@ -16,5 +16,3 @@ OpenTeam runs a team of AI bots on hardware you control. Start with the [introdu
 | Change the model, search, or voice settings | [Model providers](configuration/models.md) · [Server settings](configuration/server.md) |
 | Update, back up, or fix my server | [Server commands](manage/server.md) · [Backups](manage/backups.md) · [Troubleshooting](manage/troubleshooting.md) |
 | Work on OpenTeam itself | [Development from source](development/from-source.md) · [Build a plugin](development/plugins.md) |
-
-The [operator and contributor references](reference/README.md) cover configuration details and how OpenTeam works internally. [Maintaining the docs](reference/documentation.md) explains how these pages are published.

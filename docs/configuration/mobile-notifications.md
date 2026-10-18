@@ -69,4 +69,4 @@ Neither command sends a test alert or proves that Apple accepts the key. To veri
 
 If alerts do not arrive, check that the phone is connected to the server you configured, retry registration by turning app notifications off and on, and inspect `openteam logs worker`. Check the signing team, app bundle ID, key environment, and whether Apple has revoked the key. After fixing a configuration error, trigger a new notification; an old failed delivery may have exhausted its retries.
 
-Desktop alerts and notifications generated locally on the phone do not require APNs credentials. See [settings and notifications](apps.md#notifications) for device and bot preferences, and the [notification reference](../reference/notifications.md) for delivery and read-state behavior.
+Desktop alerts and notifications generated locally on the phone do not require APNs credentials. See [settings and notifications](apps.md#notifications) for device and bot preferences.

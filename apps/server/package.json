@@ -8,8 +8,8 @@
     "build": "bun ../../packages/plugins/scripts/generate.ts && bun build src/main.ts --outdir dist --target bun --external pg-native",
     "dev": "bun ../../packages/plugins/scripts/generate.ts && bun --watch src/main.ts",
     "start": "bun dist/main.js",
-    "typecheck": "tsc -p tsconfig.json",
-    "test": "bun test --pass-with-no-tests"
+    "typecheck": "bun ../../packages/plugins/scripts/generate.ts && tsc -p tsconfig.json",
+    "test": "bun ../../packages/plugins/scripts/generate.ts && bun test --pass-with-no-tests"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",

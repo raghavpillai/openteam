@@ -33,7 +33,7 @@ The **Microphone access** row shows whether permission is allowed, blocked, or n
 
 ## Use your own transcription service
 
-Any service with an OpenAI-compatible transcription API works, as long as the OpenTeam server can reach it. To run one on an Apple silicon Mac, see the [self-hosted transcription guide](../reference/transcription-service.md#self-host-on-an-apple-silicon-mac).
+Any service with an OpenAI-compatible transcription API works, as long as the OpenTeam server can reach it.
 
 The bundled local MLX / Parakeet service is configured under **Custom / OpenAI-compatible**. Set its reachable base URL (for example, `http://audio-server:18080/v1`), model `mlx-community/parakeet-tdt-0.6b-v3`, and the key used to start the service. Selecting a custom provider does not start or install the local service.
 

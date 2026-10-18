@@ -20,8 +20,8 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",
-    "typecheck": "turbo run typecheck",
-    "test": "turbo run test",
+    "typecheck": "bun run prepare:plugins && turbo run typecheck",
+    "test": "bun run prepare:plugins && turbo run test",
     "check": "bun run typecheck && bun run test && bun run build && bun scripts/performance/check-desktop-budgets.ts",
     "check:architecture": "bun scripts/check/workspace-boundaries.ts && bun scripts/check/contract-enum-parity.ts && bun scripts/check/ios-bundle-boundary.ts && bun scripts/check/client-source-duplication.ts",
     "test:health:chaos": "bun scripts/test-health-chaos.ts",
@@ -40,7 +40,8 @@
     "desktop:tailscale": "bash scripts/tailscale-dev.sh",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "ios:performance": "bun --filter @openteam/ios performance"
+    "ios:performance": "bun --filter @openteam/ios performance",
+    "prepare:plugins": "bun packages/plugins/scripts/generate.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.7",

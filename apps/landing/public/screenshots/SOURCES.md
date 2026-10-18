@@ -13,7 +13,7 @@ Capture sources and reproducible sample HTML: `output/landing-screen-assets-0912
 
 ## Plugin captures
 
-The `plugins-*.png` files are lossless 3000 × 2100 captures of the shipping desktop `PluginDialog`, rendered at its logical 1000 × 700 size with the app's current styles on 2026-09-12. They were captured directly as PNG at 3× scale through Chrome's screenshot API using CUA, without raster upscaling or JPEG conversion. The local fixture is `apps/desktop/test/browser/plugin-reference.tsx`. Catalog names and descriptions come from the bundled plugin manifests; accounts, grants, and skill instructions are sample data. No real service was connected.
+The `plugins-*.png` files are lossless 3000 × 2100 captures of the shipping desktop `PluginDialog`, rendered at its logical 1000 × 700 size with the app's current styles on 2026-09-12. They were captured directly as PNG at 3× scale through Chrome's screenshot API using CUA, without raster upscaling or JPEG conversion. The captures used a local fixture with synthetic account data. Catalog names and descriptions come from the bundled plugin manifests; accounts, grants, and skill instructions are sample data. No real service was connected.
 
 The fixture supplies local brand SVGs through the renderer's existing `logoUrl` field. See `../logos/SOURCES.md` for asset provenance. Each SVG has an opaque tile background in the fixture so the renderer's monogram fallback does not show through transparent areas. The shipping components and CSS are unchanged.
 

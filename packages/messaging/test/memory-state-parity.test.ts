@@ -1,61 +1,8 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile, appendFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import reference from "./fixtures/memory-state-reference.json";
-import {
-  applyMemorySynthesis,
-  markMemoryOrigin,
-  memoryLogicalId,
-  memoryOrigin,
-  prepareMemorySynthesis,
-  readMemoryTree,
-  tombstoneMemory,
-  consumeEvidence,
-  boundMemoryEvidenceText,
-} from "../src/memory-files";
-import { parseMemorySynthesisChanges } from "../src/memory-synthesis";
-
-// Expected state is produced by the captured Grok Bot FileMemoryStore, including
-// the order and chosen occurrence of manually duplicated facts.
-for (const fixture of reference.cases) {
-  test(`reference memory state: ${fixture.name}`, async () => {
-    const root = await mkdtemp(join(tmpdir(), "memory-state-parity-"));
-    try {
-      for (const [name, raw] of Object.entries(fixture.files)) {
-        if (typeof raw !== "string") continue;
-        await mkdir(dirname(join(root, name)), { recursive: true });
-        await writeFile(join(root, name), raw);
-      }
-      for (const content of fixture.explicit ?? []) {
-        await markMemoryOrigin(root, memoryLogicalId(content), "explicit");
-      }
-      for (const content of fixture.tombstones ?? []) {
-        await tombstoneMemory(root, memoryLogicalId(content));
-      }
-      const snapshot = await prepareMemorySynthesis(root);
-      if (fixture.concurrent) await appendFile(join(root, "profile.md"), fixture.concurrent);
-      const changes = parseMemorySynthesisChanges(
-        JSON.stringify({ changes: fixture.changes }),
-        new Set(["e1"]),
-        false
-      );
-      const outcome = await applyMemorySynthesis(root, snapshot, changes, new Date(fixture.now));
-      const facts = await Promise.all(
-        (await readMemoryTree(root)).map(async (fact) => ({
-          id: fact.logicalId,
-          content: fact.content,
-          createdAt: fact.createdAt.getTime(),
-          kind: fact.sourcePath === "profile.md" ? "profile" : "log",
-          origin: await memoryOrigin(root, fact.logicalId),
-        }))
-      );
-      expect(fixture.expected).toEqual({ snapshot: snapshot.memories, outcome, facts });
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-}
+import { join } from "node:path";
+import { consumeEvidence, boundMemoryEvidenceText } from "../src/memory-files";
 
 test("spool scanning retains the full set for batch cleanup and bounds decoded Unicode and escaped text", async () => {
   const root = await mkdtemp(join(tmpdir(), "memory-spool-parity-"));

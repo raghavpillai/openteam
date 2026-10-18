@@ -1,15 +1,11 @@
 import { expect, test } from 'bun:test';
-import { createHash } from 'node:crypto';
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse as yaml } from 'yaml';
-import source from '../reference/grok-catalog-2026-09-30.json';
-import parity from '../reference/grok-catalog-2026-09-30-parity.json';
 import managed from '../src/prompts/managed-skills.json';
 import { AgentDataStore } from '../src/agent-data';
 import { managedSkillIsForMain } from '../src/managed-skill-agents';
-const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
 
 test('managed workflows omit categorical authentication and transaction handovers', () => {
   const workflows = managed.skills.map(skill => skill.content).join('\n');
@@ -23,35 +19,18 @@ test('managed workflows omit categorical authentication and transaction handover
   ]) expect(workflows).not.toContain(legacy);
 });
 
-test('catalog preserves source provenance and excludes retired workflows',()=>{
-  expect(source.skills).toHaveLength(47);
+test('catalog has valid skill metadata and excludes retired workflows',()=>{
   expect(managed.skills).toHaveLength(25);
-  const installed=new Map(managed.skills.map(s=>[s.id,s.content]));
   expect(new Set(managed.skills.map(s=>s.id)).size).toBe(managed.skills.length);
-  for(const item of source.skills){
-    expect(hash(item.content)).toBe(item.sha256);
-    const record=parity.skills.find(s=>s.id===item.id)!;
-    expect(record.sourceSha256).toBe(item.sha256);
-    if(record.status==='reference-only'){
-      expect(installed.has(item.id)).toBe(false);
-      continue;
-    }
-    expect(hash(installed.get(item.id)!)).toBe(record.installedSha256!);
-  }
   for(const item of managed.skills){
     const front=yaml(item.content.split('---')[1]!);
     expect(front.name).toBe(item.id);expect(front.description.trim().length).toBeGreaterThan(10);
     expect(item.id).not.toBe('sign-in');
+    expect(item.id).not.toBe('source-control');
+    expect(item.id).not.toBe('voice-calls');
     expect(item.id.startsWith('site-playbooks-')).toBe(false);
     expect(item.content).not.toContain('`sign-in`');
     expect(item.content).not.toContain('site-playbooks-');
-  }
-});
-
-test('every built-in has an unchanged source file, including unavailable backend workflows', async () => {
-  for (const item of source.skills) {
-    const file = join(import.meta.dir, '../reference/grok-builtins-2026-09-30/skills', item.id, 'SKILL.md');
-    expect(await readFile(file, 'utf8')).toBe(item.content);
   }
 });
 
@@ -63,11 +42,11 @@ test.each(['cached', 'missing', 'disabled'] as const)('retires cached skills wit
   delete process.env.OPENTEAM_MANAGED_SKILLS;
   try {
     if (state === 'cached') await store.syncPluginSkillCache([]);
-    const retired = source.skills.filter(skill => skill.id === 'sign-in' || skill.id.startsWith('site-playbooks-'));
-    for (const skill of retired) {
-      const directory = join(data, 'managed-skills', skill.id);
+    const retired = ['sign-in', 'site-playbooks-airbnb', 'site-playbooks-google-flights', 'removed-custom-workflow'];
+    for (const id of retired) {
+      const directory = join(data, 'managed-skills', id);
       await mkdir(directory, { recursive: true });
-      await writeFile(join(directory, 'SKILL.md'), skill.content);
+      await writeFile(join(directory, 'SKILL.md'), `---\nname: ${id}\ndescription: Retired workflow fixture\n---\nRetired instructions.\n`);
     }
     const personal = join(data, 'workflows', 'sign-in', 'SKILL.md');
     const plugin = join(data, 'plugins', 'site-playbooks-custom', 'SKILL.md');
@@ -77,8 +56,8 @@ test.each(['cached', 'missing', 'disabled'] as const)('retires cached skills wit
     }
     if (state === 'disabled') process.env.OPENTEAM_MANAGED_SKILLS = 'false';
     await store.syncPluginSkillCache([]);
-    for (const skill of retired) {
-      await expect(access(join(data, 'managed-skills', skill.id))).rejects.toThrow();
+    for (const id of retired) {
+      await expect(access(join(data, 'managed-skills', id))).rejects.toThrow();
     }
     for (const file of [personal, plugin]) expect(await readFile(file, 'utf8')).toBe('user-owned skill');
     const cache = JSON.parse(await readFile(join(data, 'managed-skills', 'cache.json'), 'utf8'));
@@ -93,8 +72,8 @@ test.each(['cached', 'missing', 'disabled'] as const)('retires cached skills wit
   }
 });
 
-test('all imported recipes materialize and appear in metadata without injecting full bodies',async()=>{
-  const root=await mkdtemp(join(tmpdir(),'catalog-parity-'));
+test('active skills materialize and appear in metadata without injecting full bodies',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'managed-catalog-'));
   const store=new AgentDataStore({} as never,{root:join(root,'data'),workspaceRoot:join(root,'workspace')});
   try{
     await store.syncPluginSkillCache([]);

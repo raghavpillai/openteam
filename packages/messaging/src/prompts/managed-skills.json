@@ -1,6 +1,6 @@
 {
   "version": "managed-2026-10-11-openteam-8",
-  "provenance": "47 managed built-in skill originals preserved verbatim in reference/grok-builtins-2026-09-30; 22 active with documented OpenTeam tool/backend adaptations. Sign-in and 22 site playbooks removed from the active catalog at user request; two backend-dependent references remain inactive. No marketplace or user-authored skills imported. Existing account managed catalog; not pristine-account proof. The slides, slides-executor and office-pptx skills come from a 2026-10-11 snapshot (originals in reference/builtins-2026-10-11); slides-executor and office-pptx are for the knowledgeWork worker only, and build new decks with PptxGenJS instead of from a template library.",
+  "provenance": "Adapted from 47 managed built-in skills in a Grok Bot account catalog exported on 2026-09-30, with OpenTeam tool and backend changes. No marketplace or user-authored skills imported. Sign-in, site playbooks, source-control, and voice-calls are excluded from the active catalog. The slides, slides-executor, and office-pptx skills come from a 2026-10-11 snapshot; slides-executor and office-pptx are for the knowledgeWork worker only and build new decks with PptxGenJS.",
   "skills": [
     {
       "id": "accommodation-booking",

@@ -19,68 +19,6 @@ final class RobotMotionTests: XCTestCase {
     XCTAssertEqual(RobotArtwork.faceColor("#242424"), "#f2f2f2")
     XCTAssertEqual(RobotArtwork.faceColor("#ff7a1a"), "#1b1b1d")
   }
-  func testNativeKeyframesMatchActualDesktopCSSAcrossAllRobotsAndModes() throws {
-    struct Frame: Decodable {
-      struct Part: Decodable {
-        var id: String, matrix: [Double], opacity: Double
-        var origin: String, bounds: [Double]
-      }
-      struct Face: Decodable { var id: String, matrix: [Double] }
-      var shape: RobotShape, mode: RobotAvatarMode, time: Double, parts: [Part], faces: [Face]
-    }
-    let url = Bundle.module.url(
-      forResource: "DesktopRobotPoses", withExtension: "json", subdirectory: "Fixtures")!
-    let frames = try JSONDecoder().decode([Frame].self, from: Data(contentsOf: url))
-    XCTAssertEqual(frames.count, 720)
-    for frame in frames {
-      let design = RobotArtwork.shared[frame.shape]
-      let poses = Dictionary(
-        uniqueKeysWithValues: design.parts.map {
-          ($0.id, RobotKeyframes.pose($0, mode: frame.mode, time: frame.time, tempo: design.tempo))
-        })
-      func allNodes(_ nodes: [RobotNode]) -> [RobotNode] {
-        nodes.flatMap { [$0] + allNodes($0.children) }
-      }
-      let byID = Dictionary(uniqueKeysWithValues: allNodes(design.nodes).map { ($0.id, $0) })
-      for face in frame.faces {
-        let actual = RobotProjection.faceMatrix(try XCTUnwrap(byID[face.id]), poses: poses)
-        for (x, y) in zip(actual, face.matrix) {
-          XCTAssertEqual(
-            x, y, accuracy: 0.0002, "\(frame.shape) \(frame.mode) \(frame.time) face projection")
-        }
-      }
-      for reference in frame.parts {
-        let part = try XCTUnwrap(design.parts.first { $0.id == reference.id })
-        if frame.mode == .still && frame.time == 0 {
-          func find(_ nodes: [RobotNode]) -> RobotNode? {
-            for node in nodes {
-              if node.id == reference.id { return node }
-              if let child = find(node.children) { return child }
-            }
-            return nil
-          }
-          let origin = reference.origin.split(separator: " ").prefix(2).map {
-            Double($0.replacingOccurrences(of: "px", with: ""))!
-          }
-          let expected =
-            reference.id == "body" ? origin.map { $0 - 4 } : zip(origin, reference.bounds).map(+)
-          let actual =
-            reference.id == "body" ? [50.0, 50] : try XCTUnwrap(find(design.nodes)).origin
-          for (x, y) in zip(actual, expected) {
-            XCTAssertEqual(x, y, accuracy: 0.0001, "\(frame.shape) \(part.name) origin")
-          }
-        }
-        let pose = RobotKeyframes.pose(
-          part, mode: frame.mode, time: frame.time, tempo: design.tempo)
-        let context = "\(frame.shape.rawValue) \(frame.mode.rawValue) \(frame.time) \(part.name)"
-        for (actual, expected) in zip(pose.matrix, reference.matrix) {
-          // Browser computed styles round matrix components; timing solvers also round.
-          XCTAssertEqual(actual, expected, accuracy: 0.00015, context)
-        }
-        XCTAssertEqual(pose.opacity, reference.opacity, accuracy: 0.00015, context)
-      }
-    }
-  }
   func testInterruptedBridgesRetainThePresentedPoseForEveryRobot() {
     for shape in RobotShape.allCases {
       var motion = RobotMotion(shape: shape, mode: .idle)

@@ -19,3 +19,4 @@ apps/desktop/release-local/
 /launch/
 apps/landing/.generated/
 /.agents/skills/openteam-macos-release/
+packages/plugins/_generated/

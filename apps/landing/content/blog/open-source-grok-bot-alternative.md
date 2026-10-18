@@ -12,7 +12,7 @@ related: grok-bot-vs-meta-muse-vs-openai-dots, introducing-openteam, best-self-h
 
 **OpenTeam is an open-source Grok Bot alternative: a self-hosted AI agent team where each bot gets its own Linux computer and browser on hardware you control. It's GPL-3.0, uses your OpenAI, Anthropic or OpenRouter key or a local model, and needs no xAI, Cursor or SuperGrok account. Grok Bot is easier; stay with it for zero setup or Android.**
 
-We build OpenTeam, so weigh our view accordingly. The Grok Bot facts below come from xAI's docs and Cursor's help and pricing pages as of October 10, 2026, and we haven't benchmarked the two. OpenTeam's agent tools, platform prompt and built-in skills are built for [compatibility with Grok Bot's](https://github.com/raghavpillai/openteam/blob/main/docs/reference/platform-system-prompt.md), so much of it will look familiar on purpose.
+We build OpenTeam, so weigh our view accordingly. The Grok Bot facts below come from xAI's docs and Cursor's help and pricing pages as of October 10, 2026, and we haven't benchmarked the two. OpenTeam's agent tools, platform prompt and built-in skills are built for compatibility with Grok Bot's, so much of it will look familiar on purpose.
 
 > **Updated October 13, 2026:** Cursor replaced its plans on October 13. Grok Bot now comes with Cursor Premium ($30 a month) and higher plans, or Teams; the new $8 Plus plan doesn't include it ([Cursor](https://cursor.com/pricing)). The Grok Bot prices below reflect the change.
 
@@ -63,7 +63,7 @@ OpenTeam's first public release, v0.0.0, shipped on October 6, and v0.0.1 follow
 
 ### Built for compatibility with Grok Bot
 
-OpenTeam's agent gets the same tool names Grok Bot's bots use on their computer and a platform prompt built to match Grok Bot's. Its built-in skills, for jobs like bookings, shopping, routines and group-chat turns, are adapted to OpenTeam's own tools. The reference was Grok Bot 0.47.0's observable behavior, captured on September 12, 2026 ([compatibility notes](https://github.com/raghavpillai/openteam/blob/main/docs/reference/platform-system-prompt.md)).
+OpenTeam's agent gets the same tool names Grok Bot's bots use on their computer and a platform prompt built to match Grok Bot's. Its built-in skills, for jobs like bookings, shopping, routines and group-chat turns, are adapted to OpenTeam's own tools. The reference was Grok Bot 0.47.0's observable behavior, captured on September 12, 2026.
 
 It's a compatibility layer, not a copy of xAI's service. OpenTeam doesn't claim xAI's server-side instructions or identical output, and it leaves out image generation, Cursor cloud agents, voice calls and Grok billing. Because you pick the model, results can differ. Here are the two apps; the first screenshot is from xAI's [Grok Bot guide for mobile app development](https://x.ai/bot/guides/grok-bot-for-mobile-app-development).
 

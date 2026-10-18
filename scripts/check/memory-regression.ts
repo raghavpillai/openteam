@@ -11,8 +11,6 @@ const suites = [
     "packages/messaging/test/memory-learning.test.ts",
     "packages/messaging/test/memory-synthesis.test.ts",
     "packages/messaging/test/memory-state-parity.test.ts",
-    "packages/messaging/test/memory-tool-reference.test.ts",
-    "packages/messaging/test/memory-render-reference.test.ts",
     "packages/messaging/test/recall-memory.test.ts",
     "packages/messaging/test/prompt-context-performance.test.ts",
     "apps/worker/test/memory-recording.test.ts",

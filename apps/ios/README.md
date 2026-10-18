@@ -52,13 +52,12 @@ Run the core, client-contract and default native UI checks against a booted simu
 bash apps/ios/scripts/verify.sh <simulator-udid>
 ```
 
-The script starts fixtures on ports 19997, 19992, 20070, 20122 and 20121.
-The `VideoComputerParity` scheme requires a separate disposable live desktop backend.
-`MigrationAcceptance` covers routines, edge gestures, attachments and the local
+The script starts fixtures on ports 19997, 19992 and 20070.
+`MigrationAcceptance` covers routines, edge gestures and the local
 HTTP/HTTPS installation (fixtures 20032, 20043 and 20039). `MotionPerformance`
 covers composer motion and history performance (fixtures 20070 and 19996); run
 it after other simulator suites finish. Optional Xcode schemes cover
-message motion/performance, widgets, settings, VNC, and reference captures. See
+message motion/performance, widgets, settings, and VNC. See
 `Tests/UITests` and `OpenTeamNative.xcodeproj/xcshareddata/xcschemes` for the current
 checks; optional live-server tests require their own isolated backend. For an
 isolated `FunctionalFlowUITests` rerun, set
@@ -94,9 +93,7 @@ renderer, and `POST /__qa/update-message` edits an existing row in place.
 For real transcription, the `RealServer` scheme's
 `RealServerUITests/testLiveVoiceTranscriptionAndDraftPreservation` uses
 `scripts/real-server-qa.ts`. The retired React Native `--ios-app` transcription
-harness is no longer supported. The optional `OpenTeamReference` scheme can still
-capture a separately installed historical reference binary; building that binary
-requires a pre-migration Git revision.
+harness is no longer supported.
 
 ```sh
 bun run ios:performance

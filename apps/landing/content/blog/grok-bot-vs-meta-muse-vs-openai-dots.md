@@ -97,7 +97,7 @@ OpenAI launched dots on September 29, 2026: "always-on agents" in ChatGPT, power
 
 ## The open-source Grok Bot alternative
 
-OpenTeam is an open-source, self-hosted alternative to all three, and closest to Grok Bot: bots with their own computers, group chats, bot-to-bot messages and routines, with agent tools and built-in skills built for [compatibility with Grok Bot's](https://github.com/raghavpillai/openteam/blob/main/docs/reference/platform-system-prompt.md). The difference is that it runs on hardware you control. It's a young project: we [introduced OpenTeam](/blog/introducing-openteam) on October 6, and its community is small. Here's what changes:
+OpenTeam is an open-source, self-hosted alternative to all three, and closest to Grok Bot: bots with their own computers, group chats, bot-to-bot messages and routines, with agent tools and built-in skills built for compatibility with Grok Bot's. The difference is that it runs on hardware you control. It's a young project: we [introduced OpenTeam](/blog/introducing-openteam) on October 6, and its community is small. Here's what changes:
 
 - **Where it runs.** The server runs in Docker on a Mac, Windows or Linux machine: your computer, a home server or a cloud VM. Each bot gets its own persistent Linux desktop with Chromium and a terminal, which you can watch live and take over.
 - **Which model.** One model serves every bot on a server, from an OpenAI, Anthropic or OpenRouter key or any OpenAI-compatible endpoint, including Ollama, LM Studio and vLLM ([models](/docs/configuration/models)).

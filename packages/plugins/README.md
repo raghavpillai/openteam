@@ -2,7 +2,7 @@
 
 See [Using and developing plugins](../../docs/usage/plugins.md) for account setup, provider requirements, package examples, and contribution guidance.
 
-Every plugin belongs in `packages/plugins/<plugin-name>/`. The same structure applies to every author. Most contributions change one directory. `scripts/generate.ts` discovers the directories, runs the shared validator, and builds `_generated/registry.json` automatically during the server build. Do not edit the generated registry or add provider imports to the server.
+Every plugin belongs in `packages/plugins/<plugin-name>/`. The same structure applies to every author. Most contributions change one directory. `scripts/generate.ts` discovers the directories, runs the shared validator, and builds `_generated/registry.json` automatically during the server build. The generated registry is ignored by Git. Run `bun run prepare:plugins` from the repository root before invoking individual test files directly; normal build, dev, typecheck, and test scripts generate it automatically. Do not edit the registry or add provider imports to the server.
 
 ## Create and test through the app
 

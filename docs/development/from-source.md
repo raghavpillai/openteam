@@ -18,6 +18,7 @@ git clone https://github.com/raghavpillai/openteam.git
 cd openteam
 bun install --frozen-lockfile
 bun run db:generate
+bun run prepare:plugins
 cp .env.example .env
 ```
 
@@ -60,4 +61,4 @@ bun run build
 
 `bun run check:architecture` checks package boundaries and other repository rules.
 
-The [contributor reference](../reference/development.md) covers the repository layout, database tests, desktop packaging, and releases.
+See the [release guide](../../.github/RELEASING.md) for packaging and releases, and [performance checks](../../scripts/performance/README.md) for client validation.

@@ -37,7 +37,3 @@ Write clear tool descriptions and input schemas, since bots rely on them to pick
 Choose **Export ZIP** to package the plugin. Exports never include connected accounts, credentials, so keep secrets in account setup rather than in plugin files.
 
 To release an update, publish the new package with the same key, and raise the version so people can tell releases apart. When the changed package reaches someone's server, for example through a plugin source, they review the changes and choose **Apply reviewed update**. Plugins in this repository ship with OpenTeam instead: when a server updates, each installed one moves to the newer version automatically and its connected accounts reconnect. Raise the version, or the change won't be applied. Granola and Notion, which fetch their files when installed, and any plugin replaced by an uploaded package, still need a reviewed update.
-
-## Reference
-
-The [plugin authoring reference](../reference/plugin-development.md) covers the directory layout, manifest format, OAuth settings, packaged executables, and how to contribute a plugin to this repository.

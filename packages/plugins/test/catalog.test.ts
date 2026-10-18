@@ -35,11 +35,18 @@ test("contributions discover without imports and folder names do not change pack
     const definition = createPluginTemplate("hybrid", "stable-identity");
     await writeFile(join(root, "a-folder/plugin.json"), JSON.stringify(definition));
     await writeFile(join(root, "a-folder/README.md"), "Contributor documentation");
+    await mkdir(join(root, "a-folder/connector/test/fixtures"), { recursive: true });
+    await writeFile(join(root, "a-folder/connector/test/fixtures/sample.json"), "{}");
+    await writeFile(join(root, "a-folder/connector/server.test.ts"), "test-only source");
+    await writeFile(join(root, "a-folder/connector/test_server.py"), "test-only source");
     const catalog = await discoverPackages(root);
     expect(catalog).toHaveLength(1);
     expect(catalog[0]?.key).toBe("stable-identity");
     expect(catalog[0]?.files?.["README.md"]).toBe("Contributor documentation");
     expect(catalog[0]?.files?.["connector/server.mjs"]).toContain("tools/call");
+    expect(catalog[0]?.files?.["connector/test/fixtures/sample.json"]).toBeUndefined();
+    expect(catalog[0]?.files?.["connector/server.test.ts"]).toBeUndefined();
+    expect(catalog[0]?.files?.["connector/test_server.py"]).toBeUndefined();
   } finally {
     await rm(root, { recursive: true, force: true });
   }

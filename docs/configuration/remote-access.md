@@ -68,8 +68,6 @@ If something else on the host already uses ports 80 or 443, stop it first or use
 
 Choose **Use my existing HTTPS setup** and enter your public hostname. Point your proxy at the local address setup shows, usually `http://127.0.0.1:8787`, and forward both HTTP and WebSocket traffic. Set up the proxy before you confirm, because setup checks the `https://` address at the end.
 
-If your proxy runs on a different machine, see the [server configuration reference](../reference/server-configuration.md) for the extra settings it needs.
-
 ## Keep it secure
 
 - Use HTTPS for any address that's reachable from the internet.

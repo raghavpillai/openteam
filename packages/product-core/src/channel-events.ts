@@ -1,5 +1,6 @@
 import type { ChannelMessageView } from "@openteam/contracts";
-import { messageMetadata } from "./messages";
+import { attachmentsPreviewText, messagePreviewText } from "@openteam/contracts/message-preview";
+import { messageDisplayProjection, messageMetadata } from "./messages";
 
 export interface ChannelNameChangedEvent {
   type: "name-changed";
@@ -55,11 +56,18 @@ export const routineChangedEventFor = (message: ChannelMessageView): RoutineChan
 export const routineChangedActionLabel = (action: RoutineChangedAction): string =>
   `${action[0]?.toUpperCase() ?? ""}${action.slice(1)} routine`;
 
+/** One line of plain text describing a message, for chat lists. */
 export const channelMessageSummary = (message: ChannelMessageView): string => {
   const nameChange = channelNameChangedEventFor(message);
   if (nameChange) return `Renamed to ${nameChange.to}`;
   const routineChange = routineChangedEventFor(message);
-  return routineChange
-    ? `${routineChangedActionLabel(routineChange.action)} ${routineChange.automationName}`
-    : message.content;
+  if (routineChange) {
+    return `${routineChangedActionLabel(routineChange.action)} ${routineChange.automationName}`;
+  }
+  const { attachments, displayContent, richMessage, stagedAttachments } =
+    messageDisplayProjection(message);
+  const files = [...attachments, ...stagedAttachments];
+  return files.length > 0 && !richMessage && !displayContent.trim()
+    ? attachmentsPreviewText(files)
+    : messagePreviewText(message.content);
 };

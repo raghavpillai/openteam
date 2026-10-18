@@ -521,6 +521,14 @@ const sidebarSensors = [
   KeyboardSensor.configure({ keyboardCodes: { ...KeyboardSensor.defaults.keyboardCodes, start: ["Space"] } }),
 ];
 
+function latestMessagePreview(row: ChannelRowData, botById: ReadonlyMap<string, BotView>) {
+  const { channel, latest } = row;
+  if (!latest) return "";
+  const summary = channelMessageSummary(latest);
+  const author = latest.senderBotId ? botById.get(latest.senderBotId)?.name : null;
+  return summary && author && channel.kind !== "bot_dm" ? `${author}: ${summary}` : summary;
+}
+
 function ChannelPreviewTooltipContent({
   row,
   botById,
@@ -528,7 +536,7 @@ function ChannelPreviewTooltipContent({
   row: ChannelRowData;
   botById: ReadonlyMap<string, BotView>;
 }) {
-  const { channel, latest } = row;
+  const { channel } = row;
   const working = sidebarRowIsWorking(row);
   const bot = channel.kind === "bot_dm" ? botById.get(channel.members[0]?.botId ?? "") : undefined;
   const description = working
@@ -537,7 +545,7 @@ function ChannelPreviewTooltipContent({
       ? "Starting up…"
       : bot?.status === "failed"
         ? "Setup needs attention"
-        : (latest ? channelMessageSummary(latest) : "") ||
+        : latestMessagePreview(row, botById) ||
           (channel.kind === "agent_dm" ? "Private bot exchange" : "No messages yet");
 
   return (
@@ -878,17 +886,14 @@ const ChannelRow = memo(function ChannelRow({
   onMoveToSection: (channelId: string, sectionId: string | null) => void;
   dragHandleRef?: (element: HTMLButtonElement | null) => void;
 }) {
-  const { channel, latest, running } = row;
+  const { channel, running } = row;
   const needsAttention = false;
   const working = sidebarRowIsWorking(row);
-  const author = latest?.senderBotId ? botById.get(latest.senderBotId)?.name : null;
   const bot = channel.kind === "bot_dm" ? botById.get(channel.members[0]?.botId ?? "") : undefined;
   const onboardingInProgress = Boolean(
     bot && ["pending", "queued", "running"].includes(bot.onboardingStatus)
   );
-  const latestPreview = latest
-    ? `${author && channel.kind !== "bot_dm" ? `${author}: ` : ""}${channelMessageSummary(latest)}`
-    : "";
+  const latestPreview = latestMessagePreview(row, botById);
   const preview = onboardingInProgress
     ? latestPreview
     : needsAttention

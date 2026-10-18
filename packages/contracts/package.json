@@ -13,6 +13,7 @@
     "./desktop-capabilities": "./src/desktop-capabilities.ts",
     "./connector-transfers": "./src/connector-transfers.ts",
     "./media-input": "./src/media-input.ts",
+    "./message-preview": "./src/message-preview.ts",
     "./read-output": "./src/read-output.ts",
     "./client-preferences": "./src/client-preferences.ts",
     "./event-protocol": "./src/event-protocol.ts",

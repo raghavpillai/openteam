@@ -201,6 +201,77 @@ describe("shared desktop and iOS product policy", () => {
     });
   });
 
+  test("summarizes the latest message as one line of plain text", () => {
+    const image = {
+      assetId: "a".repeat(64),
+      fileName: "chart.png",
+      mimeType: "image/png",
+      byteSize: 42,
+      kind: "image" as const,
+    };
+    const pdf = {
+      ...image,
+      assetId: "b".repeat(64),
+      fileName: "q3.pdf",
+      mimeType: "application/pdf",
+      kind: "pdf" as const,
+    };
+    expect(
+      channelMessageSummary({
+        ...message({ type: "text" }),
+        content:
+          "Done. The [CRM](https://docs.google.com/spreadsheets/d/1abc/edit) is **updated**.\n\n- Next step",
+      })
+    ).toBe("Done. The CRM is updated.");
+    expect(
+      channelMessageSummary({
+        ...message({ type: "attachment", attachment: image }),
+        content: "chart.png",
+      })
+    ).toBe("Sent 1 image");
+    expect(
+      channelMessageSummary({
+        ...message({
+          type: "text",
+          attachments: [image, pdf, { ...image, assetId: "c".repeat(64) }],
+        }),
+        sender: "user",
+        senderBotId: null,
+        content: " ",
+      })
+    ).toBe("Sent 3 files · 2 images, 1 PDF");
+    expect(
+      channelMessageSummary({
+        ...message({ type: "text", attachments: [image] }),
+        content: "Here is the **chart** you asked for.",
+      })
+    ).toBe("Here is the chart you asked for.");
+    expect(
+      channelMessageSummary({
+        ...message({
+          clientStagedAttachments: [
+            {
+              stagingId: "s1",
+              fileName: "notes.txt",
+              mimeType: "text/plain",
+              byteSize: 3,
+              kind: "text",
+            },
+          ],
+        }),
+        sender: "user",
+        senderBotId: null,
+        content: "",
+      })
+    ).toBe("Sent 1 text file");
+    expect(
+      channelMessageSummary({
+        ...message({ type: "widget", widget: { type: "choice", prompt: "Which **color**?" } }),
+        content: "Which **color**?",
+      })
+    ).toBe("Which color?");
+  });
+
   test("shares channel-event, status, and mention policy", () => {
     expect(
       channelMessageSummary(

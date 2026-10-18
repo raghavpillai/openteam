@@ -67,3 +67,30 @@ export const bootstrapSnapshot = (
     detachedMessageIds,
   };
 };
+
+/**
+ * Whether a chat that is not open needs its newest page read in the background:
+ * its loaded transcript withholds bootstrap's newest message ("refresh"), or it
+ * was never loaded and has unread messages ("load").
+ */
+export const backgroundHistoryNeed = ({
+  bootstrap,
+  channelId,
+  activeChannelId,
+  history,
+  detachedMessageIds,
+}: {
+  bootstrap: ClientBootstrapView;
+  channelId: string;
+  activeChannelId: string | undefined;
+  history: LoadedChannelHistory | undefined;
+  detachedMessageIds: ReadonlySet<string>;
+}): "refresh" | "load" | null => {
+  if (channelId === activeChannelId) return null;
+  const channel = bootstrap.channels.find((candidate) => candidate.id === channelId);
+  const latest = bootstrap.latestMessages.find((message) => message.channelId === channelId);
+  if (!channel || channel.hiddenFromSidebar || !latest) return null;
+  if (!history) return (channel.unreadCount ?? 0) > 0 ? "load" : null;
+  if (history.loading || history.loadedAt === 0) return null;
+  return detachedMessageIds.has(latest.id) ? "refresh" : null;
+};

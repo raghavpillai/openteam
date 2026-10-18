@@ -29,26 +29,26 @@ export function useInitialConversationLayout(
     let frame = 0;
     let previous = "";
     let stableFrames = 0;
-    const sample = () => {
+    const visibleIn = (bounds: DOMRect) => (element: Element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.bottom >= bounds.top && rect.top <= bounds.bottom;
+    };
+    // Mounted overscan rows also affect offsets, even if just above the screen.
+    // Diagrams outside the viewport intentionally defer rendering until visible.
+    const contentPendingNow = () =>
+      !!content.querySelector("[data-chat-layout-pending]") ||
+      [...content.querySelectorAll('[data-streamdown="mermaid-block"]')].some(
+        (element) =>
+          visibleIn(viewport.getBoundingClientRect())(element) &&
+          !element.querySelector('[data-streamdown="mermaid"], [data-chat-diagram-error]')
+      ) ||
+      document.fonts.status === "loading";
+    const geometry = () => {
       const bounds = viewport.getBoundingClientRect();
-      const visible = (element: Element) => {
-        const rect = element.getBoundingClientRect();
-        return rect.bottom >= bounds.top && rect.top <= bounds.bottom;
-      };
-      // Mounted overscan rows also affect offsets, even if just above the screen.
-      // Diagrams outside the viewport intentionally defer rendering until visible.
-      const pending =
-        !!content.querySelector("[data-chat-layout-pending]") ||
-        [...content.querySelectorAll('[data-streamdown="mermaid-block"]')].some(
-          (element) =>
-            visible(element) &&
-            !element.querySelector('[data-streamdown="mermaid"], [data-chat-diagram-error]')
-        ) ||
-        document.fonts.status === "loading";
       const rows = [
         ...content.querySelectorAll("[data-virtual-timeline-index], [data-virtual-thread-index]"),
-      ].filter(visible);
-      const geometry = JSON.stringify([
+      ].filter(visibleIn(bounds));
+      return JSON.stringify([
         viewport.scrollTop,
         viewport.scrollHeight,
         bounds.width,
@@ -58,11 +58,21 @@ export function useInitialConversationLayout(
           return [row.getAttribute("data-virtual-timeline-key"), rect.top, rect.height];
         }),
       ]);
-      stableFrames = !pending && geometry === previous ? stableFrames + 1 : 0;
-      previous = geometry;
+    };
+    // Rows measured on an earlier visit mount at their cached sizes and scroll
+    // position within this commit, so they can show in the first paint.
+    if (requiredStableFrames === 0 && !contentPendingNow()) {
+      setCompletedKey(layoutKey);
+      return;
+    }
+    const sample = () => {
+      const pending = contentPendingNow();
+      const current = geometry();
+      stableFrames = !pending && current === previous ? stableFrames + 1 : 0;
+      previous = current;
       // Elapsed time is not evidence that a renderer has finished. Keep the
       // opening indicator until even slow content has acquired its real size.
-      if (stableFrames >= requiredStableFrames) {
+      if (stableFrames >= Math.max(1, requiredStableFrames)) {
         setCompletedKey(layoutKey);
       } else {
         frame = requestAnimationFrame(sample);

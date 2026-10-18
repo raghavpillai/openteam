@@ -174,13 +174,15 @@ export const ConversationContent = ({
 }: ComponentProps<typeof StickToBottom.Content> & {
   overlayScrollbars?: boolean;
   initialContentPending?: boolean;
-  /** Rows were already measured here, so one settled frame proves the layout. */
+  /** Rows were already measured here, so the first paint can show them. */
   warmLayout?: boolean;
 }) => {
   const [viewportReady, setViewportReady] = useState(false);
   const context = useStickToBottomContext();
-  // Decided when the transcript mounts; later rows never change the gate.
-  const [requiredStableFrames] = useState(warmLayout ? 1 : 3);
+  // Decided when the transcript mounts; later rows never change the gate. Rows
+  // present at mount lay out synchronously; a page that arrives later is
+  // measured across frames.
+  const [requiredStableFrames] = useState(warmLayout ? 0 : initialContentPending ? 3 : 1);
   const layoutReady = useInitialConversationLayout(
     context.contentRef,
     context.scrollRef,

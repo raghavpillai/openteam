@@ -35,7 +35,10 @@ import {
 } from "../lib/message-history-window";
 import { recordPerformance } from "../lib/performance";
 import { createSnapshotCaches, reconcileClientSnapshot } from "../lib/snapshot-reconcile";
-import { bootstrapSnapshot } from "../lib/bootstrap-snapshot";
+import {
+  backgroundHistoryNeed as backgroundHistoryNeedFor,
+  bootstrapSnapshot,
+} from "../lib/bootstrap-snapshot";
 
 export type OpenTeamMutation = <T>(operation: () => Promise<T>) => Promise<T>;
 
@@ -57,6 +60,11 @@ export interface ChannelHistoryStatus {
 // Revisiting one of these chats reuses its loaded transcript instead of showing
 // a loading state. Each history window is capped by MESSAGE_HISTORY_MAX_RETAINED_BYTES.
 const MAX_WARM_HISTORIES = 8;
+// Background reads of a chat that is not open only need to reach the messages
+// it already holds; a longer gap replaces the page as an opened chat would.
+const BACKGROUND_REFRESH_PAGE_SIZE = 25;
+// Unread chats the user has not opened yet, newest reply first, kept ready to open.
+const MAX_BACKGROUND_LOADS = 3;
 const EMPTY_MESSAGE_IDS: ReadonlySet<string> = new Set();
 // The live stream keeps a focused window current. A focus refresh only catches
 // up after a long quiet period, e.g. waking from sleep with a silent stream.
@@ -95,7 +103,7 @@ export function useOpenTeam() {
   const histories = useRef(new Map<string, LoadedChannelHistory>());
   const historyWindows = useRef(new Map<string, ChannelMessageWindowState>());
   const channelStates = useRef(new Map<string, ChannelClientState>());
-  const channelLoads = useRef(new Map<string, Promise<void>>());
+  const channelLoads = useRef(new Map<string, { task: Promise<void>; background: boolean }>());
   const historyRequests = useRef(createKeyedRequestCoordinator());
   const historyLoadStartedAt = useRef(new Map<string, number>());
   const contextNewerLoadStartedAt = useRef(new Map<string, number>());
@@ -103,6 +111,8 @@ export function useOpenTeam() {
   const historyViewports = useRef(new Map<string, MessageViewportRetention>());
   const searchContextRequests = useRef(createKeyedRequestCoordinator());
   const historyLru = useRef<string[]>([]);
+  // Cached chats that were only read in the background and never opened.
+  const backgroundLoaded = useRef(new Set<string>());
   const threadContextIdsCache = useRef(new Map<string, ReadonlySet<string>>());
   const searchContextIdsCache = useRef(new Map<string, ReadonlySet<string>>());
   const caches = useRef(createSnapshotCaches());
@@ -163,6 +173,7 @@ export function useOpenTeam() {
   );
 
   const invalidateHistory = useCallback((channelId: string) => {
+    backgroundLoaded.current.delete(channelId);
     historyRequests.current.invalidate(channelId);
     searchContextRequests.current.invalidate(channelId);
     histories.current.delete(channelId);
@@ -180,6 +191,7 @@ export function useOpenTeam() {
 
   const touchHistory = useCallback(
     (channelId: string) => {
+      backgroundLoaded.current.delete(channelId);
       historyLru.current = [
         channelId,
         ...historyLru.current.filter((candidate) => candidate !== channelId),
@@ -214,11 +226,20 @@ export function useOpenTeam() {
   }, []);
 
   const fetchChannel = useCallback(
-    async (channelId: string, replaceHistory: boolean, quiet: boolean) => {
-      const existingLoad = channelLoads.current.get(channelId);
-      if (existingLoad) return existingLoad;
+    async (channelId: string, replaceHistory: boolean, quiet: boolean, background = false) => {
+      let existingLoad = channelLoads.current.get(channelId);
+      if (existingLoad?.background && !background) {
+        // An opened chat also needs its run state. Let the background page land first.
+        await existingLoad.task.catch(() => undefined);
+        existingLoad = channelLoads.current.get(channelId);
+      }
+      if (existingLoad) return existingLoad.task;
       const requestLease = historyRequests.current.supersede(channelId);
       const existing = histories.current.get(channelId);
+      const pageSize =
+        background && existing && existing.loadedAt > 0
+          ? BACKGROUND_REFRESH_PAGE_SIZE
+          : MESSAGE_HISTORY_PAGE_SIZE;
       histories.current.set(channelId, loadingChannelHistory(existing));
       setHistoryRevision((value) => value + 1);
       let task!: Promise<void>;
@@ -276,23 +297,27 @@ export function useOpenTeam() {
           // now-known cursor instead of letting its older state win the merge.
           for (let attempt = 0; attempt < 2; attempt += 1) {
             const requestBootstrapEpoch = bootstrapEpoch.current;
-            const stateRequest = api.channelState(channelId);
+            // Run state is only shown in an open chat, and can be far larger.
+            const stateRequest = background ? null : api.channelState(channelId);
             // The history read may fail first; still observe this rejection.
-            stateRequest.catch(() => undefined);
-            const page = await api.channelHistory(channelId, {
-              limit: MESSAGE_HISTORY_PAGE_SIZE,
-            });
+            stateRequest?.catch(() => undefined);
+            const page = await api.channelHistory(channelId, { limit: pageSize });
             if (!stillRequested()) return;
             const pageIsCurrent = observedBootstrap(page.revision, requestBootstrapEpoch);
             // Show messages as soon as they arrive. Channel state only carries
             // run activity, and can be far larger, so it never delays them.
             if (pageIsCurrent || attempt === 1) applyLatestPage(page);
+            if (!stateRequest) {
+              if (pageIsCurrent) break;
+              continue;
+            }
             state = await stateRequest;
             if (!stillRequested()) return;
             stateIsCurrent =
               pageIsCurrent && observedBootstrap(state.revision, requestBootstrapEpoch);
             if (stateIsCurrent || attempt === 1) break;
           }
+          if (background) return;
           if (stateIsCurrent) channelStates.current.set(channelId, state);
           else channelStates.current.delete(channelId);
           bumpHistoryRevision(quiet);
@@ -305,20 +330,99 @@ export function useOpenTeam() {
             const current = histories.current.get(channelId);
             if (current) histories.current.set(channelId, { ...current, loading: false });
             setHistoryRevision((value) => value + 1);
+            // The next event or opening the chat reads it again.
+            if (background) return;
             setError(clientErrorMessage(cause, "Could not load this conversation"));
             throw cause;
           }
         }
       })().finally(() => {
-        if (channelLoads.current.get(channelId) === task) {
+        if (channelLoads.current.get(channelId)?.task === task) {
           channelLoads.current.delete(channelId);
         }
       });
-      channelLoads.current.set(channelId, task);
+      channelLoads.current.set(channelId, { task, background });
       return task;
     },
     [bumpHistoryRevision, publishBootstrap]
   );
+
+  // Replies keep landing in chats that are not open, usually with a notification.
+  // Read the newest page of those chats in the background, one at a time and
+  // without run state, so opening one shows the reply instead of waiting for it.
+  const backgroundHistoryQueue = useRef(new Set<string>());
+  const backgroundHistoryRunning = useRef(false);
+  const backgroundHistoryNeed = useCallback((channelId: string) => {
+    const bootstrap = bootstrapRef.current;
+    if (!bootstrap || legacyMode.current) return null;
+    return backgroundHistoryNeedFor({
+      bootstrap,
+      channelId,
+      activeChannelId: historyLru.current[0],
+      history: histories.current.get(channelId),
+      detachedMessageIds: detachedMessageIdsRef.current,
+    });
+  }, []);
+
+  const syncBackgroundHistories = useCallback(async () => {
+    const initial = bootstrapRef.current;
+    if (!initial) return;
+    for (const channel of initial.channels) {
+      if (backgroundHistoryNeed(channel.id)) backgroundHistoryQueue.current.add(channel.id);
+    }
+    if (backgroundHistoryRunning.current) return;
+    backgroundHistoryRunning.current = true;
+    try {
+      while (backgroundHistoryQueue.current.size > 0) {
+        const bootstrap = bootstrapRef.current;
+        if (!bootstrap) return;
+        const latest = (channelId: string) =>
+          bootstrap.latestMessages.find((message) => message.channelId === channelId);
+        const newestFirst = (left: string, right: string) => {
+          const a = latest(left);
+          const b = latest(right);
+          return a && b ? compareSequence(b, a) : 0;
+        };
+        // Cached chats first, one small page each; then the newest unread replies.
+        const queued = [...backgroundHistoryQueue.current].sort(newestFirst);
+        const channelId =
+          queued.find((candidate) => backgroundHistoryNeed(candidate) === "refresh") ?? queued[0];
+        if (!channelId) break;
+        backgroundHistoryQueue.current.delete(channelId);
+        const need = backgroundHistoryNeed(channelId);
+        if (!need) continue;
+        if (need === "load") {
+          const lru = historyLru.current;
+          // The open chat stays at the front; nothing was opened yet to rank against.
+          if (lru.length === 0) continue;
+          const loaded = lru.filter((candidate) => backgroundLoaded.current.has(candidate));
+          if (loaded.length >= MAX_BACKGROUND_LOADS || lru.length >= MAX_WARM_HISTORIES) {
+            // A newer reply replaces the background chat with the oldest one.
+            // Chats the user opened are never displaced for a background read.
+            const oldest = loaded.sort(newestFirst).at(-1);
+            const oldestLatest = oldest ? latest(oldest) : undefined;
+            const candidateLatest = latest(channelId);
+            if (
+              !oldest ||
+              !oldestLatest ||
+              !candidateLatest ||
+              compareSequence(candidateLatest, oldestLatest) <= 0
+            )
+              continue;
+            historyLru.current = historyLru.current.filter((candidate) => candidate !== oldest);
+            invalidateHistory(oldest);
+            setHistoryRevision((value) => value + 1);
+          }
+          historyLru.current = [...historyLru.current, channelId];
+          backgroundLoaded.current.add(channelId);
+        }
+        // An opened chat's own load may already be in flight and own its errors.
+        await fetchChannel(channelId, false, true, true).catch(() => undefined);
+      }
+    } finally {
+      backgroundHistoryRunning.current = false;
+    }
+  }, [backgroundHistoryNeed, fetchChannel, invalidateHistory]);
 
   const loadChannel = useCallback(
     async (channelId: string) => {
@@ -793,6 +897,7 @@ export function useOpenTeam() {
                     await fetchChannel(activeChannel, false, true);
                   }
                 }
+                void syncBackgroundHistories();
               }
               setError(null);
               refreshError.current = null;
@@ -814,7 +919,7 @@ export function useOpenTeam() {
       refreshInFlight.current = task;
       return task;
     },
-    [fetchChannel, invalidateHistory, publish, publishBootstrap]
+    [fetchChannel, invalidateHistory, publish, publishBootstrap, syncBackgroundHistories]
   );
 
   const reactToMessage = useCallback(

@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { ChannelMessageView, ClientBootstrapView } from "@openteam/contracts";
 import type { LoadedChannelHistory } from "@openteam/product-core/history";
-import { bootstrapSnapshot } from "../../src/renderer/lib/bootstrap-snapshot";
+import {
+  backgroundHistoryNeed,
+  bootstrapSnapshot,
+} from "../../src/renderer/lib/bootstrap-snapshot";
 import { emptyChannelMessageWindow } from "../../src/renderer/lib/message-history-window";
 
 const channel = (id: string) => ({ id, kind: "bot_dm", name: id, members: [] });
@@ -92,5 +95,85 @@ describe("bootstrap snapshot", () => {
     const { snapshot, detachedMessageIds } = project([message("preview", 3)], history([]));
     expect(snapshot.channelMessages.map(({ id }) => id)).toContain("preview-m3");
     expect(detachedMessageIds.has("preview-m3")).toBe(false);
+  });
+});
+
+describe("background history", () => {
+  const withUnread = (
+    latest: ChannelMessageView[],
+    unread: Record<string, number>,
+    hidden = ""
+  ) => {
+    const base = bootstrap(latest);
+    return {
+      ...base,
+      channels: base.channels.map((candidate) => ({
+        ...candidate,
+        unreadCount: unread[candidate.id] ?? 0,
+        hiddenFromSidebar: candidate.id === hidden,
+      })),
+    } as unknown as ClientBootstrapView;
+  };
+
+  test("reads a loaded chat in the background when its transcript withholds the newest message", () => {
+    const loaded = history([message("loaded", 1), message("loaded", 2)]);
+    const latest = [message("loaded", 5)];
+    const { detachedMessageIds } = project(latest, loaded);
+    const need = (activeChannelId: string | undefined) =>
+      backgroundHistoryNeed({
+        bootstrap: withUnread(latest, {}),
+        channelId: "loaded",
+        activeChannelId,
+        history: loaded,
+        detachedMessageIds,
+      });
+    expect(need("preview")).toBe("refresh");
+    // The open chat reads its own history after every event.
+    expect(need("loaded")).toBeNull();
+  });
+
+  test("leaves a loaded chat alone once its transcript has the newest message", () => {
+    const loaded = history([message("loaded", 1), message("loaded", 2)]);
+    const latest = [message("loaded", 2)];
+    const { detachedMessageIds } = project(latest, loaded);
+    expect(
+      backgroundHistoryNeed({
+        bootstrap: withUnread(latest, {}),
+        channelId: "loaded",
+        activeChannelId: "preview",
+        history: loaded,
+        detachedMessageIds,
+      })
+    ).toBeNull();
+  });
+
+  test("loads a never-opened chat only when it has unread messages", () => {
+    const latest = [message("preview", 3)];
+    const need = (unread: number, hidden = "") =>
+      backgroundHistoryNeed({
+        bootstrap: withUnread(latest, { preview: unread }, hidden),
+        channelId: "preview",
+        activeChannelId: "loaded",
+        history: undefined,
+        detachedMessageIds: new Set(),
+      });
+    expect(need(1)).toBe("load");
+    expect(need(0)).toBeNull();
+    expect(need(1, "preview")).toBeNull();
+  });
+
+  test("waits for a chat whose first page is still loading", () => {
+    const latest = [message("loaded", 4)];
+    const loading = history([], 0);
+    const { detachedMessageIds } = project(latest, loading);
+    expect(
+      backgroundHistoryNeed({
+        bootstrap: withUnread(latest, { loaded: 1 }),
+        channelId: "loaded",
+        activeChannelId: "preview",
+        history: loading,
+        detachedMessageIds,
+      })
+    ).toBeNull();
   });
 });

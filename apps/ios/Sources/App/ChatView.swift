@@ -29,6 +29,8 @@ struct ChatView: View {
   @State private var didResolveBoundary = false
   @State private var didPositionHistory = false
   @State private var historyAvailable = false
+  @State private var savedTranscriptAtOpen = false
+  @State private var awaitingNewerPage = false
   @State private var requestedInitialHistory = false
   private var hasLater: Bool { store.historyWindows[channel.id]?.hasLater == true }
   private var showsLoadError: Bool {
@@ -49,7 +51,11 @@ struct ChatView: View {
       } else if historyAvailable {
         NativeMessageList(
           items: nativeRows(rows, timeline: timeline),
-          initialTarget: store.focusedMessage ?? "bottom", request: scrollRequest,
+          initialTarget: store.focusedMessage ?? "bottom",
+          // A saved transcript shows as soon as its rows stop resizing; a first
+          // page that just arrived still settles before it is shown.
+          initialLayout: savedTranscriptAtOpen ? .nextLayout : .settled,
+          request: scrollRequest,
           onPositioned: {
             didPositionHistory = true
             if let id = store.focusedMessage { focus(id) }
@@ -77,6 +83,12 @@ struct ChatView: View {
           .offset(y: -20)
       }
     }
+    .task(id: awaitingNewerPage) {
+      guard awaitingNewerPage else { return }
+      // A slow network still shows the saved transcript.
+      try? await Task.sleep(for: .milliseconds(700))
+      if !Task.isCancelled { historyAvailable = true }
+    }
     .onChange(of: store.busy.contains("history-" + channel.id)) { _, busy in
       if requestedInitialHistory && !busy {
         resolveOpeningBoundary()
@@ -101,8 +113,16 @@ struct ChatView: View {
         didCaptureBoundary = true
       }
       if store.hasCachedHistory(channel.id) {
+        savedTranscriptAtOpen = true
         resolveOpeningBoundary()
-        historyAvailable = true
+        // A transcript missing the newest known reply, or opened while the app is
+        // still catching up after the background, waits briefly for its page
+        // rather than showing without the reply and animating it in.
+        if store.transcriptBehind(channel.id) || store.catchingUp {
+          awaitingNewerPage = true
+        } else {
+          historyAvailable = true
+        }
       }
       await store.loadHistory(channel.id)
       guard !Task.isCancelled else { return }

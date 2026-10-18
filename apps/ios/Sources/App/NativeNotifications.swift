@@ -369,6 +369,9 @@ final class NativeNotifications {
     }
     await removeReadNotifications()
     let result = await synchronize()
+    if push.isAlert {
+      await store?.readNotifiedChat(push.channelId, sequence: push.data["messageSequence"].string)
+    }
     await reportForQA(push)
     return result
   }
@@ -392,6 +395,7 @@ final class NativeNotifications {
   }
   func tapped(_ push: NativePush) async {
     guard push.isAlert else { return }
+    store?.noteNotified(push.channelId, sequence: push.data["messageSequence"].string)
     pendingTap = push
     await routePendingTap()
   }

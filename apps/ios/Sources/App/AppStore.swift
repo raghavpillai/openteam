@@ -28,6 +28,14 @@ final class AppStore {
   private var awaitingInitialSync = false
   private var syncUnavailable = false
   var syncingState: Bool { (awaitingInitialSync || !stateSyncs.isEmpty) && !syncUnavailable }
+  /// Saved state may lack what happened while the app was in the background:
+  /// it is not active yet, or its first sync since becoming active is running.
+  var catchingUp: Bool {
+    !foreground
+      || ((awaitingInitialSync || catchUpSync.map { stateSyncs.contains($0) } == true)
+        && !syncUnavailable)
+  }
+  private var catchUpSync: UUID?
   var connecting = false
   var busy: Set<String> = []
   var navigation: [String] = []
@@ -57,6 +65,11 @@ final class AppStore {
   private var disk: DiskStore?
   private var record: SessionRecord?
   private var lifecycle: Task<Void, Never>?
+  private var backgroundHistories: Task<Void, Never>?
+  private var backgroundHistoryQueue: [String] = []
+  /// Newest message sequence each chat's notifications announced. A push can
+  /// arrive, or be tapped, before the next bootstrap knows about its message.
+  private var notifiedLatest: [String: String] = [:]
   private var needsIdentityRefresh = false
   private var generation = UUID()
   private var sending = false
@@ -94,6 +107,36 @@ final class AppStore {
   }
   func hasCachedHistory(_ id: String) -> Bool {
     histories[id] != nil || state.loadedHistoryChannels?.contains(id) == true
+  }
+  /// A saved transcript that lacks the newest message bootstrap or a push announced.
+  func transcriptBehind(_ id: String) -> Bool {
+    guard hasCachedHistory(id), historyWindows[id]?.hasLater != true else { return false }
+    let bootstrap = state.bootstrap?.latestMessages.last(where: { $0.channelId == id })?.sequence
+    let known = [bootstrap, notifiedLatest[id]].compactMap { $0 }
+      .max { MessageMerge.less($0, $1) }
+    guard let known else { return false }
+    guard let last = messages(id).last?.sequence else { return true }
+    return MessageMerge.less(last, known)
+  }
+  func noteNotified(_ id: String, sequence: String?) {
+    guard let sequence, !sequence.isEmpty else { return }
+    if let known = notifiedLatest[id], !MessageMerge.less(known, sequence) { return }
+    notifiedLatest[id] = sequence
+  }
+  /// A notification for a chat that is not open, possibly while the app is in
+  /// the background: read its newest page now, so opening it from the
+  /// notification shows the reply instead of waiting for it.
+  func readNotifiedChat(_ id: String, sequence: String?) async {
+    noteNotified(id, sequence: sequence)
+    guard phase == .ready, let api, id != activeChannel, !busy.contains("history-" + id),
+      channel(id) != nil, !hasCachedHistory(id) || transcriptBehind(id)
+    else { return }
+    let epoch = generation
+    busy.insert("history-" + id)
+    defer { busy.remove("history-" + id) }
+    try? await fetchHistory(id, before: nil, api: api, epoch: epoch)
+    // A background push may be followed by suspension before the debounced save.
+    if epoch == generation { flushPersistence() }
   }
   func visibleMessages(_ id: String) -> [Message] {
     guard let window = historyWindows[id] else { return messages(id) }
@@ -343,6 +386,8 @@ final class AppStore {
     let nextState = try nextDisk.load()
     if persistSession { try SecureSession.save(next) }
     lifecycle?.cancel()
+    stopBackgroundHistories()
+    notifiedLatest = [:]
     needsIdentityRefresh = false
     stateSyncs.removeAll()
     awaitingInitialSync = !launchComplete
@@ -513,6 +558,7 @@ final class AppStore {
     } else {
       lifecycle?.cancel()
       lifecycle = nil
+      stopBackgroundHistories()
       stateSyncs.removeAll()
       flushPersistence()
     }
@@ -523,6 +569,7 @@ final class AppStore {
     let epoch = generation
     syncUnavailable = false
     let sync = beginStateSync()
+    catchUpSync = sync
     awaitingInitialSync = false
     lifecycle = Task { [weak self] in
       guard let self else { return }
@@ -531,6 +578,7 @@ final class AppStore {
       await flush()
       guard epoch == generation, !Task.isCancelled, phase == .ready else { return }
       if let activeChannel { await loadHistory(activeChannel) }
+      syncBackgroundHistories(epoch: epoch)
       var cursor = state.bootstrap?.cursor ?? "0"
       var delay: UInt64 = 1
       while !Task.isCancelled, epoch == generation, phase == .ready, let api {
@@ -559,6 +607,7 @@ final class AppStore {
             if let activeChannel {
               try await fetchHistory(activeChannel, before: nil, api: api, epoch: epoch)
             }
+            syncBackgroundHistories(epoch: epoch)
             cursor = bootstrap.cursor
             persist()
           }
@@ -607,6 +656,47 @@ final class AppStore {
     }
     await refresh(quiet: true, flushPending: false)
   }
+  /// Replies keep landing in chats that are not open, usually with a notification.
+  /// Read the newest page of those chats in the background, one at a time, so
+  /// opening one shows the reply instead of waiting for it.
+  private func syncBackgroundHistories(epoch: UUID) {
+    for channel in channels
+    where !backgroundHistoryQueue.contains(channel.id) && backgroundHistoryNeeded(channel.id) {
+      backgroundHistoryQueue.append(channel.id)
+    }
+    guard backgroundHistories == nil, !backgroundHistoryQueue.isEmpty else { return }
+    backgroundHistories = Task { [weak self] in
+      while let self, epoch == self.generation, !Task.isCancelled, let api = self.api,
+        !self.backgroundHistoryQueue.isEmpty
+      {
+        let id = self.backgroundHistoryQueue.removeFirst()
+        guard self.backgroundHistoryNeeded(id) else { continue }
+        // Opening this chat meanwhile waits for this read instead of starting another.
+        self.busy.insert("history-" + id)
+        try? await self.fetchHistory(id, before: nil, api: api, epoch: epoch)
+        self.busy.remove("history-" + id)
+      }
+      guard let self, epoch == self.generation, !Task.isCancelled else { return }
+      self.backgroundHistories = nil
+    }
+  }
+  private func stopBackgroundHistories() {
+    backgroundHistories?.cancel()
+    backgroundHistories = nil
+    backgroundHistoryQueue.removeAll()
+  }
+  /// A saved transcript that lacks the chat's newest message, or an unread chat
+  /// that was never loaded. The open chat already reads its own history.
+  private func backgroundHistoryNeeded(_ id: String) -> Bool {
+    guard id != activeChannel, !busy.contains("history-" + id),
+      let channel = channel(id), channel.hiddenFromSidebar != true
+    else { return false }
+    guard hasCachedHistory(id) else {
+      return (channel.unreadCount ?? 0) > 0
+        && state.bootstrap?.latestMessages.contains(where: { $0.channelId == id }) == true
+    }
+    return transcriptBehind(id)
+  }
   func loadHistory(_ id: String, older: Bool = false) async {
     guard let api, !busy.contains("history-" + id) else { return }
     let epoch = generation
@@ -634,6 +724,8 @@ final class AppStore {
       "/api/v0/channels/\(API.segment(id))/history", as: History.self, query: query)
     guard epoch == generation, !Task.isCancelled else { return }
     historyLoadFailures.remove(id)
+    // The latest page is authoritative for what a notification announced.
+    if before == nil { notifiedLatest[id] = nil }
     if before != nil {
       state.messages[id] = MessageMerge.merge(messages(id), page.threadContext + page.messages)
       historyWindows[id]?.extend(page.messages, earlier: true, hasMore: page.hasMore)

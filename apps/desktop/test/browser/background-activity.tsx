@@ -130,14 +130,25 @@ const caption = () =>
   document.querySelector('[data-bot-thinking-slot][data-phase="visible"] [role="status"]')
     ?.textContent ?? null;
 const reports: string[] = [];
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 async function expectCaption(expected: string | null, scenario: string) {
   draw();
   await pause(50);
+  let shimmerState: string | undefined;
   for (let i = 0; i < 60; i++) {
     const label = document.querySelector("[data-bot-thinking] .bot-thinking-label");
+    const shimmer = label?.querySelector(".bot-activity-shimmer");
+    shimmerState = shimmer
+      ? reducedMotion
+        ? getComputedStyle(shimmer).animationName
+        : getComputedStyle(shimmer).animationPlayState
+      : undefined;
+    // A persistent caption is shown without hover, so its shimmer must run without hover too.
     const readable =
       expected !== "Working in the background" ||
-      (label && Number(getComputedStyle(label).opacity) === 1);
+      (label &&
+        Number(getComputedStyle(label).opacity) === 1 &&
+        shimmerState === (reducedMotion ? "none" : "running"));
     if (caption() === expected && readable) {
       reports.push(scenario);
       return;
@@ -145,7 +156,8 @@ async function expectCaption(expected: string | null, scenario: string) {
     await pause(50);
   }
   throw new Error(
-    `${scenario}: expected ${JSON.stringify(expected)}, received ${JSON.stringify(caption())}`
+    `${scenario}: expected ${JSON.stringify(expected)}, received ${JSON.stringify(caption())}` +
+      (shimmerState ? ` with shimmer ${shimmerState}` : "")
   );
 }
 

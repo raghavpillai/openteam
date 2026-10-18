@@ -8,7 +8,7 @@ import re
 import subprocess
 import threading
 
-from gateway import Gateway, make_server
+from gateway import Gateway, TOOLS, make_server
 from reader import PROTOCOL
 
 
@@ -23,6 +23,12 @@ def validate_target(target):
 class TargetGateway(Gateway):
     def __init__(self, bridge, target):
         self.bridge, self.target = bridge, target
+
+    def listed_tools(self):
+        try:
+            return self.bridge.connection(self.target).listed_tools()
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return TOOLS
 
     def execute(self, operation, arguments):
         try:
@@ -87,7 +93,8 @@ class Bridge:
             # Reuse this connection's own key and pinned host key: a migrated single-Mac profile keeps them elsewhere.
             config = connection.config
             try:
-                self.install(target, Path(config["identity_file"] + ".pub"), Path(config["known_hosts_file"]))
+                self.install(target, Path(config["identity_file"] + ".pub"), Path(config["known_hosts_file"]),
+                             allow_send=config.get("allow_send", False))
             except (OSError, ValueError, subprocess.SubprocessError):
                 pass
         self.current.add(target)
@@ -111,13 +118,31 @@ class Bridge:
         return {"ssh_target": target, "identity_file": str(key),
                 "known_hosts_file": str(pinned), "token_file": str(self.root / "token")}
 
-    def install(self, target, public_key, known_hosts):
+    def enable_send(self, target):
+        """Explicit administrator action; never invoked by an MCP request or automatic upgrade."""
+        connection = self.connection(validate_target(target))
+        config = dict(connection.config)
+        directory = self.root / "targets" / hashlib.sha256(target.encode()).hexdigest()
+        key = Path(config["identity_file"]) if config.get("allow_send") else directory / "id_ed25519_send"
+        if not key.exists():
+            subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)],
+                           check=True, timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.install(target, Path(str(key) + ".pub"), Path(config["known_hosts_file"]), allow_send=True)
+        config.update(identity_file=str(key), allow_send=True)
+        temporary = directory / "config.json.tmp"
+        temporary.touch(mode=0o600, exist_ok=True)
+        temporary.chmod(0o600)
+        temporary.write_text(json.dumps(config))
+        temporary.replace(directory / "config.json")
+        self.connections.pop(target, None)
+
+    def install(self, target, public_key, known_hosts, allow_send=False):
         """Install the packaged reader and authorize one restricted key, over the host's own SSH access."""
         source = Path(__file__).parent
         # Only packaged source and the PUBLIC key cross this connection.
         payload = {"reader": (source / "reader.py").read_text(),
                    "installer": (source / "install-reader.py").read_text(),
-                   "public_key": public_key.read_text()}
+                   "public_key": public_key.read_text(), "allow_send": allow_send}
         script = """import json,tempfile,pathlib,importlib.util
 p=json.loads(PAYLOAD)
 with tempfile.TemporaryDirectory() as temp:
@@ -129,7 +154,7 @@ with tempfile.TemporaryDirectory() as temp:
  reader.execute({'operation':'status','arguments':{}})
  spec=importlib.util.spec_from_file_location('installer',root/'install-reader.py')
  installer=importlib.util.module_from_spec(spec); spec.loader.exec_module(installer)
- installer.install(p['public_key'])
+ installer.install(p['public_key'], allow_send=p['allow_send'])
  print('ready')
 """.replace("PAYLOAD", repr(json.dumps(payload)))
         subprocess.run(["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
@@ -142,11 +167,18 @@ with tempfile.TemporaryDirectory() as temp:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--bind", required=True)
+    parser.add_argument("--bind")
+    parser.add_argument("--enable-send", metavar="USER@HOST", help="Explicitly authorize a new restricted sending key for one Mac")
     parser.add_argument("--port", type=int, default=8799)
     args = parser.parse_args()
-    server = make_server(Bridge(args.root), args.bind, args.port)
-    try:
-        server.serve_forever()
-    finally:
-        server.server_close()
+    if args.enable_send:
+        Bridge(args.root).enable_send(args.enable_send)
+        print("SSH sending enabled for this target. Restart the host bridge, reconnect the plugin, and check IMessageSendStatus. No message was sent.")
+    else:
+        if not args.bind:
+            parser.error("--bind is required when serving")
+        server = make_server(Bridge(args.root), args.bind, args.port)
+        try:
+            server.serve_forever()
+        finally:
+            server.server_close()

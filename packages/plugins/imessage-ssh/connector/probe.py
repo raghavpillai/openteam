@@ -44,11 +44,11 @@ def probe(endpoint, token, target=None):
     rpc("initialize", {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "imessage-probe", "version": "2.0.0"}})
     tools = rpc("tools/list")["tools"]
     status = call("IMessageStatus", {})
-    if not status.get("readable") or not status.get("readOnly"):
-        raise ValueError("Expected a readable, read-only Mac helper")
+    if not status.get("readable"):
+        raise ValueError("Expected a readable Mac helper")
     activity = call("IMessageActivity", {"since": "7d", "limit": 5})
     newest = call("ChatItems", {"limit": 3})
-    summary = {"tools": len(tools), "database_readable": True, "contacts_readable": status["contacts"]["readable"],
+    summary = {"tools": len(tools), "database_readable": True, "send_enabled": status.get("sendEnabled", False), "contacts_readable": status["contacts"]["readable"],
                "receiving_notice": "receivingNotice" in status, "sync_notice": "syncNotice" in status, "active_chats_7d": activity["total"], "newest_items": len(newest["items"]),
                "pagination_verified": False, "chat_read_verified": False, "search_verified": False,
                "handle_lookup_verified": False, "private_content_printed": False}

@@ -10,9 +10,9 @@ import subprocess
 import tempfile
 import threading
 
-from reader import LIMITS, LEGACY, validate
+from reader import LIMITS, LEGACY, SEND_DISABLED, validate
 
-VERSION = "2.0.0"
+VERSION = "3.0.0"
 MAX_RESPONSE = 72_000_000  # A 50 MB attachment, base64-encoded, plus its JSON envelope.
 PROTOCOLS = ("2025-03-26", "2025-06-18", "2025-11-25")
 TIME = ("an ISO-8601 time with an offset (2026-10-14T18:00:00-04:00) or a duration before now: "
@@ -105,7 +105,17 @@ TOOLS = [
                     "description": "A name or the start of name parts (\"Alex\", \"Alex Ch\"), a phone number or its last digits, or an email."},
           "limit": limit("contacts")}, ["query"]),
 ]
+SEND_TOOLS = [
+    tool("IMessageSendStatus", "Check SSH Messages Automation without sending. Optionally check that an existing chat, including a business conversation, can be resolved. A readable database alone does not establish send readiness.",
+         {"chatGuid": CHAT_GUID}),
+    tool("SendIMessageSSH", "Submit a user-authorized text reply to an existing Messages conversation over SSH. Copy its exact chatGuid, including any business urn:biz identifier. Requires explicit SSH sending setup and macOS Automation permission. Supply a new UUID requestId for each intended message; reuse that same ID when checking an uncertain attempt. Never retry an uncertain send with a new ID. Submitted does not mean delivered. No attachments, reactions or new conversations.",
+         {"chatGuid": CHAT_GUID, "text": {"type": "string", "minLength": 1, "maxLength": 4000},
+          "requestId": {"type": "string", "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"}},
+         ["chatGuid", "text", "requestId"]),
+]
+SEND_TOOLS[1]["annotations"].update(readOnlyHint=False, openWorldHint=True)
 OPERATIONS = {"IMessageStatus": "status", "IMessageActivity": "activity", "ChatItems": "items",
+              "IMessageSendStatus": "send_status", "SendIMessageSSH": "send",
               "SearchIMessages": "text_search", "FindIMessageChats": "find_chats", "FindContacts": "contacts",
               "FetchIMessageAttachment": "attachment",
               # Unlisted: the connect check of connectors packaged before these tools.
@@ -118,6 +128,8 @@ OUTDATED = {"error": "helper_outdated", "message":
 class Gateway:
     def __init__(self, config):
         self.config = config
+        if type(config.get("allow_send", False)) is not bool:
+            raise ValueError("allow_send must be a boolean")
         target = config.get("ssh_target", "")
         if not re.fullmatch(r"[A-Za-z0-9_.-]+@[A-Za-z0-9][A-Za-z0-9.-]*", target):
             raise ValueError("ssh_target must be user@hostname or user@IPv4")
@@ -142,9 +154,14 @@ class Gateway:
                         "-i", config["identity_file"], "-p", str(port), target, "openteam-imessage-reader"]
         self.slots = threading.BoundedSemaphore(4)
 
+    def listed_tools(self):
+        return TOOLS + (SEND_TOOLS if self.config.get("allow_send", False) else [])
+
     def execute(self, operation, arguments):
         request = {"operation": operation, "arguments": arguments}
         validate(request)
+        if operation in {"send", "send_status"} and not self.config.get("allow_send", False):
+            return dict(SEND_DISABLED)
         if not self.slots.acquire(blocking=False):
             return {"error": "busy", "message": "The iMessage gateway is busy; try again later"}
         try:
@@ -153,9 +170,12 @@ class Gateway:
                 # Attachments carry file bytes (up to 50 MB, base64-encoded) and may need an image conversion first.
                 large = operation == "attachment"
                 try:
-                    result = subprocess.run(self.command, input=json.dumps(request).encode(), stdout=output,
+                    result = subprocess.run(self.command, input=json.dumps(request, ensure_ascii=False).encode(), stdout=output,
                                             stderr=subprocess.DEVNULL, timeout=90 if large else 25, check=False)
                 except (subprocess.TimeoutExpired, OSError):
+                    if operation == "send":
+                        return {"error": "send_outcome_unknown", "requestId": arguments["requestId"],
+                                "message": "SSH did not return a send receipt. Reuse this requestId; never retry with a new ID. Check ChatItems and Messages."}
                     return {"error": "ssh_unavailable", "message": "Mac SSH did not complete. Check connectivity, host key, credentials, and the installed helper"}
                 output.seek(0)
                 cap = MAX_RESPONSE if large else 2_000_000
@@ -195,7 +215,7 @@ class Gateway:
         elif method == "ping":
             result = {}
         elif method == "tools/list":
-            result = {"tools": TOOLS}
+            result = {"tools": self.listed_tools()}
         elif method == "tools/call":
             name = params.get("name")
             if not isinstance(name, str) or name not in OPERATIONS:

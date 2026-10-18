@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "key": "imessage-ssh",
-  "version": "1.2.1",
+  "version": "1.3.2",
   "name": "iMessage (SSH)",
-  "description": "Read and search iMessage, SMS and RCS history from your Mac over SSH, with Contacts names.",
+  "description": "Read Messages history over SSH, with optional text replies to existing conversations after administrator setup.",
   "publisher": "OpenTeam",
   "category": "Productivity",
   "featured": false,
@@ -16,7 +16,7 @@
     "Before you start, ask your OpenTeam administrator to enable this integration and verify SSH access to your Mac without a password prompt.",
     "On your Mac, enable Remote Login and allow the SSH user to read Messages history. Keep the Mac online and Messages signed in for new messages to sync.",
     "Enter your Mac username and IP address as username@IP, then choose Connect. OpenTeam installs a read-only helper and checks Messages access.",
-    "Once connected, ask your agent what's new or to find a conversation. This integration reads synced history, Contacts names and attachments; sending is not supported."
+    "Once connected, ask your agent what's new or to find a conversation. This integration reads synced history, Contacts names and attachments; an administrator can separately enable SSH text replies."
   ],
   "setup": {
     "kind": "none",
@@ -28,7 +28,7 @@
       "Before you start, ask your OpenTeam administrator to enable this integration and verify SSH access to your Mac without a password prompt.",
       "On your Mac, enable Remote Login and allow the SSH user to read Messages history. Keep the Mac online and Messages signed in for new messages to sync.",
       "Enter your Mac username and IP address as username@IP, then choose Connect. OpenTeam installs a read-only helper and checks Messages access.",
-      "Once connected, ask your agent what's new or to find a conversation. This integration reads synced history, Contacts names and attachments; sending is not supported."
+      "Once connected, ask your agent what's new or to find a conversation. This integration reads synced history, Contacts names and attachments; an administrator can separately enable SSH text replies."
     ],
     "fields": [
       {
@@ -65,7 +65,7 @@
   "skills": [
     {
       "name": "imessage-remote",
-      "description": "Read and search iMessage, SMS or RCS history on a Mac through OpenTeam’s managed SSH connection, with Contacts names, including connection troubleshooting.",
+      "description": "Read Messages history, send authorized text replies to existing personal or business conversations, and diagnose Messages access through OpenTeam’s managed SSH connection without the desktop app.",
       "path": "skills/imessage-remote"
     }
   ],

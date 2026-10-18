@@ -261,7 +261,7 @@ class ProtocolTwoTests(unittest.TestCase):
 
     def test_status_reports_freshness(self):
         status = self.call("status")
-        self.assertEqual((status["readable"], status["readOnly"], status["protocolVersion"]), (True, True, 2))
+        self.assertEqual((status["readable"], status["readOnly"], status["protocolVersion"]), (True, True, reader.PROTOCOL))
         self.assertEqual(status["latestMessage"], reader.iso(NOW - 5 * MINUTE))
         self.assertEqual(status["latestByService"]["SMS"], reader.iso(NOW - 5 * MINUTE))
         self.assertEqual(status["receivedLast24h"], 4)

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""One read-only Messages request on stdin, one JSON result on stdout. Runs on the Mac."""
+"""One Messages request on stdin, one JSON result on stdout. Sending requires a local opt-in."""
 import argparse
 import base64
 import calendar
 import datetime
+import hashlib
 import json
 import mimetypes
 import os
@@ -11,13 +12,14 @@ import plistlib
 from pathlib import Path
 import re
 import sqlite3
+import socket
 import subprocess
 import sys
 import tempfile
 import time
 
-PROTOCOL = 2  # Bump whenever this file changes: bridges reinstall a Mac's reader when its protocol is older.
-MAX_REQUEST = 16384
+PROTOCOL = 4  # Bump whenever this file changes: bridges reinstall a Mac's reader when its protocol is older.
+MAX_REQUEST = 32768
 MAX_TEXT = 16000
 PREVIEW = 200
 BUDGET = 64_000  # Characters of JSON per page.
@@ -29,6 +31,8 @@ DAY = 86400 * NS
 LIMITS = {"activity": (50, 200), "items": (50, 200), "text_search": (25, 100), "find_chats": (50, 500), "contacts": (25, 100)}
 OPERATIONS = {
     "status": set(),
+    "send_status": {"chatGuid"},
+    "send": {"chatGuid", "text", "requestId"},
     "activity": {"since", "until", "limit"},
     "items": {"chatGuid", "limit", "before", "since", "until"},
     "text_search": {"query", "chatGuid", "limit", "before", "since", "until"},
@@ -41,8 +45,8 @@ OPERATIONS = {
     "search": {"query", "chat_id", "limit", "before_id"},
 }
 LEGACY = {"chats", "history", "search"}
-REQUIRED = {"activity": ("since",), "text_search": ("query",), "contacts": ("query",), "attachment": ("messageGuid", "attachmentGuid")}
-STRINGS = {"query": 256, "chatGuid": 512, "displayName": 256, "handle": 256, "messageGuid": 512, "attachmentGuid": 512}
+REQUIRED = {"send": ("chatGuid", "text", "requestId"), "activity": ("since",), "text_search": ("query",), "contacts": ("query",), "attachment": ("messageGuid", "attachmentGuid")}
+STRINGS = {"text": 4000, "requestId": 36, "query": 256, "chatGuid": 512, "displayName": 256, "handle": 256, "messageGuid": 512, "attachmentGuid": 512}
 RELATIVE = re.compile(r"(\d{1,6})\s*(m|mins?|minutes?|h|hrs?|hours?|d|days?|w|wks?|weeks?)", re.I)
 ISO = re.compile(r"(\d{4})-(\d\d)-(\d\d)[T ](\d\d):(\d\d)(?::(\d\d)(?:\.(\d{1,9}))?)?(Z|[+-]\d\d:?\d\d)", re.I)
 RECEIVING = ("No message has reached the Mac in %s. If the user expects newer messages, the Mac may have stopped receiving: "
@@ -84,7 +88,7 @@ def validate(request):
         raise ValueError("Expected operation and arguments")
     operation = request.get("operation")
     if not isinstance(operation, str) or operation not in OPERATIONS:
-        raise ValueError("Unknown read-only operation")
+        raise ValueError("Unknown operation")
     args = request.get("arguments", {})
     if not isinstance(args, dict):
         raise ValueError("arguments must be an object")
@@ -99,6 +103,13 @@ def validate(request):
     for key, size in STRINGS.items():
         if key in args and (not isinstance(args[key], str) or not args[key].strip() or len(args[key]) > size):
             raise ValueError("%s must be a non-empty string of at most %d characters" % (key, size))
+    if operation in {"send", "send_status"}:
+        if any("\x00" in value for value in args.values() if isinstance(value, str)):
+            raise ValueError("NUL characters are not allowed")
+        if "chatGuid" in args and not re.fullmatch(r"(?:any|iMessage|SMS|RCS);[+-];[^\r\n]+", args["chatGuid"]):
+            raise ValueError("Copy the exact chatGuid from FindIMessageChats")
+        if "requestId" in args and not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", args["requestId"]):
+            raise ValueError("requestId must be a lowercase UUID; reuse it for the same send attempt")
     if "limit" in args and (type(args["limit"]) is not int or not 1 <= args["limit"] <= LIMITS[operation][1]):
         raise ValueError("limit must be an integer from 1 to %d" % LIMITS[operation][1])
     if "before" in args:
@@ -942,16 +953,176 @@ def legacy(operation, args, database):
         db.close()
 
 
-def execute(request, database=None, home=None):
+SEND_DISABLED = {"error": "sending_disabled", "message": "Sending requires administrator opt-in on this SSH connection and Messages Automation permission on the Mac."}
+
+
+def automation_permission():
+    """Apple's public consent API. Routine probes must never trigger a permission prompt."""
+    import ctypes
+    class AEDesc(ctypes.Structure):
+        # AEDataModel.h uses #pragma pack(push, 2), including on arm64.
+        _pack_ = 2
+        _fields_ = [("descriptorType", ctypes.c_uint32), ("dataHandle", ctypes.c_void_p)]
+    ae = ctypes.CDLL("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")
+    ae.AECreateDesc.argtypes = [ctypes.c_uint32, ctypes.c_void_p, ctypes.c_long, ctypes.POINTER(AEDesc)]
+    ae.AECreateDesc.restype = ctypes.c_int32
+    ae.AEDisposeDesc.argtypes = [ctypes.POINTER(AEDesc)]
+    ae.AEDisposeDesc.restype = ctypes.c_int32
+    ae.AEDeterminePermissionToAutomateTarget.argtypes = [ctypes.POINTER(AEDesc), ctypes.c_uint32, ctypes.c_uint32, ctypes.c_ubyte]
+    ae.AEDeterminePermissionToAutomateTarget.restype = ctypes.c_int32
+    target = AEDesc()
+    bundle = b"com.apple.MobileSMS"
+    created = ae.AECreateDesc(int.from_bytes(b"bund", "big"), bundle, len(bundle), ctypes.byref(target))
+    if created:
+        return created
+    try:
+        wildcard = int.from_bytes(b"****", "big")
+        return ae.AEDeterminePermissionToAutomateTarget(ctypes.byref(target), wildcard, wildcard, False)
+    finally:
+        ae.AEDisposeDesc(ctypes.byref(target))
+
+
+def check_automation():
+    try:
+        result = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--automation-preflight"],
+                                capture_output=True, text=True, timeout=5, check=False)
+        code = int(result.stdout.strip()) if result.returncode == 0 else None
+    except subprocess.TimeoutExpired:
+        return {"error": "automation_preflight_timeout", "automation": "unknown",
+                "message": "macOS did not answer a non-prompting permission check. No consent prompt or send was requested."}
+    except (OSError, ValueError):
+        code = None
+    if code == 0:
+        return {"automation": "granted"}
+    if code in {-1743, -1744}:
+        return {"error": "automation_denied" if code == -1743 else "automation_consent_required",
+                "automation": "denied" if code == -1743 else "not_granted",
+                "message": "Messages Automation is not granted. Use the administrator's explicit consent setup while at the Mac; routine status checks do not request permission."}
+    return {"error": "messages_not_running" if code == -600 else "automation_preflight_failed", "automation": "unknown"}
+
+
+# User-controlled values are argv, never AppleScript source. Only an existing, unique chat is eligible.
+# Business chat database GUIDs may use 'any' while scripting exposes another service prefix.
+MESSAGES_SCRIPT = '''on run argv
+    set operationName to item 1 of argv
+    set requestedGuid to item 2 of argv
+    with timeout of 10 seconds
+        tell application "Messages"
+            if requestedGuid is "" then
+                set accountCount to count of accounts
+                return "ready"
+            end if
+            set matchedChats to every chat whose id is requestedGuid
+            if (count of matchedChats) is 0 and requestedGuid contains ";-;urn:biz:" then
+                set markerOffset to offset of ";-;urn:biz:" in requestedGuid
+                set businessSuffix to text markerOffset thru -1 of requestedGuid
+                set matchedChats to every chat whose id ends with businessSuffix
+            end if
+            if (count of matchedChats) is not 1 then error "Chat unavailable or ambiguous" number -1728
+            if operationName is "send" then
+                send (item 3 of argv) to item 1 of matchedChats
+                return "submitted"
+            end if
+            return "ready"
+        end tell
+    end timeout
+end run'''
+
+
+def native_messages(operation, args):
+    command = ["/usr/bin/osascript", "-e", MESSAGES_SCRIPT, operation, args.get("chatGuid", ""), args.get("text", "")]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=18, check=False)
+    except subprocess.TimeoutExpired:
+        return {"error": "automation_timeout", "automation": "unknown"}
+    except OSError:
+        return {"error": "automation_unavailable", "automation": "unknown"}
+    if result.returncode == 0 and result.stdout.strip() == ("submitted" if operation == "send" else "ready"):
+        return {"automation": "granted", "status": "submitted" if operation == "send" else "ready"}
+    # Never expose raw osascript stderr: it can contain message text.
+    if "(-1743)" in result.stderr:
+        return {"error": "automation_denied", "automation": "denied"}
+    if "(-1712)" in result.stderr:
+        return {"error": "automation_timeout", "automation": "unknown"}
+    if "(-1728)" in result.stderr:
+        return {"error": "chat_not_scriptable", "automation": "granted"}
+    return {"error": "automation_failed", "automation": "unknown"}
+
+
+def send_message(home, args):
+    """Reserve each request durably before contacting Messages; never replay an uncertain send."""
+    directory = home / ".local/share/openteam-imessage"
+    directory.mkdir(parents=True, mode=0o700, exist_ok=True)
+    path = directory / "send-receipts.sqlite3"
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    os.close(descriptor)
+    path.chmod(0o600)
+    digest = hashlib.sha256(json.dumps([args["chatGuid"], args["text"]], ensure_ascii=False).encode()).hexdigest()
+    request_id = args["requestId"]
+    uncertain = {"requestId": request_id, "chatGuid": args["chatGuid"], "transport": "ssh",
+                 "status": "unknown", "error": "send_outcome_unknown",
+                 "message": "This request was reserved or attempted. Check ChatItems and Messages before considering another send. Do not retry with a new requestId."}
+    db = sqlite3.connect(path, timeout=5)
+    try:
+        db.execute("PRAGMA synchronous=FULL")
+        db.execute("CREATE TABLE IF NOT EXISTS receipts (id TEXT PRIMARY KEY, digest TEXT NOT NULL, result TEXT NOT NULL)")
+        db.execute("BEGIN IMMEDIATE")
+        previous = db.execute("SELECT digest,result FROM receipts WHERE id=?", (request_id,)).fetchone()
+        if previous:
+            db.rollback()
+            if previous[0] != digest:
+                return {"error": "request_id_conflict", "message": "This requestId already belongs to a different message."}
+            return {**json.loads(previous[1]), "replayed": True}
+        permission = check_automation()
+        if "error" in permission:
+            db.rollback()
+            return {"transport": "ssh", "sendEnabled": True, **permission}
+        db.execute("INSERT INTO receipts VALUES (?,?,?)", (request_id, digest, json.dumps(uncertain)))
+        db.commit()
+        outcome = native_messages("send", args)
+        if "error" in outcome:
+            receipt = {**uncertain, "cause": outcome["error"], "automation": outcome["automation"]}
+        else:
+            receipt = {"requestId": request_id, "chatGuid": args["chatGuid"], "transport": "ssh",
+                       "status": "submitted", "deliveryConfirmed": False,
+                       "message": "Messages accepted the send command. Delivery is not confirmed."}
+        db.execute("UPDATE receipts SET result=? WHERE id=?", (json.dumps(receipt), request_id))
+        db.commit()
+        return receipt
+    finally:
+        db.close()
+
+
+def execute(request, database=None, home=None, allow_send=False):
     operation, args = validate(request)
     home = Path(home or Path.home()).expanduser()
+    if operation == "send" and not allow_send:
+        return dict(SEND_DISABLED)
+    if operation == "send_status" and not allow_send:
+        return {"transport": "ssh", "sendEnabled": False, "automation": "not_checked", **SEND_DISABLED}
     database = Path(database or home / "Library/Messages/chat.db").expanduser().resolve()
     if operation in LEGACY:
         return legacy(operation, args, database)
     messages = Messages(database, home)
     try:
+        if operation in {"send", "send_status"}:
+            if "chatGuid" in args:
+                messages.chat(args["chatGuid"])
+            if operation == "send":
+                return send_message(home, args)
+            permission = check_automation()
+            if "error" in permission:
+                return {"transport": "ssh", "hostname": socket.gethostname(), "sendEnabled": True, **permission}
+            return {"transport": "ssh", "hostname": socket.gethostname(), "sendEnabled": True,
+                    "checkedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    **native_messages("status", args)}
         handler = {"contacts": messages.contacts_lookup}.get(operation) or getattr(messages, operation)
-        return handler(args)
+        result = handler(args)
+        if operation == "status":
+            result.update(readOnly=not allow_send, sendEnabled=allow_send, transport="ssh")
+            if not allow_send:
+                result["operations"] = [name for name in result["operations"] if name not in {"send", "send_status"}]
+        return result
     except LookupError as error:
         return {"error": "unknown_chat", "message": str(error)}
     except subprocess.SubprocessError:
@@ -964,12 +1135,32 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", type=Path, help="Local fixture override; never accepted from the remote request")
     parser.add_argument("--home", type=Path, help="Local fixture override for Contacts and locale; never accepted remotely")
+    parser.add_argument("--allow-send", action="store_true", help="Explicit local permission to submit sends through Messages")
+    parser.add_argument("--automation-preflight", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--authorize-messages", action="store_true", help="Explicitly request macOS consent; be at the Mac to click Allow")
     options = parser.parse_args()
+    if options.automation_preflight:
+        print(automation_permission())
+        return 0
+    if options.authorize_messages:
+        if not options.allow_send:
+            parser.error("--authorize-messages requires --allow-send")
+        print("Be at the Mac or in Screen Sharing. Click Allow on the SSH → Messages consent prompt. Waiting up to 150 seconds; no message will be sent.", file=sys.stderr, flush=True)
+        try:
+            script = MESSAGES_SCRIPT.replace("with timeout of 10 seconds", "with timeout of 120 seconds")
+            result = subprocess.run(["/usr/bin/osascript", "-e", script, "status", "", ""],
+                                    capture_output=True, text=True, timeout=150, check=False)
+            print(json.dumps({"automation": "granted" if result.returncode == 0 and result.stdout.strip() == "ready" else "unknown",
+                              "exitCode": result.returncode}))
+            return result.returncode
+        except subprocess.TimeoutExpired:
+            print(json.dumps({"error": "automation_consent_timeout", "message": "macOS consent did not finish within 150 seconds. Do not repeat unattended."}))
+            return 1
     try:
         raw = sys.stdin.buffer.read(MAX_REQUEST + 1)
         if len(raw) > MAX_REQUEST:
-            raise ValueError("Request exceeds 16 KiB")
-        value = execute(json.loads(raw), options.database, options.home)
+            raise ValueError("Request exceeds 32 KiB")
+        value = execute(json.loads(raw), options.database, options.home, options.allow_send)
         print(json.dumps(value, ensure_ascii=False))
     except (ValueError, TypeError, UnicodeError) as error:
         message = str(error) if isinstance(error, ValueError) and not isinstance(error, json.JSONDecodeError) else ""

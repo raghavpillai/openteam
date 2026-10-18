@@ -104,6 +104,7 @@ class BridgeTests(unittest.TestCase):
         (directory / 'imessage-bridge.json').chmod(0o600)
         with patch.object(self.bridge, 'connection') as connection:
             connection.return_value.execute.return_value = {'readable': True}
+            connection.return_value.listed_tools.return_value = gateway.TOOLS
             result = subprocess.run([sys.executable, stdio.__file__], env={**os.environ, 'HOME': str(home), 'IMESSAGE_SSH_TARGET': 'user@mac'},
                                     input=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}) + '\n', capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -148,14 +149,14 @@ class BridgeTests(unittest.TestCase):
             connection.return_value.execute.return_value = {'readable': True, 'protocol_version': 1}
             self.bridge.connection('user@mac')
             self.bridge.connection('user@mac')
-        install.assert_called_once_with('user@mac', Path('/legacy/id_ed25519.pub'), Path('/legacy/known_hosts'))
+        install.assert_called_once_with('user@mac', Path('/legacy/id_ed25519.pub'), Path('/legacy/known_hosts'), allow_send=False)
         provision.assert_not_called()  # No new key is generated or authorized.
         connection.return_value.execute.assert_called_once_with('status', {})
 
     def test_current_helper_is_left_alone_and_unreachable_mac_is_rechecked(self):
         self.profile()
         with patch.object(bridge, 'Gateway') as connection, patch.object(self.bridge, 'install') as install:
-            connection.return_value.execute.side_effect = [{'error': 'ssh_unavailable'}, {'protocolVersion': 2}]
+            connection.return_value.execute.side_effect = [{'error': 'ssh_unavailable'}, {'protocolVersion': bridge.PROTOCOL}]
             self.bridge.connection('user@mac')
             self.bridge.connection('user@mac')
             self.bridge.connection('user@mac')

@@ -7,7 +7,7 @@ import shlex
 import shutil
 
 
-def install(public_key, home=None):
+def install(public_key, home=None, allow_send=False):
     home = Path(home or Path.home())
     fields = public_key.strip().split()
     if len(fields) < 2 or fields[0] != "ssh-ed25519":
@@ -24,9 +24,9 @@ def install(public_key, home=None):
     ssh.mkdir(mode=0o700, exist_ok=True)
     authorized = ssh / "authorized_keys"
     before = authorized.read_text() if authorized.exists() else ""
-    command = "/usr/bin/python3 " + shlex.quote(str(target))
+    command = "/usr/bin/python3 " + shlex.quote(str(target)) + (" --allow-send" if allow_send else "")
     escaped = command.replace("\\", "\\\\").replace('"', '\\"')
-    entry = 'restrict,command="' + escaped + '" ssh-ed25519 ' + fields[1] + " openteam-imessage-readonly"
+    entry = 'restrict,command="' + escaped + '" ssh-ed25519 ' + fields[1] + (" openteam-imessage-send" if allow_send else " openteam-imessage-readonly")
     matching = [line for line in before.splitlines() if fields[1] in line.split()]
     if matching and matching != [entry]:
         raise ValueError("Key already exists with different restrictions; use a new dedicated key")
@@ -42,5 +42,6 @@ def install(public_key, home=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--public-key", type=Path, required=True)
+    parser.add_argument("--allow-send", action="store_true", help="Authorize this new dedicated key to submit Messages sends")
     args = parser.parse_args()
-    print("Installed restricted reader:", install(args.public_key.read_text()))
+    print("Installed restricted helper:", install(args.public_key.read_text(), allow_send=args.allow_send))

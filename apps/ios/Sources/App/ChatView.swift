@@ -514,7 +514,8 @@ struct MessageRow: View {
               } else {
                 BubbleText {
                   MarkdownText(source: message.displayContent,
-                    textColor: message.isUser ? .white : NativePalette.text).font(.body).lineSpacing(1.5)
+                    textColor: message.isUser ? .white : NativePalette.text, ownMessage: message.isUser)
+                    .font(.body).lineSpacing(1.5)
                 }
               }
             }
@@ -751,25 +752,43 @@ struct MessageActionsView: View {
 struct MarkdownText: View {
   let source: String
   var textColor: Color = NativePalette.text
-  func inline(_ block: String) -> AttributedString { MessageTextCache.inline(block) }
+  /// Links take the app tint, which is also the fill of your own bubble. There they
+  /// use the text color and an underline instead, so they stay readable and visible.
+  var ownMessage = false
+  func inline(_ block: String) -> AttributedString {
+    let text = MessageTextCache.inline(block)
+    return ownMessage ? Self.underliningLinks(text) : text
+  }
+  static func underliningLinks(_ text: AttributedString) -> AttributedString {
+    var text = text
+    for range in text.runs.filter({ $0.link != nil }).map(\.range) {
+      text[range].underlineStyle = .single
+    }
+    return text
+  }
   var body: some View {
     if RichMarkdownView.required(source) {
       RichMarkdownView(source: source)
     } else if IdentifierMessageText.requiresNativeWrapping(source) {
       IdentifierMessageText(source: source, color: textColor)
+    } else if ownMessage {
+      blocks.tint(textColor)
     } else {
-      VStack(alignment: .leading, spacing: 10) {
-        ForEach(Array(source.components(separatedBy: "```").enumerated()), id: \.offset) {
-          i, block in
-          if i % 2 == 1 {
-            let code = block.components(separatedBy: "\n").dropFirst().joined(separator: "\n")
-            ScrollView(.horizontal) {
-              Text(code).font(.system(.footnote, design: .monospaced)).padding(12)
-            }.background(NativePalette.code, in: RoundedRectangle(cornerRadius: 8))
-          } else {
-            Text(inline(block))
-              .font(.body).fixedSize(horizontal: false, vertical: true)
-          }
+      blocks
+    }
+  }
+  private var blocks: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      ForEach(Array(source.components(separatedBy: "```").enumerated()), id: \.offset) {
+        i, block in
+        if i % 2 == 1 {
+          let code = block.components(separatedBy: "\n").dropFirst().joined(separator: "\n")
+          ScrollView(.horizontal) {
+            Text(code).font(.system(.footnote, design: .monospaced)).padding(12)
+          }.background(NativePalette.code, in: RoundedRectangle(cornerRadius: 8))
+        } else {
+          Text(inline(block))
+            .font(.body).fixedSize(horizontal: false, vertical: true)
         }
       }
     }
@@ -844,7 +863,8 @@ struct PendingMessageView: View {
                 maxWidth: .infinity)
             } else {
               BubbleText {
-                MarkdownText(source: pending.input.content, textColor: .white).font(.body).lineSpacing(1.5)
+                MarkdownText(source: pending.input.content, textColor: .white, ownMessage: true)
+                  .font(.body).lineSpacing(1.5)
               }
             }
           }.padding(.horizontal, 14).padding(

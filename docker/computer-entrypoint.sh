@@ -6,30 +6,14 @@ data_root=${OPENTEAM_AGENT_DATA_CANONICAL_ROOT:-/home/box/sand-data}
 data_alias=${OPENTEAM_AGENT_DATA_ROOT:-/home/box/agent-data}
 agent_uid=${OPENTEAM_AGENT_UID:-1001}
 agent_gid=${OPENTEAM_AGENT_GID:-1000}
-# Administrator commands are available on every bot computer. Keep ordinary
-# processes non-root and grant sudo to the configured numeric agent UID.
-if [ "$(awk '/^NoNewPrivs:/ { print $2 }' /proc/self/status)" != 0 ]; then
-  echo "computer requires no-new-privileges:false; recreate it with the updated Compose configuration" >&2
-  exit 1
-fi
+# Keep ordinary commands non-root; allow administrator commands through sudo.
 case "$agent_uid" in
-  ''|*[!0-9]*) echo "invalid OPENTEAM_AGENT_UID for computer administrator access" >&2; exit 1 ;;
+  ''|0|*[!0-9]*) echo "invalid OPENTEAM_AGENT_UID" >&2; exit 1 ;;
 esac
-if [ "$agent_uid" -le 0 ]; then
-  echo "computer requires a non-root agent UID" >&2
-  exit 1
-fi
-sudo_policy=$(mktemp /etc/sudoers.d/.openteam-runner-XXXXXX) || {
-  echo "computer requires a writable system filesystem; recreate it with the updated Compose configuration" >&2
-  exit 1
-}
-trap 'rm -f "$sudo_policy"' EXIT
-printf '#%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "$agent_uid" > "$sudo_policy"
-chown 0:0 "$sudo_policy"
-chmod 0440 "$sudo_policy"
-visudo -cf "$sudo_policy" >/dev/null
-mv -f "$sudo_policy" /etc/sudoers.d/openteam-runner
-trap - EXIT
+printf '#%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "$agent_uid" > /etc/sudoers.d/openteam-runner
+chown 0:0 /etc/sudoers.d/openteam-runner
+chmod 0440 /etc/sudoers.d/openteam-runner
+visudo -cf /etc/sudoers.d/openteam-runner >/dev/null
 
 umask 0007
 

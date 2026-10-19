@@ -15,15 +15,6 @@ const call = (name: string, args = {}) => ({
 });
 const active = { requestSource: "turn", subagentType: null } as const;
 
-test("runtime context advertises administrator access by default", () => {
-  const text = enrichUserInfo("<user_info></user_info>", {
-    cwd: "/workspace", transcriptPath: "/test/session.jsonl", namespaces: [],
-  });
-  expect(text).toContain("Computer privileges: administrator");
-  expect(text).toContain("use sudo -n for authorized system changes");
-  expect(text).toContain("admin access does not establish VPN support");
-});
-
 test("execution clock reports actual invocation interval without restarting parent deadlines", () => {
   const start = Date.parse("2026-09-25T17:52:23Z");
   const messages = executionClock(start, start + 158000);
@@ -45,6 +36,7 @@ test("runtime context describes actual tools and preserves saved skill catalog",
     }
   );
   expect(text).toContain("Workspace Path: /workspace/task");
+  expect(text).toContain("passwordless sudo");
   expect(text).toContain("test skill");
   expect(text).toContain("<available_subagent_types>");
   expect(text).toContain("Tools: Lookup");

@@ -90,7 +90,6 @@ RUN apt-get update \
     tesseract-ocr-eng \
     tini \
     unzip \
-    util-linux \
     zip \
     websockify \
     wget \

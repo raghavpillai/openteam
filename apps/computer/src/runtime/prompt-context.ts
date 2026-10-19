@@ -24,7 +24,7 @@ export function enrichUserInfo(
   const environment = [
     `OS Version: ${platform()} ${release()}`,
     "Shell: /bin/bash",
-    "Computer privileges: administrator. Shell commands start as an ordinary user; use sudo -n for authorized system changes and package installation. Container capabilities still apply; admin access does not establish VPN support. Verify actual command results before claiming success or a missing capability.",
+    "The Linux computer supports passwordless sudo for system changes and package installation.",
     `Workspace Path: ${input.cwd}`,
     `Is directory a git repo: ${existsSync(join(input.cwd, ".git")) ? "Yes" : "Unknown (inspect the workspace if needed)"}`,
   ].join("\n");

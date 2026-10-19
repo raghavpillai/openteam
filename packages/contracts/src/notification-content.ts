@@ -1,10 +1,3 @@
-import { messagePreviewText } from "./message-preview";
-
-const notificationMetadata = (value: unknown): Record<string, unknown> =>
-  value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-
 /** Cross-process PostgreSQL advisory lock protecting the final push authorization/send boundary. */
 export const PUSH_DELIVERY_ADVISORY_LOCK = {
   namespace: 0x4f50424f,
@@ -120,7 +113,7 @@ export interface AgentNotificationPresentation {
 
 /** Shared presentation contract for native macOS and iOS notifications. */
 const agentNotificationTypeCatalog = {
-  message: { fallbackBody: "Sent you a message.", sound: "default" },
+  message: { fallbackBody: "Open OpenTeam to see what it did.", sound: "default" },
   reaction: { fallbackBody: "Reacted to your message.", sound: "default" },
 } as const satisfies Record<AgentNotificationKind, { fallbackBody: string; sound: "default" }>;
 
@@ -144,52 +137,4 @@ export const agentNotificationPresentation = (input: {
     body: truncateNotificationText(input.body?.trim() ? input.body : definition.fallbackBody),
     ...agentNotificationDeliveryPolicy(input.kind),
   };
-};
-
-export const notificationMessagePreview = (message: {
-  content?: string | null;
-  metadata?: unknown;
-}): string => {
-  const metadata = notificationMetadata(message.metadata);
-  const type = typeof metadata.type === "string" ? metadata.type : "";
-  if (
-    (type === "widget" &&
-      (typeof metadata.respondedValue === "string" || metadata.widgetDismissed === true)) ||
-    (["secret-request", "secret_request"].includes(type) && metadata.secretProvided === true)
-  ) {
-    return "Open OpenTeam to see what it did.";
-  }
-  const attachments = Array.isArray(metadata.attachments) ? metadata.attachments : [];
-  const fileName = attachments.length === 1 ? notificationMetadata(attachments[0]).fileName : null;
-  const withFile = (text: string) =>
-    truncateNotificationText(
-      typeof fileName === "string" && fileName.trim() && !text.includes(fileName)
-        ? `${text} 📎 ${fileName}`
-        : text
-    );
-  // Notifications can't render Markdown: show the first line with text, as plain text.
-  const text = message.content ? messagePreviewText(message.content, Number.POSITIVE_INFINITY) : "";
-  if (text) return withFile(text);
-  if (attachments.length > 0) {
-    const imageCount = attachments.filter((attachment) => {
-      const item = notificationMetadata(attachment);
-      return item.kind === "image" || String(item.mimeType ?? "").startsWith("image/");
-    }).length;
-    if (imageCount === attachments.length) {
-      return withFile(imageCount === 1 ? "Sent an image." : `Sent ${imageCount} images.`);
-    }
-    const archive = typeof fileName === "string" && /\.(zip|tar|gz|tgz|7z|rar)$/i.test(fileName);
-    return withFile(
-      attachments.length === 1
-        ? archive
-          ? "Sent 1 archive."
-          : "Sent an attachment."
-        : `Sent ${attachments.length} files.`
-    );
-  }
-  if (["sent_link", "link"].includes(type)) return "Sent a link.";
-  if (["secret-request", "secret_request"].includes(type)) return "Waiting for your input.";
-  if (["email_draft", "slack_draft"].includes(type)) return "Prepared a draft for you.";
-  if (type === "widget" || type === "user_form") return "Asked you to answer a question.";
-  return "Open OpenTeam to see what it did.";
 };

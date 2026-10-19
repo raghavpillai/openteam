@@ -29,7 +29,7 @@ To get notified when a bot messages you:
 
 On desktop, banners appear only while OpenTeam isn't the window you're using. Each conversation shows at most one banner every 5 seconds, so a burst of replies produces a single banner; replies inside that window don't get one later. Banners are silent, show the message's first line as plain text, and disappear once you read the chat on your Mac or iPhone. Reactions don't notify. On iPhone, you get an alert for each message except in the conversation you have open.
 
-Group chats don't have their own setting; you're notified when a bot posts in a group if that bot's **Notifications** setting is on.
+Group chats don't have their own setting; you're notified when a bot posts in a group if that bot's **Notifications** setting is on. On the Mac, a group's banner is titled with the group's name. Opening a notification for a reply inside a thread opens that thread.
 
 On iPhone, turn on **Notifications** in Settings, and choose which bots notify you under **Bot notifications**. These are the same per-bot settings as on desktop. Push notifications also need Apple push credentials on your server, which you can import with `openteam notifications configure`. Changes apply live without a restart. Follow the [mobile notification setup guide](mobile-notifications.md) for Apple credentials, CLI configuration, and delivery checks.
 

@@ -138,6 +138,12 @@ describe("native APNs delivery", () => {
       "large"
     );
   });
+  test("tells the phone which thread a reply belongs to", () => {
+    const threaded = apnsPayload(device, { ...alert, threadMessageId: "reply-1" }, 2);
+    const plain = apnsPayload(device, alert, 2);
+    expect((threaded.data as Record<string, unknown>).threadMessageId).toBe("reply-1");
+    expect((plain.data as Record<string, unknown>).threadMessageId).toBeUndefined();
+  });
   test("rejects a mismatched app, invalid environment, token or signing key without sending", async () => {
     let requests = 0;
     const transport: ApnsTransport = async () => {

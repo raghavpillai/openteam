@@ -370,3 +370,37 @@ test.skipIf(!databaseUrl)("thread replies carry their id so the alert opens the 
     await prisma.$disconnect();
   }
 });
+
+test.skipIf(!databaseUrl)("group chat alerts are titled with the group, sent by the Bot", async () => {
+  const prisma = createPrismaClient(databaseUrl!);
+  const bot = await prisma.bot.create({
+    data: { name: "Planner", defaultDirectory: "/tmp/group-alert-qa" },
+  });
+  const group = await prisma.channel.create({
+    data: {
+      kind: "group",
+      name: "Trip Planning",
+      members: { create: { botId: bot.id, ordinal: 0 } },
+    },
+  });
+  try {
+    const message = await prisma.channelMessage.create({
+      data: {
+        channelId: group.id,
+        sender: "agent",
+        senderBotId: bot.id,
+        content: "Hotels are booked.",
+        metadata: { kind: "send-message", type: "text" },
+      },
+    });
+    await prisma.$transaction((tx) => publishMessageNotification(tx, message));
+    const state = (await channelNotificationStates(prisma, [group.id])).get(group.id)!;
+    expect(state.notifications.map(({ title, body, sender }) => ({ title, body, sender: sender?.name }))).toEqual([
+      { title: "Trip Planning", body: "Hotels are booked.", sender: "Planner" },
+    ]);
+  } finally {
+    await prisma.channel.delete({ where: { id: group.id } });
+    await prisma.bot.delete({ where: { id: bot.id } });
+    await prisma.$disconnect();
+  }
+});

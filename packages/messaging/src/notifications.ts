@@ -4,9 +4,9 @@ import {
   type ChannelNotificationState,
   type ChannelNotificationView,
   agentNotificationPresentation,
-  notificationMessagePreview,
   truncateNotificationText,
 } from "@openteam/contracts";
+import { channelMessageSummary } from "@openteam/product-core/channel-events";
 import { Prisma } from "@openteam/db";
 
 type NotificationInput = Omit<AgentNotificationPayload, "badgeCount" | "notificationSequence">;
@@ -38,7 +38,10 @@ export const publishChannelNotification = async (
     return;
   input = {
     ...input,
-    title: truncateNotificationText(bot.name),
+    // A group's alert is titled with the group; the sender avatar still shows which Bot.
+    title: truncateNotificationText(
+      channel.kind === "group" && channel.name.trim() ? channel.name : bot.name
+    ),
     sender: {
       name: truncateNotificationText(bot.name),
       icon: normalizeRobotAvatarShape(bot.icon),
@@ -125,7 +128,7 @@ export const publishMessageNotification = async (
   const { title, body } = agentNotificationPresentation({
     kind,
     botName: bot.name,
-    body: notificationMessagePreview(message),
+    body: messageNotificationBody(message),
   });
   await publishChannelNotification(tx, `message:${message.id}`, {
     schemaVersion: 1,
@@ -140,6 +143,23 @@ export const publishMessageNotification = async (
     deepLink: `openteam:///chat/${message.channelId}`,
   });
 };
+
+/** The same plain-text line the chat list shows: first line of text, "Sent 1 image", a card's prompt. */
+export const messageNotificationBody = (message: {
+  id: string;
+  channelId: string;
+  sequence: bigint;
+  senderBotId: string | null;
+  sourceRunId: string | null;
+  content: string;
+  metadata: unknown;
+}): string =>
+  channelMessageSummary({
+    ...message,
+    sequence: message.sequence.toString(),
+    sender: "agent",
+    createdAt: "",
+  });
 
 /** Bounded alert history plus durable read markers; missing history never means read. */
 export const channelNotificationStates = async (

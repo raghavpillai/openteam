@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   agentNotificationPresentation,
   notificationGraphemes,
-  notificationMessagePreview,
   truncateNotificationText,
 } from "../src";
 
@@ -17,7 +16,7 @@ describe("notification text", () => {
     ).toEqual({ title: "Probe", body: "Finished the command", sound: "default" });
     expect(agentNotificationPresentation({ kind: "message", botName: "Probe" })).toEqual({
       title: "Probe",
-      body: "Sent you a message.",
+      body: "Open OpenTeam to see what it did.",
       sound: "default",
     });
     expect(agentNotificationPresentation({ kind: "reaction", botName: "" })).toEqual({
@@ -25,21 +24,6 @@ describe("notification text", () => {
       body: "Reacted to your message.",
       sound: "default",
     });
-  });
-
-  test("shows the first line with text as plain text, never Markdown", () => {
-    expect(
-      notificationMessagePreview({
-        content: "## **Deploy** finished — see [the logs](https://example.com/logs) and `run.sh`\n\n- step one",
-      })
-    ).toBe("Deploy finished — see the logs and run.sh");
-    expect(notificationMessagePreview({ content: "```\n\n> *Quoted* reply" })).toBe("Quoted reply");
-    expect(
-      notificationMessagePreview({
-        content: "Here's the **report**",
-        metadata: { attachments: [{ fileName: "report.pdf", kind: "file" }] },
-      })
-    ).toBe("Here's the report 📎 report.pdf");
   });
 
   test("keeps extended grapheme clusters intact at the 140-character boundary", () => {
@@ -69,50 +53,5 @@ describe("notification text", () => {
         expect(truncateNotificationText(input, limit)).toBe(previous);
       }
     }
-  });
-
-  test("provides useful structured fallbacks for attachment-only messages", () => {
-    expect(
-      notificationMessagePreview({
-        content: "",
-        metadata: {
-          attachments: [
-            { kind: "image", mimeType: "image/png" },
-            { kind: "image", mimeType: "image/jpeg" },
-          ],
-        },
-      })
-    ).toBe("Sent 2 images.");
-    expect(notificationMessagePreview({ content: "", metadata: { type: "secret_request" } })).toBe(
-      "Waiting for your input."
-    );
-  });
-
-  test("includes archive filenames without repeating an existing caption", () => {
-    const metadata = { attachments: [{ fileName: "evidence.zip", kind: "file" }] };
-    expect(notificationMessagePreview({ metadata })).toBe("Sent 1 archive. 📎 evidence.zip");
-    expect(notificationMessagePreview({ content: "Sent 1 archive", metadata })).toBe("Sent 1 archive 📎 evidence.zip");
-    expect(notificationMessagePreview({ content: "Attached evidence.zip", metadata })).toBe("Attached evidence.zip");
-  });
-
-  test("previews cards like any other message", () => {
-    expect(
-      notificationMessagePreview({
-        content: "Deploy to production?",
-        metadata: { type: "widget" },
-      })
-    ).toBe("Deploy to production?");
-    expect(notificationMessagePreview({ content: "", metadata: { type: "widget" } })).toBe(
-      "Asked you to answer a question."
-    );
-    expect(notificationMessagePreview({ content: "", metadata: { type: "secret-request" } })).toBe(
-      "Waiting for your input."
-    );
-    expect(
-      notificationMessagePreview({
-        content: "Deploy to production?",
-        metadata: { type: "widget", widgetDismissed: true },
-      })
-    ).toBe("Open OpenTeam to see what it did.");
   });
 });

@@ -327,40 +327,6 @@ struct ConversationDetails: View {
                 .listRowInsets(EdgeInsets(top: 8, leading: 18, bottom: 8, trailing: 18))
             }
             Section {
-              Toggle(
-                "Review drafts",
-                isOn: Binding(
-                  get: { !(self.bot?.draftingDisabled ?? false) },
-                  set: { review in
-                    Task {
-                      await store.mutate(
-                        "/api/v0/bots/\(API.segment(bot.id))", method: "PATCH",
-                        body: .object(["draftingDisabled": .bool(!review)]))
-                    }
-                  })
-              ).frame(minHeight: 28).accessibilityIdentifier("profile-review-drafts")
-              ForEach(self.bot?.draftAllowedRecipients ?? [], id: \.self) { address in
-                HStack {
-                  Text(address).lineLimit(1)
-                  Spacer()
-                  Button("Remove") {
-                    let remaining = (self.bot?.draftAllowedRecipients ?? []).filter { $0 != address }
-                    Task {
-                      await store.mutate(
-                        "/api/v0/bots/\(API.segment(bot.id))", method: "PATCH",
-                        body: .object(["draftAllowedRecipients": .array(remaining.map { .string($0) })]))
-                    }
-                  }.foregroundStyle(NativePalette.muted).accessibilityLabel("Stop allowing \(address)")
-                }
-              }
-            } footer: {
-              Text((self.bot?.draftAllowedRecipients ?? []).isEmpty
-                ? "Emails and Slack messages wait on a draft card until you press Send"
-                : "Emails and Slack messages wait on a draft card until you press Send. This Bot emails the people listed without asking.")
-                .font(.system(size: 14)).foregroundStyle(NativePalette.faint)
-                .listRowInsets(EdgeInsets(top: 8, leading: 18, bottom: 8, trailing: 18))
-            }
-            Section {
               Button {
                 Task { await exportTemplate() }
               } label: {

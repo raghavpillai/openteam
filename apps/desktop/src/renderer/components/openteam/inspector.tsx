@@ -231,69 +231,10 @@ function BotSettings({
             onCheckedChange={(checked) => queue({ ...draft, notificationsEnabled: checked }, true)}
           />
         </div>
-        <DraftApprovalSettings bot={bot} onUpdate={onUpdate} />
         {saveState === "error" && (
           <p className="text-xs text-destructive">Could not save. Your draft is still here.</p>
         )}
       </div>
-    </div>
-  );
-}
-
-/** The rules the draft card's approval menu writes, so the user can review and remove them. */
-function DraftApprovalSettings({
-  bot,
-  onUpdate,
-}: {
-  bot: BotView;
-  onUpdate: (input: UpdateBotInput) => Promise<BotView>;
-}) {
-  const [error, setError] = useState(false);
-  const update = (input: UpdateBotInput) => {
-    setError(false);
-    onUpdate(input).catch(() => setError(true));
-  };
-  return (
-    <div className="mt-1 rounded-xl bg-[#f0f0f0] p-3 dark:bg-[#181818]">
-      <div className="flex items-center gap-3">
-        <div className="relative left-0.5 min-w-0 flex-1">
-          <div className="text-[13px] font-medium leading-[18px]">Review drafts</div>
-          <div className="mt-0.5 text-[12px] leading-[15px] text-foreground-secondary">
-            Emails and Slack messages wait on a draft card until you press Send
-          </div>
-        </div>
-        <Switch
-          aria-label="Review drafts"
-          checked={!bot.draftingDisabled}
-          className="-mr-1"
-          onCheckedChange={(checked) => update({ draftingDisabled: !checked })}
-        />
-      </div>
-      {bot.draftAllowedRecipients.length > 0 && (
-        <div className="mt-3 border-t border-black/[0.06] pt-2.5 dark:border-white/[0.07]">
-          <div className="text-[12px] text-foreground-secondary">Emails these people without asking</div>
-          <ul className="m-0 mt-1 list-none p-0">
-            {bot.draftAllowedRecipients.map((address) => (
-              <li className="flex min-h-7 items-center gap-2 text-[13px]" key={address}>
-                <span className="min-w-0 flex-1 truncate">{address}</span>
-                <button
-                  aria-label={`Stop allowing ${address}`}
-                  className="rounded-md px-1.5 py-0.5 text-[12px] text-foreground-secondary hover:bg-black/5 dark:hover:bg-white/5"
-                  onClick={() =>
-                    update({
-                      draftAllowedRecipients: bot.draftAllowedRecipients.filter((entry) => entry !== address),
-                    })
-                  }
-                  type="button"
-                >
-                  Remove
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {error && <p className="mt-2 text-xs text-destructive">Couldn't save. Try again.</p>}
     </div>
   );
 }

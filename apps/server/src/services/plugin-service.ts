@@ -802,14 +802,17 @@ export class PluginService {
       if (error instanceof OAuthReauthorizationRequiredError) throw error;
       const raw = error instanceof Error ? error.message : String(error);
       const message = String(redactConnectionSecrets(raw, connection)).slice(0, 1500);
+      // Local connectors can manage their own credentials despite authType none.
+      const connectorAuthFailure = message.startsWith("Authentication failed:");
       const authFailure =
-        connection.authType !== "none" &&
-        /401|unauthoriz|invalid.token|invalid.grant/i.test(message);
+        connectorAuthFailure ||
+        (connection.authType !== "none" &&
+          /401|unauthoriz|invalid.token|invalid.grant/i.test(message));
       await this.prisma.pluginConnection.updateMany({
         where: { id: connectionId, runtimeGeneration: connection.runtimeGeneration },
         data: {
           status: authFailure ? "needs_auth" : "error",
-          statusMessage: `${authFailure ? "Authentication failed" : connection.transport === "stdio" ? "Local runtime unavailable" : "Tool discovery failed"}: ${message}`,
+          statusMessage: connectorAuthFailure ? message : `${authFailure ? "Authentication failed" : connection.transport === "stdio" ? "Local runtime unavailable" : "Tool discovery failed"}: ${message}`,
           lastCheckedAt: new Date(),
         },
       });
@@ -1313,11 +1316,12 @@ export class PluginService {
               connection
             )
           );
+          const authFailure = message.startsWith("Authentication failed:");
           await this.prisma.pluginConnection.updateMany({
             where: { id: connection.id, updatedAt: connection.updatedAt },
             data: {
-              status: "error",
-              statusMessage: `Local runtime unavailable: ${message.slice(0, 1500)}`,
+              status: authFailure ? "needs_auth" : "error",
+              statusMessage: authFailure ? message.slice(0, 1500) : `Local runtime unavailable: ${message.slice(0, 1500)}`,
               lastCheckedAt: new Date(),
             },
           });

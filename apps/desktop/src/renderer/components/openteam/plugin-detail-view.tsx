@@ -639,8 +639,8 @@ function PluginSetupCard({
               ))}
             </div>
           ) : connection.configured && setup.fields.length ? (
-            <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] text-emerald-700 dark:text-emerald-400">
-              <Check className="size-3" /> Credentials saved
+            <div className="mt-3 text-[10px] text-foreground-secondary">
+              Settings saved. {connection.status === "ready" ? "Connection verified." : "A successful connection is required to verify access."}
             </div>
           ) : null}
 

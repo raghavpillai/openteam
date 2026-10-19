@@ -205,7 +205,6 @@ struct ConversationDetails: View {
   @State private var routineRefreshID = 0
   @State private var templateFile: URL?
   @State private var exportingTemplate = false
-  @State private var changingNotifications = false
   @State private var confirmingExit = false
   private var routinePath: String {
     "/api/v0/\(channel?.isGroup == true ? "channels" : "bots")/\(API.segment(bot?.id ?? channelID))/routines"
@@ -303,63 +302,7 @@ struct ConversationDetails: View {
             ownerID: bot?.id ?? channel.id, isGroup: channel.isGroup,
             refreshID: routineRefreshID, onAdd: { addingRoutine = true },
             onEdit: { editingRoutine = $0 })
-          if let bot {
-            Section {
-              Toggle(
-                "Notifications",
-                isOn: Binding(
-                  get: { self.bot?.notificationsEnabled ?? false },
-                  set: { enabled in
-                    Task {
-                      guard !changingNotifications else { return }
-                      changingNotifications = true
-                      defer { changingNotifications = false }
-                      NativeHaptics.play(.selection, source: "profile.notifications")
-                      await store.mutate(
-                        "/api/v0/bots/\(API.segment(bot.id))", method: "PATCH",
-                        body: .object(["notificationsEnabled": .bool(enabled)]))
-                    }
-                  })
-              ).frame(minHeight: 28).disabled(changingNotifications).accessibilityIdentifier("profile-notifications")
-            } footer: {
-              Text("Get notified when this Bot finishes or is waiting for you")
-                .font(.system(size: 14)).foregroundStyle(NativePalette.faint)
-                .listRowInsets(EdgeInsets(top: 8, leading: 18, bottom: 8, trailing: 18))
-            }
-            Section {
-              Toggle(
-                "Review drafts",
-                isOn: Binding(
-                  get: { !(self.bot?.draftingDisabled ?? false) },
-                  set: { review in
-                    Task {
-                      await store.mutate(
-                        "/api/v0/bots/\(API.segment(bot.id))", method: "PATCH",
-                        body: .object(["draftingDisabled": .bool(!review)]))
-                    }
-                  })
-              ).frame(minHeight: 28).accessibilityIdentifier("profile-review-drafts")
-              ForEach(self.bot?.draftAllowedRecipients ?? [], id: \.self) { address in
-                HStack {
-                  Text(address).lineLimit(1)
-                  Spacer()
-                  Button("Remove") {
-                    let remaining = (self.bot?.draftAllowedRecipients ?? []).filter { $0 != address }
-                    Task {
-                      await store.mutate(
-                        "/api/v0/bots/\(API.segment(bot.id))", method: "PATCH",
-                        body: .object(["draftAllowedRecipients": .array(remaining.map { .string($0) })]))
-                    }
-                  }.foregroundStyle(NativePalette.muted).accessibilityLabel("Stop allowing \(address)")
-                }
-              }
-            } footer: {
-              Text((self.bot?.draftAllowedRecipients ?? []).isEmpty
-                ? "Emails and Slack messages wait on a draft card until you press Send"
-                : "Emails and Slack messages wait on a draft card until you press Send. This Bot emails the people listed without asking.")
-                .font(.system(size: 14)).foregroundStyle(NativePalette.faint)
-                .listRowInsets(EdgeInsets(top: 8, leading: 18, bottom: 8, trailing: 18))
-            }
+          if bot != nil {
             Section {
               Button {
                 Task { await exportTemplate() }

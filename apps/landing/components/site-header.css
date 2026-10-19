@@ -5,6 +5,8 @@
   flex-wrap: nowrap;
 }
 .landing .ot-site-header .ot-wordmark {
+  display: flex;
+  align-items: center;
   flex-shrink: 0;
 }
 .landing .ot-site-header .ot-wordmark > span > span {
@@ -58,7 +60,12 @@
   .landing .ot-site-header .ot-mobile-menu > summary {
     list-style: none;
     cursor: pointer;
-    padding: 10px 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
     transition: background-color 190ms, color 190ms;
   }
   .landing .ot-site-header .ot-mobile-menu > summary::-webkit-details-marker {
@@ -91,17 +98,27 @@
 @media (max-width: 700px) {
   .landing .ot-site-header .ot-nav {
     height: 64px;
-    gap: 12px;
+    gap: 8px;
   }
   .landing .ot-site-header .ot-wordmark > span > span {
-    font-size: 22px !important;
+    font-size: 20px !important;
   }
   .landing .ot-site-header .ot-brand-bot {
     width: 32px;
     height: 32px;
   }
   .landing .ot-site-header .ot-nav-actions {
-    gap: 0;
+    gap: 8px;
+  }
+  .landing .ot-site-header .ot-github {
+    flex: 0 0 44px;
+    min-height: 44px;
+    justify-content: center;
+    color: #555;
+  }
+  .landing .ot-site-header .ot-github svg {
+    width: 24px;
+    height: 24px;
   }
   .landing .ot-site-header .ot-button {
     min-height: 44px;
@@ -128,20 +145,31 @@
     border-radius: 6px;
   }
   .landing .ot-site-header .ot-mobile-menu > summary {
+    width: 44px;
     min-width: 44px;
     min-height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 0;
+    color: #555;
+    border-radius: 6px;
+  }
+  .landing .ot-site-header .ot-mobile-menu > summary:hover,
+  .landing .ot-site-header .ot-mobile-menu[open] > summary {
+    background: #f4f4f4;
   }
   .landing .ot-site-header .ot-mobile-menu {
     font-size: 14px;
   }
 }
 @media (max-width: 370px) {
-  .landing .ot-site-header .ot-nav {
-    gap: 9px;
+  .landing .ot-site-header .ot-nav,
+  .landing .ot-site-header .ot-nav-actions {
+    gap: 4px;
+  }
+  .landing .ot-site-header .ot-brand {
+    gap: 4px;
   }
   .landing .ot-site-header .ot-wordmark > span > span {
     font-size: 18px !important;

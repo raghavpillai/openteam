@@ -8,7 +8,14 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 // initialization cannot complete until the person approves it.
 const directory = process.argv[2];
 await appendFile(join(directory, "starts"), `${process.pid}\n`);
-if (process.env.MCP_FIXTURE_EXIT_BEFORE_INIT === "yes") process.exit(1);
+const authError = () => process.stderr.write(JSON.stringify({
+  app: "slack-mcp-server", level: "fatal", error: "invalid_auth",
+  message: process.env.MCP_FIXTURE_SECRET,
+}));
+if (process.env.MCP_FIXTURE_EXIT_BEFORE_INIT === "yes") {
+  if (process.env.MCP_FIXTURE_AUTH_FAILURE === "yes") authError();
+  process.exit(1);
+}
 while (true) {
   try {
     await access(join(directory, "approved"));
@@ -30,7 +37,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return { tools };
 });
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  if (request.params.arguments?.exit) setTimeout(() => process.exit(0), 25);
+  if (request.params.arguments?.exit) setTimeout(() => {
+    if (process.env.MCP_FIXTURE_AUTH_FAILURE === "yes") authError();
+    process.exit(0);
+  }, 25);
   if (request.params.arguments?.changeTools) {
     tools = [{ name: "updated", inputSchema: { type: "object" } }];
     await server.sendToolListChanged();

@@ -84,11 +84,13 @@ RUN apt-get update \
     python3-venv \
     python-is-python3 \
     ripgrep \
+    sudo \
     thunar \
     tesseract-ocr \
     tesseract-ocr-eng \
     tini \
     unzip \
+    util-linux \
     zip \
     websockify \
     wget \

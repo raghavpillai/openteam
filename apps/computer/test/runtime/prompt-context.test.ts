@@ -15,6 +15,26 @@ const call = (name: string, args = {}) => ({
 });
 const active = { requestSource: "turn", subagentType: null } as const;
 
+test("runtime context reports the configured computer privilege mode", () => {
+  const original = process.env.OPENTEAM_COMPUTER_RESTRICTED;
+  const render = () => enrichUserInfo("<user_info></user_info>", {
+    cwd: "/workspace", transcriptPath: "/test/session.jsonl", namespaces: [],
+  });
+  try {
+    process.env.OPENTEAM_COMPUTER_RESTRICTED = "false";
+    expect(render()).toContain("use sudo -n for authorized system changes");
+    expect(render()).toContain("admin access does not establish VPN support");
+    process.env.OPENTEAM_COMPUTER_RESTRICTED = "true";
+    expect(render()).toContain("Root elevation is disabled");
+    expect(render()).not.toContain("use sudo -n");
+    delete process.env.OPENTEAM_COMPUTER_RESTRICTED;
+    expect(render()).not.toContain("Computer privilege mode:");
+  } finally {
+    if (original === undefined) delete process.env.OPENTEAM_COMPUTER_RESTRICTED;
+    else process.env.OPENTEAM_COMPUTER_RESTRICTED = original;
+  }
+});
+
 test("execution clock reports actual invocation interval without restarting parent deadlines", () => {
   const start = Date.parse("2026-09-25T17:52:23Z");
   const messages = executionClock(start, start + 158000);

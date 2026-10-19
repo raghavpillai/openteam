@@ -106,6 +106,7 @@ services:
       OPENTEAM_TIME_ZONE: ${OPENTEAM_TIME_ZONE:-UTC}
       OPENTEAM_SERVER_URL: http://server:8787
       OPENTEAM_PI_AGENT_DIR: /home/box/.pi/agent
+      OPENTEAM_COMPUTER_RESTRICTED: ${OPENTEAM_COMPUTER_RESTRICTED:-true}
       OPENTEAM_AGENT_DATA_ROOT: /home/box/agent-data
       OPENTEAM_AGENT_DATA_CANONICAL_ROOT: /home/box/sand-data
       OPENTEAM_BOX_STORE_ROOT: /box-store
@@ -122,8 +123,8 @@ services:
     cap_drop: ["ALL"]
     cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
     security_opt:
-      - no-new-privileges:true
-    read_only: true
+      - no-new-privileges:${OPENTEAM_COMPUTER_RESTRICTED:-true}
+    read_only: ${OPENTEAM_COMPUTER_RESTRICTED:-true}
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=512m
     healthcheck:

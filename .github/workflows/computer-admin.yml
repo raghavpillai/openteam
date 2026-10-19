@@ -1,0 +1,31 @@
+name: Computer admin mode
+
+on:
+  pull_request:
+    paths:
+      - "docker/computer.Dockerfile"
+      - "docker/computer-entrypoint.sh"
+      - "docker-compose.yml"
+      - "deploy/compose.yaml"
+      - "apps/computer/src/agent-process.ts"
+      - "apps/computer/src/node-runtime.ts"
+      - "apps/computer/test/admin-mode.integration.test.ts"
+      - "scripts/test-computer-admin.sh"
+      - ".github/workflows/computer-admin.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  permissions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Build the shipped computer image
+        run: docker build -f docker/computer.Dockerfile -t openteam-computer:admin-test .
+      - name: Exercise restricted and admin modes in isolated containers
+        run: bash scripts/test-computer-admin.sh openteam-computer:admin-test
+      - name: Check packaged computer startup
+        run: bash scripts/test-computer-image.sh openteam-computer:admin-test

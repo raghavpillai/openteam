@@ -57,5 +57,8 @@ describe("release Compose rendering", () => {
     expect(rendered).not.toContain("OPENTEAM_PI_MODEL");
     expect(rendered).not.toContain("OPENTEAM_PI_THINKING");
     expect(rendered).toContain('cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]');
+    expect(rendered).toContain("OPENTEAM_COMPUTER_RESTRICTED: ${OPENTEAM_COMPUTER_RESTRICTED:-true}");
+    expect(rendered).toContain("no-new-privileges:${OPENTEAM_COMPUTER_RESTRICTED:-true}");
+    expect(rendered).toContain("read_only: ${OPENTEAM_COMPUTER_RESTRICTED:-true}");
   });
 });

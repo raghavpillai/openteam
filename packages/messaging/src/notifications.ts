@@ -4,7 +4,6 @@ import {
   type ChannelNotificationState,
   type ChannelNotificationView,
   agentNotificationPresentation,
-  notificationMessageInputReason,
   notificationMessagePreview,
   truncateNotificationText,
 } from "@openteam/contracts";
@@ -123,12 +122,11 @@ export const publishMessageNotification = async (
     select: { name: true },
   });
   if (!bot) return;
-  const reason = notificationMessageInputReason(message);
-  const kind = reason ? "agent-needs-input" : "message";
+  const kind = "message";
   const { title, body } = agentNotificationPresentation({
     kind,
     botName: bot.name,
-    body: reason ?? notificationMessagePreview(message),
+    body: notificationMessagePreview(message),
   });
   await publishChannelNotification(tx, `message:${message.id}`, {
     schemaVersion: 1,

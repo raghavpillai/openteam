@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ClientSnapshot } from "@openteam/contracts";
 import {
-  deriveAgentNotifications,
   deriveUnreadChannelIds,
   desktopNotificationSnapshot,
   syncDesktopNotificationSnapshot,
@@ -14,46 +13,17 @@ const base = {
   runs: [],
 } as unknown as ClientSnapshot;
 
-describe("OpenTeam-compatible notification transitions", () => {
+describe("desktop notification projection", () => {
   test("creates the native projection only when a sync target can consume it", () => {
-    const unreadIds = new Set(["channel"]);
     const published: ReturnType<typeof desktopNotificationSnapshot>[] = [];
 
-    expect(syncDesktopNotificationSnapshot(undefined, base, unreadIds)).toBe(false);
+    expect(syncDesktopNotificationSnapshot(undefined, base)).toBe(false);
     expect(published).toEqual([]);
 
     expect(
-      syncDesktopNotificationSnapshot(
-        { sync: (snapshot) => published.push(snapshot) },
-        base,
-        unreadIds
-      )
+      syncDesktopNotificationSnapshot({ sync: (snapshot) => published.push(snapshot) }, base)
     ).toBe(true);
-    expect(published).toEqual([desktopNotificationSnapshot(base, unreadIds)]);
-  });
-
-  test("notifies only on entering needs-input and finishing with a new last message", () => {
-    const running = {
-      ...base,
-      runs: [
-        {
-          id: "run",
-          botId: "bot",
-          channelId: "channel",
-          status: "running",
-          updatedAt: "2026-01-01T00:00:01Z",
-        },
-      ],
-    } as ClientSnapshot;
-    const done = {
-      ...base,
-      channelMessages: [
-        ...base.channelMessages,
-        { id: "after", channelId: "channel", createdAt: "2026-01-01T00:00:02Z" },
-      ],
-    } as ClientSnapshot;
-    expect(deriveAgentNotifications(running, done).map(({ kind }) => kind)).toEqual(["agent-done"]);
-    expect(deriveAgentNotifications(running, base)).toEqual([]);
+    expect(published).toEqual([desktopNotificationSnapshot(base)]);
   });
 
   test("raises room activity but suppresses peer A2A home rows", () => {
@@ -87,91 +57,47 @@ describe("OpenTeam-compatible notification transitions", () => {
     expect(deriveUnreadChannelIds(base, current, "room")).toEqual([]);
   });
 
-  test("projects an interactive bot message as needs-input after its run ends", () => {
+  test("projects visible conversations and keeps muted Bots out of the badge", () => {
+    const state = (channelId: string) => ({
+      channelId,
+      lastReadSequence: "0",
+      lastReadNotificationSequence: "0",
+      notificationCursor: "0",
+      activityUnreadCount: 0,
+      notifications: [],
+    });
     const snapshot = {
       cursor: "4",
       bots: [
-        {
-          id: "bot",
-          name: "Probe",
-          notificationsEnabled: true,
-          hiddenFromSidebar: false,
-        },
+        { id: "bot", notificationsEnabled: true, hiddenFromSidebar: false },
+        { id: "muted", notificationsEnabled: false, hiddenFromSidebar: false },
+        { id: "hidden", notificationsEnabled: true, hiddenFromSidebar: true },
       ],
       channels: [
-        {
-          id: "channel",
-          kind: "bot_dm",
-          name: "Probe",
-          members: [{ botId: "bot" }],
-          unreadCount: 1,
-        },
-      ],
-      channelMessages: [
-        {
-          id: "question",
-          channelId: "channel",
-          senderBotId: "bot",
-          content: "Deploy to production?",
-          metadata: { type: "widget", interactive: true },
-          createdAt: "2026-01-01T00:00:02Z",
-        },
-      ],
+        ["dm", "bot_dm", ["bot"], 2],
+        ["quiet", "bot_dm", ["muted"], 3],
+        ["gone", "bot_dm", ["hidden"], 4],
+        ["room", "group", ["muted", "bot"], 1],
+      ].map(([id, kind, bots, unreadCount]) => ({
+        id,
+        kind,
+        members: (bots as string[]).map((botId) => ({ botId })),
+        unreadCount,
+        notificationState: state(id as string),
+      })),
+      channelMessages: [],
       runs: [],
     } as unknown as ClientSnapshot;
 
-    expect(desktopNotificationSnapshot(snapshot, new Set()).agents[0]).toMatchObject({
-      isRunning: false,
-      awaitingReason: "Deploy to production?",
-      lastMessageId: "question",
-    });
-  });
-
-  test("tracks a group-origin run on the member Bot's home notification row", () => {
-    const snapshot = {
-      cursor: "5",
-      bots: [
-        {
-          id: "bot",
-          name: "Probe",
-          notificationsEnabled: true,
-          hiddenFromSidebar: false,
-        },
-      ],
-      channels: [
-        {
-          id: "channel",
-          kind: "bot_dm",
-          name: "Probe",
-          members: [{ botId: "bot" }],
-          unreadCount: 0,
-        },
-        {
-          id: "group",
-          kind: "group",
-          name: "Testing",
-          members: [{ botId: "bot" }],
-          unreadCount: 0,
-        },
-      ],
-      channelMessages: [],
-      runs: [
-        {
-          id: "run",
-          botId: "bot",
-          channelId: "group",
-          status: "running",
-          updatedAt: "2026-01-01T00:00:02Z",
-        },
-      ],
-    } as unknown as ClientSnapshot;
-
-    expect(desktopNotificationSnapshot(snapshot, new Set()).agents).toEqual([
-      expect.objectContaining({
-        botId: "bot",
-        channelId: "channel",
-        isRunning: true,
-      }),
+    expect(
+      desktopNotificationSnapshot(snapshot).channels.map(({ channelId, unreadCount }) => [
+        channelId,
+        unreadCount,
+      ])
+    ).toEqual([
+      ["dm", 2],
+      ["quiet", 0],
+      ["room", 1],
     ]);
   });
 });
@@ -222,7 +148,7 @@ test("a read arriving while an icon renders supersedes the pending alert snapsho
     const target = {
       sync: (state: ReturnType<typeof desktopNotificationSnapshot>) => published.push(state),
     };
-    syncDesktopNotificationSnapshot(target, snapshot, new Set(["channel"]));
+    syncDesktopNotificationSnapshot(target, snapshot);
     expect(published).toHaveLength(0);
     const read = {
       ...snapshot,
@@ -235,7 +161,7 @@ test("a read arriving while an icon renders supersedes the pending alert snapsho
         },
       ],
     } as ClientSnapshot;
-    syncDesktopNotificationSnapshot(target, read, new Set());
+    syncDesktopNotificationSnapshot(target, read);
     failImage?.();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(published.map((state) => state.cursor)).toEqual(["2"]);

@@ -22,12 +22,14 @@ The iPhone app's **Settings** covers plugins, appearance, notifications, and you
 
 ## Notifications
 
-To get notified when a bot finishes or needs your input:
+To get notified when a bot messages you:
 
 1. Allow OpenTeam to send notifications in your device's system settings.
 2. Open the bot, select its name at the top of the conversation, and check that **Notifications** is on. It's on by default.
 
-You won't get alerts for the conversation you're looking at. Group chats don't have their own setting; you're notified when a bot posts in a group if that bot's **Notifications** setting is on.
+On desktop, banners appear only while OpenTeam isn't the window you're using. Each conversation shows at most one banner every 5 seconds, so a burst of replies produces a single banner; replies inside that window don't get one later. Banners are silent, and reactions don't notify. On iPhone, you get an alert for each message except in the conversation you have open.
+
+Group chats don't have their own setting; you're notified when a bot posts in a group if that bot's **Notifications** setting is on.
 
 On iPhone, turn on **Notifications** in Settings, and choose which bots notify you under **Bot notifications**. These are the same per-bot settings as on desktop. Push notifications also need Apple push credentials on your server, which you can import with `openteam notifications configure`. Changes apply live without a restart. Follow the [mobile notification setup guide](mobile-notifications.md) for Apple credentials, CLI configuration, and delivery checks.
 

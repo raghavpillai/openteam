@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   agentNotificationPresentation,
   notificationGraphemes,
-  notificationMessageInputReason,
   notificationMessagePreview,
   truncateNotificationText,
 } from "../src";
@@ -28,17 +27,17 @@ describe("notification text", () => {
       urgency: "critical",
     });
     expect(
-      agentNotificationPresentation({ kind: "agent-done", botName: "Probe", body: "Finished" })
+      agentNotificationPresentation({ kind: "message", botName: "Probe", body: "Finished" })
     ).toEqual({
       title: "Probe",
       body: "Finished",
-      sound: null,
+      sound: "default",
       urgency: "normal",
     });
-    expect(agentNotificationPresentation({ kind: "agent-done", botName: "Probe" })).toEqual({
+    expect(agentNotificationPresentation({ kind: "message", botName: "Probe" })).toEqual({
       title: "Probe",
-      body: "Open OpenTeam to see what it did.",
-      sound: null,
+      body: "Sent you a message.",
+      sound: "default",
       urgency: "normal",
     });
   });
@@ -96,42 +95,24 @@ describe("notification text", () => {
     expect(notificationMessagePreview({ content: "Attached evidence.zip", metadata })).toBe("Attached evidence.zip");
   });
 
-  test("classifies interactive and secret messages as needs-input reasons", () => {
+  test("previews cards like any other message", () => {
     expect(
-      notificationMessageInputReason({
+      notificationMessagePreview({
         content: "Deploy to production?",
         metadata: { type: "widget" },
       })
     ).toBe("Deploy to production?");
-    expect(
-      notificationMessageInputReason({ content: "", metadata: { type: "secret-request" } })
-    ).toBe("Waiting for your input.");
-    expect(
-      notificationMessageInputReason({
-        content: "Deploy to production?",
-        metadata: { type: "widget", respondedValue: "No" },
-      })
-    ).toBeNull();
-    expect(
-      notificationMessageInputReason({
-        content: "Deploy to production?",
-        metadata: { type: "widget", widgetDismissed: true },
-      })
-    ).toBeNull();
-    expect(
-      notificationMessageInputReason({
-        content: "Secret requested",
-        metadata: { type: "secret-request", secretProvided: true },
-      })
-    ).toBeNull();
+    expect(notificationMessagePreview({ content: "", metadata: { type: "widget" } })).toBe(
+      "Asked you to answer a question."
+    );
+    expect(notificationMessagePreview({ content: "", metadata: { type: "secret-request" } })).toBe(
+      "Waiting for your input."
+    );
     expect(
       notificationMessagePreview({
         content: "Deploy to production?",
         metadata: { type: "widget", widgetDismissed: true },
       })
     ).toBe("Open OpenTeam to see what it did.");
-    expect(
-      notificationMessageInputReason({ content: "Finished", metadata: { type: "text" } })
-    ).toBeNull();
   });
 });

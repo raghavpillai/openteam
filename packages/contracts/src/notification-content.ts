@@ -55,7 +55,12 @@ export const truncateNotificationText = (value: string, limit = 140): string => 
   return normalized;
 };
 
-export type AgentNotificationKind = "agent-needs-input" | "agent-done" | "message" | "reaction";
+/**
+ * Every visible Bot message, cards included, is a `message`. `agent-needs-input`
+ * is reserved for a Bot blocked mid-run on the user; nothing raises it today, but
+ * stored alerts from older servers still carry it.
+ */
+export type AgentNotificationKind = "agent-needs-input" | "message" | "reaction";
 
 export interface NotificationReadState {
   channelId: string;
@@ -134,12 +139,6 @@ const agentNotificationTypeCatalog = {
     sound: "default",
     urgency: "critical",
   },
-  "agent-done": {
-    title: (botName: string) => botName,
-    fallbackBody: "Open OpenTeam to see what it did.",
-    sound: null,
-    urgency: "normal",
-  },
 } as const satisfies Record<
   AgentNotificationKind,
   {
@@ -172,34 +171,6 @@ export const agentNotificationPresentation = (input: {
     body: truncateNotificationText(input.body?.trim() ? input.body : definition.fallbackBody),
     ...agentNotificationDeliveryPolicy(input.kind),
   };
-};
-
-export const notificationMessageInputReason = (message: {
-  content?: string | null;
-  metadata?: unknown;
-}): string | null => {
-  const metadata = notificationMetadata(message.metadata);
-  const type = typeof metadata.type === "string" ? metadata.type : "";
-  if (
-    (type === "widget" &&
-      (typeof metadata.respondedValue === "string" || metadata.widgetDismissed === true)) ||
-    (["secret-request", "secret_request"].includes(type) && metadata.secretProvided === true)
-  ) {
-    return null;
-  }
-  if (
-    ![
-      "widget",
-      "user_form",
-      "secret-request",
-      "secret_request",
-    ].includes(type)
-  ) {
-    return null;
-  }
-  if (message.content?.trim()) return truncateNotificationText(message.content);
-  if (type === "widget" || type === "user_form") return "Asked you to answer a question.";
-  return "Waiting for your input.";
 };
 
 export const notificationMessagePreview = (message: {

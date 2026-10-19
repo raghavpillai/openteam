@@ -322,7 +322,7 @@ struct ConversationDetails: View {
                   })
               ).frame(minHeight: 28).disabled(changingNotifications).accessibilityIdentifier("profile-notifications")
             } footer: {
-              Text("Get notified when this Bot finishes or needs input")
+              Text("Get notified when this Bot finishes or is waiting for you")
                 .font(.system(size: 14)).foregroundStyle(NativePalette.faint)
                 .listRowInsets(EdgeInsets(top: 8, leading: 18, bottom: 8, trailing: 18))
             }

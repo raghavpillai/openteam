@@ -304,7 +304,7 @@ export default function App() {
   useEffect(() => () => readReceipts.current.clear(), []);
   useEffect(() => () => {
     // Cancel avatar work and reset native presence/cursors across sign-out or server changes.
-    syncDesktopNotificationSnapshot(window.openteam?.notifications, null, new Set());
+    syncDesktopNotificationSnapshot(window.openteam?.notifications, null);
   }, []);
 
   useEffect(() => {
@@ -372,12 +372,8 @@ export default function App() {
     if (selectedId) void loadChannel(selectedId).catch(() => undefined);
   }, [loadChannel, selectedId]);
   useEffect(() => {
-    syncDesktopNotificationSnapshot(
-      window.openteam?.notifications,
-      snapshot,
-      sidebarPreferences.unreadIds
-    );
-  }, [sidebarPreferences.unreadIds, snapshot]);
+    syncDesktopNotificationSnapshot(window.openteam?.notifications, snapshot);
+  }, [snapshot]);
   useEffect(() => {
     const publishVisibleChannel = () => {
       const focused = document.hasFocus();

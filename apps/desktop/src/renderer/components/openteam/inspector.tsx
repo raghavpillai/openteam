@@ -221,7 +221,7 @@ function BotSettings({
           <div className="relative left-0.5 min-w-0 flex-1">
             <div className="text-[13px] font-medium leading-[18px]">Notifications</div>
             <div className="mt-0.5 text-[12px] leading-[15px] text-foreground-secondary">
-              Get notified when this Bot finishes or needs input
+              Get notified when this Bot finishes or is waiting for you
             </div>
           </div>
           <Switch

@@ -115,7 +115,7 @@ const serverUpdateRequest = (value: unknown) => {
 
 const notificationSnapshot = (value: unknown) => {
   const input = record(value, "Notification snapshot");
-  if (!Array.isArray(input.agents) || input.agents.length > 10_000) {
+  if (!Array.isArray(input.channels) || input.channels.length > 10_000) {
     throw new Error("Notification snapshot is invalid");
   }
   return value;

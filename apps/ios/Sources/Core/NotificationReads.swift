@@ -33,7 +33,7 @@ public struct NativePush: Sendable {
   public var channelId: String { data["channelId"].string }
   public var isSync: Bool { data["kind"].string == "badge-sync" }
   public var isAlert: Bool {
-    ["message", "reaction", "agent-done", "agent-needs-input"].contains(data["kind"].string)
+    ["message", "reaction", "agent-needs-input"].contains(data["kind"].string)
       && !channelId.isEmpty
   }
   public var readMarker: NotificationReadMarker? {

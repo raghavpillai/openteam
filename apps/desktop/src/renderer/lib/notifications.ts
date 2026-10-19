@@ -1,105 +1,39 @@
 import type { NotificationRouting } from "@openteam/contracts/notification-presence";
 import { notificationAvatarDataUrl } from "./notification-avatar";
-import type { ClientSnapshot, RunView } from "@openteam/contracts";
-import {
-  notificationMessageInputReason,
-  notificationMessagePreview,
-} from "@openteam/contracts/notification-content";
-import { isActiveRunStatus } from "@openteam/product-core/statuses";
+import type { ClientSnapshot } from "@openteam/contracts";
 import type { ChannelNotificationState } from "@openteam/contracts/notification-content";
 
-export interface AgentNotificationEvent {
-  botId: string;
-  channelId: string;
-  kind: "agent-needs-input" | "agent-done";
-  title: string;
-  body: string;
-}
-
-export interface DesktopAgentNotificationState {
-  botId: string;
-  channelId: string;
-  name: string;
-  notificationsEnabled: boolean;
-  hiddenFromSidebar: boolean;
-  isRunning: boolean;
-  awaitingReason: string | null;
-  lastMessageId: string | null;
-  lastMessagePreview: string | null;
-  unreadCount: number;
-}
-
 export const desktopNotificationSnapshot = (
-  snapshot: ClientSnapshot,
-  unreadIds: ReadonlySet<string>,
-  visibleChannelId: string | null = null
+  snapshot: ClientSnapshot
 ): {
   notificationRouting?: NotificationRouting;
   cursor: string;
-  agents: DesktopAgentNotificationState[];
-  channels?: Array<ChannelNotificationState & { unreadCount: number }>;
+  channels: Array<ChannelNotificationState & { unreadCount: number }>;
 } => {
-  const activeRuns = activeRunsByBot(snapshot);
-  const latestByChannel = new Map<
-    string,
-    { id: string; content: string; createdAt: string; senderBotId: string | null }
-  >();
-  for (const message of snapshot.channelMessages) {
-    const prior = latestByChannel.get(message.channelId);
-    if (!prior || message.createdAt >= prior.createdAt)
-      latestByChannel.set(message.channelId, message);
-  }
   const botById = new Map(snapshot.bots.map((bot) => [bot.id, bot] as const));
   return {
     notificationRouting: snapshot.notificationRouting,
     cursor: snapshot.cursor,
-    ...(snapshot.channels.some((channel) => channel.notificationState)
-      ? {
-          channels: snapshot.channels.flatMap((channel) =>
-            channel.notificationState &&
-            !channel.hiddenFromSidebar &&
-            channel.members.some((member) => !botById.get(member.botId)?.hiddenFromSidebar)
-              ? [
-                  {
-                    ...channel.notificationState,
-                    notifications: channel.notificationState.notifications.map((alert) => ({
-                      ...alert,
-                    })),
-                    unreadCount: channel.unreadCount ?? 0,
-                  },
-                ]
-              : []
-          ),
-        }
-      : {}),
-    agents: snapshot.channels.flatMap((channel) => {
-      if (channel.kind !== "bot_dm") return [];
-      const bot = botById.get(channel.members[0]?.botId ?? "");
-      if (!bot) return [];
-      const run = activeRuns.get(bot.id);
-      const latest = latestByChannel.get(channel.id);
-      const latestIsBot = latest?.senderBotId === bot.id;
-      return [
-        {
-          botId: bot.id,
-          channelId: channel.id,
-          name: bot.name,
-          notificationsEnabled: bot.notificationsEnabled,
-          hiddenFromSidebar: bot.hiddenFromSidebar,
-          isRunning: Boolean(run),
-          awaitingReason:
-            latestIsBot
-                ? notificationMessageInputReason(latest)
-                : null,
-          lastMessageId: latestIsBot ? latest.id : null,
-          lastMessagePreview: latestIsBot ? notificationMessagePreview(latest) : null,
-          unreadCount:
-            channel.id === visibleChannelId
-              ? 0
-              : (channel.unreadCount ?? (unreadIds.has(channel.id) ? 1 : 0)),
-        },
-      ];
-    }),
+    channels: snapshot.channels.flatMap((channel) =>
+      channel.notificationState &&
+      !channel.hiddenFromSidebar &&
+      channel.members.some((member) => !botById.get(member.botId)?.hiddenFromSidebar)
+        ? [
+            {
+              ...channel.notificationState,
+              notifications: channel.notificationState.notifications.map((alert) => ({
+                ...alert,
+              })),
+              // Muted Bots stay out of the Dock badge.
+              unreadCount:
+                channel.kind === "bot_dm" &&
+                botById.get(channel.members[0]?.botId ?? "")?.notificationsEnabled === false
+                  ? 0
+                  : (channel.unreadCount ?? 0),
+            },
+          ]
+        : []
+    ),
   };
 };
 
@@ -117,8 +51,7 @@ const pendingAvatarSync = new WeakMap<DesktopNotificationSyncTarget, object>();
 
 export const syncDesktopNotificationSnapshot = (
   target: DesktopNotificationSyncTarget | undefined,
-  snapshot: ClientSnapshot | null,
-  unreadIds: ReadonlySet<string>
+  snapshot: ClientSnapshot | null
 ): boolean => {
   if (!target) return false;
   if (!snapshot) {
@@ -126,10 +59,10 @@ export const syncDesktopNotificationSnapshot = (
     target.clear?.();
     return false;
   }
-  const projection = desktopNotificationSnapshot(snapshot, unreadIds);
+  const projection = desktopNotificationSnapshot(snapshot);
   const generation = {};
   pendingAvatarSync.set(target, generation);
-  const alerts = projection.channels?.flatMap((channel) => channel.notifications) ?? [];
+  const alerts = projection.channels.flatMap((channel) => channel.notifications);
   if (typeof Image === "undefined" || !alerts.some((alert) => alert.sender)) {
     target.sync(projection);
   } else {
@@ -146,26 +79,6 @@ export const syncDesktopNotificationSnapshot = (
     });
   }
   return true;
-};
-
-const activeRunsByBot = (snapshot: ClientSnapshot) => {
-  const active = new Map<string, RunView>();
-  for (const run of snapshot.runs) {
-    if (!isActiveRunStatus(run.status)) continue;
-    const prior = active.get(run.botId);
-    if (!prior || run.updatedAt >= prior.updatedAt) active.set(run.botId, run);
-  }
-  return active;
-};
-
-const activeRunsByChannel = (snapshot: ClientSnapshot) => {
-  const active = new Map<string, RunView>();
-  for (const run of snapshot.runs) {
-    if (!run.channelId || !isActiveRunStatus(run.status)) continue;
-    const prior = active.get(run.channelId);
-    if (!prior || run.updatedAt >= prior.updatedAt) active.set(run.channelId, run);
-  }
-  return active;
 };
 
 const latestMessageIds = (snapshot: ClientSnapshot) => {
@@ -206,35 +119,4 @@ export const deriveUnreadChannelIds = (
         !agentPeerMessage(message.metadata)
     )
     .map(([channelId]) => channelId);
-};
-
-export const deriveAgentNotifications = (
-  previous: ClientSnapshot,
-  current: ClientSnapshot
-): AgentNotificationEvent[] => {
-  const previousChannels = new Set(previous.channels.map((channel) => channel.id));
-  const channelById = new Map(current.channels.map((channel) => [channel.id, channel] as const));
-  const botById = new Map(current.bots.map((bot) => [bot.id, bot] as const));
-  const previousRuns = activeRunsByChannel(previous);
-  const currentRuns = activeRunsByChannel(current);
-  const previousMessages = latestMessageIds(previous);
-  const currentMessages = latestMessageIds(current);
-  const events: AgentNotificationEvent[] = [];
-
-  for (const [channelId, run] of previousRuns) {
-    if (!previousChannels.has(channelId) || currentRuns.has(channelId)) continue;
-    const channel = channelById.get(channelId);
-    const bot = botById.get(run.botId);
-    const previousMessageId = previousMessages.get(channelId)?.id;
-    const currentMessageId = currentMessages.get(channelId)?.id;
-    if (!channel || !bot || !currentMessageId || currentMessageId === previousMessageId) continue;
-    events.push({
-      botId: bot.id,
-      channelId,
-      kind: "agent-done",
-      title: bot.name,
-      body: `${channel.name} finished`,
-    });
-  }
-  return events;
 };

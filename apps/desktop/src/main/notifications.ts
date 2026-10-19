@@ -13,24 +13,10 @@ import { desktopNotificationQuietMs, type NotificationRouting } from "@openteam/
 
 export type DesktopNotificationKind = AgentNotificationKind;
 
-export interface DesktopAgentNotificationState {
-  botId: string;
-  channelId: string;
-  name: string;
-  notificationsEnabled: boolean;
-  hiddenFromSidebar: boolean;
-  isRunning: boolean;
-  awaitingReason: string | null;
-  lastMessageId: string | null;
-  lastMessagePreview: string | null;
-  unreadCount: number;
-}
-
 export interface DesktopNotificationSnapshot {
   notificationRouting?: NotificationRouting;
   cursor?: string;
-  agents: DesktopAgentNotificationState[];
-  channels?: Array<ChannelNotificationState & { unreadCount: number }>;
+  channels: Array<ChannelNotificationState & { unreadCount: number }>;
 }
 
 export const parseNotificationChannels = (
@@ -109,14 +95,16 @@ export interface DesktopNotificationAdapter {
 
 export { truncateNotificationText };
 
-const byBotId = (snapshot: DesktopNotificationSnapshot) =>
-  new Map(snapshot.agents.map((agent) => [agent.botId, agent] as const));
+/**
+ * Each conversation gets one alert per kind in this window (a DM is its Bot, a
+ * group is the whole room). Alerts that land inside it are consumed, not
+ * replayed, so a burst of replies produces a single banner.
+ */
+export const NOTIFICATION_THROTTLE_MS = 5_000;
 
 export class DesktopNotificationManager {
-  private previous: DesktopNotificationSnapshot | null = null;
-  private readonly accountedMessageByBot = new Map<string, string>();
-  private readonly lastDeliveredAt = new Map<string, number>();
   private readonly unreadByChannel = new Map<string, number>();
+  private readonly lastAlertAt = new Map<string, number>();
   private lastCursor: bigint | null = null;
   private totalUnread = 0;
   private visibleChannelId: string | null = null;
@@ -158,102 +146,7 @@ export class DesktopNotificationManager {
       this.routingTime = routing.serverTime;
       this.quietUntil = this.now() + desktopNotificationQuietMs(routing);
     }
-    if (snapshot.channels) {
-      this.syncActivity(snapshot.channels);
-      this.previous = snapshot;
-      return;
-    }
-    const currentBotIds = new Set(snapshot.agents.map((agent) => agent.botId));
-    for (const botId of this.accountedMessageByBot.keys()) {
-      if (!currentBotIds.has(botId)) this.accountedMessageByBot.delete(botId);
-    }
-    for (const key of this.lastDeliveredAt.keys()) {
-      const separator = key.lastIndexOf(":");
-      const botId = separator < 0 ? key : key.slice(0, separator);
-      if (!currentBotIds.has(botId)) this.lastDeliveredAt.delete(key);
-    }
-    this.unreadByChannel.clear();
-    this.totalUnread = 0;
-    for (const agent of snapshot.agents) {
-      if (agent.hiddenFromSidebar || agent.unreadCount <= 0) continue;
-      const unread = Math.max(1, Math.floor(agent.unreadCount));
-      this.unreadByChannel.set(
-        agent.channelId,
-        (this.unreadByChannel.get(agent.channelId) ?? 0) + unread
-      );
-      this.totalUnread += unread;
-    }
-    this.updateBadge();
-
-    if (!this.previous) {
-      this.previous = snapshot;
-      for (const agent of snapshot.agents) {
-        if (agent.lastMessageId) this.accountedMessageByBot.set(agent.botId, agent.lastMessageId);
-      }
-      return;
-    }
-
-    const previous = byBotId(this.previous);
-    this.previous = snapshot;
-    for (const agent of snapshot.agents) {
-      const prior = previous.get(agent.botId);
-      if (!prior) {
-        if (agent.lastMessageId) this.accountedMessageByBot.set(agent.botId, agent.lastMessageId);
-        continue;
-      }
-
-      let event: DesktopNotificationEvent | null = null;
-      if (!prior.awaitingReason && agent.awaitingReason) {
-        const presentation = agentNotificationPresentation({
-          kind: "agent-needs-input",
-          botName: agent.name,
-          body: agent.awaitingReason,
-        });
-        event = {
-          botId: agent.botId,
-          channelId: agent.channelId,
-          kind: "agent-needs-input",
-          ...presentation,
-        };
-      } else if (prior.isRunning && !agent.isRunning && !agent.awaitingReason) {
-        const accounted = this.accountedMessageByBot.get(agent.botId);
-        if (agent.unreadCount > 0 && agent.lastMessageId && agent.lastMessageId !== accounted) {
-          const presentation = agentNotificationPresentation({
-            kind: "agent-done",
-            botName: agent.name,
-            body: agent.lastMessagePreview,
-          });
-          event = {
-            botId: agent.botId,
-            channelId: agent.channelId,
-            kind: "agent-done",
-            ...presentation,
-          };
-        }
-        if (agent.lastMessageId) {
-          this.accountedMessageByBot.set(agent.botId, agent.lastMessageId);
-        }
-      }
-
-      if (!event) continue;
-      if (
-        !agent.notificationsEnabled ||
-        this.now() < this.quietUntil ||
-        agent.hiddenFromSidebar ||
-        this.adapter.isFocused() ||
-        !this.adapter.isSupported()
-      ) {
-        continue;
-      }
-      const throttleKey = `${agent.botId}:${event.kind}`;
-      const now = this.now();
-      if (now - (this.lastDeliveredAt.get(throttleKey) ?? 0) < 5_000) continue;
-      this.lastDeliveredAt.set(throttleKey, now);
-      this.adapter.deliver(event);
-    }
-  }
-
-  private syncActivity(channels: NonNullable<DesktopNotificationSnapshot["channels"]>): void {
+    const channels = snapshot.channels;
     const byChannel = new Map(channels.map((channel) => [channel.channelId, channel]));
     for (const [id, notification] of this.deliveredActivity) {
       const state = byChannel.get(notification.channelId);
@@ -264,48 +157,62 @@ export class DesktopNotificationManager {
     }
     this.unreadByChannel.clear();
     this.totalUnread = 0;
+    // Newest unread alert per conversation and kind; older ones in this sync are superseded.
+    const pending = new Map<string, { id: string; notification: ChannelNotificationView }>();
     for (const channel of channels) {
       this.unreadByChannel.set(channel.channelId, channel.unreadCount);
       this.totalUnread += channel.unreadCount;
       const previousCursor = this.activityCursors.get(channel.channelId);
-      const cursor = BigInt(channel.notificationCursor);
-      if (previousCursor !== undefined && cursor < previousCursor) continue;
-      this.activityCursors.set(channel.channelId, cursor);
+      const channelCursor = BigInt(channel.notificationCursor);
+      if (previousCursor !== undefined && channelCursor < previousCursor) continue;
+      this.activityCursors.set(channel.channelId, channelCursor);
       if (previousCursor === undefined) continue;
-      for (const notification of [...channel.notifications].sort((a, b) =>
-        BigInt(a.notificationSequence) < BigInt(b.notificationSequence) ? -1 : 1
-      )) {
+      for (const notification of channel.notifications) {
+        const sequence = BigInt(notification.notificationSequence);
         if (
-          BigInt(notification.notificationSequence) <= previousCursor ||
+          sequence <= previousCursor ||
+          notification.kind === "reaction" ||
           notificationIsRead(notification, channel)
         )
           continue;
-        if (
-          (this.adapter.isFocused() && this.visibleChannelId === channel.channelId) ||
-          this.now() < this.quietUntil ||
-          !this.adapter.isSupported()
-        )
-          continue;
-        const id = `${channel.channelId}:${notification.notificationSequence}`;
-        this.deliveredActivity.set(id, notification);
-        const presentation = agentNotificationPresentation({
-          kind: notification.kind,
-          botName: notification.title,
-          body: notification.body,
-        });
-        this.adapter.deliver({
-          ...notification,
-          notificationId: id,
-          // The server has already formatted the title (including needs-input).
-          title: notification.title,
-          body: truncateNotificationText(notification.body),
-          sound: presentation.sound,
-          urgency: presentation.urgency,
+        const key = `${channel.channelId}:${notification.kind}`;
+        const prior = pending.get(key);
+        if (prior && BigInt(prior.notification.notificationSequence) > sequence) continue;
+        pending.set(key, {
+          id: `${channel.channelId}:${notification.notificationSequence}`,
+          notification,
         });
       }
     }
     for (const channelId of this.activityCursors.keys()) {
       if (!byChannel.has(channelId)) this.activityCursors.delete(channelId);
+    }
+    const now = this.now();
+    for (const [key, at] of this.lastAlertAt) {
+      if (now - at >= NOTIFICATION_THROTTLE_MS) this.lastAlertAt.delete(key);
+    }
+    // While the window has focus, new replies show in the app instead of as banners.
+    const suppressed =
+      this.adapter.isFocused() || now < this.quietUntil || !this.adapter.isSupported();
+    for (const [key, { id, notification }] of pending) {
+      if (suppressed || this.lastAlertAt.has(key)) continue;
+      this.lastAlertAt.set(key, now);
+      this.deliveredActivity.set(id, notification);
+      const presentation = agentNotificationPresentation({
+        kind: notification.kind,
+        botName: notification.title,
+        body: notification.body,
+      });
+      this.adapter.deliver({
+        ...notification,
+        notificationId: id,
+        // The server has already formatted the title (including needs-input).
+        title: notification.title,
+        body: truncateNotificationText(notification.body),
+        // Message banners are silent on the Mac; only a Bot blocked on the user plays a sound.
+        sound: notification.kind === "agent-needs-input" ? presentation.sound : null,
+        urgency: presentation.urgency,
+      });
     }
     this.updateBadge();
   }
@@ -316,9 +223,7 @@ export class DesktopNotificationManager {
     for (const id of this.deliveredActivity.keys()) this.adapter.dismiss?.(id);
     this.deliveredActivity.clear();
     this.activityCursors.clear();
-    this.previous = null;
-    this.accountedMessageByBot.clear();
-    this.lastDeliveredAt.clear();
+    this.lastAlertAt.clear();
     this.unreadByChannel.clear();
     this.lastCursor = null;
     this.totalUnread = 0;

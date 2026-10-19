@@ -18,7 +18,7 @@ final class NotificationService: UNNotificationServiceExtension {
     // Expo puts custom data under body; direct APNs and local tests use data or root.
     let info = request.content.userInfo
     let data = (info["body"] as? [String: Any]) ?? (info["data"] as? [String: Any]) ?? (info as? [String: Any]) ?? [:]
-    guard ["message", "reaction", "agent-needs-input", "agent-done"].contains(data["kind"] as? String ?? ""),
+    guard ["message", "reaction", "agent-needs-input"].contains(data["kind"] as? String ?? ""),
           let botId = data["botId"] as? String,
           let channelId = data["channelId"] as? String,
           let content = request.content.mutableCopy() as? UNMutableNotificationContent else {

@@ -108,7 +108,7 @@ describe("push notification content", () => {
       "notification:disabled-mode",
       {
         schemaVersion: 1,
-        kind: "agent-done",
+        kind: "message",
         botId: "bot",
         channelId: "channel",
         runId: "run",
@@ -372,7 +372,7 @@ describe("push notification content", () => {
   test("uses exact badge counts and the shared per-type sound policy", () => {
     const message = expoPushMessage("ExpoPushToken[token]", {
       schemaVersion: 1,
-      kind: "agent-done",
+      kind: "message",
       botId: "bot",
       channelId: "channel",
       runId: "run",
@@ -381,7 +381,7 @@ describe("push notification content", () => {
       deepLink: "openteam:///chat/channel",
       badgeCount: 4,
     });
-    expect(message).toMatchObject({ badge: 4, sound: undefined, mutableContent: true, threadId: "channel", data: { badgeCount: 4 } });
+    expect(message).toMatchObject({ badge: 4, sound: "default", mutableContent: true, threadId: "channel", data: { badgeCount: 4 } });
     expect(
       expoPushMessage("ExpoPushToken[token]", {
         schemaVersion: 1,

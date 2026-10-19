@@ -81,7 +81,7 @@ test.skipIf(!databaseUrl)(
       const unreadCount =
         (await unreadChannelCount(prisma, channel.id, BigInt(current.lastReadSequence))) +
         current.activityUnreadCount;
-      manager.sync({ agents: [], channels: [{ ...current, unreadCount }] });
+      manager.sync({ channels: [{ ...current, unreadCount }] });
       return current;
     };
     const drain = async () => {

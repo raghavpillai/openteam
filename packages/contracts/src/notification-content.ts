@@ -72,6 +72,8 @@ export interface ChannelNotificationView {
   botId: string;
   kind: AgentNotificationKind;
   messageSequence?: string;
+  /** Set when the message is a reply inside a thread, so opening the alert opens that thread. */
+  threadMessageId?: string;
   title: string;
   body: string;
   sender?: NotificationSender;

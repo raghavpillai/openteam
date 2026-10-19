@@ -229,6 +229,8 @@ export interface AgentNotificationPayload {
   badgeCount: number;
   notificationSequence?: string;
   messageSequence?: string;
+  /** Set when the message is a reply inside a thread, so opening the alert opens that thread. */
+  threadMessageId?: string;
   sender?: import("./notification-content").NotificationSender;
 }
 

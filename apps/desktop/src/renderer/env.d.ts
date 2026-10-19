@@ -100,7 +100,9 @@ interface Window {
       main: Electron.ProcessMemoryInfo;
       gpu: Electron.GPUFeatureStatus;
     }>;
-    onNotificationClick: (listener: (channelId: string) => void) => () => void;
+    onNotificationClick: (
+      listener: (target: { channelId: string; threadMessageId?: string }) => void
+    ) => () => void;
     versions: Readonly<{ app: string; electron: string; chrome: string }>;
   };
 }

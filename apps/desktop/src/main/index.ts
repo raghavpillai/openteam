@@ -1153,10 +1153,10 @@ if (!hasSingleInstanceLock) {
           });
           notification.on("click", () => {
             focusMainWindow();
-            mainWindow?.webContents.send(
-              "openteam:notification-click",
-              notificationEvent.channelId
-            );
+            mainWindow?.webContents.send("openteam:notification-click", {
+              channelId: notificationEvent.channelId,
+              threadMessageId: notificationEvent.threadMessageId,
+            });
           });
           notification.show();
         },

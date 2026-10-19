@@ -43,6 +43,9 @@ export const parseNotificationChannels = (
         !isAgentNotificationKind(notification.kind) ||
         !numeric(notification.notificationSequence) ||
         (notification.messageSequence !== undefined && !numeric(notification.messageSequence)) ||
+        (notification.threadMessageId !== undefined &&
+          (typeof notification.threadMessageId !== "string" ||
+            notification.threadMessageId.length > 64)) ||
         typeof notification.title !== "string" ||
         typeof notification.body !== "string" ||
         notification.title.length > 1000 ||
@@ -74,6 +77,7 @@ export interface DesktopNotificationEvent {
   sender?: NotificationSender;
   botId: string;
   channelId: string;
+  threadMessageId?: string;
   kind: DesktopNotificationKind;
   title: string;
   body: string;

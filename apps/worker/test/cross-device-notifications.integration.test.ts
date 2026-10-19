@@ -319,3 +319,52 @@ test.skipIf(!databaseUrl)(
     }
   }
 );
+
+test.skipIf(!databaseUrl)("thread replies carry their id so the alert opens the thread", async () => {
+  const prisma = createPrismaClient(databaseUrl!);
+  const bot = await prisma.bot.create({
+    data: { name: "Thread Alert QA", defaultDirectory: "/tmp/thread-alert-qa" },
+  });
+  const channel = await prisma.channel.create({
+    data: {
+      kind: "bot_dm",
+      name: "Thread Alert QA",
+      members: { create: { botId: bot.id, ordinal: 0 } },
+    },
+  });
+  try {
+    const root = await prisma.channelMessage.create({
+      data: { channelId: channel.id, sender: "user", content: "Can you look into this?" },
+    });
+    const post = (metadata: Record<string, unknown>) =>
+      prisma.channelMessage.create({
+        data: {
+          channelId: channel.id,
+          sender: "agent",
+          senderBotId: bot.id,
+          content: "On it.",
+          metadata: { kind: "send-message", type: "text", ...metadata },
+        },
+      });
+    const reply = await post({ branched: true, replyTo: root.id });
+    const main = await post({});
+    await prisma.$transaction(async (tx) => {
+      await publishMessageNotification(tx, reply);
+      await publishMessageNotification(tx, main);
+    });
+    const state = (await channelNotificationStates(prisma, [channel.id])).get(channel.id)!;
+    expect(
+      state.notifications.map(({ messageSequence, threadMessageId }) => ({
+        messageSequence,
+        threadMessageId,
+      }))
+    ).toEqual([
+      { messageSequence: main.sequence.toString(), threadMessageId: undefined },
+      { messageSequence: reply.sequence.toString(), threadMessageId: reply.id },
+    ]);
+  } finally {
+    await prisma.channel.delete({ where: { id: channel.id } });
+    await prisma.bot.delete({ where: { id: bot.id } });
+    await prisma.$disconnect();
+  }
+});

@@ -115,6 +115,13 @@ describe("DesktopNotificationManager", () => {
     expect(ids()).toEqual(["chat:1", "room:7", "chat:3"]);
   });
 
+  test("carries a thread reply's id so opening the banner opens its thread", () => {
+    const { manager, delivered } = harness();
+    manager.sync({ channels: [channel([])] });
+    manager.sync({ channels: [channel([alert(1, { threadMessageId: "reply-1" })])] });
+    expect(delivered.map(({ threadMessageId }) => threadMessageId)).toEqual(["reply-1"]);
+  });
+
   test("shows only the newest alert when several arrive together", () => {
     const { manager, delivered } = harness();
     manager.sync({ channels: [channel([])] });

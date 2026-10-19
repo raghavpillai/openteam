@@ -111,12 +111,11 @@ export const publishMessageNotification = async (
   }
 ): Promise<void> => {
   if (!message.senderBotId) return;
-  if (
-    message.metadata &&
-    typeof message.metadata === "object" &&
-    ("fromAgent" in message.metadata || "toAgent" in message.metadata)
-  )
-    return;
+  const metadata =
+    message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
+      ? (message.metadata as Record<string, unknown>)
+      : {};
+  if ("fromAgent" in metadata || "toAgent" in metadata) return;
   const bot = await tx.bot.findUnique({
     where: { id: message.senderBotId },
     select: { name: true },
@@ -135,6 +134,7 @@ export const publishMessageNotification = async (
     channelId: message.channelId,
     runId: message.sourceRunId ?? "",
     messageSequence: message.sequence.toString(),
+    ...(metadata.branched === true ? { threadMessageId: message.id } : {}),
     title,
     body,
     deepLink: `openteam:///chat/${message.channelId}`,

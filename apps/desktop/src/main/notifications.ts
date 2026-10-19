@@ -86,10 +86,10 @@ export interface DesktopNotificationEvent {
 export interface DesktopNotificationAdapter {
   isFocused: () => boolean;
   isSupported: () => boolean;
-  /** Banners are silent and stay in Notification Center until the user clears them. */
+  /** Banners are silent. */
   deliver: (event: DesktopNotificationEvent) => void;
-  /** Closes every delivered banner, for sign-out or a server change. */
-  closeAll?: () => void;
+  /** Closes a delivered banner once its message is read on any device. */
+  dismiss?: (notificationId: string) => void;
   setBadge: (label: string) => void;
 }
 
@@ -110,6 +110,7 @@ export class DesktopNotificationManager {
   private visibleChannelId: string | null = null;
   private lastBadge = "";
   private activityCursors = new Map<string, bigint>();
+  private deliveredActivity = new Map<string, ChannelNotificationView>();
 
   constructor(
     private readonly adapter: DesktopNotificationAdapter,
@@ -139,11 +140,19 @@ export class DesktopNotificationManager {
     if (cursor !== null && this.lastCursor !== null && cursor < this.lastCursor) return;
     if (cursor !== null) this.lastCursor = cursor;
     const channels = snapshot.channels;
-    const byChannel = new Set(channels.map((channel) => channel.channelId));
+    const byChannel = new Map(channels.map((channel) => [channel.channelId, channel]));
+    // Read on this Mac or on the iPhone: either way the banner has done its job.
+    for (const [id, notification] of this.deliveredActivity) {
+      const state = byChannel.get(notification.channelId);
+      if (!state || notificationIsRead(notification, state)) {
+        this.adapter.dismiss?.(id);
+        this.deliveredActivity.delete(id);
+      }
+    }
     this.unreadByChannel.clear();
     this.totalUnread = 0;
     // Newest unread message per conversation; older ones in this sync are superseded.
-    const pending = new Map<string, { sequence: bigint; event: DesktopNotificationEvent }>();
+    const pending = new Map<string, { sequence: bigint; notification: ChannelNotificationView }>();
     for (const channel of channels) {
       this.unreadByChannel.set(channel.channelId, channel.unreadCount);
       this.totalUnread += channel.unreadCount;
@@ -161,7 +170,7 @@ export class DesktopNotificationManager {
         )
           continue;
         if ((pending.get(channel.channelId)?.sequence ?? -1n) > sequence) continue;
-        pending.set(channel.channelId, { sequence, event: alertEvent(notification) });
+        pending.set(channel.channelId, { sequence, notification });
       }
     }
     for (const channelId of this.activityCursors.keys()) {
@@ -173,9 +182,11 @@ export class DesktopNotificationManager {
     }
     // While the window has focus, new replies show in the app instead of as banners.
     if (!this.adapter.isFocused() && this.adapter.isSupported()) {
-      for (const [channelId, { event }] of pending) {
+      for (const [channelId, { notification }] of pending) {
         if (this.lastAlertAt.has(channelId)) continue;
         this.lastAlertAt.set(channelId, now);
+        const event = alertEvent(notification);
+        this.deliveredActivity.set(event.notificationId, notification);
         this.adapter.deliver(event);
       }
     }
@@ -183,7 +194,8 @@ export class DesktopNotificationManager {
   }
 
   clear(): void {
-    this.adapter.closeAll?.();
+    for (const id of this.deliveredActivity.keys()) this.adapter.dismiss?.(id);
+    this.deliveredActivity.clear();
     this.activityCursors.clear();
     this.lastAlertAt.clear();
     this.unreadByChannel.clear();

@@ -45,16 +45,14 @@ const channel = (
 const harness = (options: { focused?: () => boolean } = {}) => {
   let now = 10_000;
   const delivered: DesktopNotificationEvent[] = [];
-  let closed = 0;
+  const dismissed: string[] = [];
   const badges: string[] = [];
   const manager = new DesktopNotificationManager(
     {
       isFocused: options.focused ?? (() => false),
       isSupported: () => true,
       deliver: (event) => delivered.push(event),
-      closeAll: () => {
-        closed++;
-      },
+      dismiss: (id) => dismissed.push(id),
       setBadge: (label) => badges.push(label),
     },
     () => now
@@ -62,7 +60,7 @@ const harness = (options: { focused?: () => boolean } = {}) => {
   return {
     manager,
     delivered,
-    closed: () => closed,
+    dismissed,
     badges,
     ids: () => delivered.map((event) => event.notificationId),
     advance: (ms: number) => {
@@ -72,17 +70,25 @@ const harness = (options: { focused?: () => boolean } = {}) => {
 };
 
 describe("DesktopNotificationManager", () => {
-  test("seeds silently, delivers each new message once, and leaves read banners in place", () => {
-    const { manager, ids, closed } = harness();
+  test("seeds silently, delivers each new message once, and closes it when read anywhere", () => {
+    const { manager, ids, dismissed } = harness();
     manager.sync({ channels: [channel([alert(1)])] });
     expect(ids()).toEqual([]);
     manager.sync({ channels: [channel([alert(1), alert(2)])] });
     manager.sync({ channels: [channel([alert(1), alert(2)])] });
     expect(ids()).toEqual(["chat:2"]);
+    expect(dismissed).toEqual([]);
+    // The read can come from this Mac or the iPhone; the synced read state is the same.
     manager.sync({ channels: [channel([alert(1), alert(2)], { lastReadSequence: "20" })] });
-    expect(closed()).toBe(0);
+    expect(dismissed).toEqual(["chat:2"]);
+  });
+
+  test("closes delivered banners on sign-out", () => {
+    const { manager, dismissed } = harness();
+    manager.sync({ channels: [channel([])] });
+    manager.sync({ channels: [channel([alert(1)])] });
     manager.clear();
-    expect(closed()).toBe(1);
+    expect(dismissed).toEqual(["chat:1"]);
   });
 
   test("skips reactions and alerts that were already read on another device", () => {

@@ -52,10 +52,12 @@ test.skipIf(!databaseUrl)(
       };
     }> = [];
     const delivered: string[] = [];
+    const dismissed: string[] = [];
     const manager = new DesktopNotificationManager({
       isFocused: () => false,
       isSupported: () => true,
       deliver: (notification) => delivered.push(notification.notificationId!),
+      dismiss: (id) => dismissed.push(id),
       setBadge: () => {},
     });
     const service = new NotificationService(prisma, "disabled");
@@ -167,7 +169,7 @@ test.skipIf(!databaseUrl)(
         )
       );
       const secondState = await sync();
-      expect(delivered).toHaveLength(1);
+      expect(dismissed).toEqual([delivered[0]!]);
       expect(secondState.notifications.map((n) => n.messageSequence)).toEqual([
         second.sequence.toString(),
       ]);
@@ -188,7 +190,7 @@ test.skipIf(!databaseUrl)(
         )
       );
       await sync();
-      expect(delivered).toHaveLength(1);
+      expect(dismissed).toEqual(delivered);
       const reactionContext = { ...context, callId: crypto.randomUUID() };
       await messaging.reactToMessage(reactionContext, {
         message_address: `t${userMessage.sequence}u`,
@@ -224,7 +226,7 @@ test.skipIf(!databaseUrl)(
       expect(read.lastReadNotificationSequence).toBe(reactionState.notificationCursor);
       expect(read.notifications).toEqual([]);
       expect(await unreadBadgeCount(prisma)).toBe(initialBadgeCount);
-      expect(delivered).toHaveLength(1);
+      expect(dismissed).toEqual(delivered);
       await drain();
       expect(sent.filter((push) => push.data.kind === "badge-sync").at(-1)).toMatchObject({
         badge: initialBadgeCount,

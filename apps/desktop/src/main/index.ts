@@ -74,6 +74,7 @@ let computerSettings: ComputerSettingsStore | null = null;
 let desktopNotifications: DesktopNotificationManager | null = null;
 let durableSendJournals: DurableSendJournalStore | null = null;
 const activeNotifications = new Set<Notification>();
+const activityNotifications = new Map<string, Notification>();
 let isQuitting = false;
 const localMachine = { machineId: "", label: hostname() };
 let machineEnrollment: DesktopMachineEnrollment | null = null;
@@ -1116,9 +1117,9 @@ if (!hasSingleInstanceLock) {
         isFocused: () => mainWindow?.isFocused() ?? false,
         isSupported: () => Notification.isSupported(),
         setBadge: (label) => app.dock?.setBadge(label),
-        closeAll: () => {
-          for (const notification of activeNotifications) notification.close();
-          activeNotifications.clear();
+        dismiss: (id) => {
+          activityNotifications.get(id)?.close();
+          activityNotifications.delete(id);
         },
         deliver: (notificationEvent) => {
           const debugNotifications = process.env.OPENTEAM_NOTIFICATION_DEBUG === "1";
@@ -1133,7 +1134,11 @@ if (!hasSingleInstanceLock) {
             silent: true,
           });
           activeNotifications.add(notification);
-          const release = () => activeNotifications.delete(notification);
+          activityNotifications.set(notificationEvent.notificationId, notification);
+          const release = () => {
+            activeNotifications.delete(notification);
+            activityNotifications.delete(notificationEvent.notificationId);
+          };
           notification.once("close", release);
           notification.once("show", () => {
             notificationDeliveryFailed = false;

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, Menu } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GithubMark, Wordmark } from "./brand";
@@ -120,10 +120,10 @@ export function SiteHeader({ home = false }: { home?: boolean }) {
           </Button>
         </div>
         <details className="ot-mobile-menu" ref={menu}>
-          <summary onClick={(event) => {
+          <summary aria-label="Menu" onClick={(event) => {
             event.preventDefault();
             setMenuOpen(!menuExpanded.current);
-          }}>Menu</summary>
+          }}><Menu size={24} aria-hidden="true" /></summary>
           <nav aria-label="Mobile navigation" onClick={(event) => {
             if ((event.target as HTMLElement).closest("a")) setMenuOpen(false);
           }}>

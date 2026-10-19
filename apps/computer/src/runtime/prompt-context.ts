@@ -24,11 +24,7 @@ export function enrichUserInfo(
   const environment = [
     `OS Version: ${platform()} ${release()}`,
     "Shell: /bin/bash",
-    ...(process.env.OPENTEAM_COMPUTER_RESTRICTED === "false"
-      ? ["Computer privilege mode: administrator. Shell commands start as an ordinary user; use sudo -n for authorized system changes and package installation. Container capabilities still apply; admin access does not establish VPN support. Verify actual command results before claiming success or a missing capability."]
-      : process.env.OPENTEAM_COMPUTER_RESTRICTED === "true"
-        ? ["Computer privilege mode: restricted. Root elevation is disabled; use user-local installations where supported."]
-        : []),
+    "Computer privileges: administrator. Shell commands start as an ordinary user; use sudo -n for authorized system changes and package installation. Container capabilities still apply; admin access does not establish VPN support. Verify actual command results before claiming success or a missing capability.",
     `Workspace Path: ${input.cwd}`,
     `Is directory a git repo: ${existsSync(join(input.cwd, ".git")) ? "Yes" : "Unknown (inspect the workspace if needed)"}`,
   ].join("\n");

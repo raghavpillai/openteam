@@ -6,42 +6,30 @@ data_root=${OPENTEAM_AGENT_DATA_CANONICAL_ROOT:-/home/box/sand-data}
 data_alias=${OPENTEAM_AGENT_DATA_ROOT:-/home/box/agent-data}
 agent_uid=${OPENTEAM_AGENT_UID:-1001}
 agent_gid=${OPENTEAM_AGENT_GID:-1000}
-restricted=${OPENTEAM_COMPUTER_RESTRICTED:-true}
-
-case "$restricted" in
-  true) ;;
-  false)
-    if [ "$(awk '/^NoNewPrivs:/ { print $2 }' /proc/self/status)" != 0 ]; then
-      echo "computer admin mode requires no-new-privileges:false; recreate the computer container" >&2
-      exit 1
-    fi
-    case "$agent_uid" in
-      ''|*[!0-9]*) echo "invalid OPENTEAM_AGENT_UID for computer admin mode" >&2; exit 1 ;;
-    esac
-    if [ "$agent_uid" -le 0 ]; then
-      echo "computer admin mode requires a non-root agent UID" >&2
-      exit 1
-    fi
-    # Use the configured numeric UID, including installations that override runner.
-    # The system filesystem is writable only in the opt-in admin Compose mode.
-    sudo_policy=$(mktemp /etc/sudoers.d/.openteam-runner-XXXXXX) || {
-      echo "computer admin mode requires a writable system filesystem; recreate the computer container" >&2
-      exit 1
-    }
-    trap 'rm -f "$sudo_policy"' EXIT
-    printf '#%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "$agent_uid" > "$sudo_policy"
-    chown 0:0 "$sudo_policy"
-    chmod 0440 "$sudo_policy"
-    visudo -cf "$sudo_policy" >/dev/null
-    mv -f "$sudo_policy" /etc/sudoers.d/openteam-runner
-    trap - EXIT
-    ;;
-  *)
-    echo "OPENTEAM_COMPUTER_RESTRICTED must be true or false" >&2
-    exit 1
-    ;;
+# Administrator commands are available on every bot computer. Keep ordinary
+# processes non-root and grant sudo to the configured numeric agent UID.
+if [ "$(awk '/^NoNewPrivs:/ { print $2 }' /proc/self/status)" != 0 ]; then
+  echo "computer requires no-new-privileges:false; recreate it with the updated Compose configuration" >&2
+  exit 1
+fi
+case "$agent_uid" in
+  ''|*[!0-9]*) echo "invalid OPENTEAM_AGENT_UID for computer administrator access" >&2; exit 1 ;;
 esac
-export OPENTEAM_COMPUTER_RESTRICTED="$restricted"
+if [ "$agent_uid" -le 0 ]; then
+  echo "computer requires a non-root agent UID" >&2
+  exit 1
+fi
+sudo_policy=$(mktemp /etc/sudoers.d/.openteam-runner-XXXXXX) || {
+  echo "computer requires a writable system filesystem; recreate it with the updated Compose configuration" >&2
+  exit 1
+}
+trap 'rm -f "$sudo_policy"' EXIT
+printf '#%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "$agent_uid" > "$sudo_policy"
+chown 0:0 "$sudo_policy"
+chmod 0440 "$sudo_policy"
+visudo -cf "$sudo_policy" >/dev/null
+mv -f "$sudo_policy" /etc/sudoers.d/openteam-runner
+trap - EXIT
 
 umask 0007
 
@@ -74,8 +62,8 @@ done
 
 # The inference supervisor owns Pi credentials. Agent-launched shells and GUI
 # processes start as runner and share workspace, agent-data, and browser state
-# through the box group. Admin mode allows runner to access these credentials
-# through sudo; the file permissions are an isolation boundary only when restricted.
+# through the box group. Runner can access these credentials through sudo;
+# these permissions prevent accidental access but do not isolate them from bots.
 chown -R 0:"$agent_gid" "$agent_dir"
 chmod 0700 "$agent_dir"
 find "$agent_dir" -maxdepth 1 -type f \( -name 'auth.json' -o -name 'models.json' \) -exec chmod 0600 {} \;
@@ -104,11 +92,5 @@ if [ ! -L "$data_alias" ]; then
 fi
 
 cd /workspace
-
-if [ "$restricted" = true ]; then
-  # Also enforce the default for direct docker run users, including an image
-  # that previously had admin mode enabled. No setuid binary may elevate children.
-  exec setpriv --no-new-privs "$@"
-fi
 
 exec "$@"

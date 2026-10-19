@@ -1,4 +1,4 @@
-name: Computer admin mode
+name: Computer administrator access
 
 on:
   pull_request:
@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Build the shipped computer image
         run: docker build -f docker/computer.Dockerfile -t openteam-computer:admin-test .
-      - name: Exercise restricted and admin modes in isolated containers
+      - name: Exercise default administrator access in isolated containers
         run: bash scripts/test-computer-admin.sh openteam-computer:admin-test
       - name: Check packaged computer startup
         run: bash scripts/test-computer-image.sh openteam-computer:admin-test

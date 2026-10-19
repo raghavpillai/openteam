@@ -29,55 +29,28 @@ There are two ways to sign a bot in:
 
 Some sites block automated browsers or ask for extra verification. If that happens, take over to finish the step, or ask the bot to find another way.
 
-## Allow administrator commands on the Linux computer
+## Administrator commands on the Linux computer
 
-The computer runs in restricted mode by default: bots cannot elevate to root, and
-the system filesystem is read-only. They can still write to their home directory
-and `/workspace`, and install packages that support user-local installation.
+Bots have passwordless `sudo` and a writable system filesystem by default. They
+can install system packages with commands such as `sudo apt-get update` and
+`sudo apt-get install <package>` when your task requires them. No setting is needed.
+Ordinary shell and GUI processes still run as the bot user: `id -u` normally
+returns `1001`, while `sudo -n id -u` returns `0`.
 
-To let bots run passwordless `sudo` and install system packages, set this in the
-server installation's `.env` file (normally `~/.openteam/.env`):
-
-```dotenv
-OPENTEAM_COMPUTER_RESTRICTED=false
-```
-
-Recreate the computer with the updated Compose configuration. For the default
-installation directory and project name:
-
-```sh
-docker compose --project-name openteam --project-directory "$HOME/.openteam" \
-  --env-file "$HOME/.openteam/.env" -f "$HOME/.openteam/compose.yaml" \
-  up -d --no-deps --force-recreate computer
-```
-
-Use your installation's directory and project name if they differ. For a source
-checkout, set the same variable in its `.env` and run
-`docker compose up -d --build --no-deps --force-recreate computer`.
-A plain container restart does not apply changed Compose settings. Recreating
-the computer interrupts running computer tasks, so wait for them to finish first.
-
-Ask a bot to run `id -u` and `sudo -n id -u` on its Linux computer. The first
-should show its ordinary user ID (normally `1001`); the second should show `0`.
-It can then use commands such as `sudo apt-get update` and
-`sudo apt-get install <package>` when your task requires them.
-
-Admin access applies to every bot sharing this computer. It allows root commands
-to read or change all files in the container, including provider credentials and
-other bots' files, and to modify its running services. Enable it only when you
-want bots to have that access. It does not grant admin access to your Mac or
-Windows computer, mount the Docker socket, or enable Docker privileged mode.
+Admin access applies to every bot sharing this computer. Root commands can read
+or change all container files, including provider credentials and other bots'
+files, and modify its running services. This access is confined to the Linux
+container; it does not grant admin access to your Mac or Windows computer.
 
 System packages and changes outside the persistent home and workspace volumes
 survive a restart but are lost when the computer is recreated or upgraded. Build
-a custom image for system packages you need to keep across recreations. To return
-to restricted mode, set the variable to `true` and recreate the computer again;
-changes to persistent files made while admin mode was enabled are not undone.
+a custom image for system packages you need to keep across recreations. Upgrading
+an existing installation must recreate the computer using the updated Compose
+configuration; a plain restart retains its old Docker restrictions.
 
-This setting adds administrator commands, not full VM capabilities. Docker's
-capability limits and the non-executable `/tmp` still apply. It does not add
-`NET_ADMIN`, a TUN device, or a service manager such as systemd, so a VPN such as
-Mullvad requires additional networking support.
+Docker's capability limits and the non-executable `/tmp` still apply. The computer
+does not have `NET_ADMIN`, a TUN device, or a service manager such as systemd, so a
+VPN such as Mullvad requires additional networking support.
 
 ## Use your own computer
 

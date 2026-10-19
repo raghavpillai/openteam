@@ -6,9 +6,8 @@ import { spawnSync } from "node:child_process";
 import { spawnAgentProcess } from "../src/agent-process";
 
 // Run only in the disposable containers created by test-computer-admin.sh.
-const mode = process.env.OPENTEAM_TEST_COMPUTER_ADMIN_MODE;
 const enabled = process.platform === "linux" && process.getuid?.() === 0 &&
-  (mode === "admin" || mode === "restricted");
+  process.env.OPENTEAM_TEST_COMPUTER_ADMIN === "1";
 
 async function agent(command: string) {
   const child = spawnAgentProcess("/bin/sh", ["-c", command], {
@@ -22,21 +21,14 @@ async function agent(command: string) {
   return { code, stdout: Buffer.concat(stdout).toString().trim(), stderr: Buffer.concat(stderr).toString().trim() };
 }
 
-test.skipIf(!enabled)("computer starts agent commands as an ordinary user and gates sudo by mode", async () => {
+test.skipIf(!enabled)("computer grants sudo by default while ordinary commands remain non-root", async () => {
   expect(await agent("id -u")).toMatchObject({ code: 0, stdout: process.env.OPENTEAM_AGENT_UID || "1001" });
-  const elevated = await agent("sudo -n id -u");
-  if (mode === "admin") {
-    expect(elevated).toMatchObject({ code: 0, stdout: "0" });
-    expect(await agent("sudo -n sh -c 'printf verified > /usr/local/share/openteam-admin-probe'")).toMatchObject({ code: 0 });
-    expect(await readFile("/usr/local/share/openteam-admin-probe", "utf8")).toBe("verified");
-  } else {
-    expect(elevated.code).not.toBe(0);
-    expect(await agent("awk '/^NoNewPrivs:/ { print $2 }' /proc/self/status")).toMatchObject({ code: 0, stdout: "1" });
-    expect((await agent("touch /usr/local/share/openteam-admin-probe")).code).not.toBe(0);
-  }
+  expect(await agent("sudo -n id -u")).toMatchObject({ code: 0, stdout: "0" });
+  expect(await agent("sudo -n sh -c 'printf verified > /usr/local/share/openteam-admin-probe'")).toMatchObject({ code: 0 });
+  expect(await readFile("/usr/local/share/openteam-admin-probe", "utf8")).toBe("verified");
 });
 
-test.skipIf(!enabled || mode !== "admin")("sudo installs a local package and runs its maintainer script without network access", async () => {
+test.skipIf(!enabled)("sudo installs a local package and runs its maintainer script without network access", async () => {
   const directory = await mkdtemp("/tmp/openteam-admin-package-");
   await chmod(directory, 0o755);
   const root = join(directory, "package");

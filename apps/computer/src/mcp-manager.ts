@@ -4,6 +4,8 @@ import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/typ
 import { discoverAllTools, objectValue, scopedProcessEnvironment } from "@openteam/plugin-sdk";
 import { join } from "node:path";
 import { PluginPackageCache } from "./plugin-package-cache";
+import { SecretRedactor } from "@openteam/shell-jobs";
+import { McpDiagnostics } from "./mcp-diagnostics";
 
 export interface StdioMcpConfiguration {
   command: string;
@@ -195,6 +197,7 @@ export class StdioMcpManager {
   }
 
   private async start(connectionId: string, managed: ManagedStdioClient, input: unknown) {
+    const diagnostics = new McpDiagnostics();
     try {
       const configuration = normalized(await this.packages.resolve(input));
       managed.abort.signal.throwIfAborted();
@@ -206,17 +209,23 @@ export class StdioMcpManager {
         cwd: configuration.cwd,
         stderr: "pipe",
       });
-      transport.stderr?.on("data", (chunk) => {
-        let message = String(chunk).trim();
-        for (const value of Object.values(configuration.env ?? {})) {
-          if (value.length >= 4) message = message.replaceAll(value, "[redacted]");
-        }
+      const redactor = new SecretRedactor(Object.values(configuration.env ?? {}).filter(value => value.length >= 4));
+      const consumeStderr = (text: string) => {
+        diagnostics.write(text);
+        const message = text.trim();
         if (message) console.error(`[stdio-mcp:${connectionId}] ${message.slice(0, 2_000)}`);
+      };
+      transport.stderr?.on("data", (chunk) => consumeStderr(redactor.write(Buffer.from(chunk)).toString()));
+      transport.stderr?.on("end", () => {
+        consumeStderr(redactor.end().toString());
+        diagnostics.end();
+        if (managed.state === "error" && diagnostics.authenticationError)
+          managed.error = diagnostics.authenticationError;
       });
       client.onclose = () => {
         if (managed.state === "ready") {
           managed.state = "error";
-          managed.error = "MCP process exited. Reconnect to try again.";
+          managed.error = diagnostics.authenticationError ?? "MCP process exited. Reconnect to try again.";
         }
       };
       await client.connect(transport, {
@@ -233,6 +242,10 @@ export class StdioMcpManager {
       // turn an expired login or broken executable into an automatic retry loop.
       managed.error = "MCP startup or sign-in failed. Reconnect to try again.";
       await managed.client.close().catch(() => undefined);
+      if (diagnostics.authenticationError) {
+        managed.error = diagnostics.authenticationError;
+        throw new Error(managed.error, { cause: error });
+      }
       throw error;
     }
   }

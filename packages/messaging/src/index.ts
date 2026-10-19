@@ -13,6 +13,7 @@ import { AUTOMATION_RUN_INSTRUCTIONS, automationContinuationRoute } from "./auto
 import { join } from "node:path";
 import { publishChannelNotification, publishMessageNotification } from "./notifications";
 export { publishChannelNotification, publishMessageNotification, channelNotificationStates } from "./notifications";
+import { messagePreviewText } from "@openteam/contracts/message-preview";
 import { defaultTaskConfiguration, subagentHasHistoryTools, subagentUsesParentConnectors, taskUserInfo, type TaskConfiguration } from "@openteam/contracts/task-configuration";
 import { COMBINED_GRAPHICAL_WORKER_PROMPT, GRAPHICAL_COMPLETION_INSTRUCTIONS, GRAPHICAL_DOWNLOAD_INSTRUCTIONS, GRAPHICAL_VERIFICATION_INSTRUCTIONS, EXECUTION_VERIFICATION_INSTRUCTIONS, NATIVE_DOCUMENT_INSTRUCTIONS } from "./graphical-worker-prompts";
 import { AUTHENTICATION_INSTRUCTIONS } from "./prompts/authentication";
@@ -94,6 +95,12 @@ export const toggleMessageReaction = (
       : [...reactions, { by, emoji }],
     removed,
   };
+};
+
+/** Quotes the reacted-to message as plain text, like its chat list preview. */
+export const reactionNotificationBody = (emoji: string, content: string | null): string => {
+  const quote = content ? messagePreviewText(content, Number.POSITIVE_INFINITY) : "";
+  return `Reacted ${emoji} to ${quote ? `“${quote}”` : "your message"}`;
 };
 
 export const graphicalDelegationInstructions = (config: TaskConfiguration = defaultTaskConfiguration()) => [
@@ -2635,7 +2642,7 @@ export class AgentMessaging {
         await publishChannelNotification(tx, `${notificationKey}:${context.callId}`, {
           schemaVersion: 1, kind: "reaction", botId: context.botId, channelId: message.channelId,
           runId: context.runId, messageSequence: message.sequence.toString(),
-          title: bot.name, body: `Reacted ${input.emoji} to ${message.content ? `“${message.content}”` : "your message"}`,
+          title: bot.name, body: reactionNotificationBody(input.emoji, message.content),
           deepLink: `openteam:///chat/${message.channelId}`,
         });
       }

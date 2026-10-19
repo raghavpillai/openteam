@@ -10,13 +10,14 @@ iPhone alerts need both permission on the phone and Apple Push Notification serv
 
 If iOS permission was previously denied, allow OpenTeam in the iPhone's system notification settings. Focus and Do Not Disturb can silence alerts. OpenTeam also suppresses alerts for the conversation you are viewing.
 
-By default, **Pause alerts on other devices while I’m active** keeps your phone
+By default, **Pause iPhone alerts while I’m using my Mac** keeps your phone
 quiet while you use a Mac running OpenTeam, including other Mac applications.
 Phone alerts resume for new activity after five minutes of Mac inactivity or when
-the Mac locks, sleeps, or quits OpenTeam. Opening OpenTeam on iPhone gives it priority
-and silences desktop alerts. Turn this shared setting off in either app's settings
-to receive independent alerts on both devices. Earlier suppressed alerts are not
-replayed; their messages remain unread until you read them.
+the Mac locks, sleeps, or quits OpenTeam. While OpenTeam is open on your iPhone, it
+alerts as usual. The Mac shows its own banners whenever OpenTeam isn't the window
+you're using. Turn this shared setting off in either app's settings to receive
+independent alerts on both devices. Earlier suppressed alerts are not replayed; their
+messages remain unread until you read them.
 
 ## Get the matching Apple credentials
 

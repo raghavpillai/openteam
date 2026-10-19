@@ -1,3 +1,5 @@
+import { messagePreviewText } from "./message-preview";
+
 const notificationMetadata = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -55,12 +57,8 @@ export const truncateNotificationText = (value: string, limit = 140): string => 
   return normalized;
 };
 
-/**
- * Every visible Bot message, cards included, is a `message`. `agent-needs-input`
- * is reserved for a Bot blocked mid-run on the user; nothing raises it today, but
- * stored alerts from older servers still carry it.
- */
-export type AgentNotificationKind = "agent-needs-input" | "message" | "reaction";
+/** Every visible Bot message, cards included, is a `message`. */
+export type AgentNotificationKind = "message" | "reaction";
 
 export interface NotificationReadState {
   channelId: string;
@@ -115,49 +113,23 @@ export const notificationIsRead = (
 export interface AgentNotificationPresentation {
   title: string;
   body: string;
-  sound: "default" | null;
-  urgency: "critical" | "normal";
+  sound: "default";
 }
 
 /** Shared presentation contract for native macOS and iOS notifications. */
 const agentNotificationTypeCatalog = {
-  message: {
-    title: (botName: string) => botName,
-    fallbackBody: "Sent you a message.",
-    sound: "default",
-    urgency: "normal",
-  },
-  reaction: {
-    title: (botName: string) => botName,
-    fallbackBody: "Reacted to your message.",
-    sound: "default",
-    urgency: "normal",
-  },
-  "agent-needs-input": {
-    title: (botName: string) => botName,
-    fallbackBody: "Waiting for your input.",
-    sound: "default",
-    urgency: "critical",
-  },
-} as const satisfies Record<
-  AgentNotificationKind,
-  {
-    title: (botName: string) => string;
-    fallbackBody: string;
-    sound: "default" | null;
-    urgency: "critical" | "normal";
-  }
->;
+  message: { fallbackBody: "Sent you a message.", sound: "default" },
+  reaction: { fallbackBody: "Reacted to your message.", sound: "default" },
+} as const satisfies Record<AgentNotificationKind, { fallbackBody: string; sound: "default" }>;
 
 export const isAgentNotificationKind = (value: unknown): value is AgentNotificationKind =>
   typeof value === "string" && Object.hasOwn(agentNotificationTypeCatalog, value);
 
 export const agentNotificationDeliveryPolicy = (
   kind: AgentNotificationKind
-): Pick<AgentNotificationPresentation, "sound" | "urgency"> => {
-  const definition = agentNotificationTypeCatalog[kind];
-  return { sound: definition.sound, urgency: definition.urgency };
-};
+): Pick<AgentNotificationPresentation, "sound"> => ({
+  sound: agentNotificationTypeCatalog[kind].sound,
+});
 
 export const agentNotificationPresentation = (input: {
   kind: AgentNotificationKind;
@@ -165,9 +137,8 @@ export const agentNotificationPresentation = (input: {
   body?: string | null;
 }): AgentNotificationPresentation => {
   const definition = agentNotificationTypeCatalog[input.kind];
-  const botName = normalizeNotificationText(input.botName) || "OpenTeam";
   return {
-    title: definition.title(botName),
+    title: normalizeNotificationText(input.botName) || "OpenTeam",
     body: truncateNotificationText(input.body?.trim() ? input.body : definition.fallbackBody),
     ...agentNotificationDeliveryPolicy(input.kind),
   };
@@ -194,7 +165,9 @@ export const notificationMessagePreview = (message: {
         ? `${text} 📎 ${fileName}`
         : text
     );
-  if (message.content?.trim()) return withFile(message.content);
+  // Notifications can't render Markdown: show the first line with text, as plain text.
+  const text = message.content ? messagePreviewText(message.content, Number.POSITIVE_INFINITY) : "";
+  if (text) return withFile(text);
   if (attachments.length > 0) {
     const imageCount = attachments.filter((attachment) => {
       const item = notificationMetadata(attachment);
@@ -213,11 +186,7 @@ export const notificationMessagePreview = (message: {
     );
   }
   if (["sent_link", "link"].includes(type)) return "Sent a link.";
-  if (
-    ["secret-request", "secret_request"].includes(type)
-  ) {
-    return "Waiting for your input.";
-  }
+  if (["secret-request", "secret_request"].includes(type)) return "Waiting for your input.";
   if (["email_draft", "slack_draft"].includes(type)) return "Prepared a draft for you.";
   if (type === "widget" || type === "user_form") return "Asked you to answer a question.";
   return "Open OpenTeam to see what it did.";

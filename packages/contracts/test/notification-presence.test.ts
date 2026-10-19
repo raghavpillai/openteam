@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import { Schema } from "effect";
 import { UpdateNotificationPresenceInput } from "../src";
 import {
-  desktopNotificationQuietMs,
   notificationPresenceLifetime,
   suppressMobileNotification,
 } from "../src/notification-presence";
@@ -30,16 +29,9 @@ test("foreground iPhone wins simultaneous activity; preference and expiry restor
     iosActiveUntil: 0,
   };
   expect(suppressMobileNotification(routing)).toBeTrue();
-  expect(desktopNotificationQuietMs(routing)).toBe(0);
   expect(suppressMobileNotification({ ...routing, iosActiveUntil: 70_000 })).toBeFalse();
-  expect(desktopNotificationQuietMs({ ...routing, iosActiveUntil: 70_000 })).toBe(60_000);
   expect(suppressMobileNotification(routing, 70_000)).toBeFalse();
   expect(suppressMobileNotification({ ...routing, smartEnabled: false })).toBeFalse();
-  expect(
-    desktopNotificationQuietMs({ ...routing, smartEnabled: false, iosActiveUntil: 70_000 })
-  ).toBe(0);
-  expect(desktopNotificationQuietMs({ ...routing, iosActiveUntil: 9_999 })).toBe(0);
-  expect(desktopNotificationQuietMs({ ...routing, iosActiveUntil: 999_999 })).toBe(60_000);
 });
 test("presence API rejects invalid IDs, platforms, ordering and idle values", () => {
   const parse = Schema.decodeUnknownSync(UpdateNotificationPresenceInput);

@@ -46,8 +46,8 @@ final class NotificationReadTests: XCTestCase {
     reads.merge(marker("10", "20"))
     reads.merge(marker("0", "0"))
     XCTAssertEqual(reads.markers["a"], marker("20", "20"))
-    XCTAssertTrue(reads.hasRead(push("agent-needs-input", message: "", activity: "20")))
-    XCTAssertFalse(reads.hasRead(push("agent-needs-input", message: "", activity: "21")))
+    XCTAssertTrue(reads.hasRead(push(message: "", activity: "20")))
+    XCTAssertFalse(reads.hasRead(push(message: "", activity: "21")))
   }
   func testScopesUnknownKindsMalformedCursorsAndOtherChatsStayIsolated() {
     var reads = NotificationReads(scope: "account")

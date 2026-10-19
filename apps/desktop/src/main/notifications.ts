@@ -1,7 +1,5 @@
 import {
   type AgentNotificationKind,
-  type AgentNotificationPresentation,
-  agentNotificationPresentation,
   truncateNotificationText,
   notificationIsRead,
   type ChannelNotificationState,
@@ -9,12 +7,10 @@ import {
   type NotificationSender,
   isAgentNotificationKind,
 } from "@openteam/contracts/notification-content";
-import { desktopNotificationQuietMs, type NotificationRouting } from "@openteam/contracts/notification-presence";
 
 export type DesktopNotificationKind = AgentNotificationKind;
 
 export interface DesktopNotificationSnapshot {
-  notificationRouting?: NotificationRouting;
   cursor?: string;
   channels: Array<ChannelNotificationState & { unreadCount: number }>;
 }
@@ -74,31 +70,31 @@ export const parseNotificationChannels = (
 };
 
 export interface DesktopNotificationEvent {
-  notificationId?: string;
+  notificationId: string;
   sender?: NotificationSender;
   botId: string;
   channelId: string;
   kind: DesktopNotificationKind;
   title: string;
   body: string;
-  sound: AgentNotificationPresentation["sound"];
-  urgency: AgentNotificationPresentation["urgency"];
 }
 
 export interface DesktopNotificationAdapter {
   isFocused: () => boolean;
   isSupported: () => boolean;
+  /** Banners are silent and stay in Notification Center until the user clears them. */
   deliver: (event: DesktopNotificationEvent) => void;
-  dismiss?: (notificationId: string) => void;
+  /** Closes every delivered banner, for sign-out or a server change. */
+  closeAll?: () => void;
   setBadge: (label: string) => void;
 }
 
 export { truncateNotificationText };
 
 /**
- * Each conversation gets one alert per kind in this window (a DM is its Bot, a
- * group is the whole room). Alerts that land inside it are consumed, not
- * replayed, so a burst of replies produces a single banner.
+ * Each conversation gets one banner in this window (a DM is its Bot, a group is
+ * the whole room). Messages that land inside it are consumed, not replayed, so a
+ * burst of replies produces a single banner.
  */
 export const NOTIFICATION_THROTTLE_MS = 5_000;
 
@@ -110,9 +106,6 @@ export class DesktopNotificationManager {
   private visibleChannelId: string | null = null;
   private lastBadge = "";
   private activityCursors = new Map<string, bigint>();
-  private deliveredActivity = new Map<string, ChannelNotificationView>();
-  private quietUntil = 0;
-  private routingTime = -1;
 
   constructor(
     private readonly adapter: DesktopNotificationAdapter,
@@ -141,24 +134,12 @@ export class DesktopNotificationManager {
       snapshot.cursor && /^\d+$/.test(snapshot.cursor) ? BigInt(snapshot.cursor) : null;
     if (cursor !== null && this.lastCursor !== null && cursor < this.lastCursor) return;
     if (cursor !== null) this.lastCursor = cursor;
-    const routing = snapshot.notificationRouting;
-    if (routing && routing.serverTime > this.routingTime) {
-      this.routingTime = routing.serverTime;
-      this.quietUntil = this.now() + desktopNotificationQuietMs(routing);
-    }
     const channels = snapshot.channels;
-    const byChannel = new Map(channels.map((channel) => [channel.channelId, channel]));
-    for (const [id, notification] of this.deliveredActivity) {
-      const state = byChannel.get(notification.channelId);
-      if (!state || notificationIsRead(notification, state)) {
-        this.adapter.dismiss?.(id);
-        this.deliveredActivity.delete(id);
-      }
-    }
+    const byChannel = new Set(channels.map((channel) => channel.channelId));
     this.unreadByChannel.clear();
     this.totalUnread = 0;
-    // Newest unread alert per conversation and kind; older ones in this sync are superseded.
-    const pending = new Map<string, { id: string; notification: ChannelNotificationView }>();
+    // Newest unread message per conversation; older ones in this sync are superseded.
+    const pending = new Map<string, { sequence: bigint; event: DesktopNotificationEvent }>();
     for (const channel of channels) {
       this.unreadByChannel.set(channel.channelId, channel.unreadCount);
       this.totalUnread += channel.unreadCount;
@@ -175,53 +156,30 @@ export class DesktopNotificationManager {
           notificationIsRead(notification, channel)
         )
           continue;
-        const key = `${channel.channelId}:${notification.kind}`;
-        const prior = pending.get(key);
-        if (prior && BigInt(prior.notification.notificationSequence) > sequence) continue;
-        pending.set(key, {
-          id: `${channel.channelId}:${notification.notificationSequence}`,
-          notification,
-        });
+        if ((pending.get(channel.channelId)?.sequence ?? -1n) > sequence) continue;
+        pending.set(channel.channelId, { sequence, event: alertEvent(notification) });
       }
     }
     for (const channelId of this.activityCursors.keys()) {
       if (!byChannel.has(channelId)) this.activityCursors.delete(channelId);
     }
     const now = this.now();
-    for (const [key, at] of this.lastAlertAt) {
-      if (now - at >= NOTIFICATION_THROTTLE_MS) this.lastAlertAt.delete(key);
+    for (const [channelId, at] of this.lastAlertAt) {
+      if (now - at >= NOTIFICATION_THROTTLE_MS) this.lastAlertAt.delete(channelId);
     }
     // While the window has focus, new replies show in the app instead of as banners.
-    const suppressed =
-      this.adapter.isFocused() || now < this.quietUntil || !this.adapter.isSupported();
-    for (const [key, { id, notification }] of pending) {
-      if (suppressed || this.lastAlertAt.has(key)) continue;
-      this.lastAlertAt.set(key, now);
-      this.deliveredActivity.set(id, notification);
-      const presentation = agentNotificationPresentation({
-        kind: notification.kind,
-        botName: notification.title,
-        body: notification.body,
-      });
-      this.adapter.deliver({
-        ...notification,
-        notificationId: id,
-        // The server has already formatted the title (including needs-input).
-        title: notification.title,
-        body: truncateNotificationText(notification.body),
-        // Message banners are silent on the Mac; only a Bot blocked on the user plays a sound.
-        sound: notification.kind === "agent-needs-input" ? presentation.sound : null,
-        urgency: presentation.urgency,
-      });
+    if (!this.adapter.isFocused() && this.adapter.isSupported()) {
+      for (const [channelId, { event }] of pending) {
+        if (this.lastAlertAt.has(channelId)) continue;
+        this.lastAlertAt.set(channelId, now);
+        this.adapter.deliver(event);
+      }
     }
     this.updateBadge();
   }
 
   clear(): void {
-    this.quietUntil = 0;
-    this.routingTime = -1;
-    for (const id of this.deliveredActivity.keys()) this.adapter.dismiss?.(id);
-    this.deliveredActivity.clear();
+    this.adapter.closeAll?.();
     this.activityCursors.clear();
     this.lastAlertAt.clear();
     this.unreadByChannel.clear();
@@ -234,3 +192,11 @@ export class DesktopNotificationManager {
     }
   }
 }
+
+const alertEvent = (notification: ChannelNotificationView): DesktopNotificationEvent => ({
+  ...notification,
+  notificationId: `${notification.channelId}:${notification.notificationSequence}`,
+  // The server has already formatted the title and plain-text body.
+  title: notification.title,
+  body: truncateNotificationText(notification.body),
+});

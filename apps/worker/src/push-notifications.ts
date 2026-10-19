@@ -136,9 +136,7 @@ export const enqueuePushNotification = async (
   if (devices.length === 0) return;
   const fullPayload: AgentNotificationPayload = {
     ...payload,
-    badgeCount:
-      payload.badgeCount ??
-      Math.max(payload.kind === "agent-needs-input" ? 1 : 0, await unreadBadgeCount(tx)),
+    badgeCount: payload.badgeCount ?? (await unreadBadgeCount(tx)),
   };
   await tx.outboxDelivery.createMany({
     data: devices.map((device) => ({

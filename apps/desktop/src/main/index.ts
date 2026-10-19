@@ -74,7 +74,6 @@ let computerSettings: ComputerSettingsStore | null = null;
 let desktopNotifications: DesktopNotificationManager | null = null;
 let durableSendJournals: DurableSendJournalStore | null = null;
 const activeNotifications = new Set<Notification>();
-const activityNotifications = new Map<string, Notification>();
 let isQuitting = false;
 const localMachine = { machineId: "", label: hostname() };
 let machineEnrollment: DesktopMachineEnrollment | null = null;
@@ -805,10 +804,7 @@ ipcMain.handle("openteam:updates:update-server", async (event, value) => {
 
 const desktopNotificationSnapshot = (value: unknown): DesktopNotificationSnapshot | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const candidate = value as { notificationRouting?: unknown; cursor?: unknown; channels?: unknown };
-  const routing = candidate.notificationRouting as Record<string, unknown> | undefined;
-  if (routing !== undefined && (!routing || typeof routing !== "object" ||
-    typeof routing.smartEnabled !== "boolean" || ![routing.serverTime, routing.iosActiveUntil, routing.macActiveUntil].every(value => typeof value === "number" && Number.isFinite(value) && value >= 0))) return null;
+  const candidate = value as { cursor?: unknown; channels?: unknown };
   const channels = parseNotificationChannels(candidate.channels);
   if (channels === null) return null;
   if (
@@ -817,11 +813,7 @@ const desktopNotificationSnapshot = (value: unknown): DesktopNotificationSnapsho
   ) {
     return null;
   }
-  return {
-    notificationRouting: routing as unknown as DesktopNotificationSnapshot["notificationRouting"],
-    channels,
-    ...(candidate.cursor ? { cursor: candidate.cursor } : {}),
-  };
+  return { channels, ...(candidate.cursor ? { cursor: candidate.cursor } : {}) };
 };
 
 ipcMain.on("openteam:notifications:sync", (event, request: unknown) => {
@@ -1124,9 +1116,9 @@ if (!hasSingleInstanceLock) {
         isFocused: () => mainWindow?.isFocused() ?? false,
         isSupported: () => Notification.isSupported(),
         setBadge: (label) => app.dock?.setBadge(label),
-        dismiss: (id) => {
-          activityNotifications.get(id)?.close();
-          activityNotifications.delete(id);
+        closeAll: () => {
+          for (const notification of activeNotifications) notification.close();
+          activeNotifications.clear();
         },
         deliver: (notificationEvent) => {
           const debugNotifications = process.env.OPENTEAM_NOTIFICATION_DEBUG === "1";
@@ -1138,17 +1130,10 @@ if (!hasSingleInstanceLock) {
             icon: notificationEvent.sender?.avatarDataUrl
               ? nativeImage.createFromDataURL(notificationEvent.sender.avatarDataUrl)
               : undefined,
-            silent: notificationEvent.sound === null,
-            urgency: notificationEvent.urgency,
+            silent: true,
           });
           activeNotifications.add(notification);
-          if (notificationEvent.notificationId)
-            activityNotifications.set(notificationEvent.notificationId, notification);
-          const release = () => {
-            activeNotifications.delete(notification);
-            if (notificationEvent.notificationId)
-              activityNotifications.delete(notificationEvent.notificationId);
-          };
+          const release = () => activeNotifications.delete(notification);
           notification.once("close", release);
           notification.once("show", () => {
             notificationDeliveryFailed = false;

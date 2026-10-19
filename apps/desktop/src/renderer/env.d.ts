@@ -79,7 +79,6 @@ interface Window {
       activity: () => Promise<{ active: boolean; idleSeconds: number }>;
       onActivityChange: (callback: () => void) => () => void;
       sync: (snapshot: {
-        notificationRouting?: import("@openteam/contracts/notification-presence").NotificationRouting;
         cursor?: string;
         channels: Array<
           import("@openteam/contracts/notification-content").ChannelNotificationState & {

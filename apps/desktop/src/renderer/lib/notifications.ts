@@ -1,4 +1,3 @@
-import type { NotificationRouting } from "@openteam/contracts/notification-presence";
 import { notificationAvatarDataUrl } from "./notification-avatar";
 import type { ClientSnapshot } from "@openteam/contracts";
 import type { ChannelNotificationState } from "@openteam/contracts/notification-content";
@@ -6,13 +5,11 @@ import type { ChannelNotificationState } from "@openteam/contracts/notification-
 export const desktopNotificationSnapshot = (
   snapshot: ClientSnapshot
 ): {
-  notificationRouting?: NotificationRouting;
   cursor: string;
   channels: Array<ChannelNotificationState & { unreadCount: number }>;
 } => {
   const botById = new Map(snapshot.bots.map((bot) => [bot.id, bot] as const));
   return {
-    notificationRouting: snapshot.notificationRouting,
     cursor: snapshot.cursor,
     channels: snapshot.channels.flatMap((channel) =>
       channel.notificationState &&

@@ -10,36 +10,36 @@ describe("notification text", () => {
   test("defines one exact presentation and delivery policy for every agent notification type", () => {
     expect(
       agentNotificationPresentation({
-        kind: "agent-needs-input",
+        kind: "message",
         botName: "  Probe  ",
-        body: "  Approve\nthis   command  ",
+        body: "  Finished\nthe   command  ",
       })
-    ).toEqual({
-      title: "Probe",
-      body: "Approve this command",
-      sound: "default",
-      urgency: "critical",
-    });
-    expect(agentNotificationPresentation({ kind: "agent-needs-input", botName: "Probe" })).toEqual({
-      title: "Probe",
-      body: "Waiting for your input.",
-      sound: "default",
-      urgency: "critical",
-    });
-    expect(
-      agentNotificationPresentation({ kind: "message", botName: "Probe", body: "Finished" })
-    ).toEqual({
-      title: "Probe",
-      body: "Finished",
-      sound: "default",
-      urgency: "normal",
-    });
+    ).toEqual({ title: "Probe", body: "Finished the command", sound: "default" });
     expect(agentNotificationPresentation({ kind: "message", botName: "Probe" })).toEqual({
       title: "Probe",
       body: "Sent you a message.",
       sound: "default",
-      urgency: "normal",
     });
+    expect(agentNotificationPresentation({ kind: "reaction", botName: "" })).toEqual({
+      title: "OpenTeam",
+      body: "Reacted to your message.",
+      sound: "default",
+    });
+  });
+
+  test("shows the first line with text as plain text, never Markdown", () => {
+    expect(
+      notificationMessagePreview({
+        content: "## **Deploy** finished — see [the logs](https://example.com/logs) and `run.sh`\n\n- step one",
+      })
+    ).toBe("Deploy finished — see the logs and run.sh");
+    expect(notificationMessagePreview({ content: "```\n\n> *Quoted* reply" })).toBe("Quoted reply");
+    expect(
+      notificationMessagePreview({
+        content: "Here's the **report**",
+        metadata: { attachments: [{ fileName: "report.pdf", kind: "file" }] },
+      })
+    ).toBe("Here's the report 📎 report.pdf");
   });
 
   test("keeps extended grapheme clusters intact at the 140-character boundary", () => {

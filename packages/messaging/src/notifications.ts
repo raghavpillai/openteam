@@ -161,8 +161,10 @@ export const channelNotificationStates = async (
       COALESCE(state."lastReadNotificationSequence", 0) AS "lastReadNotificationSequence",
       COALESCE((SELECT MAX(n."sequence") FROM "ChannelNotification" n
         WHERE n."channelId" = requested."channelId"), 0) AS "notificationCursor",
-      COALESCE((SELECT jsonb_agg(alert.payload || jsonb_build_object('notificationSequence', alert.sequence::text))
-        FROM (SELECT n.payload, n.sequence FROM "ChannelNotification" n
+      -- Older servers stored question cards as "agent-needs-input"; they read back as messages.
+      COALESCE((SELECT jsonb_agg(alert.payload || jsonb_build_object('notificationSequence', alert.sequence::text,
+          'kind', CASE WHEN alert.kind = 'reaction' THEN 'reaction' ELSE 'message' END))
+        FROM (SELECT n.payload, n.sequence, n.kind FROM "ChannelNotification" n
           JOIN "Bot" bot ON bot.id = n."botId"
           WHERE n."channelId" = requested."channelId" AND NOT n.revoked
             AND bot."notificationsEnabled" AND NOT bot."hiddenFromSidebar"

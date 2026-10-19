@@ -45,14 +45,16 @@ const channel = (
 const harness = (options: { focused?: () => boolean } = {}) => {
   let now = 10_000;
   const delivered: DesktopNotificationEvent[] = [];
-  const dismissed: string[] = [];
+  let closed = 0;
   const badges: string[] = [];
   const manager = new DesktopNotificationManager(
     {
       isFocused: options.focused ?? (() => false),
       isSupported: () => true,
       deliver: (event) => delivered.push(event),
-      dismiss: (id) => dismissed.push(id),
+      closeAll: () => {
+        closed++;
+      },
       setBadge: (label) => badges.push(label),
     },
     () => now
@@ -60,7 +62,7 @@ const harness = (options: { focused?: () => boolean } = {}) => {
   return {
     manager,
     delivered,
-    dismissed,
+    closed: () => closed,
     badges,
     ids: () => delivered.map((event) => event.notificationId),
     advance: (ms: number) => {
@@ -69,48 +71,18 @@ const harness = (options: { focused?: () => boolean } = {}) => {
   };
 };
 
-test("iPhone presence consumes alerts without clearing badges or replaying them, and expires offline", () => {
-  const { manager, ids, badges, advance } = harness();
-  const routing = {
-    smartEnabled: true,
-    serverTime: 1_000_000,
-    iosActiveUntil: 1_060_000,
-    macActiveUntil: 1_060_000,
-  };
-  const snapshot = (sequence: number, notificationRouting = routing) => ({
-    notificationRouting,
-    channels: [channel(sequence ? [alert(sequence)] : [], { unreadCount: sequence })],
-  });
-  manager.sync(snapshot(0));
-  manager.sync(snapshot(1));
-  expect(ids()).toEqual([]);
-  expect(badges.at(-1)).toBe("1");
-  advance(60_000);
-  manager.sync(snapshot(1)); // Reusing an old projection cannot renew a lease.
-  expect(ids()).toEqual([]);
-  manager.sync(snapshot(2));
-  expect(ids()).toEqual(["chat:2"]);
-  manager.sync(snapshot(3, { ...routing, serverTime: 1_061_000, iosActiveUntil: 1_121_000 }));
-  expect(ids()).toEqual(["chat:2"]);
-  advance(5_000);
-  manager.sync(snapshot(4, { ...routing, smartEnabled: false, serverTime: 1_062_000 }));
-  expect(ids()).toEqual(["chat:2", "chat:4"]);
-  manager.clear();
-  manager.sync(snapshot(0, { ...routing, smartEnabled: false, serverTime: 1 }));
-  manager.sync(snapshot(1, { ...routing, smartEnabled: false, serverTime: 2 }));
-  expect(ids().at(-1)).toBe("chat:1");
-});
-
 describe("DesktopNotificationManager", () => {
-  test("seeds silently, then delivers each new message once and clears it when read", () => {
-    const { manager, ids, dismissed } = harness();
+  test("seeds silently, delivers each new message once, and leaves read banners in place", () => {
+    const { manager, ids, closed } = harness();
     manager.sync({ channels: [channel([alert(1)])] });
     expect(ids()).toEqual([]);
     manager.sync({ channels: [channel([alert(1), alert(2)])] });
     manager.sync({ channels: [channel([alert(1), alert(2)])] });
     expect(ids()).toEqual(["chat:2"]);
     manager.sync({ channels: [channel([alert(1), alert(2)], { lastReadSequence: "20" })] });
-    expect(dismissed).toEqual(["chat:2"]);
+    expect(closed()).toBe(0);
+    manager.clear();
+    expect(closed()).toBe(1);
   });
 
   test("skips reactions and alerts that were already read on another device", () => {
@@ -126,7 +98,7 @@ describe("DesktopNotificationManager", () => {
     expect(ids()).toEqual([]);
   });
 
-  test("throttles each conversation and kind for five seconds without replaying", () => {
+  test("throttles each conversation for five seconds without replaying", () => {
     const { manager, ids, advance } = harness();
     const room = (sequences: number[]) =>
       channel(
@@ -137,19 +109,10 @@ describe("DesktopNotificationManager", () => {
     manager.sync({ channels: [channel([alert(1)]), room([])] });
     advance(1_500);
     manager.sync({ channels: [channel([alert(1), alert(2)]), room([7])] });
-    advance(1_000);
-    manager.sync({
-      channels: [channel([alert(1), alert(2), alert(3, { kind: "agent-needs-input" })]), room([7])],
-    });
-    advance(2_600);
-    manager.sync({
-      channels: [
-        channel([alert(1), alert(2), alert(3, { kind: "agent-needs-input" }), alert(4)]),
-        room([7]),
-      ],
-    });
+    advance(3_600);
+    manager.sync({ channels: [channel([alert(1), alert(2), alert(3)]), room([7])] });
     // Message 2 landed inside message 1's window and is never shown later.
-    expect(ids()).toEqual(["chat:1", "room:7", "chat:3", "chat:4"]);
+    expect(ids()).toEqual(["chat:1", "room:7", "chat:3"]);
   });
 
   test("shows only the newest alert when several arrive together", () => {
@@ -170,16 +133,6 @@ describe("DesktopNotificationManager", () => {
     advance(1_000);
     manager.sync({ channels: [channel([alert(1), alert(2)])] });
     expect(ids()).toEqual(["chat:2"]);
-  });
-
-  test("keeps message banners silent and sounds only for a Bot that is blocked on the user", () => {
-    const { manager, delivered } = harness();
-    manager.sync({ channels: [channel([])] });
-    manager.sync({ channels: [channel([alert(1), alert(2, { kind: "agent-needs-input" })])] });
-    expect(delivered.map(({ kind, sound, urgency }) => ({ kind, sound, urgency }))).toEqual([
-      { kind: "message", sound: null, urgency: "normal" },
-      { kind: "agent-needs-input", sound: "default", urgency: "critical" },
-    ]);
   });
 
   test("sums unread counts, rejects stale snapshots, and leaves the visible channel out of the badge", () => {

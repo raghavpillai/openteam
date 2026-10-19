@@ -52,12 +52,10 @@ test.skipIf(!databaseUrl)(
       };
     }> = [];
     const delivered: string[] = [];
-    const dismissed: string[] = [];
     const manager = new DesktopNotificationManager({
       isFocused: () => false,
       isSupported: () => true,
       deliver: (notification) => delivered.push(notification.notificationId!),
-      dismiss: (id) => dismissed.push(id),
       setBadge: () => {},
     });
     const service = new NotificationService(prisma, "disabled");
@@ -169,7 +167,7 @@ test.skipIf(!databaseUrl)(
         )
       );
       const secondState = await sync();
-      expect(dismissed).toEqual([delivered[0]!]);
+      expect(delivered).toHaveLength(1);
       expect(secondState.notifications.map((n) => n.messageSequence)).toEqual([
         second.sequence.toString(),
       ]);
@@ -190,7 +188,7 @@ test.skipIf(!databaseUrl)(
         )
       );
       await sync();
-      expect(dismissed).toEqual(delivered);
+      expect(delivered).toHaveLength(1);
       const reactionContext = { ...context, callId: crypto.randomUUID() };
       await messaging.reactToMessage(reactionContext, {
         message_address: `t${userMessage.sequence}u`,
@@ -226,7 +224,7 @@ test.skipIf(!databaseUrl)(
       expect(read.lastReadNotificationSequence).toBe(reactionState.notificationCursor);
       expect(read.notifications).toEqual([]);
       expect(await unreadBadgeCount(prisma)).toBe(initialBadgeCount);
-      expect(dismissed).toEqual(delivered);
+      expect(delivered).toHaveLength(1);
       await drain();
       expect(sent.filter((push) => push.data.kind === "badge-sync").at(-1)).toMatchObject({
         badge: initialBadgeCount,
@@ -272,4 +270,52 @@ test.skipIf(!databaseUrl)(
     }
   },
   30_000
+);
+
+test.skipIf(!databaseUrl)(
+  "alerts stored as needs-input by older servers read back as messages",
+  async () => {
+    const prisma = createPrismaClient(databaseUrl!);
+    const bot = await prisma.bot.create({
+      data: { name: "Legacy Alert QA", defaultDirectory: "/tmp/legacy-alert-qa" },
+    });
+    const channel = await prisma.channel.create({
+      data: {
+        kind: "bot_dm",
+        name: "Legacy Alert QA",
+        members: { create: { botId: bot.id, ordinal: 0 } },
+      },
+    });
+    try {
+      const payload = {
+        schemaVersion: 1,
+        kind: "agent-needs-input",
+        botId: bot.id,
+        channelId: channel.id,
+        runId: "",
+        messageSequence: "1",
+        title: "Legacy Alert QA",
+        body: "Deploy to production?",
+        deepLink: `openteam:///chat/${channel.id}`,
+      };
+      await prisma.channelNotification.create({
+        data: {
+          key: `message:legacy:${channel.id}`,
+          channelId: channel.id,
+          botId: bot.id,
+          kind: "agent-needs-input",
+          messageSequence: 1n,
+          payload,
+        },
+      });
+      const state = (await channelNotificationStates(prisma, [channel.id])).get(channel.id)!;
+      expect(state.notifications.map(({ kind, body }) => ({ kind, body }))).toEqual([
+        { kind: "message", body: "Deploy to production?" },
+      ]);
+    } finally {
+      await prisma.channel.delete({ where: { id: channel.id } });
+      await prisma.bot.delete({ where: { id: bot.id } });
+      await prisma.$disconnect();
+    }
+  }
 );

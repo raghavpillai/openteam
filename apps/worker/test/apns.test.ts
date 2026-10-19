@@ -129,7 +129,7 @@ describe("native APNs delivery", () => {
       device,
       {
         ...alert,
-        kind: "agent-needs-input",
+        kind: "reaction",
         title: heavy,
         body: heavy,
         sender: { ...alert.sender!, name: heavy },

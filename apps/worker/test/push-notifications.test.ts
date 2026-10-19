@@ -385,18 +385,18 @@ describe("push notification content", () => {
     expect(
       expoPushMessage("ExpoPushToken[token]", {
         schemaVersion: 1,
-        kind: "agent-needs-input",
+        kind: "reaction",
         botId: "bot",
         channelId: "channel",
         runId: "run",
-        title: "Probe needs you",
-        body: "Approve the command",
+        title: "Probe",
+        body: "Reacted 👍 to “Ship it”",
         deepLink: "openteam:///chat/channel",
         badgeCount: 4,
       })
     ).toMatchObject({
-      title: "Probe needs you",
-      body: "Approve the command",
+      title: "Probe",
+      body: "Reacted 👍 to “Ship it”",
       sound: "default",
       badge: 4,
     });

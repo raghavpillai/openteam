@@ -18,7 +18,6 @@ import {
 } from "../ui/dropdown-menu";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { BotAvatar } from "./avatar";
 
@@ -50,7 +49,6 @@ interface ProfileDraft {
   description: string;
   icon: string;
   color: string;
-  notificationsEnabled: boolean;
 }
 
 const draftOf = (bot: BotView): ProfileDraft => ({
@@ -59,7 +57,6 @@ const draftOf = (bot: BotView): ProfileDraft => ({
   description: bot.description,
   icon: bot.icon,
   color: bot.color,
-  notificationsEnabled: bot.notificationsEnabled,
 });
 
 function BotSettings({
@@ -87,7 +84,6 @@ function BotSettings({
           title: next.title,
           description: next.description,
           ...(includeAvatar ? { icon: next.icon, color: next.color } : {}),
-          notificationsEnabled: next.notificationsEnabled,
         });
         if (requestRevision === revision.current) setSaveState("saved");
       } catch {
@@ -133,7 +129,6 @@ function BotSettings({
           ...(next.name.trim() ? { name: next.name.trim() } : {}),
           title: next.title,
           description: next.description,
-          notificationsEnabled: next.notificationsEnabled,
         })
         .catch(() => undefined);
     },
@@ -215,20 +210,6 @@ function BotSettings({
             onChange={(event) => queue({ ...draft, description: event.target.value })}
             placeholder="What this Bot is for"
             value={draft.description}
-          />
-        </div>
-        <div className="mt-1 flex h-[76px] items-center gap-3 rounded-xl bg-[#f0f0f0] p-3 dark:bg-[#181818]">
-          <div className="relative left-0.5 min-w-0 flex-1">
-            <div className="text-[13px] font-medium leading-[18px]">Notifications</div>
-            <div className="mt-0.5 text-[12px] leading-[15px] text-foreground-secondary">
-              Get notified when this Bot finishes or needs input
-            </div>
-          </div>
-          <Switch
-            aria-label="Notifications"
-            checked={draft.notificationsEnabled}
-            className="-mr-1"
-            onCheckedChange={(checked) => queue({ ...draft, notificationsEnabled: checked }, true)}
           />
         </div>
         {saveState === "error" && (

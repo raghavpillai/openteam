@@ -934,7 +934,7 @@ model PushDevice {
   installationId String             @unique
   platform       PushDevicePlatform
   pushToken      String             @unique
-  provider       String             @default("expo")
+  provider       String             @default("apns")
   apnsEnvironment String?
   apnsTopic      String?
   notificationScope String?
@@ -1251,19 +1251,15 @@ model TaskSettings {
 
 /// Selected search provider; null means search is off. Credentials live in WebToolProvider.
 model WebSearchSettings {
-  id              String   @id @default("global")
-  provider        String?
-  /// Legacy key, migrated to WebToolProvider by raw-schema.sql and kept null.
-  apiKey          String?
-  updatedAt       DateTime @updatedAt
+  id        String   @id @default("global")
+  provider  String?
+  updatedAt DateTime @updatedAt
 }
 
 /// Selected fetch provider; no row means the built-in fetcher and a null provider turns fetch off.
 model WebFetchSettings {
   id        String   @id @default("global")
   provider  String?  @default("builtin")
-  /// Legacy key, migrated to WebToolProvider by raw-schema.sql and kept null.
-  apiKey    String?
   updatedAt DateTime @updatedAt
 }
 

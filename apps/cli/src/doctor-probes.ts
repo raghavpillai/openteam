@@ -188,7 +188,7 @@ try {
   if (!Number.isFinite(age) || age < -5000 || age > 20000 || typeof heartbeat.updatedAt !== "number" || typeof heartbeat.instance !== "string" || !heartbeat.instance) throw new Error("Worker heartbeat is stale or invalid");
   checks.push({ level: "pass", label: "Worker heartbeat", detail: "Event loop heartbeat " + Math.max(0, Math.floor(age / 1000)) + "s ago" });
 } catch (error) {
-  checks.push({ level: "fail", label: "Worker heartbeat", detail: error.code === "ENOENT" ? "No worker heartbeat; update older images with openteam update --force" : error.message });
+  checks.push({ level: "fail", label: "Worker heartbeat", detail: error.code === "ENOENT" ? "No worker heartbeat; the worker has not finished starting" : error.message });
 }
 if (heartbeat && checks[0].level === "pass") {
   try {

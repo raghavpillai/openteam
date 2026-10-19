@@ -37,6 +37,8 @@ import { agentFileIO } from "./agent-file-io";
 import { protectedAgentDataPath } from "@openteam/contracts/agent-file-access";
 
 const DEFAULT_BLOCK_MS = 30_000;
+// Shell output logs are named by their numeric shell_id.
+const TERMINAL_LOG_NAME = /^[0-9]+\.log$/;
 
 export const sanitizedShellEnvironment = (
   source: NodeJS.ProcessEnv,
@@ -385,13 +387,10 @@ export class NativeToolExecutor {
     const canonical = await realpath(path);
     await this.assertProtectedReadPath(canonical);
     // The supervisor keeps terminal logs beside its private Pi credentials. Only
-    // expose canonical numeric/legacy UUID log paths, never adjacent files or symlink escapes.
+    // expose canonical numeric log paths, never adjacent files or symlink escapes.
     const terminalRoot = await realpath(this.terminalDir).catch(() => undefined);
     const terminalLog =
-      terminalRoot !== undefined &&
-      /^(?:[0-9]+|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.log$/i.test(
-        relative(terminalRoot, canonical)
-      );
+      terminalRoot !== undefined && TERMINAL_LOG_NAME.test(relative(terminalRoot, canonical));
     if (!terminalLog) await this.assertAgentReadable(canonical);
     const metadata = await stat(canonical);
     if (!metadata.isFile()) throw new Error(`Not a file: ${path}`);
@@ -403,7 +402,7 @@ export class NativeToolExecutor {
       try {
         const actual = await realpath(process.platform === "linux" ? `/proc/self/fd/${file.fd}` : `/dev/fd/${file.fd}`);
         await this.assertProtectedReadPath(actual);
-        if (dirname(actual) !== terminalRoot || !/^(?:[0-9]+|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.log$/i.test(basename(actual)))
+        if (dirname(actual) !== terminalRoot || !TERMINAL_LOG_NAME.test(basename(actual)))
           throw new Error("Read terminal log target changed");
         const pinned = await file.stat();
         if (!pinned.isFile() || pinned.size > HOST_TRANSFER_MAX_BYTES)

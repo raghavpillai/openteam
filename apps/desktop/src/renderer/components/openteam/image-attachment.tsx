@@ -61,8 +61,8 @@ export function ImageAttachment({
   const fetchedSource = useAuthenticatedResource(rawSource);
   const source = useSettledImageSource(fetchedSource);
   // Reserve the frame from attachment metadata before fetching/decoding bytes.
-  // Legacy images keep the fallback frame even after load, so revisiting a chat
-  // or remounting a virtual row cannot change its height.
+  // Images without dimensions keep the fallback frame even after load, so
+  // revisiting a chat or remounting a virtual row cannot change its height.
   const hasDimensions =
     typeof image.width === "number" && Number.isFinite(image.width) && image.width > 0 &&
     typeof image.height === "number" && Number.isFinite(image.height) && image.height > 0;

@@ -41,8 +41,6 @@ import {
   parseFormRemap,
   formatUserFormReceipt,
   ComputerUseInput,
-  EXTERNAL_READ_TOOL,
-  EXTERNAL_SHELL_TOOL,
   GET_DYNAMIC_TOOLS_TOOL,
   GetDynamicToolsInput,
   LIST_MACHINES_TOOL,
@@ -101,11 +99,6 @@ export const SUBAGENT_PRIVATE_NATIVE_TOOLS: ReadonlySet<string> = new Set([
   SEND_TO_USER_TOOL.name,
   REACT_TO_MESSAGE_TOOL.name,
   UPDATE_STATE_TOOL.name,
-]);
-
-export const LEGACY_EXTERNAL_NATIVE_TOOLS: ReadonlySet<string> = new Set([
-  EXTERNAL_SHELL_TOOL.name,
-  EXTERNAL_READ_TOOL.name,
 ]);
 
 export class RuntimeTools {
@@ -472,7 +465,6 @@ export class RuntimeTools {
           ["Read", "RecallMemory", "GetDynamicTools", "CallDynamicTool", "ListSections"].includes(
             tool.name
           )) &&
-        !LEGACY_EXTERNAL_NATIVE_TOOLS.has(tool.name) &&
         (active.requestSource !== "automation" || !AUTOMATION_PARENT_ONLY_TOOLS.has(tool.name)) &&
         (!active.subagentType || !SUBAGENT_PRIVATE_NATIVE_TOOLS.has(tool.name) ||
           (tool.name === "RecallMemory" && subagentHasHistoryTools(active.subagentType)))
@@ -590,22 +582,6 @@ export class RuntimeTools {
           part.type === "text" ? { ...part, text: redactSecrets(part.text, secrets) } : part
         ),
       };
-    }
-    if (tool === EXTERNAL_SHELL_TOOL.name) {
-      const input = Schema.decodeUnknownSync(ShellToolInput)(args);
-      return (() =>
-        this.nativeToolExecutor.externalShell(
-          { ...input, machineId: input.machineId ?? "this-computer" },
-          signal
-        ))();
-    }
-    if (tool === EXTERNAL_READ_TOOL.name) {
-      const input = Schema.decodeUnknownSync(ReadToolInput)(args);
-      return (() =>
-        this.nativeToolExecutor.externalRead(
-          { ...input, machineId: input.machineId ?? "this-computer" },
-          signal
-        ))();
     }
     if (tool === LIST_MACHINES_TOOL.name) {
       return this.nativeToolExecutor.listMachines(signal);

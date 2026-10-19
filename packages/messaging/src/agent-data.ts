@@ -549,42 +549,7 @@ const normalizeSidebarSections = (input: unknown): RootSidebarSection[] => {
   return sections;
 };
 
-const rootSettingsFromLegacy = (value: Record<string, unknown>): RootSettings => {
-  const settings = defaultRootSettings();
-  if (typeof value.timezone === "string") settings.userTimeZone = value.timezone;
-  if (typeof value.notificationsEnabled === "boolean") {
-    settings.notifications = { isEnabled: value.notificationsEnabled };
-  }
-  if (typeof value.theme === "string") settings.themePreference = value.theme;
-  if (typeof value.language === "string") settings.languagePreference = value.language;
-  if (value.pinnedAgentIds !== undefined) {
-    settings.pinnedAgentIds = uniqueStrings(value.pinnedAgentIds, "settings.json pinnedAgentIds");
-  }
-  if (value.sidebarPreferences !== undefined) {
-    const legacy = parseSidebarPreferences(value.sidebarPreferences);
-    settings.pinnedAgentIds = [...new Set(legacy.pinnedIds)];
-    settings.sidebarSections = normalizeSidebarSections(
-      legacy.sections.map((section) => ({
-        id: section.id,
-        name: section.name,
-        agentIds: Object.entries(legacy.sectionByChannel)
-          .filter(([, sectionId]) => sectionId === section.id)
-          .map(([channelId]) => channelId),
-        isCollapsed: section.collapsed,
-      }))
-    );
-  }
-  return settings;
-};
-
 const parseRootSettings = (value: Record<string, unknown>): RootSettings => {
-  if (
-    value.sidebarPreferences !== undefined ||
-    value.timezone !== undefined ||
-    value.notificationsEnabled !== undefined
-  ) {
-    return rootSettingsFromLegacy(value);
-  }
   if (value.version !== ROOT_SETTINGS_VERSION) throw new Error("settings.json version must be 1");
   const requiredBooleans = [
     "autoUpdateWhenIdleOptIn",
@@ -1007,8 +972,6 @@ export class AgentDataStore {
       await atomicWrite(join(this.managedSkillsDirectory(), "cache.json"), jsonFile({ version: "disabled", skills: [] }), 0o444);
       return;
     }
-    // Remove the retired helper from older managed caches.
-    await rm(join(this.managedSkillsDirectory(), "flight-booking", "google-flights-url.cjs"), { force: true });
     const cachePath = join(this.managedSkillsDirectory(), "cache.json");
     const current = await readText(cachePath);
     if (current) {
@@ -1264,7 +1227,6 @@ export class AgentDataStore {
         await tx.bot.update({ where: { id: botId }, data: { templateRecipe: Prisma.DbNull, instructions: [bot.instructions, additions].filter(Boolean).join("\n\n") } });
         await this.writeBotFilesInTransaction(tx, botId, ["instructions"]);
       }
-      await this.migrateLegacyAvatar(botId, bot.avatarPath);
     });
   }
 
@@ -1349,9 +1311,8 @@ export class AgentDataStore {
       if (!bot.avatarPath) {
         await this.clearAvatarFiles(botId);
       } else if (existing.length === 0) {
-        await this.installAvatarFromPath(botId, bot.avatarPath, true);
+        await this.installAvatarFromPath(botId, bot.avatarPath);
       }
-      await rm(join(directory, "avatar.json"), { force: true });
     }
     if (targets.includes("projects")) {
       for (const membership of bot.projectMemberships)
@@ -1422,10 +1383,9 @@ export class AgentDataStore {
           data: { avatarPath: null },
         });
         await this.clearAvatarFiles(botId);
-        await rm(join(this.botDirectory(botId), "avatar.json"), { force: true });
         return { path: null, resolvedPath: null, bytes: 0 };
       }
-      return this.installAvatarFromPath(botId, supplied, false);
+      return this.installAvatarFromPath(botId, supplied);
     });
   }
 
@@ -2160,18 +2120,12 @@ export class AgentDataStore {
 
   private async installAvatarFromPath(
     botId: string,
-    supplied: string,
-    allowLegacyWorkspacePath: boolean
+    supplied: string
   ): Promise<{ path: string; resolvedPath: string; bytes: number }> {
     const directory = this.botDirectory(botId);
     const canonical = await realpath(resolve(directory, supplied)).catch(() => null);
     const agentDirectory = await realpath(directory).catch(() => directory);
-    const workspace = await realpath(this.workspaceRoot).catch(() => this.workspaceRoot);
-    if (
-      !canonical ||
-      (!this.isInside(canonical, agentDirectory) &&
-        !(allowLegacyWorkspacePath && this.isInside(canonical, workspace)))
-    ) {
+    if (!canonical || !this.isInside(canonical, agentDirectory)) {
       throw new Error(`avatar source must stay inside ${directory}`);
     }
     const bytes = await readBytes(canonical, MAX_AVATAR_BYTES);
@@ -2183,45 +2137,8 @@ export class AgentDataStore {
     const destination = join(directory, `avatar${extension}`);
     await atomicWrite(destination, bytes);
     const resolvedPath = await realpath(destination);
-    await rm(join(directory, "avatar.json"), { force: true });
     await this.prisma.bot.update({ where: { id: botId }, data: { avatarPath: resolvedPath } });
     return { path: supplied, resolvedPath, bytes: bytes.length };
-  }
-
-  private async migrateLegacyAvatar(botId: string, databasePath: string | null): Promise<void> {
-    const directory = this.botDirectory(botId);
-    if ((await this.avatarFiles(botId)).length > 0) {
-      await rm(join(directory, "avatar.json"), { force: true });
-      return;
-    }
-    let supplied = databasePath;
-    const pointerPath = join(directory, "avatar.json");
-    const pointer = await readText(pointerPath).catch(() => null);
-    if (!supplied && pointer) {
-      try {
-        const value = parseJsonObject(pointer, "avatar.json");
-        supplied = typeof value.path === "string" ? value.path : null;
-      } catch {
-        supplied = null;
-      }
-    }
-    if (!supplied) {
-      const profile = await readText(join(directory, "profile.json")).catch(() => null);
-      if (profile) {
-        try {
-          const value = parseJsonObject(profile, "profile.json");
-          supplied = typeof value.avatar === "string" ? value.avatar : null;
-        } catch {
-          supplied = null;
-        }
-      }
-    }
-    if (supplied) {
-      await this.installAvatarFromPath(botId, supplied, true).catch(async () => {
-        await this.prisma.bot.update({ where: { id: botId }, data: { avatarPath: null } });
-      });
-    }
-    await rm(pointerPath, { force: true });
   }
 
   private async reconcileProjects(tx: Tx, botId: string, warnings: string[]): Promise<void> {
@@ -3082,9 +2999,7 @@ export class AgentDataStore {
       profileSection = liveProfile;
       this.pendingIdentityAnnouncements.delete(announcementKey);
     } else {
-      // Older snapshots embedded instructions here; they now have their own
-      // frozen section and change announcements.
-      profileSection = snapshot.profileSection.split("\n\nBot-specific instructions:\n")[0]!;
+      profileSection = snapshot.profileSection;
       if (
         snapshot.announcedName !== bot.name ||
         snapshot.announcedDescription !== bot.description

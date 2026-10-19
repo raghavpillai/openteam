@@ -234,14 +234,10 @@ describe("specialized subagent tool surfaces", () => {
 
   test("normal agents target hosts with machineId on Shell and Read", () => {
     const names = toolNames(null);
-    expect(names).toEqual(
-      NATIVE_TOOL_NAMES.filter((name) => !["ExternalShell", "ExternalRead"].includes(name))
-    );
+    expect(names).toEqual(NATIVE_TOOL_NAMES);
     expect(names).toContain("ListMachines");
     expect(names).toContain("Shell");
     expect(names).toContain("Read");
-    expect(names).not.toContain("ExternalShell");
-    expect(names).not.toContain("ExternalRead");
   });
 
   test("normal agents discover A2A under cursor without legacy graphical Computer control", () => {

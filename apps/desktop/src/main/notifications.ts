@@ -42,7 +42,7 @@ export const parseNotificationChannels = (
         typeof notification.botId !== "string" ||
         !isAgentNotificationKind(notification.kind) ||
         !numeric(notification.notificationSequence) ||
-        (notification.messageSequence !== undefined && !numeric(notification.messageSequence)) ||
+        !numeric(notification.messageSequence) ||
         (notification.threadMessageId !== undefined &&
           (typeof notification.threadMessageId !== "string" ||
             notification.threadMessageId.length > 64)) ||

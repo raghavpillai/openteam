@@ -262,10 +262,7 @@ export class SnapshotService {
     } as ClientSnapshot;
   }
 
-  /**
-   * Small, additive startup surface for clients that load channel history on
-   * demand. The legacy full snapshot remains unchanged for rolling upgrades.
-   */
+  /** Small startup surface for clients that load channel history on demand. */
   bootstrap = () => serviceEffect(() => this.sharedClientBootstrap());
 
   private async sharedClientBootstrap(): Promise<ClientBootstrapView> {

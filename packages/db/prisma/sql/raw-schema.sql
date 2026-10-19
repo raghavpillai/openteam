@@ -146,15 +146,11 @@ DECLARE
   matched TEXT[];
   clean_url TEXT;
 BEGIN
-  -- Reactions and unrelated metadata do not affect search. A custom session
-  -- setting bypasses this guard only for the bounded migration backfill below.
+  -- Reactions and unrelated metadata do not affect search.
   IF TG_OP = 'UPDATE'
-    AND coalesce(current_setting('openteam.search_reindex', true), '0') <> '1'
     AND NEW."content" IS NOT DISTINCT FROM OLD."content"
     AND (NEW."metadata"::jsonb -> 'attachments')
-      IS NOT DISTINCT FROM (OLD."metadata"::jsonb -> 'attachments')
-    AND (NEW."metadata"::jsonb -> 'images')
-      IS NOT DISTINCT FROM (OLD."metadata"::jsonb -> 'images') THEN
+      IS NOT DISTINCT FROM (OLD."metadata"::jsonb -> 'attachments') THEN
     RETURN NEW;
   END IF;
 
@@ -192,8 +188,6 @@ BEGIN
     END LOOP;
   END IF;
 
-  -- Canonical attachments win when both shapes are present so compatibility
-  -- promotion cannot create duplicate file results.
   IF jsonb_typeof(NEW."metadata"::jsonb -> 'attachments') = 'array'
     AND jsonb_array_length(NEW."metadata"::jsonb -> 'attachments') > 0 THEN
     FOR attachment IN
@@ -213,21 +207,6 @@ BEGIN
             THEN '/api/v0/assets/' || (attachment ->> 'assetId')
           ELSE NULL
         END,
-        NEW."createdAt", NEW."createdAt"
-      );
-      attachment_index := attachment_index + 1;
-    END LOOP;
-  ELSIF jsonb_typeof(NEW."metadata"::jsonb -> 'images') = 'array' THEN
-    FOR attachment IN SELECT value FROM jsonb_array_elements(NEW."metadata"::jsonb -> 'images')
-    LOOP
-      INSERT INTO "SearchDocument" (
-        "id", "kind", "sourceType", "sourceId", "entityId", "channelId", "messageId", "botId",
-        "title", "subtitle", "content", "url", "createdAt", "updatedAt"
-      ) VALUES (
-        'file:' || NEW."id" || ':' || attachment_index, 'file', 'channel_message', NEW."id",
-        NEW."id"::text || ':' || attachment_index, NEW."channelId", NEW."id", NEW."senderBotId",
-        coalesce(NULLIF(attachment ->> 'alt', ''), 'Image attachment'), 'Image', '',
-        CASE WHEN attachment ->> 'url' ~* '^https?://' THEN attachment ->> 'url' ELSE NULL END,
         NEW."createdAt", NEW."createdAt"
       );
       attachment_index := attachment_index + 1;
@@ -285,44 +264,17 @@ CREATE TRIGGER openteam_event_notify AFTER INSERT ON "Event"
 
 -- Web tools: one selected provider per tool, and per-tool provider rows holding the API key
 -- and last connection check. Provider lists match packages/contracts/src/web-search.ts.
--- Move legacy keys into WebToolProvider before the constraints below forbid them, and drop
--- entries for providers no longer offered. Every provider except built-in fetch needs a key,
--- so a selection without one was never usable: search turns off and fetch falls back to built-in.
 ALTER TABLE "WebSearchSettings" DROP CONSTRAINT IF EXISTS "WebSearchSettings_valid";
 ALTER TABLE "WebFetchSettings" DROP CONSTRAINT IF EXISTS "WebFetchSettings_valid";
 ALTER TABLE "WebToolProvider" DROP CONSTRAINT IF EXISTS "WebToolProvider_valid";
-INSERT INTO "WebToolProvider" ("tool", "provider", "secret", "updatedAt")
-SELECT 'search', "provider", "apiKey", now() FROM "WebSearchSettings"
-WHERE "apiKey" IS NOT NULL AND "provider" IN ('exa', 'brave', 'parallel', 'firecrawl', 'bing-serpapi', 'perplexity')
-ON CONFLICT ("tool", "provider") DO NOTHING;
-INSERT INTO "WebToolProvider" ("tool", "provider", "secret", "updatedAt")
-SELECT 'fetch', "provider", "apiKey", now() FROM "WebFetchSettings"
-WHERE "apiKey" IS NOT NULL AND "provider" IN ('exa', 'parallel', 'firecrawl')
-ON CONFLICT ("tool", "provider") DO NOTHING;
-DELETE FROM "WebToolProvider" WHERE NOT (
-  ("tool" = 'search' AND "provider" IN ('exa', 'brave', 'parallel', 'firecrawl', 'bing-serpapi', 'perplexity')) OR
-  ("tool" = 'fetch' AND "provider" IN ('builtin', 'exa', 'parallel', 'firecrawl'))
-);
-UPDATE "WebSearchSettings" s SET "provider" = NULL
-WHERE "provider" IS NOT NULL AND NOT EXISTS (
-  SELECT 1 FROM "WebToolProvider" p
-  WHERE p."tool" = 'search' AND p."provider" = s."provider" AND p."secret" IS NOT NULL
-);
-UPDATE "WebFetchSettings" f SET "provider" = 'builtin'
-WHERE "provider" IS NOT NULL AND "provider" <> 'builtin' AND NOT EXISTS (
-  SELECT 1 FROM "WebToolProvider" p
-  WHERE p."tool" = 'fetch' AND p."provider" = f."provider" AND p."secret" IS NOT NULL
-);
-UPDATE "WebSearchSettings" SET "apiKey" = NULL WHERE "apiKey" IS NOT NULL;
-UPDATE "WebFetchSettings" SET "apiKey" = NULL WHERE "apiKey" IS NOT NULL;
 
 ALTER TABLE "WebSearchSettings" ADD CONSTRAINT "WebSearchSettings_valid" CHECK (
-  "id" = 'global' AND "apiKey" IS NULL AND ("provider" IS NULL OR "provider" IN (
+  "id" = 'global' AND ("provider" IS NULL OR "provider" IN (
     'exa', 'brave', 'parallel', 'firecrawl', 'bing-serpapi', 'perplexity'
   ))
 );
 ALTER TABLE "WebFetchSettings" ADD CONSTRAINT "WebFetchSettings_valid" CHECK (
-  "id" = 'global' AND "apiKey" IS NULL AND ("provider" IS NULL OR "provider" IN (
+  "id" = 'global' AND ("provider" IS NULL OR "provider" IN (
     'builtin', 'exa', 'parallel', 'firecrawl'
   ))
 );

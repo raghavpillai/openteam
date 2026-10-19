@@ -14,7 +14,7 @@ import { SnapshotService } from "../../server/src/services/snapshot-service";
 const url = process.env.OPENTEAM_TEST_DATABASE_URL;
 
 test.skipIf(!url)(
-  "PostgreSQL presence gates both push transports, preserves badge sync, and never replays suppressed activity",
+  "PostgreSQL presence gates every iPhone, preserves badge sync, and never replays suppressed activity",
   async () => {
     const db = createPrismaClient(url!);
     const workerDb = createPrismaClient(url!); // independent process/connection state
@@ -26,27 +26,15 @@ test.skipIf(!url)(
     const deviceIds = [crypto.randomUUID(), crypto.randomUUID()];
     const botId = crypto.randomUUID(),
       channelId = crypto.randomUUID();
-    const native: string[] = [],
-      expo: string[] = [];
+    const firstPhone: string[] = [],
+      secondPhone: string[] = [];
     const apns = {
-      send: async (_device: unknown, payload: { kind: string }) => {
-        native.push(payload.kind);
+      send: async (device: { id: string }, payload: { kind: string }) => {
+        (device.id === deviceIds[0] ? firstPhone : secondPhone).push(payload.kind);
         return { status: 200 };
       },
     } as unknown as ApnsClient;
-    const dispatcher = new PushNotificationDispatcher(
-      workerDb,
-      (async (_url, init) => {
-        const batch = JSON.parse(String(init?.body));
-        expo.push(...batch.map((item: any) => item.data.kind));
-        return Response.json({
-          data: batch.map(() => ({ status: "ok", id: crypto.randomUUID() })),
-        });
-      }) as typeof fetch,
-      null,
-      "disabled",
-      apns
-    );
+    const dispatcher = new PushNotificationDispatcher(workerDb, "disabled", apns);
     const presence = (clientId: string, sequence: number, active: boolean, idleSeconds = 0) =>
       Effect.runPromise(
         service.updatePresence(
@@ -82,12 +70,15 @@ test.skipIf(!url)(
       await db.bot.create({ data: { id: botId, name: "Presence test", defaultDirectory: "/tmp" } });
       await db.channel.create({ data: { id: channelId, name: "Presence test", kind: "bot_dm" } });
       await db.pushDevice.createMany({
-        data: deviceIds.map((id, index) => ({
+        data: deviceIds.map((id) => ({
           id,
           installationId: id,
           platform: "ios",
-          provider: index ? "apns" : "expo",
-          pushToken: `ExpoPushToken[${id}]`,
+          provider: "apns",
+          pushToken: id.replaceAll("-", "").repeat(2),
+          apnsEnvironment: "production",
+          apnsTopic: "dev.openteam.mobile.swift",
+          notificationScope: "cd".repeat(32),
           authRequired: false,
         })),
       });
@@ -95,8 +86,8 @@ test.skipIf(!url)(
       await presence(mac, 1, true);
       const first = await message();
       await drain();
-      expect(native).toEqual([]);
-      expect(expo).toEqual([]);
+      expect(firstPhone).toEqual([]);
+      expect(secondPhone).toEqual([]);
       expect(await db.channelReadState.findUnique({ where: { channelId } })).toBeNull();
       expect(
         await db.outboxDelivery.count({
@@ -107,10 +98,10 @@ test.skipIf(!url)(
       // Reading remains synchronized even while the Mac suppresses mobile alerts.
       await Effect.runPromise(service.markChannelRead(channelId, first.sequence.toString()));
       await drain();
-      expect(native).toEqual(["badge-sync"]);
-      expect(expo).toEqual(["badge-sync"]);
-      native.length = 0;
-      expo.length = 0;
+      expect(firstPhone).toEqual(["badge-sync"]);
+      expect(secondPhone).toEqual(["badge-sync"]);
+      firstPhone.length = 0;
+      secondPhone.length = 0;
 
       // Explicit foreground-phone priority prevents mutual suppression.
       await presence(phone, 1, true);
@@ -130,20 +121,20 @@ test.skipIf(!url)(
       );
       await message();
       await drain();
-      expect(native).toEqual(["message"]);
-      expect(expo).toEqual(["message"]);
+      expect(firstPhone).toEqual(["message"]);
+      expect(secondPhone).toEqual(["message"]);
       await presence(phone, 3, false);
       await presence(phone, 2, true); // delayed heartbeat cannot revive the phone
       expect((await notificationRouting(workerDb, "disabled")).iosActiveUntil).toBe(0);
       await message();
       await drain();
-      expect(native).toHaveLength(1);
+      expect(firstPhone).toHaveLength(1);
 
       // Exact five-minute boundary; moving the mouse in another app counts before it.
       await presence(mac, 2, true, 300);
       await message();
       await drain();
-      expect(native).toHaveLength(2);
+      expect(firstPhone).toHaveLength(2);
       await presence(mac, 3, true, 299);
       const lease = await db.notificationPresence.findUniqueOrThrow({ where: { clientId: mac } });
       expect(lease.expiresAt.getTime() - lease.updatedAt.getTime()).toBe(1_000);
@@ -154,7 +145,7 @@ test.skipIf(!url)(
       await presence(mac, 5, false); // lock/sleep/quit release
       await message();
       await drain();
-      expect(native).toHaveLength(3);
+      expect(firstPhone).toHaveLength(3);
       await presence(mac, 6, true);
       await db.notificationPresence.update({
         where: { clientId: mac },
@@ -162,16 +153,16 @@ test.skipIf(!url)(
       });
       await message();
       await drain();
-      expect(native).toHaveLength(4);
+      expect(firstPhone).toHaveLength(4);
       await presence(mac, 7, true);
       await Effect.runPromise(service.updatePreferences(false));
       await message();
       await drain();
-      expect(native).toHaveLength(5);
-      expect(expo).toHaveLength(5);
+      expect(firstPhone).toHaveLength(5);
+      expect(secondPhone).toHaveLength(5);
       await presence(mac, 8, false);
       await drain();
-      expect(native).toHaveLength(5); // no backlog replay on handoff
+      expect(firstPhone).toHaveLength(5); // no backlog replay on handoff
     } finally {
       process.env.OPENTEAM_AUTH_MODE = previousAuth;
       await db.notificationPresence.deleteMany({ where: { clientId: { in: [mac, phone] } } });

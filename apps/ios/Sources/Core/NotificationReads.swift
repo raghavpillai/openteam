@@ -20,15 +20,8 @@ public struct NotificationReadMarker: Codable, Equatable, Sendable {
 
 public struct NativePush: Sendable {
   public let data: JSON
-  public init(_ payload: JSON) {
-    if payload["data"]["kind"] != .null {
-      data = payload["data"]
-    } else if payload["body"]["kind"] != .null {
-      data = payload["body"]
-    } else {
-      data = payload
-    }
-  }
+  /// OpenTeam's custom APNs fields live under `data`.
+  public init(_ payload: JSON) { data = payload["data"] }
   public var scope: String { data["notificationScope"].string }
   public var channelId: String { data["channelId"].string }
   public var isSync: Bool { data["kind"].string == "badge-sync" }
@@ -98,10 +91,8 @@ public struct NotificationReads: Codable, Sendable {
     guard push.scope == scope, push.isAlert, let marker = markers[push.channelId] else {
       return false
     }
-    let reaction = push.data["kind"].string == "reaction"
-    let rawMessage = push.data["messageSequence"].string
-    if !reaction, !rawMessage.isEmpty {
-      guard let message = Self.sequence(rawMessage) else { return false }
+    if push.data["kind"].string != "reaction" {
+      guard let message = Self.sequence(push.data["messageSequence"].string) else { return false }
       return !Self.less(marker.lastReadSequence, message)
     }
     guard let activity = Self.sequence(push.data["notificationSequence"].string) else {

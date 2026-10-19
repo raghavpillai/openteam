@@ -169,7 +169,7 @@ const commandFlags: Record<CommandName, ReadonlySet<string>> = {
   uninstall: new Set(["--yes", "-y", "--purge"]),
 };
 
-const commonFlags = new Set(["--dir", "--install-dir"]);
+const commonFlags = new Set(["--dir"]);
 
 const commandLabel = (command: CommandName): string => command.replace("-", " ");
 
@@ -277,7 +277,6 @@ const valueFlags = new Map<
   ["--team-id", "apnsTeamId"],
   ["--topic", "apnsTopic"],
   ["--dir", "directory"],
-  ["--install-dir", "directory"],
   ["--version", "version"],
   ["--repository", "repository"],
   ["--compose-url", "composeUrl"],

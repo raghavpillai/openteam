@@ -1274,8 +1274,8 @@ export class WakeWorker {
         return [(async () => ({ id: `input:${payload.clientId}`, content: `[SAND_HIDDEN_PROMPT]Earlier user input whose delivery was interrupted:\n${payload.content}`, images: await this.messaging.assets.runtimeImages(assetRefs(payload.attachments)) }))()];
       }));
       const instructions = platformPrompt.instructions;
-      // Resolve from server-owned run state, including resumed legacy workers.
-      // Stored worker profiles may have been selected by an older Task.model.
+      // Subagents run on the parent run's recorded model and reasoning, so a
+      // settings change mid-run never switches models inside one task tree.
       const inferenceParent = claimed.inferenceParentRunId
         ? await this.prisma.run.findUnique({ where: { id: claimed.inferenceParentRunId } })
         : null;
@@ -1431,10 +1431,6 @@ export class WakeWorker {
     const response = await this.computerFetch(`/v1/context-sessions/${claimed.contextSessionId}`, {
       method: "GET",
     });
-    // Preserve compatibility with a rolling deployment whose computer service
-    // has not learned the preflight endpoint yet. Its turn stream still carries
-    // context.state and will reconcile after startup.
-    if (response.status === 404) return;
     if (!response.ok) {
       throw new Error(
         `Context-state preflight failed: ${response.status} ${await response.text()}`

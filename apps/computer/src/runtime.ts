@@ -17,7 +17,6 @@ import {
   type ComputerEvent,
   type ComputerSteerRequest,
   type ComputerTurnRequest,
-  DEFAULT_PI_INFERENCE_PROVIDER,
   defaultServerInferenceSettings,
   formatPiModelRef,
   parsePiModelRef,
@@ -132,7 +131,6 @@ export class ComputerRuntime {
       await mkdir(this.sessionsDir, { recursive: true });
       await mkdir(this.contextSessionsDir, { recursive: true });
       this.modelRuntime = await createModelRuntime({
-        settingsPath: this.settingsPath,
         authPath: join(this.agentDir, "auth.json"),
         modelsPath: join(this.agentDir, "models.json"),
         modelsStorePath: join(this.agentDir, "models-store.json"),
@@ -164,7 +162,7 @@ export class ComputerRuntime {
   async inferenceDiagnostics(model?: string) {
     await this.start();
     const modelRef = model
-      ? parsePiModelRef(model, this.inferenceSettings.providerId)
+      ? parsePiModelRef(model)
       : this.inferenceSettings;
     if (!modelRef.modelId) {
       // The computer can serve setup before inference has a saved model.
@@ -239,7 +237,7 @@ export class ComputerRuntime {
 
   async run(request: ComputerTurnRequest): Promise<AsyncIterable<ComputerEvent>> {
     await this.start();
-    const modelRef = this.parseRuntimeModelRef(request.model);
+    const modelRef = parsePiModelRef(request.model);
     if (this.activeByRun.has(request.runId)) {
       throw new Error(`Run ${request.runId} is already active`);
     }
@@ -545,7 +543,7 @@ export class ComputerRuntime {
   }): Promise<string> {
     if (request.signal?.aborted) throw new Error("Memory inference canceled");
     await this.start();
-    const modelRef = this.parseRuntimeModelRef(request.model);
+    const modelRef = parsePiModelRef(request.model);
     const modelRuntime = this.requireModelRuntime();
     if (!(await modelRuntime.checkAuth(modelRef.providerId))) {
       throw new Error(`Pi inference provider ${modelRef.providerId} is not configured`);
@@ -675,11 +673,6 @@ export class ComputerRuntime {
   private requireModelRuntime(): ModelRuntime {
     if (!this.modelRuntime) throw new Error("Pi model runtime is not initialized");
     return this.modelRuntime;
-  }
-
-  private parseRuntimeModelRef(value: string): PiModelRef {
-    if (!value.includes("/")) throw new Error("A provider-qualified inference model is required");
-    return parsePiModelRef(value, DEFAULT_PI_INFERENCE_PROVIDER);
   }
 
   private async createSession(

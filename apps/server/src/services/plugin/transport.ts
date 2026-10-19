@@ -1,10 +1,9 @@
 import type { OAuthClientInformationMixed } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { ApiError } from "@openteam/contracts";
-import { connectorHostTools } from "@openteam/plugin-sdk";
+import { connectorHostTools, type PluginToolDefinition } from "@openteam/plugin-sdk";
 import type { Prisma, PrismaClient } from "@openteam/db";
-import type { PluginToolDefinition } from "../../plugins/catalog";
-import { McpHttpClientManager } from "../../plugins/mcp-client-manager";
+import type { McpHttpClientManager } from "../../plugins/mcp-client-manager";
 import { OpenTeamOAuthProvider, type StoredOAuthState } from "../../plugins/oauth-provider";
 import {
   beginPackagedOAuth,
@@ -30,8 +29,6 @@ import {
 /** MCP tool `_meta` key marking a tool the host calls and Bots must not see. */
 export const HOST_ONLY_TOOL_META = "openteam/hostOnly";
 
-export const compatibilityHttpManager = new McpHttpClientManager();
-
 type OAuthConnection = {
   id: string;
   connectorKey: string;
@@ -39,16 +36,6 @@ type OAuthConnection = {
   credentials: Prisma.JsonValue;
   runtimeGeneration?: number;
 };
-
-export const discoverRemoteTools = (endpoint: string): Promise<PluginToolDefinition[]> =>
-  compatibilityHttpManager.discover(`compat:${endpoint}`, { endpoint });
-
-export const invokeRemoteTool = (
-  endpoint: string,
-  toolName: string,
-  args: unknown
-): Promise<unknown> =>
-  compatibilityHttpManager.call(`compat:${endpoint}`, { endpoint }, toolName, args);
 
 export class PluginTransport {
   constructor(

@@ -100,8 +100,6 @@ const checkAction = (check: DoctorCheck): string | undefined => {
         return "Run openteam model list to see models available to the connected account, then use openteam setup to select one.";
       return "Run openteam provider list to check sign-in, then openteam model list to check available models. Use openteam setup to change the provider or model.";
     case "Transcription":
-      if (/does not expose transcription diagnostics/i.test(check.detail))
-        return "Run openteam update to get transcription diagnostics, then configure voice notes in Settings → Server → Transcription.";
       if (/server connection|installation credentials/i.test(check.detail))
         return "Run openteam status and check the server connection and installation control token. Inspect openteam logs server before testing transcription again.";
       return "Open Settings → Server → Transcription, check the provider URL, model and key, then use Test connection.";

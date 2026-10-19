@@ -3,7 +3,6 @@ import {
   DEFAULT_FETCH_PROVIDER,
   WEB_PROVIDER_LISTS,
   WEB_TOOLS,
-  type WebFetchSettingsView,
   type WebProviderCheckRequest,
   type WebProviderCheckResult,
   type WebProviderFieldsInput,
@@ -11,7 +10,6 @@ import {
   type WebProviderState,
   type WebProvidersInput,
   type WebProvidersView,
-  type WebSearchSettingsView,
   type WebTool,
   type WebToolCredentials,
   type WebToolInput,
@@ -189,7 +187,7 @@ export class WebProviderSettingsService {
           await (table as typeof tx.webSearchSettings).upsert({
             where: { id: ID },
             create: { id: ID, provider: selected },
-            update: { provider: selected, apiKey: null },
+            update: { provider: selected },
           });
         }
         return this.viewOf(state);
@@ -229,30 +227,5 @@ export class WebProviderSettingsService {
       });
     });
     return this.view();
-  }
-
-  /** Legacy `/web-search` and `/web-fetch` views for clients older than Settings → Providers. */
-  async legacyView(tool: WebTool): Promise<WebSearchSettingsView | WebFetchSettingsView> {
-    const state = (await this.state(this.prisma))[tool];
-    const info = state.selected ? webProviderInfo(tool, state.selected) : undefined;
-    const row = info ? state.rows.get(info.id) : undefined;
-    return { provider: state.selected, hasApiKey: Boolean(row?.secret), configured: Boolean(info && !missingKey(info, row)) };
-  }
-
-  /** Maps a legacy `{provider, apiKey?}` body onto the provider settings. */
-  async legacySave(tool: WebTool, input: unknown): Promise<WebSearchSettingsView | WebFetchSettingsView> {
-    if (!input || typeof input !== "object" || Array.isArray(input)) throw invalid(`Web ${tool} settings are required.`);
-    const { provider, apiKey, ...rest } = input as Record<string, unknown>;
-    if (Object.keys(rest).length) throw invalid(`Unknown web ${tool} setting.`);
-    const info = provider === null ? undefined : webProviderInfo(tool, provider);
-    if (provider !== null && !info) throw invalid(`Choose a valid ${tool} provider.`);
-    if (apiKey !== undefined && !info?.fields.length) throw invalid("This provider does not use an API key.");
-    await this.save({
-      [tool]: {
-        selected: apiKey === null ? null : (provider as string | null),
-        ...(apiKey !== undefined && info ? { providers: { [info.id]: { apiKey } } } : {}),
-      },
-    });
-    return this.legacyView(tool);
   }
 }

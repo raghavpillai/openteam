@@ -101,7 +101,6 @@ class SetupRunner implements CommandRunner {
   failStartup = false;
   failImport = false;
   failVerify = false;
-  supportsImport = true;
   readonly imports: string[] = [];
   running = ["postgres", "server", "worker", "computer"];
   publishedBy: Record<string, string> = {};
@@ -142,13 +141,6 @@ class SetupRunner implements CommandRunner {
     const utility = args.indexOf("openteam-pi-auth");
     if (utility >= 0) {
       const action = args[utility + 1];
-      if (!action) {
-        return {
-          status: 2,
-          stdout: "",
-          stderr: `Usage:\n  openteam-pi-auth providers\n${this.supportsImport ? "  openteam-pi-auth import <provider>\n" : ""}`,
-        };
-      }
       if (action === "add-custom") {
         const input = JSON.parse(options?.input ?? "{}") as {
           id?: string;
@@ -1409,51 +1401,6 @@ describe("interactive setup", () => {
       "codex-refresh-secret"
     );
     expect(output).toContain("Reused your Codex CLI (~/.codex/auth.json) sign-in.");
-  });
-
-  test("does not offer or attempt credential import on older computer images", async () => {
-    const fixture = createSetupFixture();
-    const runner = new SetupRunner(() => {
-      fixture.state.authenticated = true;
-    });
-    runner.supportsImport = false;
-    const detected = {
-      provider: "openai-codex" as const,
-      source: "Codex CLI (~/.codex/auth.json)",
-    };
-    const output: string[] = [];
-    const prompter = sessionPrompter({ authenticate: true, reuseLogin: detected });
-    const session = prompter.session!;
-    prompter.session = async (input) => {
-      expect(input.detectedLogins).toEqual([]);
-      expect(
-        input.notes?.some((note) =>
-          note.text.includes("reusing saved CLI sign-ins is not available")
-        )
-      ).toBe(true);
-      // A stale selection must not bypass the capability check during apply either.
-      return session(input);
-    };
-    await setupCommand(
-      fixture.paths,
-      runner,
-      {
-        presentation: { ...silentPresentation, message: (message) => output.push(message) },
-        detectedLogins: [detected],
-        loginDetection: { home: fixture.paths.directory, env: {}, platform: "linux" },
-      },
-      prompter
-    );
-
-    const probe = runner.calls.find((call) => call.args.at(-1) === "openteam-pi-auth");
-    expect(probe?.args).toContain("--no-TTY");
-    expect(probe?.options?.input).toBeUndefined();
-    expect(runner.calls.some((call) => providerAction(call) === "import")).toBe(false);
-    expect(runner.calls.some((call) => providerAction(call) === "login")).toBe(true);
-    expect(output.join("\n")).toContain("fresh Codex sign-in");
-    expect(output.join("\n")).toContain("choose Device code login");
-    expect(output.join("\n")).not.toContain("Usage:");
-    expect(output.join("\n")).not.toContain("Could not reuse");
   });
 
   test("falls back to a fresh sign-in without displaying import diagnostics or credentials", async () => {

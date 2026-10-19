@@ -1,25 +1,10 @@
 import { createUtilityPluginFixture } from "./fixtures/utility-plugin";
 import { describe, expect, test } from "bun:test";
-import { pluginCatalog, validatePluginCatalog } from "../../src/plugins/catalog";
+import { validatePluginCatalog } from "@openteam/plugin-sdk";
+import { pluginCatalog } from "@openteam/plugins";
 import { boundPluginResult } from "../../src/services/plugin-service";
-import { catalogView } from "../../src/services/plugin/values";
 
 describe("plugin catalog", () => {
-  test("installed snapshots receive catalog artwork without adopting a newer definition", () => {
-    const current = pluginCatalog.find((plugin) => plugin.key === "gmail")!;
-    const pinned = {
-      ...current,
-      icon: undefined,
-      logoUrl: null,
-      binaryFiles: undefined,
-      version: "1.0.0",
-      description: "Pinned behavior",
-    };
-    const view = catalogView(pinned, true, current);
-    expect(view.logoUrl).toStartWith("data:image/png;base64,");
-    expect(view.version).toBe("1.0.0");
-    expect(view.description).toBe("Pinned behavior");
-  });
   test("ships normalized, unique plugin and connector identifiers", () => {
     expect(() => validatePluginCatalog(pluginCatalog)).not.toThrow();
     expect(new Set(pluginCatalog.map((plugin) => plugin.key)).size).toBe(pluginCatalog.length);

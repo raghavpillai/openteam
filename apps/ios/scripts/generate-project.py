@@ -153,7 +153,7 @@ for scheme in ['OpenTeamNative.xcscheme']:
     path = schemes / scheme
     path.write_text(path.read_text().replace('</SkippedTests>', '<Test Identifier="GlassSectionsUITests"/><Test Identifier="EdgeBackUITests"/><Test Identifier="MessagePerformanceUITests"/><Test Identifier="ChatMotionUITests"/></SkippedTests>'))
 
-# Broader post-migration acceptance; fixture ports 20032/20043/20039 plus local installation.
-(schemes / 'MigrationAcceptance.xcscheme').write_text(visual_scheme.replace('<Test Identifier="SelectedUITests"/>', ''.join(f'<Test Identifier="{name}"/>' for name in ['RoutineScheduleUITests', 'EdgeBackUITests', 'LiveHTTPUITests'])))
+# Broader acceptance: routines, edge gestures and local installation (fixture ports 20032/20043/20039).
+(schemes / 'Acceptance.xcscheme').write_text(visual_scheme.replace('<Test Identifier="SelectedUITests"/>', ''.join(f'<Test Identifier="{name}"/>' for name in ['RoutineScheduleUITests', 'EdgeBackUITests', 'LiveHTTPUITests'])))
 
 (schemes / 'MotionPerformance.xcscheme').write_text(visual_scheme.replace('<Test Identifier="SelectedUITests"/>', '<Test Identifier="ChatMotionUITests"/><Test Identifier="MessagePerformanceUITests"/>'))

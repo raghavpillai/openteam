@@ -1082,8 +1082,6 @@ if (!hasSingleInstanceLock) {
         )
       );
       localMachine.machineId = await loadMachineIdentity(join(app.getPath("userData"), "machine-id"));
-      // Separate from legacy auth-session.bin: do not access Keychain to migrate.
-      // Users with an encrypted session sign in once to create the new local file.
       authTokenStore = new DesktopAuthTokenStore(
         join(app.getPath("userData"), "auth-session.json")
       );

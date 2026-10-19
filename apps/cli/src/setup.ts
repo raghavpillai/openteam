@@ -25,7 +25,6 @@ import { printDoctor, runDoctor, suggestApiPort } from "./doctor";
 import { CliError } from "./errors";
 import { checkHealth } from "./health";
 import type { CommandRunner } from "./process";
-import { supportsCredentialImport } from "./provider-capabilities";
 import { inspectPublicReadiness } from "./public-readiness";
 import {
   type RuntimeInferenceSettings,
@@ -1053,20 +1052,11 @@ const setupCommandUnlocked = async (
       ? detectPrivateNetworkHost()
       : options.detectedPrivateHost;
   const loginDetection: LoginDetectionOptions = options.loginDetection ?? { runner };
-  const localLogins = options.detectedLogins ?? detectReusableLogins(loginDetection);
-  const canImportLogin =
-    localLogins.length > 0 && supportsCredentialImport(project, running.has("computer"));
-  const detectedLogins = canImportLogin ? localLogins : [];
+  const detectedLogins = options.detectedLogins ?? detectReusableLogins(loginDetection);
   const previousApiPort = current.get("OPENTEAM_API_PORT");
   const notes: Array<{ text: string; tone: MessageTone }> = [];
   if (manifest.version !== CLI_VERSION) {
     notes.push({ text: `Installed server release: v${manifest.version}.`, tone: "muted" });
-  }
-  if (localLogins.length && !canImportLogin && initialHealth.inference !== "ready") {
-    notes.push({
-      text: "Use a fresh provider sign-in for this installation; reusing saved CLI sign-ins is not available.",
-      tone: "info",
-    });
   }
   if (fresh && !initialHealth.ok) {
     const configured = Number(current.get("OPENTEAM_API_PORT") || API_PORT);
@@ -1335,7 +1325,7 @@ const setupCommandUnlocked = async (
       configuration.apiKey = undefined;
     } else {
       let imported = false;
-      if (configuration.reuseLogin && canImportLogin) {
+      if (configuration.reuseLogin) {
         const reusable = readReusableCredential(configuration.reuseLogin.provider, loginDetection);
         if (!reusable) {
           presentation.message(

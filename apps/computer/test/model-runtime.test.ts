@@ -11,7 +11,6 @@ test("Claude Code and Anthropic have independent credentials, auth methods and m
     modelsPath: join(dir, "models.json"),
     modelsStorePath: join(dir, "store.json"),
     allowModelNetwork: false,
-    settingsPath: join(dir, "settings.json"),
   };
   try {
     await writeFile(
@@ -25,18 +24,7 @@ test("Claude Code and Anthropic have independent credentials, auth methods and m
         },
       })
     );
-    await writeFile(
-      options.settingsPath,
-      JSON.stringify({
-        inference: { providerId: "claude-code", modelId: "claude-test", reasoning: "high" },
-        unrelated: true,
-      })
-    );
     const runtime = await createModelRuntime(options);
-    expect(JSON.parse(await readFile(options.settingsPath, "utf8"))).toEqual({
-      inference: { providerId: "claude-code", modelId: "claude-test", reasoning: "high" },
-      unrelated: true,
-    });
     expect(Object.keys(runtime.getProvider("anthropic")!.auth)).toEqual(["apiKey"]);
     expect(Object.keys(runtime.getProvider("claude-code")!.auth)).toEqual(["oauth"]);
     expect(Object.keys(runtime.getProvider("openrouter")!.auth)).toEqual(["apiKey"]);

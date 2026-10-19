@@ -164,9 +164,8 @@ export function taskUserInfo(config = defaultTaskConfiguration()): string {
   ].join("\n");
 }
 
-/** Worker inference is inherited from the server-authored parent run.
- * Legacy profiles remain readable in stored configurations, but neither their
- * defaults nor tool arguments may select a worker model or reasoning level. */
+/** Worker inference is inherited from the server-authored parent run. Neither
+ * executor profiles nor Task tool arguments select a worker model or reasoning level. */
 export function taskInference(
   _config: TaskConfiguration,
   _input: { subagent_type?: string; model?: string; resume?: string },

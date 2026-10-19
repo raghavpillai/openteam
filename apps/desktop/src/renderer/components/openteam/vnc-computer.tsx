@@ -135,12 +135,6 @@ export default function VncComputer({ botId, name, serverUrl, createSession, cli
       } catch (cause) {
         if (stopped || request.signal.aborted) return;
         const status = cause && typeof cause === "object" && "status" in cause ? cause.status : undefined;
-        if (status === 404 || status === 501) {
-          setLastFrame(null);
-          setError("Update your OpenTeam server to use the computer.");
-          setState("unavailable");
-          return;
-        }
         if (status === 401 || status === 403) {
           setLastFrame(null);
           setError("Computer access expired. Sign in and reopen the computer.");

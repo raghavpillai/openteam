@@ -44,23 +44,9 @@ services:
   asset-store-init:
     labels: *openteam-labels
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
-    command:
-      - sh
-      - -c
-      - >-
-        mkdir -p /asset-store &&
-        if [ -d /sand-data/.openteam ]; then
-          migrated=/asset-store/legacy-agent-data-openteam-$(date +%s) &&
-          cp -a /sand-data/.openteam "$$migrated" &&
-          rm -rf /sand-data/.openteam;
-        fi &&
-        chown -R 1000:1000 /asset-store && chmod 0700 /asset-store
-    depends_on:
-      agent-data-init:
-        condition: service_completed_successfully
+    command: ["sh", "-c", "chown -R 1000:1000 /asset-store && chmod 0700 /asset-store"]
     restart: "no"
     volumes:
-      - openteam_agent_data:/sand-data
       - openteam_assets:/asset-store
 
   computer-home-init:
@@ -71,10 +57,6 @@ services:
       - -c
       - >-
         chown -R 1000:1000 /home/box && chmod -R g+rwX /home/box && chmod 0770 /home/box &&
-        if [ -d /home/box/agent-data ] && [ ! -L /home/box/agent-data ]; then
-          cp -a /home/box/agent-data/. /home/box/sand-data/ &&
-          mv /home/box/agent-data /home/box/.openteam-agent-data-pre-sand-migration;
-        fi &&
         if [ ! -L /home/box/agent-data ]; then ln -s /home/box/sand-data /home/box/agent-data; fi &&
         chown -h 0:0 /home/box/agent-data &&
         if [ -d /home/box/.pi/agent ]; then
@@ -207,7 +189,6 @@ services:
       OPENTEAM_CONTROL_TOKEN: ${OPENTEAM_CONTROL_TOKEN:-local-compose-only-change-me}
       OPENTEAM_AUTH_MODE: ${OPENTEAM_AUTH_MODE:-required}
       OPENTEAM_SKILL_TOOL: ${OPENTEAM_SKILL_TOOL:-false}
-      EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN:-}
       OPENTEAM_APNS_KEY_ID: ${OPENTEAM_APNS_KEY_ID:-}
       OPENTEAM_APNS_TEAM_ID: ${OPENTEAM_APNS_TEAM_ID:-}
       OPENTEAM_APNS_TOPIC: ${OPENTEAM_APNS_TOPIC:-dev.openteam.mobile.swift}

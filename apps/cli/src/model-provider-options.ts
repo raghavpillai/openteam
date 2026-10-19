@@ -17,16 +17,10 @@ export const PROVIDER_GROUPS = [
   "Other connections",
 ] as const;
 
-/** Keep access method separate from connection state, including on older server catalogs. */
+/** Keep access method separate from connection state. */
 export const modelProviderOptions = (providers: ModelProvider[]): ProviderOption[] =>
   providers.flatMap((provider) => {
-    const methods = provider.authMethods?.length
-      ? provider.authMethods
-      : provider.id === "openai" || provider.id === "anthropic" || provider.id === "openrouter"
-        ? [{ type: "api_key" as const, label: "API key", subscription: false }]
-        : provider.id === "openai-codex" || provider.id === "claude-code"
-          ? [{ type: "oauth" as const, label: "ChatGPT", subscription: true }]
-          : [undefined];
+    const methods = provider.authMethods.length ? provider.authMethods : [undefined];
     return methods.map((method): ProviderOption => {
       const connected =
         provider.connected &&

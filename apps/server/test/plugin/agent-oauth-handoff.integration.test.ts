@@ -64,7 +64,7 @@ test.skipIf(!databaseUrl)("agent manual OAuth hands off without creating or repl
   }
 }, 20_000);
 
-test.skipIf(!databaseUrl)("signed-in UI can discard a legacy orphan but cannot redeem it or cancel another user's attempt", async () => {
+test.skipIf(!databaseUrl)("signed-in UI cancels its own attempt but not another user's", async () => {
   const f = await createPluginFlowFixture(databaseUrl!, { callbackMode: "manual", authSessions: sessions });
   try {
     const connection = await install(f);
@@ -77,11 +77,9 @@ test.skipIf(!databaseUrl)("signed-in UI can discard a legacy orphan but cannot r
     const started = await client.authenticatePlugin(connection.id);
     const callback = await approve(started.authorizationUrl);
     const pending = await rowFor(f, connection.id);
-    await f.db.pluginConnection.update({ where: { id: connection.id }, data: {
-      credentials: { ...(pending.credentials as object), oauth: { ...oauth(pending), callbackSessionId: null } },
-    } });
-    await expect(client.finishManualPluginAuthentication(connection.id, callback)).rejects.toMatchObject({ code: "plugin_oauth_session_changed" });
     const state = new URL(callback).searchParams.get("state")!;
+    await expect(clientFor(f, sessions[1]).cancelPluginAuthentication(connection.id, state)).rejects.toMatchObject({ code: "plugin_oauth_session_changed" });
+    expect(await rowFor(f, connection.id)).toEqual(pending);
     await expect(createOpenTeamClient({ baseUrl: f.server.url.origin }).cancelPluginAuthentication(connection.id, state)).rejects.toMatchObject({ code: "unauthorized" });
     await expect(client.cancelPluginAuthentication(connection.id, "wrong-state")).rejects.toMatchObject({ code: "plugin_oauth_state_invalid" });
     await client.cancelPluginAuthentication(connection.id, state);
@@ -132,7 +130,7 @@ test.skipIf(!databaseUrl)("immediate replacement changes ownership and PKCE; sta
   } finally { await f.close(); }
 }, 20_000);
 
-test.skipIf(!databaseUrl)("reset and cancellation cannot replace a claimed exchange, including a legacy orphan", async () => {
+test.skipIf(!databaseUrl)("reset and cancellation cannot replace a claimed exchange", async () => {
   const f = await createPluginFlowFixture(databaseUrl!, { callbackMode: "manual", authSessions: sessions });
   try {
     const connection = await install(f);
@@ -140,7 +138,7 @@ test.skipIf(!databaseUrl)("reset and cancellation cannot replace a claimed excha
     const started = await client.authenticatePlugin(connection.id);
     const row = await rowFor(f, connection.id);
     await f.db.pluginConnection.update({ where: { id: connection.id }, data: {
-      credentials: { ...(row.credentials as object), oauth: { ...oauth(row), callbackSessionId: null, exchangeStarted: true } },
+      credentials: { ...(row.credentials as object), oauth: { ...oauth(row), exchangeStarted: true } },
     } });
     const claimed = await rowFor(f, connection.id);
     await expect(client.authenticatePlugin(connection.id, true)).rejects.toMatchObject({ code: "plugin_oauth_in_progress" });

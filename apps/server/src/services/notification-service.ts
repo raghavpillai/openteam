@@ -100,19 +100,19 @@ export class NotificationService {
           "Refresh authentication before registering this push device"
         );
       }
-      const provider = input.provider ?? "expo";
-      if (provider === "apns" ? (
-        input.platform !== "ios" || !/^(?:[a-f0-9]{2}){32,100}$/i.test(input.pushToken) ||
+      if (
+        input.provider !== "apns" || input.platform !== "ios" ||
+        !/^(?:[a-f0-9]{2}){32,100}$/i.test(input.pushToken) ||
         !input.apnsEnvironment || !input.apnsTopic || !input.notificationScope
-      ) : !/^(?:ExponentPushToken|ExpoPushToken)\[[A-Za-z0-9_-]+\]$/.test(input.pushToken)) {
+      ) {
         throw new ApiError(400, "invalid_push_registration", "The push token and delivery settings do not match");
       }
-      const pushToken = provider === "apns" ? input.pushToken.toLowerCase() : input.pushToken;
+      const pushToken = input.pushToken.toLowerCase();
       const transport = {
-        provider,
-        apnsEnvironment: provider === "apns" ? input.apnsEnvironment : null,
-        apnsTopic: provider === "apns" ? input.apnsTopic : null,
-        notificationScope: provider === "apns" ? input.notificationScope : null,
+        provider: input.provider,
+        apnsEnvironment: input.apnsEnvironment,
+        apnsTopic: input.apnsTopic,
+        notificationScope: input.notificationScope,
       };
       const now = new Date();
       const existingToken = await this.prisma.pushDevice.findUnique({

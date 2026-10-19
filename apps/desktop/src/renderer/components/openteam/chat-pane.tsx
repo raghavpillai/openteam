@@ -323,8 +323,8 @@ interface MessageTimelineEntry {
   delivery: DurableSendRecord | null;
 }
 
-const messageImages = (message: ChannelMessageView) => {
-  const canonical = messageAssets(message)
+const messageImages = (message: ChannelMessageView) =>
+  messageAssets(message)
     .filter((attachment) => attachment.kind === "image")
     .map((attachment) => ({
       url: api.assetUrl(attachment),
@@ -332,31 +332,6 @@ const messageImages = (message: ChannelMessageView) => {
       width: attachment.width,
       height: attachment.height,
     }));
-  if (canonical.length > 0) return canonical;
-
-  const legacyImages = messageMetadata(message).images;
-  if (!Array.isArray(legacyImages)) return [];
-  return legacyImages.flatMap((image) => {
-    if (!image || typeof image !== "object" || Array.isArray(image)) return [];
-    const { url, alt, width, height } = image as Record<string, unknown>;
-    if (
-      typeof url !== "string" ||
-      !(
-        url.startsWith("/api/v0/assets/") ||
-        url.startsWith("data:image/") ||
-        url.startsWith("https://")
-      )
-    ) {
-      return [];
-    }
-    return [{
-      url,
-      ...(typeof alt === "string" ? { alt } : {}),
-      ...(typeof width === "number" ? { width } : {}),
-      ...(typeof height === "number" ? { height } : {}),
-    }];
-  });
-};
 
 const copyMessage = (message: ChannelMessageView) => {
   if (!navigator.clipboard) return;
@@ -1085,13 +1060,6 @@ export const ChatPane = memo(function ChatPane({
     }
     setComposerRecovery({ id: recovery.nonce, payload: recovery.payload, message: recovery.failure?.message, durable: true });
   }, [channel.id, channelRecoveries, composerRecovery, messagesById]);
-  const messagesByAddress = useMemo(
-    () =>
-      new Map(
-        visibleMessages.map(({ message }) => [channelMessageAddress(message), message] as const)
-      ),
-    [visibleMessages]
-  );
   const threads = useMemo(
     () => deriveThreads(visibleMessages.map(({ message }) => message)),
     [visibleMessages]
@@ -1628,11 +1596,7 @@ export const ChatPane = memo(function ChatPane({
                           onOpenBotChat={onOpenBotChat}
                           onOpenBotProfile={onOpenBotProfile}
                           replyPreview={(() => {
-                            const preview = replyTargetFor(
-                              entry.message,
-                              messagesById,
-                              messagesByAddress
-                            );
+                            const preview = replyTargetFor(entry.message, messagesById);
                             if (!preview) return null;
                             return {
                               content:

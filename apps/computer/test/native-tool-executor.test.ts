@@ -106,7 +106,7 @@ describe("native computer tools", () => {
     expect((result.details as { outputPath: string }).outputPath).toContain("terminals");
   });
 
-  test("ExternalRead and ExternalShell authenticate to the physical-host bridge", async () => {
+  test("host-targeted Read and Shell authenticate to the physical-host bridge", async () => {
     const requests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
     const bridge = Bun.serve({
       hostname: "127.0.0.1",

@@ -53,7 +53,7 @@ bash apps/ios/scripts/verify.sh <simulator-udid>
 ```
 
 The script starts fixtures on ports 19997, 19992 and 20070.
-`MigrationAcceptance` covers routines, edge gestures and the local
+`Acceptance` covers routines, edge gestures and the local
 HTTP/HTTPS installation (fixtures 20032, 20043 and 20039). `MotionPerformance`
 covers composer motion and history performance (fixtures 20070 and 19996); run
 it after other simulator suites finish. Optional Xcode schemes cover
@@ -92,8 +92,7 @@ renderer, and `POST /__qa/update-message` edits an existing row in place.
 
 For real transcription, the `RealServer` scheme's
 `RealServerUITests/testLiveVoiceTranscriptionAndDraftPreservation` uses
-`scripts/real-server-qa.ts`. The retired React Native `--ios-app` transcription
-harness is no longer supported.
+`scripts/real-server-qa.ts`.
 
 ```sh
 bun run ios:performance
@@ -123,7 +122,6 @@ provisioning profile. The share extension's App ID is the app's bundle ID plus
 ## Product boundaries
 
 Voice recording transcribes into the draft; a separate live voice-call API is not
-implemented. Re-auth clears local account data and returns to sign-in. Native APNs
-handles new installations while server support for older Expo registrations remains.
-Existing legacy-keychain import code is preserved for installed users upgrading to
-this native app. Moving the source directory does not change app identity or data.
+implemented. Re-auth clears local account data and returns to sign-in. Push
+notifications are delivered through APNs only. Moving the source directory does not
+change app identity or data.

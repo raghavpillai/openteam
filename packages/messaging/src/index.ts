@@ -2643,7 +2643,6 @@ export class AgentMessaging {
           schemaVersion: 1, kind: "reaction", botId: context.botId, channelId: message.channelId,
           runId: context.runId, messageSequence: message.sequence.toString(),
           title: bot.name, body: reactionNotificationBody(input.emoji, message.content),
-          deepLink: `openteam:///chat/${message.channelId}`,
         });
       }
       const result = {
@@ -2748,7 +2747,7 @@ export class AgentMessaging {
           acknowledgement: {
             sent: true,
             message_id: existing.id,
-            message_address: (existing.metadata as any)?.address ?? `t${existing.sequence}a0`,
+            message_address: (existing.metadata as { address: string }).address,
             duplicate: true,
           },
           interruptRunId: null,

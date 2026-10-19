@@ -48,7 +48,6 @@ for await (const line of createInterface({ input: process.stdin })) {
         channelId: "test",
         botId: "test",
         runId: "test",
-        deepLink: "openteam:///chat/test",
         badgeCount: 1,
         messageSequence: "1",
         notificationSequence: "1",

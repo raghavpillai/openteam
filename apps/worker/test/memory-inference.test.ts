@@ -14,7 +14,7 @@ test("memory can use an independent provider and reasoning setting without chang
   });
   expect(
     memoryInferenceSettings(main, {
-      OPENTEAM_MEMORY_MODEL: "memory-model",
+      OPENTEAM_MEMORY_MODEL: "openai-codex/memory-model",
       OPENTEAM_MEMORY_REASONING: "low",
     })
   ).toEqual({
@@ -22,6 +22,9 @@ test("memory can use an independent provider and reasoning setting without chang
     modelId: "memory-model",
     reasoning: "low",
   });
+  expect(() => memoryInferenceSettings(main, { OPENTEAM_MEMORY_MODEL: "memory-model" })).toThrow(
+    "provider-qualified"
+  );
   expect(main.reasoning).toBe("high");
   expect(() => memoryInferenceSettings(main, { OPENTEAM_MEMORY_REASONING: "invalid" })).toThrow();
 });

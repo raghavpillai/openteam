@@ -2,7 +2,7 @@ import { lstat, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { assignAgentOwnership } from "../agent-process";
 
-/** Preserve existing office settings while migrating legacy desktop ownership. */
+/** Create the bot's LibreOffice profile beside its browser profile, owned by the runner. */
 export async function prepareOfficeProfile(browserProfileDirectory: string): Promise<void> {
   const directory = `${browserProfileDirectory}-office`;
   const created = await mkdir(directory, { recursive: true, mode: 0o700 });

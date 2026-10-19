@@ -21,7 +21,7 @@ export function SmartNotificationSettings() {
           if (active) apply(value);
         })
         .catch(() => {
-          /* Older servers don't expose this setting. */
+          /* The section stays hidden until the setting loads. */
         });
     };
     refresh();

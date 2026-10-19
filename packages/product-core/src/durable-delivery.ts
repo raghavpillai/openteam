@@ -7,7 +7,6 @@ import type {
 import { clientErrorMessage } from "./redaction";
 
 export const DURABLE_SEND_SCHEMA_VERSION = 2;
-const DURABLE_SEND_LEGACY_SCHEMA_VERSION = 1;
 export const DURABLE_SEND_ACK_TIMEOUT_MS = 120_000;
 export const DURABLE_ATTACHMENT_COMMIT_TIMEOUT_MS = 120_000;
 export const DURABLE_SEND_JOURNAL_MAX_BYTES = 16 * 1024 * 1024;
@@ -269,18 +268,6 @@ export const durableSendScope = (scope: unknown): string => {
 /** Stable, non-reversible account-scope key for platform journal filenames. */
 export const durableSendScopeHash = (scope: string): string =>
   sha256(durableSendScope(scope)).slice(0, 32);
-
-const legacyDurableSendPromptDigest = (
-  payload: Pick<DurableSendPayload, "content" | "richText" | "replyToMessageId" | "isFork">
-): string =>
-  sha256(
-    JSON.stringify({
-      content: payload.content,
-      richText: payload.richText ?? null,
-      replyToMessageId: payload.replyToMessageId ?? null,
-      isFork: payload.isFork ?? false,
-    })
-  );
 
 type AuthoredAttachment = Pick<
   AssetRef | DurableStagedAttachment,
@@ -572,11 +559,7 @@ const parseFailure = (value: unknown): DurableSendFailure | null => {
 const lineageIdFor = (scope: string, nonce: string): string =>
   sha256(`${scope}\u0000${nonce}`).slice(0, 32);
 
-const parseDurableSendRecord = (
-  value: unknown,
-  schemaVersion: number,
-  scope: string
-): DurableSendRecord | null => {
+const parseDurableSendRecord = (value: unknown): DurableSendRecord | null => {
   if (!isRecord(value) || !isRecord(value.target)) return null;
   const payload = parsePayload(value.payload);
   if (
@@ -612,13 +595,7 @@ const parseDurableSendRecord = (
     conversationId: value.target.conversationId as string | null,
   };
   const expectedPromptDigest = durableSendPromptDigest(payload, target);
-  const legacyPromptDigest = legacyDurableSendPromptDigest(payload);
-  const promptDigestIsValid =
-    schemaVersion === DURABLE_SEND_LEGACY_SCHEMA_VERSION
-      ? value.promptDigest === undefined ||
-        value.promptDigest === expectedPromptDigest ||
-        value.promptDigest === legacyPromptDigest
-      : value.promptDigest === expectedPromptDigest;
+  const promptDigestIsValid = value.promptDigest === expectedPromptDigest;
   const acceptedMessage = value.acceptedMessage as ChannelMessageView | null;
   const parsedFailure = value.failure === null ? null : parseFailure(value.failure);
   const acceptedMessageIsValid =
@@ -637,9 +614,7 @@ const parseDurableSendRecord = (
   const lineageId =
     typeof value.lineageId === "string" && /^[a-f0-9]{32}$/.test(value.lineageId)
       ? value.lineageId
-      : schemaVersion === DURABLE_SEND_LEGACY_SCHEMA_VERSION
-        ? lineageIdFor(scope, priorNonces[0] ?? (value.nonce as string))
-        : null;
+      : null;
   if (
     lineageId === null ||
     uniquePriorNonces.size !== priorNonces.length ||
@@ -654,8 +629,6 @@ const parseDurableSendRecord = (
     nonce: value.nonce,
     lineageId,
     priorNonces,
-    // Journals created before prompt digests are migrated in memory and write
-    // the digest on their next state transition.
     promptDigest: expectedPromptDigest,
     target,
     payload,
@@ -678,9 +651,7 @@ export const parseDurableSendJournal = (
 ): DurableSendJournal => {
   if (
     !isRecord(value) ||
-    ![DURABLE_SEND_LEGACY_SCHEMA_VERSION, DURABLE_SEND_SCHEMA_VERSION].includes(
-      Number(value.schemaVersion)
-    ) ||
+    value.schemaVersion !== DURABLE_SEND_SCHEMA_VERSION ||
     value.scope !== expectedScope ||
     !Array.isArray(value.records) ||
     value.records.length > DURABLE_SEND_MAX_RECORDS
@@ -691,7 +662,7 @@ export const parseDurableSendJournal = (
   const claimedNonces = new Set<string>();
   const lineageIds = new Set<string>();
   for (const candidate of value.records) {
-    const parsed = parseDurableSendRecord(candidate, Number(value.schemaVersion), expectedScope);
+    const parsed = parseDurableSendRecord(candidate);
     // Treat a partially corrupt journal as corrupt. Keeping only the
     // parseable subset can violate ordering or resend a nonce without its owner.
     if (

@@ -30,10 +30,6 @@ if (process.argv.includes("--help")) {
 Uses synthetic audio, disposable QA bots/database, and the real desktop recording UI.`);
   process.exit(0);
 }
-if (process.argv.includes("--ios-app"))
-  throw new Error(
-    "Use apps/ios/scripts/real-server-qa.ts and the RealServer Xcode scheme for native iOS transcription QA; --ios-app was the retired React Native harness."
-  );
 const provider = argument("--provider", "openai-compatible") as TranscriptionSettings["provider"];
 assert(
   ["openai", "deepgram", "openai-compatible"].includes(provider),

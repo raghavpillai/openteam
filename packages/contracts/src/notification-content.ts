@@ -64,7 +64,7 @@ export interface ChannelNotificationView {
   channelId: string;
   botId: string;
   kind: AgentNotificationKind;
-  messageSequence?: string;
+  messageSequence: string;
   /** Set when the message is a reply inside a thread, so opening the alert opens that thread. */
   threadMessageId?: string;
   title: string;
@@ -93,7 +93,7 @@ export const notificationIsRead = (
 ): boolean => {
   const sequence = (value: string | undefined) =>
     value && /^\d+$/.test(value) ? BigInt(value) : -1n;
-  if (notification.kind === "reaction" || !notification.messageSequence) {
+  if (notification.kind === "reaction") {
     return (
       sequence(notification.notificationSequence) >= 0n &&
       sequence(notification.notificationSequence) <= sequence(state.lastReadNotificationSequence)

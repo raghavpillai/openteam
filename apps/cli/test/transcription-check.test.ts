@@ -15,15 +15,11 @@ test("doctor checks transcription through the authenticated server and reports o
     detail: "Not configured; voice notes are disabled.",
   });
   let calls = 0;
-  let validControlToken = true;
   const server = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
     fetch(request) {
       calls++;
-      if (new URL(request.url).pathname === "/api/v0/internal/server-settings") {
-        return new Response(null, { status: validControlToken ? 200 : 401 });
-      }
       expect(new URL(request.url).pathname).toBe(
         "/api/v0/internal/server-settings/transcription/check"
       );
@@ -55,8 +51,10 @@ test("doctor checks transcription through the authenticated server and reports o
     expect((await checkTranscription(paths)).level).toBe("fail");
     expect(calls).toBe(3);
     response = new Response(null, { status: 401 });
-    validControlToken = false;
     expect((await checkTranscription(paths)).level).toBe("fail");
+    response = new Response(null, { status: 404 });
+    expect((await checkTranscription(paths)).level).toBe("fail");
+    expect(calls).toBe(5);
   } finally {
     await server.stop(true);
     await rm(directory, { recursive: true, force: true });

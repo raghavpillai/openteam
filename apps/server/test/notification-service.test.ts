@@ -6,6 +6,16 @@ import {
   NotificationService,
 } from "../src/services/notification-service";
 
+const apnsRegistration = (installationId: string) => ({
+  installationId,
+  platform: "ios" as const,
+  provider: "apns" as const,
+  pushToken: "ab".repeat(32),
+  apnsEnvironment: "production" as const,
+  apnsTopic: "dev.openteam.mobile.swift",
+  notificationScope: "cd".repeat(32),
+});
+
 describe("NotificationService", () => {
   test("registers an installation idempotently and can disable it", async () => {
     let enabled = true;
@@ -30,12 +40,7 @@ describe("NotificationService", () => {
     const service = new NotificationService(prisma);
     const registered = await Effect.runPromise(
       service.register(
-        {
-          installationId: "installation-123",
-          platform: "ios",
-          pushToken: `ExpoPushToken[${"a".repeat(24)}]`,
-          locale: "en-US",
-        },
+        { ...apnsRegistration("installation-123"), locale: "en-US" },
         { mode: "required", sessionId: "session-123" }
       )
     );
@@ -61,25 +66,14 @@ describe("NotificationService", () => {
     const service = new NotificationService(prisma, "disabled");
 
     await Effect.runPromise(
-      service.register(
-        {
-          installationId: "disabled-installation",
-          platform: "ios",
-          pushToken: `ExpoPushToken[${"b".repeat(24)}]`,
-        },
-        { mode: "disabled" }
-      )
+      service.register(apnsRegistration("disabled-installation"), { mode: "disabled" })
     );
 
     expect(persisted).toMatchObject({ authRequired: false, authSessionId: null });
     await expect(
       Effect.runPromise(
         new NotificationService(prisma, "required").register(
-          {
-            installationId: "stale-disabled-installation",
-            platform: "ios",
-            pushToken: `ExpoPushToken[${"d".repeat(24)}]`,
-          },
+          apnsRegistration("stale-disabled-installation"),
           { mode: "disabled" }
         )
       )
@@ -159,14 +153,10 @@ describe("NotificationService", () => {
     } as unknown as PrismaClient;
     const service = new NotificationService(prisma);
     const lateRegistration = Effect.runPromise(
-      service.register(
-        {
-          installationId: "late-installation",
-          platform: "ios",
-          pushToken: `ExpoPushToken[${"c".repeat(24)}]`,
-        },
-        { mode: "required", sessionId: "retired-session" }
-      )
+      service.register(apnsRegistration("late-installation"), {
+        mode: "required",
+        sessionId: "retired-session",
+      })
     );
     await registrationStarted;
 
@@ -269,7 +259,7 @@ describe("native push registration", () => {
   });
   test("rejects incomplete or mismatched native transports before touching the database", async () => {
     const service = new NotificationService({} as PrismaClient,"disabled");
-    for (const invalid of [{...input,platform:"android"},{...input,apnsEnvironment:undefined},{...input,notificationScope:undefined},{...input,apnsTopic:undefined},{...input,pushToken:"a".repeat(65)},{...input,pushToken:"ExpoPushToken[abcdefghijklmnopqrstuvwxyz]"},{...input,provider:"expo"},{...input,provider:undefined}]) {
+    for (const invalid of [{...input,platform:"android"},{...input,apnsEnvironment:undefined},{...input,notificationScope:undefined},{...input,apnsTopic:undefined},{...input,pushToken:"a".repeat(65)},{...input,pushToken:"zz".repeat(32)},{...input,provider:"fcm"},{...input,provider:undefined}]) {
       await expect(Effect.runPromise(service.register(invalid as typeof input,{mode:"disabled"}))).rejects.toThrow("push token and delivery settings");
     }
   });

@@ -14,8 +14,6 @@ import {
   CreateBotInput,
   CURSOR_TOOL_NAMES,
   CURSOR_TOOLS,
-  EXTERNAL_READ_TOOL,
-  EXTERNAL_SHELL_TOOL,
   GET_DYNAMIC_TOOLS_TOOL,
   ListAgentsInput,
   ListGroupsInput,
@@ -428,8 +426,6 @@ describe("API contracts", () => {
       "RecallMemory",
       "ListSections",
       "update_state",
-      "ExternalShell",
-      "ExternalRead",
       "ListMachines",
       "Shell",
       "Read",
@@ -437,15 +433,13 @@ describe("API contracts", () => {
       "GetDynamicTools",
       "CallDynamicTool",
     ]);
-    expect(NATIVE_TOOLS).toHaveLength(13);
-    for (const tool of NATIVE_TOOLS.filter(tool => !["ExternalShell","ExternalRead"].includes(tool.name))) {
+    expect(NATIVE_TOOLS).toHaveLength(11);
+    for (const tool of NATIVE_TOOLS) {
       const expected = referenceTool(tool.name);
       expect({name:tool.name,description:tool.description,inputSchema:tool.inputSchema}).toEqual(expected);
     }
     expect(NATIVE_TOOLS.some((tool) => tool.name === "AddMcpServer")).toBe(false);
     expect(REACT_TO_MESSAGE_TOOL.name).toBe("ReactToMessage");
-    expect(EXTERNAL_SHELL_TOOL.name).toBe("ExternalShell");
-    expect(EXTERNAL_READ_TOOL.name).toBe("ExternalRead");
     expect(SHELL_TOOL.name).toBe("Shell");
     expect(READ_TOOL.name).toBe("Read");
     expect(GET_DYNAMIC_TOOLS_TOOL.name).toBe("GetDynamicTools");

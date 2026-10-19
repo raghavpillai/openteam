@@ -40,17 +40,6 @@ test.skipIf(!databaseUrl)(
     const apns = new ApnsClient({ keyId: "QA", teamId: "QA", topic: "dev.openteam.mobile.swift", privateKey: signingKey }, async (_, headers, body) => {
       native.push({headers, payload: JSON.parse(body)}); return {status: 200};
     });
-    const sent: Array<{
-      to: string;
-      title?: string;
-      badge: number;
-      data: {
-        kind: string;
-        messageSequence?: string;
-        notificationSequence?: string;
-        readState?: unknown;
-      };
-    }> = [];
     const delivered: string[] = [];
     const dismissed: string[] = [];
     const manager = new DesktopNotificationManager({
@@ -61,19 +50,8 @@ test.skipIf(!databaseUrl)(
       setBadge: () => {},
     });
     const service = new NotificationService(prisma, "disabled");
-    const dispatcher = new PushNotificationDispatcher(
-      prisma,
-      (async (_url, init) => {
-        const batch = JSON.parse(String(init?.body));
-        sent.push(...batch);
-        return Response.json({
-          data: batch.map(() => ({ status: "ok", id: crypto.randomUUID() })),
-        });
-      }) as typeof fetch,
-      null,
-      "disabled",
-      apns
-    );
+    const dispatcher = new PushNotificationDispatcher(prisma, "disabled", apns);
+    const pushes = (kind: string) => native.filter((push) => push.payload.data.kind === kind);
     const state = async () =>
       (await channelNotificationStates(prisma, [channel.id])).get(channel.id)!;
     const sync = async () => {
@@ -98,18 +76,30 @@ test.skipIf(!databaseUrl)(
       ).toEqual([]);
     };
     try {
-      await prisma.pushDevice.createMany({
-        data: installationIds.slice(0, 2).map((id) => ({
-          installationId: id,
-          platform: "ios" as const,
-          pushToken: `ExpoPushToken[${id}]`,
-          authRequired: false,
-        })),
-      });
-      await Effect.runPromise(service.register({ installationId: installationIds[2]!, platform: "ios", provider: "apns", pushToken: "ab".repeat(32), apnsEnvironment: "development", apnsTopic: "dev.openteam.mobile.swift", notificationScope: "cd".repeat(32) }, { mode: "disabled" }));
+      for (const [index, installationId] of installationIds.entries()) {
+        await Effect.runPromise(
+          service.register(
+            {
+              installationId,
+              platform: "ios",
+              provider: "apns",
+              pushToken: ["ab", "bc", "de"][index]!.repeat(32),
+              apnsEnvironment: index ? "production" : "development",
+              apnsTopic: "dev.openteam.mobile.swift",
+              notificationScope: "cd".repeat(32),
+            },
+            { mode: "disabled" }
+          )
+        );
+      }
       await sync();
       const userMessage = await prisma.channelMessage.create({
-        data: { channelId: channel.id, sender: "user", content: "Please check" },
+        data: {
+          channelId: channel.id,
+          sender: "user",
+          content: "Please check",
+          metadata: { address: "t0u" },
+        },
       });
       const conversation = await prisma.conversation.create({ data: { botId: bot.id } });
       const run = await prisma.run.create({
@@ -174,13 +164,11 @@ test.skipIf(!databaseUrl)(
         second.sequence.toString(),
       ]);
       await drain();
-      const messagePushes = sent.filter((push) => push.data.kind === "message");
-      expect(messagePushes).toHaveLength(2);
-      expect(
-        messagePushes.every((push) => push.data.messageSequence === second.sequence.toString())
-      ).toBe(true);
-      expect(new Set(messagePushes.map((push) => push.to)).size).toBe(2);
-      expect(native.filter(n => n.payload.data.kind === "message").map(n => n.payload.data.messageSequence)).toEqual([second.sequence.toString()]);
+      const messagePushes = pushes("message");
+      expect(messagePushes.map((push) => push.payload.data.messageSequence)).toEqual(
+        installationIds.map(() => second.sequence.toString())
+      );
+      expect(new Set(messagePushes.map((push) => push.headers[":path"])).size).toBe(3);
 
       await Effect.runPromise(
         service.markChannelRead(
@@ -193,11 +181,11 @@ test.skipIf(!databaseUrl)(
       expect(dismissed).toEqual(delivered);
       const reactionContext = { ...context, callId: crypto.randomUUID() };
       await messaging.reactToMessage(reactionContext, {
-        message_address: `t${userMessage.sequence}u`,
+        message_address: "t0u",
         emoji: "👍",
       });
       await messaging.reactToMessage(reactionContext, {
-        message_address: `t${userMessage.sequence}u`,
+        message_address: "t0u",
         emoji: "👍",
       });
       const reactionState = await sync();
@@ -205,8 +193,7 @@ test.skipIf(!databaseUrl)(
       expect(reactionState.notifications[0]?.kind).toBe("reaction");
       expect(await unreadBadgeCount(prisma)).toBe(initialBadgeCount + 1);
       await drain();
-      expect(sent.filter((push) => push.data.kind === "reaction")).toHaveLength(2);
-      expect(native.filter(n => n.payload.data.kind === "reaction")).toHaveLength(1);
+      expect(pushes("reaction")).toHaveLength(3);
       await Effect.runPromise(
         service.markChannelRead(
           channel.id,
@@ -228,32 +215,30 @@ test.skipIf(!databaseUrl)(
       expect(await unreadBadgeCount(prisma)).toBe(initialBadgeCount);
       expect(dismissed).toEqual(delivered);
       await drain();
-      expect(sent.filter((push) => push.data.kind === "badge-sync").at(-1)).toMatchObject({
-        badge: initialBadgeCount,
-        data: {
-          readState: {
-            channelId: channel.id,
-            lastReadNotificationSequence: reactionState.notificationCursor,
-          },
-        },
-      });
-      const nativeRead = native.filter(n => n.payload.data.kind === "badge-sync").at(-1)!;
+      const nativeRead = pushes("badge-sync").at(-1)!;
       expect(nativeRead.headers["apns-push-type"]).toBe("background");
       expect(nativeRead.payload.aps).toEqual({ "content-available": 1 });
-      expect(nativeRead.payload.data.readState).toMatchObject({ channelId: channel.id, lastReadSequence: second.sequence.toString(), lastReadNotificationSequence: reactionState.notificationCursor });
+      expect(nativeRead.payload.data).toMatchObject({
+        badgeCount: initialBadgeCount,
+        readState: {
+          channelId: channel.id,
+          lastReadSequence: second.sequence.toString(),
+          lastReadNotificationSequence: reactionState.notificationCursor,
+        },
+      });
       const snapshot = await Effect.runPromise(service.snapshot());
       expect(snapshot.badgeCount).toBe(initialBadgeCount);
       expect(snapshot.readStates).toContainEqual(nativeRead.payload.data.readState);
       await messaging.reactToMessage(
         { ...context, callId: crypto.randomUUID() },
-        { message_address: `t${userMessage.sequence}u`, emoji: "🔔" }
+        { message_address: "t0u", emoji: "🔔" }
       );
       await messaging.reactToMessage(
         { ...context, callId: crypto.randomUUID() },
-        { message_address: `t${userMessage.sequence}u`, emoji: "🔔" }
+        { message_address: "t0u", emoji: "🔔" }
       );
       await drain();
-      expect(sent.filter((push) => push.data.kind === "reaction")).toHaveLength(2);
+      expect(pushes("reaction")).toHaveLength(3);
       expect(await unreadBadgeCount(prisma)).toBe(initialBadgeCount);
     } finally {
       const devices = await prisma.pushDevice.findMany({
@@ -272,54 +257,6 @@ test.skipIf(!databaseUrl)(
     }
   },
   30_000
-);
-
-test.skipIf(!databaseUrl)(
-  "alerts stored as needs-input by older servers read back as messages",
-  async () => {
-    const prisma = createPrismaClient(databaseUrl!);
-    const bot = await prisma.bot.create({
-      data: { name: "Legacy Alert QA", defaultDirectory: "/tmp/legacy-alert-qa" },
-    });
-    const channel = await prisma.channel.create({
-      data: {
-        kind: "bot_dm",
-        name: "Legacy Alert QA",
-        members: { create: { botId: bot.id, ordinal: 0 } },
-      },
-    });
-    try {
-      const payload = {
-        schemaVersion: 1,
-        kind: "agent-needs-input",
-        botId: bot.id,
-        channelId: channel.id,
-        runId: "",
-        messageSequence: "1",
-        title: "Legacy Alert QA",
-        body: "Deploy to production?",
-        deepLink: `openteam:///chat/${channel.id}`,
-      };
-      await prisma.channelNotification.create({
-        data: {
-          key: `message:legacy:${channel.id}`,
-          channelId: channel.id,
-          botId: bot.id,
-          kind: "agent-needs-input",
-          messageSequence: 1n,
-          payload,
-        },
-      });
-      const state = (await channelNotificationStates(prisma, [channel.id])).get(channel.id)!;
-      expect(state.notifications.map(({ kind, body }) => ({ kind, body }))).toEqual([
-        { kind: "message", body: "Deploy to production?" },
-      ]);
-    } finally {
-      await prisma.channel.delete({ where: { id: channel.id } });
-      await prisma.bot.delete({ where: { id: bot.id } });
-      await prisma.$disconnect();
-    }
-  }
 );
 
 test.skipIf(!databaseUrl)("thread replies carry their id so the alert opens the thread", async () => {

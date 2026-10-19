@@ -140,7 +140,6 @@ export const publishMessageNotification = async (
     ...(metadata.branched === true ? { threadMessageId: message.id } : {}),
     title,
     body,
-    deepLink: `openteam:///chat/${message.channelId}`,
   });
 };
 
@@ -181,19 +180,18 @@ export const channelNotificationStates = async (
       COALESCE(state."lastReadNotificationSequence", 0) AS "lastReadNotificationSequence",
       COALESCE((SELECT MAX(n."sequence") FROM "ChannelNotification" n
         WHERE n."channelId" = requested."channelId"), 0) AS "notificationCursor",
-      -- Older servers stored question cards as "agent-needs-input"; they read back as messages.
-      COALESCE((SELECT jsonb_agg(alert.payload || jsonb_build_object('notificationSequence', alert.sequence::text,
-          'kind', CASE WHEN alert.kind = 'reaction' THEN 'reaction' ELSE 'message' END))
-        FROM (SELECT n.payload, n.sequence, n.kind FROM "ChannelNotification" n
+      COALESCE((SELECT jsonb_agg(alert.payload || jsonb_build_object('notificationSequence', alert.sequence::text))
+        FROM (SELECT n.payload, n.sequence FROM "ChannelNotification" n
           JOIN "Bot" bot ON bot.id = n."botId"
           WHERE n."channelId" = requested."channelId" AND NOT n.revoked
+            AND n.kind IN ('message', 'reaction')
             AND bot."notificationsEnabled" AND NOT bot."hiddenFromSidebar"
-            AND CASE WHEN n.kind = 'reaction' OR n."messageSequence" IS NULL
+            AND CASE WHEN n.kind = 'reaction'
               THEN n.sequence > COALESCE(state."lastReadNotificationSequence", 0)
               ELSE n."messageSequence" > COALESCE(state."lastReadSequence", 0) END
           ORDER BY n.sequence DESC LIMIT 100) alert), '[]'::jsonb) AS notifications,
       (SELECT COUNT(*) FROM "ChannelNotification" n WHERE n."channelId" = requested."channelId"
-        AND NOT n.revoked AND (n.kind = 'reaction' OR n."messageSequence" IS NULL)
+        AND NOT n.revoked AND n.kind = 'reaction'
         AND EXISTS (SELECT 1 FROM "Bot" b WHERE b.id = n."botId" AND b."notificationsEnabled" AND NOT b."hiddenFromSidebar")
         AND n.sequence > COALESCE(state."lastReadNotificationSequence", 0)) AS "activityUnreadCount"
     FROM unnest(${channelIds}::uuid[]) requested("channelId")

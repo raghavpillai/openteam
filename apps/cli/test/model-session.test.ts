@@ -194,14 +194,29 @@ describe("interactive model editor", () => {
     api.catalog = async (...args) => ({
       ...(await catalog(...args)),
       providers: [
-        { id: "nvidia", name: "NVIDIA", custom: false, connected: false, modelCount: 38 },
-        { id: "openai", name: "OpenAI", custom: false, connected: false, modelCount: 38 },
+        {
+          id: "nvidia",
+          name: "NVIDIA",
+          custom: false,
+          connected: false,
+          modelCount: 38,
+          authMethods: [],
+        },
+        {
+          id: "openai",
+          name: "OpenAI",
+          custom: false,
+          connected: false,
+          modelCount: 38,
+          authMethods: [{ type: "api_key", label: "API key", subscription: false }],
+        },
         {
           id: "openai-codex",
           name: "OpenAI Codex",
           custom: false,
           connected: false,
           modelCount: 20,
+          authMethods: [{ type: "oauth", label: "ChatGPT", subscription: true }],
         },
         {
           id: "my-nvidia",
@@ -209,6 +224,7 @@ describe("interactive model editor", () => {
           custom: true,
           connected: false,
           modelCount: 38,
+          authMethods: [],
         },
       ],
     });

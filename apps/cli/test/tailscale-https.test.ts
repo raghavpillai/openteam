@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import {
+  configureTailscaleRoute,
   detectTailscaleHttps,
-  ensureTailscaleHttps,
   tailscaleHttpsHost,
 } from "../src/tailscale-https";
 import type { CommandRunner } from "../src/process";
@@ -28,7 +28,12 @@ function fixture(config: object = {}) {
       calls.push([...args]);
       if (args[0] === "status") return { status: 0, stdout: JSON.stringify(status), stderr: "" };
       if (args.includes("--bg")) {
-        serve = matching();
+        const port = args.find((arg) => arg.startsWith("--https="))!.slice("--https=".length);
+        const current = serve as { TCP?: object; Web?: object };
+        serve = {
+          TCP: { ...current.TCP, [port]: { HTTPS: true } },
+          Web: { ...current.Web, [`${host}:${port}`]: { Handlers: { "/": { Proxy: args.at(-1) } } } },
+        };
         return { status: 0, stdout: "", stderr: "" };
       }
       return { status: 0, stdout: JSON.stringify(serve), stderr: "" };
@@ -63,11 +68,11 @@ test("setup prefers private Tailscale HTTPS and creates a verified persistent ro
     bindHost: "127.0.0.1",
     composeProfiles: "direct",
   });
-  expect(ensureTailscaleHttps(f.runner, candidate, "8787")).toBe(true);
+  expect(configureTailscaleRoute(f.runner, candidate, "8787")).toBe(true);
   expect(f.calls.filter((args) => args.includes("--bg"))).toEqual([
     ["serve", "--bg", "--https=443", "http://127.0.0.1:8787"],
   ]);
-  expect(ensureTailscaleHttps(f.runner, candidate, "8787")).toBe(true);
+  expect(configureTailscaleRoute(f.runner, candidate, "8787")).toBe(false);
   expect(f.calls.filter((args) => args.includes("--bg"))).toHaveLength(1);
 });
 
@@ -97,16 +102,16 @@ test("detection avoids disabled HTTPS and every incompatible route", () => {
   ]) {
     const other = fixture(config);
     expect(detectTailscaleHttps(other.runner, "8787")).toBeNull();
-    expect(ensureTailscaleHttps(other.runner, { host, addresses: [] }, "8787")).toBe(false);
+    expect(() => configureTailscaleRoute(other.runner, { host, addresses: [] }, "8787")).toThrow();
     expect(other.calls.some((args) => args.includes("--bg"))).toBe(false);
   }
 });
 
-test("route changes during review, missing CLI, and invalid status fall back without mutation", () => {
+test("route changes during review, missing CLI, and invalid status fail without mutation", () => {
   const f = fixture();
   const candidate = detectTailscaleHttps(f.runner, "8787")!;
   f.setServe(matching("9000"));
-  expect(ensureTailscaleHttps(f.runner, candidate, "8787")).toBe(false);
+  expect(() => configureTailscaleRoute(f.runner, candidate, "8787")).toThrow();
   for (const runner of [
     { run: () => ({ status: 1, stdout: "", stderr: "unavailable" }) },
     { run: () => ({ status: 0, stdout: "not JSON", stderr: "" }) },
@@ -117,7 +122,7 @@ test("route changes during review, missing CLI, and invalid status fall back wit
     },
   ]) {
     expect(detectTailscaleHttps(runner, "8787")).toBeNull();
-    expect(ensureTailscaleHttps(runner, candidate, "8787")).toBe(false);
+    expect(() => configureTailscaleRoute(runner, candidate, "8787")).toThrow();
   }
 });
 
@@ -147,12 +152,12 @@ test("setup reuses an existing private HTTPS port without replacing another app 
   expect(existingReachableHost(new Map([["OPENTEAM_PUBLIC_URL", `https://${address}`]]))).toBe(
     address
   );
-  expect(ensureTailscaleHttps(f.runner, candidate, "8787")).toBe(true);
+  expect(configureTailscaleRoute(f.runner, candidate, "8787")).toBe(false);
   expect(f.calls.some((args) => args.includes("--bg"))).toBe(false);
   // A missing custom-port mapping can now be explicitly recreated.
   f.setServe(config);
-  ensureTailscaleHttps(f.runner, candidate, "8787");
-  expect(f.calls.some((args) => args.includes("--https=10000"))).toBe(true);
+  expect(configureTailscaleRoute(f.runner, candidate, "8787")).toBe(true);
+  expect(f.calls).toContainEqual(["serve", "--bg", "--https=10000", "http://127.0.0.1:8787"]);
 });
 
 test("proxy endpoints validate ports without accepting paths or credentials", () => {

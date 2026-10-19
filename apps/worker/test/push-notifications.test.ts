@@ -1,13 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import type { ApnsClient } from "../src/apns";
 import {
   claimOutboxDeliveries,
   deliverablePushDeviceWhere,
-  enqueuePushNotification,
-  expoPushMessage,
   PushNotificationDispatcher,
   pushAuthenticationModeFromEnvironment,
   pushDeviceSessionIsDeliverable,
-  truncateNotificationBody,
 } from "../src/push-notifications";
 import { computerEventQueuesPushNotification } from "../src/worker";
 
@@ -18,6 +16,21 @@ const deferred = () => {
   });
   return { promise, resolve };
 };
+
+const apnsDevice = (id: string) => ({
+  id,
+  platform: "ios",
+  provider: "apns",
+  pushToken: "ab".repeat(32),
+  apnsEnvironment: "production",
+  apnsTopic: "dev.openteam.mobile.swift",
+  notificationScope: "cd".repeat(32),
+  enabled: true,
+  authRequired: true,
+  authSession: { expiresAt: new Date("2099-01-01T00:00:00.000Z") },
+});
+
+const apnsClient = (send: () => Promise<{ status: number }>) => ({ send }) as unknown as ApnsClient;
 
 describe("push notification content", () => {
   test("fails closed unless the worker is explicitly configured for disabled auth", () => {
@@ -84,50 +97,11 @@ describe("push notification content", () => {
     ).toBeFalse();
   });
 
-  test("preserves auth-disabled delivery while applying the session filter at enqueue", async () => {
-    let deviceWhere: unknown = null;
-    const deliveries: unknown[] = [];
-    const tx = {
-      $queryRaw: async () => [{ count: 0n }],
-      pushDevice: {
-        findMany: async ({ where }: { where: unknown }) => {
-          deviceWhere = where;
-          return [{ id: "disabled-mode-device" }];
-        },
-      },
-      outboxDelivery: {
-        createMany: async ({ data }: { data: unknown[] }) => {
-          deliveries.push(...data);
-          return { count: data.length };
-        },
-      },
-    };
-
-    await enqueuePushNotification(
-      tx as never,
-      "notification:disabled-mode",
-      {
-        schemaVersion: 1,
-        kind: "message",
-        botId: "bot",
-        channelId: "channel",
-        runId: "run",
-        title: "Done",
-        body: "Finished",
-        deepLink: "openteam:///chat/channel",
-      },
-      "disabled"
-    );
-
-    expect(deviceWhere).toEqual({ enabled: true, authRequired: false });
-    expect(deliveries).toHaveLength(1);
-  });
-
   test("settles a claimed delivery without sending when session filtering removes its device", async () => {
     let queryCount = 0;
     let deviceWhere: unknown = null;
     const settledIds: string[] = [];
-    let expoCalls = 0;
+    let sends = 0;
     const prisma = {
       $queryRaw: async () => {
         queryCount += 1;
@@ -158,10 +132,11 @@ describe("push notification content", () => {
     };
     const dispatcher = new PushNotificationDispatcher(
       prisma as never,
-      (async () => {
-        expoCalls += 1;
-        return Response.json({ data: [] });
-      }) as unknown as typeof fetch
+      "required",
+      apnsClient(async () => {
+        sends += 1;
+        return { status: 200 };
+      })
     );
 
     await dispatcher.drain();
@@ -170,22 +145,16 @@ describe("push notification content", () => {
     expect(clauses[0]).toEqual({ id: { in: ["expired-device"] } });
     expect(clauses[1]).toMatchObject({ enabled: true, authRequired: true });
     expect(settledIds).toEqual(["delivery-expired"]);
-    expect(expoCalls).toBe(0);
+    expect(sends).toBe(0);
   });
 
-  test("rechecks the session after badge work and before sending to Expo", async () => {
+  test("rechecks the session after badge work and before sending to APNs", async () => {
     let queryCount = 0;
     let deviceReads = 0;
     let retiredDuringBadgeRead = false;
-    let expoCalls = 0;
+    let sends = 0;
     const settledIds: string[] = [];
-    const device = {
-      id: "session-device",
-      enabled: true,
-      authRequired: true,
-      authSession: { expiresAt: new Date("2099-01-01T00:00:00.000Z") },
-      pushToken: "ExpoPushToken[session-device]",
-    };
+    const device = apnsDevice("session-device");
     const prisma = {
       $queryRaw: async () => {
         queryCount += 1;
@@ -239,32 +208,27 @@ describe("push notification content", () => {
     };
     const dispatcher = new PushNotificationDispatcher(
       prisma as never,
-      (async () => {
-        expoCalls += 1;
-        return Response.json({ data: [] });
-      }) as unknown as typeof fetch
+      "required",
+      apnsClient(async () => {
+        sends += 1;
+        return { status: 200 };
+      })
     );
 
     await dispatcher.drain();
 
     expect(deviceReads).toBe(2);
     expect(settledIds).toEqual(["delivery-session-race"]);
-    expect(expoCalls).toBe(0);
+    expect(sends).toBe(0);
   });
 
-  test("holds the authorization transaction until the bounded Expo send settles", async () => {
+  test("holds the authorization transaction until the bounded APNs send settles", async () => {
     const sendStarted = deferred();
     const releaseSend = deferred();
     let queryCount = 0;
     let transactionActive = false;
     let authorizationLockQueries = 0;
-    const device = {
-      id: "locked-device",
-      enabled: true,
-      authRequired: true,
-      authSession: { expiresAt: new Date("2099-01-01T00:00:00.000Z") },
-      pushToken: "ExpoPushToken[locked-device]",
-    };
+    const device = apnsDevice("locked-device");
     const tx = {
       $queryRaw: async () => {
         authorizationLockQueries += 1;
@@ -312,11 +276,12 @@ describe("push notification content", () => {
     };
     const dispatcher = new PushNotificationDispatcher(
       prisma as never,
-      (async () => {
+      "required",
+      apnsClient(async () => {
         sendStarted.resolve();
         await releaseSend.promise;
-        return Response.json({ data: [{ status: "ok", id: "ticket-locked" }] });
-      }) as unknown as typeof fetch
+        return { status: 200 };
+      })
     );
 
     const draining = dispatcher.drain();
@@ -360,58 +325,80 @@ describe("push notification content", () => {
     expect(computerEventQueuesPushNotification({ type: "turn.completed" } as never)).toBeTrue();
   });
 
-  test("truncates by grapheme without splitting a joined emoji family", () => {
-    const family = "👨‍👩‍👧‍👦";
-    const result = truncateNotificationBody(`  ${family.repeat(145)}  `);
-    expect([
-      ...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(result),
-    ]).toHaveLength(140);
-    expect(result.endsWith("…")).toBe(true);
-  });
+  test("retires an alert that carries no durable activity sequence without sending", async () => {
+    let queryCount = 0;
+    let sends = 0;
+    let activityLookups = 0;
+    const settled: unknown[] = [];
+    const device = apnsDevice("sequence-device");
+    const tx = {
+      $queryRaw: async (query: { sql?: string }) =>
+        query.sql?.includes('AS "count"') ? [{ count: 0n }] : [],
+      pushDevice: { findMany: async () => [device] },
+      notificationPreferences: { findUnique: async () => null },
+      notificationPresence: { findMany: async () => [] },
+      channelReadState: { findUnique: async () => null },
+      bot: { findUnique: async () => ({ notificationsEnabled: true, hiddenFromSidebar: false }) },
+      channel: { findUnique: async () => ({ archivedAt: null, hiddenFromSidebar: false }) },
+      channelNotification: {
+        findUnique: async () => {
+          activityLookups += 1;
+          return { revoked: false };
+        },
+      },
+      outboxDelivery: {
+        update: async () => ({}),
+        updateMany: async (value: unknown) => {
+          settled.push(value);
+          return { count: 1 };
+        },
+      },
+    };
+    const prisma = {
+      $queryRaw: async () =>
+        ++queryCount === 1
+          ? [
+              {
+                id: "delivery-without-sequence",
+                deliveryKey: "notification:without-sequence",
+                target: device.id,
+                payload: {
+                  schemaVersion: 1,
+                  kind: "message",
+                  botId: "bot",
+                  channelId: "channel",
+                  runId: "run",
+                  title: "Probe",
+                  body: "Done",
+                  badgeCount: 1,
+                  messageSequence: "4",
+                },
+                attempts: 1,
+              },
+            ]
+          : [],
+      pushDevice: { findMany: async () => [device] },
+      outboxDelivery: { update: async () => ({}), updateMany: async () => ({ count: 0 }) },
+      $transaction: async (operation: (client: typeof tx) => Promise<unknown>) => operation(tx),
+    };
+    const dispatcher = new PushNotificationDispatcher(
+      prisma as never,
+      "required",
+      apnsClient(async () => {
+        sends += 1;
+        return { status: 200 };
+      })
+    );
 
-  test("uses exact badge counts and the shared per-type sound policy", () => {
-    const message = expoPushMessage("ExpoPushToken[token]", {
-      schemaVersion: 1,
-      kind: "message",
-      botId: "bot",
-      channelId: "channel",
-      runId: "run",
-      title: "Probe",
-      body: "Done",
-      deepLink: "openteam:///chat/channel",
-      badgeCount: 4,
-    });
-    expect(message).toMatchObject({ badge: 4, sound: "default", mutableContent: true, threadId: "channel", data: { badgeCount: 4 } });
-    expect(
-      expoPushMessage("ExpoPushToken[token]", {
-        schemaVersion: 1,
-        kind: "reaction",
-        botId: "bot",
-        channelId: "channel",
-        runId: "run",
-        title: "Probe",
-        body: "Reacted 👍 to “Ship it”",
-        deepLink: "openteam:///chat/channel",
-        badgeCount: 4,
-      })
-    ).toMatchObject({
-      title: "Probe",
-      body: "Reacted 👍 to “Ship it”",
-      sound: "default",
-      badge: 4,
-    });
-    expect(
-      expoPushMessage("ExpoPushToken[token]", {
-        schemaVersion: 1,
-        kind: "badge-sync",
-        badgeCount: 2,
-      })
-    ).toEqual({
-      to: "ExpoPushToken[token]",
-      badge: 2,
-      data: { schemaVersion: 1, kind: "badge-sync", badgeCount: 2 },
-      _contentAvailable: true,
-      priority: "normal",
-    });
+    await dispatcher.drain();
+
+    expect(sends).toBe(0);
+    expect(activityLookups).toBe(0);
+    expect(settled).toEqual([
+      {
+        where: { id: { in: ["delivery-without-sequence"] } },
+        data: { status: "delivered", deliveredAt: expect.any(Date) },
+      },
+    ]);
   });
 });

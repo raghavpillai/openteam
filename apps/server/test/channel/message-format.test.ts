@@ -26,12 +26,12 @@ describe("channel message interaction prompts", () => {
   });
 
   test("formats an image-only user prompt without trailing whitespace", () => {
-    expect(formatUserPrompt(19n, "")).toBe("[t19u]");
+    expect(formatUserPrompt("t19u", "")).toBe("[t19u]");
   });
 
   test("quotes the replied-to message after the new user address", () => {
     expect(
-      formatUserPrompt(18n, "What user prompt do you see?", {
+      formatUserPrompt("t18u", "What user prompt do you see?", {
         id: "message-17",
         sequence: 17n,
         sender: "agent",

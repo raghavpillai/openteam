@@ -28,7 +28,6 @@ import type {
   ChannelView,
   ClientBootstrapView,
   ClientRuntimeView,
-  ClientSnapshot,
   ComputerHandoffMutationInput,
   ConfigurePluginConnectionInput,
   CreateBotInput,
@@ -76,7 +75,6 @@ import {
   readProductEventBatch,
 } from "./events";
 import { createJsonTransport, type OpenTeamTransportOptions } from "./http";
-import { normalizeClientSnapshot } from "./snapshot";
 
 export interface OpenTeamClientOptions extends OpenTeamTransportOptions {
   createId?: () => string;
@@ -148,10 +146,6 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
     deleteBotMemory: (botId: string, memoryId: string) => transport.request<BotMemoryList>(`/api/v0/bots/${encodeURIComponent(botId)}/memories/${encodeURIComponent(memoryId)}`, { method: "DELETE" }),
     clearBotMemories: (botId: string) => transport.request<BotMemoryList>(`/api/v0/bots/${encodeURIComponent(botId)}/memories`, { method: "DELETE" }),
     systemVersion: () => transport.request<SystemVersionView>("/api/v0/system/version"),
-    snapshot: () =>
-      transport
-        .request<ClientSnapshot>("/api/v0/client-snapshot")
-        .then((snapshot) => normalizeClientSnapshot(snapshot)),
     rootSettings: () => transport.request<RootSettingsView>("/api/v0/settings"),
     transcriptionSettings: () =>
       transport.request<TranscriptionSettingsView>("/api/v0/server-settings/transcription"),

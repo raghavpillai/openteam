@@ -160,19 +160,4 @@ import XCTest
     XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
     return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
   }
-  func testLegacyApprovalsAreHidden() async throws {
-    let app = try await launch("approval")
-    XCTAssertFalse(app.switches["approval-site-Profile 2-example.com"].exists)
-    XCTAssertFalse(app.buttons["approve-qa-chrome"].exists)
-  }
-
-  func testRetiredReviewRulesAreAbsent() async throws {
-    let app = try await launch("rules", openChat: false)
-    app.buttons["settings-button"].tap()
-    let more = app.buttons["More preferences"]
-    for _ in 0..<7 where !more.isHittable { app.swipeUp() }
-    more.tap()
-    XCTAssertFalse(app.buttons["Auto-review rules"].exists)
-    XCTAssertFalse(app.buttons["save-review-rules"].exists)
-  }
 }

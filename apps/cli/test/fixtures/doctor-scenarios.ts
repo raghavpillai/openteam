@@ -537,18 +537,6 @@ export const doctorScenarios: DoctorScenario[] = [
     "Test connection"
   ),
   scenario(
-    "transcription-legacy",
-    "Server predates transcription diagnostics",
-    [
-      issue(
-        "Transcription",
-        "This server does not expose transcription diagnostics. Update the server to configure voice notes.",
-        "warn"
-      ),
-    ],
-    "openteam update"
-  ),
-  scenario(
     "transcription-server-error",
     "Transcription check cannot reach the server",
     [

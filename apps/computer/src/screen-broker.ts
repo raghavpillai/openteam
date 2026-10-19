@@ -445,7 +445,8 @@ export class ScreenBroker {
       else await this.profileAuthority.seedIfEmpty(session.profileDirectory);
       await this.profileAuthority.prepare(session.profileDirectory);
       await prepareDownloadPreferences(session.profileDirectory, this.home);
-      // Copied profile files and legacy profiles may have been written by the host.
+      // The supervisor writes copied profile files, and the home volume's init
+      // container re-owns everything, so hand the profile back to the runner.
       await assignAgentOwnership([session.profileDirectory], true);
       await prepareOfficeProfile(session.profileDirectory);
       // Chromium's profile survives container restarts, but its process-singleton
@@ -777,14 +778,10 @@ export class ScreenBroker {
       }
       const used = new Set(this.liveSlotByBot.values());
       const profileSlot = this.slotByBot.get(botId);
-      // Prefer the legacy display when free, without letting dormant profiles
-      // occupy ports or making a relocated bot switch profile directories.
-      if (profileSlot !== undefined && profileSlot < MAX_SCREENS && !used.has(profileSlot)) {
-        allocated = profileSlot;
-      } else {
-        for (let slot = 0; slot < MAX_SCREENS; slot += 1) {
-          if (!used.has(slot)) { allocated = slot; break; }
-        }
+      // Live displays are independent of profile directories, so dormant
+      // profiles never occupy ports and a bot keeps its profile across slots.
+      for (let slot = 0; slot < MAX_SCREENS; slot += 1) {
+        if (!used.has(slot)) { allocated = slot; break; }
       }
       if (allocated < 0) throw new Error(`OpenTeam supports at most ${MAX_SCREENS} live screens`);
       this.liveSlotByBot.set(botId, allocated);

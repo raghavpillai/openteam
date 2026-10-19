@@ -190,7 +190,7 @@ export function createOAuthMcpFixture(port = 0) {
           result = {
             protocolVersion: "2025-06-18",
             capabilities: { tools: { listChanged: true } },
-            serverInfo: { name: "OpenBot OAuth fixture", version: "1.0.0" },
+            serverInfo: { name: "OpenTeam OAuth fixture", version: "1.0.0" },
           };
         else if (message.method === "tools/list")
           result = message.params?.cursor

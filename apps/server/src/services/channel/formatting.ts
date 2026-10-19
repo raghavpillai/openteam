@@ -11,13 +11,10 @@ export type ReplyTarget = {
 
 export const messageAddress = (message: ReplyTarget): string => {
   const metadata = metadataRecord(message.metadata);
-  if (typeof metadata.address === "string") return metadata.address;
-  if (message.sender === "user") return `t${message.sequence}u`;
-  return typeof metadata.address === "string" ? metadata.address : `t${message.sequence}a0`;
+  return typeof metadata.address === "string" ? metadata.address : message.id;
 };
 
-export const formatUserPrompt = (sequence: bigint | string, content: string, reply?: ReplyTarget | null) => {
-  const address = typeof sequence === "string" ? sequence : `t${sequence}u`;
+export const formatUserPrompt = (address: string, content: string, reply?: ReplyTarget | null) => {
   if (!reply) return content ? `[${address}] ${content}` : `[${address}]`;
   return [
     `[${address}]`,

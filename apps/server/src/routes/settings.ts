@@ -41,13 +41,6 @@ export async function settingsRoutes(context: RouteContext): Promise<Response | 
   }
   if (path === "/api/server-settings/web-providers/check" && request.method === "POST")
     return json(await app.webProviders.check(await request.json().catch(() => null)));
-  // Legacy single-tool endpoints for clients older than Settings → Providers.
-  if (path === "/api/server-settings/web-search" || path === "/api/server-settings/web-fetch") {
-    const tool = path.endsWith("web-fetch") ? "fetch" : "search";
-    if (request.method === "GET") return json(await app.webProviders.legacyView(tool));
-    if (request.method === "PATCH")
-      return json(await app.webProviders.legacySave(tool, await request.json().catch(() => null)));
-  }
 
   if (request.method === "PATCH" && path === "/api/server-settings/inference") {
     return json(await run(app.updateInferenceSettings(await request.json().catch(() => null))));

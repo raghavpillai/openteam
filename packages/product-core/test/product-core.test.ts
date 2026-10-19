@@ -5,7 +5,7 @@ import {
   collapseA2ATimeline,
   createSnapshotIndex,
   deriveThreads,
-  selectMobileChannelRows,
+  selectChannelRows,
 } from "../src";
 
 const message = (
@@ -78,6 +78,7 @@ const snapshot = (): ClientSnapshot => ({
     queue: "ready",
     computer: "ready",
     inference: "ready",
+    transcription: "missing",
   },
 });
 
@@ -87,14 +88,14 @@ describe("portable product projections", () => {
     expect(createSnapshotIndex(value).latestMessageByChannel.get("channel-1")?.id).toBe(
       "message-1"
     );
-    expect(selectMobileChannelRows(value)[0]?.bot?.id).toBe("bot-1");
+    expect(selectChannelRows(value)[0]?.bot?.id).toBe("bot-1");
   });
 
   test("keeps hidden agents addressable while omitting their rows from mobile navigation", () => {
     const value = snapshot();
     value.bots[0] = { ...value.bots[0]!, hiddenFromSidebar: true };
     expect(createSnapshotIndex(value).botById.get("bot-1")?.name).toBe("Bot");
-    expect(selectMobileChannelRows(value)).toEqual([]);
+    expect(selectChannelRows(value)).toEqual([]);
 
     value.bots[0] = { ...value.bots[0]!, hiddenFromSidebar: false };
     value.channels[0] = {
@@ -104,7 +105,7 @@ describe("portable product projections", () => {
       hiddenFromSidebar: true,
     };
     expect(createSnapshotIndex(value).channelById.has("channel-1")).toBe(true);
-    expect(selectMobileChannelRows(value)).toEqual([]);
+    expect(selectChannelRows(value)).toEqual([]);
   });
 
   test("projects A2A metadata", () => {

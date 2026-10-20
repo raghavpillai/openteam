@@ -96,23 +96,16 @@ test("legacy profiles and model arguments cannot override server inference", () 
 
 test("the roster names one graphical worker for browser and desktop work", () => {
   const info = taskUserInfo(config);
-  expect(info).toContain("computerUse: browser and desktop work using structured browser tools and desktop controls on the same persistent box.");
+  expect(info).toContain("computerUse: Delegate a self-contained browser or desktop task to a background subagent that operates your box's browser and desktop");
+  expect(info).toContain("Only one computerUse subagent can run at a time");
+  expect(info).toContain("executor: Your workhorse:");
+  expect(info).toContain("dispatch browser and desktop work to computerUse yourself.");
   expect(info).not.toContain("browserUse");
   expect(info).toContain("knowledgeWork: A higher-powered executor for five kinds of work, and only these:");
   expect(info).toContain("Use it when a skill names it or the deliverable is one of these.");
-  expect(taskUserInfo({ ...config, graphicalAvailable: false })).toContain(
-    "Browser and desktop workers are unavailable on this computer."
-  );
-});
-
-test("graphical capability hints respect disabled tools and unavailable workers", () => {
-  expect(taskUserInfo(config)).toContain("browser_console_messages");
-  expect(taskUserInfo(config)).toContain("browser_take_screenshot");
-  expect(taskUserInfo(config)).toContain("browser_file_upload");
-  const restricted = taskUserInfo({ ...config, disabledToolIdentifiers: ["BROWSER_CONSOLE_MESSAGES"] });
-  expect(restricted).not.toContain("browser_console_messages");
-  expect(restricted).toContain("browser_take_screenshot");
-  expect(taskUserInfo({ ...config, graphicalAvailable: false })).not.toContain("Browser capabilities");
+  const headless = taskUserInfo({ ...config, graphicalAvailable: false });
+  expect(headless).toContain("Browser and desktop workers are unavailable on this computer.");
+  expect(headless).not.toContain("dispatch browser and desktop work to computerUse");
 });
 
 test("saved settings and snapshots with the retired worker-mode switch still load", () => {

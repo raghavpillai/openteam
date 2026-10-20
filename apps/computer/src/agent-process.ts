@@ -1,5 +1,7 @@
 import { execFile, spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 
+import { desktopMemoryForSpawn } from "./desktop-memory";
+
 const DEFAULT_AGENT_UID = 1000;
 const DEFAULT_AGENT_GID = 1000;
 
@@ -54,9 +56,17 @@ export function agentProcessGroupSignaler(child: ChildProcess): (signal: NodeJS.
 /** Initialize supplementary groups as well as the ordinary account's UID/GID. */
 export const spawnAgentProcess: typeof spawn = ((command: string, args: readonly string[], options: SpawnOptions) => {
   const identity = agentProcessIdentity();
+  const desktopId = options.env?.OPENTEAM_DESKTOP_ID;
+  const group = desktopId ? desktopMemoryForSpawn(desktopId) : undefined;
   if (identity.uid === undefined) return spawn(command, args, options);
+  if (group && options.shell) throw new Error("A capped desktop command must not use a supervisor shell");
   const { uid: _uid, gid: _gid, ...rest } = options;
-  return spawn("/usr/bin/setpriv", ["--reuid", String(identity.uid), "--regid", String(identity.gid), "--init-groups", "--", command, ...args], rest);
+  const identityArgs = ["--reuid", String(identity.uid), "--regid", String(identity.gid), "--init-groups", "--", command, ...args];
+  // Join before setpriv/exec so ordinary commands and sudo descendants inherit
+  // the budget while retaining the computer's administrator-access behavior.
+  return group
+    ? spawn("/usr/local/bin/openteam-desktop-exec", [group, "/usr/bin/setpriv", ...identityArgs], rest)
+    : spawn("/usr/bin/setpriv", identityArgs, rest);
 }) as typeof spawn;
 
 const ALWAYS_PRIVATE_ENVIRONMENT_KEYS = new Set([

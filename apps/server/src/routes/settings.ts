@@ -1,10 +1,14 @@
 import { ApiError } from "@openteam/contracts";
 import { json } from "../http";
+import { systemActivity } from "../system-activity";
 import { type RouteContext, run } from "./context";
 import { dispatchRoutes, effectRoute } from "./dispatch";
 
 export async function settingsRoutes(context: RouteContext): Promise<Response | undefined> {
   const { app, request, path } = context;
+  if (path === "/api/system/activity" && request.method === "GET") {
+    return json(await systemActivity());
+  }
   if (path === "/api/server-settings/tasks") {
     if (request.method === "GET") return json(await run(app.taskSettings()));
     if (request.method === "PATCH") return json(await run(app.updateTaskSettings(await request.json().catch(() => null))));

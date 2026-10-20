@@ -1,0 +1,38 @@
+services:
+  computer:
+    image: ${OPENTEAM_MEMORY_TEST_IMAGE:-openteam-memory-test:local}
+    environment:
+      OPENTEAM_DESKTOP_MEMORY_LIMIT: 10g
+      OPENTEAM_BOX_STORE_ROOT: /tmp/box-store
+    network_mode: none
+    cgroup: private
+    # Tests read back 10 GiB desktop limits and exercise OOM at scaled limits.
+    # The entire disposable fixture stays within a smaller host budget.
+    mem_limit: 3g
+    memswap_limit: 3g
+    cap_add: [ALL]
+    security_opt: [seccomp:unconfined, apparmor:unconfined, label:disable, systempaths=unconfined]
+    devices: [/dev/net/tun:/dev/net/tun]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
+      - /home/box:rw,nosuid,size=256m
+      - /workspace:rw,nosuid,size=128m
+    volumes:
+      - ${OPENTEAM_MEMORY_TEST_OUTPUT:?set by test script}/bundles:/app/apps/computer/test-bundles:ro
+      - ${OPENTEAM_MEMORY_TEST_OUTPUT:?set by test script}/artifacts:/artifacts
+  computer-memory-init:
+    image: ${OPENTEAM_MEMORY_TEST_IMAGE:-openteam-memory-test:local}
+    entrypoint: [/usr/local/bin/openteam-memory-init]
+    pid: service:computer
+    network_mode: none
+    depends_on:
+      computer:
+        condition: service_started
+    cap_drop: [ALL]
+    cap_add: [SYS_ADMIN, SYS_CHROOT, SYS_PTRACE]
+    security_opt: [no-new-privileges:true, apparmor:unconfined]
+    read_only: true
+    mem_limit: 32m
+    memswap_limit: 32m
+    pids_limit: 16
+    restart: unless-stopped

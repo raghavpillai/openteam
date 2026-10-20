@@ -91,3 +91,16 @@ describe("OpenTeam marketplace", () => {
     ).toThrow("Duplicate plugin key");
   });
 });
+
+test("marketplace reads isolate mutable metadata and installation payload maps", async () => {
+  const source = new OpenTeamMarketplaceSource(undefined, bundledOpenTeamMarketplace);
+  const first = await source.plugins();
+  const original = structuredClone(first);
+  const files = first.find((plugin) => Object.keys(plugin.files ?? {}).length > 0)!.files!;
+  const binaries = first.find((plugin) => Object.keys(plugin.binaryFiles ?? {}).length > 0)!.binaryFiles!;
+  files[Object.keys(files)[0]!] = "changed";
+  delete binaries[Object.keys(binaries)[0]!];
+  first[0]!.components.length = 0;
+  first.find((plugin) => plugin.connections.length > 0)!.connections[0]!.name = "changed";
+  expect(await source.plugins()).toEqual(original);
+});

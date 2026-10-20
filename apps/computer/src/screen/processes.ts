@@ -191,6 +191,7 @@ export function environment(home: string, session: ScreenSession): NodeJS.Proces
   return {
     ...environment,
     HOME: home,
+    OPENTEAM_DESKTOP_ID: session.botId,
     DISPLAY: `:${session.display}`,
     XDG_RUNTIME_DIR: session.runtimeDirectory,
     DBUS_SESSION_BUS_ADDRESS: `unix:path=${join(session.runtimeDirectory, "bus")}`,

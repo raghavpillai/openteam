@@ -16,6 +16,12 @@ chmod 0440 /etc/sudoers.d/openteam-runner
 
 umask 0022
 
+# One-off provider login/import commands also use this image without a running
+# computer or helper. They do not launch desktops and must remain usable.
+if [ "${1:-}" = bun ] && [ "${2:-}" = /app/apps/computer/dist/main.js ]; then
+  python3 /usr/local/bin/openteam-memory-setup.py
+fi
+
 mkdir -p "$agent_dir"
 mkdir -p "$data_root" /workspace
 # Deck working folders are made with mktemp under this directory.

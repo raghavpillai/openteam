@@ -1,8 +1,10 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { createCipheriv, randomBytes } from "node:crypto";
+import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CdpConnection, type JsonObject } from "./cdp-connection";
 import { asCookie, type BrowserCookie, cookieKey, cookieMap, cookieParameter } from "./cookies";
+import { browserJsonChunks, browserJsonExceeds } from "./json-chunks";
+import { readBrowserAuthority } from "./authority-reader";
 import {
   BROWSER_STATE_EXPORT_EXPRESSION,
   BROWSER_STATE_IMPORT_FUNCTION,
@@ -25,7 +27,11 @@ interface BrowserTarget {
   targetId: string;
   sessionId: string;
   origin: string;
+  browserContextId?: string;
 }
+
+const storageGroup = (target: BrowserTarget): string =>
+  JSON.stringify([target.browserContextId ?? "", target.origin]);
 
 /**
  * Shares live browser origin state at the computer boundary without letting two
@@ -45,6 +51,7 @@ export class BrowserBroker {
   private timer: ReturnType<typeof setInterval> | null = null;
   private syncTail: Promise<void> = Promise.resolve();
   private periodicSync: Promise<void> | null = null;
+  private saveTail: Promise<void> = Promise.resolve();
 
   constructor(
     home = process.env.HOME ?? "/home/openteam",
@@ -192,13 +199,20 @@ export class BrowserBroker {
     }
     for (const key of updates.keys()) deletions.delete(key);
     const changedOrigins = new Map<string, BrowserOriginState>();
+    const observedStates = new Map<Peer, Map<string, string>>();
     for (const peer of [...this.peers.values()]) {
       try {
         await this.refreshTargets(peer, false);
+        const observed = new Map<string, string>();
+        observedStates.set(peer, observed);
         for (const target of peer.targets.values()) {
+          const group = storageGroup(target);
+          if (observed.has(group)) continue;
           const snapshot = await this.readOriginState(peer, target);
           if (!snapshot) continue;
           const digest = stateDigest(snapshot);
+          // A failed/closing tab must leave another tab available for retry.
+          observed.set(group, digest);
           const baseline = peer.originBaselines.get(target.origin);
           if (baseline !== undefined && baseline !== digest) {
             const merged = { ...this.origins.get(target.origin), ...snapshot };
@@ -218,17 +232,33 @@ export class BrowserBroker {
     if (updates.size === 0 && deletions.size === 0 && changedOrigins.size === 0) return;
     for (const [key, cookie] of updates) this.cookies.set(key, cookie);
     for (const key of deletions.keys()) this.cookies.delete(key);
+    const changedDigests = new Map(
+      [...changedOrigins].map(([origin, snapshot]) => [origin, stateDigest(snapshot)])
+    );
     for (const peer of [...this.peers.values()]) {
       try {
         for (const cookie of deletions.values()) await this.deleteCookie(peer, cookie);
         await this.setCookies(peer, [...updates.values()]);
         peer.baseline = await this.readCookies(peer.cdp);
         for (const [origin, snapshot] of changedOrigins) {
+          const applied = new Set<string>();
           for (const target of peer.targets.values()) {
             if (target.origin !== origin) continue;
-            await this.writeOriginState(peer, target, snapshot);
+            const group = storageGroup(target);
+            if (applied.has(group)) continue;
+            // The originating browser already has this state. Reimporting it
+            // clears/rebuilds its IndexedDB and cache data unnecessarily.
+            if (observedStates.get(peer)?.get(group) === changedDigests.get(origin)) {
+              applied.add(group);
+              continue;
+            }
+            if (!(await this.writeOriginState(peer, target, snapshot))) continue;
             const restored = await this.readOriginState(peer, target);
-            if (restored) peer.originBaselines.set(origin, stateDigest(restored));
+            if (restored) {
+              const restoredDigest = stateDigest(restored);
+              if (restoredDigest === changedDigests.get(origin)) applied.add(group);
+              peer.originBaselines.set(origin, restoredDigest);
+            }
           }
         }
       } catch {
@@ -241,7 +271,7 @@ export class BrowserBroker {
 
   private async refreshTargets(peer: Peer, restoreAuthority: boolean): Promise<void> {
     const result = await peer.cdp.call<{
-      targetInfos?: Array<{ targetId?: string; type?: string; url?: string }>;
+      targetInfos?: Array<{ targetId?: string; type?: string; url?: string; browserContextId?: string }>;
     }>("Target.getTargets");
     const active = new Set<string>();
     for (const info of result.targetInfos ?? []) {
@@ -257,7 +287,7 @@ export class BrowserBroker {
           flatten: true,
         });
         if (!attached.sessionId) continue;
-        target = { targetId: info.targetId, sessionId: attached.sessionId, origin };
+        target = { targetId: info.targetId, sessionId: attached.sessionId, origin, browserContextId: info.browserContextId };
         peer.targets.set(info.targetId, target);
       } else if (target.origin !== origin) {
         target.origin = origin;
@@ -301,7 +331,7 @@ export class BrowserBroker {
       if (state.origin !== target.origin) return null;
       // Avoid turning an unexpectedly huge site database into an unbounded
       // encrypted authority file. The browser keeps its local copy intact.
-      if (JSON.stringify(state).length > 64 * 1024 * 1024) return null;
+      if (browserJsonExceeds(state, 64 * 1024 * 1024)) return null;
       return state;
     } catch {
       return null;
@@ -312,11 +342,11 @@ export class BrowserBroker {
     peer: Peer,
     target: BrowserTarget,
     state: BrowserOriginState
-  ): Promise<void> {
-    if (state.origin !== target.origin) return;
+  ): Promise<boolean> {
+    if (state.origin !== target.origin) return false;
     const expression = `(${BROWSER_STATE_IMPORT_FUNCTION})(${JSON.stringify(state)})`;
     try {
-      await peer.cdp.call(
+      const evaluated = await peer.cdp.call<{ exceptionDetails?: unknown; result?: { value?: unknown } }>(
         "Runtime.evaluate",
         {
           expression,
@@ -326,8 +356,10 @@ export class BrowserBroker {
         },
         target.sessionId
       );
+      return !evaluated.exceptionDetails && evaluated.result?.value === true;
     } catch {
       // A page can navigate or close while its origin state is being restored.
+      return false;
     }
   }
 
@@ -368,17 +400,7 @@ export class BrowserBroker {
     await mkdir(this.stateDirectory, { recursive: true, mode: 0o700 });
     try {
       const key = await this.key();
-      const packed = JSON.parse(await readFile(this.storePath, "utf8")) as {
-        iv: string;
-        tag: string;
-        data: string;
-      };
-      const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(packed.iv, "base64"));
-      decipher.setAuthTag(Buffer.from(packed.tag, "base64"));
-      const plaintext = Buffer.concat([
-        decipher.update(Buffer.from(packed.data, "base64")),
-        decipher.final(),
-      ]).toString("utf8");
+      const plaintext = await readBrowserAuthority(this.storePath, key);
       const unpacked = JSON.parse(plaintext) as
         | unknown[]
         | { version?: unknown; cookies?: unknown; origins?: unknown };
@@ -405,35 +427,58 @@ export class BrowserBroker {
     this.loaded = true;
   }
 
-  private async save(): Promise<void> {
+  private save(): Promise<void> {
+    // Streaming yields during serialization. Serialize writers so a slower,
+    // older save cannot replace a newer authority file.
+    const pending = this.saveTail.then(() => this.saveNow());
+    this.saveTail = pending.catch(() => undefined);
+    return pending;
+  }
+
+  private async saveNow(): Promise<void> {
     const persistent = [...this.cookies.values()].filter(
       (cookie) => typeof cookie.expires === "number" && cookie.expires > 0
     );
+    // Freeze map membership before the first await. Reconciliation replaces
+    // snapshot objects; their nested data is immutable while being saved.
+    const snapshot = { version: 2, cookies: persistent, origins: Object.fromEntries(this.origins) };
     const key = await this.key();
     const iv = randomBytes(12);
     const cipher = createCipheriv("aes-256-gcm", key, iv);
-    const encrypted = Buffer.concat([
-      cipher.update(
-        JSON.stringify({
-          version: 2,
-          cookies: persistent,
-          origins: Object.fromEntries(this.origins),
-        }),
-        "utf8"
-      ),
-      cipher.final(),
-    ]);
     const temporary = `${this.storePath}.tmp-${randomBytes(6).toString("hex")}`;
     try {
-      await writeFile(
-        temporary,
-        JSON.stringify({
-          iv: iv.toString("base64"),
-          tag: cipher.getAuthTag().toString("base64"),
-          data: encrypted.toString("base64"),
-        }),
-        { mode: 0o600 }
-      );
+      const output = await open(temporary, "wx", 0o600);
+      try {
+        // GCM's tag is available only after final(). Reserve its fixed-width
+        // base64 slot, then patch it before atomic publication. The legacy
+        // envelope stays readable by older builds; no plaintext reaches disk.
+        const prefix = `{"iv":${JSON.stringify(iv.toString("base64"))},"tag":"`;
+        await output.writeFile(`${prefix}${" ".repeat(24)}","data":"`);
+        let carry: Buffer = Buffer.alloc(0);
+        const append = async (encrypted: Buffer) => {
+          const bytes = carry.length ? Buffer.concat([carry, encrypted]) : encrypted;
+          const end = bytes.length - (bytes.length % 3);
+          if (end) await output.writeFile(bytes.subarray(0, end).toString("base64"));
+          carry = Buffer.from(bytes.subarray(end));
+        };
+        for (const chunk of browserJsonChunks(snapshot)) {
+          await append(cipher.update(chunk, "utf8"));
+        }
+        await append(cipher.final());
+        if (carry.length) await output.writeFile(carry.toString("base64"));
+        await output.writeFile('"}');
+        const tag = Buffer.from(cipher.getAuthTag().toString("base64"));
+        let offset = 0;
+        while (offset < tag.length) {
+          const { bytesWritten } = await output.write(
+            tag, offset, tag.length - offset, Buffer.byteLength(prefix) + offset
+          );
+          if (!bytesWritten) throw new Error("Unable to write browser authority authentication tag");
+          offset += bytesWritten;
+        }
+      } finally {
+        await output.close();
+      }
       await rename(temporary, this.storePath);
     } finally {
       await rm(temporary, { force: true });

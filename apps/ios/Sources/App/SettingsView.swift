@@ -168,6 +168,7 @@ struct ServerStatusView: View {
   @Environment(AppStore.self) private var store
   var body: some View {
     NativeForm {
+      ServerActivitySection()
       Section("Services") {
         ForEach((store.state.bootstrap?.runtime.object ?? [:]).keys.sorted(), id: \.self) { key in
           LabeledContent(

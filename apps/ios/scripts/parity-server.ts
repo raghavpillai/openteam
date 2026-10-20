@@ -116,6 +116,8 @@ function checkWebProvider(input: any): string | null {
   } };
   return null;
 }
+let activityRequests = 0;
+let activityFailure = false;
 const server = Bun.serve({
   hostname: "127.0.0.1", port, idleTimeout: 40,
   async fetch(request, server) {
@@ -124,6 +126,15 @@ const server = Bun.serve({
     if (path === "/api/v0/transcriptions") server.timeout(request, 150);
     let input: any = {};
     if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) { try { input = await request.json(); } catch {} }
+    if (path === "/__qa/activity") {
+      if (method === "POST") { activityRequests = 0; activityFailure = input.fail === true; }
+      return response({ requests: activityRequests });
+    }
+    if (path === "/api/v0/system/activity") {
+      activityRequests++;
+      return activityFailure ? response({ error: "Temporarily unavailable" }, 503)
+        : response({ sampledAt: new Date().toISOString(), cpuPercent: 32, memoryPercent: 76, diskPercent: 94 });
+    }
     if (path === "/__qa/reset" && method === "POST") { reset(); emit("snapshot.reset"); return response({ ok: true }); }
     if (path === "/__qa/scene" && method === "POST") { reset(); const visual=visualFixture(snapshot,input.scene); snapshot=visual.snapshot; settings=visual.sidebar; pagedHistory=["history-pages","scroll-mixed-pages"].includes(input.scene); sequence=Math.max(100,...snapshot.channelMessages.map(m=>Number(m.sequence))); emit("snapshot.reset"); return response({ok:true}); }
     if (path === "/__qa/content" && method === "POST") { snapshot=contentScene(snapshot,input.scene); if(input.scene==='routine-event')routines=[{id:'routine-event-fixture',name:'Morning summary',prompt:'Summarize the morning',schedule:'0 9 * * 1-5',scheduleKind:'cron',timezone:'America/New_York',enabled:false,revision:1,nextRunAt:null,latestExecution:null}]; sequence=400; emit("snapshot.reset"); return response({ok:true}); }

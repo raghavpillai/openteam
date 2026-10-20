@@ -57,6 +57,7 @@ import type {
   SetChannelMembersInput,
   SidebarPreferences,
   SystemVersionView,
+  SystemActivityView,
   UpdateBotInput,
   UpdateChannelProfileInput,
   UpdateRoutineInput,
@@ -146,6 +147,8 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
     deleteBotMemory: (botId: string, memoryId: string) => transport.request<BotMemoryList>(`/api/v0/bots/${encodeURIComponent(botId)}/memories/${encodeURIComponent(memoryId)}`, { method: "DELETE" }),
     clearBotMemories: (botId: string) => transport.request<BotMemoryList>(`/api/v0/bots/${encodeURIComponent(botId)}/memories`, { method: "DELETE" }),
     systemVersion: () => transport.request<SystemVersionView>("/api/v0/system/version"),
+    systemActivity: (signal?: AbortSignal) =>
+      transport.request<SystemActivityView>("/api/v0/system/activity", { signal }),
     rootSettings: () => transport.request<RootSettingsView>("/api/v0/settings"),
     transcriptionSettings: () =>
       transport.request<TranscriptionSettingsView>("/api/v0/server-settings/transcription"),

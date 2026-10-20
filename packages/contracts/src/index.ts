@@ -1,4 +1,5 @@
 import type { NotificationRouting } from "./notification-presence";
+export type { SystemActivityView } from "./system-activity";
 import { withReferenceContract, referenceTool } from "./tool-contracts";
 import { Schema } from "effect";
 import { BOT_AVATAR_COLOR_NAMES } from "./bot-avatar";

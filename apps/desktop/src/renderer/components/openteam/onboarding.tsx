@@ -2,7 +2,7 @@ import type { ClientSnapshot, CreateBotInput } from "@openteam/contracts";
 import { BOT_AVATAR_COLORS } from "@openteam/contracts/bot-avatar";
 import { ROBOT_AVATAR_SHAPES, type RobotAvatarShape } from "@openteam/contracts/robot-avatar";
 import type { TranscriptionSettings } from "@openteam/contracts/transcription";
-import { Check, CircleAlert, Copy, Minus, Shuffle } from "lucide-react";
+import { Check, ChevronsUpDown, CircleAlert, Copy, Ellipsis, Minus, Shuffle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../client/openteam-api";
 import { useModelSetup } from "../../hooks/use-model-setup";
@@ -19,7 +19,7 @@ import {
   HOSTED_TRANSCRIPTION_MODELS,
 } from "../../lib/transcription-providers";
 import { LoadingOrb } from "../ui/loading-orb";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../ui/dropdown-menu";
 import { AppIcon } from "./setup/app-icons";
 import { ModelPicker, modelOption } from "./setup/model-picker";
 import { OpenAIMark, ProviderMark, ProviderTile } from "./setup/provider-marks";
@@ -762,24 +762,35 @@ function ModelScreen({
         title="OpenRouter"
       />
       {others.length ? (
-        <Select
-          onValueChange={(id) => {
-            const provider = others.find((candidate) => candidate.id === id);
-            onChoose(id, provider?.authMethods[0]?.type ?? "api_key");
-          }}
-          value=""
-        >
-          <SelectTrigger aria-label="More providers" className="setup-input">
-            <SelectValue placeholder="More providers" />
-          </SelectTrigger>
-          <SelectContent>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="setup-option" type="button">
+              <span className="setup-option-icon">
+                <span className="setup-more-tile">
+                  <Ellipsis aria-hidden="true" className="size-5" strokeWidth={2.5} />
+                </span>
+              </span>
+              <span className="setup-option-text">
+                <strong>More providers</strong>
+                <span>OpenAI-compatible endpoints</span>
+              </span>
+              <ChevronsUpDown aria-hidden="true" className="size-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            className="w-[var(--radix-dropdown-menu-trigger-width)]"
+          >
             {others.map((provider) => (
-              <SelectItem key={provider.id} value={provider.id}>
+              <DropdownMenuItem
+                key={provider.id}
+                onSelect={() => onChoose(provider.id, provider.authMethods[0]?.type ?? "api_key")}
+              >
                 {provider.name}
-              </SelectItem>
+              </DropdownMenuItem>
             ))}
-          </SelectContent>
-        </Select>
+          </DropdownMenuContent>
+        </DropdownMenu>
       ) : null}
     </SetupLayout>
   );

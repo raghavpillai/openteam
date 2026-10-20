@@ -440,8 +440,18 @@
   background: var(--setup-field);
   color: var(--setup-ink);
 }
-.setup-option-icon:has(> .provider-icon) {
+.setup-option-icon:has(> .provider-icon),
+.setup-option-icon:has(> .setup-more-tile) {
   background: none;
+}
+.setup-more-tile {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--setup-accent);
+  color: #fff;
 }
 .setup-option-text {
   display: flex;

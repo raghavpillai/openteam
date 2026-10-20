@@ -589,8 +589,7 @@ private struct OnboardingWizard: View {
           } label: {
             WizardRow(
               symbol: "ellipsis", color: .blue, title: "More providers",
-              subtitle: others.prefix(3).map(\.name).joined(separator: ", ")
-                + (others.count > 3 ? ", and more" : "")
+              subtitle: "OpenAI-compatible endpoints"
             ) {
               if let choosing, others.contains(where: { $0.id == choosing }) {
                 LoadingOrb(label: "Working")

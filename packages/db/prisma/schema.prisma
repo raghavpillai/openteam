@@ -248,6 +248,7 @@ model Bot {
   draftingDisabled Boolean      @default(false)
   /// Lowercased addresses this Bot may email without a review card.
   draftAllowedRecipients String[] @default([])
+  // Unused since memory dreaming was removed. `prisma db push` won't drop a non-empty column without --accept-data-loss.
   dreamingEnabled     Boolean     @default(false)
   episodePending      Int         @default(0)
   episodeTurns        Json        @default("[]")

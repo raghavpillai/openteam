@@ -10,16 +10,10 @@ import {
 import { atomicWrite } from "../../src/file-state";
 import {
   appendMemoryFact,
-  applyMemorySynthesis,
-  boundMemoryEvidenceText,
-  consumeEvidence,
   forgetMemoryFact,
-  markMemoryOrigin,
   memoryLogicalId,
   parseMemoryMarkdown,
-  prepareMemorySynthesis,
   readMemoryTree,
-  tombstoneMemory,
 } from "../../src/memory-files";
 import { appendRoutineRunLedger } from "../../src/routines";
 import { parseSkillFile, renderSkillFile } from "../../src/skill-files";
@@ -49,68 +43,6 @@ test("memory parser preserves raw Markdown while indexing only exact fact lines"
   expect(facts[1]).toMatchObject({ tier: "profile", importance: 1.5 });
   expect(facts[2]).toMatchObject({ tier: "note", importance: 0.5 });
   expect(facts[0]?.logicalId).toBe(memoryLogicalId("the user prefers compact reports."));
-});
-
-test("dreaming synthesis rejects stale and explicit edits while honoring tombstones", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openteam-synthesis-"));
-  try {
-    const explicit = await appendMemoryFact(root, "Prefers exact totals.", "profile");
-    const synthesized = await appendMemoryFact(root, "The launch is planned for Friday.", "log");
-    await markMemoryOrigin(root, explicit.logicalId, "explicit");
-    await markMemoryOrigin(root, synthesized.logicalId, "synthesized");
-
-    const initial = await prepareMemorySynthesis(root);
-    expect(initial.memories[0]).toMatchObject({
-      id: explicit.logicalId,
-      origin: "explicit",
-      kind: "profile",
-    });
-    expect(
-      await applyMemorySynthesis(root, initial, [
-        { action: "remove", id: explicit.logicalId, sourceEvidenceIds: ["clock"] },
-      ])
-    ).toBe("invalid");
-
-    await atomicWrite(
-      join(root, "log", "manual.md"),
-      "- (2026-08-27) A concurrent disk edit wins.\n"
-    );
-    expect(await applyMemorySynthesis(root, initial, [])).toBe("stale");
-
-    await tombstoneMemory(root, memoryLogicalId("Do not restore this."));
-    const fresh = await prepareMemorySynthesis(root);
-    expect(
-      await applyMemorySynthesis(
-        root,
-        fresh,
-        [
-          {
-            action: "create",
-            content: "Do not restore this.",
-            kind: "log",
-            sourceEvidenceIds: ["evidence-1"],
-          },
-          {
-            action: "update",
-            id: synthesized.logicalId,
-            content: "The launch is planned for Monday.",
-            kind: "log",
-            sourceEvidenceIds: ["evidence-1"],
-          },
-        ],
-        new Date("2026-08-28T12:00:00Z")
-      )
-    ).toBe("committed");
-    const contents = (await readMemoryTree(root)).map((fact) => fact.content);
-    expect(contents).toContain("The launch is planned for Monday.");
-    expect(contents).not.toContain("The launch is planned for Friday.");
-    expect(contents).not.toContain("Do not restore this.");
-    expect(Number(await readFile(join(root, ".dreaming", "next-refresh-at"), "utf8"))).toBe(
-      new Date("2026-08-29T12:00:00Z").getTime()
-    );
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
 });
 
 test("official memory writes dedupe and forget only the first raw occurrence", async () => {
@@ -282,33 +214,6 @@ test("automation parser supports paused cron, event groups, and operational runs
     expect(
       (await parseAutomationFile(automation, await readFile(automation, "utf8"), "UTC")).prompt
     ).toHaveLength(longPrompt.length);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("dreaming evidence uses head-tail bounds and drops malformed spool rows", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openteam-evidence-"));
-  try {
-    const evidence = join(root, ".dreaming", "evidence");
-    await mkdir(evidence, { recursive: true });
-    const id = "123e4567-e89b-12d3-a456-426614174000";
-    const longText = `head${"x".repeat(9_000)}tail`;
-    await atomicWrite(
-      join(evidence, `${id}.json`),
-      JSON.stringify({ id, occurredAt: 12, user: longText, assistant: "ok" })
-    );
-    const badId = "123e4567-e89b-12d3-a456-426614174001";
-    await atomicWrite(
-      join(evidence, `${badId}.json`),
-      JSON.stringify({ id: "mismatch", occurredAt: -1, user: "bad", assistant: "bad" })
-    );
-    const consumed = await consumeEvidence(root);
-    expect(consumed).toHaveLength(1);
-    expect(consumed[0]?.user).toBe(boundMemoryEvidenceText(longText));
-    expect(consumed[0]?.user).toContain("[...middle omitted...]");
-    expect(consumed[0]?.user).toHaveLength(8_024);
-    await expect(readFile(join(evidence, `${badId}.json`), "utf8")).rejects.toThrow();
   } finally {
     await rm(root, { recursive: true, force: true });
   }

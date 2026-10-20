@@ -1,10 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm, appendFile, access, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, appendFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPrismaClient } from "@openteam/db";
 import { AgentDataStore } from "../src/agent-data";
-import { readMemoryTree, memoryOrigin } from "../src/memory-files";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 const databaseTest = databaseUrl ? test : test.skip;
@@ -61,7 +60,6 @@ async function fixture(options: NonNullable<ConstructorParameters<typeof AgentDa
     session,
     store,
     async cleanup() {
-      await store.stopMemoryLifecycle();
       await prisma.channel.deleteMany({ where: { id: { in: channels } } });
       await prisma.memoryFact.deleteMany({ where: { writtenByBotId: { in: bots } } });
       await prisma.bot.deleteMany({ where: { id: { in: bots } } });
@@ -273,10 +271,10 @@ databaseTest(
   }
 );
 
-for (const memoryDreamingEnabled of [false, true]) databaseTest(
-  `bot-wide forget removes exact legacy copies and refreshes cached prompts (dreaming=${memoryDreamingEnabled})`,
+databaseTest(
+  "bot-wide forget removes exact legacy copies and refreshes cached prompts",
   async () => {
-    const f = await fixture({ memoryDreamingEnabled });
+    const f = await fixture();
     try {
       const fact = "ZEPHYR914Q calibration key is VIOLET-4628.";
       const episode = `[episode] Earlier we saved ${fact}`;
@@ -317,9 +315,6 @@ for (const memoryDreamingEnabled of [false, true]) databaseTest(
       const snapshot = await f.prisma.contextPromptSnapshot.findUniqueOrThrow({ where: { contextSessionId: f.session.id } });
       expect(snapshot.memoryEpoch).toBe(-1);
       expect(snapshot.memoryRender).toBe("");
-      for (const root of [f.store.memoryDirectory(f.botId, "agent"), ...f.rooms.map((r) => f.store.memoryDirectory(f.botId, "conversation", r.id))]) {
-        if (memoryDreamingEnabled) await access(join(root, ".dreaming", "tombstones", `${removed.logicalId}.deleted`));
-      }
       expect((await f.store.forgetMemory(f.botId, { scope: "agent", fact })).forgotten).toBe(false);
       // A legacy-only fact is also forgettable from the bot-wide tool.
       expect((await f.store.forgetMemory(f.botId, { scope: "agent", fact: "Private unrelated room decision." })).forgotten).toBe(true);
@@ -378,110 +373,6 @@ databaseTest(
     } finally {
       await f.cleanup();
     }
-  }
-);
-
-databaseTest(
-  "dreaming combines room evidence per bot and protects explicit bot facts",
-  async () => {
-    const seen: string[][] = [];
-    const f = await fixture({
-      memoryDreamingEnabled: true,
-      memorySynthesisDebounceMs: 60_000,
-      memoryInference: async (request) => {
-        if (request.kind === "verification") return '{"approved":true}';
-        const input = JSON.parse(request.prompt);
-        const users = input.newEvidence.map((e: { user: string }) => e.user);
-        seen.push(users);
-        return JSON.stringify({
-          changes: users.map((user: string, i: number) => ({
-              action: "create",
-              content: user.includes("COBALT") ? "COBALT uses amber." : "AURORA uses blue.",
-              kind: "log",
-              sourceEvidenceIds: [input.newEvidence[i].id],
-            })),
-        });
-      },
-    });
-    try {
-      const room = f.rooms[0]!,
-        different = f.rooms[2]!;
-      await f.store.writeMemory(f.botId, {
-        scope: "agent",
-        memoryConversationId: room.id,
-        tier: "profile",
-        fact: "Preserve this explicit choice.",
-      });
-      await f.store.recordTurnMemory(f.botId, {
-        memoryConversationId: room.id,
-        user: "COBALT should use amber.",
-        assistant: "Recorded.",
-      });
-      await f.store.recordTurnMemory(f.botId, {
-        memoryConversationId: different.id,
-        user: "AURORA should use blue.",
-        assistant: "Recorded.",
-      });
-      await f.store.runMemorySynthesisNow();
-      expect(seen).toEqual([["COBALT should use amber.", "AURORA should use blue."]]);
-      expect(await f.store.recallMemory(f.botId, { query: "AURORA" }, room.id)).toContain(
-        "uses blue"
-      );
-      expect(await f.store.recallMemory(f.botId, { query: "COBALT" }, f.rooms[1]!.id)).toContain(
-        "uses amber"
-      );
-      expect(await f.prisma.memoryFact.count({ where: { writtenByBotId: f.botId, scope: "conversation" } })).toBe(0);
-      const root = f.store.memoryDirectory(f.botId, "agent");
-      const explicit = (await readMemoryTree(root)).find(
-        (fact) => fact.content === "Preserve this explicit choice."
-      )!;
-      expect(await memoryOrigin(root, explicit.logicalId)).toBe("explicit");
-      await f.store.forgetMemory(f.botId, {
-        scope: "agent",
-        memoryConversationId: room.id,
-        fact: explicit.content,
-      });
-      expect((await readMemoryTree(root)).some((fact) => fact.content === explicit.content)).toBe(
-        false
-      );
-    } finally {
-      await f.cleanup();
-    }
-  }
-);
-
-databaseTest(
-  "dreaming startup resumes bot evidence without consuming historical room spools",
-  async () => {
-    const prompts: string[] = [];
-    const f = await fixture({
-      memoryDreamingEnabled: true,
-      memorySynthesisDebounceMs: 60_000,
-      memoryInference: async (request) => { prompts.push(request.prompt); return '{"changes":[]}'; },
-    });
-    try {
-      const room = f.rooms[0]!;
-      await f.store.writeMemory(f.botId, { scope: "conversation", memoryConversationId: room.id, tier: "profile", fact: "Historical private room decision." });
-      const roots = [f.store.memoryDirectory(f.botId, "agent"), f.store.memoryDirectory(f.botId, "conversation", room.id)];
-      const spools: string[] = [];
-      for (const [i, root] of roots.entries()) {
-        const id = crypto.randomUUID();
-        const dir = join(root, ".dreaming", "evidence");
-        await mkdir(dir, { recursive: true });
-        const path = join(dir, `${id}.json`);
-        spools.push(path);
-        await writeFile(path, JSON.stringify({ id, occurredAt: Date.now(), user: i ? "Historical room evidence." : "Current bot evidence.", assistant: "Recorded." }));
-      }
-      await f.store.startMemoryLifecycle();
-      await f.store.runMemorySynthesisNow();
-      expect(prompts).toHaveLength(1);
-      expect(prompts[0]).toContain("Current bot evidence.");
-      expect(prompts[0]).not.toContain("Historical");
-      await expect(access(spools[0]!)).rejects.toThrow();
-      await access(spools[1]!);
-      expect(await f.store.recallMemory(f.botId, { query: "Historical" }, f.personal.id)).not.toContain("private room decision");
-      expect(await f.store.recallMemory(f.botId, { query: "Historical" }, room.id)).toContain("private room decision");
-    } finally { await f.cleanup(); }
   }
 );
 

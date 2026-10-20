@@ -106,7 +106,6 @@ export async function duplicateBot(
             namedBy: "app",
             notificationsEnabled: source.notificationsEnabled,
             hiddenFromSidebar: false,
-            dreamingEnabled: source.dreamingEnabled,
             defaultDirectory: source.defaultDirectory,
             runtimeEngine: source.runtimeEngine,
             inferenceProvider: source.inferenceProvider,

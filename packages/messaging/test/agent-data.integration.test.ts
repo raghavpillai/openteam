@@ -72,7 +72,7 @@ test("plugin and managed skill caches use the Bot filesystem contract", async ()
   }
 });
 
-test("turn memory extracts, summarizes episodes, and synthesizes dreaming evidence", async () => {
+test("turn memory extracts and summarizes episodes", async () => {
   if (!databaseUrl) return;
 
   const prisma = createPrismaClient(databaseUrl);
@@ -81,55 +81,16 @@ test("turn memory extracts, summarizes episodes, and synthesizes dreaming eviden
   const workspace = join(temporary, "workspace");
   const botId = crypto.randomUUID();
   const requests: MemoryInferenceRequest[] = [];
-  let synthesisAttempts = 0;
   const memoryInference = async (request: MemoryInferenceRequest) => {
     requests.push(request);
     if (request.kind === "extraction") {
       return "profile: Prefers lifecycle tests.";
     }
-    if (request.kind === "episode") {
-      return "Validated memory behavior over six turns.";
-    }
-    if (request.kind === "synthesis") {
-      synthesisAttempts += 1;
-      const prompt = JSON.parse(request.prompt) as {
-        newEvidence: Array<{ id: string }>;
-      };
-      if (synthesisAttempts === 1) {
-        return JSON.stringify({
-          changes: [
-            {
-              action: "create",
-              content: "This first proposal intentionally omits citations.",
-              kind: "log",
-            },
-          ],
-        });
-      }
-      return JSON.stringify({
-        changes: [
-          {
-            action: "create",
-            content: "Dreaming captured a verified preference.",
-            kind: "log",
-            sourceEvidenceIds: [prompt.newEvidence[0]?.id],
-          },
-        ],
-      });
-    }
-    return JSON.stringify({ approved: true });
+    return "Validated memory behavior over six turns.";
   };
   const store = new AgentDataStore(prisma, {
     root,
     workspaceRoot: workspace,
-    memorySynthesisDebounceMs: 60_000,
-    memoryInference,
-  });
-  const dreamingStore = new AgentDataStore(prisma, {
-    root,
-    workspaceRoot: workspace,
-    memoryDreamingEnabled: true,
-    memorySynthesisDebounceMs: 60_000,
     memoryInference,
   });
 
@@ -163,22 +124,9 @@ test("turn memory extracts, summarizes episodes, and synthesizes dreaming eviden
         "[episode] Validated memory behavior over six turns.",
       ])
     );
-
-    await dreamingStore.recordTurnMemory(botId, {
-      user: "A dreaming turn should be synthesized.",
-      assistant: "This is evidence for the synthesizer.",
-    });
-    await dreamingStore.runMemorySynthesisNow();
-    expect(
-      (await readMemoryTree(store.memoryDirectory(botId, "agent"))).map((fact) => fact.content)
-    ).toContain("Dreaming captured a verified preference.");
     expect(requests.filter((request) => request.kind === "extraction")).toHaveLength(6);
     expect(requests.filter((request) => request.kind === "episode")).toHaveLength(1);
-    expect(requests.filter((request) => request.kind === "synthesis")).toHaveLength(2);
-    expect(requests.filter((request) => request.kind === "verification")).toHaveLength(1);
   } finally {
-    await store.stopMemoryLifecycle();
-    await dreamingStore.stopMemoryLifecycle();
     await prisma.bot.deleteMany({ where: { id: botId } });
     await prisma.$disconnect();
     await rm(temporary, { recursive: true, force: true });

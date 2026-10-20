@@ -397,7 +397,6 @@ export class WakeWorker {
     await this.recoverRoutineExecutions();
     await this.reconcileAgentStores();
     await this.agentData.reconcileAllActiveBots();
-    await this.agentData.startMemoryLifecycle();
     await this.pushNotifications.drain();
     await workContinuously<WakeData>(
       this.boss,
@@ -450,7 +449,6 @@ export class WakeWorker {
     this.pushNotificationTimer = null;
     await this.boss.stop({ graceful: true });
     await Promise.allSettled([...this.concurrentAutomations]);
-    await this.agentData.stopMemoryLifecycle();
     await this.prisma.$disconnect();
   }
 

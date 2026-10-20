@@ -214,7 +214,6 @@ test.skipIf(!databaseUrl)(
       "OPENTEAM_CONTROL_TOKEN",
       "OPENTEAM_WORKSPACE_ROOT",
       "OPENTEAM_AGENT_DATA_ROOT",
-      "OPENTEAM_MEMORY_DREAMING",
     ] as const;
     const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
     const until = async (check: () => Promise<boolean>) => {
@@ -232,7 +231,6 @@ test.skipIf(!databaseUrl)(
         OPENTEAM_CONTROL_TOKEN: "synthetic-wakeparent",
         OPENTEAM_WORKSPACE_ROOT: root,
         OPENTEAM_AGENT_DATA_ROOT: join(root, "data"),
-        OPENTEAM_MEMORY_DREAMING: "false",
       });
       app = new AppService();
       await Effect.runPromise(app.boot());

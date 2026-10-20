@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPrismaClient } from "@openteam/db";
 import { AgentDataStore, type MemoryInferenceRequest } from "../src/agent-data";
-import { readMemoryTree, memoryOrigin } from "../src/memory-files";
+import { readMemoryTree } from "../src/memory-files";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 const databaseTest = databaseUrl ? test : test.skip;
@@ -137,12 +137,6 @@ databaseTest(
           "[episode] On September 12, 2026, moved to NYC and chose cobalt for the demo.",
         ])
       );
-      expect(
-        await memoryOrigin(
-          root,
-          facts.find(({ content }) => content === "Lives in NYC.")!.logicalId
-        )
-      ).toBe("legacy");
       const restarted = new AgentDataStore(prisma, { root: store.root, workspaceRoot: workspace });
       expect(await restarted.recallMemory(botId, { query: "cobalt" })).toContain(
         "[note] Likes cobalt"
@@ -155,91 +149,6 @@ databaseTest(
       expect(refreshed.memoryRender).toContain("Lives in NYC.");
       expect(refreshed.memoryRender).not.toContain("Lives in Boston.");
     } finally {
-      await store.stopMemoryLifecycle();
-      await prisma.bot.deleteMany({ where: { id: botId } });
-      await prisma.$disconnect();
-      await rm(temporary, { recursive: true, force: true });
-    }
-  }
-);
-
-databaseTest(
-  "dreaming protects a fact explicitly re-saved while the proposal is running",
-  async () => {
-    const prisma = createPrismaClient(databaseUrl!);
-    const temporary = await mkdtemp(join(tmpdir(), "memory-dreaming-race-"));
-    const botId = crypto.randomUUID();
-    let protectedId = "";
-    let explicitStore: AgentDataStore;
-    const kinds: string[] = [];
-    const store = new AgentDataStore(prisma, {
-      root: join(temporary, "agent-data"),
-      workspaceRoot: temporary,
-      memoryDreamingEnabled: true,
-      memorySynthesisDebounceMs: 60_000,
-      memoryInference: async (request) => {
-        kinds.push(request.kind);
-        if (request.kind === "verification") return '{"approved":true}';
-        const input = JSON.parse(request.prompt);
-        expect(
-          input.currentMemories.find((fact: { id: string }) => fact.id === protectedId).origin
-        ).toBe("legacy");
-        await explicitStore.writeMemory(botId, {
-          scope: "agent",
-          tier: "profile",
-          fact: "Prefers exact totals.",
-        });
-        return JSON.stringify({
-          changes: [
-            { action: "remove", id: protectedId, sourceEvidenceIds: [input.newEvidence[0].id] },
-          ],
-        });
-      },
-    });
-    explicitStore = new AgentDataStore(prisma, {
-      root: store.root,
-      workspaceRoot: temporary,
-      memoryDreamingEnabled: true,
-    });
-    const legacy = new AgentDataStore(prisma, {
-      root: store.root,
-      workspaceRoot: temporary,
-      memoryDreamingEnabled: false,
-    });
-    try {
-      await prisma.bot.create({
-        data: {
-          id: botId,
-          name: "Memory protection",
-          status: "active",
-          onboardingStatus: "completed",
-          defaultDirectory: temporary,
-        },
-      });
-      await store.initializeBot(botId);
-      protectedId = (
-        await legacy.writeMemory(botId, {
-          scope: "agent",
-          tier: "profile",
-          fact: "Prefers exact totals.",
-        })
-      ).logicalId;
-      await store.recordTurnMemory(botId, {
-        user: "Maybe use rounded totals for this chart.",
-        assistant: "Let us check.",
-      });
-      await store.runMemorySynthesisNow();
-      expect(kinds).toEqual(["synthesis", "verification"]);
-      expect(
-        (await readMemoryTree(store.memoryDirectory(botId, "agent"))).map(({ content }) => content)
-      ).toEqual(["Prefers exact totals."]);
-      expect(await memoryOrigin(store.memoryDirectory(botId, "agent"), protectedId)).toBe(
-        "explicit"
-      );
-      await store.runMemorySynthesisNow();
-      expect(kinds).toHaveLength(2);
-    } finally {
-      await store.stopMemoryLifecycle();
       await prisma.bot.deleteMany({ where: { id: botId } });
       await prisma.$disconnect();
       await rm(temporary, { recursive: true, force: true });

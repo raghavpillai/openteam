@@ -2211,7 +2211,7 @@ export class AgentMessaging {
         workingDirectory: bot.defaultDirectory,
         timeZone: this.defaultTimeZone,
       }),
-      `Your effective settings are hiddenFromSidebar=${bot.hiddenFromSidebar} and notifyOnAgentUpdates=${bot.notificationsEnabled}. Memory dreaming is a host-level experiment, not an agent setting.`,
+      `Your effective settings are hiddenFromSidebar=${bot.hiddenFromSidebar} and notifyOnAgentUpdates=${bot.notificationsEnabled}.`,
       `Use cursor.ReadTranscript for task-relevant saved conversation history or a dispatched worker’s observable activity. Transcript files are private runtime storage; do not open them with Read.`,
       frozen.sections.agent_directory,
       frozen.sections.memory

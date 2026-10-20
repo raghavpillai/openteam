@@ -21,15 +21,13 @@ async function fixture(
     peerId: string;
     root: string;
     client: ReturnType<typeof createOpenTeamClient>;
-  }) => Promise<void>,
-  dreaming = false
+  }) => Promise<void>
 ) {
   const root = await mkdtemp(join(tmpdir(), "memory-controls-"));
   const env = {
     DATABASE_URL: databaseUrl!,
     OPENTEAM_WORKSPACE_ROOT: root,
     OPENTEAM_AGENT_DATA_ROOT: join(root, "data"),
-    OPENTEAM_MEMORY_DREAMING: String(dreaming),
   };
   const previous = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
   Object.assign(process.env, env);
@@ -87,7 +85,6 @@ async function fixture(
     await run({ app, store, botId, peerId, root, client });
   } finally {
     await store.stopWatching();
-    await store.stopMemoryLifecycle();
     await app.eventWakeup.stop();
     await app.prisma.memoryFact.deleteMany({ where: { writtenByBotId: { in: [botId, peerId] } } });
     await app.prisma.event.deleteMany({ where: { entityId: { in: [botId, peerId] } } });
@@ -234,7 +231,7 @@ dbTest(
 );
 
 dbTest(
-  "clear covers more than the visible list limit and records dreaming tombstones",
+  "clear covers more than the visible list limit",
   async () =>
     fixture(async ({ store, botId, client }) => {
       const root = store.memoryDirectory(botId, "agent");
@@ -247,16 +244,10 @@ dbTest(
       expect(snapshot.total).toBe(1003);
       expect(snapshot.memories.length).toBe(1000);
       expect((await client.clearBotMemories(botId)).total).toBe(0);
-      expect(
-        await readFile(
-          join(root, ".dreaming", "tombstones", memoryLogicalId(contents[1002]!) + ".deleted"),
-          "utf8"
-        )
-      ).toBe("");
       expect(await store.recallMemory(botId, { query: "CONTROL914", scope: "agent" })).toContain(
         "(0 searched)"
       );
-    }, true),
+    }),
   30_000
 );
 
@@ -289,7 +280,6 @@ dbTest(
       expect(await events()).toHaveLength(2);
       await client.clearBotMemories(botId);
       expect(await events()).toHaveLength(2);
-      await workerStore.stopMemoryLifecycle();
     })
 );
 
@@ -327,7 +317,6 @@ dbTest("automatic learning becomes visible only after inference and commit finis
     const learner = new AgentDataStore(app.prisma, {
       root: store.root,
       workspaceRoot: store.workspaceRoot,
-      memoryDreamingEnabled: false,
       memoryInference: async () => {
         entered();
         return inference;
@@ -354,7 +343,6 @@ dbTest("automatic learning becomes visible only after inference and commit finis
     } finally {
       release("NONE");
       await turn;
-      await learner.stopMemoryLifecycle();
     }
   })
 );

@@ -31,11 +31,7 @@ const computer = Bun.serve({
       const body = (await request.json()) as any;
       return Response.json({
         text:
-          body.kind === "verification"
-            ? '{"approved":true}'
-            : body.kind === "synthesis"
-              ? '{"changes":[]}'
-              : "NONE",
+          body.kind === "verification" ? '{"approved":true}' : "NONE",
       });
     }
     if (path === "/v1/directories") {
@@ -135,7 +131,6 @@ const env = {
   OPENTEAM_PORT: "20005",
   OPENTEAM_SERVER_HOST: "127.0.0.1",
   OPENTEAM_TIME_ZONE: "America/New_York",
-  OPENTEAM_MEMORY_DREAMING: "disabled",
 };
 for (const p of [
   env.OPENTEAM_WORKSPACE_ROOT,

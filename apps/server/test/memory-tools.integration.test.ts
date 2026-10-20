@@ -176,7 +176,6 @@ databaseTest(
       const schema = UPDATE_MEMORY_TOOL.inputSchema as { properties: { scope: { enum: string[] } } };
       expect(schema.properties.scope.enum).toEqual(["agent", "user"]);
     } finally {
-      await store.stopMemoryLifecycle();
       await prisma.idempotencyRecord.deleteMany({ where: { scope: `state:${botId}` } });
       await prisma.memoryFact.deleteMany({ where: { writtenByBotId: { in: [botId, peerId] } } });
       if (channelId) await prisma.channel.deleteMany({ where: { id: channelId } });

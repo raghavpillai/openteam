@@ -9,8 +9,6 @@ if (!process.env.OPENTEAM_TEST_DATABASE_URL) {
 const suites = [
   [
     "packages/messaging/test/memory-learning.test.ts",
-    "packages/messaging/test/memory-synthesis.test.ts",
-    "packages/messaging/test/memory-state-parity.test.ts",
     "packages/messaging/test/recall-memory.test.ts",
     "packages/messaging/test/prompt-context-performance.test.ts",
     "apps/worker/test/memory-recording.test.ts",
@@ -19,7 +17,6 @@ const suites = [
   ],
   [
     "packages/messaging/test/memory-parity.integration.test.ts",
-    "packages/messaging/test/memory-recovery.integration.test.ts",
     "packages/messaging/test/memory-scopes.integration.test.ts",
   ],
   ["apps/server/test/memory-tools.integration.test.ts", "apps/server/test/memory-management.integration.test.ts"],

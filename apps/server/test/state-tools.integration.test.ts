@@ -106,7 +106,6 @@ databaseTest("each state tool updates its fixed target and names itself in error
     await expect(call("UpdateMemory", { action: "create", fact: "x" })).rejects.toThrow("UpdateMemory only writes or forgets memory");
     await expect(call("update_state", { target: "memory", action: "write", fact: "x" })).rejects.toThrow("Unknown tool update_state");
   } finally {
-    await store.stopMemoryLifecycle();
     if (botId) {
       await prisma.idempotencyRecord.deleteMany({ where: { scope: `state:${botId}` } });
       await prisma.memoryFact.deleteMany({ where: { writtenByBotId: botId } });

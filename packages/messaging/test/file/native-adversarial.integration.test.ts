@@ -100,11 +100,6 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
   const outsideAvatar = join(temporary, "outside.png");
   await mkdir(workspace, { recursive: true });
   const store = new AgentDataStore(prisma, { root, workspaceRoot: workspace });
-  const dreamingStore = new AgentDataStore(prisma, {
-    root,
-    workspaceRoot: workspace,
-    memoryDreamingEnabled: true,
-  });
 
   const firstBotId = randomUUID();
   const secondBotId = randomUUID();
@@ -555,7 +550,6 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       tier: "profile",
       fact: "The first fact is visible before memory freezes.",
     });
-    await expect(access(join(firstDirectory, "memory", ".dreaming"))).rejects.toThrow();
     await Promise.all(
       Array.from({ length: 8 }, (_, index) =>
         store.writeMemory(firstBotId, {
@@ -812,22 +806,6 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     await expect(store.setAvatarFromPath(firstBotId, escapedAvatar)).rejects.toThrow(
       "avatar source must stay inside"
     );
-
-    await prisma.bot.update({ where: { id: firstBotId }, data: { episodePending: 5 } });
-    for (let index = 0; index < 13; index += 1) {
-      await dreamingStore.recordTurnMemory(firstBotId, {
-        user: `Dreaming evidence ${index}`,
-        assistant: `Dreaming answer ${index}`,
-        occurredAt: index,
-      });
-    }
-    expect(await prisma.bot.findUniqueOrThrow({ where: { id: firstBotId } })).toMatchObject({
-      episodePending: 0,
-    });
-    await expect(access(join(firstDirectory, "memory", ".dreaming", "evidence"))).rejects.toThrow();
-    await expect(
-      access(join(firstDirectory, "memory", ".dreaming", "next-refresh-at"))
-    ).rejects.toThrow();
 
     await store.recordTurnMemory(firstBotId, {
       user: "Thanks!",

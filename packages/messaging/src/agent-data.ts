@@ -63,22 +63,12 @@ import {
 } from "./file-state";
 import {
   appendMemoryFact,
-  applyMemorySynthesis,
-  boundMemoryEvidenceText,
-  clearSpooledEvidence,
-  consumeEvidence,
-  ensureDreamingLayout,
   forgetMemoryFact,
-  isTemporalMemoryReviewDue,
-  markMemoryOrigin,
-  markTemporalMemoryReview,
   memoryLogicalId,
   normalizeMemoryContent,
   parseMemoryMarkdown,
-  prepareMemorySynthesis,
   readMemoryTree,
   removeMemoryFacts,
-  tombstoneMemory,
 } from "./memory-files";
 import { deleteSkillFolder, parseSkillFile, renderSkillFile, writeSkillFile } from "./skill-files";
 import type { AgentTimelineEvent } from "./timeline-events";
@@ -99,15 +89,9 @@ import {
   MEMORY_EPISODE_SYSTEM_PROMPT,
   MEMORY_EXTRACTION_SYSTEM_PROMPT,
 } from "./memory-prompts";
-import { synthesizeMemories } from "./memory-synthesis";
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 const AVATAR_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"] as const;
-const MAX_PENDING_DREAMING_AGENTS = 64;
-const MAX_PENDING_DREAMING_EVIDENCE = 12;
-const MEMORY_SYNTHESIS_DEBOUNCE_MS = 15_000;
-const MEMORY_SYNTHESIS_POLL_INTERVAL_MS = 60 * 60 * 1_000;
-const MAX_TEMPORAL_TARGETS_PER_SWEEP = 4;
 const MEMORY_INFERENCE_DEADLINE_MS = 90_000;
 const AGENT_LOCK = "openteam-agent-data";
 const ROOT_SETTINGS_VERSION = 1;
@@ -199,18 +183,6 @@ const ensureEditableBotDirectory = async (directory: string): Promise<void> => {
 
 export type BotFileTarget = "profile" | "settings" | "instructions" | "avatar";
 
-interface PendingDreamingEvidence {
-  id: string;
-  occurredAt: number;
-  user: string;
-  assistant: string;
-}
-
-interface PendingDreamingAgent {
-  evidence: PendingDreamingEvidence[];
-  temporal: boolean;
-}
-
 type PendingEpisodeTurn = MemoryEpisodeTurn;
 
 export type MemoryInferenceRequest = Omit<ComputerInferenceRequest, "model" | "reasoning"> & {
@@ -224,9 +196,6 @@ interface AgentDataStoreOptions {
   workspaceRoot?: string;
   assetRoot?: string;
   memoryInference?: MemoryInference;
-  memorySynthesisDebounceMs?: number;
-  memorySynthesisPollIntervalMs?: number;
-  memoryDreamingEnabled?: boolean;
   memoryEpisodeInterval?: number;
 }
 
@@ -763,22 +732,13 @@ export class AgentDataStore {
   private watcherStarting: Promise<void> | null = null;
   private watcherScanTimer: ReturnType<typeof setInterval> | null = null;
   private watcherScan: Promise<void> | null = null;
-  private readonly pendingDreamingEvidence = new Map<string, PendingDreamingAgent>();
   private readonly pendingIdentityAnnouncements = new Map<string, PendingIdentityAnnouncement>();
   private readonly watcherTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly watcherTasks = new Set<Promise<void>>();
   private readonly agentAttachmentPaths = new Map<string, string>();
   private readonly agentAttachmentPathLookups = new Map<string, Promise<string | null>>();
   private readonly memoryInference: MemoryInference | null;
-  private readonly memoryDreamingEnabled: boolean;
   private readonly memoryEpisodeInterval: number;
-  private readonly memorySynthesisDebounceMs: number;
-  private readonly memorySynthesisPollIntervalMs: number;
-  private memorySynthesisTimer: ReturnType<typeof setTimeout> | null = null;
-  private memoryPollTimer: ReturnType<typeof setInterval> | null = null;
-  private memorySynthesisActive = false;
-  private memoryLifecycleController = new AbortController();
-  private memorySynthesisNeedsAnotherPass = false;
   private timelineEventSink:
     | ((
         tx: Tx,
@@ -811,13 +771,6 @@ export class AgentDataStore {
     if (!Number.isInteger(this.memoryEpisodeInterval) || this.memoryEpisodeInterval < 1) {
       throw new Error("Memory episode interval must be a positive integer");
     }
-    this.memoryDreamingEnabled =
-      options.memoryDreamingEnabled ??
-      ["1", "true"].includes((process.env.OPENTEAM_MEMORY_DREAMING ?? "").trim().toLowerCase());
-    this.memorySynthesisDebounceMs =
-      options.memorySynthesisDebounceMs ?? MEMORY_SYNTHESIS_DEBOUNCE_MS;
-    this.memorySynthesisPollIntervalMs =
-      options.memorySynthesisPollIntervalMs ?? MEMORY_SYNTHESIS_POLL_INTERVAL_MS;
   }
 
   setTimelineEventSink(
@@ -1034,7 +987,6 @@ export class AgentDataStore {
     const timer = this.watcherTimers.get(botId);
     if (timer) clearTimeout(timer);
     this.watcherTimers.delete(botId);
-    for (const key of this.pendingDreamingEvidence.keys()) { if (key === botId || key.startsWith(`${botId}:`)) this.pendingDreamingEvidence.delete(key); }
     for (const key of this.pendingIdentityAnnouncements.keys()) {
       if (key.startsWith(`${botId}:`)) this.pendingIdentityAnnouncements.delete(key);
     }
@@ -1852,7 +1804,6 @@ export class AgentDataStore {
     if (watcher) await watcher.close();
     for (const timer of this.watcherTimers.values()) clearTimeout(timer);
     this.watcherTimers.clear();
-    this.pendingDreamingEvidence.clear();
     this.pendingIdentityAnnouncements.clear();
     await Promise.allSettled([...this.watcherTasks]);
   }
@@ -2514,10 +2465,7 @@ export class AgentDataStore {
     const result = await this.withFileMutation(botId, "memory:management", async (tx) => {
       const roots = await this.managedMemoryRoots(tx, botId);
       for (const root of roots) {
-        const removed = await removeMemoryFacts(root, memoryId);
-        if (this.memoryDreamingEnabled) {
-          for (const id of new Set(removed.map((fact) => fact.logicalId))) await tombstoneMemory(root, id);
-        }
+        await removeMemoryFacts(root, memoryId);
       }
       // Refresh both primary and forked prompt snapshots, even on an idempotent clear.
       await tx.agentPromptSnapshot.updateMany({ where: { botId }, data: { memoryEpoch: -1, memoryRender: "", memoryHasFacts: false } });
@@ -2550,11 +2498,7 @@ export class AgentDataStore {
           throw new Error("Cannot write memory for an inactive bot");
         }
         await mkdir(root, { recursive: true, mode: 0o755 });
-        const written = await appendMemoryFact(root, input.fact, input.tier, input.at);
-        if ((input.scope === "agent" || input.scope === "conversation") && this.memoryDreamingEnabled) {
-          await markMemoryOrigin(root, written.logicalId, "explicit");
-        }
-        return written;
+        return appendMemoryFact(root, input.fact, input.tier, input.at);
       }
     );
     await this.reconcileBot(botId);
@@ -2572,7 +2516,6 @@ export class AgentDataStore {
       scope: MemoryWriteScope;
       memoryConversationId?: string;
       fact: string;
-      dreaming?: boolean;
     }
   ): Promise<{ forgotten: boolean; logicalId: string; content: string }> {
     const context = input.memoryConversationId ? await this.getMemoryConversation(botId, input.memoryConversationId) : undefined;
@@ -2584,8 +2527,6 @@ export class AgentDataStore {
       async (tx) => {
         const content = normalizeMemoryContent(input.fact);
         const removed = await forgetMemoryFact(root, content);
-        if (removed.forgotten && (input.scope === "agent" || input.scope === "conversation") && this.memoryDreamingEnabled)
-          await tombstoneMemory(root, removed.logicalId);
         // Before native bot-wide routing, automatic learning could duplicate an
         // agent fact in a room. Forget exact copies owned by this bot as well;
         // never promote private room facts into the bot-wide store.
@@ -2594,10 +2535,7 @@ export class AgentDataStore {
           for (const room of legacyRooms) {
             const legacyRoot = this.memoryDirectory(botId, "conversation", room.id);
             const copy = await forgetMemoryFact(legacyRoot, content);
-            if (copy.forgotten) {
-              removed.forgotten = true;
-              if (this.memoryDreamingEnabled) await tombstoneMemory(legacyRoot, copy.logicalId);
-            }
+            if (copy.forgotten) removed.forgotten = true;
           }
         }
         if (removed.forgotten) {
@@ -3531,231 +3469,6 @@ export class AgentDataStore {
     }
   }
 
-  private scheduleMemorySynthesis(): void {
-    if (!this.memoryInference || !this.memoryDreamingEnabled) return;
-    if (this.memorySynthesisActive) {
-      this.memorySynthesisNeedsAnotherPass = true;
-      return;
-    }
-    if (this.memorySynthesisTimer) clearTimeout(this.memorySynthesisTimer);
-    this.memorySynthesisTimer = setTimeout(() => {
-      this.memorySynthesisTimer = null;
-      void this.runMemorySynthesisNow().catch((error) => console.warn("memory synthesis", error));
-    }, this.memorySynthesisDebounceMs);
-    this.memorySynthesisTimer.unref();
-  }
-
-  private async queueTemporalMemoryTargets(now = Date.now()): Promise<void> {
-    if (!this.memoryInference || !this.memoryDreamingEnabled) return;
-    const bots = await this.prisma.bot.findMany({
-      where: { status: "active" },
-      select: { id: true },
-      orderBy: { id: "asc" },
-    });
-    const targets = [
-      ...bots.map((bot) => ({ key: bot.id, botId: bot.id, contextId: undefined as string | undefined })),
-    ];
-    for (const target of targets) {
-      if (this.pendingDreamingEvidence.has(target.key)) continue;
-      if (this.pendingDreamingEvidence.size >= MAX_PENDING_DREAMING_AGENTS) break;
-      if ((await consumeEvidence(this.memoryDirectory(target.botId, target.contextId ? "conversation" : "agent", target.contextId))).length > 0) {
-        this.pendingDreamingEvidence.set(target.key, { evidence: [], temporal: false });
-      }
-    }
-    let temporalQueued = 0;
-    for (const target of targets) {
-      if (temporalQueued >= MAX_TEMPORAL_TARGETS_PER_SWEEP) break;
-      const root = this.memoryDirectory(target.botId, target.contextId ? "conversation" : "agent", target.contextId);
-      if ((await readMemoryTree(root)).length === 0) continue;
-      if (!(await isTemporalMemoryReviewDue(root, now))) continue;
-      let pending = this.pendingDreamingEvidence.get(target.key);
-      if (!pending) {
-        if (this.pendingDreamingEvidence.size >= MAX_PENDING_DREAMING_AGENTS) continue;
-        pending = { evidence: [], temporal: false };
-        this.pendingDreamingEvidence.set(target.key, pending);
-      }
-      if (!pending.temporal) {
-        pending.temporal = true;
-        temporalQueued += 1;
-      }
-    }
-    if (this.memorySynthesisActive && temporalQueued > 0) {
-      this.memorySynthesisNeedsAnotherPass = true;
-    }
-  }
-
-  async startMemoryLifecycle(): Promise<void> {
-    if (!this.memoryInference || this.memoryPollTimer) return;
-    if (this.memoryLifecycleController.signal.aborted) {
-      this.memoryLifecycleController = new AbortController();
-    }
-    await this.queueTemporalMemoryTargets();
-    if (this.pendingDreamingEvidence.size > 0) this.scheduleMemorySynthesis();
-    this.memoryPollTimer = setInterval(() => {
-      void (async () => {
-        await this.queueTemporalMemoryTargets();
-        await this.runMemorySynthesisNow();
-      })().catch((error) => console.warn("memory temporal refresh", error));
-    }, this.memorySynthesisPollIntervalMs);
-    this.memoryPollTimer.unref();
-  }
-
-  async stopMemoryLifecycle(): Promise<void> {
-    this.memoryLifecycleController.abort();
-    if (this.memorySynthesisTimer) clearTimeout(this.memorySynthesisTimer);
-    if (this.memoryPollTimer) clearInterval(this.memoryPollTimer);
-    this.memorySynthesisTimer = null;
-    this.memoryPollTimer = null;
-    this.pendingDreamingEvidence.clear();
-    this.memorySynthesisNeedsAnotherPass = false;
-  }
-
-  private finishMemorySynthesis(
-    botId: string,
-    consumedRamIds: Set<string>,
-    temporal: boolean
-  ): void {
-    const pending = this.pendingDreamingEvidence.get(botId);
-    if (!pending) return;
-    pending.evidence = pending.evidence.filter((evidence) => !consumedRamIds.has(evidence.id));
-    if (temporal) pending.temporal = false;
-    if (pending.evidence.length === 0 && !pending.temporal) {
-      this.pendingDreamingEvidence.delete(botId);
-    }
-  }
-
-  private async runMemorySynthesisForBot(targetKey: string): Promise<void> {
-    const [botId, memoryConversationId] = targetKey.split(":") as [string, string?];
-    const signal = this.memoryLifecycleController.signal;
-    if (signal.aborted) return;
-    const pending = this.pendingDreamingEvidence.get(targetKey);
-    if (!pending) return;
-    const bot = await this.prisma.bot.findUnique({
-      where: { id: botId },
-      select: { status: true },
-    });
-    if (!this.memoryDreamingEnabled || !bot || bot.status !== "active") {
-      this.pendingDreamingEvidence.delete(targetKey);
-      return;
-    }
-    if (memoryConversationId && !await this.prisma.memoryConversation.count({ where: { id: memoryConversationId, botId } })) {
-      this.pendingDreamingEvidence.delete(targetKey);
-      return;
-    }
-    const root = this.memoryDirectory(botId, memoryConversationId ? "conversation" : "agent", memoryConversationId);
-    const temporal = pending.temporal;
-    const ram = [...pending.evidence];
-    const spool = await consumeEvidence(root);
-    const mergedById = new Map<string, PendingDreamingEvidence>();
-    for (const evidence of [...ram, ...spool]) {
-      if (!mergedById.has(evidence.id)) mergedById.set(evidence.id, evidence);
-    }
-    const merged = [...mergedById.values()].sort((a, b) => a.occurredAt - b.occurredAt);
-    const evidence = merged.slice(-MAX_PENDING_DREAMING_EVIDENCE);
-    if (merged.length > evidence.length) await this.reportMemorySynthesis(targetKey, "evidence_dropped", {
-      evidenceCount: merged.length - evidence.length, reason: "spool_overflow",
-    });
-    const consumedRamIds = new Set(merged.map((item) => item.id));
-    const spoolIds = spool.map((item) => item.id);
-    const finish = async (): Promise<void> => {
-      await clearSpooledEvidence(root, spoolIds);
-      this.finishMemorySynthesis(targetKey, consumedRamIds, temporal);
-      if ((await consumeEvidence(root)).length > 0) {
-        if (!this.pendingDreamingEvidence.has(targetKey)) {
-          this.pendingDreamingEvidence.set(targetKey, { evidence: [], temporal: false });
-        }
-        this.memorySynthesisNeedsAnotherPass = true;
-      }
-    };
-    const startedAt = Date.now();
-    let inputMemoryCount = 0;
-    let changeCount = 0;
-    let reportOutcome = "skipped";
-    try {
-      const snapshot = await prepareMemorySynthesis(root);
-      inputMemoryCount = snapshot.memories.length;
-      if (snapshot.memories.length === 0 && evidence.length === 0) {
-        if (temporal) await markTemporalMemoryReview(root);
-        await finish();
-        return;
-      }
-      if (!this.memoryInference) return;
-      const changes = await synthesizeMemories({
-        infer: this.memoryInference,
-        snapshot,
-        evidence,
-        temporal,
-        now: startedAt,
-        signal,
-      });
-      changeCount = changes.length;
-      if (signal.aborted) { reportOutcome = "cancelled"; return; }
-      if (changes.length === 0) {
-        reportOutcome = "unchanged";
-        if (temporal) await markTemporalMemoryReview(root);
-        await finish();
-        return;
-      }
-      const outcome = await this.withFileMutation(botId, "memory:synthesis", async () =>
-        signal.aborted
-          ? "invalid"
-          : applyMemorySynthesis(root, snapshot, changes, new Date(startedAt))
-      );
-      reportOutcome = outcome;
-      if (outcome === "stale") {
-        this.memorySynthesisNeedsAnotherPass = true;
-        return;
-      }
-      if (outcome === "invalid" && temporal) await markTemporalMemoryReview(root);
-      if (outcome === "committed") await this.reconcileBot(botId);
-      await finish();
-    } catch (error) {
-      reportOutcome = signal.aborted ? "cancelled" : "failed";
-      if (signal.aborted) return;
-      if (temporal) await markTemporalMemoryReview(root).catch(() => undefined);
-      await finish();
-      console.warn(`memory synthesis for ${botId}`, error);
-    } finally {
-      await this.reportMemorySynthesis(targetKey, reportOutcome, {
-        evidenceCount: evidence.length, inputMemoryCount, changeCount,
-        durationMs: Date.now() - startedAt, temporal,
-      });
-    }
-  }
-
-  private async reportMemorySynthesis(targetKey: string, outcome: string,
-    metrics: { evidenceCount: number; inputMemoryCount?: number; changeCount?: number; durationMs?: number; temporal?: boolean; reason?: string }): Promise<void> {
-    const [botId, memoryConversationId] = targetKey.split(":");
-    // Never include prompts, facts, evidence bodies, provider errors or secrets.
-    await this.prisma.event.create({ data: {
-      topic: "memory.synthesis_report", entityId: botId,
-      payload: asInputJson({ jobId: randomUUID(), botId, memoryConversationId: memoryConversationId ?? null,
-        outcome, evidenceCount: metrics.evidenceCount, inputMemoryCount: metrics.inputMemoryCount ?? 0,
-        changeCount: metrics.changeCount ?? 0, durationMs: metrics.durationMs ?? 0,
-        temporal: metrics.temporal ?? false, ...(metrics.reason ? { reason: metrics.reason } : {}) }),
-    } }).catch(() => console.warn("Memory synthesis report could not be persisted", { botId, outcome }));
-  }
-
-  async runMemorySynthesisNow(): Promise<void> {
-    if (!this.memoryInference || !this.memoryDreamingEnabled) return;
-    if (this.memorySynthesisActive) {
-      this.memorySynthesisNeedsAnotherPass = true;
-      return;
-    }
-    if (this.memorySynthesisTimer) clearTimeout(this.memorySynthesisTimer);
-    this.memorySynthesisTimer = null;
-    this.memorySynthesisActive = true;
-    this.memorySynthesisNeedsAnotherPass = false;
-    try {
-      for (const botId of [...this.pendingDreamingEvidence.keys()]) {
-        await this.runMemorySynthesisForBot(botId);
-      }
-    } finally {
-      this.memorySynthesisActive = false;
-      if (this.memorySynthesisNeedsAnotherPass) this.scheduleMemorySynthesis();
-    }
-  }
-
   async recordTurnMemory(
     botId: string,
     input: {
@@ -3774,41 +3487,6 @@ export class AgentDataStore {
     if (!bot || bot.status !== "active") return;
     if (input.memoryConversationId) await this.getMemoryConversation(botId, input.memoryConversationId);
     const memoryConversationId = undefined;
-    const targetKey = botId;
-    if (this.memoryDreamingEnabled) {
-      if (
-        !this.pendingDreamingEvidence.has(targetKey) &&
-        this.pendingDreamingEvidence.size >= MAX_PENDING_DREAMING_AGENTS
-      ) {
-        const oldest = this.pendingDreamingEvidence.keys().next().value;
-        if (typeof oldest === "string") {
-          await this.reportMemorySynthesis(oldest, "evidence_dropped", {
-            evidenceCount: this.pendingDreamingEvidence.get(oldest)?.evidence.length ?? 0, reason: "target_overflow",
-          });
-          this.pendingDreamingEvidence.delete(oldest);
-        }
-      }
-      const evidence: PendingDreamingEvidence = {
-        id: randomUUID(),
-        occurredAt: input.occurredAt ?? Date.now(),
-        user: boundMemoryEvidenceText(input.user),
-        assistant: boundMemoryEvidenceText(input.assistant),
-      };
-      if (!evidence.user && !evidence.assistant) return;
-      const current = this.pendingDreamingEvidence.get(targetKey) ?? {
-        evidence: [],
-        temporal: false,
-      };
-      const combined = [...current.evidence, evidence];
-      if (combined.length > MAX_PENDING_DREAMING_EVIDENCE) await this.reportMemorySynthesis(targetKey, "evidence_dropped", {
-        evidenceCount: combined.length - MAX_PENDING_DREAMING_EVIDENCE, reason: "queue_overflow",
-      });
-      current.evidence = combined.slice(-MAX_PENDING_DREAMING_EVIDENCE);
-      this.pendingDreamingEvidence.set(targetKey, current);
-      await this.clearEpisodeTurns(botId, memoryConversationId);
-      this.scheduleMemorySynthesis();
-      return;
-    }
     if (!isMemorableExchange(input.user)) return;
     const occurredAt = input.occurredAt ?? Date.now();
     await this.runMemoryExtraction(botId, {
@@ -3993,4 +3671,4 @@ export class AgentDataStore {
   }
 }
 
-export { ensureDreamingLayout, memoryLogicalId, renderSkillFile, slugify };
+export { memoryLogicalId, renderSkillFile, slugify };

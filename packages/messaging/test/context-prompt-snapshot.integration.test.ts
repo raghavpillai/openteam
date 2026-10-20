@@ -186,7 +186,6 @@ test("profile, first-fact memory, and skills freeze independently per context ep
       fact: "A later global fact waits for the next compaction epoch.",
     });
   } finally {
-    await store.stopMemoryLifecycle();
     await prisma.bot.deleteMany({ where: { id: botId } });
     await prisma.$disconnect();
     await rm(temporary, { recursive: true, force: true });

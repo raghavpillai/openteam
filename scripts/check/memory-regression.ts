@@ -10,6 +10,8 @@ const suites = [
   [
     "packages/messaging/test/memory-learning.test.ts",
     "packages/messaging/test/recall-memory.test.ts",
+    "packages/messaging/test/memory-rendering.test.ts",
+    "packages/messaging/test/prompt-sections.test.ts",
     "packages/messaging/test/prompt-context-performance.test.ts",
     "apps/worker/test/memory-recording.test.ts",
     "apps/worker/test/context-routing.test.ts",

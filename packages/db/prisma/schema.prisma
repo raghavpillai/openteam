@@ -736,9 +736,11 @@ model ContextPromptSnapshot {
   systemDescription     String         @default("")
   announcedName         String         @default("")
   announcedDescription  String         @default("")
+  // Unused since the second memory freeze was removed; kept because db push won't drop a non-empty column.
   memoryEpoch           Int            @default(-1)
   memoryRender          String         @default("")
   memoryHasFacts        Boolean        @default(false)
+  // The memory prompt version; a new one drops promptSections.memory once.
   memoryAudienceKey     String         @default("")
   skillEpoch            Int            @default(-1)
   skillRender           String         @default("")
@@ -756,9 +758,11 @@ model AgentPromptSnapshot {
   systemDescription     String   @default("")
   announcedName         String   @default("")
   announcedDescription  String   @default("")
+  // Unused since the second memory freeze was removed; kept because db push won't drop a non-empty column.
   memoryEpoch           Int      @default(-1)
   memoryRender          String   @default("")
   memoryHasFacts        Boolean  @default(false)
+  // The memory prompt version; a new one drops promptSections.memory once.
   memoryAudienceKey     String   @default("")
   skillEpoch            Int      @default(-1)
   skillRender           String   @default("")

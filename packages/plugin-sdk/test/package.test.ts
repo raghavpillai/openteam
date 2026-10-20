@@ -252,12 +252,12 @@ describe("portable plugin packages", () => {
   test("skills name the agents that receive them and default to the main agent", () => {
     const definition = importPackage(files).definition;
     const skill = { name: "sign-in", description: "Sign in", body: "Use the CLI." };
-    const shared = parsePluginDefinition({ ...definition, skills: [{ ...skill, agents: ["main", "browserUse"] }] });
-    expect(skillIsForAgent(shared.skills[0]!, "browserUse")).toBe(true);
-    expect(skillIsForAgent(shared.skills[0]!, "computerUse")).toBe(false);
+    const shared = parsePluginDefinition({ ...definition, skills: [{ ...skill, agents: ["main", "computerUse"] }] });
+    expect(skillIsForAgent(shared.skills[0]!, "computerUse")).toBe(true);
+    expect(skillIsForAgent(shared.skills[0]!, "executor")).toBe(false);
     expect(skillIsForAgent(skill, "main")).toBe(true);
-    expect(skillIsForAgent(skill, "browserUse")).toBe(false);
-    for (const agents of [[], ["browser"], ["main", "main"], "main"])
+    expect(skillIsForAgent(skill, "computerUse")).toBe(false);
+    for (const agents of [[], ["browser"], ["main", "browserUse"], ["main", "main"], "main"])
       expect(() => parsePluginDefinition({ ...definition, skills: [{ ...skill, agents }] })).toThrow("Invalid skill agents");
   });
   test("retains Cursor hook configuration for runtime execution", () => {

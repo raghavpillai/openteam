@@ -43,7 +43,7 @@ test("workers on the parent's connectors transfer files both ways; graphical and
     for (const tool of ["UploadFile", "DownloadFile"]) await call("PrepareConnectorTransfer", { tool, input: {} });
     expect(reached).toEqual(["UploadFile", "DownloadFile"]);
   }
-  for (const subagentType of ["computerUse", "browserUse", "videoReview", "watchVideo"]) {
+  for (const subagentType of ["computerUse", "videoReview", "watchVideo"]) {
     const { call, reached } = policyService({ origin: "agent", subagentType });
     for (const tool of ["UploadFile", "DownloadFile"])
       await expect(call("PrepareConnectorTransfer", { tool, input: {} })).rejects.toThrow("performed by the parent bot");

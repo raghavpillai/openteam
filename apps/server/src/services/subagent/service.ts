@@ -7,13 +7,13 @@ import {
   resolveBotAvatarMark,
   normalizePiReasoningLevel,
   type StopSubagentInput,
-  type SubagentType,
+  SubagentType,
   type TaskInput,
 } from "@openteam/contracts";
 import { COMPUTER_API_PATHS } from "@openteam/contracts/service-protocol";
 import { Prisma, type PrismaClient } from "@openteam/db";
 import type { AgentDataStore, AgentMessaging, ToolContext } from "@openteam/messaging";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { fromPrisma } from "pg-boss";
 import { setTimeout as delay } from "node:timers/promises";
 import type { RunService } from "../run-service";
@@ -33,9 +33,6 @@ const failedToolError = (status: string, content: unknown): string | undefined =
   const text = parts.find((part) => part && typeof part === "object" && part.type === "text" && typeof part.text === "string" && part.text.trim());
   return text ? text.text.slice(0, 500) : undefined;
 };
-
-export const graphicalSubagentType = (type: SubagentType): boolean =>
-  type === "computerUse" || type === "browserUse";
 
 export const subagentTaskContent = (input: TaskInput): string => input.prompt;
 
@@ -376,10 +373,8 @@ export class SubagentService {
     ]);
     const config = parentRun?.taskConfiguration ? parseTaskConfiguration(parentRun.taskConfiguration) : currentConfig;
     const type = input.subagent_type ?? "executor";
-    if (["computerUse", "browserUse"].includes(type) && config.graphicalAvailable === false)
+    if (type === "computerUse" && config.graphicalAvailable === false)
       throw new ApiError(409, "graphical_worker_unavailable", "Browser and desktop workers are unavailable on this computer.");
-    if (type === "browserUse" && config.combinedComputerUse && !restoredId)
-      throw new ApiError(400, "subagent_type_retired", "browserUse is available only to resume an existing agent. Use computerUse for new browser or desktop tasks.");
     const inherited = { ...configuredInference,
       ...(parentRun?.inferenceProvider && parentRun.inferenceModel ? {
         providerId: parentRun.inferenceProvider, modelId: parentRun.inferenceModel,
@@ -446,7 +441,6 @@ export class SubagentService {
           subagentType: type,
           model: selectedModel,
           reasoning: selectedInference.reasoning,
-          combinedComputerUse: config.combinedComputerUse,
           taskConfiguration: toJson(config),
           fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
           runInBackground: input.run_in_background ?? true,
@@ -512,6 +506,15 @@ export class SubagentService {
     if (!subagent) {
       return this.launch(context, { ...input, resume: undefined }, restoredId);
     }
+    // History keeps workers of types that no longer run.
+    const type = subagent.subagentType;
+    if (!Schema.is(SubagentType)(type)) {
+      throw new ApiError(
+        409,
+        "subagent_type_retired",
+        `${type} subagents are no longer available, so this one can't be resumed. Start a new Task instead; computerUse handles browser and desktop work.`
+      );
+    }
     if (["provisioning", "queued", "running"].includes(subagent.status)) {
       throw new ApiError(
         409,
@@ -521,7 +524,7 @@ export class SubagentService {
     }
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('openteam-subagent-capacity'))`;
-      await assertSubagentCapacity(context.botId, subagent.subagentType as SubagentType, tx);
+      await assertSubagentCapacity(context.botId, type, tx);
       const child = await tx.bot.findUnique({
         where: { id: subagent.childBotId },
         include: {

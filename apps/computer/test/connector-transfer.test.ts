@@ -109,7 +109,7 @@ test("discovered file tools move real box bytes over the private bridge and retu
       expect(workerDownload.content[0].text).toContain("Downloaded");
     }
     expect(calls).toHaveLength(12);
-    for (const subagentType of ["computerUse", "browserUse", "videoReview", "watchVideo"]) {
+    for (const subagentType of ["computerUse", "videoReview", "watchVideo"]) {
       active.subagentType = subagentType;
       active.discoveredDynamicTools = new Set<string>();
       for (const name of ["UploadFile", "DownloadFile"])

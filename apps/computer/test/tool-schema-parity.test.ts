@@ -26,29 +26,25 @@ describe("captured tool contract wiring", () => {
       else expect(() => Schema.decodeUnknownSync(TodoWriteInput)(input)).toThrow();
     }
   });
-  test("Task profiles and split/combined worker tools agree with the advertised context", () => {
+  test("Task profiles and the graphical worker's tools agree with the advertised context", () => {
     const runtime = new RuntimeTools({} as never, "http://unused.invalid", "test", "/tmp", "/tmp");
-    for (const combinedComputerUse of [true, false]) {
-      const taskConfiguration = { combinedComputerUse, executorProfiles: [
-        { name: "quick", description: "Small jobs", providerId: "openai", modelId: "fixture", reasoning: "low" as const },
-      ] };
-      const active = { runtimeProfile: "agent", pluginNamespaces: [], taskConfiguration } as unknown as ActiveTurn;
-      const task = (runtime as any).dynamicCatalog(active).flatMap((namespace: any) => namespace.tools).find((tool: any) => tool.name === "Task");
-      expect(task.inputSchema).toEqual(taskToolContract(taskConfiguration).inputSchema);
-      const userInfo = enrichUserInfo("<user_info></user_info>", { cwd: "/tmp", transcriptPath: "/tmp/transcript", namespaces: [], taskConfiguration });
-      expect(userInfo.includes("browserUse:")).toBe(!combinedComputerUse);
-      // Worker inference is server-controlled; profiles are not model-selectable.
-      expect(userInfo).not.toContain("quick: Small jobs");
-      const computer = runtime.customTools({ ...active, runtimeProfile: "subagent", subagentType: "computerUse" });
-      expect(computer.some(tool => tool.name === "browser_snapshot")).toBe(combinedComputerUse);
-      expect(computer.some(tool => tool.name === "Computer")).toBe(true);
-      const legacyBrowser = runtime.customTools({ ...active, runtimeProfile: "subagent", subagentType: "browserUse" });
-      expect(legacyBrowser.some(tool => tool.name === "browser_snapshot")).toBe(true);
-      for (const subagentType of ["executor", "computerUse", "browserUse"] as const) {
-        const worker = { ...active, runtimeProfile: "subagent" as const, subagentType };
-        expect(runtime.customTools(worker).some(tool => tool.name === "Task")).toBe(false);
-        expect((runtime as any).dynamicCatalog(worker).flatMap((namespace: any) => namespace.tools).some((tool: any) => tool.name === "Task")).toBe(false);
-      }
+    const taskConfiguration = { executorProfiles: [
+      { name: "quick", description: "Small jobs", providerId: "openai", modelId: "fixture", reasoning: "low" as const },
+    ] };
+    const active = { runtimeProfile: "agent", pluginNamespaces: [], taskConfiguration } as unknown as ActiveTurn;
+    const task = (runtime as any).dynamicCatalog(active).flatMap((namespace: any) => namespace.tools).find((tool: any) => tool.name === "Task");
+    expect(task.inputSchema).toEqual(taskToolContract(taskConfiguration).inputSchema);
+    const userInfo = enrichUserInfo("<user_info></user_info>", { cwd: "/tmp", transcriptPath: "/tmp/transcript", namespaces: [], taskConfiguration });
+    expect(userInfo).toContain("computerUse: browser and desktop work");
+    // Worker inference is server-controlled; profiles are not model-selectable.
+    expect(userInfo).not.toContain("quick: Small jobs");
+    const computer = runtime.customTools({ ...active, runtimeProfile: "subagent", subagentType: "computerUse" });
+    expect(computer.some(tool => tool.name === "browser_snapshot")).toBe(true);
+    expect(computer.some(tool => tool.name === "Computer")).toBe(true);
+    for (const subagentType of ["executor", "computerUse"] as const) {
+      const worker = { ...active, runtimeProfile: "subagent" as const, subagentType };
+      expect(runtime.customTools(worker).some(tool => tool.name === "Task")).toBe(false);
+      expect((runtime as any).dynamicCatalog(worker).flatMap((namespace: any) => namespace.tools).some((tool: any) => tool.name === "Task")).toBe(false);
     }
   });
   test("exposes the 80 active shared contracts through the actual model-facing profiles", () => {
@@ -57,13 +53,7 @@ describe("captured tool contract wiring", () => {
     const catalog = [
       base,
       { ...base, requestSource: "automation" },
-      ...["browserUse", "computerUse"].map((subagentType) => ({
-        ...base,
-        runtimeProfile: "subagent",
-        subagentType,
-        // Computer alone carries the captured text; beside the browser tools it adds their guidance.
-        taskConfiguration: { combinedComputerUse: false },
-      })),
+      { ...base, runtimeProfile: "subagent", subagentType: "computerUse" },
     ].flatMap((active) => [
       ...runtime
         .customTools(active as ActiveTurn)
@@ -78,7 +68,11 @@ describe("captured tool contract wiring", () => {
     for (const name of Object.keys(reference).filter((name) => !retired.includes(name))) {
       const visible = catalog.find((t) => t.name === name);
       expect(visible, name).toBeDefined();
-      expect(visible.description, name).toBe(referenceTool(name).description);
+      // Beside the browser tools, Computer's captured text gains their guidance and nothing else.
+      const description = name === "Computer"
+        ? visible.description.replace(/(scroll, and wait\.) For anything inside a web page.*then BackSpace\./, "$1")
+        : visible.description;
+      expect(description, name).toBe(referenceTool(name).description);
       expect(visible.inputSchema, name).toEqual(referenceTool(name).inputSchema);
     }
     for (const excluded of ["GenerateImage", "CloudAgent", "request_scm_connect", ...retired])

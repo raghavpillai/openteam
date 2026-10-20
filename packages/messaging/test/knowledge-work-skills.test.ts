@@ -95,7 +95,7 @@ test("the skill tool switch is off by default and swaps the catalog for the Skil
     if (previous === undefined) delete process.env.OPENTEAM_SKILL_TOOL;
     else process.env.OPENTEAM_SKILL_TOOL = previous;
   }
-  const tool = subagentSpecializationInstructions("knowledgeWork", true, "tool");
+  const tool = subagentSpecializationInstructions("knowledgeWork", "tool");
   expect(tool).toContain("Your skills are cataloged (name plus a when-to-use description) in the description of the Skill tool.");
   expect(tool).toContain("Load a skill with the Skill tool instead of reading a SKILL.md with Read, even where other lines say to Read one.");
   expect(tool).not.toContain("agent_skills");

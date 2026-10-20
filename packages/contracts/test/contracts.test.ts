@@ -301,7 +301,7 @@ describe("API contracts", () => {
         channelId: "channel-1",
         deliveryId: null,
         runtimeProfile: "subagent",
-        subagentType: "browserUse",
+        subagentType: "computerUse",
         model: "openai-codex/gpt-5.5",
         reasoning: "high",
         fileAttachments: ["/workspace/shared/clip.mp4"],
@@ -325,7 +325,7 @@ describe("API contracts", () => {
       })
     ).toMatchObject({
       runtimeProfile: "subagent",
-      subagentType: "browserUse",
+      subagentType: "computerUse",
       model: "openai-codex/gpt-5.5",
       reasoning: "high",
       screenBotId: "parent-bot-1",
@@ -530,6 +530,13 @@ describe("API contracts", () => {
         run_in_background: true,
       })
     ).toMatchObject({ subagent_type: "executor", run_in_background: true });
+    expect(() =>
+      Schema.decodeUnknownSync(TaskInput)({
+        description: "Open the page",
+        prompt: "Open https://example.com and report its heading.",
+        subagent_type: "browserUse",
+      })
+    ).toThrow();
     expect(
       Schema.decodeUnknownSync(TodoWriteInput)({
         todos: [

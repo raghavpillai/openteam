@@ -145,7 +145,6 @@ interface Claimed {
   subagentType: SubagentType | null;
   readOnly: boolean;
   inferenceParentRunId: string | null;
-  combinedComputerUse: boolean | null;
   taskConfiguration: TaskConfiguration | null;
   fileAttachments: string[];
   attachmentOwnerBotId: string;
@@ -187,10 +186,7 @@ export const subagentRuntimeOwners = (
   botId: string,
   identity: { parentBotId: string; subagentType: string } | null
 ): { screenBotId: string; pluginBotId: string } => ({
-  screenBotId:
-    identity && ["computerUse", "browserUse"].includes(identity.subagentType)
-      ? identity.parentBotId
-      : botId,
+  screenBotId: identity?.subagentType === "computerUse" ? identity.parentBotId : botId,
   pluginBotId: subagentUsesParentConnectors(identity?.subagentType) ? identity!.parentBotId : botId,
 });
 
@@ -1222,7 +1218,6 @@ export class WakeWorker {
             (inbox.bot.subagentIdentity?.subagentType as SubagentType | undefined) ?? null,
           readOnly: inbox.bot.subagentIdentity?.readOnly ?? false,
           inferenceParentRunId: inbox.bot.subagentIdentity?.parentRunId ?? null,
-          combinedComputerUse: inbox.bot.subagentIdentity?.combinedComputerUse ?? null,
           taskConfiguration: inbox.bot.subagentIdentity?.taskConfiguration ? parseTaskConfiguration(inbox.bot.subagentIdentity.taskConfiguration) : null,
           attachmentOwnerBotId: inbox.bot.subagentIdentity?.parentBotId ?? inbox.bot.id,
           fileAttachments: Array.isArray(inbox.bot.subagentIdentity?.fileAttachments)
@@ -1259,9 +1254,7 @@ export class WakeWorker {
       if (!capabilityResponse.ok) throw new Error("Could not determine Task computer capabilities");
       const capabilities = await capabilityResponse.json() as TaskCapabilities;
       if (typeof capabilities.desktopAvailable !== "boolean" || typeof capabilities.boxAvailable !== "boolean") throw new Error("Invalid Task computer capabilities");
-      const selectedTasks = selectTaskConfiguration(claimed.taskConfiguration ?? configuredTasks, capabilities);
-      const taskConfiguration = { ...selectedTasks,
-        combinedComputerUse: claimed.combinedComputerUse ?? selectedTasks.combinedComputerUse };
+      const taskConfiguration = selectTaskConfiguration(claimed.taskConfiguration ?? configuredTasks, capabilities);
       // Plugin skills are global/read-only inputs. User workflows are rendered
       // later by platformInstructions and therefore win on conflict.
       const platformPrompt = await this.messaging.platformPrompt(claimed.botId, claimed.contextSessionId,

@@ -12,7 +12,6 @@ import reference from "../src/tool-reference.json";
 
 const inherited = { providerId: "openai", modelId: "parent-model", reasoning: "high" as const };
 const config = parseTaskConfiguration({
-  combinedComputerUse: true,
   executorProfiles: [
     {
       name: "quick",
@@ -32,11 +31,11 @@ const config = parseTaskConfiguration({
   defaultExecutorProfile: "quick",
 });
 
-test("graphical selection follows desktop, box and tool availability", () => {
+test("graphical selection follows desktop and box availability", () => {
   for (const desktopAvailable of [true, false])
     for (const boxAvailable of [true, false]) {
       const selected = selectTaskConfiguration(config, { desktopAvailable, boxAvailable });
-      expect(selected.combinedComputerUse).toBe(desktopAvailable && boxAvailable);
+      expect(selected.graphicalAvailable).toBe(desktopAvailable && boxAvailable);
       expect(
         taskToolContract(selected).inputSchema.properties.subagent_type.enum.includes("computerUse")
       ).toBe(desktopAvailable && boxAvailable);
@@ -44,15 +43,20 @@ test("graphical selection follows desktop, box and tool availability", () => {
         "videoReview"
       );
     }
+  // Disabled tools leave the one graphical worker in place; its tool list drops them.
   for (const disabled of ["BROWSER_CLICK", "OPENAI_COMPUTER_USE", "SHELL", "READ"]) {
     const selected = selectTaskConfiguration(
       { ...config, disabledToolIdentifiers: [disabled] },
       { desktopAvailable: true, boxAvailable: true }
     );
-    expect(selected.combinedComputerUse).toBe(false);
-    expect(taskToolContract(selected).inputSchema.properties.subagent_type.enum).toContain(
-      "browserUse"
-    );
+    expect(selected.graphicalAvailable).toBe(true);
+    expect(taskToolContract(selected).inputSchema.properties.subagent_type.enum).toEqual([
+      "executor",
+      "videoReview",
+      "watchVideo",
+      "computerUse",
+      "knowledgeWork",
+    ]);
   }
   expect(
     taskToolEnabled(
@@ -72,7 +76,6 @@ test("default Task contract matches the captured combined-worker catalog exactly
   expected.inputSchema.properties.subagent_type.description =
     "Subagent type to use for this task. Must be one of: executor, videoReview, watchVideo, computerUse, knowledgeWork.";
   expect(taskToolContract()).toEqual(expected);
-  expect(taskUserInfo()).not.toContain("browserUse:");
   expect(taskUserInfo()).not.toContain("available_subagent_models");
   expect(
     taskInference(defaultTaskConfiguration(), { model: "arbitrary/provider-model" }, inherited)
@@ -83,7 +86,7 @@ test("legacy profiles and model arguments cannot override server inference", () 
   expect(taskToolContract(config).inputSchema.properties.model).toBeUndefined();
   expect(taskUserInfo(config)).not.toContain("available_subagent_models");
   for (const reasoning of ["off", "minimal", "low", "medium", "high"] as const)
-    for (const subagent_type of ["executor", "computerUse", "browserUse", "videoReview", "watchVideo"])
+    for (const subagent_type of ["executor", "computerUse", "videoReview", "watchVideo"])
       for (const model of [undefined, "quick", "deep", "unconfigured", "provider/model"])
         for (const resume of [undefined, "previous"]) {
           const authority = { ...inherited, reasoning };
@@ -91,39 +94,46 @@ test("legacy profiles and model arguments cannot override server inference", () 
         }
 });
 
-test("split mode exposes browserUse without losing existing types", () => {
-  const split = { ...config, combinedComputerUse: false };
-  expect(taskToolContract(split).inputSchema.properties.subagent_type.enum).toEqual([
-    "executor",
-    "videoReview",
-    "watchVideo",
-    "computerUse",
-    "browserUse",
-    "knowledgeWork",
-  ]);
-  expect(taskUserInfo(split)).toContain("browserUse:");
-  expect(taskUserInfo(split)).toContain("knowledgeWork: A higher-powered executor for five kinds of work, and only these:");
-  expect(taskUserInfo(split)).toContain("Use it when a skill names it or the deliverable is one of these.");
+test("the roster names one graphical worker for browser and desktop work", () => {
+  const info = taskUserInfo(config);
+  expect(info).toContain("computerUse: browser and desktop work using structured browser tools and desktop controls on the same persistent box.");
+  expect(info).not.toContain("browserUse");
+  expect(info).toContain("knowledgeWork: A higher-powered executor for five kinds of work, and only these:");
+  expect(info).toContain("Use it when a skill names it or the deliverable is one of these.");
+  expect(taskUserInfo({ ...config, graphicalAvailable: false })).toContain(
+    "Browser and desktop workers are unavailable on this computer."
+  );
 });
 
 test("graphical capability hints respect disabled tools and unavailable workers", () => {
+  expect(taskUserInfo(config)).toContain("browser_console_messages");
+  expect(taskUserInfo(config)).toContain("browser_take_screenshot");
+  expect(taskUserInfo(config)).toContain("browser_file_upload");
+  const restricted = taskUserInfo({ ...config, disabledToolIdentifiers: ["BROWSER_CONSOLE_MESSAGES"] });
+  expect(restricted).not.toContain("browser_console_messages");
+  expect(restricted).toContain("browser_take_screenshot");
+  expect(taskUserInfo({ ...config, graphicalAvailable: false })).not.toContain("Browser capabilities");
+});
+
+test("saved settings and snapshots with the retired worker-mode switch still load", () => {
   for (const combinedComputerUse of [true, false]) {
-    const selected = { ...config, combinedComputerUse };
-    expect(taskUserInfo(selected)).toContain("browser_console_messages");
-    expect(taskUserInfo(selected)).toContain("browser_take_screenshot");
-    expect(taskUserInfo(selected)).toContain("browser_file_upload");
-    const restricted = taskUserInfo({ ...selected, disabledToolIdentifiers: ["BROWSER_CONSOLE_MESSAGES"] });
-    expect(restricted).not.toContain("browser_console_messages");
-    expect(restricted).toContain("browser_take_screenshot");
-    expect(taskUserInfo({ ...selected, graphicalAvailable: false })).not.toContain("Browser capabilities");
+    const stored = { ...config, combinedComputerUse };
+    expect(parseTaskConfiguration(stored)).toEqual(config);
+    expect(parseTaskConfiguration(JSON.parse(JSON.stringify(stored)))).not.toHaveProperty(
+      "combinedComputerUse"
+    );
   }
+  expect(parseTaskConfiguration({ combinedComputerUse: true, executorProfiles: [] })).toEqual(
+    defaultTaskConfiguration()
+  );
 });
 
 test("invalid and ambiguous profile configurations cannot be saved", () => {
   for (const input of [
     null,
     {},
-    { ...config, combinedComputerUse: "true" },
+    { ...config, executorProfiles: undefined },
+    { ...config, browserWorker: true },
     { ...config, defaultExecutorProfile: "missing" },
     { ...config, executorProfiles: [config.executorProfiles[0], config.executorProfiles[0]] },
     { ...config, executorProfiles: [{ ...config.executorProfiles[0], reasoning: "imaginary" }] },

@@ -32,7 +32,7 @@ export const subagentActivityView = (attempt: StoredAttempt): Snapshot["subagent
   parentToolCallId: attempt.parentToolCallId,
   currentRunId: attempt.childRunId,
   description: attempt.description,
-  subagentType: attempt.subagent.subagentType as Snapshot["subagents"][number]["subagentType"],
+  subagentType: attempt.subagent.subagentType,
   runInBackground: attempt.runInBackground,
   status: attempt.status as Snapshot["subagents"][number]["status"],
   // Completion text is a private parent wake. The renderer only needs durable

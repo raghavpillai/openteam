@@ -23,7 +23,7 @@ const manifest = {
       description: "Sign in",
       body: "Shared sign-in workflow.",
       path: "skills/sign-in",
-      agents: ["main", "browserUse", "computerUse"],
+      agents: ["main", "computerUse"],
     },
     { name: "desktop-only", description: "Desktop", body: "Desktop workflow.", agents: ["computerUse"] },
   ],

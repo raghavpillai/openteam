@@ -1785,7 +1785,7 @@ const referenceType = async ({ request, page }) => {
             !el.hasAttribute("readonly") && el.matches('input[type="date"],input[type="time"],input[type="month"],input[type="datetime-local"]') ? el.type : null);
           if (temporal) {
             const format = { date: "YYYY-MM-DD", time: "HH:mm or HH:mm:ss", month: "YYYY-MM", "datetime-local": "YYYY-MM-DDTHH:mm" }[temporal];
-            throw new Error(`Target is an input[type=${temporal}] control, not a plain text editor. No click or typing was performed. Use browser_fill with value in ${format} format, or browser_fill_form with type textbox and that value; then inspect the resulting state.`);
+            throw new Error(`Target is an input[type=${temporal}] control, not a plain text editor. No click or typing was performed. Use browser_type without slowly, with text in ${format} format, or browser_fill_form with type textbox and that value; then inspect the resulting state.`);
           }
           throw new Error("Target is not an enabled editable text control. No click or typing was performed. Take a fresh browser_snapshot and choose an editable ref.");
         }

@@ -40,7 +40,7 @@ export class BrowserDownloads {
     cdp.on("Browser.downloadWillBegin", (event) => downloads.started(event));
     cdp.on("Browser.downloadProgress", (event) => downloads.progress(event));
     // CDP attachment otherwise defaults to temporary, GUID-named artifacts.
-    // This trusted setup is not exposed through the agent's browser_cdp tool.
+    // This trusted setup is not exposed through the agent's browser tools.
     // Restore Chrome's normal profile settings, including safe filename
     // uniquification. CDP's "allow" mode overwrites duplicate filenames.
     await cdp.send("Browser.setDownloadBehavior", { behavior: "default", eventsEnabled: true });

@@ -22,7 +22,7 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)("DOM observations sup
       const start = performance.now();
       const result = await session.execute('browser_navigate',{url:server.url.href});
       const state = mode === 'image' ? await session.execute('browser_snapshot',{}) : result;
-      const clicked = await session.execute('browser_click',{ref:ref(state,'Save')});
+      const clicked = await session.execute('browser_click',{target:ref(state,'Save'),element:'Save'});
       const final = mode === 'image' ? await session.execute('browser_snapshot',{}) : clicked;
       samples[mode]!.push(Math.round(performance.now()-start));
       expect(text(final)).toContain('"Saved"');
@@ -36,13 +36,11 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)("DOM observations sup
     const image = await session.execute('browser_take_screenshot',{});
     expect(image.content.some(c=>c.type==='image')).toBe(true);
     expect(image.details?.path).toBeTruthy();
-    const view = text(snap).match(/Tab viewId: (view-\d+)/)![1]!;
-    const highlighted = await session.execute('browser_highlight',{ref:ref(snap,'Saved'),durationMs:2000});
-    expect(highlighted.content.some(c=>c.type==='image')).toBe(true);
     const tabs = await session.execute('browser_tabs',{action:'list'});
-    expect(text(tabs)).toContain(`"viewId": "${view}"`);
+    expect(text(tabs)).toContain(`- 0: (current) [`);
     await session.execute('browser_tabs',{action:'new'});
-    const targeted = await session.execute('browser_take_screenshot',{viewId:view});
+    await session.execute('browser_tabs',{action:'select',index:0});
+    const targeted = await session.execute('browser_take_screenshot',{});
     expect(targeted.details?.url).toBe(server.url.href);
     expect(targeted.content.some(c=>c.type==='image')).toBe(true);
     console.log('DOM_OBSERVATION_BENCHMARK',JSON.stringify(samples));

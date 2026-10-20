@@ -49,7 +49,7 @@ try {
     const line = text(await first.execute("browser_snapshot", {})).split("\n").find(line => line.includes('"Confirm"') && line.includes("[ref="))!;
     const opened = await first.execute("browser_click", { ref: line.match(/\[ref=([^\]]+)\]/)![1] });
     assert.equal(opened.details.pendingDialog?.type, "confirm");
-    await first.execute("browser_cdp", { method: "Page.handleJavaScriptDialog", params: { accept } });
+    await first.execute("browser_handle_dialog", { accept });
     assert.equal(await page.locator("body").getAttribute("data-answer"), accept ? "yes" : "no");
     // Explicit setup chooses the sibling. Capturing the first must not steal it.
     await sibling.bringToFront();

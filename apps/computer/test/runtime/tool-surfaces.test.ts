@@ -172,11 +172,11 @@ describe("specialized subagent tool surfaces", () => {
 
   test("split and resumed graphical workers retain disabled-tool restrictions", () => {
     const runtime = runtimeTools() as any;
-    const taskConfiguration = { combinedComputerUse: false, executorProfiles: [], disabledToolIdentifiers: ["SHELL", "BROWSER_CDP", "OPENAI_COMPUTER_USE"] };
+    const taskConfiguration = { combinedComputerUse: false, executorProfiles: [], disabledToolIdentifiers: ["SHELL", "BROWSER_TABS", "OPENAI_COMPUTER_USE"] };
     expect(runtime.customTools(workerTurn("computerUse", { taskConfiguration })).map((tool: any) => tool.name)).toEqual(["Read"]);
     const browser = runtime.customTools(workerTurn("browserUse", { taskConfiguration })).map((tool: any) => tool.name);
     expect(browser).toContain("browser_snapshot");
-    expect(browser).not.toContain("browser_cdp");
+    expect(browser).not.toContain("browser_tabs");
     expect(browser).not.toContain("Shell");
     expect(browser).not.toContain("Computer");
   });
@@ -290,9 +290,13 @@ describe("specialized subagent tool surfaces", () => {
   test("graphical workers receive compact box-scoped Shell and Read guidance", () => {
     for (const subagentType of ["computerUse", "browserUse"] as const) {
       const descriptions = toolDescriptions(subagentType);
-      expect(descriptions.Shell).toContain("this worker's box");
+      expect(descriptions.Shell).toContain("wait for a background command with AwaitShell rather than `sleep`");
       expect(descriptions.Shell).not.toContain("committing-changes-with-git");
-      expect(descriptions.Read).toContain("same filesystem Shell acts on");
+      expect(descriptions.Shell).not.toContain("machineId");
+      expect(descriptions.Read).toContain("Reads a file on the box, the same filesystem Shell acts on.");
+      expect(descriptions.AwaitShell).not.toContain("machineId");
+      const schemas = Object.fromEntries((runtimeTools() as any).customTools(workerTurn(subagentType)).map((tool: any) => [tool.name, tool.parameters]));
+      for (const name of ["Shell", "Read", "AwaitShell"]) expect(schemas[name].properties.machineId, name).toBeUndefined();
     }
   });
 

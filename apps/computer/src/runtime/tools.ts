@@ -88,11 +88,26 @@ import { UserFormHost, type FormBrowser, type FormPageBinding } from "../user-fo
 import type { ActiveTurn, RuntimeDynamicTool } from "./types";
 import { renderShellAwaitResult } from "@openteam/shell-jobs";
 
-export const GRAPHICAL_WORKER_SHELL_DESCRIPTION =
-  "Executes a command in this worker's box with an optional foreground timeout. Use Shell for terminal operations and bulk file processing; use Read for reading, searching, or inspecting files. Run independent commands in parallel and chain dependent commands with &&. If shell text search is necessary, use rg rather than grep or find.";
+export const GRAPHICAL_WORKER_SHELL_DESCRIPTION = [
+  "Executes a given command in a shell session with optional foreground timeout.",
+  "Use it for commands, scripts, installs, and creating or converting files. Read files with Read rather than `cat`, `head`, or `tail`, search file contents with `rg` rather than `grep` or `find`, and wait for a background command with AwaitShell rather than `sleep`. Before a destructive git step (force-pushing, skipping hooks with `--no-verify`, amending or rebasing commits that are already pushed, `reset --hard`), tell the user what it would overwrite and get their confirmation first, even when they asked for it.",
+  "- Do not truncate output with `head`, `tail`, or `sed -n` solely to limit its size; large output is saved to a terminal file.\n- Run independent commands as parallel Shell calls. Chain dependent commands with `&&`.",
+].join("\n\n");
 
 export const GRAPHICAL_WORKER_READ_DESCRIPTION =
-  "Reads a file on the box, the same filesystem Shell acts on. Text files include line numbers and support offset/limit paging. Image files are returned inline, and PDF files are converted to text.";
+  "Reads a file on the box, the same filesystem Shell acts on.\n\nText files include line numbers and support offset/limit paging. Image files (jpeg/jpg, png, gif, webp) are returned inline so you can see them. PDF files are converted to text.";
+
+/** Browser and desktop workers stay on the box, so their box tools take no machineId. */
+const MACHINE_ROUTING_AWAIT_SENTENCE =
+  "\n\nOmit machineId for a command started on your box. For a command started on one of the user's computers, pass the same machineId that was used for the Shell call.";
+const boxScopedSchema = (schema: Readonly<Record<string, unknown>>): Record<string, unknown> => {
+  const { machineId: _machineId, ...properties } = (schema.properties ?? {}) as Record<string, unknown>;
+  return { ...schema, properties };
+};
+
+/** Computer's guidance when the browser tools sit beside it. */
+const COMBINED_COMPUTER_GUIDANCE =
+  " For anything inside a web page, use the browser_* tools first. Use Computer only for native UI (desktop apps, OS dialogs, browser chrome), a press-and-hold widget (click with holdDurationMs), or a step a browser tool has failed at for a technical reason, not to look at or wait on ordinary page state. After a click that did not land, re-target from the new screenshot before typing, and to replace a field's text, clear it first with key Control+a, then BackSpace.";
 
 export const SUBAGENT_PRIVATE_NATIVE_TOOLS: ReadonlySet<string> = new Set([
   "RecallMemory",
@@ -437,15 +452,22 @@ export class RuntimeTools {
     );
     const workerNative = (tool: (typeof NATIVE_TOOLS)[number]) =>
       native(
-        tool,
+        { ...tool, inputSchema: boxScopedSchema(tool.inputSchema) } as (typeof NATIVE_TOOLS)[number],
         tool.name === SHELL_TOOL.name
           ? GRAPHICAL_WORKER_SHELL_DESCRIPTION
           : GRAPHICAL_WORKER_READ_DESCRIPTION
       );
+    const graphical = active.subagentType === "computerUse" || active.subagentType === "browserUse";
+    const combinedComputer = active.taskConfiguration?.combinedComputerUse !== false;
     const computerTool = () => defineTool({
           name: COMPUTER_USE_TOOL.name,
           label: COMPUTER_USE_TOOL.name,
-          description: COMPUTER_USE_TOOL.description,
+          description: combinedComputer
+            ? COMPUTER_USE_TOOL.description.replace(
+                "scroll, and wait.",
+                `scroll, and wait.${COMBINED_COMPUTER_GUIDANCE}`
+              )
+            : COMPUTER_USE_TOOL.description,
           parameters: Type.Unsafe<Record<string, unknown>>(COMPUTER_USE_TOOL.inputSchema),
           executionMode: "sequential",
           execute: (callId, args, signal) =>
@@ -458,8 +480,8 @@ export class RuntimeTools {
       return defineTool({
         name,
         label: name,
-        description: tool.description,
-        parameters: Type.Unsafe<Record<string, unknown>>(tool.inputSchema),
+        description: graphical ? tool.description.replace(MACHINE_ROUTING_AWAIT_SENTENCE, "") : tool.description,
+        parameters: Type.Unsafe<Record<string, unknown>>(graphical ? boxScopedSchema(tool.inputSchema) : tool.inputSchema),
         executionMode: "parallel",
         execute: (callId: string, args: unknown, signal?: AbortSignal) =>
           this.executeOpenTeamTool(active, callId, name, args, signal),

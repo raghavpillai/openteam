@@ -33,7 +33,7 @@ test("long command observations retain their final result while redacting both e
 });
 
 test("browser action observations survive history recovery without exposing input arguments or private details", () => {
-  for (const tool of ['browser_navigate','browser_click','browser_mouse_click_xy','browser_press_key','browser_hover','browser_scroll','browser_wait_for','browser_find']) {
+  for (const tool of ['browser_navigate','browser_click','browser_press_key','browser_hover','browser_wait_for','browser_find']) {
     const value = transcriptToolProjection({tool, arguments:{text:'PRIVATE_INPUT',url:'PRIVATE_ARGUMENT'},
       result:{content:[{type:'text',text:'Pressed Enter\nCurrent page: Help (https://docs.example/search)\nNo results found\nPASSWORD=hidden-secret'},
         {type:'image',data:'PRIVATE_IMAGE'},{type:'thinking',text:'PRIVATE_REASONING'}],details:{token:'PRIVATE_DETAIL'}}});

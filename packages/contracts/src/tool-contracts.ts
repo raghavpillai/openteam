@@ -37,14 +37,6 @@ contracts.CheckSubagent!.description = contracts.CheckSubagent!.description.repl
   "Returns its status, how long it has been running, the tool calls it has made recently, and a path to its live transcript you can Read for the full play-by-play.",
   "Returns an active worker's status, elapsed time, recent tool-call names and statuses. Finished workers cannot be inspected here; their results are delivered automatically when they finish. Use cursor.ReadTranscript with subagent_id for saved observable activity, including finished workers. Any transcript_path is diagnostic metadata; private child session files cannot be opened with Read."
 );
-// DOM-first observations replace the older capture's implicit screenshots.
-// Keep argument schemas unchanged and reserve images for explicit visual tools.
-contracts.browser_navigate!.description = contracts.browser_navigate!.description.replace(
-  "with a screenshot", "with page text and current element refs. Use browser_take_screenshot for visual evidence"
-);
-contracts.browser_click!.description = "Click an element by ref from the latest returned page state or browser_snapshot. Scrolls the element into view first. Returns page text and current element refs. Use browser_take_screenshot for visual evidence.";
-contracts.browser_snapshot!.description = "Capture a structured snapshot of the current page with [ref=eN] handles for interactive elements. The snapshot inspects reachable shadow roots and frames, including reachable cross-origin frames; frames it cannot inspect are called out in a trailing note. Refs stay valid across snapshots of this page load; they go stale on navigation, when the element is gone, or when its role or name changes. Reuse a ref until then. Use this for page structure and choosing what to click or type; use browser_take_screenshot for visual evidence.";
-
 // Ref lifetime is an OpenTeam adaptation; keep the captured artifact intact.
 function adaptStableRefLifetime(value: any): void {
   if (!value || typeof value !== "object") return;
@@ -61,100 +53,12 @@ adaptStableRefLifetime(contracts.request_user_form!.inputSchema);
 contracts.request_user_form!.description = contracts.request_user_form!.description
   .replace(
     "Show the user a native in-chat form for a step where a page needs THEM to type — a login, a checkout address, a phone number.",
-    "Show the user a native in-chat form when they need to supply missing input. If credentials or a verification code are already available through the user's connected sources, enter them with browser_fill or browser_type instead."
+    "Show the user a native in-chat form when they need to supply missing input. If credentials or a verification code are already available through the user's connected sources, enter them with browser_type or browser_fill_form instead."
   )
   .replace(
     "Use this instead of asking for credentials in chat, and instead of request_box_help when the step is just typing.",
     "Use this when the user needs to supply a value and the page fields are fillable; request_box_help is available when the tools cannot complete the step."
   );
-
-// Observed element-target captures; retain our tab routing and current refs.
-contracts.browser_take_screenshot!.description = "Save a screenshot of the current page. Use fullPage for the full scrollable page, or target for one element by current snapshot ref or unique CSS selector. fullPage and target cannot be combined. element is a human-readable label, not a selector.";
-Object.assign(contracts.browser_take_screenshot!.inputSchema.properties, {
-  target: { type: "string", minLength: 1, maxLength: 1000, description: "Current snapshot ref or unique CSS selector of the element to capture" },
-  element: { type: "string", maxLength: 500, description: "Short human-readable label for the capture" },
-});
-
-// Capabilities observed in Grok runs; schemas explicitly adapted to our ref API.
-contracts.browser_wait_for = {
-  name: "browser_wait_for",
-  description: "Wait for text to appear or disappear or a specified time to pass",
-  inputSchema: {type: "object", additionalProperties: false, properties: {
-    time: {type: "number", minimum: 0, maximum: 10},
-    text: {type: "string", minLength: 1, maxLength: 1000, description: "Text to wait for"},
-    textGone: {type: "string", minLength: 1, maxLength: 1000, description: "Text to wait for to disappear"},
-    viewId: {type: "string"},
-  }},
-};
-// Observed browser_resize invocation and upstream Playwright MCP description.
-// Add our tab lease selector and bound dimensions; the live Grok schema was not captured.
-contracts.browser_resize = {
-  name: "browser_resize",
-  description: "Resize the browser window. Changes the selected tab's viewport dimensions and returns fresh page state.",
-  inputSchema: {type: "object", additionalProperties: false, required: ["width", "height"], properties: {
-    width: {type: "integer", minimum: 1, maximum: 8192, description: "Width of the browser window in pixels"},
-    height: {type: "integer", minimum: 1, maximum: 8192, description: "Height of the browser window in pixels"},
-    viewId: {type: "string", minLength: 1, maxLength: 120},
-  }},
-};
-contracts.browser_hover = {
-  name: "browser_hover",
-  description: "Hover over element on page",
-  inputSchema: {type: "object", additionalProperties: false, required: ["target"], properties: {
-    target: {type: "string", minLength: 1, maxLength: 1000, description: "The ref from the latest snapshot, or a unique CSS selector"},
-    element: {type: "string", maxLength: 500, description: "Short plain-language name of the element, shown to the user in review"},
-    viewId: {type: "string"},
-  }},
-};
-contracts.browser_console_messages = {
-  name: "browser_console_messages",
-  description: "Returns all console messages",
-  inputSchema: {type: "object", additionalProperties: false, properties: {
-    level: {type: "string", enum: ["error", "warning", "info", "debug"], default: "info", description: 'Level of the console messages. Each level includes messages of more severe levels. Defaults to "info".'},
-    all: {type: "boolean", default: false, description: "Return all console messages since the beginning of the session, not just since the last navigation. Defaults to false."},
-    viewId: {type: "string"},
-  }},
-};
-
-// Observed text/regex search capability with bounded OpenTeam output.
-contracts.browser_find = {
-  name: "browser_find",
-  description: "Find text in the current rendered page, including non-interactive text, open shadow roots and reachable frames. Supply exactly one of text (case-insensitive literal) or regex (JavaScript pattern or /pattern/flags). Returns matching page lines with nearby context and current actionable refs. Does not click or scroll. Results are bounded; narrow the query if truncated. Hidden content is excluded and private field values remain redacted.",
-  inputSchema: { type: "object", additionalProperties: false, properties: {
-    text: { type: "string", minLength: 1, maxLength: 500 },
-    regex: { type: "string", minLength: 1, maxLength: 500 },
-    viewId: { type: "string", minLength: 1, maxLength: 120 },
-    maxResults: { type: "integer", minimum: 1, maximum: 100, default: 20 },
-  }, oneOf: [{ required: ["text"] }, { required: ["regex"] }] },
-};
-
-// Observed Grok invocation shape; bounded OpenTeam extension, not a captured full schema.
-contracts.browser_fill_form = {
-  name: "browser_fill_form",
-  description: "Fill multiple form fields in one call using refs from the latest page state. Prefer this over separate fills/clicks for a form. Supports textbox values and explicit checkbox states (true/false), not toggles. Does not submit. Returns per-field outcomes and fresh page state; a failure stops the remaining fields without rolling back completed fields. Use browser_fill for password fields and split verification-code boxes. request_user_form is available when the user needs to supply missing input.",
-  inputSchema: { type: "object", additionalProperties: false, required: ["fields"], properties: {
-    viewId: { type: "string", minLength: 1, maxLength: 120 },
-    fields: { type: "array", minItems: 1, maxItems: 20, items: {
-      type: "object", additionalProperties: false, required: ["target", "name", "type", "value"], properties: {
-        target: { type: "string", pattern: "^e[0-9]+$" },
-        name: { type: "string", maxLength: 500 },
-        type: { type: "string", enum: ["textbox", "checkbox"] },
-        value: { anyOf: [{ type: "string", maxLength: 10000 }, { type: "boolean" }] },
-      },
-    } },
-  } },
-};
-
-// OpenTeam implementation of the observed pending-chooser upload capability.
-// Keep this explicit adaptation separate from the captured reference document.
-contracts.browser_file_upload = {
-  name: "browser_file_upload",
-  description: "Respond to a pending file chooser opened by a browser click. Upload authorized absolute local paths inside the workspace. Omit paths or pass [] to cancel. Do not use native chooser clicks for an intercepted chooser. File contents and destination remain subject to action review.",
-  inputSchema: {type: "object", properties: {
-    paths: {type: "array", items: {type: "string", maxLength: 4096}, maxItems: 10},
-    viewId: {type: "string", minLength: 1, maxLength: 120},
-  }, additionalProperties: false},
-};
 
 // The host's knowledgeWork worker postdates this capture; keep the captured source intact.
 const taskSubagentType = contracts.Task!.inputSchema.properties.subagent_type;

@@ -13,8 +13,8 @@ const object = (value: unknown): Record<string, unknown> => value && typeof valu
 const observations = new Set([
   "Shell", "Read", "WebFetch", "WebSearch", "Computer", "Screenshot", "browser_snapshot", "browser_take_screenshot",
   "browser_tabs", "browser_console_messages", "browser_network_requests",
-  "browser_navigate", "browser_click", "browser_mouse_click_xy", "browser_press_key",
-  "browser_hover", "browser_scroll", "browser_wait_for", "browser_find",
+  "browser_navigate", "browser_click", "browser_press_key",
+  "browser_hover", "browser_wait_for", "browser_find",
 ]);
 export function transcriptToolProjection(value: unknown) {
   const record = object(value);

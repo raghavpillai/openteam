@@ -15,8 +15,7 @@ import { publishChannelNotification, publishMessageNotification } from "./notifi
 export { publishChannelNotification, publishMessageNotification, channelNotificationStates } from "./notifications";
 import { messagePreviewText } from "@openteam/contracts/message-preview";
 import { defaultTaskConfiguration, subagentHasHistoryTools, subagentUsesParentConnectors, taskUserInfo, type TaskConfiguration } from "@openteam/contracts/task-configuration";
-import { COMBINED_GRAPHICAL_WORKER_PROMPT, GRAPHICAL_COMPLETION_INSTRUCTIONS, GRAPHICAL_DOWNLOAD_INSTRUCTIONS, GRAPHICAL_VERIFICATION_INSTRUCTIONS, EXECUTION_VERIFICATION_INSTRUCTIONS, NATIVE_DOCUMENT_INSTRUCTIONS } from "./graphical-worker-prompts";
-import { AUTHENTICATION_INSTRUCTIONS } from "./prompts/authentication";
+import { BROWSER_WORKER_PROMPT, COMBINED_GRAPHICAL_WORKER_PROMPT, COMPUTER_WORKER_PROMPT, EXECUTION_VERIFICATION_INSTRUCTIONS } from "./graphical-worker-prompts";
 import {
   type AdminBroadcastInput,
   type AgentImageInput,
@@ -546,51 +545,8 @@ export const WORKER_DRAFT_HANDOFF = "You cannot call DraftExternalMessage. When 
 export const WORKER_HISTORY_INSTRUCTIONS = "For facts the parent left out: ReadTranscript reads your own earlier turns after compaction, or another of the user's agents; ReadAgentActivity summarizes what the user's other bots did lately: last messages, open todos, unanswered questions; RecallMemory searches the bot's memory and the user's shared memory.";
 
 export const subagentSpecializationInstructions = (type: SubagentType, combinedComputerUse = true, skillAccess: SkillAccess = "read"): string => {
-  if (type === "computerUse" && combinedComputerUse) return COMBINED_GRAPHICAL_WORKER_PROMPT;
-  if (type === "computerUse") {
-    return [
-      "## Your box",
-      "You drive your parent agent's own desktop on a persistent Linux box with Computer, plus file reads with Read and a shell with Shell. All three share one filesystem; files, installed tools, browser logins, and the browser profile persist across turns. The box is the only computer you can reach.",
-      "## Computer",
-      AUTHENTICATION_INSTRUCTIONS,
-      GRAPHICAL_COMPLETION_INSTRUCTIONS,
-      GRAPHICAL_DOWNLOAD_INSTRUCTIONS,
-      GRAPHICAL_VERIFICATION_INSTRUCTIONS,
-      NATIVE_DOCUMENT_INSTRUCTIONS,
-      "You drive the desktop with Computer: screenshot, click, move, drag, type, key, scroll, and wait. Coordinates use native pixels from the top-left; use the current screenshot dimensions.",
-      "- Stay inside the deliberately narrow task. Do exactly its success criteria, then stop; report ambiguity instead of expanding scope.",
-      "- Move bulk or structured data through files and imports instead of typing it field by field.",
-      "- Work in a tight see-act-verify loop. Inspect the screen, act, then read the one fresh screenshot returned after the entire Computer call. A then sequence returns only its final screen, so batch only steps that need no intermediate visual decision.",
-      "- Let moving or loading UI settle. Recover from a missed click before continuing, and never type after a click that did not focus the intended field.",
-      "- Clear a field that may already contain text with Control+a and BackSpace before replacing it. Verify keyboard shortcuts opened and focused their intended UI before typing or pressing Enter.",
-      "- For browser work, launch this screen's Chromium at a known URL with `openteam-screen-launch chromium 'https://example.com'`; never launch another browser or download browser binaries. Navigate directly to exact or constructible URLs.",
-      "- Shell receives the exact DISPLAY and OPENTEAM_BROWSER_DEBUG_PORT for this desktop. Packaged playwright-core may connect to that CDP endpoint for browser bring-up, recovery, or inspecting a stuck page, but Computer remains the source of truth for what the user sees. Never probe another display or port.",
-      "- Keep tabs tidy without closing unsaved work, active uploads, login challenges, or tabs whose purpose is uncertain. Never use `pkill -f`; terminate an exact PID instead.",
-      "- Do not loop. Change tactics after a couple of failed attempts and stop as soon as the goal is met or genuinely blocked.",
-      "- End with one concise, self-contained report of what you did, what the screen showed, whether the goal was met, and any exact blocker. You cannot talk to the user directly.",
-    ].join("\n");
-  }
-  if (type === "browserUse") {
-    return [
-      "## Your box",
-      "You drive your parent agent's persistent box browser at the page level with browser_* tools, plus file reads with Read and a shell with Shell. All three share one filesystem; files, installed tools, browser logins, and the browser profile persist across turns. The box is the only computer you can reach.",
-      "## Browser",
-      AUTHENTICATION_INSTRUCTIONS,
-      GRAPHICAL_COMPLETION_INSTRUCTIONS,
-      GRAPHICAL_DOWNLOAD_INSTRUCTIONS,
-      GRAPHICAL_VERIFICATION_INSTRUCTIONS,
-      "You drive Chromium with browser_navigate, structured snapshots, element-ref actions, scrolling, allowed CDP inspection, leased-tab management, and screenshots. Act on refs from browser_snapshot rather than desktop pixel coordinates.",
-      "- Stay inside the deliberately narrow task. Do exactly its success criteria, then stop; report ambiguity instead of expanding scope.",
-      "- Navigate directly to exact or constructible URLs. Encode search, filters, sort, and pagination in the URL when possible rather than clicking through a homepage.",
-      "- Work in a snapshot-act-verify loop. browser_snapshot is the source of truth; refs point to the exact DOM nodes from the latest snapshot and become stale when those nodes detach.",
-      "- Browser actions already return the resulting page and screenshot, so browser_take_screenshot is normally redundant.",
-      "- Your tools operate on the assigned parent desktop's browser tabs, including tabs opened with native controls. On a modality switch, list tabs and explicitly select the intended viewId; native focus and managed selection may differ. Preserve pre-existing and unsaved tabs, and close only task-created tabs when permitted.",
-      "- Move bulk or structured data through files and the site's import, upload, or download flow instead of filling many values by keyboard.",
-      "- Browser-wide, storage, cookie, cache, permission, target-management, and raw CDP input commands are blocked by the browser tools.",
-      "- Do not loop. Change tactics after a couple of failed attempts and stop as soon as the goal is met or genuinely blocked.",
-      "- End with one concise, self-contained report of what you did, what you saw, whether the goal was met, and any exact blocker. You cannot talk to the user directly.",
-    ].join("\n");
-  }
+  if (type === "computerUse") return combinedComputerUse ? COMBINED_GRAPHICAL_WORKER_PROMPT : COMPUTER_WORKER_PROMPT;
+  if (type === "browserUse") return BROWSER_WORKER_PROMPT;
   if (type === "videoReview" || type === "watchVideo") {
     return "Review the supplied media frames directly. No tools are available to this worker.";
   }
@@ -2082,19 +2038,16 @@ export class AgentMessaging {
         `You are OpenTeam running as the ${bot.subagentIdentity.subagentType} subagent.`,
         "Complete the delegated task autonomously, then end your turn with a concise final assistant message in plain text. Only that final assistant message is relayed back to the parent agent as your result; text from earlier assistant messages is not included. Put the outcome and any context the parent needs in that last message.",
         "You have no way to talk to the user directly; do not ask follow-up questions, just do the work and report what you found or did. Do not call SendToUser or SendToAgent.",
-        subagentUsesParentConnectors(bot.subagentIdentity.subagentType) ? `${WORKER_UNTRUSTED_CONTENT_SECTION}\n\n${WORKER_DRAFT_HANDOFF}` : "",
-        specialization,
+        subagentUsesParentConnectors(bot.subagentIdentity.subagentType) ||
         bot.subagentIdentity.subagentType === "computerUse" ||
         bot.subagentIdentity.subagentType === "browserUse"
-          ? "Your tool surface is intentionally specialized; GetDynamicTools, parent orchestration, agent administration, and channel administration are unavailable."
-          : subagentHasHistoryTools(bot.subagentIdentity.subagentType)
+          ? `${WORKER_UNTRUSTED_CONTENT_SECTION}\n\n${WORKER_DRAFT_HANDOFF}` : "",
+        specialization,
+        subagentHasHistoryTools(bot.subagentIdentity.subagentType)
             ? `The cursor namespace exposes ReadTranscript and ReadAgentActivity; parent orchestration and administration tools are unavailable.\n${WORKER_HISTORY_INSTRUCTIONS}`
             : "",
         `The computer filesystem is shared. Every agent, room, routine, A2A wake, and subagent starts in ${bot.defaultDirectory}.`,
-        bot.subagentIdentity.subagentType === "computerUse" ||
-        bot.subagentIdentity.subagentType === "browserUse"
-          ? ""
-          : `Your current timezone is ${this.defaultTimeZone}.`,
+        `Your current timezone is ${this.defaultTimeZone}.`,
         connectorInstructions.trim(),
         bot.instructions ? `Subagent instructions:\n${bot.instructions}` : "",
       ]

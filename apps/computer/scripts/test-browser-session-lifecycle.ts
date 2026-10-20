@@ -78,7 +78,7 @@ await check("independent leases preserve explicit accept and dismiss", async (se
     await Promise.all([
       // The response must reach the page promptly; allow the tool's subsequent
       // masked screenshots their normal budget on a busy development host.
-      bounded(session.execute("browser_cdp", { method: "Page.handleJavaScriptDialog", params: { accept } }), 15_000, `observe answered confirm (accept=${accept})`),
+      bounded(session.execute("browser_handle_dialog", { accept }), 15_000, `observe answered confirm (accept=${accept})`),
       bounded(page.waitForFunction((expected: string) => document.querySelector("#result")?.textContent === expected, accept ? "accepted" : "dismissed"), 5_000, `apply dialog response (accept=${accept})`),
     ]);
   }
@@ -87,7 +87,7 @@ await check("independent leases preserve explicit accept and dismiss", async (se
 await check("explicit beforeunload cancel preserves the page without a tool error", async session => {
   await session.execute("browser_click", { ref: await ref(session, "Arm unsaved change") });
   assert.equal((await bounded(session.execute("browser_navigate", { url: new URL("next", server.url).href }))).details.pendingDialog.type, "beforeunload");
-  await bounded(session.execute("browser_cdp", { method: "Page.handleJavaScriptDialog", params: { accept: false } }));
+  await bounded(session.execute("browser_handle_dialog", { accept: false }));
   assert.equal((await session.ensurePage()).url(), server.url.href);
 });
 await check("self-closing popup returns surviving parent state without replay", async session => {
@@ -101,7 +101,7 @@ await check("accepting a popup dialog that closes its page recovers parent witho
   await session.execute("browser_click", { ref: await ref(session, "Open confirm-close popup") });
   const opened = await bounded(session.execute("browser_click", { ref: await ref(session, "Confirm and close after dialog") }));
   assert.equal(opened.details.pendingDialog?.message, "Finalize once?");
-  const result = await bounded(session.execute("browser_cdp", { method: "Page.handleJavaScriptDialog", params: { accept: true } }));
+  const result = await bounded(session.execute("browser_handle_dialog", { accept: true }));
   assert.ok(text(result).includes("Popup closed"));
   assert.equal(await (await session.ensurePage()).locator("#result").textContent(), "1");
   assert.equal((await session.execute("browser_tabs", { action: "list" })).details.tabs, 1);
@@ -109,7 +109,7 @@ await check("accepting a popup dialog that closes its page recovers parent witho
 await check("onload popup dialog can be answered before page observation finishes", async session => {
   const opened = await bounded(session.execute("browser_click", { ref: await ref(session, "Open onload popup") }));
   assert.equal(opened.details.pendingDialog?.message, "Popup confirmation");
-  await bounded(session.execute("browser_cdp", { method: "Page.handleJavaScriptDialog", params: { accept: true } }));
+  await bounded(session.execute("browser_handle_dialog", { accept: true }));
   assert.equal(await (await session.ensurePage()).locator("body").getAttribute("data-result"), "accepted");
 });
 await check("native/external response to an onload popup clears pending state", async session => {
@@ -153,7 +153,7 @@ await check("onload popup retains its dialog with an independent lease connected
   const other = await BrowserUseSession.connect(endpoint, join(root, "other"), false, join(root, "Downloads"));
   const opened = await bounded(session.execute("browser_click", { ref: await ref(session, "Open onload popup") }));
   assert.equal(opened.details.pendingDialog?.message, "Popup confirmation");
-  await bounded(session.execute("browser_cdp", { method: "Page.handleJavaScriptDialog", params: { accept: false } }));
+  await bounded(session.execute("browser_handle_dialog", { accept: false }));
   assert.equal(await (await session.ensurePage()).locator("body").getAttribute("data-result"), "dismissed");
   assert.equal((await other.execute("browser_tabs", { action: "list" })).details.tabs, 1);
 });

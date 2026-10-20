@@ -61,6 +61,8 @@ describe("captured tool contract wiring", () => {
         ...base,
         runtimeProfile: "subagent",
         subagentType,
+        // Computer alone carries the captured text; beside the browser tools it adds their guidance.
+        taskConfiguration: { combinedComputerUse: false },
       })),
     ].flatMap((active) => [
       ...runtime
@@ -81,37 +83,16 @@ describe("captured tool contract wiring", () => {
     }
     for (const excluded of ["GenerateImage", "CloudAgent", "request_scm_connect", ...retired])
       expect(catalog.some((t) => t.name === excluded)).toBe(false);
+    const combined = runtime.customTools({ ...base, runtimeProfile: "subagent", subagentType: "computerUse" } as ActiveTurn)
+      .find((t) => t.name === "Computer")!;
+    expect(combined.description).toContain("and wait. For anything inside a web page, use the browser_* tools first.");
   });
 
-  test("preserves the captured graphical schemas including held clicks", () => {
-    expect(BROWSER_USE_TOOLS).toHaveLength(25);
-    // Retain the original fields; later observed element captures extend the
-    // earlier screenshot catalog without rewriting the captured baseline.
-    const captured = BROWSER_USE_TOOLS.filter((tool) => !["browser_handle_dialog", "browser_navigate_back", "browser_run_code", "browser_wait_for", "browser_resize", "browser_file_upload", "browser_fill_form", "browser_find", "browser_hover", "browser_console_messages"].includes(tool.name));
-    expect(captured).toHaveLength(15);
-    for (const tool of captured) {
-      if (tool.name === "browser_take_screenshot") {
-        const { target, element, ...properties } = (tool.inputSchema as any).properties;
-        expect({ ...tool.inputSchema, properties }).toEqual(reference.browser_take_screenshot.inputSchema);
-        expect(target.type).toBe("string");
-        expect(element.type).toBe("string");
-        expect(tool.description).toContain("fullPage and target cannot be combined");
-        continue;
-      }
-      expect(tool.inputSchema).toEqual((reference as any)[tool.name].inputSchema);
-      if (["browser_navigate", "browser_click"].includes(tool.name)) {
-        expect(tool.description).toContain("page text and current element refs");
-        expect(tool.description).not.toContain("with a screenshot");
-      } else if (tool.name === "browser_snapshot") {
-        // The captured baseline predates our tested cross-origin support.
-        expect(tool.description).toContain("reachable cross-origin frames");
-        expect(tool.description).toContain("frames it cannot inspect");
-      } else expect(tool).toEqual((reference as any)[tool.name]);
-    }
-    expect(reference.browser_click.inputSchema.properties.holdDurationMs.maximum).toBe(30_000);
-    expect(reference.browser_mouse_click_xy.inputSchema.properties.holdDurationMs.maximum).toBe(
-      30_000
-    );
+  test("serves the captured browser contracts unchanged; press-and-hold lives on Computer", () => {
+    expect(BROWSER_USE_TOOLS).toHaveLength(18);
+    for (const tool of BROWSER_USE_TOOLS) expect(tool, tool.name).toEqual((reference as any)[tool.name]);
+    expect((reference.browser_click.inputSchema.properties as any).holdDurationMs).toBeUndefined();
+    expect(reference.Computer.inputSchema.properties.holdDurationMs.maximum).toBe(30_000);
   });
 
   test("excluding cloud-agent delivery preserves every other SendToUser instruction", () => {

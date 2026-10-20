@@ -1,215 +1,29 @@
 import { referenceTool } from "@openteam/contracts/tool-contracts";
-import { objectToolSchema } from "../tool-schema";
 export interface BrowserUseToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
 }
 
-export const viewId = {
-  type: "string",
-  minLength: 1,
-  maxLength: 120,
-  description: "Optional tab viewId returned by a prior browser action.",
-} as const;
-
-export const element = {
-  type: "string",
-  maxLength: 500,
-  description: "Concise description of the target element and intended action.",
-} as const;
-
+/** The browser worker's tools, in the order the model sees them. browser_run_code is the
+ * primary tool for page work; the others are its observation tools and stepwise fallbacks. */
 export const BROWSER_USE_TOOLS: readonly BrowserUseToolDefinition[] = [
-  referenceTool("browser_run_code"),
-  referenceTool("browser_handle_dialog"),
-  referenceTool("browser_navigate_back"),
-  referenceTool("browser_wait_for"),
-  referenceTool("browser_resize"),
-  referenceTool("browser_find"),
-  referenceTool("browser_hover"),
-  referenceTool("browser_console_messages"),
-  referenceTool("browser_fill_form"),
-  {
-    name: "browser_file_upload",
-    description: "Respond to a pending file chooser opened by a browser click. Upload only authorized absolute local paths inside the workspace; omit paths or use an empty array to cancel. File contents and destination remain subject to action review. Returns the resulting page state.",
-    inputSchema: objectToolSchema({paths: {type: "array", items: {type: "string", maxLength: 4096}, maxItems: 10}, viewId}),
-  },
-  {
-    name: "browser_navigate",
-    description:
-      "Navigate the box browser to a URL. By default reuses your leased tab; set newTab: true to open another leased tab. Returns the resulting page state with a screenshot.",
-    inputSchema: objectToolSchema(
-      { url: { type: "string" }, viewId, newTab: { type: "boolean" } },
-      ["url"]
-    ),
-  },
-  {
-    name: "browser_snapshot",
-    description:
-      "Capture a structured ARIA snapshot with [ref=eN] handles for interactive elements. It inspects reachable shadow roots and frames, including reachable cross-origin frames; inaccessible frames are called out. Refs stay valid across snapshots of this page load; they go stale on navigation, when the element is gone, or when its role or name changes. Reuse a ref until then. The explicit >>> selector combinator re-roots each following stage at the previous match.",
-    inputSchema: objectToolSchema({
-      viewId,
-      interactive: { type: "boolean" },
-      maxDepth: { type: "number", description: "Maximum snapshot depth. Defaults to 20." },
-      selector: { type: "string", maxLength: 1_000 },
-    }),
-  },
-  {
-    name: "browser_click",
-    description:
-      "Click an element by ref from browser_snapshot. Scrolls it into view first and returns the resulting page with a screenshot.",
-    inputSchema: objectToolSchema(
-      {
-        ref: { type: "string" },
-        element,
-        offsetX: { type: "number", description: "X offset from the element center." },
-        offsetY: { type: "number", description: "Y offset from the element center." },
-        doubleClick: { type: "boolean" },
-        button: { type: "string", enum: ["left", "right", "middle"] },
-        modifiers: {
-          type: "array",
-          items: { type: "string", enum: ["Control", "Shift", "Alt", "Meta", "ControlOrMeta"] },
-          maxItems: 4,
-        },
-        holdDurationMs: { type: "integer", minimum: 0, maximum: 10_000 },
-        viewId,
-      },
-      ["ref"]
-    ),
-  },
-  {
-    name: "browser_mouse_click_xy",
-    description: "Click at viewport coordinates. Prefer browser_click with refs when possible.",
-    inputSchema: objectToolSchema(
-      {
-        x: { type: "number", minimum: 0 },
-        y: { type: "number", minimum: 0 },
-        element,
-        button: { type: "string", enum: ["left", "right", "middle"] },
-        viewId,
-      },
-      ["x", "y"]
-    ),
-  },
-  {
-    name: "browser_type",
-    description: "Type text into an editable element by ref.",
-    inputSchema: objectToolSchema(
-      {
-        ref: { type: "string" },
-        text: { type: "string", maxLength: 100_000 },
-        element,
-        clear: { type: "boolean" },
-        submit: { type: "boolean" },
-        slowly: { type: "boolean" },
-        viewId,
-      },
-      ["ref", "text"]
-    ),
-  },
-  {
-    name: "browser_fill",
-    description: "Set the value of an editable element by ref.",
-    inputSchema: objectToolSchema(
-      {
-        ref: { type: "string" },
-        value: { type: "string", maxLength: 100_000 },
-        element,
-        viewId,
-      },
-      ["ref", "value"]
-    ),
-  },
-  {
-    name: "browser_select_option",
-    description: "Select one or more option values or labels in a select element by ref.",
-    inputSchema: objectToolSchema(
-      {
-        ref: { type: "string" },
-        values: { type: "array", minItems: 1, maxItems: 100, items: { type: "string" } },
-        element,
-        viewId,
-      },
-      ["ref", "values"]
-    ),
-  },
-  {
-    name: "browser_press_key",
-    description: "Press a key or key chord in the selected browser page.",
-    inputSchema: objectToolSchema(
-      { key: { type: "string", minLength: 1, maxLength: 100 }, viewId },
-      ["key"]
-    ),
-  },
-  {
-    name: "browser_scroll",
-    description: "Scroll the page or scroll a referenced element into view.",
-    inputSchema: objectToolSchema({
-      ref: { type: "string" },
-      element,
-      direction: { type: "string", enum: ["up", "down", "left", "right"] },
-      amount: { type: "number", minimum: 0, maximum: 100_000 },
-      deltaX: { type: "number", minimum: -100_000, maximum: 100_000 },
-      deltaY: { type: "number", minimum: -100_000, maximum: 100_000 },
-      viewId,
-    }),
-  },
-  {
-    name: "browser_drag",
-    description: "Drag an element by ref to another ref or viewport coordinates.",
-    inputSchema: objectToolSchema(
-      {
-        sourceRef: { type: "string" },
-        element,
-        targetRef: { type: "string" },
-        targetX: { type: "number", minimum: 0 },
-        targetY: { type: "number", minimum: 0 },
-        viewId,
-      },
-      ["sourceRef"]
-    ),
-  },
-  {
-    name: "browser_get_bounding_box",
-    description: "Get the viewport bounding box for an element ref.",
-    inputSchema: objectToolSchema({ ref: { type: "string" }, element, viewId }, ["ref"]),
-  },
-  {
-    name: "browser_highlight",
-    description: "Highlight an element by ref and return a screenshot showing the highlight.",
-    inputSchema: objectToolSchema(
-      {
-        ref: { type: "string" },
-        element,
-        durationMs: { type: "integer", minimum: 0, maximum: 10_000 },
-        viewId,
-      },
-      ["ref"]
-    ),
-  },
-  {
-    name: "browser_cdp",
-    description:
-      "Send an allowed Chrome DevTools Protocol command to the selected tab. Input, browser-wide, storage, cookie, cache, permission, and target-management commands are denied.",
-    inputSchema: objectToolSchema(
-      { method: { type: "string" }, params: { type: "object" }, viewId },
-      ["method"]
-    ),
-  },
-  {
-    name: "browser_tabs",
-    description: "List, create, close, or select a browser tab.",
-    inputSchema: objectToolSchema(
-      {
-        action: { type: "string", enum: ["list", "new", "close", "select"] },
-        index: { type: "integer", minimum: 0 },
-      },
-      ["action"]
-    ),
-  },
-  {
-    name: "browser_take_screenshot",
-    description: "Take a viewport, full-page, or element screenshot of the selected page.",
-    inputSchema: objectToolSchema({ viewId, fullPage: { type: "boolean" }, target: { type: "string", minLength: 1, maxLength: 1000 }, element: { type: "string", maxLength: 500 } }),
-  },
-].map(tool => referenceTool(tool.name));
+  "browser_console_messages",
+  "browser_handle_dialog",
+  "browser_file_upload",
+  "browser_find",
+  "browser_fill_form",
+  "browser_press_key",
+  "browser_type",
+  "browser_navigate",
+  "browser_navigate_back",
+  "browser_run_code",
+  "browser_take_screenshot",
+  "browser_snapshot",
+  "browser_click",
+  "browser_drag",
+  "browser_hover",
+  "browser_select_option",
+  "browser_tabs",
+  "browser_wait_for",
+].map(referenceTool);

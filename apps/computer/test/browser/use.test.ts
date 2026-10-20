@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import {
-  assertAllowedCdpMethod,
   BROWSER_USE_TOOLS,
   BrowserUseSession,
   sameOriginFrame,
@@ -10,62 +9,43 @@ import {
 } from "../../src/browser/use";
 
 const EXPECTED_TOOLS = [
-  "browser_run_code",
-  "browser_handle_dialog",
-  "browser_navigate_back",
-  "browser_wait_for",
-  "browser_resize",
-  "browser_find",
-  "browser_hover",
   "browser_console_messages",
-  "browser_fill_form",
+  "browser_handle_dialog",
   "browser_file_upload",
+  "browser_find",
+  "browser_fill_form",
+  "browser_press_key",
+  "browser_type",
   "browser_navigate",
+  "browser_navigate_back",
+  "browser_run_code",
+  "browser_take_screenshot",
   "browser_snapshot",
   "browser_click",
-  "browser_mouse_click_xy",
-  "browser_type",
-  "browser_fill",
-  "browser_select_option",
-  "browser_press_key",
-  "browser_scroll",
   "browser_drag",
-  "browser_get_bounding_box",
-  "browser_highlight",
-  "browser_cdp",
+  "browser_hover",
+  "browser_select_option",
   "browser_tabs",
-  "browser_take_screenshot",
+  "browser_wait_for",
 ];
 
 describe("browser-use tool surface", () => {
-  test("exposes the complete page-level browser tool set", () => {
+  test("exposes the page-level browser tools, with browser_run_code primary and the rest as fallbacks", () => {
     expect(BROWSER_USE_TOOLS.map((tool) => tool.name)).toEqual(EXPECTED_TOOLS);
-    const navigate = BROWSER_USE_TOOLS.find((tool) => tool.name === "browser_navigate");
-    if (!navigate) throw new Error("browser_navigate tool is missing");
-    expect(
-      Value.Check(Type.Unsafe<Record<string, unknown>>(navigate.inputSchema), {
-        url: "https://example.com",
-        newTab: true,
-      })
-    ).toBe(true);
-    expect(
-      Value.Check(Type.Unsafe<Record<string, unknown>>(navigate.inputSchema), { newTab: true })
-    ).toBe(false);
-  });
-
-  test("allows tab-scoped inspection and blocks privileged CDP domains", () => {
-    expect(() => assertAllowedCdpMethod("Runtime.evaluate")).not.toThrow();
-    expect(() => assertAllowedCdpMethod("Performance.getMetrics")).not.toThrow();
-    for (const method of [
-      "Input.dispatchMouseEvent",
-      "Browser.close",
-      "Storage.getCookies",
-      "Target.createTarget",
-      "Network.getAllCookies",
-      "Network.clearBrowserCache",
-    ]) {
-      expect(() => assertAllowedCdpMethod(method)).toThrow("not allowed");
-    }
+    const tool = (name: string) => BROWSER_USE_TOOLS.find((candidate) => candidate.name === name)!;
+    const check = (name: string, args: Record<string, unknown>) =>
+      Value.Check(Type.Unsafe<Record<string, unknown>>(tool(name).inputSchema), args);
+    expect(check("browser_navigate", { url: "https://example.com" })).toBe(true);
+    expect(check("browser_navigate", { url: "https://example.com", newTab: true })).toBe(false);
+    expect(check("browser_click", { target: "e1", element: "Save" })).toBe(true);
+    expect(check("browser_click", { target: "e1" })).toBe(false);
+    expect(check("browser_drag", { startTarget: "e1", startElement: "Card", endTarget: "e2" })).toBe(true);
+    expect(check("browser_wait_for", { time: 11 })).toBe(false);
+    for (const name of ["browser_snapshot", "browser_take_screenshot", "browser_console_messages", "browser_find", "browser_file_upload"])
+      expect(tool(name).description).not.toStartWith("Fallback only");
+    for (const name of ["browser_click", "browser_type", "browser_navigate", "browser_tabs", "browser_wait_for"])
+      expect(tool(name).description).toStartWith("Fallback only: use for a step that failed in two browser_run_code scripts");
+    expect(JSON.stringify(BROWSER_USE_TOOLS)).not.toContain("viewId");
   });
 
   test("applies snapshot depth and same-origin frame rules", () => {

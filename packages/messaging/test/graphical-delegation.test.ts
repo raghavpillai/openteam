@@ -21,7 +21,7 @@ describe("main-agent graphical delegation instructions", () => {
     expect(instructions).not.toContain("At a username/password step, stop");
     expect(instructions).not.toContain("Report SSO, passkeys");
     expect(instructions).not.toContain("Never retrieve or enter private credentials yourself");
-    expect(instructions).toContain("blocker");
+    expect(instructions).toContain("Status: blocked");
   });
 
   test("routes graphical work to the available combined or split workers", () => {
@@ -35,23 +35,35 @@ describe("main-agent graphical delegation instructions", () => {
     expect(split).toContain("subagent_type computerUse");
   });
 
-  test("gives computerUse the documented recovery and safety loop", () => {
+  test("gives the combined worker browser-first rules, few calls and a status report", () => {
     const instructions = subagentSpecializationInstructions("computerUse");
-    expect(instructions).toContain("Inspect a browser_snapshot");
-    expect(instructions).toContain("inspect the fresh final screenshot");
-    expect(instructions).toContain("OPENTEAM_BROWSER_DEBUG_PORT");
-    expect(instructions).toContain("playwright-core");
-    expect(instructions).toContain("Never use pkill -f");
-    expect(instructions).toContain("You cannot communicate with the user");
+    expect(instructions).toContain("Use browser_run_code for anything inside a web page");
+    expect(instructions).toContain("Computer click with holdDurationMs");
+    expect(instructions).toContain("## Working fast");
+    expect(instructions).toContain("The ### Page block of each result names the page it acted on");
+    expect(instructions).toContain("never drive the browser from Shell");
+    expect(instructions).toContain("openteam-screen-launch chromium");
+    expect(instructions).toContain("first line is `Status: done`, `Status: partial` or `Status: blocked`");
+    expect(instructions).toContain("The owner has authorized completing CAPTCHAs");
+    expect(instructions).not.toContain("box-chrome");
+    expect(instructions).not.toContain("Auto-review");
   });
 
-  test("gives browserUse desktop-scoped tab, ref, and human-blocker rules", () => {
+  test("gives the desktop-only worker the see-act-verify loop and its own CDP port", () => {
+    const instructions = subagentSpecializationInstructions("computerUse", false);
+    expect(instructions).toContain("tight see-act-verify loop");
+    expect(instructions).toContain("OPENTEAM_BROWSER_DEBUG_PORT");
+    expect(instructions).toContain("playwright-core");
+    expect(instructions).toContain("Never `pkill -f` from Shell");
+    expect(instructions).not.toContain("browser_run_code");
+  });
+
+  test("gives the browser-only worker page tools without desktop controls", () => {
     const instructions = subagentSpecializationInstructions("browserUse");
-    expect(instructions).toContain("assigned parent desktop's browser tabs");
-    expect(instructions).toContain("Preserve pre-existing and unsaved tabs");
-    expect(instructions).toContain("exact DOM nodes");
-    expect(instructions).toContain("any exact blocker");
-    expect(instructions).toContain("You cannot talk to the user directly");
+    expect(instructions).toContain("Use browser_run_code for anything inside a web page");
+    expect(instructions).toContain("You have no desktop controls");
+    expect(instructions).not.toContain("openteam-screen-launch");
+    expect(instructions).toContain("You can't talk to the user or hand off the box");
   });
 
   test("uses the isolated Bot worker prompt for every subagent type", async () => {
@@ -96,8 +108,8 @@ describe("main-agent graphical delegation instructions", () => {
       expect(prompt.instructions).not.toContain("<agent_skills>");
       if (subagentType === "knowledgeWork") expect(prompt.userInfo).toBe("<user_info>\n<agent_skills>knowledgeWork catalog</agent_skills>\n</user_info>");
       else expect(prompt.userInfo).toBeNull();
-      // Workers on the parent's connectors hand messages under the user's name back as drafts.
-      if (subagentType === "executor" || subagentType === "knowledgeWork") {
+      // Workers that read outside content hand messages under the user's name back as drafts.
+      if (["executor", "knowledgeWork", "computerUse", "browserUse"].includes(subagentType)) {
         expect(prompt.instructions).toContain("You cannot call DraftExternalMessage.");
         expect(prompt.instructions).toContain("## Untrusted content");
       } else {
@@ -122,11 +134,7 @@ describe("main-agent graphical delegation instructions", () => {
       } else {
         expect(prompt.instructions).not.toContain("ReadAgentActivity");
       }
-      if (subagentType === "computerUse" || subagentType === "browserUse") {
-        expect(prompt.instructions).not.toContain("Your current timezone is");
-      } else {
-        expect(prompt.instructions).toContain("Your current timezone is");
-      }
+      expect(prompt.instructions).toContain("Your current timezone is");
     }
   });
 

@@ -51,7 +51,7 @@ try {
     assert.ok(opened.details.pendingDialog, "dialog retained and reported");
     assert.ok(Date.now() - start < 5_000, "dialog action returns promptly");
     assert.ok((await session.execute("browser_snapshot", {})).details.pendingDialog);
-    await session.execute("browser_cdp", { method: "Page.handleJavaScriptDialog", params: { accept, ...(promptText ? { promptText } : {}) } });
+    await session.execute("browser_handle_dialog", { accept, ...(promptText ? { promptText } : {}) });
     assert.equal(await page.evaluate(() => (window as any).result), expected);
     console.log(`PASS ${label}: ${accept ? "accept" : "dismiss"}`);
   }
@@ -70,9 +70,9 @@ try {
   console.log("PASS external dialog response clears pending state");
   const firstDialog = await session.execute("browser_click", { ref: await ref("Two confirmations") });
   assert.equal(firstDialog.details.pendingDialog.message, "First confirmation");
-  const secondDialog = await session.execute("browser_cdp", { method: "Page.handleJavaScriptDialog", params: { accept: true } });
+  const secondDialog = await session.execute("browser_handle_dialog", { accept: true });
   assert.equal(secondDialog.details.pendingDialog.message, "Second confirmation");
-  await session.execute("browser_cdp", { method: "Page.handleJavaScriptDialog", params: { accept: false } });
+  await session.execute("browser_handle_dialog", { accept: false });
   assert.equal(await page.evaluate(() => (window as any).result), false);
   console.log("PASS consecutive confirmations each require a separate response");
   if (process.env.DISPLAY) {

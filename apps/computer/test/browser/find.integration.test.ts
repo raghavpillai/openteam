@@ -40,17 +40,17 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)('find recovers generi
   expect(found).toContain('Scope of delivery');
   expect(found).toContain('Shadow needle'); expect(found).toContain('Frame needle');
   expect(found).not.toContain('Hidden needle'); expect(found).not.toContain('secret-needle');
-  await session.execute('browser_click',{ref:ref(found,'Load all')});
+  await session.execute('browser_click',{target:ref(found,'Load all'),element:'Load all'});
   const page=await (session as any).ensurePage(); expect(await page.title()).toBe('clicked');
   let state=text(await session.execute('browser_snapshot',{}));
   for(const label of ['Navigate away','Read only','Load all']) {
-    await expect(session.execute('browser_type',{ref:ref(state,label),text:'wrong',submit:true})).rejects.toThrow('editable');
+    await expect(session.execute('browser_type',{target:ref(state,label),text:'wrong',submit:true})).rejects.toThrow('editable');
     expect(page.url()).toBe(`http://127.0.0.1:${server.port}/`);
   }
-  await session.execute('browser_type',{ref:ref(state,'Writable'),text:'correct'});
+  await session.execute('browser_type',{target:ref(state,'Writable'),text:'correct'});
   expect(await page.getByLabel('Writable').inputValue()).toBe('correct');
   state=text(await session.execute('browser_snapshot',{}));
-  await session.execute('browser_type',{ref:ref(state,'Editor'),text:'replacement',clear:true});
+  await session.execute('browser_type',{target:ref(state,'Editor'),text:'replacement'});
   expect(await page.getByLabel('Editor').innerText()).toBe('replacement');
   const absent=await session.execute('browser_find',{text:'absent unique phrase'});
   expect(absent.details?.matches).toBe(0);

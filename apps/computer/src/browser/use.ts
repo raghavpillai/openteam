@@ -25,26 +25,21 @@ const textResult = (
   details,
 });
 
-export const assertAllowedCdpMethod = (method: string): void => {
-  const denied = [
-    /^Input\./,
-    /^Browser\./,
-    /^Storage\./,
-    /^Target\./,
-    /^Security\./,
-    /^SystemInfo\./,
-    /^Tethering\./,
-    /^Cast\./,
-    /^Network\.(?:clearBrowserCache|clearBrowserCookies|deleteCookies|getAllCookies|getCookies|setCookie|setCookies|setExtraHTTPHeaders)$/,
-    /^Emulation\.setGeolocationOverride$/,
-    /^Page\.setDownloadBehavior$/,
-  ];
-  if (
-    !/^[A-Za-z][A-Za-z0-9]*\.[A-Za-z][A-Za-z0-9]*$/.test(method) ||
-    denied.some((rule) => rule.test(method))
-  ) {
-    throw new Error(`CDP method is not allowed: ${method}`);
+/** The model names elements by target; the driver addresses them by ref. */
+const driverArguments = (toolName: string, args: JsonObject): JsonObject => {
+  if (["browser_click", "browser_type", "browser_select_option"].includes(toolName)) {
+    const { target, ...rest } = args;
+    return target === undefined ? args : { ...rest, ref: target };
   }
+  if (toolName === "browser_drag") {
+    const { startTarget, endTarget, startElement, endElement, ...rest } = args;
+    return { ...rest, sourceRef: startTarget, targetRef: endTarget, element: startElement, targetElement: endElement };
+  }
+  if (toolName === "browser_snapshot") {
+    const { depth, ...rest } = args;
+    return depth === undefined ? args : { ...rest, maxDepth: depth };
+  }
+  return args;
 };
 
 interface SnapshotElement {
@@ -153,8 +148,7 @@ export class BrowserUseSession {
   private dialogState(page: Page, summary = "Browser action opened a dialog") {
     const dialog = this.dialogs.get(page)!;
     const pendingDialog = { type: dialog.type(), message: dialog.message(), defaultValue: dialog.defaultValue() };
-    return textResult(`${summary}. Pending ${pendingDialog.type}: ${pendingDialog.message}\n` +
-      `The page is paused. Use browser_handle_dialog with {accept: true|false, promptText?: string}, or respond through native Computer controls. Do not repeat the action that opened it.`,
+    return textResult(`### Result\n${summary}\n### Modal state\n- [${JSON.stringify(pendingDialog.type)} dialog with message ${JSON.stringify(pendingDialog.message)}]: can be handled by browser_handle_dialog, or through native Computer controls. The page is paused; do not repeat the action that opened it.`,
       { viewId: this.idFor(page), url: page.url(), pendingDialog });
   }
 
@@ -486,9 +480,9 @@ export class BrowserUseSession {
     const page = await this.ensurePage(this.viewId(args));
     await this.refreshPendingDialog(page);
     const dialog = this.dialogs.get(page);
-    if (toolName === "browser_handle_dialog" || (toolName === "browser_cdp" && args.method === "Page.handleJavaScriptDialog")) {
+    if (toolName === "browser_handle_dialog") {
       if (!dialog) throw new Error("No dialog is showing");
-      const params = toolName === "browser_handle_dialog" ? args : args.params as JsonObject | undefined;
+      const params = args;
       if (typeof params?.accept !== "boolean" || (params.promptText !== undefined && typeof params.promptText !== "string"))
         throw new Error("Dialog handling requires accept: boolean and optional promptText: string");
       const opened = new Promise<AgentToolResult<Record<string, unknown>>>(resolve => {
@@ -551,7 +545,7 @@ export class BrowserUseSession {
     throw error;
   }
   private async executeRaw(toolName: string, raw: unknown, signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
-    const args = (raw && typeof raw === "object" ? raw : {}) as JsonObject;
+    const args = driverArguments(toolName, (raw && typeof raw === "object" ? raw : {}) as JsonObject);
     switch (toolName) {
       case "browser_navigate":
         return this.navigate(args);
@@ -562,8 +556,6 @@ export class BrowserUseSession {
         signal?.throwIfAborted();
         return this.pageState(page, "Went back in browser history");
       }
-      case "browser_resize":
-        return this.resize(args, signal);
       case "browser_wait_for":
         return this.waitFor(args, signal);
       case "browser_hover":
@@ -577,31 +569,19 @@ export class BrowserUseSession {
       case "browser_file_upload":
         return this.respondToUpload(args);
       case "browser_click":
-        return this.uploads.capture(await this.ensurePage(this.viewId(args)), () => this.click(args));
-      case "browser_mouse_click_xy":
-        return this.uploads.capture(await this.ensurePage(this.viewId(args)), () => this.mouseClick(args));
+        return this.uploads.capture(await this.ensurePage(), () => this.click(args));
       case "browser_type":
         return this.type(args);
       case "browser_fill_form":
         return this.fillBatch(args);
-      case "browser_fill":
-        return this.fill(args);
       case "browser_select_option":
         return this.selectOption(args);
       case "browser_press_key":
         return this.pressKey(args);
-      case "browser_scroll":
-        return this.scroll(args);
       case "browser_drag":
         return this.drag(args);
-      case "browser_get_bounding_box":
-        return this.boundingBox(args);
-      case "browser_highlight":
-        return this.highlight(args);
       case "browser_run_code":
         return this.runCode(args, signal);
-      case "browser_cdp":
-        return this.cdp(args);
       case "browser_tabs":
         return this.tabs(args);
       case "browser_take_screenshot":
@@ -864,12 +844,9 @@ export class BrowserUseSession {
       const snapshot = observation === "snapshot" ? undefined : await this.captureSnapshot(page);
       const title = await page.title().catch(() => "");
       const downloads = await this.downloads?.forPage(page) ?? [];
-      return textResult(redactSecrets([
-        summary, `Current page: ${title} (${page.url()})`, `Tab viewId: ${this.idFor(page)}`,
-        ...(data ? [data] : []), ...(snapshot ? [snapshot.lines.join("\n")] : []),
-        ...(downloads.length ? ["Recent download history for this tab (not necessarily triggered by this action):"] : []),
-        ...downloads.map(download => `Download ${download.state}: ${download.filename}${download.path ? ` (${download.path})` : ` (destination: ${download.directory})`}`),
-      ].join("\n\n"), [...this.privateValues]), {
+      return textResult(await this.resultSections(page, [summary, ...(data && observation !== "snapshot" ? [data] : [])],
+        observation === "snapshot" ? data : snapshot?.lines.join("\n"),
+        downloads.map(download => `- ${download.state}: ${download.filename}${download.path ? ` (${download.path})` : ` (destination: ${download.directory})`}`)), {
         viewId: this.idFor(page), url: page.url(), title,
         ...(snapshot ? { refs: snapshot.refCount, unreachableFrames: snapshot.unreachableFrames } : {}),
         ...(downloads.length ? { downloads } : {}),
@@ -886,13 +863,13 @@ export class BrowserUseSession {
     const title = await page.title().catch(() => "");
     const downloads = await this.downloads?.forPage(page) ?? [];
     const downloadText = downloads.map(download => download.state === "completed"
-      ? download.path ? `Downloaded ${download.filename} to ${download.path}` : `Download completed: ${download.filename}. Check ${download.directory} for the saved filename; the browser did not provide a verified file path.`
-      : `Download ${download.state === "canceled" ? "canceled" : "in progress"}: ${download.filename} (destination: ${download.directory})`);
+      ? download.path ? `- Downloaded ${download.filename} to ${download.path}` : `- Download completed: ${download.filename}. Check ${download.directory} for the saved filename; the browser did not provide a verified file path.`
+      : `- Download ${download.state === "canceled" ? "canceled" : "in progress"}: ${download.filename} (destination: ${download.directory})`);
     return {
       content: [
         {
           type: "text",
-          text: redactSecrets([summary === "Took a screenshot" ? `Saved a screenshot to ${path}` : summary, `Current page: ${title} (${page.url()})`, `Tab viewId: ${this.idFor(page)}`, `Capture area: ${screenshotTarget ? "element" : fullPage ? "full page" : "browser viewport"}`, ...(data ? [data] : []), ...(downloadText.length ? ["Recent download history for this tab (not necessarily triggered by this action):"] : []), ...downloadText].join("\n\n"), [...this.privateValues]),
+          text: await this.resultSections(page, [summary === "Took a screenshot" ? `Saved a screenshot to ${path}` : summary, `Capture area: ${screenshotTarget ? "element" : fullPage ? "full page" : "browser viewport"}`, ...(data ? [data] : [])], undefined, downloadText),
         },
         { type: "image", data: image.toString("base64"), mimeType: "image/png" },
       ],
@@ -900,21 +877,33 @@ export class BrowserUseSession {
     };
   }
 
-  private async navigate(args: JsonObject) {
+  /** Result sections: what happened, the open tabs, the page acted on, then its snapshot and downloads. */
+  private async resultSections(page: Page, result: string[], snapshot?: string, downloads: string[] = []): Promise<string> {
+    const rows = await this.tabRows();
+    const title = await page.title().catch(() => "");
+    return redactSecrets([
+      "### Result", ...result,
+      ...(rows.length > 1 ? ["### Open tabs", ...rows] : []),
+      "### Page", `- Page URL: ${page.url()}`, ...(title ? [`- Page Title: ${title}`] : []),
+      ...(snapshot ? ["### Snapshot", snapshot] : []),
+      ...(downloads.length ? ["### Downloads", "Recent download history for this tab (not necessarily triggered by this action):", ...downloads] : []),
+    ].join("\n"), [...this.privateValues]);
+  }
+
+  private async tabRows(): Promise<string[]> {
+    return Promise.all(this.leasedPages().map(async (page, index) =>
+      `- ${index}:${this.idFor(page) === this.currentViewId ? " (current)" : ""} [${await page.title().catch(() => "")}](${page.url()})`));
+  }
+
+  private async navigate(args: JsonObject, page?: Page) {
     if (typeof args.url !== "string") throw new Error("url is required");
-    const page =
-      args.newTab === true
-        ? await this.context.newPage().then((created) => {
-            this.trackPage(created);
-            return created;
-          })
-        : await this.ensurePage(this.viewId(args));
+    page ??= await this.ensurePage();
     this.currentViewId = this.idFor(page);
     await this.observeDialogs(page);
     const outcome = await gotoWithRecovery(page, args.url, true);
     await this.clearRefs(page);
     const safeUrl = new URL(args.url); safeUrl.username = ""; safeUrl.password = "";
-    return this.pageState(page, `${args.newTab === true ? `Opened ${safeUrl.href} in a new tab` : `Navigated to ${safeUrl.href}`}${navigationNote(outcome)}`);
+    return this.pageState(page, `Navigated to ${safeUrl.href}${navigationNote(outcome)}`);
   }
 
   private async captureSnapshot(page: Page, args: JsonObject = {}) {
@@ -940,7 +929,6 @@ export class BrowserUseSession {
     return textResult(redactSecrets([
       `Page text search: ${found.count} matching lines${found.truncated ? " (results truncated)" : ""}.`,
       `Query (${typeof args.text === "string" ? "text" : "regex"}): ${JSON.stringify(redactSecrets(String(args.text ?? args.regex), [...this.privateValues]))}`,
-      `Tab viewId: ${this.idFor(page)}`,
       "Numbered lines are text locations, not element refs. Use only explicit [ref=...] values for element actions; a text match may have no actionable ref.",
       ...found.lines,
       ...snapshot.lines.filter(line => line.includes("truncated") || line.includes("unreachable")),
@@ -950,24 +938,14 @@ export class BrowserUseSession {
     });
   }
 
-  private async resize(args: JsonObject, signal?: AbortSignal) {
-    signal?.throwIfAborted();
-    const { width, height } = args;
-    if (typeof width !== "number" || typeof height !== "number" ||
-      !Number.isInteger(width) || !Number.isInteger(height) ||
-      width < 1 || height < 1 || width > 8192 || height > 8192) {
-      throw new Error("Browser width and height must be positive integers between 1 and 8192");
-    }
-    const page = await this.ensurePage(this.viewId(args));
-    signal?.throwIfAborted();
-    await page.setViewportSize({ width, height });
-    signal?.throwIfAborted();
-    return this.pageState(page, `Resized browser viewport to ${width} x ${height}`);
-  }
-
   private async snapshot(args: JsonObject) {
-    const page = await this.ensurePage(this.viewId(args));
-    const result = await this.captureSnapshot(page, args);
+    const page = await this.ensurePage();
+    // A target ref scopes the snapshot to that element's subtree.
+    const root = typeof args.target === "string" ? await this.requireRef(page, args.target) : undefined;
+    const marker = randomUUID();
+    if (root) await root.evaluate((node, value) => node.setAttribute("data-openteam-snapshot-root", value), marker);
+    const result = await this.captureSnapshot(page, root ? { ...args, selector: `[data-openteam-snapshot-root="${marker}"]` } : args)
+      .finally(() => root?.evaluate((node) => node.removeAttribute("data-openteam-snapshot-root")).catch(() => undefined));
     const output = await this.pageState(page, `Captured page snapshot (${result.refCount} interactive refs)`, false, result.lines.join("\n"), "snapshot");
     output.details = { ...output.details, refs: result.refCount, unreachableFrames: result.unreachableFrames, ...(result.selector ? { selectorMatched: result.selector.matched, selectorClosedShadow: result.selector.closedShadow } : {}) };
     return output;
@@ -1075,34 +1053,46 @@ export class BrowserUseSession {
 
   private async waitFor(args: JsonObject, signal?: AbortSignal) {
     const {time, text, textGone} = args;
-    if (time === undefined && text === undefined && textGone === undefined)
-      throw new Error("Provide time, text or textGone");
     if (time !== undefined && (typeof time !== "number" || !Number.isFinite(time) || time < 0 || time > 10))
       throw new Error("time must be between 0 and 10 seconds");
     for (const value of [text, textGone])
       if (value !== undefined && (typeof value !== "string" || !value.trim() || value.length > 1000))
         throw new Error("Wait text must be a non-empty string of at most 1000 characters");
-    const page = await this.ensurePage(this.viewId(args));
+    const page = await this.ensurePage();
     const pause = (ms: number) => new Promise<void>((resolve, reject) => {
       signal?.throwIfAborted();
       const abort = () => { clearTimeout(timer); signal?.removeEventListener("abort", abort); reject(signal?.reason ?? new Error("Wait interrupted")); };
       const timer = setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, ms);
       signal?.addEventListener("abort", abort, {once: true});
     });
+    // The page is quiet once it has loaded and its network has been idle for a moment.
+    const quiet = (ms: number) => Promise.race([
+      page.waitForLoadState("networkidle", { timeout: Math.max(1, ms) }).catch(() => undefined),
+      pause(ms),
+    ]);
+    // Hidden templates and responsive duplicates often precede the live copy.
+    // Appearance means any visible match; disappearance means none remain.
+    const shown = async (value: string) => await page.getByText(value).filter({visible: true}).count() > 0;
+    const seconds = typeof time === "number" ? time : undefined;
     signal?.throwIfAborted();
-    if (typeof time === "number") await pause(time * 1000);
-    for (const [value, visible] of [[text, true], [textGone, false]] as const) {
-      if (typeof value !== "string") continue;
-      const deadline = Date.now() + 10_000;
-      while (true) {
-        signal?.throwIfAborted();
+    if (typeof text === "string") {
+      const deadline = Date.now() + Math.max(seconds ?? 0, 10) * 1000;
+      while (!(await shown(text))) {
         if (page.isClosed()) throw new Error("Page closed while waiting");
-        // Hidden templates and responsive duplicates often precede the live copy.
-        // Appearance means any visible match; disappearance means none remain.
-        if ((await page.getByText(value).filter({visible: true}).count() > 0) === visible) break;
-        if (Date.now() >= deadline) throw new Error(`Timed out after 10000ms waiting for text to ${visible ? "appear" : "disappear"}: ${value}`);
+        if (Date.now() >= deadline) throw new Error(`Timed out after ${Math.max(seconds ?? 0, 10)}s waiting for text to appear: ${text}`);
         await pause(100);
       }
+    } else if (typeof textGone === "string") {
+      const limit = Math.max(seconds ?? 0, 10) * 1000;
+      const deadline = Date.now() + limit;
+      await quiet(seconds === undefined ? limit : seconds * 1000);
+      while (await shown(textGone)) {
+        if (page.isClosed()) throw new Error("Page closed while waiting");
+        if (Date.now() >= deadline) throw new Error(`Timed out after ${limit / 1000}s waiting for text to disappear: ${textGone}`);
+        await pause(100);
+      }
+    } else {
+      await quiet((seconds ?? 10) * 1000);
     }
     signal?.throwIfAborted();
     return this.pageState(page, "Wait completed");
@@ -1146,21 +1136,14 @@ export class BrowserUseSession {
     const modifiers = Array.isArray(args.modifiers)
       ? args.modifiers.map((value) => (value === "ControlOrMeta" ? "Control" : value))
       : [];
-    const hold = args.holdDurationMs;
-    if (hold !== undefined && (typeof hold !== "number" || !Number.isInteger(hold) || hold < 1 || hold > 30_000)) throw new Error("holdDurationMs must be 1–30000");
-    const box = await handle.boundingBox();
     try {
       await handle.click({
         // Match the reference driver's action budget instead of inheriting
         // Playwright's 30-second default for stale/covered controls.
-        timeout: 10_000 + (typeof hold === "number" ? hold * (args.doubleClick === true ? 2 : 1) : 0),
+        timeout: 10_000,
         button: (args.button as "left" | "right" | "middle") ?? "left",
         clickCount: args.doubleClick === true ? 2 : 1,
         modifiers: modifiers as Array<"Alt" | "Control" | "Meta" | "Shift">,
-        ...(typeof hold === "number" ? {delay:hold} : {}),
-        ...((typeof args.offsetX === "number" || typeof args.offsetY === "number") && box ? {
-          position: {x:box.width / 2 + (typeof args.offsetX === "number" ? args.offsetX : 0),y:box.height / 2 + (typeof args.offsetY === "number" ? args.offsetY : 0)}
-        } : {}),
       });
     } catch (error) {
       if (error instanceof Error && /Timeout \d+ms exceeded/.test(error.message)) {
@@ -1171,26 +1154,25 @@ export class BrowserUseSession {
     return this.pageState(page, await this.recoverAfterAction(page, `Clicked ${args.element ?? args.ref}`));
   }
 
-  private async mouseClick(args: JsonObject) {
-    const page = await this.ensurePage(this.viewId(args));
-    if (typeof args.x !== "number" || typeof args.y !== "number")
-      throw new Error("x and y are required");
-    const button = (args.button as "left" | "right" | "middle") ?? "left";
-    if (typeof args.holdDurationMs === "number") {
-      if (!Number.isInteger(args.holdDurationMs) || args.holdDurationMs < 1 || args.holdDurationMs > 30_000) throw new Error("holdDurationMs must be 1–30000");
-      await page.mouse.move(args.x, args.y);
-      await page.mouse.down({ button });
-      try { await page.waitForTimeout(args.holdDurationMs); }
-      finally { await page.mouse.up({ button }); }
-    } else await page.mouse.click(args.x, args.y, { button });
-    return this.pageState(page, await this.recoverAfterAction(page, `Clicked at (${args.x}, ${args.y})`));
-  }
-
   private async type(args: JsonObject) {
-    const page = await this.ensurePage(this.viewId(args));
+    const page = await this.ensurePage();
     if (typeof args.text !== "string") throw new Error("text is required");
-    const result = await referenceType({ page, request: args });
-    return this.pageState(page, await this.recoverAfterAction(page, result.summary));
+    // The entire text is filled in at once; slowly types one character at a time.
+    let summary: string;
+    if (args.slowly === true) summary = (await referenceType({ page, request: args })).summary;
+    else {
+      const handle = await this.requireRef(page, args.ref);
+      const editable = await handle.evaluate((el) => el.isConnected && !el.matches(":disabled") &&
+        el.getAttribute("aria-disabled") !== "true" && el.getAttribute("aria-readonly") !== "true" && !el.hasAttribute("readonly") &&
+        ((el as HTMLElement).isContentEditable || el.matches('textarea,input:not([type]),input[type="text"],input[type="search"],input[type="email"],input[type="url"],input[type="tel"],input[type="password"],input[type="number"],input[type="date"],input[type="time"],input[type="month"],input[type="datetime-local"]')));
+      if (!editable) throw new Error("Target is not an enabled editable text control. No click or typing was performed. Take a fresh browser_snapshot and choose an editable ref.");
+      summary = (await referenceFill({ page, element: handle, request: { ref: args.ref, element: args.element, value: args.text } })).summary;
+    }
+    if (args.slowly !== true && args.submit === true) {
+      await page.keyboard.press("Enter");
+      await page.waitForLoadState("domcontentloaded", { timeout: 5_000 }).catch(() => undefined);
+    }
+    return this.pageState(page, await this.recoverAfterAction(page, summary));
   }
 
   private async fillBatch(args: JsonObject) {
@@ -1202,11 +1184,11 @@ export class BrowserUseSession {
       if (!field || !/^e[0-9]+$/.test(field.target) || typeof field.name !== "string" || field.name.length > 500 || seen.has(field.target))
         throw new Error("Each field needs a unique current target ref and a name");
       seen.add(field.target);
-      if (field.type === "checkbox" ? ![true, false, "true", "false"].includes(field.value)
-        : field.type !== "textbox" || typeof field.value !== "string" || field.value.length > 10_000)
-        throw new Error("Use textbox strings or checkbox true/false values");
+      if (field.type === "checkbox" || field.type === "radio" ? ![true, false, "true", "false"].includes(field.value)
+        : !["textbox", "combobox", "slider"].includes(field.type) || typeof field.value !== "string" || field.value.length > 10_000)
+        throw new Error("Use textbox, combobox or slider strings, or checkbox and radio true/false values");
     }
-    const page = await this.ensurePage(this.viewId(args));
+    const page = await this.ensurePage();
     const outcomes: Array<{ target: string; status: string; reason?: string }> = [];
     // Pin all nodes before writing: do not silently retarget after a page transition.
     const handles = await Promise.all(fields.map(field => this.requireRef(page, field.target)));
@@ -1217,13 +1199,23 @@ export class BrowserUseSession {
         if (await handle.evaluate(WRITE_TARGET_IS_HIDDEN_FN) || await writeTargetFrameIsHidden(page, handle))
           throw new Error("hidden");
         const valid = await handle.evaluate((node, type) => node.isConnected && !node.hasAttribute("disabled") && !node.hasAttribute("readonly") &&
-          (type === "checkbox" ? node.matches('input[type="checkbox"]') :
+          (type === "checkbox" ? node.matches('input[type="checkbox"],[role="checkbox"],[role="switch"]') :
+            type === "radio" ? node.matches('input[type="radio"],[role="radio"]') :
+            type === "combobox" ? node.matches('select,input,[role="combobox"]') :
+            type === "slider" ? node.matches('input[type="range"],[role="slider"]') :
             node.matches('textarea,input:not([type="password"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="submit"]):not([type="button"])') || node.isContentEditable), field.type);
         if (!valid) throw new Error("unavailable");
-        if (field.type === "checkbox") {
+        if (field.type === "checkbox" || field.type === "radio") {
           const value = field.value === true || field.value === "true";
           await handle.setChecked(value, { timeout: 3_000 });
           if (await handle.isChecked() !== value) throw new Error("verification");
+        } else if (field.type === "combobox" && await handle.evaluate((node) => node.matches("select"))) {
+          // A combobox value is the visible text of the option.
+          const resolved = await handle.evaluate(resolveReferenceSelectOptions, [field.value]) as {kind:string;values?:string[]};
+          if (resolved.kind === "unmatched") throw new Error("unmatched");
+          await handle.selectOption(resolved.kind === "matched" ? resolved.values!.map(value => ({ value })) : { label: String(field.value) }, { timeout: 3_000 });
+        } else if (field.type === "slider") {
+          await handle.fill(String(field.value), { timeout: 3_000 });
         } else {
           await referenceFill({ page, element: handle, request: {ref: field.target, element: field.name, value: field.value} });
         }
@@ -1236,13 +1228,6 @@ export class BrowserUseSession {
     }
     const result = await this.pageState(page, `Form fill outcomes: ${JSON.stringify(outcomes)}. No submit was requested.`);
     return { ...result, details: { ...result.details, fields: outcomes }, isError: outcomes.some(field => field.status === "failed") };
-  }
-
-  private async fill(args: JsonObject) {
-    const page = await this.ensurePage(this.viewId(args));
-    if (typeof args.value !== "string") throw new Error("value is required");
-    const result = await referenceFill({ page, request: args });
-    return this.pageState(page, result.summary);
   }
 
   private async recoverAfterAction(page: Page, summary: string): Promise<string> {
@@ -1293,105 +1278,18 @@ export class BrowserUseSession {
     return this.pageState(page, await this.recoverAfterAction(page, `Pressed ${key}`));
   }
 
-  private async scroll(args: JsonObject) {
-    const page = await this.ensurePage(this.viewId(args));
-    if (typeof args.ref === "string") {
-      await (await this.requireRef(page, args.ref)).scrollIntoViewIfNeeded();
-      return this.pageState(page, `Scrolled ${args.element ?? args.ref} into view`);
-    }
-    const amount = typeof args.amount === "number" && args.amount > 0 ? args.amount : 300;
-    let deltaX = typeof args.deltaX === "number" ? args.deltaX : 0;
-    let deltaY = typeof args.deltaY === "number" ? args.deltaY : 0;
-    if (deltaX === 0 && deltaY === 0) {
-      const direction = args.direction ?? "down";
-      if (direction === "up") deltaY = -amount;
-      else if (direction === "down") deltaY = amount;
-      else if (direction === "left") deltaX = -amount;
-      else deltaX = amount;
-    }
-    await page.mouse.wheel(deltaX, deltaY);
-    return this.pageState(page, `Scrolled by (${deltaX}, ${deltaY})`);
-  }
-
   private async drag(args: JsonObject) {
-    const page = await this.ensurePage(this.viewId(args));
+    const page = await this.ensurePage();
     const source = await this.requireRef(page, args.sourceRef);
     const sourceBox = await source.boundingBox();
     if (!sourceBox) throw new Error("Source element has no visible bounding box");
-    let targetX: number;
-    let targetY: number;
-    if (typeof args.targetRef === "string") {
-      const targetBox = await (await this.requireRef(page, args.targetRef)).boundingBox();
-      if (!targetBox) throw new Error("Target element has no visible bounding box");
-      targetX = targetBox.x + targetBox.width / 2;
-      targetY = targetBox.y + targetBox.height / 2;
-    } else if (typeof args.targetX === "number" && typeof args.targetY === "number") {
-      targetX = args.targetX;
-      targetY = args.targetY;
-    } else {
-      throw new Error("Drag requires targetRef or targetX and targetY");
-    }
+    const targetBox = await (await this.requireRef(page, args.targetRef)).boundingBox();
+    if (!targetBox) throw new Error("Destination element has no visible bounding box");
     await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
     await page.mouse.down();
-    await page.mouse.move(targetX, targetY, { steps: 8 });
+    await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, { steps: 8 });
     await page.mouse.up();
-    return this.pageState(page, `Dragged ${args.sourceRef} to (${Math.round(targetX)}, ${Math.round(targetY)})`);
-  }
-
-  private async boundingBox(args: JsonObject) {
-    const page = await this.ensurePage(this.viewId(args));
-    const box = await (await this.requireRef(page, args.ref)).boundingBox();
-    if (!box) throw new Error("The element has no visible bounding box.");
-    return this.pageState(page, `Bounding box for ${args.element ?? args.ref}`, false, JSON.stringify(Object.fromEntries(Object.entries(box).map(([key, value]) => [key, Math.round(value)]))));
-  }
-
-  private async highlight(args: JsonObject) {
-    const page = await this.ensurePage(this.viewId(args));
-    const handle = await this.requireRef(page, args.ref);
-    const original = await handle.evaluate((node) => {
-      const element = node as HTMLElement;
-      const value = element.style.outline;
-      element.style.outline = "4px solid #ff2d55";
-      element.style.outlineOffset = "2px";
-      return value;
-    });
-    const duration = typeof args.durationMs === "number" ? args.durationMs : 2_000;
-    const result = await this.pageState(page, `Highlighted ${args.element ?? args.ref} for ${duration}ms`, false, undefined, "screenshot");
-    setTimeout(() => {
-      void handle
-        .evaluate((node, value) => {
-          (node as HTMLElement).style.outline = value;
-          (node as HTMLElement).style.outlineOffset = "";
-        }, original)
-        .catch(() => undefined);
-    }, duration);
-    return result;
-  }
-
-  private async cdp(args: JsonObject) {
-    const page = await this.ensurePage(this.viewId(args));
-    if (typeof args.method !== "string") throw new Error("method is required");
-    assertAllowedCdpMethod(args.method);
-    if (this.privateValues.size && !/^(?:Performance\.getMetrics|DOM\.getBoxModel|Page\.getLayoutMetrics)$/.test(args.method)) {
-      throw new Error("This browser contains private login data. Use the page interaction tools; arbitrary CDP inspection is unavailable for this session.");
-    }
-    const session = await this.cdpFor(page);
-    let timer:ReturnType<typeof setTimeout>|undefined;
-    try {
-      const raw = await Promise.race([session.send(args.method as never, (args.params ?? {}) as never),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error("CDP request timed out")),25_000);})]);
-      const scrub=(value:unknown):any=>typeof value === "string" ? redactSecrets(value,[...this.privateValues]) : Array.isArray(value) ? value.map(scrub) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([key,value])=>[key,scrub(value)])) : value;
-      const result=scrub(raw);
-      const state = await this.pageState(page, await this.recoverAfterAction(page, `Ran CDP ${args.method}`), false, JSON.stringify(result, null, 2));
-      state.details = {
-        ...state.details,
-        viewId: this.idFor(page),
-        method: args.method,
-        result,
-      };
-      return state;
-    } finally {
-      clearTimeout(timer);
-    }
+    return this.pageState(page, `Dragged ${args.element ?? args.sourceRef} to ${args.targetElement ?? args.targetRef}`);
   }
 
   /** File-picker context is an observation, never authority to upload a file. */
@@ -1487,6 +1385,7 @@ export class BrowserUseSession {
       const page = await this.context.newPage();
       this.trackPage(page);
       this.currentViewId = this.idFor(page);
+      if (typeof args.url === "string" && args.url) return this.navigate({ url: args.url }, page);
     } else if (action === "select") {
       if (typeof args.index !== "number") throw new Error("index is required when selecting a tab");
       const page = this.leasedPages()[args.index];
@@ -1514,17 +1413,10 @@ export class BrowserUseSession {
     } else if (action !== "list") {
       throw new Error("action must be list, new, close, or select");
     }
-    const pages = this.leasedPages();
-    const entries = await Promise.all(
-      pages.map(async (page, index) => ({
-        index,
-        viewId: this.idFor(page),
-        selected: this.idFor(page) === this.currentViewId,
-        title: await page.title().catch(() => ""),
-        url: page.url(),
-      }))
-    );
-    if (action === "list") return textResult(`Listed ${entries.length} tab(s)\n\n${JSON.stringify(entries.map(({ index, viewId, url, title }) => ({ index, viewId, url, title })), null, 1)}`, { tabs: entries.length });
+    if (action === "list") {
+      const rows = await this.tabRows();
+      return textResult(["### Open tabs", ...(rows.length ? rows : ["No open tabs. Navigate to a URL to create one."])].join("\n"), { tabs: rows.length });
+    }
     return this.pageState(await this.ensurePage(), action === "new" ? "Opened a new tab" : action === "select" ? `Selected tab ${args.index}` : "Closed a tab");
   }
 

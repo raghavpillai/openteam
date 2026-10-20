@@ -2,6 +2,7 @@
 """Portable source checks for native iOS signing, transport, and extension wiring."""
 import json
 import plistlib
+import re
 from pathlib import Path
 
 root = Path(__file__).resolve().parent.parent
@@ -40,6 +41,13 @@ for key in ['NSCameraUsageDescription', 'NSMicrophoneUsageDescription', 'NSLocal
     assert info.get(key), f'Missing usage description: {key}'
 assert 'NSSpeechRecognitionUsageDescription' not in info
 assert '../mobile/' not in project and 'mobile-swift' not in project
+# Remote Swift packages stay pinned to one revision, and Package.resolved agrees with the project.
+pins = re.findall(r'repositoryURL = "([^"]+)"; requirement = \{ kind = "([^"]+)"; revision = "([0-9a-f]{40})"; \}', project)
+assert pins and project.count('XCRemoteSwiftPackageReference') == len(pins), 'Pin every remote Swift package to a revision'
+resolved = json.loads((root / 'OpenTeamNative.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved').read_text())
+locked = {pin['location']: pin['state'].get('revision') for pin in resolved['pins']}
+for url, kind, revision in pins:
+    assert kind == 'revision' and locked.get(url) == revision, f'Package.resolved disagrees with the pinned {url}'
 for name in ['MessageRenderer.html', 'TextDocumentRenderer.html', 'ComputerVNC.html']:
     assert (root / 'Sources/App/Resources' / name).is_file(), f'Missing generated renderer: {name}'
 print(f'iOS native configuration passes (version {release["version"]}, build {release["buildNumber"]}).')

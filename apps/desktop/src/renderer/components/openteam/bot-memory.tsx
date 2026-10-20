@@ -3,7 +3,6 @@ import {
   Brain,
   ChevronLeft,
   ChevronRight,
-  LoaderCircle,
   RefreshCw,
   Search,
   Trash2,
@@ -29,6 +28,7 @@ import {
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Input } from "../ui/input";
+import { LoadingOrb } from "../ui/loading-orb";
 
 export function BotMemoryPanel({ bot }: { bot: Pick<BotView, "id" | "name"> }) {
   const [state, setState] = useState<MemoryViewState>({
@@ -147,10 +147,7 @@ export function BotMemoryPanel({ bot }: { bot: Pick<BotView, "id" | "name"> }) {
           </div>
           {state.loading ? (
             <div role="status" className="grid flex-1 place-items-center py-12">
-              <LoaderCircle
-                aria-label="Loading memories"
-                className="size-4 animate-spin text-foreground-secondary"
-              />
+              <LoadingOrb label="Loading memories" size={16} />
             </div>
           ) : (
             <div className="bot-scrollbar min-h-0 flex-1 overflow-y-auto">

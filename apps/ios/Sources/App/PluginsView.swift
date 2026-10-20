@@ -44,7 +44,7 @@ struct PluginListView: View {
       .floatingBar(edge: .top) { searchBar }
       .overlay {
         if loading && settings == .null {
-          ProgressView().accessibilityLabel("Loading plugins…")
+          LoadingOrb(label: "Loading plugins…")
             .accessibilityIdentifier("plugins-loading")
         }
       }

@@ -1,4 +1,4 @@
-import { Check, Clipboard, LoaderCircle, TriangleAlert } from "lucide-react";
+import { Check, Clipboard, TriangleAlert } from "lucide-react";
 import {
   compareOpenTeamVersions,
   openTeamCompatibility,
@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { API_BASE } from "../../../client/http";
 import { useServerUpdateStatus } from "../../../hooks/use-server-update-status";
 import { requestDesktopUpdateRestart } from "../../../lib/desktop-update";
+import { LoadingOrb } from "../../ui/loading-orb";
 import { SectionLabel, SettingsGroup, SettingsRow } from "./ui";
 
 const primaryButton =
@@ -209,7 +210,7 @@ export default function UpdatesSettings() {
                 type="button"
               >
                 {["downloading", "installing"].includes(clientUpdate?.status ?? "") ? (
-                  <LoaderCircle className="size-3.5 animate-spin" />
+                  <LoadingOrb aria-hidden inverse size={14} />
                 ) : null}
                 {clientUpdate?.status === "downloaded"
                   ? "Restart to update"
@@ -227,7 +228,7 @@ export default function UpdatesSettings() {
                 type="button"
               >
                 {clientUpdate?.status === "checking" ? (
-                  <LoaderCircle className="size-3.5 animate-spin" />
+                  <LoadingOrb aria-hidden size={14} />
                 ) : null}
                 {clientUpdate?.status === "checking" ? "Checking…" : "Check for Updates"}
               </button>
@@ -257,7 +258,7 @@ export default function UpdatesSettings() {
                   onClick={() => void updateServer()}
                   type="button"
                 >
-                  {serverUpdating ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
+                  {serverUpdating ? <LoadingOrb aria-hidden inverse size={14} /> : null}
                   {serverUpdating
                     ? "Updating…"
                     : serverTarget
@@ -282,7 +283,7 @@ export default function UpdatesSettings() {
                 type="button"
               >
                 {serverLoading || serverUpdating ? (
-                  <LoaderCircle className="size-3.5 animate-spin" />
+                  <LoadingOrb aria-hidden size={14} />
                 ) : null}
                 {serverUpdating ? "Updating…" : "Check server"}
               </button>

@@ -299,7 +299,7 @@ struct SignInView: View {
     let foreground = primary ? (dark ? Color(hex: "111111") : .white) : NativePalette.text
     return Button(action: action) {
       HStack(spacing: 9) {
-        if busy { ProgressView().tint(foreground) }
+        if busy { LoadingOrb(theme: primary ? (dark ? .light : .dark) : .auto, label: "Working") }
         Text(title).font(.body.weight(primary ? .semibold : .medium))
           .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
       }

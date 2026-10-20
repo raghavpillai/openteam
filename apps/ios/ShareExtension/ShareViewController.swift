@@ -1,6 +1,7 @@
 import Intents
 import QuickLookThumbnailing
 import SwiftUI
+import ThinkingOrbsKit
 import UIKit
 import UniformTypeIdentifiers
 
@@ -341,6 +342,7 @@ struct SharedFile: Identifiable {
 /// composer's glass field with its black arrow pill. System pieces (title, close, search) stay native.
 struct ShareView: View {
   @ObservedObject var model: ShareModel
+  @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
     NavigationStack {
@@ -368,7 +370,9 @@ struct ShareView: View {
   @ViewBuilder private var content: some View {
     switch model.phase {
     case .loading:
-      ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+      ZStack { ThinkingOrb(state: .composing, size: .px20, displaySize: 20) }
+        .accessibilityElement(children: .ignore).accessibilityLabel("Loading")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     case .signedOut:
       ContentUnavailableView(
         "Connect OpenTeam First", systemImage: "person.crop.circle.badge.exclamationmark",
@@ -499,7 +503,11 @@ struct ShareView: View {
     return Button { Task { await model.send() } } label: {
       ZStack {
         Image(systemName: "arrow.up").font(.system(size: 16, weight: .semibold)).opacity(model.sending ? 0 : 1)
-        if model.sending { ProgressView().controlSize(.small).tint(NativePalette.onPrimary) }
+        // The orb sits on the filled send button, so it takes the opposite scheme.
+        if model.sending {
+          ZStack { ThinkingOrb(state: .composing, size: .px20, theme: colorScheme == .dark ? .light : .dark, displaySize: 16) }
+            .accessibilityElement(children: .ignore).accessibilityLabel("Sending")
+        }
       }
       .foregroundStyle(active ? NativePalette.onPrimary : NativePalette.chatMuted)
       .frame(width: 36, height: 28)

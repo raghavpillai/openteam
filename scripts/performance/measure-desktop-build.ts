@@ -452,6 +452,8 @@ const readLazyClosures = async () => {
         "node_modules/pdfjs-dist/build/pdf.worker.min.mjs?url",
       ],
       routineSummary: ["src/renderer/components/openteam/routine-summary.tsx"],
+      loadingOrb: ["node_modules/thinking-orbs/dist/index.es.js"],
+      voiceMemo: ["src/renderer/components/openteam/voice-memo/voice-memo-layer.tsx"],
       routineEditor: ["src/renderer/components/openteam/routine-panel.tsx"],
       newBot: ["src/renderer/components/openteam/new-bot-screen.tsx"],
       pluginSettings: ["src/renderer/components/openteam/plugin-settings.tsx"],

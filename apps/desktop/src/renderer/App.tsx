@@ -21,6 +21,7 @@ import type { SearchAction } from "./components/openteam/search-dialog";
 import { HiddenAgentsDialog, Sidebar } from "./components/openteam/sidebar";
 import { VersionMismatchBanner } from "./components/openteam/version-mismatch-banner";
 import { Button } from "./components/ui/button";
+import { LoadingOrb } from "./components/ui/loading-orb";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { type InspectorMode, useBotRowActions } from "./hooks/use-bot-row-actions";
 import { useChannelSelection } from "./hooks/use-channel-selection";
@@ -1112,7 +1113,7 @@ export default function App() {
     return (
       <main className="grid h-screen place-items-center bg-background text-foreground">
         <div className="text-center">
-          <LoaderCircle className="mx-auto size-7 animate-spin" />
+          <LoadingOrb aria-hidden className="mx-auto" size={28} />
           <p className="mt-3 text-sm">Connecting to OpenTeam…</p>
           {error && <p className="mt-2 max-w-sm text-xs text-destructive">{error}</p>}
         </div>
@@ -1220,7 +1221,7 @@ export default function App() {
             <Suspense
               fallback={
                 <div className="grid min-h-0 flex-1 place-items-center" role="status">
-                  <LoaderCircle aria-label="Loading new Bot" className="size-6 animate-spin" />
+                  <LoadingOrb label="Loading new Bot" size={24} />
                 </div>
               }
             >

@@ -45,8 +45,10 @@
     "streamdown": "2.6.0",
     "tailwind-merge": "3.6.0",
     "tailwindcss": "4.3.3",
+    "thinking-orbs": "0.3.2",
     "use-stick-to-bottom": "1.1.6",
     "vite": "8.2.2",
+    "voice-glow": "0.3.0",
     "wait-on": "9.1.0",
     "xlsx": "file:../../vendor/sheetjs/xlsx-0.20.3.tgz"
   },

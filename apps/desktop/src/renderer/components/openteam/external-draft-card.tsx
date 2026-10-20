@@ -8,10 +8,11 @@ import {
 } from "@openteam/contracts/external-draft";
 import { externalDraftReviewEdits } from "@openteam/client-core/external-draft";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { Check, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../../client/openteam-api";
+import { LoadingOrb } from "../ui/loading-orb";
 
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -439,7 +440,7 @@ export function ExternalDraftCard({
             disabled={locked || !text.trim()}
             type="submit"
           >
-            {sending && <Loader2 aria-hidden className="size-3.5 animate-spin" />}
+            {sending && <LoadingOrb aria-hidden size={14} />}
             {sending ? "Sending…" : "Send"}
           </button>
           {lost ? (

@@ -1,5 +1,5 @@
 import { normalizeBaseUrl } from "@openteam/client-core/http";
-import { ArrowLeft, ArrowRight, CircleAlert, LoaderCircle } from "lucide-react";
+import { ArrowLeft, ArrowRight, CircleAlert } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
@@ -14,6 +14,7 @@ import { saveConfiguredApiBase } from "../../client/runtime-url";
 import { useAuthSession } from "../../hooks/use-auth-session";
 import { authErrorMessage } from "../../lib/auth-error-message";
 import { BotAvatarGlyph } from "./avatar-picker-icons";
+import { LoadingOrb } from "../ui/loading-orb";
 
 type LandingStage = "checking" | "welcome" | "endpoint" | "credentials";
 
@@ -176,7 +177,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return (
       <LandingShell stage="checking">
         <div aria-live="polite" className="auth-session-status" data-active="true" role="status">
-          <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
+          <LoadingOrb aria-hidden size={16} />
           Checking session…
         </div>
       </LandingShell>
@@ -278,7 +279,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
           >
             <span aria-live="polite">{connecting ? "Connecting…" : "Connect"}</span>
             {connecting ? (
-              <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
+              <LoadingOrb aria-hidden size={16} theme="dark" />
             ) : null}
           </button>
         </div>
@@ -366,7 +367,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
           >
             <span aria-live="polite">{submitting ? "Signing in…" : "Sign In"}</span>
             {submitting ? (
-              <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
+              <LoadingOrb aria-hidden size={16} theme="dark" />
             ) : null}
           </button>
         </div>

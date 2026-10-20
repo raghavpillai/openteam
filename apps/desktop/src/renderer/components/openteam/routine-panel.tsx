@@ -45,6 +45,7 @@ import {
 } from "../ui/dropdown-menu";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { LoadingOrb } from "../ui/loading-orb";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
@@ -1090,7 +1091,7 @@ export function RoutineEditor({
   if (loading) {
     return (
       <div className="grid size-full place-items-center pt-10">
-        <LoaderCircle className="size-4 animate-spin text-muted-foreground" />
+        <LoadingOrb label="Loading routine" size={16} />
       </div>
     );
   }

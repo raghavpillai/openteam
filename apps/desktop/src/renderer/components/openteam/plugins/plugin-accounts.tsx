@@ -1,7 +1,8 @@
 import type { PluginConnectionView } from "@openteam/contracts";
-import { Check, LoaderCircle, SquarePen, Plus, Settings2 } from "lucide-react";
+import { Check, SquarePen, Plus, Settings2 } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { AnimatedCollapse } from "../../ui/animated-collapse";
+import { LoadingOrb } from "../../ui/loading-orb";
 import { cn } from "../../../lib/cn";
 import { pluginAuthorization } from "@openteam/product-core/plugin-authorization";
 import { PluginAuthorization } from "./plugin-authorization";
@@ -127,7 +128,7 @@ export function PluginAccountRow({
         )}
         {!editing && !ready && !authorization && (
           <button className={button} type="button" disabled={busy} onClick={() => onConnect()}>
-            {busy ? <LoaderCircle className="size-3 animate-spin" /> : null}
+            {busy ? <LoadingOrb aria-hidden size={12} /> : null}
             {connection.configured ? (connection.auth === "oauth" ? "Sign in" : "Connect") : "Set up"}
           </button>
         )}

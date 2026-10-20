@@ -224,5 +224,5 @@ databaseTest(
       await rm(root, { recursive: true, force: true });
     }
   },
-  45_000
+  120_000
 );

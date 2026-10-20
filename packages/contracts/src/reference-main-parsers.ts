@@ -1045,7 +1045,10 @@ var reactToMessageParameters = external_exports.object({
   message_address: external_exports.string().trim().min(1).describe(
     "The address of the USER message to react to \u2014 the [t3u]-style tag shown on their message. Only the user's own messages, never your own sends."
   ),
-  emoji: external_exports.string().trim().min(1).max(16).describe("A single common emoji to react with, e.g. \u{1F44D}, \u2764\uFE0F, \u{1F602}, \u{1F389}.")
+  emoji: external_exports.string().trim().min(1).max(16).describe("A single common emoji to react with, e.g. \u{1F44D}, \u2764\uFE0F, \u{1F602}, \u{1F389}."),
+  end_turn: external_exports.boolean().optional().describe(
+    "Set true when this reaction is your whole reply; a successful reaction then ends the turn."
+  )
 });
 
 var FEEDBACK_MESSAGE_MAX_CHARS = 4e3;
@@ -1069,6 +1072,9 @@ var requestBoxHelpParameters = external_exports.object({
   ),
   idp_domain: external_exports.string().trim().optional().catch(void 0).describe(
     'When the browser is on an SSO/IdP page, the IdP host from the URL bar (e.g. "anysphere.okta.com", "accounts.google.com", "login.microsoftonline.com"). Omit on a direct app login with no separate IdP.'
+  ),
+  url: external_exports.string().trim().optional().catch(void 0).describe(
+    "The full address of the web page where the user should do the step. It must be on the site of domain or on the idp_domain host; any other address is ignored."
   )
 });
 
@@ -1190,9 +1196,12 @@ var messageSubagentParameters = external_exports.object({
 });
 
 var stopSubagentParameters = external_exports.object({
-  subagent_id: external_exports.string().trim().min(1).describe(
-    "The Agent ID of the running subagent to abort (from the Task tool result that dispatched it)."
-  )
+  subagent_id: external_exports.string().trim().optional().describe(
+    'One running subagent\'s id, from the "Agent ID:" line of the Task result that dispatched it. Omit it when all is true.'
+  ),
+  all: external_exports.boolean().optional().describe("Set true to abort every background subagent you have running, in one call.")
+}).refine((args) => args.all === true !== (args.subagent_id !== void 0 && args.subagent_id.length > 0), {
+  message: "Pass exactly one of subagent_id or all: true."
 });
 
 function isUnknownRecord2(value) {
@@ -1238,7 +1247,7 @@ function normalizeSendToAgentArgs(value, ctx) {
 
 var sendToAgentParameters = external_exports.object({
   target_id: external_exports.string().trim().min(1).describe(
-    "The id of the target \u2014 either another agent or a GROUP you belong to. Use an id from your teammates list, ListAgents, or ListGroups \u2014 not a name."
+    "The id of the target, either another agent or a GROUP you belong to. Use an id from your teammates list, not a name."
   ),
   message: external_exports.string().trim().min(1).describe(
     "What to say. Write it as if texting a teammate: lead with the point, keep it short."
@@ -1800,6 +1809,7 @@ const localSecretSchema = sendMessageObjectSchema.shape.secret.unwrap().extend({
 // end_turn belongs to the invocation envelope in the captured host. Preserve it
 // here because OpenTeam receives that envelope together with the message fields.
 const adaptedSendSchema = sendMessageObjectSchema.extend({
+  type: sendMessageObjectSchema.shape.type.default("text"),
   secret: localSecretSchema.optional(),
   end_turn: external_exports.boolean().optional(),
 }).superRefine(refineSendMessage);

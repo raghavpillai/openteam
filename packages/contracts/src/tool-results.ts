@@ -136,6 +136,7 @@ export function renderControlResult(
       : "Message sent to user.";
   if (name === "MessageSubagent" && result.delivered)
     return `Message delivered to subagent ${args.subagent_id}. It will interrupt what it's doing, take your message into account, and keep working. You'll be revived with its result when it finishes — don't wait on it.`;
+  if (name === "StopSubagent" && result.stopped_all) return renderStopAllSubagents(result);
   if (name === "StopSubagent" && result.stopped)
     return `Stopping subagent ${args.subagent_id}. It will be torn down and won't report back.`;
   if (name === "CheckSubagent") {
@@ -178,4 +179,23 @@ export function renderControlResult(
     if (result.subagent_id) return describe(result, true);
   }
   return JSON.stringify(output);
+}
+
+const PEERS_NOT_STOPPED =
+  "Peer agents you handed work to are not reached from here, so none of them was stopped. If any may still be working, message each with SendToAgent priority: true to stop, and tell the user what may still be running.";
+
+/** The stop-everything receipt: exactly which subagents stopped, had finished, or could not be stopped. */
+function renderStopAllSubagents(result: Record<string, any>): string {
+  const listed = (entry: any) => `- ${entry.subagent_id} [${entry.subagent_type}] "${entry.description}"`;
+  const stopped: any[] = result.stopped ?? [], finished: any[] = result.already_finished ?? [], failed: any[] = result.failed ?? [];
+  const total = stopped.length + finished.length + failed.length;
+  if (total === 0)
+    return `No background subagents are running, so there was nothing of your own to stop. ${PEERS_NOT_STOPPED} Background shell commands you started yourself are not subagents: terminate those with their reported PIDs.`;
+  return [
+    ...(stopped.length ? [`Stopped ${stopped.length} of ${total} running subagent(s). They are torn down and will not report back:`, ...stopped.map(listed)] : []),
+    ...(finished.length ? [`${finished.length} had already finished before the stop reached them (you are revived with a finished subagent's result separately):`, ...finished.map(listed)] : []),
+    ...(failed.length ? [`${failed.length} could NOT be stopped and may still be running. Retry each with StopSubagent and its id; if it still fails, tell the user which work may still be running:`, ...failed.map((entry) => `${listed(entry)}: ${entry.error}`)] : []),
+    PEERS_NOT_STOPPED,
+    "Do not resume, redispatch, or continue the stopped work unless the user asks again. Background shell commands you started yourself are not covered: terminate those with their reported PIDs.",
+  ].join("\n");
 }

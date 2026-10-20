@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Schema } from "effect";
 import { createPrismaClient } from "@openteam/db";
-import { UpdateProfileInput } from "@openteam/contracts";
+import { UpdateProfileToolInput } from "@openteam/contracts";
 import { AgentDataStore } from "@openteam/messaging";
 import { DurableStateService } from "../src/update-state";
 
@@ -43,7 +43,7 @@ test.skipIf(!url)(
         title,
         color: "#27baae",
       });
-      expect(() => Schema.decodeUnknownSync(UpdateProfileInput)({ avatar_color: "unknown-color" })).toThrow();
+      expect(() => Schema.decodeUnknownSync(UpdateProfileToolInput)({ avatar_color: "unknown-color" })).toThrow();
     } finally {
       await db.idempotencyRecord.deleteMany({ where: { scope: `state:${botId}` } });
       await db.bot.deleteMany({ where: { id: botId } });

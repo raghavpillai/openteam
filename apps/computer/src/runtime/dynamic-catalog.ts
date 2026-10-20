@@ -1,6 +1,5 @@
 import { READ_TRANSCRIPT_TOOL, parseReadTranscriptInput } from "@openteam/contracts/read-transcript";
 import { READ_AGENT_ACTIVITY_TOOL, parseReadAgentActivityInput } from "@openteam/contracts/read-agent-activity";
-import { READ_SIBLING_THREAD_TOOL, parseSiblingThreadInput } from "@openteam/contracts/sibling-threads";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { withReferenceContract, taskToolContract, FIRST_PARTY_NAMESPACE_DESCRIPTION } from "@openteam/contracts/tool-contracts";
 import pluginToolSchemas from "../plugin-tool-schemas.json";
@@ -9,7 +8,7 @@ import {
   AWAIT_SHELL_TOOL,
   AUTOMATION_PARENT_ONLY_TOOLS,
   DISCONNECT_CHANNEL_TOOL,
-  DisconnectChannelInput,
+  DisconnectChannelToolInput,
   WAKE_PARENT_TOOL,
   WakeParentInput,
   AwaitShellInput,
@@ -19,10 +18,6 @@ import {
   CREATE_CHANNEL_TOOL,
   CreateAgentInput,
   CreateChannelInput,
-  LIST_AGENTS_TOOL,
-  LIST_GROUPS_TOOL,
-  ListAgentsInput,
-  ListGroupsInput,
   MESSAGE_SUBAGENT_TOOL,
   MessageSubagentInput,
   REQUEST_BOX_HELP_TOOL,
@@ -41,10 +36,10 @@ import {
   UPDATE_PROFILE_TOOL,
   UPDATE_SKILL_TOOL,
   UpdateAgentInput,
-  UpdateAvatarInput,
+  UpdateAvatarToolInput,
   UpdateChannelInput,
-  UpdateProfileInput,
-  UpdateSkillInput,
+  UpdateProfileToolInput,
+  UpdateSkillToolInput,
 } from "@openteam/contracts";
 import { Schema } from "effect";
 import { parseHostAwaitShellRequest } from "@openteam/contracts/service-protocol";
@@ -205,10 +200,6 @@ export function dynamicCatalog(
       : [
           readTranscriptTool,
           readAgentActivityTool,
-          { ...READ_SIBLING_THREAD_TOOL, source: "first-party" as const, decodeArguments: parseSiblingThreadInput,
-            execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) => callControlPlaneTool(turn, callId, "read_sibling_thread", args, signal) },
-          controlPlaneTool(LIST_AGENTS_TOOL, ListAgentsInput),
-          controlPlaneTool(LIST_GROUPS_TOOL, ListGroupsInput),
           controlPlaneTool(SEND_TO_AGENT_TOOL, SendToAgentInput),
           controlPlaneTool(REQUEST_BOX_HELP_TOOL, RequestBoxHelpInput),
           {
@@ -295,10 +286,10 @@ export function dynamicCatalog(
           controlPlaneTool(CREATE_CHANNEL_TOOL, CreateChannelInput),
           controlPlaneTool(UPDATE_CHANNEL_TOOL, UpdateChannelInput),
           // Durable state beyond memory and routines: the parent agent and its routine runs only.
-          controlPlaneTool(UPDATE_SKILL_TOOL, UpdateSkillInput),
-          controlPlaneTool(UPDATE_PROFILE_TOOL, UpdateProfileInput),
-          controlPlaneTool(UPDATE_AVATAR_TOOL, UpdateAvatarInput),
-          controlPlaneTool(DISCONNECT_CHANNEL_TOOL, DisconnectChannelInput),
+          controlPlaneTool(UPDATE_SKILL_TOOL, UpdateSkillToolInput),
+          controlPlaneTool(UPDATE_PROFILE_TOOL, UpdateProfileToolInput),
+          controlPlaneTool(UPDATE_AVATAR_TOOL, UpdateAvatarToolInput),
+          controlPlaneTool(DISCONNECT_CHANNEL_TOOL, DisconnectChannelToolInput),
         ]),
   ];
   const pluginNamespaces: Array<DynamicNamespaceDefinition<RuntimeDynamicTool>> =

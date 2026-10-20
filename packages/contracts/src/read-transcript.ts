@@ -1,12 +1,7 @@
-export const READ_TRANSCRIPT_TOOL = {
-  name: "ReadTranscript",
-  description: "Read saved observable conversation messages and tool activity, including history preceding compaction. Omit target IDs for the current conversation, use session_id for another conversation of this agent, agent_id for an active agent in this deployment, or subagent_id for your dispatched worker (running or finished). Returns newest rows in chronological order; pass next_before to page backward. Private reasoning, system instructions, form values, and privileged tool payloads are excluded. Large text retains its beginning and end with an explicit truncation notice. Use a smaller limit to allow more text per row within the response budget; before pages records, not text within one record.",
-  inputSchema: { type: "object", properties: {
-    session_id: { type: "string" }, agent_id: { type: "string" }, subagent_id: { type: "string" },
-    limit: { type: "integer", minimum: 1, maximum: 200, description: "Maximum rows, default 30." },
-    before: { type: "integer", minimum: 0, description: "Exclusive position cursor returned by an earlier page." },
-  }, additionalProperties: false },
-};
+import { referenceTool } from "./tool-contracts";
+
+/** The captured ReadTranscript contract, adapted in tool-contracts. */
+export const READ_TRANSCRIPT_TOOL = referenceTool("ReadTranscript");
 
 export function parseReadTranscriptInput(raw: unknown) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Expected an object");

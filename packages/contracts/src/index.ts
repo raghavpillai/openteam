@@ -406,9 +406,11 @@ export const MessageSubagentInput = Schema.Struct({
 });
 export type MessageSubagentInput = typeof MessageSubagentInput.Type;
 
-export const StopSubagentInput = Schema.Struct({
-  subagent_id: Schema.String.pipe(Schema.minLength(1)),
-});
+/** One running subagent by id, or every running subagent with all: true. */
+export const StopSubagentInput = Schema.Union(
+  Schema.Struct({ subagent_id: Schema.String.pipe(Schema.minLength(1)), all: Schema.optional(Schema.Literal(false)) }),
+  Schema.Struct({ all: Schema.Literal(true) })
+);
 export type StopSubagentInput = typeof StopSubagentInput.Type;
 
 export const CreateAgentInput = Schema.Struct({
@@ -417,21 +419,6 @@ export const CreateAgentInput = Schema.Struct({
   section_id: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
 });
 export type CreateAgentInput = typeof CreateAgentInput.Type;
-
-export const AGENT_DIRECTORY_QUERY_MAX_LENGTH = 120;
-export const AGENT_DIRECTORY_DEFAULT_LIMIT = 20;
-export const AGENT_DIRECTORY_MAX_LIMIT = 50;
-
-export const ListAgentsInput = Schema.Struct({
-  query: Schema.optional(Schema.String.pipe(Schema.maxLength(AGENT_DIRECTORY_QUERY_MAX_LENGTH))),
-  limit: Schema.optional(
-    Schema.Number.pipe(Schema.int(), Schema.between(1, AGENT_DIRECTORY_MAX_LIMIT))
-  ),
-});
-export type ListAgentsInput = typeof ListAgentsInput.Type;
-
-export const ListGroupsInput = ListAgentsInput;
-export type ListGroupsInput = typeof ListGroupsInput.Type;
 
 export const UpdateAgentInput = Schema.Struct({
   agent_id: Schema.String.pipe(Schema.minLength(1)),
@@ -1078,8 +1065,6 @@ export const CALL_DYNAMIC_TOOL_TOOL = nativeTool("CallDynamicTool");
 export const CHECK_SUBAGENT_TOOL = cursorTool("CheckSubagent");
 export const CREATE_AGENT_TOOL = cursorTool("CreateAgent");
 export const CREATE_CHANNEL_TOOL = cursorTool("CreateChannel");
-export const LIST_AGENTS_TOOL = cursorTool("ListAgents");
-export const LIST_GROUPS_TOOL = cursorTool("ListGroups");
 export const MESSAGE_SUBAGENT_TOOL = cursorTool("MessageSubagent");
 export const REQUEST_BOX_HELP_TOOL = cursorTool("request_box_help");
 export const STOP_SUBAGENT_TOOL = cursorTool("StopSubagent");
@@ -1095,6 +1080,7 @@ export const RequestBoxHelpInput = Schema.Struct({
   instruction: Schema.optional(Schema.String),
   domain: Schema.optional(Schema.String),
   idp_domain: Schema.optional(Schema.String),
+  url: Schema.optional(Schema.String),
 });
 export type RequestBoxHelpInput = typeof RequestBoxHelpInput.Type;
 
@@ -1144,15 +1130,15 @@ export type UpdateStateInput = typeof UpdateStateInput.Type;
 
 const optionalText = Schema.optional(Schema.String.pipe(Schema.minLength(1)));
 
-export const UpdateMemoryInput = Schema.Struct({
+export const UpdateMemoryToolInput = Schema.Struct({
   action: Schema.Literal("write", "forget"),
   fact: Schema.String.pipe(Schema.minLength(1)),
   tier: Schema.optional(Schema.Literal("profile", "log", "note")),
   scope: Schema.optional(Schema.Literal("agent", "user")),
 });
-export type UpdateMemoryInput = typeof UpdateMemoryInput.Type;
+export type UpdateMemoryToolInput = typeof UpdateMemoryToolInput.Type;
 
-export const UpdateRoutineInput = Schema.Struct({
+export const UpdateRoutineToolInput = Schema.Struct({
   action: Schema.Literal("create", "update", "pause", "resume", "delete"),
   id: optionalText,
   name: optionalText,
@@ -1161,18 +1147,18 @@ export const UpdateRoutineInput = Schema.Struct({
   trigger: Schema.optional(Schema.Unknown),
   enabled: Schema.optional(Schema.Boolean),
 });
-export type UpdateRoutineInput = typeof UpdateRoutineInput.Type;
+export type UpdateRoutineToolInput = typeof UpdateRoutineToolInput.Type;
 
-export const UpdateSkillInput = Schema.Struct({
+export const UpdateSkillToolInput = Schema.Struct({
   action: Schema.Literal("write", "delete"),
   id: optionalText,
   name: optionalText,
   description: Schema.optional(Schema.String),
   body: optionalText,
 });
-export type UpdateSkillInput = typeof UpdateSkillInput.Type;
+export type UpdateSkillToolInput = typeof UpdateSkillToolInput.Type;
 
-export const UpdateProfileInput = Schema.Struct({
+export const UpdateProfileToolInput = Schema.Struct({
   name: optionalText,
   description: Schema.optional(Schema.String),
   title: Schema.optional(Schema.String),
@@ -1181,18 +1167,18 @@ export const UpdateProfileInput = Schema.Struct({
   hidden_from_sidebar: Schema.optional(Schema.Boolean),
   notify_on_updates: Schema.optional(Schema.Boolean),
 });
-export type UpdateProfileInput = typeof UpdateProfileInput.Type;
+export type UpdateProfileToolInput = typeof UpdateProfileToolInput.Type;
 
-export const UpdateAvatarInput = Schema.Struct({
+export const UpdateAvatarToolInput = Schema.Struct({
   action: Schema.Literal("set", "clear"),
   path: optionalText,
 });
-export type UpdateAvatarInput = typeof UpdateAvatarInput.Type;
+export type UpdateAvatarToolInput = typeof UpdateAvatarToolInput.Type;
 
-export const DisconnectChannelInput = Schema.Struct({
+export const DisconnectChannelToolInput = Schema.Struct({
   platform: Schema.String.pipe(Schema.minLength(1)),
 });
-export type DisconnectChannelInput = typeof DisconnectChannelInput.Type;
+export type DisconnectChannelToolInput = typeof DisconnectChannelToolInput.Type;
 
 export const UPDATE_MEMORY_TOOL = nativeTool("UpdateMemory");
 export const UPDATE_ROUTINE_TOOL = nativeTool("UpdateRoutine");

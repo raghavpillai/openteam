@@ -16,6 +16,7 @@ import type { Browser, BrowserContext, CDPSession, Dialog, ElementHandle, Frame,
 import { outOfProcessPlaywright } from "./playwright-driver";
 import { normalizeFormDomain, formFieldIsSecret, type UserForm, type UserFormField } from "@openteam/contracts";
 import type { FormPageBinding } from "../user-form-host";
+import { onSite, webHost, type BoxHelpPage } from "../box-help-page";
 import { redactSecrets } from "@openteam/shell-jobs";
 
 type JsonObject = Record<string, unknown>;
@@ -304,6 +305,29 @@ export class BrowserUseSession {
       try { if (normalizeFormDomain(page.url()) === domain) pages.push({ pageId: await this.formPageId(page), domain, url: page.url() }); } catch { /* Non-web tab. */ }
     }
     return pages;
+  }
+
+  /** Before a desktop handoff, bring a tab on the step's host or site to the front, or open the
+   * step's address when no web page is open. Other tabs are left as they are. */
+  async presentHandoffPage(target: BoxHelpPage): Promise<"focused" | "opened" | "unchanged"> {
+    const web = this.leasedPages().flatMap((page) => {
+      const host = webHost(page.url());
+      return host ? [{ page, host }] : [];
+    });
+    const match =
+      target.hosts.map((host) => web.find((candidate) => candidate.host === host)).find(Boolean) ??
+      (target.domain ? web.find((candidate) => onSite(candidate.host, target.domain!)) : undefined);
+    if (match) {
+      await match.page.bringToFront();
+      this.currentViewId = this.idFor(match.page);
+      return "focused";
+    }
+    if (!target.url || web.length) return "unchanged";
+    const page = await this.ensurePage();
+    await page.bringToFront();
+    // A slow page still counts as opened: the user takes over from wherever it got to.
+    await page.goto(target.url, { waitUntil: "domcontentloaded", timeout: 8_000 }).catch(() => undefined);
+    return "opened";
   }
 
   private async formPage(binding: FormPageBinding): Promise<Page> {

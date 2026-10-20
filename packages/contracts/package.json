@@ -6,6 +6,7 @@
   "type": "module",
   "exports": {
     "./agent-file-access": "./src/agent-file-access.ts",
+    "./app-deep-links": "./src/app-deep-links.ts",
     ".": "./src/index.ts",
     "./bot-avatar": "./src/bot-avatar.ts",
     "./capabilities": "./src/capabilities.ts",
@@ -40,7 +41,6 @@
     "./reference-form-results": "./src/reference-form-results.ts",
     "./tool-results": "./src/tool-results.ts",
     "./reference-main-parsers": "./src/reference-main-parsers.ts",
-    "./sibling-threads": "./src/sibling-threads.ts",
     "./read-transcript": "./src/read-transcript.ts",
     "./read-agent-activity": "./src/read-agent-activity.ts",
     "./notification-presence": "./src/notification-presence.ts",

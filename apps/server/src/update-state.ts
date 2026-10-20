@@ -2,15 +2,15 @@ import { createHash } from "node:crypto";
 import { Schema } from "effect";
 import {
   ApiError,
-  DisconnectChannelInput,
+  DisconnectChannelToolInput,
   resolveBotAvatarColorName,
   STATE_TOOL_TARGETS,
   type StateToolName,
-  UpdateAvatarInput,
-  UpdateMemoryInput,
-  UpdateProfileInput,
-  UpdateRoutineInput,
-  UpdateSkillInput,
+  UpdateAvatarToolInput,
+  UpdateMemoryToolInput,
+  UpdateProfileToolInput,
+  UpdateRoutineToolInput,
+  UpdateSkillToolInput,
   type UpdateStateInput,
 } from "@openteam/contracts";
 import type { Prisma, PrismaClient } from "@openteam/db";
@@ -42,12 +42,12 @@ const PROFILE_FIELDS = ["name", "description", "title", "avatar_shape", "avatar_
 const SETTINGS_FIELDS = ["hidden_from_sidebar", "notify_on_updates"] as const;
 
 const stateToolArguments = {
-  UpdateMemory: UpdateMemoryInput,
-  UpdateRoutine: UpdateRoutineInput,
-  UpdateSkill: UpdateSkillInput,
-  UpdateProfile: UpdateProfileInput,
-  UpdateAvatar: UpdateAvatarInput,
-  DisconnectChannel: DisconnectChannelInput,
+  UpdateMemory: UpdateMemoryToolInput,
+  UpdateRoutine: UpdateRoutineToolInput,
+  UpdateSkill: UpdateSkillToolInput,
+  UpdateProfile: UpdateProfileToolInput,
+  UpdateAvatar: UpdateAvatarToolInput,
+  DisconnectChannel: DisconnectChannelToolInput,
 } satisfies Record<StateToolName, Schema.Schema.AnyNoContext>;
 
 const eventPayload = (value: Record<string, unknown>): Prisma.InputJsonValue =>

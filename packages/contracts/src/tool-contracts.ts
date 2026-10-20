@@ -200,18 +200,8 @@ const adaptArgument = (tool: string, path: string, edits: Edits) => {
 // Local commands and reads run directly; there is no local-tool approval.
 adaptDescription("Shell", [["require the user's local-tool approval.", "execute directly."]]);
 adaptDescription("Read", [["requires the user's local-tool approval.", "executes directly."]]);
-// Shell has no per-call blocking cap.
-delete contracts.Shell!.inputSchema.properties.block_until_ms.maximum;
-adaptArgument("Shell", "block_until_ms", [[" Must not exceed 780000ms (13 minutes), the per-call limit.", ""]]);
 // The apps show the command itself, never this label.
 adaptArgument("Shell", "description", [['; shown to the user after the word "Ran".', "."]]);
-// AwaitShell's cap is 119 minutes, which also allows the reference's long-wait slice.
-contracts.AwaitShell!.inputSchema.properties.block_until_ms.maximum = 7_140_000;
-adaptArgument("AwaitShell", "block_until_ms", [["Must not exceed 780000 (13 minutes).", "Must not exceed 7140000 (119 minutes)."]]);
-adaptDescription("AwaitShell", [[
-  "prefer slices of 60–270s, which keep the prompt cache warm.",
-  "prefer slices of 60–270s (keeps prompt cache warm) or 1200s+ (one cache miss buys a long wait).",
-]]);
 // Only desktops register as machines; phones have no on-device tools here.
 adaptDescription("ListMachines", [
   ["machineId, label, kind (desktop, ios, or android), and current", "machineId, label, and current"],

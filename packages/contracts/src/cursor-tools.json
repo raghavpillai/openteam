@@ -19,8 +19,8 @@
           },
           "block_until_ms": {
             "type": "number",
-            "maximum": 7140000,
-            "description": "Maximum wait in milliseconds, defaults to 30000; negative values also use the default. Fractions are floored. Use 0 to poll. Maximum 119 minutes."
+            "maximum": 780000,
+            "description": "Maximum wait in milliseconds, defaults to 30000; negative values also use the default. Fractions are floored. Use 0 to poll. Maximum 13 minutes."
           },
           "pattern": {
             "type": "string",

@@ -43,6 +43,7 @@ import {
   ComputerUseInput,
   GET_DYNAMIC_TOOLS_TOOL,
   GetDynamicToolsInput,
+  GRAPHICAL_SHELL_WAIT_CAP_MS,
   LIST_MACHINES_TOOL,
   NATIVE_TOOLS,
   REACT_TO_MESSAGE_TOOL,
@@ -52,6 +53,7 @@ import {
   SCREENSHOT_TOOL,
   SEND_TO_USER_TOOL,
   SHELL_TOOL,
+  SHELL_WAIT_CAP_MS,
   ShellToolInput,
   TASK_TOOL,
   type TaskInput,
@@ -105,8 +107,28 @@ const BOX_HELP_PAGE_TIMEOUT_MS = 12_000;
 /** Browser and desktop workers stay on the box, so their box tools take no machineId. */
 const MACHINE_ROUTING_AWAIT_SENTENCE =
   "\n\nOmit machineId for a command started on your box. For a command started on one of the user's computers, pass the same machineId that was used for the Shell call.";
+/** Shell and AwaitShell state the wait cap as "780000ms (13 minutes)" and "780000 (13 minutes)". */
+const waitLimit = (capMs: number, unit: "ms" | "") => `${capMs}${unit} (${capMs / 60_000} minutes)`;
+/** A computerUse worker may wait longer per Shell or AwaitShell call than any other agent. */
+const shellWaitCapMs = (active: Pick<ActiveTurn, "subagentType">) =>
+  active.subagentType === "computerUse" ? GRAPHICAL_SHELL_WAIT_CAP_MS : SHELL_WAIT_CAP_MS;
+const assertShellWait = (active: Pick<ActiveTurn, "subagentType">, args: unknown, unit: "ms" | "") => {
+  const capMs = shellWaitCapMs(active);
+  const blockMs = (args as { block_until_ms?: unknown } | null)?.block_until_ms;
+  if (typeof blockMs === "number" && blockMs > capMs)
+    throw new Error(`block_until_ms must be at most ${waitLimit(capMs, unit)}`);
+};
 const boxScopedSchema = (schema: Readonly<Record<string, unknown>>): Record<string, unknown> => {
   const { machineId: _machineId, ...properties } = (schema.properties ?? {}) as Record<string, unknown>;
+  const wait = properties.block_until_ms as { description?: string } | undefined;
+  if (wait)
+    properties.block_until_ms = {
+      ...wait,
+      maximum: GRAPHICAL_SHELL_WAIT_CAP_MS,
+      description: wait.description
+        ?.replace(waitLimit(SHELL_WAIT_CAP_MS, "ms"), waitLimit(GRAPHICAL_SHELL_WAIT_CAP_MS, "ms"))
+        .replace(waitLimit(SHELL_WAIT_CAP_MS, ""), waitLimit(GRAPHICAL_SHELL_WAIT_CAP_MS, "")),
+    };
   return { ...schema, properties };
 };
 
@@ -146,6 +168,7 @@ export class RuntimeTools {
     args: unknown,
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
+    assertShellWait(turn, args, "");
     const input = Schema.decodeUnknownSync(AwaitShellInput)(parseHostAwaitShellRequest(args));
     if (input.machineId && (turn.subagentType || turn.runtimeProfile === "subagent"))
       throw new Error("Subagents cannot target the user's local computer");
@@ -584,6 +607,7 @@ export class RuntimeTools {
       );
     }
     if (tool === SHELL_TOOL.name) {
+      assertShellWait(active, args, "ms");
       const shellInput = Schema.decodeUnknownSync(ShellToolInput)(args);
       assertGraphicalShellBoundary(shellInput.command, active.subagentType);
       if (shellInput.machineId) {

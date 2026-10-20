@@ -614,6 +614,10 @@ export const ReactToMessageInput = Schema.Struct({
 });
 export type ReactToMessageInput = typeof ReactToMessageInput.Type;
 
+/** Per-call Shell and AwaitShell wait caps: computerUse workers get the longer one. */
+export const SHELL_WAIT_CAP_MS = 780_000;
+export const GRAPHICAL_SHELL_WAIT_CAP_MS = 3_480_000;
+
 export const ShellToolInput = Schema.Struct({
   command: Schema.String,
   block_until_ms: Schema.optional(Schema.Number.pipe(Schema.finite(), Schema.greaterThanOrEqualTo(0))),

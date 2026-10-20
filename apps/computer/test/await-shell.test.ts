@@ -203,7 +203,7 @@ test("external AwaitShell authenticates, uses the host wait endpoint, and parses
     const input = {
       shell_id: "host-job",
       machineId: "machine-1",
-      block_until_ms: 7_140_000,
+      block_until_ms: 780_000,
       pattern: "ok",
     };
     expect((await executor.externalAwaitShell(input)).details).toMatchObject({
@@ -234,4 +234,42 @@ test("new user input releases AwaitShell and sleep promptly without terminating 
   const sleeping=call.execute("sleep",{...args,arguments:{block_until_ms:60_000}});
   const wake=setTimeout(()=>runtime.interruptShellWaits(active.runId),20);
   try {expect((await sleeping).details.status).toBe("slept");}finally{clearTimeout(wake);}
+});
+
+test("each Shell or AwaitShell call waits at most 13 minutes, or 58 for a computerUse worker", async () => {
+  const { root } = await fixture();
+  const screens = { commandEnvironment: async () => ({ PATH: process.env.PATH }) } as unknown as ScreenBroker;
+  const runtime = new RuntimeTools(screens, "http://unused.invalid", "test", root, root);
+  (runtime as any).processSecrets = async () => ({});
+  const turn = (subagentType: string | null) => ({
+    runId: `cap-${subagentType}`,
+    runtimeProfile: subagentType ? "subagent" : "agent",
+    subagentType,
+    botId: "bot-cap",
+    cwd: root,
+    pluginNamespaces: [],
+    discoveredDynamicTools: new Set<string>(),
+  }) as unknown as ActiveTurn;
+  for (const [subagentType, capMs, minutes] of [["executor", 780_000, 13], ["computerUse", 3_480_000, 58]] as const) {
+    const tools = testTools(runtime, turn(subagentType));
+    const shell = tools.find((t) => t.name === "Shell")!, wait = tools.find((t) => t.name === "AwaitShell")!;
+    await expect(shell.execute("too-long", { command: "true", block_until_ms: capMs + 1 })).rejects.toThrow(
+      `block_until_ms must be at most ${capMs}ms (${minutes} minutes)`
+    );
+    const started = await shell.execute("start", { command: "printf done", block_until_ms: 0 });
+    const shell_id = (started.details as { shellId: string }).shellId;
+    await expect(wait.execute("too-long", { shell_id, block_until_ms: capMs + 1 })).rejects.toThrow(
+      `block_until_ms must be at most ${capMs} (${minutes} minutes)`
+    );
+    // A wait at the cap returns as soon as the command finishes.
+    expect((await wait.execute("at-cap", { shell_id, block_until_ms: capMs })).details).toMatchObject({ status: "completed" });
+  }
+  // The parent agent has the same 13-minute cap, through discovery.
+  const main = turn(null), tools = testTools(runtime, main);
+  await tools.find((t) => t.name === "GetDynamicTools")!.execute("discover", { namespace: "cursor", toolName: "AwaitShell" });
+  await expect(
+    tools.find((t) => t.name === "CallDynamicTool")!.execute("too-long", {
+      namespace: "cursor", toolName: "AwaitShell", arguments: { block_until_ms: 780_001 },
+    })
+  ).rejects.toThrow("block_until_ms must be at most 780000 (13 minutes)");
 });

@@ -1,6 +1,5 @@
-import { READ_TRANSCRIPT_SUBAGENT_DESCRIPTION, READ_TRANSCRIPT_TOOL, parseReadTranscriptInput } from "@openteam/contracts/read-transcript";
+import { READ_TRANSCRIPT_TOOL, parseReadTranscriptInput } from "@openteam/contracts/read-transcript";
 import { READ_AGENT_ACTIVITY_TOOL, parseReadAgentActivityInput } from "@openteam/contracts/read-agent-activity";
-import { subagentHasHistoryTools } from "@openteam/contracts/task-configuration";
 import { READ_SIBLING_THREAD_TOOL, parseSiblingThreadInput } from "@openteam/contracts/sibling-threads";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { withReferenceContract, taskToolContract, FIRST_PARTY_NAMESPACE_DESCRIPTION } from "@openteam/contracts/tool-contracts";
@@ -204,9 +203,7 @@ export function dynamicCatalog(
       execute: executeTodoWrite,
     }]),
     ...(active.runtimeProfile === "subagent"
-      ? subagentHasHistoryTools(active.subagentType)
-        ? [{ ...readTranscriptTool, description: READ_TRANSCRIPT_SUBAGENT_DESCRIPTION }, readAgentActivityTool]
-        : []
+      ? []
       : [
           readTranscriptTool,
           readAgentActivityTool,

@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { publishChannelNotification, publishMessageNotification } from "./notifications";
 export { publishChannelNotification, publishMessageNotification, channelNotificationStates } from "./notifications";
 import { messagePreviewText } from "@openteam/contracts/message-preview";
-import { defaultTaskConfiguration, subagentHasHistoryTools, subagentUsesParentConnectors, taskUserInfo, type TaskConfiguration } from "@openteam/contracts/task-configuration";
+import { defaultTaskConfiguration, subagentUsesParentConnectors, taskUserInfo, type TaskConfiguration } from "@openteam/contracts/task-configuration";
 import { BROWSER_WORKER_PROMPT, COMBINED_GRAPHICAL_WORKER_PROMPT, COMPUTER_WORKER_PROMPT, EXECUTION_VERIFICATION_INSTRUCTIONS } from "./graphical-worker-prompts";
 import {
   type AdminBroadcastInput,
@@ -541,8 +541,6 @@ export const WORKER_UNTRUSTED_CONTENT_SECTION = [
 /** Messages under the user's name go out only as the parent's draft cards. */
 export const WORKER_DRAFT_HANDOFF = "You cannot call DraftExternalMessage. When an email or Slack message should go out under the user's name, do not create the draft in the source app with Gmail create_draft or another connector draft tool. Tell the parent to call DraftExternalMessage: put that ask in your final message, with the recipient, the channel or connector, the thread or other context, the proposed text, and why it should go out. The only exception is an email draft that the user asked to keep in their mailbox, or that must carry a file attachment: save it in their mailbox with the email connector's create_draft, send nothing, and do not ask the parent to draft it.";
 
-/** When a worker with history tools looks something up instead of relying only on its brief. */
-export const WORKER_HISTORY_INSTRUCTIONS = "For facts the parent left out: ReadTranscript reads your own earlier turns after compaction, or another of the user's agents; ReadAgentActivity summarizes what the user's other bots did lately: last messages, open todos, unanswered questions; RecallMemory searches the bot's memory and the user's shared memory.";
 
 export const subagentSpecializationInstructions = (type: SubagentType, combinedComputerUse = true, skillAccess: SkillAccess = "read"): string => {
   if (type === "computerUse") return combinedComputerUse ? COMBINED_GRAPHICAL_WORKER_PROMPT : COMPUTER_WORKER_PROMPT;
@@ -2043,9 +2041,6 @@ export class AgentMessaging {
         bot.subagentIdentity.subagentType === "browserUse"
           ? `${WORKER_UNTRUSTED_CONTENT_SECTION}\n\n${WORKER_DRAFT_HANDOFF}` : "",
         specialization,
-        subagentHasHistoryTools(bot.subagentIdentity.subagentType)
-            ? `The cursor namespace exposes ReadTranscript and ReadAgentActivity; parent orchestration and administration tools are unavailable.\n${WORKER_HISTORY_INSTRUCTIONS}`
-            : "",
         `The computer filesystem is shared. Every agent, room, routine, A2A wake, and subagent starts in ${bot.defaultDirectory}.`,
         `Your current timezone is ${this.defaultTimeZone}.`,
         connectorInstructions.trim(),

@@ -80,7 +80,7 @@ import {
 import type { ScreenBroker } from "../screen-broker";
 import { dynamicCatalog } from "./dynamic-catalog";
 import { taskToolContract } from "@openteam/contracts/tool-contracts";
-import { subagentHasHistoryTools, taskToolEnabled } from "@openteam/contracts/task-configuration";
+import { taskToolEnabled } from "@openteam/contracts/task-configuration";
 import { WebTools } from "../web-tools";
 import { SearchProviderClient } from "../search-provider";
 import { FetchProviderClient } from "../fetch-provider";
@@ -519,8 +519,7 @@ export class RuntimeTools {
             tool.name
           )) &&
         (active.requestSource !== "automation" || !AUTOMATION_PARENT_ONLY_TOOLS.has(tool.name)) &&
-        (!active.subagentType || !SUBAGENT_PRIVATE_NATIVE_TOOLS.has(tool.name) ||
-          (tool.name === "RecallMemory" && subagentHasHistoryTools(active.subagentType)))
+        (!active.subagentType || !SUBAGENT_PRIVATE_NATIVE_TOOLS.has(tool.name))
     );
     return [
       ...availableNativeTools.map((tool) => native(tool)),

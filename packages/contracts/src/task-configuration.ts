@@ -109,10 +109,6 @@ export const taskTypeNames = (config = defaultTaskConfiguration()) => [
 export const subagentUsesParentConnectors = (subagentType: string | null | undefined): boolean =>
   subagentType === "executor" || subagentType === "knowledgeWork";
 
-/** Workers that can look back: their own run, the user's other bots, and the bot's memory. */
-export const subagentHasHistoryTools = (subagentType: string | null | undefined): boolean =>
-  subagentType === "executor" || subagentType === "knowledgeWork";
-
 export interface TaskCapabilities {
   desktopAvailable: boolean;
   boxAvailable: boolean;

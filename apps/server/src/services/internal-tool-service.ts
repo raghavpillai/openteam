@@ -1,6 +1,6 @@
 import { readAgentActivity, readTranscript, readSiblingThread } from "@openteam/messaging";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
-import { parseTaskConfiguration, subagentHasHistoryTools, subagentUsesParentConnectors } from "@openteam/contracts/task-configuration";
+import { parseTaskConfiguration, subagentUsesParentConnectors } from "@openteam/contracts/task-configuration";
 import {
   AgentSendToUserInput,
   validateProcessSecretName,
@@ -36,8 +36,6 @@ import type { SubagentService } from "./subagent/service";
 import type { TodoService } from "./todo-service";
 import type { RichMessageService } from "./rich-message-service";
 import { processEnvironment } from "./process-secrets";
-
-const WORKER_HISTORY_TOOLS = new Set(["ReadTranscript", "ReadAgentActivity", "RecallMemory"]);
 
 export class InternalToolService {
   constructor(
@@ -170,22 +168,15 @@ export class InternalToolService {
         "request_box_help",
         "SetMcpInstructions",
       ]);
-      // executor and knowledgeWork may look back: their own run, the user's other bots, and the bot's memory.
-      const historyWorker = !!childIdentity && subagentHasHistoryTools(childIdentity.subagentType);
-      if (childIdentity && parentOnlyTools.has(request.tool) && !(historyWorker && WORKER_HISTORY_TOOLS.has(request.tool))) {
+      if (childIdentity && parentOnlyTools.has(request.tool)) {
         throw new ApiError(403, "subagent_tool_forbidden", "This tool is parent-agent only");
       }
       if (request.tool === "ReadTranscript") return readTranscript(this.prisma, context, request.arguments);
       if (request.tool === "ReadAgentActivity") return readAgentActivity(this.prisma, { botId: childIdentity?.parentBotId ?? request.botId }, request.arguments);
       if (request.tool === "read_sibling_thread") return readSiblingThread(this.prisma, context, request.arguments);
       if (request.tool === "RecallMemory") {
-        // A worker searches the memory of the bot it works for, scoped to the conversation that started it.
-        const memoryRun = childIdentity
-          ? await this.prisma.run.findUniqueOrThrow({ where: { id: childIdentity.parentRunId }, select: { memoryConversationId: true, channelId: true } })
-          : run;
-        const memoryBotId = childIdentity?.parentBotId ?? request.botId;
-        const memoryContextId = memoryRun.memoryConversationId ?? (await this.messaging.agentData.resolveMemoryConversation(memoryBotId, memoryRun.channelId)).id;
-        return this.messaging.agentData.recallMemory(memoryBotId, request.arguments, memoryContextId);
+        const memoryContextId = run.memoryConversationId ?? (await this.messaging.agentData.resolveMemoryConversation(request.botId, run.channelId)).id;
+        return this.messaging.agentData.recallMemory(request.botId, request.arguments, memoryContextId);
       }
       if (request.tool === "SendFeedback" || request.tool === "create_bot_share_json") {
         if (!this.richMessages) throw new Error("Review service unavailable");

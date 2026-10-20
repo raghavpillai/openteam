@@ -11,7 +11,7 @@ import { DurableStateService } from "../src/update-state";
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 const databaseTest = databaseUrl ? test : test.skip;
 
-databaseTest("executor and knowledgeWork recall the parent's memory and read history; other workers are refused", async () => {
+databaseTest("workers never recall memory or read history; the parent does", async () => {
   const prisma = createPrismaClient(databaseUrl!);
   const root = await mkdtemp(join(tmpdir(), "worker-history-tools-"));
   const store = new AgentDataStore(prisma, { root: join(root, "data"), workspaceRoot: root });
@@ -39,15 +39,13 @@ databaseTest("executor and knowledgeWork recall the parent's memory and read his
       // Worker runs carry the channel the parent was working in.
       return prisma.run.create({ data: { botId: child.id, conversationId: child.conversation!.id, channelId: channel.id, userMessageId: task.id, status: "running" } });
     };
-    for (const subagentType of ["knowledgeWork", "executor"]) {
+    // The parent passes the facts a task needs; workers don't search memory or history.
+    expect(await call(parentRun, "RecallMemory", { query: "VERMILION" })).toContain("VERMILION invoices go to Dana.");
+    for (const subagentType of ["knowledgeWork", "executor", "computerUse"]) {
       const run = await worker(subagentType);
-      expect(await call(run, "RecallMemory", { query: "VERMILION" })).toContain("VERMILION invoices go to Dana.");
-      expect(JSON.stringify(await call(run, "ReadTranscript", {}))).toContain(`${subagentType}_TASK`);
-      expect(await call(run, "ReadAgentActivity", {})).toBeString();
-    }
-    const graphical = await worker("computerUse");
-    for (const tool of ["RecallMemory", "ReadTranscript", "ReadAgentActivity"]) {
-      await expect(call(graphical, tool, tool === "RecallMemory" ? { query: "VERMILION" } : {})).rejects.toThrow("parent-agent only");
+      for (const tool of ["RecallMemory", "ReadTranscript", "ReadAgentActivity"]) {
+        await expect(call(run, tool, tool === "RecallMemory" ? { query: "VERMILION" } : {})).rejects.toThrow("parent-agent only");
+      }
     }
   } finally {
     await prisma.bot.deleteMany({ where: { id: { in: botIds } } });

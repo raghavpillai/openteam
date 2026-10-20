@@ -7,9 +7,6 @@ export const READ_TRANSCRIPT_TOOL = {
     before: { type: "integer", minimum: 0, description: "Exclusive position cursor returned by an earlier page." },
   }, additionalProperties: false },
 };
-/** What a worker sees: its own run, and the user's other agents, but never the parent's main chat. */
-export const READ_TRANSCRIPT_SUBAGENT_DESCRIPTION = "Read saved observable messages and tool activity. With no id it reads your own run, including what was compacted out of your context. agent_id reads another active agent's visible messages, and session_id another conversation of your parent readable from the one you were started in (none from its main chat); anywhere else only your own run is readable. You dispatch no subagents, so subagent_id is not available. Returns newest rows in chronological order; pass next_before to page backward. Private reasoning, system instructions, form values, and privileged tool payloads are excluded.";
-export const READ_TRANSCRIPT_SUBAGENT_REFUSAL = "You dispatch no subagents, so there is no subagent transcript to read. Omit subagent_id to read your own transcript.";
 
 export function parseReadTranscriptInput(raw: unknown) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Expected an object");

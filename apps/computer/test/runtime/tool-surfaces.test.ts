@@ -255,26 +255,21 @@ describe("specialized subagent tool surfaces", () => {
     expect(worker).not.toContain("upload_file");
   });
 
-  test("executor and knowledgeWork can look back; other workers cannot", () => {
+  test("workers get no memory or history tools; the main agent keeps them", () => {
     const runtime = runtimeTools() as unknown as {
       dynamicCatalog(active: { runtimeProfile: "agent" | "subagent"; subagentType?: string; pluginNamespaces: [] }): Array<{ name: string; tools: Array<{ name: string; description: string }> }>;
-      customTools(active: { subagentType: string | null }): Array<{ name: string }>;
+      customTools(active: unknown): Array<{ name: string }>;
     };
     const cursor = (runtimeProfile: "agent" | "subagent", subagentType?: string) =>
       runtime.dynamicCatalog({ runtimeProfile, subagentType, pluginNamespaces: [] }).find((namespace) => namespace.name === "cursor")?.tools ?? [];
-    for (const subagentType of ["executor", "knowledgeWork"]) {
-      const tools = cursor("subagent", subagentType);
-      expect(tools.map((tool) => tool.name)).toEqual(["download_file", "ReadTranscript", "ReadAgentActivity"]);
-      expect(tools.find((tool) => tool.name === "ReadTranscript")!.description).toContain("With no id it reads your own run");
-      expect(runtime.customTools(workerTurn(subagentType)).map((tool) => tool.name)).toContain("RecallMemory");
-    }
-    for (const subagentType of ["computerUse", "browserUse"]) {
-      expect(cursor("subagent", subagentType).map((tool) => tool.name)).not.toContain("ReadTranscript");
-      expect(runtime.customTools(workerTurn(subagentType)).map((tool) => tool.name)).not.toContain("RecallMemory");
+    for (const subagentType of ["executor", "knowledgeWork", "computerUse", "browserUse"]) {
+      const names = [...cursor("subagent", subagentType), ...runtime.customTools(workerTurn(subagentType))].map((tool) => tool.name);
+      for (const name of ["RecallMemory", "ReadTranscript", "ReadAgentActivity"]) expect(names, subagentType).not.toContain(name);
     }
     const main = cursor("agent");
     expect(main.map((tool) => tool.name)).toEqual(expect.arrayContaining(["ReadTranscript", "ReadAgentActivity"]));
     expect(main.find((tool) => tool.name === "ReadTranscript")!.description).toContain("subagent_id for your dispatched worker");
+    expect(runtime.customTools(workerTurn(null)).map((tool) => tool.name)).toContain("RecallMemory");
   });
 
   test("only knowledgeWork with tool access gets the Skill tool", () => {

@@ -1,12 +1,7 @@
-export const READ_TRANSCRIPT_TOOL = {
-  name: "ReadTranscript",
-  description: "Read saved observable conversation messages and tool activity, including history preceding compaction. Omit target IDs for the current conversation, use session_id for another conversation of this agent, agent_id for an active agent in this deployment, or subagent_id for your dispatched worker (running or finished). Returns newest rows in chronological order; pass next_before to page backward. Private reasoning, system instructions, form values, and privileged tool payloads are excluded. Large text retains its beginning and end with an explicit truncation notice. Use a smaller limit to allow more text per row within the response budget; before pages records, not text within one record.",
-  inputSchema: { type: "object", properties: {
-    session_id: { type: "string" }, agent_id: { type: "string" }, subagent_id: { type: "string" },
-    limit: { type: "integer", minimum: 1, maximum: 200, description: "Maximum rows, default 30." },
-    before: { type: "integer", minimum: 0, description: "Exclusive position cursor returned by an earlier page." },
-  }, additionalProperties: false },
-};
+import { referenceTool } from "./tool-contracts";
+
+/** The captured ReadTranscript contract, adapted in tool-contracts. */
+export const READ_TRANSCRIPT_TOOL = referenceTool("ReadTranscript");
 /** What a worker sees: its own run, and the user's other agents, but never the parent's main chat. */
 export const READ_TRANSCRIPT_SUBAGENT_DESCRIPTION = "Read saved observable messages and tool activity. With no id it reads your own run, including what was compacted out of your context. agent_id reads another active agent's visible messages, and session_id another conversation of your parent readable from the one you were started in (none from its main chat); anywhere else only your own run is readable. You dispatch no subagents, so subagent_id is not available. Returns newest rows in chronological order; pass next_before to page backward. Private reasoning, system instructions, form values, and privileged tool payloads are excluded.";
 export const READ_TRANSCRIPT_SUBAGENT_REFUSAL = "You dispatch no subagents, so there is no subagent transcript to read. Omit subagent_id to read your own transcript.";

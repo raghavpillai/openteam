@@ -4,11 +4,11 @@ import { compactRepeatedDiscovery } from "../../src/runtime/discovery-context";
 import { retainedDynamicTools } from "../../src/dynamic-tool-gateway";
 
 const description = "Full authoritative tool description. ".repeat(30);
-const descriptor = { tool: "ListGroups", description, inputSchema: { type: "object", properties: {} } };
+const descriptor = { tool: "CreateChannel", description, inputSchema: { type: "object", properties: {} } };
 const catalog: any[] = [{ name: "cursor", namespaceStatus: "ready", tools: [{
   name: descriptor.tool, description, inputSchema: descriptor.inputSchema,
 }] }];
-function pair(id: string, args: Record<string, unknown> = { namespace: "cursor", toolName: "ListGroups" }, result: unknown = descriptor): BotMessage[] {
+function pair(id: string, args: Record<string, unknown> = { namespace: "cursor", toolName: "CreateChannel" }, result: unknown = descriptor): BotMessage[] {
   return [
     { role: "assistant", stopReason: "toolUse", content: [{ type: "toolCall", id, name: "GetDynamicTools", arguments: args }] },
     { role: "toolResult", toolName: "GetDynamicTools", toolCallId: id, isError: false, content: [{ type: "text", text: JSON.stringify(result) }] },
@@ -21,7 +21,7 @@ test("exact repeated schemas shrink while discovery authorization and original r
   expect(projected[1]).toBe(original[1]);
   expect(JSON.stringify(projected[3])).toContain('schemaSourceToolCallId');
   expect(JSON.stringify(projected).length).toBeLessThan(JSON.stringify(original).length);
-  expect(retainedDynamicTools(catalog, projected)).toEqual(new Set(["cursor/ListGroups"]));
+  expect(retainedDynamicTools(catalog, projected)).toEqual(new Set(["cursor/CreateChannel"]));
   expect(original).toEqual(before);
   expect(compactRepeatedDiscovery(projected)).toEqual(projected);
 });
@@ -31,7 +31,7 @@ test("compaction removing the first receipt makes the surviving receipt complete
   const projected = compactRepeatedDiscovery(original.slice(2));
   expect(projected[1]).toEqual(original[3]);
   expect(JSON.parse((projected[3]!.content as Array<{ text: string }>)[0]!.text).schemaSourceToolCallId).toBe("second");
-  expect(retainedDynamicTools(catalog, projected).has("cursor/ListGroups")).toBe(true);
+  expect(retainedDynamicTools(catalog, projected).has("cursor/CreateChannel")).toBe(true);
 });
 test("changed schemas, descriptions and namespaces remain full", () => {
   for (const changed of [
@@ -41,7 +41,7 @@ test("changed schemas, descriptions and namespaces remain full", () => {
     const original = [...pair("first"), ...pair("changed", undefined, changed)];
     expect(compactRepeatedDiscovery(original)).toEqual(original);
   }
-  const original = [...pair("first"), ...pair("other", { namespace: "other", toolName: "ListGroups" })];
+  const original = [...pair("first"), ...pair("other", { namespace: "other", toolName: "CreateChannel" })];
   expect(compactRepeatedDiscovery(original)).toEqual(original);
 });
 test("errors, orphaned results, summaries, images and searches never become schema references", () => {

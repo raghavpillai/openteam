@@ -407,9 +407,11 @@ export const MessageSubagentInput = Schema.Struct({
 });
 export type MessageSubagentInput = typeof MessageSubagentInput.Type;
 
-export const StopSubagentInput = Schema.Struct({
-  subagent_id: Schema.String.pipe(Schema.minLength(1)),
-});
+/** One running subagent by id, or every running subagent with all: true. */
+export const StopSubagentInput = Schema.Union(
+  Schema.Struct({ subagent_id: Schema.String.pipe(Schema.minLength(1)), all: Schema.optional(Schema.Literal(false)) }),
+  Schema.Struct({ all: Schema.Literal(true) })
+);
 export type StopSubagentInput = typeof StopSubagentInput.Type;
 
 export const CreateAgentInput = Schema.Struct({
@@ -418,21 +420,6 @@ export const CreateAgentInput = Schema.Struct({
   section_id: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
 });
 export type CreateAgentInput = typeof CreateAgentInput.Type;
-
-export const AGENT_DIRECTORY_QUERY_MAX_LENGTH = 120;
-export const AGENT_DIRECTORY_DEFAULT_LIMIT = 20;
-export const AGENT_DIRECTORY_MAX_LIMIT = 50;
-
-export const ListAgentsInput = Schema.Struct({
-  query: Schema.optional(Schema.String.pipe(Schema.maxLength(AGENT_DIRECTORY_QUERY_MAX_LENGTH))),
-  limit: Schema.optional(
-    Schema.Number.pipe(Schema.int(), Schema.between(1, AGENT_DIRECTORY_MAX_LIMIT))
-  ),
-});
-export type ListAgentsInput = typeof ListAgentsInput.Type;
-
-export const ListGroupsInput = ListAgentsInput;
-export type ListGroupsInput = typeof ListGroupsInput.Type;
 
 export const UpdateAgentInput = Schema.Struct({
   agent_id: Schema.String.pipe(Schema.minLength(1)),
@@ -1079,8 +1066,6 @@ export const CALL_DYNAMIC_TOOL_TOOL = nativeTool("CallDynamicTool");
 export const CHECK_SUBAGENT_TOOL = cursorTool("CheckSubagent");
 export const CREATE_AGENT_TOOL = cursorTool("CreateAgent");
 export const CREATE_CHANNEL_TOOL = cursorTool("CreateChannel");
-export const LIST_AGENTS_TOOL = cursorTool("ListAgents");
-export const LIST_GROUPS_TOOL = cursorTool("ListGroups");
 export const MESSAGE_SUBAGENT_TOOL = cursorTool("MessageSubagent");
 export const REQUEST_BOX_HELP_TOOL = cursorTool("request_box_help");
 export const STOP_SUBAGENT_TOOL = cursorTool("StopSubagent");
@@ -1096,6 +1081,7 @@ export const RequestBoxHelpInput = Schema.Struct({
   instruction: Schema.optional(Schema.String),
   domain: Schema.optional(Schema.String),
   idp_domain: Schema.optional(Schema.String),
+  url: Schema.optional(Schema.String),
 });
 export type RequestBoxHelpInput = typeof RequestBoxHelpInput.Type;
 

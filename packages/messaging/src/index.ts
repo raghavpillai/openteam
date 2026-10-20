@@ -3,8 +3,7 @@ export { readAgentActivity } from "./read-agent-activity";
 export { workerSkillAccess } from "./skill-access";
 import { SKILL_ACCESS_COPY, type SkillAccess, workerSkillAccess } from "./skill-access";
 import { attachmentContext } from "./attachment-context";
-import { listSiblingThreads } from "./sibling-threads";
-export { readSiblingThread } from "./sibling-threads";
+import { listSiblingThreads, renderOtherActiveConversations } from "./sibling-threads";
 import { nextMessageAddress, resolveMessageAddress } from "./message-address";
 export { nextMessageAddress, resolveMessageAddress } from "./message-address";
 export { parseAutomationEvent, matchesAutomationEvent, type AutomationEvent } from "./automation-events";
@@ -132,9 +131,10 @@ export interface PlatformPrompt {
   };
 }
 
-export const renderAgentSkillsUserInfo = (skillRender: string): string =>
+export const renderAgentSkillsUserInfo = (skillRender: string, teammates?: string | null): string =>
   [
     "<user_info>",
+    ...(teammates ? [teammates] : []),
     "<agent_skills>",
     skillRender || "No saved skills are currently installed for you.",
     "</agent_skills>",
@@ -187,13 +187,15 @@ const TRANSCRIPT_PROJECTION_DEBOUNCE_SECONDS = 1;
 
 const compactName = (value: string): string => value.replace(/\s+/g, " ").trim().slice(0, 160);
 
-export const PLATFORM_PROMPT_PEER_LIMIT = 12;
-export const PLATFORM_PROMPT_RELATED_PEER_LIMIT = 8;
-export const PLATFORM_PROMPT_GROUP_LIMIT = 8;
+/** The <teammates> block lists at most this many agents and group chats; the agent folders hold the rest. */
+export const PLATFORM_PROMPT_PEER_LIMIT = 40;
+export const PLATFORM_PROMPT_RELATED_PEER_LIMIT = 20;
+export const PLATFORM_PROMPT_GROUP_LIMIT = 40;
 
 export interface PlatformPromptPeerTarget {
   id: string;
   name: string;
+  description?: string;
   hiddenFromSidebar: boolean;
 }
 
@@ -201,6 +203,7 @@ export interface PlatformPromptGroupTarget {
   id: string;
   name: string;
   workingDirectory: string | null;
+  members?: ReadonlyArray<{ bot: { name: string } }>;
 }
 
 export const selectPlatformPromptPeers = (
@@ -225,21 +228,60 @@ export const selectPlatformPromptPeers = (
   return selected;
 };
 
-export const renderPlatformPromptTargetLines = (
-  peers: readonly PlatformPromptPeerTarget[],
-  groups: readonly PlatformPromptGroupTarget[]
-): string[] => [
-  ...peers
-    .slice(0, PLATFORM_PROMPT_PEER_LIMIT)
-    .map(
-      (peer) =>
-        `- Agent ${compactName(peer.name)}: ${peer.id}${peer.hiddenFromSidebar ? " (hidden from the user's sidebar, but reachable)" : ""}`
-    ),
-  ...groups.slice(0, PLATFORM_PROMPT_GROUP_LIMIT).map((group) => {
-    const workingDirectory = group.workingDirectory?.replace(/\s+/g, " ").trim().slice(0, 240);
-    return `- Group ${compactName(group.name)}: ${group.id}${workingDirectory ? ` (project folder: ${workingDirectory})` : ""}`;
-  }),
-];
+/** The system prompt's pointer to the roster in user_info. */
+export const TEAMMATES_POINTER =
+  "You have teammates, other agents this user runs. They're listed in the <teammates> block of <user_info>; load SendToAgent to message one.";
+/** With no other agent or group chat there is nothing to list in user_info. */
+export const NO_TEAMMATES_SECTION = [
+  "Your teammates: the other agents this user runs. Each is its own assistant with its own chat, persona, and memory. Reach one, or a group you're in, with SendToAgent; its description covers delivery, priority, and when a send is warranted.",
+  "This user has no other agents yet. If a task would be better handled by a dedicated teammate, offer to create one with CreateAgent.",
+].join("\n");
+
+const byStableId = <T extends { id: string }>(items: readonly T[]): T[] =>
+  [...items].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+const clampLine = (value: string, max: number): string => {
+  const line = value.replace(/\s+/g, " ").trim();
+  return line.length > max ? `${line.slice(0, max - 1)}\u2026` : line;
+};
+
+/** Every messageable teammate and group chat, in id order so the block changes only with the roster. */
+export const renderTeammatesUserInfo = (input: {
+  peers: readonly PlatformPromptPeerTarget[];
+  groups: readonly PlatformPromptGroupTarget[];
+  agentsRoot: string;
+  morePeers?: boolean;
+}): string | null => {
+  const peers = byStableId(input.peers.slice(0, PLATFORM_PROMPT_PEER_LIMIT));
+  const groups = byStableId(input.groups.slice(0, PLATFORM_PROMPT_GROUP_LIMIT));
+  if (!peers.length && !groups.length) return null;
+  const root = input.agentsRoot;
+  return [
+    "<teammates>",
+    'Each teammate is its own assistant with its own chat, persona, and memory, and the user may not know you can reach them. When looping one in would genuinely help, offer it ("want me to ask your research agent?"), and treat "@ that agent", "tell my other agent\u2026", or "ask the group" as a request to send.',
+    `Discovering agents is file-based. Every agent (yours included) is a sibling folder under ${root}. Read ${root}/<agentId>/profile.json (name, description) for any agent, and <agentId>/group.json ({ memberIds }) to see a group's members, with Shell. That is the full, fresh source when the lists below aren't enough.`,
+    ...(peers.length
+      ? [
+          "Teammates you can message right now:",
+          ...peers.map((peer) => {
+            const description = peer.description?.trim() ? `: ${clampLine(peer.description, 120)}` : "";
+            return `- ${compactName(peer.name)} (id: ${peer.id})${peer.hiddenFromSidebar ? " (hidden from the user's sidebar, but reachable)" : ""}${description}`;
+          }),
+          ...(input.morePeers ? ["\u2026and more (read the agent folders above for the full roster)."] : []),
+        ]
+      : []),
+    ...(groups.length
+      ? [
+          "Group chats (channels) you're in (post to one by its id to reach all its members):",
+          ...groups.map((group) => {
+            const members = (group.members ?? []).map((member) => compactName(member.bot.name)).join(", ");
+            const workingDirectory = group.workingDirectory?.replace(/\s+/g, " ").trim().slice(0, 240);
+            return `- ${compactName(group.name)} (id: ${group.id})${members ? `: with ${members}` : ""}${workingDirectory ? ` (project folder: ${workingDirectory})` : ""}`;
+          }),
+        ]
+      : []),
+    "</teammates>",
+  ].join("\n");
+};
 
 export const directAgentAcknowledgement = (input: {
   targetName: string;
@@ -2084,7 +2126,7 @@ export class AgentMessaging {
             status: "active",
             subagentIdentity: { is: null },
           },
-          select: { id: true, name: true, hiddenFromSidebar: true },
+          select: { id: true, name: true, description: true, hiddenFromSidebar: true },
           orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
           take: PLATFORM_PROMPT_PEER_LIMIT + 1,
         }),
@@ -2106,7 +2148,7 @@ export class AgentMessaging {
               orderBy: { ordinal: "asc" },
               take: GROUP_MAX_MEMBERS,
               select: {
-                bot: { select: { id: true, name: true, hiddenFromSidebar: true } },
+                bot: { select: { id: true, name: true, description: true, hiddenFromSidebar: true } },
               },
             },
           },
@@ -2155,7 +2197,12 @@ export class AgentMessaging {
     const groups = groupRows.slice(0, PLATFORM_PROMPT_GROUP_LIMIT);
     const relatedPeers = groups.flatMap((group) => group.members.map((member) => member.bot));
     const peers = selectPlatformPromptPeers(relatedPeers, recentPeers, botId);
-    const targets = renderPlatformPromptTargetLines(peers, groups);
+    const teammates = renderTeammatesUserInfo({
+      peers,
+      groups,
+      agentsRoot: join(this.agentData.root, "agents"),
+      morePeers: recentPeers.length > PLATFORM_PROMPT_PEER_LIMIT,
+    });
     const dismissedWidgetPrompts: string[] = [];
     const richMessagePrompts = pendingRichMessages.flatMap((message) => {
       const metadata =
@@ -2197,19 +2244,17 @@ export class AgentMessaging {
       agent_instructions: bot.instructions ? `Additional durable instructions:\n${bot.instructions}` : "",
       memory: agentPrompt.liveMemoryRender ?? agentPrompt.memoryRender,
       automations: routineContext.length ? `Scheduled routines:\n${routineContext.join("\n")}` : "You have no scheduled routines.",
-      agent_directory: targets.length
-        ? `Recent and related SendToAgent targets (bounded catalog):\n${targets.join("\n")}\nUse ListAgents or ListGroups for an exact id/name lookup or to discover targets omitted from this catalog.`
-        : "No peer or group targets are currently available.",
+      agent_directory: `## Teammates and groups\n${teammates ? TEAMMATES_POINTER : NO_TEAMMATES_SECTION}`,
       mcp_instructions: connectorInstructions,
     });
     const siblings = await listSiblingThreads(this.prisma, botId, contextSessionId);
     const instructions = [
       frozen.sections.mcp_instructions,
       renderPlatformBaseSystemPrompt({ feedback: process.env.OPENTEAM_FEEDBACK_ALLOW_AGENT === "true" }),
-      siblings.length ? `Other active conversations (read with read_sibling_thread using session_id):\n${siblings.map(s => `- ${s.name}: ${s.sessionId}`).join("\n")}` : "",
+      renderOtherActiveConversations(siblings),
       agentPrompt.profileSection,
       frozen.sections.agent_instructions,
-      "Use GetDynamicTools with namespace cursor to discover SendToAgent, ListAgents/ListGroups, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, CreateChannel/UpdateChannel, and UpdateSkill/UpdateProfile/UpdateAvatar/DisconnectChannel/UpdateProject. Invoke discovered tools with CallDynamicTool.",
+      "Use GetDynamicTools with namespace cursor to discover SendToAgent, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, CreateChannel/UpdateChannel, and UpdateSkill/UpdateProfile/UpdateAvatar/DisconnectChannel/UpdateProject. Invoke discovered tools with CallDynamicTool.",
       A2A_PLATFORM_INSTRUCTIONS,
       graphicalDelegationInstructions(taskConfiguration),
       taskUserInfo(taskConfiguration),
@@ -2244,7 +2289,7 @@ export class AgentMessaging {
     ]
       .filter(Boolean)
       .join("\n\n");
-    const userInfo = renderAgentSkillsUserInfo(agentPrompt.skillRender);
+    const userInfo = renderAgentSkillsUserInfo(agentPrompt.skillRender, teammates);
     const automationResults = !automation && memoryConversationId ? await this.prisma.automationResult.findMany({
       where: { wakeRunId: null, acknowledgedAt: null, run: { botId, memoryConversationId } },
       orderBy: { createdAt: "asc" }, take: 20,

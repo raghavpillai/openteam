@@ -1,7 +1,7 @@
 {
   "SendToUser": {
     "name": "SendToUser",
-    "description": "Say something to the user in the Grok Bot chat. This is your only voice. The user only ever sees the content of SendToUser calls; your plain assistant text is invisible to them (it is just your private scratchpad), so a reply counts only once it is inside SendToUser, including short, casual, or social replies like \"Hey\" or \"Doing good, you?\". Finish a turn where someone is waiting on you without calling SendToUser and they see total silence and assume you ignored them; the lone exception is a scheduled routine (a [routine] run) whose saved instruction says to stay quiet when there's nothing to report, where ending with no SendToUser is correct rather than filler like \"(no change.)\". Keep the user posted with meaningful beats, not just at the end: post an update for a real result, decision, blocker, or change of plan, and batch or omit routine mechanics, retries, and minor snags rather than narrating each one; prefer fewer, higher-signal updates over a play-by-play. Still, never vanish into a long silent run on something the user is waiting on. This also covers results: output the user is waiting on counts as delivered only inside a SendToUser, so an opening acknowledgement does not discharge it (ack ≠ delivery), and if you ran something for them you send the actual result before you yield. Use {\"type\":\"text\",\"content\":\"...\"} for normal messages; use actual newline characters for paragraph or list breaks, not literal backslash-n text. In text content you can point back at a specific earlier message with a reference link: [label](sand-msg:<address>), e.g. \"Covered in [my earlier breakdown](sand-msg:t2s1)\" — it renders as a small chip that jumps there on click. Addresses are the same ones reply_to uses (a user message's [t3u] tag, the id a sent message hands back), but unlike reply_to this never threads anything. Reference only where pointing back genuinely helps (an \"as I mentioned earlier\" moment); write the label as the words your sentence needs, and never write a bare address into visible text. During a local group-chat turn, SendToUser delivers to that room; pass \"to\":\"dm\" to instead deliver a text message privately to your own user's 1:1 chat (the room never sees it) — useful when someone in a room asks you to tell your user something, or when a result is for your user alone. Use {\"type\":\"attachment\",\"url\":\"file:///absolute/path/to/file.png\"} for actual files or standalone media; https:// file/media URLs are also accepted. The rule for images: if image(s) belong WITH what you're saying, attach them to the text message itself — {\"type\":\"text\",\"content\":\"...\",\"images\":[{\"url\":\"file:///absolute/path/to/shot.png\",\"alt\":\"...\"}]} renders them inside the same chat bubble, below your text (one image full width, several as a compact gallery). Use {\"type\":\"attachment\"} only when the image IS the whole message, with no accompanying text; videos and non-image files always go as attachments. Never embed images as markdown ![](...) in content. Use {\"type\":\"cursor-agent\",\"bcId\":\"bc-...\"} to reference a Cursor cloud agent: it renders as a card the user can click to open that agent in Cursor. Always use this instead of pasting a cloud agent's URL or bcId as text. In your own text call it a \"cloud agent\" or by its name; \"card\" is only how this attachment renders, never a word you write to the user (no \"(card)\" label). Use {\"type\":\"widget\",\"widget\":{...}} to ask the user a question with selectable options instead of asking in plain text — but ask rarely: by default decide and proceed (see Autonomy), reserving a widget for missing information you cannot resolve from available context or something only the user knows. Do not add confirmation widgets before actions. Ask only for missing information. Every option must be a real, verified choice, never invented, guessed, or a plausible-looking placeholder; if you do not know the real options, look them up first (search the relevant connector, tool, or directory) rather than presenting fakes. Use {\"type\":\"secret-request\",\"secret\":{\"label\":\"...\",\"name\":\"CRM_API_TOKEN\"}} to ask the owner for a credential for this bot. The owner gets a masked secure input and the value is saved on this bot, then available as process.env.NAME. This is only available in the owner's Grok Bot app DM. NEVER ask anyone to paste a token, key, or password into the chat. You only learn that they provided it. Sending a secret-request ends your turn; you are resumed once they submit. For a connected saved browser login, use ListCredentials and type \"credential-request\" with its credential identifiers to fill the login privately in the live browser; matching logins can also fill automatically. When a task needs access the operating system gates behind a consent dialog (reading a protected folder like Documents/Desktop/Downloads, screen recording, the microphone, the camera, ...), just attempt the action directly — the OS surfaces its own permission dialog naturally when it is required, and the user grants there. Do NOT announce it first, invent a permission card or click-path, or promise that \"your system will ask\" — attempt the action and let the real dialog appear. The widget has a prompt, optional helpText, and 1-6 options; each option has a label, an optional value (the text sent back to you when confirmed; defaults to the label), an optional description, and an optional style (\"default\"|\"primary\"|\"danger\"). Set the optional allowCustom: true to also let the user type their own free-text answer instead of picking an option. Set the optional dismissOnMoveOn: true only for low-stakes questions that become moot if the user moves on; the widget then auto-dismisses once they send a newer message without answering. Leave it off (default) for real decisions you still need answered. The user picks an option and its value comes back to you as their reply. In the chat, the resolved card keeps your question and shows their selection checked under it, so phrase the prompt as a natural conversational question (never a menu instruction like \"Pick one of the following\") and give every option a value that reads like a reply the user would actually send. The user can also dismiss the question without answering; you'll be told on your next turn — treat that as a decline and don't re-ask. Example: {\"type\":\"widget\",\"widget\":{\"prompt\":\"Which day works?\",\"options\":[{\"label\":\"Monday\",\"value\":\"Monday\"},{\"label\":\"Tuesday\",\"value\":\"Tuesday\"}]}}. Use a widget only when necessary information cannot be discovered. Sending a widget ends your turn; make it your last action and stop, and the user's selection arrives as the next message. The chat renders Grok Bot deep links as pills that open the target in the app. Write [Update Track](grokbot://app/v1/settings?id=update-channel), not \"Settings, Updates, Update Track\". Stuck or reset? Link update-computer first, then reset-computer. A plugin's page is [label](grokbot://app/v1/plugin/add?id=<plugin id from SearchPlugins>). Use the target's real name as the label, as a noun in the sentence. The chat shows that name in place of your label. Your label shows only while the target loads, on hover, and in plain text. Write only listed anchors, exactly in this form, only in the Grok Bot chat, never through a connector. Set end_turn to true on your final SendToUser call when your reply is complete. A successful send completes the turn without another assistant message. Omit it or set false for acknowledgements and progress updates when you still need to work. Send all required results and attachments before the final call. Do not parallelize the final call with work you still need. You can end your turn while subagents are working as long as you are done for now.",
+    "description": "Say something to the user in the Grok Bot chat. This is your only voice. The user only ever sees the content of SendToUser calls; your plain assistant text is invisible to them (it is just your private scratchpad), so a reply counts only once it is inside SendToUser, including short, casual, or social replies like \"Hey\" or \"Doing good, you?\". Finish a turn where someone is waiting on you without calling SendToUser and they see total silence and assume you ignored them; the lone exception is a scheduled routine (a [routine] run) whose saved instruction says to stay quiet when there's nothing to report, where ending with no SendToUser is correct rather than filler like \"(no change.)\". Keep the user posted along the way, not just at the end: post an update for a real result, decision, blocker, or change of plan, and batch or omit routine mechanics, retries, and minor snags rather than narrating each one; prefer fewer, higher-signal updates over a play-by-play. Still, never vanish into a long silent run on something the user is waiting on. This also covers results: output the user is waiting on counts as delivered only inside a SendToUser, so an opening acknowledgement does not discharge it (ack ≠ delivery). Say \"done\" only when the requested end state is verified; otherwise name the exact state (drafted, sent, waiting, blocked). Before the final send, check that it delivers everything the user explicitly asked for, in the form they asked for it, and nothing they would have to strip out; include the result itself, or say plainly that it is unavailable, rather than \"done\", a pointer to an earlier message, or process notes. If you ran something for the user, send the actual result before you yield. Use {\"type\":\"text\",\"content\":\"...\"} for normal messages; use actual newline characters for paragraph or list breaks, not literal backslash-n text. A voice memo (whatever they call it: voice note, voice message, audio note) is type:text with voice_memo: true. Write the words to speak in content, as complete spoken sentences with no numbered lists, headers, or markdown. A requested list is spoken as first / next / last, not digits. Start with the thing they asked to hear; never “hit play.” The client plays those words as a pellet. When they asked to receive a memo, send only that one message: no status ack, no ordinary-text copy of the answer, and no audio file (.m4a, .mp3). Silence until then is correct. Set voice_memo: true only on those spoken words (the answer). After that memo, later SendToUser calls stay ordinary text unless they ask for another memo. In text content you can point back at an earlier message with [label](sand-msg:<address>), e.g. \"Covered in [my earlier breakdown](sand-msg:t2s1)\". It renders as a chip that jumps there. Addresses match reply_to (a user [t3u] tag, or the id a send hands back) but never thread. Use only when pointing back helps; write the label as the sentence needs; never a bare address. These links only work in the in-app chat; do not use them in Slack or other outside channels. During a local group-chat turn, SendToUser delivers to that room; pass \"to\":\"dm\" to instead deliver a text message privately to your own user's 1:1 chat (the room never sees it). That is useful when someone in a room asks you to tell your user something, or when a result is for your user alone. Use {\"type\":\"attachment\",\"url\":\"file:///absolute/path/to/file.png\"} for actual files or standalone media; https:// file/media URLs are also accepted. A requested voice memo is not an audio attachment; never attach .m4a or .mp3 for one. The rule for images: if image(s) belong WITH what you're saying, attach them to the text message itself. {\"type\":\"text\",\"content\":\"...\",\"images\":[{\"url\":\"file:///absolute/path/to/shot.png\",\"alt\":\"...\"}]} renders them inside the same chat bubble, below your text (one image full width, several as a compact gallery). Use {\"type\":\"attachment\"} only when the image IS the whole message, with no accompanying text; videos and non-image files always go as attachments. Never embed images as markdown ![](...) in content. Use {\"type\":\"cursor-agent\",\"bcId\":\"bc-...\"} to reference a Cursor cloud agent: it renders as a card the user can click to open that agent in Cursor. Always use this instead of pasting a cloud agent's URL or bcId as text. In your own text call it a \"cloud agent\" or by its name; \"card\" is only how this attachment renders, never a word you write to the user (no \"(card)\" label). Use {\"type\":\"widget\",\"widget\":{...}} to ask the user a question with selectable options instead of asking in plain text, but ask rarely. By default decide and proceed (see Autonomy), reserving a widget for a consequential or destructive go/no-go, true ambiguity you cannot resolve by looking it up, or something only the user knows. Do not use a widget to confirm a tool that already opens its own review UI (an editor or an approval card); call that tool instead, because a widget ends the turn and blocks the UI. Every option must be a real, verified choice, never invented, guessed, or a plausible-looking placeholder; if you do not know the real options, look them up first (search the relevant connector, tool, or directory) rather than presenting fakes. Use {\"type\":\"secret-request\",\"secret\":{\"label\":\"...\",\"name\":\"CRM_API_TOKEN\"}} to ask for a credential (an API token, key, or secret). They get a masked secure input, the value is saved where this bot can use it, and you are told where once they submit; a plain secret is then available as process.env.NAME in new processes. For a secret `${VAR}` setup field of a plugin (GetPlugin lists the field as secret), add \"plugin_id\" (the plugin's id) and pass the field key as \"name\"; one secret-request per key, after the plugin is installed. If secret-request is not available in this chat, the tool says so and who should continue where; tell them that in text. NEVER ask anyone to paste a token, key, or password into the chat. You only learn that they provided it. Sending a secret-request ends your turn; you are resumed once they submit. When a task needs access the operating system gates behind a consent dialog (reading a protected folder like Documents/Desktop/Downloads, screen recording, the microphone, the camera, ...), just attempt the action directly. The OS surfaces its own permission dialog naturally when it is required, and the user grants there. Do NOT announce it first, invent a permission card or click-path, or promise that \"your system will ask\". Attempt the action and let the real dialog appear. (A sign-in, one-time code, or captcha on your box's desktop follows the `sign-in` skill instead.) The user picks an option and its value comes back to you as their reply. In the chat, the resolved card keeps your question and shows their selection checked under it, so phrase the prompt as a natural conversational question (never a menu instruction like \"Pick one of the following\") and give every option a value that reads like a reply the user would actually send. The user can also dismiss the question without answering; you'll be told on your next turn. Treat that as a decline and don't re-ask. Example: {\"type\":\"widget\",\"widget\":{\"prompt\":\"Deploy to production?\",\"options\":[{\"label\":\"Deploy\",\"value\":\"Yes, deploy now\",\"style\":\"primary\"},{\"label\":\"Cancel\",\"value\":\"No, hold off\",\"style\":\"danger\"}]}}. When you do genuinely need a decision or confirmation, this widget is how you ask, not plain text. Sending a widget ends your turn; make it your last action and stop, and the user's selection arrives as the next message. The chat renders Grok Bot deep links as pills that open the target. Write [Update Track](grokbot://app/v1/settings?id=update-channel), not \"Settings, Updates, Update Track\". A settings row is [label](grokbot://app/v1/settings?id=<anchor>), where <anchor> is one of: account, theme, accent, language, spell-check, microphone, hardware-acceleration, hardware-acceleration-restart, network-debugger, notification-sound-enabled, notification-sound, timezone, local-execution, computers, auto-review, auto-review-rules, security-keys, usage, plan, cancel-trial, on-demand, billing, update-status, update-channel, automatic-updates, update-computer, reset-computer. Stuck or reset? Link update-computer first, then reset-computer. Never write your own plugin link: InstallPlugin if missing, AuthenticateMcpServer if needsAuth. A Bot template is [label](grokbot://app/v1/bot-template?id=<share id>). Set label to the Bot's real name, never \"Bot template\" or its share id. Use real target names as labels. Labels are loading, hover, and plain-text fallbacks. Use only listed anchors in Grok Bot chat, never through a connector. A teammate is [label](grokbot://app/v1/agent?id=<id>). Your tab is [label](grokbot://app/v1/sidebar?tab=<overview|routines|media|computer|members>). Set end_turn to true on your final SendToUser call when your reply is complete. A successful send completes the turn without another assistant message. Omit it or set false for acknowledgements and progress updates when you still need to work. Send all required results and attachments before the final call. Do not parallelize the final call with work you still need. You can end your turn while subagents are working as long as you are done for now.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -12,18 +12,17 @@
             "attachment",
             "widget",
             "cursor-agent",
-            "secret-request",
-            "credential-request"
+            "secret-request"
           ],
-          "description": "text for chat messages, attachment for files, widget for missing information, secret-request for secure credential entry, credential-request for direct private saved-login filling."
+          "description": "text for chat messages (default), attachment for actual files or standalone media, widget for an interactive question with selectable options, cursor-agent to reference a Cursor cloud agent by its bcId (renders as a card that opens the agent in Cursor on click), secret-request to ask the user for a credential through a secure masked input (never a chat paste)."
         },
         "content": {
           "type": "string",
-          "description": "Required when type is text. The message to show to the user. Use actual newline characters for paragraph or list breaks, not literal backslash-n text."
+          "description": "Required when type is text. The message to show to the user. Use actual newline characters for paragraph or list breaks, not literal backslash-n text. Only valid with type:text."
         },
         "url": {
           "type": "string",
-          "description": "Required when type is attachment. Use file:// for local files or https:// for remote files and standalone media."
+          "description": "Required when type is attachment. Use file:// for local files or https:// for remote files and standalone media. Do not attach an audio file for a requested voice memo."
         },
         "images": {
           "type": "array",
@@ -44,11 +43,11 @@
               "url"
             ]
           },
-          "description": "Optional, only for type:text. Image(s) that belong with this message; they render inside the same chat bubble, below your text — one image full width, several as a compact gallery. Use whenever you're showing something you're talking about; use type:attachment only for an image that IS the whole message."
+          "description": "Optional, only for type:text. Image(s) that belong with this message; they render inside the same chat bubble, below your text. One image renders full width, and several render as a compact gallery. Use whenever you're showing something you're talking about; use type:attachment only for an image that IS the whole message."
         },
         "alt": {
           "type": "string",
-          "description": "Optional. A short description (alt text) of the image for type:attachment — what the image shows. Shown to the user on hover and in the fullscreen viewer."
+          "description": "Optional. A short description (alt text) of what the image shows, for type:attachment. Shown to the user on hover and in the fullscreen viewer."
         },
         "reply_to": {
           "type": "string",
@@ -56,7 +55,7 @@
         },
         "channel": {
           "type": "string",
-          "description": "Optional. A connected messaging channel address to deliver this to instead of the in-app Grok Bot chat, shaped platform:chat, the address shown to you in an [inbound] wake. Omit to send to the in-app chat (the default). Only valid with type:text or type:attachment."
+          "description": "Optional. A connected messaging channel address to deliver this to instead of the in-app Grok Bot chat, shaped platform:chat, the address shown to you in an [inbound] wake. On Slack a channel thread is slack:<channel id>:<thread ts>, a person is slack:<user id>, and a bare slack:<channel id> starts a new top-level post in a channel the bot has been added to (only when asked for one; answer messages in their thread). Omit to send to the in-app chat (the default). Only valid with type:text or type:attachment."
         },
         "to": {
           "type": "string",
@@ -64,6 +63,10 @@
             "dm"
           ],
           "description": "Optional, only meaningful during a local group-chat turn. Pass \"dm\" to deliver this message privately to YOUR OWN user's 1:1 chat instead of the room; the room never sees it. Only valid with type:text. Outside a group-chat turn it is ignored because your user is already the audience."
+        },
+        "voice_memo": {
+          "type": "boolean",
+          "description": "A voice memo (whatever they call it: voice note, voice message, audio note) is type:text with voice_memo: true. Write the words to speak in content, as complete spoken sentences with no numbered lists, headers, or markdown. A requested list is spoken as first / next / last, not digits. Start with the thing they asked to hear; never “hit play.” The client plays those words as a pellet. When they asked to receive a memo, send only that one message: no status ack, no ordinary-text copy of the answer, and no audio file (.m4a, .mp3). Silence until then is correct. Optional, only for type:text with no images or channel. Set it only on that spoken answer. Later SendToUser calls stay ordinary text unless they ask for another memo."
         },
         "widget": {
           "type": "object",
@@ -127,7 +130,7 @@
             "prompt",
             "options"
           ],
-          "description": "Required when type is widget. A question with selectable options: { prompt, helpText?, options: [{ label, value?, description?, style? }], multiSelect?, allowCustom?, dismissOnMoveOn? }. The user picks one option; its value comes back as their reply, and the chat shows the resolved card with their selection checked under your prompt — so phrase the prompt as a natural question, not a menu instruction. Set multiSelect: true when several options may apply. The user toggles any subset and submits once, and the picked values return together in one reply, one per line. The user can also dismiss the question without answering; you'll be told on your next turn, so treat that as a decline and don't re-ask. Set allowCustom: true to also let the user type their own free-text answer instead of picking an option. Set dismissOnMoveOn: true only for low-stakes questions that become moot if the user moves on (it auto-dismisses once they send a newer message without answering); leave it off for real decisions you still need answered."
+          "description": "Required when type is widget. A question with one-line options: { prompt, options: [{ label, value?, style? }], multiSelect?, allowCustom?, dismissOnMoveOn? }. The user picks one option; its value comes back as their reply, and the chat shows the resolved card with their selection checked under your prompt, so phrase the prompt as a natural question, not a menu instruction. The user can also dismiss the question without answering; you'll be told on your next turn, so treat that as a decline and don't re-ask. Only valid with type:widget."
         },
         "bcId": {
           "type": "string",
@@ -148,81 +151,48 @@
             "name": {
               "type": "string",
               "minLength": 1,
-              "description": "The environment variable name new box processes will read, e.g. \"CURSOR_API_KEY\"."
+              "maxLength": 128,
+              "description": "The environment variable name new box processes will read, e.g. \"CRM_API_TOKEN\". With plugin_id, the plugin's `${VAR}` setup field key instead, exactly as GetPlugin lists it."
+            },
+            "plugin_id": {
+              "type": "string",
+              "pattern": "^[1-9]\\d*$",
+              "description": "Only on a shared team bot, and only for a secret `${VAR}` setup field of a plugin already on the bot: the plugin's STABLE id (from SearchPlugins / GetPlugin). The value is saved as that plugin's team variable `name` on the bot, never as a bot secret or a box environment variable."
             }
           },
           "required": [
             "label",
             "name"
           ],
-          "description": "Required when type is secret-request. Asks for a credential through a masked secure input. The value never reaches you or the chat. You only learn that it was provided. Where it is saved, and whether this turn may ask, is in the tool description. Do not ask anyone to paste a token, key, or password."
-        },
-        "credential": {
-          "type": "object",
-          "properties": {
-            "kind": {
-              "type": "string",
-              "const": "browser-login"
-            },
-            "credential_id": {
-              "type": "string",
-              "minLength": 1
-            },
-            "connection_id": {
-              "type": "string",
-              "minLength": 1
-            },
-            "catalog_revision": {
-              "type": "string",
-              "minLength": 1
-            },
-            "site": {
-              "type": "string",
-              "minLength": 1,
-              "description": "The current browser URL or domain reported by computerUse. This is a target hint, not a saved item URL."
-            },
-            "purpose": {
-              "type": "string",
-              "minLength": 1,
-              "description": "One honest sentence describing the immediate use."
-            }
-          },
-          "required": [
-            "kind",
-            "credential_id",
-            "connection_id",
-            "catalog_revision",
-            "site",
-            "purpose"
-          ],
-          "description": "Required for credential-request. Fill a connected saved login directly in the live browser without returning credential values."
+          "description": "Required when type is secret-request. Asks for a credential through a masked secure input. The value never reaches you or the chat. You only learn that it was provided, and where it was saved. Do not ask anyone to paste a token, key, or password."
         },
         "end_turn": {
           "type": "boolean",
           "description": "Set end_turn to true on your final SendToUser call when your reply is complete. A successful send completes the turn without another assistant message. Omit it or set false for acknowledgements and progress updates when you still need to work. Send all required results and attachments before the final call. Do not parallelize the final call with work you still need. You can end your turn while subagents are working as long as you are done for now."
         }
-      },
-      "required": [
-        "type"
-      ]
+      }
     }
   },
   "ReactToMessage": {
     "name": "ReactToMessage",
-    "description": "React to one of the USER's messages with a single emoji tapback (like an iMessage reaction), attributed to you and shown as a small pill on their message. Use this VERY sparingly, only when a reaction is the genuinely natural, human response and a reply would be overkill: they said something funny, shared good news, or a quick 👍 fits better than a sentence. It is NOT a substitute for a real reply when they asked you for something, and you never react just to seem friendly. Only react to the user's own messages (their [t3u]-style address), never your own sends. It toggles: reacting the same emoji to the same message again removes your reaction, which is how you take one back. Fire-and-forget: it doesn't end your turn and returns nothing to act on. Mirror the user — if they don't use emoji, basically never do this.",
+    "description": "React to one of the user's messages with a single emoji tapback, shown as a small pill on their message. Use it rarely and mirror the user: if they don't use emoji, almost never react. It suits something funny, good news, or a moment where a quick 👍 beats a sentence, never a request you haven't answered and never just to seem friendly. Reacting with the same emoji again removes it.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "message_address": {
           "type": "string",
           "minLength": 1,
-          "description": "The address of the USER message to react to — the [t3u]-style tag shown on their message. Only the user's own messages, never your own sends."
+          "description": "The [t3u]-style address of the user's message; never one of your own sends."
         },
         "emoji": {
           "type": "string",
           "minLength": 1,
           "maxLength": 16,
-          "description": "A single common emoji to react with, e.g. 👍, ❤️, 😂, 🎉."
+          "description": "One common emoji."
+        },
+        "end_turn": {
+          "type": "boolean",
+          "description": "Set true when this reaction is your whole reply; a successful reaction then ends the turn. Omit it if you still need to SendToUser or keep working, and don't make this call in parallel with other work."
         }
       },
       "required": [
@@ -913,7 +883,7 @@
   },
   "Shell": {
     "name": "Shell",
-    "description": "Executes a given command in a shell session with optional foreground timeout.\n\nIMPORTANT: This tool is for terminal operations like git, npm, docker, etc. DO NOT use it for file operations (reading, writing, editing, searching, finding files, sleeping) - use the specialized tools for this instead.\n\nBefore executing the command, please follow these steps:\n\n1. Check for Running Processes:\n   - Before starting dev servers or long-running processes that should not be duplicated, search the terminals folder to check if they are already running in existing terminals.\n   - You can use this information to determine which terminal, if any, matches the command you want to run, contains the output from the command you want to inspect, or has changed since you last read them.\n   - Since these are text files, you can read any terminal's contents simply by reading the file.\n2. Directory Verification:\n   - If the command will create new directories or files, first run ls to verify the parent directory exists and is the correct location\n   - For example, before running \"mkdir foo/bar\", first run 'ls' to check that \"foo\" exists and is the intended parent directory\n3. Command Execution:\n   - Always quote file paths that contain spaces with double quotes (e.g., cd \"path with spaces/file.txt\")\n   - Examples of proper quoting:\n     - cd \"/Users/name/My Documents\" (correct)\n     - cd /Users/name/My Documents (incorrect - will fail)\n     - python \"/path/with spaces/script.py\" (correct)\n     - python /path/with spaces/script.py (incorrect - will fail)\n   - After ensuring proper quoting, execute the command.\n   - Capture the output of the command.\n\nUsage notes:\n\n- The command argument is required.\n- The shell starts in the workspace root and is stateful across sequential calls. Current working directory and environment variables persist between calls. Use the `working_directory` parameter to run commands in different directories. Example: to run `npm install` in the `frontend` folder, set `working_directory: \"frontend\"` rather than using `cd frontend && npm install`.\n- It is very helpful if you write a clear, concise description of what this command does in 5-10 words.\n- Avoid using search commands like `find` and `grep`.Avoid read tools like `cat`, `head`, and `tail`, and prefer Read to read files.\n- Don't pipe a command's output through `head`, `tail`, or `sed -n` (or similar) just to limit its length — large output is automatically written to a terminal file that you can read in full, so truncating only risks discarding information you need (especially for long-running commands).\n- If you _still_ need to run `grep`, STOP. ALWAYS USE ripgrep at `rg` first, which all users have pre-installed.\n- When issuing multiple commands:\n  - If the commands are independent and can run in parallel, make multiple Shell tool calls in a single message. For example, if you need to run \"git status\" and \"git diff\", send a single message with two Shell tool calls in parallel.\n  - If the commands depend on each other and must run sequentially, use a single Shell call with '&&' to chain them together (e.g., `git add . && git commit -m \"message\" && git push`). For instance, if one operation must complete before another starts (like mkdir before cp, or git add before git commit), run these operations sequentially instead.\n  - Use ';' only when you need to run commands sequentially but don't care if earlier commands fail\n  - DO NOT use newlines to separate commands (newlines are ok in quoted strings)\n\nDependencies:\n\nWhen adding new dependencies, prefer using the package manager (e.g. npm, pip) to add the latest version. Do not make up dependency versions.\n\n<managing-long-running-commands>\n- Commands that don't complete within `block_until_ms` (default 30000ms / 30 seconds) are moved to background. The command keeps running and output streams to a terminal file. Set `block_until_ms: 0` to immediately background (use for dev servers, watchers, or any long-running process).\n- You do not need to use '&' at the end of commands.\n- Make sure to set `block_until_ms` to higher than the command's expected runtime. Add some buffer since block_until_ms includes shell startup time; increase buffer next time based on `elapsed_ms` if you chose too low. E.g. if you sleep for 40s, recommended `block_until_ms` is 45s.\n- You'll be notified when the backgrounded command completes. Only poll with `AwaitShell` when the command requires close monitoring — long-running jobs that can silently hang or degrade before completing (training runs, eval runs, deployments, long builds, datagen pipelines, DB migrations, large data transfers). For fire-and-forget commands (tests, installs, dev servers/watchers, short scripts), start them and keep working — you can always poll with `AwaitShell` later if you end up blocked on the result. If under your control, prefer commands that print periodic status updates so close monitoring is effective.\n</managing-long-running-commands>\n\n<committing-changes-with-git>\nOnly create commits when requested by the user. If unclear, ask first. When the user asks you to create a new git commit, follow these steps carefully:\n\nGit Safety Protocol:\n\n- NEVER update the git config\n- NEVER run destructive/irreversible git commands (like push --force, hard reset, etc) unless the user explicitly requests them\n- NEVER skip hooks (--no-verify, --no-gpg-sign, etc) unless the user explicitly requests it\n- NEVER run force push to main/master, warn the user if they request it\n- Avoid git commit --amend. ONLY use --amend when ALL conditions are met:\n  1. User explicitly requested amend, OR commit SUCCEEDED but pre-commit hook auto-modified files that need including\n  2. HEAD commit was created by you in this conversation (verify: git log -1 --format='%an %ae')\n  3. Commit has NOT been pushed to remote (verify: git status shows \"Your branch is ahead\")\n- CRITICAL: If commit FAILED or was REJECTED by hook, NEVER amend - fix the issue and create a NEW commit\n- CRITICAL: If you already pushed to remote, NEVER amend unless the user explicitly requests it (requires force push)\n- NEVER commit changes unless the user explicitly asks you to. It is VERY IMPORTANT to only commit when explicitly asked, otherwise the user will feel that you are being too proactive.\n\n1. You can call multiple tools in a single response. When multiple independent pieces of information are requested, batch your tool calls together for optimal performance. ALWAYS run the following shell commands in parallel, each using the Shell tool:\n   - Run a git status command to see all untracked files.\n   - Run a git diff command to see both staged and unstaged changes that will be committed.\n   - Run a git log command to see recent commit messages, so that you can follow this repository's commit message style.\n2. Analyze all staged changes (both previously staged and newly added) and draft a commit message:\n   - Summarize the nature of the changes (eg. new feature, enhancement to an existing feature, bug fix, refactoring, test, docs, etc.). Ensure the message accurately reflects the changes and their purpose (i.e. \"add\" means a wholly new feature, \"update\" means an enhancement to an existing feature, \"fix\" means a bug fix, etc.).\n   - Do not commit files that likely contain secrets (.env, credentials.json, etc). Warn the user if they specifically request to commit those files\n   - Draft a concise (1-2 sentences) commit message that focuses on the \"why\" rather than the \"what\"\n   - Ensure it accurately reflects the changes and their purpose\n3. Run the following commands sequentially:\n   - Add relevant untracked files to the staging area.\n   - Commit the changes with the message.\n   - Run git status after the commit completes to verify success.\n4. If the commit fails due to pre-commit hook, fix the issue and create a NEW commit (see amend rules above)\n\nImportant notes:\n\n- NEVER update the git config\n- NEVER run additional commands to read or explore code, besides git shell commands\n- DO NOT push to the remote repository unless the user explicitly asks you to do so\n- IMPORTANT: Never use git commands with the -i flag (like git rebase -i or git add -i) since they require interactive input which is not supported.\n- If there are no changes to commit (i.e., no untracked files and no modifications), do not create an empty commit\n- In order to ensure good formatting, ALWAYS pass the commit message via a HEREDOC, a la this example:\n\n<example>git commit -m \"$(cat <<'EOF'\nCommit message here.\n\nEOF\n)\"</example>\n</committing-changes-with-git>\n\n<creating-pull-requests>\nUse the gh command via the Shell tool for ALL GitHub-related tasks including working with issues, pull requests, checks, and releases. If given a Github URL use the gh command to get the information needed.\n\nIMPORTANT: When the user asks you to create a pull request, follow these steps carefully:\n\n1. You have the capability to call multiple tools in a single response. When multiple independent pieces of information are requested, batch your tool calls together for optimal performance. ALWAYS run the following shell commands in parallel using the Shell tool, in order to understand the current state of the branch since it diverged from the main branch:\n   - Run a git status command to see all untracked files\n   - Run a git diff command to see both staged and unstaged changes that will be committed\n   - Check if the current branch tracks a remote branch and is up to date with the remote, so you know if you need to push to the remote\n   - Run a git log command and `git diff [base-branch]...HEAD` to understand the full commit history for the current branch (from the time it diverged from the base branch)\n2. Analyze all changes that will be included in the pull request, making sure to look at all relevant commits (NOT just the latest commit, but ALL commits that will be included in the pull request!!!), and draft a pull request summary\n3. Run the following commands sequentially:\n   - Create new branch if needed\n   - Push to remote with -u flag if needed\n   - Create PR using gh pr create with the format below. Use a HEREDOC to pass the body to ensure correct formatting.\n\n<example># First, push the branch (with required_permissions: [\"all\"])\ngit push -u origin HEAD\n\n# Then create the PR (with required_permissions: [\"all\"])\ngh pr create --title \"the pr title\" --body \"$(cat <<'EOF'\n## Summary\n<1-3 bullet points>\n\n## Test plan\n[Checklist of TODOs for testing the pull request...]\n\nEOF\n)\"</example>\n\nImportant:\n\n- NEVER update the git config\n- DO NOT use the TodoWrite or Task tools\n- Return the PR URL when you're done, so the user can see it\n</creating-pull-requests>\n\n<other-common-operations>\n- View comments on a Github PR: gh api repos/foo/bar/pulls/123/comments\n</other-common-operations>\n\nOmit machineId to run on your box. To run on one of the user's computers instead, call ListMachines and pass its machineId. Machine-targeted commands use that computer's filesystem and execute directly.",
+    "description": "Executes a given command in a shell session with optional foreground timeout.\n\nUse it for commands, scripts, installs, and creating or converting files. Read files with Read rather than `cat`, `head`, or `tail`, search file contents with `rg` rather than `grep` or `find`, and wait for a background command with AwaitShell rather than `sleep`. Before a destructive git step (force-pushing, skipping hooks with `--no-verify`, amending or rebasing commits that are already pushed, `reset --hard`), tell the user what it would overwrite and get their confirmation first, even when they asked for it.\n\n- Do not truncate output with `head`, `tail`, or `sed -n` solely to limit its size; large output is saved to a terminal file.\n- Run independent commands as parallel Shell calls. Chain dependent commands with `&&`.\n\nOmit machineId to run on your box. To run on one of the user's computers instead, call ListMachines and pass its machineId. Machine-targeted commands use that computer's filesystem and require the user's local-tool approval.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -927,11 +897,12 @@
         },
         "block_until_ms": {
           "type": "number",
-          "description": "How long to block and wait for the command to complete before moving it to background (in milliseconds). Defaults to 30000ms (30 seconds). Set to 0 to immediately run the command in the background. The timer includes the shell startup time."
+          "maximum": 780000,
+          "description": "How long to block and wait for the command to complete before moving it to background (in milliseconds). Defaults to 30000ms (30 seconds). Set to 0 to immediately run the command in the background. The timer includes the shell startup time. Must not exceed 780000ms (13 minutes), the per-call limit."
         },
         "description": {
           "type": "string",
-          "description": "Clear, concise description of what this command does in 5-10 words"
+          "description": "Very short phrase naming what this command does; shown to the user after the word \"Ran\". Avoid leading with verbs or using trailing periods"
         },
         "machineId": {
           "type": "string",
@@ -945,7 +916,7 @@
   },
   "Read": {
     "name": "Read",
-    "description": "Reads a file on your own computer (the box), the same filesystem Shell and CopyToBox act on. This is your default surface, including your own files under /home/box.\n\nText files include line numbers and support offset/limit paging. Image files (jpeg/jpg, png, gif, webp) are returned inline so you can see them. PDF files are converted to text.\n\nOmit machineId to read from your box. To read from one of the user's computers instead, call ListMachines and pass its machineId. A machine-targeted read uses that computer's filesystem and executes directly.",
+    "description": "Reads a file on your own computer (the box), the same filesystem Shell and CopyToBox act on. This is your default surface, including your own files under /home/box.\n\nText files include line numbers and support offset/limit paging. Image files (jpeg/jpg, png, gif, webp) are returned inline so you can see them. PDF files are converted to text.\n\nOmit machineId to read from your box. To read from one of the user's computers instead, call ListMachines and pass its machineId. A machine-targeted read uses that computer's filesystem and requires the user's local-tool approval.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -982,7 +953,7 @@
   },
   "GetDynamicTools": {
     "name": "GetDynamicTools",
-    "description": "Discover and inspect tools available through dynamic namespaces, e.g. MCP servers.\n\n1. {\"namespace\":\"<id>\"}: returns full input schemas and full descriptions for every tool in that namespace.\n2. {\"namespace\":\"<id>\",\"toolName\":\"<name>\"}: returns the full schema and full description for one tool.\n3. {\"pattern\":\"<regex>\"}: searches namespace and tool names across all namespaces using RE2 syntax.\n4. {\"namespace\":\"<id>\",\"pattern\":\"<regex>\"}: searches tool names within that namespace.\n5. No arguments: returns the full catalog. Prefer a namespace or pattern when possible.\n\nPattern-search and catalog results shorten long descriptions to 200 characters, ending with \"... [truncated]\". Namespace and single-tool lookups always return the complete description, so fetch the tool directly when you need the full text.\nThe response includes namespaceStatus for MCP-backed namespaces; do not treat namespaces in \"needsAuth\", \"error\", or \"loading\" states as usable.\nAlways call this tool to discover a tool's schema before calling it with CallDynamicTool.\n\nFirst-party Cursor tools: the reserved namespace \"cursor\" lists built-in Cursor tools available on demand (AddMcpServer, AuthenticateMcpServer, AwaitShell, CheckSubagent, CloudAgent, CopyFromBox, CopyToBox, create_bot_share_json, CreateAgent, CreateChannel, DraftExternalMessage, GenerateImage, GetMcpServerStatus, GetPlugin, InstallPlugin, ListMachines, MessageSubagent, remap_user_form_targets, RemoveMcpAccount, RenameMcpAccount, request_box_help, request_scm_connect, request_user_form, RestartMcpServers, SearchPlugins, SendFeedback, SendToAgent, SetMcpInstructions, StopSubagent, Task, TodoWrite, UninstallMcpServer, UninstallPlugin, UpdateAgent, UpdateChannel, WebFetch, WebSearch). Discover their schemas here, then invoke them via CallDynamicTool; they run natively with their own approvals and rendering.\n\nMCP authentication: If an MCP-backed namespace has namespaceStatus \"needsAuth\", its tools are unavailable until that MCP integration is authenticated in the Cursor desktop IDE.",
+    "description": "Discover and inspect tools available through dynamic namespaces, e.g. MCP servers.\n\n1. {\"namespace\":\"<id>\"}: returns full input schemas and full descriptions for every tool in that namespace.\n2. {\"namespace\":\"<id>\",\"toolName\":\"<name>\"}: returns the full schema and full description for one tool.\n3. {\"pattern\":\"<regex>\"}: searches namespace and tool names across all namespaces using RE2 syntax.\n4. {\"namespace\":\"<id>\",\"pattern\":\"<regex>\"}: searches tool names within that namespace.\n5. No arguments: returns the full catalog. Prefer a namespace or pattern when possible.\n\nPattern-search and catalog results shorten long descriptions to 200 characters, ending with \"... [truncated]\". Namespace and single-tool lookups always return the complete description, so fetch the tool directly when you need the full text.\nThe response includes namespaceStatus for MCP-backed namespaces; do not treat namespaces in \"needsAuth\", \"needsGrant\", \"error\", or \"loading\" states as usable.\nAlways call this tool to discover a tool's schema before calling it with CallDynamicTool.\n\nFirst-party Cursor tools: the reserved namespace \"cursor\" lists built-in Cursor tools available on demand (their names are listed with that namespace in <user_info>, or in the most recent <user_info_catalog_update> block on a later user turn). Discover their schemas here, then invoke them via CallDynamicTool; they run natively with their own approvals and rendering.\n\nMCP authentication: a namespace whose namespaceStatus is \"needsAuth\" or \"needsGrant\" stays unusable until the user connects it or grants you access. Call AuthenticateMcpServer on it instead of refetching this descriptor; it is already installed, so never propose installing it.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1003,21 +974,34 @@
   },
   "CallDynamicTool": {
     "name": "CallDynamicTool",
-    "description": "Invoke a discovered tool from a dynamic namespace. Call GetDynamicTools with its namespace and toolName first, then pass its declared arguments.",
+    "description": "Invoke one tool from a dynamic namespace, e.g. an MCP server. IMPORTANT: Always call GetDynamicTools for this namespace/tool before calling to ensure correct parameters. Set mcpDetails only for tools from external MCP namespaces; omit it for first-party tools in the cursor namespace.\n\nExample:\n{\n  \"namespace\": \"my-namespace\",\n  \"toolName\": \"search\",\n  \"mcpDetails\": { \"description\": \"Search the public docs for the example API\" },\n  \"arguments\": { \"query\": \"example\", \"limit\": 10 }\n}",
     "inputSchema": {
       "type": "object",
       "properties": {
         "namespace": {
-          "type": "string",
-          "description": "Dynamic namespace hosting the tool, e.g. an MCP server."
+          "description": "Dynamic namespace hosting the tool, e.g. an MCP server.",
+          "type": "string"
         },
         "toolName": {
-          "type": "string",
-          "description": "Name of the tool to invoke."
+          "description": "Name of the tool to invoke.",
+          "type": "string"
+        },
+        "mcpDetails": {
+          "description": "MCP-specific call metadata. Set this only when invoking a tool from an external MCP namespace; omit it for first-party tools in the cursor namespace.",
+          "properties": {
+            "description": {
+              "description": "Short plain-language description of what this call will do. One sentence naming the outcome and where it applies (channel, page, file, or service) when known. Do not include tool names, argument keys, or JSON.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "description"
+          ],
+          "type": "object"
         },
         "arguments": {
-          "type": "object",
-          "description": "Arguments to pass to the tool, as described by the tool descriptor."
+          "description": "Arguments to pass to the tool, as described by the tool descriptor.",
+          "type": "object"
         }
       },
       "required": [
@@ -1028,7 +1012,7 @@
   },
   "AddMcpServer": {
     "name": "AddMcpServer",
-    "description": "Add an MCP server needed for the user's task. Provide either a remote url or a local command with args and env. Use headers for static token authentication, or auth for OAuth configuration. Verify the returned server identifier and connection status. Use secure authentication flows for credentials.",
+    "description": "Add an MCP server that isn't in the catalog to the user's Cursor account. Before adding a server by URL, run SearchPlugins for it: when the catalog has a plugin for the same service, install that plugin with InstallPlugin instead, because a plugin signs in as the user while a keyless custom server can share the provider's anonymous rate limit with every other user. Use this when the user gives you a link or a launch command for a server that SearchPlugins doesn't know. Only call this after the user agrees to add it. Confirm with a question widget first, since it changes the user's account configuration and the server can run commands or reach external services on their behalf. Provide EITHER a remote `url` OR a local `command` with `args` (and `env` for secrets), not both. For a remote server's credentials, use `headers` for static bearer/API-key auth, or `auth` for an OAuth provider that publishes a pre-registered client ID (its `CLIENT_ID`, optional `CLIENT_SECRET`, and `scopes`) instead of supporting dynamic client registration. A remote server runs on the backend; a `command` server runs on your computer, which has node, npm, bun, python3, and uv, so `npx -y <pkg>` and `uvx <pkg>` both work. Install anything else it needs with Shell first. That command also runs in this user's other agents, so say so when you confirm. Ask the user for the exact endpoint or command and any secrets rather than guessing; if you only have a link, open it first (WebFetch) to find the connection details. Newly added tools become available to you on your next message.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1069,7 +1053,7 @@
           "required": [
             "CLIENT_ID"
           ],
-          "description": "Optional OAuth client settings for a remote server whose provider does not support dynamic client registration and instead publishes a pre-registered client ID. Use `headers` for static bearer/API-key auth; use `auth` only for OAuth. Remote servers only — never combine with `command`."
+          "description": "Optional OAuth client settings for a remote server whose provider does not support dynamic client registration and instead publishes a pre-registered client ID. Use `headers` for static bearer/API-key auth; use `auth` only for OAuth. Remote servers only. Never combine with `command`."
         },
         "command": {
           "type": "string",
@@ -1095,23 +1079,23 @@
   },
   "AuthenticateMcpServer": {
     "name": "AuthenticateMcpServer",
-    "description": "Authenticate an installed MCP server that needs it (status needsAuth, or a tool call failing with an auth error). This is the only way to start a connector's auth: its connect card is shown to the user automatically — never compose a card, paste an authorization link, or reach the same service another way while its authorization is pending. The user authorizes in place and you're resumed automatically, so finish unrelated work, then end your turn.",
+    "description": "Authenticate an installed MCP server that needs it: status needsAuth (the user has not connected it), status needsGrant (the user has connected it but has not let you use it this turn), or a tool call failing with an auth error. This is the only way to start a connector's auth or ask for its grant: the connect card or the Allow / Skip card is shown to the user automatically. Never compose a card, paste an authorization link, tell the user to add or install the connector, or reach the same service another way while its answer is pending. Where cards are not shown, the result hands you the sign-in link to relay. When the status is needsGrant or needsAuth, this call is the only move: do not open the box browser, a computerUse or box-desktop subagent, or WebFetch the product's site as a substitute for it. The user answers in place and you're resumed automatically, so finish unrelated work, then end your turn.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "server_id": {
           "type": "string",
           "minLength": 1,
-          "description": "The server identifier shown by GetMcpServerStatus — the same identifier GetDynamicTools and CallDynamicTool address, e.g. \"dashboard-team-1-Slack\". Never a display name."
+          "description": "The server identifier shown by GetMcpServerStatus. It is the same identifier that GetDynamicTools and CallDynamicTool address, e.g. \"dashboard-team-1-Slack\". Never a display name."
         },
         "account_label": {
           "type": "string",
           "minLength": 1,
-          "description": "Account label from GetMcpServerStatus, or a new short lowercase label to add an account. Use the label specified by the user or an unambiguous existing match; ask only if the intended account cannot be determined."
+          "description": "REQUIRED. Which account on this server to sign in. Labels show as account=\"…\" in GetMcpServerStatus; pass an existing label exactly as listed (the quoted form is accepted verbatim), or a NEW short lowercase label (e.g. \"work\", \"personal\") to add another account. Adding one changes the user's configuration, so confirm with a question widget first. If the user hasn't said which account or what to call a new one, ask before calling. Use \"default\" for a server with a single unlabeled account."
         },
         "force_reauth": {
           "type": "boolean",
-          "description": "Discard the stored credential and start a fresh provider sign-in when needed to repair authentication or change the requested account identity. Omit for normal first-time sign-in."
+          "description": "Discard the stored credential and start a fresh sign-in, so the user can re-authenticate or pick a different account/workspace. This is also the wrong-identity fix: if the user authorized the wrong identity for a label, re-run with the SAME account_label and this flag. Don't remove the account. Reach for it when auth seems stuck: a server that used to work keeps failing with auth errors, reads as connected while its tools reject calls, or a plain sign-in keeps failing or reports already-authenticated without fixing anything. A normal sign-in reuses the stored session, so signing out and back in clears a lot of odd auth errors. Explain that to the user, ask whether to sign the server out and start over, and re-run with this flag only once they agree. Don't reach for it on a single transient error. It deletes a credential shared with the user's other Cursor surfaces, so confirm with the user first. Omit it for a normal first-time sign-in. For Finance it signs nothing out: it links another bank and existing banks stay linked."
         }
       },
       "required": [
@@ -1122,7 +1106,7 @@
   },
   "AwaitShell": {
     "name": "AwaitShell",
-    "description": "Check or poll a backgrounded shell job. For work that does not have a shell id, you can omit the shell_id arg to sleep for the full `block_until_ms` duration (prefer this over sleeping in the shell, because it renders nicely to the user). At the end of your turn, you will be notified about any unawaited jobs that completed. If you think a job completed (e.g. because you killed it), observe it with AwaitShell to skip the notification, because stale notifications can confuse the user.\n\nPrefer NOT to poll reflexively with AwaitShell. Multitask on independent work while backgrounded jobs run, or finish your turn and rely on the end-of-turn completion notification. Poll with AwaitShell only when one of the following is true:\n- Your very next step is blocked on this specific job's result and you have no other productive work to do, OR\n- The task requires close monitoring (see shell guidance below).\n- Never poll a task whose tool result says it was \"manually backgrounded by the user\".\n- NEVER USE THIS TO POLL OR WAIT VACUOUSLY FOR A SUBAGENT LAUNCHED WITH THE Task TOOL — rely on the end-of-turn completion notification instead (it is delivered as soon as the subagent finishes; guessing a wait time is inefficient).\n- Shell: only poll with AwaitShell when the command requires close monitoring. Close monitoring means a long-running job that can silently hang, degrade, or need a course correction before it completes — e.g. training runs, eval runs, deployments, long builds, datagen pipelines, DB migrations, large data transfers. For fire-and-forget commands (tests, installs, dev servers/watchers, short scripts, etc.) the completion notification is enough — start them, keep working, and only poll with AwaitShell later if you end up blocked on the result.\n- Shell sanity check (regardless of close monitoring): when you spawn a command directly into the background (`block_until_ms: 0`), do a single status check by reading the output file to confirm the command didn't fail to start. This is a one-shot smoke check, not a polling loop.\n- Shell close-monitoring guidance (only applies in the close-monitoring case above):\n  - HARD STOPPING CONSTRAINT: once you've decided to actively poll, don't stop until (a) the job terminates, (b) the command reaches a healthy steady state (only for non-terminating commands, e.g. dev server/watcher), or (c) the command is hung — follow the hang guidance below.\n  - Waiting until a regex matches the output can be useful for e.g. known startup/status/error logs.\n  - Size `block_until_ms` to the command's expected runtime. When waiting further, avoid round 5-minute waits: prefer slices of 60–270s (keeps prompt cache warm) or 1200s+ (one cache miss buys a long wait).\n  - Output file header has `pid` and `running_for_ms` (updated every 5000ms).\n  - When finished, footer with `exit_code` and `elapsed_ms` appears (regex only matches the body, not header/footer).\n  - If the command is taking longer than expected and appears hung (use judgment based on command type), kill the process if safe to do so using the pid in the header. If possible, fix the hang and proceed.\n\nOmit machineId for a command started on your box. For a command started on one of the user's computers, pass the same machineId that was used for the Shell call.",
+    "description": "Check or poll a backgrounded shell job. For work that does not have a shell id, you can omit the shell_id arg to sleep for the full `block_until_ms` duration (prefer this over sleeping in the shell, because it renders nicely to the user). At the end of your turn, you will be notified about any unawaited jobs that completed. If you think a job completed (e.g. because you killed it), observe it with AwaitShell to skip the notification, because stale notifications can confuse the user.\n\nPrefer NOT to poll reflexively with AwaitShell. Multitask on independent work while backgrounded jobs run, or finish your turn and rely on the end-of-turn completion notification. Poll with AwaitShell only when one of the following is true:\n- Your very next step is blocked on this specific job's result and you have no other productive work to do, OR\n- The task requires close monitoring (see shell guidance below).\n- Never poll a task whose tool result says it was \"manually backgrounded by the user\".\n- NEVER USE THIS TO POLL OR WAIT VACUOUSLY FOR A SUBAGENT LAUNCHED WITH THE Task TOOL — rely on the end-of-turn completion notification instead (it is delivered as soon as the subagent finishes; guessing a wait time is inefficient).\n- Shell: only poll with AwaitShell when the command requires close monitoring. Close monitoring means a long-running job that can silently hang, degrade, or need a course correction before it completes — e.g. training runs, eval runs, deployments, long builds, datagen pipelines, DB migrations, large data transfers. For fire-and-forget commands (tests, installs, dev servers/watchers, short scripts, etc.) the completion notification is enough — start them, keep working, and only poll with AwaitShell later if you end up blocked on the result.\n- Shell sanity check (regardless of close monitoring): when you spawn a command directly into the background (`block_until_ms: 0`), do a single status check by reading the output file to confirm the command didn't fail to start. This is a one-shot smoke check, not a polling loop.\n- Shell close-monitoring guidance (only applies in the close-monitoring case above):\n  - HARD STOPPING CONSTRAINT: once you've decided to actively poll, don't stop until (a) the job terminates, (b) the command reaches a healthy steady state (only for non-terminating commands, e.g. dev server/watcher), or (c) the command is hung — follow the hang guidance below.\n  - Waiting until a regex matches the output can be useful for e.g. known startup/status/error logs.\n  - Size `block_until_ms` to the command's expected runtime. When waiting further, avoid round 5-minute waits: prefer slices of 60–270s, which keep the prompt cache warm.\n  - Output file header has `pid` and `running_for_ms` (updated every 5000ms).\n  - When finished, footer with `exit_code` and `elapsed_ms` appears (regex only matches the body, not header/footer).\n  - If the command is taking longer than expected and appears hung (use judgment based on command type), kill the process if safe to do so using the pid in the header. If possible, fix the hang and proceed.\n\nOmit machineId for a command started on your box. For a command started on one of the user's computers, pass the same machineId that was used for the Shell call.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1132,12 +1116,12 @@
         },
         "block_until_ms": {
           "type": "number",
-          "maximum": 7140000,
-          "description": "Max sleep time to block before returning (in milliseconds). Defaults to 30000ms. Set to 0 for non-blocking status check. Must not exceed 7140000 (119 minutes)."
+          "maximum": 780000,
+          "description": "Max sleep time to block before returning (in milliseconds). Defaults to 30000ms. Set to 0 only together with shell_id, for a non-blocking status check of that shell. Must not exceed 780000 (13 minutes)."
         },
         "pattern": {
           "type": "string",
-          "description": "Block until the regex matches stdout/stderr stream (or task completes). Matches anywhere in the shell output, not just new output. Will not match terminal file headers or footers, e.g. exit_code. Accepts JavaScript regex patterns (compiled with the multiline `m` flag)."
+          "description": "Block until the regex matches stdout/stderr stream (or task completes). Matches anywhere in the shell output, not just new output. Will not match terminal file headers or footers, e.g. exit_code. Accepts RE2 regex syntax (no lookahead, lookbehind or backreferences), compiled in multiline mode so ^ and $ match at line boundaries."
         },
         "machineId": {
           "type": "string",
@@ -1148,27 +1132,27 @@
   },
   "CheckSubagent": {
     "name": "CheckSubagent",
-    "description": "Check how a background subagent you dispatched (via Task) is doing without waiting for it to finish. Returns its status, how long it has been running, the tool calls it has made recently, and a path to its live transcript you can Read for the full play-by-play. Pass the subagent's Agent ID (from the Task result), or omit it to list every running subagent. Use this when a subagent — especially a computerUse one driving the box desktop — is taking a long time or might be stuck or looping, so you can decide whether to MessageSubagent it or StopSubagent it. This is read-only; it's not polling for completion (you're revived automatically when a subagent finishes).",
+    "description": "Check how a background subagent you dispatched (via Task) is doing without waiting for it to finish. Returns its status, how long it has been running, the tool calls it has made recently, and where to read its full play-by-play. Pass its id as subagent_id (the \"Agent ID:\" line of the Task result), or omit it to list every running subagent. Use this when a subagent, especially a computerUse one driving the box desktop, is taking a long time or might be stuck or looping, so you can decide whether to MessageSubagent it or StopSubagent it. This is read-only; it's not polling for completion (you're revived automatically when a subagent finishes).",
     "inputSchema": {
       "type": "object",
       "properties": {
         "subagent_id": {
           "type": "string",
-          "description": "The Agent ID of the subagent to inspect (from the Task tool result that dispatched it). Omit to list every subagent currently running."
+          "description": "The subagent's id, from the \"Agent ID:\" line of the Task result that dispatched it. Omit to list every subagent currently running."
         }
       }
     }
   },
   "CopyFromBox": {
     "name": "CopyFromBox",
-    "description": "Copy a file from your box out to the user's computer, verbatim. Use this to hand the user a file you generated or downloaded in the box (a spreadsheet, report, log, archive, anything) by placing it on their selected computer where machine-targeted Shell, their editor, and apps can reach it. Any type or size; the bytes are copied exactly (no truncation, binaries are safe). This is for putting a file ON their disk; to instead show a file inline in chat (an image, a video, or a downloadable attachment) use SendToUser with the box path. Give the box_path of the file and its machineId; it lands under its own name in that computer's working directory by default, or at a computer_path you choose.",
+    "description": "Copy a file from your box out to the user's computer, verbatim. Use this to hand the user a file you generated or downloaded in the box (a spreadsheet, report, log, archive, anything) by placing it on their selected computer where machine-targeted Shell, their editor, and apps can reach it. Any type, up to 100 MiB; the bytes are copied exactly (no truncation, binaries are safe). This is for putting a file ON their disk; to instead show a file inline in chat (an image, a video, or a downloadable attachment) use SendToUser with the box path. Give the box_path of the file and its machineId; it lands under its own name in that computer's working directory by default, or at a computer_path you choose.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "box_path": {
           "type": "string",
           "minLength": 1,
-          "description": "Path of the file in your box to push out. Absolute (e.g. /workspace/report.pdf) or relative to /workspace. Any file type and any size; copied verbatim. Expand any glob in Shell first and pass a concrete path."
+          "description": "Path of the file in your box to push out. Absolute (e.g. /workspace/report.pdf) or relative to /workspace. Any file type, up to 100 MiB; copied verbatim. Expand any glob in Shell first and pass a concrete path."
         },
         "computer_path": {
           "type": "string",
@@ -1188,14 +1172,14 @@
   },
   "CopyToBox": {
     "name": "CopyToBox",
-    "description": "Copy a file from the user's computer into your box, verbatim. Use this to bring a user's file (any type or size — a CSV, PDF, archive, image, dataset, binary) onto your box so you can work on it with Shell or Read, or open it in the box browser (parent agents delegate that GUI interaction to computerUse). This is the deliberate way to get a file into the box: the user does not have to drag it into chat first, and unlike reading the file and re-writing it, the bytes are copied exactly (no truncation, binaries are safe). Give the file's absolute path on the selected user's computer and its machineId; it lands in /workspace/uploads by default, or at a box_path you choose. Then open it with Shell at the path reported back.",
+    "description": "Copy a file from the user's computer into your box, verbatim. Use this to bring a user's file (any type, up to 100 MiB: a CSV, PDF, archive, image, dataset, binary) onto your box so you can work on it with Shell or Read, or open it in the box browser (parent agents delegate that GUI interaction to computerUse). This is the deliberate way to get a file into the box: the user does not have to drag it into chat first, and unlike reading the file and re-writing it, the bytes are copied exactly (no truncation, binaries are safe). Copy large files one at a time, and wait for each copy to finish before you start the next. Give the file's absolute path on the selected user's computer and its machineId; it lands in /workspace/uploads by default, or at a box_path you choose. Then open it with Shell at the path reported back.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "computer_path": {
           "type": "string",
           "minLength": 1,
-          "description": "Absolute path of the file to pull, on the selected user's computer. Any file type and any size; copied verbatim, so binaries and large files are safe — unlike reading then re-writing it as text."
+          "description": "Absolute path of the file to pull, on the selected user's computer. Any file type, up to 100 MiB; copied verbatim, so binaries and large files are safe, unlike reading then re-writing it as text."
         },
         "box_path": {
           "type": "string",
@@ -1403,7 +1387,7 @@
   },
   "CreateAgent": {
     "name": "CreateAgent",
-    "description": "Create a new agent (a new teammate assistant) for your user, with a name, an optional persona/description, and an optional sidebar section id from ListSections. Returns the new agent's id so you can immediately message it with SendToAgent. Use this to spin up a focused teammate for a job. You have no tool to delete an agent, so only create one when it is genuinely useful; the user can delete an agent themselves from the sidebar (right-click the agent → \"Delete\").",
+    "description": "Create a new agent (a new teammate assistant) for your user, with a name, an optional persona/description, and an optional sidebar section id from ListSections. Returns the new agent's id so you can immediately message it with SendToAgent. Use this to spin up a focused teammate for a job. You have no tool to delete an agent, so only create one when it is genuinely useful; the user can delete an agent themselves from the sidebar (right-click the agent, then \"Delete\").",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1429,7 +1413,7 @@
   },
   "CreateChannel": {
     "name": "CreateChannel",
-    "description": "Create a channel — a named group chat of one or more of your user's agents — and get its id back. Post into it afterwards with SendToAgent using that id; every member sees the post and can reply into the channel. You have no tool to delete a channel, so only create one the user actually needs; the user can delete it from the sidebar. Creating a channel is a real side effect the user sees in their sidebar — do it when the user asked for a room or a task genuinely needs a standing group, never speculatively. Include your own id in member_ids if you should take part: membership is what lets you post into a channel and change it with UpdateChannel later.",
+    "description": "Create a channel, a named group chat of one or more of your user's agents, and get its id back. Post into it afterwards with SendToAgent using that id; every member sees the post and can reply into the channel. You have no tool to delete a channel, so only create one the user actually needs; the user can delete it from the sidebar. Creating a channel is a real side effect the user sees in their sidebar. Do it when the user asked for a room or a task genuinely needs a standing group, never speculatively. Include your own id in member_ids if you should take part: membership is what lets you post into a channel and change it with UpdateChannel later.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1445,7 +1429,7 @@
             "minLength": 1
           },
           "minItems": 1,
-          "description": "The agent ids to seat in the channel, up to 6. Use ids from your teammates list — not names — and never a channel id (channels cannot nest)."
+          "description": "The agent ids to seat in the channel, up to 6. Use ids from your teammates list, not names, and never a channel id (channels cannot nest)."
         }
       },
       "required": [
@@ -1456,7 +1440,7 @@
   },
   "DraftExternalMessage": {
     "name": "DraftExternalMessage",
-    "description": "Draft an email or Slack message for the user to review as an editable composer card in the chat. Use this tool only when the user explicitly asks for a draft or to review a message before it goes out (see the system prompt's rules); when they ask you to send without asking for a draft, use the connector's own send tools directly instead. You write the draft in the user's voice; they can edit every displayed field on the card and then send or discard it. The send is executed by Sand directly when they click Send, so NEVER follow this call with the connector's own send/draft tools for the same message. You must also provide the routing the send will use, which the user cannot edit: providerIdentifier is the installed MCP server identifier exactly as GetMcpServerStatus lists it for the intended account; for Slack, channelId is the real conversation id resolved with the connector's search tools (never guessed), plus threadTs when replying in a thread; for email, from is required and must be the chosen account's real sending address (a plain email address; if unknown, read a sent message's sender field via the Gmail connector's search_threads with query \"in:sent\" BEFORE drafting), plus replyToMessageId when replying within an existing thread. Sand verifies the routing through the connector before the card appears (the account's real sending address; the channel behind channelId; the message behind replyToMessageId or threadTs) and displays those verified facts on the card — it refuses the draft when verification fails or from is not the account's address. Drafting does not end your turn and nothing is sent yet: if the user sends the card (possibly after editing), you are resumed with a summary of what actually went out; if they discard it, you'll see that on your next turn — treat a discard as a decline and don't redraft unasked.",
+    "description": "Draft an email or Slack message for the user to review as an editable composer card in the chat. This is how every email and Slack message leaves under the user's name, including when they ask you to send it (\"send X to Y\"): the card is where they confirm, and pressing Send is what sends. Use the connector's own send tools directly only when the user explicitly said not to draft or preview this message (\"just send it\"), or a standing permission they granted in this conversation or a saved send rule listed in your instructions covers it (see the system prompt's rules). You write the draft in the user's voice; they can edit the card's fields, then send or discard it. Sand sends it when they click Send, so NEVER follow this call with the connector's own send/draft tools for the same message unless the user tells you in chat to send this card, then send it unchanged. A connector create_draft is not this card: use it only to keep a draft in their mailbox (\"leave it in my drafts\") or carry a file attachment. You must also provide the routing the send will use, which the user cannot edit: providerIdentifier; for Slack, channelId (plus threadTs for a thread reply); for email, from, mailbox outlook for an Outlook connector (plus replyToMessageId for a thread reply). Sand verifies the routing (sending address, channel, reply target) through the connector before the card appears, shows those facts on it, and refuses the draft when verification fails or from is not the account's address. Drafting sends nothing and does not end your turn. If the user sends the card, you are resumed with what actually went out (edits included); if they discard it, with a short note. Treat a discard as a decline; don't redraft unasked.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1464,23 +1448,40 @@
           "type": "string",
           "enum": [
             "email",
-            "slack"
+            "slack",
+            "meeting"
           ],
-          "description": "Which platform this draft is for. email requires providerIdentifier, from, to, subject, and body (plus replyToMessageId when replying within an existing email thread). slack requires providerIdentifier, target, channelId, and body (plus threadTs when replying in a thread)."
+          "description": "Draft platform; each field says when it is required."
         },
         "providerIdentifier": {
           "type": "string",
-          "minLength": 1,
-          "description": "The installed MCP server identifier that will carry the send, exactly as GetMcpServerStatus lists it for the account you mean. This picks both the connector and the account, and the user cannot change it on the card, so resolve it first."
+          "description": "Required for email/Slack. The installed MCP server identifier that will carry the send, exactly as GetMcpServerStatus lists it for the account you mean. This picks both the connector and the account, so resolve it first."
+        },
+        "meetingId": {
+          "type": "string",
+          "description": "Required for meetings: the LIVE meeting's internal ID."
         },
         "body": {
           "type": "string",
           "minLength": 1,
-          "description": "The message body, written in the user's voice. Required for both platforms."
+          "description": "Email: plain text, no markdown. Slack: **bold**, - bullets, [x](url), own-line ```; not *bold*, •, <url|x>."
+        },
+        "htmlBody": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional, email only. Formatting goes here: body as HTML, same words."
         },
         "from": {
           "type": "string",
-          "description": "Required when platform is email. The exact email address the chosen account sends from, shown on the card's From row — a plain address like ariel@acme.com, never a display name and never guessed. If you don't already know it, read it from the mailbox first: call the Gmail connector's search_threads with query \"in:sent\" and use a returned message's sender field."
+          "description": "Email only. The plain address (like ariel@acme.com) the account sends from, shown on the card's From row; never a display name, never guessed. On Gmail, omit it to send from the account's default address; only Cursor's REST Gmail connector can also send from a verified send-as alias. Required for Outlook: get_me's mail field."
+        },
+        "mailbox": {
+          "type": "string",
+          "enum": [
+            "gmail",
+            "outlook"
+          ],
+          "description": "Optional, email only. Which mail connector providerIdentifier belongs to: gmail (the default) or outlook."
         },
         "to": {
           "type": "array",
@@ -1488,7 +1489,7 @@
             "type": "string",
             "minLength": 1
           },
-          "description": "Required when platform is email. The recipient(s), each a plain email address (\"user@example.com\" — the \"Name <user@example.com>\" form is not accepted)."
+          "description": "Required when platform is email. The recipient(s), each a plain address like \"user@example.com\", not \"Name <user@example.com>\"."
         },
         "cc": {
           "type": "array",
@@ -1512,36 +1513,43 @@
         },
         "channelId": {
           "type": "string",
-          "description": "Required when platform is slack. The channel or DM conversation id the send is addressed to (e.g. C0123456789), resolved with the connector's search tools — never guessed."
+          "description": "Required when platform is slack. The channel or DM conversation id the send is addressed to (e.g. C0123456789), resolved with the connector's search tools, never guessed."
         },
         "threadTs": {
           "type": "string",
           "description": "Optional, slack only. The parent message's ts when this draft replies in a thread; omit for a new message."
+        },
+        "proposedRule": {
+          "type": "string",
+          "description": "Always set: the Allow rule to offer, e.g. \"Emails to a@x.com or b@y.com\"."
+        },
+        "proposedRuleReplaces": {
+          "type": "string",
+          "description": "Saved rule this edits, verbatim."
         }
       },
       "required": [
         "platform",
-        "providerIdentifier",
         "body"
       ]
     }
   },
   "GetMcpServerStatus": {
     "name": "GetMcpServerStatus",
-    "description": "The runtime status of the user's installed MCP servers (connected / needsAuth / error, per account). Pass server_id (the server identifier, NEVER a display name) for one server; omit it to list everything. Use this to see which connectors still need authentication, to find the identifier a lifecycle tool needs — the same one GetDynamicTools and CallDynamicTool address — or to check a connector after installing or authenticating. ",
+    "description": "The runtime status of the user's installed MCP servers (connected / needsAuth / needsGrant / error, per account). needsGrant means the user already connected it but has not granted it this turn: call AuthenticateMcpServer for it and nothing else; never treat it as missing, never install anything, and never open the browser for the same service. Pass server_id (the server identifier, NEVER a display name) for one server; omit it to list everything. This is the complete list: it also shows connectors waiting on sign-in or a grant, which GetDynamicTools can leave out, so check it before treating a service as having no connector. Use it too for per-account detail, custom instructions, or to check a connector after installing or authenticating. To use a connector GetDynamicTools already lists, GetDynamicTools is enough. A server that is slow to answer reads initializing; check it again shortly. Read-only and never needs the user's permission.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "server_id": {
           "type": "string",
-          "description": "Optional. One server to report on. The server identifier shown by GetMcpServerStatus — the same identifier GetDynamicTools and CallDynamicTool address, e.g. \"dashboard-team-1-Slack\". Never a display name. Omit to list every installed server."
+          "description": "Optional. One server to report on. The server identifier shown by GetMcpServerStatus. It is the same identifier that GetDynamicTools and CallDynamicTool address, e.g. \"dashboard-team-1-Slack\". Never a display name. Omit to list every installed server."
         }
       }
     }
   },
   "GetPlugin": {
     "name": "GetPlugin",
-    "description": "Full detail for one plugin by its STABLE plugin id (from SearchPlugins): what it includes (connectors, skills), its install state, any setup fields InstallPlugin needs (with required/secret flags), and the installed MCP servers backing it. Read this before installing a plugin with setup fields, and before uninstalling (to know the full scope you must disclose). Read-only.",
+    "description": "Full detail for one plugin by its STABLE plugin id (from SearchPlugins): what it includes (connectors, skills), its install state, any setup fields InstallPlugin needs (with required/secret flags), and the installed MCP servers backing it. Read this before installing a plugin with setup fields, and before uninstalling (to know the full scope you must disclose). Using a connector GetDynamicTools already lists does not need it. Read-only.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1558,7 +1566,7 @@
   },
   "InstallPlugin": {
     "name": "InstallPlugin",
-    "description": "Install a plugin by the stable plugin id returned by SearchPlugins. Supply setup values from GetPlugin through secure credential flows when needed. Re-installing an installed plugin is idempotent. Follow any actual provider authentication flow returned by the tool, then refresh discovery for the installed tools and skills.",
+    "description": "Install a plugin by its STABLE plugin id (from SearchPlugins) into the user's Cursor account. Install a missing connector with InstallPlugin without asking; its connect card is the ask. Ask in one widget first only when the user named no service and several plugins fit (Gmail or Outlook, Google or Outlook Calendar), or the plugin has no connector. Idempotent: re-installing an installed plugin is safe. Pass any setup values GetPlugin lists (ask the user for secrets like API keys, never guess). If an installed connector needs authentication, its connect card is shown to the user automatically. Finish unrelated work, then end your turn; you're resumed when they authorize. New tools and skills become available on your next message.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1579,7 +1587,7 @@
   },
   "ListMachines": {
     "name": "ListMachines",
-    "description": "List the user's registered machines with their machineId, label, and current local-exec connection status. Pass a returned machineId to Shell, Read, or AwaitShell to use that machine instead of the box, or to CopyToBox and CopyFromBox for file transfers. Messages the user sends from their desktop app carry a \"[Sent from machine <machineId>]\" note naming the machine they are on; when they don't say which machine to use, default to the one their latest message was sent from.",
+    "description": "List the user's registered machines with their machineId, label, kind (desktop, ios, or android), and current local-exec connection status. Pass a desktop's machineId to Shell, Read, or AwaitShell to use that machine instead of the box, or to CopyToBox and CopyFromBox for file transfers; a phone never takes those tools. Only a connected phone lists deviceLocalTools, each on-device tool with its state: ready, needs_permission (the phone can still ask for the OS permission), denied (only the phone's Settings app can grant it), or unavailable. A call to a tool still missing its permission posts a permission card in the chat for the user to tap; a phone without deviceLocalTools offers none right now. Messages the user sends from their desktop app carry a \"[Sent from machine <machineId>]\" note naming the machine they are on; when they don't say which machine to use, default to the one their latest message was sent from.",
     "inputSchema": {
       "type": "object",
       "properties": {}
@@ -1587,14 +1595,14 @@
   },
   "MessageSubagent": {
     "name": "MessageSubagent",
-    "description": "Force a message into a running background subagent to course-correct it without aborting it. The subagent interrupts its current step, reads your message, and continues from where it was (its context is preserved — it does not start over). Use this to unstick or redirect a subagent that is looping, stuck, or heading the wrong way — for example to tell a computerUse subagent to try a different element, that the user just signed in so it can proceed, or to wrap up and report what it has. Pass the subagent's Agent ID (from the Task result). You're still revived with its result when it finishes; to follow up AFTER a subagent has already finished, use Task with the resume parameter instead.",
+    "description": "Force a message into a running background subagent to course-correct it without aborting it. The subagent interrupts its current step, reads your message, and continues from where it was (its context is preserved, so it does not start over). Use this to unstick or redirect a subagent that is looping, stuck, or heading the wrong way, for example to tell a computerUse subagent to try a different element, that the user just signed in so it can proceed, or to wrap up and report what it has. Pass its id as subagent_id (the \"Agent ID:\" line of the Task result). You're still revived with its result when it finishes; to follow up AFTER a subagent has already finished, use Task with the resume parameter instead.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "subagent_id": {
           "type": "string",
           "minLength": 1,
-          "description": "The Agent ID of the running subagent to message (from the Task tool result that dispatched it)."
+          "description": "The running subagent's id, from the \"Agent ID:\" line of the Task result that dispatched it."
         },
         "message": {
           "type": "string",
@@ -1666,14 +1674,14 @@
   },
   "RemoveMcpAccount": {
     "name": "RemoveMcpAccount",
-    "description": "Remove one account and its credential from an MCP server when requested. The server and its other accounts remain. Use UninstallMcpServer to remove a custom server or UninstallPlugin to remove an entire plugin.",
+    "description": "Remove ONE account from an MCP server: the account and its credential are deleted, so the user is signed out of it, while the server and its other accounts stay. This is destructive. Confirm with the user via a question widget before calling it. Only remove an account the user asked to remove, never to fix a sign-in that is failing: sign that account in again with AuthenticateMcpServer instead. To remove a whole custom server (every account), use UninstallMcpServer; to remove a server's whole plugin (every connector, skill, and account), use UninstallPlugin.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "server_id": {
           "type": "string",
           "minLength": 1,
-          "description": "The server identifier shown by GetMcpServerStatus — the same identifier GetDynamicTools and CallDynamicTool address, e.g. \"dashboard-team-1-Slack\". Never a display name."
+          "description": "The server identifier shown by GetMcpServerStatus. It is the same identifier that GetDynamicTools and CallDynamicTool address, e.g. \"dashboard-team-1-Slack\". Never a display name."
         },
         "account_label": {
           "type": "string",
@@ -1689,14 +1697,14 @@
   },
   "RenameMcpAccount": {
     "name": "RenameMcpAccount",
-    "description": "Rename the requested MCP account. Refresh GetMcpServerStatus or GetDynamicTools afterwards; identifiers may change with the label.",
+    "description": "Rename one of an MCP server's accounts (change its label). Only rename when the user asks for a new label, never as a step in fixing a connector. The account's server identifier changes with the label at the next listing, so after renaming, re-run GetMcpServerStatus (or GetDynamicTools) before calling that account's tools again. Stale identifiers fail cleanly. Confirm with a question widget first.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "server_id": {
           "type": "string",
           "minLength": 1,
-          "description": "The server identifier shown by GetMcpServerStatus — the same identifier GetDynamicTools and CallDynamicTool address, e.g. \"dashboard-team-1-Slack\". Never a display name."
+          "description": "The server identifier shown by GetMcpServerStatus. It is the same identifier that GetDynamicTools and CallDynamicTool address, e.g. \"dashboard-team-1-Slack\". Never a display name."
         },
         "account_label": {
           "type": "string",
@@ -1718,7 +1726,7 @@
   },
   "request_box_help": {
     "name": "request_box_help",
-    "description": "Hand your box's desktop to the user for a step only they can do. Pass one short instruction (no paragraph); the box is surfaced with a \"hand back to agent\" button and that instruction is shown in chat, then your turn ends. The user does the step on the box and hands it back, and you are resumed automatically, so start by using the read-only Screenshot tool to see what they changed. For classification: domain is the destination app being accessed; when the browser has redirected to an SSO/IdP page (Okta, Google accounts, …), still put the destination app in domain and put the IdP host in idp_domain.",
+    "description": "Hand your box's desktop to the user for a step a form cannot do: single sign-on through another company's sign-in page, a passkey, a captcha the subagent tried and could not get past, an approval on another app or device, a QR code, a bank or 3DS confirmation after the card is entered, a field the Secure Form host refused or reported a failed fill for, or a sign-in the user prefers to do themselves. It is the last step of the `sign-in` skill. A typed login, address, card, or one-time code you cannot read from an inbox goes to RequestUserForm first when it is among your tools, embedded and cross-origin fields included; entering the card itself is the Secure Form. Hand off only when that tool is not offered, the step is not a typed field, or the host refused the form or reported a failed fill, and quote the host's reason as written. Pass one short instruction (no paragraph); the box is surfaced with a \"hand back to agent\" button and that instruction is shown in chat, then your turn ends. The user does the step on the box and hands it back, and you are resumed automatically, so start by using the read-only Screenshot tool to see what they changed. When the user signs in on the box, you never see their password or code. For classification: domain is the destination app being accessed; when the browser has redirected to an SSO/IdP page (Okta, Google accounts, …), still put the destination app in domain and put the IdP host in idp_domain.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1735,15 +1743,19 @@
             "payment",
             "other"
           ],
-          "description": "Why the user is needed: \"auth\", \"captcha\", \"payment\", or \"other\"."
+          "description": "Why the user is needed: \"auth\" for any sign-in step (login, SSO, passkey, 2FA), \"captcha\" for a captcha the subagent tried and could not get past (it attempts every captcha itself first), \"payment\", or \"other\"."
         },
         "domain": {
           "type": "string",
-          "description": "Destination app/site the user is trying to access (e.g. \"salesforce.com\", \"google.com\"). On a normal login page this is the browser-bar host. On an SSO/IdP page (Okta, Google accounts, Azure AD, …) this is the *destination* app that started SSO — NOT the IdP host (put that in idp_domain). Omit when unknown or the step is not on a website."
+          "description": "Destination app/site the user is trying to access (e.g. \"salesforce.com\", \"google.com\"). On a normal login page this is the browser-bar host. On an SSO/IdP page (Okta, Google accounts, Azure AD, …) this is the *destination* app that started SSO, NOT the IdP host (put that in idp_domain). Omit when unknown or the step is not on a website."
         },
         "idp_domain": {
           "type": "string",
           "description": "When the browser is on an SSO/IdP page, the IdP host from the URL bar (e.g. \"anysphere.okta.com\", \"accounts.google.com\", \"login.microsoftonline.com\"). Omit on a direct app login with no separate IdP."
+        },
+        "url": {
+          "type": "string",
+          "description": "The full address of the web page where the user should do the step. It must be on the site of domain or on the idp_domain host; any other address is ignored. Before the user takes over, your box's browser may bring an open tab of that site to the front, or open this address when the browser has no page open. Omit when the step is not on a website."
         }
       },
       "required": [
@@ -1903,7 +1915,7 @@
   },
   "RestartMcpServers": {
     "name": "RestartMcpServers",
-    "description": "Reconnect installed MCP servers when needed for the task, such as after authentication or a connection error. Preserve unrelated running work.",
+    "description": "Restart (reconnect) the installed MCP servers. This is useful when a server is stuck, errored, or you just finished authenticating one. Confirm with the user first if a server is mid-task.",
     "inputSchema": {
       "type": "object",
       "properties": {}
@@ -1911,20 +1923,20 @@
   },
   "SearchPlugins": {
     "name": "SearchPlugins",
-    "description": "Search the plugins the user could install (or already has): marketplace plugins bundling connectors and skills. Say what you're looking for in natural language and results come back ranked by relevance, each with its STABLE plugin id, install state, and what it includes. Use this to discover a capability (Linear, Notion, writing Word documents, …) or to check whether a plugin is installed. Inspect one result with GetPlugin; connector runtime statuses (connected/needsAuth) live in GetMcpServerStatus. ",
+    "description": "Search the plugins the user could install (or already has): marketplace plugins bundling connectors and skills. Say what you're looking for in natural language and results come back ranked by relevance, each with its STABLE plugin id, install state, and what it includes. Use this to discover a capability (Linear, Notion, writing Word documents, …) that GetDynamicTools does not already list, or to check whether a plugin is installed. Using a connector GetDynamicTools already lists needs no search: it has the connector's identifier, status, and tools. Inspect one result with GetPlugin. This is read-only and never needs the user's permission.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "query": {
           "type": "string",
-          "description": "Optional. What you're looking for, in natural language (e.g. \"manage linear issues\" or \"write word documents\") — results come back ranked by relevance. Omit to list the whole catalog."
+          "description": "Optional. What you're looking for, in natural language (e.g. \"manage linear issues\" or \"write word documents\"). Results come back ranked by relevance. Omit to list the whole catalog."
         }
       }
     }
   },
   "SendFeedback": {
     "name": "SendFeedback",
-    "description": "Send the product feedback the user explicitly requested to the configured OpenTeam support destination. Use their exact feedback and explicit wantsResponse preference. Deployment privacy settings and a five-minute rate limit apply. Never include credentials or unrelated connector content, and do not automatically retry an uncertain delivery.",
+    "description": "Send product feedback to the SpaceXAI team on the user's behalf. Use this ONLY when the user explicitly asks to file, send, or pass along feedback about Grok Bot. Summarize their feedback faithfully in their own words; never invent feedback and never send it unprompted. Never include code, credentials, file contents, or content drawn from connectors unless the user dictated it as part of their feedback. Feedback filed with this tool is read as product feedback but never receives a support response. Do not ask whether the user wants a reply and do not promise one. If they need help from support, tell them to email support@x.ai. The user reviews the exact message on an approval card and nothing is sent unless they approve. If the result says you were rate-limited, tell the user when to retry instead of retrying yourself.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1933,28 +1945,23 @@
           "minLength": 1,
           "maxLength": 4000,
           "description": "The user's feedback, in their own words."
-        },
-        "wantsResponse": {
-          "type": "boolean",
-          "description": "Whether the user wants a human reply from the SpaceXAI team. Same choice as the Send Feedback form checkbox 'I would like a response from the support team on this feedback'. Ask first unless they already said. true if they want a reply; false if they do not. Never omit this and never guess."
         }
       },
       "required": [
-        "message",
-        "wantsResponse"
+        "message"
       ]
     }
   },
   "SendToAgent": {
     "name": "SendToAgent",
-    "description": "Send a message to ANOTHER of your user's agents, OR post into a GROUP chat you belong to, by its id (not the user — SendToUser is how you reach the user). This is FIRE-AND-FORGET and asynchronous, like texting: it delivers your message, wakes that agent (or the group's members), and returns immediately with a delivery acknowledgement. Peer messages run ahead of routines and other background work; messages reaching a busy agent queue up and arrive together on its next turn. priority=true on a 1:1 send marks it urgent (STOP / supersede): it jumps the recipient's queue and interrupts a routine or background work, but never a user turn or another agent's message already in progress (ignored for groups). It does NOT return their reply, and you must not wait or poll for one in this turn — send it and move on. Any reply arrives later as its own message that wakes you on a fresh turn. Get agent ids from your teammates list or ListAgents, and group ids from ListGroups. To include image(s) — a screenshot, chart, or photo the other agent needs — pass images: [{\"url\":\"file:///absolute/path/to/shot.png\",\"alt\":\"...\"}] (file:// or https://). A 1:1 recipient actually sees them, like an image the user sends; never paste an image as a markdown ![](...) in the message text. Group posts are text-only today, so send images to an agent directly. Use it deliberately and sparingly — waking another agent or a whole group is a real side effect, so treat it like messaging on the user's behalf. Message someone or post to a group only when it truly serves the user's goal, not because one was mentioned or complained about, and don't spam a group. Never relay the user's private or unfiltered words (especially a complaint or criticism) verbatim; if relaying is warranted, paraphrase the actionable point diplomatically, not their tone. If you're unsure the user wants this sent, handle it yourself or ask first. Keep the message purposeful, professional, and minimal. One clearly relevant recipient can be normal work; messaging SEVERAL agents about the same effort (or posting it to a group) is a fan-out that wakes every recipient, and their replies land back in the user's chats and rooms — so fan out only when the user explicitly asked you to contact those agents. Otherwise propose it first with a question widget and wait for a yes, and never fan out \"meanwhile\" while you're waiting on the user for data or a decision.",
+    "description": "Send a message to ANOTHER of your user's agents, OR post into a GROUP chat you belong to, by its id (not the user, whom you reach with SendToUser). This is FIRE-AND-FORGET and asynchronous, like texting: it returns a delivery acknowledgement right away. priority is REQUIRED and decides how a 1:1 message reaches its recipient. priority=true wakes them now. Use it when they should act on the message or someone is waiting on their reply (a task, a question you or the user needs answered, a handoff, a STOP or change of plan). priority=false does NOT wake them. The message is held for the start of their next turn, possibly much later. Use it for anything informational: a status update, FYI, acknowledgement, thanks, or a reply nobody is waiting for. When in doubt whether someone is waiting, use true. Group posts always land immediately. It does NOT return their reply, and you must not wait or poll for one in this turn. Send it and move on. Any reply arrives later as its own message. A priority reply wakes you on a fresh turn, and an informational one is handed to you at your next turn. Get agent ids from your teammates list or ListAgents, and group ids from ListGroups. To include image(s), such as a screenshot, chart, or photo the other agent needs, pass images: [{\"url\":\"file:///absolute/path/to/shot.png\",\"alt\":\"...\"}] (file:// or https://). Never paste an image as a markdown ![](...) in the message text. Use it deliberately and sparingly. Waking another agent or a whole group is a real side effect, so treat it like messaging on the user's behalf. Message someone or post to a group only when it truly serves the user's goal, not because one was mentioned or complained about, and don't spam a group. Never relay the user's private or unfiltered words (especially a complaint or criticism) verbatim; if relaying is warranted, paraphrase the actionable point diplomatically, not their tone. If you're unsure the user wants this sent, handle it yourself or ask first. Keep the message purposeful, professional, and minimal. One clearly relevant recipient can be normal work; messaging SEVERAL agents about the same effort (or posting it to a group) is a fan-out that wakes every recipient, and their replies land back in the user's chats and rooms, so fan out only when the user explicitly asked you to contact those agents. Otherwise propose it first with a question widget and wait for a yes, and never fan out \"meanwhile\" while you're waiting on the user for data or a decision.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "target_id": {
           "type": "string",
           "minLength": 1,
-          "description": "The id of the target — either another agent or a GROUP you belong to. Use an id from your teammates list, ListAgents, or ListGroups — not a name."
+          "description": "The id of the target, either another agent or a GROUP you belong to. Use an id from your teammates list, ListAgents, or ListGroups, not a name."
         },
         "message": {
           "type": "string",
@@ -1980,33 +1987,34 @@
               "url"
             ]
           },
-          "description": "Optional image(s) to send with the message — a screenshot, chart, or photo the other agent needs. Delivered with your message: a 1:1 recipient actually sees them (like an image the user sends), and they render with your text in the exchange. Not delivered to groups."
+          "description": "Optional image(s) to send with the message, such as a screenshot, chart, or photo the other agent needs. They are delivered with your message. A 1:1 recipient actually sees them (like an image the user sends), and they render with your text in the exchange. They are not delivered to groups."
         },
         "priority": {
           "type": "boolean",
-          "description": "When true (1:1 only; ignored for groups), mark the message urgent: it jumps the recipient's queue and interrupts a routine or other background work, but never a user turn or another agent's message already in progress — it is delivered right after. Use for STOP / supersede / time-critical instructions. Default false: waits its turn, but still runs ahead of routines and other background work."
+          "description": "REQUIRED. Is this message actionable for the recipient? true: they should act on it, or someone is waiting on their reply (a task, a question you or the user needs answered, a handoff, a STOP or change of plan). It is delivered now and wakes them. false: informational only (a status update, FYI, acknowledgement, thanks, or a reply nobody is waiting for). It is held and read at the start of their next turn, whenever that is, without waking them. Ignored for groups, which always post immediately."
         }
       },
       "required": [
         "target_id",
-        "message"
+        "message",
+        "priority"
       ]
     }
   },
   "SetMcpInstructions": {
     "name": "SetMcpInstructions",
-    "description": "Set (or clear) an installed connector's custom instructions — the guidance you follow whenever you use that server (e.g. \"Reply in threads on Slack\"). Use this when the user tells you how they want a connector used, so the preference persists across turns. Pass an empty string to clear it and fall back to the connector's default. This changes a saved preference, not the connection (no OAuth needed); the current value shows in GetMcpServerStatus when it's been customized.",
+    "description": "Set (or clear) an installed connector's custom instructions, the guidance you follow whenever you use that server (e.g. \"Reply in threads on Slack\"). Use this when the user tells you how they want a connector used, so the preference persists across turns. Pass an empty string to clear it and fall back to the connector's default. This changes a saved preference, not the connection (no OAuth needed); the current value shows in GetMcpServerStatus when it's been customized.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "server_id": {
           "type": "string",
           "minLength": 1,
-          "description": "The server identifier shown by GetMcpServerStatus — the same identifier GetDynamicTools and CallDynamicTool address, e.g. \"dashboard-team-1-Slack\". Never a display name."
+          "description": "The server identifier shown by GetMcpServerStatus. It is the same identifier that GetDynamicTools and CallDynamicTool address, e.g. \"dashboard-team-1-Slack\". Never a display name."
         },
         "instructions": {
           "type": "string",
-          "description": "The custom instructions to follow whenever you use this connector — how the user wants it used (e.g. \"Reply in threads on Slack.\"). Pass an empty string to clear them and fall back to the connector's default."
+          "description": "The custom instructions to follow whenever you use this connector. They say how the user wants it used (e.g. \"Reply in threads on Slack.\"). Pass an empty string to clear them and fall back to the connector's default."
         }
       },
       "required": [
@@ -2017,70 +2025,71 @@
   },
   "StopSubagent": {
     "name": "StopSubagent",
-    "description": "Abort a running background subagent you dispatched (via Task). Use this to kill a subagent that is wedged, looping with no progress, or no longer needed — for example a computerUse subagent stuck on the box desktop. This tears the subagent down and frees its box desktop window; it does not come back, and you are not separately revived for it (this tool's result is the confirmation). If you instead want it to change course and keep going, use MessageSubagent. Pass the subagent's Agent ID (from the Task result).",
+    "description": "Abort background subagents you dispatched (via Task). Pass one subagent's id as subagent_id (the \"Agent ID:\" line of the Task result) to kill a subagent that is wedged, looping with no progress, or no longer needed, for example a computerUse subagent stuck on the box desktop. Pass all: true instead to stop everything at once: every running subagent, plus, where this host can reach them, the other agents you handed work to (peers you messaged with priority and cloud agents you launched); the result says when it could not reach them. This is the call to make when the user asks you to stop, halt, cancel, or quit the current work, and it must be your first action for that request rather than checking or stopping children one by one. Stopping tears the subagent down and frees its box desktop window; it does not come back, and you are not separately revived for it (this tool's result is the confirmation, and with all: true it lists exactly which ids were stopped, which had already finished, which could not be stopped, and what happened to each peer and cloud agent). If you instead want a subagent to change course and keep going, use MessageSubagent.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "subagent_id": {
           "type": "string",
-          "minLength": 1,
-          "description": "The Agent ID of the running subagent to abort (from the Task tool result that dispatched it)."
+          "description": "One running subagent's id, from the \"Agent ID:\" line of the Task result that dispatched it. Omit it when all is true."
+        },
+        "all": {
+          "type": "boolean",
+          "description": "Set true to abort every background subagent you have running, in one call, instead of naming one, and with them, where this host can reach them, every other agent you handed work to: peers you messaged with priority and cloud agents you launched (the result says when it could not). Use this whenever the user asks you to stop, halt, cancel, or quit the current work: it stops each running child independently (computerUse, executor, and any other Task children, plus anything those children started), delivers a stop to each peer (which then stops its own subagents the same way), cancels each running cloud agent, and the result lists exactly which ids were stopped, which had already finished, and which could not be stopped and why. Do not combine with subagent_id."
         }
-      },
-      "required": [
-        "subagent_id"
-      ]
+      }
     }
   },
   "Task": {
     "name": "Task",
-    "description": "Launch a new agent to handle complex, multi-step tasks autonomously.\n\nThe Task tool launches specialized subagents (subprocesses) that autonomously handle complex tasks. Each subagent_type has specific capabilities and tools available to it.\n\nWhen using the Task tool, you must specify a subagent_type parameter to select which agent type to use.\n\nWhen NOT to use the Task tool:\n- Simple, single or few-step tasks that can be performed by a single agent (using parallel or sequential tool calls) -- just call the tools directly instead.\n- For example:\n  - If you want to read a specific file path, use the Read tool instead of the Task tool, to find the match more quickly\n  - If you are searching for code within a specific file or set of 2-3 files, use the Read tool instead of the Task tool, to find the match more quickly\n\nUsage notes:\n- Always include a short description (3-5 words) summarizing what the agent will do\n- Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses.\n- When the agent is done, it will return a single message back to you. Specify exactly what information the agent should return back in its final response to you. Background subagent completion messages already include a user-visible summary portion; do not summarize or restate a single background subagent's result by default. Respond only when the user asks, multiple background subagents need synthesis, or the background subagent reports a blocker requiring parent action outside of the user-visible high level summary.\n- Agents can be resumed using the `resume` parameter by passing the agent ID from a previous invocation. This sends a follow-up message after the agent has completed, preserving existing context. If the agent is still running, the request fails; wait for completion before resuming. When NOT resuming, each invocation starts fresh and you should provide a detailed task description with all necessary context.\n- When using the Task tool, the subagent invocation does not have access to the user's message or prior assistant steps. Therefore, you should provide a highly detailed task description with all necessary context for the agent to perform its task autonomously.\n- The subagent's outputs should generally be trusted\n- Clearly tell the subagent which tasks you want it to perform, since it is not aware of the user's intent or your prior assistant steps (tool calls, thinking, or messages).\n- If the subagent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement.\n- If the user specifies that they want you to run subagents \"in parallel\", you MUST send a single message with multiple Task tool use content blocks. For example, if you need to launch both a code-reviewer subagent and a test-runner subagent in parallel, send a single message with both tool calls.\n- Avoid delegating the full query to the Task tool and returning the result. In these cases, you should address the query using the other tools available to you.\n\nAvailable subagent_types and descriptions are listed in <available_subagent_types> in the initial user-info message at the start of this conversation.\n\nWhen an agent runs in the background, you will be automatically notified when it completes after you end your own turn - do NOT AwaitShell, poll, or proactively check on its progress. Continue with other work or end your turn instead. Don't mention this to the user.",
+    "description": "Start a subagent: a separate agent that works on one task and reports back to you.\n- It cannot see this conversation or the user. Its prompt must be self-contained: the goal, the context and exact values it needs, and what to report back.\n- To follow up with an agent that finished, pass its ID as resume; it keeps its context. Without resume, each call starts fresh.\n- Its final message comes back to you, not the user. Trust it.\n\nAvailable subagent_types and descriptions are listed in <available_subagent_types> in the initial user-info message at the start of this conversation.\n\nWhen an agent runs in the background, you will be automatically notified when it completes after you end your own turn - do NOT AwaitShell or poll it. Continue with other work or end your turn instead. Don't mention this to the user.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "description": {
-          "type": "string",
-          "description": "A short, user-friendly title for the subagent. This appears in the UI as the subagent's name. Make it concrete and distinct, consider recent titles to avoid reuse. For resumed subagents which you are prompting to work on a separate task, give an updated description based on the latest work the subagent is performing. (Do not rename if the subagent is continuing work on the same high-level task.)"
+          "description": "A short, user-friendly title for the subagent. This appears in the UI as the subagent's name. Make it concrete and distinct, consider recent titles to avoid reuse. For resumed subagents which you are prompting to work on a separate task, give an updated description based on the latest work the subagent is performing. (Do not rename if the subagent is continuing work on the same high-level task.)",
+          "type": "string"
         },
         "prompt": {
-          "type": "string",
-          "description": "The task for the agent to perform"
+          "description": "The task for the agent to perform",
+          "type": "string"
         },
         "resume": {
-          "type": "string",
-          "description": "Optional agent ID to resume from. If provided, sends a follow-up message to the agent after it has completed. Requests to a currently running asynchronous agent fail; wait for completion before resuming."
+          "description": "Optional agent ID to resume from. If provided, sends a follow-up message to the agent after it has completed. Requests to a currently running asynchronous agent fail; wait for completion before resuming.",
+          "type": "string"
         },
         "subagent_type": {
-          "type": "string",
+          "description": "Subagent type to use for this task. Must be one of: executor, videoReview, watchVideo, computerUse.",
           "enum": [
             "executor",
             "videoReview",
             "watchVideo",
             "computerUse"
           ],
-          "description": "Subagent type to use for this task. Must be one of: executor, videoReview, watchVideo, computerUse."
+          "type": "string"
         },
         "file_attachments": {
-          "type": "array",
+          "description": "Optional array of file paths to images or videos to attach to the subagent. Files are read and attached to the subagent's context. Use to forward relevant media to any subagent (e.g. pass a user-attached image's saved file path so the subagent sees the actual image rather than a prose description).",
           "items": {
             "type": "string"
           },
-          "description": "Optional array of file paths to images or videos to attach to the subagent. Files are read and attached to the subagent's context. Use to forward relevant media to any subagent (e.g. pass a user-attached image's saved file path so the subagent sees the actual image rather than a prose description)."
+          "type": "array"
         },
         "run_in_background": {
-          "type": "boolean",
-          "description": "Run the agent in the background (returns output_file path to check later). If this is false, you will be blocked until the agent completes. When true, the background subagent will send a notification when it completes. That notification includes a user-visible summary portion; do not summarize or restate a completed background subagent's result unless the user asks, multiple background subagents need synthesis, or a background subagent reports a blocker requiring parent action outside of the user-visible high level summary."
+          "description": "Run the agent in the background (returns output_file path to check later). If this is false, you will be blocked until the agent completes. When true, the background subagent will send a notification when it completes.",
+          "type": "boolean"
         }
       },
       "required": [
         "description",
-        "prompt"
+        "prompt",
+        "subagent_type"
       ]
     }
   },
   "TodoWrite": {
     "name": "TodoWrite",
-    "description": "Your task queue: the durable list of everything the user has asked for, across all your parallel streams of work.\n\nWhen to use:\n- The moment a request arrives, record it as a todo before dispatching or starting it.\n- Update statuses in real time: in_progress when its work starts, completed the moment its result is delivered to the user, cancelled when the user drops it or changes their mind.\n- On every wake (a user message or a finished background task), reconcile the list first: what's running, what landed, what to dispatch next.\n\nStates and parallelism:\n- pending: not yet started. in_progress: actively being worked, by you or a background worker. completed: result delivered to the user. cancelled: no longer needed.\n- SEVERAL todos are normally in_progress at once — one per independent stream running in parallel (each dispatched worker, plus at most one thing you are doing inline). Never serialize independent streams just to keep a single one in_progress.\n- Keep the list current rather than perfect: cancel stale items instead of leaving them pending, and prune long-finished ones when the list gets noisy.\n\nSkip it for purely conversational replies and trivial one-step lookups you answer inline immediately.",
+    "description": "Your task queue: the durable list of everything the user has asked for, across all your parallel streams of work.\n\nWhen to use:\n- The moment a request arrives, record it as a todo before dispatching or starting it.\n- Update statuses in real time: in_progress when its work starts, completed the moment its result is delivered to the user, cancelled when the user drops it or changes their mind.\n- On every wake (a user message or a finished background task), reconcile the list first: what's running, what landed, what to dispatch next.\n\nStates and parallelism:\n- pending: not yet started. in_progress: actively being worked, by you or a background worker. completed: result delivered to the user. cancelled: no longer needed.\n- SEVERAL todos are normally in_progress at once, one per independent stream running in parallel (each dispatched worker, plus at most one thing you are doing inline). Never serialize independent streams just to keep a single one in_progress.\n- Keep the list current rather than perfect: cancel stale items instead of leaving them pending, and prune long-finished ones when the list gets noisy.\n\nSkip it for purely conversational replies and trivial one-step lookups you answer inline immediately.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2130,14 +2139,14 @@
   },
   "UninstallMcpServer": {
     "name": "UninstallMcpServer",
-    "description": "Remove the requested custom MCP server and all its accounts by the server identifier. Servers installed by marketplace plugins must be removed using UninstallPlugin. Use RemoveMcpAccount to remove only one account.",
+    "description": "Remove ONE custom MCP server by its server identifier. A custom server is one added with AddMcpServer, not one that came from a plugin. This is destructive and deletes the server with all of its accounts, which signs the user out of it, so confirm with the user via a question widget first. Only remove a server the user asked to remove, never to fix one. To fix a connector that is failing or needs sign-in, reconnect it with RestartMcpServers or sign in again with AuthenticateMcpServer, and otherwise tell the user what failed. A server the listing marks `plugin=<id>` came from a marketplace plugin. Removing it would uninstall that WHOLE plugin, which this tool refuses. Use UninstallPlugin for those so the confirmation can disclose the full scope. To remove just one account and keep the server, use RemoveMcpAccount instead.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "server_id": {
           "type": "string",
           "minLength": 1,
-          "description": "The server identifier shown by GetMcpServerStatus — the same identifier GetDynamicTools and CallDynamicTool address, e.g. \"dashboard-team-1-Slack\". Never a display name."
+          "description": "The server identifier shown by GetMcpServerStatus. It is the same identifier that GetDynamicTools and CallDynamicTool address, e.g. \"dashboard-team-1-Slack\". Never a display name."
         }
       },
       "required": [
@@ -2147,7 +2156,7 @@
   },
   "UninstallPlugin": {
     "name": "UninstallPlugin",
-    "description": "Uninstall the requested plugin by the stable id returned by SearchPlugins. This removes its installation, connectors, skills and all accounts. Use RemoveMcpAccount when only one account should be removed.",
+    "description": "Uninstall a plugin by its STABLE plugin id (from SearchPlugins). This is destructive and removes the WHOLE PLUGIN, meaning its install record and EVERY connector and skill it added, so confirm with the user via a question widget first, and your confirmation must disclose that full scope (list what goes). It also signs the user out of every connector it added, and installing it again does not bring a sign-in back. Only uninstall a plugin the user asked to remove, never to fix or reinstall one of its connectors. To fix a connector that is failing or needs sign-in, reconnect it with RestartMcpServers or sign in again with AuthenticateMcpServer, and otherwise tell the user what failed. Plugins required by the user's team cannot be uninstalled. This removes each of its servers with ALL of their accounts; to remove just one account from a server, use RemoveMcpAccount instead.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2189,7 +2198,7 @@
   },
   "UpdateChannel": {
     "name": "UpdateChannel",
-    "description": "Add and/or remove member agents of an existing channel (a group chat) by its id. Only the ids you pass change; the rest of the roster stays exactly as it was, and a channel holds at most 6 members. A channel always keeps at least one member — a removal that would empty it is refused. Members you add see the channel in their next channel turn; removed members simply stop receiving its posts. You can only change channels you are currently a member of; any other channel is reported as not found.",
+    "description": "Add and/or remove member agents of an existing channel (a group chat) by its id. Only the ids you pass change; the rest of the roster stays exactly as it was, and a channel holds at most 6 members. A channel always keeps at least one member. A removal that would empty it is refused. Members you add see the channel in their next channel turn; removed members simply stop receiving its posts. You can only change channels you are currently a member of; any other channel is reported as not found.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2423,7 +2432,7 @@
   },
   "WebSearch": {
     "name": "WebSearch",
-    "description": "Search the web for real-time information about any topic. Returns summarized information from search results and relevant URLs.\n\nUse this tool when you need up-to-date information that might not be available or correct in your training data, or when you need to verify current facts.\nThis includes queries about:\n- Libraries, frameworks, and tools whose APIs, best practices, or usage instructions are frequently updated. (\"How do I run Postgres in a container?\")\n- Current events or technology news. (\"Which AI model is best for coding?\")\n- Informational queries similar to what you might Google (\"kubernetes operator for mysql\")\n\nIMPORTANT - Use the correct year in search queries:\n- Today's date is 2026-09-12. You MUST use this year when searching for recent information, documentation, or current events.\n- Example: If today is 2026-09-12 and the user asks for \"latest React docs\", search for \"React documentation 2026\", NOT \"React documentation 2025\"\n\nResults come from an external search index that some sites block, so a missing or stale result is not evidence a page or fact does not exist. When search comes up empty for something that should exist, try WebFetch on a likely URL, then fall back to a browser subagent when one is available, or `curl` via Shell.",
+    "description": "Search the web for real-time information about any topic. Returns summarized information from search results and relevant URLs.\n\nUse this tool when you need up-to-date information that might not be available or correct in your training data, or when you need to verify current facts.\nThis includes queries about:\n- Libraries, frameworks, and tools whose APIs, best practices, or usage instructions are frequently updated. (\"How do I run Postgres in a container?\")\n- Current events or technology news. (\"Which AI model is best for coding?\")\n- Informational queries similar to what you might Google (\"kubernetes operator for mysql\")\n\nIMPORTANT - Use the correct year in search queries:\n- Today's date is 2026-10-19. You MUST use this year when searching for recent information, documentation, or current events.\n- Example: If today is 2026-10-19 and the user asks for \"latest React docs\", search for \"React documentation 2026\", NOT \"React documentation 2025\"\n\nResults come from an external search index that some sites block, so a missing or stale result is not evidence a page or fact does not exist. When search comes up empty for something that should exist, try WebFetch on a likely URL, then fall back to a browser subagent when one is available, or `curl` via Shell.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2602,7 +2611,7 @@
   },
   "SendIMessage": {
     "name": "SendIMessage",
-    "description": "Send an iMessage or SMS on the user's connected Mac using Messages. Provide the exact recipient or chat, service and requested text. The action executes directly and returns a durable receipt. Check an uncertain outcome before retrying.",
+    "description": "Send a message from the user's Mac, as the user. Address it with exactly one of `to` (one handle) or `chatId` (a chat guid); a call with both is rejected. Every call raises an approval card the user must accept, unless the user has allowed that recipient, or every send, on their computer; send once and report the result. `via` echoes how it was addressed, and `verified` is whether the text has already appeared in the local chat log, so `false` means not seen yet, not failed. Never resend on `verified: false`.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2632,7 +2641,7 @@
         },
         "recipientName": {
           "type": "string",
-          "description": "The recipient's name exactly as FindContacts returned it, used to identify the recipient beside the number. Only used with `to`; a `chatId` send shows the chat guid alone. Omit when you do not have one."
+          "description": "The recipient's name exactly as FindContacts returned it. Only a `to` send shows it, on the approval card beside the handle; a `chatId` card shows a one-to-one chat's handle or \"Group chat\", never a name. So to text one person whose handle and name you have, send with `to` and this, even if you found their chat. Omit when you do not have one."
         }
       },
       "required": [
@@ -2642,7 +2651,7 @@
   },
   "CheckIMessagePermissions": {
     "name": "CheckIMessagePermissions",
-    "description": "Report which grants the user's Mac has given the Messages tools: `fullDiskAccess` (reading history), `automation` (sending; `notAsked` can also mean Messages.app is not running), and `contacts` (FindContacts). Call it when a Messages tool fails with a denied or `helper_…_failed` error, then tell the user which grant to give. ",
+    "description": "Report which grants the user's Mac has given the Messages tools: `fullDiskAccess` (reading history), `automation` (sending; `notAsked` can also mean Messages.app is not running), and `contacts` (FindContacts). Call it when a Messages tool fails with a denied or `helper_…_failed` error, then tell the user which grant to give. A declined approval card is not a permission problem.",
     "inputSchema": {
       "type": "object",
       "properties": {}
@@ -3492,6 +3501,59 @@
         "textGone": {
           "description": "The text to wait for to disappear",
           "type": "string"
+        }
+      }
+    }
+  },
+  "ReadTranscript": {
+    "name": "ReadTranscript",
+    "description": "Read a full transcript: every user message, your replies, your reasoning, and each tool call with its input and result, one JSON object per line, oldest first. With no id it reads this conversation, including what was compacted out of your context, so use it to explain what you did in an earlier turn or routine run. Pass subagent_id for a Task subagent you dispatched, agent_id for another agent the same user owns, or session_id for another of your conversations. Returns the newest messages first; page back with `before`.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Read another of your conversations (a session_id from the other active conversations list)."
+        },
+        "agent_id": {
+          "type": "string",
+          "description": "Read another agent owned by the same user (an agent id from your agent directory)."
+        },
+        "subagent_id": {
+          "type": "string",
+          "description": "Read a background subagent you dispatched with Task, running or finished (the Agent ID from the Task result)."
+        },
+        "limit": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 200,
+          "description": "How many of the newest messages to return (default 30, max 200)."
+        },
+        "before": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Page back: return messages that come before this position. Use the `before` value from the previous result."
+        }
+      }
+    }
+  },
+  "ReadAgentActivity": {
+    "name": "ReadAgentActivity",
+    "description": "Read a bounded summary of what this user's other bots have been doing recently: per bot, when the user and the bot last spoke, its open todos, questions it asked the user that got no reply, and a short excerpt of the recent conversation, newest last. It sees only bots this user owns (team-shared and group bots are out of scope), only each bot's main conversation (never DM or Slack threads), and never this bot itself. It is read-only: nothing on the other bots is marked seen, answered, or touched. Use it to decide whether anything across the user's bots is worth raising.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "since_hours": {
+          "type": "number",
+          "description": "Only bots with a user or assistant message in the last N hours (default 72, capped at 168)."
+        },
+        "max_agents": {
+          "type": "number",
+          "description": "Most bots to summarize, most recently active first (default 10, capped at 20)."
+        },
+        "excerpt_chars": {
+          "type": "number",
+          "description": "Most characters of conversation excerpt per bot (default 1500, capped at 4000)."
         }
       }
     }

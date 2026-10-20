@@ -319,7 +319,33 @@ export class SubagentService {
   }
 
   async stop(parentBotId: string, callId: string, input: StopSubagentInput) {
-    const subagent = await this.activeOwned(parentBotId, input.subagent_id);
+    if (input.all === true) return this.stopAll(parentBotId, callId);
+    return this.stopOne(parentBotId, callId, await this.activeOwned(parentBotId, input.subagent_id));
+  }
+
+  /** Stop each running subagent on its own, so one failure never hides or blocks the others. */
+  private async stopAll(parentBotId: string, callId: string) {
+    const running = await this.prisma.subagent.findMany({
+      where: { parentBotId, status: { in: [...ACTIVE_STATUSES] } },
+      orderBy: { createdAt: "asc" },
+    });
+    const outcomes = await Promise.all(running.map(async (subagent) => {
+      const summary = { subagent_id: botSubagentId(subagent.id), subagent_type: subagent.subagentType, description: subagent.description };
+      try {
+        const result = await this.stopOne(parentBotId, callId, subagent);
+        if (result.stopped) return { ...summary, outcome: "stopped" as const };
+        return (ACTIVE_STATUSES as readonly string[]).includes(result.status)
+          ? { ...summary, outcome: "failed" as const, error: "it started a new attempt while the stop was in flight" }
+          : { ...summary, outcome: "finished" as const };
+      } catch (error) {
+        return { ...summary, outcome: "failed" as const, error: error instanceof Error ? error.message : String(error) };
+      }
+    }));
+    const of = (outcome: string) => outcomes.filter((entry) => entry.outcome === outcome).map(({ outcome: _, ...entry }) => entry);
+    return { stopped_all: true, stopped: of("stopped"), already_finished: of("finished"), failed: of("failed") };
+  }
+
+  private async stopOne(parentBotId: string, callId: string, subagent: Awaited<ReturnType<SubagentService["activeOwned"]>>) {
     if (subagent.currentRunId) {
       try {
         await Effect.runPromise(this.runs.cancel(subagent.currentRunId));

@@ -1,39 +1,49 @@
-import { ApiError } from "@openteam/contracts";
-import { parseSiblingThreadInput } from "@openteam/contracts/sibling-threads";
 import type { PrismaClient } from "@openteam/db";
 
-/** Only visible conversation rows, never the model tape, review payloads or held form values. */
-export async function listSiblingThreads(db: PrismaClient, botId: string, currentSessionId?: string) {
+/** Recently active conversations, newest first, that ReadTranscript can open by session_id. */
+const ACTIVE_CONVERSATION_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1_000;
+const ACTIVE_CONVERSATIONS_LISTED = 8;
+
+export interface SiblingThread {
+  sessionId: string;
+  channelId: string;
+  name: string;
+  kind: "direct chat" | "group chat";
+  lastActivityAt: Date;
+}
+
+/** Only visible conversations of this agent, never the model tape or private agent-to-agent channels. */
+export async function listSiblingThreads(db: PrismaClient, botId: string, currentSessionId?: string): Promise<SiblingThread[]> {
   const sessions = await db.contextSession.findMany({
     where: { botId, scope: "channel", ...(currentSessionId ? { id: { not: currentSessionId } } : {}) },
     orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
   });
   if (!sessions.length) return [];
   const channels = await db.channel.findMany({
-    where: { id: { in: sessions.map(s => s.scopeId) }, archivedAt: null, members: { some: { botId } } },
-    select: { id: true, name: true },
+    where: { id: { in: sessions.map(s => s.scopeId) }, archivedAt: null, kind: { not: "agent_dm" }, members: { some: { botId } } },
+    select: { id: true, name: true, kind: true },
   });
-  const names = new Map(channels.map(c => [c.id, c.name]));
-  return sessions.filter(s => names.has(s.scopeId)).map(s => ({ sessionId: s.id, channelId: s.scopeId, name: names.get(s.scopeId)! }));
+  const byId = new Map(channels.map(c => [c.id, c]));
+  return sessions.flatMap(s => {
+    const channel = byId.get(s.scopeId);
+    return channel ? [{ sessionId: s.id, channelId: s.scopeId, name: channel.name, kind: channel.kind === "group" ? "group chat" as const : "direct chat" as const, lastActivityAt: s.updatedAt }] : [];
+  });
 }
 
-export async function readSiblingThread(db: PrismaClient, context: { botId: string; channelId: string | null }, raw: unknown) {
-  const { session_id, limit } = parseSiblingThreadInput(raw);
-  // UUID validation keeps malformed/foreign ids indistinguishable from unavailable sessions.
-  if (!/^[\da-f]{8}(-[\da-f]{4}){3}-[\da-f]{12}$/i.test(session_id)) throw new ApiError(404, "sibling_unavailable", "Conversation is not readable by this agent");
-  return db.$transaction(async tx => {
-    const session = await tx.contextSession.findFirst({ where: { id: session_id, botId: context.botId, scope: "channel" } });
-    if (!session) throw new ApiError(404, "sibling_unavailable", "Conversation is not readable by this agent");
-    if (session.scopeId === context.channelId) throw new ApiError(400, "sibling_is_current", "session_id is the current conversation — read the live transcript instead.");
-    const channel = await tx.channel.findFirst({ where: { id: session.scopeId, archivedAt: null, members: { some: { botId: context.botId } } } });
-    if (!channel) throw new ApiError(404, "sibling_unavailable", "Conversation is not readable by this agent");
-    const rows = await tx.channelMessage.findMany({
-      where: { channelId: channel.id, sender: { in: ["user", "agent"] } }, orderBy: { sequence: "desc" }, take: limit,
-      select: { sequence: true, sender: true, content: true },
-    });
-    if (!rows.length) return `No readable transcript rows for session ${session_id}.`;
-    return [`Sibling conversation ${session_id} (most recent ${rows.length} rows):`, "",
-      ...rows.reverse().map(row => `[${row.sequence}] ${row.sender === "user" ? "user" : "assistant"}: ${row.content.trim() ? row.content : "(empty)"}`),
-    ].join("\n");
-  }, { isolationLevel: "RepeatableRead" });
+/** The system prompt's digest of this agent's other conversations, readable with ReadTranscript. */
+export function renderOtherActiveConversations(threads: readonly SiblingThread[], now = Date.now()): string {
+  const active = threads.filter(thread => now - thread.lastActivityAt.getTime() <= ACTIVE_CONVERSATION_MAX_AGE_MS);
+  if (!active.length) return "";
+  const listed = [...active]
+    .sort((a, b) => b.lastActivityAt.getTime() - a.lastActivityAt.getTime() || (a.sessionId < b.sessionId ? -1 : 1))
+    .slice(0, ACTIVE_CONVERSATIONS_LISTED)
+    .sort((a, b) => (a.sessionId < b.sessionId ? -1 : 1));
+  const omitted = active.length - listed.length;
+  return [
+    "## Other active conversations",
+    "Other active conversations: this agent also has separate conversations running in parallel.",
+    "Use ReadTranscript with a session_id to inspect another conversation's transcript when you need cross-conversation context.",
+    ...listed.map(thread => `- ${thread.name}, session_id: ${thread.sessionId} (${thread.kind}, last active ${thread.lastActivityAt.toISOString().slice(0, 10)})`),
+    ...(omitted > 0 ? [`(${omitted} older conversation${omitted === 1 ? "" : "s"} not listed.)`] : []),
+  ].join("\n");
 }

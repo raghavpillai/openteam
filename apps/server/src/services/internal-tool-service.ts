@@ -1,4 +1,4 @@
-import { readAgentActivity, readTranscript, readSiblingThread } from "@openteam/messaging";
+import { readAgentActivity, readTranscript } from "@openteam/messaging";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { parseTaskConfiguration, subagentHasHistoryTools, subagentUsesParentConnectors } from "@openteam/contracts/task-configuration";
 import {
@@ -11,8 +11,6 @@ import {
   CreateAgentInput,
   CreateChannelInput,
   type DynamicToolCallRequest,
-  ListAgentsInput,
-  ListGroupsInput,
   MessageSubagentInput,
   ReactToMessageInput,
   RequestBoxHelpInput,
@@ -141,7 +139,6 @@ export class InternalToolService {
         "request_user_form",
         "remap_user_form_targets",
         "RecallMemory",
-        "read_sibling_thread",
         "ReadTranscript",
         "ReadAgentActivity",
         "ListSections",
@@ -151,8 +148,6 @@ export class InternalToolService {
         "StopSubagent",
         "CreateAgent",
         "UpdateAgent",
-        "ListAgents",
-        "ListGroups",
         "CreateChannel",
         "UpdateChannel",
         "SendToAgent",
@@ -177,7 +172,6 @@ export class InternalToolService {
       }
       if (request.tool === "ReadTranscript") return readTranscript(this.prisma, context, request.arguments);
       if (request.tool === "ReadAgentActivity") return readAgentActivity(this.prisma, { botId: childIdentity?.parentBotId ?? request.botId }, request.arguments);
-      if (request.tool === "read_sibling_thread") return readSiblingThread(this.prisma, context, request.arguments);
       if (request.tool === "RecallMemory") {
         // A worker searches the memory of the bot it works for, scoped to the conversation that started it.
         const memoryRun = childIdentity
@@ -326,18 +320,6 @@ export class InternalToolService {
           request.botId,
           request.callId,
           Schema.decodeUnknownSync(CreateAgentInput)(request.arguments)
-        );
-      }
-      if (request.tool === "ListAgents") {
-        return this.administration.listAgents(
-          request.botId,
-          Schema.decodeUnknownSync(ListAgentsInput)(request.arguments)
-        );
-      }
-      if (request.tool === "ListGroups") {
-        return this.administration.listGroups(
-          request.botId,
-          Schema.decodeUnknownSync(ListGroupsInput)(request.arguments)
         );
       }
       if (request.tool === "UpdateAgent") {

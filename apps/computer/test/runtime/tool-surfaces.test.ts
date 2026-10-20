@@ -274,7 +274,7 @@ describe("specialized subagent tool surfaces", () => {
     }
     const main = cursor("agent");
     expect(main.map((tool) => tool.name)).toEqual(expect.arrayContaining(["ReadTranscript", "ReadAgentActivity"]));
-    expect(main.find((tool) => tool.name === "ReadTranscript")!.description).toContain("subagent_id for your dispatched worker");
+    expect(main.find((tool) => tool.name === "ReadTranscript")!.description).toContain("Pass subagent_id for a Task subagent you dispatched");
   });
 
   test("only knowledgeWork with tool access gets the Skill tool", () => {
@@ -313,51 +313,36 @@ describe("specialized subagent tool surfaces", () => {
     expect(dynamicToolNames("openteam")).toEqual([]);
     expect(dynamicToolNames("cursor")).toContain("Task");
     expect(dynamicToolNames("cursor")).toContain("SendToAgent");
-    expect(dynamicToolNames("cursor")).toContain("ListAgents");
-    expect(dynamicToolNames("cursor")).toContain("ListGroups");
     expect(dynamicToolNames("cursor")).toContain("request_box_help");
+    // Teammates are listed in user_info, and other conversations are read with ReadTranscript.
+    for (const removed of ["ListAgents", "ListGroups", "read_sibling_thread"])
+      expect(dynamicToolNames("cursor")).not.toContain(removed);
   });
 
-  test("directory tools validate bounded inputs and route through the control plane", async () => {
+  test("StopSubagent and request_box_help decode their reference arguments and route through the control plane", async () => {
     const calls: Array<{ tool: string; args: unknown }> = [];
     const runtime = runtimeTools() as unknown as {
-      callControlPlaneTool(
-        active: unknown,
-        callId: string,
-        tool: string,
-        args: unknown
-      ): Promise<{ content: []; details: Record<string, unknown> }>;
+      callControlPlaneTool(active: unknown, callId: string, tool: string, args: unknown): Promise<{ content: []; details: Record<string, unknown> }>;
       dynamicCatalog(active: { runtimeProfile: "agent"; pluginNamespaces: [] }): Array<{
         name: string;
-        tools: Array<{
-          name: string;
-          decodeArguments(args: unknown): unknown;
-          execute(active: unknown, callId: string, args: unknown): Promise<unknown>;
-        }>;
+        tools: Array<{ name: string; decodeArguments(args: unknown): unknown; execute(active: unknown, callId: string, args: unknown): Promise<unknown> }>;
       }>;
     };
     runtime.callControlPlaneTool = async (_active, _callId, tool, args) => {
       calls.push({ tool, args });
       return { content: [], details: {} };
     };
-    const catalog = runtime
-      .dynamicCatalog({ runtimeProfile: "agent", pluginNamespaces: [] })
-      .find((namespace) => namespace.name === "cursor");
-    const listAgents = catalog?.tools.find((tool) => tool.name === "ListAgents");
-    const listGroups = catalog?.tools.find((tool) => tool.name === "ListGroups");
-
-    expect(listAgents?.decodeArguments({ query: "research", limit: 50 })).toEqual({
-      query: "research",
-      limit: 50,
-    });
-    expect(() => listAgents?.decodeArguments({ limit: 51 })).toThrow();
-    expect(() => listGroups?.decodeArguments({ query: "x".repeat(121) })).toThrow();
-    await listAgents?.execute({}, "call-agents", { query: "target", limit: 3 });
-    await listGroups?.execute({}, "call-groups", { limit: 2 });
-    expect(calls).toEqual([
-      { tool: "ListAgents", args: { query: "target", limit: 3 } },
-      { tool: "ListGroups", args: { limit: 2 } },
-    ]);
+    const catalog = runtime.dynamicCatalog({ runtimeProfile: "agent", pluginNamespaces: [] }).find((namespace) => namespace.name === "cursor");
+    const stop = catalog!.tools.find((tool) => tool.name === "StopSubagent")!;
+    expect(stop.decodeArguments({ all: true })).toEqual({ all: true });
+    expect(stop.decodeArguments({ subagent_id: "sand-subagent-1" })).toEqual({ subagent_id: "sand-subagent-1" });
+    for (const invalid of [{}, { all: false }, { all: true, subagent_id: "sand-subagent-1" }])
+      expect(() => stop.decodeArguments(invalid), JSON.stringify(invalid)).toThrow();
+    const help = catalog!.tools.find((tool) => tool.name === "request_box_help")!;
+    const handoff = { instruction: "Sign in", reason: "auth", domain: "example.com", url: "https://app.example.com/login" };
+    expect(help.decodeArguments(handoff)).toEqual(handoff);
+    await stop.execute({}, "call-stop", { all: true });
+    expect(calls).toEqual([{ tool: "StopSubagent", args: { all: true } }]);
   });
 
   test("normal agents expose the complete plugin lifecycle management surface", () => {

@@ -86,6 +86,7 @@ import { SearchProviderClient } from "../search-provider";
 import { FetchProviderClient } from "../fetch-provider";
 import { serverSearchConfiguration, serverFetchConfiguration } from "../search-settings";
 import { UserFormHost, type FormBrowser, type FormPageBinding } from "../user-form-host";
+import { boxHelpPage } from "../box-help-page";
 import type { ActiveTurn, RuntimeDynamicTool } from "./types";
 import { renderShellAwaitResult } from "@openteam/shell-jobs";
 
@@ -97,6 +98,9 @@ export const GRAPHICAL_WORKER_SHELL_DESCRIPTION = [
 
 export const GRAPHICAL_WORKER_READ_DESCRIPTION =
   "Reads a file on the box, the same filesystem Shell acts on.\n\nText files include line numbers and support offset/limit paging. Image files (jpeg/jpg, png, gif, webp) are returned inline so you can see them. PDF files are converted to text.";
+
+/** How long a handoff waits for the box browser to show the step's page. */
+const BOX_HELP_PAGE_TIMEOUT_MS = 12_000;
 
 /** Browser and desktop workers stay on the box, so their box tools take no machineId. */
 const MACHINE_ROUTING_AWAIT_SENTENCE =
@@ -1188,9 +1192,31 @@ export class RuntimeTools {
           args = { ...input, images };
         }
       }
+      if (tool === REQUEST_BOX_HELP_TOOL.name) await this.prepareBoxHelpPage(active, args);
       return await this.callControlPlaneToolRequest(active, callId, tool, args, signal);
     } finally {
       await Promise.all(cleanup.map(fn => fn()));
+    }
+  }
+
+  /** Best effort: the handoff goes out even when the browser cannot be prepared in time. */
+  private async prepareBoxHelpPage(active: ActiveTurn, args: unknown): Promise<void> {
+    const target = boxHelpPage((args ?? {}) as { url?: string; domain?: string; idp_domain?: string });
+    if (!target) return;
+    // Without an address to open, only a browser that is already running is worth checking.
+    const running = [...this.browserUseSessions.entries()].some(([id, session]) =>
+      session.connected && (id === active.screenBotId || this.browserSessionScreens.get(id) === active.screenBotId));
+    if (!target.url && !running) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        this.privateBrowser(active).then((browser) => browser.presentHandoffPage(target)),
+        new Promise((resolve) => { timer = setTimeout(resolve, BOX_HELP_PAGE_TIMEOUT_MS); }),
+      ]);
+    } catch {
+      // The user can still find or open the page once they take over.
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -1294,6 +1320,18 @@ export class RuntimeTools {
       (body as Record<string, unknown>).woken === true
     )
       active.endTurnRequested = true;
+    // A reaction can be the whole reply: with end_turn, a successful one delivers and ends the turn.
+    if (
+      tool === REACT_TO_MESSAGE_TOOL.name &&
+      (args as { end_turn?: unknown }).end_turn === true &&
+      body &&
+      typeof body === "object" &&
+      ((body as Record<string, unknown>).reacted === true || (body as Record<string, unknown>).removed === true)
+    ) {
+      active.sentMessageCount += 1;
+      active.toolActivityAfterLastSend = false;
+      active.endTurnRequested = true;
+    }
     if (
       [
         SEND_TO_USER_TOOL.name,
@@ -1694,8 +1732,6 @@ export class RuntimeTools {
           "SearchPlugins",
           "GetPlugin",
           "GetMcpServerStatus",
-          "ListAgents",
-          "ListGroups",
         ].includes(input.toolName))
     )
       throw new Error("This tool is unavailable to a read-only plugin agent");
@@ -1723,8 +1759,6 @@ export class RuntimeTools {
         "AwaitShell",
         "WebFetch",
         "WebSearch",
-        "ListAgents",
-        "ListGroups",
         "CheckSubagent",
         "SearchPlugins",
         "GetPlugin",

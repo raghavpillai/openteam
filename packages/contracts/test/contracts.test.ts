@@ -15,8 +15,6 @@ import {
   CURSOR_TOOL_NAMES,
   CURSOR_TOOLS,
   GET_DYNAMIC_TOOLS_TOOL,
-  ListAgentsInput,
-  ListGroupsInput,
   NATIVE_TOOL_NAMES,
   NATIVE_TOOLS,
   PLUGIN_BOT_ACCESS_PAGE_SIZE,
@@ -483,8 +481,6 @@ describe("API contracts", () => {
       "CheckSubagent",
       "CreateAgent",
       "CreateChannel",
-      "ListAgents",
-      "ListGroups",
       "SendToAgent",
       "MessageSubagent",
       "StopSubagent",
@@ -497,7 +493,7 @@ describe("API contracts", () => {
       "CopyToBox", "CopyFromBox", "WebSearch", "WebFetch", "request_user_form", "remap_user_form_targets", "DraftExternalMessage", "SendFeedback", "create_bot_share_json",
       "WakeParent",
     ]);
-    for (const tool of CURSOR_TOOLS.filter(tool => !['ListAgents','ListGroups'].includes(tool.tool))) {
+    for (const tool of CURSOR_TOOLS) {
       expect(tool.description).toEqual(referenceTool(tool.tool).description);
       expect(tool.inputSchema).toEqual(referenceTool(tool.tool).inputSchema);
     }
@@ -514,7 +510,7 @@ describe("API contracts", () => {
       "file_attachments",
       "run_in_background",
     ]);
-    expect(taskSchema.required).toEqual(["description", "prompt"]);
+    expect(taskSchema.required).toEqual(["description", "prompt", "subagent_type"]);
     expect(taskSchema.properties.description?.description).toBe(
       "A short, user-friendly title for the subagent. This appears in the UI as the subagent's name. Make it concrete and distinct, consider recent titles to avoid reuse. For resumed subagents which you are prompting to work on a separate task, give an updated description based on the latest work the subagent is performing. (Do not rename if the subagent is continuing work on the same high-level task.)"
     );
@@ -580,19 +576,6 @@ describe("API contracts", () => {
           merge: false,
         })
       ).not.toThrow();
-    }
-  });
-
-  test("validates bounded read-only agent and group directory inputs", () => {
-    expect(Schema.decodeUnknownSync(ListAgentsInput)({ query: "research", limit: 50 })).toEqual({
-      query: "research",
-      limit: 50,
-    });
-    expect(Schema.decodeUnknownSync(ListGroupsInput)({})).toEqual({});
-    for (const schema of [ListAgentsInput, ListGroupsInput]) {
-      expect(() => Schema.decodeUnknownSync(schema)({ limit: 51 })).toThrow();
-      expect(() => Schema.decodeUnknownSync(schema)({ limit: 0 })).toThrow();
-      expect(() => Schema.decodeUnknownSync(schema)({ query: "x".repeat(121) })).toThrow();
     }
   });
 

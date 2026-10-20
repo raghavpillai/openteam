@@ -33,6 +33,7 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
     channelId: string;
     deliveryId: string | null;
     instructions: string;
+    userInfo?: string | null;
   }
   const turns: TurnInput[] = [];
   const acknowledgements: string[] = [];
@@ -367,7 +368,8 @@ Current routine runtime status. This snapshot is authoritative for this turn and
         (turn) =>
           turn.instructions.includes("Agent-to-agent messaging is asynchronous, like texting.") &&
           turn.instructions.includes("Reply to a peer with SendToAgent") &&
-          turn.instructions.includes("Recent and related SendToAgent targets (bounded catalog):")
+          turn.instructions.includes("They're listed in the <teammates> block of <user_info>") &&
+          (turn.userInfo ?? "").includes("<teammates>")
       )
     ).toBe(true);
     expect(snapshot.runs.filter((run) => run.origin === "agent").map((run) => run.botId)).toEqual([

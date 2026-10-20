@@ -4,8 +4,10 @@ import {
   AgentMessaging,
   PLATFORM_PROMPT_GROUP_LIMIT,
   PLATFORM_PROMPT_PEER_LIMIT,
-  renderPlatformPromptTargetLines,
+  renderTeammatesUserInfo,
   selectPlatformPromptPeers,
+  TEAMMATES_POINTER,
+  NO_TEAMMATES_SECTION,
 } from "../src";
 
 const peers = (count: number) =>
@@ -15,12 +17,12 @@ const peers = (count: number) =>
     hiddenFromSidebar: index % 3 === 0,
   }));
 
-describe("bounded platform target context", () => {
-  test("keeps the target prompt bounded at 1k and 10k bots", () => {
-    const measurements = [10, 1_000, 10_000].map((count) => {
+describe("bounded teammates roster", () => {
+  test("keeps the roster bounded at 1k and 10k bots", () => {
+    const measurements = [100, 1_000, 10_000].map((count) => {
       const roster = peers(count);
       const selected = selectPlatformPromptPeers([], roster);
-      const bounded = renderPlatformPromptTargetLines(selected, []).join("\n");
+      const bounded = renderTeammatesUserInfo({ peers: selected, groups: [], agentsRoot: "/agent-data/agents", morePeers: true })!;
       return {
         count,
         boundedBytes: Buffer.byteLength(bounded),
@@ -30,7 +32,8 @@ describe("bounded platform target context", () => {
 
     expect(measurements[1]?.boundedBytes).toBe(measurements[2]?.boundedBytes);
     expect(measurements[1]?.bounded).toBe(measurements[2]?.bounded);
-    expect(measurements[2]?.boundedBytes).toBeLessThan(1_000);
+    expect(measurements[2]?.boundedBytes).toBeLessThan(4_000);
+    expect(measurements[2]?.bounded).toContain("\u2026and more (read the agent folders above for the full roster).");
     expect(selectPlatformPromptPeers([], peers(10_000))).toHaveLength(PLATFORM_PROMPT_PEER_LIMIT);
   });
 
@@ -42,7 +45,7 @@ describe("bounded platform target context", () => {
     ];
     const recent = [
       { id: "related-2", name: "Duplicate recent", hiddenFromSidebar: false },
-      ...peers(20),
+      ...peers(PLATFORM_PROMPT_PEER_LIMIT * 2),
     ];
     const selected = selectPlatformPromptPeers(related, recent);
     expect(selected.slice(0, 2).map(({ id }) => id)).toEqual(["related-1", "related-2"]);
@@ -50,7 +53,30 @@ describe("bounded platform target context", () => {
     expect(selected).toHaveLength(PLATFORM_PROMPT_PEER_LIMIT);
   });
 
-  test("applies SQL limits before materialization and teaches exact directory discovery", async () => {
+  test("renders teammates and group chats in id order, with descriptions and members", () => {
+    const block = renderTeammatesUserInfo({
+      peers: [
+        { id: "b-agent", name: "Researcher", description: "Finds  sources\nfast", hiddenFromSidebar: false },
+        { id: "a-agent", name: "Archivist", hiddenFromSidebar: true },
+      ],
+      groups: [{ id: "g-1", name: "Launch", workingDirectory: "/workspace/launch", members: [{ bot: { name: "Researcher" } }] }],
+      agentsRoot: "/agent-data/agents",
+    })!;
+    expect(block.split("\n")).toEqual([
+      "<teammates>",
+      expect.stringContaining("Each teammate is its own assistant"),
+      expect.stringContaining("Every agent (yours included) is a sibling folder under /agent-data/agents."),
+      "Teammates you can message right now:",
+      "- Archivist (id: a-agent) (hidden from the user's sidebar, but reachable)",
+      "- Researcher (id: b-agent): Finds sources fast",
+      "Group chats (channels) you're in (post to one by its id to reach all its members):",
+      "- Launch (id: g-1): with Researcher (project folder: /workspace/launch)",
+      "</teammates>",
+    ]);
+    expect(renderTeammatesUserInfo({ peers: [], groups: [], agentsRoot: "/agent-data/agents" })).toBeNull();
+  });
+
+  test("applies SQL limits before materialization and points the prompt at the roster", async () => {
     const queryArgs: Record<string, unknown> = {};
     const recent = peers(PLATFORM_PROMPT_PEER_LIMIT + 1);
     const groups = Array.from({ length: PLATFORM_PROMPT_GROUP_LIMIT + 1 }, (_, index) => ({
@@ -133,11 +159,12 @@ describe("bounded platform target context", () => {
       take: PLATFORM_PROMPT_GROUP_LIMIT + 1,
       select: { members: { take: 6 } },
     });
-    expect(prompt.instructions).toContain("Recent and related SendToAgent targets");
-    expect(prompt.instructions).toContain("Agent Related Peer: related-peer");
-    expect(prompt.instructions).toContain(
-      "Use ListAgents or ListGroups for an exact id/name lookup"
-    );
-    expect(prompt.instructions).not.toContain(`Group ${PLATFORM_PROMPT_GROUP_LIMIT}:`);
+    expect(prompt.instructions).toContain(`## Teammates and groups\n${TEAMMATES_POINTER}`);
+    expect(prompt.instructions).not.toContain(NO_TEAMMATES_SECTION);
+    expect(prompt.userInfo).toContain("- Related Peer (id: related-peer)");
+    expect(prompt.userInfo).toContain("Teammates you can message right now:");
+    expect(prompt.userInfo).toContain("\u2026and more (read the agent folders above for the full roster).");
+    expect(prompt.userInfo).not.toContain(`Group ${PLATFORM_PROMPT_GROUP_LIMIT} (`);
+    expect(prompt.userInfo!.indexOf("<teammates>")).toBeLessThan(prompt.userInfo!.indexOf("<agent_skills>"));
   });
 });

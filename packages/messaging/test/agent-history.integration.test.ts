@@ -5,7 +5,7 @@ import { readTranscript } from "../src/read-transcript";
 
 const url = process.env.OPENTEAM_TEST_DATABASE_URL;
 
-test.skipIf(!url)("executor and knowledgeWork read their own run and the user's other bots, never the parent or other workers", async () => {
+test.skipIf(!url)("workers read no transcripts; activity covers the user's other recent bots", async () => {
   const db = createPrismaClient(url!);
   const botIds: string[] = [];
   const channelIds: string[] = [];
@@ -22,7 +22,6 @@ test.skipIf(!url)("executor and knowledgeWork read their own run and the user's 
   try {
     const parent = await bot("Parent fixture");
     const parentChat = await mainChat(parent.id);
-    const parentSession = await db.contextSession.create({ data: { botId: parent.id, scope: "channel", scopeId: parentChat.id } });
     await db.channelMessage.create({ data: { channelId: parentChat.id, sender: "user", content: "PARENT_MAIN_CHAT" } });
     const ask = await db.message.create({ data: { botId: parent.id, conversationId: parent.conversation!.id, role: "user", content: "fixture" } });
     const parentRun = await db.run.create({ data: { botId: parent.id, conversationId: parent.conversation!.id, userMessageId: ask.id, channelId: parentChat.id, status: "running" } });
@@ -30,8 +29,7 @@ test.skipIf(!url)("executor and knowledgeWork read their own run and the user's 
       const child = await bot(`${subagentType} worker`);
       await db.subagent.create({ data: { parentBotId: parent.id, childBotId: child.id, parentRunId: parentRun.id, parentChannelId: parentChat.id, launchCallId: crypto.randomUUID(), description: "fixture", prompt: "WORKER_TASK", subagentType, outputPath: "/tmp/unused", status: "running" } });
       const task = await db.message.create({ data: { botId: child.id, conversationId: child.conversation!.id, role: "user", content: `${subagentType}_TASK` } });
-      const run = await db.run.create({ data: { botId: child.id, conversationId: child.conversation!.id, userMessageId: task.id, status: "running" } });
-      await db.runItem.create({ data: { runId: run.id, kind: "command", status: "completed", content: { type: "commandExecution", command: "echo OWN_RUN", result: { content: [{ type: "text", text: "OWN_RUN" }] } } } });
+      await db.run.create({ data: { botId: child.id, conversationId: child.conversation!.id, userMessageId: task.id, status: "running" } });
       return child;
     };
     const knowledge = await worker("knowledgeWork");
@@ -50,20 +48,12 @@ test.skipIf(!url)("executor and knowledgeWork read their own run and the user's 
     const staleChat = await mainChat(stale.id);
     await db.channelMessage.create({ data: { channelId: staleChat.id, sender: "user", content: "STALE", createdAt: new Date(Date.now() - 10 * 86_400_000) } });
 
-    // Their own run, including tool activity, with no target.
-    for (const child of [knowledge, executor]) {
-      const own = await readTranscript(db, { botId: child.id, channelId: null }, {});
-      expect(JSON.stringify(own)).toContain("OWN_RUN");
-      expect(JSON.stringify(own)).not.toContain("PARENT_MAIN_CHAT");
+    // The parent passes a worker what it needs; workers read no transcripts, not even their own run or a peer's.
+    for (const child of [knowledge, executor, graphical]) {
+      await expect(readTranscript(db, { botId: child.id, channelId: null }, {})).rejects.toThrow("not available");
+      await expect(readTranscript(db, { botId: child.id, channelId: null }, { agent_id: peer.id })).rejects.toThrow("not available");
     }
-    // The user's other bots by agent_id, messages only; never the parent, other workers, or the parent's main chat.
-    const peerRead = await readTranscript(db, { botId: knowledge.id, channelId: null }, { agent_id: peer.id });
-    expect(JSON.stringify(peerRead)).toContain("PEER_VISIBLE");
-    await expect(readTranscript(db, { botId: knowledge.id, channelId: null }, { agent_id: parent.id })).rejects.toThrow("not available");
-    await expect(readTranscript(db, { botId: knowledge.id, channelId: null }, { session_id: parentSession.id })).rejects.toThrow("not available");
-    await expect(readTranscript(db, { botId: knowledge.id, channelId: null }, { subagent_id: crypto.randomUUID() })).rejects.toThrow("You dispatch no subagents");
-    // Workers without history tools read nothing.
-    await expect(readTranscript(db, { botId: graphical.id, channelId: null }, {})).rejects.toThrow("not available");
+    expect(JSON.stringify(await readTranscript(db, { botId: parent.id, channelId: null }, { agent_id: peer.id }))).toContain("PEER_VISIBLE");
 
     // Activity covers the user's other bots, not the asking bot, and only recent ones.
     const activity = await readAgentActivity(db, { botId: parent.id }, { since_hours: 72 });

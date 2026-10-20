@@ -89,14 +89,14 @@ describe.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)("browser_run_code
     expect(staleFrame.error.message).not.toContain("openteam-ref");
     // A later call, and the parent's own ref tools, still accept the same refs.
     expect((await run(`async (page) => page.locator('aria-ref=${save}').innerText()`)).result).toBe("Save");
-    expect(JSON.stringify(await session.execute("browser_click", { ref: save }))).toContain("Saved Grace");
+    expect(JSON.stringify(await session.execute("browser_click", { target: save, element: "Save" }))).toContain("Saved Grace");
     await run(`async (page) => page.locator('#rerender').click()`);
     const stale = await run(`async (page) => page.locator('aria-ref=${save}').click({ timeout: 300 })`);
     expect(stale.error.code).toBe("job_failed");
     expect(stale.error.message).toContain(`aria-ref=${save}`);
     expect(stale.error.message).not.toContain("openteam-ref");
     expect(stale.error.message).toContain("fresh await page.ariaSnapshot");
-    await expect(session.execute("browser_click", { ref: save })).rejects.toThrow();
+    await expect(session.execute("browser_click", { target: save, element: "Save" })).rejects.toThrow();
   }, 60_000);
 
   test("page.ariaSnapshot({ mode: 'ai' }) mints refs shared with browser tools; other modes stay stock", async () => {
@@ -128,7 +128,7 @@ describe.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)("browser_run_code
     expect(crossScoped.error.message).toContain("use page.ariaSnapshot({ mode: 'ai' })");
     // The parent tools accept refs a script minted.
     const name = refFor(tree, /textbox "Name"/);
-    expect(JSON.stringify(await session.execute("browser_fill", { ref: name, value: "Lin" }))).toContain("Lin");
+    expect(JSON.stringify(await session.execute("browser_type", { target: name, element: "Name", text: "Lin" }))).toContain("Lin");
     expect((await run(`async (page) => page.locator('aria-ref=${name}').inputValue()`)).result).toBe("Lin");
   }, 60_000);
 
@@ -245,7 +245,7 @@ describe.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)("browser_run_code
     expect((await run(`async (page) => { const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.click('#choose')]); await chooser.setFiles('${second}'); return page.locator('#files').innerText(); }`)).result).toBe("second.txt");
     expect((await run(`async (page, { fileChooser }) => fileChooser`)).result).toBeNull();
     const text = await snapshot();
-    expect(JSON.stringify(await session.execute("browser_click", { ref: refFor(text, /button "Save"/) }))).toContain("Saved");
+    expect(JSON.stringify(await session.execute("browser_click", { target: refFor(text, /button "Save"/), element: "Save" }))).toContain("Saved");
     // A chooser an earlier call opened arrives as the second argument.
     await run(`async (page) => { await page.click('#choose'); return 'opened'; }`);
     expect((await run(`async (page, { fileChooser }) => { await fileChooser.setFiles(['${file}', '${second}']); return [fileChooser.isMultiple(), await fileChooser.page().title(), await page.locator('#files').innerText()]; }`)).result).toEqual([true, "Contract", "sample.txt,second.txt"]);

@@ -1,4 +1,4 @@
-import { renderMemorySystemPrompt, renderUserMemorySystemPrompt, renderProjectMemorySystemPrompt, selectProjectMemoryBlocks, type PromptMemoryRecord } from "./memory-rendering";
+import { renderMemorySystemPrompt, renderUserMemorySystemPrompt, type PromptMemoryRecord } from "./memory-rendering";
 import { assertMemoryWriteScope, getMemoryConversation, resolveMemoryConversation, type MemoryConversationContext, type MemoryWriteScope } from "./memory-scopes";
 import managedSkills from "./prompts/managed-skills.json";
 import { managedSkillAgents, managedSkillIsForMain } from "./managed-skill-agents";
@@ -42,7 +42,6 @@ import type { ComputerInferenceRequest } from "@openteam/contracts/service-proto
 import { Prisma, type PrismaClient } from "@openteam/db";
 import { type FSWatcher, watch } from "chokidar";
 import { snapshotWatchedFiles } from "./file-watch-snapshot";
-import { parseDocument } from "yaml";
 import {
   deleteAutomationFolder,
   parseAutomationFile,
@@ -198,7 +197,7 @@ const ensureEditableBotDirectory = async (directory: string): Promise<void> => {
   if ((mode & 0o070) !== 0o070) await chmod(directory, mode | 0o070);
 };
 
-export type BotFileTarget = "profile" | "settings" | "instructions" | "avatar" | "projects";
+export type BotFileTarget = "profile" | "settings" | "instructions" | "avatar";
 
 interface PendingDreamingEvidence {
   id: string;
@@ -414,36 +413,6 @@ const profileValues = (input: unknown) => {
     icon: boundedString(value.avatarShape, 16),
     color: boundedString(value.avatarColor, 80),
     namedBy: value.namedBy === "app" ? "app" : "user",
-  };
-};
-
-const renderProjectDocument = (project: { name: string; description: string }): string =>
-  [
-    "---",
-    `name: ${JSON.stringify(project.name)}`,
-    `description: ${JSON.stringify(project.description)}`,
-    "---",
-    "",
-  ].join("\n");
-
-const parseProjectDocument = (text: string): { name: string; description: string } => {
-  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
-  if (!match) throw new Error("project.md must start with YAML frontmatter");
-  const document = parseDocument(match[1] ?? "", { prettyErrors: true });
-  if (document.errors.length > 0) throw new Error(`project.md: ${document.errors[0]?.message}`);
-  const raw = document.toJS() as unknown;
-  if (!raw || Array.isArray(raw) || typeof raw !== "object")
-    throw new Error("project.md frontmatter must be a mapping");
-  const value = raw as Record<string, unknown>;
-  if (typeof value.name !== "string" || !value.name.trim())
-    throw new Error("project.md name must be a non-empty string");
-  if (value.description !== undefined && typeof value.description !== "string")
-    throw new Error("project.md description must be a string");
-  return {
-    name: value.name.trim().slice(0, 80),
-    description: String(value.description ?? "")
-      .trim()
-      .slice(0, 2_000),
   };
 };
 
@@ -682,14 +651,11 @@ const parseRootSettings = (value: Record<string, unknown>): RootSettings => {
 const sourceNamespace = (
   botId: string,
   scope: MemoryWriteScope,
-  projectSlug?: string,
   memoryConversationId?: string
 ): string =>
   scope === "conversation" ? `conversation:${memoryConversationId}:agent:${botId}` : scope === "agent"
     ? `agent:${botId}`
-    : scope === "user"
-      ? `user:agent:${botId}`
-      : `project:${projectSlug}:agent:${botId}`;
+    : `user:agent:${botId}`;
 
 const scoreFact = (fact: { importance: number; createdAt: Date; sourceOrdinal: number }): number =>
   Math.log2(Math.max(fact.importance, 0.01)) +
@@ -1081,21 +1047,12 @@ export class AgentDataStore {
   memoryDirectory(
     botId: string,
     scope: MemoryWriteScope,
-    projectSlug?: string,
     memoryConversationId?: string
   ): string {
     if (scope === "conversation") return join(this.botDirectory(botId), "conversations", safeFolderId(memoryConversationId ?? "", "memory conversation id"), "memory");
     safeFolderId(botId, "bot id");
     if (scope === "agent") return join(this.botDirectory(botId), "memory");
-    if (scope === "user") return join(this.root, "user-memory", "by-agent", botId);
-    return join(
-      this.root,
-      "projects",
-      safeFolderId(projectSlug ?? "", "project slug"),
-      "memory",
-      "by-agent",
-      botId
-    );
+    return join(this.root, "user-memory", "by-agent", botId);
   }
 
   resolveMemoryConversation(botId: string, channelId?: string | null, tx?: Tx) {
@@ -1232,7 +1189,7 @@ export class AgentDataStore {
 
   async writeBotFiles(
     botId: string,
-    targets: BotFileTarget[] = ["profile", "settings", "instructions", "avatar", "projects"]
+    targets: BotFileTarget[] = ["profile", "settings", "instructions", "avatar"]
   ): Promise<void> {
     await this.initializeBot(botId);
     await this.withFileMutation(botId, "bot-files", (tx) =>
@@ -1260,10 +1217,7 @@ export class AgentDataStore {
   ): Promise<void> {
     const bot = await tx.bot.findUnique({
       where: { id: botId },
-      include: {
-        projectMemberships: { orderBy: { joinedAt: "asc" } },
-        subagentIdentity: { select: { id: true } },
-      },
+      include: { subagentIdentity: { select: { id: true } } },
     });
     if (!bot || !["active", "provisioning"].includes(bot.status) || bot.subagentIdentity) return;
     const directory = this.botDirectory(botId);
@@ -1314,14 +1268,6 @@ export class AgentDataStore {
         await this.installAvatarFromPath(botId, bot.avatarPath);
       }
     }
-    if (targets.includes("projects")) {
-      for (const membership of bot.projectMemberships)
-        await this.writeProjectFile(membership.projectSlug);
-      await atomicWrite(
-        join(directory, "projects.json"),
-        jsonFile({ projects: bot.projectMemberships.map((membership) => membership.projectSlug) })
-      );
-    }
   }
 
   async writeBotSettings(
@@ -1349,19 +1295,6 @@ export class AgentDataStore {
       );
       await writeEditableBotFile(path, jsonFile({ ...value, ...definedUpdate }));
     });
-  }
-
-  async writeProjectFile(projectSlug: string): Promise<void> {
-    safeFolderId(projectSlug, "project slug");
-    const project = await this.prisma.project.findUnique({
-      where: { slug: projectSlug },
-      select: { name: true, description: true },
-    });
-    if (!project) return;
-    await atomicWrite(
-      join(this.root, "projects", projectSlug, "project.md"),
-      renderProjectDocument(project)
-    );
   }
 
   async setAvatarFromPath(
@@ -1393,10 +1326,7 @@ export class AgentDataStore {
     await this.withFileMutation(botId, "migration", async (tx) => {
       const migrationKey = `migration:file-native-v3:${botId}`;
       if (await tx.agentFileState.findUnique({ where: { path: migrationKey } })) return;
-      const bot = await tx.bot.findUnique({
-        where: { id: botId },
-        include: { projectMemberships: true },
-      });
+      const bot = await tx.bot.findUnique({ where: { id: botId } });
       if (!bot || bot.status === "archived") return;
 
       const migrated = { memoryFacts: 0, skills: 0, automations: 0 };
@@ -1414,21 +1344,6 @@ export class AgentDataStore {
 
       await seedMemory(this.memoryDirectory(botId, "agent"), [`agent:${botId}`]);
       await seedMemory(this.memoryDirectory(botId, "user"), ["user", `user:agent:${botId}`]);
-      for (const membership of bot.projectMemberships) {
-        await this.writeProjectFile(membership.projectSlug);
-        await seedMemory(this.memoryDirectory(botId, "project", membership.projectSlug), [
-          `project:${membership.projectSlug}:agent:${botId}`,
-        ]);
-      }
-      const projectsPath = join(this.botDirectory(botId), "projects.json");
-      if (bot.projectMemberships.length > 0 && (await readText(projectsPath, 100_000)) === null) {
-        await atomicWrite(
-          projectsPath,
-          jsonFile({
-            projects: bot.projectMemberships.map((membership) => membership.projectSlug),
-          })
-        );
-      }
 
       const legacyNotes = join(this.botDirectory(botId), "memory", "notes.md");
       const legacyNoteText = await readText(legacyNotes, 2_000_000);
@@ -1611,30 +1526,18 @@ export class AgentDataStore {
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${botId}`}))`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${AGENT_LOCK}:${botId}`}))`;
-        const bot = await tx.bot.findUnique({
-          where: { id: botId },
-          include: { projectMemberships: true },
-        });
+        const bot = await tx.bot.findUnique({ where: { id: botId } });
         if (!bot || bot.status === "archived") return;
         await this.reconcileProfile(tx, botId, warnings);
         await this.reconcileSettings(tx, botId, warnings);
         await this.reconcileAvatar(tx, botId, warnings);
-        await this.reconcileProjects(tx, botId, warnings);
         await this.reconcileConnectors(tx, botId, warnings);
-        await this.reconcileMemory(tx, botId, "agent", undefined, warnings);
+        await this.reconcileMemory(tx, botId, "agent", warnings);
         const memoryConversations = await tx.memoryConversation.findMany({ where: { botId }, select: { id: true } });
         for (const conversation of memoryConversations) {
-          await this.reconcileMemory(tx, botId, "conversation", undefined, warnings, conversation.id);
+          await this.reconcileMemory(tx, botId, "conversation", warnings, conversation.id);
         }
-        const memberships = await tx.projectMember.findMany({
-          where: { botId },
-          orderBy: { joinedAt: "asc" },
-        });
-        await this.reconcileSharedMemory(
-          tx,
-          memberships.map((membership) => membership.projectSlug),
-          warnings
-        );
+        await this.reconcileSharedMemory(tx, warnings);
         await this.reconcileSkills(tx, warnings);
         await this.reconcileAutomations(tx, botId, warnings);
         await this.reconcileGroups(tx, botId, warnings);
@@ -1842,8 +1745,7 @@ export class AgentDataStore {
         }
         const botId =
           normalized.match(/^agents\/([^/]+)\//)?.[1] ??
-          normalized.match(/^user-memory\/by-agent\/([^/]+)\//)?.[1] ??
-          normalized.match(/^projects\/[^/]+\/memory\/by-agent\/([^/]+)\//)?.[1];
+          normalized.match(/^user-memory\/by-agent\/([^/]+)\//)?.[1];
         if (!botId || normalized.includes("/.openteam") || normalized.endsWith(".part")) return;
         const previous = this.watcherTimers.get(botId);
         if (previous) clearTimeout(previous);
@@ -2141,75 +2043,6 @@ export class AgentDataStore {
     return { path: supplied, resolvedPath, bytes: bytes.length };
   }
 
-  private async reconcileProjects(tx: Tx, botId: string, warnings: string[]): Promise<void> {
-    const path = join(this.botDirectory(botId), "projects.json");
-    let text = await readText(path);
-    if (text === null) {
-      await tx.projectMember.deleteMany({ where: { botId } });
-      await this.trackFile(tx, botId, "projects", path, null);
-      return;
-    }
-    try {
-      const value = parseJsonObject(text, "projects.json");
-      if (
-        !Array.isArray(value.projects) ||
-        value.projects.some((slug) => typeof slug !== "string")
-      ) {
-        throw new Error("projects.json projects must be a string array");
-      }
-      const slugs = [...new Set(value.projects as string[])].map((slug) =>
-        safeFolderId(slug, "project slug")
-      );
-      const projectDirectories = new Set(await listDirectories(join(this.root, "projects")));
-      const projects = await tx.project.findMany({
-        where: {
-          slug: {
-            in: slugs.filter((slug) => projectDirectories.has(slug)),
-          },
-        },
-        select: { slug: true },
-      });
-      const valid = new Set(projects.map((project) => project.slug));
-      const missing = slugs.filter((slug) => !valid.has(slug));
-      const joinedSlugs = slugs.filter((slug) => valid.has(slug));
-      if (missing.length > 0) {
-        warnings.push(`projects.json pruned missing projects: ${missing.join(", ")}`);
-        text = jsonFile({ projects: joinedSlugs });
-        await atomicWrite(path, text);
-      }
-      for (const project of projects) {
-        const metadataPath = join(this.root, "projects", project.slug, "project.md");
-        const metadata = await readText(metadataPath, 100_000);
-        if (metadata === null) continue;
-        try {
-          await tx.project.update({
-            where: { slug: project.slug },
-            data: parseProjectDocument(metadata),
-          });
-        } catch (error) {
-          warnings.push(
-            `projects/${project.slug}/project.md: ${error instanceof Error ? error.message : String(error)}`
-          );
-        }
-      }
-      await tx.projectMember.deleteMany({
-        where: { botId, projectSlug: { notIn: joinedSlugs } },
-      });
-      for (const projectSlug of joinedSlugs) {
-        await tx.projectMember.upsert({
-          where: { projectSlug_botId: { projectSlug, botId } },
-          create: { projectSlug, botId },
-          update: {},
-        });
-      }
-      await this.trackFile(tx, botId, "projects", path, text);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      warnings.push(`projects.json: ${message}`);
-      await this.trackFile(tx, botId, "projects", path, text, message);
-    }
-  }
-
   private async reconcileConnectors(tx: Tx, botId: string, warnings: string[]): Promise<void> {
     const root = join(this.botDirectory(botId), "channels");
     const platforms = await listDirectories(root);
@@ -2291,12 +2124,11 @@ export class AgentDataStore {
     tx: Tx,
     botId: string,
     scope: MemoryWriteScope,
-    projectSlug: string | undefined,
     warnings: string[],
     memoryConversationId?: string
   ): Promise<void> {
-    const root = this.memoryDirectory(botId, scope, projectSlug, memoryConversationId);
-    const namespace = sourceNamespace(botId, scope, projectSlug, memoryConversationId);
+    const root = this.memoryDirectory(botId, scope, memoryConversationId);
+    const namespace = sourceNamespace(botId, scope, memoryConversationId);
     try {
       const facts = await readMemoryTree(root);
       // A compact invalidation event reaches every connected client/worker.
@@ -2315,7 +2147,6 @@ export class AgentDataStore {
             namespace,
             scope,
             tier: fact.tier,
-            projectSlug,
             memoryConversationId,
             fact: fact.content,
             factHash: createHash("sha256").update(fact.content).digest("hex"),
@@ -2338,11 +2169,7 @@ export class AgentDataStore {
     }
   }
 
-  private async reconcileSharedMemory(
-    tx: Tx,
-    projectSlugs: string[],
-    warnings: string[]
-  ): Promise<void> {
+  private async reconcileSharedMemory(tx: Tx, warnings: string[]): Promise<void> {
     const ownedBotIds = (
       await tx.bot.findMany({
         where: {
@@ -2370,7 +2197,7 @@ export class AgentDataStore {
         warnings.push(`user memory: unknown writer shard ${writerId}`);
         continue;
       }
-      await this.reconcileMemory(tx, writerId, "user", undefined, warnings);
+      await this.reconcileMemory(tx, writerId, "user", warnings);
     }
     const missingOwnedUserWriters = ownedBotIds.filter(
       (writerId) => !knownUserWriters.has(writerId)
@@ -2378,37 +2205,6 @@ export class AgentDataStore {
     await tx.memoryFact.deleteMany({
       where: { scope: "user", writtenByBotId: { in: missingOwnedUserWriters } },
     });
-
-    for (const projectSlug of [...new Set(projectSlugs)].sort()) {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`shared-memory:project:${projectSlug}`}))`;
-      const writers = await listDirectories(
-        join(this.root, "projects", projectSlug, "memory", "by-agent")
-      );
-      const candidateWriters = writers.filter((writerId) => UUID_FOLDER.test(writerId));
-      const knownWriters = new Set(
-        (
-          await tx.bot.findMany({
-            where: { id: { in: candidateWriters } },
-            select: { id: true },
-          })
-        ).map((bot) => bot.id)
-      );
-      for (const writerId of writers) {
-        if (!knownWriters.has(writerId)) {
-          warnings.push(`project ${projectSlug} memory: unknown writer shard ${writerId}`);
-          continue;
-        }
-        await this.reconcileMemory(tx, writerId, "project", projectSlug, warnings);
-      }
-      const missingOwnedWriters = ownedBotIds.filter((writerId) => !knownWriters.has(writerId));
-      await tx.memoryFact.deleteMany({
-        where: {
-          scope: "project",
-          projectSlug,
-          writtenByBotId: { in: missingOwnedWriters },
-        },
-      });
-    }
   }
 
   private async reconcileSkills(tx: Tx, warnings: string[]): Promise<void> {
@@ -2682,7 +2478,7 @@ export class AgentDataStore {
     await this.requireManagedMemoryBot(tx, botId);
     const rooms = await tx.memoryConversation.findMany({ where: { botId }, select: { id: true }, orderBy: { id: "asc" } });
     return [this.memoryDirectory(botId, "agent"),
-      ...rooms.map((room) => this.memoryDirectory(botId, "conversation", undefined, room.id))];
+      ...rooms.map((room) => this.memoryDirectory(botId, "conversation", room.id))];
   }
 
   private async managedMemoryList(botId: string, roots: string[]): Promise<BotMemoryList> {
@@ -2737,7 +2533,6 @@ export class AgentDataStore {
     input: {
       scope: MemoryWriteScope;
       memoryConversationId?: string;
-      projectSlug?: string;
       tier: "profile" | "log" | "note";
       fact: string;
       at?: Date;
@@ -2745,10 +2540,10 @@ export class AgentDataStore {
   ): Promise<{ saved: boolean; logicalId: string; sourcePath: string; content: string }> {
     const context = input.memoryConversationId ? await this.getMemoryConversation(botId, input.memoryConversationId) : undefined;
     assertMemoryWriteScope(input.scope, context);
-    const root = this.memoryDirectory(botId, input.scope, input.projectSlug, input.memoryConversationId);
+    const root = this.memoryDirectory(botId, input.scope, input.memoryConversationId);
     const result = await this.withFileMutation(
       botId,
-      `memory:${input.scope}:${input.projectSlug ?? ""}:${botId}`,
+      `memory:${input.scope}:${botId}`,
       async (tx) => {
         const bot = await tx.bot.findUnique({ where: { id: botId }, select: { status: true } });
         if (!bot || bot.status !== "active") {
@@ -2776,17 +2571,16 @@ export class AgentDataStore {
     input: {
       scope: MemoryWriteScope;
       memoryConversationId?: string;
-      projectSlug?: string;
       fact: string;
       dreaming?: boolean;
     }
   ): Promise<{ forgotten: boolean; logicalId: string; content: string }> {
     const context = input.memoryConversationId ? await this.getMemoryConversation(botId, input.memoryConversationId) : undefined;
     assertMemoryWriteScope(input.scope, context);
-    const root = this.memoryDirectory(botId, input.scope, input.projectSlug, input.memoryConversationId);
+    const root = this.memoryDirectory(botId, input.scope, input.memoryConversationId);
     const result = await this.withFileMutation(
       botId,
-      `memory:${input.scope}:${input.projectSlug ?? ""}:${botId}`,
+      `memory:${input.scope}:${botId}`,
       async (tx) => {
         const content = normalizeMemoryContent(input.fact);
         const removed = await forgetMemoryFact(root, content);
@@ -2798,7 +2592,7 @@ export class AgentDataStore {
         if (input.scope === "agent") {
           const legacyRooms = await tx.memoryConversation.findMany({ where: { botId }, select: { id: true } });
           for (const room of legacyRooms) {
-            const legacyRoot = this.memoryDirectory(botId, "conversation", undefined, room.id);
+            const legacyRoot = this.memoryDirectory(botId, "conversation", room.id);
             const copy = await forgetMemoryFact(legacyRoot, content);
             if (copy.forgotten) {
               removed.forgotten = true;
@@ -2952,10 +2746,7 @@ export class AgentDataStore {
     const reconciliation = await this.reconcileBot(botId);
     const bot = await this.prisma.bot.findUniqueOrThrow({
       where: { id: botId },
-      include: {
-        conversation: true,
-        projectMemberships: { include: { project: true } },
-      },
+      include: { conversation: true },
     });
     const contextSession = contextSessionId
       ? await this.prisma.contextSession.findFirstOrThrow({
@@ -3032,11 +2823,7 @@ export class AgentDataStore {
         : await this.prisma.agentPromptSnapshot.update({ where: { botId }, data });
     }
     const memoryFreezeEnabled = process.env.SAND_DISABLE_MEMORY_FREEZE !== "1";
-    const liveMemoryRender = await this.renderMemory(
-      botId,
-      bot.projectMemberships.map((entry) => entry.projectSlug),
-      memoryContext
-    );
+    const liveMemoryRender = await this.renderMemory(botId, memoryContext);
     const memoryIsFrozen =
       memoryFreezeEnabled && snapshot.memoryEpoch === epoch && snapshot.memoryHasFacts;
     let memoryRender: string;
@@ -3233,7 +3020,7 @@ export class AgentDataStore {
     });
   }
 
-  private async renderMemory(botId: string, projectSlugs: string[], context?: MemoryConversationContext): Promise<string> {
+  private async renderMemory(botId: string, context?: MemoryConversationContext): Promise<string> {
     const visibleIds = await this.visibleMemoryConversations(botId, context);
     const userVisible = !context || ["owner", "sender"].includes(context.userScope);
     const all = await this.prisma.memoryFact.findMany({
@@ -3242,9 +3029,6 @@ export class AgentDataStore {
           { namespace: `agent:${botId}` },
           ...(userVisible ? [{ namespace: { startsWith: "user:agent:" } }] : []),
           ...(visibleIds.length ? [{ memoryConversationId: { in: visibleIds } }] : []),
-          ...(projectSlugs.length > 0
-            ? [{ projectSlug: { in: projectSlugs }, scope: "project" as const }]
-            : []),
         ],
       },
       orderBy: [{ createdAt: "desc" }, { sourceOrdinal: "desc" }],
@@ -3283,11 +3067,6 @@ export class AgentDataStore {
         userMemoryDir: join(this.root, "user-memory"), ownShardDir: this.memoryDirectory(botId, "user"),
       }));
     }
-    const projects = await this.prisma.project.findMany({ where: { slug: { in: projectSlugs } }, select: { slug: true, name: true } });
-    if (projects.length) blocks.push(renderProjectMemorySystemPrompt(selectProjectMemoryBlocks(projects.map((project) => ({
-      ...project, ownShardDir: this.memoryDirectory(botId, "project", project.slug),
-      recall: sharedRecall(mergeWriterShards(all.filter((fact) => fact.scope === "project" && fact.projectSlug === project.slug), 10), 25, 10),
-    })), 3), { projectsRootDir: join(this.root, "projects") }));
     const own = all.filter((fact) => fact.namespace === `agent:${botId}` || fact.scope === "conversation");
     const recency = (a: Fact, b: Fact) => b.createdAt.getTime() - a.createdAt.getTime() || b.sourceOrdinal - a.sourceOrdinal;
     const profile = own.filter((fact) => fact.tier === "profile").sort(recency).slice(0, 100).map(record);
@@ -3680,7 +3459,7 @@ export class AgentDataStore {
     input: { user: string; assistant: string; occurredAt: number; memoryConversationId?: string }
   ): Promise<void> {
     if (!this.memoryInference) return;
-    const memoryRoot = this.memoryDirectory(botId, input.memoryConversationId ? "conversation" : "agent", undefined, input.memoryConversationId);
+    const memoryRoot = this.memoryDirectory(botId, input.memoryConversationId ? "conversation" : "agent", input.memoryConversationId);
     const existing = gatherExtractionMemories(
       await readMemoryTree(memoryRoot),
       `${input.user}\n${input.assistant}`
@@ -3779,14 +3558,14 @@ export class AgentDataStore {
     for (const target of targets) {
       if (this.pendingDreamingEvidence.has(target.key)) continue;
       if (this.pendingDreamingEvidence.size >= MAX_PENDING_DREAMING_AGENTS) break;
-      if ((await consumeEvidence(this.memoryDirectory(target.botId, target.contextId ? "conversation" : "agent", undefined, target.contextId))).length > 0) {
+      if ((await consumeEvidence(this.memoryDirectory(target.botId, target.contextId ? "conversation" : "agent", target.contextId))).length > 0) {
         this.pendingDreamingEvidence.set(target.key, { evidence: [], temporal: false });
       }
     }
     let temporalQueued = 0;
     for (const target of targets) {
       if (temporalQueued >= MAX_TEMPORAL_TARGETS_PER_SWEEP) break;
-      const root = this.memoryDirectory(target.botId, target.contextId ? "conversation" : "agent", undefined, target.contextId);
+      const root = this.memoryDirectory(target.botId, target.contextId ? "conversation" : "agent", target.contextId);
       if ((await readMemoryTree(root)).length === 0) continue;
       if (!(await isTemporalMemoryReviewDue(root, now))) continue;
       let pending = this.pendingDreamingEvidence.get(target.key);
@@ -3863,7 +3642,7 @@ export class AgentDataStore {
       this.pendingDreamingEvidence.delete(targetKey);
       return;
     }
-    const root = this.memoryDirectory(botId, memoryConversationId ? "conversation" : "agent", undefined, memoryConversationId);
+    const root = this.memoryDirectory(botId, memoryConversationId ? "conversation" : "agent", memoryConversationId);
     const temporal = pending.temporal;
     const ram = [...pending.evidence];
     const spool = await consumeEvidence(root);

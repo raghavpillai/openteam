@@ -1,7 +1,7 @@
 import { FormPreparationError } from "./user-form-host";
 import { FORM_PREPARATION_FAILURE_MESSAGES } from "@openteam/contracts";
 import { timingSafeEqual } from "node:crypto";
-import { mkdir, realpath, writeFile } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   type BotTranscriptView,
@@ -317,35 +317,6 @@ const server = Bun.serve({
           return json({ error: "Invalid web provider check" }, 400);
         }
         return json(await checkWebProvider(input, AbortSignal.timeout(60_000)));
-      }
-
-      if (request.method === "PUT" && url.pathname === "/v1/projects") {
-        const body = (await request.json()) as {
-          path?: unknown;
-          name?: unknown;
-          description?: unknown;
-        };
-        if (
-          typeof body.path !== "string" ||
-          typeof body.name !== "string" ||
-          typeof body.description !== "string"
-        ) {
-          return json({ error: "path, name, and description are required" }, 400);
-        }
-        const path = safePath(body.path);
-        await mkdir(path, { recursive: true });
-        const actual = await realpath(path);
-        safePath(actual);
-        try {
-          await writeFile(
-            resolve(actual, "project.md"),
-            `# ${body.name}\n\n${body.description || "Shared OpenTeam project."}\n`,
-            { encoding: "utf8", flag: "wx" }
-          );
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-        }
-        return json({ path: actual });
       }
 
       if (request.method === "PUT" && url.pathname.startsWith("/v1/workspaces/")) {

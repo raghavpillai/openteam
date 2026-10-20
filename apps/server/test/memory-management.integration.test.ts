@@ -225,7 +225,7 @@ dbTest(
       expect(await readMemoryTree(store.memoryDirectory(botId, "agent"))).toHaveLength(0);
       expect((await client.clearBotMemories(botId)).total).toBe(0);
       expect(
-        await readMemoryTree(store.memoryDirectory(botId, "conversation", undefined, room.id))
+        await readMemoryTree(store.memoryDirectory(botId, "conversation", room.id))
       ).toHaveLength(0);
       expect(
         await store.recallMemory(botId, { query: "CONTROL914", scope: "agent" }, room.id)

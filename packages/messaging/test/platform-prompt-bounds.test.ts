@@ -117,7 +117,6 @@ describe("bounded platform target context", () => {
             return groups;
           },
         },
-        projectMember: { findMany: async () => [] },
         botConnectorState: { findMany: async () => [] },
         routine: { findMany: async () => [] },
       },

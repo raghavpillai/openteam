@@ -5,7 +5,7 @@ const invariant=(value,message)=>{if(!value)throw new Error(message);};
 class SandToolInputError extends Error {}
 const CLOUD_AGENT_INJECTED_SECRET_NAMES_ENV_VAR = "CLOUD_AGENT_INJECTED_SECRET_NAMES";
 var UPDATE_MEMORY_TOOL_NAME = "UpdateMemory";
-var OTHER_STATE_TOOLS = "Routines have their own UpdateRoutine tool. Skills, profile and settings, picture, channels, and projects have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel, UpdateProject.";
+var OTHER_STATE_TOOLS = "Routines have their own UpdateRoutine tool. Skills, profile and settings, picture, and channels have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.";
 
 function nonEmptyTuple(items) {
   if (items.length === 0) {
@@ -524,10 +524,9 @@ var memoryParameters = external_exports.object({
   tier: external_exports.enum(["profile", "log", "note"]).optional().describe(
     'write only. "profile" is kept in mind every turn (keep it small), "log" (default) is dated history, "note" fades fast.'
   ),
-  scope: external_exports.enum(["agent", "user", "project"]).optional().describe(
-    'Default "agent", your own memory. "user" is shared memory every assistant should know. "project" writes your shard in a project you have joined and needs project.'
-  ),
-  project: external_exports.string().trim().min(1).optional().describe('The project\'s slug. Required when scope is "project".')
+  scope: external_exports.enum(["agent", "user"]).optional().describe(
+    'Default "agent", your own memory. "user" is shared memory every assistant should know.'
+  )
 });
 
 var routineParameters = external_exports.object({
@@ -579,13 +578,6 @@ var avatarParameters = external_exports.object({
 
 var channelParameters = external_exports.object({
   platform: external_exports.string().trim().min(1).describe("The platform to disconnect.")
-});
-
-var projectParameters = external_exports.object({
-  action: external_exports.enum(["create", "join", "leave"]),
-  project: external_exports.string().trim().min(1).describe("The project's slug: lowercase letters, numbers, and single hyphens."),
-  name: external_exports.string().trim().min(1).optional().describe("Required on create."),
-  description: external_exports.string().trim().optional().describe("create only. An optional one-line summary.")
 });
 
 var COMPUTER_ACTIONS = [
@@ -1793,7 +1785,7 @@ function describeTrigger(trigger2) {
   ].join(" or ");
 }
 
-const schemas={"UpdateMemory":memoryParameters,"UpdateRoutine":routineParameters,"UpdateSkill":skillParameters,"UpdateProfile":profileParameters,"UpdateAvatar":avatarParameters,"DisconnectChannel":channelParameters,"UpdateProject":projectParameters,"Computer":computerActionParameters,"SendToUser":sendMessageParameters,"ReactToMessage":reactToMessageParameters,"SendFeedback":sendFeedbackParameters,"request_box_help":requestBoxHelpParameters,"DraftExternalMessage":draftExternalMessageParameters,"CheckSubagent":checkSubagentParameters,"MessageSubagent":messageSubagentParameters,"StopSubagent":stopSubagentParameters,"SendToAgent":sendToAgentLenientParameters,"CreateAgent":createAgentParameters,"UpdateAgent":updateAgentParameters,"CreateChannel":createChannelParameters,"UpdateChannel":updateChannelParameters,"CopyToBox":copyToBoxParameters,"CopyFromBox":copyFromBoxParameters,"RecallMemory":recallMemoryParameters};
+const schemas={"UpdateMemory":memoryParameters,"UpdateRoutine":routineParameters,"UpdateSkill":skillParameters,"UpdateProfile":profileParameters,"UpdateAvatar":avatarParameters,"DisconnectChannel":channelParameters,"Computer":computerActionParameters,"SendToUser":sendMessageParameters,"ReactToMessage":reactToMessageParameters,"SendFeedback":sendFeedbackParameters,"request_box_help":requestBoxHelpParameters,"DraftExternalMessage":draftExternalMessageParameters,"CheckSubagent":checkSubagentParameters,"MessageSubagent":messageSubagentParameters,"StopSubagent":stopSubagentParameters,"SendToAgent":sendToAgentLenientParameters,"CreateAgent":createAgentParameters,"UpdateAgent":updateAgentParameters,"CreateChannel":createChannelParameters,"UpdateChannel":updateChannelParameters,"CopyToBox":copyToBoxParameters,"CopyFromBox":copyFromBoxParameters,"RecallMemory":recallMemoryParameters};
 // Explicit deployment extensions: connector secrets and personal environment scope.
 // Keep the captured refinements for every other SendToUser field.
 const localSecretSchema = sendMessageObjectSchema.shape.secret.unwrap().extend({

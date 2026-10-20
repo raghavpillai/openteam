@@ -212,16 +212,6 @@ export class AppService {
     );
     this.durableState = new DurableStateService(
       this.prisma,
-      this.workspaceRoot,
-      async (project) => {
-        const response = await this.computerFetch("/v1/projects", {
-          method: "PUT",
-          body: JSON.stringify(project),
-        });
-        if (!response.ok) {
-          throw new ApiError(503, "computer_unavailable", await response.text());
-        }
-      },
       this.routines,
       this.agentData,
       this.messaging
@@ -302,7 +292,6 @@ export class AppService {
         (path, init) => this.computerFetch(path, init),
         [
           resolve(this.workspaceRoot, "bots"),
-          resolve(this.workspaceRoot, "projects"),
           resolve(this.workspaceRoot, "shared"),
           ...groups.flatMap((group) => (group.workingDirectory ? [group.workingDirectory] : [])),
         ]

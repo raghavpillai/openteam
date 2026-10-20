@@ -21,7 +21,6 @@ databaseTest(
     const peerId = crypto.randomUUID();
     const conversationId = crypto.randomUUID();
     const runId = crypto.randomUUID();
-    const projectSlug = `memory-${crypto.randomUUID()}`;
     let channelId = "";
     let personalChannelId = "";
     const store = new AgentDataStore(prisma, { root: join(root, "data"), workspaceRoot: root });
@@ -67,8 +66,6 @@ databaseTest(
       });
       const state = new DurableStateService(
         prisma,
-        root,
-        async () => {},
         {} as never,
         store,
         {} as never
@@ -140,8 +137,6 @@ databaseTest(
         fact: "Team COBALT policy.",
       });
       expect(shared).toBe("Remembered in your memory (profile): Team COBALT policy.");
-      expect(await call("UpdateProject", { action: "create", project: projectSlug, name: "Memory fixture" })).toMatchObject({ target: "project", created: true });
-      expect(await call("UpdateMemory", { ...request, scope: "project", project: projectSlug })).toBe(`Remembered in project "${projectSlug}" memory (profile): ${request.fact}`);
       // Simulate a room copy created by the pre-parity automatic learner.
       await store.writeMemory(botId, { scope: "conversation", memoryConversationId: context.id, tier: "profile", fact: request.fact });
       expect(
@@ -149,10 +144,7 @@ databaseTest(
       ).toBe(`Forgot from your memory: ${request.fact}`);
       expect(await call("RecallMemory", { query: "delivery" })).not.toContain("uses amber");
       expect(await prisma.memoryFact.count({ where: { writtenByBotId: botId, scope: { in: ["agent", "conversation"] }, fact: request.fact } })).toBe(0);
-      expect(await prisma.memoryFact.count({ where: { writtenByBotId: botId, scope: "project", fact: request.fact } })).toBe(1);
       expect(await call("UpdateMemory", { action: "forget", fact: request.fact })).toBe("Not saved — no fact with exactly that text is recorded in your memory. Call RecallMemory for the exact wording first.");
-      expect(await call("UpdateMemory", { ...request, scope: "project", project: projectSlug })).toBe(`Not saved — nothing was saved to project "${projectSlug}" memory — the fact was empty or already recorded. Call RecallMemory to see what is already there.`);
-      expect(await call("UpdateMemory", { action: "forget", scope: "project", project: projectSlug, fact: request.fact })).toBe(`Forgot from project "${projectSlug}" memory: ${request.fact}`);
       const forgotten = await call("UpdateMemory", {
         action: "forget",
         scope: "agent",
@@ -182,14 +174,13 @@ databaseTest(
       await prisma.run.update({ where: { id: runId }, data: { status: "completed" } });
       await expect(call("RecallMemory", { query: "COBALT" })).rejects.toThrow("not active");
       const schema = UPDATE_MEMORY_TOOL.inputSchema as { properties: { scope: { enum: string[] } } };
-      expect(schema.properties.scope.enum).toEqual(["agent", "user", "project"]);
+      expect(schema.properties.scope.enum).toEqual(["agent", "user"]);
     } finally {
       await store.stopMemoryLifecycle();
       await prisma.idempotencyRecord.deleteMany({ where: { scope: `state:${botId}` } });
       await prisma.memoryFact.deleteMany({ where: { writtenByBotId: { in: [botId, peerId] } } });
       if (channelId) await prisma.channel.deleteMany({ where: { id: channelId } });
       if (personalChannelId) await prisma.channel.deleteMany({ where: { id: personalChannelId } });
-      await prisma.project.deleteMany({ where: { slug: projectSlug } });
       await prisma.bot.deleteMany({ where: { id: { in: [botId, peerId] } } });
       await prisma.$disconnect();
       await rm(root, { recursive: true, force: true });

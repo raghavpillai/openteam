@@ -205,7 +205,6 @@ test("agent-data files are authoritative and preserve malformed settings", async
     await prisma.memoryFact.deleteMany({
       where: { namespace: { in: ["user", `user:agent:${botId}`] } },
     });
-    await prisma.project.deleteMany({ where: { slug: "file-parity" } });
     await prisma.bot.create({
       data: {
         id: botId,
@@ -241,14 +240,6 @@ test("agent-data files are authoritative and preserve malformed settings", async
         description: "Coordinates filesystem parity.",
         workingDirectory: join(workspace, "projects", "filesystem-room"),
         members: { create: { botId, ordinal: 0 } },
-      },
-    });
-    await prisma.project.create({
-      data: {
-        slug: "file-parity",
-        name: "File parity",
-        workingDirectory: join(workspace, "projects", "file-parity"),
-        members: { create: { botId } },
       },
     });
     await prisma.savedSkill.create({
@@ -375,20 +366,10 @@ test("agent-data files are authoritative and preserve malformed settings", async
         "",
       ].join("\n")
     );
-    const projectProfile = join(
-      root,
-      "projects",
-      "file-parity",
-      "memory",
-      "by-agent",
-      botId,
-      "profile.md"
-    );
-    await mkdir(join(projectProfile, ".."), { recursive: true });
-    await writeFile(
-      projectProfile,
-      ["# Project memory", "- (2026-08-27) Project memory remains sharded by bot.", ""].join("\n")
-    );
+    // A folder left by the retired shared-project feature is neither imported nor deleted.
+    const leftoverShard = join(root, "projects", "file-parity", "memory", "by-agent", botId, "profile.md");
+    await mkdir(join(leftoverShard, ".."), { recursive: true });
+    await writeFile(leftoverShard, "- (2026-08-27) A leftover shard is not memory.\n");
 
     const reconciled = await store.reconcileBot(botId);
     expect(reconciled.warnings).toEqual([]);
@@ -424,13 +405,9 @@ test("agent-data files are authoritative and preserve malformed settings", async
       })
     ).not.toBeNull();
     expect(
-      await prisma.memoryFact.findFirst({
-        where: {
-          namespace: `project:file-parity:agent:${botId}`,
-          fact: "Project memory remains sharded by bot.",
-        },
-      })
-    ).not.toBeNull();
+      await prisma.memoryFact.findFirst({ where: { fact: "A leftover shard is not memory." } })
+    ).toBeNull();
+    expect(await readFile(leftoverShard, "utf8")).toContain("A leftover shard is not memory.");
     expect(await prisma.savedSkill.findUniqueOrThrow({ where: { id: skillId } })).toMatchObject({
       name: "Edited skill",
       body: "# Edited body",
@@ -443,28 +420,6 @@ test("agent-data files are authoritative and preserve malformed settings", async
       name: "Filesystem routine",
       scheduleText: "@daily",
       enabled: false,
-    });
-
-    const projectDocument = join(root, "projects", "file-parity", "project.md");
-    expect(await readFile(projectDocument, "utf8")).toContain('name: "File parity"');
-    await writeFile(
-      projectDocument,
-      [
-        "---",
-        'name: "Edited project name"',
-        'description: "Edited from project.md"',
-        "---",
-        "",
-      ].join("\n")
-    );
-    await store.reconcileBot(botId);
-    expect(
-      await prisma.project.findUniqueOrThrow({
-        where: { slug: "file-parity" },
-      })
-    ).toMatchObject({
-      name: "Edited project name",
-      description: "Edited from project.md",
     });
 
     await writeFile(
@@ -497,7 +452,6 @@ test("agent-data files are authoritative and preserve malformed settings", async
     await prisma.channel.deleteMany({
       where: { id: { in: [channelId, groupId] } },
     });
-    await prisma.project.deleteMany({ where: { slug: "file-parity" } });
     await prisma.memoryFact.deleteMany({
       where: {
         OR: [
@@ -508,7 +462,6 @@ test("agent-data files are authoritative and preserve malformed settings", async
                 "user",
                 `agent:${botId}`,
                 `user:agent:${botId}`,
-                `project:file-parity:agent:${botId}`,
               ],
             },
           },

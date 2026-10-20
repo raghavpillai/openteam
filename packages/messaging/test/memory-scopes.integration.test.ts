@@ -238,7 +238,7 @@ databaseTest(
     const f = await fixture();
     try {
       const room = f.rooms[0]!;
-      const root = f.store.memoryDirectory(f.botId, "conversation", undefined, room.id);
+      const root = f.store.memoryDirectory(f.botId, "conversation", room.id);
       await mkdir(join(root, "log"), { recursive: true });
       await appendFile(join(root, "log", "2001-01.md"), "- (2001-01-01) Archived ZX-8 launch.\n");
       expect(await f.store.recallMemory(f.botId, { query: "ZX-8" }, room.id)).toContain(
@@ -317,7 +317,7 @@ for (const memoryDreamingEnabled of [false, true]) databaseTest(
       const snapshot = await f.prisma.contextPromptSnapshot.findUniqueOrThrow({ where: { contextSessionId: f.session.id } });
       expect(snapshot.memoryEpoch).toBe(-1);
       expect(snapshot.memoryRender).toBe("");
-      for (const root of [f.store.memoryDirectory(f.botId, "agent"), ...f.rooms.map((r) => f.store.memoryDirectory(f.botId, "conversation", undefined, r.id))]) {
+      for (const root of [f.store.memoryDirectory(f.botId, "agent"), ...f.rooms.map((r) => f.store.memoryDirectory(f.botId, "conversation", r.id))]) {
         if (memoryDreamingEnabled) await access(join(root, ".dreaming", "tombstones", `${removed.logicalId}.deleted`));
       }
       expect((await f.store.forgetMemory(f.botId, { scope: "agent", fact })).forgotten).toBe(false);
@@ -462,7 +462,7 @@ databaseTest(
     try {
       const room = f.rooms[0]!;
       await f.store.writeMemory(f.botId, { scope: "conversation", memoryConversationId: room.id, tier: "profile", fact: "Historical private room decision." });
-      const roots = [f.store.memoryDirectory(f.botId, "agent"), f.store.memoryDirectory(f.botId, "conversation", undefined, room.id)];
+      const roots = [f.store.memoryDirectory(f.botId, "agent"), f.store.memoryDirectory(f.botId, "conversation", room.id)];
       const spools: string[] = [];
       for (const [i, root] of roots.entries()) {
         const id = crypto.randomUUID();

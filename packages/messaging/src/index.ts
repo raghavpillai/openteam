@@ -2066,11 +2066,6 @@ export class AgentMessaging {
       this.agentData.promptContext(botId, contextSessionId, memoryConversationId),
       taskConfigurationSnapshot ?? this.agentData.loadTaskConfiguration(),
     ]);
-    const projectMemberships = await this.prisma.projectMember.findMany({
-      where: { botId },
-      include: { project: true },
-      orderBy: { joinedAt: "asc" },
-    });
     const [recentPeers, groupRows, disconnected, routines, pendingRichMessages] = await Promise.all(
       [
         this.prisma.bot.findMany({
@@ -2180,10 +2175,6 @@ export class AgentMessaging {
           : {};
       return metadata.type === "widget" && metadata.widgetDismissed === true ? [message.id] : [];
     });
-    const projectContext = projectMemberships.map(
-      ({ project }) =>
-        `- ${project.name} (${project.slug}): ${project.workingDirectory}${project.description ? ` — ${project.description}` : ""}`
-    );
     const routineContext = routines.map(
       (routine) =>
         `- ${routine.name} (${routine.slug}): ${routine.enabled ? "active" : "paused"}; ${routine.scheduleText}; next ${routine.nextRunAt?.toISOString() ?? "none"}`
@@ -2204,7 +2195,7 @@ export class AgentMessaging {
       siblings.length ? `Other active conversations (read with read_sibling_thread using session_id):\n${siblings.map(s => `- ${s.name}: ${s.sessionId}`).join("\n")}` : "",
       agentPrompt.profileSection,
       frozen.sections.agent_instructions,
-      "Use GetDynamicTools with namespace cursor to discover SendToAgent, ListAgents/ListGroups, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, CreateChannel/UpdateChannel, and UpdateSkill/UpdateProfile/UpdateAvatar/DisconnectChannel/UpdateProject. Invoke discovered tools with CallDynamicTool.",
+      "Use GetDynamicTools with namespace cursor to discover SendToAgent, ListAgents/ListGroups, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, CreateChannel/UpdateChannel, and UpdateSkill/UpdateProfile/UpdateAvatar/DisconnectChannel. Invoke discovered tools with CallDynamicTool.",
       A2A_PLATFORM_INSTRUCTIONS,
       graphicalDelegationInstructions(taskConfiguration),
       taskUserInfo(taskConfiguration),
@@ -2213,7 +2204,7 @@ export class AgentMessaging {
         ? `Durable task queue (reconcile it with TodoWrite on each wake):\n${todoContext.join("\n")}`
         : "The durable task queue is empty.",
       "In a room wake, speak only when you add something useful. Finishing without SendToUser is a valid silent turn.",
-      "Use UpdateMemory for durable memory and UpdateRoutine for scheduled routines. Skills, profile and settings, avatars, connector disconnects, and projects have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel, and UpdateProject. These are write APIs. The current durable state relevant to you is supplied below on every turn.",
+      "Use UpdateMemory for durable memory and UpdateRoutine for scheduled routines. Skills, profile and settings, avatars, and connector disconnects have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, and DisconnectChannel. These are write APIs. The current durable state relevant to you is supplied below on every turn.",
       renderPlatformRuntimeInstructions({
         agentDataRoot: this.agentData.root,
         botId,
@@ -2224,11 +2215,8 @@ export class AgentMessaging {
       `Use cursor.ReadTranscript for task-relevant saved conversation history or a dispatched worker’s observable activity. Transcript files are private runtime storage; do not open them with Read.`,
       frozen.sections.agent_directory,
       frozen.sections.memory
-        ? `Durable memory. Later sections have higher instructional precedence (own > project > user):\n${frozen.sections.memory}`
+        ? `Durable memory. Later sections have higher instructional precedence (own > user):\n${frozen.sections.memory}`
         : "Durable memory is currently empty.",
-      projectContext.length > 0
-        ? `Joined projects:\n${projectContext.join("\n")}`
-        : "You have not joined any durable projects.",
       frozen.sections.automations,
       disconnected.length > 0
         ? `Disconnected connector platforms: ${disconnected.map(({ platform }) => platform).join(", ")}`

@@ -175,6 +175,7 @@ enum IdempotencyStatus {
 enum MemoryScope {
   agent
   user
+  // Unused since projects were removed. `prisma db push` won't drop an enum value without --accept-data-loss.
   project
   conversation
 }
@@ -276,8 +277,6 @@ model Bot {
   routines         Routine[]
   promptSnapshot   AgentPromptSnapshot?
   fileStates       AgentFileState[]
-  projectMemberships ProjectMember[]
-  createdProjects  Project[]           @relation("ProjectCreator")
   connectorStates  BotConnectorState[]
   todos            TodoItem[]
   parentSubagents  Subagent[]           @relation("ParentSubagents")
@@ -376,7 +375,6 @@ model MemoryFact {
   namespace      String
   scope          MemoryScope
   tier           MemoryTier  @default(log)
-  projectSlug    String?
   memoryConversationId String? @db.Uuid
   memoryConversation MemoryConversation? @relation(fields: [memoryConversationId], references: [id], onDelete: Cascade)
   fact           String
@@ -523,29 +521,6 @@ model RoutineExecution {
 
   @@index([routineId, createdAt])
   @@index([status, createdAt])
-}
-
-model Project {
-  slug           String          @id
-  name           String
-  description    String          @default("")
-  workingDirectory String
-  createdByBotId String?         @db.Uuid
-  createdByBot   Bot?            @relation("ProjectCreator", fields: [createdByBotId], references: [id], onDelete: SetNull)
-  members        ProjectMember[]
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-}
-
-model ProjectMember {
-  projectSlug String   
-  project     Project  @relation(fields: [projectSlug], references: [slug], onDelete: Cascade)
-  botId       String   @db.Uuid
-  bot         Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
-  joinedAt    DateTime @default(now())
-
-  @@id([projectSlug, botId])
-  @@index([botId, joinedAt])
 }
 
 model BotConnectorState {

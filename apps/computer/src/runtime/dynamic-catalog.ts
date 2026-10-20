@@ -39,13 +39,11 @@ import {
   UPDATE_AVATAR_TOOL,
   UPDATE_CHANNEL_TOOL,
   UPDATE_PROFILE_TOOL,
-  UPDATE_PROJECT_TOOL,
   UPDATE_SKILL_TOOL,
   UpdateAgentInput,
   UpdateAvatarInput,
   UpdateChannelInput,
   UpdateProfileInput,
-  UpdateProjectInput,
   UpdateSkillInput,
 } from "@openteam/contracts";
 import { Schema } from "effect";
@@ -301,7 +299,6 @@ export function dynamicCatalog(
           controlPlaneTool(UPDATE_PROFILE_TOOL, UpdateProfileInput),
           controlPlaneTool(UPDATE_AVATAR_TOOL, UpdateAvatarInput),
           controlPlaneTool(DISCONNECT_CHANNEL_TOOL, DisconnectChannelInput),
-          controlPlaneTool(UPDATE_PROJECT_TOOL, UpdateProjectInput),
         ]),
   ];
   const pluginNamespaces: Array<DynamicNamespaceDefinition<RuntimeDynamicTool>> =

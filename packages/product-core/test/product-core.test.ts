@@ -26,7 +26,7 @@ const message = (
 
 const snapshot = (): ClientSnapshot => ({
   cursor: "1",
-  workspace: { root: "/", sharedDirectory: "/s", botsDirectory: "/b", projectsDirectory: "/p" },
+  workspace: { root: "/", sharedDirectory: "/s", botsDirectory: "/b" },
   bots: [
     {
       id: "bot-1",

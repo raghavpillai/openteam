@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { ApiError } from "@openteam/contracts";
 import type { Prisma, PrismaClient } from "@openteam/db";
 
-export type MemoryWriteScope = "agent" | "user" | "project" | "conversation";
+export type MemoryWriteScope = "agent" | "user" | "conversation";
 export type MemoryScopeStory = {
   defaultScope: "agent" | "conversation";
   userScope: "owner" | "refused" | "sender" | "none";

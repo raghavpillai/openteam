@@ -64,7 +64,6 @@ const mainAgent = (id: string) => {
         findMany: async () => [],
       },
       channel: { findMany: async () => [] },
-      projectMember: { findMany: async () => [] },
       botConnectorState: { findMany: async () => [] },
       routine: { findMany: async () => [] },
     },

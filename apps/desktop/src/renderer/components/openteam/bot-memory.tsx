@@ -252,7 +252,7 @@ export function BotMemoryPanel({ bot }: { bot: Pick<BotView, "id" | "name"> }) {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {target === "all"
-                ? "This removes this bot’s saved facts across its chats. Earlier messages and pending learning remain, so facts may be learned again. Shared user and project memories stay. This cannot be undone."
+                ? "This removes this bot’s saved facts across its chats. Earlier messages and pending learning remain, so facts may be learned again. Shared user memories stay. This cannot be undone."
                 : "This removes the saved fact. Earlier messages and other memories may still mention it. This cannot be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>

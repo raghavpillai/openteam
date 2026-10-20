@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { relative, resolve, sep } from "node:path";
 import { Schema } from "effect";
 import {
   ApiError,
@@ -10,7 +9,6 @@ import {
   UpdateAvatarInput,
   UpdateMemoryInput,
   UpdateProfileInput,
-  UpdateProjectInput,
   UpdateRoutineInput,
   UpdateSkillInput,
   type UpdateStateInput,
@@ -23,7 +21,6 @@ import {
   type TimelineEventWakeHost,
 } from "@openteam/messaging";
 
-const PROJECT_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const requiredText = (
   value: string | undefined,
   field: string,
@@ -51,7 +48,6 @@ const stateToolArguments = {
   UpdateProfile: UpdateProfileInput,
   UpdateAvatar: UpdateAvatarInput,
   DisconnectChannel: DisconnectChannelInput,
-  UpdateProject: UpdateProjectInput,
 } satisfies Record<StateToolName, Schema.Schema.AnyNoContext>;
 
 const eventPayload = (value: Record<string, unknown>): Prisma.InputJsonValue =>
@@ -60,12 +56,6 @@ const eventPayload = (value: Record<string, unknown>): Prisma.InputJsonValue =>
 export class DurableStateService {
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly workspaceRoot: string,
-    private readonly provisionProject: (input: {
-      path: string;
-      name: string;
-      description: string;
-    }) => Promise<void>,
     private readonly routines: RoutineService,
     private readonly agentData: AgentDataStore,
     private readonly timelineHost: TimelineEventWakeHost
@@ -210,8 +200,6 @@ export class DurableStateService {
         return this.settings(botId, input, tool);
       case "channel":
         return this.channel(botId, input, tool);
-      case "project":
-        return this.project(botId, input, tool);
       case "avatar":
         return this.avatar(botId, input, tool);
     }
@@ -234,16 +222,10 @@ export class DurableStateService {
       : undefined;
     const memoryConversationId = memoryContext?.id;
     const scope = input.scope ?? "agent";
-    const project =
-      scope === "project"
-        ? this.requireProjectSlug(input.project, tool, input.action)
-        : undefined;
-    if (project) await this.requireProjectMembership(botId, project);
     if (input.action === "forget") {
       const removed = await this.agentData.forgetMemory(botId, {
         scope,
         memoryConversationId,
-        projectSlug: project,
         fact,
       });
       return {
@@ -252,7 +234,6 @@ export class DurableStateService {
         forgotten: removed.forgotten,
         ...(memoryContext?.teamShared && scope === "agent" && removed.forgotten ? { announcement: "Tell the user you have forgotten this team-wide fact in your reply." } : {}),
         scope,
-        project: project ?? null,
         fact: removed.content,
       };
     }
@@ -261,7 +242,6 @@ export class DurableStateService {
     const saved = await this.agentData.writeMemory(botId, {
       scope,
       memoryConversationId,
-      projectSlug: project,
       tier,
       fact,
     });
@@ -273,7 +253,6 @@ export class DurableStateService {
       ...(memoryContext?.teamShared && scope === "agent" ? { announcement: "Tell the user you have saved this team-wide fact in your reply." } : {}),
       scope,
       tier,
-      project: project ?? null,
       fact: saved.content,
     };
   }
@@ -419,84 +398,6 @@ export class DurableStateService {
     };
   }
 
-  private async project(
-    botId: string,
-    input: UpdateStateInput,
-    tool: StateToolName
-  ): Promise<Record<string, unknown>> {
-    if (!(["create", "join", "leave"] as const).includes(input.action as never)) {
-      return stateError(tool, input.action);
-    }
-    const slug = this.requireProjectSlug(input.project, tool, input.action);
-    if (input.action === "leave") {
-      const removed = await this.prisma.projectMember.deleteMany({
-        where: { projectSlug: slug, botId },
-      });
-      await this.agentData.writeBotFiles(botId, ["projects"]);
-      return {
-        target: "project",
-        action: "leave",
-        project: slug,
-        left: removed.count > 0,
-      };
-    }
-    if (input.action === "join") {
-      const project = await this.prisma.project.findUnique({ where: { slug } });
-      if (!project) throw new ApiError(404, "project_not_found", `Project ${slug} does not exist`);
-      await this.prisma.projectMember.upsert({
-        where: { projectSlug_botId: { projectSlug: slug, botId } },
-        create: { projectSlug: slug, botId },
-        update: {},
-      });
-      await this.agentData.writeProjectFile(slug);
-      await this.agentData.writeBotFiles(botId, ["projects"]);
-      return {
-        target: "project",
-        action: "join",
-        project: slug,
-        name: project.name,
-        working_directory: project.workingDirectory,
-        joined: true,
-      };
-    }
-
-    const name = requiredText(input.name, "name", tool, input.action);
-    const description = input.description?.trim() ?? "";
-    const workingDirectory = this.projectDirectory(slug);
-    await this.provisionProject({ path: workingDirectory, name, description });
-    const result = await this.prisma.$transaction(async (tx) => {
-      const existing = await tx.project.findUnique({ where: { slug } });
-      const saved =
-        existing ??
-        (await tx.project.create({
-          data: {
-            slug,
-            name,
-            description,
-            workingDirectory,
-            createdByBotId: botId,
-          },
-        }));
-      await tx.projectMember.upsert({
-        where: { projectSlug_botId: { projectSlug: slug, botId } },
-        create: { projectSlug: slug, botId },
-        update: {},
-      });
-      return { project: saved, created: existing === null };
-    });
-    await this.agentData.writeProjectFile(slug);
-    await this.agentData.writeBotFiles(botId, ["projects"]);
-    return {
-      target: "project",
-      action: "create",
-      project: slug,
-      name: result.project.name,
-      working_directory: result.project.workingDirectory,
-      joined: true,
-      created: result.created,
-    };
-  }
-
   private async avatar(
     botId: string,
     input: UpdateStateInput,
@@ -526,37 +427,5 @@ export class DurableStateService {
       bytes: saved.bytes,
       updated: true,
     };
-  }
-
-  private requireProjectSlug(value: string | undefined, tool: StateToolName, action: string): string {
-    const slug = requiredText(value, "project", tool, action).toLowerCase();
-    if (!PROJECT_SLUG.test(slug) || slug.length > 80) {
-      throw new ApiError(
-        400,
-        "project_slug_invalid",
-        "Project slug must contain lowercase letters, numbers, and single hyphens"
-      );
-    }
-    return slug;
-  }
-
-  private async requireProjectMembership(botId: string, projectSlug: string): Promise<void> {
-    const membership = await this.prisma.projectMember.findUnique({
-      where: { projectSlug_botId: { projectSlug, botId } },
-    });
-    if (!membership) {
-      throw new ApiError(409, "project_not_joined", `Join project ${projectSlug} before using it`);
-    }
-  }
-
-  private projectDirectory(slug: string): string {
-    void slug;
-    return resolve(this.workspaceRoot);
-  }
-
-  private isInsideWorkspace(path: string): boolean {
-    const normalizedRoot = resolve(this.workspaceRoot);
-    const difference = relative(normalizedRoot, resolve(path));
-    return difference !== "" && difference !== ".." && !difference.startsWith(`..${sep}`);
   }
 }

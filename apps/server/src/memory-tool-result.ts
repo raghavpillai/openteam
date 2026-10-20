@@ -4,7 +4,6 @@
 export function formatMemoryToolResult(result: Record<string, unknown>): string | Record<string, unknown> {
   if (result.target !== "memory" || !["write", "forget"].includes(String(result.action))) return result;
   const label = result.scope === "user" ? "shared user memory"
-    : result.scope === "project" ? `project "${result.project}" memory`
     : result.scope === "conversation" ? "this conversation's memory" : "your memory";
   if (result.action === "write") {
     return result.saved

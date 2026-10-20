@@ -1,7 +1,7 @@
 import Foundation
 
 public enum HapticEffect: String, Codable, Sendable {
-  case selection, light, medium, success, error
+  case selection, light, medium, rigid, soft, heavy, success, warning, error
 }
 
 /// React Native's haptics-core.ts gate. Recheck when an async result arrives.

@@ -116,10 +116,12 @@ atMost("startup CSS bytes", startupCssBytes, 178_600);
 // retain the existing entry, CSS and grammar-total ceilings.
 // The on-demand noVNC client adds ~270 KB / 90 KB gzip, including license notices.
 // It must remain outside both startup closures and has its own limits below.
-atMost("renderer bytes", result.renderer.bytes, 16_250_000);
+// October 20: thinking-orb loaders and the voice note glow add 72 KB / 28 KB
+// gzip on demand, measured at 16,260,537 / 4,026,452 bytes.
+atMost("renderer bytes", result.renderer.bytes, 16_280_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_020_000);
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_032_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -179,6 +181,10 @@ const lazyBudgets: Record<string, number> = {
   docxPreview: 550_000,
   spreadsheetPreview: 550_000,
   routineSummary: 40_000,
+  // Thinking-orb loading indicators, fetched on first use so startup stays lean.
+  loadingOrb: 28_000,
+  // The voice note recording bar: glow, gooey time chip and waveform (50,194 bytes).
+  voiceMemo: 52_000,
   routineEditor: 100_000,
   newBot: 20_000,
   pluginSettings: 50_000,

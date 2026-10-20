@@ -7,9 +7,13 @@ import UIKit
   private static let selection = UISelectionFeedbackGenerator()
   private static let light = UIImpactFeedbackGenerator(style: .light)
   private static let medium = UIImpactFeedbackGenerator(style: .medium)
+  private static let rigid = UIImpactFeedbackGenerator(style: .rigid)
+  private static let soft = UIImpactFeedbackGenerator(style: .soft)
+  private static let heavy = UIImpactFeedbackGenerator(style: .heavy)
   private static let notification = UINotificationFeedbackGenerator()
 
-  static func play(_ effect: HapticEffect, source: String) {
+  /// `intensity` scales impact effects (0…1); other effects ignore it.
+  static func play(_ effect: HapticEffect, intensity: Double = 1, source: String) {
     let defaults = UserDefaults.standard
     let enabled = defaults.object(forKey: "haptics") == nil || defaults.bool(forKey: "haptics")
     let active = UIApplication.shared.applicationState == .active
@@ -19,13 +23,26 @@ import UIKit
       case .selection: selection.selectionChanged()
       case .light: light.impactOccurred()
       case .medium: medium.impactOccurred()
+      case .rigid: rigid.impactOccurred(intensity: intensity)
+      case .soft: soft.impactOccurred(intensity: intensity)
+      case .heavy: heavy.impactOccurred(intensity: intensity)
       case .success: notification.notificationOccurred(.success)
+      case .warning: notification.notificationOccurred(.warning)
       case .error: notification.notificationOccurred(.error)
       }
     }
     #if DEBUG
       record(effect, source: source, enabled: enabled, active: active, emitted: emitted)
     #endif
+  }
+
+  /// A weighty "clunk": a heavy hit, then a firm knock as it settles, like a latch catching.
+  static func lockIn(source: String) {
+    play(.heavy, source: source)
+    Task { @MainActor in
+      try? await Task.sleep(for: .milliseconds(70))
+      play(.rigid, intensity: 0.7, source: source)
+    }
   }
 
   static func failure(_ error: Error, source: String) {

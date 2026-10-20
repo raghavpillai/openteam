@@ -1,0 +1,304 @@
+/* Voice memo bar. Loaded with its chunk, so none of this is startup CSS. */
+
+.vm-root {
+  --vm-fg: #141414;
+  --vm-muted: rgba(20, 20, 20, 0.52);
+  --vm-soft: rgba(119, 119, 119, 0.09);
+  --vm-soft-hover: rgba(119, 119, 119, 0.17);
+  --vm-surface: #fcfcfc;
+  --vm-primary: #070707;
+  --vm-on-primary: #fcfcfc;
+  --vm-red: #ff3b30;
+  --vm-chip: #f0f0f0;
+  --vm-chip-plus: #696969;
+  --vm-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+:root[data-theme="dark"] .vm-root {
+  --vm-fg: #f0f0f0;
+  --vm-muted: rgba(240, 240, 240, 0.55);
+  --vm-soft: rgba(119, 119, 119, 0.17);
+  --vm-soft-hover: rgba(119, 119, 119, 0.32);
+  --vm-surface: #2f2f2f;
+  --vm-primary: #fafafa;
+  --vm-on-primary: #141414;
+  --vm-red: #ff453a;
+  --vm-chip: #3b3b3b;
+  --vm-chip-plus: #a8a8a8;
+}
+
+/* Opacity only: a transform or filter here would re-anchor the absolutely
+   positioned composer buttons mid-fade. */
+[data-prompt-surface] [data-prompt-content] {
+  transition: opacity 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+[data-prompt-surface][data-voice-mode] [data-prompt-content] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The bar grows out of the mic and swallows the composer's buttons. */
+.vm-reveal {
+  position: absolute;
+  inset: 0.5px;
+  border-radius: calc(var(--vm-radius) - 0.5px);
+  background: var(--vm-surface);
+  clip-path: circle(150% at calc(100% - var(--vm-anchor-right)) calc(100% - var(--vm-anchor-bottom)));
+  animation: vm-reveal 420ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.vm-root[data-exiting] .vm-reveal {
+  animation: vm-fade-out 220ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.vm-beam {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: var(--vm-radius);
+}
+
+.vm-bar {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 8px 0 18px;
+  color: var(--vm-fg);
+  font-size: 14px;
+  line-height: 20px;
+  letter-spacing: -0.15px;
+}
+.vm-root[data-exiting] .vm-bar {
+  animation: vm-bar-out 200ms var(--vm-ease) forwards;
+}
+.vm-bar button {
+  pointer-events: auto;
+}
+
+.vm-item {
+  flex-shrink: 0;
+  animation: vm-item-in 280ms var(--vm-ease) both;
+  animation-delay: calc(var(--i, 0) * 35ms);
+}
+
+/* The time chip sits where the attachment button was and grows out of it. */
+.vm-bar {
+  padding-left: 4px;
+}
+.vm-chip {
+  position: relative;
+  flex-shrink: 0;
+  width: 60px;
+  height: 28px;
+  margin-left: 4.5px;
+  color: var(--vm-fg);
+}
+.vm-goo {
+  position: absolute;
+  left: -8px;
+  top: -8px;
+  overflow: visible;
+  fill: var(--vm-chip);
+}
+.vm-goo-pill {
+  animation: vm-goo-pill 640ms cubic-bezier(0.4, 0, 0.6, 1) both;
+}
+.vm-goo-drop {
+  animation: vm-goo-drop 640ms cubic-bezier(0.3, 0, 0.3, 1) both;
+}
+.vm-root[data-exiting] .vm-goo-pill {
+  animation: vm-goo-pill-out 220ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+.vm-root[data-exiting] .vm-goo-drop {
+  animation: none;
+  r: 0;
+}
+.vm-chip-plus {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: var(--vm-chip-plus);
+  animation: vm-chip-plus 260ms var(--vm-ease) both;
+}
+.vm-chip-time {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.1px;
+  animation: vm-chip-time 320ms var(--vm-ease) 300ms both;
+}
+.vm-root[data-exiting] .vm-chip-time {
+  animation: vm-fade-out 120ms linear forwards;
+}
+
+.vm-wave-slot {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  color: var(--vm-fg);
+}
+.vm-wave {
+  width: 100%;
+  height: 22px;
+  opacity: 0.72;
+}
+
+.vm-processing {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  /* The orb sits centred in the bar's rounded end, like the composer's own buttons. */
+  margin-left: 8px;
+  color: var(--vm-muted);
+}
+.vm-spacer {
+  flex: 1;
+}
+
+.vm-icon-button,
+.vm-send {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+.vm-icon-button {
+  background: var(--vm-soft);
+  color: var(--vm-muted);
+}
+.vm-icon-button:hover {
+  background: var(--vm-soft-hover);
+  color: var(--vm-fg);
+}
+.vm-icon-button[aria-label="Discard voice note"]:hover {
+  color: var(--vm-red);
+}
+.vm-send {
+  /* Trash and Send sit as a pair, closer than the bar's other gaps. */
+  margin-left: -6px;
+  background: var(--vm-primary);
+  color: var(--vm-on-primary);
+}
+.vm-send:hover {
+  opacity: 0.9;
+}
+.vm-icon-button:active,
+.vm-send:active {
+  transform: scale(0.92);
+}
+.vm-icon-button:focus-visible,
+.vm-send:focus-visible {
+  outline: 2px solid var(--ring, #1084fe);
+  outline-offset: 2px;
+}
+
+/* The droplet shoots ahead on a liquid neck; the pill lags, then springs
+   after it and swallows it. */
+@keyframes vm-goo-pill {
+  0% {
+    width: 28px;
+  }
+  30% {
+    width: 36px;
+    animation-timing-function: cubic-bezier(0.3, 1.5, 0.5, 1);
+  }
+  100% {
+    width: 60px;
+  }
+}
+@keyframes vm-goo-pill-out {
+  to {
+    width: 28px;
+  }
+}
+@keyframes vm-goo-drop {
+  0% {
+    cx: 14px;
+    r: 11px;
+  }
+  30% {
+    cx: 49px;
+    r: 9px;
+  }
+  60% {
+    cx: 54px;
+    r: 7px;
+  }
+  100% {
+    cx: 50px;
+    r: 0px;
+  }
+}
+@keyframes vm-chip-plus {
+  to {
+    opacity: 0;
+    transform: rotate(90deg) scale(0.4);
+  }
+}
+@keyframes vm-chip-time {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+    transform: scale(0.9);
+  }
+}
+@keyframes vm-reveal {
+  from {
+    clip-path: circle(14px at calc(100% - var(--vm-anchor-right)) calc(100% - var(--vm-anchor-bottom)));
+  }
+}
+@keyframes vm-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes vm-item-in {
+  from {
+    opacity: 0;
+    transform: translateX(14px) scale(0.96);
+    filter: blur(3px);
+  }
+}
+@keyframes vm-bar-out {
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+    filter: blur(3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vm-item,
+  .vm-goo-pill,
+  .vm-goo-drop,
+  .vm-chip-plus,
+  .vm-chip-time,
+  .vm-reveal {
+    animation-duration: 1ms;
+  }
+  [data-prompt-surface] [data-prompt-content] {
+    transition: opacity 120ms linear;
+  }
+}

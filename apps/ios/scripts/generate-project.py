@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Generate the small, dependency-free Xcode project; no XcodeGen or CocoaPods required."""
+"""Generate the small Xcode project; no XcodeGen or CocoaPods required. Its only dependencies are
+revision-pinned Swift packages (see `packages` below)."""
 from pathlib import Path
 import hashlib
 import json
@@ -40,6 +41,8 @@ def configs(name, settings):
             build.update(PRODUCT_BUNDLE_IDENTIFIER=release['bundleIdentifier'] + {'app': '', 'extension': '.notifications', 'share': '.share'}[name], CURRENT_PROJECT_VERSION=release['buildNumber'], MARKETING_VERSION=release['version'], DEVELOPMENT_TEAM=release['teamIdentifier'], PROVISIONING_PROFILE_SPECIFIER={'app': '$(APP_PROVISIONING_PROFILE)', 'extension': '$(EXTENSION_PROVISIONING_PROFILE)', 'share': '$(SHARE_PROVISIONING_PROFILE)'}[name])
         if name == 'app': build['APNS_ENVIRONMENT'] = 'development' if mode == 'Debug' else 'production'
         build.update({'SWIFT_OPTIMIZATION_LEVEL': '-Onone' if mode == 'Debug' else '-O', 'SWIFT_ACTIVE_COMPILATION_CONDITIONS': 'DEBUG' if mode == 'Debug' else '', 'DEBUG_INFORMATION_FORMAT': 'dwarf' if mode == 'Debug' else 'dwarf-with-dsym'})
+        # Swift packages build only the active architecture in Debug; the targets that import them must match.
+        if mode == 'Debug': build['ONLY_ACTIVE_ARCH'] = 'YES'
         if name == 'share': build['SWIFT_ACTIVE_COMPILATION_CONDITIONS'] = ('DEBUG ' if mode == 'Debug' else '') + 'SHARE_EXTENSION'
         refs.append(add(name+mode, dict(isa='XCBuildConfiguration', buildSettings=build, name=mode)))
     return add(name+'-config', dict(isa='XCConfigurationList', buildConfigurations=refs, defaultConfigurationIsVisible=0, defaultConfigurationName='Release'))
@@ -95,10 +98,25 @@ share_target = add('share-target', dict(isa='PBXNativeTarget', name='OpenTeamSha
 share_proxy = add('share-proxy', dict(isa='PBXContainerItemProxy', containerPortal=uid('project'), proxyType=1, remoteGlobalIDString=share_target, remoteInfo='OpenTeamShare'))
 objects[app_target]['dependencies'].append(add('share-dependency', dict(isa='PBXTargetDependency', target=share_target, targetProxy=share_proxy)))
 objects[uid('embed-extensions')]['files'].append(add('embed-share-build', dict(isa='PBXBuildFile', fileRef=share, settings={'ATTRIBUTES':['RemoveHeadersOnCopy']})))
+# Remote Swift packages, pinned to an exact revision so a regenerated project never tracks a branch.
+# Each product gets one XCSwiftPackageProductDependency per target (as Xcode itself writes them)
+# plus a PBXBuildFile in that target's Frameworks phase; SwiftPM links them statically.
+packages = {
+    'libraries-dev': dict(url='https://github.com/Jakubantalik/Libraries.dev', revision='bfcb86329da15235a5ee2dcdb6417c8a80f82bb1'),
+}
+package_refs = {name: add('package-'+name, dict(isa='XCRemoteSwiftPackageReference', repositoryURL=spec['url'], requirement=dict(kind='revision', revision=spec['revision']))) for name, spec in packages.items()}
+def link_package(target_name, target, package, product):
+    dependency = add(f'package-product-{target_name}-{product}', dict(isa='XCSwiftPackageProductDependency', package=package_refs[package], productName=product))
+    objects[target].setdefault('packageProductDependencies', []).append(dependency)
+    objects[uid(target_name+'-frameworks')]['files'].append(add(f'package-build-{target_name}-{product}', dict(isa='PBXBuildFile', productRef=dependency)))
+# ThinkingOrbsKit replaces indeterminate spinners; VoiceGlowKit lights the composer while recording.
+link_package('app', app_target, 'libraries-dev', 'ThinkingOrbsKit')
+link_package('app', app_target, 'libraries-dev', 'VoiceGlowKit')
+link_package('share', share_target, 'libraries-dev', 'ThinkingOrbsKit')
 proxy = add('proxy', dict(isa='PBXContainerItemProxy', containerPortal=uid('project'), proxyType=1, remoteGlobalIDString=app_target, remoteInfo='OpenTeamNative'))
 dependency = add('dependency', dict(isa='PBXTargetDependency', target=app_target, targetProxy=proxy))
 test_target = add('test-target', dict(isa='PBXNativeTarget', name='OpenTeamNativeUITests', buildConfigurationList=test_config, buildPhases=phases('test'), buildRules=[], dependencies=[dependency], fileSystemSynchronizedGroups=[ui_tests], productName='OpenTeamNativeUITests', productReference=test, productType='com.apple.product-type.bundle.ui-testing'))
-project = add('project', dict(isa='PBXProject', attributes={'BuildIndependentTargetsInParallel':'YES', 'LastUpgradeCheck':'2660', 'TargetAttributes':{app_target:{'CreatedOnToolsVersion':'26.6','SystemCapabilities':{'com.apple.Push':{'enabled':1},'com.apple.BackgroundModes':{'enabled':1}}}, test_target:{'CreatedOnToolsVersion':'26.6','TestTargetID':app_target}}}, buildConfigurationList=project_config, compatibilityVersion='Xcode 16.0', developmentRegion='en', hasScannedForEncodings=0, knownRegions=['en', 'Base'], mainGroup=main, productRefGroup=products, projectDirPath='', projectRoot='', targets=[app_target, test_target, extension_target, share_target]))
+project = add('project', dict(isa='PBXProject', attributes={'BuildIndependentTargetsInParallel':'YES', 'LastUpgradeCheck':'2660', 'TargetAttributes':{app_target:{'CreatedOnToolsVersion':'26.6','SystemCapabilities':{'com.apple.Push':{'enabled':1},'com.apple.BackgroundModes':{'enabled':1}}}, test_target:{'CreatedOnToolsVersion':'26.6','TestTargetID':app_target}}}, buildConfigurationList=project_config, compatibilityVersion='Xcode 16.0', developmentRegion='en', hasScannedForEncodings=0, knownRegions=['en', 'Base'], mainGroup=main, packageReferences=list(package_refs.values()), productRefGroup=products, projectDirPath='', projectRoot='', targets=[app_target, test_target, extension_target, share_target]))
 directory = root / 'OpenTeamNative.xcodeproj'
 directory.mkdir(exist_ok=True)
 (directory / 'project.pbxproj').write_text('// !$*UTF8*$!\n' + quote(dict(archiveVersion=1, classes={}, objectVersion=77, objects=objects, rootObject=project)) + '\n')

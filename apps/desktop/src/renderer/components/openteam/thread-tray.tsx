@@ -31,6 +31,7 @@ import { sendProgressOwner } from "../../lib/send-progress";
 import type { MentionOption } from "../../lib/mentions";
 import { MessageContent, MessageResponse, MessageRendererBoundary } from "../ai-elements/message";
 import { PromptInput } from "../ai-elements/prompt-input";
+import { LoadingOrb } from "../ui/loading-orb";
 import { BotAvatar } from "./avatar";
 import { MessageImageGallery } from "./image-attachment";
 
@@ -348,7 +349,7 @@ export function ThreadTray({
         </div>
         {open && !layoutReady && (
           <div className="pointer-events-none absolute inset-0 grid place-items-center" role="status" aria-label="Loading thread">
-            <span className="size-5 animate-spin rounded-full border-2 border-muted-foreground/25 border-t-muted-foreground" />
+            <LoadingOrb aria-hidden />
           </div>
         )}
         <div className="shrink-0 border-t pt-3">

@@ -106,13 +106,26 @@ window.fetch = (input, init) => {
   await pause(2100);
   await render();
   assert(button("Record voice note")?.disabled === false, "Configured microphone is disabled");
-  button("Record voice note")!.click();
+  // The dictation shortcut records hands-free and stops into the draft for review.
+  const editor = document.querySelector<HTMLElement>("[contenteditable]")!;
+  const shortcut = /Mac/.test(navigator.platform) ? { metaKey: true } : { ctrlKey: true };
+  const tapShortcut = () => {
+    for (const type of ["keydown", "keyup"])
+      editor.dispatchEvent(
+        new KeyboardEvent(type, { key: "d", bubbles: true, cancelable: true, ...shortcut })
+      );
+  };
+  editor.focus();
+  tapShortcut();
   console.log("Requested recording");
-  await waitFor(() => Boolean(button("Stop recording")), "real microphone recording");
+  await waitFor(
+    () => Boolean(document.querySelector('[data-voice-memo="recording"]:not([data-exiting])')),
+    "real microphone recording"
+  );
   await pause(4500);
   assert(uploads === 0, "Recording streamed audio before Stop");
   const start = performance.now();
-  button("Stop recording")!.click();
+  tapShortcut();
   console.log("Stopped recording, waiting for transcript");
   await waitFor(
     () =>

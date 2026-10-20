@@ -9,7 +9,7 @@ import {
 } from "@openteam/client-core";
 import type { BotView, ScreenStatusView } from "@openteam/contracts";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { LoaderCircle, Minimize2, Monitor, RefreshCw } from "lucide-react";
+import { Minimize2, Monitor, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { API_BASE } from "../../client/http";
@@ -22,6 +22,7 @@ import {
   shouldRefreshScreenFrame,
 } from "../../lib/screen-session";
 import { Button } from "../ui/button";
+import { LoadingOrb } from "../ui/loading-orb";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import VncComputer from "./vnc-computer";
@@ -345,7 +346,7 @@ export function BotScreen({
                 <div className="absolute inset-0 grid place-items-center text-center">
                   <div>
                     <div className="flex items-center justify-center gap-2 text-[18px] font-medium">
-                      {!error && <LoaderCircle className="size-4 animate-spin" />}
+                      {!error && <LoadingOrb aria-hidden size={16} theme="dark" />}
                       {error ??
                         (screen?.state === "failed"
                           ? "Computer setup needs attention"

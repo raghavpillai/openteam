@@ -47,7 +47,6 @@ import {
   Download,
   Ellipsis,
   File,
-  LoaderCircle,
   LockKeyhole,
   MessageCircle,
   Reply,
@@ -933,7 +932,7 @@ export const ChatPane = memo(function ChatPane({
   onOpenBotProfile,
 }: ChatPaneProps) {
   const now = useDayClock(active);
-  // Until the first history page arrives the spinner covers the transcript.
+  // Until the first history page arrives the loading orb covers the transcript.
   // Rows measured then (a bootstrap preview) would keep stale heights and jump
   // the transcript once the real page renders around them.
   const messages = initialHistoryPending ? EMPTY_PANE_MESSAGES : loadedMessages;

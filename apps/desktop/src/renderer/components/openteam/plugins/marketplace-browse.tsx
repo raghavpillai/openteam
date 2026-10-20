@@ -6,11 +6,12 @@ import type {
 } from "@openteam/contracts";
 import type { PluginPrivateSkillView } from "@openteam/contracts/plugin-management";
 import { pluginMatchesMarketplaceCategory } from "@openteam/client-core/plugin-marketplace";
-import { Check, ChevronLeft, ChevronRight, LoaderCircle, Search } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../../../client/openteam-api";
 import { pluginAuthorization, pluginNeedsSetup } from "@openteam/product-core/plugin-authorization";
 import { cn } from "../../../lib/cn";
+import { LoadingOrb } from "../../ui/loading-orb";
 import { PluginMark } from "./plugin-mark";
 import { MarketplaceCategories } from "./marketplace-categories";
 
@@ -82,7 +83,7 @@ function PluginRow({
             onClick={() => onInstall?.(plugin)}
             type="button"
           >
-            {busy && <LoaderCircle className="size-3 animate-spin" />}Add
+            {busy && <LoadingOrb aria-hidden size={12} />}Add
           </button>
         ))}
     </div>
@@ -268,7 +269,7 @@ export function InstalledPluginsView({
                         type="button"
                       >
                         {busy === retry.id ? (
-                          <LoaderCircle className="size-3 animate-spin" />
+                          <LoadingOrb aria-hidden size={12} />
                         ) : null}
                         {pluginAuthorization(retry) ? pluginAuthorization(retry)?.expired ? "Try again" : "Reopen" : pluginNeedsSetup(retry, plugin) ? "Set up" : retry.auth === "oauth" && retry.status === "needs_auth" ? "Authorize" : "Retry"}
                       </button>

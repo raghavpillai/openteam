@@ -78,7 +78,7 @@ struct ChatView: View {
         .overlay(alignment: .bottomTrailing) { latestButton }
       }
       if !didPositionHistory && !showsLoadError {
-        ProgressView().controlSize(.regular).accessibilityLabel("Loading messages")
+        LoadingOrb(label: "Loading messages")
           .accessibilityIdentifier("chat-loading").frame(maxWidth: .infinity, maxHeight: .infinity)
           .offset(y: -20)
       }
@@ -954,7 +954,7 @@ struct ThreadPage: View {
         onPositioned: { ready = true })
         .opacity(ready ? 1 : 0).allowsHitTesting(ready).accessibilityHidden(!ready)
       if !ready && showsLoading {
-        ProgressView().accessibilityIdentifier("thread-loading").offset(y: -20)
+        LoadingOrb(label: "Loading thread").accessibilityIdentifier("thread-loading").offset(y: -20)
       }
     }.accessibilityIdentifier("reply-page-" + root.id)
       // Cached reply rows need one layout settle. Avoid flashing a spinner in

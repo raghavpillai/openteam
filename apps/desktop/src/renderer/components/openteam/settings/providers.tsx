@@ -7,9 +7,10 @@ import {
   type WebToolInput,
 } from "@openteam/contracts/web-search";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import { Ban, Check, ChevronRight, CircleCheck, CircleX, ExternalLink, LoaderCircle, TriangleAlert } from "lucide-react";
+import { Ban, Check, ChevronRight, CircleCheck, CircleX, ExternalLink, TriangleAlert } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { AnimatedCollapse } from "../../ui/animated-collapse";
+import { LoadingOrb } from "../../ui/loading-orb";
 import { api } from "../../../client/openteam-api";
 import { cn } from "../../../lib/cn";
 import { SettingsGroup, SettingsHeading } from "./ui";
@@ -293,7 +294,7 @@ export default function ProvidersSettings() {
               onClick={() => void check(tool, info.id)}
               type="button"
             >
-              {busy === `check:${info.id}` ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
+              {busy === `check:${info.id}` ? <LoadingOrb aria-hidden size={14} /> : null}
               Check
             </button>
           ) : (
@@ -402,7 +403,7 @@ export default function ProvidersSettings() {
       <div className="mt-4 flex items-center justify-between px-2">
         <div className="text-[12px] text-foreground-secondary">Keys are stored on your server and never shown again.</div>
         <button className={actionButton} disabled={!changed || Boolean(busy)} onClick={() => void save()} type="button">
-          {busy === "save" ? <LoaderCircle className="size-3.5 animate-spin" /> : applied ? <Check className="size-3.5" /> : null}
+          {busy === "save" ? <LoadingOrb aria-hidden inverse size={14} /> : applied ? <Check className="size-3.5" /> : null}
           {applied ? "Saved" : "Save"}
         </button>
       </div>

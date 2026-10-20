@@ -45,7 +45,7 @@ struct PluginConnectionActions: View {
       )
       .font(.footnote).foregroundStyle(NativePalette.muted)
     } else if presentation.connecting {
-      ProgressView("Connecting your account…")
+      LoadingOrbLabel(title: "Connecting your account…")
     } else if presentation.canReconnect {
       Text("Your sign-in is saved. Reconnect to refresh this plugin’s tools.")
         .font(.footnote).foregroundStyle(NativePalette.muted)

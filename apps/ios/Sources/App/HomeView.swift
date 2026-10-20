@@ -147,9 +147,7 @@ struct HomeView: View {
       .buttonStyle(.plain).accessibilityLabel("Settings").accessibilityIdentifier("settings-button")
       if store.syncingState {
         HStack(spacing: 8) {
-          ProgressView().controlSize(.regular).tint(NativePalette.muted)
-            .scaleEffect(0.8)
-            .frame(width: 16, height: 16).accessibilityHidden(true)
+          LoadingOrb(size: 16).accessibilityHidden(true)
           Text("Syncing state").font(.body.weight(.semibold)).lineLimit(1)
         }
         .padding(.leading, 12)
@@ -580,7 +578,7 @@ struct SearchView: View {
   var body: some View {
     ScrollView {
       LazyVStack(spacing: 0) {
-        if loading { ProgressView().padding() }
+        if loading { LoadingOrb(label: "Searching").padding() }
         if let failure { InlineFailure(message: failure) { retryID += 1 }.padding() }
         if searchQuery.isEmpty {
           ForEach(store.channels.filter { !store.isHidden($0) }) { channel in

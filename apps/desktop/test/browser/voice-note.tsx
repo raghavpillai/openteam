@@ -21,9 +21,21 @@ const waitFor = async (condition: () => boolean, message: string) => {
     await pause();
   }
   throw new Error(
-    `${message}: ${document.body.textContent?.slice(0, 600)} ${renderErrors.join("\n")} ${JSON.stringify({ uploads, transcripts, editor: document.querySelector("[contenteditable]")?.outerHTML })}`
+    `${message}: ${document.body.textContent?.slice(0, 600)} ${renderErrors.join("\n")} ${JSON.stringify({ uploads, transcripts, trace: trace.slice(-30), editor: document.querySelector("[contenteditable]")?.textContent })}`
   );
 };
+const trace: string[] = [];
+const traceStart = performance.now();
+new MutationObserver(() => {
+  const mode = document.querySelector("[data-voice-memo]")?.getAttribute("data-voice-memo") ?? "-";
+  if (trace.at(-1)?.endsWith(` ${mode}`)) return;
+  trace.push(`${Math.round(performance.now() - traceStart)} ${mode}`);
+}).observe(document.body, {
+  subtree: true,
+  childList: true,
+  attributes: true,
+  attributeFilter: ["data-voice-memo"],
+});
 let stoppedTracks = 0;
 let requested = 0;
 let uploads = 0;
@@ -95,11 +107,54 @@ const textButton = (label: string) =>
   [...document.querySelectorAll<HTMLButtonElement>("button")].find(
     (element) => element.textContent === label
   );
-const record = async () => {
-  button("Record voice note")!.click();
+const editorElement = () => document.querySelector<HTMLElement>("[contenteditable]")!;
+// The layer keeps its last mode while it animates away; that isn't the mode.
+const voiceLayer = (mode: string) =>
+  document.querySelector(`[data-voice-memo="${mode}"]:not([data-exiting])`);
+const shortcut = /Mac/.test(navigator.platform) ? { metaKey: true } : { ctrlKey: true };
+const key = (key: string, type = "keydown", modifiers = {}) =>
+  editorElement().dispatchEvent(
+    new KeyboardEvent(type, { key, bubbles: true, cancelable: true, ...modifiers })
+  );
+// Keyboard dictation: the shortcut starts hands-free and stops into the draft.
+const dictate = async () => {
+  const editor = editorElement();
+  if (document.activeElement !== editor) {
+    // Like clicking at the end of the draft before pressing the shortcut.
+    editor.focus();
+    const end = document.createRange();
+    end.selectNodeContents(editor);
+    end.collapse(false);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(end);
+  }
+  // A tap: key-up follows at once, so slow test timers can't turn it into a hold.
+  key("d", "keydown", shortcut);
+  key("d", "keyup", shortcut);
   await pause(600);
-  button("Stop recording")!.click();
+  key("d", "keydown", shortcut);
+  key("d", "keyup", shortcut);
   await pause(80);
+};
+// Type a draft: the caret ends up after it, as it does for a person typing.
+const setDraft = async (text: string) => {
+  const editor = editorElement();
+  editor.textContent = text;
+  editor.dispatchEvent(new Event("input", { bubbles: true }));
+  editor.focus();
+  const end = document.createRange();
+  end.selectNodeContents(editor);
+  end.collapse(false);
+  window.getSelection()!.removeAllRanges();
+  window.getSelection()!.addRange(end);
+  await pause();
+};
+// The mic turns the composer into the recording bar; Send transcribes and sends.
+const recordAndSend = async (ms = 800) => {
+  button("Record voice note")!.click();
+  await pause(ms);
+  button("Send voice note")!.click();
+  await pause(120);
 };
 
 async function run() {
@@ -114,15 +169,15 @@ async function run() {
   reports.push("microphone disabled without transcription");
   render(true);
   await pause();
-  const editor = document.querySelector<HTMLElement>("[contenteditable]")!;
+  const editor = editorElement();
   editor.innerHTML =
     '<span data-mention-id="bot-1" data-mention-label="Helper" data-mention-handle="helper" contenteditable="false">@Helper</span> existing draft';
   editor.dispatchEvent(new Event("input", { bubbles: true }));
   await pause();
   const mention = editor.querySelector("span");
-  await record();
-  assert(
-    editor.textContent?.endsWith("existing draft Ship it tomorrow."),
+  await dictate();
+  await waitFor(
+    () => Boolean(editor.textContent?.endsWith("existing draft Ship it tomorrow.")),
     "Transcript did not append to draft"
   );
   assert(editor.querySelector("span") === mention, "Transcription replaced mention token");
@@ -134,7 +189,7 @@ async function run() {
     transcripts.length === 1 && transcripts[0]!.includes("Ship it tomorrow."),
     "Submitted content missed transcript"
   );
-  reports.push("record, append with mentions, stop microphone, and submit");
+  reports.push("dictate, append with mentions, stop microphone, and submit");
 
   editor.textContent = "Send OLD tomorrow.";
   editor.dispatchEvent(new Event("input", { bubbles: true }));
@@ -146,7 +201,7 @@ async function run() {
   window.getSelection()!.removeAllRanges();
   window.getSelection()!.addRange(selected);
   upload = async () => ({ text: "Raghav $1,203.05" });
-  await record();
+  await dictate();
   assert(
     editor.textContent === "Send Raghav $1,203.05 tomorrow.",
     "Voice did not replace the saved selection exactly"
@@ -170,7 +225,7 @@ async function run() {
   window.getSelection()!.addRange(middle);
   const keptMention = editor.firstChild;
   upload = async () => ({ text: "review" });
-  await record();
+  await dictate();
   assert(
     editor.textContent === "@Helper review tail",
     "Insertion next to mention moved to the end"
@@ -183,7 +238,7 @@ async function run() {
   upload = async () => {
     throw new Error("Provider offline");
   };
-  await record();
+  await dictate();
   assert(document.body.textContent?.includes("Provider offline"), "Provider failure missing");
   assert(Boolean(textButton("Retry transcription")), "Failed recording cannot be retried");
   const beforeRetry = requested;
@@ -194,6 +249,8 @@ async function run() {
     requested === beforeRetry && editor.textContent?.includes("Retry worked."),
     "Retry re-recorded or lost the audio"
   );
+  button("Send message")!.click();
+  await pause();
   reports.push("provider failure keeps audio for retry");
 
   let resolveUpload: ((value: { text: string }) => void) | undefined;
@@ -204,7 +261,9 @@ async function run() {
       resolveUpload = resolve;
     });
   };
-  await record();
+  await dictate();
+  await waitFor(() => Boolean(button("Cancel voice note")), "transcribing bar cancel");
+  assert(Boolean(voiceLayer("processing")), "Transcription did not show the transcribing bar");
   button("Cancel voice note")!.click();
   await pause();
   assert(signal?.aborted, "Cancel did not abort upload");
@@ -213,28 +272,65 @@ async function run() {
   assert(!editor.textContent?.includes("Cancelled text"), "Cancelled result edited draft");
   reports.push("cancellation aborts upload and discards late result");
 
+  // The recording bar: Send transcribes and sends the draft with the memo, once.
+  await setDraft("Before the memo:");
   upload = async () => ({ text: "Send this voice memo." });
-  const beforeSend = transcripts.length;
+  const beforeBarSend = transcripts.length;
+  const tracksBeforeBar = stoppedTracks;
   button("Record voice note")!.click();
-  await pause(600);
-  button("Transcribe and send")!.click();
-  await pause(100);
-  assert(transcripts.length === beforeSend + 1, "Voice send did not submit exactly once");
-  assert(transcripts.at(-1)?.includes("Send this voice memo."), "Voice send omitted transcript");
-  reports.push("voice arrow transcribes and sends exactly once, including existing draft");
+  await pause(800);
+  assert(Boolean(voiceLayer("recording")), "Recording did not show the recording bar");
+  assert(
+    Boolean(document.querySelector("[data-prompt-surface][data-voice-mode] [data-prompt-content]")),
+    "The composer's own controls stayed active under the recording bar"
+  );
+  button("Send voice note")!.click();
+  await waitFor(() => transcripts.length === beforeBarSend + 1, "Send did not send");
+  await pause(80);
+  assert(transcripts.length === beforeBarSend + 1, "Send sent more than once");
+  assert(
+    transcripts.at(-1) === "Before the memo: Send this voice memo.",
+    `Send sent the wrong text: ${transcripts.at(-1)}`
+  );
+  assert(stoppedTracks === tracksBeforeBar + 1, "Send kept the microphone open");
+  assert(!editor.textContent?.trim(), "Sent memo left text in the draft");
+  reports.push("the recording bar's Send transcribes and sends the draft with the memo, once");
 
-  const key = (key: string, type = "keydown", modifiers = {}) =>
-    editor.dispatchEvent(
-      new KeyboardEvent(type, { key, bubbles: true, cancelable: true, ...modifiers })
-    );
-  const shortcut = /Mac/.test(navigator.platform) ? { metaKey: true } : { ctrlKey: true };
+  await setDraft("Keep this draft");
+  const trashUploads = uploads;
+  const trashTracks = stoppedTracks;
+  button("Record voice note")!.click();
+  await pause(400);
+  button("Discard voice note")!.click();
+  await pause(80);
+  assert(
+    uploads === trashUploads && stoppedTracks === trashTracks + 1 && !voiceLayer("recording"),
+    "The trash button uploaded or kept the microphone"
+  );
+  await pause(300);
+  assert(editor.textContent === "Keep this draft", "Discarding changed the draft");
+  await setDraft("");
+  reports.push("the trash button discards, releases the microphone, and keeps the draft");
+
+  const escapeUploads = uploads;
+  button("Record voice note")!.click();
+  await pause(300);
+  key("Escape");
+  await pause(80);
+  assert(
+    uploads === escapeUploads && !voiceLayer("recording"),
+    "Escape did not discard the recording"
+  );
+  await pause(300);
+  reports.push("Escape discards a recording");
+
   editor.focus();
   key("d", "keydown", shortcut);
-  await pause(50);
   key("d", "keyup", shortcut);
   await pause(550);
-  assert(Boolean(button("Stop recording")), "Tap shortcut did not keep recording");
+  assert(Boolean(voiceLayer("recording")), "Tap shortcut did not keep recording");
   const beforeStop = transcripts.length;
+  upload = async () => ({ text: "Send this voice memo." });
   key("Enter");
   await waitFor(
     () => Boolean(editor.textContent?.includes("Send this voice memo.")),
@@ -245,24 +341,26 @@ async function run() {
   await pause(600);
   key("d", "keyup", shortcut);
   await pause(100);
-  assert(!button("Stop recording"), "Held shortcut did not stop on release");
+  assert(!voiceLayer("recording"), "Held shortcut did not stop on release");
+  await waitFor(() => !voiceLayer("processing"), "held shortcut transcription");
   const beforeCancel = uploads;
   key("d", "keydown", shortcut);
   await pause(600);
   key("Escape");
   key("d", "keyup", shortcut);
   await pause(80);
-  assert(uploads === beforeCancel && !button("Stop recording"), "Escape uploaded cancelled audio");
+  assert(uploads === beforeCancel && !voiceLayer("recording"), "Escape uploaded cancelled audio");
+  await pause(700);
+  button("Send message")!.click();
+  await pause();
   reports.push("shortcut tap/hold, Enter to review, and Escape cancellation");
 
   upload = async () => {
     throw new Error("Voice send failed");
   };
-  button("Record voice note")!.click();
-  await pause(600);
   const failedSendCount = transcripts.length;
-  button("Transcribe and send")!.click();
-  await pause(80);
+  await recordAndSend();
+  await waitFor(() => Boolean(textButton("Retry transcription")), "failed send retry");
   upload = async () => ({ text: "Review the retry first." });
   textButton("Retry transcription")!.click();
   await pause(100);
@@ -271,6 +369,8 @@ async function run() {
     "Retry unexpectedly sent a previously failed memo"
   );
   assert(editor.textContent?.includes("Review the retry first."), "Retry lost the draft");
+  button("Send message")!.click();
+  await pause();
   reports.push("failed voice send retries into the draft without an unexpected send");
 
   upload = async (_audio, nextSignal) => {
@@ -279,11 +379,8 @@ async function run() {
       resolveUpload = resolve;
     });
   };
-  await record();
-  assert(
-    document.activeElement === editor,
-    "Stopping with the pill did not restore keyboard focus"
-  );
+  await dictate();
+  assert(document.activeElement === editor, "Stopping dictation did not restore keyboard focus");
   const beforePendingCancel = transcripts.length;
   key("Enter");
   await pause();
@@ -322,10 +419,38 @@ async function run() {
   } as unknown as MediaStream);
   await pause();
   assert(
-    stoppedTracks === beforeHeldPermission + 1 && !button("Stop recording"),
+    stoppedTracks === beforeHeldPermission + 1 && !voiceLayer("recording"),
     "Releasing a held shortcut leaked a late microphone grant"
   );
   reports.push("releasing a held shortcut while permission is pending discards its late stream");
+
+  let resolveBarPermission: ((stream: MediaStream) => void) | undefined;
+  media = () =>
+    new Promise((resolve) => {
+      resolveBarPermission = resolve;
+    });
+  button("Record voice note")!.click();
+  await pause();
+  assert(Boolean(voiceLayer("recording")), "The bar did not show while the microphone opened");
+  button("Discard voice note")!.click();
+  await pause();
+  const beforeBarPermission = stoppedTracks;
+  resolveBarPermission!({
+    getTracks: () => [
+      {
+        stop() {
+          stoppedTracks++;
+        },
+      },
+    ],
+  } as unknown as MediaStream);
+  await pause();
+  assert(
+    stoppedTracks === beforeBarPermission + 1,
+    "Discarding while the microphone opened leaked its late stream"
+  );
+  await pause(300);
+  reports.push("discarding while permission is pending releases the late stream");
 
   let resolveMedia: ((stream: MediaStream) => void) | undefined;
   media = () =>
@@ -402,25 +527,20 @@ async function run() {
     }) as unknown as MediaStream;
   upload = async () => ({ text: "Voice reply in this thread." });
   const threadSendCount = transcripts.length;
-  await record();
-  button("Send message")!.click();
-  await pause(100);
+  await recordAndSend();
+  await waitFor(() => transcripts.length === threadSendCount + 1, "thread voice reply");
   assert(
-    transcripts.length === threadSendCount + 1 &&
-      transcripts.at(-1) === "Voice reply in this thread.",
-    "Thread dictation was disabled or lost its content"
+    transcripts.at(-1) === "Voice reply in this thread.",
+    "Thread voice memo was disabled or lost its content"
   );
-  reports.push("actual thread composer respects setup and submits its voice reply exactly once");
+  reports.push("actual thread composer respects setup and sends its voice reply exactly once");
   upload = async (_audio, nextSignal) => {
     signal = nextSignal;
     return new Promise((resolve) => {
       resolveUpload = resolve;
     });
   };
-  button("Record voice note")!.click();
-  await pause(600);
-  button("Transcribe and send")!.click();
-  await pause(80);
+  await recordAndSend();
   root.render(<ThreadTray {...threadProps} open={false} transcriptionConfigured />);
   await pause();
   resolveUpload!({ text: "Closed thread must not send." });
@@ -483,11 +603,10 @@ run()
   "narrow-recording",
 ];
 (window as any).prepareVoiceScreenshot = async (state: string) => {
-  button("Cancel voice note")?.click();
-  document.documentElement.dataset.theme = state === "dark-recording" ? "dark" : "light";
+  document.documentElement.dataset.theme = state.startsWith("dark") ? "dark" : "light";
   document.getElementById("root")!.style.height = "auto";
   document.getElementById("root")!.style.minHeight = "0";
-  document.body.style.maxWidth = state === "narrow-recording" ? "380px" : "620px";
+  document.body.style.maxWidth = state.startsWith("narrow") ? "380px" : "620px";
   media = async () =>
     ({
       getTracks: () => [Object.assign(new EventTarget(), { stop() {} })],
@@ -500,68 +619,15 @@ run()
       : () => new Promise(() => {});
   render(state !== "disabled", `screenshot-${state}`);
   await pause(100);
-  if (state.includes("recording") || state === "processing" || state === "error") {
-    button("Record voice note")!.click();
-    await pause(1100);
-    if (state === "processing" || state === "error") {
-      button("Stop recording")!.click();
-      await pause(350);
-    }
-  }
-  const makeReference = (window as any).createGrokRecordingChip;
-  document.getElementById("voice-reference")?.remove();
-  if (state === "recording" && makeReference) {
-    const host = document.createElement("div");
-    host.id = "voice-reference";
-    host.style.cssText = "margin:32px 16px;font-family:-apple-system,BlinkMacSystemFont,sans-serif";
-    document.body.append(host);
-    const Reference = makeReference(React);
-    createRoot(host).render(
-      <>
-        <p style={{ fontSize: 12, marginBottom: 12 }}>
-          Grok Bot 0.47 recording chip, rendered from installed source
-        </p>
-        <Reference duration="0:01" onStop={() => {}} onCancel={() => {}} />
-      </>
-    );
-    await pause(100);
-    const actual = document.querySelector<HTMLElement>("[data-voice-recording-chip]")!;
-    const reference = host.querySelector<HTMLElement>("button")!;
-    const dimensions = (node: HTMLElement) => {
-      const box = node.getBoundingClientRect();
-      const style = getComputedStyle(node);
-      return {
-        width: box.width,
-        height: box.height,
-        gap: style.gap,
-        padding: style.padding,
-        background: style.backgroundColor,
-        children: Array.from(node.children).map((child) => {
-          const box = child.getBoundingClientRect();
-          const style = getComputedStyle(child);
-          return {
-            width: box.width,
-            height: box.height,
-            color: style.color,
-            fontSize: style.fontSize,
-            lineHeight: style.lineHeight,
-          };
-        }),
-      };
-    };
-    (window as any).voiceVisualComparison = {
-      actual: dimensions(actual),
-      reference: dimensions(reference),
-    };
-    assert(
-      Math.abs(actual.getBoundingClientRect().width - reference.getBoundingClientRect().width) <
-        0.1,
-      "Recording chip width differs from Grok reference"
-    );
-    assert(
-      actual.getBoundingClientRect().height === reference.getBoundingClientRect().height,
-      "Recording chip height differs from Grok reference"
-    );
+  if (state === "idle" || state === "disabled") return;
+  button("Record voice note")!.click();
+  await pause(1100);
+  if (state === "processing" || state === "error") {
+    button("Send voice note")!.click();
+    await pause(450);
   }
 };
-(window as any).finishVoiceScreenshot = () => button("Cancel voice note")?.click();
+(window as any).finishVoiceScreenshot = () => {
+  button("Discard voice note")?.click();
+  button("Cancel voice note")?.click();
+};

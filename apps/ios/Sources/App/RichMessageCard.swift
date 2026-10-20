@@ -532,7 +532,7 @@ struct RichMessageCard: View {
           draftAction("send")
         } label: {
           HStack(spacing: 6) {
-            if sending { ProgressView().controlSize(.mini).tint(DraftPalette.quaternary) }
+            if sending { LoadingOrb(size: 14, label: "Sending") }
             Text(sending ? "Sending…" : "Send")
           }
         }.buttonStyle(DraftButtonStyle(primary: true, sending: sending))

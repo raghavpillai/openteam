@@ -10,7 +10,6 @@ import { clientErrorMessage } from "@openteam/product-core/redaction";
 import {
 ChevronDown,
 ChevronLeft,
-LoaderCircle,
 X
 } from "lucide-react";
 import { lazy,Suspense,useCallback,useEffect,useMemo,useRef,useState } from "react";
@@ -26,6 +25,7 @@ DropdownMenuContent,
 DropdownMenuItem,
 DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import { LoadingOrb } from "../ui/loading-orb";
 import { PluginPageStack } from "./plugins/plugin-page-stack";
 import { InstalledPluginsSummary,InstalledPluginsView,MarketplaceView } from "./plugins/marketplace-browse";
 import { openAutomaticPluginSignIn } from "./plugins/plugin-authorization";
@@ -456,7 +456,7 @@ export function PluginDialog({
               aria-label="Loading plugins"
               className="grid flex-1 place-items-center"
             >
-              <LoaderCircle className="size-5 animate-spin text-foreground-tertiary" />
+              <LoadingOrb aria-hidden />
             </div>
           ) : page === "installed" ? (
             <InstalledPluginsView

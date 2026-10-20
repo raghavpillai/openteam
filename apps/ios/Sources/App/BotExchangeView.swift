@@ -20,7 +20,7 @@ struct BotExchangeView: View {
         initialLayout: .nextLayout, onPositioned: { ready = true })
         .opacity(ready ? 1 : 0).allowsHitTesting(ready).accessibilityHidden(!ready)
       if !ready && showsLoading {
-        ProgressView().accessibilityLabel("Loading exchange").accessibilityIdentifier("exchange-loading")
+        LoadingOrb(label: "Loading exchange").accessibilityIdentifier("exchange-loading")
       }
     }.task {
       try? await Task.sleep(for: .milliseconds(200))

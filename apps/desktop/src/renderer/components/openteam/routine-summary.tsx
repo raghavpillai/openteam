@@ -12,6 +12,7 @@ import {
   routineScheduleDrafts,
   routineSummaryProjectionEqual,
 } from "../../lib/routines";
+import { LoadingOrb } from "../ui/loading-orb";
 
 const cloneDefaultSchedule = (): RoutineScheduleDraft => ({
   ...DEFAULT_ROUTINE_SCHEDULE,
@@ -86,7 +87,7 @@ export function RoutinesSummary({
   if (routines === null) {
     return (
       <div className="grid flex-1 place-items-center">
-        <LoaderCircle className="size-4 animate-spin text-muted-foreground" />
+        <LoadingOrb label="Loading routines" size={16} />
       </div>
     );
   }

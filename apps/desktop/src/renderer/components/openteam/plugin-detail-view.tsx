@@ -14,7 +14,6 @@ ChevronRight,
 Copy,
 ExternalLink,
 KeyRound,
-LoaderCircle,
 Plus,
 Search
 } from "lucide-react";
@@ -23,6 +22,7 @@ import { lazy,Suspense,useEffect,useLayoutEffect,useMemo,useRef,useState } from 
 import { api } from "../../client/openteam-api";
 import { cn } from "../../lib/cn";
 import { AnimatedCollapse } from "../ui/animated-collapse";
+import { LoadingOrb } from "../ui/loading-orb";
 const loadPluginSettingsDetail = () => import("./plugin-settings-detail");
 const PluginAuthSelect = lazy(() =>
   loadPluginSettingsDetail().then((module) => ({ default: module.PluginAuthSelect }))
@@ -275,7 +275,7 @@ export function CustomMcpView({
           Cancel
         </button>
         <button className={primaryButton} disabled={!valid || busy} type="submit">
-          {busy ? <LoaderCircle className="size-3 animate-spin" /> : <Plus className="size-3" />}{" "}
+          {busy ? <LoadingOrb aria-hidden inverse size={12} /> : <Plus className="size-3" />}{" "}
           Add server
         </button>
       </div>
@@ -385,7 +385,7 @@ function SquareToggle({
       type="button"
     >
       {busy ? (
-        <LoaderCircle className="size-3 animate-spin" />
+        <LoadingOrb aria-hidden inverse={checked} size={12} />
       ) : checked ? (
         <Check className="size-3" strokeWidth={2.6} />
       ) : null}
@@ -656,7 +656,7 @@ function PluginSetupCard({
             onClick={submit}
             type="button"
           >
-            {busy ? <LoaderCircle className="size-3 animate-spin" /> : null}
+            {busy ? <LoadingOrb aria-hidden inverse size={12} /> : null}
             {requiresHttps ? "HTTPS required" : actionLabel}
           </button>
           <button className={cn(secondaryButton, "ml-2")} type="button" disabled={busy} onClick={onDismiss}>Set up later</button>
@@ -946,7 +946,7 @@ export function PluginDetail({
             onClick={() => onInstall(plugin, setupValues)}
             type="button"
           >
-            {busy === plugin.key ? <LoaderCircle className="size-3 animate-spin" /> : null}
+            {busy === plugin.key ? <LoadingOrb aria-hidden inverse size={12} /> : null}
             Add
           </button>
         ) : (

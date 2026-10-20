@@ -15,7 +15,11 @@ signing team are configured in `release.json`.
 Use macOS with Xcode 26+ and Swift 6; the deployment target is iOS 18. Open
 `OpenTeamNative.xcodeproj`, select the `OpenTeamNative` scheme and an iOS simulator,
 and Run. Connect to your OpenTeam server using its reachable HTTP or HTTPS address.
-The native target has no Expo, React Native or CocoaPods runtime dependency.
+The native target has no Expo, React Native or CocoaPods runtime dependency. Its only
+packages are `ThinkingOrbsKit` and `VoiceGlowKit` from
+[Libraries.dev](https://github.com/Jakubantalik/Libraries.dev) (MIT), pinned to one
+revision in `scripts/generate-project.py`. VoiceGlowKit compiles a Metal shader, so
+install Xcode's Metal toolchain once: `xcodebuild -downloadComponent MetalToolchain`.
 
 From the repository root:
 

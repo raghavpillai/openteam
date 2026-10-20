@@ -1,4 +1,3 @@
-import AVFoundation
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
@@ -21,11 +20,9 @@ struct ComposerView: View {
   @State private var files = false
   @State private var camera = false
   @State private var uploading = false
-  @State private var voice = VoiceRecorder()
-  @State private var transcribing = false
-  @State private var transcriptionTask: Task<Void, Never>?
-  @State private var voiceText = ""
-  @State private var voiceRange: Range<String.Index>?
+  @StateObject private var memo = VoiceMemoController()
+  /// The idle pill's height, where the gooey merge starts from.
+  @State private var pillHeight: CGFloat = 44
   @State private var pluginMentions: [JSON] = []
   @FocusState private var focused: Bool
   // Focus arrives before the keyboard is ready, especially on its first launch.
@@ -43,15 +40,22 @@ struct ComposerView: View {
         store.saveDraft(d, channel: key)
       })
   }
+  private var transcriptionConfigured: Bool {
+    store.state.bootstrap?.runtime["transcription"].string == "configured"
+  }
+  /// The trailing slot shows Send once there is something to send, the mic otherwise.
+  private var hasContent: Bool {
+    !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || attachmentCount > 0
+  }
   var body: some View {
     VStack(spacing: 0) {
-      if voice.recording || voice.pendingURL != nil {
-        recordingControls
-      } else {
-        messageControls
-      }
+      messageControls
     }.padding(.horizontal, keyboardPresented ? 18 : 30).padding(.top, 4)
       .padding(.bottom, keyboardPresented ? 18 : -4)
+      // The voice glow rises from the bottom of the screen, behind the composer.
+      .background(alignment: .bottom) {
+        VoiceGlowBackdrop(memo: memo).ignoresSafeArea(edges: .bottom)
+      }
       .background {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--trace-composer-latency") {
@@ -153,26 +157,34 @@ struct ComposerView: View {
           }
         }
       }
-      .onChange(of: scenePhase) { _, phase in if phase != .active { _ = voice.stop() } }
+      .onChange(of: scenePhase) { _, phase in if phase == .background { memo.suspend() } }
+      // Recording frees the keyboard (the glow sits at the bottom of the screen) and the
+      // hidden draft must not take typing.
+      .onChange(of: memo.phase) { _, phase in
+        if phase == .holding || phase == .locked || phase == .review { focused = false }
+      }
+      .task(id: key) { configureVoice() }
       .onDisappear {
         focused = false
         store.flushPersistence()
-        transcriptionTask?.cancel()
-        transcriptionTask = nil
-        voice.cancel()
+        memo.tearDown()
       }
   }
   private var messageControls: some View {
-    HStack(alignment: .bottom, spacing: 10) {
+    let bar = memo.showsBar
+    return HStack(alignment: .bottom, spacing: 10) {
       NativeAttachmentMenu(
         enabled: !uploading,
         attachmentsEnabled: attachmentCount < 6,
         color: NativePalette.text,
         photos: { photoLibrary = true }, files: { files = true }, camera: { camera = true },
-        voice: (!draft.text.isEmpty || attachmentCount > 0)
-          && store.state.bootstrap?.runtime["transcription"].string == "configured"
-          ? { startRecording() } : nil
+        voice: (!draft.text.isEmpty || attachmentCount > 0) && transcriptionConfigured
+          ? { startLockedRecording() } : nil
       ).frame(width: 44, height: 44).nativeChatGlass(regularInLightMode: true)
+        // While recording, the gooey surface below draws the + merging into the bar.
+        .opacity(bar ? 0 : 1)
+        .animation(glassFade(bar), value: bar)
+        .allowsHitTesting(!bar).accessibilityHidden(bar)
       VStack(spacing: 0) {
         if !focusedReply, let reply = draft.replyTo {
           HStack(spacing: 7) {
@@ -257,65 +269,89 @@ struct ComposerView: View {
           // sending/recording reachable without changing the reference inset.
           trailingAction.padding(.trailing, 5)
         }
-        if uploading || transcribing {
+        if uploading {
           HStack {
-            ProgressView()
-            Text(uploading ? "Preparing attachment…" : "Transcribing…").font(.caption)
+            LoadingOrb(size: 16).accessibilityHidden(true)
+            Text("Preparing attachment…").font(.caption)
             Spacer()
           }.padding(8)
         }
-      }.nativeChatGlass(regularInLightMode: true).foregroundStyle(NativePalette.text)
+      }
+      // The draft stays mounted under the recording bar, so cancelling restores it untouched.
+      .opacity(bar ? 0 : 1)
+      // The draft clears out before the surface merges and returns once it has split again.
+      .animation(reduceMotion ? .easeInOut(duration: 0.2)
+        : bar ? .easeOut(duration: 0.1) : .easeIn(duration: 0.18).delay(0.32), value: bar)
+      .allowsHitTesting(!bar).accessibilityHidden(bar)
+      .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+        if !memo.showsBar { pillHeight = height }
+      }
+      .frame(height: bar ? VoiceBar.height : nil, alignment: .bottom)
+      .nativeChatGlass(radius: 22, regularInLightMode: true).foregroundStyle(NativePalette.text)
+      .opacity(bar ? 0 : 1)
+      .animation(glassFade(bar), value: bar)
     }
+    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { memo.barWidth = Double($0) }
+    // The + and the pill merge (gooey) into one bar, then split back on the way out.
+    .background(alignment: .bottom) {
+      VoiceBarSurface(progress: reduceMotion || bar ? 1 : 0, pillHeight: Double(pillHeight))
+        // Merging: a soft spring that overshoots, so the bar stretches and settles like jelly.
+        .animation(reduceMotion ? nil : bar ? .spring(response: 0.75, dampingFraction: 0.6).delay(0.05)
+          : .spring(response: 0.5, dampingFraction: 0.74), value: bar)
+        .opacity(bar ? 1 : 0)
+        .animation(reduceMotion ? .easeInOut(duration: 0.2)
+          : bar ? .linear(duration: 0.06) : .easeOut(duration: 0.14).delay(0.36), value: bar)
+    }
+    .overlay(alignment: .bottom) { VoiceBarContent(memo: memo) }
+    .overlay(alignment: .top) {
+      ZStack {
+        if memo.phase == .holding {
+          // Zero height pins the label's bottom 16 pt above the bar, clear of the glow.
+          VoiceReleaseLabel(armed: memo.tracker.cancelArmed)
+            .frame(height: 0, alignment: .bottom).offset(y: -16)
+            .transition(.opacity.combined(with: .offset(y: reduceMotion ? 0 : 6)))
+        }
+      }
+    }
+    .overlay(alignment: .bottomTrailing) {
+      ZStack(alignment: .bottomTrailing) {
+        // The lock status sits above Send for the whole recording: open while holding, closed
+        // (and inert) once locked.
+        if memo.phase == .holding || memo.phase == .locked || memo.phase == .review || memo.lockFlash {
+          VoiceLockCapsule(memo: memo)
+            // Centred over Send (the capsule is 40 pt wide).
+            .offset(x: -(VoiceBar.inset + VoiceBar.button / 2 - 20), y: -(VoiceBar.height + 12))
+            .transition(reduceMotion ? .opacity
+              : .opacity.combined(with: .scale(scale: 0.6, anchor: .bottom)).combined(with: .offset(y: 10)))
+        }
+      }
+      .animation(.spring(response: 0.3, dampingFraction: 0.8), value: memo.lockFlash)
+    }
+    .overlay(alignment: .bottomTrailing) {
+      VoiceKnob(memo: memo, available: !hasContent, enabled: transcriptionConfigured && !uploading)
+    }
+    .overlay(alignment: .topTrailing) {
+      ZStack {
+        if let hint = memo.hint {
+          // A zero-height frame pins the bubble's bottom 10 pt above the composer.
+          VoiceHintBubble(text: hint)
+            .frame(height: 0, alignment: .bottom).offset(y: -10)
+            .transition(reduceMotion ? .opacity
+              : .opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)).combined(with: .offset(y: 6)))
+        }
+      }.animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.28, dampingFraction: 0.8),
+        value: memo.hint)
+    }
+    // Voice phases change without withAnimation (see VoiceMemoController.transition);
+    // the whole composer morphs here instead.
+    .animation(VoiceMemoController.motion(reduceMotion: reduceMotion), value: memo.phase)
+  }
+  /// The idle glass hands over to the gooey surface at once and returns after it has split.
+  private func glassFade(_ bar: Bool) -> Animation {
+    reduceMotion ? .easeInOut(duration: 0.2) : bar ? .linear(duration: 0.08) : .easeIn(duration: 0.14).delay(0.3)
   }
   private var focusPadding: some View {
     Color.clear.contentShape(Rectangle()).onTapGesture { focused = true }
-  }
-  private var recordingControls: some View {
-    HStack(spacing: 10) {
-      Button {
-        if voice.recording {
-          _ = voice.stop()
-        } else {
-          NativeHaptics.play(.light, source: "composer.cancel-voice")
-          voice.cancel()
-        }
-      } label: {
-        Image(systemName: voice.recording ? "stop.fill" : "xmark")
-          .font(.system(size: 19, weight: .semibold))
-          .frame(maxWidth: .infinity).frame(height: 48).nativeGlass(radius: 28)
-      }.accessibilityLabel(voice.recording ? "Stop recording" : "Discard recording")
-      HStack(spacing: 9) {
-        Text(String(format: "%d:%02d", Int(voice.elapsed) / 60, Int(voice.elapsed) % 60))
-          .font(.system(size: 21, weight: .semibold)).monospacedDigit().fixedSize()
-        HStack(spacing: 1.5) {
-          ForEach(Array(voice.levels.enumerated()), id: \.offset) { _, level in
-            Capsule().fill(NativePalette.muted).frame(width: 2, height: 4 + level * 17)
-          }
-        }.frame(width: 63, height: 24).clipped()
-      }.padding(.horizontal, 14).frame(height: 48).fixedSize(horizontal: true, vertical: false)
-        .nativeGlass(radius: 28)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(voice.recording ? "Recording voice note" : "Voice note ready")
-        .accessibilityValue("\(Int(voice.elapsed)) seconds")
-        .contextMenu {
-          Button("Discard recording", role: .destructive) {
-            NativeHaptics.play(.light, source: "composer.cancel-voice")
-            voice.cancel()
-          }
-        }
-      Button {
-        transcriptionTask = Task { await transcribe() }
-      } label: {
-        Group {
-          if transcribing {
-            ProgressView().tint(NativePalette.onPrimary)
-          } else {
-            Image(systemName: "arrow.up").font(.system(size: 24, weight: .semibold))
-          }
-        }.frame(maxWidth: .infinity).frame(height: 48)
-          .foregroundStyle(NativePalette.onPrimary).background(NativePalette.text, in: Capsule())
-      }.accessibilityLabel(transcribing ? "Transcribing" : "Transcribe voice note")
-    }.buttonStyle(.plain).foregroundStyle(NativePalette.text).disabled(transcribing)
   }
   private var mentionToken: String? {
     let token = text.wrappedValue.components(separatedBy: .whitespacesAndNewlines).last ?? ""
@@ -357,7 +393,7 @@ struct ComposerView: View {
     focused = true
   }
   @ViewBuilder var trailingAction: some View {
-    if !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || attachmentCount > 0 {
+    if hasContent {
       Button {
         Task { await store.enqueue(channel, draftKey: key, threadRootID: threadRootID, replyRootID: replyRootID) }
       } label: {
@@ -369,69 +405,46 @@ struct ComposerView: View {
       }.buttonStyle(ComposerSendStyle()).disabled(uploading).accessibilityLabel("Send")
         .accessibilityIdentifier(
           focusedReply ? "thread-send-button" : "send-button")
-    } else {
-      // The server supports recorded transcription, not live voice chat.
-      Button { startRecording() } label: {
-        Image(systemName: "mic.fill").font(.system(size: 16)).foregroundStyle(NativePalette.chatMuted)
-          .frame(width: 36, height: 28)
-          .background(Color(red: 118 / 255, green: 118 / 255, blue: 128 / 255)
-            .opacity(0.24), in: Capsule())
-          .frame(width: 44, height: 44).contentShape(Rectangle())
-      }.buttonStyle(.plain).accessibilityLabel("Record voice note")
-        .disabled(transcribing || voice.pendingURL != nil
-          || store.state.bootstrap?.runtime["transcription"].string != "configured")
-
     }
+    // Otherwise the mic: VoiceKnob, overlaid at this spot, owns the hold-to-record gesture.
   }
-  func startRecording() {
-    voiceText = text.wrappedValue
-    voiceRange = NativeTextSelection.range(matching: voiceText)
+  /// The + menu path (there is a draft): straight to the hands-free bar.
+  func startLockedRecording() {
     focused = false
-    Task {
-      do { try await voice.start() } catch {
-        NativeHaptics.failure(error, source: "composer.error")
-        store.handle(error)
-      }
-    }
+    memo.startLocked()
   }
-  func upload(_ data: Data, name: String, mime: String) async throws {
-    uploading = true
-    defer { uploading = false }
-    try store.stage(data, name: name, mime: mime, channel: key)
-  }
-
-  func transcribe() async {
-    guard !transcribing, let url = voice.stop(), let api = store.api else { return }
-    transcribing = true
-    defer {
-      transcribing = false
-    }
-    do {
+  /// The recording is transcribed, appended to the draft, and the draft is sent.
+  private func configureVoice() {
+    memo.transcribe = { url in
+      guard let api = store.api else { return nil }
       let data = try Data(contentsOf: url)
       let (response, _) = try await api.raw(
         "/api/v0/transcriptions", method: "POST", data: data, contentType: "audio/mp4",
         timeout: 135)
-      guard !Task.isCancelled, voice.pendingURL == url,
-        store.api?.baseURL == api.baseURL, store.api?.token == api.token
-      else { return }
+      guard store.api?.baseURL == api.baseURL, store.api?.token == api.token else { return nil }
       let value = try JSONDecoder().decode(JSON.self, from: response)["text"].string
       guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
         throw APIError(
           "No speech was found in this recording. You can try again or discard the voice note.")
       }
-      if text.wrappedValue == voiceText, let voiceRange {
-        text.wrappedValue.replaceSubrange(voiceRange, with: value)
-      } else {
-        text.wrappedValue += (text.wrappedValue.isEmpty ? "" : " ") + value
-      }
-      voice.cancel()
-    } catch {
-      guard !Task.isCancelled, voice.pendingURL == url,
-        store.api?.baseURL == api.baseURL, store.api?.token == api.token
-      else { return }
-      NativeHaptics.failure(error, source: "composer.error")
-      store.handle(error)
+      return value
     }
+    memo.deliver = { transcript in
+      var d = draft
+      d.text = VoiceMemoText.message(draft: d.text, transcript: transcript)
+      d.widgetResponse = nil
+      store.saveDraft(d, channel: key)
+      // Like the Send button: the outbox owns delivery, so the bar never waits on the network.
+      // One yield lets enqueue move the draft into the outbox before the composer reappears.
+      Task { await store.enqueue(channel, draftKey: key, threadRootID: threadRootID, replyRootID: replyRootID) }
+      await Task.yield()
+    }
+    memo.report = { error in store.handle(error) }
+  }
+  func upload(_ data: Data, name: String, mime: String) async throws {
+    uploading = true
+    defer { uploading = false }
+    try store.stage(data, name: name, mime: mime, channel: key)
   }
 }
 
@@ -444,128 +457,6 @@ private struct ComposerSendStyle: ButtonStyle {
       .animation(
         reduceMotion || configuration.isPressed ? nil : .easeOut(duration: 0.08),
         value: configuration.isPressed)
-  }
-}
-
-@MainActor @Observable
-final class VoiceRecorder {
-  var recording = false
-  var pendingURL: URL?
-  var elapsed: TimeInterval = 0
-  var levels: [CGFloat] = Array(repeating: 0.2, count: 18)
-  private var meter: Task<Void, Never>?
-  private var recorder: AVAudioRecorder?
-  private var starting = false
-  private var generation = UUID()
-  #if DEBUG && targetEnvironment(simulator)
-    private var fixture: SimulatorVoiceFixture?
-  #endif
-  private var deadline: Task<Void, Never>?
-  func start() async throws {
-    guard !starting, !recording, pendingURL == nil else { return }
-    starting = true
-    defer { starting = false }
-    let attempt = generation
-    #if DEBUG && targetEnvironment(simulator)
-      if ProcessInfo.processInfo.arguments.contains("--ui-testing"),
-        ProcessInfo.processInfo.arguments.contains("--qa-synthetic-voice")
-      {
-        var sourceURL: URL?
-        if let raw = ProcessInfo.processInfo.environment["OPENTEAM_QA_VOICE_SOURCE"] {
-          guard let source = URL(string: raw), source.scheme == "http",
-            source.host == "127.0.0.1"
-          else { throw APIError("QA speech source must be on loopback.") }
-          let (download, response) = try await URLSession.shared.download(from: source)
-          guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            throw APIError("QA speech could not be loaded.")
-          }
-          sourceURL = download
-        }
-        defer { if let sourceURL { try? FileManager.default.removeItem(at: sourceURL) } }
-        guard attempt == generation, !Task.isCancelled else { return }
-        let capture = try SimulatorVoiceFixture(sourceURL: sourceURL)
-        fixture = capture
-        recording = true
-        elapsed = 0
-        levels = Array(repeating: 0, count: 18)
-        meter = Task {
-          while !Task.isCancelled, recording {
-            do {
-              let level = try capture.append()
-              elapsed = capture.elapsed
-              levels = Array((levels + [level]).suffix(18))
-              try await Task.sleep(for: .milliseconds(100))
-            } catch {
-              _ = stop()
-              return
-            }
-          }
-        }
-        return
-      }
-    #endif
-    guard await AVAudioApplication.requestRecordPermission() else {
-      throw APIError("Enable microphone access in iPhone Settings to record a voice note.")
-    }
-    guard attempt == generation, !Task.isCancelled else { return }
-    let session = AVAudioSession.sharedInstance()
-    try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
-    try session.setActive(true)
-    let url = FileManager.default.temporaryDirectory.appendingPathComponent(
-      UUID().uuidString + ".m4a")
-    let r = try AVAudioRecorder(
-      url: url,
-      settings: [
-        AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 24000, AVNumberOfChannelsKey: 1,
-        AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
-      ])
-    r.isMeteringEnabled = true
-    guard r.record(forDuration: 300) else {
-      try? session.setActive(false, options: .notifyOthersOnDeactivation)
-      throw APIError("The microphone could not start recording.")
-    }
-    recorder = r
-    recording = true
-    elapsed = 0
-    levels = Array(repeating: 0.2, count: 18)
-    meter = Task {
-      while !Task.isCancelled, recording {
-        r.updateMeters()
-        elapsed = r.currentTime
-        levels.append(CGFloat(max(0, min(1, (r.averagePower(forChannel: 0) + 50) / 50))))
-        levels = Array(levels.suffix(18))
-        do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
-      }
-    }
-    deadline = Task {
-      try? await Task.sleep(for: .seconds(300))
-      if !Task.isCancelled { _ = stop() }
-    }
-  }
-  func stop() -> URL? {
-    deadline?.cancel()
-    meter?.cancel()
-    if let recorder { elapsed = recorder.currentTime }
-    recorder?.stop()
-    recording = false
-    var url = recorder?.url ?? pendingURL
-    #if DEBUG && targetEnvironment(simulator)
-      if let fixture {
-        elapsed = fixture.elapsed
-        url = fixture.url
-        fixture.finish()
-        self.fixture = nil
-      }
-    #endif
-    pendingURL = url
-    recorder = nil
-    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-    return url
-  }
-  func cancel() {
-    generation = UUID()
-    if let url = stop() { try? FileManager.default.removeItem(at: url) }
-    pendingURL = nil
   }
 }
 

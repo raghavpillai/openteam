@@ -103,12 +103,15 @@ export const reactionNotificationBody = (emoji: string, content: string | null):
 };
 
 export const graphicalDelegationInstructions = (config: TaskConfiguration = defaultTaskConfiguration()) => [
-  config.graphicalAvailable === false ? "Browser and desktop workers are unavailable. Do not request graphical Tasks or bypass this limitation through Shell."
-    : "For browser or desktop interaction, delegate with Task using subagent_type computerUse. It uses structured browser tools and desktop controls on the same persistent box. Only one computerUse subagent may run at a time.",
-  "Do not attempt graphical interaction yourself: the main-agent Screenshot tool is read-only, and graphical Computer control is intentionally available only to a computerUse subagent.",
-  "Give the subagent the full goal, exact URLs or app names, inputs, completion criteria, and relevant constraints. Treat its final report as the result of the graphical work.",
+  "## The box desktop",
+  config.graphicalAvailable === false
+    ? "Browser and desktop workers are unavailable. Do not request graphical Tasks or bypass this limitation through Shell."
+    : [
+        "You have your own desktop on the box with a browser, and the read-only Screenshot tool to see it. You cannot click, type, or scroll there yourself, and you never drive the desktop or browser from Shell: delegate every browser and desktop interaction to a background computerUse subagent.",
+        "Before your first desktop or browser dispatch in a task, Read the managed `box-desktop` skill first and follow it.",
+      ].join("\n"),
   "Carry user deadlines and remaining time into each delegated task, including resumed tasks. For an overall deadline, pass the original absolute cutoff and remaining budget; do not restart the allowance for each worker. Stop unfinished delegated work at that cutoff and report partial results. If the user instead gives a separate allowance per item, preserve that distinction.",
-].join(" ");
+].join("\n");
 export const MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS = graphicalDelegationInstructions();
 
 export interface PlatformPrompt {
@@ -125,6 +128,7 @@ export interface PlatformPrompt {
     memory?: MemoryContextReceipt;
     identity?: AgentPromptContext["identityReceipt"];
     dismissedMessageIds: string[];
+    unansweredMessageIds?: string[];
     outcomeIds?: Array<{ messageId: string; outcomeId: string }>;
     automationResultRunIds?: string[];
   };
@@ -142,7 +146,11 @@ export const renderAgentSkillsUserInfo = (skillRender: string, memoryContext?: s
   ].join("\n");
 
 export const SUBAGENT_REVIVAL_INSTRUCTION =
-  'Pick the work back up: review the result(s), then either keep going or wrap up. If this result is genuinely new and relevant to the user, or the user asked to be told when this finished, tell them with a SendToUser. Lead with the concrete thing that finished, not a bare pronoun like "That" (they cannot see the background task). If it is stale, irrelevant, already handled, or a duplicate, and the user was not waiting on it, just stay silent and end the turn with no SendToUser rather than narrating it. Keep your status current, and clear it once everything is done and you\'re idle.';
+  'Pick the work back up: review the result(s), then either keep going or wrap up. If this result is genuinely new and relevant to the user, or the user asked to be told when this finished, tell them with a SendToUser. Lead with the concrete thing that finished, not a bare pronoun like "That" (they cannot see the background task). If it is stale, irrelevant, already handled, or a duplicate, and the user was not waiting on it, just stay silent and end the turn with no SendToUser rather than narrating it. Keep your status current, and clear it once everything is done and you\'re idle. If the handoff tells you to draft an email or Slack message, call DraftExternalMessage with the recipient, the channel or connector, the thread or other context, and the proposed text it includes. Do not send that message through a connector yourself.';
+
+/** Graphical reports open with a Status line; it decides whether resuming the worker can help. */
+export const graphicalRevivalInstruction = (subagentType: string): string =>
+  `A ${subagentType} report opens with its Status. \`Status: done\`: relay what it found. \`Status: blocked\`: never resume that subagent. When the block is a sign-in, captcha, payment or confirmation, use the in-chat form or the box handoff; otherwise tell the user with a SendToUser what is needed. \`Status: partial\`: resume it only when the report names a concrete next step and you add something it didn't have, such as a new URL, a value from the user or a different site, and at most once per goal in this conversation. Otherwise tell the user with a SendToUser what it found and what is still missing.`;
 
 export const renderSubagentRevivalPrompt = (input: {
   title: string;
@@ -157,8 +165,8 @@ export const renderSubagentRevivalPrompt = (input: {
     `Background task "${input.title}" (${input.subagentType}) ${outcome}:`,
     input.result.trim(),
     "",
-    "When reporting this result, distinguish eventual completion from an error-free run. Preserve reported failed actions, user interventions and material fallbacks. Successful recovery does not erase them; summarize them accurately without repeating the work.",
     SUBAGENT_REVIVAL_INSTRUCTION,
+    ...(input.subagentType === "computerUse" ? [graphicalRevivalInstruction(input.subagentType)] : []),
   ].join("\n");
 };
 
@@ -307,11 +315,17 @@ export const buildChannelDeliveryFailureWakePrompt = (input: {
 
 export const buildDismissedQuestionsNote = (prompts: readonly string[]): string => {
   if (prompts.length === 1) {
-    return `The user dismissed your question (${JSON.stringify(prompts[0])}) without answering — they'd rather not respond. Don't ask it again or wait for an answer; continue with what you already know and decide yourself.`;
+    return `The user dismissed your question (${JSON.stringify(prompts[0])}) without answering. They'd rather not respond. Don't ask it again or wait for an answer; continue with what you already know and decide yourself.`;
   }
   const list = prompts.map((prompt) => `- ${JSON.stringify(prompt)}`).join("\n");
-  return `The user dismissed these questions without answering — they'd rather not respond:\n${list}\nDon't ask them again or wait for answers; continue with what you already know and decide yourself.`;
+  return `The user dismissed these questions without answering. They'd rather not respond:\n${list}\nDon't ask them again or wait for answers; continue with what you already know and decide yourself.`;
 };
+
+/** An unanswered question is closed once the conversation moves on without it. */
+export const buildUnansweredQuestionNote = (prompt: string, repliedInChat: boolean): string =>
+  repliedInChat
+    ? `You asked the user a question (${JSON.stringify(prompt)}) and they replied in chat instead of answering on the card. Their message below may be the answer or may be about something else; decide from what they wrote. If it answers the question, act on it without asking again. If not, treat the question as skipped: continue with what you already know, and only ask again if you still genuinely need it.`
+    : `You asked the user (${JSON.stringify(prompt)}) and they haven't answered yet. This turn didn't come from them, and no answer is not a yes: don't do what you asked about unless they already allowed it or their memory or routines do. The card has closed. Don't put the question on a new card; if it still matters, say in your update that it's waiting on them, and they can answer in chat.`;
 
 export const GROUP_AGENT_MESSAGE_LIMIT = 8_000;
 
@@ -2056,7 +2070,7 @@ export class AgentMessaging {
   }
 
   /** channelId is the run's channel (null for a home run); undefined renders no pending automation results. */
-  async platformPrompt(botId: string, contextSessionId?: string, connectorInstructions = "", channelId?: string | null, taskConfigurationSnapshot?: TaskConfiguration): Promise<PlatformPrompt> {
+  async platformPrompt(botId: string, contextSessionId?: string, connectorInstructions = "", channelId?: string | null, taskConfigurationSnapshot?: TaskConfiguration, wakeOrigin?: string): Promise<PlatformPrompt> {
     const context = contextSessionId ? await this.prisma.contextSession.findFirst({ where: { id: contextSessionId, botId }, select: { scope: true } }) : null;
     const automation = context?.scope === "automation";
     const bot = await this.prisma.bot.findUniqueOrThrow({
@@ -2164,6 +2178,10 @@ export class AgentMessaging {
                 message."metadata"->>'type' = 'widget'
                 AND NOT (message."metadata" ? 'respondedValue')
                 AND coalesce((message."metadata"->>'widgetDismissedEchoed')::boolean, false) = false
+                AND (
+                  coalesce((message."metadata"->>'widgetDismissed')::boolean, false)
+                  OR coalesce((message."metadata"->>'widgetUnansweredEchoed')::boolean, false) = false
+                )
               )
               OR (
                 message."metadata"->>'type' = 'secret-request'
@@ -2191,6 +2209,7 @@ export class AgentMessaging {
       morePeers: recentPeers.length > PLATFORM_PROMPT_PEER_LIMIT,
     });
     const dismissedWidgetPrompts: string[] = [];
+    const unansweredIds: string[] = [];
     const richMessagePrompts = pendingRichMessages.flatMap((message) => {
       const metadata =
         message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
@@ -2203,7 +2222,8 @@ export class AgentMessaging {
           dismissedWidgetPrompts.push(message.content);
           return [];
         }
-        return [`The user has not answered your question yet: ${JSON.stringify(message.content)}.`];
+        unansweredIds.push(message.id);
+        return [buildUnansweredQuestionNote(message.content, wakeOrigin === "user")];
       }
       if (metadata.type === "user-form" || metadata.type === "external-draft" || metadata.type === "bot-template") {
         return [typeof metadata.outcomeText === "string" ? `[Card outcome ${String(metadata.outcomeId)}]\n${metadata.outcomeText}` : `The user has not completed the ${metadata.type === "user-form" ? "form" : "message draft"} yet: ${JSON.stringify(message.content)}. Wait for their response.`];
@@ -2232,7 +2252,7 @@ export class AgentMessaging {
     const siblings = await listSiblingThreads(this.prisma, botId, contextSessionId);
     const instructions = [
       frozen.sections.mcp_instructions,
-      renderPlatformBaseSystemPrompt({ feedback: process.env.OPENTEAM_FEEDBACK_ALLOW_AGENT === "true" }),
+      renderPlatformBaseSystemPrompt({ feedback: process.env.OPENTEAM_FEEDBACK_ALLOW_AGENT === "true", ...(automation ? { automationRun: AUTOMATION_RUN_INSTRUCTIONS } : {}) }),
       renderOtherActiveConversations(siblings),
       agentPrompt.profileSection,
       frozen.sections.agent_instructions,
@@ -2240,23 +2260,21 @@ export class AgentMessaging {
       A2A_PLATFORM_INSTRUCTIONS,
       graphicalDelegationInstructions(taskConfiguration),
       taskUserInfo(taskConfiguration),
-      "Subagents run in the background by default. Set run_in_background:false to wait for the result. Background completion is delivered after your turn ends; continue other work or end your turn instead of polling. Installed plugin agent templates are listed separately when available.",
       todoContext.length > 0
         ? `Durable task queue (reconcile it with TodoWrite on each wake):\n${todoContext.join("\n")}`
         : "The durable task queue is empty.",
       "In a room wake, speak only when you add something useful. Finishing without SendToUser is a valid silent turn.",
-      "Use UpdateMemory for durable memory and UpdateRoutine for scheduled routines. Skills, profile and settings, avatars, and connector disconnects have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, and DisconnectChannel.",
       renderPlatformRuntimeInstructions({
         agentDataRoot: this.agentData.root,
         botId,
         workingDirectory: bot.defaultDirectory,
         timeZone: this.defaultTimeZone,
+        memoryPolicy: agentPrompt.memory.policy,
       }),
+      frozen.sections.automations,
       `Your effective settings are hiddenFromSidebar=${bot.hiddenFromSidebar} and notifyOnAgentUpdates=${bot.notificationsEnabled}.`,
       `Use cursor.ReadTranscript for task-relevant saved conversation history or a dispatched worker’s observable activity. Transcript files are private runtime storage; do not open them with Read.`,
       frozen.sections.agent_directory,
-      agentPrompt.memory.policy,
-      frozen.sections.automations,
       disconnected.length > 0
         ? `Disconnected connector platforms: ${disconnected.map(({ platform }) => platform).join(", ")}`
         : "No connector platform is marked disconnected.",
@@ -2275,15 +2293,24 @@ export class AgentMessaging {
       where: { wakeRunId: null, acknowledgedAt: null, run: { botId, channelId } },
       orderBy: { createdAt: "asc" }, take: 20,
     }) : [];
+    // A result names the routine it came from, not just its run.
+    const resultRoutines = new Map(automationResults.length ? (await this.prisma.routineExecution.findMany({
+      where: { runId: { in: automationResults.map((result) => result.runId) } },
+      select: { runId: true, routine: { select: { name: true, slug: true } } },
+    })).flatMap((execution) => execution.runId ? [[execution.runId, execution.routine] as const] : []) : []);
     return {
-      instructions: automation ? `${instructions}\n\n${AUTOMATION_RUN_INSTRUCTIONS}\n\nUse cursor.ReadTranscript with agent_id="${botId}" only when the saved task needs earlier conversation detail; the parent conversation has deliberately not been copied into this automation context.` : instructions,
+      instructions: automation ? `${instructions}\n\nUse cursor.ReadTranscript with agent_id="${botId}" only when the saved task needs earlier conversation detail; the parent conversation has deliberately not been copied into this automation context.` : instructions,
       instructionsUpdate: [frozen.update, frozen.memory?.update].filter(Boolean).join("\n\n") || null,
       ambientContext: automation ? null : [
         dismissedWidgetPrompts.length > 0 ? buildDismissedQuestionsNote(dismissedWidgetPrompts) : "",
         ...richMessagePrompts,
-        ...automationResults.map((result) => `[Silent automation result ${result.runId}]\nThis result waited for your next natural boundary and has not been shown to the user. Use it as relevant to the current task; it is not a request for an unsolicited notification.\n${result.message}`),
+        ...automationResults.map((result) => {
+          const routine = resultRoutines.get(result.runId);
+          const source = routine ? `routine ${JSON.stringify(routine.name)} (folder ${routine.slug}), run ${result.runId}` : result.runId;
+          return `[Silent automation result: ${source}]\nThis result waited for your next natural boundary and has not been shown to the user. Use it as relevant to the current task; it is not a request for an unsolicited notification.\n${result.message}`;
+        }),
       ].filter(Boolean).join("\n\n") || null,
-      acknowledgement: { identity: agentPrompt.identityReceipt, sections: frozen.receipts, memory: frozen.memory?.receipt, automationResultRunIds: automationResults.map((result) => result.runId), dismissedMessageIds: automation ? [] : dismissedIds, outcomeIds: (automation ? [] : pendingRichMessages).flatMap((message) => {
+      acknowledgement: { identity: agentPrompt.identityReceipt, sections: frozen.receipts, memory: frozen.memory?.receipt, automationResultRunIds: automationResults.map((result) => result.runId), dismissedMessageIds: automation ? [] : dismissedIds, unansweredMessageIds: automation ? [] : unansweredIds, outcomeIds: (automation ? [] : pendingRichMessages).flatMap((message) => {
         const metadata = message.metadata as Record<string, unknown>;
         return typeof metadata.outcomeId === "string" && typeof metadata.outcomeText === "string" ? [{ messageId: message.id, outcomeId: metadata.outcomeId }] : [];
       }) },
@@ -2305,6 +2332,14 @@ export class AgentMessaging {
         SET "metadata" = "metadata" || '{"widgetDismissedEchoed":true}'::jsonb
         WHERE "senderBotId" = ${botId}::uuid
           AND "id" IN (${Prisma.join(acknowledgement.dismissedMessageIds.map((id) => Prisma.sql`${id}::uuid`))})
+      `);
+    }
+    if (acknowledgement.unansweredMessageIds?.length) {
+      await this.prisma.$executeRaw(Prisma.sql`
+        UPDATE "ChannelMessage"
+        SET "metadata" = "metadata" || '{"widgetUnansweredEchoed":true}'::jsonb
+        WHERE "senderBotId" = ${botId}::uuid
+          AND "id" IN (${Prisma.join(acknowledgement.unansweredMessageIds.map((id) => Prisma.sql`${id}::uuid`))})
       `);
     }
     if (acknowledgement.identity) await this.agentData.acknowledgeIdentityAnnouncement(botId, contextSessionId, acknowledgement.identity);
@@ -2749,7 +2784,7 @@ export class AgentMessaging {
       // including completions of delegated work, must still deliver results.
       // Leave earlier cards available without locking the conversation.
       const awaitingThisTurn = awaitingUser?.sourceRunId === context.runId;
-      if (
+      const openCard =
         awaitingThisTurn &&
         awaitingMetadata &&
         ["widget", "secret-request", "computer-handoff", "user-form"].includes(String(awaitingMetadata.type)) &&
@@ -2759,12 +2794,16 @@ export class AgentMessaging {
         awaitingMetadata.secretProvided !== true &&
         !["completed", "skipped", "dismissed"].includes(
           String(awaitingMetadata.computerHandoffState)
-        )
-      ) {
+        );
+      // One question at a time. Other sends in the response that asked still go out;
+      // a form or box handoff stops the rest of its response.
+      if (openCard && (["widget", "secret-request"].includes(input.type) || ["computer-handoff", "user-form"].includes(String(awaitingMetadata.type)))) {
         throw new ApiError(
           409,
           "awaiting_user_response",
-          "A question or secure handoff is already waiting for the user. Stop this turn and wait for them to respond."
+          ["widget", "secret-request"].includes(input.type)
+            ? "This turn already asks the user something (a question widget, a secret or credential request, or another card), and only one can be open at a time, so this one was not shown. The user's answer arrives as the next message; ask this then if it still matters."
+            : "This turn is already waiting on the user (you sent a question widget or handed the box back to them), so this message was not delivered. Wait for the user. Their response arrives as the next message. Then say this on your next turn."
         );
       }
       if (channel.kind === "group" && context.deliveryId) {

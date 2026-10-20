@@ -56,7 +56,7 @@ export interface ActiveTurn {
   currentAssistantId: string | null;
   currentReasoningId: string | null;
   startedItems: Set<string>;
-  toolArgs: Map<string, { toolName: string; args: unknown; deliveryCleanup?: boolean }>;
+  toolArgs: Map<string, { toolName: string; args: unknown; responseCall?: boolean; afterEndTurn?: boolean }>;
   lastStopReason: string | null;
   lastErrorMessage: string | null;
   lastGraphicalSurface?: "browser" | "computer";
@@ -78,11 +78,19 @@ export interface ActiveTurn {
   lastPromptFingerprint?: string;
   connectorInstructions?: string;
   endTurnRequested?: boolean;
-  /** Remaining attachment calls from the already-produced assistant response. */
-  pendingDeliveryAttachments?: Map<string, string>;
-  finishDeliveryAttachments?: boolean;
-  /** Exact stop calls already emitted alongside a closing response. */
-  pendingDeliveryCleanup?: Map<string, string>;
+  /** Unexecuted calls of the latest assistant response; each may run once after its closing send. */
+  pendingResponseCalls?: Map<string, string>;
+  /** A closing send, closing reaction, or question ended the turn; the rest of its response still runs. */
+  finishResponseCalls?: boolean;
+  /** Calls of the latest assistant response that failed. */
+  failedResponseCalls?: string[];
+  /** SendToUser calls of the latest assistant response that failed. */
+  failedResponseSends?: Set<string>;
+  /** This turn showed a question or handed the box back; it waits on the user and is never held open. */
+  awaitingUser?: boolean;
+  endTurnHolds?: number;
+  /** A failed call kept a closing send from ending the turn; its reply already went out. */
+  endTurnHeld?: boolean;
   acknowledgedCardOutcomes?: Set<string>;
 }
 

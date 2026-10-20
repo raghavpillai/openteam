@@ -9,7 +9,7 @@ import { BotCompactionArchiveStore, BotCompactionCoordinator } from "../../src/b
 import { ComputerRuntime } from "../../src/runtime";
 import { verifyGraphicalTaskCompletion } from "../../src/runtime/graphical-completion";
 
-test("real Pi loop spaces durable checkpoints without extra inference and keeps full schema evidence", async () => {
+test("real Pi loop adds no host progress notes and keeps full schema evidence", async () => {
   const root = await mkdtemp(join(tmpdir(), "graphical-progress-"));
   const requests: any[] = [];
   const model: Model<"openai-completions"> = {
@@ -57,21 +57,14 @@ test("real Pi loop spaces durable checkpoints without extra inference and keeps 
     active.session = session;
     await session.prompt("Perform all twenty-five fixture steps.");
     expect(requests).toHaveLength(26);
-    const checkpoint = "Host execution status: this graphical worker is still active";
-    expect(requests.slice(0, 12).every(request => !JSON.stringify(request).includes(checkpoint))).toBe(true);
-    expect(JSON.stringify(requests[12])).toContain(checkpoint);
-    const checkpointsIn = (request: any) => JSON.stringify(request).split(checkpoint).length - 1;
-    expect(checkpointsIn(requests[13])).toBe(1);
-    expect(checkpointsIn(requests[23])).toBe(1);
-    expect(checkpointsIn(requests[24])).toBe(2);
-    expect(checkpointsIn(requests[25])).toBe(2);
+    expect(requests.every(request => !JSON.stringify(request).includes("Host execution status"))).toBe(true);
     const raw = manager.buildSessionContext().messages;
-    expect(raw.filter((m: any) => m.customType === "openteam-graphical-progress")).toHaveLength(2);
+    expect(raw.filter((m: any) => m.customType === "openteam-graphical-progress")).toHaveLength(0);
     expect(raw.filter((m: any) => m.role === "toolResult" && JSON.stringify(m).includes("FULL-SCHEMA-EVIDENCE"))).toHaveLength(25);
     const visibleResults = requests[25].messages.filter((m: any) => m.role === "tool");
     expect(visibleResults.filter((m: any) => JSON.stringify(m).includes("FULL-SCHEMA-EVIDENCE"))).toHaveLength(1);
     expect(visibleResults.filter((m: any) => JSON.stringify(m).includes("schemaSourceToolCallId"))).toHaveLength(24);
-    // Completion verification remains available; the checkpoint never replaces it.
+    // Completion verification remains available.
     await verifyGraphicalTaskCompletion(active);
     expect(requests).toHaveLength(27);
     expect(JSON.stringify(requests[26])).toContain("Before returning this graphical task");

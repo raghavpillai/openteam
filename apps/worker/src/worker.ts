@@ -1259,7 +1259,7 @@ export class WakeWorker {
       // Plugin skills are global/read-only inputs. User workflows are rendered
       // later by platformInstructions and therefore win on conflict.
       const platformPrompt = await this.messaging.platformPrompt(claimed.botId, claimed.contextSessionId,
-        pluginContext.skillInstructions, claimed.runChannelId, taskConfiguration);
+        pluginContext.skillInstructions, claimed.runChannelId, taskConfiguration, claimed.origin);
       // Replay failed user inputs whose durable-session delivery was never
       // acknowledged. Runtime message IDs prevent duplication after a lost ack.
       const missed = claimed.runtimeProfile === "agent" && claimed.origin !== "routine" ? await this.prisma.inboxEvent.findMany({ where: { botId: claimed.botId, conversationId: claimed.conversationId, deliveryMode: "turn", runId: { not: claimed.runId }, run: { channelId: claimed.channelId, origin: "user", status: { in: ["failed", "interrupted"] }, inputDeliveredAt: null } }, orderBy: { createdAt: "asc" }, take: 20 }) : [];

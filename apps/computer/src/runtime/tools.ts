@@ -1,5 +1,5 @@
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
-import { onlyPendingBackgroundWork } from "./background-status";
+import { onlyPendingBackgroundWork, startedBackgroundTask } from "./background-status";
 import { spoolFile } from "@openteam/plugin-sdk/file-spool";
 import { agentReadStream, agentWriteStream } from "../agent-file-stream";
 import { stageAttachment } from "../attachment-staging";
@@ -103,6 +103,11 @@ export const GRAPHICAL_WORKER_READ_DESCRIPTION =
 
 /** How long a handoff waits for the box browser to show the step's page. */
 const BOX_HELP_PAGE_TIMEOUT_MS = 12_000;
+/** A question card waits on the user's answer, so it ends the turn after its response. */
+const isQuestionSend = (args: unknown): boolean =>
+  ["widget", "secret-request"].includes(String((args as { type?: unknown } | null)?.type));
+export const EARLIER_SEND_FAILED_QUESTION_HELD =
+  "Failed to send the message to the user: An earlier message in this response was not delivered (its own result says why), so this question was not shown either and the turn is still yours. Fix and resend that message, then ask again.";
 
 /** Browser and desktop workers stay on the box, so their box tools take no machineId. */
 const MACHINE_ROUTING_AWAIT_SENTENCE =
@@ -559,8 +564,14 @@ export class RuntimeTools {
     args: unknown,
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    this.assertCurrentInput(active);
-    return this.executeScopedTool(active, callId, tool, args, signal);
+    try {
+      this.assertCurrentInput(active);
+      return await this.executeScopedTool(active, callId, tool, args, signal);
+    } catch (error) {
+      // A send that did not go out holds a later question and keeps a later end_turn from closing the turn.
+      if (tool === SEND_TO_USER_TOOL.name) active.failedResponseSends?.add(callId);
+      throw error;
+    }
   }
 
   private async executeScopedTool(
@@ -582,17 +593,18 @@ export class RuntimeTools {
       throw new Error("Read-only agents cannot access the user's computer");
     signal?.throwIfAborted();
     active.pluginAbortController?.signal.throwIfAborted();
-    const queuedAttachment = tool === SEND_TO_USER_TOOL.name &&
-      (args as { type?: string } | null)?.type === "attachment" &&
-      active.pendingDeliveryAttachments?.get(callId) === JSON.stringify(args);
-    const queuedCleanup = tool === CALL_DYNAMIC_TOOL_TOOL.name &&
-      active.pendingDeliveryCleanup?.get(callId) === JSON.stringify(args);
-    const finishCleanup = active.endTurnRequested === true && active.finishDeliveryAttachments === true && queuedCleanup;
-    if (active.endTurnRequested && !(active.finishDeliveryAttachments && queuedAttachment) && !finishCleanup)
+    // Pi validates arguments before execution, so the raw-argument match recorded
+    // when the call started is authoritative; the direct comparison covers the rest.
+    const responseCall = active.pendingResponseCalls?.has(callId) === true &&
+      (active.toolArgs?.get(callId)?.responseCall === true ||
+        active.pendingResponseCalls?.get(callId) === JSON.stringify(args));
+    const afterEndTurn = active.endTurnRequested === true && active.finishResponseCalls === true && responseCall;
+    if (active.endTurnRequested && !afterEndTurn)
       throw new Error("The turn has ended after delivery; wait for the next user message.");
     // Consume once, even on failure. This is not a retry or a new action grant.
-    if (queuedAttachment) active.pendingDeliveryAttachments?.delete(callId);
-    if (queuedCleanup) active.pendingDeliveryCleanup?.delete(callId);
+    if (responseCall) active.pendingResponseCalls?.delete(callId);
+    if (tool === SEND_TO_USER_TOOL.name && isQuestionSend(args) && active.failedResponseSends?.size)
+      throw new Error(EARLIER_SEND_FAILED_QUESTION_HELD);
     if (active.requestSource === "automation" && AUTOMATION_PARENT_ONLY_TOOLS.has(tool)) {
       throw new Error("Use WakeParent to hand this communication to the parent agent");
     }
@@ -703,7 +715,7 @@ export class RuntimeTools {
         callId,
         Schema.decodeUnknownSync(CallDynamicToolInput)(args),
         signal,
-        finishCleanup
+        afterEndTurn
       );
     }
 
@@ -1350,6 +1362,7 @@ export class RuntimeTools {
       active.sentMessageCount += 1;
       active.toolActivityAfterLastSend = false;
       active.endTurnRequested = true;
+      active.finishResponseCalls = true;
     }
     if (
       [
@@ -1368,14 +1381,13 @@ export class RuntimeTools {
       active.sentMessageCount += 1;
       active.toolActivityAfterLastSend = false;
       const input = args as { end_turn?: boolean; type?: string };
-      if (
-        input.end_turn === true ||
-        input.type === "widget" ||
-        input.type === "secret-request" ||
-        [REQUEST_BOX_HELP_TOOL.name, "RequestUserForm", "SendFeedback"].includes(tool)
-      ) {
-        if (tool === SEND_TO_USER_TOOL.name && input.type === "text" && input.end_turn === true)
-          active.finishDeliveryAttachments = true;
+      const question = tool === SEND_TO_USER_TOOL.name && isQuestionSend(input);
+      // end_turn closes the turn only when no earlier send in this response failed.
+      const closes = tool === SEND_TO_USER_TOOL.name && input.end_turn === true && !active.failedResponseSends?.size;
+      if (question || [REQUEST_BOX_HELP_TOOL.name, "RequestUserForm"].includes(tool)) active.awaitingUser = true;
+      if (question || closes || [REQUEST_BOX_HELP_TOOL.name, "RequestUserForm", "SendFeedback"].includes(tool)) {
+        // A question or closing send still runs the rest of its response; a form or box handoff stops it.
+        if (question || closes) active.finishResponseCalls = true;
         active.endTurnRequested = true;
       }
     }
@@ -1399,6 +1411,7 @@ export class RuntimeTools {
       details: {
         tool,
         ...(tool === "CheckSubagent" ? {pendingBackgroundWork: onlyPendingBackgroundWork(body)} : {}),
+        ...(tool === "Task" ? {pendingBackgroundWork: startedBackgroundTask(body)} : {}),
         ...(tool === "TodoWrite" && body && typeof body === "object" && "todos" in body
           ? { todos: body.todos }
           : {}),
@@ -1741,7 +1754,7 @@ export class RuntimeTools {
     callId: string,
     input: CallDynamicToolInput,
     signal?: AbortSignal,
-    finishCleanup = false
+    afterEndTurn = false
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     if (
       active.readOnly &&
@@ -1762,16 +1775,13 @@ export class RuntimeTools {
     const resolved = resolveDynamicTool(catalog, receipts, input);
     const invoke = async () => {
       signal?.throwIfAborted();
-      if (finishCleanup) {
+      if (afterEndTurn) {
         this.assertCurrentInput(active);
         active.pluginAbortController?.signal.throwIfAborted();
       }
-      if (active.endTurnRequested && !finishCleanup)
+      if (active.endTurnRequested && !afterEndTurn)
         throw new Error("The turn has ended; wait for the next user message");
-      const result = await resolved.tool.execute(active, callId, resolved.arguments, signal);
-      return finishCleanup && !("isError" in result && result.isError)
-        ? {...result, details: {...result.details, deliveryCleanup: true}}
-        : result;
+      return resolved.tool.execute(active, callId, resolved.arguments, signal);
     };
     if (
       input.namespace === "cursor" &&

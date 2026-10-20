@@ -29,7 +29,6 @@ import type { RuntimeTools } from "./tools";
 import type { ActiveTurn } from "./types";
 import { communicationReminder, executionClock, executionReceipts, promptFingerprint } from "./prompt-context";
 import { compactRepeatedDiscovery } from "./discovery-context";
-import { graphicalProgressReminder } from "./graphical-completion";
 
 export const modelVisibleSummaryTools = (
   tools: ReadonlyArray<{
@@ -133,21 +132,6 @@ export function compactionExtension(
             };
         }
         await acknowledgeToolOutcomes?.(event.messages as BotMessage[]);
-        // The SDK's model projection can omit custom-entry metadata. Count from
-        // the durable tape so a checkpoint resets the cadence on later steps.
-        const graphicalReminder = graphicalProgressReminder(readPiMessages(), active);
-        if (graphicalReminder && active.session) {
-          await active.session.sendCustomMessage(
-            {
-              customType: "openteam-graphical-progress",
-              content: graphicalReminder,
-              display: false,
-              details: { origin: "host" },
-            },
-            { triggerTurn: false }
-          );
-          event.messages = [...event.messages, active.session.messages.at(-1)!];
-        }
         const reminder = communicationReminder(readPiMessages(), active);
         if (reminder && active.session) {
           await active.session.sendCustomMessage(

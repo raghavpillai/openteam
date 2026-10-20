@@ -340,6 +340,9 @@ contracts.SendFeedback!.inputSchema.properties.wantsResponse = {
 contracts.SendFeedback!.inputSchema.required = [...contracts.SendFeedback!.inputSchema.required, "wantsResponse"];
 
 // Routine writes apply directly; there is no confirmation card.
+// A clock time the user names is saved as named ("8am" is 8:00) here and in the routines skill. The
+// reference moves a named hour onto the request's minute to spread load across a shared fleet; a
+// single-user deployment has no such load, and the exact time is what the user asked for.
 adaptDescription("UpdateRoutine", [
   [
     "\nCreating or changing a routine may ask the user to confirm, since it's the one change that acts while they're away. If it does, they'll see a card and you'll get their answer back as the tool result; don't ask first, and don't retry a denied write.",

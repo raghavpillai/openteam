@@ -104,3 +104,61 @@ for (const scenario of ["never-sent", "progress-only", "recovered", "delivered",
     if(scenario.startsWith("cancelled")) { expect(settlements).toBe(0); expect(events.some(e=>e.type==="runtime.error")).toBe(false); }
   });
 }
+
+for (const scenario of ["background", "default-background", "foreground", "failed", "not-started"] as const) {
+  test(`a Task dispatched after an acknowledgement owes no closing send only while it runs: ${scenario}`, async () => {
+    const runtime = new ComputerRuntime() as any;
+    const events: any[] = [];
+    let calls = 0;
+    const active: any = {
+      contextSessionId: "fixture", runId: "fixture", turnId: "fixture", botId: "fixture",
+      runtimeProfile: "agent", subagentType: null, requestSource: "turn",
+      modelRef: {providerId: "fixture", modelId: "fixture"}, instructions: "fixture",
+      sentMessageCount: 1, toolActivityAfterLastSend: false, lastStopReason: "stop",
+      attachmentTempDirectories: [], toolArgs: new Map(),
+      queue: {push: (e: any) => events.push(e), end() {}},
+    };
+    const args = {description: "Check the case", prompt: "Check it.", subagent_type: "computerUse",
+      ...(scenario === "background" ? {run_in_background: true} : scenario === "foreground" ? {run_in_background: false} : {})};
+    active.session = {
+      async prompt() {
+        calls++;
+        if (calls > 1) return;
+        routeEvent(undefined, active, {type: "tool_execution_start", toolCallId: "task", toolName: "Task", args} as any);
+        routeEvent(undefined, active, {type: "tool_execution_end", toolCallId: "task", toolName: "Task", isError: scenario === "failed",
+          result: {content: [], details: {tool: "Task", pendingBackgroundWork: scenario !== "not-started"}}} as any);
+      },
+      getContextUsage: () => undefined, getAllTools: () => [], getActiveToolNames: () => [], messages: [],
+    };
+    runtime.compaction = {beginUserQuery: async () => {}, settleAtTurnEnd: async () => null, parkBackground() {}};
+    runtime.cleanup = async () => {};
+    await runtime.execute(active, "fixture", []);
+    const running = ["background", "default-background"].includes(scenario);
+    expect(events.find(e => e.type === "turn.completed").status).toBe(running ? "completed" : "failed");
+    expect(calls).toBe(running ? 1 : 2);
+  });
+}
+
+test("a held closing reply that the model then leaves as is settles as delivered without a nudge", async () => {
+  const runtime = new ComputerRuntime() as any;
+  const events: any[] = [];
+  let prompts = 0;
+  const active: any = {
+    contextSessionId: "fixture", runId: "fixture", turnId: "fixture", botId: "fixture",
+    runtimeProfile: "agent", subagentType: null, requestSource: "turn",
+    modelRef: {providerId: "fixture", modelId: "fixture"}, instructions: "fixture",
+    sentMessageCount: 1, toolActivityAfterLastSend: false, lastStopReason: "stop",
+    attachmentTempDirectories: [], toolArgs: new Map(), endTurnHeld: true,
+    queue: {push: (e: any) => events.push(e), end() {}},
+  };
+  active.session = {
+    // After the hold the model retried the failed call and stopped without another send.
+    async prompt() { prompts++; active.toolActivityAfterLastSend = true; },
+    getContextUsage: () => undefined, getAllTools: () => [], getActiveToolNames: () => [], messages: [],
+  };
+  runtime.compaction = {beginUserQuery: async () => {}, settleAtTurnEnd: async () => null, parkBackground() {}};
+  runtime.cleanup = async () => {};
+  await runtime.execute(active, "fixture", []);
+  expect(events.find(e => e.type === "turn.completed").status).toBe("completed");
+  expect(prompts).toBe(1);
+});

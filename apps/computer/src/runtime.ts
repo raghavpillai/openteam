@@ -58,7 +58,7 @@ import { withAgentOutputBudget } from "./runtime/output-budget";
 import { inferenceMetricsExtension } from "./runtime/inference-metrics";
 import { IdleProviderConnections, InferenceProviderConnections } from "./runtime/provider-connections";
 import { untrustedResultsExtension } from "./runtime/untrusted-results";
-import { enrichUserInfo } from "./runtime/prompt-context";
+import { END_TURN_HOLD_REMINDER, enrichUserInfo } from "./runtime/prompt-context";
 import { defaultTaskConfiguration, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 import { assertSessionPath } from "./runtime/session-path";
 import { RuntimeTools } from "./runtime/tools";
@@ -69,6 +69,9 @@ import { ScreenBroker } from "./screen-broker";
 export const REPLY_NUDGE_PROMPT = SEND_TO_USER_REPLY_NUDGE_PROMPT;
 
 export const CLOSING_SEND_NUDGE_PROMPT = SEND_TO_USER_CLOSING_NUDGE_PROMPT;
+
+/** Times one turn may stay open after a closing reply whose sibling call failed. */
+export const END_TURN_HOLD_LIMIT = 2;
 
 export const isDeliveryOwed = (
   requestSource: NonNullable<ComputerTurnRequest["requestSource"]>
@@ -479,8 +482,30 @@ export class ComputerRuntime {
 
   private bindTurnStop(active: ActiveTurn, session: AgentSession): void {
     const previousStop = session.agent.shouldStopAfterTurn;
-    session.agent.shouldStopAfterTurn = (context, signal) => {
+    session.agent.shouldStopAfterTurn = async (context, signal) => {
       if (active.endTurnRequested) {
+        // A call alongside a delivered closing reply failed. Keep the turn open
+        // so the model sees that result; the reply itself already went out.
+        // A turn that asked the user something waits for them instead.
+        if (active.finishResponseCalls && !active.awaitingUser && active.failedResponseCalls?.length &&
+            (active.endTurnHolds ?? 0) < END_TURN_HOLD_LIMIT && active.pendingSteers.length === 0 &&
+            !signal?.aborted && !active.pluginAbortController?.signal.aborted) {
+          active.endTurnHolds = (active.endTurnHolds ?? 0) + 1;
+          active.endTurnHeld = true;
+          active.endTurnRequested = false;
+          active.finishResponseCalls = false;
+          active.failedResponseCalls = [];
+          active.toolActivityAfterLastSend = false;
+          await session.sendCustomMessage({
+            customType: "openteam-end-turn-hold",
+            content: END_TURN_HOLD_REMINDER,
+            display: false,
+            details: { origin: "host" },
+          }, { deliverAs: "steer" });
+          return false;
+        }
+        // Only a hold the model could act on excuses later undelivered work.
+        active.endTurnHeld = false;
         // Pi's post-run loop otherwise drains queued steering even after its
         // inner loop stops. Leave these inputs unacknowledged in the durable
         // server inbox so they are promoted into a separate user turn.
@@ -830,7 +855,7 @@ export class ComputerRuntime {
       await this.compaction.beginUserQuery(active.contextSessionId, active.resetSelfSummaryCount);
       await active.session?.prompt(content, { source: "rpc", images });
       await verifyGraphicalTaskCompletion(active);
-      if (isDeliveryOwed(active.requestSource) && !active.endTurnRequested &&
+      if (isDeliveryOwed(active.requestSource) && !active.endTurnRequested && !active.endTurnHeld &&
           !active.pluginAbortController?.signal.aborted &&
           !["aborted", "error"].includes(active.lastStopReason ?? "")) {
         if (active.sentMessageCount === 0) {
@@ -856,7 +881,7 @@ export class ComputerRuntime {
       else if (active.lastStopReason === "error") {
         status = "failed";
         error = { message: active.lastErrorMessage ?? "Pi turn failed" };
-      } else if (isDeliveryOwed(active.requestSource) &&
+      } else if (isDeliveryOwed(active.requestSource) && !active.endTurnHeld &&
         (active.sentMessageCount === 0 || active.toolActivityAfterLastSend)) {
         // A model finishing is not proof that SendToUser reached the server.
         // end_turn prevents further work, but cannot certify a later rejected

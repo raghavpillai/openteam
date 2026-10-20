@@ -3,7 +3,6 @@ import {
   communicationReminder,
   enrichUserInfo,
   promptFingerprint,
-  EARLY_RESULT_REMINDER,
   PROGRESS_REMINDER,
   executionClock,
 } from "../../src/runtime/prompt-context";
@@ -61,11 +60,11 @@ test("acknowledgement reminders fire during work, with silent/worker exclusions"
   ).toBeNull();
 });
 
-test("opening acknowledgement is followed by a result reminder after work", () => {
+test("an opening acknowledgement is not followed by a result reminder", () => {
   expect(communicationReminder([user, call("SendToUser", { type: "text" })], active)).toBeNull();
   expect(
     communicationReminder([user, call("SendToUser", { type: "text" }), call("Read")], active)
-  ).toEqual({ kind: "early-result", content: EARLY_RESULT_REMINDER });
+  ).toBeNull();
   expect(
     communicationReminder(
       [user, call("SendToUser", { type: "widget" }), call("Read"), call("Read")],
@@ -74,32 +73,21 @@ test("opening acknowledgement is followed by a result reminder after work", () =
   ).toBe("ack");
 });
 
-test("early reminders allow unfinished work; prolonged silence requires an update", () => {
+test("unfinished work after an acknowledgement continues; prolonged silence requires an update", () => {
   const start = [user, call("SendToUser", { type: "text" }), call("Read")];
-  const note = {
-    role: "custom",
-    customType: "openteam-communication-reminder",
-    content: EARLY_RESULT_REMINDER,
-  };
-  expect(communicationReminder([...start, note, call("Read")], active)).toBeNull();
+  expect(communicationReminder([...start, call("Read")], active)).toBeNull();
   expect(
-    communicationReminder(
-      [...start, note, ...Array.from({ length: 6 }, () => call("Read"))],
-      active
-    )
+    communicationReminder([...start, ...Array.from({ length: 6 }, () => call("Read"))], active)
   ).toEqual({ kind: "progress", content: PROGRESS_REMINDER });
   expect(
-    communicationReminder(
-      [...start, note, call("SendToUser", { type: "text" }), call("Read")],
-      active
-    )?.kind
-  ).toBe("early-result");
+    communicationReminder([...start, call("SendToUser", { type: "text" }), call("Read")], active)
+  ).toBeNull();
 });
 
 test("injected user-role notes do not hide a long silent streak or a newer real user turn", () => {
   const note = {
     role: "user",
-    content: EARLY_RESULT_REMINDER,
+    content: "<system_reminder>\nA reminder recorded by an earlier runtime.\n</system_reminder>",
     providerOptions: { cursor: { sandEarlyResultReminder: true } },
   };
   const start = [user, call("SendToUser", { type: "text" }), call("Read"), note];

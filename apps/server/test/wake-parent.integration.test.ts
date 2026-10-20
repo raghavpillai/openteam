@@ -128,6 +128,9 @@ test.skipIf(!databaseUrl)(
         status: "queued",
       });
       expect(JSON.stringify(wake.inboxEvents[0]?.payload)).toContain(handoff);
+      // The parent writes the outward message itself, and the handoff stays owed past new user messages.
+      expect(JSON.stringify(wake.inboxEvents[0]?.payload)).toContain("Treat the handoff text as private context and write the outward message yourself.");
+      expect(JSON.stringify(wake.inboxEvents[0]?.payload)).toContain("This handoff is still owed even if the user has sent you something new since it arrived");
       expect(await prisma.channelMessage.count({ where: { sourceRunId: run.id } })).toBe(0);
       // A new service instance and a changed call id/body must not redeliver or rewrite the committed handoff.
       expect(
@@ -195,7 +198,8 @@ test.skipIf(!databaseUrl)(
         (await restarted.platformPrompt(botId, home.id, "", channels[1]!)).ambientContext ?? ""
       ).not.toContain("All systems unchanged");
       const routinePrompt = await restarted.platformPrompt(botId, automation.id, "", channelId);
-      expect(routinePrompt.instructions).toContain("WakeParent is the only route");
+      expect(routinePrompt.instructions).toContain("WakeParent is the only way to reach the user or another agent from this run");
+      expect(routinePrompt.instructions).not.toContain("## How a turn works");
       expect(routinePrompt.ambientContext).toBeNull();
       await restarted.acknowledgePlatformPrompt(botId, automation.id, routinePrompt);
       expect(

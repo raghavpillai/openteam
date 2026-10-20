@@ -22,11 +22,14 @@ describe("main-agent graphical delegation instructions", () => {
 
   test("routes all browser and desktop work to computerUse", () => {
     expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain(
-      "For browser or desktop interaction, delegate with Task using subagent_type computerUse."
+      "delegate every browser and desktop interaction to a background computerUse subagent."
+    );
+    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain(
+      "Before your first desktop or browser dispatch in a task, Read the managed `box-desktop` skill first and follow it."
     );
     expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).not.toContain("browserUse");
     expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain(
-      "Do not attempt graphical interaction yourself"
+      "You cannot click, type, or scroll there yourself"
     );
     const restricted = graphicalDelegationInstructions({
       executorProfiles: [],
@@ -35,7 +38,7 @@ describe("main-agent graphical delegation instructions", () => {
     expect(restricted).toBe(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS);
     const unavailable = graphicalDelegationInstructions({ executorProfiles: [], graphicalAvailable: false });
     expect(unavailable).toContain("Browser and desktop workers are unavailable.");
-    expect(unavailable).not.toContain("subagent_type computerUse");
+    expect(unavailable).not.toContain("computerUse subagent");
   });
 
   test("gives the combined worker browser-first rules, few calls and a status report", () => {
@@ -132,6 +135,20 @@ describe("main-agent graphical delegation instructions", () => {
     expect(wake).toContain("tell them with a SendToUser");
     expect(wake).not.toContain("user_visible_high_level_summary");
     expect(wake).not.toContain("<response>");
+    expect(wake).toContain("If the handoff tells you to draft an email or Slack message, call DraftExternalMessage");
+    expect(wake).not.toContain("Status: partial");
+  });
+
+  test("a computerUse completion carries the Status-aware resume rule", () => {
+    const wake = renderSubagentRevivalPrompt({
+      title: "Ask support",
+      subagentType: "computerUse",
+      status: "completed",
+      result: "Status: partial\nThe agent said they will reply within 30 minutes.",
+    });
+    expect(wake).toContain("A computerUse report opens with its Status.");
+    expect(wake).toContain("`Status: blocked`: never resume that subagent. When the block is a sign-in, captcha, payment or confirmation, use the in-chat form or the box handoff");
+    expect(wake).toContain("`Status: partial`: resume it only when the report names a concrete next step");
   });
 
   test("renders an administrator broadcast as a hidden non-user wake", () => {

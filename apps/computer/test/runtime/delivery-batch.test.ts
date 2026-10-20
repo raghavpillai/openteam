@@ -35,12 +35,11 @@ test("closing text preserves an already-issued attachment, once, without allowin
   expect(calls.map(x => x.id)).toEqual(["summary", "zip"]);
 });
 
-for (const scenario of ["cancelled", "steered", "widget", "failed", "next-response"] as const) {
+for (const scenario of ["cancelled", "steered", "failed", "next-response"] as const) {
   test(`delivery grace respects ${scenario}`, async () => {
     const {active, calls, call, tools, batch} = fixture();
     if (scenario === "next-response") batch([]);
-    if (scenario === "widget") await tools.callControlPlaneTool(active, "summary", "SendToUser", {type: "widget"});
-    else await call("summary", {type: "text", content: "Done", end_turn: true});
+    await call("summary", {type: "text", content: "Done", end_turn: true});
     const controller = new AbortController();
     if (scenario === "cancelled") controller.abort(new Error("stopped"));
     if (scenario === "steered") active.pendingSteers.push({content: "stop"});
@@ -70,19 +69,18 @@ function cleanupFixture() {
 test("queued worker cleanup completes after closing text without creating another delivery obligation", async () => {
   const {active, call, execute, calls} = cleanupFixture();
   await call("summary", {type: "text", content: "Done", end_turn: true});
-  const result = await execute();
-  expect(result.details.deliveryCleanup).toBe(true);
+  await execute();
   expect(active.toolActivityAfterLastSend).toBe(false);
+  expect(active.failedResponseCalls).toEqual([]);
   expect(calls.map(c => c.name)).toEqual(["SendToUser", "StopSubagent"]);
   await expect(execute()).rejects.toThrow("turn has ended");
   expect(active.toolActivityAfterLastSend).toBe(true);
 });
 
-for (const scenario of ["changed", "new", "failed", "cancelled", "steered", "widget", "later", "prior-activity", "undiscovered", "read-only"] as const) {
+for (const scenario of ["changed", "new", "failed", "cancelled", "steered", "later", "prior-activity", "undiscovered", "read-only"] as const) {
   test(`worker cleanup grace respects ${scenario}`, async () => {
     const {active, call, execute, tools, batch} = cleanupFixture();
-    if (scenario === "widget") await tools.callControlPlaneTool(active, "summary", "SendToUser", {type: "widget"});
-    else await call("summary", {type: "text", content: "Done", end_turn: true});
+    await call("summary", {type: "text", content: "Done", end_turn: true});
     if (scenario === "failed") tools.callControlPlaneTool = async () => {throw new Error("stop failed");};
     if (scenario === "steered") active.pendingSteers.push({content: "new instruction"});
     if (scenario === "cancelled") { active.pluginAbortController = new AbortController(); active.pluginAbortController.abort(); }
@@ -114,3 +112,141 @@ for (const reason of ["steer", "cancel"] as const) test(`queued cleanup rechecks
   expect(calls.map(c => c.name)).toEqual(["SendToUser"]);
   expect(active.toolActivityAfterLastSend).toBe(true);
 });
+
+const routine = {action: "create", name: "Check back", prompt: "Check the support case and tell the user in this chat.", schedule: "10 13 18 10 *"};
+function siblingFixture(failing?: string) {
+  const f = fixture();
+  Object.assign(f.active, {toolArgs: new Map()});
+  if (failing) {
+    const deliver = f.tools.callControlPlaneTool;
+    f.tools.callControlPlaneTool = async (turn: any, id: string, name: string, args: any) => {
+      if (name === failing) throw new Error(`${name} rejected`);
+      return deliver(turn, id, name, args);
+    };
+  }
+  // Pi announces the raw arguments, then executes with its validated copy.
+  const run = async (id: string, raw: any, name: string, validated = raw) => {
+    routeEvent(undefined, f.active, {type: "tool_execution_start", toolName: name, toolCallId: id, args: raw} as any);
+    let result: any, isError = false;
+    try { return result = await f.call(id, validated, name); }
+    catch (error) { isError = true; result = {isError: true}; throw error; }
+    finally { routeEvent(undefined, f.active, {type: "tool_execution_end", toolName: name, toolCallId: id, result, isError} as any); }
+  };
+  const reply = {type: "text", content: "I'll check back at 1:10 PM.", end_turn: true};
+  const raw = {...routine, trigger: null};
+  f.batch([
+    {type: "toolCall", name: "SendToUser", id: "reply", arguments: reply},
+    {type: "toolCall", name: "UpdateRoutine", id: "routine", arguments: raw},
+  ]);
+  return {...f, run, reply, raw};
+}
+
+test("a call emitted with the closing reply still runs, once, without a new delivery obligation", async () => {
+  const {active, calls, run, reply, raw, batch} = siblingFixture();
+  await run("reply", reply, "SendToUser");
+  expect(active.endTurnRequested).toBe(true);
+  await run("routine", raw, "UpdateRoutine", routine);
+  expect(calls.map(c => [c.id, c.name])).toEqual([["reply", "SendToUser"], ["routine", "UpdateRoutine"]]);
+  expect(active.toolActivityAfterLastSend).toBe(false);
+  expect(active.failedResponseCalls).toEqual([]);
+  await expect(run("routine", raw, "UpdateRoutine", routine)).rejects.toThrow("turn has ended");
+  // A later response gets no grant, even for a call the closing response made.
+  batch([{type: "toolCall", name: "UpdateRoutine", id: "later", arguments: routine}]);
+  await expect(run("later", routine, "UpdateRoutine")).rejects.toThrow("turn has ended");
+  expect(calls).toHaveLength(2);
+});
+
+test("a call alongside the closing reply that fails is recorded for the model to see", async () => {
+  const {active, calls, run, reply, raw} = siblingFixture("UpdateRoutine");
+  await run("reply", reply, "SendToUser");
+  await expect(run("routine", raw, "UpdateRoutine", routine)).rejects.toThrow("UpdateRoutine rejected");
+  expect(calls.map(c => c.name)).toEqual(["SendToUser"]);
+  expect(active.failedResponseCalls).toEqual(["routine"]);
+  // Without a hold this remains an unreported failure after delivery.
+  expect(active.toolActivityAfterLastSend).toBe(true);
+});
+
+test("a failure before the closing reply in the same response is recorded too", async () => {
+  const f = siblingFixture("UpdateRoutine");
+  f.batch([
+    {type: "toolCall", name: "UpdateRoutine", id: "routine", arguments: f.raw},
+    {type: "toolCall", name: "SendToUser", id: "reply", arguments: f.reply},
+  ]);
+  await expect(f.run("routine", f.raw, "UpdateRoutine", routine)).rejects.toThrow("UpdateRoutine rejected");
+  await f.run("reply", f.reply, "SendToUser");
+  expect(f.active.endTurnRequested).toBe(true);
+  expect(f.active.failedResponseCalls).toEqual(["routine"]);
+  expect(f.active.toolActivityAfterLastSend).toBe(false);
+});
+
+const question = {type: "widget", widget: {prompt: "Check back at 1:10 PM?", options: [{label: "Yes", value: "yes", style: "primary"}]}};
+const reply = {type: "text", content: "I'll check back at 1:10 PM.", end_turn: true};
+function responseFixture(parts: [string, string, any][], failing?: (name: string, args: any) => boolean) {
+  const f = fixture();
+  if (failing) {
+    const deliver = f.tools.callControlPlaneTool;
+    f.tools.callControlPlaneTool = async (turn: any, id: string, name: string, args: any) => {
+      if (failing(name, args)) throw new Error(`${id} rejected`);
+      return deliver(turn, id, name, args);
+    };
+  }
+  f.batch(parts.map(([id, name, args]) => ({type: "toolCall", name, id, arguments: args})));
+  return f;
+}
+
+test("a question card still runs the rest of its response, once, and waits on the user", async () => {
+  const {active, calls, call, batch} = responseFixture([["ask", "SendToUser", question], ["note", "SendToUser", {type: "text", content: "I saved the case notes."}], ["zip", "SendToUser", attachment]]);
+  await call("ask", question);
+  expect(active.endTurnRequested).toBe(true);
+  expect(active.awaitingUser).toBe(true);
+  await call("note", {type: "text", content: "I saved the case notes."});
+  await call("zip", attachment);
+  await expect(call("new", attachment)).rejects.toThrow("turn has ended");
+  batch([{type: "toolCall", name: "SendToUser", id: "later", arguments: attachment}]);
+  await expect(call("later", attachment)).rejects.toThrow("turn has ended");
+  expect(calls.map(x => x.id)).toEqual(["ask", "note", "zip"]);
+});
+
+test("a question after a failed send in the same response is held and the turn stays open", async () => {
+  const {active, calls, call} = responseFixture([["zip", "SendToUser", attachment], ["ask", "SendToUser", question]], (_name, args) => args.type === "attachment");
+  await expect(call("zip", attachment)).rejects.toThrow("zip rejected");
+  await expect(call("ask", question)).rejects.toThrow("An earlier message in this response was not delivered (its own result says why), so this question was not shown either and the turn is still yours.");
+  expect(calls).toEqual([]);
+  expect(active.endTurnRequested).toBeFalsy();
+  expect(active.awaitingUser).toBeFalsy();
+});
+
+test("end_turn after a failed send in the same response delivers without ending the turn", async () => {
+  const {active, calls, call, batch} = responseFixture([["zip", "SendToUser", attachment], ["reply", "SendToUser", reply]], (_name, args) => args.type === "attachment");
+  await expect(call("zip", attachment)).rejects.toThrow("zip rejected");
+  await call("reply", reply);
+  expect(calls.map(x => x.id)).toEqual(["reply"]);
+  expect(active.endTurnRequested).toBeFalsy();
+  expect(active.finishResponseCalls).toBeFalsy();
+  // A failure in another tool does not change this; only a failed send does.
+  batch([{type: "toolCall", name: "SendToUser", id: "again", arguments: reply}]);
+  await call("again", reply);
+  expect(active.endTurnRequested).toBe(true);
+});
+
+for (const closing of ["attachment", "reaction"] as const)
+  test(`a closing ${closing} still runs the rest of its response`, async () => {
+    const close = closing === "attachment" ? ["done", "SendToUser", {...attachment, end_turn: true}] as [string, string, any] : ["done", "ReactToMessage", {message_address: "t1u", emoji: "\u{1F44D}", end_turn: true}] as [string, string, any];
+    const {active, calls, call, tools} = responseFixture([close, ["zip", "SendToUser", attachment]]);
+    if (closing === "reaction") {
+      const deliver = tools.callControlPlaneTool;
+      tools.callControlPlaneTool = async (turn: any, id: string, name: string, args: any) => {
+        if (name !== "ReactToMessage") return deliver(turn, id, name, args);
+        const originalFetch = globalThis.fetch;
+        try {
+          globalThis.fetch = (async () => { calls.push({id, name, args}); return Response.json({reacted: true}); }) as any;
+          return await tools.callControlPlaneToolRequest(turn, id, name, args);
+        } finally { globalThis.fetch = originalFetch; }
+      };
+    }
+    await call(close[0], close[2], close[1]);
+    expect(active.endTurnRequested).toBe(true);
+    expect(active.finishResponseCalls).toBe(true);
+    await call("zip", attachment);
+    expect(calls.map(x => x.id)).toEqual(["done", "zip"]);
+  });

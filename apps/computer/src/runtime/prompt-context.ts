@@ -55,8 +55,8 @@ export const ACK_REMINDER =
   "<system_reminder>\nYou opened this turn by calling tools without first acknowledging the user. Acknowledge them now by actually invoking SendToUser with a one-line text acknowledgement, then continue the work. Plain assistant text is not shown to the user; a widget or attachment does not count as this acknowledgement.\n</system_reminder>";
 export const PROGRESS_REMINDER =
   "<system_reminder>\nYou have made several tool calls without a SendToUser, so the user is currently watching silence. Actually invoke the SendToUser tool now. Make a real tool/function call, not text you write. Plain assistant text is NEVER shown to the user; only a real SendToUser tool invocation reaches them, so if you don't call the tool they just keep seeing silence. Send one brief update in a complete sentence, saying what you found or what happens next, not a play-by-play of each step, before continuing.\n</system_reminder>";
-export const EARLY_RESULT_REMINDER =
-  "<system_reminder>\nRemember: the user cannot see tool output or your thinking. Only SendToUser reaches them. If you have produced a result or finished what they asked, send it now with a SendToUser tool call before continuing or ending the turn. If you are still mid-task, keep working and send the result once you have it.\n</system_reminder>";
+export const END_TURN_HOLD_REMINDER =
+  "<system_reminder>\nYour turn did not end. This end_turn call succeeded, but a call alongside it failed; see that call's result. If the failure matters to the user, fix it without resending what already went out. Otherwise, stop.\n</system_reminder>";
 
 /** Ephemeral tail context: a real clock without another tool/model round trip.
  * Never use a worker runtime start as the parent task's submission time. */
@@ -158,7 +158,5 @@ export function communicationReminder(
   }
   if (!hasTextSend && calls > 1 && !alreadyReminded) return { kind: "ack", content: ACK_REMINDER };
   if (calls > 6) return { kind: "progress", content: PROGRESS_REMINDER };
-  if (hasSend && calls > 0 && !alreadyReminded)
-    return { kind: "early-result", content: EARLY_RESULT_REMINDER };
   return null;
 }

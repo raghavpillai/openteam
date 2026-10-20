@@ -2473,13 +2473,15 @@ export class AgentDataStore {
       : null;
     const epoch = contextSession?.compactionEpoch ?? bot.conversation?.compactionEpoch ?? 0;
     const announcementKey = `${botId}:${contextSessionId ?? "legacy"}`;
+    // OpenTeam keeps a title separate from the name, so it gets its own line.
     const liveProfile = [
-      `You are ${bot.name}, a durable OpenTeam agent.`,
-      bot.title ? `Your title is: ${bot.title}` : "",
-      bot.description ? `Your description is:\n${bot.description}` : "",
+      "Agent profile:",
+      `Your agent name is "${bot.name}". If the user asks for your name, answer with "${bot.name}".`,
+      bot.title ? `Title: ${bot.title}` : "",
+      bot.description ? `Description: ${bot.description}` : "",
     ]
       .filter(Boolean)
-      .join("\n\n");
+      .join("\n");
     let snapshot = contextSessionId
       ? await this.prisma.contextPromptSnapshot.findUnique({ where: { contextSessionId } })
       : await this.prisma.agentPromptSnapshot.findUnique({ where: { botId } });

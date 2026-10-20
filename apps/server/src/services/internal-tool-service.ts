@@ -131,7 +131,7 @@ export class InternalToolService {
         }
         await this.prisma.contextSession.updateMany({ where: { id: session.id, compactionEpoch: { lt: args.epoch! } }, data: { compactionEpoch: args.epoch } });
         return this.messaging.platformPrompt(request.botId, session.id, args.connectorInstructions ?? "", run.channelId,
-          run.taskConfiguration ? parseTaskConfiguration(run.taskConfiguration) : undefined);
+          run.taskConfiguration ? parseTaskConfiguration(run.taskConfiguration) : undefined, run.origin);
       }
       const parentOnlyTools = new Set([
         "DraftExternalMessage", "SendFeedback", "CreateBotShareJson",

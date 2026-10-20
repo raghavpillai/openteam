@@ -48,6 +48,17 @@ BEGIN
     UPDATE "TaskSettings" SET "configuration" = "configuration" - 'combinedComputerUse'
       WHERE "configuration" ? 'combinedComputerUse';
   END IF;
+  IF to_regclass('"PluginInstallation"') IS NOT NULL THEN
+    -- An installed package that named browserUse becomes the rollback target after its update,
+    -- and rollback validates skill agents.
+    UPDATE "PluginInstallation" SET "manifest" = jsonb_set("manifest", '{skills}', (
+      SELECT jsonb_agg(CASE WHEN skill->'agents' ? 'browserUse'
+        THEN jsonb_set(skill, '{agents}', ((skill->'agents') - 'browserUse')
+          || CASE WHEN skill->'agents' ? 'computerUse' THEN '[]'::jsonb ELSE '["computerUse"]'::jsonb END)
+        ELSE skill END ORDER BY position)
+      FROM jsonb_array_elements("manifest"->'skills') WITH ORDINALITY AS skills(skill, position)))
+    WHERE "manifest" @> '{"skills":[{"agents":["browserUse"]}]}';
+  END IF;
   IF EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
       WHERE t.typnamespace = current_schema()::regnamespace AND t.typname = 'MemoryScope'
         AND e.enumlabel NOT IN ('agent', 'user')) THEN
@@ -59,15 +70,19 @@ BEGIN
   END IF;
 END $$;
 ALTER TABLE IF EXISTS "MemoryFact" DROP COLUMN IF EXISTS "memoryConversationId",
-  DROP COLUMN IF EXISTS "sourcePath", DROP COLUMN IF EXISTS "sourceLine";
+  DROP COLUMN IF EXISTS "sourcePath", DROP COLUMN IF EXISTS "sourceLine", DROP COLUMN IF EXISTS "projectSlug";
 ALTER TABLE IF EXISTS "Run" DROP COLUMN IF EXISTS "memoryConversationId";
 DROP TABLE IF EXISTS "MemoryConversation";
+DROP TABLE IF EXISTS "ProjectMember";
+DROP TABLE IF EXISTS "Project";
 ALTER TABLE IF EXISTS "Bot" DROP COLUMN IF EXISTS "dreamingEnabled",
   DROP COLUMN IF EXISTS "episodePending", DROP COLUMN IF EXISTS "episodeTurns";
 ALTER TABLE IF EXISTS "ContextPromptSnapshot" DROP COLUMN IF EXISTS "memoryEpoch",
   DROP COLUMN IF EXISTS "memoryRender", DROP COLUMN IF EXISTS "memoryHasFacts",
   DROP COLUMN IF EXISTS "memoryAudienceKey";
-ALTER TABLE IF EXISTS "AgentPromptSnapshot" DROP COLUMN IF EXISTS "memoryAudienceKey";
+ALTER TABLE IF EXISTS "AgentPromptSnapshot" DROP COLUMN IF EXISTS "memoryEpoch",
+  DROP COLUMN IF EXISTS "memoryRender", DROP COLUMN IF EXISTS "memoryHasFacts",
+  DROP COLUMN IF EXISTS "memoryAudienceKey";
 ALTER TABLE IF EXISTS "Subagent" DROP COLUMN IF EXISTS "combinedComputerUse";
 `;
 

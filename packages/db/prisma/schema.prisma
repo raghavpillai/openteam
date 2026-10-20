@@ -254,6 +254,8 @@ model Bot {
   // Unused since episode summaries were removed; kept because db push won't drop a non-empty column.
   episodePending      Int         @default(0)
   episodeTurns        Json        @default("[]")
+  /// Exchanges whose memory extraction has not finished; one left after a restart is reviewed with the next turn.
+  pendingMemoryExchanges Json     @default("[]")
   avatarPath       String?
   defaultDirectory String
   status           BotStatus    @default(provisioning)

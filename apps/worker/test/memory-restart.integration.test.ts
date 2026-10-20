@@ -15,20 +15,17 @@ interface TurnInput {
   deliveryId: string | null;
   contextSessionId: string;
   sessionPath: string | null;
-  content: string;
-  instructions: string;
 }
 databaseTest(
-  "a real worker process preserves bot-wide memory across a crash",
+  "an exchange whose extraction a worker crash interrupted is reviewed with the next turn",
   async () => {
-    const root = await mkdtemp(join(tmpdir(), "worker-memory-routing-"));
+    const root = await mkdtemp(join(tmpdir(), "worker-memory-restart-"));
     let app: AppService | undefined,
       worker: { start(): Promise<void>; stop(): Promise<void>; crash(): Promise<void> } | undefined;
     let child: ReturnType<typeof Bun.spawn> | undefined;
     const workerPids: number[] = [];
-    const seen: Array<{ input: TurnInput; recall: unknown; saved: unknown }> = [];
-    const botIds: string[] = [];
-    let groupId: string | undefined;
+    const extractions: string[] = [];
+    let botId: string | undefined;
     const fake = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
@@ -44,11 +41,12 @@ databaseTest(
           return Response.json({ agents: [] });
         if (path === "/v1/infer") {
           const body = (await request.json()) as { kind: string; prompt: string };
+          if (body.kind !== "extraction") return Response.json({ text: "NONE" });
+          extractions.push(body.prompt);
+          // The first review never answers: the worker is killed while it waits.
+          if (extractions.length === 1) return new Promise<Response>(() => {});
           return Response.json({
-            text:
-              body.kind === "extraction" && body.prompt.includes("ORBIT-913")
-                ? "log: ORBIT-913 background decision uses amber."
-                : "NONE",
+            text: "profile: The user lives in Lyon.\nprofile: The user starts at Acme on Monday.",
           });
         }
         if (path === "/v1/directories") {
@@ -65,41 +63,18 @@ databaseTest(
           });
         if (path !== "/v1/turns") return Response.json({ ok: true, quarantined: [] });
         const input = (await request.json()) as TurnInput;
-        const call = (tool: string, args: unknown) =>
-          Effect.runPromise(
-            app!.handleDynamicTool({
-              runId: input.runId,
-              botId: input.botId,
-              conversationId: input.conversationId,
-              channelId: input.channelId,
-              deliveryId: input.deliveryId,
-              callId: crypto.randomUUID(),
-              tool,
-              arguments: args,
-            })
-          );
-        const roundIndex = input.deliveryId
-          ? (
-              await app!.prisma.channelDelivery.findUniqueOrThrow({
-                where: { id: input.deliveryId },
-                include: { round: true },
-              })
-            ).round.roundIndex
-          : 0;
-        if (input.channelId === groupId && roundIndex === 0) {
-          const saved = await call("UpdateMemory", {
-            action: "write",
-            tier: "profile",
-            fact: "ORBIT-913 explicit decision uses amber.",
-          });
-          const recall = await call("RecallMemory", { query: "ORBIT-913" });
-          seen.push({ input, saved, recall });
-        }
-        if (input.channelId !== groupId || roundIndex === 0)
-          await call("SendToUser", {
-            type: "text",
-            content: "Synthetic memory fixture completed.",
-          });
+        await Effect.runPromise(
+          app!.handleDynamicTool({
+            runId: input.runId,
+            botId: input.botId,
+            conversationId: input.conversationId,
+            channelId: input.channelId,
+            deliveryId: input.deliveryId,
+            callId: crypto.randomUUID(),
+            tool: "SendToUser",
+            arguments: { type: "text", content: "Noted." },
+          })
+        );
         const events = [
           {
             type: "session.attached",
@@ -132,6 +107,7 @@ databaseTest(
       "OPENTEAM_CONTROL_TOKEN",
       "OPENTEAM_WORKSPACE_ROOT",
       "OPENTEAM_AGENT_DATA_ROOT",
+      "OPENTEAM_TIME_ZONE",
     ] as const;
     const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
     const until = async (check: () => Promise<boolean>) => {
@@ -148,9 +124,11 @@ databaseTest(
         OPENTEAM_CONTROL_TOKEN: "synthetic-control",
         OPENTEAM_WORKSPACE_ROOT: root,
         OPENTEAM_AGENT_DATA_ROOT: join(root, "data"),
+        OPENTEAM_TIME_ZONE: "Europe/Paris",
       });
       app = new AppService();
       await Effect.runPromise(app.boot());
+      await app.agentData.writeInferenceSettings({ providerId: "openai-codex", modelId: "gpt-5.6-sol", reasoning: "medium" });
       worker = {
         async start() {
           const ready = join(root, "worker-ready");
@@ -180,88 +158,70 @@ databaseTest(
         },
       };
       await worker.start();
-      for (const name of ["Memory worker", "Memory peer"]) {
-        const bot = await Effect.runPromise(
-          app.createBot({ clientRequestId: crypto.randomUUID(), name })
-        );
-        botIds.push(bot.id);
-      }
+      const bot = await Effect.runPromise(
+        app.createBot({ clientRequestId: crypto.randomUUID(), name: "Memory worker" })
+      );
+      botId = bot.id;
       await until(
-        async () =>
-          (await app!.prisma.bot.count({ where: { id: { in: botIds }, status: "active" } })) === 2
+        async () => (await app!.prisma.bot.count({ where: { id: botId, status: "active" } })) === 1
       );
-      const group = await Effect.runPromise(
-        app.createGroup({ name: "Synthetic memory room", botIds })
-      );
-      groupId = group.id;
+      await app.prisma.bot.update({ where: { id: botId }, data: { onboardingStatus: "completed" } });
       await Effect.runPromise(
-        app.sendChannelMessage(groupId, {
-          content: "For this ORBIT-913 room, we decided to use amber in the launch.",
+        app.sendMessage(bot.conversationId, {
+          content: "I moved to Lyon last month, so plan around that.",
           clientId: crypto.randomUUID(),
         })
       );
-      await until(
-        async () =>
-          seen.length === 2 &&
-          (await app!.prisma.memoryFact.count({
-            where: {
-              writtenByBotId: { in: botIds },
-              scope: "agent",
-              fact: { contains: "background decision" },
-            },
-          })) === 2
-      );
-      for (const { input, recall, saved } of seen) {
-        expect(input.channelId).toBe(groupId!);
-        expect(input.instructions).toContain(
-          'scope "user" is the owner\'s memory across their agents and cannot be written'
-        );
-        expect(saved).toBe("Remembered in your memory (profile): ORBIT-913 explicit decision uses amber.");
-        expect(recall).toContain("[profile]");
-        expect(input.instructions).not.toContain('scope "conversation"');
-      }
-      await until(
-        async () =>
-          (await app!.prisma.run.count({
-            where: { botId: { in: botIds }, status: { in: ["queued", "running"] } },
-          })) === 0
-      );
-      await until(
-        async () =>
-          (await app!.prisma.channelRound.count({
-            where: { channelId: groupId, status: { in: ["queued", "running"] } },
-          })) === 0
-      );
+      await until(async () => extractions.length === 1);
+      const held = await app.prisma.bot.findUniqueOrThrow({ where: { id: botId } });
+      expect(held.pendingMemoryExchanges).toMatchObject([
+        { user: "I moved to Lyon last month, so plan around that.", agent: "Noted." },
+      ]);
       await worker.crash();
       await worker.start();
       expect(workerPids[0]).not.toBe(workerPids[1]);
-      await Effect.runPromise(
-        app.sendChannelMessage(groupId, {
-          content: "For this ORBIT-913 room, continue the amber launch after the worker restart.",
+
+      const second = (await Effect.runPromise(
+        app.sendMessage(bot.conversationId, {
+          content: "I also start at Acme on Monday.",
           clientId: crypto.randomUUID(),
         })
+      )) as { run: { id: string } };
+      await until(
+        async () => (await app!.prisma.memoryFact.count({ where: { namespace: `agent:${botId}` } })) === 2
       );
-      await until(async () => seen.length >= 4);
-      for (const original of seen.slice(0, 2)) {
-        const next = seen.slice(2).find((x) => x.input.botId === original.input.botId)!;
-        expect(next.input.contextSessionId).toBe(original.input.contextSessionId);
-        expect(next.recall).toContain("ORBIT-913 background decision uses amber.");
-      }
+      expect(extractions).toHaveLength(2);
+      expect(extractions[1]).toMatch(/\nToday's date: \w+ \w+ \d+, \d{4} \(Europe\/Paris\)\n/);
+      expect(extractions[1]).toContain(
+        [
+          "Earlier exchange (not yet reviewed):",
+          "User: I moved to Lyon last month, so plan around that.",
+          "Assistant: Noted.",
+          "",
+          "Latest exchange:",
+          "User: I also start at Acme on Monday.",
+          "Assistant: Noted.",
+        ].join("\n")
+      );
       expect(
-        await app.prisma.memoryFact.count({
-          where: {
-            writtenByBotId: { in: botIds },
-            scope: "agent",
-            fact: { contains: "ORBIT-913" },
-          },
+        await app.prisma.memoryFact.findMany({
+          where: { namespace: `agent:${botId}` },
+          orderBy: { sourceOrdinal: "asc" },
+          select: { fact: true, tier: true, origin: true, turnId: true },
         })
-      ).toBe(4);
+      ).toEqual([
+        { fact: "The user lives in Lyon.", tier: "profile", origin: "extract", turnId: second.run.id },
+        { fact: "The user starts at Acme on Monday.", tier: "profile", origin: "extract", turnId: second.run.id },
+      ]);
+      expect((await app.prisma.bot.findUniqueOrThrow({ where: { id: botId } })).pendingMemoryExchanges).toEqual([]);
     } finally {
       await worker?.stop();
       if (app) {
-        await app.prisma.memoryFact.deleteMany({ where: { writtenByBotId: { in: botIds } } });
-        if (groupId) await app.prisma.channel.deleteMany({ where: { id: groupId } });
-        await app.prisma.bot.deleteMany({ where: { id: { in: botIds } } });
+        if (botId) {
+          await app.prisma.memoryFact.deleteMany({ where: { writtenByBotId: botId } });
+          await app.prisma.channel.deleteMany({ where: { directKey: `bot:${botId}` } });
+          await app.prisma.bot.deleteMany({ where: { id: botId } });
+        }
         await Effect.runPromise(app.close());
       }
       fake.stop(true);

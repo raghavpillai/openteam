@@ -2,8 +2,11 @@ import { expect, test } from "bun:test";
 import {
   buildExtractionUserPrompt,
   gatherExtractionMemories,
+  holdMemoryExchange,
   isMemorableExchange,
   parseExtractedMemories,
+  parseHeldMemoryExchanges,
+  renderTurnMemoryDate,
 } from "../src/memory-learning";
 
 test("extraction lines add, retire and prefix facts, skipping ones already known", () => {
@@ -62,4 +65,51 @@ test("an empty exchange still renders the extraction prompt shape", () => {
   expect(buildExtractionUserPrompt("", "", [])).toBe(
     "Existing memory:\n(empty)\n\nLatest exchange:\nUser: (no message)\nAssistant: (no message)"
   );
+});
+
+test("the extraction prompt carries today's date and exchanges an interrupted review left", () => {
+  expect(
+    buildExtractionUserPrompt(
+      "I moved to Lyon last month, update my address on file?",
+      "Done, noted.",
+      ["The user's name is Ada.", "Lives in Paris."],
+      [{ user: "I start at Acme Monday.", agent: "Congrats!" }],
+      "Monday, October 20, 2026 (Europe/Paris)"
+    )
+  ).toBe(
+    [
+      "Existing memory:",
+      "- The user's name is Ada.",
+      "- Lives in Paris.",
+      "",
+      "Today's date: Monday, October 20, 2026 (Europe/Paris)",
+      "",
+      "Earlier exchange (not yet reviewed):",
+      "User: I start at Acme Monday.",
+      "Assistant: Congrats!",
+      "",
+      "Latest exchange:",
+      "User: I moved to Lyon last month, update my address on file?",
+      "Assistant: Done, noted.",
+    ].join("\n")
+  );
+  expect(renderTurnMemoryDate(new Date("2026-10-05T10:00:00Z"), "Europe/Paris")).toBe(
+    "Monday Oct 5, 2026 (Europe/Paris)"
+  );
+  expect(renderTurnMemoryDate(new Date("2026-10-05T23:30:00Z"), "Asia/Tokyo")).toBe(
+    "Tuesday Oct 6, 2026 (Asia/Tokyo)"
+  );
+  expect(renderTurnMemoryDate(new Date("2026-10-05T10:00:00Z"), "Not/AZone")).toBe(
+    "Monday Oct 5, 2026 (UTC)"
+  );
+});
+
+test("held exchanges are bounded and malformed entries are dropped", () => {
+  const long = `${"a".repeat(5_000)}MIDDLE${"z".repeat(5_000)}`;
+  const held = holdMemoryExchange({ id: "run-1", user: long, agent: " ok " });
+  expect(held.user).toHaveLength(8_000 + "\n[...middle omitted...]\n".length);
+  expect(held.user).not.toContain("MIDDLE");
+  expect(held.agent).toBe("ok");
+  expect(parseHeldMemoryExchanges([held, { id: 3 }, null, "x"])).toEqual([held]);
+  expect(parseHeldMemoryExchanges({})).toEqual([]);
 });

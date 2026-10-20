@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPrismaClient } from "@openteam/db";
 import { AgentDataStore, type MemoryInferenceRequest } from "../src/agent-data";
+import { MEMORY_EXTRACTION_SYSTEM_PROMPT } from "../src/memory-prompts";
 import { parseSkillFile } from "../src/skill-files";
 import managedCatalog from "../src/prompts/managed-skills.json";
 
@@ -109,12 +110,36 @@ test("turn memory extracts facts from memorable turns", async () => {
         occurredAt: Date.parse(`2026-08-${String(20 + turn).padStart(2, "0")}T12:00:00Z`),
       });
     }
+    // A review a stopped worker never finished is carried into the next one.
+    await prisma.bot.update({
+      where: { id: botId },
+      data: { pendingMemoryExchanges: [{ id: "interrupted", user: "Interrupted detail.", agent: "Held." }] },
+    });
     const runId = crypto.randomUUID();
     await store.recordTurnMemory(botId, {
       user: "Remember lifecycle detail 6.",
       assistant: "Recorded detail 6.",
+      occurredAt: Date.parse("2026-08-26T23:30:00Z"),
+      timeZone: "Asia/Tokyo",
       runId,
     });
+    expect(requests.at(-1)?.instructions).toBe(MEMORY_EXTRACTION_SYSTEM_PROMPT);
+    expect(requests.at(-1)?.prompt).toEndWith(
+      [
+        "- Prefers lifecycle tests.",
+        "",
+        "Today's date: Thursday Aug 27, 2026 (Asia/Tokyo)",
+        "",
+        "Earlier exchange (not yet reviewed):",
+        "User: Interrupted detail.",
+        "Assistant: Held.",
+        "",
+        "Latest exchange:",
+        "User: Remember lifecycle detail 6.",
+        "Assistant: Recorded detail 6.",
+      ].join("\n")
+    );
+    expect((await prisma.bot.findUniqueOrThrow({ where: { id: botId } })).pendingMemoryExchanges).toEqual([]);
     expect(
       await prisma.memoryFact.findMany({
         where: { namespace: `agent:${botId}` },

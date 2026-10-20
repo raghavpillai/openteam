@@ -42,7 +42,6 @@ import { pluginRuntimeContext, pluginSkillInstructions } from "./plugins";
 import type { PluginSkillAgent } from "@openteam/plugin-sdk";
 import { Projection } from "./projection";
 import { workContinuously } from "./queue-dispatch";
-import { memoryInferenceSettings } from "./memory-inference";
 import { consumeComputerEvents } from "./computer-events";
 import { PushNotificationDispatcher } from "./push-notifications";
 
@@ -345,8 +344,9 @@ export class WakeWorker {
     this.controlToken = process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me";
     this.workspaceRoot = process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace";
     this.agentData = new AgentDataStore(this.prisma, {
+      // Memory extraction runs on the main model, like the turn it reviews.
       memoryInference: async (request) => {
-        const inference = memoryInferenceSettings(await this.agentData.loadInferenceSettings());
+        const inference = await this.agentData.loadInferenceSettings();
         const { signal, ...inferenceRequest } = request;
         const response = await fetch(`${this.computerUrl}${COMPUTER_API_PATHS.inference}`, {
           method: "POST",
@@ -1703,6 +1703,7 @@ export class WakeWorker {
     if (!exchange) return;
     await this.agentData.recordTurnMemory(claimed.botId, {
       runId: claimed.runId,
+      timeZone: this.messaging.defaultTimeZone,
       user: exchange.user,
       assistant: exchange.assistant,
       hidden: !["user", "group"].includes(claimed.origin),

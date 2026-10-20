@@ -74,14 +74,21 @@ import { parseRecallInput, recallMemoryResult } from "./recall-memory";
 import {
   buildExtractionUserPrompt,
   gatherExtractionMemories,
+  holdMemoryExchange,
   isMemorableExchange,
   parseExtractedMemories,
+  parseHeldMemoryExchanges,
+  renderTurnMemoryDate,
+  type HeldMemoryExchange,
+  type MemoryExchange,
 } from "./memory-learning";
+import { resolveTimeZone } from "./timestamps";
 import { MEMORY_EXTRACTION_SYSTEM_PROMPT } from "./memory-prompts";
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 const AVATAR_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"] as const;
 const MEMORY_INFERENCE_DEADLINE_MS = 90_000;
+const MAX_HELD_MEMORY_EXCHANGES = 5;
 const AGENT_LOCK = "openteam-agent-data";
 // Stored in the prompt snapshots' memoryAudienceKey; a new value re-renders frozen memory once.
 const MEMORY_PROMPT_VERSION = "native-agent-v2";
@@ -3156,9 +3163,8 @@ export class AgentDataStore {
 
   private async runMemoryExtraction(
     botId: string,
-    input: { user: string; assistant: string; occurredAt: number; runId?: string }
+    input: { exchange: MemoryExchange; earlier: readonly MemoryExchange[]; occurredAt: number; timeZone: string; runId?: string }
   ): Promise<void> {
-    if (!this.memoryInference) return;
     const facts = await this.prisma.memoryFact.findMany({
       where: { namespace: memoryNamespace(botId, "agent") },
       orderBy: { sourceOrdinal: "asc" },
@@ -3166,12 +3172,18 @@ export class AgentDataStore {
     });
     const existing = gatherExtractionMemories(
       facts.map((fact) => ({ ...fact, content: fact.fact })),
-      `${input.user}\n${input.assistant}`
+      [...input.earlier, input.exchange].map((held) => `${held.user}\n${held.agent}`).join("\n")
     );
     const response = await this.inferMemory({
       kind: "extraction",
       instructions: MEMORY_EXTRACTION_SYSTEM_PROMPT,
-      prompt: buildExtractionUserPrompt(input.user, input.assistant, existing),
+      prompt: buildExtractionUserPrompt(
+        input.exchange.user,
+        input.exchange.agent,
+        existing,
+        input.earlier,
+        renderTurnMemoryDate(new Date(input.occurredAt), input.timeZone)
+      ),
     });
     if (!response) return;
     const extraction = parseExtractedMemories(response, existing);
@@ -3192,6 +3204,33 @@ export class AgentDataStore {
     });
   }
 
+  /** Record the exchange before extraction runs; return earlier ones an interrupted run left unreviewed. */
+  private async holdMemoryExchange(botId: string, exchange: HeldMemoryExchange): Promise<HeldMemoryExchange[]> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`memory-exchanges:${botId}`}))`;
+      const bot = await tx.bot.findUniqueOrThrow({ where: { id: botId }, select: { pendingMemoryExchanges: true } });
+      const earlier = parseHeldMemoryExchanges(bot.pendingMemoryExchanges)
+        .filter((held) => held.id !== exchange.id)
+        .slice(-(MAX_HELD_MEMORY_EXCHANGES - 1));
+      await tx.bot.update({
+        where: { id: botId },
+        data: { pendingMemoryExchanges: asInputJson([...earlier, holdMemoryExchange(exchange)]) },
+      });
+      return earlier;
+    });
+  }
+
+  private async releaseMemoryExchanges(botId: string, ids: readonly string[]): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`memory-exchanges:${botId}`}))`;
+      const bot = await tx.bot.findUnique({ where: { id: botId }, select: { pendingMemoryExchanges: true } });
+      if (!bot) return;
+      const remaining = parseHeldMemoryExchanges(bot.pendingMemoryExchanges).filter((held) => !ids.includes(held.id));
+      await tx.bot.update({ where: { id: botId }, data: { pendingMemoryExchanges: asInputJson(remaining) } });
+    });
+  }
+
+  /** After a completed user or group turn, learn lasting profile facts from it. */
   async recordTurnMemory(
     botId: string,
     input: {
@@ -3200,22 +3239,31 @@ export class AgentDataStore {
       hidden?: boolean;
       occurredAt?: number;
       runId?: string;
+      timeZone?: string;
     }
   ): Promise<void> {
-    if (input.hidden || !input.user.trim()) return;
+    if (!this.memoryInference || input.hidden || !input.user.trim()) return;
     const bot = await this.prisma.bot.findUnique({
       where: { id: botId },
       select: { status: true },
     });
     if (!bot || bot.status !== "active") return;
     if (!isMemorableExchange(input.user)) return;
-    const occurredAt = input.occurredAt ?? Date.now();
-    await this.runMemoryExtraction(botId, {
-      user: input.user,
-      assistant: input.assistant,
-      occurredAt,
-      runId: input.runId,
-    }).catch((error) => console.warn(`memory extraction for ${botId}`, error));
+    const exchange = { id: input.runId ?? randomUUID(), user: input.user, agent: input.assistant };
+    const earlier = await this.holdMemoryExchange(botId, exchange);
+    try {
+      await this.runMemoryExtraction(botId, {
+        exchange,
+        earlier,
+        occurredAt: input.occurredAt ?? Date.now(),
+        timeZone: input.timeZone ?? resolveTimeZone(),
+        runId: input.runId,
+      });
+    } catch (error) {
+      console.warn(`memory extraction for ${botId}`, error);
+    }
+    // Reviewed or failed, these are done. Only a process that stops mid-extraction leaves one held.
+    await this.releaseMemoryExchanges(botId, [...earlier, exchange].map((held) => held.id));
   }
 
   async materializeAttachments(

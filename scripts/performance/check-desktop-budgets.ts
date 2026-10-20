@@ -128,14 +128,16 @@ atMost("startup CSS bytes", startupCssBytes, 178_600);
 // other-device bot, the signed-out step); 16,346,448 with the sign-in-or-key step for ChatGPT
 // and Claude, checked keys, and the model select.
 // October 20: thinking-orb loaders and the voice note glow add 72 KB / 28 KB gzip on demand.
-atMost("renderer bytes", result.renderer.bytes, 16_349_000);
+// With them and the server gauges: 16,425,283 bytes.
+atMost("renderer bytes", result.renderer.bytes, 16_428_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
 // setup screens' motion, 4,028,383; with spring motion, the landing and the official
 // provider icons, 4,041,683; with the topology and the model picker, 4,046,893; with the
-// chaos fixes, 4,050,224; with the sign-in-or-key step and the model select, 4,051,639.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_053_000);
+// chaos fixes, 4,050,224; with the sign-in-or-key step and the model select, 4,051,639; with
+// the thinking-orb loaders, the voice note glow and the server gauges, 4,083,231.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_085_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -240,8 +242,9 @@ const lazyBudgets: Record<string, number> = {
   settingsComputer: 31_000,
   // Model provider sign-in (browser, code, or key), model test, and Remote
   // access; Transcription loads separately. Measured October closure: 42,628; 48,572 with
-  // the official provider marks beside each provider (SVG paths, ~5.3 KB).
-  settingsServer: 49_500,
+  // the official provider marks beside each provider (SVG paths, ~5.3 KB); 52,125 with the
+  // server gauges above them.
+  settingsServer: 53_000,
   // Shares the select menu with Server. Measured October closure: 32,930.
   settingsTranscription: 34_000,
   // Search and Fetch pages with inlined 40 px WebP logos (~10 KB of the total).

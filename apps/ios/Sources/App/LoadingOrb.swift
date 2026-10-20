@@ -23,6 +23,17 @@ struct LoadingOrb: View {
   }
 }
 
+/// A loading orb on a filled primary button, which is black in light mode and white in dark mode.
+struct PrimaryLoadingOrb: View {
+  @Environment(\.colorScheme) private var colorScheme
+  var size: CGFloat = 16
+  var label: String?
+
+  var body: some View {
+    LoadingOrb(size: size, theme: colorScheme == .dark ? .light : .dark, label: label)
+  }
+}
+
 /// `ProgressView("Loading…")` with an orb beside its label.
 struct LoadingOrbLabel: View {
   let title: String

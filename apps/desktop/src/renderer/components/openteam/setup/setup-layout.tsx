@@ -1,4 +1,5 @@
-import { ArrowLeft, Check, ChevronRight, LoaderCircle } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight } from "lucide-react";
+import { LoadingOrb } from "../../ui/loading-orb";
 import {
   type CSSProperties,
   type FormEvent,
@@ -389,7 +390,7 @@ export function SetupPrimary({
       {/* The hint and the spinner share one spot and cross-fade, so the label never moves. */}
       <span aria-hidden="true" className="setup-primary-end" data-busy={Boolean(busy)}>
         <kbd>↵</kbd>
-        <LoaderCircle className="size-4 animate-spin" />
+        <LoadingOrb aria-hidden inverse size={16} />
       </span>
     </button>
   );

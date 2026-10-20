@@ -427,7 +427,7 @@ private struct OnboardingWizard: View {
                 .transition(.opacity)
             }
             if waiting {
-              ProgressView().controlSize(.small)
+              LoadingOrb(size: 16, label: "Checking")
             } else {
               Image(
                 systemName: done
@@ -561,7 +561,7 @@ private struct OnboardingWizard: View {
             Image(systemName: "checkmark.circle.fill").font(.title3).foregroundStyle(.green)
               .transition(.symbolEffect(.appear))
           } else {
-            ProgressView()
+            LoadingOrb(label: "Testing")
           }
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
@@ -593,7 +593,7 @@ private struct OnboardingWizard: View {
                 + (others.count > 3 ? ", and more" : "")
             ) {
               if let choosing, others.contains(where: { $0.id == choosing }) {
-                ProgressView()
+                LoadingOrb(label: "Working")
               } else {
                 Image(systemName: "chevron.up.chevron.down").font(.footnote.weight(.semibold))
                   .foregroundStyle(.tertiary)
@@ -612,7 +612,7 @@ private struct OnboardingWizard: View {
 
   @ViewBuilder private func rowAccessory(busy: Bool) -> some View {
     if busy {
-      ProgressView()
+      LoadingOrb(label: "Working")
     } else {
       Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
     }
@@ -898,7 +898,7 @@ private struct OnboardingWizard: View {
       Button {
         submitPrompt(prompt)
       } label: {
-        if setup.busy == .respond { ProgressView() } else { Text("Continue") }
+        if setup.busy == .respond { PrimaryLoadingOrb(label: "Working") } else { Text("Continue") }
       }
       .buttonStyle(.borderedProminent).controlSize(.small).tint(NativePalette.text)
       .foregroundStyle(NativePalette.onPrimary)
@@ -1115,7 +1115,7 @@ private struct OnboardingWizard: View {
               title: "Use the same OpenAI key", subtitle: "The one you just added for your bots"
             ) {
               if voiceBusy, voiceKey.isEmpty {
-                ProgressView()
+                LoadingOrb(label: "Working")
               } else {
                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
                   .foregroundStyle(.tertiary)

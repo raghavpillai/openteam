@@ -2,7 +2,7 @@ import type { ClientSnapshot, CreateBotInput } from "@openteam/contracts";
 import { BOT_AVATAR_COLORS } from "@openteam/contracts/bot-avatar";
 import { ROBOT_AVATAR_SHAPES, type RobotAvatarShape } from "@openteam/contracts/robot-avatar";
 import type { TranscriptionSettings } from "@openteam/contracts/transcription";
-import { Check, CircleAlert, Copy, LoaderCircle, Minus, Shuffle } from "lucide-react";
+import { Check, CircleAlert, Copy, Minus, Shuffle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../client/openteam-api";
 import { useModelSetup } from "../../hooks/use-model-setup";
@@ -18,6 +18,7 @@ import {
   HOSTED_TRANSCRIPTION_ENDPOINTS,
   HOSTED_TRANSCRIPTION_MODELS,
 } from "../../lib/transcription-providers";
+import { LoadingOrb } from "../ui/loading-orb";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { AppIcon } from "./setup/app-icons";
 import { ModelPicker, modelOption } from "./setup/model-picker";
@@ -538,7 +539,7 @@ function HealthScreen({
               ) : states[index] === "blocked" ? (
                 <Minus aria-hidden="true" className="size-3.5" />
               ) : (
-                <LoaderCircle aria-hidden="true" className="size-3.5 animate-spin" />
+                <LoadingOrb aria-hidden size={14} />
               )}
             </span>
             <span>
@@ -1027,7 +1028,9 @@ function ConnectScreen({
       visual={visual}
     >
       <p className="setup-note">
-        <LoaderCircle aria-hidden="true" className="mr-1.5 size-3.5 animate-spin" />
+        <span className="mr-1.5 inline-flex align-[-2px]">
+          <LoadingOrb aria-hidden size={14} />
+        </span>
         {waitingForBrowser ? `Waiting for ${name}…` : "Starting sign-in…"}
       </p>
     </SetupLayout>
@@ -1184,7 +1187,9 @@ function KeyScreen({
         </p>
       ) : busy ? (
         <p className="setup-note">
-          <LoaderCircle aria-hidden="true" className="mr-1.5 size-3.5 animate-spin" />
+          <span className="mr-1.5 inline-flex align-[-2px]">
+            <LoadingOrb aria-hidden size={14} />
+          </span>
           {progress}
         </p>
       ) : null}

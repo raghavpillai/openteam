@@ -534,7 +534,7 @@ struct WizardPrimaryButton: View {
     Button(action: action) {
       HStack(spacing: 9) {
         if busy {
-          ProgressView().tint(NativePalette.onPrimary)
+          PrimaryLoadingOrb(size: 20, label: "Working")
             .transition(.wizardText(reduceMotion).combined(with: .scale(scale: 0.6)))
         } else if let symbol {
           Image(systemName: symbol).fontWeight(.semibold)

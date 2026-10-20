@@ -98,7 +98,7 @@ struct ModelSignInProgress: View {
           }
         }
         HStack(spacing: 8) {
-          ProgressView().controlSize(.small)
+          LoadingOrb(size: 16).accessibilityHidden(true)
           Text("Waiting for you to finish signing in…")
         }.font(.footnote).foregroundStyle(NativePalette.muted)
       }.task(id: code.userCode) { copied = false }
@@ -108,7 +108,7 @@ struct ModelSignInProgress: View {
         .fixedSize(horizontal: false, vertical: true)
     } else if session.prompt == nil || session.automaticAnswer != nil {
       HStack(spacing: 8) {
-        ProgressView().controlSize(.small)
+        LoadingOrb(size: 16).accessibilityHidden(true)
         Text(session.prompt == nil && session.status == "running" && setup.busy != .respond
           && session.authType == "api_key" ? "Checking the key…" : "Starting sign-in…")
       }.font(.subheadline).foregroundStyle(NativePalette.muted)
@@ -162,7 +162,7 @@ struct ModelSignInProgress: View {
       submit(prompt)
     } label: {
       HStack(spacing: 6) {
-        if busy { ProgressView().controlSize(.small).tint(NativePalette.onPrimary) }
+        if busy { PrimaryLoadingOrb(label: "Working") }
         Text("Continue")
       }
     }.buttonStyle(ModelCapsuleButtonStyle(primary: true))
@@ -186,7 +186,7 @@ struct ModelTestStatusView: View {
     case .idle: EmptyView()
     case .running:
       HStack(spacing: 8) {
-        ProgressView().controlSize(.small)
+        LoadingOrb(size: 16).accessibilityHidden(true)
         Text(test.text ?? "")
       }.font(.subheadline).foregroundStyle(NativePalette.muted)
         .accessibilityElement(children: .combine).accessibilityIdentifier("model-test-status")
@@ -262,7 +262,7 @@ struct ProviderWebSignInSheet: View {
         onCapture: onCapture
       )
       .ignoresSafeArea(edges: .bottom)
-      .overlay { if loading { ProgressView() } }
+      .overlay { if loading { LoadingOrb(label: "Loading") } }
       .navigationTitle(host.isEmpty ? "Sign in" : host).navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
@@ -365,7 +365,7 @@ struct ModelSettingsView: View {
       if let setup {
         ModelSettingsForm(setup: setup)
       } else {
-        NativeForm { ProgressView("Loading…") }
+        NativeForm { LoadingOrbLabel(title: "Loading…") }
       }
     }
     .navigationTitle("Model").navigationBarTitleDisplayMode(.inline)
@@ -411,7 +411,7 @@ private struct ModelSettingsForm: View {
           }
           Spacer(minLength: 8)
           if setup.busy == .connect || setup.busy == .provider || setup.busy == .disconnect {
-            ProgressView()
+            LoadingOrb(label: "Working")
           } else if provider?.connected == true {
             Button("Disconnect") { confirmingDisconnect = true }
               .buttonStyle(ModelCapsuleButtonStyle()).disabled(busy || setup.signingIn)
@@ -492,7 +492,7 @@ private struct ModelSettingsForm: View {
             Task { await setup.apply() }
           } label: {
             HStack(spacing: 6) {
-              if setup.busy == .save { ProgressView().controlSize(.small).tint(NativePalette.onPrimary) }
+              if setup.busy == .save { PrimaryLoadingOrb(label: "Saving") }
               Text("Apply")
             }.frame(maxWidth: .infinity)
           }.buttonStyle(ModelCapsuleButtonStyle(primary: true))
@@ -506,7 +506,7 @@ private struct ModelSettingsForm: View {
       }
     }
     .disabled(setup.busy == .load)
-    .overlay { if setup.busy == .load { ProgressView() } }
+    .overlay { if setup.busy == .load { LoadingOrb(label: "Loading") } }
     .sheet(item: $setup.webSignIn) { signIn in
       ProviderWebSignInSheet(signIn: signIn) { url in
         Task { await setup.captured(url, for: signIn) }

@@ -1820,7 +1820,7 @@
     opacity 200ms ease-out,
     transform var(--spring-bouncy-duration) var(--spring-bouncy);
 }
-.setup-primary-end[data-busy="false"] > svg,
+.setup-primary-end[data-busy="false"] > :not(kbd),
 .setup-primary-end[data-busy="true"] > kbd {
   opacity: 0;
   transform: scale(0.6);

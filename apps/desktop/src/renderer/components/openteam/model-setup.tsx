@@ -1,4 +1,5 @@
-import { Check, CircleAlert, ExternalLink, LoaderCircle } from "lucide-react";
+import { Check, CircleAlert, ExternalLink } from "lucide-react";
+import { LoadingOrb } from "../ui/loading-orb";
 import { useEffect, useState } from "react";
 import type { ModelSetup, ModelTestState } from "../../hooks/use-model-setup";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
@@ -39,7 +40,7 @@ export function SignInProgress({ setup }: { setup: ModelSetup }) {
         </div>
       ) : waitingForBrowser ? (
         <div className="flex items-center gap-2 text-foreground-secondary">
-          <LoaderCircle className="size-3.5 animate-spin" /> Finish signing in in your browser…
+          <LoadingOrb aria-hidden size={14} /> Finish signing in in your browser…
         </div>
       ) : session.deviceCode ? (
         <div className="space-y-1.5">
@@ -61,7 +62,7 @@ export function SignInProgress({ setup }: { setup: ModelSetup }) {
         </div>
       ) : !prompt ? (
         <div className="flex items-center gap-2 text-foreground-secondary">
-          <LoaderCircle className="size-3.5 animate-spin" /> Starting sign-in…
+          <LoadingOrb aria-hidden size={14} /> Starting sign-in…
         </div>
       ) : null}
 
@@ -156,7 +157,7 @@ export function ModelTestStatus({ test }: { test: ModelTestState }) {
         className="inline-flex items-center gap-1.5 text-[12px] text-foreground-secondary"
         role="status"
       >
-        <LoaderCircle className="size-3.5 animate-spin" /> Testing the model…
+        <LoadingOrb aria-hidden size={14} /> Testing the model…
       </span>
     );
   }

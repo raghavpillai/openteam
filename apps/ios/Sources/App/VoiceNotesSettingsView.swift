@@ -25,7 +25,7 @@ struct VoiceNotesSettingsView: View {
                 "Could not load transcription settings. Check the server connection and version."
             ) { Task { await load() } }
           } else {
-            ProgressView("Loading…")
+            LoadingOrbLabel(title: "Loading…")
           }
         }
       } else {
@@ -115,7 +115,7 @@ struct VoiceNotesSettingsView: View {
               Task { await runCheck() }
             } label: {
               HStack(spacing: 6) {
-                if checking { ProgressView().controlSize(.small) }
+                if checking { LoadingOrb(size: 16, label: "Checking") }
                 Text("Test connection")
               }.frame(maxWidth: .infinity)
             }.buttonStyle(ModelCapsuleButtonStyle())
@@ -126,7 +126,7 @@ struct VoiceNotesSettingsView: View {
             } label: {
               HStack(spacing: 6) {
                 if operation.busy && !checking {
-                  ProgressView().controlSize(.small).tint(NativePalette.onPrimary)
+                  PrimaryLoadingOrb(label: "Saving")
                 }
                 Text("Save")
               }.frame(maxWidth: .infinity)

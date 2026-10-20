@@ -1,7 +1,7 @@
-import { LoaderCircle } from "lucide-react";
 import { lazy, Suspense } from "react";
 import { useModelSetup } from "../../../hooks/use-model-setup";
 import { providerName } from "../../../lib/provider-names";
+import { LoadingOrb } from "../../ui/loading-orb";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { ModelTestStatus, primaryButton, secondaryButton, SignInProgress } from "../model-setup";
 import { ProviderMark } from "../setup/provider-marks";
@@ -95,7 +95,7 @@ function ModelSettings() {
                     onClick={() => void setup.connect(method.type)}
                     type="button"
                   >
-                    {busy === "connect" ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
+                    {busy === "connect" ? <LoadingOrb aria-hidden inverse size={14} /> : null}
                     {method.type === "oauth" ? "Sign in" : "Add API key"}
                   </button>
                 ))}
@@ -214,7 +214,7 @@ function ModelSettings() {
               onClick={() => void setup.apply()}
               type="button"
             >
-              {busy === "save" ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
+              {busy === "save" ? <LoadingOrb aria-hidden inverse size={14} /> : null}
               Apply
             </button>
           </div>

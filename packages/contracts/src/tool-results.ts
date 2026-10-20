@@ -1,4 +1,5 @@
 import { describeTrigger } from "./reference-main-parsers";
+import { isStateTool } from "./state-tools";
 import { renderPluginResult } from "./plugin-tool-results";
 import {
   formatChromeCookieImportOutcome,
@@ -46,7 +47,7 @@ export function renderControlResult(
       return `Draft ${where} is now an editable card in the chat${id}. ${result.note}`;
     return `Draft ${where} is now an editable card in the chat${id}. Nothing has been sent; the user reviews, may edit, and sends or discards it from the card.`;
   }
-  if (name === "update_state") {
+  if (isStateTool(name)) {
     const labels: Record<string, string> = {
       name: "name",
       description: "description",
@@ -54,18 +55,24 @@ export function renderControlResult(
       avatar_shape: "avatar shape",
       avatar_color: "avatar color",
     };
-    if (result.target === "profile" && result.updated)
-      return `Updated your ${Object.keys(labels)
-        .filter((key) => args[key] !== undefined)
-        .map((key) => labels[key])
-        .join(", ")}.`;
-    if (result.target === "settings" && result.updated)
-      return `Updated your settings: ${["hidden_from_sidebar", "notify_on_updates"]
+    const settingsText = () =>
+      `Updated your settings: ${["hidden_from_sidebar", "notify_on_updates"]
         .filter((key) => args[key] !== undefined)
         .map((key) =>
           key === "hidden_from_sidebar" ? "hiddenFromSidebar" : "notifyOnAgentUpdates"
         )
         .join(", ")}.`;
+    // UpdateProfile saves its settings fields as a second update beside the profile.
+    if (result.target === "profile" && result.updated)
+      return [
+        `Updated your ${Object.keys(labels)
+          .filter((key) => args[key] !== undefined)
+          .map((key) => labels[key])
+          .join(", ")}.`,
+        ...(result.settings?.updated ? [settingsText()] : []),
+        ...(typeof result.settings_error === "string" ? [`Settings not saved: ${result.settings_error}`] : []),
+      ].join("\n");
+    if (result.target === "settings" && result.updated) return settingsText();
     if (result.target === "skill")
       return result.deleted
         ? `Deleted skill ${result.id}.`

@@ -56,7 +56,8 @@ import {
   TASK_TOOL,
   type TaskInput,
   TODO_WRITE_TOOL,
-  UPDATE_STATE_TOOL,
+  UPDATE_MEMORY_TOOL,
+  UPDATE_ROUTINE_TOOL,
 } from "@openteam/contracts";
 import { Schema } from "effect";
 import { parseHostAwaitShellRequest } from "@openteam/contracts/service-protocol";
@@ -114,7 +115,8 @@ export const SUBAGENT_PRIVATE_NATIVE_TOOLS: ReadonlySet<string> = new Set([
   "ListSections",
   SEND_TO_USER_TOOL.name,
   REACT_TO_MESSAGE_TOOL.name,
-  UPDATE_STATE_TOOL.name,
+  UPDATE_MEMORY_TOOL.name,
+  UPDATE_ROUTINE_TOOL.name,
   SCREENSHOT_TOOL.name,
 ]);
 

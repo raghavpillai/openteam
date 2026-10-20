@@ -9,6 +9,8 @@ import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import {
   AWAIT_SHELL_TOOL,
   AUTOMATION_PARENT_ONLY_TOOLS,
+  DISCONNECT_CHANNEL_TOOL,
+  DisconnectChannelInput,
   WAKE_PARENT_TOOL,
   WakeParentInput,
   AwaitShellInput,
@@ -35,9 +37,17 @@ import {
   TODO_WRITE_TOOL,
   TodoWriteInput,
   UPDATE_AGENT_TOOL,
+  UPDATE_AVATAR_TOOL,
   UPDATE_CHANNEL_TOOL,
+  UPDATE_PROFILE_TOOL,
+  UPDATE_PROJECT_TOOL,
+  UPDATE_SKILL_TOOL,
   UpdateAgentInput,
+  UpdateAvatarInput,
   UpdateChannelInput,
+  UpdateProfileInput,
+  UpdateProjectInput,
+  UpdateSkillInput,
 } from "@openteam/contracts";
 import { Schema } from "effect";
 import { parseHostAwaitShellRequest } from "@openteam/contracts/service-protocol";
@@ -289,6 +299,12 @@ export function dynamicCatalog(
           controlPlaneTool(UPDATE_AGENT_TOOL, UpdateAgentInput),
           controlPlaneTool(CREATE_CHANNEL_TOOL, CreateChannelInput),
           controlPlaneTool(UPDATE_CHANNEL_TOOL, UpdateChannelInput),
+          // Durable state beyond memory and routines: the parent agent and its routine runs only.
+          controlPlaneTool(UPDATE_SKILL_TOOL, UpdateSkillInput),
+          controlPlaneTool(UPDATE_PROFILE_TOOL, UpdateProfileInput),
+          controlPlaneTool(UPDATE_AVATAR_TOOL, UpdateAvatarInput),
+          controlPlaneTool(DISCONNECT_CHANNEL_TOOL, DisconnectChannelInput),
+          controlPlaneTool(UPDATE_PROJECT_TOOL, UpdateProjectInput),
         ]),
   ];
   const pluginNamespaces: Array<DynamicNamespaceDefinition<RuntimeDynamicTool>> =

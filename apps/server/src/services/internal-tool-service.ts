@@ -22,7 +22,7 @@ import {
   TodoWriteInput,
   UpdateAgentInput,
   UpdateChannelInput,
-  UpdateStateInput,
+  isStateTool,
 } from "@openteam/contracts";
 import type { PrismaClient } from "@openteam/db";
 import { type AgentMessaging, validateSendToUserInput, wakeAutomationParent, automationContextRunId } from "@openteam/messaging";
@@ -275,11 +275,12 @@ export class InternalToolService {
           arguments: input.arguments ?? {},
         });
       }
-      if (request.tool === "update_state") {
-        const result = await this.durableState.execute(
+      if (isStateTool(request.tool)) {
+        const result = await this.durableState.executeTool(
           request.botId,
           request.callId,
-          Schema.decodeUnknownSync(UpdateStateInput)(request.arguments),
+          request.tool,
+          request.arguments,
           request.runId
         );
         return formatMemoryToolResult(result);

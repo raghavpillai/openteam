@@ -87,8 +87,7 @@ databaseTest(
             ).round.roundIndex
           : 0;
         if (input.channelId === groupId && roundIndex === 0) {
-          const saved = await call("update_state", {
-            target: "memory",
+          const saved = await call("UpdateMemory", {
             action: "write",
             tier: "profile",
             fact: "ORBIT-913 explicit decision uses amber.",

@@ -234,7 +234,7 @@ export class AdministrationService {
       throw new ApiError(
         400,
         "cannot_update_self",
-        "UpdateAgent is only for other agents; update your own profile with update_state"
+        "UpdateAgent is only for other agents; update your own profile with UpdateProfile"
       );
     }
     if (input.name !== undefined && input.name.trim().length === 0) {

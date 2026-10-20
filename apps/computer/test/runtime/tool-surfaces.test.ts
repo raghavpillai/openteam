@@ -194,7 +194,8 @@ describe("specialized subagent tool surfaces", () => {
     const names = toolNames("executor");
     expect(names).not.toContain("SendToUser");
     expect(names).not.toContain("ReactToMessage");
-    expect(names).not.toContain("update_state");
+    expect(names).not.toContain("UpdateMemory");
+    expect(names).not.toContain("UpdateRoutine");
     expect(names).toContain("Shell");
     expect(names).toContain("Read");
     expect(names).toContain("GetDynamicTools");
@@ -376,6 +377,69 @@ describe("specialized subagent tool surfaces", () => {
         "SetMcpInstructions",
       ])
     );
+  });
+});
+
+describe("durable state tools", () => {
+  const namespacedStateTools = ["UpdateSkill", "UpdateProfile", "UpdateAvatar", "DisconnectChannel", "UpdateProject"];
+  const cursorToolNames = (runtime: any, active: Record<string, unknown>) =>
+    runtime.dynamicCatalog(active).find((namespace: any) => namespace.name === "cursor").tools.map((tool: any) => tool.name);
+
+  test("the main agent and its routine runs get every state tool; workers and read-only agents get none", async () => {
+    const runtime = runtimeTools() as any;
+    for (const active of [workerTurn(null), workerTurn(null, { requestSource: "automation" })]) {
+      const names = runtime.customTools(active).map((tool: any) => tool.name);
+      expect(names).toEqual(expect.arrayContaining(["UpdateMemory", "UpdateRoutine"]));
+      expect(names).not.toContain("update_state");
+      expect(cursorToolNames(runtime, active)).toEqual(expect.arrayContaining(namespacedStateTools));
+    }
+    for (const subagentType of ["executor", "knowledgeWork", "computerUse", "browserUse"]) {
+      for (const readOnly of [false, true]) {
+        const active = workerTurn(subagentType, { readOnly });
+        const names = runtime.customTools(active).map((tool: any) => tool.name);
+        expect(names).not.toContain("UpdateMemory");
+        expect(names).not.toContain("UpdateRoutine");
+        for (const name of namespacedStateTools) expect(cursorToolNames(runtime, active)).not.toContain(name);
+      }
+    }
+    const readOnly = { ...workerTurn("executor", { readOnly: true }), runId: "run-1", pendingSteers: [], discoveredDynamicTools: new Set() };
+    for (const name of ["UpdateMemory", "UpdateRoutine"])
+      await expect(runtime.executeOpenTeamTool(readOnly, "call-1", name, { action: "pause", id: "brief" })).rejects.toThrow("read-only");
+    for (const toolName of namespacedStateTools)
+      await expect(runtime.callDynamicTool(readOnly, "call-1", { namespace: "cursor", toolName, arguments: {} })).rejects.toThrow("read-only");
+  });
+
+  test("each state tool reaches the control plane under its own name with parsed arguments", async () => {
+    const runtime = runtimeTools() as any;
+    const calls: Array<{ tool: string; args: unknown }> = [];
+    runtime.callControlPlaneTool = async (_active: unknown, _callId: string, tool: string, args: unknown) => {
+      calls.push({ tool, args });
+      return { content: [], details: {} };
+    };
+    const active = { ...workerTurn(null), runId: "run-1", pendingSteers: [], discoveredDynamicTools: new Set() };
+    await runtime.executeOpenTeamTool(active, "memory", "UpdateMemory", { target: "memory", action: "write", fact: " Prefers tea. " });
+    await runtime.executeOpenTeamTool(active, "routine", "UpdateRoutine", { action: "pause", id: "brief" });
+    await expect(runtime.executeOpenTeamTool(active, "invalid", "UpdateMemory", { action: "create", fact: "x" })).rejects.toThrow(
+      "UpdateMemory only writes or forgets memory"
+    );
+    const cursor = runtime.dynamicCatalog(active).find((namespace: any) => namespace.name === "cursor");
+    const namespaced: Array<[string, Record<string, unknown>]> = [
+      ["UpdateSkill", { action: "delete", id: "standup" }],
+      ["UpdateProfile", { title: "Designer", hidden_from_sidebar: true }],
+      ["UpdateAvatar", { action: "clear" }],
+      ["DisconnectChannel", { platform: "slack" }],
+      ["UpdateProject", { action: "join", project: "launch" }],
+    ];
+    for (const [name, args] of namespaced) {
+      const tool = cursor.tools.find((candidate: any) => candidate.name === name);
+      await tool.execute(active, name, tool.decodeArguments({ ...args, target: "skill" }));
+    }
+    expect(() => cursor.tools.find((tool: any) => tool.name === "UpdateProfile").decodeArguments({ avatar_shape: "triangle" })).toThrow();
+    expect(calls).toEqual([
+      { tool: "UpdateMemory", args: { action: "write", fact: "Prefers tea." } },
+      { tool: "UpdateRoutine", args: { action: "pause", id: "brief" } },
+      ...namespaced.map(([tool, args]) => ({ tool, args })),
+    ]);
   });
 });
 

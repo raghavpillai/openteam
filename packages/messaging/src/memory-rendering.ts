@@ -31,8 +31,8 @@ const MEMORY_RECENT_PROMPT_CHAR_BUDGET = 4e3;
 
 const SAND_RECALL_MEMORY_TOOL_NAME = "RecallMemory";
 
-const MEMORY_UPDATE_STATE_GUIDANCE =
-  'To CHANGE memory, prefer the update_state tool (target "memory"): action "write" with a fact and a tier (profile | log | note), or action "forget" with the exact text of a recorded fact.';
+const MEMORY_UPDATE_GUIDANCE =
+  'To CHANGE memory, prefer the UpdateMemory tool: action "write" with a fact and a tier (profile | log | note), or action "forget" with the exact text of a recorded fact.';
 
 const USER_MEMORY_MORE_HINT_ON_DISK = `on disk \u2014 call ${SAND_RECALL_MEMORY_TOOL_NAME} (scope "user") or grep the user-memory/ folder`;
 
@@ -95,11 +95,11 @@ export function renderMemorySystemPrompt(
   if (location2 != null) {
     lines2.push(
       `Your memory lives in a folder at ${location2}: profile.md holds who the user is (kept in mind every turn) and log/ holds dated history.`,
-      `Call ${SAND_RECALL_MEMORY_TOOL_NAME} to search for older facts that are not listed here (you can also read or grep those files with Read and Shell on your own computer). ${MEMORY_UPDATE_STATE_GUIDANCE}`
+      `Call ${SAND_RECALL_MEMORY_TOOL_NAME} to search for older facts that are not listed here (you can also read or grep those files with Read and Shell on your own computer). ${MEMORY_UPDATE_GUIDANCE}`
     );
   } else {
     lines2.push(
-      `Call ${SAND_RECALL_MEMORY_TOOL_NAME} to search for older facts that are not listed here. ${MEMORY_UPDATE_STATE_GUIDANCE}`
+      `Call ${SAND_RECALL_MEMORY_TOOL_NAME} to search for older facts that are not listed here. ${MEMORY_UPDATE_GUIDANCE}`
     );
   }
   if (conversationMemory !== void 0) {
@@ -188,15 +188,15 @@ export function renderUserMemorySystemPrompt(
   ];
   if (ctx.userMemoryDir != null && ctx.ownShardDir != null) {
     lines2.push(
-      `User memory lives under ${ctx.userMemoryDir}, split into one shard folder per assistant so every file has a single writer. Your own shard is at ${ctx.ownShardDir} (a profile.md and log/YYYY-MM.md you can read and grep with Read and Shell on your own computer). Call ${SAND_RECALL_MEMORY_TOOL_NAME} (scope "user") to search shared facts that are not listed here. To CHANGE shared user memory, prefer the update_state tool (target "memory", scope "user", action "write" or "forget"). Never edit another assistant's shard.`
+      `User memory lives under ${ctx.userMemoryDir}, split into one shard folder per assistant so every file has a single writer. Your own shard is at ${ctx.ownShardDir} (a profile.md and log/YYYY-MM.md you can read and grep with Read and Shell on your own computer). Call ${SAND_RECALL_MEMORY_TOOL_NAME} (scope "user") to search shared facts that are not listed here. To CHANGE shared user memory, prefer the UpdateMemory tool (scope "user", action "write" or "forget"). Never edit another assistant's shard.`
     );
   } else {
     lines2.push(
-      `Every assistant writes its own shard of user memory; yours is kept for you and is not a file on your computer. Call ${SAND_RECALL_MEMORY_TOOL_NAME} (scope "user") to search shared facts that are not listed here. To CHANGE shared user memory, use the update_state tool (target "memory", scope "user", action "write" or "forget").`
+      `Every assistant writes its own shard of user memory; yours is kept for you and is not a file on your computer. Call ${SAND_RECALL_MEMORY_TOOL_NAME} (scope "user") to search shared facts that are not listed here. To CHANGE shared user memory, use the UpdateMemory tool (scope "user", action "write" or "forget").`
     );
   }
   lines2.push(
-    'To fix or replace a shared fact another assistant recorded, write the corrected fact into YOUR shard via update_state \u2014 the newest wins on conflict. Record a fact here only when it is clearly about the user and useful to every assistant; keep role-specific facts in your own memory (scope "agent").'
+    'To fix or replace a shared fact another assistant recorded, write the corrected fact into YOUR shard via UpdateMemory \u2014 the newest wins on conflict. Record a fact here only when it is clearly about the user and useful to every assistant; keep role-specific facts in your own memory (scope "agent").'
   );
   if (hasFacts) {
     lines2.push(
@@ -270,10 +270,10 @@ export function renderProjectMemorySystemPrompt(
   const lines2 = [
     "Project memory: durable facts shared by every assistant that has joined a project \u2014 the project's decisions, conventions, and state. Projects are optional and opt-in; joining one lets its memory into your prompt below.",
     "Precedence across memory tiers: on conflict prefer your OWN memory first, then project memory, then user memory \u2014 the most specific wins.",
-    `Projects live under ${ctx.projectsRootDir}: each is a folder <slug>/ holding a project.md (frontmatter name/description) and memory/by-agent/<assistantId>/ shards (one per contributing assistant, a standard profile.md + log/). Read and grep those folders with Read and Shell on your own computer; prefer the update_state tool for every CHANGE:`,
-    '  - Define a project: update_state target "project", action "create", project=<slug>, name=... (optional description). If the slug already exists this is create-is-join.',
-    `  - Join or leave: update_state target "project", action "join" or "leave", project=<slug>. Only projects you have joined load below; to see who else is a member, grep the assistants' projects.json files.`,
-    `  - Write project facts with update_state target "memory", scope "project", project=<slug>, action "write" or "forget" (never another assistant's shard); newest wins on conflict. Record a fact here only when it is about the project and useful to every member.`,
+    `Projects live under ${ctx.projectsRootDir}: each is a folder <slug>/ holding a project.md (frontmatter name/description) and memory/by-agent/<assistantId>/ shards (one per contributing assistant, a standard profile.md + log/). Read and grep those folders with Read and Shell on your own computer; prefer the state tools for every CHANGE:`,
+    '  - Define a project: UpdateProject (cursor namespace) action "create", project=<slug>, name=... (optional description). If the slug already exists this is create-is-join.',
+    `  - Join or leave: UpdateProject action "join" or "leave", project=<slug>. Only projects you have joined load below; to see who else is a member, grep the assistants' projects.json files.`,
+    `  - Write project facts with UpdateMemory, scope "project", project=<slug>, action "write" or "forget" (never another assistant's shard); newest wins on conflict. Record a fact here only when it is about the project and useful to every member.`,
   ];
   for (const block of recall.injected) {
     const header =

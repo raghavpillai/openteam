@@ -9,7 +9,7 @@ Each connected Email account is one inbox reached over IMAP and SMTP. Every Bot 
 
 ## Watching an inbox
 
-Mail wakes a Bot only through a routine. Save one with update_state (target "routine") and this trigger instead of a schedule:
+Mail wakes a Bot only through a routine. Save one with UpdateRoutine and this trigger instead of a schedule:
 
   { "type": "email", "inbox": "<one of the user's connected Email plugin inbox addresses (ListEmailInboxes)>", "from"?: ["sender@example.com", ...] (omit for any sender), "requireAuthPass"?: true (default; false also wakes on mail that failed SPF/DKIM/DMARC) }, which fires when mail arrives at that inbox. Mail matching no routine wakes nobody. The wake carries headers only; read the body with ReadEmailThread.
 

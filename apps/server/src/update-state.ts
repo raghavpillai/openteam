@@ -1,6 +1,20 @@
 import { createHash } from "node:crypto";
 import { relative, resolve, sep } from "node:path";
-import { ApiError, resolveBotAvatarColorName, type UpdateStateInput } from "@openteam/contracts";
+import { Schema } from "effect";
+import {
+  ApiError,
+  DisconnectChannelInput,
+  resolveBotAvatarColorName,
+  STATE_TOOL_TARGETS,
+  type StateToolName,
+  UpdateAvatarInput,
+  UpdateMemoryInput,
+  UpdateProfileInput,
+  UpdateProjectInput,
+  UpdateRoutineInput,
+  UpdateSkillInput,
+  type UpdateStateInput,
+} from "@openteam/contracts";
 import type { Prisma, PrismaClient } from "@openteam/db";
 import {
   appendAgentTimelineEvent,
@@ -13,23 +27,32 @@ const PROJECT_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const requiredText = (
   value: string | undefined,
   field: string,
-  target: string,
+  tool: StateToolName,
   action: string
 ): string => {
   const text = value?.trim();
   if (!text) {
-    throw new ApiError(400, "state_field_required", `${field} is required for ${target} ${action}`);
+    throw new ApiError(400, "state_field_required", `${tool} ${action} requires ${field}`);
   }
   return text;
 };
 
-const stateError = (target: string, action: string): never => {
-  throw new ApiError(
-    400,
-    "state_action_invalid",
-    `update_state does not support target=${target} with action=${action}`
-  );
+const stateError = (tool: StateToolName, action: string): never => {
+  throw new ApiError(400, "state_action_invalid", `${tool} does not support action=${action}`);
 };
+
+const PROFILE_FIELDS = ["name", "description", "title", "avatar_shape", "avatar_color"] as const;
+const SETTINGS_FIELDS = ["hidden_from_sidebar", "notify_on_updates"] as const;
+
+const stateToolArguments = {
+  UpdateMemory: UpdateMemoryInput,
+  UpdateRoutine: UpdateRoutineInput,
+  UpdateSkill: UpdateSkillInput,
+  UpdateProfile: UpdateProfileInput,
+  UpdateAvatar: UpdateAvatarInput,
+  DisconnectChannel: DisconnectChannelInput,
+  UpdateProject: UpdateProjectInput,
+} satisfies Record<StateToolName, Schema.Schema.AnyNoContext>;
 
 const eventPayload = (value: Record<string, unknown>): Prisma.InputJsonValue =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -48,18 +71,50 @@ export class DurableStateService {
     private readonly timelineHost: TimelineEventWakeHost
   ) {}
 
+  /** Run one state tool call as an update of its fixed target. */
+  async executeTool(
+    botId: string,
+    callId: string,
+    tool: StateToolName,
+    args: unknown,
+    runId: string | null = null
+  ): Promise<Record<string, unknown>> {
+    const schema: Schema.Schema.AnyNoContext = stateToolArguments[tool];
+    const input: Partial<UpdateStateInput> = Schema.decodeUnknownSync(schema)(args);
+    const run = (state: UpdateStateInput, key = callId) => this.execute(botId, key, state, runId, tool);
+    if (tool === "DisconnectChannel") return run({ ...input, target: "channel", action: "disconnect" });
+    if (tool !== "UpdateProfile") return run({ ...input, target: STATE_TOOL_TARGETS[tool], action: input.action! });
+    // Profile and settings are separate state. When both change, the settings half is
+    // its own idempotent update under a derived call id.
+    const passed = (fields: readonly (keyof UpdateStateInput)[]) =>
+      Object.fromEntries(fields.filter((field) => input[field] !== undefined).map((field) => [field, input[field]]));
+    const profile: UpdateStateInput = { ...passed(PROFILE_FIELDS), target: "profile", action: "set" };
+    const settings: UpdateStateInput = { ...passed(SETTINGS_FIELDS), target: "settings", action: "set" };
+    const changesSettings = SETTINGS_FIELDS.some((field) => input[field] !== undefined);
+    if (!changesSettings || PROFILE_FIELDS.every((field) => input[field] === undefined))
+      return run(changesSettings ? settings : profile);
+    const saved = await run(profile);
+    try {
+      return { ...saved, settings: await run(settings, `${callId}:settings`) };
+    } catch (error) {
+      // The profile change stands; report the settings that did not save.
+      return { ...saved, settings_error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   async execute(
     botId: string,
     callId: string,
     input: UpdateStateInput,
-    runId: string | null = null
+    runId: string | null,
+    tool: StateToolName
   ): Promise<Record<string, unknown>> {
     await this.agentData.reconcileBot(botId);
     const bot = await this.prisma.bot.findUnique({ where: { id: botId } });
     if (!bot || bot.status !== "active") {
       throw new ApiError(404, "bot_not_found", "Active bot not found");
     }
-    const scope = `update_state:${botId}`;
+    const scope = `state:${botId}`;
     const requestHash = createHash("sha256").update(JSON.stringify(input)).digest("hex");
     const existing = await this.prisma.idempotencyRecord.findUnique({
       where: { scope_key: { scope, key: callId } },
@@ -69,7 +124,7 @@ export class DurableStateService {
         throw new ApiError(
           409,
           "state_call_conflict",
-          "This update_state call id was already used with different arguments"
+          `This ${tool} call id was already used with different arguments`
         );
       }
       if (existing.status === "completed" && existing.response) {
@@ -87,7 +142,7 @@ export class DurableStateService {
     }
 
     try {
-      const result = await this.mutate(botId, callId, runId, input);
+      const result = await this.mutate(botId, callId, runId, input, tool);
       await this.agentData.projectBot(botId);
       await this.prisma.$transaction(async (tx) => {
         await tx.event.create({
@@ -121,14 +176,15 @@ export class DurableStateService {
     botId: string,
     callId: string,
     runId: string | null,
-    input: UpdateStateInput
+    input: UpdateStateInput,
+    tool: StateToolName
   ): Promise<Record<string, unknown>> {
     switch (input.target) {
       case "memory":
-        return this.memory(botId, input, runId);
+        return this.memory(botId, input, runId, tool);
       case "routine": {
         if (!["create", "update", "pause", "resume", "delete"].includes(input.action)) {
-          return stateError(input.target, input.action);
+          return stateError(tool, input.action);
         }
         const run = runId ? await this.prisma.run.findFirst({ where: { id: runId, botId }, select: { channelId: true } }) : null;
         const group = run?.channelId ? await this.prisma.channel.findFirst({ where: {
@@ -147,25 +203,30 @@ export class DurableStateService {
         return { ...routine, owner: { ...owner, ...(group ? { name: group.name } : {}) } };
       }
       case "skill":
-        return this.skill(botId, input);
+        return this.skill(botId, input, tool);
       case "profile":
-        return this.profile(botId, callId, input);
+        return this.profile(botId, callId, input, tool);
       case "settings":
-        return this.settings(botId, input);
+        return this.settings(botId, input, tool);
       case "channel":
-        return this.channel(botId, input);
+        return this.channel(botId, input, tool);
       case "project":
-        return this.project(botId, input);
+        return this.project(botId, input, tool);
       case "avatar":
-        return this.avatar(botId, input);
+        return this.avatar(botId, input, tool);
     }
   }
 
-  private async memory(botId: string, input: UpdateStateInput, runId: string | null): Promise<Record<string, unknown>> {
+  private async memory(
+    botId: string,
+    input: UpdateStateInput,
+    runId: string | null,
+    tool: StateToolName
+  ): Promise<Record<string, unknown>> {
     if (input.action !== "write" && input.action !== "forget") {
-      return stateError(input.target, input.action);
+      return stateError(tool, input.action);
     }
-    const fact = requiredText(input.fact, "fact", input.target, input.action);
+    const fact = requiredText(input.fact, "fact", tool, input.action);
     const run = runId ? await this.prisma.run.findFirst({ where: { id: runId, botId }, select: { memoryConversationId: true, channelId: true } }) : null;
     const memoryContext = run ? run.memoryConversationId
       ? await this.agentData.getMemoryConversation(botId, run.memoryConversationId)
@@ -175,7 +236,7 @@ export class DurableStateService {
     const scope = input.scope ?? "agent";
     const project =
       scope === "project"
-        ? this.requireProjectSlug(input.project, input.target, input.action)
+        ? this.requireProjectSlug(input.project, tool, input.action)
         : undefined;
     if (project) await this.requireProjectMembership(botId, project);
     if (input.action === "forget") {
@@ -217,20 +278,24 @@ export class DurableStateService {
     };
   }
 
-  private async skill(botId: string, input: UpdateStateInput): Promise<Record<string, unknown>> {
+  private async skill(
+    botId: string,
+    input: UpdateStateInput,
+    tool: StateToolName
+  ): Promise<Record<string, unknown>> {
     if (input.action === "delete") {
-      const id = requiredText(input.id, "id", input.target, input.action);
+      const id = requiredText(input.id, "id", tool, input.action);
       const removed = await this.agentData.deleteSkill(botId, id);
       if (!removed) {
         throw new ApiError(404, "skill_not_found", "That skill does not belong to this bot");
       }
       return { target: "skill", action: "delete", id, deleted: true };
     }
-    if (input.action !== "write") return stateError(input.target, input.action);
+    if (input.action !== "write") return stateError(tool, input.action);
 
-    const name = requiredText(input.name, "name", input.target, input.action);
-    const description = requiredText(input.description, "description", input.target, input.action);
-    const body = requiredText(input.body, "body", input.target, input.action);
+    const name = requiredText(input.name, "name", tool, input.action);
+    const description = requiredText(input.description, "description", tool, input.action);
+    const body = requiredText(input.body, "body", tool, input.action);
     const saved = await this.agentData.writeSkill(botId, {
       id: input.id,
       name,
@@ -249,18 +314,19 @@ export class DurableStateService {
   private async profile(
     botId: string,
     callId: string,
-    input: UpdateStateInput
+    input: UpdateStateInput,
+    tool: StateToolName
   ): Promise<Record<string, unknown>> {
-    if (input.action !== "set") return stateError(input.target, input.action);
-    if ([input.name, input.description, input.title, input.avatar_shape, input.avatar_color].every((value) => value === undefined)) {
+    if (input.action !== "set") return stateError(tool, input.action);
+    if (PROFILE_FIELDS.every((field) => input[field] === undefined)) {
       throw new ApiError(
         400,
         "state_field_required",
-        "profile set requires name, description, title, avatar_shape, or avatar_color"
+        `${tool} requires at least one of ${[...PROFILE_FIELDS, ...SETTINGS_FIELDS].join(", ")}`
       );
     }
     const name =
-      input.name === undefined ? undefined : requiredText(input.name, "name", "profile", "set");
+      input.name === undefined ? undefined : requiredText(input.name, "name", tool, "set");
     const description = input.description?.trim();
     const bot = await this.agentData.mutateBotFiles(botId, ["profile"], async (tx) => {
       const previous = await tx.bot.findUniqueOrThrow({ where: { id: botId } });
@@ -296,13 +362,17 @@ export class DurableStateService {
     };
   }
 
-  private async settings(botId: string, input: UpdateStateInput): Promise<Record<string, unknown>> {
-    if (input.action !== "set") return stateError(input.target, input.action);
-    if (input.hidden_from_sidebar === undefined && input.notify_on_updates === undefined) {
+  private async settings(
+    botId: string,
+    input: UpdateStateInput,
+    tool: StateToolName
+  ): Promise<Record<string, unknown>> {
+    if (input.action !== "set") return stateError(tool, input.action);
+    if (SETTINGS_FIELDS.every((field) => input[field] === undefined)) {
       throw new ApiError(
         400,
         "state_field_required",
-        "settings set requires hidden_from_sidebar and/or notify_on_updates"
+        `${tool} settings require hidden_from_sidebar and/or notify_on_updates`
       );
     }
     const settings = await this.agentData.mutateBotFiles(botId, ["settings"], (tx) =>
@@ -327,14 +397,13 @@ export class DurableStateService {
     };
   }
 
-  private async channel(botId: string, input: UpdateStateInput): Promise<Record<string, unknown>> {
-    if (input.action !== "disconnect") return stateError(input.target, input.action);
-    const platform = requiredText(
-      input.platform,
-      "platform",
-      input.target,
-      input.action
-    ).toLowerCase();
+  private async channel(
+    botId: string,
+    input: UpdateStateInput,
+    tool: StateToolName
+  ): Promise<Record<string, unknown>> {
+    if (input.action !== "disconnect") return stateError(tool, input.action);
+    const platform = requiredText(input.platform, "platform", tool, input.action).toLowerCase();
     const disconnectedAt = new Date();
     await this.prisma.botConnectorState.upsert({
       where: { botId_platform: { botId, platform } },
@@ -350,11 +419,15 @@ export class DurableStateService {
     };
   }
 
-  private async project(botId: string, input: UpdateStateInput): Promise<Record<string, unknown>> {
+  private async project(
+    botId: string,
+    input: UpdateStateInput,
+    tool: StateToolName
+  ): Promise<Record<string, unknown>> {
     if (!(["create", "join", "leave"] as const).includes(input.action as never)) {
-      return stateError(input.target, input.action);
+      return stateError(tool, input.action);
     }
-    const slug = this.requireProjectSlug(input.project, input.target, input.action);
+    const slug = this.requireProjectSlug(input.project, tool, input.action);
     if (input.action === "leave") {
       const removed = await this.prisma.projectMember.deleteMany({
         where: { projectSlug: slug, botId },
@@ -387,7 +460,7 @@ export class DurableStateService {
       };
     }
 
-    const name = requiredText(input.name, "name", input.target, input.action);
+    const name = requiredText(input.name, "name", tool, input.action);
     const description = input.description?.trim() ?? "";
     const workingDirectory = this.projectDirectory(slug);
     await this.provisionProject({ path: workingDirectory, name, description });
@@ -424,13 +497,17 @@ export class DurableStateService {
     };
   }
 
-  private async avatar(botId: string, input: UpdateStateInput): Promise<Record<string, unknown>> {
+  private async avatar(
+    botId: string,
+    input: UpdateStateInput,
+    tool: StateToolName
+  ): Promise<Record<string, unknown>> {
     if (input.action === "clear") {
       await this.agentData.setAvatarFromPath(botId, null);
       return { target: "avatar", action: "clear", cleared: true };
     }
-    if (input.action !== "set") return stateError(input.target, input.action);
-    const supplied = requiredText(input.path, "path", input.target, input.action);
+    if (input.action !== "set") return stateError(tool, input.action);
+    const supplied = requiredText(input.path, "path", tool, input.action);
     let saved: { path: string | null; resolvedPath: string | null; bytes: number };
     try {
       saved = await this.agentData.setAvatarFromPath(botId, supplied);
@@ -451,8 +528,8 @@ export class DurableStateService {
     };
   }
 
-  private requireProjectSlug(value: string | undefined, target: string, action: string): string {
-    const slug = requiredText(value, "project", target, action).toLowerCase();
+  private requireProjectSlug(value: string | undefined, tool: StateToolName, action: string): string {
+    const slug = requiredText(value, "project", tool, action).toLowerCase();
     if (!PROJECT_SLUG.test(slug) || slug.length > 80) {
       throw new ApiError(
         400,

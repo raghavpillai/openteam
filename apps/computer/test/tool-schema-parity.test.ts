@@ -51,7 +51,7 @@ describe("captured tool contract wiring", () => {
       }
     }
   });
-  test("exposes the 75 active shared contracts through the actual model-facing profiles", () => {
+  test("exposes the 81 active shared contracts through the actual model-facing profiles", () => {
     const runtime = new RuntimeTools({} as never, "http://unused.invalid", "test", "/tmp", "/tmp");
     const base = { runtimeProfile: "agent", pluginNamespaces: [] } as unknown as ActiveTurn;
     const catalog = [
@@ -72,7 +72,7 @@ describe("captured tool contract wiring", () => {
         ? (runtime as any).dynamicCatalog(active).flatMap((n: any) => n.tools)
         : []),
     ]);
-    expect(Object.keys(reference)).toHaveLength(77);
+    expect(Object.keys(reference)).toHaveLength(83);
     // The saved-login desktop tools are retired.
     const retired = ["ListCredentials", "GetCredentialProviderStatus"];
     for (const name of Object.keys(reference).filter((name) => !retired.includes(name))) {

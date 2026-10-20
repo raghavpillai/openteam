@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Schema } from "effect";
 import { createPrismaClient } from "@openteam/db";
-import { UpdateStateInput } from "@openteam/contracts";
+import { UpdateProfileInput } from "@openteam/contracts";
 import { AgentDataStore } from "@openteam/messaging";
 import { DurableStateService } from "../src/update-state";
 
@@ -35,13 +35,7 @@ test.skipIf(!url)(
         {} as never
       );
       const title = "Shared profile title ".repeat(15).trim();
-      const input = Schema.decodeUnknownSync(UpdateStateInput)({
-        target: "profile",
-        action: "set",
-        title,
-        avatar_color: "cyan",
-      });
-      expect(await state.execute(botId, "profile-call", input)).toMatchObject({
+      expect(await state.executeTool(botId, "profile-call", "UpdateProfile", { title, avatar_color: "cyan" })).toMatchObject({
         title,
         avatar_color: "#27baae",
         updated: true,
@@ -51,15 +45,9 @@ test.skipIf(!url)(
         title,
         color: "#27baae",
       });
-      expect(() =>
-        Schema.decodeUnknownSync(UpdateStateInput)({
-          target: "profile",
-          action: "set",
-          avatar_color: "unknown-color",
-        })
-      ).toThrow();
+      expect(() => Schema.decodeUnknownSync(UpdateProfileInput)({ avatar_color: "unknown-color" })).toThrow();
     } finally {
-      await db.idempotencyRecord.deleteMany({ where: { scope: `update_state:${botId}` } });
+      await db.idempotencyRecord.deleteMany({ where: { scope: `state:${botId}` } });
       await db.bot.deleteMany({ where: { id: botId } });
       await db.$disconnect();
       await rm(root, { recursive: true, force: true });

@@ -2014,7 +2014,8 @@ export class AgentMessaging {
     return { targetDmChannelId };
   }
 
-  async platformPrompt(botId: string, contextSessionId?: string, connectorInstructions = "", memoryConversationId?: string, taskConfigurationSnapshot?: TaskConfiguration): Promise<PlatformPrompt> {
+  /** channelId is the run's channel (null for a home run); undefined renders no pending automation results. */
+  async platformPrompt(botId: string, contextSessionId?: string, connectorInstructions = "", channelId?: string | null, taskConfigurationSnapshot?: TaskConfiguration): Promise<PlatformPrompt> {
     const context = contextSessionId ? await this.prisma.contextSession.findFirst({ where: { id: contextSessionId, botId }, select: { scope: true } }) : null;
     const automation = context?.scope === "automation";
     const bot = await this.prisma.bot.findUniqueOrThrow({
@@ -2063,7 +2064,7 @@ export class AgentMessaging {
       };
     }
     const [agentPrompt, taskConfiguration] = await Promise.all([
-      this.agentData.promptContext(botId, contextSessionId, memoryConversationId),
+      this.agentData.promptContext(botId, contextSessionId, channelId),
       taskConfigurationSnapshot ?? this.agentData.loadTaskConfiguration(),
     ]);
     const [recentPeers, groupRows, disconnected, routines, pendingRichMessages] = await Promise.all(
@@ -2228,8 +2229,8 @@ export class AgentMessaging {
       .filter(Boolean)
       .join("\n\n");
     const userInfo = renderAgentSkillsUserInfo(agentPrompt.skillRender);
-    const automationResults = !automation && memoryConversationId ? await this.prisma.automationResult.findMany({
-      where: { wakeRunId: null, acknowledgedAt: null, run: { botId, memoryConversationId } },
+    const automationResults = !automation && channelId !== undefined ? await this.prisma.automationResult.findMany({
+      where: { wakeRunId: null, acknowledgedAt: null, run: { botId, channelId } },
       orderBy: { createdAt: "asc" }, take: 20,
     }) : [];
     return {

@@ -17,7 +17,6 @@ const suites = [
   ],
   [
     "packages/messaging/test/memory-parity.integration.test.ts",
-    "packages/messaging/test/memory-scopes.integration.test.ts",
   ],
   ["apps/server/test/memory-tools.integration.test.ts", "apps/server/test/memory-management.integration.test.ts"],
   ["apps/desktop/test/memory-view.test.ts"],

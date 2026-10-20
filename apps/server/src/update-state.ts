@@ -215,42 +215,27 @@ export class DurableStateService {
       return stateError(tool, input.action);
     }
     const fact = requiredText(input.fact, "fact", tool, input.action);
-    const run = runId ? await this.prisma.run.findFirst({ where: { id: runId, botId }, select: { memoryConversationId: true, channelId: true } }) : null;
-    const memoryContext = run ? run.memoryConversationId
-      ? await this.agentData.getMemoryConversation(botId, run.memoryConversationId)
-      : await this.agentData.resolveMemoryConversation(botId, run.channelId)
-      : undefined;
-    const memoryConversationId = memoryContext?.id;
+    const run = runId ? await this.prisma.run.findFirst({ where: { id: runId, botId }, select: { channelId: true } }) : null;
+    const channelId = run?.channelId;
     const scope = input.scope ?? "agent";
     if (input.action === "forget") {
-      const removed = await this.agentData.forgetMemory(botId, {
-        scope,
-        memoryConversationId,
-        fact,
-      });
+      const removed = await this.agentData.forgetMemory(botId, { scope, channelId, fact });
       return {
         target: "memory",
         action: "forget",
         forgotten: removed.forgotten,
-        ...(memoryContext?.teamShared && scope === "agent" && removed.forgotten ? { announcement: "Tell the user you have forgotten this team-wide fact in your reply." } : {}),
         scope,
         fact: removed.content,
       };
     }
 
     const tier = input.tier ?? "log";
-    const saved = await this.agentData.writeMemory(botId, {
-      scope,
-      memoryConversationId,
-      tier,
-      fact,
-    });
+    const saved = await this.agentData.writeMemory(botId, { scope, channelId, tier, fact });
     return {
       target: "memory",
       action: "write",
       id: saved.logicalId,
       saved: saved.saved,
-      ...(memoryContext?.teamShared && scope === "agent" ? { announcement: "Tell the user you have saved this team-wide fact in your reply." } : {}),
       scope,
       tier,
       fact: saved.content,

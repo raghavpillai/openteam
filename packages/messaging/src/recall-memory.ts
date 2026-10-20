@@ -4,7 +4,6 @@ export interface RecallCandidate {
   tier: string;
   scope: "agent" | "user";
   via?: string;
-  source?: string;
 }
 
 const STOPWORDS = new Set(
@@ -72,11 +71,7 @@ export function recallMemoryResult(input: unknown, candidates: readonly RecallCa
   let shown = 0;
   for (const fact of matches) {
     const provenance =
-      fact.scope === "user"
-        ? `, shared${fact.via?.trim() ? ` via ${fact.via.trim()}` : ""}`
-        : fact.source
-          ? `, ${fact.source}`
-          : "";
+      fact.scope === "user" ? `, shared${fact.via?.trim() ? ` via ${fact.via.trim()}` : ""}` : "";
     const line = `- (${Number.isFinite(fact.createdAt.getTime()) && fact.createdAt.getTime() > 0 ? fact.createdAt.toISOString().slice(0, 10) : "unknown date"}) [${fact.tier === "profile" ? "profile" : "log"}${provenance}] ${fact.content}`;
     if (shown > 0 && line.length > budget) break;
     lines.push(line);

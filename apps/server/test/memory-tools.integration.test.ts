@@ -13,7 +13,7 @@ const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 const databaseTest = databaseUrl ? test : test.skip;
 
 databaseTest(
-  "real memory tool dispatch uses the run audience, persists, recalls, forgets, and enforces restrictions",
+  "real memory tool dispatch uses the run channel, persists, recalls, forgets, and enforces restrictions",
   async () => {
     const prisma = createPrismaClient(databaseUrl!);
     const root = await mkdtemp(join(tmpdir(), "memory-tool-route-"));
@@ -52,7 +52,6 @@ databaseTest(
       });
       channelId = channel.id;
       await store.initializeBot(botId);
-      const context = await store.resolveMemoryConversation(botId, channelId);
       await prisma.run.create({
         data: {
           id: runId,
@@ -61,7 +60,6 @@ databaseTest(
           channelId,
           userMessageId: crypto.randomUUID(),
           status: "running",
-          memoryConversationId: context.id,
         },
       });
       const state = new DurableStateService(
@@ -102,9 +100,6 @@ databaseTest(
       const saved = await call("UpdateMemory", request, callId);
       expect(saved).toBe(`Remembered in your memory (profile): ${request.fact}`);
       expect(await call("UpdateMemory", request, callId)).toEqual(saved);
-      expect(await prisma.memoryFact.count({ where: { memoryConversationId: context.id } })).toBe(
-        0
-      );
       expect(await call("RecallMemory", { query: "COBALT", scope: "agent" })).toContain(
         "[profile]"
       );
@@ -114,8 +109,7 @@ databaseTest(
       expect(cached.response).toMatchObject({ saved: true, scope: "agent", fact: request.fact });
       await expect(call("UpdateMemory", { ...request, scope: "conversation", fact: "ORBIT914V relay key is COPPER-8357." })).rejects.toThrow();
       expect(await prisma.memoryFact.count({ where: { writtenByBotId: botId, fact: { contains: "ORBIT914V" } } })).toBe(0);
-      // Tool arguments cannot substitute their own audience or memory owner.
-      const personal = await store.resolveMemoryConversation(botId);
+      // Tool arguments cannot substitute their own channel or memory owner.
       await store.writeMemory(botId, {
         scope: "user",
         tier: "profile",
@@ -125,7 +119,7 @@ databaseTest(
         await call("RecallMemory", {
           query: "heliotrope",
           scope: "user",
-          memoryConversationId: personal.id,
+          channelId: null,
         })
       ).not.toContain("Personal heliotrope choice.");
       await expect(call("UpdateMemory", { ...request, scope: "user" })).rejects.toThrow(
@@ -137,13 +131,11 @@ databaseTest(
         fact: "Team COBALT policy.",
       });
       expect(shared).toBe("Remembered in your memory (profile): Team COBALT policy.");
-      // Simulate a room copy created by the pre-parity automatic learner.
-      await store.writeMemory(botId, { scope: "conversation", memoryConversationId: context.id, tier: "profile", fact: request.fact });
       expect(
         await call("UpdateMemory", { action: "forget", fact: request.fact })
       ).toBe(`Forgot from your memory: ${request.fact}`);
       expect(await call("RecallMemory", { query: "delivery" })).not.toContain("uses amber");
-      expect(await prisma.memoryFact.count({ where: { writtenByBotId: botId, scope: { in: ["agent", "conversation"] }, fact: request.fact } })).toBe(0);
+      expect(await prisma.memoryFact.count({ where: { writtenByBotId: botId, scope: "agent", fact: request.fact } })).toBe(0);
       expect(await call("UpdateMemory", { action: "forget", fact: request.fact })).toBe("Not saved — no fact with exactly that text is recorded in your memory. Call RecallMemory for the exact wording first.");
       const forgotten = await call("UpdateMemory", {
         action: "forget",
@@ -156,9 +148,8 @@ databaseTest(
       expect(await call("UpdateMemory", { ...request, tier: "note", fact: "Ephemeral choice." })).toBe("Remembered in your memory (note): [note] Ephemeral choice.");
       const personalChannel = await prisma.channel.create({ data: { name: "Personal memory fixture", kind: "bot_dm", directKey: `bot:${botId}`, members: { create: { botId, ordinal: 0 } } } });
       personalChannelId = personalChannel.id;
-      const personalContext = await store.resolveMemoryConversation(botId, personalChannel.id);
       const personalRun = await prisma.run.create({ data: {
-        botId, conversationId, channelId: personalChannel.id, userMessageId: crypto.randomUUID(), status: "running", memoryConversationId: personalContext.id,
+        botId, conversationId, channelId: personalChannel.id, userMessageId: crypto.randomUUID(), status: "running",
       } });
       const personalCall = (args: unknown) => Effect.runPromise(service.execute({
         runId: personalRun.id, botId, conversationId, channelId: personalChannel.id, deliveryId: null,

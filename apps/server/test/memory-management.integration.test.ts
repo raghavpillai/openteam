@@ -184,24 +184,12 @@ dbTest(
 );
 
 dbTest(
-  "list and delete include old room copies, remove duplicates, and preserve surrounding Markdown",
+  "list and delete remove duplicates and preserve surrounding Markdown",
   async () =>
     fixture(async ({ store, botId, client }) => {
-      const room = await store.resolveMemoryConversation(botId);
       const fact = "CONTROL914 historical duplicate.";
       await store.writeMemory(botId, { scope: "agent", tier: "profile", fact });
-      await store.writeMemory(botId, {
-        scope: "conversation",
-        memoryConversationId: room.id,
-        tier: "log",
-        fact,
-      });
-      await store.writeMemory(botId, {
-        scope: "conversation",
-        memoryConversationId: room.id,
-        tier: "profile",
-        fact: "CONTROL914 room-only fact.",
-      });
+      await store.writeMemory(botId, { scope: "agent", tier: "log", fact: "CONTROL914 log-only fact." });
       const path = join(store.memoryDirectory(botId, "agent"), "profile.md");
       await writeFile(
         path,
@@ -214,14 +202,11 @@ dbTest(
       expect(listed.total).toBe(2);
       expect((await client.deleteBotMemory(botId, memoryLogicalId(fact))).total).toBe(1);
       expect(await readFile(path, "utf8")).toContain("Keep this manual comment.");
-      expect(await readMemoryTree(store.memoryDirectory(botId, "agent"))).toHaveLength(0);
       expect((await client.clearBotMemories(botId)).total).toBe(0);
-      expect(
-        await readMemoryTree(store.memoryDirectory(botId, "conversation", room.id))
-      ).toHaveLength(0);
-      expect(
-        await store.recallMemory(botId, { query: "CONTROL914", scope: "agent" }, room.id)
-      ).toContain("(0 searched)");
+      expect(await readMemoryTree(store.memoryDirectory(botId, "agent"))).toHaveLength(0);
+      expect(await store.recallMemory(botId, { query: "CONTROL914", scope: "agent" })).toContain(
+        "(0 searched)"
+      );
     })
 );
 

@@ -3,8 +3,7 @@
 // Keep structured state/event/idempotency records internal to the application.
 export function formatMemoryToolResult(result: Record<string, unknown>): string | Record<string, unknown> {
   if (result.target !== "memory" || !["write", "forget"].includes(String(result.action))) return result;
-  const label = result.scope === "user" ? "shared user memory"
-    : result.scope === "conversation" ? "this conversation's memory" : "your memory";
+  const label = result.scope === "user" ? "shared user memory" : "your memory";
   if (result.action === "write") {
     return result.saved
       ? `Remembered in ${label} (${result.tier}): ${result.fact}`

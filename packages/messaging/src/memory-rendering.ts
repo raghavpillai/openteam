@@ -1,15 +1,9 @@
 // Prompt rendering ported from the independently hashed ecc8113 sand-memory.ts.
 // The database/file adapters supply records and deployment paths; wording and
 // character-budget behavior are checked against reference-generated fixtures.
-import { renderMemoryConversationScopeStory, type MemoryScopeStory } from "./memory-scopes";
-export type MemorySource =
-  | { kind: "agent" }
-  | { kind: "conversation" }
-  | { kind: "sibling"; sessionId: string };
 export interface PromptMemoryRecord {
   content: string;
   createdAt: number;
-  source?: MemorySource;
   via: string;
 }
 export interface PromptMemoryRecall {
@@ -43,39 +37,16 @@ export function factLine(memory: PromptMemoryRecord) {
   return `- (learned ${formatMemoryDate(memory.createdAt)}) ${memory.content}`;
 }
 
-export function agentMemorySourceTag(source: MemorySource) {
-  switch (source.kind) {
-    case "agent":
-      return null;
-    case "conversation":
-      return "this conversation";
-    case "sibling":
-      return `via session ${source.sessionId}`;
-  }
-}
-
-export function sourcedFactLine(memory: PromptMemoryRecord) {
-  const tag = memory.source === void 0 ? null : agentMemorySourceTag(memory.source);
-  if (tag === null) return factLine(memory);
-  return `- (learned ${formatMemoryDate(memory.createdAt)}) [${tag}] ${memory.content}`;
-}
-
 export function renderMemorySystemPrompt(
   recall: PromptMemoryRecall,
   location2: string | null,
-  opts?: { conversationMemory?: MemoryScopeStory; nativeMemory?: MemoryScopeStory }
+  opts?: { userWritable?: boolean }
 ) {
   const { profile, recent } = recall;
-  const conversationMemory = opts?.conversationMemory;
-  const nativeMemory = opts?.nativeMemory;
-  const legacyFacts = nativeMemory !== void 0 && [...profile, ...recent].some((fact) => fact.source && fact.source.kind !== "agent");
-  const conversationScoped = conversationMemory !== void 0 || legacyFacts;
-  const renderFact = conversationScoped ? sourcedFactLine : factLine;
+  const renderFact = factLine;
   const lines2 = [
     "Memory: durable facts you have learned about the user and their world.",
-    conversationScoped
-      ? "Agent-wide facts persist across every conversation with this agent; facts saved to this conversation's memory persist for this conversation and the agent's conversations with the same audience. Rely on them so you stay consistent and avoid re-asking what you already know."
-      : "These persist across every conversation with this agent, even after the chat is cleared. Rely on them so you stay consistent and avoid re-asking what you already know.",
+    "These persist across every conversation with this agent, even after the chat is cleared. Rely on them so you stay consistent and avoid re-asking what you already know.",
   ];
   if (location2 != null) {
     lines2.push(
@@ -87,21 +58,11 @@ export function renderMemorySystemPrompt(
       `Call ${SAND_RECALL_MEMORY_TOOL_NAME} to search for older facts that are not listed here. ${MEMORY_UPDATE_GUIDANCE}`
     );
   }
-  if (conversationMemory !== void 0) {
-    lines2.push(`Where to save: ${renderMemoryConversationScopeStory(conversationMemory)}`);
-  }
-  if (nativeMemory !== void 0) {
+  if (opts?.userWritable !== void 0) {
     lines2.push('Where to save: scope "agent" (default) is your memory across every conversation with this bot.');
-    lines2.push(["owner", "sender"].includes(nativeMemory.userScope)
+    lines2.push(opts.userWritable
       ? 'scope "user" is durable facts about the owner, shared across their assistants.'
       : 'scope "user" is the owner\'s memory across their agents and cannot be written from this conversation.');
-    if (nativeMemory.teamShared) lines2.push('This assistant is shared with the team, so scope "agent" is team-wide memory everyone who talks to it sees. Mention a save or forget in your reply.');
-    if (legacyFacts) lines2.push("Older room records below remain visible only to their original audience. New memories are saved across this bot's conversations.");
-  }
-  if (conversationScoped && (profile.length > 0 || recent.length > 0)) {
-    lines2.push(
-      "Facts saved from this conversation are tagged [this conversation] and facts from another conversation with the same audience are tagged [via session <id>]; untagged facts are agent-wide."
-    );
   }
   if (profile.length > 0) {
     lines2.push("About the user:");

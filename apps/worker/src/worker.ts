@@ -126,7 +126,8 @@ interface Claimed {
   runId: string;
   botId: string;
   contextSessionId: string;
-  memoryConversationId?: string;
+  /** The run's own channel; null for a home run. */
+  runChannelId: string | null;
   screenBotId: string;
   pluginBotId: string;
   conversationId: string;
@@ -1192,10 +1193,8 @@ export class WakeWorker {
           },
           update: {},
         });
-        const memoryContext = inbox.bot.subagentIdentity ? null : await this.agentData.resolveMemoryConversation(botId, inbox.run.channelId, tx);
-        if (memoryContext) await tx.run.update({ where: { id: inbox.runId }, data: { memoryConversationId: memoryContext.id } });
         return {
-          memoryConversationId: memoryContext?.id,
+          runChannelId: inbox.run.channelId,
           inboxId: inbox.id,
           inboxType: inbox.type,
           runId: inbox.runId,
@@ -1263,7 +1262,7 @@ export class WakeWorker {
       // Plugin skills are global/read-only inputs. User workflows are rendered
       // later by platformInstructions and therefore win on conflict.
       const platformPrompt = await this.messaging.platformPrompt(claimed.botId, claimed.contextSessionId,
-        pluginContext.skillInstructions, claimed.memoryConversationId, taskConfiguration);
+        pluginContext.skillInstructions, claimed.runChannelId, taskConfiguration);
       // Replay failed user inputs whose durable-session delivery was never
       // acknowledged. Runtime message IDs prevent duplication after a lost ack.
       const missed = claimed.runtimeProfile === "agent" && claimed.origin !== "routine" ? await this.prisma.inboxEvent.findMany({ where: { botId: claimed.botId, conversationId: claimed.conversationId, deliveryMode: "turn", runId: { not: claimed.runId }, run: { channelId: claimed.channelId, origin: "user", status: { in: ["failed", "interrupted"] }, inputDeliveredAt: null } }, orderBy: { createdAt: "asc" }, take: 20 }) : [];
@@ -1703,7 +1702,6 @@ export class WakeWorker {
     });
     if (!exchange) return;
     await this.agentData.recordTurnMemory(claimed.botId, {
-      memoryConversationId: claimed.memoryConversationId,
       user: exchange.user,
       assistant: exchange.assistant,
       hidden: !["user", "group"].includes(claimed.origin),

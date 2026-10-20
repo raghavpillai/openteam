@@ -212,12 +212,7 @@ databaseTest(
           })) === 2
       );
       for (const { input, recall, saved } of seen) {
-        const run = await app.prisma.run.findUniqueOrThrow({
-          where: { id: input.runId },
-          include: { memoryConversation: true },
-        });
-        expect(run.memoryConversation?.address).toBe(groupId);
-        expect(run.memoryConversation?.defaultScope).toBe("agent");
+        expect(input.channelId).toBe(groupId!);
         expect(input.instructions).toContain(
           'scope "user" is the owner\'s memory across their agents and cannot be written'
         );

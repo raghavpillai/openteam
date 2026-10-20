@@ -1,5 +1,4 @@
 import { renderMemorySystemPrompt, renderUserMemorySystemPrompt, type PromptMemoryRecord } from "./memory-rendering";
-import { assertMemoryWriteScope, getMemoryConversation, resolveMemoryConversation, type MemoryConversationContext, type MemoryWriteScope } from "./memory-scopes";
 import managedSkills from "./prompts/managed-skills.json";
 import { managedSkillAgents, managedSkillIsForMain } from "./managed-skill-agents";
 import { safePackagePath } from "@openteam/plugin-sdk";
@@ -87,6 +86,8 @@ const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 const AVATAR_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"] as const;
 const MEMORY_INFERENCE_DEADLINE_MS = 90_000;
 const AGENT_LOCK = "openteam-agent-data";
+// Stored in the prompt snapshots' memoryAudienceKey; a new value re-renders frozen memory once.
+const MEMORY_PROMPT_VERSION = "native-agent-v2";
 const ROOT_SETTINGS_VERSION = 1;
 const MAX_FILE_WARNINGS = 20;
 const MAX_SAVED_SKILLS = 100;
@@ -589,14 +590,10 @@ const parseRootSettings = (value: Record<string, unknown>): RootSettings => {
   return parsed;
 };
 
-const sourceNamespace = (
-  botId: string,
-  scope: MemoryWriteScope,
-  memoryConversationId?: string
-): string =>
-  scope === "conversation" ? `conversation:${memoryConversationId}:agent:${botId}` : scope === "agent"
-    ? `agent:${botId}`
-    : `user:agent:${botId}`;
+type MemoryScope = "agent" | "user";
+
+const sourceNamespace = (botId: string, scope: MemoryScope): string =>
+  scope === "agent" ? `agent:${botId}` : `user:agent:${botId}`;
 
 const scoreFact = (fact: { importance: number; createdAt: Date; sourceOrdinal: number }): number =>
   Math.log2(Math.max(fact.importance, 0.01)) +
@@ -963,43 +960,21 @@ export class AgentDataStore {
     });
   }
 
-  memoryDirectory(
-    botId: string,
-    scope: MemoryWriteScope,
-    memoryConversationId?: string
-  ): string {
-    if (scope === "conversation") return join(this.botDirectory(botId), "conversations", safeFolderId(memoryConversationId ?? "", "memory conversation id"), "memory");
+  memoryDirectory(botId: string, scope: MemoryScope): string {
     safeFolderId(botId, "bot id");
     if (scope === "agent") return join(this.botDirectory(botId), "memory");
     return join(this.root, "user-memory", "by-agent", botId);
   }
 
-  resolveMemoryConversation(botId: string, channelId?: string | null, tx?: Tx) {
-    return resolveMemoryConversation(tx ?? this.prisma, botId, channelId);
-  }
-
-  getMemoryConversation(botId: string, id: string) {
-    return getMemoryConversation(this.prisma, botId, id);
-  }
-
-  private async visibleMemoryConversations(botId: string, context?: MemoryConversationContext) {
-    if (!context) return [];
-    // Recompute live membership before exposing any sibling. Persisted audience
-    // keys describe capture-time membership and are never broadened in place.
-    const current = await this.resolveMemoryConversation(botId, context.address === "home" ? null : context.address);
-    if (current.id !== context.id) throw new Error("Memory audience changed; restart this turn with the current audience");
-    const candidates = await this.prisma.memoryConversation.findMany({
-      where: { botId, audienceKey: context.audienceKey }, orderBy: { id: "asc" },
+  /** A group room is a shared conversation: it neither reads nor writes the owner's shared user memory. */
+  private async sharedConversation(botId: string, channelId?: string | null): Promise<boolean> {
+    if (!channelId) return false;
+    const channel = await this.prisma.channel.findFirst({
+      where: { id: channelId, members: { some: { botId } } },
+      select: { kind: true },
     });
-    const visible: string[] = [];
-    for (const candidate of candidates) {
-      if (candidate.id === context.id) { visible.push(candidate.id); continue; }
-      try {
-        const live = await this.resolveMemoryConversation(botId, candidate.address === "home" ? null : candidate.address);
-        if (live.id === candidate.id) visible.push(candidate.id);
-      } catch { /* Deleted channels and revoked membership are not visible. */ }
-    }
-    return visible;
+    if (!channel) throw new ApiError(403, "memory_context_unavailable", "Bot is not a member of this conversation");
+    return channel.kind === "group";
   }
 
   async projectBot(botId: string): Promise<void> {
@@ -1452,10 +1427,6 @@ export class AgentDataStore {
         await this.reconcileAvatar(tx, botId, warnings);
         await this.reconcileConnectors(tx, botId, warnings);
         await this.reconcileMemory(tx, botId, "agent", warnings);
-        const memoryConversations = await tx.memoryConversation.findMany({ where: { botId }, select: { id: true } });
-        for (const conversation of memoryConversations) {
-          await this.reconcileMemory(tx, botId, "conversation", warnings, conversation.id);
-        }
         await this.reconcileSharedMemory(tx, warnings);
         await this.reconcileSkills(tx, warnings);
         await this.reconcileAutomations(tx, botId, warnings);
@@ -2041,17 +2012,16 @@ export class AgentDataStore {
   private async reconcileMemory(
     tx: Tx,
     botId: string,
-    scope: MemoryWriteScope,
-    warnings: string[],
-    memoryConversationId?: string
+    scope: MemoryScope,
+    warnings: string[]
   ): Promise<void> {
-    const root = this.memoryDirectory(botId, scope, memoryConversationId);
-    const namespace = sourceNamespace(botId, scope, memoryConversationId);
+    const root = this.memoryDirectory(botId, scope);
+    const namespace = sourceNamespace(botId, scope);
     try {
       const facts = await readMemoryTree(root);
       // A compact invalidation event reaches every connected client/worker.
       // Do not duplicate private memory content into the durable event log.
-      const managed = scope === "agent" || scope === "conversation";
+      const managed = scope === "agent";
       const before = managed ? await tx.memoryFact.findMany({
         where: { namespace }, orderBy: { sourceOrdinal: "asc" },
         select: { fact: true, tier: true, createdAt: true },
@@ -2065,7 +2035,6 @@ export class AgentDataStore {
             namespace,
             scope,
             tier: fact.tier,
-            memoryConversationId,
             fact: fact.content,
             factHash: createHash("sha256").update(fact.content).digest("hex"),
             logicalId: fact.logicalId,
@@ -2394,9 +2363,7 @@ export class AgentDataStore {
 
   private async managedMemoryRoots(tx: Tx, botId: string): Promise<string[]> {
     await this.requireManagedMemoryBot(tx, botId);
-    const rooms = await tx.memoryConversation.findMany({ where: { botId }, select: { id: true }, orderBy: { id: "asc" } });
-    return [this.memoryDirectory(botId, "agent"),
-      ...rooms.map((room) => this.memoryDirectory(botId, "conversation", room.id))];
+    return [this.memoryDirectory(botId, "agent")];
   }
 
   private async managedMemoryList(botId: string, roots: string[]): Promise<BotMemoryList> {
@@ -2443,19 +2410,27 @@ export class AgentDataStore {
     return result;
   }
 
+  private async assertMemoryWritable(botId: string, scope: MemoryScope, channelId?: string | null): Promise<void> {
+    if (scope === "user" && (await this.sharedConversation(botId, channelId)))
+      throw new ApiError(
+        403,
+        "memory_user_scope_refused",
+        'scope "user" is the owner\'s memory across their agents and cannot be written from this conversation.'
+      );
+  }
+
   async writeMemory(
     botId: string,
     input: {
-      scope: MemoryWriteScope;
-      memoryConversationId?: string;
+      scope: MemoryScope;
+      channelId?: string | null;
       tier: "profile" | "log" | "note";
       fact: string;
       at?: Date;
     }
   ): Promise<{ saved: boolean; logicalId: string; sourcePath: string; content: string }> {
-    const context = input.memoryConversationId ? await this.getMemoryConversation(botId, input.memoryConversationId) : undefined;
-    assertMemoryWriteScope(input.scope, context);
-    const root = this.memoryDirectory(botId, input.scope, input.memoryConversationId);
+    await this.assertMemoryWritable(botId, input.scope, input.channelId);
+    const root = this.memoryDirectory(botId, input.scope);
     const result = await this.withFileMutation(
       botId,
       `memory:${input.scope}:${botId}`,
@@ -2480,31 +2455,19 @@ export class AgentDataStore {
   async forgetMemory(
     botId: string,
     input: {
-      scope: MemoryWriteScope;
-      memoryConversationId?: string;
+      scope: MemoryScope;
+      channelId?: string | null;
       fact: string;
     }
   ): Promise<{ forgotten: boolean; logicalId: string; content: string }> {
-    const context = input.memoryConversationId ? await this.getMemoryConversation(botId, input.memoryConversationId) : undefined;
-    assertMemoryWriteScope(input.scope, context);
-    const root = this.memoryDirectory(botId, input.scope, input.memoryConversationId);
+    await this.assertMemoryWritable(botId, input.scope, input.channelId);
+    const root = this.memoryDirectory(botId, input.scope);
     const result = await this.withFileMutation(
       botId,
       `memory:${input.scope}:${botId}`,
       async (tx) => {
         const content = normalizeMemoryContent(input.fact);
         const removed = await forgetMemoryFact(root, content);
-        // Before native bot-wide routing, automatic learning could duplicate an
-        // agent fact in a room. Forget exact copies owned by this bot as well;
-        // never promote private room facts into the bot-wide store.
-        if (input.scope === "agent") {
-          const legacyRooms = await tx.memoryConversation.findMany({ where: { botId }, select: { id: true } });
-          for (const room of legacyRooms) {
-            const legacyRoot = this.memoryDirectory(botId, "conversation", room.id);
-            const copy = await forgetMemoryFact(legacyRoot, content);
-            if (copy.forgotten) removed.forgotten = true;
-          }
-        }
         if (removed.forgotten) {
           await tx.agentPromptSnapshot.updateMany({
             where: { botId },
@@ -2647,7 +2610,7 @@ export class AgentDataStore {
     await this.withFileMutation(botId, `routine:${id}`, remove);
   }
 
-  async promptContext(botId: string, contextSessionId?: string, memoryConversationId?: string): Promise<AgentPromptContext> {
+  async promptContext(botId: string, contextSessionId?: string, channelId?: string | null): Promise<AgentPromptContext> {
     const reconciliation = await this.reconcileBot(botId);
     const bot = await this.prisma.bot.findUniqueOrThrow({
       where: { id: botId },
@@ -2716,9 +2679,9 @@ export class AgentDataStore {
       }
     }
 
-    const memoryContext = memoryConversationId ? await this.getMemoryConversation(botId, memoryConversationId) : undefined;
-    // Expire frozen prompts that still instruct the model to write room memory.
-    const audienceKey = `native-agent-v1:${memoryContext ? `${memoryContext.id}:${memoryContext.audienceKey}` : ""}`;
+    const sharedConversation = await this.sharedConversation(botId, channelId);
+    // Re-render frozen memory once when its prompt shape changes.
+    const audienceKey = MEMORY_PROMPT_VERSION;
     if (snapshot.memoryAudienceKey !== audienceKey) {
       const sections = { ...parsePromptSections(snapshot.promptSections) };
       delete sections.memory;
@@ -2728,7 +2691,7 @@ export class AgentDataStore {
         : await this.prisma.agentPromptSnapshot.update({ where: { botId }, data });
     }
     const memoryFreezeEnabled = process.env.SAND_DISABLE_MEMORY_FREEZE !== "1";
-    const liveMemoryRender = await this.renderMemory(botId, memoryContext);
+    const liveMemoryRender = await this.renderMemory(botId, sharedConversation);
     const memoryIsFrozen =
       memoryFreezeEnabled && snapshot.memoryEpoch === epoch && snapshot.memoryHasFacts;
     let memoryRender: string;
@@ -2870,15 +2833,13 @@ export class AgentDataStore {
     }
   }
 
-  async recallMemory(botId: string, input: unknown, memoryConversationId?: string): Promise<string> {
+  async recallMemory(botId: string, input: unknown, channelId?: string | null): Promise<string> {
     const args = parseRecallInput(input);
-    const context = memoryConversationId ? await this.getMemoryConversation(botId, memoryConversationId) : undefined;
+    const userVisible = !(await this.sharedConversation(botId, channelId));
     await this.reconcileBot(botId);
-    const visibleIds = await this.visibleMemoryConversations(botId, context);
-    const userVisible = !context || ["owner", "sender"].includes(context.userScope);
     const facts = await this.prisma.memoryFact.findMany({
       where: { OR: [
-        ...(args.scope !== "user" ? [{ namespace: `agent:${botId}` }, ...(visibleIds.length ? [{ memoryConversationId: { in: visibleIds } }] : [])] : []),
+        ...(args.scope !== "user" ? [{ namespace: `agent:${botId}` }] : []),
         ...(args.scope !== "agent" && userVisible ? [{ namespace: { startsWith: "user:agent:" } }] : []),
       ] },
       orderBy: [{ createdAt: "desc" }, { sourceOrdinal: "desc" }],
@@ -2901,7 +2862,6 @@ export class AgentDataStore {
     return recallMemoryResult(args, candidates.map((fact) => ({
       content: fact.fact, createdAt: fact.createdAt, tier: fact.tier,
       scope: fact.scope === "user" ? "user" : "agent",
-      source: fact.memoryConversationId ? fact.memoryConversationId === context?.id ? "this conversation" : `via session ${fact.memoryConversationId}` : undefined,
       via: fact.writtenByBotId ? names.get(fact.writtenByBotId) ?? fact.writtenByBotId : undefined,
     })));
   }
@@ -2925,20 +2885,18 @@ export class AgentDataStore {
     });
   }
 
-  private async renderMemory(botId: string, context?: MemoryConversationContext): Promise<string> {
-    const visibleIds = await this.visibleMemoryConversations(botId, context);
-    const userVisible = !context || ["owner", "sender"].includes(context.userScope);
+  private async renderMemory(botId: string, sharedConversation: boolean): Promise<string> {
+    const userVisible = !sharedConversation;
     const all = await this.prisma.memoryFact.findMany({
       where: {
         OR: [
           { namespace: `agent:${botId}` },
           ...(userVisible ? [{ namespace: { startsWith: "user:agent:" } }] : []),
-          ...(visibleIds.length ? [{ memoryConversationId: { in: visibleIds } }] : []),
         ],
       },
       orderBy: [{ createdAt: "desc" }, { sourceOrdinal: "desc" }],
     });
-    if (all.length === 0 && !context) return "";
+    if (all.length === 0) return "";
     const blocks: string[] = [];
     const writerIds = [
       ...new Set(
@@ -2959,9 +2917,6 @@ export class AgentDataStore {
     const record = (fact: Fact): PromptMemoryRecord => ({
       content: fact.fact, createdAt: fact.createdAt.getTime(),
       via: fact.writtenByBotId ? writerNames.get(fact.writtenByBotId) ?? fact.writtenByBotId : "",
-      source: fact.memoryConversationId ? fact.memoryConversationId === context?.id
-        ? { kind: "conversation" } : { kind: "sibling", sessionId: fact.memoryConversationId }
-        : { kind: "agent" },
     });
     const sharedRecall = (facts: Fact[], profileLimit: number, recentLimit: number) => ({
       profile: selectFacts(facts.filter((fact) => fact.tier === "profile"), profileLimit, Number.MAX_SAFE_INTEGER).selected.map(record),
@@ -2972,11 +2927,11 @@ export class AgentDataStore {
         userMemoryDir: join(this.root, "user-memory"), ownShardDir: this.memoryDirectory(botId, "user"),
       }));
     }
-    const own = all.filter((fact) => fact.namespace === `agent:${botId}` || fact.scope === "conversation");
+    const own = all.filter((fact) => fact.namespace === `agent:${botId}`);
     const recency = (a: Fact, b: Fact) => b.createdAt.getTime() - a.createdAt.getTime() || b.sourceOrdinal - a.sourceOrdinal;
     const profile = own.filter((fact) => fact.tier === "profile").sort(recency).slice(0, 100).map(record);
     const recent = own.filter((fact) => fact.tier !== "profile").sort((a, b) => scoreFact(b) - scoreFact(a) || recency(a, b)).slice(0, 30).map(record);
-    blocks.push(renderMemorySystemPrompt({ profile, recent }, context ? null : this.memoryDirectory(botId, "agent"), context ? { nativeMemory: context } : undefined));
+    blocks.push(renderMemorySystemPrompt({ profile, recent }, null, { userWritable: userVisible }));
     return blocks.join("\n\n");
   }
 
@@ -3361,10 +3316,10 @@ export class AgentDataStore {
 
   private async runMemoryExtraction(
     botId: string,
-    input: { user: string; assistant: string; occurredAt: number; memoryConversationId?: string }
+    input: { user: string; assistant: string; occurredAt: number }
   ): Promise<void> {
     if (!this.memoryInference) return;
-    const memoryRoot = this.memoryDirectory(botId, input.memoryConversationId ? "conversation" : "agent", input.memoryConversationId);
+    const memoryRoot = this.memoryDirectory(botId, "agent");
     const existing = gatherExtractionMemories(
       await readMemoryTree(memoryRoot),
       `${input.user}\n${input.assistant}`
@@ -3388,7 +3343,6 @@ export class AgentDataStore {
   async recordTurnMemory(
     botId: string,
     input: {
-      memoryConversationId?: string;
       user: string;
       assistant: string;
       hidden?: boolean;
@@ -3401,15 +3355,12 @@ export class AgentDataStore {
       select: { status: true },
     });
     if (!bot || bot.status !== "active") return;
-    if (input.memoryConversationId) await this.getMemoryConversation(botId, input.memoryConversationId);
-    const memoryConversationId = undefined;
     if (!isMemorableExchange(input.user)) return;
     const occurredAt = input.occurredAt ?? Date.now();
     await this.runMemoryExtraction(botId, {
       user: input.user,
       assistant: input.assistant,
       occurredAt,
-      memoryConversationId,
     }).catch((error) => console.warn(`memory extraction for ${botId}`, error));
   }
 

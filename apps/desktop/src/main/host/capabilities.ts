@@ -21,7 +21,7 @@ export class HostCapabilities {
       throw new Error("Invalid desktop request");
     const { tool, botId, callId, arguments: rawArgs = {} } = value as Record<string, any>;
     const { parseReferenceArguments } = await import("@openteam/contracts/reference-parsers");
-    const args = ["import_chrome_cookies", ...DESKTOP_MESSAGES_TOOLS].includes(tool) ? parseReferenceArguments(tool, rawArgs) : rawArgs;
+    const args = ["RequestCookieOriginApproval", ...DESKTOP_MESSAGES_TOOLS].includes(tool) ? parseReferenceArguments(tool, rawArgs) : rawArgs;
     if (
       typeof botId !== "string" ||
       !botId ||
@@ -32,7 +32,7 @@ export class HostCapabilities {
       throw new Error("Invalid desktop request");
     if (this.platform !== "darwin")
       throw new Error("Messages, Contacts and Chrome login import require a connected Mac");
-    if (tool === "import_chrome_cookies")
+    if (tool === "RequestCookieOriginApproval")
       return this.cookies.collect(botId, args.origins, signal);
     if (!(DESKTOP_MESSAGES_TOOLS as readonly string[]).includes(tool))
       throw new Error("Unknown desktop capability");

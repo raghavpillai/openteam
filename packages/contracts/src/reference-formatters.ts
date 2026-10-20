@@ -25,9 +25,9 @@ function describeUploadFileOutcome(outcome, request3) {
     case "source_missing":
       return `Nothing was uploaded: ${request3.sourcePath} does not exist on your computer or is not a regular file. Check the path with Shell (ls -l) and retry.`;
     case "source_refused":
-      return `Nothing was uploaded: upload_file only sends files under ${outcome.allowedRoots.join(" or ")}. Copy or save the file under one of those directories first, then retry with that path.`;
+      return `Nothing was uploaded: UploadFile only sends files under ${outcome.allowedRoots.join(" or ")}. Copy or save the file under one of those directories first, then retry with that path.`;
     case "too_large":
-      return `Nothing was uploaded: ${request3.sourcePath} is over the ${formatBytes2(outcome.maxBytes)} limit for upload_file. Compress or split it, or tell the user it is too large to send this way.`;
+      return `Nothing was uploaded: ${request3.sourcePath} is over the ${formatBytes2(outcome.maxBytes)} limit for UploadFile. Compress or split it, or tell the user it is too large to send this way.`;
     case "invalid_destination":
       return `Nothing was uploaded: ${outcome.message}`;
     case "rejected":
@@ -61,11 +61,11 @@ function describeDownloadFileOutcome(outcome, request3) {
     case "unknown_connection":
       return outcome.available.length === 0 ? "No connected service can serve files this turn, so nothing was downloaded. Tell the user which service you need connected." : `${JSON.stringify(request3.connection)} is not a connection that can serve files. Use one of: ${outcome.available.join(", ")}.`;
     case "destination_refused":
-      return `Nothing was downloaded: download_file only writes under ${outcome.allowedRoots.join(" or ")}. Pass a destination.path under one of those directories, or omit it to use your downloads folder.`;
+      return `Nothing was downloaded: DownloadFile only writes under ${outcome.allowedRoots.join(" or ")}. Pass a destination.path under one of those directories, or omit it to use your downloads folder.`;
     case "not_found":
       return `Nothing was downloaded: ${outcome.message}`;
     case "too_large":
-      return `Nothing was downloaded: ${source} on ${request3.connection} is over the ${formatBytes(outcome.maxBytes)} limit for download_file. Tell the user it is too large to fetch this way.`;
+      return `Nothing was downloaded: ${source} on ${request3.connection} is over the ${formatBytes(outcome.maxBytes)} limit for DownloadFile. Tell the user it is too large to fetch this way.`;
     case "rejected":
       return `${request3.connection} refused the download: ${outcome.message} Nothing was downloaded.`;
     case "unavailable":
@@ -288,7 +288,7 @@ function describeOutputLocation(loc, opts) {
   return `${lead} written to file: ${loc.filePath}
 Size: ${formatOutputLocationSize(loc.sizeBytes)}, ${loc.lineCount} lines`;
 }
-const SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME = "remap_user_form_targets";
+const SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME = "RemapUserFormTargets";
 const SAND_REMAP_USER_FORM_TARGETS_CALL_HINT = `CallDynamicTool with namespace "cursor", toolName "${SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME}", and arguments { "targets": [{ "fieldId": "<held id>", "target": { "kind": "ref" | "selector" | "label", "value": "<ref, selector, or label>" } }] } (GetDynamicTools on that namespace shows the schema)`;
 const REMAP_FAILED_STATUS_BY_KIND = {
   driver_unavailable: "NOT FILLED: the host could not reach the box browser, so nothing was written",
@@ -302,7 +302,7 @@ const REMAP_FAILED_STATUS_BY_KIND = {
 };
 function buildUserFormRemapReceipt(outcome) {
   if (outcome.kind === "no_hold") {
-    return `Nothing to remap: the host holds no submitted values for this agent. A remap is offered on a fill receipt and is spent by the first ${SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME} call or by the end of that turn. If a field still needs filling, re-ask with a new request_user_form or hand the user the screen with request_box_help.`;
+    return `Nothing to remap: the host holds no submitted values for this agent. A remap is offered on a fill receipt and is spent by the first ${SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME} call or by the end of that turn. If a field still needs filling, re-ask with a new RequestUserForm or hand the user the screen with request_box_help.`;
   }
   if (outcome.kind === "unknown_fields") {
     return `Nothing was written: ${outcome.unknownFieldIds.map((id) => `"${id}"`).join(", ")} ${outcome.unknownFieldIds.length === 1 ? "is not a field" : "are not fields"} the host holds a value for. The held field ids are ${outcome.heldFieldIds.map((id) => `"${id}"`).join(", ")} \u2014 call again via ${SAND_REMAP_USER_FORM_TARGETS_CALL_HINT} with only those (the hold stands until this turn ends).`;
@@ -329,7 +329,7 @@ function buildUserFormRemapReceipt(outcome) {
     ...mismatch,
     ...lines2,
     ...notRemapped,
-    `The held values for this form are now discarded (one remap per form).${anyFailed ? " For a field that did not land, do NOT immediately re-issue a form for it: the user already typed it once. Continue the task if the page moved on, or hand the user the screen with request_box_help; re-ask with a new request_user_form only if the step cannot proceed any other way." : ""} Take a fresh page SNAPSHOT (not a screenshot) before the next action, and click the site's submit control yourself.]`
+    `The held values for this form are now discarded (one remap per form).${anyFailed ? " For a field that did not land, do NOT immediately re-issue a form for it: the user already typed it once. Continue the task if the page moved on, or hand the user the screen with request_box_help; re-ask with a new RequestUserForm only if the step cannot proceed any other way." : ""} Take a fresh page SNAPSHOT (not a screenshot) before the next action, and click the site's submit control yourself.]`
   ].join("\n");
 }
 export { formatBytes2, describeUploadFileOutcome, formatBytes, describeDownloadFileOutcome, describeCookieOriginRequestEntry, describeGrants, formatChromeCookieImportOutcome, truncationNotice, renderContactsResult, MCP_LABEL_HOSTILE_CHARS, encodeMcpAccountLabelForListing, DEFAULT_MCP_CONNECTOR_INSTRUCTIONS, getDefaultMcpCustomInstruction, truncateOneLine, describeInstalled, describeInstalledList, describePluginInstallState, describePluginIncludes, describePluginSummary, describePluginFields, describePluginDetail, PLUGIN_QUERY_MIN_TOKEN_LENGTH, tokenizePluginQuery, scorePluginForToken, rankPluginsLexically, formatOutputLocationSize, describeOutputLocation, SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME, SAND_REMAP_USER_FORM_TARGETS_CALL_HINT, REMAP_FAILED_STATUS_BY_KIND, buildUserFormRemapReceipt };

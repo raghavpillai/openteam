@@ -494,7 +494,7 @@ describe("API contracts", () => {
       "UpdateAgent",
       "UpdateChannel",
       "UpdateSkill", "UpdateProfile", "UpdateAvatar", "DisconnectChannel", "UpdateProject",
-      "CopyToBox", "CopyFromBox", "WebSearch", "WebFetch", "request_user_form", "remap_user_form_targets", "DraftExternalMessage", "SendFeedback", "create_bot_share_json",
+      "CopyToBox", "CopyFromBox", "WebSearch", "WebFetch", "RequestUserForm", "RemapUserFormTargets", "DraftExternalMessage", "SendFeedback", "CreateBotShareJson",
       "WakeParent",
     ]);
     for (const tool of CURSOR_TOOLS.filter(tool => !['ListAgents','ListGroups'].includes(tool.tool))) {
@@ -705,5 +705,28 @@ describe("API contracts", () => {
     expect(renderControlResult("update_state", { target: "channel", disconnected: true, platform: "slack" }, {})).toBe(
       JSON.stringify({ target: "channel", disconnected: true, platform: "slack" })
     );
+  });
+});
+
+describe("renamed first-party tools", () => {
+  test("advertise what this deployment does", () => {
+    const cookies = referenceTool("RequestCookieOriginApproval");
+    expect(cookies.description).toContain("no approval dialog opens");
+    expect(JSON.stringify(cookies)).not.toMatch(/Always allow|Approve once|approval dialog and wait|Already-granted/);
+    const share = referenceTool("CreateBotShareJson");
+    expect(share.description).toStartWith("Publish a new version of this bot's template");
+    expect(share.description).not.toMatch(/Stage a draft|stays private|New templates are PUBLIC|fill-in placeholders|live geometric avatar/);
+    const form = referenceTool("RequestUserForm");
+    expect(form.description).toContain("Fields inside a cross-origin iframe or a closed shadow root are not.");
+    expect(form.description).not.toContain("Secure Form");
+    expect(form.inputSchema.properties.fields.items.properties).not.toHaveProperty("default_value");
+    expect(referenceTool("RemapUserFormTargets").description).toContain("right after a RequestUserForm receipt");
+  });
+
+  test("old snake_case names format nothing and parse nothing", () => {
+    expect(renderControlResult("create_bot_share_json", { published: true, version: 2 }, {})).toBe(JSON.stringify({ published: true, version: 2 }));
+    expect(renderControlResult("CreateBotShareJson", { published: true, version: 2 }, {})).toContain("version 2");
+    for (const name of ["upload_file", "download_file", "request_user_form", "remap_user_form_targets", "create_bot_share_json", "import_chrome_cookies"])
+      expect(() => referenceTool(name)).toThrow("No captured tool contract");
   });
 });

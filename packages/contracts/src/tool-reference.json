@@ -982,7 +982,7 @@
   },
   "GetDynamicTools": {
     "name": "GetDynamicTools",
-    "description": "Discover and inspect tools available through dynamic namespaces, e.g. MCP servers.\n\n1. {\"namespace\":\"<id>\"}: returns full input schemas and full descriptions for every tool in that namespace.\n2. {\"namespace\":\"<id>\",\"toolName\":\"<name>\"}: returns the full schema and full description for one tool.\n3. {\"pattern\":\"<regex>\"}: searches namespace and tool names across all namespaces using RE2 syntax.\n4. {\"namespace\":\"<id>\",\"pattern\":\"<regex>\"}: searches tool names within that namespace.\n5. No arguments: returns the full catalog. Prefer a namespace or pattern when possible.\n\nPattern-search and catalog results shorten long descriptions to 200 characters, ending with \"... [truncated]\". Namespace and single-tool lookups always return the complete description, so fetch the tool directly when you need the full text.\nThe response includes namespaceStatus for MCP-backed namespaces; do not treat namespaces in \"needsAuth\", \"error\", or \"loading\" states as usable.\nAlways call this tool to discover a tool's schema before calling it with CallDynamicTool.\n\nFirst-party Cursor tools: the reserved namespace \"cursor\" lists built-in Cursor tools available on demand (AddMcpServer, AuthenticateMcpServer, AwaitShell, CheckSubagent, CloudAgent, CopyFromBox, CopyToBox, create_bot_share_json, CreateAgent, CreateChannel, DraftExternalMessage, GenerateImage, GetMcpServerStatus, GetPlugin, InstallPlugin, ListMachines, MessageSubagent, remap_user_form_targets, RemoveMcpAccount, RenameMcpAccount, request_box_help, request_scm_connect, request_user_form, RestartMcpServers, SearchPlugins, SendFeedback, SendToAgent, SetMcpInstructions, StopSubagent, Task, TodoWrite, UninstallMcpServer, UninstallPlugin, UpdateAgent, UpdateChannel, WebFetch, WebSearch). Discover their schemas here, then invoke them via CallDynamicTool; they run natively with their own approvals and rendering.\n\nMCP authentication: If an MCP-backed namespace has namespaceStatus \"needsAuth\", its tools are unavailable until that MCP integration is authenticated in the Cursor desktop IDE.",
+    "description": "Discover and inspect tools available through dynamic namespaces, e.g. MCP servers.\n\n1. {\"namespace\":\"<id>\"}: returns full input schemas and full descriptions for every tool in that namespace.\n2. {\"namespace\":\"<id>\",\"toolName\":\"<name>\"}: returns the full schema and full description for one tool.\n3. {\"pattern\":\"<regex>\"}: searches namespace and tool names across all namespaces using RE2 syntax.\n4. {\"namespace\":\"<id>\",\"pattern\":\"<regex>\"}: searches tool names within that namespace.\n5. No arguments: returns the full catalog. Prefer a namespace or pattern when possible.\n\nPattern-search and catalog results shorten long descriptions to 200 characters, ending with \"... [truncated]\". Namespace and single-tool lookups always return the complete description, so fetch the tool directly when you need the full text.\nThe response includes namespaceStatus for MCP-backed namespaces; do not treat namespaces in \"needsAuth\", \"error\", or \"loading\" states as usable.\nAlways call this tool to discover a tool's schema before calling it with CallDynamicTool.\n\nFirst-party Cursor tools: the reserved namespace \"cursor\" lists built-in Cursor tools available on demand (AddMcpServer, AuthenticateMcpServer, AwaitShell, CheckSubagent, CloudAgent, CopyFromBox, CopyToBox, CreateAgent, CreateBotShareJson, CreateChannel, DraftExternalMessage, GenerateImage, GetMcpServerStatus, GetPlugin, InstallPlugin, ListMachines, MessageSubagent, RemapUserFormTargets, RemoveMcpAccount, RenameMcpAccount, request_box_help, request_scm_connect, RequestUserForm, RestartMcpServers, SearchPlugins, SendFeedback, SendToAgent, SetMcpInstructions, StopSubagent, Task, TodoWrite, UninstallMcpServer, UninstallPlugin, UpdateAgent, UpdateChannel, WebFetch, WebSearch). Discover their schemas here, then invoke them via CallDynamicTool; they run natively with their own approvals and rendering.\n\nMCP authentication: If an MCP-backed namespace has namespaceStatus \"needsAuth\", its tools are unavailable until that MCP integration is authenticated in the Cursor desktop IDE.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1213,9 +1213,9 @@
       ]
     }
   },
-  "create_bot_share_json": {
-    "name": "create_bot_share_json",
-    "description": "Publish a reusable bot recipe the user requested as a versioned template. Include profile, reusable memory, scrubbed skills, routines, marketplace plugin references, visibility and gettingStarted. Use team visibility by default; use public only when the user requested public sharing. Exclude credentials, private account data, personal identifiers and unrelated files. Verify the published receipt. This does not change the source bot. Importing creates a fresh isolated bot with its own provider sign-ins.",
+  "CreateBotShareJson": {
+    "name": "CreateBotShareJson",
+    "description": "Stage a draft version of this bot from the reusable recipe. After visibility is known and the recipe has been packed and scrubbed, call this tool with profile (name, description, and optional avatarShape/avatarColor), memory, skills, routines, plugins, optional gettingStarted, and top-level visibility selected according to the scope guidance below (\"public\" for a new template). Omit avatars; the host copies the source bot's live geometric avatar when one exists and uses recipe avatars only as a fallback. Write profile.description as a short storefront label shown on template cards, share pages, and imports: one or two sentences telling someone who has never seen this bot what it does and who it is for. Follow the export skill and do not guess. New templates are PUBLIC: pass top-level visibility as \"public\" and do not offer TEAM or ask who can use it. If this bot already has a template, use its current TEAM or PUBLIC visibility as the redaction scope and pass that visibility explicitly. Do not pass visibility as \"public\" to switch a TEAM template. That is a separate owner confirmation. If sharing is disabled, tell the user and do not retry. For memory, pass job or convention facts only, as content plus optional kind (profile or log) and createdAt (YYYY-MM-DD), keeping each fact's original text and scrubbing only secrets, PII, private links, internal ids, company trade secrets, and parts not relevant to sharing the workflow. Skip [episode] and [note] lines; the host drops those prefixes and does not copy memory/ from disk. Empty memory is correct when nothing is a reusable convention. For every selected skill, pass its folder slug or frontmatter name and scrubbed prose content, plus an optional scrubbed description. Content is required even when no personal details need changing; copy the skill's job text, not the SKILL.md file. The host uses only that prose as the skill body, filters out skill refs without it, with a copied SKILL.md (YAML frontmatter included), or that are live references, and packs name, description, and content (a SKILL.md built from that prose). Mechanical-id fill-ins are for routines, not skills. Never edit the live skill to scrub it; scrub in these arguments only. To give the template a first-run onboarding, pass gettingStarted as {\"skill\": <name>} naming exactly one of this call's skills entries. Per the export skill, that is a short getting-started skill authored for this template that asks the new owner its setup questions (what to connect, what to be called, how their team works); the imported bot runs it as its first conversation with its new owner. A gettingStarted naming a skill not passed in skills fails the call; omit gettingStarted when the template has no onboarding skill. For every selected routine, pass its automations folder slug, scrubbed prose content, and a required description, plus an optional scrubbed name. The description is one short scrubbed sentence stating the trigger's intention (why it fires and what firing it accomplishes). Content is required even when no personal details need changing; copy the routine's job text, not automation.json. The host uses only that prose as the routine's job text, filters out routine refs without it or with a copied automation.json body, generalizes mechanical ids into fill-in placeholders, and packs name, slug, description, and content (generalized job plus fill-in list in content). Never edit the live routine to scrub it; scrub in these arguments only. For plugins, pass installed marketplace plugin ids only, meaning ones used in this conversation or a kept routine or skill depends on; do not grep log/ or scan older transcripts; do not invent ids or copy tokens; the host packs them from the installed set. Non-marketplace connectors cannot be packed; per the export skill, add a kind:log memory naming the service (no secrets) instead of SearchPlugins/InstallPlugin. Empty arrays leave that kind out. Do not invent a long prose body. Never paste a draft in chat. The version stays private until the owner publishes it.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1266,7 +1266,14 @@
                 "arch",
                 "cloud",
                 "teardrop",
-                "leaf"
+                "leaf",
+                "square",
+                "sparkle",
+                "clover",
+                "flower",
+                "heart",
+                "house",
+                "star"
               ]
             }
           },
@@ -1608,9 +1615,9 @@
       ]
     }
   },
-  "remap_user_form_targets": {
-    "name": "remap_user_form_targets",
-    "description": "Point the host at the NEW browser target of a form field whose fill just missed, so it writes the value the user ALREADY submitted there — the user is not asked again. Only meaningful right after a request_user_form receipt said the host still HOLDS a field's value: the hold lasts for this turn and is spent by the first call, so name every held field you can place on the live page in ONE call. Targets come from the fresh snapshot on that receipt (an [ref=eN], a CSS selector, or the visible label); the write goes to the same host the user consented to and only into a control the user can see — a hidden twin is refused. This tool carries NO values: you cannot supply, replace, or read one, and an entry with a value is rejected. If the field is genuinely gone from the page, leave it out and continue the task instead of re-asking the user. The result is per-field status only. Right now nothing is held for this agent: a call returns no_hold and writes nothing, so do not call it until a receipt offers a remap.",
+  "RemapUserFormTargets": {
+    "name": "RemapUserFormTargets",
+    "description": "Point the host at the NEW browser target of a form field whose fill just missed, so it writes the value the user ALREADY submitted there. The user is not asked again. It is only meaningful right after a RequestUserForm receipt said the host still HOLDS a field's value. The hold lasts for this turn and is spent by the first call, so name every held field you can place on the live page in ONE call. Targets come from the fresh snapshot on that receipt (an [ref=eN], a CSS selector, or the visible label); the write goes to the same host the user consented to and only into a control the user can see, and a hidden twin is refused. This tool carries NO values. You cannot supply, replace, or read one, and an entry with a value is rejected. If the field is genuinely gone from the page, leave it out and continue the task instead of re-asking the user. The result is per-field status only. Right now nothing is held for this agent: a call returns no_hold and writes nothing, so do not call it until a receipt offers a remap.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1751,21 +1758,21 @@
       ]
     }
   },
-  "request_user_form": {
-    "name": "request_user_form",
-    "description": "Show the user a native in-chat form for a step where a page needs THEM to type — a login, a checkout address, a phone number. Multi-step sign-ins (email first, password only after Continue — Walmart, PayPal, Amazon, Microsoft) get ONE form PER STEP: request only the fields visible on the live page right now, because a next-step field sits hidden in the DOM until the site reveals it, its fill comes back fillFailed, and the value the user typed into your form is simply lost. Advance the page yourself after resuming (e.g. click Continue), then request the next step with a new form. On submit the HOST fills the live box browser directly (same insert path as browser_fill; by default it never clicks the site's own submit button — you do that after resuming — unless you explicitly opt in with submitAfterFill for one-shot code steps). Your turn ends when you call this; you are resumed with a receipt once the user submits or dismisses. The receipt is status-only: per field it says filled / fill failed / not filled, and NO submitted value — username, email, address, code, password, anything — is ever returned to you or enters this conversation. For secret fields the receipt IS the verification: recover from a failed secret fill by re-asking with a new form (fresh target) or with request_box_help, never by taking a screenshot to see what landed (structured snapshots redact secret values; a screenshot is raw page pixels and redacts nothing). Non-secret outcomes can be verified from the page itself (fresh snapshot), or re-asked. Give each field a target (an [ref=eN] from the latest browser snapshot — including one a browser subagent just reported — a CSS selector, or a field label) so the host knows where to fill; secret fields require one. Always pass the destination domain from the browser bar. Before showing the card the host PREFLIGHTS every targeted field against the live page: when every one of them is structurally unreachable (inside a cross-origin frame the host cannot enter, or behind a closed shadow root), the form is refused up front with per-field reasons and the user is never asked to type — treat that refusal as final and call request_box_help instead of re-issuing the form; when only some fields are unreachable the card shows without them and the result says which were dropped. Use this instead of asking for credentials in chat, and instead of request_box_help when the step is just typing.",
+  "RequestUserForm": {
+    "name": "RequestUserForm",
+    "description": "Show the user the Secure Form for a step where a page needs THEM to type something, such as a login, a checkout address, or a phone number. Multi-step sign-ins (email first, password only after Continue) get ONE form PER STEP. Request only the fields visible on the live page right now, because a next-step field sits hidden in the DOM until the site reveals it, its fill comes back fillFailed, and the value the user typed into your form is lost. Advance the page yourself after resuming (e.g. click Continue), then request the next step with a new form. On submit the HOST fills the live box browser directly. By default it never clicks the site's own submit button, so you do that after resuming, unless you opt in with submitAfterFill for one-shot code steps. Your turn ends when you call this; you are resumed with a receipt once the user submits or dismisses. The receipt is status-only. Per field it says filled / fill failed / not filled, and NO submitted value is ever returned to you or enters this conversation. For secret fields the receipt IS the verification. Recover from a failed secret fill by re-asking with a new form (fresh target) or with request_box_help, never by taking a screenshot to see what landed (structured snapshots redact secret values; a screenshot is raw page pixels and redacts nothing). Verify non-secret outcomes on the page itself (fresh snapshot), or re-ask. Give each field a target (an [ref=eN] from the latest browser snapshot, a CSS selector, or a field label) so the host knows where to fill; secret fields require one. A browser subagent's report includes the [ref=eN] values. Always pass the destination domain from the browser bar. Fields inside iframes (cross-origin ones included) and shadow roots are reachable: send the form for them instead of predicting a failure. The host PREFLIGHTS targeted fields before showing the card: if all are structurally unreachable it refuses up front with per-field reasons and the user never typed, so treat that as final and call request_box_help; if only some are, the card shows without them and the result names them. Use this instead of asking for credentials in chat, and instead of request_box_help when the step is just typing; the box handoff stays for passkeys, 3DS prompts, QR codes, device approvals, and custom widgets a form cannot express.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "title": {
           "type": "string",
           "minLength": 1,
-          "description": "Short form title shown on the in-chat card."
+          "description": "Card heading, such as \"Sign in to GitHub\""
         },
         "instruction": {
           "type": "string",
           "minLength": 1,
-          "description": "One or two sentences telling the user what to fill and why (e.g. \"Sign in to your Acme account to continue checkout\"). No paragraph."
+          "description": "One or two sentences on what to fill and why; never repeat the title (e.g. \"Enter your Acme password to check out\"). No paragraph."
         },
         "reason": {
           "type": "string",
@@ -1779,7 +1786,7 @@
         },
         "domain": {
           "type": "string",
-          "description": "Destination site the values are filled into, from the browser bar (e.g. \"acme.com\"). The host resolves the live open tab under this domain, shows that exact host to the user on the card, and ENFORCES it — at submit time values fill only a page on that exact host (www and the bare domain count as the same host; other subdomains do not), otherwise nothing is filled and every targeted field comes back fillFailed. REQUIRED whenever any field is secret (password/otp or secret:true) or carries a fill target: nothing is ever filled into an unverified page. Omit only for target-less, secret-free forms when the site is genuinely unknown — the card then warns and steers toward the box screen."
+          "description": "Destination site the values are filled into, from the browser bar (e.g. \"acme.com\"). The host resolves the live open tab under this domain, shows that exact host to the user on the card, and ENFORCES it. At submit time values fill only a page on that exact host (www and the bare domain count as the same host; other subdomains do not), otherwise nothing is filled and every targeted field comes back fillFailed. REQUIRED whenever any field is secret (password/otp or secret:true) or carries a fill target. Nothing is ever filled into an unverified page. Omit only for target-less, secret-free forms when the site is genuinely unknown. The card then warns and steers toward the box screen."
         },
         "fields": {
           "type": "array",
@@ -1818,8 +1825,11 @@
                 "description": "When true, the user must fill it to submit."
               },
               "placeholder": {
+                "type": "string"
+              },
+              "default_value": {
                 "type": "string",
-                "description": "Optional placeholder text."
+                "description": "Editable prefill, secrets included. Checkbox: \"true\"; select: an option value; date: YYYY-MM-DD."
               },
               "options": {
                 "type": "array",
@@ -1847,7 +1857,7 @@
               },
               "secret": {
                 "type": "boolean",
-                "description": "Marks a credential so the card masks the input and the host demands a verified destination. Set for card numbers, SSNs, and other credentials; password/otp are secret no matter what you pass. Note EVERY field is write-only regardless of this flag: no submitted value, secret or not, is ever returned to you."
+                "description": "Marks a credential so the card masks the input and the host demands a verified destination. Set for card numbers, SSNs, and other credentials; password/otp are secret no matter what you pass."
               },
               "target": {
                 "type": "object",
@@ -1871,12 +1881,12 @@
                   "kind",
                   "value"
                 ],
-                "description": "Where the host writes the value in the box browser. Values are write-only — nothing comes back on the receipt — so a field without a target is never filled anywhere; give a target to every field whose value the page needs. Required for secret fields (a secret with nowhere to go would be lost). Any target requires the form to claim the destination domain."
+                "description": "Where the host writes the value in the box browser. Values are write-only, and nothing comes back on the receipt, so a field without a target is never filled anywhere; give a target to every field whose value the page needs. Required for secret fields (a secret with nowhere to go would be lost). Any target requires the form to claim the destination domain."
               },
               "extra_key": {
                 "type": "string",
                 "maxLength": 255,
-                "description": "Vault key for leftover (\"extra\") fields — see the \"Vault extras\" section of this tool's description. Set it on every leftover field: saved values are shared across sites by this exact key, so reuse the saved key naming the same fact rather than inventing a synonym. Ignored on name/email/phone/address fields, refused on anything secret-shaped, and username-shaped fields are keyed per site no matter what you pass."
+                "description": "Vault key for leftover (\"extra\") fields. See the \"Vault extras\" section of this tool's description. Set it on every leftover field. Saved values are shared across sites by this exact key, so reuse the saved key naming the same fact rather than inventing a synonym. Ignored on name/email/phone/address fields, refused on anything secret-shaped, and username-shaped fields are keyed per site no matter what you pass."
               }
             },
             "required": [
@@ -1891,7 +1901,7 @@
         },
         "submitAfterFill": {
           "type": "boolean",
-          "description": "When true, after the fills succeed the host ALSO submits the page by pressing Enter in the filled field (the same Enter-submit browser_type's submit flag uses). Default false/omitted: the host only fills and never touches the site's submit control — you click it yourself after resuming. This is ONLY for one-shot code steps where Enter-submit is the whole action and staleness is the real risk (an OTP / verification-code prompt is the canonical case), and the host ENFORCES that scope: the form must claim a domain and carry exactly ONE targeted single-line text field (the code), the card discloses the submit to the user, and the Enter press runs only when every targeted fill succeeded. Leave it off for logins, checkout, and anything where submitting has side effects worth verifying first — a multi-field form with submitAfterFill is rejected, and so is one whose field looks like payment or government-ID data (card number, CVV, SSN, IBAN, ...). The receipt reports whether the submit was attempted and whether it succeeded."
+          "description": "When true, after the fills succeed the host ALSO submits the page by pressing Enter in the filled field (the same Enter-submit browser_type's submit flag uses). Default false/omitted: the host only fills and never touches the site's submit control, and you click it yourself after resuming. This is ONLY for one-shot code steps where Enter-submit is the whole action and staleness is the real risk (an OTP / verification-code prompt is the canonical case), and the host ENFORCES that scope: the form must claim a domain and carry exactly ONE targeted single-line text field (the code), the card discloses the submit to the user, and the Enter press runs only when every targeted fill succeeded. Leave it off for logins, checkout, and anything where submitting has side effects worth verifying first. A multi-field form with submitAfterFill is rejected, and so is one whose field looks like payment or government-ID data (card number, CVV, SSN, IBAN, ...). The receipt reports whether the submit was attempted and whether it succeeded."
         }
       },
       "required": [
@@ -2673,16 +2683,15 @@
       "properties": {}
     }
   },
-  "upload_file": {
-    "name": "upload_file",
-    "description": "Send a file from your computer to one of the user's connected services using the account they already connected. The file's bytes go straight from your computer to the service: you never read or paste them, so this works for any size or type up to the limit, and it is the right tool whenever the user wants a file you made or downloaded to land in one of these services. Do not read a file and re-create it with that service's own tools; upload it. The result names the created item and, where the service provides one, a link you can hand to the user.\nconnection is the same name that connection's own tools carry (for example google-drive, onedrive or gmail). Supported today:\n- Google Drive: destination.path is a folder path from My Drive root (e.g. \"Reports/2026\"; the folders must already exist), or destination.folderId is a Drive folder id from the Drive listing tools. Omit both for My Drive root. A new file is always created; Drive allows several files with one name.\n- OneDrive: destination.path is a folder path from the OneDrive root (e.g. \"Documents/Reports\"; the folders must already exist), or destination.folderId is a folder item id from list_drive_items. Omit both for the root. An existing file with the same name fails the upload unless destination.overwrite is true.\n- Gmail: destination.draftId is the draft id create_draft returned (or one from list_drafts); the file is attached to that draft and the draft id stays the same, so send it afterwards with send_message and that draftId. Attach last: Gmail's update_draft removes every attachment it is not handed again, so finish recipients, subject and body before calling upload_file, and never call update_draft on a draft that already has an attachment (make a new draft and attach again instead). Never put a file's contents into create_draft or send_message attachments yourself; that path cannot carry a real file. The draft with its attachments must stay under 25 MB.\ndestination.name sets the file name; it defaults to the source file's name. A connection that cannot receive files answers with the ones that can.",
+  "UploadFile": {
+    "name": "UploadFile",
+    "description": "Send a file from your computer to one of the user's connected services using the account they already connected. The file's bytes go straight from your computer to the service: you never read or paste them, so this works for any size or type up to the limit, and it is the right tool whenever the user wants a file you made or downloaded to land in one of these services. Do not read a file and re-create it with that service's own tools; upload it. The result names the created item and, where the service provides one, a link you can hand to the user.\nconnection is the connection's identifier: the same one GetMcpServerStatus lists and that connection's own tools are prefixed with (for example user-onedrive, dashboard-team-1-Google-drive, user-SharePoint-xai or user-Gmail--personal). The service short name (google-drive, onedrive, sharepoint, gmail or outlook) is accepted when exactly one account of that service is connected; with several accounts, name the identifier so the right account is used. Supported today:\n- Google Drive: destination.path is a folder path from My Drive root (e.g. \"Reports/2026\"; the folders must already exist), or destination.folderId is a Drive folder id from the Drive listing tools. Omit both for My Drive root. A new file is always created; Drive allows several files with one name. destination.convertToGoogleFormat, when true, asks Drive to import a convertible Office or text file as native Docs, Sheets, or Slides on that same create (pptx → Slides, docx → Docs, xlsx → Sheets). Types Drive cannot import stay as the original file. The result mimeType tells you which landed. Default false.\n- OneDrive: destination.path is a folder path from the OneDrive root (e.g. \"Documents/Reports\"; the folders must already exist), or destination.folderId is a folder item id from list_drive_items. Omit both for the root. An existing file with the same name fails the upload unless destination.overwrite is true.\n- Gmail: destination.draftId is the id create_draft returned (or one from list_drafts); the file is attached and the id stays the same, so then send that draftId with send_draft (send_message on Google's hosted Gmail). Attach last: Gmail's update_draft removes every attachment it is not handed again, so finish recipients, subject and body before calling UploadFile, and never call update_draft on a draft that already has an attachment (make a new draft and attach again instead). The draft with its attachments must stay under 25 MB.\n- Outlook: on the Outlook connection, destination.draftId is the id create_draft returned; then send_draft it. send_mail cannot carry this file. A Gmail or Outlook draft here carries a file; it is not how you draft for review.\n- SharePoint: destination.folderId is the drive id from sharepoint_list_drives and is required. destination.path is the folder under that drive (for example \"Reports/2026\") and is passed together with folderId; omit path to use the drive root. An existing file with the same name fails unless destination.overwrite is true.\ndestination.name sets the file name; it defaults to the source file's name. Never put a file's contents into a mail tool's attachments argument yourself; that path cannot carry a real file. A connection that cannot receive files answers with the ones that can.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "connection": {
           "type": "string",
-          "minLength": 1,
-          "description": "Which connected service receives the file, by connection name. The description lists every connection available this turn."
+          "minLength": 1
         },
         "sourcePath": {
           "type": "string",
@@ -2694,15 +2703,15 @@
           "properties": {
             "path": {
               "type": "string",
-              "description": "Folder path inside the destination service, e.g. \"Reports/2026\". Omit to use the service root."
+              "description": "Folder path inside the destination service, e.g. \"Reports/2026\". Omit to use the service root. For SharePoint this is the folder under the drive named by folderId."
             },
             "folderId": {
               "type": "string",
-              "description": "Provider folder id, when you already have one from that connection's listing tools. Provide at most one of path or folderId."
+              "description": "Provider folder id, when you already have one from that connection's listing tools. Google Drive and OneDrive take at most one of path or folderId. SharePoint needs folderId (the drive id) and takes path alongside it."
             },
             "draftId": {
               "type": "string",
-              "description": "Email connections only: the id of an existing draft, as returned by that connection's create_draft, to attach the file to. Not combined with path or folderId."
+              "description": "Gmail and Outlook only: the id of an unsent draft to attach the file to. Not combined with path or folderId."
             },
             "name": {
               "type": "string",
@@ -2710,10 +2719,14 @@
             },
             "overwrite": {
               "type": "boolean",
-              "description": "OneDrive only: replace a file that already exists at the destination. Default false: an existing file makes the upload fail so you can pick another name."
+              "description": "OneDrive and SharePoint only: replace a file that already exists at the destination. Default false: an existing file makes the upload fail so you can pick another name."
+            },
+            "convertToGoogleFormat": {
+              "type": "boolean",
+              "description": "Google Drive only: if the file has a Google Workspace equivalent, upload it as that native type on this create (pptx/ppt/odp → Slides, docx/doc/odt/rtf/html/md/txt → Docs, xlsx/xls/ods/csv/tsv → Sheets). Types Drive cannot import stay as the original file. Default false. Other connections ignore this."
             }
           },
-          "description": "Where the file lands. Which fields apply depends on the connection; see the description."
+          "description": "Where the file lands; which fields apply depends on the connection."
         }
       },
       "required": [
@@ -2722,16 +2735,15 @@
       ]
     }
   },
-  "download_file": {
-    "name": "download_file",
-    "description": "Fetch a file from one of the user's connected services onto your computer using the account they already connected. The file's bytes go straight from the service to your computer: you never read or paste them, so this works for any size or type up to the limit, and it is the right tool whenever you need to work on a file that lives in one of these services (read it, convert it, attach it, upload it somewhere else). Do not ask a service's own tools to print a file's contents into the conversation; download it and open it locally. The result tells you where the file landed.\nconnection is the same name that connection's own tools carry (for example google-drive, onedrive or gmail). Supported today:\n- Google Drive: source.fileId is a Drive file id from the Drive listing or search tools. Google Docs, Sheets, Slides and Drawings have no file of their own and are exported as .docx, .xlsx, .pptx and .png; the returned name carries that extension.\n- OneDrive: source.fileId is an item id from list_drive_items or search_drive_items, or source.path is a path from the OneDrive root (e.g. \"Documents/notes.txt\").\n- Gmail: source.fileId is \"<message id>/<attachment id>\", both from get_thread (each attachment listed on a message carries an id). This is the only way to get an email attachment's bytes; the Gmail tools themselves never return them.\ndestination.path is the full path on your computer, name included; omit it to land the file in your downloads folder under the service's file name. A connection that cannot serve files answers with the ones that can.",
+  "DownloadFile": {
+    "name": "DownloadFile",
+    "description": "Fetch a file from one of the user's connected services onto your computer using the account they already connected. The file's bytes go straight from the service to your computer: you never read or paste them, so this works for any size or type up to the limit, and it is the right tool whenever you need to work on a file that lives in one of these services (read it, convert it, attach it, upload it somewhere else). Do not ask a service's own tools to print a file's contents into the conversation; download it and open it locally. The result tells you where the file landed.\nconnection is the connection's identifier: the same one GetMcpServerStatus lists and that connection's own tools are prefixed with (for example user-onedrive, dashboard-team-1-Google-drive, user-SharePoint-xai or user-Gmail--personal). The service short name (google-drive, onedrive, sharepoint, gmail or outlook) is accepted when exactly one account of that service is connected; with several accounts, name the identifier so the right account is used. Supported today:\n- Google Drive: source.fileId is a Drive file id from the Drive listing or search tools. Google Docs, Sheets, Slides and Drawings have no file of their own and are exported as .docx, .xlsx, .pptx and .png; the returned name carries that extension.\n- OneDrive: source.fileId is an item id from list_drive_items or search_drive_items, or source.path is a path from the OneDrive root (e.g. \"Documents/notes.txt\").\n- Gmail: source.fileId is \"<message id>/<attachment id>\", both from get_thread or read_email (each attachment listed on a message carries an id). This is the only way to get an email attachment's bytes; the Gmail tools themselves never return them.\n- Outlook: source.fileId is \"<message id>/<attachment id>\", both from get_mail_message (each attachment it lists carries an id). This is the only way to get an Outlook attachment's bytes; the Outlook tools themselves never return them.\n- SharePoint: source.fileId is \"{drive_id}/{item_id}\" from sharepoint_ls or sharepoint_search_documents. A path is not accepted.\ndestination.path is the full path on your computer, name included; omit it to land the file in your downloads folder under the service's file name. A connection that cannot serve files answers with the ones that can.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "connection": {
           "type": "string",
-          "minLength": 1,
-          "description": "Which connected service holds the file, by connection name. The description lists every connection available this turn."
+          "minLength": 1
         },
         "source": {
           "type": "object",
@@ -2764,9 +2776,9 @@
       ]
     }
   },
-  "import_chrome_cookies": {
-    "name": "import_chrome_cookies",
-    "description": "List available Chrome profiles and website origins, or import cookies for the requested listed profile/origin pairs into the bot browser. Imports execute directly. Use exact profile IDs and origins from the listing. Cookie values remain private to the browser integration.",
+  "RequestCookieOriginApproval": {
+    "name": "RequestCookieOriginApproval",
+    "description": "List Chrome cookie origins on the user's computer, or ask the user to approve importing cookies for one or more origins. Omit origins to list. Pass origins to open the approval dialog and wait for Approve once, Always allow, or Deny. Already-granted pairs are skipped. Do not invent origins. Listing origins (omitting origins) is always fine. Do not request origins for Linear, Okta, United Airlines (united.com), Rippling, Databricks, or Airtable unless the listing shows the user's Chrome has the site: for those, a login made fresh just to feed the import does not persist, so with no existing Chrome session send the user to the normal sign-in on the box instead.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2797,7 +2809,7 @@
             ]
           },
           "maxItems": 32,
-          "description": "Chrome website origins to import. Omit or pass [] to list available profiles and origins. A bare origin imports matching cookies across listed profiles; {origin, profileId} selects one exact profile. Imports execute directly."
+          "description": "Chrome cookie hosts to request. Omit or pass [] to list available profile and origin pairs. A bare host asks across every profile that has it; pass { origin, profileId } to ask for one profile only. Pass one or more entries to open the approval dialog and wait."
         }
       }
     }

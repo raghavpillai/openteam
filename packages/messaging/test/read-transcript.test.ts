@@ -7,8 +7,8 @@ test("strict bounded selectors and cursors", () => {
   for(const input of [{limit:0},{limit:201},{limit:1.2},{before:-1},{before:Infinity},{agent_id:"a",session_id:"b"},{subagent_id:[]},{extra:true},{toString:1},[]]) expect(()=>parseReadTranscriptInput(input)).toThrow();
 });
 test("projection excludes arguments, hidden fields, arbitrary details and held form results", () => {
-  const result = transcriptToolProjection({tool:"CallDynamicTool",arguments:{toolName:"request_user_form",password:"DO_NOT_RETURN"},thinking:"PRIVATE",result:{content:[{type:"text",text:"HELD_FORM"}],details:{token:"SECRET"}}});
-  expect(result).toEqual({tool:"request_user_form",output_omitted:true});
+  const result = transcriptToolProjection({tool:"CallDynamicTool",arguments:{toolName:"RequestUserForm",password:"DO_NOT_RETURN"},thinking:"PRIVATE",result:{content:[{type:"text",text:"HELD_FORM"}],details:{token:"SECRET"}}});
+  expect(result).toEqual({tool:"RequestUserForm",output_omitted:true});
   expect(transcriptToolProjection({type:"commandExecution",command:"echo ok",result:{content:[{type:"text",text:"ok"},{type:"thinking",text:"PRIVATE"}],details:{environment:"SECRET"}}})).toEqual({tool:"Shell",command:"echo ok",output:"ok"});
 });
 test("credential redaction precedes truncation", () => {
@@ -44,7 +44,7 @@ test("browser action observations survive history recovery without exposing inpu
 });
 
 test("browser form entry, arbitrary execution and approval results remain excluded", () => {
-  for(const tool of ['browser_type','browser_fill','browser_fill_form','browser_file_upload','browser_cdp','request_user_form','UnknownTool']) {
+  for(const tool of ['browser_type','browser_fill','browser_fill_form','browser_file_upload','browser_cdp','RequestUserForm','UnknownTool']) {
     expect(transcriptToolProjection({tool,arguments:{text:'PRIVATE_INPUT'},result:{content:[{type:'text',text:'PRIVATE_RESULT'}]}}))
       .toEqual({tool,output_omitted:true});
   }

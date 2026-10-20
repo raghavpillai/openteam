@@ -213,11 +213,11 @@ function normalizeDestinationPath(raw) {
   }
   return normalized;
 }
-const schemas = { FindContacts:findContactsParameters, FindIMessageChats:findChatsParameters, ChatItems:chatItemsParameters, SearchIMessages:searchParameters, IMessageActivity:activityParameters, FetchIMessageAttachment:fetchAttachmentParameters, SendIMessage:sendParameters, CheckIMessagePermissions:checkPermissionsParameters, import_chrome_cookies:chromeCookieImportParameters, upload_file:uploadFileParameters, download_file:downloadFileParameters };
+const schemas = { FindContacts:findContactsParameters, FindIMessageChats:findChatsParameters, ChatItems:chatItemsParameters, SearchIMessages:searchParameters, IMessageActivity:activityParameters, FetchIMessageAttachment:fetchAttachmentParameters, SendIMessage:sendParameters, CheckIMessagePermissions:checkPermissionsParameters, RequestCookieOriginApproval:chromeCookieImportParameters, UploadFile:uploadFileParameters, DownloadFile:downloadFileParameters };
 export function parseReferenceArguments(name: string, raw: unknown): Record<string, any> {
  const schema = schemas[name]; if(!schema) throw new Error('No reference parser: '+name);
  const args = schema.parse(raw);
- if(name==='upload_file')return {...args,sourcePath:normalizeSourcePath(args.sourcePath),destination:normalizeDestination(args.destination)};
- if(name==='download_file')return {...args,source:normalizeSource(args.source),destination:{...args.destination,path:normalizeDestinationPath(args.destination.path)}};
+ if(name==='UploadFile')return {...args,sourcePath:normalizeSourcePath(args.sourcePath),destination:normalizeDestination(args.destination)};
+ if(name==='DownloadFile')return {...args,source:normalizeSource(args.source),destination:{...args.destination,path:normalizeDestinationPath(args.destination.path)}};
  return args;
 }

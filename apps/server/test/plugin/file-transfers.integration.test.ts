@@ -63,7 +63,7 @@ test.skipIf(!databaseUrl)(
       const context = { botId, runId, callId };
       const bytes = Buffer.from("abc");
       const raw = {
-        tool: "upload_file",
+        tool: "UploadFile",
         input: { connection: connection.id, sourcePath: "/workspace/file.bin", destination: {} },
         sha256: createHash("sha256").update(bytes).digest("hex"),
         sizeBytes: 3,

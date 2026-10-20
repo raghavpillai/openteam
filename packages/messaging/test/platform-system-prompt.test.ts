@@ -86,7 +86,7 @@ describe("Grok-derived platform prompt integration", () => {
     expect(REQUEST_BOX_HELP_TOOL.description).not.toContain("a step only they can do: a login");
     expect(referenceTool("request_box_help").inputSchema.properties.reason.description).not.toContain("for any sign-in step");
     expect(SEND_TO_USER_TOOL.description).not.toContain("a login, SSO, 2FA, captcha, or payment");
-    expect(referenceTool("request_user_form").description).not.toContain("the box handoff stays for captchas");
+    expect(referenceTool("RequestUserForm").description).not.toContain("the box handoff stays for captchas");
   });
 
   test("all feature combinations retain supported media and explicit provider setup guidance", () => {
@@ -146,7 +146,7 @@ describe("Grok-derived platform prompt integration", () => {
         "export-bot-template"
       );
       expect(renderPlatformBaseSystemPrompt({ managedSkills: false })).not.toContain(
-        "create_bot_share_json"
+        "CreateBotShareJson"
       );
       expect(renderPlatformBaseSystemPrompt({ managedSkills: true, sharing: true })).toContain(
         "export-bot-template"

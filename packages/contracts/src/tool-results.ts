@@ -13,7 +13,7 @@ export function renderDesktopResult(
   output: Record<string, any>,
   args: Record<string, any>
 ): string {
-  if (name === "import_chrome_cookies") return formatChromeCookieImportOutcome(output);
+  if (name === "RequestCookieOriginApproval") return formatChromeCookieImportOutcome(output);
   if (name === "FindContacts") return renderContactsResult(output);
   if (["ChatItems", "FindIMessageChats", "SearchIMessages"].includes(name)) {
     const notice = truncationNotice(output, name === "ChatItems" && args.chatGuid === undefined);
@@ -106,7 +106,7 @@ export function renderControlResult(
     if (result.target === "avatar" && result.cleared)
       return "Cleared your picture — back to the default.";
   }
-  if (name === "create_bot_share_json" && result.published)
+  if (name === "CreateBotShareJson" && result.published)
     return `Published bot template version ${result.version}. Verify the returned artifact before sharing it.`;
   if (name === "SendFeedback" && result.feedbackStatus) {
     if (result.feedbackStatus === "sent") return `Feedback sent to the configured OpenTeam support destination. They ${result.wantsResponse ? "asked for a reply" : "did not ask for a reply"}. Confirm to the user that it went through.`;

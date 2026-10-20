@@ -1321,7 +1321,6 @@ export const ComputerTurnRequest = Schema.Struct({
   userInfoEpoch: Schema.optional(Schema.Number),
   connectorInstructions: Schema.optional(Schema.String),
   agentProfileSnapshot: Schema.optional(Schema.Unknown),
-  memorySnapshot: Schema.optional(Schema.Unknown),
   todoUpdate: Schema.optional(Schema.NullOr(Schema.String)),
   automationTrigger: Schema.optional(Schema.NullOr(Schema.String)),
   resetSelfSummaryCount: Schema.optional(Schema.Boolean),

@@ -1311,7 +1311,6 @@ export class WakeWorker {
         userInfoEpoch: platformPrompt.userInfoEpoch ?? undefined,
         connectorInstructions: pluginContext.skillInstructions,
         agentProfileSnapshot: platformPrompt.agentProfileSnapshot ?? undefined,
-        memorySnapshot: platformPrompt.memorySnapshot ?? undefined,
         todoUpdate: platformPrompt.todoUpdate,
         automationTrigger: automationTriggerForWake(
           claimed.origin,

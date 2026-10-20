@@ -100,6 +100,10 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
   const outsideAvatar = join(temporary, "outside.png");
   await mkdir(workspace, { recursive: true });
   const store = new AgentDataStore(prisma, { root, workspaceRoot: workspace });
+  const pinnedFacts = async (botId: string) => {
+    const prompt = await store.promptContext(botId);
+    return (await store.preparePlatformSections(botId, undefined, prompt.compactionEpoch, {}, prompt.memory)).memory!.facts;
+  };
 
   const firstBotId = randomUUID();
   const secondBotId = randomUUID();
@@ -184,7 +188,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
 
     const initialPrompt = await store.promptContext(firstBotId);
     expect(initialPrompt.profileSection).toContain("Watcher One");
-    expect(initialPrompt.memoryRender).toBe("");
+    expect(initialPrompt.memory.facts).toEndWith("No facts recorded yet.");
     expect(initialPrompt.skillRender).toBe("");
 
     await store.startWatching();
@@ -567,8 +571,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     for (let index = 0; index < 8; index += 1) {
       expect(concurrentMemory.map((fact) => fact.fact)).toContain(`Concurrent memory fact ${index}.`);
     }
-    const firstMemoryPrompt = await store.promptContext(firstBotId);
-    expect(firstMemoryPrompt.memoryRender).toContain(
+    expect(await pinnedFacts(firstBotId)).toContain(
       "The first fact is visible before memory freezes."
     );
     await store.writeMemory(firstBotId, {
@@ -577,9 +580,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       fact: "The second fact waits for compaction.",
       at: new Date("2026-08-27"),
     });
-    expect((await store.promptContext(firstBotId)).memoryRender).not.toContain(
-      "The second fact waits for compaction."
-    );
+    expect(await pinnedFacts(firstBotId)).not.toContain("The second fact waits for compaction.");
 
     await prisma.conversation.update({
       where: { id: firstConversationId },
@@ -587,7 +588,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     });
     const compactedPrompt = await store.promptContext(firstBotId);
     expect(compactedPrompt.profileSection).toContain("Renamed on disk");
-    expect(compactedPrompt.memoryRender).toContain("The second fact waits for compaction.");
+    expect(await pinnedFacts(firstBotId)).toContain("The second fact waits for compaction.");
     expect(compactedPrompt.skillRender).toContain("Disk-owned skill");
 
     await store.writeMemory(firstBotId, {
@@ -604,17 +605,17 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       where: { id: firstConversationId },
       data: { compactionEpoch: { increment: 1 } },
     });
-    const mergedMemory = await store.promptContext(firstBotId);
-    expect(mergedMemory.memoryRender).toContain("User fact written by watcher one.");
-    expect(mergedMemory.memoryRender).toContain("User fact written by watcher two.");
+    const mergedMemory = await pinnedFacts(firstBotId);
+    expect(mergedMemory).toContain("User fact written by watcher one.");
+    expect(mergedMemory).toContain("User fact written by watcher two.");
 
     await store.forgetMemory(firstBotId, {
       scope: "user",
       fact: "User fact written by watcher one.",
     });
-    const afterForget = await store.promptContext(firstBotId);
-    expect(afterForget.memoryRender).not.toContain("User fact written by watcher one.");
-    expect(afterForget.memoryRender).toContain("User fact written by watcher two.");
+    const afterForget = (await store.promptContext(firstBotId)).memory.facts;
+    expect(afterForget).not.toContain("User fact written by watcher one.");
+    expect(afterForget).toContain("User fact written by watcher two.");
 
     const groupDirectory = join(root, "agents", groupId);
     await atomicWrite(

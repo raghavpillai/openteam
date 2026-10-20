@@ -142,10 +142,11 @@ dbTest(
         data: { botId, scope: "fork", scopeId: crypto.randomUUID() },
       });
       const cached = {
-        memoryEpoch: 3,
-        memoryRender: "stale saved fact",
-        memoryHasFacts: true,
         profileSection: "preserve profile",
+        promptSections: {
+          memory: { render: "stale saved fact", compactionEpoch: 3 },
+          automations: { render: "preserve routines", compactionEpoch: 3 },
+        },
       };
       await app.prisma.agentPromptSnapshot.upsert({
         where: { botId },
@@ -156,17 +157,14 @@ dbTest(
         data: { contextSessionId: context.id, ...cached },
       });
       expect((await client.clearBotMemories(botId)).total).toBe(0);
-      expect(await app.prisma.agentPromptSnapshot.findUnique({ where: { botId } })).toMatchObject({
-        memoryEpoch: -1,
-        memoryRender: "",
-        memoryHasFacts: false,
-        profileSection: "preserve profile",
-      });
+      // The pinned memory facts are dropped everywhere, so the next turn shows the deletion.
+      const unpinned = { profileSection: "preserve profile", promptSections: { automations: { render: "preserve routines", compactionEpoch: 3 } } };
+      expect(await app.prisma.agentPromptSnapshot.findUnique({ where: { botId } })).toMatchObject(unpinned);
       expect(
         await app.prisma.contextPromptSnapshot.findUnique({
           where: { contextSessionId: context.id },
         })
-      ).toMatchObject({ memoryEpoch: -1, memoryRender: "", memoryHasFacts: false });
+      ).toMatchObject(unpinned);
       expect(await app.prisma.conversation.findUnique({ where: { botId } })).toEqual(conversation);
       expect(await store.recallMemory(botId, { query: "CONTROL914" })).not.toContain("own saved fact");
       expect(await store.recallMemory(botId, { query: "CONTROL914" })).toContain(

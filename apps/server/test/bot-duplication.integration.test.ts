@@ -161,10 +161,8 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
       await prisma.agentPromptSnapshot.create({
         data: {
           botId: f.source.id,
-          memoryRender: "FROZEN_MEMORY_MARKER",
           profileSection: "OLD_PROMPT_MARKER",
-          memoryEpoch: 4,
-          memoryHasFacts: true,
+          promptSections: { memory: { render: "FROZEN_MEMORY_MARKER", compactionEpoch: 4 } },
         },
       });
       const group = await prisma.channel.create({
@@ -312,8 +310,8 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
       }
       await prisma.bot.update({ where: { id: duplicate.id }, data: { status: "active" } });
       const context = await f.store.promptContext(duplicate.id);
-      expect(context.memoryRender).not.toContain("BOT_LOCAL_MEMORY_MARKER");
-      expect(context.memoryRender).not.toContain("FROZEN_MEMORY_MARKER");
+      expect(context.memory.facts).not.toContain("BOT_LOCAL_MEMORY_MARKER");
+      expect(context.memory.facts).not.toContain("FROZEN_MEMORY_MARKER");
       expect(context.skillRender).toContain(skill.slug);
       expect(await readFile(join(f.workspace, "shared.txt"), "utf8")).toBe("SHARED_FILE_MARKER");
       expect(await readFile(join(sourceDir, "profile.json"), "utf8")).toBe(before);

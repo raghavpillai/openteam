@@ -55,7 +55,8 @@ import {
   renderPlatformRuntimeInstructions,
 } from "./platform-system-prompt";
 import { resolveTimeZone, timestampUserTurn } from "./timestamps";
-import type { PromptSectionReceipt } from "./prompt-sections";
+import type { MemoryContextReceipt, PromptSectionReceipt } from "./prompt-sections";
+import { renderMemoryContextBlock } from "./memory-rendering";
 
 export type { BotFileTarget } from "./agent-data";
 export { AgentDataStore, renderAgentProfileUpdate } from "./agent-data";
@@ -120,11 +121,11 @@ export interface PlatformPrompt {
   userInfoEpoch: number | null;
   todoUpdate: string | null;
   agentProfileSnapshot: AgentPromptContext["profileSnapshot"] | null;
-  memorySnapshot: AgentPromptContext["memorySnapshot"];
   instructionsUpdate?: string | null;
   ambientContext?: string | null;
   acknowledgement?: {
     sections: PromptSectionReceipt[];
+    memory?: MemoryContextReceipt;
     identity?: AgentPromptContext["identityReceipt"];
     dismissedMessageIds: string[];
     outcomeIds?: Array<{ messageId: string; outcomeId: string }>;
@@ -132,9 +133,10 @@ export interface PlatformPrompt {
   };
 }
 
-export const renderAgentSkillsUserInfo = (skillRender: string): string =>
+export const renderAgentSkillsUserInfo = (skillRender: string, memoryContext?: string): string =>
   [
     "<user_info>",
+    ...(memoryContext ? [memoryContext, ""] : []),
     "<agent_skills>",
     skillRender || "No saved skills are currently installed for you.",
     "</agent_skills>",
@@ -2059,7 +2061,6 @@ export class AgentMessaging {
         userInfoEpoch: null,
         todoUpdate: todoContext.length > 0 ? todoContext.join("\n") : null,
         agentProfileSnapshot: null,
-        memorySnapshot: null,
         agentProfileUpdate: null,
       };
     }
@@ -2182,13 +2183,12 @@ export class AgentMessaging {
     );
     const frozen = await this.agentData.preparePlatformSections(botId, contextSessionId, agentPrompt.compactionEpoch, {
       agent_instructions: bot.instructions ? `Additional durable instructions:\n${bot.instructions}` : "",
-      memory: agentPrompt.liveMemoryRender ?? agentPrompt.memoryRender,
       automations: routineContext.length ? `Scheduled routines:\n${routineContext.join("\n")}` : "You have no scheduled routines.",
       agent_directory: targets.length
         ? `Recent and related SendToAgent targets (bounded catalog):\n${targets.join("\n")}\nUse ListAgents or ListGroups for an exact id/name lookup or to discover targets omitted from this catalog.`
         : "No peer or group targets are currently available.",
       mcp_instructions: connectorInstructions,
-    });
+    }, agentPrompt.memory);
     const siblings = await listSiblingThreads(this.prisma, botId, contextSessionId);
     const instructions = [
       frozen.sections.mcp_instructions,
@@ -2205,7 +2205,7 @@ export class AgentMessaging {
         ? `Durable task queue (reconcile it with TodoWrite on each wake):\n${todoContext.join("\n")}`
         : "The durable task queue is empty.",
       "In a room wake, speak only when you add something useful. Finishing without SendToUser is a valid silent turn.",
-      "Use UpdateMemory for durable memory and UpdateRoutine for scheduled routines. Skills, profile and settings, avatars, and connector disconnects have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, and DisconnectChannel. These are write APIs. The current durable state relevant to you is supplied below on every turn.",
+      "Use UpdateMemory for durable memory and UpdateRoutine for scheduled routines. Skills, profile and settings, avatars, and connector disconnects have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, and DisconnectChannel.",
       renderPlatformRuntimeInstructions({
         agentDataRoot: this.agentData.root,
         botId,
@@ -2215,9 +2215,7 @@ export class AgentMessaging {
       `Your effective settings are hiddenFromSidebar=${bot.hiddenFromSidebar} and notifyOnAgentUpdates=${bot.notificationsEnabled}.`,
       `Use cursor.ReadTranscript for task-relevant saved conversation history or a dispatched worker’s observable activity. Transcript files are private runtime storage; do not open them with Read.`,
       frozen.sections.agent_directory,
-      frozen.sections.memory
-        ? `Durable memory. Later sections have higher instructional precedence (own > user):\n${frozen.sections.memory}`
-        : "Durable memory is currently empty.",
+      agentPrompt.memory.policy,
       frozen.sections.automations,
       disconnected.length > 0
         ? `Disconnected connector platforms: ${disconnected.map(({ platform }) => platform).join(", ")}`
@@ -2228,20 +2226,23 @@ export class AgentMessaging {
     ]
       .filter(Boolean)
       .join("\n\n");
-    const userInfo = renderAgentSkillsUserInfo(agentPrompt.skillRender);
+    const userInfo = renderAgentSkillsUserInfo(
+      agentPrompt.skillRender,
+      frozen.memory ? renderMemoryContextBlock(frozen.memory.facts) : undefined
+    );
     const automationResults = !automation && channelId !== undefined ? await this.prisma.automationResult.findMany({
       where: { wakeRunId: null, acknowledgedAt: null, run: { botId, channelId } },
       orderBy: { createdAt: "asc" }, take: 20,
     }) : [];
     return {
-      instructions: automation ? `${instructions}\n\n${AUTOMATION_RUN_INSTRUCTIONS}\n\nThe parent's durable memories are included above. Use cursor.ReadTranscript with agent_id="${botId}" only when the saved task needs earlier conversation detail; the parent conversation has deliberately not been copied into this automation context.` : instructions,
-      instructionsUpdate: frozen.update,
+      instructions: automation ? `${instructions}\n\n${AUTOMATION_RUN_INSTRUCTIONS}\n\nUse cursor.ReadTranscript with agent_id="${botId}" only when the saved task needs earlier conversation detail; the parent conversation has deliberately not been copied into this automation context.` : instructions,
+      instructionsUpdate: [frozen.update, frozen.memory?.update].filter(Boolean).join("\n\n") || null,
       ambientContext: automation ? null : [
         dismissedWidgetPrompts.length > 0 ? buildDismissedQuestionsNote(dismissedWidgetPrompts) : "",
         ...richMessagePrompts,
         ...automationResults.map((result) => `[Silent automation result ${result.runId}]\nThis result waited for your next natural boundary and has not been shown to the user. Use it as relevant to the current task; it is not a request for an unsolicited notification.\n${result.message}`),
       ].filter(Boolean).join("\n\n") || null,
-      acknowledgement: { identity: agentPrompt.identityReceipt, sections: frozen.receipts, automationResultRunIds: automationResults.map((result) => result.runId), dismissedMessageIds: automation ? [] : dismissedIds, outcomeIds: (automation ? [] : pendingRichMessages).flatMap((message) => {
+      acknowledgement: { identity: agentPrompt.identityReceipt, sections: frozen.receipts, memory: frozen.memory?.receipt, automationResultRunIds: automationResults.map((result) => result.runId), dismissedMessageIds: automation ? [] : dismissedIds, outcomeIds: (automation ? [] : pendingRichMessages).flatMap((message) => {
         const metadata = message.metadata as Record<string, unknown>;
         return typeof metadata.outcomeId === "string" && typeof metadata.outcomeText === "string" ? [{ messageId: message.id, outcomeId: metadata.outcomeId }] : [];
       }) },
@@ -2250,14 +2251,13 @@ export class AgentMessaging {
       userInfoEpoch: agentPrompt.compactionEpoch,
       todoUpdate: todoContext.length > 0 ? todoContext.join("\n") : null,
       agentProfileSnapshot: agentPrompt.profileSnapshot,
-      memorySnapshot: agentPrompt.memorySnapshot,
     };
   }
 
   async acknowledgePlatformPrompt(botId: string, contextSessionId: string | undefined, prompt: PlatformPrompt) {
     const acknowledgement = prompt.acknowledgement;
     if (!acknowledgement) return;
-    await this.agentData.acknowledgePlatformSections(botId, contextSessionId, acknowledgement.sections);
+    await this.agentData.acknowledgePlatformSections(botId, contextSessionId, acknowledgement.sections, acknowledgement.memory);
     if (acknowledgement.dismissedMessageIds.length) {
       await this.prisma.$executeRaw(Prisma.sql`
         UPDATE "ChannelMessage"

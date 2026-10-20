@@ -1,4 +1,17 @@
-import { renderMemorySystemPrompt, renderUserMemorySystemPrompt, type PromptMemoryRecord } from "./memory-rendering";
+import {
+  MEMORY_HEADING,
+  MEMORY_PROFILE_PROMPT_LIMIT,
+  MEMORY_RECENT_PROMPT_LIMIT,
+  MEMORY_USER_PROFILE_PROMPT_LIMIT,
+  MEMORY_USER_RECENT_PROMPT_LIMIT,
+  SHARED_USER_MEMORY_HEADING,
+  renderMemoryFactSnapshot,
+  renderMemorySystemPolicyPrompt,
+  renderOtherAssistantMemoryUpdate,
+  renderUserMemoryFactSnapshot,
+  renderUserMemorySystemPolicyPrompt,
+  type PromptMemoryRecord,
+} from "./memory-rendering";
 import managedSkills from "./prompts/managed-skills.json";
 import { managedSkillAgents, managedSkillIsForMain } from "./managed-skill-agents";
 import { safePackagePath } from "@openteam/plugin-sdk";
@@ -69,7 +82,16 @@ import {
 } from "./memory-facts";
 import { deleteSkillFolder, parseSkillFile, renderSkillFile, writeSkillFile } from "./skill-files";
 import type { AgentTimelineEvent } from "./timeline-events";
-import { acknowledgePromptSections, parsePromptSections, preparePromptSections, type PromptSectionReceipt } from "./prompt-sections";
+import {
+  acknowledgeMemoryContext,
+  acknowledgePromptSections,
+  parsePromptSections,
+  prepareMemoryContext,
+  preparePromptSections,
+  type MemoryContextLive,
+  type MemoryContextReceipt,
+  type PromptSectionReceipt,
+} from "./prompt-sections";
 import { parseRecallInput, recallMemoryResult } from "./recall-memory";
 import {
   buildExtractionUserPrompt,
@@ -266,11 +288,14 @@ export interface AgentPromptContext {
   };
   identityAnnouncement: string;
   identityReceipt?: PendingIdentityAnnouncement;
-  memoryRender: string;
-  liveMemoryRender?: string;
-  memorySnapshot: { render: string; compactionEpoch: number } | null;
+  /** The memory sections for the system prompt, and the facts and peer changes for <memory_context>. */
+  memory: LiveMemory;
   skillRender: string;
   warnings: string[];
+}
+
+export interface LiveMemory extends MemoryContextLive {
+  policy: string;
 }
 
 export interface RootSidebarSection {
@@ -2229,9 +2254,9 @@ export class AgentDataStore {
       await lockMemoryNamespace(tx, namespace);
       const { count } = await tx.memoryFact.deleteMany({ where: { namespace, ...(memoryId ? { logicalId: memoryId } : {}) } });
       if (count > 0) await tx.event.create({ data: { topic: "memory.changed", entityId: botId, payload: { botId } } });
-      // Refresh both primary and forked prompt snapshots, even on an idempotent clear.
-      await tx.agentPromptSnapshot.updateMany({ where: { botId }, data: { memoryEpoch: -1, memoryRender: "", memoryHasFacts: false } });
-      await tx.contextPromptSnapshot.updateMany({ where: { contextSession: { botId } }, data: { memoryEpoch: -1, memoryRender: "", memoryHasFacts: false } });
+      // The owner's deletion reaches the bot at once: unpin memory in every conversation, even on an idempotent clear.
+      await tx.$executeRaw`UPDATE "AgentPromptSnapshot" SET "promptSections" = "promptSections" - 'memory' WHERE "botId" = ${botId}::uuid`;
+      await tx.$executeRaw`UPDATE "ContextPromptSnapshot" SET "promptSections" = "promptSections" - 'memory' WHERE "contextSessionId" IN (SELECT "id" FROM "ContextSession" WHERE "botId" = ${botId}::uuid)`;
       return this.managedMemoryList(tx, botId);
     }, { maxWait: 10_000, timeout: 60_000 });
   }
@@ -2305,20 +2330,8 @@ export class AgentDataStore {
     }
   ): Promise<{ forgotten: boolean; logicalId: string; content: string }> {
     const content = normalizeMemoryContent(input.fact);
-    const forgotten = await this.prisma.$transaction(async (tx) => {
-      const removed = await this.deleteMemoryFact(tx, botId, input.scope, content);
-      if (removed) {
-        await tx.agentPromptSnapshot.updateMany({
-          where: { botId },
-          data: { memoryEpoch: -1, memoryRender: "", memoryHasFacts: false },
-        });
-        await tx.contextPromptSnapshot.updateMany({
-          where: { contextSession: { botId } },
-          data: { memoryEpoch: -1, memoryRender: "", memoryHasFacts: false },
-        });
-      }
-      return removed;
-    });
+    // Like a write, a forget shows in the pinned memory after the next summary; the tool result reports it now.
+    const forgotten = await this.prisma.$transaction((tx) => this.deleteMemoryFact(tx, botId, input.scope, content));
     return { forgotten, logicalId: memoryLogicalId(content), content };
   }
 
@@ -2517,40 +2530,16 @@ export class AgentDataStore {
     }
 
     const sharedConversation = await this.isSharedConversation(botId, channelId);
-    // Re-render frozen memory once when its prompt shape changes.
-    const audienceKey = MEMORY_PROMPT_VERSION;
-    if (snapshot.memoryAudienceKey !== audienceKey) {
+    // A new memory prompt version re-renders each conversation's pinned memory once.
+    if (snapshot.memoryAudienceKey !== MEMORY_PROMPT_VERSION) {
       const sections = { ...parsePromptSections(snapshot.promptSections) };
       delete sections.memory;
-      const data = { memoryAudienceKey: audienceKey, memoryEpoch: -1, memoryRender: "", memoryHasFacts: false, promptSections: asInputJson(sections) };
+      const data = { memoryAudienceKey: MEMORY_PROMPT_VERSION, promptSections: asInputJson(sections) };
       snapshot = contextSessionId
         ? await this.prisma.contextPromptSnapshot.update({ where: { contextSessionId }, data })
         : await this.prisma.agentPromptSnapshot.update({ where: { botId }, data });
     }
-    const memoryFreezeEnabled = process.env.SAND_DISABLE_MEMORY_FREEZE !== "1";
-    const liveMemoryRender = await this.renderMemory(botId, sharedConversation);
-    const memoryIsFrozen =
-      memoryFreezeEnabled && snapshot.memoryEpoch === epoch && snapshot.memoryHasFacts;
-    let memoryRender: string;
-    if (memoryIsFrozen) {
-      memoryRender = snapshot.memoryRender;
-    } else {
-      const liveMemory = liveMemoryRender;
-      memoryRender = liveMemory;
-      if (memoryFreezeEnabled && liveMemory) {
-        const data = {
-          memoryEpoch: epoch,
-          memoryRender: liveMemory,
-          memoryHasFacts: true,
-        };
-        snapshot = contextSessionId
-          ? await this.prisma.contextPromptSnapshot.update({
-              where: { contextSessionId },
-              data,
-            })
-          : await this.prisma.agentPromptSnapshot.update({ where: { botId }, data });
-      }
-    }
+    const memory = await this.renderMemory(botId, sharedConversation);
 
     let skillRender: string;
     if (snapshot.skillEpoch === epoch) {
@@ -2588,9 +2577,7 @@ export class AgentDataStore {
       },
       identityAnnouncement,
       identityReceipt: this.pendingIdentityAnnouncements.get(announcementKey),
-      memoryRender,
-      liveMemoryRender,
-      memorySnapshot: memoryRender ? { render: memoryRender, compactionEpoch: epoch } : null,
+      memory,
       skillRender,
       warnings: reconciliation.warnings,
     };
@@ -2600,7 +2587,8 @@ export class AgentDataStore {
     botId: string,
     contextSessionId: string | undefined,
     epoch: number,
-    live: Record<string, string>
+    live: Record<string, string>,
+    memory?: MemoryContextLive
   ) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`prompt-sections:${contextSessionId ?? botId}`}))`;
@@ -2608,25 +2596,36 @@ export class AgentDataStore {
         ? await tx.contextPromptSnapshot.findUniqueOrThrow({ where: { contextSessionId } })
         : await tx.agentPromptSnapshot.findUniqueOrThrow({ where: { botId } });
       const result = preparePromptSections(snapshot.promptSections, epoch, live);
+      const pinned = memory ? prepareMemoryContext(result.snapshots, epoch, memory) : undefined;
       const data = { promptSections: JSON.parse(JSON.stringify(result.snapshots)) as Prisma.InputJsonValue };
       if (contextSessionId) await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
       else await tx.agentPromptSnapshot.update({ where: { botId }, data });
-      return result;
+      return {
+        ...result,
+        memory: pinned && {
+          facts: pinned.facts,
+          update: pinned.changed ? renderOtherAssistantMemoryUpdate(memory?.otherAgents?.render ?? "") : null,
+          receipt: pinned.receipt,
+        },
+      };
     });
   }
 
   async acknowledgePlatformSections(
     botId: string,
     contextSessionId: string | undefined,
-    receipts: readonly PromptSectionReceipt[]
+    receipts: readonly PromptSectionReceipt[],
+    memory?: MemoryContextReceipt
   ) {
-    if (!receipts.length) return;
+    if (!receipts.length && !memory) return;
     await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`prompt-sections:${contextSessionId ?? botId}`}))`;
       const snapshot = contextSessionId
         ? await tx.contextPromptSnapshot.findUniqueOrThrow({ where: { contextSessionId } })
         : await tx.agentPromptSnapshot.findUniqueOrThrow({ where: { botId } });
-      const data = { promptSections: JSON.parse(JSON.stringify(acknowledgePromptSections(snapshot.promptSections, receipts))) as Prisma.InputJsonValue };
+      const acknowledged = acknowledgePromptSections(snapshot.promptSections, receipts);
+      const sections = memory ? acknowledgeMemoryContext(acknowledged, memory) : acknowledged;
+      const data = { promptSections: JSON.parse(JSON.stringify(sections)) as Prisma.InputJsonValue };
       if (contextSessionId) await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
       else await tx.agentPromptSnapshot.update({ where: { botId }, data });
     });
@@ -2721,19 +2720,18 @@ export class AgentDataStore {
     });
   }
 
-  private async renderMemory(botId: string, sharedConversation: boolean): Promise<string> {
+  /** The memory policy for the system prompt, and the facts for <memory_context>. A group room sees no shared user memory. */
+  private async renderMemory(botId: string, sharedConversation: boolean): Promise<LiveMemory> {
     const userVisible = !sharedConversation;
     const all = await this.prisma.memoryFact.findMany({
       where: {
         OR: [
-          { namespace: `agent:${botId}` },
+          { namespace: memoryNamespace(botId, "agent") },
           ...(userVisible ? [{ namespace: { startsWith: "user:agent:" } }] : []),
         ],
       },
       orderBy: [{ createdAt: "desc" }, { sourceOrdinal: "desc" }],
     });
-    if (all.length === 0) return "";
-    const blocks: string[] = [];
     const writerIds = [
       ...new Set(
         all
@@ -2754,19 +2752,40 @@ export class AgentDataStore {
       content: fact.fact, createdAt: fact.createdAt.getTime(),
       via: fact.writtenByBotId ? writerNames.get(fact.writtenByBotId) ?? fact.writtenByBotId : "",
     });
-    const sharedRecall = (facts: Fact[], profileLimit: number, recentLimit: number) => ({
-      profile: selectFacts(facts.filter((fact) => fact.tier === "profile"), profileLimit, Number.MAX_SAFE_INTEGER).selected.map(record),
-      recent: selectFacts(facts.filter((fact) => fact.tier !== "profile"), recentLimit, Number.MAX_SAFE_INTEGER, { rankByImportance: true }).selected.map(record),
-    });
-    if (userVisible) {
-      blocks.push(renderUserMemorySystemPrompt(sharedRecall(mergeWriterShards(all.filter((fact) => fact.scope === "user"), 15), 50, 15), {}));
-    }
-    const own = all.filter((fact) => fact.namespace === `agent:${botId}`);
+    const own = all.filter((fact) => fact.namespace === memoryNamespace(botId, "agent"));
     const recency = (a: Fact, b: Fact) => b.createdAt.getTime() - a.createdAt.getTime() || b.sourceOrdinal - a.sourceOrdinal;
-    const profile = own.filter((fact) => fact.tier === "profile").sort(recency).slice(0, 100).map(record);
-    const recent = own.filter((fact) => fact.tier !== "profile").sort((a, b) => scoreFact(b) - scoreFact(a) || recency(a, b)).slice(0, 30).map(record);
-    blocks.push(renderMemorySystemPrompt({ profile, recent }, null, { userWritable: userVisible }));
-    return blocks.join("\n\n");
+    const ownFacts = renderMemoryFactSnapshot({
+      profile: own.filter((fact) => fact.tier === "profile").sort(recency).slice(0, MEMORY_PROFILE_PROMPT_LIMIT).map(record),
+      recent: own.filter((fact) => fact.tier !== "profile").sort((a, b) => scoreFact(b) - scoreFact(a) || recency(a, b)).slice(0, MEMORY_RECENT_PROMPT_LIMIT).map(record),
+    });
+    const ownPolicy = `${MEMORY_HEADING}\n${renderMemorySystemPolicyPrompt()}`;
+    if (!userVisible) return { policy: ownPolicy, facts: ownFacts };
+
+    // Shards merge with the newest copy winning; other assistants' part is fingerprinted for change notes.
+    const sharedSelection = (facts: Fact[]) => {
+      const merged = mergeWriterShards(facts, MEMORY_USER_RECENT_PROMPT_LIMIT);
+      return {
+        profile: selectFacts(merged.filter((fact) => fact.tier === "profile"), MEMORY_USER_PROFILE_PROMPT_LIMIT, Number.MAX_SAFE_INTEGER).selected,
+        recent: selectFacts(merged.filter((fact) => fact.tier !== "profile"), MEMORY_USER_RECENT_PROMPT_LIMIT, Number.MAX_SAFE_INTEGER, { rankByImportance: true }).selected,
+      };
+    };
+    const records = (selection: { profile: Fact[]; recent: Fact[] }) => ({
+      profile: selection.profile.map(record),
+      recent: selection.recent.map(record),
+    });
+    const shared = all.filter((fact) => fact.scope === "user");
+    const others = sharedSelection(shared.filter((fact) => fact.writtenByBotId !== botId));
+    const otherFacts = [...others.profile, ...others.recent];
+    return {
+      policy: `${SHARED_USER_MEMORY_HEADING}\n${renderUserMemorySystemPolicyPrompt()}\n\n${ownPolicy}`,
+      facts: `${renderUserMemoryFactSnapshot(records(sharedSelection(shared)))}\n\n${ownFacts}`,
+      otherAgents: {
+        render: otherFacts.length ? renderUserMemoryFactSnapshot(records(others)) : "",
+        fingerprint: createHash("sha256")
+          .update(JSON.stringify(otherFacts.map((fact) => [fact.writtenByBotId, fact.logicalId, fact.tier === "profile" ? "profile" : "log", fact.createdAt.getTime(), fact.fact])))
+          .digest("hex"),
+      },
+    };
   }
 
   private async renderManagedSkills(): Promise<string> {

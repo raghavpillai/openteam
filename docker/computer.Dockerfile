@@ -108,7 +108,8 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* \
   && groupmod --new-name box bun \
   && usermod --login box --home /home/box --move-home --shell /bin/bash bun \
-  && useradd --uid 1001 --gid box --home-dir /home/box --no-create-home --shell /bin/bash runner \
+  && groupadd --gid 998 orbitd \
+  && usermod --append --groups orbitd box \
   && mkdir -p /app/apps/computer/dist /workspace /home/box/.pi/agent \
   && mv /usr/bin/chromium /usr/local/bin/google-chrome \
   && chown -R box:box /app /workspace /home/box

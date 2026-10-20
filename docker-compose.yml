@@ -36,7 +36,7 @@ services:
   agent-data-init:
     labels: *openteam-labels
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
-    command: ["sh", "-c", "chown -R 1000:1000 /sand-data && chmod -R g+rwX /sand-data && chmod 0770 /sand-data"]
+    command: ["sh", "-c", "chown -R 1000:1000 /sand-data && chmod 0700 /sand-data"]
     restart: "no"
     volumes:
       - openteam_agent_data:/sand-data
@@ -70,7 +70,7 @@ services:
       - sh
       - -c
       - >-
-        chown -R 1000:1000 /home/box && chmod -R g+rwX /home/box && chmod 0770 /home/box &&
+        chown -R 1000:1000 /home/box && chmod 0700 /home/box &&
         if [ -d /home/box/agent-data ] && [ ! -L /home/box/agent-data ]; then
           cp -a /home/box/agent-data/. /home/box/sand-data/ &&
           mv /home/box/agent-data /home/box/.openteam-agent-data-pre-sand-migration;
@@ -97,7 +97,7 @@ services:
   workspace-init:
     labels: *openteam-labels
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
-    command: ["sh", "-c", "chown -R 1000:1000 /workspace && chmod -R g+rwX /workspace && chmod 0770 /workspace"]
+    command: ["sh", "-c", "chown -R 1000:1000 /workspace && chmod 0755 /workspace"]
     restart: "no"
     volumes:
       - openteam_workspace:/workspace
@@ -115,8 +115,6 @@ services:
       OPENTEAM_TIME_ZONE: ${OPENTEAM_TIME_ZONE:-UTC}
       OPENTEAM_SERVER_URL: http://server:8787
       OPENTEAM_PI_AGENT_DIR: /home/box/.pi/agent
-      OPENTEAM_AGENT_UID: 1001
-      OPENTEAM_AGENT_GID: 1000
       OPENTEAM_AGENT_DATA_ROOT: /home/box/agent-data
       OPENTEAM_AGENT_DATA_CANONICAL_ROOT: /home/box/sand-data
       OPENTEAM_BOX_STORE_ROOT: /box-store

@@ -1,7 +1,6 @@
-import { execFile, spawn, spawnSync, type ChildProcess, type SpawnOptions } from "node:child_process";
-import { nodeBinary } from "./node-runtime";
+import { execFile, spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 
-const DEFAULT_AGENT_UID = 1001;
+const DEFAULT_AGENT_UID = 1000;
 const DEFAULT_AGENT_GID = 1000;
 
 const numericIdentity = (value: string | undefined, fallback: number): number => {
@@ -33,19 +32,11 @@ export async function assignAgentOwnership(paths: string[], recursive = false): 
   });
 }
 
-/** Signal an agent-owned child using its identity, without CAP_KILL on the host. */
+/** The administrator gateway can signal its agent-owned children directly. */
 export function signalAgentProcess(child: ChildProcess, signal: NodeJS.Signals | number = "SIGTERM", group = false): boolean {
   if (!child.pid || child.exitCode !== null || child.signalCode !== null) return false;
-  const identity = agentProcessIdentity();
-  if (identity.uid === undefined) {
-    if (!group) return child.kill(signal);
-    try { process.kill(-child.pid, signal); return true; } catch { return false; }
-  }
-  // Use the syscall API so a negative group ID cannot be parsed as a CLI option.
-  const result = spawnSync(nodeBinary(), ["-e", "const [pid, signal] = JSON.parse(process.argv[1]); process.kill(pid, signal);", "--", JSON.stringify([group ? -child.pid : child.pid, signal])], {
-    ...identity, env: { PATH: "/usr/bin:/bin" }, stdio: "ignore", timeout: 2_000,
-  });
-  return result.status === 0;
+  if (!group) return child.kill(signal);
+  try { process.kill(-child.pid, signal); return true; } catch { return false; }
 }
 
 /** Only for a child spawned with detached:true. Valid until its pipes close,
@@ -56,40 +47,16 @@ export function agentProcessGroupSignaler(child: ChildProcess): (signal: NodeJS.
   child.once("close", () => { closed = true; });
   return signal => {
     if (!pid || closed) return false;
-    const identity = agentProcessIdentity();
-    if (identity.uid === undefined) {
-      try { process.kill(-pid, signal); return true; } catch { return false; }
-    }
-    const result = spawnSync(nodeBinary(), ["-e", "const [pid, signal] = JSON.parse(process.argv[1]); process.kill(pid, signal);", "--", JSON.stringify([-pid, signal])], {
-      ...identity, env: { PATH: "/usr/bin:/bin" }, stdio: "ignore", timeout: 2_000,
-    });
-    return result.status === 0;
+    try { process.kill(-pid, signal); return true; } catch { return false; }
   };
 }
 
-/** Bun now honors uid/gid; cancellation must use the same dropped identity. */
+/** Initialize supplementary groups as well as the ordinary account's UID/GID. */
 export const spawnAgentProcess: typeof spawn = ((command: string, args: readonly string[], options: SpawnOptions) => {
   const identity = agentProcessIdentity();
   if (identity.uid === undefined) return spawn(command, args, options);
-  const { signal, ...rest } = options;
-  signal?.throwIfAborted();
-  const child = spawn(command, args, { ...rest, ...identity });
-  child.kill = (signal = "SIGTERM") => {
-    const sent = signalAgentProcess(child, signal);
-    if (sent) Object.defineProperty(child, "killed", { value: true, configurable: true });
-    return sent;
-  };
-  const abort = () => {
-    child.kill(options.killSignal ?? "SIGTERM");
-    const error = Object.assign(new Error("The operation was aborted", { cause: signal?.reason }), { name: "AbortError", code: "ABORT_ERR" });
-    child.emit("error", error);
-  };
-  if (signal) {
-    signal.addEventListener("abort", abort, { once: true });
-    child.once("close", () => signal.removeEventListener("abort", abort));
-    if (signal.aborted) queueMicrotask(abort);
-  }
-  return child;
+  const { uid: _uid, gid: _gid, ...rest } = options;
+  return spawn("/usr/bin/setpriv", ["--reuid", String(identity.uid), "--regid", String(identity.gid), "--init-groups", "--", command, ...args], rest);
 }) as typeof spawn;
 
 const ALWAYS_PRIVATE_ENVIRONMENT_KEYS = new Set([

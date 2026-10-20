@@ -22,4 +22,4 @@ if ! docker exec "$container" bun test /tmp/task-capabilities.integration.test.t
 fi
 
 # Bot shells can elevate and the VPN device is available.
-docker exec --user 1001:1000 "$container" sudo -n sh -ec 'test "$(id -u)" = 0; test -c /dev/net/tun'
+docker exec --user 1000:1000 "$container" sudo -n sh -ec 'test "$(id -u)" = 0; test -c /dev/net/tun'

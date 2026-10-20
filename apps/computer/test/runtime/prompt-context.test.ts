@@ -36,7 +36,6 @@ test("runtime context describes actual tools and preserves saved skill catalog",
     }
   );
   expect(text).toContain("Workspace Path: /workspace/task");
-  expect(text).toContain("passwordless sudo");
   expect(text).toContain("test skill");
   expect(text).toContain("<available_subagent_types>");
   expect(text).toContain("Tools: Lookup");

@@ -132,12 +132,10 @@ services:
         condition: service_completed_successfully
     cap_add: ["ALL"]
     security_opt:
-      - no-new-privileges:false
       - seccomp:unconfined
       - apparmor:unconfined
       - label:disable
       - systempaths:unconfined
-    read_only: false
     devices:
       - /dev/net/tun:/dev/net/tun
     healthcheck:

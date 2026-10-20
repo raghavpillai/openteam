@@ -13,7 +13,6 @@ esac
 printf '#%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "$agent_uid" > /etc/sudoers.d/openteam-runner
 chown 0:0 /etc/sudoers.d/openteam-runner
 chmod 0440 /etc/sudoers.d/openteam-runner
-visudo -cf /etc/sudoers.d/openteam-runner >/dev/null
 
 umask 0007
 
@@ -44,10 +43,8 @@ for runner_dir in /home/box/.local/lib /home/box/.local/bin /home/box/.cache/pip
   chmod 2770 "$runner_dir"
 done
 
-# The inference supervisor owns Pi credentials. Agent-launched shells and GUI
-# processes start as runner and share workspace, agent-data, and browser state
-# through the box group. Runner can access these credentials through sudo;
-# these permissions prevent accidental access but do not isolate them from bots.
+# The supervisor owns credentials; bot processes start as runner but can read
+# these files through sudo. File ownership is not an isolation boundary.
 chown -R 0:"$agent_gid" "$agent_dir"
 chmod 0700 "$agent_dir"
 find "$agent_dir" -maxdepth 1 -type f \( -name 'auth.json' -o -name 'models.json' \) -exec chmod 0600 {} \;

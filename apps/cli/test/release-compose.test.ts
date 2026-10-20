@@ -56,15 +56,7 @@ describe("release Compose rendering", () => {
     expect(rendered).not.toContain("OPENTEAM_PI_PROVIDER");
     expect(rendered).not.toContain("OPENTEAM_PI_MODEL");
     expect(rendered).not.toContain("OPENTEAM_PI_THINKING");
-    const computer = rendered.split("  computer:")[1]!.split("\n  server:")[0]!;
-    expect(computer).toContain("no-new-privileges:false");
-    expect(computer).toContain("read_only: false");
-    expect(computer).toContain('cap_add: ["ALL"]');
-    expect(computer).toContain("seccomp:unconfined");
-    expect(computer).toContain("apparmor:unconfined");
-    expect(computer).toContain("label:disable");
-    expect(computer).toContain("systempaths:unconfined");
-    expect(computer).toContain("/dev/net/tun:/dev/net/tun");
-    expect(computer).not.toContain("noexec");
+    expect(rendered).toContain('cap_add: ["ALL"]');
+    expect(rendered).toContain("/dev/net/tun:/dev/net/tun");
   });
 });

@@ -109,7 +109,8 @@ export class InternalToolService {
       }
       if (request.tool === "PrepareConnectorTransfer" || request.tool === "ExecuteConnectorTransfer") {
         const args = request.arguments as Record<string, unknown>;
-        if (childIdentity && args.tool !== "download_file") throw new ApiError(403, "parent_transfer_required", "This file transfer must be performed by the parent bot; subagents can only download");
+        if (childIdentity && !subagentUsesParentConnectors(childIdentity.subagentType))
+          throw new ApiError(403, "parent_transfer_required", "This file transfer must be performed by the parent bot");
         return request.tool === "PrepareConnectorTransfer" ? this.plugins.fileTransfers.prepare(context, args) : this.plugins.fileTransfers.execute(context, args, signal, transfer);
       }
       if (request.tool === "AcknowledgeCardOutcomes") {
@@ -137,9 +138,9 @@ export class InternalToolService {
           run.taskConfiguration ? parseTaskConfiguration(run.taskConfiguration) : undefined);
       }
       const parentOnlyTools = new Set([
-        "DraftExternalMessage", "SendFeedback", "create_bot_share_json",
-        "request_user_form",
-        "remap_user_form_targets",
+        "DraftExternalMessage", "SendFeedback", "CreateBotShareJson",
+        "RequestUserForm",
+        "RemapUserFormTargets",
         "RecallMemory",
         "read_sibling_thread",
         "ReadTranscript",
@@ -187,7 +188,7 @@ export class InternalToolService {
         const memoryContextId = memoryRun.memoryConversationId ?? (await this.messaging.agentData.resolveMemoryConversation(memoryBotId, memoryRun.channelId)).id;
         return this.messaging.agentData.recallMemory(memoryBotId, request.arguments, memoryContextId);
       }
-      if (request.tool === "SendFeedback" || request.tool === "create_bot_share_json") {
+      if (request.tool === "SendFeedback" || request.tool === "CreateBotShareJson") {
         if (!this.richMessages) throw new Error("Review service unavailable");
         return request.tool === "SendFeedback"
           ? this.richMessages.feedback.send(context, request.arguments, signal)
@@ -197,7 +198,7 @@ export class InternalToolService {
         if (!this.richMessages) throw new Error("Draft service unavailable");
         return this.richMessages.externalDrafts.create(context, request.arguments);
       }
-      if (request.tool === "request_user_form") {
+      if (request.tool === "RequestUserForm") {
         if (!this.richMessages) throw new Error("User form service is unavailable");
         return this.richMessages.createUserForm(context, request.arguments);
       }

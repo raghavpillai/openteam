@@ -201,7 +201,8 @@ describe("specialized subagent tool surfaces", () => {
     expect(names).toContain("GetDynamicTools");
     expect(names).toContain("CallDynamicTool");
     expect(names).not.toContain("Screenshot");
-    expect(subagentDynamicToolNames("cursor")).toEqual(["download_file", "WebFetch", "WebSearch", "AwaitShell"]);
+    const firstParty = (runtimeTools() as any).dynamicCatalog(workerTurn("executor")).find((namespace: any) => namespace.name === "cursor").tools.map((tool: any) => tool.name);
+    expect(firstParty).toEqual(["UploadFile", "DownloadFile", "ReadTranscript", "ReadAgentActivity"]);
   });
 
   test("executor and knowledgeWork call the web and shell-wait tools directly", async () => {
@@ -245,14 +246,29 @@ describe("specialized subagent tool surfaces", () => {
     expect(waits).toEqual([[expect.objectContaining({ shell_id: "7" }), "worker-bot"]]);
   });
 
-  test("routine runs can upload and download files; their workers can only download", () => {
+  test("routine runs and connector workers upload and download files; graphical and media workers cannot", () => {
     const runtime = runtimeTools() as any;
     const cursor = (overrides: Record<string, unknown>) =>
       runtime.dynamicCatalog({ pluginNamespaces: [], ...overrides }).find((namespace: any) => namespace.name === "cursor").tools.map((tool: any) => tool.name);
-    expect(cursor({ runtimeProfile: "agent", requestSource: "automation" })).toEqual(expect.arrayContaining(["upload_file", "download_file"]));
-    const worker = cursor({ runtimeProfile: "subagent", subagentType: "executor", requestSource: "automation" });
-    expect(worker).toContain("download_file");
-    expect(worker).not.toContain("upload_file");
+    expect(cursor({ runtimeProfile: "agent", requestSource: "automation" })).toEqual(expect.arrayContaining(["UploadFile", "DownloadFile"]));
+    for (const subagentType of ["executor", "knowledgeWork"])
+      for (const requestSource of ["agent", "automation"])
+        expect(cursor({ runtimeProfile: "subagent", subagentType, requestSource })).toEqual(expect.arrayContaining(["UploadFile", "DownloadFile"]));
+    for (const subagentType of ["computerUse", "browserUse", "videoReview", "watchVideo"]) {
+      const worker = cursor({ runtimeProfile: "subagent", subagentType });
+      expect(worker).not.toContain("UploadFile");
+      expect(worker).not.toContain("DownloadFile");
+    }
+  });
+
+  test("discovering RequestUserForm lists the saved vault extra keys", async () => {
+    const runtime = runtimeTools() as any;
+    runtime.userForms.savedExtraKeys = async () => ["ktn"];
+    const active = { ...workerTurn(null), discoveredDynamicTools: new Set<string>(), cwd: "/tmp" };
+    const text = (await runtime.getDynamicTools(active, { namespace: "cursor", toolName: "RequestUserForm" })).content[0].text;
+    expect(text).toContain("Vault extras: reuse the exact saved extra_key");
+    expect(text).toContain('- \\"ktn\\"');
+    expect(text).toContain('"tool": "RequestUserForm"');
   });
 
   test("executor and knowledgeWork can look back; other workers cannot", () => {
@@ -264,7 +280,7 @@ describe("specialized subagent tool surfaces", () => {
       runtime.dynamicCatalog({ runtimeProfile, subagentType, pluginNamespaces: [] }).find((namespace) => namespace.name === "cursor")?.tools ?? [];
     for (const subagentType of ["executor", "knowledgeWork"]) {
       const tools = cursor("subagent", subagentType);
-      expect(tools.map((tool) => tool.name)).toEqual(["download_file", "ReadTranscript", "ReadAgentActivity"]);
+      expect(tools.map((tool) => tool.name)).toEqual(["UploadFile", "DownloadFile", "ReadTranscript", "ReadAgentActivity"]);
       expect(tools.find((tool) => tool.name === "ReadTranscript")!.description).toContain("With no id it reads your own run");
       expect(runtime.customTools(workerTurn(subagentType)).map((tool) => tool.name)).toContain("RecallMemory");
     }

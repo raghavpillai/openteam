@@ -7,6 +7,7 @@ import { Database } from "bun:sqlite";
 import { ChromeCookies, decryptChromeCookie } from "../../src/main/host/chrome-cookies";
 import { MacMessages, validateMessageSend } from "../../src/main/host/messages";
 import { nativeCommand } from "../../src/main/host/native-command";
+import { HostCapabilities } from "../../src/main/host/capabilities";
 
 test("Chrome import decrypts only requested profile/host pairs, verifies v24 domain hash, and preserves cookie metadata", async () => {
   const root = await mkdtemp(join(tmpdir(), "openteam-chrome-test-"));
@@ -122,4 +123,15 @@ test("Messages sends validate recipient and pass body as argv, never executable 
     verified: false,
   });
   expect(calls).toBe(1);
+});
+
+test("the cookie tool dispatches by its current name with parsed origins; the old name is unknown", async () => {
+  const requests: unknown[] = [];
+  const cookies = { collect: async (_botId: string, origins: unknown) => (requests.push(origins), { kind: "listed", items: [] }) };
+  const host = new HostCapabilities(undefined, cookies as unknown as ChromeCookies, "darwin");
+  expect(await host.handle({ tool: "RequestCookieOriginApproval", botId: "bot", arguments: { origins: [{ origin: "example.com", profileId: "Default" }] } })).toEqual({ kind: "listed", items: [] });
+  expect(requests).toEqual([[{ origin: "example.com", profileId: "Default" }]]);
+  await expect(host.handle({ tool: "RequestCookieOriginApproval", botId: "bot", arguments: { origins: "example.com" } })).rejects.toThrow();
+  await expect(host.handle({ tool: "import_chrome_cookies", botId: "bot", arguments: {} })).rejects.toThrow("Unknown desktop capability");
+  expect(requests).toHaveLength(1);
 });

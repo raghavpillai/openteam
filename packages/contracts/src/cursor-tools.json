@@ -714,7 +714,7 @@
       }
     },
     {
-      "tool": "request_user_form",
+      "tool": "RequestUserForm",
       "description": "Ask the user to complete a native form, then end this turn. Values go directly to the browser through the host; ALL submitted values are withheld from model messages. Supports 1–8 fields. Every secret requires a target; every target requires the exact destination domain (www and bare host are equivalent). The host preflights targets before displaying the card and verifies the host again at fill time. Use submitAfterFill only for a single code entry; it presses Enter only after successful fills. A failed fill may return HELD field IDs and a fresh structural snapshot. Users may opt into encrypted nonsecret vault prefill; extra_key names an exact shared extra field, while usernames remain site scoped.",
       "inputSchema": {
         "type": "object",
@@ -864,7 +864,7 @@
       }
     },
     {
-      "tool": "remap_user_form_targets",
+      "tool": "RemapUserFormTargets",
       "description": "Retarget held user-form fields to fresh refs, selectors or labels on the consented browser page. Pass fieldId and target only, never submitted values. Only IDs listed as HELD in the latest receipt are accepted. Omitted held fields are discarded. Remapping is a single attempt; any failed remapped fields are dropped. Held values expire after 15 minutes. The tool returns status only, never values.",
       "inputSchema": {
         "type": "object",
@@ -1015,7 +1015,7 @@
       }
     },
     {
-      "tool": "create_bot_share_json",
+      "tool": "CreateBotShareJson",
       "description": "Publish the reusable bot recipe requested by the user directly as a versioned template. Direct chat only. Include reusable profile/log memories, skills, routines, marketplace plugin references, visibility and getting-started text. Exclude credentials, private account data and personal identifiers. Verify the published receipt. Import creates a fresh isolated bot and requires its own provider sign-ins.",
       "inputSchema": {
         "type": "object",

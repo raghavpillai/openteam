@@ -1,7 +1,7 @@
 // @ts-nocheck
 // Captured Grok Bot 0.47.0 form status receipts; no submitted values.
 // ../packages/grok-bot-harness/src/runner/tools/sand-user-form.ts
-var SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME = "remap_user_form_targets";
+var SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME = "RemapUserFormTargets";
 var SAND_REMAP_USER_FORM_TARGETS_CALL_HINT = `CallDynamicTool with namespace "cursor", toolName "${SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME}", and arguments { "targets": [{ "fieldId": "<held id>", "target": { "kind": "ref" | "selector" | "label", "value": "<ref, selector, or label>" } }] } (GetDynamicTools on that namespace shows the schema)`;
 function summarizeUserFormRequest(form) {
   return `Requested an in-chat form from the user: ${form.title}`;
@@ -50,7 +50,7 @@ function buildUserFormSubmittedAck(form, outcomes, domainMismatch, submit, fillF
     }
     return `- ${field.id} (${field.type}): ${status}`;
   });
-  let nextStep = "If a fill failed, re-ask for just that field with a new request_user_form (fresh target) or hand the user the screen with request_box_help";
+  let nextStep = "If a fill failed, re-ask for just that field with a new RequestUserForm (fresh target) or hand the user the screen with request_box_help";
   if (remapOffered) {
     nextStep = "Follow the remap note above for what to do next";
   } else if (handedBackAsPageMoved) {
@@ -94,7 +94,7 @@ function buildPageMovedLinesThatSteerTheAgentToRePlanNotRetry(pageMoved, anyFill
   if (pageMoved == null) return [];
   const why = pageMoved.signal === "navigated" ? "the live tab navigated to a different page or step while the host was filling" : "a target went stale, and when the host re-looked that field up by its own label on the still-open page the control was GONE \u2014 the page replaced this form, it did not merely re-render";
   const remaining = remapOffered ? "remaining value is HELD for the one remap described below, not written anywhere" : "remaining value was refused and DISCARDED";
-  const nextStep = remapOffered ? "Do NOT retry this form's old targets \u2014 they describe a page that is no longer there. Read the current page state below, then remap the held fields that are still on screen, or continue the task if the step moved on." : `Do NOT retry this form or its targets \u2014 the refs and labels it carried describe a page that is no longer there. Re-plan from the current page state${pageMoved.valueScrubbedFreshSnapshot !== void 0 ? " below" : " (take a fresh browser_snapshot)"}: if the step you meant is still on screen, issue a NEW request_user_form with fresh targets; if the page moved on to the next step, continue the task from there; if the user has to act on the page itself, hand them the screen with request_box_help.`;
+  const nextStep = remapOffered ? "Do NOT retry this form's old targets \u2014 they describe a page that is no longer there. Read the current page state below, then remap the held fields that are still on screen, or continue the task if the step moved on." : `Do NOT retry this form or its targets \u2014 the refs and labels it carried describe a page that is no longer there. Re-plan from the current page state${pageMoved.valueScrubbedFreshSnapshot !== void 0 ? " below" : " (take a fresh browser_snapshot)"}: if the step you meant is still on screen, issue a NEW RequestUserForm with fresh targets; if the page moved on to the next step, continue the task from there; if the user has to act on the page itself, hand them the screen with request_box_help.`;
   return [
     `The host STOPPED filling: ${why}. ${anyFilled ? 'Fields marked "filled into the page" below were written before the page moved; every' : "NOTHING was written; every"} ${remaining}. ${nextStep}`,
     ...pageMoved.valueScrubbedFreshSnapshot !== void 0 ? [
@@ -115,7 +115,7 @@ var REMAP_FAILED_STATUS_BY_KIND = {
 };
 function buildUserFormRemapReceipt(outcome) {
   if (outcome.kind === "no_hold") {
-    return `Nothing to remap: the host holds no submitted values for this agent. A remap is offered on a fill receipt and is spent by the first ${SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME} call or by the end of that turn. If a field still needs filling, re-ask with a new request_user_form or hand the user the screen with request_box_help.`;
+    return `Nothing to remap: the host holds no submitted values for this agent. A remap is offered on a fill receipt and is spent by the first ${SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME} call or by the end of that turn. If a field still needs filling, re-ask with a new RequestUserForm or hand the user the screen with request_box_help.`;
   }
   if (outcome.kind === "unknown_fields") {
     return `Nothing was written: ${outcome.unknownFieldIds.map((id) => `"${id}"`).join(", ")} ${outcome.unknownFieldIds.length === 1 ? "is not a field" : "are not fields"} the host holds a value for. The held field ids are ${outcome.heldFieldIds.map((id) => `"${id}"`).join(", ")} \u2014 call again via ${SAND_REMAP_USER_FORM_TARGETS_CALL_HINT} with only those (the hold stands until this turn ends).`;
@@ -142,7 +142,7 @@ function buildUserFormRemapReceipt(outcome) {
     ...mismatch,
     ...lines2,
     ...notRemapped,
-    `The held values for this form are now discarded (one remap per form).${anyFailed ? " For a field that did not land, do NOT immediately re-issue a form for it: the user already typed it once. Continue the task if the page moved on, or hand the user the screen with request_box_help; re-ask with a new request_user_form only if the step cannot proceed any other way." : ""} Take a fresh page SNAPSHOT (not a screenshot) before the next action, and click the site's submit control yourself.]`
+    `The held values for this form are now discarded (one remap per form).${anyFailed ? " For a field that did not land, do NOT immediately re-issue a form for it: the user already typed it once. Continue the task if the page moved on, or hand the user the screen with request_box_help; re-ask with a new RequestUserForm only if the step cannot proceed any other way." : ""} Take a fresh page SNAPSHOT (not a screenshot) before the next action, and click the site's submit control yourself.]`
   ].join("\n");
 }
 function buildSubmitAfterFillLine(form, submit) {

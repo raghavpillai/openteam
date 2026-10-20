@@ -30,7 +30,7 @@ test("discovered file tools move real box bytes over the private bridge and retu
       expect(body.tool).toBe("ExecuteConnectorTransfer");
       expect(body.arguments).not.toHaveProperty("reviewed");
       expect(body.arguments.input.connection).toBe("exact-connection");
-      if (body.arguments.tool === "upload_file") {
+      if (body.arguments.tool === "UploadFile") {
         expect(Buffer.from(await request.arrayBuffer())).toEqual(bytes);
         expect(body.arguments.sha256).toBe(createHash("sha256").update(bytes).digest("hex"));
         return Response.json({ id: "file-1", name: "fixture.bin", sizeBytes: bytes.length });
@@ -58,19 +58,19 @@ test("discovered file tools move real box bytes over the private bridge and retu
   const get = tools.find((tool) => tool.name === "GetDynamicTools");
   const invoke = tools.find((tool) => tool.name === "CallDynamicTool");
   try {
-    for (const name of ["upload_file", "download_file"]) {
+    for (const name of ["UploadFile", "DownloadFile"]) {
       const discovery = await get.execute(`discover-${name}`, { namespace: "cursor", toolName: name });
       expect(JSON.stringify(discovery)).toContain("eligible-drive");
       expect(JSON.stringify(discovery)).not.toContain("denied-drive");
     }
     const uploaded = await invoke.execute("upload-1", {
       namespace: "cursor",
-      toolName: "upload_file",
+      toolName: "UploadFile",
       arguments: { connection: "Fixture Drive", sourcePath },
     });
     const downloaded = await invoke.execute("download-1", {
       namespace: "cursor",
-      toolName: "download_file",
+      toolName: "DownloadFile",
       arguments: { connection: "Fixture Drive", source: { fileId: "file-1" } },
     });
     const metadata = downloaded.details;
@@ -82,23 +82,40 @@ test("discovered file tools move real box bytes over the private bridge and retu
     await symlink("/etc", join(root, "escape"));
     const refused = await invoke.execute("escape", {
         namespace: "cursor",
-        toolName: "upload_file",
+        toolName: "UploadFile",
         arguments: { connection: "Fixture Drive", sourcePath: join(root, "escape/hosts") },
       });
     expect(refused.content[0].text).toContain("only sends files under");
     expect(refused.details.outcome.kind).toBe("source_refused");
     expect(calls).toHaveLength(4);
+    // Workers that use the parent's connectors transfer both ways; graphical and media workers cannot.
     active.runtimeProfile = "subagent";
-    active.discoveredDynamicTools = new Set<string>();
-    expect(JSON.stringify(await get.execute("sub-discover-download", { namespace: "cursor", toolName: "download_file" }))).toContain("eligible-drive");
-    await expect(get.execute("sub-discover-upload", { namespace: "cursor", toolName: "upload_file" })).rejects.toThrow("not found: cursor/upload_file");
-    const subagentDownload = await invoke.execute("sub-download", {
-      namespace: "cursor",
-      toolName: "download_file",
-      arguments: { connection: "Fixture Drive", source: { fileId: "file-1" } },
-    });
-    expect(subagentDownload.content[0].text).toContain("Downloaded");
-    expect(calls).toHaveLength(6);
+    for (const subagentType of ["executor", "knowledgeWork"]) {
+      active.subagentType = subagentType;
+      active.discoveredDynamicTools = new Set<string>();
+      for (const name of ["UploadFile", "DownloadFile"])
+        expect(JSON.stringify(await get.execute(`${subagentType}-discover-${name}`, { namespace: "cursor", toolName: name }))).toContain("eligible-drive");
+      const workerUpload = await invoke.execute(`${subagentType}-upload`, {
+        namespace: "cursor",
+        toolName: "UploadFile",
+        arguments: { connection: "Fixture Drive", sourcePath },
+      });
+      expect(workerUpload.content[0].text).toContain("Uploaded");
+      const workerDownload = await invoke.execute(`${subagentType}-download`, {
+        namespace: "cursor",
+        toolName: "DownloadFile",
+        arguments: { connection: "Fixture Drive", source: { fileId: "file-1" } },
+      });
+      expect(workerDownload.content[0].text).toContain("Downloaded");
+    }
+    expect(calls).toHaveLength(12);
+    for (const subagentType of ["computerUse", "browserUse", "videoReview", "watchVideo"]) {
+      active.subagentType = subagentType;
+      active.discoveredDynamicTools = new Set<string>();
+      for (const name of ["UploadFile", "DownloadFile"])
+        await expect(get.execute(`${subagentType}-discover-${name}`, { namespace: "cursor", toolName: name })).rejects.toThrow(`not found: cursor/${name}`);
+    }
+    expect(calls).toHaveLength(12);
   } finally {
     server.stop(true);
     await rm(root, { recursive: true, force: true });

@@ -23,7 +23,7 @@ export function formatUserFormReceipt(receipt: UserFormReceipt): string {
     ...receipt.fields.map((field) => `- ${field.id}: ${field.status.toUpperCase()}`),
     ...(receipt.heldUntil
       ? [
-          `Held values expire at ${receipt.heldUntil}. Use remap_user_form_targets only for HELD fields; omitted fields are discarded.`,
+          `Held values expire at ${receipt.heldUntil}. Use RemapUserFormTargets only for HELD fields; omitted fields are discarded.`,
         ]
       : []),
     ...(receipt.submitAttempted

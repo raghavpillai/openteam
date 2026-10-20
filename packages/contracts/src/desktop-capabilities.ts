@@ -75,7 +75,7 @@ export const DESKTOP_CAPABILITY_TOOLS = [
     {}
   ),
   definition(
-    "import_chrome_cookies",
+    "RequestCookieOriginApproval",
     "Omit origins to list available Chrome profile/origin pairs. Pass listed hosts or {origin,profileId} to import cookies directly into the bot browser. Only the requested profiles and hosts are imported.",
     {
       origins: {

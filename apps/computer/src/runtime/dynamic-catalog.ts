@@ -346,8 +346,8 @@ export function dynamicCatalog(
         ? cursorTools.filter((tool) => !AUTOMATION_PARENT_ONLY_TOOLS.has(tool.name))
         : cursorTools).map(withReferenceContract).map(tool => {
           if (tool.name === "Task") return { ...tool, ...taskToolContract(active.taskConfiguration) };
-          if (tool.name !== "upload_file" && tool.name !== "download_file") return tool;
-          const operation = tool.name === "upload_file" ? "upload" : "download";
+          if (tool.name !== "UploadFile" && tool.name !== "DownloadFile") return tool;
+          const operation = tool.name === "UploadFile" ? "upload" : "download";
           const connections = active.pluginNamespaces.filter(namespace => namespace.fileTransfers?.[operation]);
           if (!connections.length) return tool;
           return { ...tool, description: tool.description + "\n\nAvailable file connections this turn:\n" + connections.map(namespace => `- ${namespace.name}${namespace.namespaceStatus === "ready" ? "" : " (authentication or connection recovery required)"}`).join("\n") };

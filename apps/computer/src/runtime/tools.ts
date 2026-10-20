@@ -80,7 +80,7 @@ import {
 import type { ScreenBroker } from "../screen-broker";
 import { dynamicCatalog } from "./dynamic-catalog";
 import { taskToolContract } from "@openteam/contracts/tool-contracts";
-import { subagentHasHistoryTools, taskToolEnabled } from "@openteam/contracts/task-configuration";
+import { subagentHasHistoryTools, subagentUsesParentConnectors, taskToolEnabled } from "@openteam/contracts/task-configuration";
 import { WebTools } from "../web-tools";
 import { SearchProviderClient } from "../search-provider";
 import { FetchProviderClient } from "../fetch-provider";
@@ -878,7 +878,7 @@ export class RuntimeTools {
           callId,
           active.channelId
         ))();
-    if (name === "import_chrome_cookies" && output.kind === "collected") {
+    if (name === "RequestCookieOriginApproval" && output.kind === "collected") {
       signal?.throwIfAborted();
       let injected = 0,
         failed = output.cookies.length;
@@ -1025,7 +1025,7 @@ export class RuntimeTools {
           text:
             outcome.kind === "uncertain"
               ? outcome.message
-              : (tool === "upload_file" ? describeUploadFileOutcome : describeDownloadFileOutcome)(
+              : (tool === "UploadFile" ? describeUploadFileOutcome : describeDownloadFileOutcome)(
                   outcome,
                   input
                 )!,
@@ -1034,7 +1034,7 @@ export class RuntimeTools {
       details: { outcome },
     });
     let file: Awaited<ReturnType<typeof spoolFile>> | undefined;
-    if (tool === "upload_file") {
+    if (tool === "UploadFile") {
       try {
         const source = agentReadStream(
           await this.transferPath(active, input.sourcePath, false),
@@ -1069,7 +1069,7 @@ export class RuntimeTools {
         signal
       );
       if (prepared.outcome) return outcomeResult(prepared.outcome);
-      if (tool === "upload_file" && prepared.status === "completed")
+      if (tool === "UploadFile" && prepared.status === "completed")
         return {
           content: [
             {
@@ -1110,7 +1110,7 @@ export class RuntimeTools {
       if (response.headers.get("content-type")?.includes("application/json")) {
         output = (await response.json()) as Record<string, any>;
         if (output.outcome) return outcomeResult(output.outcome);
-        if (tool === "download_file") throw new Error("File service returned no download stream");
+        if (tool === "DownloadFile") throw new Error("File service returned no download stream");
         return {
           content: [
             {
@@ -1121,7 +1121,7 @@ export class RuntimeTools {
           details: { ...output },
         };
       }
-      if (tool === "download_file") {
+      if (tool === "DownloadFile") {
         try {
           output = JSON.parse(
             Buffer.from(
@@ -1150,7 +1150,7 @@ export class RuntimeTools {
           {
             type: "text",
             text:
-              tool === "upload_file"
+              tool === "UploadFile"
                 ? describeUploadFileOutcome({ kind: "uploaded", ...output }, input)!
                 : describeDownloadFileOutcome({ kind: "downloaded", ...output }, input)!,
           },
@@ -1219,7 +1219,7 @@ export class RuntimeTools {
         ? 24 * 60 * 60_000
         : tool === "SendToUser"
           ? 5 * 60_000
-          : ["request_user_form", "DraftExternalMessage"].includes(tool)
+          : ["RequestUserForm", "DraftExternalMessage"].includes(tool)
             ? 120_000
             : 30_000
     );
@@ -1298,10 +1298,10 @@ export class RuntimeTools {
       [
         SEND_TO_USER_TOOL.name,
         REQUEST_BOX_HELP_TOOL.name,
-        "request_user_form",
+        "RequestUserForm",
         "DraftExternalMessage",
         "SendFeedback",
-        "create_bot_share_json",
+        "CreateBotShareJson",
       ].includes(tool) &&
       body &&
       typeof body === "object" &&
@@ -1315,7 +1315,7 @@ export class RuntimeTools {
         input.end_turn === true ||
         input.type === "widget" ||
         input.type === "secret-request" ||
-        [REQUEST_BOX_HELP_TOOL.name, "request_user_form", "SendFeedback"].includes(tool)
+        [REQUEST_BOX_HELP_TOOL.name, "RequestUserForm", "SendFeedback"].includes(tool)
       ) {
         if (tool === SEND_TO_USER_TOOL.name && input.type === "text" && input.end_turn === true)
           active.finishDeliveryAttachments = true;
@@ -1431,11 +1431,12 @@ export class RuntimeTools {
       active,
       (turn, _callId, args, signal) => this.awaitShellForTurn(turn, args, signal),
       [
-        // Subagents may download into the shared box; uploads write to the
-        // user's accounts and stay with the parent.
-        ...CONNECTOR_TRANSFER_TOOLS.filter(
-              (definition) => active.runtimeProfile !== "subagent" || definition.name === "download_file"
-            ).map(
+        // Workers that use the parent's connectors move files with them both ways;
+        // graphical and media workers have no connector accounts.
+        ...(active.runtimeProfile !== "subagent" || subagentUsesParentConnectors(active.subagentType)
+          ? CONNECTOR_TRANSFER_TOOLS
+          : []
+        ).map(
               (definition): RuntimeDynamicTool => ({
                 ...definition,
                 source: "first-party",
@@ -1463,7 +1464,7 @@ export class RuntimeTools {
             )),
         ...(active.runtimeProfile === "subagent"
           ? []
-          : ["DraftExternalMessage", "SendFeedback", "create_bot_share_json"].map(
+          : ["DraftExternalMessage", "SendFeedback", "CreateBotShareJson"].map(
               (name): RuntimeDynamicTool => {
                 const definition = CURSOR_TOOLS.find((tool) => tool.tool === name)!;
                 return {
@@ -1480,7 +1481,7 @@ export class RuntimeTools {
             )),
         ...(active.runtimeProfile === "subagent"
           ? []
-          : ["request_user_form", "remap_user_form_targets"].map((name): RuntimeDynamicTool => {
+          : ["RequestUserForm", "RemapUserFormTargets"].map((name): RuntimeDynamicTool => {
               const definition = CURSOR_TOOLS.find((tool) => tool.tool === name)!;
               return {
                 name,
@@ -1488,11 +1489,11 @@ export class RuntimeTools {
                 inputSchema: definition.inputSchema,
                 source: "first-party",
                 decodeArguments:
-                  name === "request_user_form"
+                  name === "RequestUserForm"
                     ? parseUserForm
                     : (args) => ({ targets: parseFormRemap(args) }),
                 execute: async (turn, callId, args, signal) => {
-                  if (name === "request_user_form")
+                  if (name === "RequestUserForm")
                     return this.callControlPlaneTool(turn, callId, name, args, signal);
                   const receipt = await this.userForms
                     .remap(turn.botId, args, callId)
@@ -1637,7 +1638,7 @@ export class RuntimeTools {
     );
     const form = result.namespaces
       .flatMap((namespace) => namespace.tools)
-      .find((tool) => tool.name === "request_user_form");
+      .find((tool) => tool.name === "RequestUserForm");
     if (form && input.namespace && !input.pattern) {
       const keys = await this.userForms.savedExtraKeys();
       form.description +=

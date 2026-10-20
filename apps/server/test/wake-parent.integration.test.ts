@@ -98,7 +98,7 @@ test.skipIf(!databaseUrl)(
       (transferService as unknown as { plugins: unknown }).plugins = {
         fileTransfers: { prepare: async (_context: unknown, args: { tool: string }) => ({ prepared: args.tool }) },
       };
-      for (const tool of ["upload_file", "download_file"])
+      for (const tool of ["UploadFile", "DownloadFile"])
         expect(await call(run.id, "PrepareConnectorTransfer", { tool, input: {} }, transferService)).toEqual({ prepared: tool });
       const ordinary = await createRun("user");
       await expect(call(ordinary.id, "WakeParent", { message: "Wrong mode" })).rejects.toThrow(
@@ -148,7 +148,7 @@ test.skipIf(!databaseUrl)(
         "already handed control"
       );
       await expect(
-        call(run.id, "PrepareConnectorTransfer", { tool: "upload_file", input: {} }, transferService)
+        call(run.id, "PrepareConnectorTransfer", { tool: "UploadFile", input: {} }, transferService)
       ).rejects.toThrow("already handed control");
       const addFinal = async (runId: string, content: string) => {
         const message = await prisma.message.create({

@@ -124,9 +124,9 @@ export class ConnectorFileTransfers {
       record.connectionId !== connection.id
     )
       throw new Error("Transfer was not prepared for this exact account and file");
-    if (record.status === "completed" && raw.tool === "upload_file") return record.result;
+    if (record.status === "completed" && raw.tool === "UploadFile") return record.result;
     if (
-      raw.tool === "upload_file" && !transfer.upload &&
+      raw.tool === "UploadFile" && !transfer.upload &&
       (!raw.sha256 ||
         !Number.isSafeInteger(raw.sizeBytes) ||
         raw.sizeBytes < 0 ||
@@ -135,7 +135,7 @@ export class ConnectorFileTransfers {
         raw.bytesBase64.length > Math.ceil(CONNECTOR_TRANSFER_MAX_BYTES / 3) * 4)
     )
       throw new Error("Invalid upload staging envelope");
-    const bytes = transfer.upload ? Bun.file(transfer.upload.path) : raw.tool === "upload_file" ? Buffer.from(raw.bytesBase64, "base64") : undefined;
+    const bytes = transfer.upload ? Bun.file(transfer.upload.path) : raw.tool === "UploadFile" ? Buffer.from(raw.bytesBase64, "base64") : undefined;
     if (transfer.upload && (transfer.upload.sizeBytes !== raw.sizeBytes || transfer.upload.sha256 !== raw.sha256)) throw new Error("Staged file bytes changed after staging");
     if (
       Buffer.isBuffer(bytes) &&
@@ -147,7 +147,7 @@ export class ConnectorFileTransfers {
       where: {
         callId: context.callId,
         status: {
-          in: raw.tool === "download_file" ? ["prepared", "completed", "failed"] : ["prepared"],
+          in: raw.tool === "DownloadFile" ? ["prepared", "completed", "failed"] : ["prepared"],
         },
       },
       data: { status: "running" },
@@ -168,7 +168,7 @@ export class ConnectorFileTransfers {
           signal
         );
       const result =
-        raw.tool === "upload_file"
+        raw.tool === "UploadFile"
           ? connection.installation.pluginKey === "gmail"
             ? await this.db.$transaction(
                 async (tx) => {
@@ -207,11 +207,11 @@ export class ConnectorFileTransfers {
       if ((error as any).outcome) return {outcome:(error as any).outcome};
       const status = (error as any).status;
       if (status === 401) return {outcome:{kind:"needs_auth"}};
-      if (status === 404) return {outcome:{kind:raw.tool === "download_file" ? "not_found" : "invalid_destination",message:"The selected file or destination was not found in this account."}};
+      if (status === 404) return {outcome:{kind:raw.tool === "DownloadFile" ? "not_found" : "invalid_destination",message:"The selected file or destination was not found in this account."}};
       if (status >= 400 && status < 500) return {outcome:{kind:"rejected",message:`The provider rejected the request (HTTP ${status}). Check this account's access and the destination.`}};
       // A dropped response can follow a successful write. Never turn an uncertain
       // upload into the reference's "nothing uploaded; retry" message.
-      return {outcome:{kind:raw.tool === "upload_file" ? "uncertain" : "unavailable",message:raw.tool === "upload_file"
+      return {outcome:{kind:raw.tool === "UploadFile" ? "uncertain" : "unavailable",message:raw.tool === "UploadFile"
         ? "The provider did not confirm the upload. It may have succeeded; inspect the destination before retrying. This call will not replay the write."
         : "The file provider could not complete the download."}};
     }

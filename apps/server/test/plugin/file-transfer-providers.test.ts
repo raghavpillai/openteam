@@ -11,10 +11,15 @@ test("retired file providers cannot issue requests and are absent from tool guid
   }) as typeof fetch);
   await expect(provider.download("onedrive", { fileId: "file" })).rejects.toThrow("Connection cannot transfer files");
   await expect(provider.upload("onedrive", "file.txt", {}, Buffer.from("fixture"))).rejects.toThrow("Connection cannot receive files");
-  for (const tool of CONNECTOR_TRANSFER_TOOLS) expect(JSON.stringify(tool)).not.toMatch(/onedrive/i);
-  expect(CONNECTOR_TRANSFER_TOOLS.find(t => t.name === "download_file")!.inputSchema.properties.source.required).toEqual(["fileId"]);
-  expect(() => parseConnectorTransfer("download_file", { connection: "drive", source: { path: "file.txt" } })).toThrow("source.fileId");
-  expect(() => parseConnectorTransfer("upload_file", { connection: "drive", sourcePath: "/workspace/file.txt", destination: { overwrite: true } })).toThrow("destination.overwrite");
+  for (const tool of CONNECTOR_TRANSFER_TOOLS) {
+    expect(JSON.stringify(tool)).not.toMatch(/onedrive|sharepoint|outlook|send_draft|send_message|update_draft|read_email/i);
+    expect(tool.description).toContain("The service short name (google-drive or gmail)");
+  }
+  // Gmail drafts only carry the file; the Gmail connection has no send tool.
+  expect(CONNECTOR_TRANSFER_TOOLS.find(t => t.name === "UploadFile")!.description).toContain("the draft waits unsent in the user's Gmail Drafts");
+  expect(CONNECTOR_TRANSFER_TOOLS.find(t => t.name === "DownloadFile")!.inputSchema.properties.source.required).toEqual(["fileId"]);
+  expect(() => parseConnectorTransfer("DownloadFile", { connection: "drive", source: { path: "file.txt" } })).toThrow("source.fileId");
+  expect(() => parseConnectorTransfer("UploadFile", { connection: "drive", sourcePath: "/workspace/file.txt", destination: { overwrite: true } })).toThrow("destination.overwrite");
 });
 
 test("Drive export preserves native document bytes and upload uses an authenticated resumable session", async () => {
@@ -153,9 +158,9 @@ test("file contracts reject destination ambiguity and unsafe filename shapes", (
     { connection: "x", sourcePath: "/workspace/a", destination: { path: "a", folderId: "b" } },
     { connection: "x", sourcePath: "/workspace/a", destination: { name: "../a" } },
   ])
-    expect(() => parseConnectorTransfer("upload_file", args)).toThrow();
+    expect(() => parseConnectorTransfer("UploadFile", args)).toThrow();
   expect(() =>
-    parseConnectorTransfer("download_file", { connection: "x", source: { fileId: "a", path: "b" } })
+    parseConnectorTransfer("DownloadFile", { connection: "x", source: { fileId: "a", path: "b" } })
   ).toThrow();
 });
 
@@ -188,11 +193,11 @@ test("Drive imports an Office file as a native Google file only when the upload 
     ["Q3 review", "application/vnd.google-apps.presentation", pptx],
   ]);
 
-  const contract = CONNECTOR_TRANSFER_TOOLS.find((tool) => tool.name === "upload_file")!;
+  const contract = CONNECTOR_TRANSFER_TOOLS.find((tool) => tool.name === "UploadFile")!;
   expect(contract.inputSchema.properties.destination.properties.convertToGoogleFormat.type).toBe("boolean");
   expect(contract.description).toContain("destination.convertToGoogleFormat, when true, asks Drive to import");
   expect(
-    parseConnectorTransfer("upload_file", {
+    parseConnectorTransfer("UploadFile", {
       connection: "google-drive",
       sourcePath: "/workspace/deck.pptx",
       destination: { convertToGoogleFormat: true },

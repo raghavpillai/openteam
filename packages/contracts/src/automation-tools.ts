@@ -1,21 +1,15 @@
-/** Automation runs hand communication to their parent; these surfaces open chat UI. */
+/** Automation runs hand communication to their parent: these tools reach the user or the
+ * chat, or add plugins and accounts that need the user's sign-in. */
 export const AUTOMATION_PARENT_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "SendToUser",
   "ReactToMessage",
   "SendToAgent",
   "request_box_help",
-  "request_user_form",
-  "remap_user_form_targets",
+  "RequestUserForm",
+  "RemapUserFormTargets",
   "DraftExternalMessage",
-  "SendFeedback",
-  "create_bot_share_json",
+  "CreateBotShareJson",
   "InstallPlugin",
-  "UninstallPlugin",
   "AddMcpServer",
-  "UninstallMcpServer",
   "AuthenticateMcpServer",
-  "RestartMcpServers",
-  "RenameMcpAccount",
-  "RemoveMcpAccount",
-  "SetMcpInstructions",
 ]);

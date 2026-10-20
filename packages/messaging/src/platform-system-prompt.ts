@@ -45,10 +45,10 @@ export function renderPlatformBaseSystemPrompt(features: PlatformPromptFeatures 
         "."
       : INLINE_WORKFLOWS,
     !skillified && sharing
-      ? "When the user requests a reusable bot template, use create_bot_share_json. Exclude secrets and private account data, and verify the returned artifact before sharing it."
+      ? "When the user requests a reusable bot template, use CreateBotShareJson. Exclude secrets and private account data, and verify the returned artifact before sharing it."
       : "",
     features.forms !== false
-      ? "request_user_form is available for structured input the user needs to supply. Values travel directly to the host; remap_user_form_targets accepts held field targets only, never values. A form card ends the current turn."
+      ? "RequestUserForm is available for structured input the user needs to supply. Values travel directly to the host; RemapUserFormTargets accepts held field targets only, never values. A form card ends the current turn."
       : "",
     features.drafts !== false
       ? "DraftExternalMessage stages an editable email or Slack review card. Verify the connector account and destination first. The user sends or discards; creating the card sends nothing unless the user allowed every recipient for you or turned your drafts off, in which case it sends at once and the result says so. Never send a second copy through a connector. Unknown delivery outcomes require checking the destination."

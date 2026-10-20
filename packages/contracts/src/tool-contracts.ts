@@ -46,43 +46,131 @@ function adaptStableRefLifetime(value: any): void {
     else adaptStableRefLifetime(child);
   }
 }
-adaptStableRefLifetime(contracts.request_user_form!.inputSchema);
+adaptStableRefLifetime(contracts.RequestUserForm!.inputSchema);
+
+/** Apply product edits to captured text, failing loudly when the capture no longer matches. */
+function editReference(tool: string, text: string, edits: Array<[string | RegExp, string]>): string {
+  return edits.reduce((result, [from, to]) => {
+    if (typeof from === "string" ? !result.includes(from) : !from.test(result))
+      throw new Error(`${tool} reference text changed: ${from}`);
+    return result.replace(from, to);
+  }, text);
+}
 
 // The human form is optional when the agent already has the needed value.
 // Keep the captured contract intact and adapt only the live description.
-contracts.request_user_form!.description = contracts.request_user_form!.description
-  .replace(
-    "Show the user a native in-chat form for a step where a page needs THEM to type — a login, a checkout address, a phone number.",
-    "Show the user a native in-chat form when they need to supply missing input. If credentials or a verification code are already available through the user's connected sources, enter them with browser_type or browser_fill_form instead."
-  )
-  .replace(
-    "Use this instead of asking for credentials in chat, and instead of request_box_help when the step is just typing.",
-    "Use this when the user needs to supply a value and the page fields are fillable; request_box_help is available when the tools cannot complete the step."
-  );
+contracts.RequestUserForm!.description = editReference("RequestUserForm", contracts.RequestUserForm!.description, [
+  [
+    "Show the user the Secure Form for a step where a page needs THEM to type something, such as a login, a checkout address, or a phone number.",
+    "Show the user a native in-chat form when they need to supply missing input. If credentials or a verification code are already available through the user's connected sources, enter them with browser_type or browser_fill_form instead.",
+  ],
+  // The host fills same-origin frames only and refuses a cross-origin target.
+  [
+    "Fields inside iframes (cross-origin ones included) and shadow roots are reachable: send the form for them instead of predicting a failure.",
+    "Fields inside same-origin iframes and open shadow roots are reachable: send the form for them instead of predicting a failure. Fields inside a cross-origin iframe or a closed shadow root are not.",
+  ],
+  [
+    "Use this instead of asking for credentials in chat, and instead of request_box_help when the step is just typing; the box handoff stays for",
+    "Use this when the user needs to supply a value and the page fields are fillable; request_box_help is available when the tools cannot complete the step, such as",
+  ],
+]);
+// Forms carry no prefilled values; saved values come from the vault on the card.
+delete contracts.RequestUserForm!.inputSchema.properties.fields.items.properties.default_value;
+
+// Cookie imports run directly on the user's Mac; there is no approval dialog or saved grant.
+const cookies = contracts.RequestCookieOriginApproval!;
+cookies.description = editReference("RequestCookieOriginApproval", cookies.description, [
+  [
+    "or ask the user to approve importing cookies for one or more origins.",
+    "or import cookies for one or more listed origins into your box browser.",
+  ],
+  [
+    "Pass origins to open the approval dialog and wait for Approve once, Always allow, or Deny. Already-granted pairs are skipped.",
+    "Pass origins to import those cookies directly: no approval dialog opens, so pass only the sites the task needs to sign in to. Cookie values stay private to the browser and never enter this conversation.",
+  ],
+]);
+cookies.inputSchema.properties.origins.description = editReference("RequestCookieOriginApproval", cookies.inputSchema.properties.origins.description, [
+  ["Chrome cookie hosts to request.", "Chrome cookie hosts to import."],
+  ["A bare host asks across every profile", "A bare host imports from every profile"],
+  ["to ask for one profile only.", "to import from one profile only."],
+  ["Pass one or more entries to open the approval dialog and wait.", "Pass one or more entries to import those cookies directly."],
+]);
+
+// Templates publish at once from the bot's direct chat, team-visible unless the
+// deployment enables public sharing. Imports keep routines as unscheduled proposals.
+const share = contracts.CreateBotShareJson!;
+share.description = editReference("CreateBotShareJson", share.description, [
+  ["Stage a draft version of this bot from the reusable recipe.", "Publish a new version of this bot's template from the reusable recipe."],
+  [' selected according to the scope guidance below ("public" for a new template).', " selected according to the scope guidance below."],
+  [
+    "Omit avatars; the host copies the source bot's live geometric avatar when one exists and uses recipe avatars only as a fallback.",
+    "Omit avatars; an imported bot gets its own avatar.",
+  ],
+  ["shown on template cards, share pages, and imports:", "shown on the template card and copied into the imported bot's description:"],
+  [
+    /New templates are PUBLIC:[^]*?That is a separate owner confirmation\./,
+    'Visibility is "team" unless the user chose public sharing; pass "public" only then. Public templates work only when this deployment enables public sharing, and otherwise the call is refused, so offer team instead.',
+  ],
+  ["the host drops those prefixes and does not copy memory/ from disk.", "the host drops entries with those prefixes and does not copy memory/ from disk."],
+  [
+    "filters out skill refs without it, with a copied SKILL.md (YAML frontmatter included), or that are live references,",
+    "filters out skill refs without it or with a copied SKILL.md (YAML frontmatter included),",
+  ],
+  [" Mechanical-id fill-ins are for routines, not skills.", ""],
+  ["Per the export skill, that is a short", "That is a short"],
+  ["the imported bot runs it as its first conversation with its new owner.", "the imported bot follows it in its first conversation with its new owner."],
+  ["pass its automations folder slug,", "pass its folder slug,"],
+  [
+    "generalizes mechanical ids into fill-in placeholders, and packs name, slug, description, and content (generalized job plus fill-in list in content).",
+    "and packs name, slug, description, and content. An import saves each routine as an unscheduled proposal the new owner sets up, so generalize account-specific ids in content yourself.",
+  ],
+  ["; per the export skill, add a kind:log memory", "; add a kind:log memory"],
+  [
+    "The version stays private until the owner publishes it.",
+    "Call it from this bot's direct chat with the user; elsewhere it is refused. Each call publishes a new version at once and replaces the previously published one; a template card in the chat shows it, and the user can unpublish it there. Verify the published receipt. This does not change the source bot. Importing creates a fresh isolated bot with its own provider sign-ins.",
+  ],
+]);
 
 // The host's knowledgeWork worker postdates this capture; keep the captured source intact.
 const taskSubagentType = contracts.Task!.inputSchema.properties.subagent_type;
 taskSubagentType.enum = [...taskSubagentType.enum, "knowledgeWork"];
 taskSubagentType.description = taskSubagentType.description.replace("computerUse.", "computerUse, knowledgeWork.");
 
-// OpenTeam supports Google Drive and Gmail transfers. Keep the captured source
-// intact while removing the retired provider from the advertised contract.
-for (const name of ["upload_file", "download_file"]) {
-  contracts[name]!.description = contracts[name]!.description
-    .replace("google-drive, onedrive or gmail", "google-drive or gmail")
-    .replace(/\n- OneDrive:[^\n]*/, "");
-}
-delete contracts.upload_file!.inputSchema.properties.destination.properties.overwrite;
-// Drive imports Office and text files as native Google files on request.
-contracts.upload_file!.inputSchema.properties.destination.properties.convertToGoogleFormat = {
-  type: "boolean",
-  description: "Google Drive only: if the file has a Google Workspace equivalent, upload it as that native type on this create (pptx/ppt/odp \u2192 Slides, docx/doc/odt/rtf/html/md/txt \u2192 Docs, xlsx/xls/ods/csv/tsv \u2192 Sheets). Types Drive cannot import stay as the original file. Default false. Other connections ignore this.",
-};
-contracts.upload_file!.description = contracts.upload_file!.description.replace(
-  "Drive allows several files with one name.",
-  "Drive allows several files with one name. destination.convertToGoogleFormat, when true, asks Drive to import a convertible Office or text file as native Docs, Sheets, or Slides on that same create (pptx \u2192 Slides, docx \u2192 Docs, xlsx \u2192 Sheets). Types Drive cannot import stay as the original file. The result mimeType tells you which landed. Default false."
+// OpenTeam transfers files with Google Drive and Gmail only. Keep the captured
+// source intact while removing the other providers from the advertised contract.
+const transferConnection: [RegExp, string] = [
+  /connection is the connection's identifier:[^\n]*Supported today:/,
+  "connection is the connection's identifier: the server_id GetMcpServerStatus lists, which is also the namespace GetDynamicTools lists that connection's tools under; the end of this description lists the ones available this turn. The service short name (google-drive or gmail) is accepted when exactly one account of that service is connected; with several accounts, name the identifier so the right account is used. Supported today:",
+];
+const otherProviders = ["OneDrive", "Outlook", "SharePoint"].map(
+  (provider): [RegExp, string] => [new RegExp(`\\n- ${provider}:[^\\n]*`), ""]
 );
-const fileSource = contracts.download_file!.inputSchema.properties.source;
+// The Gmail connection only creates drafts, so a draft carrying a file waits for the user to send it.
+contracts.UploadFile!.description = editReference("UploadFile", contracts.UploadFile!.description, [
+  transferConnection,
+  ...otherProviders,
+  [
+    /- Gmail: destination\.draftId[^\n]*/,
+    "- Gmail: destination.draftId is the id create_draft returned (or one from list_drafts); the file is attached and the id stays the same. Attach last: finish recipients, subject and body with create_draft before calling UploadFile, because the Gmail connection cannot edit a draft afterwards. It cannot send one either, so the draft waits unsent in the user's Gmail Drafts; tell them it is there. A DraftExternalMessage card cannot carry this file. A Gmail draft here carries a file; it is not how you draft for review. The draft with its attachments must stay under 25 MB.",
+  ],
+]);
+contracts.DownloadFile!.description = editReference("DownloadFile", contracts.DownloadFile!.description, [
+  transferConnection,
+  ...otherProviders,
+  ["both from get_thread or read_email", "both from get_thread or get_message"],
+]);
+const uploadDestination = contracts.UploadFile!.inputSchema.properties.destination.properties;
+delete uploadDestination.overwrite;
+uploadDestination.path.description = editReference("UploadFile", uploadDestination.path.description, [
+  [" For SharePoint this is the folder under the drive named by folderId.", ""],
+]);
+uploadDestination.folderId.description = editReference("UploadFile", uploadDestination.folderId.description, [
+  [/ Google Drive and OneDrive take[^]*$/, " Provide at most one of path or folderId."],
+]);
+uploadDestination.draftId.description = editReference("UploadFile", uploadDestination.draftId.description, [
+  ["Gmail and Outlook only:", "Gmail only:"],
+]);
+const fileSource = contracts.DownloadFile!.inputSchema.properties.source;
 delete fileSource.properties.path;
 fileSource.required = ["fileId"];
 fileSource.description = "Which file to pull, identified by its provider file ID.";
@@ -225,4 +313,4 @@ export function withReferenceContract<
 }
 
 export const FIRST_PARTY_NAMESPACE_DESCRIPTION =
-  "Native OpenTeam tools for this session. These are highly recommended and useful tools that you should use when the right situation arises. Don't be afraid to look at one if it seems relevant, even if you don't end up using it. You MUST read the tool schemas before calling them.\n\nHere are some crucial instructions:\n- AuthenticateMcpServer: Start authentication for a connector that needs auth.\n- AwaitShell: Use to sleep and check shell progress. Never sleep using shell.\n- CheckSubagent: Inspect a running background subagent's status and recent actions.\n- CopyFromBox: Copy a file from your box onto the user's computer.\n- CopyToBox: Copy a file from the user's computer onto your box.\n- DisconnectChannel: Disconnect one of your connected channels.\n- MessageSubagent: Send a new instruction into a running background subagent.\n- remap_user_form_targets: Only after a request_user_form receipt says a field's value is HELD: remap its new target.\n- request_user_form: Show the user an in-chat form; the host fills the box browser with their answers.\n- SearchPlugins: Search installable plugins/connectors when a task needs a service.\n- SendFeedback: Send the user's product feedback to the OpenTeam maintainers when they ask. Ask whether they want a reply unless they already said.\n- StopSubagent: Abort a running background subagent.\n- TodoWrite: Use this tool to manage complex multi-step tasks.\n- UpdateAvatar: Set or clear your profile picture.\n- UpdateProfile: Change your name, description, title, default mark, or sidebar and notification settings.\n- UpdateProject: Create, join, or leave a shared project.\n- UpdateSkill: Save, rewrite, or delete your reusable skills.";
+  "Native OpenTeam tools for this session. These are highly recommended and useful tools that you should use when the right situation arises. Don't be afraid to look at one if it seems relevant, even if you don't end up using it. You MUST read the tool schemas before calling them.\n\nHere are some crucial instructions:\n- AuthenticateMcpServer: Start authentication for a connector that needs auth.\n- AwaitShell: Use to sleep and check shell progress. Never sleep using shell.\n- CheckSubagent: Inspect a running background subagent's status and recent actions.\n- CopyFromBox: Copy a file from your box onto the user's computer.\n- CopyToBox: Copy a file from the user's computer onto your box.\n- DisconnectChannel: Disconnect one of your connected channels.\n- DownloadFile: Fetch a Drive or Gmail file onto your box. Not URLs (WebFetch, curl) or box files (Read).\n- MessageSubagent: Send a new instruction into a running background subagent.\n- RemapUserFormTargets: Only after a RequestUserForm receipt says a field's value is HELD: remap its new target.\n- RequestUserForm: Show the user an in-chat form; the host fills the box browser with their answers.\n- SearchPlugins: Search installable plugins/connectors when a task needs a service.\n- SendFeedback: Send the user's product feedback to the OpenTeam maintainers when they ask. Ask whether they want a reply unless they already said.\n- StopSubagent: Abort a running background subagent.\n- TodoWrite: Use this tool to manage complex multi-step tasks.\n- UpdateAvatar: Set or clear your profile picture.\n- UpdateProfile: Change your name, description, title, default mark, or sidebar and notification settings.\n- UpdateProject: Create, join, or leave a shared project.\n- UpdateSkill: Save, rewrite, or delete your reusable skills.\n- UploadFile: Send a box file to Google Drive or Gmail.";

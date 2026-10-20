@@ -11,7 +11,7 @@ export async function connectorTransferResponse(request: Request, tools: Interna
   const args=call.arguments as Record<string,any>;
   let upload:StagedFile|undefined;
   try {
-    if(args.tool==="upload_file") {
+    if(args.tool==="UploadFile") {
       if(!Number.isSafeInteger(args.sizeBytes)||args.sizeBytes<0||!/^[a-f0-9]{64}$/.test(args.sha256))throw new Error("Invalid upload staging envelope");
       upload=await spoolFile(request.body ?? new ReadableStream({start(c){c.close();}}),{signal:request.signal,sizeBytes:args.sizeBytes,sha256:args.sha256});
     }

@@ -1,4 +1,4 @@
-import { realpathSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { CLI_UPDATE_TARGET_ENV, isStandaloneCliExecutable } from "./cli-update";
 import type { InstallationPaths } from "./config";
@@ -11,13 +11,25 @@ import { TerminalReport, type TerminalOptions, type TerminalTone } from "./termi
 const quoteArgument = (value: string, platform = process.platform): string =>
   `'${value.replace(/'/g, platform === "win32" ? "''" : "'\\''")}'`;
 
-const sameFile = (left: string, right: string): boolean => {
+// Windows can name one file two ways: a PATH entry built from %TEMP% may use the short
+// name (C:\Users\RUNNER~1) while the running binary reports the long one, and paths
+// ignore case. The native resolver expands short names; the file ID settles the rest.
+const sameFile = (left: string, right: string, platform = process.platform): boolean => {
   try {
-    return realpathSync(left) === realpathSync(right);
+    const [a, b] = [realpathSync.native(left), realpathSync.native(right)];
+    if (platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b) return true;
+    const [x, y] = [statSync(a, { bigint: true }), statSync(b, { bigint: true })];
+    return x.ino !== 0n && x.ino === y.ino && x.dev === y.dev;
   } catch {
     return false;
   }
 };
+
+/** PATH as this terminal sees it. Windows spells it Path, and its names ignore case. */
+const searchPath = (platform: NodeJS.Platform): string =>
+  platform === "win32"
+    ? (Object.entries(process.env).find(([key]) => key.toUpperCase() === "PATH")?.[1] ?? "")
+    : (process.env.PATH ?? "");
 
 /**
  * How to run this CLI in printed hints. Right after installation its directory may not
@@ -40,9 +52,9 @@ export const cliProgram = (
     options.standalone ?? isStandaloneCliExecutable(options.argv ?? process.argv, running);
   if (!standalone) return "openteam";
   const name = platform === "win32" ? "openteam.exe" : "openteam";
-  const onPath = (options.path ?? process.env.PATH ?? "")
+  const onPath = (options.path ?? searchPath(platform))
     .split(platform === "win32" ? ";" : delimiter)
-    .some((entry) => entry && sameFile(join(entry, name), executable));
+    .some((entry) => entry && sameFile(join(entry, name), executable, platform));
   if (onPath) return "openteam";
   if (!/[^\w./:\\-]/.test(executable)) return executable;
   // PowerShell runs a quoted path only through its call operator.

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installationPaths } from "../src/config";
@@ -231,6 +231,11 @@ describe("CLI name in hints", () => {
     expect(program("/usr/bin:/bin")).toBe(executable);
     expect(program(`/usr/bin:${bin}`)).toBe("openteam");
     expect(program(`${linked}:/usr/bin`)).toBe("openteam");
+    // Another name for the same file, like a Windows short name (RUNNER~1), still counts.
+    const aliased = join(root, "aliased");
+    mkdirSync(aliased);
+    linkSync(executable, join(aliased, "openteam"));
+    expect(program(`/usr/bin:${aliased}`)).toBe("openteam");
     // Running from source, or bundled in the desktop app, keeps the short name.
     expect(cliProgram({ executable, standalone: false, path: "" })).toBe("openteam");
   });

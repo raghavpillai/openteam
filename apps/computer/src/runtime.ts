@@ -713,7 +713,7 @@ export class ComputerRuntime {
     const modelRuntime = this.modelRuntime;
     if (!modelRuntime) throw new Error("Pi model runtime is not initialized");
     let model = this.resolveModel(modelRef);
-    if ((active.subagentType === "computerUse" || active.subagentType === "browserUse") && !model.input.includes("image")) {
+    if (active.subagentType === "computerUse" && !model.input.includes("image")) {
       // Refresh stale saved capabilities before rejecting a graphical task.
       await this.inferenceProviders.verify({ ...modelRef, reasoning: active.reasoning });
       model = this.resolveModel(modelRef);

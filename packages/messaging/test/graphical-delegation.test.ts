@@ -11,12 +11,8 @@ import {
 import { PLATFORM_BASE_SYSTEM_PROMPT } from "../src/platform-system-prompt";
 
 describe("main-agent graphical delegation instructions", () => {
-  test.each([
-    ["computerUse", true],
-    ["computerUse", false],
-    ["browserUse", false],
-  ] as const)("%s worker omits categorical handover instructions (combined=%s)", (type, combined) => {
-    const instructions = subagentSpecializationInstructions(type, combined);
+  test("the graphical worker omits categorical handover instructions", () => {
+    const instructions = subagentSpecializationInstructions("computerUse");
     expect(instructions).not.toContain("If the task reaches a password");
     expect(instructions).not.toContain("At a username/password step, stop");
     expect(instructions).not.toContain("Report SSO, passkeys");
@@ -24,15 +20,22 @@ describe("main-agent graphical delegation instructions", () => {
     expect(instructions).toContain("Status: blocked");
   });
 
-  test("routes graphical work to the available combined or split workers", () => {
-    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).not.toContain("subagent_type browserUse");
-    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain("subagent_type computerUse");
+  test("routes all browser and desktop work to computerUse", () => {
+    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain(
+      "For browser or desktop interaction, delegate with Task using subagent_type computerUse."
+    );
+    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).not.toContain("browserUse");
     expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain(
       "Do not attempt graphical interaction yourself"
     );
-    const split = graphicalDelegationInstructions({ combinedComputerUse: false, executorProfiles: [] });
-    expect(split).toContain("subagent_type browserUse");
-    expect(split).toContain("subagent_type computerUse");
+    const restricted = graphicalDelegationInstructions({
+      executorProfiles: [],
+      disabledToolIdentifiers: ["BROWSER_CLICK", "OPENAI_COMPUTER_USE"],
+    });
+    expect(restricted).toBe(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS);
+    const unavailable = graphicalDelegationInstructions({ executorProfiles: [], graphicalAvailable: false });
+    expect(unavailable).toContain("Browser and desktop workers are unavailable.");
+    expect(unavailable).not.toContain("subagent_type computerUse");
   });
 
   test("gives the combined worker browser-first rules, few calls and a status report", () => {
@@ -47,23 +50,8 @@ describe("main-agent graphical delegation instructions", () => {
     expect(instructions).toContain("The owner has authorized completing CAPTCHAs");
     expect(instructions).not.toContain("box-chrome");
     expect(instructions).not.toContain("Auto-review");
-  });
-
-  test("gives the desktop-only worker the see-act-verify loop and its own CDP port", () => {
-    const instructions = subagentSpecializationInstructions("computerUse", false);
-    expect(instructions).toContain("tight see-act-verify loop");
-    expect(instructions).toContain("OPENTEAM_BROWSER_DEBUG_PORT");
-    expect(instructions).toContain("playwright-core");
-    expect(instructions).toContain("Never `pkill -f` from Shell");
-    expect(instructions).not.toContain("browser_run_code");
-  });
-
-  test("gives the browser-only worker page tools without desktop controls", () => {
-    const instructions = subagentSpecializationInstructions("browserUse");
-    expect(instructions).toContain("Use browser_run_code for anything inside a web page");
-    expect(instructions).toContain("You have no desktop controls");
-    expect(instructions).not.toContain("openteam-screen-launch");
-    expect(instructions).toContain("You can't talk to the user or hand off the box");
+    expect(instructions).not.toContain("You have no desktop controls");
+    expect(instructions).not.toContain("tight see-act-verify loop");
   });
 
   test("uses the isolated Bot worker prompt for every subagent type", async () => {
@@ -72,7 +60,6 @@ describe("main-agent graphical delegation instructions", () => {
       "videoReview",
       "watchVideo",
       "computerUse",
-      "browserUse",
       "knowledgeWork",
     ] as const) {
       const messaging = Object.create(AgentMessaging.prototype) as Record<string, unknown>;
@@ -109,7 +96,7 @@ describe("main-agent graphical delegation instructions", () => {
       if (subagentType === "knowledgeWork") expect(prompt.userInfo).toBe("<user_info>\n<agent_skills>knowledgeWork catalog</agent_skills>\n</user_info>");
       else expect(prompt.userInfo).toBeNull();
       // Workers that read outside content hand messages under the user's name back as drafts.
-      if (["executor", "knowledgeWork", "computerUse", "browserUse"].includes(subagentType)) {
+      if (["executor", "knowledgeWork", "computerUse"].includes(subagentType)) {
         expect(prompt.instructions).toContain("You cannot call DraftExternalMessage.");
         expect(prompt.instructions).toContain("## Untrusted content");
       } else {

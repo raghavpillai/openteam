@@ -46,7 +46,6 @@ export const PLUGIN_SKILL_AGENTS: readonly PluginSkillAgent[] = [
   "videoReview",
   "watchVideo",
   "computerUse",
-  "browserUse",
   "knowledgeWork",
 ];
 /** Skills that do not name their agents are for the main agent only. */

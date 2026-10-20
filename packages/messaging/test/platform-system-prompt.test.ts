@@ -24,7 +24,7 @@ const mainAgent = (id: string) => {
     defaultTimeZone: "Asia/Kolkata",
     agentData: {
       root: "/srv/current-agent-data",
-      loadTaskConfiguration: async () => ({ combinedComputerUse: true, executorProfiles: [] }),
+      loadTaskConfiguration: async () => ({ executorProfiles: [] }),
       loadInferenceSettings: async () => ({
         providerId: "openai-codex",
         modelId: "gpt-5.5",
@@ -122,7 +122,7 @@ describe("Grok-derived platform prompt integration", () => {
   test("a run's Task configuration snapshot wins over current deployment settings", async () => {
     const { messaging } = mainAgent("alpha");
     const prompt = await messaging.platformPrompt("alpha", "alpha-context", "", undefined, {
-      combinedComputerUse: false,
+      graphicalAvailable: false,
       executorProfiles: [
         {
           name: "quick",
@@ -133,7 +133,7 @@ describe("Grok-derived platform prompt integration", () => {
         },
       ],
     });
-    expect(prompt.instructions).toContain("browserUse: structured browser interaction");
+    expect(prompt.instructions).toContain("Browser and desktop workers are unavailable on this computer.");
     expect(prompt.instructions).not.toContain("quick: Small jobs");
     expect(prompt.instructions).not.toContain("<available_subagent_models>");
     expect(prompt.instructions).not.toContain("computerUse: browser and desktop work");

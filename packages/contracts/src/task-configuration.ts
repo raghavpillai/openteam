@@ -6,7 +6,6 @@ export interface ExecutorProfile extends ServerInferenceSettings {
 }
 
 export interface TaskConfiguration {
-  combinedComputerUse: boolean;
   executorProfiles: ExecutorProfile[];
   defaultExecutorProfile?: string;
   graphicalAvailable?: boolean;
@@ -14,7 +13,6 @@ export interface TaskConfiguration {
 }
 
 export const defaultTaskConfiguration = (): TaskConfiguration => ({
-  combinedComputerUse: true,
   executorProfiles: [],
 });
 
@@ -26,21 +24,18 @@ export function parseTaskConfiguration(input: unknown): TaskConfiguration {
     Object.keys(value).some(
       (key) =>
         ![
-          "combinedComputerUse",
           "executorProfiles",
           "defaultExecutorProfile",
           "graphicalAvailable",
           "disabledToolIdentifiers",
+          // Retired worker-mode switch, still in saved settings and run snapshots. Ignored.
+          "combinedComputerUse",
         ].includes(key)
     )
   )
     throw new Error("Unknown Task setting");
-  if (
-    typeof value.combinedComputerUse !== "boolean" ||
-    !Array.isArray(value.executorProfiles) ||
-    value.executorProfiles.length > 20
-  )
-    throw new Error("Choose a computer worker mode and at most 20 executor profiles");
+  if (!Array.isArray(value.executorProfiles) || value.executorProfiles.length > 20)
+    throw new Error("Choose at most 20 executor profiles");
   const names = new Set<string>();
   if (value.graphicalAvailable !== undefined && typeof value.graphicalAvailable !== "boolean")
     throw new Error("Invalid graphical availability");
@@ -81,7 +76,6 @@ export function parseTaskConfiguration(input: unknown): TaskConfiguration {
   )
     throw new Error("The default executor profile must name one of the configured profiles");
   return {
-    combinedComputerUse: value.combinedComputerUse,
     executorProfiles,
     ...(value.graphicalAvailable === undefined
       ? {}
@@ -99,9 +93,7 @@ export const taskTypeNames = (config = defaultTaskConfiguration()) => [
   "executor",
   "videoReview",
   "watchVideo",
-  ...(config.graphicalAvailable === false
-    ? []
-    : ["computerUse", ...(config.combinedComputerUse ? [] : ["browserUse"])]),
+  ...(config.graphicalAvailable === false ? [] : ["computerUse"]),
   "knowledgeWork",
 ];
 
@@ -117,17 +109,12 @@ export function selectTaskConfiguration(
   config: TaskConfiguration,
   capabilities: TaskCapabilities
 ): TaskConfiguration {
-  const graphicalAvailable =
-    config.graphicalAvailable !== false &&
-    capabilities.desktopAvailable &&
-    capabilities.boxAvailable;
-  const toolsAvailable = !config.disabledToolIdentifiers?.some(
-    (id) => id.startsWith("BROWSER_") || ["OPENAI_COMPUTER_USE", "SHELL", "READ"].includes(id)
-  );
   return {
     ...config,
-    graphicalAvailable,
-    combinedComputerUse: config.combinedComputerUse && graphicalAvailable && toolsAvailable,
+    graphicalAvailable:
+      config.graphicalAvailable !== false &&
+      capabilities.desktopAvailable &&
+      capabilities.boxAvailable,
   };
 }
 export const taskToolEnabled = (config: TaskConfiguration | undefined, tool: string) =>
@@ -147,9 +134,7 @@ export function taskUserInfo(config = defaultTaskConfiguration()): string {
     "videoReview and watchVideo: media review.",
     config.graphicalAvailable === false
       ? "Browser and desktop workers are unavailable on this computer."
-      : config.combinedComputerUse
-        ? "computerUse: browser and desktop work using structured browser tools and desktop controls on the same persistent box. Only one computerUse worker may run at a time."
-        : "computerUse: desktop interaction and sites that defeat browser automation. Only one computerUse worker may run at a time.\nbrowserUse: structured browser interaction; prefer it for browser-only work.",
+      : "computerUse: browser and desktop work using structured browser tools and desktop controls on the same persistent box. Only one computerUse worker may run at a time.",
     "knowledgeWork: A higher-powered executor for five kinds of work, and only these: (1) slides and decks (`.pptx`, Google Slides); (2) spreadsheets (`.xlsx`, `.csv`, Google Sheets); (3) written documents (`.docx`, Google Docs, Notion pages); (4) emails; (5) Slack messages. Use it when a skill names it or the deliverable is one of these. Email and Slack messages under the user's name still come back to you to draft. It starts with no context, so give it everything it needs in the prompt. It runs in the background like any Task: you are notified when it finishes, so do not poll or await it. It runs headless and cannot talk to the user; it reports its result back to you, and you deliver it.",
     "</available_subagent_types>",
     ...(config.graphicalAvailable !== false && browserCapabilities.length

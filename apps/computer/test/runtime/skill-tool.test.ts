@@ -43,7 +43,7 @@ test("with tool access, only the knowledgeWork worker gets the Skill tool, on to
   const knowledgeWork = toolNames("knowledgeWork");
   expect(knowledgeWork).toEqual([...toolNames("executor"), SKILL_TOOL_NAME]);
   expect(toolNames("knowledgeWork", "read")).toEqual(toolNames("executor"));
-  for (const type of [null, "executor", "computerUse", "browserUse"]) expect(toolNames(type)).not.toContain(SKILL_TOOL_NAME);
+  for (const type of [null, "executor", "computerUse"]) expect(toolNames(type)).not.toContain(SKILL_TOOL_NAME);
 });
 
 test("the Skill tool lists only the skills cataloged for its worker", () => {

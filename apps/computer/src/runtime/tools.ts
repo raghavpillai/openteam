@@ -126,8 +126,7 @@ export const workerTopLevelTools = (
 ): readonly string[] => {
   if (active.subagentType === "executor" || active.subagentType === "knowledgeWork")
     return active.readOnly ? ["WebSearch", "WebFetch"] : ["AwaitShell", "WebSearch", "WebFetch"];
-  if (active.subagentType === "computerUse" || active.subagentType === "browserUse")
-    return ["AwaitShell"];
+  if (active.subagentType === "computerUse") return ["AwaitShell"];
   return [];
 };
 
@@ -459,17 +458,14 @@ export class RuntimeTools {
           ? GRAPHICAL_WORKER_SHELL_DESCRIPTION
           : GRAPHICAL_WORKER_READ_DESCRIPTION
       );
-    const graphical = active.subagentType === "computerUse" || active.subagentType === "browserUse";
-    const combinedComputer = active.taskConfiguration?.combinedComputerUse !== false;
+    const graphical = active.subagentType === "computerUse";
     const computerTool = () => defineTool({
           name: COMPUTER_USE_TOOL.name,
           label: COMPUTER_USE_TOOL.name,
-          description: combinedComputer
-            ? COMPUTER_USE_TOOL.description.replace(
-                "scroll, and wait.",
-                `scroll, and wait.${COMBINED_COMPUTER_GUIDANCE}`
-              )
-            : COMPUTER_USE_TOOL.description,
+          description: COMPUTER_USE_TOOL.description.replace(
+            "scroll, and wait.",
+            `scroll, and wait.${COMBINED_COMPUTER_GUIDANCE}`
+          ),
           parameters: Type.Unsafe<Record<string, unknown>>(COMPUTER_USE_TOOL.inputSchema),
           executionMode: "sequential",
           execute: (callId, args, signal) =>
@@ -502,12 +498,12 @@ export class RuntimeTools {
               ),
           })
         );
-    if (active.subagentType === "computerUse" || active.subagentType === "browserUse") {
+    if (graphical) {
       return [
         ...workerNativeTools.map(workerNative),
         ...topLevelTools(),
-        ...(active.subagentType === "computerUse" ? [computerTool()] : []),
-        ...(active.subagentType === "browserUse" || active.taskConfiguration?.combinedComputerUse !== false ? browserTools() : []),
+        computerTool(),
+        ...browserTools(),
       ].filter(tool => taskToolEnabled(active.taskConfiguration, tool.name) &&
         // AwaitShell only waits on Shell's background commands.
         (tool.name !== "AwaitShell" || taskToolEnabled(active.taskConfiguration, SHELL_TOOL.name)));

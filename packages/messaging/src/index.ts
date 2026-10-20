@@ -15,7 +15,7 @@ import { publishChannelNotification, publishMessageNotification } from "./notifi
 export { publishChannelNotification, publishMessageNotification, channelNotificationStates } from "./notifications";
 import { messagePreviewText } from "@openteam/contracts/message-preview";
 import { defaultTaskConfiguration, subagentUsesParentConnectors, taskUserInfo, type TaskConfiguration } from "@openteam/contracts/task-configuration";
-import { BROWSER_WORKER_PROMPT, COMBINED_GRAPHICAL_WORKER_PROMPT, COMPUTER_WORKER_PROMPT, EXECUTION_VERIFICATION_INSTRUCTIONS } from "./graphical-worker-prompts";
+import { COMBINED_GRAPHICAL_WORKER_PROMPT, EXECUTION_VERIFICATION_INSTRUCTIONS } from "./graphical-worker-prompts";
 import {
   type AdminBroadcastInput,
   type AgentImageInput,
@@ -104,9 +104,7 @@ export const reactionNotificationBody = (emoji: string, content: string | null):
 
 export const graphicalDelegationInstructions = (config: TaskConfiguration = defaultTaskConfiguration()) => [
   config.graphicalAvailable === false ? "Browser and desktop workers are unavailable. Do not request graphical Tasks or bypass this limitation through Shell."
-    : config.combinedComputerUse
-    ? "For browser or desktop interaction, delegate with Task using subagent_type computerUse. It uses structured browser tools and desktop controls on the same persistent box. Only one computerUse subagent may run at a time."
-    : "For browser page interaction, delegate with Task using subagent_type browserUse. For pixel-based browser work or any other desktop-app interaction, delegate with Task using subagent_type computerUse.",
+    : "For browser or desktop interaction, delegate with Task using subagent_type computerUse. It uses structured browser tools and desktop controls on the same persistent box. Only one computerUse subagent may run at a time.",
   "Do not attempt graphical interaction yourself: the main-agent Screenshot tool is read-only, and graphical Computer control is intentionally available only to a computerUse subagent.",
   "Give the subagent the full goal, exact URLs or app names, inputs, completion criteria, and relevant constraints. Treat its final report as the result of the graphical work.",
   "Carry user deadlines and remaining time into each delegated task, including resumed tasks. For an overall deadline, pass the original absolute cutoff and remaining budget; do not restart the allowance for each worker. Stop unfinished delegated work at that cutoff and report partial results. If the user instead gives a separate allowance per item, preserve that distinction.",
@@ -542,9 +540,8 @@ export const WORKER_UNTRUSTED_CONTENT_SECTION = [
 export const WORKER_DRAFT_HANDOFF = "You cannot call DraftExternalMessage. When an email or Slack message should go out under the user's name, do not create the draft in the source app with Gmail create_draft or another connector draft tool. Tell the parent to call DraftExternalMessage: put that ask in your final message, with the recipient, the channel or connector, the thread or other context, the proposed text, and why it should go out. The only exception is an email draft that the user asked to keep in their mailbox, or that must carry a file attachment: save it in their mailbox with the email connector's create_draft, send nothing, and do not ask the parent to draft it.";
 
 
-export const subagentSpecializationInstructions = (type: SubagentType, combinedComputerUse = true, skillAccess: SkillAccess = "read"): string => {
-  if (type === "computerUse") return combinedComputerUse ? COMBINED_GRAPHICAL_WORKER_PROMPT : COMPUTER_WORKER_PROMPT;
-  if (type === "browserUse") return BROWSER_WORKER_PROMPT;
+export const subagentSpecializationInstructions = (type: SubagentType, skillAccess: SkillAccess = "read"): string => {
+  if (type === "computerUse") return COMBINED_GRAPHICAL_WORKER_PROMPT;
   if (type === "videoReview" || type === "watchVideo") {
     return "Review the supplied media frames directly. No tools are available to this worker.";
   }
@@ -2029,7 +2026,6 @@ export class AgentMessaging {
       const skillAccess = workerSkillAccess(bot.subagentIdentity.subagentType);
       const specialization = subagentSpecializationInstructions(
         bot.subagentIdentity.subagentType as SubagentType,
-        bot.subagentIdentity.combinedComputerUse,
         skillAccess
       );
       const instructions = [
@@ -2037,8 +2033,7 @@ export class AgentMessaging {
         "Complete the delegated task autonomously, then end your turn with a concise final assistant message in plain text. Only that final assistant message is relayed back to the parent agent as your result; text from earlier assistant messages is not included. Put the outcome and any context the parent needs in that last message.",
         "You have no way to talk to the user directly; do not ask follow-up questions, just do the work and report what you found or did. Do not call SendToUser or SendToAgent.",
         subagentUsesParentConnectors(bot.subagentIdentity.subagentType) ||
-        bot.subagentIdentity.subagentType === "computerUse" ||
-        bot.subagentIdentity.subagentType === "browserUse"
+        bot.subagentIdentity.subagentType === "computerUse"
           ? `${WORKER_UNTRUSTED_CONTENT_SECTION}\n\n${WORKER_DRAFT_HANDOFF}` : "",
         specialization,
         `The computer filesystem is shared. Every agent, room, routine, A2A wake, and subagent starts in ${bot.defaultDirectory}.`,

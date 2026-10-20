@@ -18,14 +18,14 @@ const model: Model<"openai-completions"> = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 };
 
-test.each(["computerUse", "browserUse"] as const)("%s rejects a text-only model before starting a session", async (subagentType) => {
+test("computerUse rejects a text-only model before starting a session", async () => {
   const runtime = new ComputerRuntime() as any;
   runtime.modelRuntime = {};
   runtime.resolveModel = () => ({ ...model, input: ["text"] });
   let refreshes = 0;
   runtime.inferenceProviders = { verify: async () => { refreshes++; } };
   await expect(runtime.createStandaloneSession("/tmp", "Inspect the desktop", {}, {
-    subagentType, reasoning: "off",
+    subagentType: "computerUse", reasoning: "off",
   }, {})).rejects.toThrow("cannot inspect screenshots");
   expect(refreshes).toBe(1);
 });

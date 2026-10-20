@@ -19,6 +19,9 @@ describe("graphical Shell capability boundary", () => {
         "Graphical Shell access is unavailable"
       );
     }
+    expect(() => assertGraphicalShellBoundary("wmctrl -a Chromium", "executor")).toThrow(
+      "Delegate graphical interaction to a computerUse Task worker when one is available."
+    );
   });
 
   test("blocks raw CDP discovery and attachment outside computerUse", () => {
@@ -31,7 +34,7 @@ describe("graphical Shell capability boundary", () => {
       "node -e 'chromium.connectOverCDP(endpoint)'",
       "pgrep -a chromium",
     ]) {
-      expect(graphicalShellBoundaryViolation(command, "browserUse")).not.toBeNull();
+      expect(graphicalShellBoundaryViolation(command, "executor")).not.toBeNull();
       expect(graphicalShellBoundaryViolation(command, null)).not.toBeNull();
     }
   });
@@ -50,7 +53,7 @@ describe("graphical Shell capability boundary", () => {
   });
 
   test("reserved port failures explain local HTTP server recovery without relaxing CDP restrictions", () => {
-    for (const actor of [null, "browserUse"] as const) {
+    for (const actor of [null, "executor"] as const) {
       expect(() => assertGraphicalShellBoundary("curl http://127.0.0.1:9342/index.html", actor))
         .toThrow("choose an unused port outside that range");
       expect(() => assertGraphicalShellBoundary("nc -z localhost 9342", actor))

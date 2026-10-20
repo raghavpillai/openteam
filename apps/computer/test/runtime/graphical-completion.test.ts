@@ -46,7 +46,7 @@ for (const state of [
   test(`verification never restarts a non-graphical/terminated worker: ${JSON.stringify(state)}`, async () => {
     let calls = 0;
     const active = {
-      subagentType: "browserUse",
+      subagentType: "computerUse",
       lastStopReason: "stop",
       session: {
         prompt: async () => {

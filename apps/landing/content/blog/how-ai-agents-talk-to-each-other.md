@@ -185,7 +185,7 @@ Peer messages are untrusted teammate input. Per the prompt, "priority affects sc
 
 Bots can create teammates. `CreateAgent` makes a full peer bot with its own chat and computer, and sets no limit on how many.
 
-Delegation goes through `Task`. Each helper is a hidden bot with its own mailbox, on the same queue as everyone else. New tasks can use five types: executor, computerUse, videoReview, watchVideo and knowledgeWork, the newest, which has skills of its own. computerUse covers browser work by default, and the old browserUse type remains only to resume existing helpers.
+Delegation goes through `Task`. Each helper is a hidden bot with its own mailbox, on the same queue as everyone else. New tasks can use five types: executor, computerUse, videoReview, watchVideo and knowledgeWork, the newest, which has skills of its own. computerUse covers both browser and desktop work.
 
 Helpers run in the background by default, and a helper's final message wakes its parent. The parent can steer a running helper with `MessageSubagent`. Helpers can't start helpers ("Nested subagents are unavailable"). Each bot gets one computerUse helper at a time, because it drives that bot's screen. Helpers count toward the server's **tasks at once** limit. This is the orchestrator-worker shape from Anthropic's research system.
 

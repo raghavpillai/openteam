@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "key": "1password",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "name": "1Password",
   "description": "Bots sign in to websites with logins and one-time codes from the 1Password vaults you choose.",
   "publisher": "OpenTeam",
@@ -33,7 +33,7 @@
       "name": "1password",
       "description": "Sign in to websites with the user's saved 1Password logins and one-time codes. Use whenever a site asks for a username, password, or verification code.",
       "path": "skills/1password",
-      "agents": ["main", "browserUse", "computerUse"]
+      "agents": ["main", "computerUse"]
     }
   ]
 }

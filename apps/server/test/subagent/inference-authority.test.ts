@@ -4,7 +4,7 @@ import { SubagentService } from "../../src/services/subagent/service";
 for (const resume of [undefined, "restore-missing-worker"]) {
   test(`Task cannot select inference at the server boundary, restore=${!!resume}`, async () => {
     const configured = { providerId: "openai", modelId: "configured", reasoning: "medium" };
-    const config = { combinedComputerUse: true, executorProfiles: [
+    const config = { executorProfiles: [
       { name: "high", description: "legacy", providerId: "openai", modelId: "expensive", reasoning: "high" },
     ], defaultExecutorProfile: "high" };
     let child: any;

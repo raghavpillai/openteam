@@ -31,7 +31,6 @@ export type PluginSkillAgent =
   | "videoReview"
   | "watchVideo"
   | "computerUse"
-  | "browserUse"
   | "knowledgeWork";
 export interface PluginSkillDefinition {
   name: string;

@@ -323,7 +323,8 @@ model Subagent {
   subagentType     String
   model            String?
   reasoning        String?
-  // Existing rows predate combined workers; new launches always store their selected mode.
+  // Retired worker-mode flag: nothing reads or writes it. Deploys run `db push` without
+  // --accept-data-loss, which cannot drop a column that still holds values.
   combinedComputerUse Boolean @default(false)
   taskConfiguration Json?
   fileAttachments  Json           @default("[]")

@@ -79,12 +79,6 @@ export function renderControlResult(
         : `${args.id ? "Updated" : "Saved"} skill "${result.name}" (id ${result.id}).`;
     if (result.target === "channel" && result.disconnected)
       return `Disconnected ${result.platform}. The connector closes the live connection within a few seconds.`;
-    if (result.target === "project" && ["join", "leave"].includes(result.action))
-      return `${result.action === "join" ? "Joined" : "Left"} project "${result.project}".`;
-    if (result.target === "project" && result.action === "create")
-      return result.created
-        ? `Created and joined project "${result.name}" (folder ${result.project}).`
-        : `Joined existing project "${result.project}" (create-is-join; project.md left as-is).`;
     if (result.target === "avatar" && result.updated)
       return `Updated your picture (${result.path?.split("/").pop()}). Source ${result.resolved_path?.split("/").pop()} can be deleted if you no longer need it.`;
     if (result.target === "routine") {

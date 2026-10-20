@@ -41,7 +41,6 @@ import {
   UPDATE_AVATAR_TOOL,
   UPDATE_MEMORY_TOOL,
   UPDATE_PROFILE_TOOL,
-  UPDATE_PROJECT_TOOL,
   UPDATE_ROUTINE_TOOL,
   UPDATE_SKILL_TOOL,
   UpdateBotInput,
@@ -493,7 +492,7 @@ describe("API contracts", () => {
       "TodoWrite",
       "UpdateAgent",
       "UpdateChannel",
-      "UpdateSkill", "UpdateProfile", "UpdateAvatar", "DisconnectChannel", "UpdateProject",
+      "UpdateSkill", "UpdateProfile", "UpdateAvatar", "DisconnectChannel",
       "CopyToBox", "CopyFromBox", "WebSearch", "WebFetch", "RequestUserForm", "RemapUserFormTargets", "DraftExternalMessage", "SendFeedback", "CreateBotShareJson",
       "WakeParent",
     ]);
@@ -608,8 +607,8 @@ describe("API contracts", () => {
     expect(NATIVE_TOOL_NAMES).not.toContain("update_state");
     expect(CURSOR_TOOL_NAMES).not.toContain("update_state");
     expect(
-      [UPDATE_SKILL_TOOL, UPDATE_PROFILE_TOOL, UPDATE_AVATAR_TOOL, DISCONNECT_CHANNEL_TOOL, UPDATE_PROJECT_TOOL].map((tool) => tool.name)
-    ).toEqual(["UpdateSkill", "UpdateProfile", "UpdateAvatar", "DisconnectChannel", "UpdateProject"]);
+      [UPDATE_SKILL_TOOL, UPDATE_PROFILE_TOOL, UPDATE_AVATAR_TOOL, DISCONNECT_CHANNEL_TOOL].map((tool) => tool.name)
+    ).toEqual(["UpdateSkill", "UpdateProfile", "UpdateAvatar", "DisconnectChannel"]);
     expect(STATE_TOOL_TARGETS).toEqual({
       UpdateMemory: "memory",
       UpdateRoutine: "routine",
@@ -617,9 +616,9 @@ describe("API contracts", () => {
       UpdateProfile: "profile",
       UpdateAvatar: "avatar",
       DisconnectChannel: "channel",
-      UpdateProject: "project",
     });
     expect(isStateTool("update_state")).toBe(false);
+    expect(isStateTool("UpdateProject")).toBe(false);
     for (const name of Object.keys(STATE_TOOL_TARGETS)) {
       expect(isStateTool(name)).toBe(true);
       const schema = referenceTool(name).inputSchema as { properties: Record<string, unknown> };
@@ -627,7 +626,7 @@ describe("API contracts", () => {
       // Every advertised argument survives the argument parser.
       expect(Object.keys(normalizeMainToolArguments(name, {
         ...{ UpdateMemory: { action: "write", fact: "x" }, UpdateRoutine: { action: "pause", id: "r" }, UpdateSkill: { action: "delete", id: "s" },
-          UpdateProfile: {}, UpdateAvatar: { action: "clear" }, DisconnectChannel: { platform: "slack" }, UpdateProject: { action: "join", project: "p" } }[name],
+          UpdateProfile: {}, UpdateAvatar: { action: "clear" }, DisconnectChannel: { platform: "slack" } }[name],
         target: "memory",
       }))).not.toContain("target");
     }
@@ -636,9 +635,11 @@ describe("API contracts", () => {
       required: string[];
     };
     expect(memory.properties.action?.enum).toEqual(["write", "forget"]);
-    expect(memory.properties.scope?.enum).toEqual(["agent", "user", "project"]);
+    expect(memory.properties.scope?.enum).toEqual(["agent", "user"]);
+    expect(memory.properties).not.toHaveProperty("project");
     expect(memory.required).toEqual(["action", "fact"]);
-    expect(UPDATE_MEMORY_TOOL.description).toContain("UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel, UpdateProject");
+    expect(UPDATE_MEMORY_TOOL.description).toContain("UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.");
+    expect(UPDATE_MEMORY_TOOL.description).not.toContain("project");
     const routine = UPDATE_ROUTINE_TOOL.inputSchema as { properties: Record<string, { enum?: string[] }> };
     expect(routine.properties.action?.enum).toEqual(["create", "update", "pause", "resume", "delete"]);
     expect(UPDATE_ROUTINE_TOOL.description).toContain("may ask the user to confirm");
@@ -659,6 +660,7 @@ describe("API contracts", () => {
       scope: "user",
     });
     expect(() => Schema.decodeUnknownSync(UpdateMemoryInput)({ action: "write" })).toThrow();
+    expect(() => Schema.decodeUnknownSync(UpdateMemoryInput)({ action: "write", fact: "x", scope: "project" })).toThrow();
     expect(
       Schema.decodeUnknownSync(UpdateRoutineInput)({
         action: "create",
@@ -675,7 +677,8 @@ describe("API contracts", () => {
       "UpdateMemory only writes or forgets memory. Routines have their own UpdateRoutine tool."
     );
     expect(() => normalizeMainToolArguments("UpdateProfile", { avatar_shape: "triangle" })).toThrow();
-    expect(() => normalizeMainToolArguments("UpdateProject", { action: "join" })).toThrow();
+    expect(() => normalizeMainToolArguments("UpdateMemory", { action: "write", fact: "x", scope: "project" })).toThrow();
+    expect(normalizeMainToolArguments("UpdateMemory", { action: "write", fact: "x", project: "launch" })).toEqual({ action: "write", fact: "x" });
   });
 
   test("renders state results for the tool that ran", () => {
@@ -694,7 +697,6 @@ describe("API contracts", () => {
     expect(renderControlResult("DisconnectChannel", { target: "channel", platform: "slack", disconnected: true }, { platform: "slack" })).toContain(
       "Disconnected slack."
     );
-    expect(renderControlResult("UpdateProject", { target: "project", action: "join", project: "launch" }, {})).toBe('Joined project "launch".');
     expect(renderControlResult("UpdateAvatar", { target: "avatar", cleared: true }, { action: "clear" })).toBe(
       "Cleared your picture — back to the default."
     );

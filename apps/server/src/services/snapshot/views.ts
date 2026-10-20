@@ -7,7 +7,6 @@ export function workspaceView(workspaceRoot: string) {
     root: workspaceRoot,
     sharedDirectory: resolve(workspaceRoot, "shared"),
     botsDirectory: resolve(workspaceRoot, "bots"),
-    projectsDirectory: resolve(workspaceRoot, "projects"),
   };
 }
 

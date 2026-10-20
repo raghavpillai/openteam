@@ -1108,7 +1108,6 @@ export const UpdateStateInput = Schema.Struct({
     "profile",
     "settings",
     "channel",
-    "project",
     "avatar"
   ),
   action: Schema.Literal(
@@ -1121,14 +1120,11 @@ export const UpdateStateInput = Schema.Struct({
     "delete",
     "set",
     "disconnect",
-    "join",
-    "leave",
     "clear"
   ),
   fact: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   tier: Schema.optional(Schema.Literal("profile", "log", "note")),
-  scope: Schema.optional(Schema.Literal("agent", "user", "project")),
-  project: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+  scope: Schema.optional(Schema.Literal("agent", "user")),
   id: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   name: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   title: Schema.optional(Schema.String),
@@ -1153,8 +1149,7 @@ export const UpdateMemoryInput = Schema.Struct({
   action: Schema.Literal("write", "forget"),
   fact: Schema.String.pipe(Schema.minLength(1)),
   tier: Schema.optional(Schema.Literal("profile", "log", "note")),
-  scope: Schema.optional(Schema.Literal("agent", "user", "project")),
-  project: optionalText,
+  scope: Schema.optional(Schema.Literal("agent", "user")),
 });
 export type UpdateMemoryInput = typeof UpdateMemoryInput.Type;
 
@@ -1200,21 +1195,12 @@ export const DisconnectChannelInput = Schema.Struct({
 });
 export type DisconnectChannelInput = typeof DisconnectChannelInput.Type;
 
-export const UpdateProjectInput = Schema.Struct({
-  action: Schema.Literal("create", "join", "leave"),
-  project: Schema.String.pipe(Schema.minLength(1)),
-  name: optionalText,
-  description: Schema.optional(Schema.String),
-});
-export type UpdateProjectInput = typeof UpdateProjectInput.Type;
-
 export const UPDATE_MEMORY_TOOL = nativeTool("UpdateMemory");
 export const UPDATE_ROUTINE_TOOL = nativeTool("UpdateRoutine");
 export const UPDATE_SKILL_TOOL = cursorTool("UpdateSkill");
 export const UPDATE_PROFILE_TOOL = cursorTool("UpdateProfile");
 export const UPDATE_AVATAR_TOOL = cursorTool("UpdateAvatar");
 export const DISCONNECT_CHANNEL_TOOL = cursorTool("DisconnectChannel");
-export const UPDATE_PROJECT_TOOL = cursorTool("UpdateProject");
 
 export const SCREENSHOT_TOOL = nativeTool("Screenshot");
 
@@ -1713,7 +1699,6 @@ export interface Snapshot {
     root: string;
     sharedDirectory: string;
     botsDirectory: string;
-    projectsDirectory: string;
   };
   bots: BotView[];
   channels: ChannelView[];

@@ -395,7 +395,7 @@ describe("specialized subagent tool surfaces", () => {
 });
 
 describe("durable state tools", () => {
-  const namespacedStateTools = ["UpdateSkill", "UpdateProfile", "UpdateAvatar", "DisconnectChannel", "UpdateProject"];
+  const namespacedStateTools = ["UpdateSkill", "UpdateProfile", "UpdateAvatar", "DisconnectChannel"];
   const cursorToolNames = (runtime: any, active: Record<string, unknown>) =>
     runtime.dynamicCatalog(active).find((namespace: any) => namespace.name === "cursor").tools.map((tool: any) => tool.name);
 
@@ -406,6 +406,7 @@ describe("durable state tools", () => {
       expect(names).toEqual(expect.arrayContaining(["UpdateMemory", "UpdateRoutine"]));
       expect(names).not.toContain("update_state");
       expect(cursorToolNames(runtime, active)).toEqual(expect.arrayContaining(namespacedStateTools));
+      expect(cursorToolNames(runtime, active)).not.toContain("UpdateProject");
     }
     for (const subagentType of ["executor", "knowledgeWork", "computerUse", "browserUse"]) {
       for (const readOnly of [false, true]) {
@@ -442,7 +443,6 @@ describe("durable state tools", () => {
       ["UpdateProfile", { title: "Designer", hidden_from_sidebar: true }],
       ["UpdateAvatar", { action: "clear" }],
       ["DisconnectChannel", { platform: "slack" }],
-      ["UpdateProject", { action: "join", project: "launch" }],
     ];
     for (const [name, args] of namespaced) {
       const tool = cursor.tools.find((candidate: any) => candidate.name === name);

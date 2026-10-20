@@ -589,41 +589,6 @@
       }
     },
     {
-      "tool": "UpdateProject",
-      "description": "Create, join, or leave a project. Projects are optional and opt-in: only the memory of projects you have joined enters your context. create makes the project folder and its project.md and joins it; if the slug already exists, create joins that project instead (create-is-join). Save project facts with UpdateMemory (scope \"project\").",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string",
-            "enum": [
-              "create",
-              "join",
-              "leave"
-            ]
-          },
-          "project": {
-            "type": "string",
-            "minLength": 1,
-            "description": "The project's slug: lowercase letters, numbers, and single hyphens."
-          },
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Required on create."
-          },
-          "description": {
-            "type": "string",
-            "description": "create only. An optional one-line summary."
-          }
-        },
-        "required": [
-          "action",
-          "project"
-        ]
-      }
-    },
-    {
       "tool": "CopyToBox",
       "description": "Copy a file from the selected user computer into your box, verbatim. Defaults to /workspace/uploads under its original filename. Supports binary files up to 256 MiB. Runs directly on the selected connected computer. Expand globs with Shell and pass a concrete file path. Transfers replace an existing destination atomically; incomplete uploads never replace it.",
       "inputSchema": {

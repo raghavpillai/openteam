@@ -16,17 +16,6 @@ export interface PromptMemoryRecall {
   profile: PromptMemoryRecord[];
   recent: PromptMemoryRecord[];
 }
-export interface ProjectMemoryBlock {
-  slug: string;
-  name: string;
-  ownShardDir?: string;
-  recall: PromptMemoryRecall;
-}
-export interface ProjectMemoryRecall {
-  injected: ProjectMemoryBlock[];
-  alsoMemberOf: Array<{ slug: string; name: string }>;
-}
-
 const MEMORY_RECENT_PROMPT_CHAR_BUDGET = 4e3;
 
 const SAND_RECALL_MEMORY_TOOL_NAME = "RecallMemory";
@@ -44,10 +33,6 @@ const USER_MEMORY_PROMPT_HEADER =
 const MEMORY_USER_PROFILE_CHAR_BUDGET = 4e3;
 
 const MEMORY_USER_RECENT_CHAR_BUDGET = 2e3;
-
-const MEMORY_PROJECT_PROFILE_CHAR_BUDGET = 2500;
-
-const MEMORY_PROJECT_RECENT_CHAR_BUDGET = 1500;
 
 export function formatMemoryDate(createdAtMs: number) {
   if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return "unknown date";
@@ -106,7 +91,7 @@ export function renderMemorySystemPrompt(
     lines2.push(`Where to save: ${renderMemoryConversationScopeStory(conversationMemory)}`);
   }
   if (nativeMemory !== void 0) {
-    lines2.push('Where to save: scope "agent" (default) is your memory across every conversation with this bot. scope "project" writes your shard in a project you have joined and requires project=<slug>.');
+    lines2.push('Where to save: scope "agent" (default) is your memory across every conversation with this bot.');
     lines2.push(["owner", "sender"].includes(nativeMemory.userScope)
       ? 'scope "user" is durable facts about the owner, shared across their assistants.'
       : 'scope "user" is the owner\'s memory across their agents and cannot be written from this conversation.');
@@ -229,90 +214,6 @@ export function renderUserMemorySystemPrompt(
   }
   if (!hasFacts) {
     lines2.push("No shared facts recorded yet.");
-  }
-  return lines2.join("\n");
-}
-
-export function projectMemoryActivity(recall: PromptMemoryRecall) {
-  let newest = 0;
-  for (const record2 of [...recall.profile, ...recall.recent]) {
-    if (record2.createdAt > newest) newest = record2.createdAt;
-  }
-  return newest;
-}
-
-export function selectProjectMemoryBlocks(blocks: ProjectMemoryBlock[], injectedCap: number) {
-  const cap = Number.isFinite(injectedCap) && injectedCap > 0 ? Math.floor(injectedCap) : 0;
-  const ordered = [...blocks].sort((a, b2) => {
-    const factsA = hasProjectFacts(a) ? 1 : 0;
-    const factsB = hasProjectFacts(b2) ? 1 : 0;
-    if (factsA !== factsB) return factsB - factsA;
-    const activity = projectMemoryActivity(b2.recall) - projectMemoryActivity(a.recall);
-    if (activity !== 0) return activity;
-    if (a.slug === b2.slug) return 0;
-    return a.slug < b2.slug ? -1 : 1;
-  });
-  return {
-    injected: ordered.slice(0, cap),
-    alsoMemberOf: ordered.slice(cap).map((block) => ({ slug: block.slug, name: block.name })),
-  };
-}
-
-export function hasProjectFacts(block: ProjectMemoryBlock) {
-  return block.recall.profile.length > 0 || block.recall.recent.length > 0;
-}
-
-export function renderProjectMemorySystemPrompt(
-  recall: ProjectMemoryRecall,
-  ctx: { projectsRootDir?: string }
-) {
-  if (ctx.projectsRootDir == null) return "";
-  const lines2 = [
-    "Project memory: durable facts shared by every assistant that has joined a project \u2014 the project's decisions, conventions, and state. Projects are optional and opt-in; joining one lets its memory into your prompt below.",
-    "Precedence across memory tiers: on conflict prefer your OWN memory first, then project memory, then user memory \u2014 the most specific wins.",
-    `Projects live under ${ctx.projectsRootDir}: each is a folder <slug>/ holding a project.md (frontmatter name/description) and memory/by-agent/<assistantId>/ shards (one per contributing assistant, a standard profile.md + log/). Read and grep those folders with Read and Shell on your own computer; prefer the state tools for every CHANGE:`,
-    '  - Define a project: UpdateProject (cursor namespace) action "create", project=<slug>, name=... (optional description). If the slug already exists this is create-is-join.',
-    `  - Join or leave: UpdateProject action "join" or "leave", project=<slug>. Only projects you have joined load below; to see who else is a member, grep the assistants' projects.json files.`,
-    `  - Write project facts with UpdateMemory, scope "project", project=<slug>, action "write" or "forget" (never another assistant's shard); newest wins on conflict. Record a fact here only when it is about the project and useful to every member.`,
-  ];
-  for (const block of recall.injected) {
-    const header =
-      block.ownShardDir != null
-        ? `Project "${block.name}" (${block.slug}) \u2014 your shard: ${block.ownShardDir}:`
-        : `Project "${block.name}" (${block.slug}):`;
-    lines2.push(header);
-    const grepHint = `on disk \u2014 grep this project's memory/ folder`;
-    if (block.recall.profile.length > 0) {
-      lines2.push("About this project (shared):");
-      appendBudgetedProvenancedFacts(
-        lines2,
-        block.recall.profile,
-        MEMORY_PROJECT_PROFILE_CHAR_BUDGET,
-        "profile facts",
-        grepHint
-      );
-    }
-    if (block.recall.recent.length > 0) {
-      lines2.push("Recently (shared):");
-      appendBudgetedProvenancedFacts(
-        lines2,
-        block.recall.recent,
-        MEMORY_PROJECT_RECENT_CHAR_BUDGET,
-        "log facts",
-        grepHint
-      );
-    }
-    if (!hasProjectFacts(block)) {
-      lines2.push("No shared facts recorded yet for this project.");
-    }
-  }
-  if (recall.alsoMemberOf.length > 0) {
-    const pointers = recall.alsoMemberOf
-      .map((pointer) => `${pointer.name} (${pointer.slug})`)
-      .join(", ");
-    lines2.push(
-      `Also a member of: ${pointers} \u2014 grep those project folders for their memory.`
-    );
   }
   return lines2.join("\n");
 }

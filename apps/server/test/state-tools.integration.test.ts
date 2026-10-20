@@ -20,7 +20,6 @@ databaseTest("each state tool updates its fixed target and names itself in error
   const prisma = createPrismaClient(databaseUrl!);
   const root = await mkdtemp(join(tmpdir(), "state-tools-"));
   const store = new AgentDataStore(prisma, { root: join(root, "data"), workspaceRoot: root });
-  const projectSlug = `state-${crypto.randomUUID()}`;
   const skillName = `State fixture ${crypto.randomUUID()}`;
   const routineCalls: unknown[] = [];
   let botId = "";
@@ -47,7 +46,7 @@ databaseTest("each state tool updates its fixed target and names itself in error
     };
     // No live timeline session, so a rename records no wake.
     const timeline = { isTimelineSessionActive: async () => false };
-    const state = new DurableStateService(prisma, root, async () => {}, routines as never, store, timeline as never);
+    const state = new DurableStateService(prisma, routines as never, store, timeline as never);
     const service = new InternalToolService(
       prisma, { agentData: store } as never, state, async () => {}, {} as never, {} as never, {} as never, {} as never
     );
@@ -98,16 +97,12 @@ databaseTest("each state tool updates its fixed target and names itself in error
     expect(await call("DisconnectChannel", { platform: "Slack" })).toMatchObject({ target: "channel", platform: "slack", disconnected: true });
     expect(await prisma.botConnectorState.findUniqueOrThrow({ where: { botId_platform: { botId, platform: "slack" } } })).toMatchObject({ connected: false });
 
-    expect(await call("UpdateProject", { action: "create", project: projectSlug, name: "State fixture" })).toMatchObject({
-      target: "project", action: "create", project: projectSlug, created: true,
-    });
-    expect(await call("UpdateProject", { action: "leave", project: projectSlug })).toMatchObject({ target: "project", left: true });
-    await expect(call("UpdateProject", { action: "create", project: "Not A Slug", name: "x" })).rejects.toThrow("Project slug must contain");
+    await expect(call("UpdateProject", { action: "create", project: "launch", name: "x" })).rejects.toThrow("Unknown tool UpdateProject");
 
     expect(await call("UpdateMemory", { action: "write", fact: "State tools fixture fact." })).toBe(
       "Remembered in your memory (log): State tools fixture fact."
     );
-    await expect(call("UpdateMemory", { action: "write", scope: "project", fact: "x" })).rejects.toThrow("UpdateMemory write requires project");
+    await expect(call("UpdateMemory", { action: "write", scope: "project", fact: "x" })).rejects.toThrow("Expected 'agent' | 'user', received 'project'");
     await expect(call("UpdateMemory", { action: "create", fact: "x" })).rejects.toThrow("UpdateMemory only writes or forgets memory");
     await expect(call("update_state", { target: "memory", action: "write", fact: "x" })).rejects.toThrow("Unknown tool update_state");
   } finally {
@@ -116,7 +111,6 @@ databaseTest("each state tool updates its fixed target and names itself in error
       await prisma.idempotencyRecord.deleteMany({ where: { scope: `state:${botId}` } });
       await prisma.memoryFact.deleteMany({ where: { writtenByBotId: botId } });
       await prisma.savedSkill.deleteMany({ where: { name: skillName } });
-      await prisma.project.deleteMany({ where: { slug: projectSlug } });
       await prisma.bot.deleteMany({ where: { id: botId } });
     }
     if (channelId) await prisma.channel.deleteMany({ where: { id: channelId } });

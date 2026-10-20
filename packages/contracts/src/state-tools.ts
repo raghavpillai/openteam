@@ -8,7 +8,6 @@ export const STATE_TOOL_TARGETS = {
   UpdateProfile: "profile",
   UpdateAvatar: "avatar",
   DisconnectChannel: "channel",
-  UpdateProject: "project",
 } as const satisfies Record<string, UpdateStateInput["target"]>;
 
 export type StateToolName = keyof typeof STATE_TOOL_TARGETS;

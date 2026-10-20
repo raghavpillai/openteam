@@ -138,19 +138,8 @@ test("canonical avatars serve safely and sidebar deletion preserves global memor
     ).toEqual(a2aAttachmentPaths);
 
     const userShard = join(root, "user-memory", "by-agent", botId, "profile.md");
-    const projectShard = join(
-      root,
-      "projects",
-      "lifecycle",
-      "memory",
-      "by-agent",
-      botId,
-      "profile.md"
-    );
     await mkdir(join(userShard, ".."), { recursive: true });
-    await mkdir(join(projectShard, ".."), { recursive: true });
     await writeFile(userShard, "- (2026-08-27) Keep user memory.\n");
-    await writeFile(projectShard, "- (2026-08-27) Keep project memory.\n");
 
     const bots = new BotService(
       prisma,
@@ -207,7 +196,6 @@ test("canonical avatars serve safely and sidebar deletion preserves global memor
       });
     }
     expect(await readFile(userShard, "utf8")).toContain("Keep user memory");
-    expect(await readFile(projectShard, "utf8")).toContain("Keep project memory");
   } finally {
     await prisma.bot
       .deleteMany({ where: { id: { in: [botId, childBotId] } } })

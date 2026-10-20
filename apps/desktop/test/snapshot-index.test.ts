@@ -15,7 +15,6 @@ function fixture(): ClientSnapshot {
       root: "/workspace",
       sharedDirectory: "/workspace",
       botsDirectory: "/workspace/bots",
-      projectsDirectory: "/workspace/projects",
     },
     bots: [
       {

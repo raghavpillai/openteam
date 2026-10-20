@@ -348,7 +348,6 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     expect(firstSnapshot.workspace).toMatchObject({
       root: workspace,
       botsDirectory: join(workspace, "bots"),
-      projectsDirectory: join(workspace, "projects"),
       sharedDirectory: join(workspace, "shared"),
     });
 

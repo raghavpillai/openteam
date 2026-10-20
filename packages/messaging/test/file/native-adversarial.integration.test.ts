@@ -113,7 +113,6 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
   const firstChannelId = randomUUID();
   const secondChannelId = randomUUID();
   const groupId = randomUUID();
-  const projectSlug = `watcher-${randomUUID()}`;
   const skillSlug = "disk-owned-skill";
   const routineSlug = "disk-owned-routine";
   const eventWakes: Array<{ origin: string; type: string; content: string }> = [];
@@ -183,22 +182,8 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
         },
       },
     });
-    await prisma.project.create({
-      data: {
-        slug: projectSlug,
-        name: "Watcher project",
-        workingDirectory: join(workspace, "projects", projectSlug),
-        members: {
-          create: [{ botId: firstBotId }, { botId: secondBotId }],
-        },
-      },
-    });
 
     await Promise.all([store.initializeBot(firstBotId), store.initializeBot(secondBotId)]);
-    await Promise.all([
-      store.writeBotFiles(firstBotId, ["projects"]),
-      store.writeBotFiles(secondBotId, ["projects"]),
-    ]);
     await store.writeGroupFilesForBot(firstBotId);
     await Promise.all([store.reconcileBot(firstBotId), store.reconcileBot(secondBotId)]);
 
@@ -630,12 +615,6 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       tier: "profile",
       fact: "User fact written by watcher two.",
     });
-    await store.writeMemory(secondBotId, {
-      scope: "project",
-      projectSlug,
-      tier: "profile",
-      fact: "Shared project fact written by watcher two.",
-    });
     await prisma.conversation.update({
       where: { id: firstConversationId },
       data: { compactionEpoch: { increment: 1 } },
@@ -643,7 +622,6 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     const mergedMemory = await store.promptContext(firstBotId);
     expect(mergedMemory.memoryRender).toContain("User fact written by watcher one.");
     expect(mergedMemory.memoryRender).toContain("User fact written by watcher two.");
-    expect(mergedMemory.memoryRender).toContain("Shared project fact written by watcher two.");
 
     await store.forgetMemory(firstBotId, {
       scope: "user",
@@ -963,24 +941,10 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     await store.writeActiveAgentId(secondBotId);
     expect(await store.loadActiveAgentId()).toBe(secondBotId);
 
-    expect(() => store.memoryDirectory(firstBotId, "project", "../escape")).toThrow(
-      "project slug is not a safe folder id"
-    );
-
     const secondDirectory = store.botDirectory(secondBotId);
     const secondUserMemory = join(root, "user-memory", "by-agent", secondBotId, "profile.md");
-    const secondProjectMemory = join(
-      root,
-      "projects",
-      projectSlug,
-      "memory",
-      "by-agent",
-      secondBotId,
-      "profile.md"
-    );
     await access(secondDirectory);
     await access(secondUserMemory);
-    await access(secondProjectMemory);
     await prisma.bot.update({
       where: { id: secondBotId },
       data: { status: "archived", avatarPath: null },
@@ -996,14 +960,9 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     });
     await expect(access(secondDirectory)).rejects.toThrow();
     await access(secondUserMemory);
-    await access(secondProjectMemory);
     await atomicWrite(
       secondUserMemory,
       "- (2026-08-27) An archived writer's user shard remains authoritative.\n"
-    );
-    await atomicWrite(
-      secondProjectMemory,
-      "- (2026-08-27) An archived writer's project shard remains authoritative.\n"
     );
     await store.reconcileBot(firstBotId);
     expect(
@@ -1014,20 +973,11 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
         },
       })
     ).not.toBeNull();
-    expect(
-      await prisma.memoryFact.findFirst({
-        where: {
-          namespace: `project:${projectSlug}:agent:${secondBotId}`,
-          fact: "An archived writer's project shard remains authoritative.",
-        },
-      })
-    ).not.toBeNull();
   } finally {
     await store.stopWatching();
     await prisma.channel.deleteMany({
       where: { id: { in: [firstChannelId, secondChannelId, groupId] } },
     });
-    await prisma.project.deleteMany({ where: { slug: projectSlug } });
     await prisma.memoryFact.deleteMany({
       where: {
         namespace: {
@@ -1036,8 +986,6 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
             `agent:${secondBotId}`,
             `user:agent:${firstBotId}`,
             `user:agent:${secondBotId}`,
-            `project:${projectSlug}:agent:${firstBotId}`,
-            `project:${projectSlug}:agent:${secondBotId}`,
           ],
         },
       },

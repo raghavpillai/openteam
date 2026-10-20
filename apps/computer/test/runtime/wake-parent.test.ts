@@ -38,7 +38,6 @@ test("automation discovers WakeParent and work tools, with all communication sur
     "UpdateProfile",
     "UpdateAvatar",
     "DisconnectChannel",
-    "UpdateProject",
     "Task",
     "CheckSubagent",
     "WebFetch",

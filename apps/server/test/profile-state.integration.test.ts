@@ -28,8 +28,6 @@ test.skipIf(!url)(
       const files = new AgentDataStore(db, { root: join(root, "data"), workspaceRoot: root });
       const state = new DurableStateService(
         db,
-        root,
-        async () => {},
         {} as never,
         files,
         {} as never

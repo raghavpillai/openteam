@@ -273,7 +273,7 @@
   },
   "UpdateMemory": {
     "name": "UpdateMemory",
-    "description": "Change your durable memory. write saves a fact (deduped); forget drops one by its exact recorded text (find it with RecallMemory, or read the memory folder when it is on your computer), so pair it with a write to correct a fact. Prefer this over editing memory files with the shell. Save without asking and mention it in passing. Routines have their own UpdateRoutine tool. Skills, profile and settings, picture, channels, and projects have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel, UpdateProject.",
+    "description": "Change your durable memory. write saves a fact (deduped); forget drops one by its exact recorded text (find it with RecallMemory, or read the memory folder when it is on your computer), so pair it with a write to correct a fact. Prefer this over editing memory files with the shell. Save without asking and mention it in passing. Routines have their own UpdateRoutine tool. Skills, profile and settings, picture, and channels have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -302,15 +302,9 @@
           "type": "string",
           "enum": [
             "agent",
-            "user",
-            "project"
+            "user"
           ],
-          "description": "Default \"agent\", your own memory. \"user\" is shared memory every assistant should know. \"project\" writes your shard in a project you have joined and needs project."
-        },
-        "project": {
-          "type": "string",
-          "minLength": 1,
-          "description": "The project's slug. Required when scope is \"project\"."
+          "description": "Default \"agent\", your own memory. \"user\" is shared memory every assistant should know."
         }
       },
       "required": [
@@ -2377,41 +2371,6 @@
       },
       "required": [
         "platform"
-      ]
-    }
-  },
-  "UpdateProject": {
-    "name": "UpdateProject",
-    "description": "Create, join, or leave a project. Projects are optional and opt-in: only the memory of projects you have joined enters your context. create makes the project folder and its project.md and joins it; if the slug already exists, create joins that project instead (create-is-join). Save project facts with UpdateMemory (scope \"project\").",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "action": {
-          "type": "string",
-          "enum": [
-            "create",
-            "join",
-            "leave"
-          ]
-        },
-        "project": {
-          "type": "string",
-          "minLength": 1,
-          "description": "The project's slug: lowercase letters, numbers, and single hyphens."
-        },
-        "name": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Required on create."
-        },
-        "description": {
-          "type": "string",
-          "description": "create only. An optional one-line summary."
-        }
-      },
-      "required": [
-        "action",
-        "project"
       ]
     }
   },

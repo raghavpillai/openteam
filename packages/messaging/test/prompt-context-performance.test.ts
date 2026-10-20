@@ -31,7 +31,6 @@ const promptStore = (snapshotValue: ReturnType<typeof snapshot>) => {
         description: "Description",
         instructions: "",
         conversation: { compactionEpoch: 7 },
-        projectMemberships: [],
       }),
     },
     agentPromptSnapshot: {

@@ -46,6 +46,10 @@ export async function settingsRoutes(context: RouteContext): Promise<Response | 
   if (path === "/api/server-settings/web-providers/check" && request.method === "POST")
     return json(await app.webProviders.check(await request.json().catch(() => null)));
 
+  if (request.method === "POST" && path === "/api/server-settings/inference/test") {
+    // An empty body tests the saved model; a body tests a choice before it is applied.
+    return json(await run(app.testInference(await request.json().catch(() => null))));
+  }
   if (request.method === "PATCH" && path === "/api/server-settings/inference") {
     return json(await run(app.updateInferenceSettings(await request.json().catch(() => null))));
   }

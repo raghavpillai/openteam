@@ -65,9 +65,8 @@ final class AuthFlowUITests: XCTestCase {
     XCTAssertTrue(app.textFields["username-field"].waitForExistence(timeout: 20))
   }
   func signIn(_ app: XCUIApplication, password: String = "fixture-only") {
-    waitForArrival(app.textFields["username-field"])
-    app.textFields["username-field"].tap()
-    app.textFields["username-field"].typeText("fixture")
+    // Outside --ui-testing the app prefills the last username for this server.
+    replace(app.textFields["username-field"], "fixture")
     app.secureTextFields["password-field"].tap()
     app.secureTextFields["password-field"].typeText(password)
     app.buttons["sign-in-button"].tap()
@@ -101,7 +100,7 @@ final class AuthFlowUITests: XCTestCase {
     capture("server", app)
     replace(app.textFields["server-field"], "not a URL")
     app.buttons["connect-button"].tap()
-    assertError("starting with", app)
+    assertError("such as 192.168.1.20:8787", app)
     capture("server-invalid", app)
     replace(app.textFields["server-field"], "http://user:password@localhost")
     app.buttons["connect-button"].tap()
@@ -339,7 +338,8 @@ final class AuthFlowUITests: XCTestCase {
       app.swipeUp()
     }
     let connect = app.buttons["connect-button"]
-    let back = app.buttons["auth-back-endpoint"]
+    // Sign-in is a NavigationStack: Back is the system navigation-bar button.
+    let back = app.buttons["BackButton"].firstMatch
     XCTAssertGreaterThan(connect.frame.minY, back.frame.maxY)
     XCTAssertGreaterThan(connect.frame.width, 350)
     capture("endpoint-dark-large-text", app)
@@ -374,8 +374,8 @@ final class AuthFlowUITests: XCTestCase {
       ]
       app.launch()
       XCTAssertTrue(app.buttons["get-started"].waitForExistence(timeout: 8))
-      XCTAssertEqual(app.buttons["get-started"].label, "Log In")
-      XCTAssertTrue(app.staticTexts["OpenTeam"].exists)
+      XCTAssertEqual(app.buttons["get-started"].label, "Get started")
+      XCTAssertTrue(app.staticTexts["Welcome to OpenTeam"].exists)
       capture("restored-welcome-" + appearance + "-motion-a", app)
       try await Task.sleep(for: .milliseconds(850))
       capture("restored-welcome-" + appearance + "-motion-b", app)
@@ -387,7 +387,7 @@ final class AuthFlowUITests: XCTestCase {
       XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
       XCTAssertTrue(app.buttons["connect-button"].isHittable)
       capture("restored-server-keyboard-" + appearance, app)
-      app.buttons["auth-back-endpoint"].tap()
+      app.buttons["BackButton"].firstMatch.tap()
       waitForArrival(app.buttons["get-started"])
       XCTAssertTrue(app.buttons["get-started"].isHittable)
       XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
@@ -401,7 +401,7 @@ final class AuthFlowUITests: XCTestCase {
       app.textFields["username-field"].typeText("fixture")
       app.secureTextFields["password-field"].tap()
       app.secureTextFields["password-field"].typeText("unsent-password")
-      app.buttons["auth-back-credentials"].tap()
+      app.buttons["BackButton"].firstMatch.tap()
       waitForArrival(app.textFields["server-field"])
       app.buttons["connect-button"].tap()
       XCTAssertTrue(app.secureTextFields["password-field"].waitForExistence(timeout: 10))

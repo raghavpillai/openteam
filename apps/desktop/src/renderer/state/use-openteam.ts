@@ -38,6 +38,8 @@ import {
   backgroundHistoryNeed as backgroundHistoryNeedFor,
   bootstrapSnapshot,
 } from "../lib/bootstrap-snapshot";
+import { withDeadline } from "../lib/request-errors";
+import { RUNTIME_REFRESH_EVENT } from "../lib/runtime-refresh";
 
 export type OpenTeamMutation = <T>(operation: () => Promise<T>) => Promise<T>;
 
@@ -828,7 +830,11 @@ export function useOpenTeam() {
             refreshNeedsForeground.current = false;
             refreshError.current = null;
             try {
-              const bootstrap = await api.bootstrap();
+              // Until the first load lands, a silent server must turn into a message (and
+              // the retry below) rather than an endless "Connecting".
+              const bootstrap = await (snapshotRef.current
+                ? api.bootstrap()
+                : withDeadline((signal) => api.bootstrap(signal)));
               bootstrapRef.current = bootstrap;
               bootstrapEpoch.current += 1;
               cursor.current = bootstrap.cursor;
@@ -979,13 +985,19 @@ export function useOpenTeam() {
     };
 
     schedule();
+    const pollNow = () => {
+      if (timer) clearTimeout(timer);
+      void poll();
+    };
     window.addEventListener(WINDOW_VISIBILITY_EVENT, pollWhenVisible);
     window.addEventListener("focus", pollWhenVisible);
+    window.addEventListener(RUNTIME_REFRESH_EVENT, pollNow);
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
       window.removeEventListener(WINDOW_VISIBILITY_EVENT, pollWhenVisible);
       window.removeEventListener("focus", pollWhenVisible);
+      window.removeEventListener(RUNTIME_REFRESH_EVENT, pollNow);
     };
   }, [publishBootstrap, snapshot !== null]);
 

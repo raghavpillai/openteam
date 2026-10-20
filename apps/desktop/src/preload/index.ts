@@ -188,6 +188,14 @@ contextBridge.exposeInMainWorld("openteam", {
       return () => ipcRenderer.removeListener("openteam:plugin-oauth:result", listener);
     },
   },
+  localServer: {
+    detect: () => ipcRenderer.invoke("openteam:local-server:detect"),
+  },
+  providerSignIn: {
+    capture: (authorizationUrl: string, redirectUri: string) =>
+      ipcRenderer.invoke("openteam:provider-sign-in:capture", authorizationUrl, redirectUri),
+    cancel: () => ipcRenderer.invoke("openteam:provider-sign-in:cancel"),
+  },
   computer: {
     get: () => ipcRenderer.invoke("openteam:computer:get"),
     update: (request: { machineLabel: string }) => ipcRenderer.invoke("openteam:computer:update", request),

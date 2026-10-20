@@ -89,6 +89,7 @@ interface Installation {
   directory: string;
   version: string;
   apiPort: string;
+  ownerUsername?: string;
 }
 
 interface UpdateEvent {
@@ -161,13 +162,19 @@ export const readManagedInstallation = (
     return null;
   }
   try {
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { version?: unknown };
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      version?: unknown;
+      ownerUsername?: unknown;
+    };
     if (typeof manifest.version !== "string" || !isOpenTeamVersion(manifest.version)) return null;
     const values = environmentValues(readFileSync(environmentPath, "utf8"));
     return {
       directory,
       version: manifest.version,
       apiPort: values.get("OPENTEAM_API_PORT") || "8787",
+      ...(typeof manifest.ownerUsername === "string" && manifest.ownerUsername
+        ? { ownerUsername: manifest.ownerUsername }
+        : {}),
     };
   } catch {
     return null;

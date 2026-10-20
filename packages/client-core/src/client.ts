@@ -35,6 +35,7 @@ import type {
   CreateRoutineInput,
   DuplicateBotInput,
   InferenceProviderAuthSessionView,
+  InferenceTestResult,
   MessageDeliveryStatusView,
   PluginConnectionStatusesView,
   PluginSettingsView,
@@ -190,16 +191,23 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         method: "POST",
         body: JSON.stringify(input),
       }),
-    serverSettings: (providerId?: string) => {
+    serverSettings: (providerId?: string, signal?: AbortSignal) => {
       const query = providerId
         ? `?${new URLSearchParams({ provider: providerId }).toString()}`
         : "";
-      return transport.request<ServerSettingsView>(`/api/v0/server-settings${query}`);
+      return transport.request<ServerSettingsView>(`/api/v0/server-settings${query}`, { signal });
     },
     updateInferenceSettings: (input: ServerInferenceSettings) =>
       transport.request<ServerInferenceSettings>("/api/v0/server-settings/inference", {
         method: "PATCH",
         body: JSON.stringify(input),
+      }),
+    /** Sends one minimal request to the model; omit input to test the saved choice. */
+    testInferenceSettings: (input?: ServerInferenceSettings, signal?: AbortSignal) =>
+      transport.request<InferenceTestResult>("/api/v0/server-settings/inference/test", {
+        method: "POST",
+        signal,
+        ...(input ? { body: JSON.stringify(input) } : {}),
       }),
     startInferenceProviderAuth: (providerId: string, authType: "api_key" | "oauth") =>
       transport.request<InferenceProviderAuthSessionView>(
@@ -404,7 +412,8 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         `/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/instructions`,
         { method: "PATCH", body: JSON.stringify({ instructions }) }
       ),
-    bootstrap: () => transport.request<ClientBootstrapView>("/api/v0/client-bootstrap"),
+    bootstrap: (signal?: AbortSignal) =>
+      transport.request<ClientBootstrapView>("/api/v0/client-bootstrap", { signal }),
     listenForEvents: async (
       after: string,
       handlers: ProductEventHandlers,
@@ -440,7 +449,8 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       });
       return consumeProductEventStream(response, handlers, signal);
     },
-    runtime: () => transport.request<ClientRuntimeView>("/api/v0/client-runtime"),
+    runtime: (signal?: AbortSignal) =>
+      transport.request<ClientRuntimeView>("/api/v0/client-runtime", { signal }),
     channelHistory: (
       channelId: string,
       options: { beforeSequence?: string; limit?: number } = {}
@@ -483,10 +493,11 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
     },
     botTranscript: (botId: string) =>
       transport.request<BotTranscriptView>(`/api/v0/bots/${encodeURIComponent(botId)}/transcript`),
-    createBot: (input: CreateBotInput) =>
+    createBot: (input: CreateBotInput, signal?: AbortSignal) =>
       transport.request<BotView>("/api/v0/bots", {
         method: "POST",
         body: JSON.stringify(input),
+        signal,
       }),
     duplicateBot: (botId: string, input: DuplicateBotInput) =>
       transport.request<BotView>(`/api/v0/bots/${encodeURIComponent(botId)}/duplicate`, {

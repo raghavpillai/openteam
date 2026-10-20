@@ -4,6 +4,7 @@ import {
   createOpenTeamClient,
   normalizeBaseUrl,
   sidebarPreferencesFromRootSettings,
+  withDefaultScheme,
 } from "../src";
 
 describe("mobile-safe OpenTeam client", () => {
@@ -577,4 +578,37 @@ describe("mobile-safe OpenTeam client", () => {
       "http://openteam.test/api/v0/bots/bot%2F1/screen/frame?v=42"
     );
   });
+});
+
+test("adds the scheme people leave off server addresses", () => {
+  expect(withDefaultScheme("192.168.1.20:8787")).toBe("http://192.168.1.20:8787");
+  expect(withDefaultScheme(" localhost:8787 ")).toBe("http://localhost:8787");
+  expect(withDefaultScheme("mac-mini.local:8787")).toBe("http://mac-mini.local:8787");
+  expect(withDefaultScheme("mac-mini:8787")).toBe("http://mac-mini:8787");
+  expect(withDefaultScheme("[::1]:8787")).toBe("http://[::1]:8787");
+  expect(withDefaultScheme("openteam.example.com")).toBe("https://openteam.example.com");
+  expect(withDefaultScheme("box.tail1234.ts.net")).toBe("https://box.tail1234.ts.net");
+  expect(withDefaultScheme("box.tail1234.ts.net:8788")).toBe("http://box.tail1234.ts.net:8788");
+  expect(withDefaultScheme("openteam.example.com:443")).toBe("https://openteam.example.com:443");
+  expect(withDefaultScheme("203.0.113.9:8787/")).toBe("http://203.0.113.9:8787/");
+  expect(withDefaultScheme("http://openteam.example.com")).toBe("http://openteam.example.com");
+  expect(withDefaultScheme("")).toBe("");
+});
+
+test("first-run requests can be given up on without waiting for the server", async () => {
+  const signals: Array<AbortSignal | null | undefined> = [];
+  const fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    signals.push(init?.signal);
+    return Response.json({});
+  }) as unknown as typeof globalThis.fetch;
+  const client = createOpenTeamClient({ baseUrl: "http://openteam.test", fetch });
+  const signal = new AbortController().signal;
+
+  await client.bootstrap(signal);
+  await client.runtime(signal);
+  await client.serverSettings(undefined, signal);
+  await client.testInferenceSettings(undefined, signal);
+  await client.createBot({ clientRequestId: "first-bot-1", name: "Juniper" }, signal);
+
+  expect(signals).toEqual([signal, signal, signal, signal, signal]);
 });

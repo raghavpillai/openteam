@@ -87,7 +87,15 @@ const loadAuthToken = (): Promise<string | null> => {
   return tokenReadRequest;
 };
 
+// Set when the server turned this device's sign-in down (it expired or was revoked), so the
+// sign-in screens open on the account step for the same server and say why.
+let serverSignOut: { username: string } | null = null;
+export const SERVER_SIGN_OUT_NOTE = "You were signed out. Sign in again to continue.";
+/** Whether the server signed this device out, and the account it was signed in as. */
+export const getServerSignOut = () => serverSignOut;
+
 const persistAuthToken = async (next: string | null): Promise<void> => {
+  if (next) serverSignOut = null;
   if (!next) desktopMachineId = undefined;
   const generation = ++credentialGeneration;
   const bridge = authBridge();
@@ -125,6 +133,18 @@ export const clearAuthToken = (expectedToken?: string | null): void => {
   window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
 };
 
+const rememberServerSignOut = () => {
+  const user = readCachedUser();
+  serverSignOut = { username: user?.username ?? user?.name ?? "" };
+};
+
+/** A request was refused as signed out: sign in again, to the same server and account. */
+export const expireAuthToken = (expectedToken: string | null): void => {
+  if (expectedToken !== token) return;
+  rememberServerSignOut();
+  clearAuthToken(expectedToken);
+};
+
 export const authHeaders = (): HeadersInit => {
   const currentToken = getAuthToken();
   return currentToken ? { authorization: `Bearer ${currentToken}` } : {};
@@ -138,7 +158,11 @@ export const refreshAuthSession = (): Promise<OpenTeamAuthSnapshot> => {
       client: authClient(),
       loadToken: loadAuthToken,
     });
-    if (assessment.clearCredentials) await removeAuthCredentials();
+    if (assessment.clearCredentials) {
+      // A saved sign-in the server no longer accepts, as opposed to auth being turned off.
+      if (assessment.status === "signed-out") rememberServerSignOut();
+      await removeAuthCredentials();
+    }
     if (assessment.user) cacheUser(assessment.user);
     if (assessment.status === "authenticated") void authBridge()?.connectMachine?.(API_BASE).then(result => { desktopMachineId = result.machineId; }).catch(() => undefined);
     return authStore.publish({

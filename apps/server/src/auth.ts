@@ -57,6 +57,9 @@ export const auth = betterAuth({
       minUsernameLength: 3,
       maxUsernameLength: 30,
       displayUsername: false,
+      // Sign-in only looks the name up, in any case; the rules apply when a username is set
+      // (owner-credentials.ts), so a mistyped name gets the usual wrong-credentials answer.
+      usernameValidator: () => true,
     }),
     bearer({ requireSignature: true }),
   ],

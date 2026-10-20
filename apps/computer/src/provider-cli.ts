@@ -392,6 +392,7 @@ const main = async (): Promise<void> => {
       input: model.input,
       contextWindow: model.contextWindow,
       maxTokens: model.maxTokens,
+      ...(model.recommended ? { recommended: true } : {}),
     }));
     if (command === "providers") await writeJson(providers);
     else if (command === "models") await writeJson(models);

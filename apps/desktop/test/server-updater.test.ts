@@ -56,11 +56,15 @@ test("only permits the client to manage its matching loopback installation", () 
   temporaryDirectories.push(home);
   const directory = join(home, ".openteam");
   mkdirSync(directory, { recursive: true });
-  writeFileSync(join(directory, "installation.json"), JSON.stringify({ version: "1.2.3" }));
+  writeFileSync(
+    join(directory, "installation.json"),
+    JSON.stringify({ version: "1.2.3", ownerUsername: "owner" })
+  );
   writeFileSync(join(directory, ".env"), "OPENTEAM_API_PORT=9444\n");
   writeFileSync(join(directory, "compose.yaml"), "services: {}\n");
   const installation = readManagedInstallation({}, "darwin", home);
   expect(installation?.version).toBe("1.2.3");
+  expect(installation?.ownerUsername).toBe("owner");
   expect(canManageServer("http://127.0.0.1:9444", installation)).toBe(true);
   expect(canManageServer("https://127.0.0.1:9444", installation)).toBe(false);
   expect(canManageServer("http://server.example:9444", installation)).toBe(false);

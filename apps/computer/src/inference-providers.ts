@@ -63,6 +63,7 @@ export class InferenceProviderService {
           model.defaultReasoningLevel ?? getSupportedThinkingLevels(model)[0] ?? "off",
         contextWindow: model.contextWindow,
         maxTokens: model.maxTokens,
+        ...(model.recommended ? { recommended: true } : {}),
       })),
     };
   }

@@ -58,6 +58,8 @@ export interface InferenceModelView {
   defaultReasoningLevel: PiReasoningLevel;
   contextWindow: number;
   maxTokens: number;
+  /** The provider's suggested default for when no model is saved. It is listed first. */
+  recommended?: boolean;
 }
 
 export interface ServerSettingsView {
@@ -90,6 +92,11 @@ export interface InferenceProviderAuthSessionView {
   messages: string[];
   error: string | null;
 }
+
+/** Outcome of one minimal request to a model, proving the connection works end to end. */
+export type InferenceTestResult =
+  | { ok: true; providerId: string; modelId: string; latencyMs: number }
+  | { ok: false; providerId: string; modelId: string; error: string };
 
 const PROVIDER_ID = /^[a-z0-9][a-z0-9._-]{0,127}$/;
 

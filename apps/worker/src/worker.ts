@@ -46,6 +46,10 @@ import { consumeComputerEvents } from "./computer-events";
 import { PushNotificationDispatcher } from "./push-notifications";
 
 const LEASE_MS = 2 * 60_000;
+/** Tries at a first greeting the computer cut off, the first included. */
+export const BOOTSTRAP_ATTEMPT_LIMIT = 4;
+/** How often a cut-off greeting asks whether the computer is ready again. */
+export const BOOTSTRAP_RETRY_PROBE_MS = 5_000;
 export const AUTOMATION_RECONCILE_BATCH_SIZE = 8;
 export const TRANSCRIPT_FINGERPRINT_TTL_MS = 5_000;
 export const TRANSCRIPT_FINGERPRINT_CACHE_MAX_ENTRIES = 1_024;
@@ -1411,7 +1415,9 @@ export class WakeWorker {
       await this.recordMemoryFromRun(claimed);
       await this.syncRoutineRunFile(claimed.botId, claimed.runId);
     } catch (error) {
-      await this.fail(claimed, error);
+      // Without a completion the computer never settled the turn: it was
+      // unreachable or went away mid-stream. A reported failure is final.
+      await this.fail(claimed, error, !completion);
     } finally {
       clearInterval(heartbeat);
     }
@@ -1461,7 +1467,113 @@ export class WakeWorker {
     });
   }
 
-  private async fail(claimed: Claimed, error: unknown): Promise<void> {
+  /**
+   * A first greeting cut off by the computer is still owed. Put the same run
+   * back in line instead of failing it; the computer's input receipt resumes
+   * it without repeating the prompt, and a user who speaks first still skips it.
+   */
+  private async requeueInterruptedBootstrap(claimed: Claimed, error: unknown): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      // skipBootstrapForUser takes the same row lock.
+      await tx.$queryRaw`SELECT "id" FROM "Bot" WHERE "id" = ${claimed.botId} FOR NO KEY UPDATE`;
+      const bot = await tx.bot.findUnique({
+        where: { id: claimed.botId },
+        select: { status: true, onboardingStatus: true },
+      });
+      const run = await tx.run.findUnique({
+        where: { id: claimed.runId },
+        select: { status: true },
+      });
+      const inbox = await tx.inboxEvent.findUnique({
+        where: { id: claimed.inboxId },
+        select: { attempts: true },
+      });
+      const greeting = await tx.channelMessage.findFirst({
+        where: { sourceRunId: claimed.runId, sender: "agent", senderBotId: claimed.botId },
+        select: { id: true },
+      });
+      if (
+        bot?.status !== "active" ||
+        bot.onboardingStatus !== "running" ||
+        run?.status !== "running" ||
+        greeting ||
+        !inbox ||
+        inbox.attempts >= BOOTSTRAP_ATTEMPT_LIMIT
+      ) {
+        return false;
+      }
+      await finalizeInterruptedItems(tx, claimed.runId, false);
+      await this.messaging.promoteUndeliveredSteers(
+        tx,
+        claimed.runId,
+        "active_turn_ended_before_delivery"
+      );
+      await tx.botRunLease.deleteMany({
+        where: { botId: claimed.botId, ownerId: claimed.ownerId },
+      });
+      // Not claimable until the first readiness probe, so this worker's wake
+      // loop does not spend the remaining attempts while the computer is down.
+      await tx.inboxEvent.update({
+        where: { id: claimed.inboxId },
+        data: {
+          status: "pending",
+          claimedAt: null,
+          availableAt: new Date(Date.now() + BOOTSTRAP_RETRY_PROBE_MS),
+        },
+      });
+      await tx.run.update({ where: { id: claimed.runId }, data: { status: "queued" } });
+      await tx.bot.update({ where: { id: claimed.botId }, data: { onboardingStatus: "queued" } });
+      await tx.event.create({
+        data: {
+          topic: "bot.bootstrap.retry_queued",
+          entityId: claimed.botId,
+          payload: {
+            botId: claimed.botId,
+            runId: claimed.runId,
+            attempts: inbox.attempts,
+            message: error instanceof Error ? error.message : String(error),
+          },
+        },
+      });
+      await this.messaging.scheduleTranscriptProjection(tx, [claimed.botId]);
+      return true;
+    });
+  }
+
+  /** Wakes a requeued greeting once the computer reports ready, however long that takes. */
+  private async wakeBootstrapWhenComputerReady(
+    botId: string,
+    probeMs = BOOTSTRAP_RETRY_PROBE_MS
+  ): Promise<void> {
+    while (!this.stopping) {
+      await new Promise((resolve) => setTimeout(resolve, probeMs));
+      try {
+        const health = await fetch(`${this.computerUrl}/health`, {
+          signal: AbortSignal.timeout(probeMs),
+        });
+        await health.body?.cancel();
+        if (!health.ok) continue;
+        await this.boss.send(
+          "bot-wake",
+          { botId },
+          { retryLimit: 5, retryDelay: 2, retryBackoff: true, expireInSeconds: 3 * 60 }
+        );
+        return;
+      } catch {
+        // The computer or the queue is still unavailable; probe again.
+      }
+    }
+  }
+
+  private async fail(claimed: Claimed, error: unknown, interrupted = false): Promise<void> {
+    if (
+      interrupted &&
+      claimed.origin === "bootstrap" &&
+      (await this.requeueInterruptedBootstrap(claimed, error))
+    ) {
+      void this.wakeBootstrapWhenComputerReady(claimed.botId);
+      return;
+    }
     const details = {
       code: "runtime_interrupted",
       message: error instanceof Error ? error.message : String(error),

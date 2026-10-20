@@ -28,6 +28,22 @@ interface Window {
       close(): Promise<void>;
       onResult(callback: (result: { connectionId: string; status: "ready" | "cancelled" | "error"; message?: string }) => void): () => void;
     };
+    /** An OpenTeam server installed on this computer by the CLI, if any. */
+    localServer?: {
+      detect(): Promise<{ url: string; username?: string } | null>;
+    };
+    /** Catches a model provider's localhost sign-in redirect on this computer. */
+    providerSignIn?: {
+      capture(
+        authorizationUrl: string,
+        redirectUri: string
+      ): Promise<
+        | { status: "captured"; callbackUrl: string }
+        | { status: "unavailable"; message: string }
+        | { status: "cancelled" }
+      >;
+      cancel(): Promise<void>;
+    };
     computer: {
       get: () => Promise<OpenTeamComputerSettings>;
       update: (request: { machineLabel: string }) => Promise<OpenTeamComputerSettings>;

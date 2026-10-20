@@ -456,6 +456,8 @@ const readLazyClosures = async () => {
       voiceMemo: ["src/renderer/components/openteam/voice-memo/voice-memo-layer.tsx"],
       routineEditor: ["src/renderer/components/openteam/routine-panel.tsx"],
       newBot: ["src/renderer/components/openteam/new-bot-screen.tsx"],
+      onboarding: ["src/renderer/components/openteam/onboarding.tsx"],
+      signIn: ["src/renderer/components/openteam/sign-in-flow.tsx"],
       pluginSettings: ["src/renderer/components/openteam/plugin-settings.tsx"],
       pluginManagement: ["src/renderer/components/openteam/plugins/plugin-workspace.tsx"],
       skillImport: ["src/renderer/components/openteam/plugins/skill-import.ts"],
@@ -471,6 +473,7 @@ const readLazyClosures = async () => {
       settingsGeneral: ["src/renderer/components/openteam/settings/general.tsx"],
       settingsComputer: ["src/renderer/components/openteam/settings/computer.tsx"],
       settingsServer: ["src/renderer/components/openteam/settings/server.tsx"],
+      settingsTranscription: ["src/renderer/components/openteam/settings/transcription.tsx"],
       settingsProviders: ["src/renderer/components/openteam/settings/providers.tsx"],
       settingsUpdates: ["src/renderer/components/openteam/settings/updates.tsx"],
     };

@@ -11,6 +11,9 @@ final class AppStore {
   var authPath: [AuthStep] = []
   var authError: String?
   var validatedServer: String?
+  /// "✓ Found OpenTeam {version}" on the server screen, shown before it moves on.
+  struct FoundServer: Equatable { var version: String? }
+  private(set) var foundServer: FoundServer?
   private var authGeneration = UUID()
   private var pendingDeepLink: URL?
   var requiresAuthentication: Bool { record?.mode == "required" }
@@ -85,6 +88,13 @@ final class AppStore {
     #endif
     return FileManager.default.temporaryDirectory.appendingPathComponent("qa-" + UUID().uuidString)
   }()
+  /// First-run setup: undecided until the first fresh bootstrap after connecting.
+  enum OnboardingState { case undecided, showing, hidden }
+  private(set) var onboarding: OnboardingState = .hidden
+  /// The first bot's chat, just created by onboarding. Home shows its row arriving,
+  /// then zooms into it; it clears once the greeting has arrived (W8).
+  private(set) var landing: String?
+  var runtime: RuntimeStatus { RuntimeStatus(state.bootstrap?.runtime ?? .null) }
   var bots: [Bot] { state.bootstrap?.bots ?? [] }
   var channels: [Channel] { state.bootstrap?.channels ?? [] }
   var pins: [String] { sidebar["pinnedIds"].array.map(\.string) }
@@ -235,7 +245,12 @@ final class AppStore {
   func cancelAuthentication() {
     authGeneration = UUID()
     connecting = false
+    foundServer = nil
     clearAuthenticationError()
+  }
+  /// The username that last signed in to `server` on this iPhone, to prefill sign-in.
+  func lastUsername(for server: String) -> String {
+    testing ? "" : UserDefaults.standard.string(forKey: "last-username:" + server) ?? ""
   }
   func clearAuthenticationError() {
     authError = UserDefaults.standard.bool(forKey: LocalDataReset.pendingKey)
@@ -250,11 +265,27 @@ final class AppStore {
     authGeneration = epoch
     connecting = true
     authError = nil
-    defer { if authGeneration == epoch { connecting = false } }
+    foundServer = nil
+    defer {
+      if authGeneration == epoch {
+        connecting = false
+        foundServer = nil
+      }
+    }
     do {
       try finishPendingLocalReset()
       let candidate = try API(server: server, timeout: 15)
       let mode = try await candidate.validateServer()
+      guard authGeneration == epoch, !Task.isCancelled else { return }
+      // Show what was found for a moment, then move on. The version is a nicety:
+      // a server that doesn't report it still connects.
+      let version = try? await candidate.request("/api/system/version", timeout: 4)
+      guard authGeneration == epoch, !Task.isCancelled else { return }
+      foundServer = FoundServer(version: version.flatMap(ServerAddressText.releaseVersion))
+      #if canImport(UIKit)
+        if feedback { NativeHaptics.play(.success, source: "auth.result") }
+      #endif
+      try? await Task.sleep(for: .milliseconds(800))
       guard authGeneration == epoch, !Task.isCancelled else { return }
       server = candidate.baseURL.absoluteString
       validatedServer = server
@@ -264,11 +295,6 @@ final class AppStore {
         try await completeConnection(
           candidate, mode: mode, username: "", password: "", epoch: epoch)
       }
-      #if canImport(UIKit)
-        if feedback, authGeneration == epoch, !Task.isCancelled {
-          NativeHaptics.play(.success, source: "auth.result")
-        }
-      #endif
     } catch {
       if authGeneration == epoch, !UserFacingError.isCancelled(error) {
         authError = UserFacingError.message(error)
@@ -339,6 +365,11 @@ final class AppStore {
     let next = SessionRecord(
       server: candidate.baseURL.absoluteString, token: login.token, userID: login.userID,
       userName: login.name, mode: mode)
+    if mode == "required", !testing {
+      UserDefaults.standard.set(
+        username.trimmingCharacters(in: .whitespacesAndNewlines),
+        forKey: "last-username:" + next.server)
+    }
     // Verify a product response before saving or replacing a working account.
     let bootstrap = try await API(server: next.server, token: next.token).get(
       "/api/v0/client-bootstrap", as: Bootstrap.self)
@@ -357,8 +388,14 @@ final class AppStore {
         }
       }
     #endif
-    try activate(next, persistSession: !testing)
+    // The notification prompt waits until first-run setup is finished.
+    try activate(next, persistSession: !testing, requestPushPermission: false)
     apply(bootstrap)
+    #if canImport(UIKit)
+      if launchComplete, onboarding != .showing {
+        Task { await NativeNotifications.shared.resume(requestPermission: true) }
+      }
+    #endif
     online = true
     persist()
     UserDefaults.standard.set(server, forKey: "server")
@@ -370,7 +407,9 @@ final class AppStore {
       await deepLink(url)
     }
   }
-  private func activate(_ next: SessionRecord, persistSession: Bool = false) throws {
+  private func activate(
+    _ next: SessionRecord, persistSession: Bool = false, requestPushPermission: Bool = true
+  ) throws {
     let nextAPI = try API(server: next.server, token: next.token)
     let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
       .appendingPathComponent("OpenTeam", isDirectory: true)
@@ -393,6 +432,7 @@ final class AppStore {
     syncUnavailable = false
     generation = UUID()
     navigation = []
+    landing = nil
     activeChannel = nil
     histories = [:]
     historyLoadFailures.removeAll()
@@ -405,14 +445,20 @@ final class AppStore {
     writer = StateWriter(disk: nextDisk)
     state = nextState
     drafts = nextState.drafts
+    onboarding =
+      UserDefaults.standard.bool(forKey: OnboardingDecision.key(server: next.server))
+        && !onboardingForcedForQA ? .hidden : .undecided
     phase = .ready
     #if canImport(UIKit)
       NativeNotifications.shared.bind(next)
-      if launchComplete { Task { await NativeNotifications.shared.resume(requestPermission: true) } }
+      if launchComplete, requestPushPermission {
+        Task { await NativeNotifications.shared.resume(requestPermission: true) }
+      }
     #endif
   }
   private func apply(_ bootstrap: Bootstrap) {
     state.bootstrap = bootstrap
+    decideOnboarding()
     for (channel, messages) in Dictionary(grouping: bootstrap.latestMessages, by: \.channelId) {
       // Bootstrap carries only each channel's newest message. A loaded
       // transcript takes new messages from its next history page instead, so
@@ -534,6 +580,64 @@ final class AppStore {
       stateSyncs.remove(sync)
       if flushPending { await flush() }
     } catch { if epoch == generation { handle(error, quiet: quiet) } }
+  }
+  /// UI tests and QA opt in with `--qa-onboarding`; other UI-test fixtures never see it.
+  private var onboardingForcedForQA: Bool {
+    #if DEBUG
+      return testing && ProcessInfo.processInfo.arguments.contains("--qa-onboarding")
+    #else
+      return false
+    #endif
+  }
+  /// Decided once per connection from a fresh bootstrap. A server that already has
+  /// bots and a model is remembered as set up, so established users never see it.
+  private func decideOnboarding() {
+    guard onboarding == .undecided, let bootstrap = state.bootstrap, let record else { return }
+    if testing && !onboardingForcedForQA {
+      onboarding = .hidden
+    } else if OnboardingDecision.needed(bots: bootstrap.bots.count, runtime: runtime) {
+      onboarding = .showing
+    } else {
+      onboarding = .hidden
+      if !testing {
+        UserDefaults.standard.set(true, forKey: OnboardingDecision.key(server: record.server))
+      }
+    }
+  }
+  /// Skip, finish or create the first bot. With the new bot's chat (`landing`), Home
+  /// opens it and asks for notifications once its greeting has arrived; otherwise the
+  /// question waits until Home has settled, so it never lands on top of a transition.
+  func finishOnboarding(landing channel: String? = nil) {
+    guard onboarding == .showing, let record else { return }
+    if !testing {
+      UserDefaults.standard.set(true, forKey: OnboardingDecision.key(server: record.server))
+    }
+    landing = channel.flatMap { self.channel($0) == nil ? nil : $0 }
+    onboarding = .hidden
+    if landing == nil { askForNotifications(after: .milliseconds(1200)) }
+  }
+  /// Home has zoomed into the first bot's chat and its greeting has arrived.
+  func finishLanding() {
+    guard landing != nil else { return }
+    landing = nil
+    askForNotifications(after: .zero)
+  }
+  private func askForNotifications(after delay: Duration) {
+    #if canImport(UIKit)
+      guard launchComplete else { return }
+      Task {
+        if delay > .zero { try? await Task.sleep(for: delay) }
+        await NativeNotifications.shared.resume(requestPermission: true)
+      }
+    #endif
+  }
+  /// Reads only the server's readiness, after model or voice settings change.
+  func refreshRuntime() async {
+    guard let value = try? await request("/api/v0/client-runtime"),
+      case .object = value["runtime"], state.bootstrap != nil
+    else { return }
+    state.bootstrap?.runtime = value["runtime"]
+    persist()
   }
   func finishLaunch() {
     launchComplete = true
@@ -1194,6 +1298,7 @@ final class AppStore {
       disk = nil
       phase = .signedOut
       navigation = []
+      landing = nil
       activeChannel = nil
       online = false
       authPath = []
@@ -1231,6 +1336,7 @@ final class AppStore {
     historyLoadFailures.removeAll()
     historyWindows = [:]
     navigation = []
+    landing = nil
     activeChannel = nil
     focusedMessage = nil
     focusedRoutine = nil
@@ -1298,10 +1404,15 @@ final class AppStore {
       stateSyncs.removeAll()
       awaitingInitialSync = false
       navigation = []
+      landing = nil
       try? SecureSession.clear()
       validatedServer = server
       authPath = [.endpoint, .credentials]
-      authError = "Your session expired. Sign in again. Your drafts are saved on this iPhone."
+      // Mid-setup there are no drafts yet; signing in again resumes setup where it was.
+      authError =
+        onboarding == .showing
+        ? "You were signed out. Sign in again to continue."
+        : "Your session expired. Sign in again. Your drafts are saved on this iPhone."
       self.error = nil
     } else {
       if !(error is APIError) || ((error as? APIError)?.status ?? 0) >= 500 {

@@ -518,6 +518,7 @@ export class AppService {
   updateTaskSettings = forwardServiceMethod(() => this.settings.updateTaskSettings);
 
   updateInferenceSettings = forwardServiceMethod(() => this.settings.updateInferenceSettings);
+  testInference = forwardServiceMethod(() => this.settings.testInference);
 
   startInferenceProviderAuth = forwardServiceMethod(() => this.settings.startInferenceProviderAuth);
 

@@ -2,7 +2,17 @@ import SwiftUI
 
 struct HomeView: View {
   @Environment(AppStore.self) private var store
-  @State private var settings = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  /// Rows are zoom sources for the first bot's chat after onboarding.
+  @Namespace private var zoom
+  /// The chat that opens with the zoom transition; kept until it's closed again.
+  @State private var zoomChannel: String?
+  /// Settings, optionally opened at a page such as Model from the banner.
+  private struct SettingsSheet: Identifiable {
+    let id = UUID()
+    var route: SettingsRoute?
+  }
+  @State private var settings: SettingsSheet?
   private enum CreationKind: String, Identifiable {
     case bot, group
     var id: Self { self }
@@ -25,6 +35,11 @@ struct HomeView: View {
           if !store.online && !store.syncingState {
             Label("Offline · messages will send when you reconnect", systemImage: "wifi.slash")
               .font(.footnote).foregroundStyle(NativePalette.muted).padding(.vertical, 8)
+          }
+          if let banner = ModelStatusBanner(inference: store.runtime.inference) {
+            ModelStatusBannerView(banner: banner) {
+              settings = SettingsSheet(route: .model)
+            }.padding(.top, 4).padding(.bottom, 8)
           }
           if !store.pins.isEmpty {
             ScrollView(.horizontal) {
@@ -55,7 +70,21 @@ struct HomeView: View {
             id: "", name: "Unassigned",
             collapsed: !sections.isEmpty && store.sidebar["unassignedCollapsed"].bool,
             showsHeading: !sections.isEmpty)
-          if visible.isEmpty {
+          if visible.isEmpty && store.bots.isEmpty && store.state.bootstrap != nil {
+            // Desktop's empty state: a server without bots has nothing to chat with yet.
+            VStack(alignment: .leading, spacing: 12) {
+              Text("Bots do the work in OpenTeam. Create one to get started.")
+                .font(.subheadline).foregroundStyle(NativePalette.muted)
+                .fixedSize(horizontal: false, vertical: true)
+              Button("Create a bot") { if !store.syncingState { creation = .bot } }
+                .buttonStyle(ModelCapsuleButtonStyle(primary: true))
+                .disabled(store.syncingState)
+                .accessibilityIdentifier("empty-create-bot")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("empty-conversations")
+          } else if visible.isEmpty {
             Text("No conversations yet")
               .font(.subheadline).foregroundStyle(NativePalette.muted)
               .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
@@ -72,14 +101,25 @@ struct HomeView: View {
         .fadingTopBar { header }
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(for: String.self) { id in
-          if let channel = store.channel(id) {
-            ChatView(channel: channel)
+          if id == zoomChannel {
+            conversation(id).navigationTransition(.zoom(sourceID: id, in: zoom))
           } else {
-            ContentUnavailableView("Conversation unavailable", systemImage: "bubble.left")
+            conversation(id)
+          }
+        }
+        .onChange(of: store.navigation) { _, path in
+          // Once the zoomed chat has closed (and zoomed back into its row), later
+          // opens push as usual.
+          guard path.isEmpty, zoomChannel != nil, store.landing == nil else { return }
+          Task {
+            try? await Task.sleep(for: .seconds(1))
+            if store.navigation.isEmpty, store.landing == nil { zoomChannel = nil }
           }
         }
         .refreshable { await store.refresh() }
-        .sheet(isPresented: $settings) { SettingsView().referenceSheet() }
+        .sheet(item: $settings) { sheet in
+          SettingsView(initialRoute: sheet.route).referenceSheet()
+        }
         .alert(
           "Rename section",
           isPresented: Binding(
@@ -126,6 +166,37 @@ struct HomeView: View {
           }.referenceSheet()
         }
     }
+    // On the stack rather than its root page: opening the chat covers the root page,
+    // which would cancel the task and restart it (and open the chat again) on return.
+    .task(id: store.landing) { await land() }
+  }
+  @ViewBuilder private func conversation(_ id: String) -> some View {
+    if let channel = store.channel(id) {
+      ChatView(channel: channel)
+    } else {
+      ContentUnavailableView("Conversation unavailable", systemImage: "bubble.left")
+    }
+  }
+  /// After onboarding (W8): the new bot's row springs into the list, Home holds a
+  /// beat, then the chat zooms out of the row and the greeting arrives there. The
+  /// notification question waits until the greeting has settled.
+  private func land() async {
+    guard let id = store.landing else { return }
+    if !reduceMotion { zoomChannel = id }
+    // The row lands at about 0.9 s and its glow fades by 1.5 s; the chat opens a beat
+    // after that, once the row is still.
+    try? await Task.sleep(for: .milliseconds(reduceMotion ? 900 : 1650))
+    guard !Task.isCancelled, store.landing == id else { return }
+    if store.navigation.isEmpty, store.channel(id) != nil { store.navigation = [id] }
+    let opened = ContinuousClock.now
+    while !Task.isCancelled, ContinuousClock.now - opened < .seconds(25) {
+      if let latest = store.latestMessage(id), !latest.isUser { break }
+      try? await Task.sleep(for: .milliseconds(250))
+    }
+    guard !Task.isCancelled else { return }
+    try? await Task.sleep(for: .milliseconds(1400))
+    guard !Task.isCancelled else { return }
+    store.finishLanding()
   }
   func openSelectedConversation() {
     guard let target = pendingOpen else { return }
@@ -140,7 +211,7 @@ struct HomeView: View {
   var header: some View {
     HStack(spacing: 4) {
       Button {
-        settings = true
+        settings = SettingsSheet()
       } label: {
         AccountMark(name: store.userName).padding(3).nativeGlass()
       }
@@ -227,7 +298,13 @@ struct HomeView: View {
             pin: { Task { await store.togglePin(channel.id) } },
             hide: { Task { await store.hide(channel, hidden: true) } }
           ) {
-            NavigationLink(value: channel.id) { ChannelRow(channel: channel) }.buttonStyle(.plain)
+            NavigationLink(value: channel.id) {
+              ChannelRow(channel: channel)
+                .matchedTransitionSource(id: channel.id, in: zoom) { source in
+                  source.background(NativePalette.background)
+                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                }
+            }.buttonStyle(.plain)
               .accessibilityIdentifier("channel-" + channel.id)
               .contextMenu {
                 conversationActions(channel)
@@ -235,6 +312,10 @@ struct HomeView: View {
                 conversationPreview(channel)
               }
           }
+          .modifier(
+            LandingArrival(
+              active: channel.id == store.landing,
+              tint: Color(hex: store.bot(for: channel)?.color ?? "08C875")))
         }
       }
     }
@@ -313,6 +394,77 @@ struct HomeView: View {
     next["unreadIds"] = .array(
       Array(Set(next["unreadIds"].array.map(\.string) + [id])).map(JSON.string))
     await saveSidebar(next)
+  }
+}
+
+/// The first bot's row arriving after onboarding: it springs up into place, its
+/// color glows behind it for a moment, and a light tap marks it. Reduce Motion fades it.
+private struct LandingArrival: ViewModifier {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  let active: Bool
+  let tint: Color
+  @State private var arrived = false
+  @State private var glowing = false
+  func body(content: Content) -> some View {
+    let waiting = active && !arrived
+    let moving = waiting && !reduceMotion
+    content
+      .background {
+        RoundedRectangle(cornerRadius: 22, style: .continuous)
+          .fill(tint.opacity(glowing ? 0.16 : 0))
+          .padding(.horizontal, -10)
+          .allowsHitTesting(false)
+      }
+      .scaleEffect(moving ? 0.9 : 1, anchor: .top)
+      .offset(y: moving ? 34 : 0)
+      .blur(radius: moving ? 8 : 0)
+      .opacity(waiting ? 0 : 1)
+      .onAppear {
+        guard active, !arrived else { return }
+        withAnimation(
+          (reduceMotion ? Animation.easeOut(duration: 0.3) : .bouncy(duration: 0.6, extraBounce: 0.1))
+            .delay(0.3)
+        ) { arrived = true }
+        guard !reduceMotion else { return }
+        withAnimation(.smooth(duration: 0.4).delay(0.45)) { glowing = true }
+        Task { @MainActor in
+          try? await Task.sleep(for: .milliseconds(560))
+          NativeHaptics.play(.light, source: "home.first-bot")
+          try? await Task.sleep(for: .milliseconds(340))
+          withAnimation(.smooth(duration: 0.55)) { glowing = false }
+        }
+      }
+  }
+}
+
+/// Explains why bots are silent when the server has no working model.
+struct ModelStatusBannerView: View {
+  let banner: ModelStatusBanner
+  var action: () -> Void
+  var body: some View {
+    HStack(alignment: .center, spacing: 10) {
+      Image(systemName: "exclamationmark.circle.fill").foregroundStyle(NativePalette.warning)
+        .accessibilityHidden(true)
+      Text(banner.message).font(.footnote).foregroundStyle(NativePalette.text)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      Button(banner.action) {
+        NativeHaptics.play(.light, source: "home.model-banner")
+        action()
+      }
+      .font(.footnote.weight(.semibold)).foregroundStyle(NativePalette.text)
+      .padding(.horizontal, 12).frame(minHeight: 32)
+      .background(NativePalette.warning.opacity(0.18), in: Capsule())
+      .buttonStyle(.plain)
+      .accessibilityIdentifier("model-status-banner-action")
+    }
+    .padding(.leading, 12).padding(.trailing, 8).padding(.vertical, 8)
+    .background(NativePalette.warning.opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
+    .overlay {
+      RoundedRectangle(cornerRadius: 14).strokeBorder(NativePalette.warning.opacity(0.2), lineWidth: 0.5)
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("model-status-banner")
   }
 }
 

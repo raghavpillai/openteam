@@ -94,6 +94,28 @@ const invalidOpenTeamServer = (status: number): OpenTeamClientError =>
 const unavailableOpenTeamServer = (status: number): OpenTeamClientError =>
   new OpenTeamClientError("The OpenTeam server is temporarily unavailable.", "offline", status);
 
+const interruptedOpenTeamServer = (status: number): OpenTeamClientError =>
+  new OpenTeamClientError(
+    "The connection dropped while checking this server. Try again.",
+    "offline",
+    status
+  );
+
+/**
+ * Reads a JSON object body. Unlike responseBody, a body that can't be read (the connection
+ * dropped partway through the answer) throws, so it isn't mistaken for a body without
+ * OpenTeam's fields.
+ */
+const readResponseBody = async (response: Response): Promise<Record<string, unknown> | null> => {
+  const text = await response.text();
+  try {
+    const value = JSON.parse(text) as unknown;
+    return isRecord(value) ? value : null;
+  } catch {
+    return null;
+  }
+};
+
 /**
  * Platform-neutral authentication protocol. Persistence and lifecycle policy stay
  * in the desktop/mobile adapters so secrets never cross into an unsafe storage API.
@@ -134,7 +156,16 @@ export const createOpenTeamAuthClient = (options: OpenTeamAuthClientOptions) => 
         }
         return "required";
       }
-      const body = await responseBody(response);
+      let body: Record<string, unknown> | null;
+      try {
+        body = await readResponseBody(response);
+      } catch (cause) {
+        // The deadline cut it off and has already answered.
+        if (signal.aborted) throw cause;
+        // A cut-off answer is a connection problem, not proof of a different server.
+        if (strict) throw interruptedOpenTeamServer(response.status);
+        body = null;
+      }
       if (body?.mode === "required" || body?.mode === "disabled") return body.mode;
       if (strict) throw invalidOpenTeamServer(response.status);
       return "required";

@@ -1,0 +1,2674 @@
+/* First-run screens: sign-in and the setup wizard. Loaded only while they show. */
+
+/* The stage's colours live on the root as registered properties, so moving to another
+   stage eases from one colour to the next even though each screen mounts its own stage.
+   SetupLayout sets [data-setup-tone]; the transition is under Motion. */
+@property --setup-tint {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #edf2fb;
+}
+@property --setup-tint-2 {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #dfe8f8;
+}
+@property --setup-glow {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #c2d4fb;
+}
+@property --setup-glow-2 {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #d9e2ff;
+}
+/* Steps taken through setup, forward minus back (screen-transition.ts). The stage's dots and
+   lights drift by it a little on each screen change, slower than the content (parallax). */
+@property --setup-camera {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+:root {
+  --setup-tint: #edf2fb;
+  --setup-tint-2: #dfe8f8;
+  --setup-glow: #c2d4fb;
+  --setup-glow-2: #d9e2ff;
+}
+:root[data-setup-tone="model"] {
+  --setup-tint: #f0edfb;
+  --setup-tint-2: #e4def8;
+  --setup-glow: #d6c8f8;
+  --setup-glow-2: #efd6f6;
+}
+:root[data-setup-tone="voice"] {
+  --setup-tint: #fbf0e6;
+  --setup-tint-2: #f6e2d0;
+  --setup-glow: #f7cba5;
+  --setup-glow-2: #fbe2c4;
+}
+:root[data-setup-tone="bot"] {
+  --setup-tint: #eaf6ee;
+  --setup-tint-2: #d8efdf;
+  --setup-glow: #bce5ca;
+  --setup-glow-2: #d6f1e0;
+}
+:root[data-theme="dark"] {
+  --setup-tint: #111a29;
+  --setup-tint-2: #172338;
+  --setup-glow: #1c3157;
+  --setup-glow-2: #1d2547;
+}
+:root[data-theme="dark"][data-setup-tone="model"] {
+  --setup-tint: #18132a;
+  --setup-tint-2: #221b3b;
+  --setup-glow: #33245c;
+  --setup-glow-2: #3a1f4d;
+}
+:root[data-theme="dark"][data-setup-tone="voice"] {
+  --setup-tint: #23170d;
+  --setup-tint-2: #312012;
+  --setup-glow: #4a2b11;
+  --setup-glow-2: #3c2410;
+}
+:root[data-theme="dark"][data-setup-tone="bot"] {
+  --setup-tint: #0e1d14;
+  --setup-tint-2: #14291c;
+  --setup-glow: #193d26;
+  --setup-glow-2: #153222;
+}
+.setup-shell {
+  --setup-panel: #ffffff;
+  --setup-ink: #111113;
+  --setup-muted: #6e6e76;
+  /* At least 4.5:1 on the panel and on fields, so small labels stay readable. */
+  --setup-faint: #707078;
+  --setup-line: rgb(17 17 19 / 10%);
+  --setup-field: #f6f6f7;
+  --setup-accent: #0a84ff;
+  --setup-danger: #d70015;
+  --setup-success: #1fae57;
+  --setup-card: #ffffff;
+  --setup-card-shadow: 0 1px 2px rgb(17 17 19 / 6%), 0 12px 32px rgb(17 17 19 / 8%);
+  position: fixed;
+  inset: 0;
+  display: flex;
+  background: var(--setup-panel);
+  color: var(--setup-ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+:root[data-theme="dark"] .setup-shell {
+  --setup-panel: #121214;
+  --setup-ink: #f4f4f6;
+  --setup-muted: #9b9ba3;
+  --setup-faint: #8a8a92;
+  --setup-line: rgb(255 255 255 / 10%);
+  --setup-field: #1c1c1f;
+  --setup-danger: #ff6b74;
+  --setup-card: #1d1d21;
+  --setup-card-shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 16px 40px rgb(0 0 0 / 40%);
+}
+:root[data-theme="dark"] .setup-bubble[data-from="bot"]:not([data-tone]) {
+  background: rgb(255 255 255 / 9%);
+}
+
+/* Left: one decision at a time. */
+.setup-panel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: clamp(400px, 40vw, 500px);
+  flex-shrink: 0;
+  flex-direction: column;
+  padding: 56px 48px 40px;
+  box-shadow: 1px 0 0 var(--setup-line);
+  overflow-y: auto;
+}
+.setup-header {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.setup-progress {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.setup-progress span {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--setup-line);
+}
+.setup-progress span::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--setup-ink);
+  content: "";
+  transform: scaleX(0);
+  transform-origin: left;
+}
+.setup-progress span[data-state="done"]::after,
+.setup-progress span[data-state="active"]::after {
+  transform: none;
+}
+.setup-nav {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  justify-content: space-between;
+}
+.setup-nav button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+  color: var(--setup-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+.setup-nav button:hover {
+  color: var(--setup-ink);
+}
+.setup-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  padding-top: 7vh;
+}
+.setup-eyebrow {
+  margin: 0 0 10px;
+  color: var(--setup-faint);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.setup-content h1 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 30px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 36px;
+}
+.setup-body {
+  margin: 12px 0 0;
+  color: var(--setup-muted);
+  font-size: 15px;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+/* The title takes focus on each new screen so it is announced; it isn't a control. */
+.setup-content h1:focus {
+  outline: none;
+}
+.setup-body[data-tone="error"] {
+  color: var(--setup-danger);
+}
+.setup-body code,
+.setup-note code {
+  border-radius: 5px;
+  background: var(--setup-field);
+  padding: 1px 5px;
+  color: var(--setup-ink);
+  font-size: 13px;
+}
+.setup-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 28px;
+}
+.setup-controls:empty {
+  display: none;
+}
+.setup-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: auto;
+  padding-top: 28px;
+}
+
+/* Controls. */
+.setup-host {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  align-self: flex-start;
+  gap: 7px;
+  margin: -8px 0 4px;
+  border-radius: 8px;
+  background: var(--setup-field);
+  padding: 6px 10px;
+  overflow: hidden;
+  color: var(--setup-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.setup-host svg {
+  flex-shrink: 0;
+}
+.setup-host span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.setup-label {
+  color: var(--setup-ink);
+  font-size: 13px;
+  font-weight: 500;
+}
+.setup-input {
+  height: 46px;
+  width: 100%;
+  border: 1px solid var(--setup-line);
+  border-radius: 11px;
+  background: var(--setup-field);
+  padding: 0 14px;
+  color: var(--setup-ink);
+  font-size: 15px;
+  outline: none;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    background 140ms ease;
+}
+.setup-input::placeholder {
+  color: var(--setup-faint);
+}
+/* A long choice in a menu trigger ends in an ellipsis instead of pushing past the field. */
+.setup-input[role="combobox"] > span {
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+}
+.setup-input:focus {
+  border-color: var(--setup-accent);
+  background: var(--setup-panel);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--setup-accent) 18%, transparent);
+}
+.setup-input[aria-invalid="true"] {
+  border-color: var(--setup-danger);
+}
+.setup-note {
+  margin: 0;
+  color: var(--setup-muted);
+  font-size: 13px;
+  line-height: 19px;
+  overflow-wrap: anywhere;
+}
+.setup-note[data-tone="success"] {
+  color: var(--setup-success);
+}
+.setup-note[data-tone="error"] {
+  color: var(--setup-danger);
+}
+.setup-note svg {
+  display: inline;
+  vertical-align: -2px;
+}
+.setup-link {
+  align-self: center;
+  color: var(--setup-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+.setup-link:hover {
+  color: var(--setup-ink);
+}
+.setup-link-inline {
+  color: var(--setup-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.setup-primary {
+  position: relative;
+  display: inline-flex;
+  height: 48px;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 12px;
+  background: var(--setup-ink);
+  color: var(--setup-panel);
+  font-size: 15px;
+  font-weight: 600;
+  outline: none;
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+.setup-primary:hover:not(:disabled) {
+  opacity: 0.88;
+}
+.setup-primary:active:not(:disabled) {
+  transform: scale(0.99);
+}
+.setup-primary:focus-visible {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--setup-accent) 30%, transparent);
+}
+.setup-primary:disabled {
+  opacity: 0.35;
+}
+.setup-primary-label {
+  min-width: 0;
+  max-width: calc(100% - 80px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The return hint and the busy spinner share this spot (see Motion). */
+.setup-primary-end {
+  position: absolute;
+  right: 16px;
+  display: grid;
+  place-items: center;
+}
+.setup-primary-end > * {
+  grid-area: 1 / 1;
+}
+.setup-primary kbd {
+  font-family: inherit;
+  font-size: 13px;
+  opacity: 0.5;
+}
+.setup-secondary {
+  display: inline-flex;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--setup-line);
+  border-radius: 10px;
+  background: var(--setup-panel);
+  padding: 0 14px;
+  color: var(--setup-ink);
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.setup-secondary:hover {
+  background: var(--setup-field);
+}
+.setup-row {
+  display: flex;
+  gap: 10px;
+}
+.setup-row > * {
+  flex: 1;
+}
+.setup-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--setup-line);
+  border-radius: 14px;
+  background: var(--setup-panel);
+  padding: 14px 16px;
+  text-align: left;
+  outline: none;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    background 140ms ease;
+}
+.setup-option:hover {
+  border-color: color-mix(in srgb, var(--setup-ink) 26%, transparent);
+}
+.setup-option:focus-visible,
+.setup-option[aria-pressed="true"] {
+  border-color: var(--setup-ink);
+  box-shadow: 0 0 0 1px var(--setup-ink);
+}
+.setup-option-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--setup-field);
+  color: var(--setup-ink);
+}
+.setup-option-icon:has(> .provider-icon) {
+  background: none;
+}
+.setup-option-text {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+.setup-option-text strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+.setup-option-text span {
+  color: var(--setup-muted);
+  font-size: 13px;
+}
+.setup-option > svg:last-child {
+  color: var(--setup-faint);
+}
+.setup-option-check {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  place-items: center;
+  border: 1.5px solid var(--setup-line);
+  border-radius: 999px;
+}
+.setup-option-check[data-on="true"] {
+  border-color: var(--setup-ink);
+  background: var(--setup-ink);
+  color: var(--setup-panel);
+}
+.setup-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.setup-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.setup-steps li > svg {
+  box-sizing: content-box;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: var(--setup-field);
+  padding: 9px;
+  color: var(--setup-ink);
+}
+.setup-steps strong {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.setup-steps small {
+  color: var(--setup-muted);
+  font-size: 13px;
+}
+.setup-segmented {
+  display: flex;
+  gap: 4px;
+  border-radius: 11px;
+  background: var(--setup-field);
+  padding: 4px;
+}
+.setup-segmented button {
+  display: inline-flex;
+  height: 32px;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 8px;
+  color: var(--setup-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+.setup-segmented button[aria-checked="true"] {
+  background: var(--setup-panel);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+  color: var(--setup-ink);
+}
+.setup-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.setup-chips button {
+  height: 34px;
+  border: 1px solid var(--setup-line);
+  border-radius: 999px;
+  padding: 0 14px;
+  color: var(--setup-ink);
+  font-size: 13.5px;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease;
+}
+.setup-chips button:hover {
+  background: var(--setup-field);
+}
+.setup-chips button[aria-checked="true"] {
+  border-color: var(--setup-ink);
+  background: var(--setup-ink);
+  color: var(--setup-panel);
+}
+.setup-code {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  user-select: all;
+}
+.setup-code span {
+  display: grid;
+  width: 38px;
+  height: 50px;
+  place-items: center;
+  border: 1px solid var(--setup-line);
+  border-radius: 10px;
+  background: var(--setup-field);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 22px;
+  font-weight: 600;
+}
+.setup-code span[data-dash="true"] {
+  width: 14px;
+  border: 0;
+  background: none;
+  color: var(--setup-faint);
+}
+.setup-check-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.setup-check-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--setup-line);
+  padding: 12px 0;
+}
+.setup-check-list li:last-child {
+  border-bottom: 0;
+}
+.setup-check-list strong {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.setup-check-list small {
+  color: var(--setup-muted);
+  font-size: 13px;
+}
+.setup-check-icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--setup-field);
+  color: var(--setup-faint);
+}
+.setup-check-list li[data-state="ready"] .setup-check-icon {
+  background: var(--setup-success);
+  color: white;
+}
+.setup-check-list li[data-state="failed"] .setup-check-icon {
+  background: color-mix(in srgb, var(--setup-danger) 14%, transparent);
+  color: var(--setup-danger);
+}
+/* Behind a server that didn't answer: not known, so neither passed nor failed. */
+.setup-check-list li[data-state="blocked"] {
+  opacity: 0.5;
+  transition: opacity 220ms ease-out;
+}
+.setup-install {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-radius: 12px;
+  background: #18181b;
+  padding: 14px 16px;
+  color: #a1a1aa;
+  font-size: 12.5px;
+}
+.setup-install div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.setup-install code {
+  color: #f4f4f5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  user-select: all;
+}
+.setup-install button {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  color: #a1a1aa;
+}
+.setup-install button:hover {
+  color: white;
+}
+
+/* Right: a picture of what this step does. */
+.setup-stage {
+  position: relative;
+  display: grid;
+  flex: 1;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 42%, var(--setup-tint-2), transparent 62%), var(--setup-tint);
+}
+/* The dot grid, faded out towards the edges. The dots sit on a wider layer that slides by
+   --setup-camera while the mask stays put. */
+.setup-dots {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  mask-image: radial-gradient(circle at 50% 45%, black, transparent 72%);
+  pointer-events: none;
+}
+.setup-dots::before {
+  position: absolute;
+  inset: 0 -50%;
+  background-image: radial-gradient(
+    color-mix(in srgb, var(--setup-ink) 9%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 22px 22px;
+  content: "";
+  transform: translateX(calc(var(--setup-camera) * -12px));
+}
+/* Soft lights that drift slowly behind the picture, so the stage feels alive. */
+.setup-aurora {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transform: translateX(calc(clamp(-8, var(--setup-camera), 8) * -6px));
+}
+.setup-aurora i {
+  position: absolute;
+  top: -24%;
+  left: -20%;
+  width: 74%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--setup-glow), transparent);
+}
+.setup-aurora i:nth-child(2) {
+  top: 26%;
+  right: -28%;
+  left: auto;
+  width: 66%;
+  background: radial-gradient(closest-side, var(--setup-glow-2), transparent);
+}
+.setup-aurora i:nth-child(3) {
+  top: auto;
+  bottom: -36%;
+  left: 14%;
+  width: 60%;
+  opacity: 0.8;
+}
+/* The celebration look is a layer the stage eases into (see Motion). Dark stages are already
+   dark, so there it turns green to still stand out. */
+.setup-stage::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background: radial-gradient(circle at 50% 40%, #1f2a44, #0b0d14 70%);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 480ms ease-out;
+}
+:root[data-theme="dark"] .setup-stage::after {
+  background: radial-gradient(circle at 50% 40%, #1d5c3b, #06140c 72%);
+}
+.setup-stage[data-celebrate="true"]::after {
+  opacity: 1;
+}
+.setup-stage[data-celebrate="true"] .setup-card {
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 6%),
+    0 24px 70px rgb(31 174 87 / 30%);
+}
+.setup-visual {
+  position: relative;
+  z-index: 2;
+  width: min(440px, 80%);
+}
+.setup-card {
+  border: 1px solid var(--setup-line);
+  border-radius: 18px;
+  background: var(--setup-card);
+  box-shadow: var(--setup-card-shadow);
+}
+
+/* Visual: robots. */
+.setup-robots {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 18px;
+}
+.setup-robots {
+  position: relative;
+  padding-top: 76px;
+}
+.setup-robots > span {
+  position: relative;
+  width: 112px;
+  height: 112px;
+}
+.setup-robots > span::after {
+  position: absolute;
+  bottom: -16px;
+  left: 18%;
+  width: 64%;
+  height: 12px;
+  border-radius: 50%;
+  background: rgb(17 17 40 / 14%);
+  content: "";
+  filter: blur(4px);
+}
+.setup-hello {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  border-radius: 18px 18px 18px 6px;
+  background: var(--setup-card);
+  box-shadow: var(--setup-card-shadow);
+  padding: 10px 16px;
+  font-size: 14.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  transform: translateX(-12%);
+}
+.setup-robots > span:nth-child(2) {
+  width: 132px;
+  height: 132px;
+}
+.setup-robots svg {
+  width: 100%;
+  height: 100%;
+}
+@keyframes setup-float {
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+/* Visual: terminal. */
+.setup-terminal {
+  overflow: hidden;
+  border-radius: 14px;
+  background: #16161a;
+  box-shadow: 0 24px 60px rgb(10 10 20 / 28%);
+  color: #d4d4d8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 21px;
+}
+.setup-terminal-bar {
+  display: flex;
+  gap: 6px;
+  border-bottom: 1px solid rgb(255 255 255 / 6%);
+  padding: 11px 14px;
+}
+.setup-terminal-bar i {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #3f3f46;
+}
+.setup-terminal-bar i:nth-child(1) {
+  background: #ff5f57;
+}
+.setup-terminal-bar i:nth-child(2) {
+  background: #febc2e;
+}
+.setup-terminal-bar i:nth-child(3) {
+  background: #28c840;
+}
+.setup-terminal pre {
+  position: relative;
+  margin: 0;
+  padding: 16px 18px 18px;
+  white-space: pre-wrap;
+}
+.setup-terminal .dim {
+  color: #71717a;
+}
+.setup-terminal .ok {
+  color: #4ade80;
+}
+/* One highlight that glides to the line the screen asks for (lines are 21 px tall; the
+   value starts after 12 characters). */
+.setup-terminal-mark {
+  position: absolute;
+  top: 100px;
+  left: calc(18px + 12ch - 4px);
+  width: calc(24ch + 8px);
+  height: 21px;
+  border-radius: 5px;
+  background: rgb(10 132 255 / 22%);
+  box-shadow: 0 0 0 1.5px #0a84ff;
+  transition:
+    transform var(--spring-snappy-duration) var(--spring-snappy),
+    width var(--spring-snappy-duration) var(--spring-snappy);
+}
+.setup-terminal-mark[data-line="username"] {
+  width: calc(3ch + 8px);
+  transform: translateY(21px);
+}
+.setup-terminal .setup-line {
+  position: relative;
+  transition: color 300ms ease;
+}
+.setup-terminal .setup-line[data-lit="true"] {
+  color: #fff;
+}
+
+/* Visual: chat. */
+.setup-chat {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+}
+.setup-chat-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--setup-line);
+  padding-bottom: 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.setup-chat-head svg {
+  flex-shrink: 0;
+}
+.setup-chat-head > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: auto;
+  color: var(--setup-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.setup-bubble {
+  max-width: 82%;
+  overflow-wrap: anywhere;
+  border-radius: 16px;
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 20px;
+}
+.setup-bubble[data-from="you"] {
+  align-self: flex-end;
+  border-bottom-right-radius: 5px;
+  background: var(--setup-accent);
+  color: white;
+}
+.setup-bubble[data-from="bot"] {
+  align-self: flex-start;
+  border-bottom-left-radius: 5px;
+  background: var(--setup-field);
+}
+.setup-bubble[data-tone="error"] {
+  background: color-mix(in srgb, var(--setup-danger) 12%, transparent);
+  color: var(--setup-danger);
+}
+.setup-typing {
+  display: flex;
+  gap: 4px;
+  padding: 4px 2px;
+}
+.setup-typing i {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--setup-faint);
+  animation: setup-typing 1.1s ease-in-out infinite;
+}
+.setup-typing i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.setup-typing i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes setup-typing {
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+  0%,
+  60%,
+  100% {
+    opacity: 0.45;
+  }
+}
+.setup-badge {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--setup-success) 14%, transparent);
+  padding: 4px 10px;
+  color: var(--setup-success);
+  font-size: 12px;
+  font-weight: 600;
+}
+.setup-logos {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+.setup-logos > * {
+  box-shadow: var(--setup-card-shadow);
+}
+.setup-logos > span {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  border-radius: 13px;
+  background: var(--setup-card);
+  color: var(--setup-ink);
+  /* Filter and scale rather than opacity and transform, which the entrance animates. */
+  transition:
+    filter 260ms ease-out,
+    scale var(--spring-snappy-duration) var(--spring-snappy);
+}
+/* Connecting ChatGPT or Claude: the other choices step back. */
+.setup-logos > span[data-dim] {
+  filter: opacity(0.3) saturate(0.4);
+  scale: 0.88;
+}
+
+/* Visual: browser. */
+.setup-browser {
+  overflow: hidden;
+}
+.setup-browser-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--setup-line);
+  padding: 10px 14px;
+}
+.setup-browser-bar span {
+  flex: 1;
+  border-radius: 7px;
+  background: var(--setup-field);
+  padding: 5px 10px;
+  color: var(--setup-muted);
+  font-size: 12px;
+}
+.setup-browser-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 30px 24px 34px;
+  text-align: center;
+  font-size: 14px;
+}
+.setup-browser-body strong {
+  font-size: 17px;
+}
+.setup-browser-button {
+  border-radius: 10px;
+  background: var(--setup-ink);
+  padding: 9px 26px;
+  color: var(--setup-panel);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.setup-return {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 18px;
+  color: var(--setup-muted);
+  font-size: 13px;
+}
+
+/* Visual: voice. */
+.setup-mic {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+}
+.setup-mic-button {
+  position: relative;
+  display: grid;
+  width: 92px;
+  height: 92px;
+  place-items: center;
+  border-radius: 999px;
+  background: #ff7a1a;
+  color: white;
+  box-shadow:
+    0 0 0 14px rgb(255 122 26 / 16%),
+    0 0 0 30px rgb(255 122 26 / 8%);
+}
+.setup-wave {
+  display: flex;
+  height: 54px;
+  align-items: center;
+  gap: 5px;
+}
+.setup-wave i {
+  width: 5px;
+  height: 100%;
+  border-radius: 5px;
+  background: color-mix(in srgb, #ff7a1a 70%, var(--setup-ink));
+  animation: setup-wave 1.2s ease-in-out infinite;
+  transform-origin: center;
+}
+@keyframes setup-wave {
+  0%,
+  100% {
+    transform: scaleY(0.25);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+/* Visual: bot profile. */
+.setup-profile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 30px 26px 24px;
+  text-align: center;
+}
+.setup-profile-avatar {
+  width: 104px;
+  height: 104px;
+}
+.setup-profile-avatar svg {
+  width: 100%;
+  height: 100%;
+}
+.setup-profile strong {
+  display: grid;
+  max-width: 100%;
+  margin-top: 12px;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+/* Long names stop at two lines; the clamp sits on each cross-fade layer. */
+.setup-profile strong .setup-xfade {
+  display: grid;
+}
+.setup-profile strong .setup-xfade > span {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.setup-profile > span {
+  margin-top: 2px;
+  color: var(--setup-muted);
+  font-size: 13.5px;
+}
+.setup-profile .setup-bubble {
+  margin-top: 22px;
+  max-width: 100%;
+  text-align: left;
+}
+
+/* Success mark. */
+.setup-success {
+  width: 64px;
+  height: 64px;
+  fill: none;
+  stroke: var(--setup-success);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+.setup-success circle {
+  stroke-dasharray: 151;
+  stroke-dashoffset: 151;
+  animation: setup-draw 520ms ease-out forwards;
+}
+.setup-success path {
+  stroke-dasharray: 36;
+  stroke-dashoffset: 36;
+  animation: setup-draw 320ms 380ms ease-out forwards;
+}
+@keyframes setup-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* The bot's look beside its name; only shown when the preview is (see below). */
+.setup-name-avatar {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  .setup-panel {
+    width: 100%;
+    box-shadow: none;
+  }
+  .setup-stage {
+    display: none;
+  }
+  .setup-header,
+  .setup-content {
+    width: 100%;
+    max-width: 440px;
+    margin-inline: auto;
+  }
+  .setup-row > .setup-name-avatar {
+    display: grid;
+    width: 46px;
+    height: 46px;
+    flex: 0 0 46px;
+    place-items: center;
+    border-radius: 11px;
+    background: var(--setup-field);
+  }
+  .setup-name-avatar svg {
+    width: 34px;
+    height: 34px;
+  }
+}
+@media (max-height: 640px) {
+  .setup-panel {
+    padding-top: 32px;
+    padding-bottom: 24px;
+  }
+  .setup-content {
+    padding-top: 3vh;
+  }
+}
+
+/* ─── Motion ──────────────────────────────────────────────────────────────────────────
+   Springs, after SwiftUI: anything that moves settles on a damped spring (CSS linear()
+   easings generated by setup/springs.ts; test/setup-springs.test.ts keeps the block below in
+   sync). Fades stay plain eases. Screen changes run as view transitions
+   (screen-transition.ts) with depth: what leaves shrinks back a little and blurs, what
+   arrives settles from slightly larger as its blur clears, and the layers move at
+   different speeds (the content, then the picture, then the stage's dots and lights) for
+   parallax. Elements that appear outside a transition play their own entrance
+   ([data-enter]). Only transform, opacity and filter animate, so it runs on the compositor.
+   Reduced motion keeps fades only (end of file). */
+:root {
+  /* springs:start (generated by setup/springs.ts) */
+  --spring-smooth: linear(
+    0,
+    0.0053 1.25%,
+    0.0198 2.5%,
+    0.0416 3.75%,
+    0.0792 5.42%,
+    0.112 6.67%,
+    0.16 8.33%,
+    0.3667 15%,
+    0.4642 18.33%,
+    0.5523 21.67%,
+    0.6296 25%,
+    0.6961 28.33%,
+    0.7524 31.67%,
+    0.8048 35.42%,
+    0.847 39.17%,
+    0.8873 43.75%,
+    0.9198 48.75%,
+    0.945 54.17%,
+    0.9647 60.42%,
+    0.9782 67.08%,
+    0.9878 75%,
+    0.9944 85.42%,
+    0.9981 99.58%,
+    1
+  );
+  --spring-smooth-duration: 680ms;
+  --spring-snappy: linear(
+    0,
+    0.005 1.25%,
+    0.0134 2.08%,
+    0.0253 2.92%,
+    0.0578 4.58%,
+    0.0994 6.25%,
+    0.135 7.5%,
+    0.1865 9.17%,
+    0.4084 15.83%,
+    0.5138 19.17%,
+    0.609 22.5%,
+    0.6521 24.17%,
+    0.6922 25.83%,
+    0.7546 28.75%,
+    0.8145 32.08%,
+    0.8632 35.42%,
+    0.9062 39.17%,
+    0.9415 43.33%,
+    0.9663 47.5%,
+    0.9858 52.5%,
+    0.9978 57.92%,
+    1.004 63.75%,
+    1.0063 71.25%,
+    1.0017 99.58%,
+    1
+  );
+  --spring-snappy-duration: 460ms;
+  --spring-bouncy: linear(
+    0,
+    0.0008 0.42%,
+    0.0073 1.25%,
+    0.0277 2.5%,
+    0.0591 3.75%,
+    0.0851 4.58%,
+    0.1145 5.42%,
+    0.1639 6.67%,
+    0.237 8.33%,
+    0.5166 14.17%,
+    0.6306 16.67%,
+    0.7009 18.33%,
+    0.7499 19.58%,
+    0.7955 20.83%,
+    0.8375 22.08%,
+    0.8758 23.33%,
+    0.9104 24.58%,
+    0.9414 25.83%,
+    0.9688 27.08%,
+    0.9927 28.33%,
+    1.0133 29.58%,
+    1.0308 30.83%,
+    1.0496 32.5%,
+    1.0665 34.58%,
+    1.0771 36.67%,
+    1.0824 38.75%,
+    1.0832 41.25%,
+    1.0794 43.75%,
+    1.0724 46.25%,
+    1.0321 56.67%,
+    1.0181 60.83%,
+    1.0073 65%,
+    0.9999 69.17%,
+    0.9946 74.58%,
+    0.993 80.83%,
+    0.9981 99.58%,
+    1
+  );
+  --spring-bouncy-duration: 790ms;
+  --spring-gentle: linear(
+    0,
+    0.0053 1.25%,
+    0.0197 2.5%,
+    0.0414 3.75%,
+    0.0789 5.42%,
+    0.1116 6.67%,
+    0.1595 8.33%,
+    0.3657 15%,
+    0.4631 18.33%,
+    0.5512 21.67%,
+    0.6285 25%,
+    0.695 28.33%,
+    0.7514 31.67%,
+    0.8038 35.42%,
+    0.8462 39.17%,
+    0.8866 43.75%,
+    0.9193 48.75%,
+    0.9446 54.17%,
+    0.9644 60.42%,
+    0.978 67.08%,
+    0.9877 75%,
+    0.9943 85.42%,
+    0.9981 99.58%,
+    1
+  );
+  --spring-gentle-duration: 950ms;
+  /* springs:end */
+  --setup-ease: var(--spring-smooth);
+  /* Exits speed up as they go, so what leaves is out of the way of what arrives. */
+  --setup-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --setup-spring: var(--spring-bouncy);
+  --setup-shift: 28px;
+  --setup-exit: -36px;
+}
+:root[data-setup-direction="back"] {
+  --setup-shift: -28px;
+  --setup-exit: 36px;
+}
+/* The stage's colours ease to the next stage's, and its dots and lights drift with each step. */
+:root[data-setup-tone] {
+  transition:
+    --setup-tint var(--spring-gentle-duration) var(--spring-gentle),
+    --setup-tint-2 var(--spring-gentle-duration) var(--spring-gentle),
+    --setup-glow 1400ms ease-in-out,
+    --setup-glow-2 1400ms ease-in-out,
+    --setup-camera var(--spring-smooth-duration) var(--spring-smooth);
+}
+
+/* Parts that persist from screen to screen. */
+.setup-stage {
+  view-transition-name: setup-stage;
+}
+.setup-visual {
+  view-transition-name: setup-visual;
+}
+.setup-progress {
+  view-transition-name: setup-progress;
+}
+.setup-nav {
+  view-transition-name: setup-nav;
+}
+.setup-content {
+  view-transition-name: setup-content;
+}
+.setup-eyebrow {
+  view-transition-name: setup-eyebrow;
+}
+.setup-content h1 {
+  view-transition-name: setup-title;
+}
+.setup-primary {
+  view-transition-name: setup-primary;
+}
+.setup-primary-label {
+  view-transition-name: setup-primary-label;
+}
+
+/* Scoped to setup's own transitions ([data-setup-direction] is set only while one runs).
+   Old content is gone in about 110 ms, already moving away; new content starts arriving at
+   90 ms, so the panel is never empty yet the two never read as doubled text. All has landed
+   by about 450 ms (the spring's tail is too small to see). */
+:root[data-setup-direction]::view-transition-group(*) {
+  animation-duration: var(--spring-smooth-duration);
+  animation-timing-function: var(--spring-smooth);
+}
+:root[data-setup-direction]::view-transition-old(root) {
+  display: none;
+}
+:root[data-setup-direction]::view-transition-new(root) {
+  animation: none;
+}
+/* Text keeps its own size while its group moves; nothing is stretched. */
+:root[data-setup-direction]::view-transition-group(setup-content),
+:root[data-setup-direction]::view-transition-group(setup-title),
+:root[data-setup-direction]::view-transition-group(setup-eyebrow),
+:root[data-setup-direction]::view-transition-group(setup-progress) {
+  animation: none;
+}
+:root[data-setup-direction]::view-transition-old(setup-content),
+:root[data-setup-direction]::view-transition-new(setup-content),
+:root[data-setup-direction]::view-transition-old(setup-title),
+:root[data-setup-direction]::view-transition-new(setup-title),
+:root[data-setup-direction]::view-transition-old(setup-eyebrow),
+:root[data-setup-direction]::view-transition-new(setup-eyebrow),
+:root[data-setup-direction]::view-transition-old(setup-primary-label),
+:root[data-setup-direction]::view-transition-new(setup-primary-label) {
+  inline-size: auto;
+}
+/* What leaves recedes: it slides a little the other way, shrinks back and blurs as it fades. */
+:root[data-setup-direction]::view-transition-old(setup-content),
+:root[data-setup-direction]::view-transition-old(setup-title) {
+  transform-origin: left center;
+  animation:
+    setup-recede var(--spring-smooth-duration) var(--spring-smooth) both,
+    setup-fade-out 110ms var(--setup-ease-exit) both;
+}
+/* New content is live: its parts arrive on their own stagger (below). */
+:root[data-setup-direction]::view-transition-new(setup-content) {
+  animation: none;
+}
+/* The new title settles from slightly larger and further along as its blur clears. */
+:root[data-setup-direction]::view-transition-new(setup-title) {
+  transform-origin: left center;
+  animation:
+    setup-settle var(--spring-smooth-duration) var(--spring-smooth) 90ms both,
+    setup-fade-in 260ms ease-out 90ms both;
+}
+:root[data-setup-direction]::view-transition-old(setup-eyebrow) {
+  animation: setup-blur-out 140ms var(--setup-ease-exit) both;
+}
+:root[data-setup-direction]::view-transition-new(setup-eyebrow) {
+  animation: setup-blur-in 300ms ease-out 70ms both;
+}
+/* The bar is live too, so a newly reached segment fills in place. */
+:root[data-setup-direction]::view-transition-old(setup-progress) {
+  display: none;
+}
+:root[data-setup-direction]::view-transition-new(setup-progress) {
+  animation: none;
+}
+/* The primary button stays where it is (or glides if it moved); only its label changes,
+   blurring through. It fades only when one of the two screens has no button. */
+:root[data-setup-direction]::view-transition-old(setup-primary) {
+  display: none;
+}
+:root[data-setup-direction]::view-transition-new(setup-primary) {
+  animation: none;
+}
+:root[data-setup-direction]::view-transition-old(setup-primary):only-child {
+  display: block;
+  animation: setup-fade-out 200ms var(--setup-ease-exit) both;
+}
+:root[data-setup-direction]::view-transition-new(setup-primary):only-child {
+  animation:
+    setup-settle-up var(--spring-snappy-duration) var(--spring-snappy) 70ms both,
+    setup-fade-in 260ms ease-out 70ms both;
+}
+:root[data-setup-direction]::view-transition-old(setup-primary-label) {
+  animation: setup-blur-out 140ms var(--setup-ease-exit) both;
+}
+:root[data-setup-direction]::view-transition-new(setup-primary-label) {
+  animation: setup-blur-in 260ms ease-out 90ms both;
+}
+/* The stage is live: its colours, dots and lights move on their own (see above), so the
+   old one is dropped. Into or out of the "It works!" look it cross-fades instead. */
+:root[data-setup-direction]::view-transition-group(setup-stage) {
+  animation: none;
+}
+:root[data-setup-direction]::view-transition-old(setup-stage) {
+  display: none;
+}
+:root[data-setup-direction]::view-transition-new(setup-stage) {
+  animation: none;
+}
+:root[data-setup-direction][data-setup-stage="swap"]::view-transition-old(setup-stage) {
+  display: block;
+  animation: setup-fade-out 380ms ease-in both;
+}
+:root[data-setup-direction][data-setup-stage="swap"]::view-transition-new(setup-stage) {
+  animation: setup-fade-in 380ms ease-out both;
+}
+/* The stage picture: kept when both screens share it (only what changed moves). When it
+   changes, the card's frame morphs on the spring while the old picture recedes and blurs and
+   the new one settles in; both travel about 0.6 of the content's distance (parallax). */
+:root[data-setup-direction]::view-transition-old(setup-visual) {
+  display: none;
+}
+:root[data-setup-direction]::view-transition-new(setup-visual) {
+  animation: none;
+}
+:root[data-setup-direction][data-setup-visual="swap"]::view-transition-old(setup-visual) {
+  display: block;
+  animation:
+    setup-recede-far var(--spring-smooth-duration) var(--spring-smooth) both,
+    setup-fade-out 150ms var(--setup-ease-exit) both;
+}
+:root[data-setup-direction][data-setup-visual="swap"]::view-transition-new(setup-visual) {
+  animation:
+    setup-settle-far var(--spring-smooth-duration) var(--spring-smooth) 90ms both,
+    setup-fade-in 320ms ease-out 90ms both;
+}
+@keyframes setup-recede {
+  to {
+    transform: translateX(var(--setup-exit)) scale(0.97);
+    filter: blur(2px);
+  }
+}
+@keyframes setup-settle {
+  from {
+    transform: translateX(var(--setup-shift)) scale(1.02);
+    filter: blur(4px);
+  }
+}
+@keyframes setup-settle-up {
+  from {
+    transform: translateY(8px) scale(0.98);
+  }
+}
+@keyframes setup-recede-far {
+  to {
+    transform: translateX(calc(var(--setup-exit) * 0.5)) scale(0.95);
+    filter: blur(3px);
+  }
+}
+@keyframes setup-settle-far {
+  from {
+    transform: translateX(calc(var(--setup-shift) * 0.6)) scale(1.04);
+    filter: blur(4px);
+  }
+}
+@keyframes setup-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes setup-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes setup-blur-in {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+  }
+}
+@keyframes setup-blur-out {
+  to {
+    opacity: 0;
+    filter: blur(4px);
+  }
+}
+
+/* Content entrance: text blurs in on a short stagger, each line settling on the spring. A
+   first appearance ([data-enter="enter"]) moves everything; inside a transition the
+   eyebrow, title and primary button are already moved by it, and the rest follows the
+   title in while the old content is still leaving. A screen seen before stays still. */
+.setup-content {
+  --setup-in: 28px;
+  --setup-controls-at: 120ms;
+  --setup-footer-at: 170ms;
+}
+.setup-content[data-direction="back"] {
+  --setup-in: -28px;
+}
+.setup-content[data-enter="enter"] {
+  --setup-controls-at: 160ms;
+  --setup-footer-at: 220ms;
+}
+@keyframes setup-rise {
+  from {
+    opacity: 0;
+    transform: translateX(var(--setup-in));
+    filter: blur(4px);
+  }
+}
+.setup-content[data-enter] > .setup-body,
+.setup-content[data-enter] > .setup-controls > *,
+.setup-content[data-enter="enter"] > .setup-eyebrow,
+.setup-content[data-enter="enter"] > .setup-footer > *,
+.setup-content[data-enter="transition"] > .setup-footer > :not(.setup-primary),
+.setup-content > h1[data-enter="screen"] {
+  animation: setup-rise var(--spring-snappy-duration) var(--spring-snappy) both;
+}
+.setup-content[data-enter="enter"] > .setup-eyebrow {
+  animation-delay: 40ms;
+}
+.setup-content > h1[data-enter="screen"] {
+  animation-delay: 80ms;
+}
+.setup-content[data-enter="enter"] > .setup-body {
+  animation-delay: 120ms;
+}
+.setup-content[data-enter="transition"] > .setup-body {
+  animation-delay: 100ms;
+}
+.setup-content[data-enter] > .setup-controls > * {
+  animation-delay: calc(var(--setup-controls-at) + var(--n, 0) * 35ms);
+}
+.setup-content[data-enter] > .setup-footer > * {
+  animation-delay: calc(var(--setup-footer-at) + var(--n, 0) * 35ms);
+}
+:is(.setup-controls, .setup-footer) > :nth-child(2) {
+  --n: 1;
+}
+:is(.setup-controls, .setup-footer) > :nth-child(3) {
+  --n: 2;
+}
+:is(.setup-controls, .setup-footer) > :nth-child(4) {
+  --n: 3;
+}
+:is(.setup-controls, .setup-footer) > :nth-child(5) {
+  --n: 4;
+}
+:is(.setup-controls, .setup-footer) > :nth-child(n + 6) {
+  --n: 5;
+}
+/* A new title on the same screen ("All systems go", "It works!") settles in from just below
+   as its blur clears, while the old one lifts away in the same spot (see CrossFade). */
+.setup-xfade.setup-title-xfade > span {
+  transform-origin: left bottom;
+}
+.setup-xfade.setup-title-xfade > span:nth-child(2) {
+  animation:
+    setup-title-in var(--spring-snappy-duration) var(--spring-snappy) 40ms both,
+    setup-fade-in 240ms ease-out 40ms both;
+}
+.setup-xfade.setup-title-xfade > span[data-leaving="true"] {
+  animation: setup-title-out 200ms var(--setup-ease-exit) both;
+}
+@keyframes setup-title-in {
+  from {
+    transform: translateY(10px) scale(0.96);
+    filter: blur(6px);
+  }
+}
+@keyframes setup-title-out {
+  to {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+    filter: blur(4px);
+  }
+}
+/* "It works!" lands bigger, with a bounce. */
+.setup-shell[data-celebrate] .setup-xfade.setup-title-xfade > span:nth-child(2) {
+  animation:
+    setup-hero-title var(--spring-bouncy-duration) var(--spring-bouncy) 140ms both,
+    setup-fade-in 220ms ease-out 140ms both;
+}
+@keyframes setup-hero-title {
+  from {
+    transform: translateY(6px) scale(0.82);
+    filter: blur(8px);
+  }
+}
+.setup-visual[data-enter] {
+  animation:
+    setup-visual-in var(--spring-smooth-duration) var(--spring-smooth) 80ms both,
+    setup-fade-in 380ms ease-out 80ms both;
+}
+/* The robots bring themselves in (below). */
+.setup-visual[data-enter]:has(> .setup-robots) {
+  animation: none;
+}
+@keyframes setup-visual-in {
+  from {
+    transform: translateY(18px) scale(1.04);
+    filter: blur(10px);
+  }
+}
+/* Signing in to another server reloads into setup. First everything but the stage's base
+   eases out, so the reload lands on the same empty frame (index.html, first-run-shell.tsx). */
+.setup-shell[data-leaving] .setup-content > *,
+.setup-shell[data-leaving] .setup-visual {
+  animation: setup-leave 260ms var(--setup-ease-exit) both;
+}
+.setup-shell[data-leaving] :is(.setup-aurora, .setup-dots) {
+  animation: setup-fade-out 260ms ease-in both;
+}
+@keyframes setup-leave {
+  to {
+    opacity: 0;
+    transform: translateX(-16px) scale(0.98);
+    filter: blur(4px);
+  }
+}
+
+/* The living stage. Its lights drift on one clock (--setup-clock, a negative delay from
+   SetupLayout) so a new screen's stage carries on where the last one was; on first
+   appearance they and the dots fade up from the plain frame the boot screen draws. */
+.setup-aurora i {
+  animation: setup-drift-a 23s ease-in-out var(--setup-clock, 0s) infinite alternate;
+}
+.setup-aurora i:nth-child(2) {
+  animation-name: setup-drift-b;
+  animation-duration: 29s;
+}
+.setup-aurora i:nth-child(3) {
+  animation-name: setup-drift-c;
+  animation-duration: 37s;
+}
+.setup-aurora[data-enter],
+.setup-dots[data-enter] {
+  animation: setup-fade-in 1600ms ease-out 100ms both;
+}
+@keyframes setup-drift-a {
+  50% {
+    transform: translate(16%, 12%) scale(1.14);
+  }
+  100% {
+    transform: translate(28%, -4%) scale(0.92);
+  }
+}
+@keyframes setup-drift-b {
+  50% {
+    transform: translate(-18%, -10%) scale(0.9);
+  }
+  100% {
+    transform: translate(-8%, 14%) scale(1.12);
+  }
+}
+@keyframes setup-drift-c {
+  50% {
+    transform: translate(12%, -14%) scale(1.1);
+  }
+  100% {
+    transform: translate(-14%, -6%) scale(0.96);
+  }
+}
+
+/* Progress: newly reached segments fill from the left, one after another. */
+.setup-progress span[data-fill="in"]::after {
+  animation: setup-fill var(--spring-smooth-duration) var(--spring-smooth)
+    var(--setup-fill-delay, 0ms) both;
+}
+.setup-progress span[data-fill="out"]::after {
+  animation: setup-unfill var(--spring-smooth-duration) var(--spring-smooth) both;
+}
+@keyframes setup-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes setup-unfill {
+  from {
+    transform: none;
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* Text that changes in place cross-fades through a slight blur (cross-fade.tsx). */
+.setup-xfade {
+  display: inline-grid;
+}
+.setup-xfade > span {
+  grid-area: 1 / 1;
+}
+.setup-xfade > span:nth-child(2) {
+  animation: setup-xfade-in 260ms ease-out both;
+}
+.setup-xfade > span[data-leaving="true"] {
+  animation: setup-xfade-out 200ms var(--setup-ease-exit) both;
+}
+@keyframes setup-xfade-in {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+  }
+}
+@keyframes setup-xfade-out {
+  to {
+    opacity: 0;
+    filter: blur(3px);
+  }
+}
+
+/* Primary button: a light lift on hover, a press, and a busy state that swaps in place. */
+.setup-primary {
+  transition:
+    opacity 180ms ease-out,
+    transform var(--spring-snappy-duration) var(--spring-snappy),
+    filter 200ms ease-out,
+    box-shadow 180ms ease-out;
+}
+.setup-primary:hover:not(:disabled) {
+  opacity: 1;
+  filter: brightness(1.18);
+  transform: translateY(-1px);
+}
+.setup-primary:active:not(:disabled) {
+  transform: scale(0.98);
+  transition-duration: 90ms;
+}
+.setup-primary-end > * {
+  transition:
+    opacity 200ms ease-out,
+    transform var(--spring-bouncy-duration) var(--spring-bouncy);
+}
+.setup-primary-end[data-busy="false"] > svg,
+.setup-primary-end[data-busy="true"] > kbd {
+  opacity: 0;
+  transform: scale(0.6);
+}
+
+/* Option rows lift and their chevron nudges; a selected check pops. */
+.setup-option {
+  transition:
+    border-color 160ms ease-out,
+    box-shadow 160ms ease-out,
+    background 160ms ease-out,
+    transform var(--spring-snappy-duration) var(--spring-snappy);
+}
+.setup-option:hover {
+  box-shadow: 0 6px 18px rgb(17 17 19 / 7%);
+  transform: translateY(-1px);
+}
+.setup-option:active {
+  transform: scale(0.99);
+  transition-duration: 90ms;
+}
+.setup-option > svg:last-child {
+  transition: transform var(--spring-snappy-duration) var(--spring-snappy);
+}
+.setup-option:hover > svg:last-child {
+  transform: translateX(3px);
+}
+.setup-option-check {
+  transition:
+    background 180ms ease-out,
+    border-color 180ms ease-out;
+}
+.setup-option-check[data-on="true"] {
+  animation: setup-pop var(--spring-bouncy-duration) var(--spring-bouncy);
+}
+.setup-check-list li[data-state="ready"] .setup-check-icon {
+  animation: setup-pop var(--spring-bouncy-duration) var(--spring-bouncy);
+}
+@keyframes setup-pop {
+  from {
+    transform: scale(0.4);
+  }
+}
+
+/* Chips and segments cross-fade their selection; chips give a little on press. */
+.setup-chips button,
+.setup-segmented button {
+  transition:
+    background 200ms ease-out,
+    border-color 200ms ease-out,
+    color 200ms ease-out,
+    box-shadow 200ms ease-out,
+    transform var(--spring-snappy-duration) var(--spring-snappy);
+}
+.setup-chips button:active,
+.setup-secondary:active {
+  transform: scale(0.97);
+  transition-duration: 90ms;
+}
+.setup-secondary {
+  transition:
+    background 160ms ease-out,
+    transform var(--spring-snappy-duration) var(--spring-snappy);
+}
+
+/* Focus rings ease in rather than snapping on. */
+:is(
+    .setup-nav button,
+    .setup-link,
+    .setup-link-inline,
+    .setup-secondary,
+    .setup-chips button,
+    .setup-segmented button,
+    .setup-install button
+  ) {
+  outline: 2px solid transparent;
+  outline-offset: 0;
+  transition-property: outline-color, outline-offset, background, border-color, color, transform;
+  transition-duration: 180ms;
+}
+:is(
+    .setup-nav button,
+    .setup-link,
+    .setup-link-inline,
+    .setup-secondary,
+    .setup-chips button,
+    .setup-segmented button,
+    .setup-install button
+  ):focus-visible {
+  outline-color: color-mix(in srgb, var(--setup-accent) 60%, transparent);
+  outline-offset: 2px;
+}
+
+/* Errors: the field shakes twice and the message slides down. */
+.setup-input[aria-invalid="true"] {
+  animation: setup-shake 420ms ease-out;
+}
+@keyframes setup-shake {
+  20%,
+  60% {
+    transform: translateX(-6px);
+  }
+  40%,
+  80% {
+    transform: translateX(6px);
+  }
+}
+.setup-note[data-tone="error"],
+.setup-content > .setup-body[data-tone="error"] {
+  animation:
+    setup-note-in var(--spring-snappy-duration) var(--spring-snappy) both,
+    setup-fade-in 220ms ease-out both;
+}
+@keyframes setup-note-in {
+  from {
+    transform: translateY(-6px);
+    filter: blur(3px);
+  }
+}
+
+/* Inline confirmations ("Found OpenTeam") draw their check. */
+.setup-drawn-check {
+  display: inline;
+  width: 14px;
+  height: 14px;
+  margin-right: 4px;
+  vertical-align: -2px;
+  fill: none;
+  stroke: currentColor;
+  stroke-dasharray: 16;
+  stroke-dashoffset: 16;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
+  animation: setup-draw 380ms ease-out 80ms forwards;
+}
+/* "Copied" and its label swap through a short blur. */
+.setup-swap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  animation:
+    setup-swap-in var(--spring-snappy-duration) var(--spring-snappy) both,
+    setup-fade-in 200ms ease-out both;
+}
+@keyframes setup-swap-in {
+  from {
+    transform: translateY(4px);
+    filter: blur(2px);
+  }
+}
+
+/* Welcome: the robots drop in one after another and land with a bounce (their shadows
+   spread as they touch down), then the first one says hello. Afterwards they float. */
+.setup-robots > span {
+  --setup-drop-at: calc(160ms + var(--i, 0) * 150ms);
+  animation:
+    setup-robot-drop var(--spring-bouncy-duration) var(--spring-bouncy) var(--setup-drop-at) both,
+    setup-fade-in 160ms ease-out var(--setup-drop-at) both;
+}
+.setup-robots > span::after {
+  animation: setup-shadow-land var(--spring-bouncy-duration) var(--spring-bouncy)
+    calc(var(--setup-drop-at) + 60ms) both;
+}
+.setup-robots > span > svg {
+  animation: setup-float 3.2s ease-in-out calc(var(--i, 0) * -1.1s) infinite;
+}
+@keyframes setup-robot-drop {
+  from {
+    transform: translateY(-170px) rotate(var(--tilt, 0deg));
+  }
+}
+@keyframes setup-shadow-land {
+  from {
+    opacity: 0;
+    transform: scale(0.25);
+  }
+}
+.setup-hello {
+  transform-origin: 8% 100%;
+  animation:
+    setup-hello-in var(--spring-bouncy-duration) var(--spring-bouncy) 860ms both,
+    setup-fade-in 160ms ease-out 860ms both;
+}
+@keyframes setup-hello-in {
+  from {
+    transform: translateX(-12%) translateY(10px) scale(0.3);
+  }
+}
+.setup-terminal .setup-line {
+  display: block;
+  min-height: 21px;
+  clip-path: inset(0 100% 0 0);
+  animation: setup-type 460ms steps(24, end) calc(200ms + var(--i, 0) * 120ms) forwards;
+}
+@keyframes setup-type {
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+.setup-terminal-mark {
+  animation:
+    setup-mark-in var(--spring-bouncy-duration) var(--spring-bouncy) 1020ms both,
+    setup-fade-in 200ms ease-out 1020ms both;
+}
+@keyframes setup-mark-in {
+  from {
+    scale: 0.7 1;
+  }
+}
+.setup-terminal-mark::after {
+  position: absolute;
+  inset: -3px;
+  border-radius: 7px;
+  box-shadow: 0 0 0 4px rgb(10 132 255 / 35%);
+  content: "";
+  opacity: 0;
+  animation: setup-glow-pulse 2.4s ease-in-out 1.3s infinite;
+}
+@keyframes setup-glow-pulse {
+  50% {
+    opacity: 1;
+  }
+}
+.setup-logos > * {
+  animation:
+    setup-pop-in var(--spring-bouncy-duration) var(--spring-bouncy) both,
+    setup-fade-in 200ms ease-out both;
+}
+.setup-logos > :nth-child(2) {
+  animation-delay: 80ms;
+}
+.setup-logos > :nth-child(3) {
+  animation-delay: 160ms;
+}
+.setup-logos > :nth-child(4) {
+  animation-delay: 240ms;
+}
+.setup-bubble {
+  transform-origin: bottom left;
+  animation:
+    setup-pop-in var(--spring-bouncy-duration) var(--spring-bouncy) both,
+    setup-fade-in 200ms ease-out both;
+}
+.setup-bubble[data-from="you"] {
+  transform-origin: bottom right;
+  animation-delay: 80ms;
+}
+.setup-bubble:has(> .setup-typing) {
+  animation-delay: 260ms;
+}
+.setup-badge {
+  animation:
+    setup-pop-in var(--spring-bouncy-duration) var(--spring-bouncy) 140ms both,
+    setup-fade-in 200ms ease-out 140ms both;
+  font-variant-numeric: tabular-nums;
+}
+@keyframes setup-pop-in {
+  from {
+    transform: translateY(8px) scale(0.86);
+  }
+}
+.setup-browser-code span,
+.setup-code span {
+  display: inline-block;
+  animation:
+    setup-char-in var(--spring-bouncy-duration) var(--spring-bouncy)
+    calc(160ms + var(--i, 0) * 45ms) both,
+    setup-fade-in 200ms ease-out calc(160ms + var(--i, 0) * 45ms) both;
+}
+.setup-code span {
+  display: grid;
+}
+@keyframes setup-char-in {
+  from {
+    transform: translateY(10px) scale(0.8);
+  }
+}
+.setup-wave {
+  animation: setup-breathe 3.4s ease-in-out infinite;
+}
+.setup-mic-button {
+  animation: setup-pop-in var(--spring-bouncy-duration) var(--spring-bouncy) 120ms both;
+}
+.setup-mic-button::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 0 rgb(255 122 26 / 40%);
+  content: "";
+  animation: setup-mic-ring 2.6s ease-out infinite;
+}
+@keyframes setup-breathe {
+  50% {
+    opacity: 0.82;
+    transform: scale(1.04);
+  }
+}
+@keyframes setup-mic-ring {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+/* A new look springs in with a wobble. */
+.setup-profile-avatar,
+.setup-name-avatar {
+  animation:
+    setup-new-look var(--spring-bouncy-duration) var(--spring-bouncy) both,
+    setup-fade-in 160ms ease-out both;
+}
+@keyframes setup-new-look {
+  from {
+    transform: scale(0.62) rotate(-14deg);
+  }
+}
+
+/* "It works!": the stage eases to its celebration look while a bloom swells behind the
+   card, the card gives a small bounce, a light sweeps across it, and the check pops and
+   draws on with a ring and a burst of particles. */
+.setup-celebrate-glow {
+  position: absolute;
+  top: 45%;
+  left: 50%;
+  z-index: 1;
+  width: 720px;
+  height: 720px;
+  margin: -360px 0 0 -360px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgb(72 214 140 / 52%),
+    rgb(80 140 255 / 26%) 38%,
+    transparent 66%
+  );
+  pointer-events: none;
+  animation: setup-bloom 1900ms ease-out 120ms both;
+}
+:root[data-theme="dark"] .setup-celebrate-glow {
+  background: radial-gradient(circle, rgb(52 211 120 / 40%), transparent 64%);
+}
+@keyframes setup-bloom {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  28% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.55;
+    transform: scale(1.15);
+  }
+}
+.setup-stage[data-celebrate="true"] .setup-chat {
+  animation: setup-lift var(--spring-bouncy-duration) var(--spring-bouncy) 140ms both;
+}
+@keyframes setup-lift {
+  from {
+    transform: scale(0.95);
+  }
+}
+.setup-sweep {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.setup-sweep::before {
+  position: absolute;
+  top: -30%;
+  bottom: -30%;
+  left: 0;
+  width: 40%;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    rgb(31 174 87 / 16%) 32%,
+    rgb(255 255 255 / 90%) 50%,
+    rgb(31 174 87 / 16%) 68%,
+    transparent
+  );
+  content: "";
+  transform: translateX(-140%) skewX(-16deg);
+  animation: setup-sweep 1200ms cubic-bezier(0.45, 0, 0.2, 1) 360ms both;
+}
+:root[data-theme="dark"] .setup-sweep::before {
+  background: linear-gradient(
+    100deg,
+    transparent,
+    rgb(52 211 120 / 18%) 32%,
+    rgb(255 255 255 / 30%) 50%,
+    rgb(52 211 120 / 18%) 68%,
+    transparent
+  );
+}
+@keyframes setup-sweep {
+  to {
+    transform: translateX(380%) skewX(-16deg);
+  }
+}
+.setup-chat-check {
+  position: absolute;
+  z-index: 2;
+  top: -22px;
+  right: -18px;
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--setup-card);
+  box-shadow: var(--setup-card-shadow);
+  animation:
+    setup-check-pop var(--spring-bouncy-duration) var(--spring-bouncy) 260ms both,
+    setup-fade-in 160ms ease-out 260ms both;
+}
+.setup-chat-check .setup-success {
+  position: relative;
+  width: 36px;
+  height: 36px;
+}
+.setup-chat-check .setup-success circle {
+  animation-delay: 360ms;
+}
+.setup-chat-check .setup-success path {
+  animation-delay: 640ms;
+}
+@keyframes setup-check-pop {
+  from {
+    transform: scale(0.2) rotate(-40deg);
+  }
+}
+.setup-burst {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+}
+.setup-burst::before {
+  position: absolute;
+  width: 52px;
+  height: 52px;
+  margin: -26px 0 0 -26px;
+  border: 2px solid var(--setup-success);
+  border-radius: 50%;
+  content: "";
+  opacity: 0;
+  animation: setup-ring 900ms cubic-bezier(0.2, 0.7, 0.3, 1) 520ms both;
+}
+@keyframes setup-ring {
+  from {
+    opacity: 0.9;
+    transform: scale(0.7);
+  }
+  to {
+    opacity: 0;
+    transform: scale(2.6);
+  }
+}
+.setup-burst i {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  border-radius: 50%;
+  opacity: 0;
+  animation: setup-burst 980ms cubic-bezier(0.15, 0.7, 0.3, 1) calc(560ms + var(--t, 0ms)) both;
+}
+@keyframes setup-burst {
+  0% {
+    opacity: 0;
+    transform: rotate(var(--a)) translateX(14px) scale(var(--s, 1));
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(var(--a)) translateX(var(--d)) scale(calc(var(--s, 1) * 0.3));
+  }
+}
+
+/* ─── Landing: setup hands over to the app (App.tsx) ──────────────────────────────────
+   [data-landing] is set while each step runs. "arrive": the whole wizard recedes and blurs
+   as the app settles in underneath, and the new bot's picture and name fly from the
+   preview card into its row in the sidebar. The app holds there for a moment with the row
+   lit, then "open" pushes its chat in. Setup's own transition names step aside meanwhile. */
+:root[data-landing]
+  :is(
+    .setup-stage,
+    .setup-visual,
+    .setup-progress,
+    .setup-nav,
+    .setup-content,
+    .setup-eyebrow,
+    .setup-content h1,
+    .setup-primary,
+    .setup-primary-label
+  ) {
+  view-transition-name: none;
+}
+:root[data-landing="arrive"] .setup-profile-avatar {
+  view-transition-name: landing-avatar;
+}
+:root[data-landing="arrive"] .setup-profile > strong {
+  view-transition-name: landing-name;
+}
+:root[data-landing]::view-transition-group(*) {
+  animation-duration: var(--spring-gentle-duration);
+  animation-timing-function: var(--spring-gentle);
+}
+:root[data-landing="arrive"]::view-transition-old(root) {
+  transform-origin: 60% 50%;
+  animation: landing-recede 620ms var(--setup-ease-exit) both;
+}
+:root[data-landing="arrive"]::view-transition-new(root) {
+  animation:
+    landing-settle var(--spring-smooth-duration) var(--spring-smooth) 180ms both,
+    setup-fade-in 440ms ease-out 180ms both;
+}
+:root[data-landing="arrive"]::view-transition-old(landing-avatar),
+:root[data-landing="arrive"]::view-transition-new(landing-avatar),
+:root[data-landing="arrive"]::view-transition-old(landing-name),
+:root[data-landing="arrive"]::view-transition-new(landing-name) {
+  animation-duration: var(--spring-gentle-duration);
+}
+/* The name keeps its own proportions while it shrinks into the row. */
+:root[data-landing="arrive"]::view-transition-old(landing-name),
+:root[data-landing="arrive"]::view-transition-new(landing-name) {
+  height: 100%;
+  object-fit: contain;
+}
+@keyframes landing-recede {
+  to {
+    opacity: 0;
+    transform: scale(0.94);
+    filter: blur(6px);
+  }
+}
+@keyframes landing-settle {
+  from {
+    transform: scale(1.025);
+    filter: blur(5px);
+  }
+}
+/* The new bot's row glows while the app holds on it. */
+[data-landing-row] {
+  position: relative;
+}
+[data-landing-row]::after {
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ring) 11%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ring) 26%, transparent);
+  content: "";
+  pointer-events: none;
+  animation: landing-glow 1600ms ease-in-out 520ms both;
+}
+@keyframes landing-glow {
+  0% {
+    opacity: 0;
+  }
+  40% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.6;
+  }
+}
+.landing-note {
+  animation:
+    landing-note-in var(--spring-smooth-duration) var(--spring-smooth) 560ms both,
+    setup-fade-in 360ms ease-out 560ms both;
+}
+@keyframes landing-note-in {
+  from {
+    transform: translateY(8px);
+    filter: blur(6px);
+  }
+}
+/* "open": the sidebar stays (only its selection changes); the main area pushes the chat in. */
+:root[data-landing="open"] [data-workspace-main] {
+  view-transition-name: landing-main;
+}
+:root[data-landing="open"]::view-transition-old(root),
+:root[data-landing="open"]::view-transition-new(root) {
+  animation-duration: 320ms;
+}
+:root[data-landing="open"]::view-transition-group(landing-main) {
+  animation: none;
+}
+:root[data-landing="open"]::view-transition-old(landing-main) {
+  animation:
+    landing-push-out var(--spring-smooth-duration) var(--spring-smooth) both,
+    setup-fade-out 150ms var(--setup-ease-exit) both;
+}
+:root[data-landing="open"]::view-transition-new(landing-main) {
+  animation:
+    landing-push-in var(--spring-smooth-duration) var(--spring-smooth) 40ms both,
+    setup-fade-in 320ms ease-out 40ms both;
+}
+@keyframes landing-push-out {
+  to {
+    transform: scale(0.96);
+    filter: blur(3px);
+  }
+}
+@keyframes landing-push-in {
+  from {
+    transform: translateX(6%);
+    filter: blur(4px);
+  }
+}
+
+/* Reduced motion: cross-fades only. Movement keyframes become plain fades and the idle
+   loops stop; the view transitions keep their fades but nothing slides, morphs or flies. */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-setup-direction]::view-transition-group(*),
+  :root[data-landing]::view-transition-group(*) {
+    animation: none;
+  }
+  :root[data-setup-tone] {
+    transition: none;
+  }
+  @keyframes setup-recede {
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-settle {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-settle-up {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-recede-far {
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-settle-far {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-blur-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-blur-out {
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-rise {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-title-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-title-out {
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-hero-title {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-visual-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-leave {
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-xfade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-xfade-out {
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-pop-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-char-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-robot-drop {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-shadow-land {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-hello-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-mark-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-note-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-swap-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-new-look {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-check-pop {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes setup-lift {
+    from {
+      opacity: 1;
+    }
+  }
+  @keyframes landing-recede {
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes landing-settle {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes landing-note-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes landing-push-out {
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes landing-push-in {
+    from {
+      opacity: 0;
+    }
+  }
+  .setup-progress span[data-fill]::after,
+  .setup-robots > span > svg,
+  .setup-aurora i:nth-child(n),
+  .setup-terminal-mark::after,
+  .setup-wave,
+  .setup-wave i,
+  .setup-mic-button::after,
+  .setup-typing i,
+  .setup-input[aria-invalid="true"],
+  .setup-option-check[data-on="true"],
+  .setup-check-list li[data-state] .setup-check-icon,
+  .setup-celebrate-glow,
+  .setup-sweep,
+  .setup-burst {
+    animation: none;
+  }
+  .setup-burst,
+  .setup-sweep,
+  .setup-celebrate-glow {
+    display: none;
+  }
+  .setup-dots::before,
+  .setup-aurora {
+    transform: none;
+  }
+  .setup-terminal-mark {
+    transition: none;
+  }
+  .setup-terminal .setup-line {
+    clip-path: none;
+    animation: setup-fade-in 240ms ease calc(var(--i, 0) * 60ms) both;
+  }
+  .setup-success circle,
+  .setup-success path,
+  .setup-drawn-check {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  .setup-primary,
+  .setup-option,
+  .setup-option > svg:last-child,
+  .setup-primary-end > * {
+    transition-property: opacity, background, border-color, box-shadow, filter;
+  }
+  .setup-primary:hover:not(:disabled),
+  .setup-primary:active:not(:disabled),
+  .setup-option:hover,
+  .setup-option:active,
+  .setup-option:hover > svg:last-child,
+  .setup-chips button:active,
+  .setup-secondary:active {
+    transform: none;
+  }
+}
+
+/* The browser card once the sign-in went through. */
+.setup-browser-done {
+  width: 34px;
+  height: 34px;
+}
+.setup-browser-note {
+  color: var(--setup-muted);
+  font-size: 13px;
+  animation: setup-fade-in 280ms ease-out 200ms both;
+}

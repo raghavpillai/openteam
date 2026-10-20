@@ -5,7 +5,7 @@ import {
   type OpenTeamTransportOptions,
 } from "@openteam/client-core";
 import { recordPerformance } from "../lib/performance";
-import { clearAuthToken, getAuthToken } from "./auth";
+import { expireAuthToken, getAuthToken } from "./auth";
 import { resolveConfiguredApiBase } from "./runtime-url";
 
 export const API_BASE = resolveConfiguredApiBase(
@@ -46,7 +46,7 @@ export const desktopTransportOptions: OpenTeamTransportOptions = {
   baseUrl: API_BASE,
   fetch: instrumentedFetch,
   getAuthToken,
-  onUnauthorized: clearAuthToken,
+  onUnauthorized: expireAuthToken,
 };
 
 const transport = createJsonTransport(desktopTransportOptions);

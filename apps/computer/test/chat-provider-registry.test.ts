@@ -486,3 +486,61 @@ test("OpenRouter discovers account-filtered tool models and persists capabilitie
   f.state.status = 401;
   expect((await f.registry.catalog("openrouter")).models).toEqual([]);
 });
+
+test("OpenRouter recommends the Auto Router, else a rolling general model, and lists it first", async () => {
+  const f = await fixture({
+    openrouter: { baseUrl: "https://openrouter.test/api/v1", api: "openai-completions" },
+  });
+  const entry = (id: string) => ({
+    id,
+    name: id,
+    architecture: { output_modalities: ["text"] },
+    supported_parameters: ["tools"],
+  });
+  f.state.body = {
+    data: [
+      entry("author/newest"),
+      entry("~openai/gpt-sol-latest"),
+      entry("~anthropic/claude-sonnet-latest"),
+      entry("openrouter/auto"),
+    ],
+  };
+  const catalog = await f.registry.catalog("openrouter");
+  expect(catalog.models.map((m) => [m.id, m.recommended])).toEqual([
+    ["openrouter/auto", true],
+    ["author/newest", undefined],
+    ["~openai/gpt-sol-latest", undefined],
+    ["~anthropic/claude-sonnet-latest", undefined],
+  ]);
+
+  // An account whose settings hide the Auto Router gets the next suggestion.
+  f.state.body = {
+    data: [
+      entry("author/newest"),
+      entry("~openai/gpt-sol-latest"),
+      entry("~anthropic/claude-sonnet-latest"),
+    ],
+  };
+  expect((await f.registry.catalog("openrouter")).models.map((m) => m.id)).toEqual([
+    "~anthropic/claude-sonnet-latest",
+    "author/newest",
+    "~openai/gpt-sol-latest",
+  ]);
+
+  // Nothing suggested is listed: keep OpenRouter's order and recommend nothing.
+  f.state.body = { data: [entry("author/b"), entry("author/a")] };
+  const plain = await f.registry.catalog("openrouter");
+  expect(plain.models.map((m) => m.id)).toEqual(["author/b", "author/a"]);
+  expect(plain.models.some((m) => m.recommended)).toBe(false);
+
+  // The suggestion is a catalog hint, not a capability, so it is never persisted.
+  f.state.body = { data: [entry("openrouter/auto")] };
+  await f.registry.verify({
+    providerId: "openrouter",
+    modelId: "openrouter/auto",
+    reasoning: "off",
+  });
+  const saved = JSON.parse(await readFile(f.path, "utf8"));
+  expect(saved.providers.openrouter.models[0].id).toBe("openrouter/auto");
+  expect(saved.providers.openrouter.models[0]).not.toHaveProperty("recommended");
+});

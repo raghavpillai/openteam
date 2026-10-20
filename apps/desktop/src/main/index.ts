@@ -31,6 +31,7 @@ import { applicationMenuTemplate } from "./application-menu";
 import { desktopSignIn, desktopSignOut } from "./auth-client";
 import { createOpenTeamClient } from "@openteam/client-core";
 import { DesktopPluginOAuth } from "./plugin-oauth";
+import { ProviderSignInCallback } from "./provider-sign-in";
 import { DesktopAuthTokenStore } from "./auth-token-store";
 import { resolveControlToken } from "./control-token";
 import {
@@ -55,7 +56,7 @@ import {
   type ComputerSettings,
   type ComputerSettingsStore,
 } from "./computer-settings";
-import { ServerUpdater } from "./server-updater";
+import { readManagedInstallation, ServerUpdater } from "./server-updater";
 import {
   classifyDesktopUpdateError,
   type DesktopUpdateSnapshot,
@@ -634,6 +635,7 @@ ipcMain.handle("openteam:auth-token:write", (event, value: unknown) => {
 ipcMain.handle("openteam:auth-token:clear", async (event) => {
   const store = requireAuthTokenStore(event);
   pluginOAuth.closeAll();
+  providerSignIn.cancel();
   enrollmentServerUrl = null;
   await machineEnrollment?.stop();
   return store.clear();
@@ -677,13 +679,48 @@ ipcMain.handle("openteam:plugin-oauth:close", event => {
   pluginOAuth.closeAll();
 });
 
+// A server installed on this computer can be offered without typing its address.
+ipcMain.handle("openteam:local-server:detect", (event) => {
+  requireAuthSender(event);
+  const installation = readManagedInstallation();
+  return installation
+    ? {
+        url: `http://127.0.0.1:${installation.apiPort}`,
+        ...(installation.ownerUsername ? { username: installation.ownerUsername } : {}),
+      }
+    : null;
+});
+
+const providerSignIn = new ProviderSignInCallback();
+ipcMain.handle(
+  "openteam:provider-sign-in:capture",
+  (event, authorizationUrl: unknown, redirectUri: unknown) => {
+    requireAuthSender(event);
+    if (
+      typeof authorizationUrl !== "string" ||
+      authorizationUrl.length > 16_384 ||
+      typeof redirectUri !== "string" ||
+      redirectUri.length > 2048
+    )
+      throw new Error("Invalid provider sign-in request");
+    return providerSignIn.capture(authorizationUrl, redirectUri, (url) => shell.openExternal(url));
+  }
+);
+ipcMain.handle("openteam:provider-sign-in:cancel", (event) => {
+  requireAuthSender(event);
+  providerSignIn.cancel();
+});
+
 ipcMain.handle("openteam:machine:connect", (event, serverUrl: unknown) => {
   requireAuthSender(event);
   if (typeof serverUrl !== "string" || serverUrl.length > 8192) throw new Error("Invalid server URL");
   const url = new URL(serverUrl);
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error("Invalid server URL");
   const nextServerUrl = url.href.replace(/\/$/, "");
-  if (enrollmentServerUrl !== nextServerUrl) pluginOAuth.closeAll();
+  if (enrollmentServerUrl !== nextServerUrl) {
+    pluginOAuth.closeAll();
+    providerSignIn.cancel();
+  }
   enrollmentServerUrl = nextServerUrl;
   machineEnrollment?.configure(enrollmentServerUrl);
   return { machineId: localMachine.machineId };

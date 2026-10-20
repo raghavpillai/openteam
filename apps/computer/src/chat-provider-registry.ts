@@ -21,6 +21,7 @@ export const KEYLESS_API_KEY = "openteam-no-auth";
 export type ChatModel = Model<Api> & {
   reasoningLevels?: PiReasoningLevel[];
   defaultReasoningLevel?: PiReasoningLevel;
+  recommended?: boolean;
 };
 type CustomConfig = {
   name?: string;
@@ -425,6 +426,14 @@ export class ChatProviderRegistry {
           })
       ).values(),
     ].filter((m): m is ChatModel => Boolean(m));
+    // Apps preselect the first model when none is saved, so the suggestion leads the list.
+    const suggestion = CHAT_PROVIDER_DEFINITIONS[id]?.recommendedModels
+      ?.map((modelId) => models.findIndex((m) => m.id === modelId))
+      .find((index) => index >= 0);
+    if (suggestion !== undefined) {
+      const [recommended] = models.splice(suggestion, 1);
+      models.unshift({ ...recommended!, recommended: true });
+    }
     return models;
   }
   async verify(settings: ServerInferenceSettings): Promise<void> {

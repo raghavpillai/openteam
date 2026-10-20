@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
 import { authPrisma } from "./auth";
+import { usernameKey, usernameProblem } from "./username";
 
 export type OwnerCredentialOperation = "setup" | "update" | "reset";
 
@@ -10,15 +11,11 @@ export interface OwnerCredentialInput {
   password?: string;
 }
 
-const validUsername = (value: unknown): string => {
-  if (typeof value !== "string") throw new Error("Username is required");
-  const username = value.trim().toLowerCase();
-  if (username.length < 3 || username.length > 30 || !/^[a-z0-9_.]+$/.test(username)) {
-    throw new Error(
-      "Username must be 3-30 characters and use only letters, numbers, underscores, or dots"
-    );
-  }
-  return username;
+const validUsername = (value: unknown): { username: string; name: string } => {
+  if (typeof value !== "string") throw new Error("Enter a username.");
+  const problem = usernameProblem(value);
+  if (problem) throw new Error(problem);
+  return { username: usernameKey(value), name: value.trim() };
 };
 
 const validPassword = (value: unknown): string => {
@@ -42,10 +39,11 @@ export const setOwnerCredentials = async (
   ) {
     throw new Error("Owner credential update requires a username or password");
   }
-  const username =
+  // Keeping the current username keeps how it was written, too.
+  const { username, name } =
     input.operation === "setup" || input.username !== undefined
       ? validUsername(input.username)
-      : validUsername(existing?.username);
+      : { username: existing?.username ?? "", name: existing?.name ?? existing?.username ?? "" };
   const password =
     input.operation === "setup" || input.operation === "reset" || input.password !== undefined
       ? validPassword(input.password)
@@ -62,7 +60,7 @@ export const setOwnerCredentials = async (
       await database.user.update({
         where: { id: userId },
         data: {
-          name: username,
+          name,
           username,
           email: `${username}@openteam.invalid`,
           emailVerified: true,
@@ -73,7 +71,7 @@ export const setOwnerCredentials = async (
       await database.user.create({
         data: {
           id: userId,
-          name: username,
+          name,
           username,
           email: `${username}@openteam.invalid`,
           emailVerified: true,

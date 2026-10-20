@@ -1,5 +1,8 @@
 import SwiftUI
 
+/// Settings pages that other screens open directly.
+enum SettingsRoute: Hashable { case model, voiceNotes }
+
 struct SettingsView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.dismiss) private var dismiss
@@ -7,8 +10,12 @@ struct SettingsView: View {
   @AppStorage("accent") private var accent = "black"
   @AppStorage("haptics") private var haptics = true
   @State private var signOut = false
+  @State private var path: [SettingsRoute]
+  init(initialRoute: SettingsRoute? = nil) {
+    _path = State(initialValue: initialRoute.map { [$0] } ?? [])
+  }
   var body: some View {
-    NavigationStack {
+    NavigationStack(path: $path) {
       NativeList {
         Section {
           NavigationLink {
@@ -39,6 +46,15 @@ struct SettingsView: View {
           }.accessibilityIdentifier("plugins-settings")
         }
         Section {
+          NavigationLink(value: SettingsRoute.model) {
+            serverRow(
+              "Model", detail: "The account your bots think with",
+              status: modelStatus)
+          }.accessibilityIdentifier("model-settings")
+          NavigationLink(value: SettingsRoute.voiceNotes) {
+            serverRow(
+              "Voice notes", detail: "Transcription for recorded messages", status: voiceStatus)
+          }.accessibilityIdentifier("voice-settings")
           NavigationLink {
             ProvidersSettingsView()
           } label: {
@@ -49,6 +65,8 @@ struct SettingsView: View {
             }.padding(.vertical, 1).frame(maxWidth: .infinity, alignment: .leading)
               .contentShape(Rectangle())
           }.accessibilityIdentifier("providers-settings")
+        } header: {
+          Text("Server").font(.system(size: 13)).foregroundStyle(NativePalette.faint)
         }
         Section {
           NavigationLink("Bot notifications") { notificationSettings }
@@ -97,6 +115,12 @@ struct SettingsView: View {
         .contentMargins(.top, 20, for: .scrollContent)
         .listSectionSpacing(28)
         .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(for: SettingsRoute.self) { route in
+          switch route {
+          case .model: ModelSettingsView()
+          case .voiceNotes: VoiceNotesSettingsView()
+          }
+        }
         .toolbar {
           ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
           ToolbarItem(placement: .cancellationAction) {
@@ -124,6 +148,34 @@ struct SettingsView: View {
         }
     }
     .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
+  }
+  /// The Model row's warning while bots can't reply.
+  private var modelStatus: (text: String, warning: Bool)? {
+    switch store.runtime.inference {
+    case "missing": return ("Not connected", true)
+    case "invalid": return ("Not working", true)
+    case "unavailable": return ("Unavailable", true)
+    default: return nil
+    }
+  }
+  private var voiceStatus: (text: String, warning: Bool)? {
+    store.runtime.values["transcription"].map { ($0 == "configured" ? "On" : "Off", false) }
+  }
+  private func serverRow(
+    _ title: String, detail: String, status: (text: String, warning: Bool)?
+  ) -> some View {
+    HStack(spacing: 8) {
+      VStack(alignment: .leading, spacing: 3) {
+        Text(title).font(.body)
+        Text(detail).font(.system(size: 13)).foregroundStyle(NativePalette.muted)
+      }
+      Spacer(minLength: 8)
+      if let status {
+        Text(status.text).font(.subheadline)
+          .foregroundStyle(status.warning ? NativePalette.warning : NativePalette.muted)
+      }
+    }.padding(.vertical, 1).frame(maxWidth: .infinity, alignment: .leading)
+      .contentShape(Rectangle())
   }
   var notificationSettings: some View {
     NativeList {
@@ -170,9 +222,8 @@ struct ServerStatusView: View {
     NativeForm {
       ServerActivitySection()
       Section("Services") {
-        ForEach((store.state.bootstrap?.runtime.object ?? [:]).keys.sorted(), id: \.self) { key in
-          LabeledContent(
-            key.capitalized, value: store.state.bootstrap?.runtime[key].string ?? "Unknown")
+        ForEach(store.runtime.statusRows, id: \.label) { row in
+          LabeledContent(row.label, value: row.value)
         }
       }
       Button("Refresh") { Task { await store.refresh() } }

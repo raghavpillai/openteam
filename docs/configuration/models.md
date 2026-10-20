@@ -17,19 +17,18 @@ Usage and billing go through your provider account. A subscription sign-in and a
 
 ## Connect a provider
 
-In the desktop app, open **Settings → Server → Provider connection**, choose a provider, and connect.
+The first time you sign in, the app asks you to connect a model. Choose a provider, sign in or paste your API key, and the app picks a model and sends it a short test message.
 
-Or, on the server host, run guided setup:
+To connect or switch providers later, open **Settings → Server** in the desktop app. Under **Model**, choose a provider, then **Sign in** or **Add API key**. On iPhone, open **Settings → Model**.
 
-```sh
-openteam setup
-```
+- **ChatGPT and Claude:** the sign-in page opens in your browser. When you finish, the app connects on its own. If another app is using the sign-in's return address on your computer, copy the address your browser lands on and paste it into the app. On iPhone, ChatGPT shows a code to enter on its sign-in page instead.
+- **API keys:** paste the key when the app asks for it.
 
-If you've already signed in to Codex or Claude Code on the host, setup can reuse that sign-in.
+On a server without a screen, you can also sign in on the host with `openteam provider login <provider>`. If you've already signed in to Codex or Claude Code there, `openteam provider login` can reuse that sign-in.
 
 ## Choose a model
 
-In the desktop app, open **Settings → Server → Model and reasoning**, pick a model and reasoning effort, and choose **Apply**. Or run `openteam model` on the host for an interactive picker.
+In **Settings → Server**, pick a model and reasoning effort, and choose **Apply**. The app saves your choice, then sends a short test message to check that the model works. Or run `openteam model` on the host for an interactive picker.
 
 All bots use the same model. Changes apply to new messages; a task that's already running finishes with the settings it started with.
 
@@ -46,7 +45,7 @@ openteam model use <provider> <model> --thinking medium
 
 ## Use OpenRouter
 
-Choose **OpenRouter** and paste your API key. The model list shows the models your OpenRouter account allows that support tool use. OpenRouter model IDs include the model's author, such as `author/model-name`.
+Choose **OpenRouter** and paste your API key. The model list shows the models your OpenRouter account allows that support tool use. OpenRouter model IDs include the model's author, such as `author/model-name`. Until you save a model, the picker starts on the Auto Router (`openrouter/auto`), which chooses a model for each request. If your account doesn't list it, the picker starts on a current general model instead.
 
 ## Use your own model server
 
@@ -66,7 +65,9 @@ If your endpoint needs a key, leave out `--no-auth` and the CLI will ask for it.
 
 ## Check the connection
 
-Run `openteam doctor` to send a test request to your model. A model can appear in the list and still fail if your account has no quota left.
+Choose **Test** in **Settings → Server** to send a short message to your model and see whether it replies. On the host, `openteam doctor` runs the same kind of check. A model can appear in the list and still fail if your account has no quota left.
+
+If no model is connected, or the connection stops working, the app shows a warning with a shortcut to these settings. Bots can't reply until you fix it.
 
 If your sign-in expires, choose **Disconnect** and connect again in **Settings → Server**, or run `openteam provider login`.
 

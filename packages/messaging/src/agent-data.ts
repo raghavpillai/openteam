@@ -738,6 +738,8 @@ export class AgentDataStore {
   private readonly agentAttachmentPaths = new Map<string, string>();
   private readonly agentAttachmentPathLookups = new Map<string, Promise<string | null>>();
   private readonly memoryInference: MemoryInference | null;
+  /** Held exchanges whose review is running in this process; the rest were left by one that stopped. */
+  private readonly memoryExchangesInReview = new Set<string>();
   private timelineEventSink:
     | ((
         tx: Tx,
@@ -3199,17 +3201,29 @@ export class AgentDataStore {
     });
   }
 
-  /** Record the exchange before extraction runs; return earlier ones an interrupted run left unreviewed. */
-  private async holdMemoryExchange(botId: string, exchange: HeldMemoryExchange): Promise<HeldMemoryExchange[]> {
+  /** Record the exchange before extraction runs; take over earlier ones an interrupted review left unreviewed. */
+  private async holdMemoryExchange(
+    botId: string,
+    exchange: HeldMemoryExchange,
+    claimed: string[]
+  ): Promise<HeldMemoryExchange[]> {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`memory-exchanges:${botId}`}))`;
       const bot = await tx.bot.findUniqueOrThrow({ where: { id: botId }, select: { pendingMemoryExchanges: true } });
-      const earlier = parseHeldMemoryExchanges(bot.pendingMemoryExchanges)
-        .filter((held) => held.id !== exchange.id)
-        .slice(-(MAX_HELD_MEMORY_EXCHANGES - 1));
+      const held = parseHeldMemoryExchanges(bot.pendingMemoryExchanges).filter((entry) => entry.id !== exchange.id);
+      // An exchange another review here still owns stays with it; any other was left by a stopped process.
+      const inReview = held.filter((entry) => this.memoryExchangesInReview.has(entry.id));
+      const earlier = held.filter((entry) => !this.memoryExchangesInReview.has(entry.id)).slice(-(MAX_HELD_MEMORY_EXCHANGES - 1));
+      // Claimed under the lock, so a concurrent hold here sees them as owned.
+      claimed.push(exchange.id, ...earlier.map((entry) => entry.id));
+      for (const id of claimed) this.memoryExchangesInReview.add(id);
       await tx.bot.update({
         where: { id: botId },
-        data: { pendingMemoryExchanges: asInputJson([...earlier, holdMemoryExchange(exchange)]) },
+        data: {
+          pendingMemoryExchanges: asInputJson(
+            [...inReview, ...earlier, holdMemoryExchange(exchange)].slice(-MAX_HELD_MEMORY_EXCHANGES)
+          ),
+        },
       });
       return earlier;
     });
@@ -3245,20 +3259,25 @@ export class AgentDataStore {
     if (!bot || bot.status !== "active") return;
     if (!isMemorableExchange(input.user)) return;
     const exchange = { id: input.runId ?? randomUUID(), user: input.user, agent: input.assistant };
-    const earlier = await this.holdMemoryExchange(botId, exchange);
+    const claimed: string[] = [];
     try {
-      await this.runMemoryExtraction(botId, {
-        exchange,
-        earlier,
-        occurredAt: input.occurredAt ?? Date.now(),
-        timeZone: input.timeZone ?? resolveTimeZone(),
-        runId: input.runId,
-      });
-    } catch (error) {
-      console.warn(`memory extraction for ${botId}`, error);
+      const earlier = await this.holdMemoryExchange(botId, exchange, claimed);
+      try {
+        await this.runMemoryExtraction(botId, {
+          exchange,
+          earlier,
+          occurredAt: input.occurredAt ?? Date.now(),
+          timeZone: input.timeZone ?? resolveTimeZone(),
+          runId: input.runId,
+        });
+      } catch (error) {
+        console.warn(`memory extraction for ${botId}`, error);
+      }
+      // Reviewed or failed, these are done. Only a process that stops mid-extraction leaves one held.
+      await this.releaseMemoryExchanges(botId, claimed);
+    } finally {
+      for (const id of claimed) this.memoryExchangesInReview.delete(id);
     }
-    // Reviewed or failed, these are done. Only a process that stops mid-extraction leaves one held.
-    await this.releaseMemoryExchanges(botId, [...earlier, exchange].map((held) => held.id));
   }
 
   async materializeAttachments(

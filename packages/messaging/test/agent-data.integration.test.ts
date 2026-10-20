@@ -162,6 +162,61 @@ test("turn memory extracts facts from memorable turns", async () => {
   }
 });
 
+test("a review takes over only exchanges no running review holds", async () => {
+  if (!databaseUrl) return;
+
+  const prisma = createPrismaClient(databaseUrl);
+  const temporary = await mkdtemp(join(tmpdir(), "openteam-memory-overlap-"));
+  const workspace = join(temporary, "workspace");
+  const botId = crypto.randomUUID();
+  const prompts: string[] = [];
+  let firstStarted!: () => void;
+  const started = new Promise<void>((resolve) => { firstStarted = resolve; });
+  let finishFirst!: () => void;
+  const firstHeld = new Promise<void>((resolve) => { finishFirst = resolve; });
+  const store = new AgentDataStore(prisma, {
+    root: join(temporary, "agent-data"),
+    workspaceRoot: workspace,
+    memoryInference: async (request: MemoryInferenceRequest) => {
+      prompts.push(request.prompt);
+      if (request.prompt.includes("Overlap one.") && !request.prompt.includes("Earlier exchange")) {
+        firstStarted();
+        await firstHeld;
+      }
+      return "";
+    },
+  });
+
+  try {
+    await mkdir(workspace, { recursive: true });
+    await prisma.bot.create({
+      data: { id: botId, name: "Memory overlap", defaultDirectory: join(workspace, botId), status: "active", onboardingStatus: "completed" },
+    });
+    await store.initializeBot(botId);
+    // The next run finishes while the first review still waits on the model.
+    const first = store.recordTurnMemory(botId, { user: "Remember overlap one.", assistant: "Overlap one.", runId: crypto.randomUUID() });
+    await started;
+    await store.recordTurnMemory(botId, { user: "Remember overlap two.", assistant: "Overlap two.", runId: crypto.randomUUID() });
+    expect(prompts.at(-1)).not.toContain("Overlap one.");
+    finishFirst();
+    await first;
+    expect((await prisma.bot.findUniqueOrThrow({ where: { id: botId } })).pendingMemoryExchanges).toEqual([]);
+
+    // One held by a process that stopped mid-review is taken over by the next review.
+    await prisma.bot.update({
+      where: { id: botId },
+      data: { pendingMemoryExchanges: [{ id: "abandoned", user: "Abandoned detail.", agent: "Held." }] },
+    });
+    await store.recordTurnMemory(botId, { user: "Remember overlap three.", assistant: "Overlap three.", runId: crypto.randomUUID() });
+    expect(prompts.at(-1)).toContain("Earlier exchange (not yet reviewed):\nUser: Abandoned detail.");
+    expect((await prisma.bot.findUniqueOrThrow({ where: { id: botId } })).pendingMemoryExchanges).toEqual([]);
+  } finally {
+    await prisma.bot.deleteMany({ where: { id: botId } });
+    await prisma.$disconnect();
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
 test("agent-data files are authoritative and preserve malformed settings", async () => {
   if (!databaseUrl) return;
 

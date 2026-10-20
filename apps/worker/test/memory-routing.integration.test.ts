@@ -21,7 +21,7 @@ interface TurnInput {
   userInfo: string | null;
 }
 databaseTest(
-  "worker pins the room audience while explicit and automatic memory use the bot-wide store",
+  "in a group room the worker gives each bot only its own memory, and saved and learned facts are bot-wide",
   async () => {
     const root = await mkdtemp(join(tmpdir(), "worker-memory-routing-"));
     let app: AppService | undefined, worker: WakeWorker | undefined;

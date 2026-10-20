@@ -917,7 +917,14 @@ const SNAPSHOT_FN = (opts) => {
 	};
 	let selectorDiagnosis;
 	let root;
-	if (opts.selector) {
+	if (typeof opts.scopeKey === "string") {
+		// A browser script registered this element as the root for its
+		// locator.ariaSnapshot({ mode: 'ai' }); the script removes the entry.
+		const scopes = globalThis.__sandSnapshotScopes;
+		const scope = scopes != null && typeof scopes.get === "function" ? scopes.get(opts.scopeKey) : undefined;
+		root = scope != null && scope.isConnected === true ? scope : undefined;
+		selectorDiagnosis = { matched: root !== undefined, closedShadow: false };
+	} else if (opts.selector) {
 		const queried = deepQuery(opts.selector);
 		root = queried.element ?? undefined;
 		selectorDiagnosis = {
@@ -1153,7 +1160,7 @@ function recordRefOwners(refOwners, lines, owner) {
 }
 
 async function snapshotAcrossFrames(context, page, opts) {
-	const scoped = typeof opts.selector === "string";
+	const scoped = typeof opts.selector === "string" || typeof opts.scopeKey === "string";
 	const main = await snapshotFrame(context, page, page, { ...opts, refStart: opts.stableRefs ? (refCounterByPage.get(page) ?? 0) : 0 });
 	const lines = [...main.lines];
 	const refOwners = {};

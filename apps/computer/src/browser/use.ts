@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { runBrowserCode } from "./run-code";
+import { pdfPageCount, runBrowserCode, type RunCodeRequest } from "./run-code";
 import { findPageLines } from "./find";
 import { saveLargeBrowserOutput } from "./output";
-import { BrowserUploads } from "./uploads";
+import { BrowserUploads, uploadPayloads } from "./uploads";
 import { snapshotAcrossFrames, refHandle, frameRefsByPage, referenceFill, referenceType, editableHandle, writeTargetFrameIsHidden, WRITE_TARGET_IS_HIDDEN_FN, gotoWithRecovery, navigationNote, recoverErrorPage, settleIntoErrorPage, isChromeErrorPage, markSecretFill, SPLIT_CHAR_GROUP_FN } from "./reference-driver";
 import { resolveReferenceSelectOptions } from "./reference-select";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { mkdir, writeFile } from "node:fs/promises";
+import { Readable } from "node:stream";
+import { agentWriteStream } from "../agent-file-stream";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { BrowserDownloads } from "./downloads";
@@ -618,18 +620,20 @@ export class BrowserUseSession {
     const pages = this.leasedPages();
     await Promise.all(pages.map(p => this.observeDialogs(p)));
     for (const p of pages) this.uploads.watch(p);
-    const selected = this.targetIds.get(this.idFor(page));
-    if (!selected) throw new Error("Selected browser tab is unavailable");
-    let updates = Promise.resolve();
+    const targets = new Map<Page, string>();
+    for (const p of pages) {
+      const target = await this.targetFor(p).catch(() => undefined);
+      if (target) targets.set(p, target);
+    }
+    // The script opens a blank tab itself if this one closed meanwhile.
+    const selected = targets.get(page) ?? "";
+    const chooser = await this.uploads.pendingChooser(pages, page);
     const synchronize = async (state: {targets: string[]; selected: string | null; dialog?: string}) => {
       for (const candidate of this.context.pages()) {
         if (candidate.isClosed()) continue;
         let target: string;
-        try {
-          const cdp = await this.cdpFor(candidate);
-          const {targetInfo} = await cdp.send("Target.getTargetInfo");
-          target=targetInfo.targetId;
-        } catch(error) {
+        try { target = await this.targetFor(candidate); }
+        catch(error) {
           // A script can close a new tab before its queued selection update
           // reaches this connection. Do not fail otherwise-completed actions.
           if(candidate.isClosed() || /No target with given id found/.test(String(error)))continue;
@@ -639,24 +643,104 @@ export class BrowserUseSession {
           this.trackPage(candidate);
           this.uploads.watch(candidate);
           if (target === (state.dialog ?? state.selected)) this.currentViewId = this.idFor(candidate);
-          await this.clearRefs(candidate);
+          // Refs survive a script: navigation, removal and role or name
+          // changes already retire them where they live, in the page.
           if (target === state.dialog && this.dialogs.has(candidate)) this.scriptDialogOpened?.(candidate);
         }
       }
     };
+    // Progress and requests apply in the order the script sent them.
+    let updates: Promise<unknown> = Promise.resolve();
+    const enqueue = <T>(task: () => Promise<T>): Promise<T> => {
+      const next = updates.then(task);
+      updates = next.catch(() => {});
+      return next;
+    };
     let response;
     try {
-      response = await runBrowserCode({endpoint: this.endpoint,
-        targets: pages.map(p => this.targetIds.get(this.idFor(p))!).filter(Boolean),
-        selected, code: args.code as string}, signal, undefined, state => {
-          updates = updates.then(() => synchronize(state));
-          return updates;
-        });
+      response = await runBrowserCode({endpoint: this.endpoint, targets: [...targets.values()], selected, code: args.code as string,
+        workspace: this.uploads.workspace, downloads: this.downloadDirectory,
+        refPages: Object.fromEntries([...targets].flatMap(([p, target]) => {
+          const owners = frameRefsByPage.get(p);
+          return owners ? [[target, Object.values(owners).some(owner => typeof owner === "string")]] : [];
+        })),
+        chooser: chooser && targets.has(chooser.page) ? {target: targets.get(chooser.page)!, multiple: chooser.multiple} : null,
+      }, signal, undefined, {
+        progress: state => enqueue(() => synchronize(state)),
+        request: request => enqueue(() => this.scriptRequest(request)),
+      });
     } finally { await updates; }
     await synchronize(response);
     // Keep logs and a structured error together so the agent can diagnose a
-    // failed script without repeating side effects.
-    return textResult(JSON.stringify(response.payload), response.payload);
+    // failed script without repeating side effects. Images follow the JSON.
+    const result = textResult(JSON.stringify(response.payload), {...response.payload,
+      ...(response.images.length ? {images: response.images.map(image => ({key: image.key, mimeType: image.mimeType, bytes: Buffer.byteLength(image.data, "base64")}))} : {})});
+    for (const image of response.images)
+      result.content.push({type: "text", text: `Image "${image.key}":`}, {type: "image", data: image.data, mimeType: image.mimeType});
+    return result;
+  }
+
+  private async targetFor(page: Page): Promise<string> {
+    const known = this.targetIds.get(this.idFor(page));
+    if (known) return known;
+    const {targetInfo} = await (await this.cdpFor(page)).send("Target.getTargetInfo");
+    if (this.ownedPages.has(page)) this.targetIds.set(this.idFor(page), targetInfo.targetId);
+    return targetInfo.targetId;
+  }
+
+  private async scriptPage(target: string): Promise<Page> {
+    for (const page of this.context.pages()) {
+      if (page.isClosed()) continue;
+      if (await this.targetFor(page).catch(() => undefined) === target) {
+        this.trackPage(page);
+        return page;
+      }
+    }
+    throw Object.assign(new Error("The browser tab closed before the script's request reached it"), {code: "job_failed"});
+  }
+
+  /** Requests from a running browser_run_code script, answered on this connection. */
+  private async scriptRequest(request: RunCodeRequest): Promise<unknown> {
+    const policy = (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      // Authority failures are policy decisions; a missing file is the script's own error.
+      throw Object.assign(new Error(message), {code: /outside the allowed workspace root|absolute local file paths|private state|protected agent-data/.test(message) ? "policy_denied" : "job_failed"});
+    };
+    switch (request.type) {
+      case "snapshot": {
+        const page = await this.scriptPage(request.target);
+        const result = await this.captureSnapshot(page, {}, request.scope);
+        return {
+          text: redactSecrets(result.lines.join("\n"), [...this.privateValues]),
+          frames: Object.values(frameRefsByPage.get(page) ?? {}).some(owner => typeof owner === "string"),
+        };
+      }
+      case "files": {
+        const files = await uploadPayloads(request.paths, this.uploads.workspace, this.uploads.excludedRoots).catch(policy);
+        return files.map(file => ({name: file.name, mimeType: file.mimeType, buffer: file.buffer.toString("base64")}));
+      }
+      case "chooser": {
+        const page = await this.scriptPage(request.target);
+        const files = request.paths
+          ? await uploadPayloads(request.paths, this.uploads.workspace, this.uploads.excludedRoots).catch(policy)
+          : (request.payloads ?? []).map(file => ({name: file.name, mimeType: file.mimeType, buffer: Buffer.from(file.buffer, "base64")}));
+        return this.uploads.respondWith(page, files).catch(error => {
+          throw Object.assign(error instanceof Error ? error : new Error(String(error)), {code: "job_failed"});
+        });
+      }
+      case "uploaded":
+        // The script set files itself; a chooser this connection intercepted
+        // for the same click no longer needs browser_file_upload.
+        await this.uploads.discard(await this.scriptPage(request.target));
+        return null;
+      case "pdf": {
+        const bytes = Buffer.from(request.data, "base64");
+        const name = `${new Date().toISOString().replace(/[:.]/g, "-")}-${request.key.replace(/[^A-Za-z0-9_-]+/g, "-").slice(0, 60) || "page"}-${randomUUID().slice(0, 8)}.pdf`;
+        const path = join(this.uploads.workspace, "browser-pdfs", name);
+        await agentWriteStream(path, Readable.from([bytes]));
+        return {path, pages: pdfPageCount(bytes), bytes: bytes.length};
+      }
+    }
   }
 
   private async ensurePage(requestedViewId?: string): Promise<Page> {
@@ -917,12 +1001,14 @@ export class BrowserUseSession {
     return this.pageState(page, `${args.newTab === true ? `Opened ${safeUrl.href} in a new tab` : `Navigated to ${safeUrl.href}`}${navigationNote(outcome)}`);
   }
 
-  private async captureSnapshot(page: Page, args: JsonObject = {}) {
+  /** scopeKey names an element a browser script registered as the snapshot root. */
+  private async captureSnapshot(page: Page, args: JsonObject = {}, scopeKey?: string) {
     await this.clearRefs(page);
     const result = await snapshotAcrossFrames(this.context, page, {
       interactive: args.interactive === true,
       maxDepth: typeof args.maxDepth === "number" ? args.maxDepth : 20,
       selector: typeof args.selector === "string" && args.selector.length ? args.selector : undefined,
+      ...(scopeKey ? {scopeKey} : {}),
       stableRefs: true,
       findText: args.findText === true,
     });

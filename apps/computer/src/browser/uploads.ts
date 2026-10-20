@@ -77,13 +77,32 @@ export class BrowserUploads {
   }
   async assert(page:Page,expected:unknown){if(JSON.stringify(await this.observe(page))!==JSON.stringify(expected))throw new Error('File chooser changed during review');}
   async respond(page:Page,paths:unknown){
-    const before=await this.observe(page);const pending=this.pending.get(page)!;
+    const before=await this.observe(page);
     if(Array.isArray(paths)&&paths.length>1&&!before.multiple)throw new Error('This input accepts only one file');
-    const files=await uploadPayloads(paths,this.workspace,this.excludedRoots);
+    return this.setFiles(page,before,await uploadPayloads(paths,this.workspace,this.excludedRoots));
+  }
+  /** Files a browser script already read or built in memory. */
+  async respondWith(page:Page,files:Array<{name:string;mimeType:string;buffer:Buffer}>){
+    const before=await this.observe(page);
+    if(files.length>1&&!before.multiple)throw new Error('This input accepts only one file');
+    return this.setFiles(page,before,files);
+  }
+  private async setFiles(page:Page,before:unknown,files:Array<{name:string;mimeType:string;buffer:Buffer}>){
+    const pending=this.pending.get(page)!;
     await this.assert(page,before);
     await pending.chooser.setFiles(files,{timeout:10000});
     this.pending.delete(page);await pending.document.dispose().catch(()=>{});
     return files.length;
   }
+  /** The selected tab's pending chooser, else the most recent one in these tabs. */
+  async pendingChooser(pages:Page[],preferred:Page):Promise<{page:Page;multiple:boolean}|undefined>{
+    await Promise.all(pages.map(page=>this.captures.get(page)?.catch(()=>{})));
+    const candidates=pages.filter(page=>this.pending.has(page)).sort((a,b)=>this.pending.get(b)!.id-this.pending.get(a)!.id);
+    const page=candidates.includes(preferred)?preferred:candidates[0];
+    if(!page)return undefined;
+    try{return {page,multiple:(await this.observe(page)).multiple};}
+    catch{this.clear(page);return undefined;}
+  }
+  async discard(page:Page){await this.captures.get(page)?.catch(()=>{});this.clear(page);}
   clear(page:Page){const p=this.pending.get(page);this.pending.delete(page);void p?.document.dispose().catch(()=>{});}
 }

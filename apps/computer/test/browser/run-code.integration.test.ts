@@ -6,7 +6,7 @@ import { BrowserUseSession, BROWSER_USE_TOOLS } from "../../src/browser/use";
 import { outOfProcessPlaywright } from "../../src/browser/playwright-driver";
 import { runBrowserCode } from "../../src/browser/run-code";
 
-test("run-code contract uses Grok's code-only schema and is exposed to browser workers", () => {
+test("run-code contract uses the code-only schema and is exposed to browser workers", () => {
  const tool = BROWSER_USE_TOOLS.find(t => t.name === "browser_run_code")!;
  expect(tool).toBeDefined();
  expect(tool.inputSchema.required).toEqual(["code"]);
@@ -16,11 +16,19 @@ test("run-code contract uses Grok's code-only schema and is exposed to browser w
 
 test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)("batched Playwright scripts, fresh globals, tab selection, failures and limits on real Chromium", async () => {
  const root = await mkdtemp(join(tmpdir(), "run-code-"));
- const server = Bun.serve({port:0,fetch:()=>new Response(`<!doctype html><title>Script test</title>
+ const html = (body:string) => new Response(body, {headers:{"content-type":"text/html"}});
+ const server = Bun.serve({port:0,fetch:request=>{
+  const path = new URL(request.url).pathname;
+  if (path === "/second") return html("<title>Second tab</title><h1>Selected second</h1>");
+  if (path === "/interrupted") return html("<title>Interrupted tab</title>");
+  if (path === "/prompt") return html(`<title>Prompt tab</title><button id="external" onclick="document.querySelector('#answer').textContent=String(prompt('Background prompt'))">Prompt</button><output id="answer"></output>`);
+  return html(`<!doctype html><title>Script test</title>
  <input aria-label="Name"><button onclick="document.querySelector('output').textContent=document.querySelector('input').value">Save</button><output></output>
  <div class="row"><span>Alpha</span></div><div class="row"><span>Beta</span></div>
+ <button id="owned" onclick="document.querySelector('#answer').textContent=String(prompt('Script-owned prompt'))">Owned prompt</button><span id="answer"></span>
  <div id="shadow"></div><iframe srcdoc="<button>Frame button</button>"></iframe>
- <script>document.querySelector('#shadow').attachShadow({mode:'open'}).innerHTML='<button>Shadow button</button>';</script>`, {headers:{"content-type":"text/html"}})});
+ <script>document.querySelector('#shadow').attachShadow({mode:'open'}).innerHTML='<button>Shadow button</button>';</script>`);
+ }});
  const driver = await outOfProcessPlaywright();
  const profile = join(root,"profile");
  const context = await driver.playwright.chromium.launchPersistentContext(profile, {
@@ -42,17 +50,17 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)("batched Playwright s
   expect(result.result).toEqual({value:"Unicode café 東京",shadow:1,frame:"Frame button",tabs:1});
   expect(result.stdio).toEqual([{type:"log",text:"saved"}]);
   expect((await run(`async (page) => ({fresh:typeof probe,require:typeof require,process:typeof process,url:page.url(),encoding:Buffer.from('hi').toString('base64'),host:new URL(page.url()).hostname})`)).result).toEqual({fresh:"undefined",require:"undefined",process:"undefined",url:`http://127.0.0.1:${server.port}/`,encoding:"aGk=",host:"127.0.0.1"});
-  await run(`async (page) => {const next=await page.context().newPage();await next.goto('data:text/html,<title>Second tab</title><h1>Selected second</h1>');await next.bringToFront();return next.url();}`);
+  await run(`async (page) => {const next=await page.context().newPage();await next.goto('http://127.0.0.1:${server.port}/second');await next.bringToFront();return next.url();}`);
   expect((await run(`async (page) => ({title:await page.title(),tabs:page.context().pages().length})`)).result).toEqual({title:"Second tab",tabs:2});
   const snap=await session.execute("browser_snapshot",{});
   expect(JSON.stringify(snap)).toContain("Selected second");
-  await run(`async (page) => {const first=page.context().pages().find(p=>p.url().startsWith('http:'));await first.bringToFront();return await first.title();}`);
+  await run(`async (page) => {const first=page.context().pages().find(p=>!p.url().endsWith('/second'));await first.bringToFront();return await first.title();}`);
   expect((await run(`async (page)=>await page.title()`)).result).toBe("Script test");
   expect((await run(`async(page)=>'x'.repeat(40000)`)).result.length).toBe(40000);
-  expect((await run(`async(page)=>{const next=page.context().pages().find(p=>p.url().startsWith('data:'));await next.bringToFront();throw new Error('after switching')}`)).error.message).toContain('after switching');
+  expect((await run(`async(page)=>{const next=page.context().pages().find(p=>p.url().endsWith('/second'));await next.bringToFront();throw new Error('after switching')}`)).error.message).toContain('after switching');
   expect((await run(`async(page)=>await page.title()`)).result).toBe('Second tab');
   const background=await run(`async(page)=>{
-   const first=page.context().pages().find(p=>p.url().startsWith('http:'));
+   const first=page.context().pages().find(p=>!p.url().endsWith('/second'));
    await first.getByLabel('Name').fill('Background fill');
    const click=first.getByRole('button',{name:'Save',exact:true}).click();
    await first.bringToFront();await click;
@@ -65,24 +73,24 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)("batched Playwright s
   const page = await (session as any).ensurePage();
   const target = (session as any).targetIds.get((session as any).idFor(page));
   const input={endpoint,targets:[target],selected:target,code:"async(page)=>{while(true){}}"};
-  await expect(runBrowserCode(input,undefined,1200)).rejects.toThrow("limit");
+  expect((await runBrowserCode(input,undefined,1200)).payload.error?.code).toBe("timed_out");
   const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),1200);
   try { await expect(runBrowserCode({...input,code:"async(page)=>await new Promise(()=>{})"},controller.signal)).rejects.toThrow("cancelled"); }
   finally {clearTimeout(timer);}
   expect((await run(`async(page)=>await page.title()`)).result).toBe("Script test");
   // Nested Playwright objects must reach Playwright itself, not its proxy guard.
   expect((await run(`async(page)=>await page.locator('.row').filter({has:page.getByText('Beta',{exact:true})}).count()`)).result).toBe(1);
-  expect((await run(`async(page)=>{const el=await page.locator('.row').first().elementHandle();return page.evaluate(({nested})=>nested[0].textContent,{nested:[el]})}`)).result).toBe('Alpha');
-  const ownedDialog=await run(`async(page)=>{page.once('dialog',d=>d.accept('accepted'));return await page.evaluate(()=>prompt('Script-owned prompt'))}`);
+  expect((await run(`async(page)=>await page.locator('.row',{has:page.getByText('Alpha',{exact:true})}).innerText()`)).result).toBe('Alpha');
+  const ownedDialog=await run(`async(page)=>{page.once('dialog',d=>d.accept('accepted'));await page.click('#owned');return page.locator('#answer').innerText()}`);
   expect(ownedDialog.result).toBe('accepted');
-  const pending=await session.execute('browser_run_code',{code:`async(page)=>await page.evaluate(()=>prompt('Externally handled prompt'))`});
+  const pending=await session.execute('browser_run_code',{code:`async(page)=>{await page.click('#owned');return page.locator('#answer').innerText()}`});
   expect(pending.details?.pendingDialog).toBeDefined();
   const accepted=await session.execute('browser_handle_dialog',{accept:true,promptText:'external'});
   expect(JSON.parse((accepted.content[0] as any).text).result).toBe('external');
-  const backgroundPrompt=await session.execute('browser_run_code',{code:`async(page)=>{const other=await page.context().newPage();return other.evaluate(()=>prompt('Background prompt'))}`});
+  const backgroundPrompt=await session.execute('browser_run_code',{code:`async(page)=>{const other=await page.context().newPage();await other.goto('http://127.0.0.1:${server.port}/prompt');await other.locator('#external').click({force:true});return other.locator('#answer').innerText()}`});
   expect(backgroundPrompt.details?.pendingDialog).toBeDefined();
   const backgroundAccepted=await session.execute('browser_handle_dialog',{accept:false});
-  expect(JSON.parse((backgroundAccepted.content[0] as any).text).result).toBeNull();
+  expect(JSON.parse((backgroundAccepted.content[0] as any).text).result).toBe('null');
   await session.execute('browser_navigate',{url:`http://127.0.0.1:${server.port}/first`});
   await session.execute('browser_navigate',{url:`http://127.0.0.1:${server.port}/second`});
   const back=await session.execute('browser_navigate_back',{});
@@ -93,10 +101,10 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)("batched Playwright s
   const cancelWatch=setInterval(()=>{
    const internal=session as any;
    const selected=internal.context.pages().find((p:any)=>internal.ids.get(p)===internal.currentViewId);
-   if(selected?.url().includes('Interrupted'))cancel.abort();
+   if(selected?.url().includes('/interrupted'))cancel.abort();
   },20);
   const cancelTimer=setTimeout(()=>cancel.abort(),10000);
-  try {await expect(session.execute('browser_run_code',{code:`async(page)=>{const next=await page.context().newPage();await next.goto('data:text/html,<title>Interrupted tab</title>');await next.bringToFront();await new Promise(()=>{})}`},cancel.signal)).rejects.toThrow('cancelled');}
+  try {await expect(session.execute('browser_run_code',{code:`async(page)=>{const next=await page.context().newPage();await next.goto('http://127.0.0.1:${server.port}/interrupted');await next.bringToFront();await new Promise(()=>{})}`},cancel.signal)).rejects.toThrow('cancelled');}
   finally {clearTimeout(cancelTimer);clearInterval(cancelWatch);}
   expect((await session.execute('browser_snapshot',{})).details?.title).toBe('Interrupted tab');
   session.registerPrivateValues(["protected-fixture"]);

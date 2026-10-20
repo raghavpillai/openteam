@@ -7,6 +7,8 @@ export interface StatusReport {
   directory: string;
   connection: string;
   server: string;
+  /** The owner account the apps sign in with; absent until setup creates it. */
+  username?: string;
   project?: string;
   // null means inspection was blocked; [] means Docker confirmed no containers.
   services: readonly ServiceState[] | null;
@@ -193,19 +195,19 @@ export const renderStatus = (input: StatusReport, options: TerminalOptions = {})
     );
   if (input.health?.ok)
     view.row(
-      "AI credentials",
+      "AI model",
       input.health.inference === "ready"
-        ? "Configured · model request not tested"
-        : input.health.inference
-          ? `Not ready (${input.health.inference}) · check provider setup`
-          : "Not reported · run doctor to check provider setup",
+        ? "Connected"
+        : input.health.inference === "missing"
+          ? "Not connected · connect one in the OpenTeam app"
+          : input.health.inference
+            ? `Not ready (${input.health.inference}) · check it in the OpenTeam app`
+            : "Not reported · run openteam doctor",
       { tone: input.health.inference === "ready" ? "muted" : "warning" }
     );
-  view
-    .section("Connection")
-    .row("Server", input.server, { tone: "info" })
-    .row("Access", input.connection)
-    .row("Version", input.version);
+  view.section("Connection").row("Server", input.server, { tone: "info" });
+  if (input.username) view.row("Username", input.username);
+  view.row("Access", input.connection).row("Version", input.version);
   if (input.project) view.row("Compose project", input.project);
   view.row("Installation", input.directory);
   if (ready) next();

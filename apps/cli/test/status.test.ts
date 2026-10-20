@@ -29,6 +29,10 @@ describe("status and health reports", () => {
       const report = await collectStatus(f.paths, f.runner);
       expect(statusState(report)).toBe(state);
       expect(renderStatus(report, { width: 110, color: false })).toContain(expected);
+      // Status repeats the username the apps sign in with, once setup has created it.
+      if (id === "healthy")
+        expect(renderStatus(report, { width: 110, color: false })).toMatch(/Username\s+owner\n/);
+      if (id === "setup-incomplete") expect(report.username).toBeUndefined();
       for (const width of [24, 40, 60, 76, 90, 110])
         for (const color of [false, true]) {
           const output = renderStatus(report, { width, color });

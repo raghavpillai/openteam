@@ -28,12 +28,7 @@ export const statusScenarios = [
     "computer: unavailable",
   ],
   ["no-healthcheck", "Running without a Docker health check", "RUNNING", "no Docker health check"],
-  [
-    "provider-missing",
-    "Server ready; model provider not connected",
-    "RUNNING",
-    "openteam provider list",
-  ],
+  ["provider-missing", "Server ready; model provider not connected", "RUNNING", "openteam model"],
   ["setup-incomplete", "Account setup incomplete", "RUNNING", "openteam setup"],
   ["not-installed", "OpenTeam not installed", "NOT INSTALLED", "openteam install"],
   ["partial-install", "Missing installation files", "STATUS UNKNOWN", "known-good backup"],

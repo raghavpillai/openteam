@@ -152,7 +152,9 @@ export const acquireUpdateLock = (paths: InstallationPaths): (() => void) => {
       owner = null;
     }
     if (typeof owner?.pid === "number" && processIsAlive(owner.pid)) {
-      throw new CliError(`Another OpenTeam update is already running (process ${owner.pid}).`);
+      throw new CliError(
+        `Another OpenTeam setup or update is already running (process ${owner.pid}). Wait for it to finish, then try again.`
+      );
     }
     rmSync(paths.updateLock, { recursive: true, force: true });
     claim();

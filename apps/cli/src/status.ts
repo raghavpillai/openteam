@@ -80,6 +80,7 @@ export const collectStatus = async (
     report.version = manifest.version;
     report.project = normalizeProjectName(manifest.projectName || PROJECT_NAME);
     owner = manifest.ownerUsername;
+    report.username = owner?.trim() || undefined;
     environment = parseEnvironment(readFileSync(paths.environment, "utf8"));
     const access = environment.get("OPENTEAM_ACCESS_MODE") || "local";
     report.connection = ACCESS_MODES.includes(access as AccessMode)
@@ -197,8 +198,8 @@ export const collectStatus = async (
     }
   } else if (report.health.inference !== "ready") {
     report.nextDetail =
-      "Containers and server are ready. Connect a model provider before starting AI tasks:";
-    report.next = command("provider list");
+      "Containers and server are ready. Connect a model in the OpenTeam app under Settings → Server before starting AI tasks. On a server without the app, run:";
+    report.next = command("model");
   } else {
     report.nextDetail = "For deeper database, queue, storage, and model checks:";
   }

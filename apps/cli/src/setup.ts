@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { emitKeypressEvents } from "node:readline";
 import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
-import { installationCommand } from "./command-ui";
+import { installationCommand, renderCommandError } from "./command-ui";
 import type { InstallationManifest, InstallationPaths } from "./config";
 import {
   ensureAuthenticationSecret,
@@ -14,23 +14,13 @@ import {
   writeManifest,
 } from "./config";
 import { API_PORT, CLI_VERSION, PROJECT_NAME } from "./constants";
-import {
-  type DetectedLogin,
-  detectReusableLogins,
-  type LoginDetectionOptions,
-  readReusableCredential,
-} from "./detected-logins";
-import { type ComposeProject, requireComposeProject } from "./docker";
+import { requireComposeProject } from "./docker";
+import { dockerMissing, renderDockerRequired, startDockerDesktop } from "./docker-preflight";
 import { printDoctor, runDoctor, suggestApiPort } from "./doctor";
 import { CliError } from "./errors";
 import { checkHealth } from "./health";
 import type { CommandRunner } from "./process";
 import { inspectPublicReadiness } from "./public-readiness";
-import {
-  type RuntimeInferenceSettings,
-  readRuntimeInferenceSettings,
-  writeRuntimeInferenceSettings,
-} from "./runtime-settings";
 import { printSetupCancelled, waitForAutomaticSetup } from "./setup-countdown";
 import { runSetupSession, type SetupSessionInput } from "./setup-session";
 import {
@@ -38,43 +28,29 @@ import {
   ACCESS_MODES,
   accessLabel,
   accessModeNotes,
-  BUILTIN_PROVIDER_CHOICES,
   bindHostsFor,
-  CUSTOM_PROVIDER_APIS,
-  CUSTOM_PROVIDER_CHOICE,
   configuredAccessMode,
-  DEFAULT_RUNTIME_INFERENCE,
-  defaultProviderAuthType,
   detectPrivateNetworkHost,
   existingReachableHost,
   HTTP_WARNINGS,
-  providerLabel,
   publicUrlFor,
   SETUP_STAGES,
   type SetupConfiguration,
-  type SetupCustomProvider,
-  SKIP_INFERENCE_CHOICE,
-  THINKING_LEVELS,
-  thinkingLabel,
   validateAccessMode,
-  validateCustomProviderApi,
   validateIntegerInRange,
-  validateModel,
   validateOwnerPassword,
   validateOwnerUsername,
-  validateProviderBaseUrl,
-  validateProviderId,
-  validateProviderName,
-  validateProviderSelection,
   validateProxyHost,
   validatePublicDomain,
   validatePublicHost,
-  validateThinking,
   validateTimeZone,
 } from "./setup-values";
 import {
   assertOwnServer,
+  foreignServerDetected,
   assertPortsAvailable,
+  findPortConflict,
+  portConflictMessage,
   portRequirementsFromConfiguration,
   runningServices,
 } from "./stack";
@@ -95,6 +71,7 @@ import {
 } from "./tailscale-state";
 import { acquireUpdateLock } from "./update-safety";
 import {
+  colorEnabled,
   createSetupPresentation,
   type MessageTone,
   renderSelectionPrompt,
@@ -105,9 +82,14 @@ import {
 export {
   detectPrivateNetworkHost,
   type SetupConfiguration,
-  type SetupCustomProvider,
   validateOwnerUsername,
 } from "./setup-values";
+
+/** Where to get the apps after setup; they connect a model and create the first bot. */
+export const APP_DOWNLOADS = [
+  { label: "Desktop", value: "https://openteam.so/download" },
+  { label: "iPhone", value: "https://testflight.apple.com/join/KFBFPkjP" },
+] as const;
 
 const SETUP_KEYS = [
   "OPENTEAM_TIME_ZONE",
@@ -143,6 +125,8 @@ export interface SetupCommandOptions {
   countdown?: boolean;
   advanced?: boolean;
   fresh?: boolean;
+  /** Download the server images after the questions; defaults to first-time setup. */
+  pullImages?: boolean;
   presentation?: SetupPresentation;
   ownerConfigured?: boolean;
   /** Override private-address detection. Primarily useful for deterministic callers and tests. */
@@ -151,15 +135,21 @@ export interface SetupCommandOptions {
   tailscaleHost?: string;
   tailscalePort?: string;
   tailscaleIssue?: string | null;
-  /** Vendor CLI sign-ins to offer for reuse; `undefined` detects them. */
-  detectedLogins?: readonly DetectedLogin[];
-  /** Where to look for those sign-ins; defaults to this machine. */
-  loginDetection?: LoginDetectionOptions;
 }
 
 export const supportsInteractiveSelection = (
   environment: NodeJS.ProcessEnv = process.env
 ): boolean => environment.TERM?.toLowerCase() !== "dumb";
+
+/** Ctrl-C reaches Docker Compose too, which stops and exits 130. */
+const interrupted = (error: unknown): boolean =>
+  error instanceof CliError && error.exitCode === 130;
+
+/** An error's message as a sentence, so advice can follow it. */
+const sentence = (error: unknown): string => {
+  const text = error instanceof Error ? error.message : String(error);
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+};
 
 const requireInstallation = (paths: InstallationPaths): InstallationManifest => {
   if (!installationExists(paths)) {
@@ -324,8 +314,9 @@ const terminalSelect = <Value extends string>(
     render();
   });
 
+// A new account has no default name; changing one offers the current name.
 export const collectOwnerUsername = (prompter: SetupPrompter, current: string): Promise<string> =>
-  ask(prompter, "OpenTeam username", current, validateOwnerUsername);
+  askRequired(prompter, "OpenTeam username", current || null, validateOwnerUsername);
 
 export const collectConfirmedPassword = async (prompter: SetupPrompter): Promise<string> => {
   while (true) {
@@ -401,142 +392,21 @@ const confirm = async (
   }
 };
 
-const collectProviderSecret = async (
-  prompter: SetupPrompter,
-  providerId: string
-): Promise<string> => {
-  const label =
-    providerId === "openai"
-      ? "OpenAI API key"
-      : providerId === "anthropic"
-        ? "Anthropic API key"
-        : `${providerLabel(providerId)} API key or password`;
-  while (true) {
-    const secret = (await prompter.secret(`${label}: `)).trim();
-    if (secret) return secret;
-    console.log("  API key cannot be empty.");
-  }
-};
-
-const collectInferenceConfiguration = async (
-  configuration: SetupConfiguration,
-  currentProvider: string,
-  prompter: SetupPrompter,
-  presentation?: SetupPresentation,
-  chooseModel = false
-): Promise<void> => {
-  const providerChoices: Array<{ label: string; value: string }> = [...BUILTIN_PROVIDER_CHOICES];
-  const currentIsBuiltin = BUILTIN_PROVIDER_CHOICES.some(
-    (choice) => choice.value === currentProvider
-  );
-  if (!currentIsBuiltin) {
-    providerChoices.push({
-      label: `Keep ${currentProvider}`,
-      value: currentProvider,
-    });
-  }
-  providerChoices.push(CUSTOM_PROVIDER_CHOICE);
-  providerChoices.push(SKIP_INFERENCE_CHOICE);
-  presentation?.choices([
-    ...BUILTIN_PROVIDER_CHOICES.map((choice) => ({
-      title: choice.label,
-      description: choice.description,
-      recommended: currentProvider === choice.value,
-    })),
-    {
-      title: CUSTOM_PROVIDER_CHOICE.label,
-      description: CUSTOM_PROVIDER_CHOICE.description,
-      recommended: !currentIsBuiltin,
-    },
-    {
-      title: SKIP_INFERENCE_CHOICE.label,
-      description: SKIP_INFERENCE_CHOICE.description,
-    },
-  ]);
-  const selectedProvider = prompter.select
-    ? await prompter.select("Inference", providerChoices, currentProvider)
-    : await ask(
-        prompter,
-        "Inference (openai-codex/claude-code/openai/anthropic/openrouter/custom/skip)",
-        currentProvider,
-        (value) =>
-          value.trim().toLowerCase() === SKIP_INFERENCE_CHOICE.value
-            ? SKIP_INFERENCE_CHOICE.value
-            : validateProviderSelection(value, currentProvider)
-      );
-
-  if (selectedProvider === SKIP_INFERENCE_CHOICE.value) {
-    configuration.skipInference = true;
-    configuration.authenticate = false;
-    configuration.customProvider = undefined;
-    return;
-  }
-  configuration.skipInference = undefined;
-
-  if (selectedProvider === "custom") {
-    const id = await ask(prompter, "Custom provider id", "my-provider", validateProviderId);
-    const name = await ask(prompter, "Custom provider name", id, validateProviderName);
-    const baseUrl = await askRequired(
-      prompter,
-      "Custom provider base URL",
-      null,
-      validateProviderBaseUrl
-    );
-    const api = prompter.select
-      ? await prompter.select(
-          "Compatible API",
-          CUSTOM_PROVIDER_APIS.map((value) => ({ label: value, value })),
-          "openai-responses"
-        )
-      : await ask(
-          prompter,
-          "Compatible API (openai-responses/openai-completions/anthropic-messages/google-generative-ai)",
-          "openai-responses",
-          validateCustomProviderApi
-        );
-    const selectedModel = await ask(prompter, "Inference model", "model", validateModel);
-    const reasoning = await confirm(prompter, "Can this model think through complex tasks?", true);
-    configuration.provider = id;
-    configuration.model = selectedModel;
-    configuration.customProvider = {
-      id,
-      name,
-      baseUrl,
-      api,
-      model: selectedModel,
-      reasoning,
-    };
-    return;
-  }
-
-  configuration.provider = selectedProvider;
-  configuration.customProvider = undefined;
-  const selectedDefault = selectedProvider === currentProvider ? configuration.model : "";
-  configuration.model = chooseModel
-    ? await ask(
-        prompter,
-        "Inference model (blank chooses from catalog after connection)",
-        selectedDefault,
-        (value) => (value.trim() ? validateModel(value) : "")
-      )
-    : selectedDefault;
-};
-
 /**
  * Sequential prompt flow used by terminals without cursor control and by tests.
  * Interactive terminals run the same questions as a single session instead.
  */
 export const collectSetupConfiguration = async (
   current: ReadonlyMap<string, string>,
-  authenticated: boolean,
   prompter: SetupPrompter,
   options: SetupCommandOptions = {},
-  currentOwnerUsername = "openteam",
-  currentInference: RuntimeInferenceSettings = DEFAULT_RUNTIME_INFERENCE
+  currentOwnerUsername = ""
 ): Promise<SetupConfiguration> => {
   const presentation = options.presentation;
   const advanced = options.advanced ?? false;
-  const currentAccess = options.preferredHttpsHost
+  // Tailscale HTTPS is suggested for new installs; a re-run keeps the connection already in use.
+  const suggestTailscale = Boolean(options.fresh && options.preferredHttpsHost);
+  const currentAccess = suggestTailscale
     ? "tailscale"
     : configuredAccessMode(current, options.fresh ?? false);
   let selectedAccess: SetupConfiguration["accessMode"] = currentAccess;
@@ -563,8 +433,9 @@ export const collectSetupConfiguration = async (
     }
   }
 
-  const existingHost =
-    options.preferredHttpsHost ?? (options.fresh ? null : existingReachableHost(current));
+  const existingHost = options.fresh
+    ? (options.preferredHttpsHost ?? null)
+    : existingReachableHost(current);
   const detectedPrivateHost =
     options.detectedPrivateHost === undefined
       ? detectPrivateNetworkHost()
@@ -627,8 +498,26 @@ export const collectSetupConfiguration = async (
     for (const note of accessModeNotes(selectedAccess)) presentation?.message(note.text, note.tone);
   }
 
+  let apiPort = current.get("OPENTEAM_API_PORT") || String(API_PORT);
+  let timeZone = current.get("OPENTEAM_TIME_ZONE") || "UTC";
+  let workerConcurrency = current.get("OPENTEAM_WORKER_CONCURRENCY") || "8";
+  if (advanced) {
+    apiPort = await ask(
+      prompter,
+      "API port",
+      apiPort,
+      validateIntegerInRange("API port", 1, 65535)
+    );
+    timeZone = await ask(prompter, "Time zone", timeZone, validateTimeZone);
+    workerConcurrency = await ask(
+      prompter,
+      "Tasks at once",
+      workerConcurrency,
+      validateIntegerInRange("Tasks at once", 1, 64)
+    );
+  }
+
   presentation?.stage(1);
-  const currentThinking = currentInference.reasoning;
   let ownerUsername = currentOwnerUsername;
   let ownerPassword: string | undefined;
   if (options.ownerConfigured) {
@@ -642,102 +531,16 @@ export const collectSetupConfiguration = async (
     ownerPassword = await collectConfirmedPassword(prompter);
   }
 
-  const configuration: SetupConfiguration = {
+  return {
     accessMode: selectedAccess,
     ...bindHostsFor(selectedAccess, reachableHost),
-    publicUrl: "",
+    publicUrl: publicUrlFor(selectedAccess, reachableHost, apiPort),
     ownerUsername,
     ownerPassword,
-    apiPort: current.get("OPENTEAM_API_PORT") || String(API_PORT),
-    timeZone: current.get("OPENTEAM_TIME_ZONE") || "UTC",
-    provider: currentInference.providerId,
-    model: currentInference.modelId,
-    thinking: THINKING_LEVELS.includes(currentThinking as SetupConfiguration["thinking"])
-      ? (currentThinking as SetupConfiguration["thinking"])
-      : DEFAULT_RUNTIME_INFERENCE.reasoning,
-    workerConcurrency: current.get("OPENTEAM_WORKER_CONCURRENCY") || "8",
-    authenticate: false,
-    authType: defaultProviderAuthType(currentInference.providerId),
+    apiPort,
+    timeZone,
+    workerConcurrency,
   };
-
-  presentation?.stage(2);
-  if (advanced) {
-    configuration.apiPort = await ask(
-      prompter,
-      "API port",
-      configuration.apiPort,
-      validateIntegerInRange("API port", 1, 65535)
-    );
-    configuration.timeZone = await ask(
-      prompter,
-      "Time zone",
-      configuration.timeZone,
-      validateTimeZone
-    );
-  }
-  await collectInferenceConfiguration(
-    configuration,
-    currentInference.providerId,
-    prompter,
-    presentation,
-    advanced
-  );
-  if (advanced) {
-    configuration.thinking = prompter.select
-      ? await prompter.select(
-          "Thinking level",
-          THINKING_LEVELS.map((value) => ({ label: thinkingLabel(value), value })),
-          configuration.thinking
-        )
-      : await ask(
-          prompter,
-          "Thinking level (off/minimal/low/medium/high/xhigh/max)",
-          configuration.thinking,
-          validateThinking
-        );
-    configuration.workerConcurrency = await ask(
-      prompter,
-      "Tasks at once",
-      configuration.workerConcurrency,
-      validateIntegerInRange("Tasks at once", 1, 64)
-    );
-  }
-  configuration.publicUrl = publicUrlFor(
-    configuration.accessMode,
-    reachableHost,
-    configuration.apiPort
-  );
-  const needsAuthentication =
-    !authenticated || configuration.provider !== currentInference.providerId;
-  configuration.authenticate = configuration.skipInference
-    ? false
-    : advanced
-      ? await confirm(
-          prompter,
-          authenticated && configuration.provider === currentInference.providerId
-            ? `Sign in to ${providerLabel(configuration.provider)} again?`
-            : `Sign in to ${providerLabel(configuration.provider)} during setup?`,
-          needsAuthentication
-        )
-      : needsAuthentication;
-  if (configuration.authenticate) {
-    configuration.authType = defaultProviderAuthType(configuration.provider);
-    if (configuration.authType === "api_key") {
-      configuration.apiKey = await collectProviderSecret(prompter, configuration.provider);
-    } else if (
-      configuration.provider === "openai-codex" ||
-      configuration.provider === "claude-code"
-    ) {
-      const detected = (options.detectedLogins ?? []).find(
-        (login) => login.provider === configuration.provider
-      );
-      if (detected) {
-        configuration.reuseLogin = { provider: detected.provider, source: detected.source };
-        presentation?.message(`Reusing your ${detected.source} sign-in.`, "success");
-      }
-    }
-  }
-  return configuration;
 };
 
 const updateEnvironment = (contents: string, configuration: SetupConfiguration): string => {
@@ -758,192 +561,10 @@ const updateEnvironment = (contents: string, configuration: SetupConfiguration):
   return updated;
 };
 
-const providerUtility = (project: ComposeProject, args: readonly string[], input?: string) =>
-  project.run(
-    ["run", "--rm", "--no-deps", "--no-TTY", "computer", "openteam-pi-auth", ...args],
-    input === undefined ? {} : { input }
-  );
-
-const readStoppedRuntimeInference = (project: ComposeProject): RuntimeInferenceSettings => {
-  const result = providerUtility(project, ["selection"]);
-  if (result.status !== 0) {
-    throw new CliError(
-      result.stderr.trim() || result.stdout.trim() || "Could not read runtime inference settings"
-    );
-  }
-  let value: unknown;
-  try {
-    value = JSON.parse(result.stdout);
-  } catch {
-    throw new CliError("Runtime inference settings are invalid");
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new CliError("Runtime inference settings are invalid");
-  }
-  const settings = value as Record<string, unknown>;
-  if (
-    typeof settings.providerId !== "string" ||
-    typeof settings.modelId !== "string" ||
-    !THINKING_LEVELS.includes(settings.reasoning as SetupConfiguration["thinking"])
-  ) {
-    throw new CliError("Runtime inference settings are invalid");
-  }
-  return settings as unknown as RuntimeInferenceSettings;
-};
-
-const registerCustomProvider = (
-  project: ComposeProject,
-  customProvider: SetupCustomProvider
-): void => {
-  const result = providerUtility(
-    project,
-    ["add-custom"],
-    JSON.stringify({ ...customProvider, createOnly: true })
-  );
-  if (result.status !== 0) {
-    throw new CliError(
-      `Could not configure custom provider ${customProvider.id}: ${result.stderr.trim() || result.stdout.trim() || "provider utility failed"}`
-    );
-  }
-};
-
-const removeRegisteredCustomProvider = (
-  project: ComposeProject,
-  providerId: string | null
-): void => {
-  if (providerId) providerUtility(project, ["remove-custom", providerId]);
-};
-
-type AvailableProviderModel = {
-  providerId: string;
-  modelId: string;
-  name?: string;
-  reasoningLevels: SetupConfiguration["thinking"][];
-  defaultReasoningLevel: SetupConfiguration["thinking"];
-};
-
-const availableProviderModels = (
-  project: ComposeProject,
-  providerId: string
-): AvailableProviderModel[] => {
-  const result = providerUtility(project, ["models", providerId]);
-  if (result.status !== 0) {
-    throw new CliError(
-      `Could not inspect AI provider ${providerId}: ${result.stderr.trim() || result.stdout.trim() || "provider check failed"}`
-    );
-  }
-  let models: unknown;
-  try {
-    models = JSON.parse(result.stdout);
-  } catch {
-    throw new CliError(`OpenTeam received invalid model information for ${providerId}`);
-  }
-  if (!Array.isArray(models)) {
-    throw new CliError(`OpenTeam received invalid model information for ${providerId}`);
-  }
-  const available = models.flatMap((candidate): AvailableProviderModel[] => {
-    if (
-      !candidate ||
-      typeof candidate !== "object" ||
-      !("providerId" in candidate) ||
-      candidate.providerId !== providerId ||
-      !("modelId" in candidate) ||
-      typeof candidate.modelId !== "string" ||
-      !candidate.modelId ||
-      !("reasoningLevels" in candidate) ||
-      !Array.isArray(candidate.reasoningLevels) ||
-      candidate.reasoningLevels.some(
-        (level: unknown) => !THINKING_LEVELS.includes(level as SetupConfiguration["thinking"])
-      ) ||
-      !("defaultReasoningLevel" in candidate) ||
-      !THINKING_LEVELS.includes(candidate.defaultReasoningLevel as SetupConfiguration["thinking"])
-    ) {
-      return [];
-    }
-    return [
-      {
-        providerId,
-        modelId: candidate.modelId,
-        reasoningLevels: candidate.reasoningLevels as SetupConfiguration["thinking"][],
-        defaultReasoningLevel: candidate.defaultReasoningLevel as SetupConfiguration["thinking"],
-        ...(typeof (candidate as { name?: unknown }).name === "string"
-          ? { name: (candidate as { name: string }).name }
-          : {}),
-      },
-    ];
-  });
-  if (!available.length) {
-    throw new CliError(
-      `${providerLabel(providerId)} returned no available chat models for this account. Check the provider connection, then retry setup.`
-    );
-  }
-  return available;
-};
-
-const chooseAvailableProviderModel = async (
-  project: ComposeProject,
-  providerId: string,
-  requestedModel: string,
-  prompter: SetupPrompter,
-  presentation: SetupPresentation
-): Promise<AvailableProviderModel> => {
-  const models = availableProviderModels(project, providerId);
-  const requested = models.find((model) => model.modelId === requestedModel);
-  if (requested) return requested;
-
-  if (requestedModel) {
-    presentation.message(
-      `${providerLabel(providerId)} does not provide ${requestedModel} to this account. Choose an available model.`,
-      "warning"
-    );
-  }
-  const firstModel = models[0];
-  if (!firstModel) throw new CliError(`${providerLabel(providerId)} returned no available models.`);
-  if (models.length === 1) {
-    const selected = firstModel.modelId;
-    presentation.message(`Selected the only available model: ${selected}.`, "info");
-    return firstModel;
-  }
-
-  const choices = models.map((model) => ({
-    label:
-      model.name && model.name !== model.modelId
-        ? `${model.name} (${model.modelId})`
-        : model.modelId,
-    value: model.modelId,
-  }));
-  const first = firstModel.modelId;
-  if (prompter.select) {
-    const selected = await prompter.select("Inference model", choices, first);
-    return models.find((model) => model.modelId === selected) ?? firstModel;
-  }
-
-  presentation.choices(
-    models.map((model) => ({
-      title: model.modelId,
-      description:
-        model.name && model.name !== model.modelId ? model.name : "Available to this account",
-    }))
-  );
-  const allowed = new Set(models.map((model) => model.modelId));
-  const selected = await ask(prompter, "Inference model", first, (value) => {
-    const model = validateModel(value);
-    if (!allowed.has(model)) throw new CliError("Choose one of the available models shown above.");
-    return model;
-  });
-  return models.find((model) => model.modelId === selected) ?? firstModel;
-};
-
 const configurationSummary = (configuration: SetupConfiguration) => [
   { label: "Connection", value: accessLabel(configuration.accessMode) },
   { label: "Address", value: configuration.publicUrl },
   { label: "Username", value: configuration.ownerUsername },
-  {
-    label: "Inference",
-    value: configuration.skipInference
-      ? "Skip for now"
-      : `${configuration.customProvider?.name || providerLabel(configuration.provider)} · ${configuration.model || "Choose from catalog after connection"}`,
-  },
 ];
 
 /** Collect a configuration through the sequential prompts, including the apply confirmation. */
@@ -952,11 +573,10 @@ const collectThroughPrompts = async (
   presentation: SetupPresentation,
   collectOptions: SetupCommandOptions,
   current: ReadonlyMap<string, string>,
-  authenticated: boolean,
   ownerUsername: string,
-  currentInference: RuntimeInferenceSettings,
   installationDirectory: string,
-  notes: ReadonlyArray<{ text: string; tone: MessageTone }>
+  notes: ReadonlyArray<{ text: string; tone: MessageTone }>,
+  check: (configuration: SetupConfiguration) => Promise<string | null>
 ): Promise<SetupConfiguration | null> => {
   presentation.start();
   presentation.message(`Installation: ${installationDirectory}`, "muted");
@@ -965,14 +585,12 @@ const collectThroughPrompts = async (
   while (true) {
     const candidate = await collectSetupConfiguration(
       current,
-      authenticated,
       prompter,
       collectOptions,
-      ownerUsername,
-      currentInference
+      ownerUsername
     );
 
-    presentation.stage(3);
+    presentation.stage(2);
     presentation.summary("Configuration ready", configurationSummary(candidate));
     if (candidate.accessMode === "proxy") {
       presentation.message(
@@ -992,7 +610,13 @@ const collectThroughPrompts = async (
             "yes"
           )
         : (await prompter.question("Apply this configuration? [Y/n/back] ")).trim().toLowerCase();
-      if (!answer || answer === "y" || answer === "yes") return candidate;
+      if (!answer || answer === "y" || answer === "yes") {
+        // A busy port keeps these answers: fix it and start again, or go back.
+        const issue = await check(candidate);
+        if (!issue) return candidate;
+        presentation.message(issue, "warning");
+        continue;
+      }
       if (answer === "n" || answer === "no") return null;
       if (answer === "b" || answer === "back") {
         presentation.message("Returning to the connection step.", "muted");
@@ -1009,10 +633,19 @@ const setupCommandUnlocked = async (
   options: SetupCommandOptions = {},
   suppliedPrompter?: SetupPrompter
 ): Promise<void> => {
+  const desktop = await startDockerDesktop(runner);
   const prerequisites = await runDoctor(paths, runner, PROJECT_NAME, {
     prerequisitesOnly: true,
   });
   if (!prerequisites.ok) {
+    if (dockerMissing(prerequisites)) {
+      console.log(
+        renderDockerRequired(installationCommand(paths, "setup"), {
+          desktopStarting: desktop === "timed-out",
+        })
+      );
+      throw new CliError("Docker is required.", 2, true);
+    }
     printDoctor(prerequisites, { compact: true });
     throw new CliError(
       `Setup paused. Fix the failed checks above, then run ${installationCommand(paths, "setup")} again.`,
@@ -1036,31 +669,31 @@ const setupCommandUnlocked = async (
   const current = new Map(parseEnvironment(previousEnvironment));
   const initialHealth = await checkHealth(paths);
   const running = runningServices(project);
-  assertOwnServer(runner, initialHealth, running, current);
-  const currentInference = initialHealth.ok
-    ? await readRuntimeInferenceSettings(paths)
-    : manifest.ownerUsername
-      ? readStoppedRuntimeInference(project)
-      : DEFAULT_RUNTIME_INFERENCE;
-  const prompter = suppliedPrompter || createTerminalPrompter();
-  const guidedStages = SETUP_STAGES;
-  const presentation =
-    options.presentation ?? createSetupPresentation({ version: CLI_VERSION, stages: guidedStages });
   const fresh = options.fresh ?? !manifest.ownerUsername;
+  // A new installation can take another port when a different OpenTeam already answers
+  // on this one; an existing installation must not move without the owner choosing it.
+  const foreignServer = foreignServerDetected(initialHealth, running);
+  if (!fresh) assertOwnServer(runner, initialHealth, running, current);
+  const ownServerHealthy = initialHealth.ok && !foreignServer;
+  const prompter = suppliedPrompter || createTerminalPrompter();
+  const presentation =
+    options.presentation ?? createSetupPresentation({ version: CLI_VERSION, stages: SETUP_STAGES });
   const detectedPrivateHost =
     options.detectedPrivateHost === undefined
       ? detectPrivateNetworkHost()
       : options.detectedPrivateHost;
-  const loginDetection: LoginDetectionOptions = options.loginDetection ?? { runner };
-  const detectedLogins = options.detectedLogins ?? detectReusableLogins(loginDetection);
   const previousApiPort = current.get("OPENTEAM_API_PORT");
   const notes: Array<{ text: string; tone: MessageTone }> = [];
   if (manifest.version !== CLI_VERSION) {
     notes.push({ text: `Installed server release: v${manifest.version}.`, tone: "muted" });
   }
-  if (fresh && !initialHealth.ok) {
+  if (fresh && !ownServerHealthy) {
     const configured = Number(current.get("OPENTEAM_API_PORT") || API_PORT);
-    const suggested = await suggestApiPort("127.0.0.1", configured);
+    // The other server holds the configured port even where a loopback probe can still bind.
+    const suggested = await suggestApiPort(
+      "127.0.0.1",
+      foreignServer ? configured + 1 : configured
+    );
     if (suggested !== configured) {
       current.set("OPENTEAM_API_PORT", String(suggested));
       notes.push({
@@ -1088,7 +721,7 @@ const setupCommandUnlocked = async (
       : undefined;
   if (preferredHttpsHost)
     notes.push({
-      text: `Tailscale HTTPS: https://${preferredHttpsHost}. Setup will configure a private Serve route for OpenTeam. Keep Tailscale connected on your devices.`,
+      text: `Tailscale HTTPS is available at https://${preferredHttpsHost}. If you choose it, setup adds a private Serve route for OpenTeam; keep Tailscale connected on your devices.`,
       tone: "info",
     });
   const collectOptions: SetupCommandOptions = {
@@ -1103,12 +736,32 @@ const setupCommandUnlocked = async (
         ? new URL(current.get("OPENTEAM_PUBLIC_URL")!).port || "443"
         : tailscale?.port,
     tailscaleIssue: tailscaleInspection.issue,
-    detectedLogins,
-    loginDetection,
     presentation,
   };
-  const authenticated = initialHealth.inference === "ready";
-  const ownerUsername = manifest.ownerUsername || "openteam";
+  const ownerUsername = manifest.ownerUsername || "";
+  // Services of this installation may keep their ports; a moved API port must be free.
+  const ownedPorts = (configuration: SetupConfiguration): Set<string> => {
+    const owned = new Set(running);
+    if (configuration.apiPort !== (previousApiPort || String(API_PORT))) owned.delete("server");
+    return owned;
+  };
+  // Run before anything changes, so a conflict sends the user back with their answers.
+  const checkStartup = async (configuration: SetupConfiguration): Promise<string | null> => {
+    const conflict = await findPortConflict(
+      runner,
+      portRequirementsFromConfiguration(configuration, ownedPorts(configuration))
+    );
+    if (conflict) return portConflictMessage(conflict);
+    if (configuration.accessMode !== "tailscale") return null;
+    try {
+      const node = requireTailscale(runner, new URL(configuration.publicUrl).port || "443");
+      assertTailscaleRouteAvailable(runner, node, configuration.apiPort);
+      return null;
+    } catch (error) {
+      if (error instanceof CliError) return error.message;
+      throw error;
+    }
+  };
 
   let configuration: SetupConfiguration | null;
   try {
@@ -1117,26 +770,21 @@ const setupCommandUnlocked = async (
         version: CLI_VERSION,
         stages: SETUP_STAGES,
         current,
-        authenticated,
         advanced: collectOptions.advanced,
         fresh,
         ownerConfigured: collectOptions.ownerConfigured,
         currentOwnerUsername: ownerUsername,
-        currentInference,
         detectedPrivateHost: collectOptions.detectedPrivateHost,
         preferredHttpsHost,
         tailscaleHost: tailscaleInspection.node?.host,
-        tailscalePort:
-          accessMode === "tailscale"
-            ? new URL(current.get("OPENTEAM_PUBLIC_URL")!).port || "443"
-            : tailscale?.port,
+        tailscalePort: collectOptions.tailscalePort,
         tailscaleIssue: tailscaleInspection.issue,
-        detectedLogins,
         notes,
+        check: checkStartup,
       });
       if (configuration) {
         // The session clears itself; leave a settled record of what is being applied.
-        presentation.stage(3);
+        presentation.stage(2);
         presentation.message(`Installation: ${paths.directory}`, "muted");
         presentation.message(`Installed server release: v${manifest.version}`, "muted");
         presentation.summary("Configuration ready", configurationSummary(configuration));
@@ -1153,11 +801,10 @@ const setupCommandUnlocked = async (
         presentation,
         collectOptions,
         current,
-        authenticated,
         ownerUsername,
-        currentInference,
         paths.directory,
-        notes
+        notes,
+        checkStartup
       );
     }
   } finally {
@@ -1165,13 +812,20 @@ const setupCommandUnlocked = async (
   }
   if (!configuration) {
     presentation.message("Setup cancelled; no configuration was changed.", "muted");
+    if (fresh) {
+      presentation.message(
+        `Run ${installationCommand(paths, "setup")} when you're ready to finish setting up OpenTeam.`,
+        "muted"
+      );
+    }
     return;
   }
   // Check the target before exposing it through Serve; an occupied port may belong to another app.
-  const ownedPorts = new Set(running);
-  if (configuration.apiPort !== (previousApiPort || String(API_PORT))) ownedPorts.delete("server");
   presentation.message("Checking startup ports…", "info");
-  await assertPortsAvailable(runner, portRequirementsFromConfiguration(configuration, ownedPorts));
+  await assertPortsAvailable(
+    runner,
+    portRequirementsFromConfiguration(configuration, ownedPorts(configuration))
+  );
   const previousRoutes = managedTailscaleRoutes(paths);
   const tailscaleNode =
     configuration.accessMode === "tailscale"
@@ -1184,103 +838,127 @@ const setupCommandUnlocked = async (
       );
     assertTailscaleRouteAvailable(runner, tailscaleNode, configuration.apiPort);
   }
-  let registeredCustomProvider: string | null = null;
-  try {
-    if (!configuration.skipInference && configuration.customProvider) {
-      presentation.message(`Connecting ${configuration.customProvider.name}…`, "info");
-      registerCustomProvider(project, configuration.customProvider);
-      registeredCustomProvider = configuration.customProvider.id;
+  const nextEnvironment = ensureAuthenticationSecret(
+    updateEnvironment(previousEnvironment, configuration)
+  );
+  const changed = nextEnvironment !== previousEnvironment;
+  if (changed) {
+    writeFileAtomic(paths.environment, nextEnvironment, 0o600);
+    const validation = project.run(["config", "--quiet"]);
+    if (validation.status !== 0) {
+      writeFileAtomic(paths.environment, previousEnvironment, 0o600);
+      throw new CliError(
+        `The new configuration is invalid: ${validation.stderr.trim() || validation.stdout.trim() || "Docker Compose rejected it"}`
+      );
     }
-    const nextEnvironment = ensureAuthenticationSecret(
-      updateEnvironment(previousEnvironment, configuration)
-    );
-    const changed = nextEnvironment !== previousEnvironment;
-    if (changed) {
-      writeFileAtomic(paths.environment, nextEnvironment, 0o600);
-      const validation = project.run(["config", "--quiet"]);
-      if (validation.status !== 0) {
-        writeFileAtomic(paths.environment, previousEnvironment, 0o600);
-        throw new CliError(
-          `The new configuration is invalid: ${validation.stderr.trim() || validation.stdout.trim() || "Docker Compose rejected it"}`
-        );
-      }
-    }
+  }
 
-    if (changed || configuration.customProvider || !initialHealth.ok || manifest.uninstalledAt) {
-      presentation.message(changed ? "Applying configuration…" : "Starting OpenTeam…", "info");
-      try {
-        if (configuration.accessMode !== "https") {
-          // A profile-disabled service is not guaranteed to be removed by `up --remove-orphans`.
-          // Stop a previously enabled proxy explicitly when switching away from HTTPS.
-          project.run(["stop", "caddy"]);
-        }
-        presentation.message(SETUP_JOBS_NOTE, "info");
-        project.runOrThrow(["up", "--detach", "--remove-orphans"], { inherit: true });
-        process.stdout.write("Waiting for OpenTeam");
-        const health = await waitForStartup(project, paths);
-        if (!health.ok) throw new CliError(`OpenTeam did not become healthy: ${health.detail}`);
-        presentation.message(
-          `Core services are ready at ${health.url.replace(/\/api\/v0\/health$/, "")}`,
-          "success"
-        );
-        if (manifest.uninstalledAt) {
-          writeManifest(paths, { ...manifest, uninstalledAt: undefined });
-        }
-      } catch (error) {
-        if (changed) {
-          writeFileAtomic(paths.environment, previousEnvironment, 0o600);
-          const recovery = project.run(["up", "--detach", "--remove-orphans"], {
-            inherit: true,
-          });
-          throw new CliError(
-            `Setup failed and the previous configuration was restored${
-              recovery.status === 0 ? " and restarted" : ", but it could not be restarted"
-            }: ${error instanceof Error ? error.message : error}`
-          );
-        }
+  if (options.pullImages ?? fresh) {
+    // All questions are answered; the long download needs no further input.
+    presentation.message(
+      "Downloading OpenTeam (about 1.5 GB). This can take a few minutes; no more input is needed.",
+      "info"
+    );
+    try {
+      project.runOrThrow(["pull"], { inherit: true });
+    } catch (error) {
+      // Ctrl-C keeps the answers, so the next setup offers them again.
+      if (interrupted(error)) throw error;
+      if (changed) writeFileAtomic(paths.environment, previousEnvironment, 0o600);
+      throw new CliError(
+        `Could not download OpenTeam: ${sentence(error)} Check your internet connection, then run ${installationCommand(paths, "setup")} again.`
+      );
+    }
+  }
+
+  if (changed || !ownServerHealthy || manifest.uninstalledAt) {
+    presentation.message(changed ? "Applying configuration…" : "Starting OpenTeam…", "info");
+    try {
+      if (configuration.accessMode !== "https") {
+        // A profile-disabled service is not guaranteed to be removed by `up --remove-orphans`.
+        // Stop a previously enabled proxy explicitly when switching away from HTTPS.
+        project.run(["stop", "caddy"]);
+      }
+      presentation.message(SETUP_JOBS_NOTE, "info");
+      // A first setup recreates its containers: Docker can leave one whose start failed (a busy
+      // port) without its network, and starting that one again would never become healthy.
+      project.runOrThrow(
+        ["up", "--detach", "--remove-orphans", ...(fresh ? ["--force-recreate"] : [])],
+        { inherit: true }
+      );
+      process.stdout.write("Waiting for OpenTeam");
+      const health = await waitForStartup(project, paths);
+      if (!health.ok) throw new CliError(`OpenTeam did not become healthy: ${health.detail}`);
+      presentation.message(
+        `Core services are ready at ${health.url.replace(/\/api\/v0\/health$/, "")}`,
+        "success"
+      );
+      if (manifest.uninstalledAt) {
+        writeManifest(paths, { ...manifest, uninstalledAt: undefined });
+      }
+    } catch (error) {
+      // Ctrl-C: a first setup keeps its answers; an existing one gets its configuration back.
+      if (interrupted(error)) {
+        if (changed && !fresh) writeFileAtomic(paths.environment, previousEnvironment, 0o600);
         throw error;
       }
-    } else {
-      presentation.message("Configuration is unchanged.", "success");
-    }
-    if (tailscaleNode) {
-      try {
-        ensureManagedTailscaleRoute(paths, runner, tailscaleNode, configuration.apiPort);
-        const readiness = await inspectPublicReadiness(configuration.publicUrl);
-        const failure = [readiness.dns, readiness.endpoint, readiness.tls]
-          .filter((check) => check && !check.ok)
-          .map((check) => check!.detail)
-          .join("; ");
-        if (failure) throw new CliError(`Tailscale HTTPS verification failed: ${failure}`);
-        presentation.message(
-          `Tailscale HTTPS verified at ${configuration.publicUrl}. Reconnect your apps using this address.`,
-          "success"
-        );
-      } catch (error) {
-        const cleanupErrors = rollbackNewTailscaleRoutes(paths, runner, previousRoutes);
-        writeFileAtomic(paths.environment, previousEnvironment, 0o600);
-        const recovery = project.run(["up", "--detach", "--remove-orphans"]);
+      if (fresh) {
+        // A first setup has no earlier server to bring back, only the installer's placeholders.
+        if (changed) writeFileAtomic(paths.environment, previousEnvironment, 0o600);
         throw new CliError(
-          `${error instanceof Error ? error.message : error} Previous configuration restored${recovery.status === 0 ? " and restarted" : "; restart failed, run openteam start"}. HTTPS was not enabled.${cleanupErrors.length ? ` Route cleanup needs attention: ${cleanupErrors.join("; ")}` : ""}`,
-          2
+          `OpenTeam did not start: ${sentence(error)} Fix the problem, then run ${installationCommand(paths, "setup")} again.`
         );
       }
+      if (changed) {
+        writeFileAtomic(paths.environment, previousEnvironment, 0o600);
+        const recovery = project.run(["up", "--detach", "--remove-orphans"], {
+          inherit: true,
+        });
+        throw new CliError(
+          `Setup failed and the previous configuration was restored${
+            recovery.status === 0 ? " and restarted" : ", but it could not be restarted"
+          }: ${error instanceof Error ? error.message : error}`
+        );
+      }
+      throw error;
     }
-    cleanManagedTailscaleRoutes(
-      paths,
-      runner,
-      tailscaleNode
-        ? {
-            host: tailscaleNode.host,
-            port: tailscaleNode.port || "443",
-            backendPort: configuration.apiPort,
-          }
-        : undefined
-    );
-  } catch (error) {
-    removeRegisteredCustomProvider(project, registeredCustomProvider);
-    throw error;
+  } else {
+    presentation.message("Configuration is unchanged.", "success");
   }
+  if (tailscaleNode) {
+    try {
+      ensureManagedTailscaleRoute(paths, runner, tailscaleNode, configuration.apiPort);
+      const readiness = await inspectPublicReadiness(configuration.publicUrl);
+      const failure = [readiness.dns, readiness.endpoint, readiness.tls]
+        .filter((check) => check && !check.ok)
+        .map((check) => check!.detail)
+        .join("; ");
+      if (failure) throw new CliError(`Tailscale HTTPS verification failed: ${failure}`);
+      presentation.message(
+        `Tailscale HTTPS verified at ${configuration.publicUrl}. Reconnect your apps using this address.`,
+        "success"
+      );
+    } catch (error) {
+      const cleanupErrors = rollbackNewTailscaleRoutes(paths, runner, previousRoutes);
+      writeFileAtomic(paths.environment, previousEnvironment, 0o600);
+      const recovery = project.run(["up", "--detach", "--remove-orphans"]);
+      throw new CliError(
+        `${error instanceof Error ? error.message : error} Previous configuration restored${recovery.status === 0 ? " and restarted" : "; restart failed, run openteam start"}. HTTPS was not enabled.${cleanupErrors.length ? ` Route cleanup needs attention: ${cleanupErrors.join("; ")}` : ""}`,
+        2
+      );
+    }
+  }
+  cleanManagedTailscaleRoutes(
+    paths,
+    runner,
+    tailscaleNode
+      ? {
+          host: tailscaleNode.host,
+          port: tailscaleNode.port || "443",
+          backendPort: configuration.apiPort,
+        }
+      : undefined
+  );
 
   if (configuration.ownerPassword) {
     presentation.message("Setting the OpenTeam owner credentials…", "info");
@@ -1302,151 +980,16 @@ const setupCommandUnlocked = async (
     );
   }
 
-  if (configuration.skipInference) {
-    presentation.message(
-      "Inference setup was skipped. Connect a provider later with openteam setup.",
-      "muted"
-    );
-  } else if (configuration.authenticate) {
-    presentation.message(`Signing in to ${providerLabel(configuration.provider)}…`, "info");
-    if (configuration.authType === "api_key") {
-      project.runOrThrow(
-        [
-          "exec",
-          "--no-TTY",
-          "computer",
-          "openteam-pi-auth",
-          "login",
-          configuration.provider,
-          "api_key",
-        ],
-        { input: `${configuration.apiKey}\n` }
-      );
-      configuration.apiKey = undefined;
-    } else {
-      let imported = false;
-      if (configuration.reuseLogin) {
-        const reusable = readReusableCredential(configuration.reuseLogin.provider, loginDetection);
-        if (!reusable) {
-          presentation.message(
-            `The ${configuration.reuseLogin.source} sign-in is no longer available. Continue with a fresh provider sign-in.`,
-            "warning"
-          );
-        } else {
-          // Tokens travel over stdin only, like API keys, and never appear in arguments.
-          const result = project.run(
-            ["exec", "--no-TTY", "computer", "openteam-pi-auth", "import", configuration.provider],
-            { input: JSON.stringify(reusable.credential) }
-          );
-          if (result.status === 0) {
-            imported = true;
-            presentation.message(`Reused your ${reusable.source} sign-in.`, "success");
-          } else {
-            presentation.message(
-              `Could not reuse the ${reusable.source} sign-in. Continue with a fresh provider sign-in.`,
-              "warning"
-            );
-          }
-        }
-      }
-      if (!imported) {
-        presentation.message(
-          `Continue with a fresh ${providerLabel(configuration.provider)} sign-in.`,
-          "info"
-        );
-        if (configuration.provider === "openai-codex") {
-          presentation.message(
-            "If you are connected over SSH, choose Device code login at the next prompt.",
-            "info"
-          );
-        }
-        project.runOrThrow(
-          ["exec", "computer", "openteam-pi-auth", "login", configuration.provider, "oauth"],
-          { inherit: true }
-        );
-      }
-    }
-  }
-  if (!configuration.skipInference && (configuration.authenticate || !configuration.model)) {
-    const selectedModel = await chooseAvailableProviderModel(
-      project,
-      configuration.provider,
-      configuration.model,
-      prompter,
-      presentation
-    );
-    configuration.model = selectedModel.modelId;
-    if (!selectedModel.reasoningLevels.includes(configuration.thinking)) {
-      const previous = configuration.thinking;
-      configuration.thinking = selectedModel.defaultReasoningLevel;
-      presentation.message(
-        `${selectedModel.name || selectedModel.modelId} does not support thinking ${previous}; using ${configuration.thinking}.`,
-        "info"
-      );
-    }
-    // Older helpers can exit successfully when stdin closes during an OAuth prompt.
-    // Check the saved authentication in a separate process before reporting success.
-    const verification = project.run(
-      [
-        "exec",
-        "--no-TTY",
-        "computer",
-        "openteam-pi-auth",
-        "verify",
-        configuration.provider,
-        configuration.model,
-        configuration.thinking,
-      ],
-      { timeoutMs: 10_000 }
-    );
-    if (verification.status !== 0) {
-      throw new CliError(
-        `${providerLabel(configuration.provider)} sign-in did not complete or could not be verified. Run openteam provider login ${configuration.provider}, finish the provider sign-in, then retry openteam setup.`,
-        2
-      );
-    }
-    presentation.message(`${providerLabel(configuration.provider)} is connected.`, "success");
-  }
-
-  const nextInference: RuntimeInferenceSettings = {
-    providerId: configuration.provider,
-    modelId: configuration.model,
-    reasoning: configuration.thinking,
-  };
-  if (
-    !configuration.skipInference &&
-    (nextInference.providerId !== currentInference.providerId ||
-      nextInference.modelId !== currentInference.modelId ||
-      nextInference.reasoning !== currentInference.reasoning)
-  ) {
-    try {
-      await writeRuntimeInferenceSettings(paths, nextInference);
-    } catch (error) {
-      throw new CliError(
-        `Could not activate ${configuration.provider}/${configuration.model}. Run openteam provider login ${configuration.provider} and retry: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-    presentation.message(`${configuration.model} is ready for new tasks.`, "success");
-  }
-
-  presentation.stage(4);
+  presentation.stage(3);
   presentation.message("Checking the installation…", "info");
   const diagnosis = await runDoctor(paths, runner, manifest.projectName || PROJECT_NAME);
   printDoctor(diagnosis, {
     compact: true,
-    ...(configuration.skipInference ? { omitLabels: ["Inference"] } : {}),
+    // Models are connected in the apps, and the user just chose this connection.
+    omit: (check) =>
+      check.label === "Inference" || (check.label === "Network exposure" && check.level === "warn"),
   });
   if (!diagnosis.ok) throw new CliError("Setup completed with blocking doctor failures.", 2);
-  if (
-    configuration.authenticate &&
-    !configuration.skipInference &&
-    !diagnosis.checks.some((check) => check.label === "Inference" && check.level === "pass")
-  ) {
-    throw new CliError(
-      `The provider sign-in was saved, but OpenTeam cannot use it yet. Run openteam doctor to check inference, then retry openteam setup.`,
-      2
-    );
-  }
   if (["https", "proxy", "http"].includes(configuration.accessMode)) {
     const readiness = await inspectPublicReadiness(configuration.publicUrl);
     const publicFailure = [
@@ -1474,9 +1017,12 @@ const setupCommandUnlocked = async (
   presentation.summary("OpenTeam is ready", [
     { label: "Server", value: configuration.publicUrl },
     { label: "Username", value: configuration.ownerUsername },
-    { label: "Security", value: accessLabel(configuration.accessMode) },
-    { label: "Manage", value: "openteam status · openteam doctor · openteam update" },
   ]);
+  presentation.next(
+    "Next: open the OpenTeam app and sign in with this server and username.",
+    APP_DOWNLOADS,
+    "The app will help you connect a model and create your first bot."
+  );
 };
 
 export const setupCommand = async (
@@ -1486,9 +1032,31 @@ export const setupCommand = async (
   prompter?: SetupPrompter
 ): Promise<void> => {
   const release = acquireUpdateLock(paths);
+  const stopped = new CliError(
+    `Setup was interrupted. Run ${installationCommand(paths, "setup")} to finish setting up OpenTeam.`,
+    130
+  );
+  // Ctrl-C while setup waits between Docker commands stops here. During a command, Docker
+  // Compose gets it too and exits 130, which ends setup below with the same advice.
+  const onInterrupt = () => {
+    release();
+    console.error(
+      renderCommandError(stopped.message, {
+        color: colorEnabled(process.env, Boolean(process.stderr.isTTY)),
+        width: process.stderr.columns,
+      })
+    );
+    process.exit(130);
+  };
+  process.on("SIGINT", onInterrupt);
   try {
     await setupCommandUnlocked(paths, runner, options, prompter);
+  } catch (error) {
+    // A Docker command that the same Ctrl-C stopped can fail before the signal is handled.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    throw interrupted(error) ? stopped : error;
   } finally {
+    process.off("SIGINT", onInterrupt);
     release();
   }
 };

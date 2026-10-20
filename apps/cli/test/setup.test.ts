@@ -1,5 +1,13 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -13,7 +21,12 @@ import {
 } from "../src/config";
 import { CLI_VERSION } from "../src/constants";
 import { accountUpdateCommand } from "../src/password";
-import type { CommandRunner, RunOptions, RunResult } from "../src/process";
+import {
+  type CommandRunner,
+  type RunOptions,
+  type RunResult,
+  SystemCommandRunner,
+} from "../src/process";
 import {
   collectSetupConfiguration,
   detectPrivateNetworkHost,
@@ -79,34 +92,19 @@ const silentPresentation: SetupPresentation = {
   choices() {},
   message() {},
   summary() {},
+  next() {},
 };
 
 class SetupRunner implements CommandRunner {
   readonly calls: Array<{ command: string; args: readonly string[]; options?: RunOptions }> = [];
-  readonly models = new Map<string, string[]>([
-    ["openai-codex", ["gpt-5.5", "gpt-5.6-sol"]],
-    ["claude-code", ["claude-sonnet-5", "claude-sonnet-4-5"]],
-    ["anthropic", ["claude-sonnet-5", "claude-sonnet-4-5"]],
-    ["openrouter", ["author/tool-model"]],
-    ["openai", ["gpt-5.5", "gpt-5.6-sol"]],
-  ]);
-  readonly reasoning = new Map<
-    string,
-    {
-      levels: Array<"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max">;
-      defaultLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
-    }
-  >();
   failComposeValidation = false;
   failStartup = false;
-  failImport = false;
-  failVerify = false;
-  readonly imports: string[] = [];
+  failPull = false;
+  /** Docker Compose exits 130 when the user's Ctrl-C reaches it. */
+  interrupted: string | null = null;
   running = ["postgres", "server", "worker", "computer"];
   publishedBy: Record<string, string> = {};
   tailscale = "{}";
-
-  constructor(private readonly onLogin: () => void = () => undefined) {}
 
   run(command: string, args: readonly string[], options?: RunOptions): RunResult {
     this.calls.push({ command, args, options });
@@ -135,94 +133,45 @@ class SetupRunner implements CommandRunner {
     if (this.failComposeValidation && args.includes("config")) {
       return { status: 1, stdout: "", stderr: "invalid compose" };
     }
+    if (this.interrupted && args.includes(this.interrupted)) {
+      return { status: 130, stdout: "", stderr: "" };
+    }
+    if (this.failPull && args.includes("pull")) {
+      return { status: 1, stdout: "", stderr: "pull failed" };
+    }
     if (this.failStartup && args.includes("up")) {
       return { status: 1, stdout: "", stderr: "startup failed" };
     }
-    const utility = args.indexOf("openteam-pi-auth");
-    if (utility >= 0) {
-      const action = args[utility + 1];
-      if (action === "add-custom") {
-        const input = JSON.parse(options?.input ?? "{}") as {
-          id?: string;
-          model?: string;
-          createOnly?: boolean;
-        };
-        if (!input.id || !input.model) {
-          return { status: 1, stdout: "", stderr: "invalid custom provider" };
-        }
-        if (input.createOnly && this.models.has(input.id)) {
-          return { status: 1, stdout: "", stderr: `Custom provider ${input.id} already exists` };
-        }
-        this.models.set(input.id, [input.model]);
-        return { status: 0, stdout: `Added ${input.id}\n`, stderr: "" };
-      }
-      if (action === "remove-custom") {
-        this.models.delete(args[utility + 2] ?? "");
-        return { status: 0, stdout: "", stderr: "" };
-      }
-      if (action === "models") {
-        const providerId = args[utility + 2] ?? "";
-        return {
-          status: 0,
-          stdout: JSON.stringify(
-            (this.models.get(providerId) ?? []).map((modelId) => {
-              const reasoning = this.reasoning.get(`${providerId}/${modelId}`);
-              return {
-                providerId,
-                modelId,
-                reasoningLevels: reasoning?.levels ?? [
-                  "off",
-                  "minimal",
-                  "low",
-                  "medium",
-                  "high",
-                  "xhigh",
-                  "max",
-                ],
-                defaultReasoningLevel: reasoning?.defaultLevel ?? "medium",
-              };
-            })
-          ),
-          stderr: "",
-        };
-      }
-      if (action === "selection") {
-        return {
-          status: 0,
-          stdout: JSON.stringify({
-            providerId: "openai-codex",
-            modelId: "gpt-5.5",
-            reasoning: "high",
-          }),
-          stderr: "",
-        };
-      }
-      if (action === "login") this.onLogin();
-      if (action === "verify" && this.failVerify) {
-        return { status: 1, stdout: "", stderr: "Authentication missing: secret-test-token" };
-      }
-      if (action === "import") {
-        if (this.failImport)
-          return {
-            status: 1,
-            stdout: "",
-            stderr: "Usage: openteam-pi-auth import rejected claude-refresh-secret",
-          };
-        this.imports.push(options?.input ?? "");
-        this.onLogin();
-      }
-    }
     return { status: 0, stdout: "", stderr: "" };
+  }
+
+  index(argument: string): number {
+    return this.calls.findIndex((call) => call.args.includes(argument));
   }
 }
 
-const providerAction = (call: SetupRunner["calls"][number]): string | undefined => {
-  const index = call.args.indexOf("openteam-pi-auth");
-  return index < 0 ? undefined : call.args[index + 1];
-};
+/** Calls that would read, connect, or change a model provider. */
+const providerCalls = (runner: SetupRunner) =>
+  runner.calls.filter((call) => call.args.includes("openteam-pi-auth"));
 
-const fakeJwt = (payload: Record<string, unknown>): string =>
-  ["e30", Buffer.from(JSON.stringify(payload)).toString("base64url"), "sig"].join(".");
+const localConfiguration = (input: {
+  current: ReadonlyMap<string, string>;
+  currentOwnerUsername?: string;
+}): SetupConfiguration => {
+  const apiPort = input.current.get("OPENTEAM_API_PORT") ?? "8787";
+  return {
+    accessMode: "local",
+    bindHost: "127.0.0.1",
+    viewerBindHost: "127.0.0.1",
+    publicHost: "127.0.0.1",
+    publicUrl: `http://127.0.0.1:${apiPort}`,
+    composeProfiles: "direct",
+    ownerUsername: input.currentOwnerUsername ?? "openteam",
+    apiPort,
+    timeZone: "UTC",
+    workerConcurrency: "8",
+  };
+};
 
 /** A prompter whose session immediately returns a loopback configuration plus overrides. */
 const sessionPrompter = (overrides: Partial<SetupConfiguration>): SetupPrompter => {
@@ -231,25 +180,7 @@ const sessionPrompter = (overrides: Partial<SetupConfiguration>): SetupPrompter 
     question: (prompt) => answers.question(prompt),
     secret: (prompt) => answers.secret(prompt),
     async session(input) {
-      const apiPort = input.current.get("OPENTEAM_API_PORT") ?? "8787";
-      return {
-        accessMode: "local",
-        bindHost: "127.0.0.1",
-        viewerBindHost: "127.0.0.1",
-        publicHost: "127.0.0.1",
-        publicUrl: `http://127.0.0.1:${apiPort}`,
-        composeProfiles: "direct",
-        ownerUsername: input.currentOwnerUsername ?? "openteam",
-        apiPort,
-        timeZone: "UTC",
-        provider: "openai-codex",
-        model: "gpt-5.5",
-        thinking: "high",
-        workerConcurrency: "8",
-        authenticate: false,
-        authType: "oauth",
-        ...overrides,
-      };
+      return { ...localConfiguration(input), ...overrides };
     },
     close() {},
   };
@@ -261,23 +192,15 @@ const createSetupFixture = (options: { authenticated?: boolean; owner?: boolean 
   const paths = installationPaths(directory);
   const state = {
     authenticated: options.authenticated ?? false,
-    rejectControlToken: false,
     inference: { providerId: "openai-codex", modelId: "gpt-5.5", reasoning: "high" },
+    requests: [] as string[],
   };
   const server = Bun.serve({
     port: 0,
     async fetch(request) {
       const url = new URL(request.url);
-      if (state.rejectControlToken && url.pathname.includes("/internal/")) {
-        return Response.json({ error: { message: "Unauthorized" } }, { status: 401 });
-      }
+      state.requests.push(`${request.method} ${url.pathname}`);
       if (url.pathname.endsWith("/internal/server-settings/inference")) {
-        if (!state.authenticated) {
-          return Response.json(
-            { error: { message: "Inference provider is not connected" } },
-            { status: 400 }
-          );
-        }
         state.inference = (await request.json()) as typeof state.inference;
         return Response.json(state.inference);
       }
@@ -315,6 +238,37 @@ const createSetupFixture = (options: { authenticated?: boolean; owner?: boolean 
   return { paths, state, environment };
 };
 
+/** Capture what setup prints through the presentation and the doctor report. */
+const recordingPresentation = () => {
+  const output: string[] = [];
+  const presentation: SetupPresentation = {
+    ...silentPresentation,
+    message: (message) => output.push(message),
+    summary: (title, rows) =>
+      output.push(title, ...rows.map((row) => `${row.label}: ${row.value}`)),
+    next: (title, rows, note) =>
+      output.push(title, ...rows.map((row) => `${row.label}: ${row.value}`), note),
+  };
+  return { output, presentation };
+};
+
+const capturingConsole = async <T>(
+  work: () => Promise<T>
+): Promise<{ printed: string; result: T }> => {
+  const lines: string[] = [];
+  const log = spyOn(console, "log").mockImplementation((...values) => {
+    lines.push(values.join(" "));
+  });
+  const write = spyOn(process.stdout, "write").mockImplementation(() => true);
+  try {
+    const result = await work();
+    return { printed: lines.join("\n"), result };
+  } finally {
+    log.mockRestore();
+    write.mockRestore();
+  }
+};
+
 const temporaryDirectories: string[] = [];
 const servers: Array<{ stop(force?: boolean): void }> = [];
 
@@ -346,7 +300,7 @@ describe("interactive setup", () => {
     expect(selectionActionForKey("x", { name: "x" }, options)).toBeNull();
   });
 
-  test("quick setup explicitly reviews the connection", async () => {
+  test("quick setup asks only for the connection and the account", async () => {
     const current = parseEnvironment(
       replaceEnvironmentValue(
         replaceEnvironmentValue(
@@ -361,12 +315,13 @@ describe("interactive setup", () => {
     const prompter = new AnswerPrompter([
       "",
       "",
+      "sam pillai",
+      "Sam-Pillai",
       "correct horse battery staple",
       "correct horse battery staple",
-      "",
     ]);
 
-    const configuration = await collectSetupConfiguration(current, false, prompter);
+    const configuration = await collectSetupConfiguration(current, prompter);
 
     expect(configuration).toEqual({
       accessMode: "private",
@@ -375,22 +330,23 @@ describe("interactive setup", () => {
       publicHost: "openteam.lan",
       publicUrl: "http://openteam.lan:8787",
       composeProfiles: "direct",
-      ownerUsername: "openteam",
+      ownerUsername: "Sam-Pillai",
       ownerPassword: "correct horse battery staple",
       apiPort: "8787",
       timeZone: "UTC",
-      provider: "openai-codex",
-      model: "",
-      thinking: "medium",
       workerConcurrency: "8",
-      authenticate: true,
-      authType: "oauth",
     });
-    expect(prompter.prompts).toHaveLength(5);
-    expect(prompter.prompts.some((prompt) => prompt.includes("Connection"))).toBe(true);
+    expect(prompter.prompts).toEqual([
+      "Connection [1]: ",
+      "OpenTeam username: ",
+      "OpenTeam username: ",
+      "OpenTeam username: ",
+      "OpenTeam password: ",
+      "Confirm OpenTeam password: ",
+    ]);
   });
 
-  test("advanced setup validates optional server settings", async () => {
+  test("advanced setup validates server settings with the connection", async () => {
     const current = parseEnvironment(
       createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" })
     );
@@ -398,26 +354,18 @@ describe("interactive setup", () => {
       "private",
       "https://openteam",
       "openteam.lan",
-      "",
-      "correct horse battery staple",
-      "correct horse battery staple",
       "invalid",
       "9444",
       "Mars/Olympus",
       "Europe/London",
-      "bad provider",
-      "anthropic",
-      "bad model",
-      "claude-sonnet-4-5",
-      "ultra",
-      "xhigh",
       "0",
       "4",
-      "",
-      "anthropic-test-secret",
+      "sam",
+      "correct horse battery staple",
+      "correct horse battery staple",
     ]);
 
-    const configuration = await collectSetupConfiguration(current, false, prompter, {
+    const configuration = await collectSetupConfiguration(current, prompter, {
       advanced: true,
     });
 
@@ -428,138 +376,30 @@ describe("interactive setup", () => {
       publicHost: "openteam.lan",
       publicUrl: "http://openteam.lan:9444",
       composeProfiles: "direct",
-      ownerUsername: "openteam",
+      ownerUsername: "sam",
       ownerPassword: "correct horse battery staple",
       apiPort: "9444",
       timeZone: "Europe/London",
-      provider: "anthropic",
-      model: "claude-sonnet-4-5",
-      thinking: "xhigh",
       workerConcurrency: "4",
-      authenticate: true,
-      authType: "api_key",
-      apiKey: "anthropic-test-secret",
     });
+    expect(
+      prompter.prompts.some((prompt) => /model|provider|inference|thinking/i.test(prompt))
+    ).toBe(false);
   });
 
-  test("interactive menus expose separate Claude Code and Anthropic providers", async () => {
+  test("interactive menus never ask about models or providers", async () => {
     const current = parseEnvironment(
       createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" })
     );
-    const prompter = new SelectionPrompter(["anthropic-test-secret"], ["local", "anthropic"]);
+    const prompter = new SelectionPrompter([], ["local"]);
 
-    const configuration = await collectSetupConfiguration(current, false, prompter, {
+    const configuration = await collectSetupConfiguration(current, prompter, {
       ownerConfigured: true,
     });
 
-    expect(configuration).toMatchObject({
-      provider: "anthropic",
-      model: "",
-      authenticate: true,
-      authType: "api_key",
-      apiKey: "anthropic-test-secret",
-    });
-    const providerSelection = prompter.selections.find(
-      (selection) => selection.prompt === "Inference"
-    );
-    expect(providerSelection?.options.map((option) => option.value)).toEqual([
-      "openai-codex",
-      "claude-code",
-      "openai",
-      "anthropic",
-      "openrouter",
-      "custom",
-      "skip",
-    ]);
-    const authenticationSelection = prompter.selections.find(
-      (selection) => selection.prompt === "Use"
-    );
-    expect(authenticationSelection).toBeUndefined();
-  });
-
-  test("typed setup can skip inference without asking for authentication", async () => {
-    const current = parseEnvironment(
-      createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" })
-    );
-    const prompter = new AnswerPrompter(["", "skip"]);
-
-    const configuration = await collectSetupConfiguration(current, false, prompter, {
-      ownerConfigured: true,
-    });
-
-    expect(configuration).toMatchObject({
-      skipInference: true,
-      authenticate: false,
-    });
-    expect(prompter.prompts).toHaveLength(2);
-  });
-
-  test("custom-provider onboarding validates every field and retries an empty password", async () => {
-    const current = parseEnvironment(
-      createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" })
-    );
-    const prompter = new AnswerPrompter([
-      "",
-      "custom",
-      "BAD ID",
-      "acme",
-      "x".repeat(101),
-      "Acme AI",
-      "ftp://api.example.com",
-      "https://api.example.com/v1/",
-      "invalid-api",
-      "google-generative-ai",
-      "bad model",
-      "gemini-2.5-pro",
-      "no",
-      "",
-      "generic-provider-password",
-    ]);
-
-    const configuration = await collectSetupConfiguration(current, false, prompter, {
-      ownerConfigured: true,
-    });
-
-    expect(configuration).toMatchObject({
-      provider: "acme",
-      model: "gemini-2.5-pro",
-      authenticate: true,
-      authType: "api_key",
-      apiKey: "generic-provider-password",
-      customProvider: {
-        id: "acme",
-        name: "Acme AI",
-        baseUrl: "https://api.example.com/v1",
-        api: "google-generative-ai",
-        model: "gemini-2.5-pro",
-        reasoning: false,
-      },
-    });
-    expect(prompter.prompts.filter((prompt) => prompt.includes("API key"))).toHaveLength(2);
-  });
-
-  test("reconfiguration can keep an already-registered custom provider", async () => {
-    const environment = createEnvironment({
-      version: "1.2.3",
-      timeZone: "UTC",
-      workerConcurrency: "8",
-    });
-    const prompter = new AnswerPrompter(["", "", "no"]);
-
-    const configuration = await collectSetupConfiguration(
-      parseEnvironment(environment),
-      true,
-      prompter,
-      { ownerConfigured: true },
-      "existing.owner",
-      { providerId: "acme", modelId: "acme-chat", reasoning: "high" }
-    );
-
-    expect(configuration.provider).toBe("acme");
-    expect(configuration.model).toBe("acme-chat");
-    expect(configuration.customProvider).toBeUndefined();
-    expect(configuration.authenticate).toBe(false);
-    expect(prompter.prompts.some((prompt) => prompt.includes("Custom provider id"))).toBe(false);
+    expect(configuration.accessMode).toBe("local");
+    expect(prompter.selections.map((selection) => selection.prompt)).toEqual(["Connection"]);
+    expect(prompter.prompts).toEqual([]);
   });
 
   test("fresh setup reviews the detected private network", async () => {
@@ -568,13 +408,12 @@ describe("interactive setup", () => {
     );
     const prompter = new AnswerPrompter([
       "",
-      "",
+      "sam",
       "correct horse battery staple",
       "correct horse battery staple",
-      "",
     ]);
 
-    const configuration = await collectSetupConfiguration(current, false, prompter, {
+    const configuration = await collectSetupConfiguration(current, prompter, {
       fresh: true,
       detectedPrivateHost: "100.100.10.5",
     });
@@ -586,52 +425,35 @@ describe("interactive setup", () => {
       publicHost: "100.100.10.5",
       publicUrl: "http://100.100.10.5:8787",
       composeProfiles: "direct",
-      authenticate: true,
     });
-    expect(prompter.prompts).toHaveLength(5);
+    expect(prompter.prompts).toHaveLength(4);
   });
 
   test("reconfiguration keeps the existing owner and does not ask for a password", async () => {
     const current = parseEnvironment(
       createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" })
     );
-    const prompter = new AnswerPrompter(["", "", "no"]);
+    const prompter = new AnswerPrompter([""]);
 
     const configuration = await collectSetupConfiguration(
       current,
-      false,
       prompter,
-      {
-        ownerConfigured: true,
-      },
+      { ownerConfigured: true },
       "existing.owner"
     );
 
     expect(configuration.ownerUsername).toBe("existing.owner");
     expect(configuration.ownerPassword).toBeUndefined();
-    expect(prompter.prompts.some((prompt) => prompt.includes("password"))).toBe(false);
+    expect(prompter.prompts).toEqual(["Connection [2]: "]);
   });
 
   test("public HTTP requires acknowledgement and keeps screen viewers off the Internet", async () => {
     const current = parseEnvironment(
       createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" })
     );
-    const prompter = new AnswerPrompter([
-      "5",
-      "no",
-      "5",
-      "yes",
-      "203.0.113.9",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "no",
-    ]);
+    const prompter = new AnswerPrompter(["5", "no", "5", "yes", "203.0.113.9", "", "", ""]);
 
-    const configuration = await collectSetupConfiguration(current, false, prompter, {
+    const configuration = await collectSetupConfiguration(current, prompter, {
       advanced: true,
       fresh: true,
       ownerConfigured: true,
@@ -683,629 +505,156 @@ describe("interactive setup", () => {
     expect(detectPrivateNetworkHost(interfaces)).toBe("100.100.10.5");
   });
 
-  test("persists settings privately, restarts Compose, and delegates credentials to login", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-setup-"));
-    temporaryDirectories.push(directory);
-    const paths = installationPaths(directory);
-    let authenticated = false;
-    let inference = { providerId: "openai-codex", modelId: "gpt-5.5", reasoning: "high" };
-    const server = Bun.serve({
-      port: 0,
-      async fetch(request) {
-        const url = new URL(request.url);
-        if (url.pathname.endsWith("/internal/server-settings/inference")) {
-          if (!authenticated) {
-            return Response.json(
-              { error: { message: "Inference provider is not connected" } },
-              { status: 400 }
-            );
-          }
-          inference = (await request.json()) as typeof inference;
-          return Response.json(inference);
-        }
-        if (url.pathname.endsWith("/internal/server-settings")) {
-          return Response.json({ inference });
-        }
-        return Response.json({
-          status: "ready",
-          runtime: { inference: authenticated ? "ready" : "missing" },
-          release: { releaseVersion: "1.2.3" },
-        });
-      },
-    });
-    servers.push(server);
-
-    const original = replaceEnvironmentValue(
-      createEnvironment({ version: "1.2.3", timeZone: "UTC", workerConcurrency: "8" }),
-      "OPENTEAM_API_PORT",
-      String(server.port)
-    );
-    writeFileAtomic(
-      paths.compose,
-      `name: openteam\nservices:\n  server:\n    image: example/openteam-server:\${OPENTEAM_VERSION}\nvolumes:\n  openteam_workspace:\n`
-    );
-    writeFileAtomic(paths.environment, original);
-    const now = new Date().toISOString();
-    writeManifest(paths, {
-      schemaVersion: 1,
-      repository: "owner/repo",
-      version: "1.2.3",
-      composeUrl: "https://example.com/openteam-compose.yaml",
-      installedAt: now,
-      updatedAt: now,
-    });
-
+  test("first setup saves the connection privately, pulls after the answers, and never touches models", async () => {
+    const fixture = createSetupFixture({ owner: false });
+    const runner = new SetupRunner();
+    let callsWhenAnswered = -1;
     const prompter = new AnswerPrompter([
       "2",
       "",
-      "correct horse battery staple",
-      "correct horse battery staple",
-      "",
       "Europe/London",
-      "",
-      "",
-      "xhigh",
       "4",
-      "yes",
+      "Sam-Pillai",
+      "correct horse battery staple",
+      "correct horse battery staple",
       "yes",
     ]);
-    const runner = new SetupRunner(() => {
-      authenticated = true;
-    });
-    await setupCommand(paths, runner, { advanced: true, detectedLogins: [] }, prompter);
+    const question = prompter.question.bind(prompter);
+    prompter.question = async (prompt) => {
+      if (prompt.startsWith("Apply")) callsWhenAnswered = runner.calls.length;
+      return question(prompt);
+    };
+    const { output, presentation } = recordingPresentation();
 
-    const updatedContents = readFileSync(paths.environment, "utf8");
+    await capturingConsole(() =>
+      setupCommand(fixture.paths, runner, { advanced: true, presentation }, prompter)
+    );
+
+    const updatedContents = readFileSync(fixture.paths.environment, "utf8");
     const updated = parseEnvironment(updatedContents);
-    const before = parseEnvironment(original);
+    const before = parseEnvironment(fixture.environment);
     expect(updated.get("OPENTEAM_TIME_ZONE")).toBe("Europe/London");
-    expect(updated.has("OPENTEAM_PI_PROVIDER")).toBe(false);
-    expect(updated.has("OPENTEAM_PI_MODEL")).toBe(false);
-    expect(updated.has("OPENTEAM_PI_THINKING")).toBe(false);
-    expect(inference).toEqual({
-      providerId: "openai-codex",
-      modelId: "gpt-5.5",
-      reasoning: "xhigh",
-    });
     expect(updated.get("OPENTEAM_WORKER_CONCURRENCY")).toBe("4");
     expect(updated.get("OPENTEAM_CONTROL_TOKEN")).toBe(before.get("OPENTEAM_CONTROL_TOKEN"));
     expect(updated.get("OPENTEAM_POSTGRES_PASSWORD")).toBe(
       before.get("OPENTEAM_POSTGRES_PASSWORD")
     );
-    expect(updatedContents).not.toContain("OPENAI_API_KEY");
-    if (process.platform !== "win32") expect(statSync(paths.environment).mode & 0o077).toBe(0);
+    expect(updatedContents).not.toMatch(/OPENTEAM_PI_|OPENAI_API_KEY|ANTHROPIC/);
+    if (process.platform !== "win32")
+      expect(statSync(fixture.paths.environment).mode & 0o077).toBe(0);
 
-    const composeCalls = runner.calls.filter(
-      (call) => call.command === "docker" && call.args.includes("--project-name")
+    // The long download starts only after every question is answered, then the stack starts.
+    expect(
+      runner.calls.slice(0, callsWhenAnswered).some((call) => call.args.includes("pull"))
+    ).toBe(false);
+    expect(runner.index("pull")).toBeGreaterThan(runner.index("config"));
+    expect(runner.index("up")).toBeGreaterThan(runner.index("pull"));
+    expect(output).toContain(
+      "Downloading OpenTeam (about 1.5 GB). This can take a few minutes; no more input is needed."
     );
-    expect(composeCalls.some((call) => call.args.includes("config"))).toBe(true);
-    expect(
-      composeCalls.some((call) => call.args.includes("stop") && call.args.includes("caddy"))
-    ).toBe(true);
-    expect(composeCalls.some((call) => call.args.includes("up"))).toBe(true);
-    expect(
-      composeCalls.some(
-        (call) => call.args.includes("openteam-pi-auth") && call.args.includes("login")
-      )
-    ).toBe(true);
-    const ownerCall = composeCalls.find((call) => call.args.includes("owner-credentials"));
+    const ownerCall = runner.calls.find((call) => call.args.includes("owner-credentials"));
     expect(ownerCall?.args).not.toContain("correct horse battery staple");
     expect(ownerCall?.options?.input).toContain('"operation":"setup"');
-    expect(authenticated).toBe(true);
+    expect(readManifest(fixture.paths)?.ownerUsername).toBe("Sam-Pillai");
+
+    expect(providerCalls(runner)).toEqual([]);
+    expect(fixture.state.requests.filter((request) => request.includes("server-settings"))).toEqual(
+      []
+    );
   });
 
-  test("onboards an OpenAI API key after validating the Pi model and never persists the key", async () => {
+  test("rerunning setup changes the connection without reading or changing the model", async () => {
     const fixture = createSetupFixture({ authenticated: true });
-    const apiKey = "openai-onboarding-secret";
-    const runner = new SetupRunner(() => {
-      fixture.state.authenticated = true;
-    });
+    const inference = { ...fixture.state.inference };
+    const runner = new SetupRunner();
+    const prompter = new AnswerPrompter(["1", "yes"]);
 
-    await setupCommand(
-      fixture.paths,
-      runner,
-      { presentation: silentPresentation },
-      new AnswerPrompter(["", "openai", apiKey, "yes", ""])
+    await capturingConsole(() =>
+      setupCommand(
+        fixture.paths,
+        runner,
+        { presentation: silentPresentation, detectedPrivateHost: "100.100.10.5" },
+        prompter
+      )
     );
 
-    const actions = runner.calls.map(providerAction);
-    const modelIndex = actions.indexOf("models");
-    const upIndex = runner.calls.findIndex((call) => call.args.includes("up"));
-    const loginIndex = actions.indexOf("login");
-    expect(modelIndex).toBeGreaterThanOrEqual(0);
-    expect(loginIndex).toBeGreaterThan(upIndex);
-    expect(modelIndex).toBeGreaterThan(loginIndex);
-    const login = runner.calls[loginIndex];
-    expect(login?.args).toContain("--no-TTY");
-    expect(login?.args).toContain("api_key");
-    expect(login?.options?.input).toBe(`${apiKey}\n`);
-    expect(runner.calls.flatMap((call) => call.args).join(" ")).not.toContain(apiKey);
-    const environment = readFileSync(fixture.paths.environment, "utf8");
-    expect(environment).not.toContain("OPENTEAM_PI_PROVIDER");
-    expect(environment).not.toContain("OPENTEAM_PI_MODEL");
-    expect(fixture.state.inference).toEqual({
-      providerId: "openai",
-      modelId: "gpt-5.5",
-      reasoning: "high",
-    });
-    expect(environment).not.toContain(apiKey);
+    const environment = parseEnvironment(readFileSync(fixture.paths.environment, "utf8"));
+    expect(environment.get("OPENTEAM_ACCESS_MODE")).toBe("private");
+    expect(environment.get("OPENTEAM_PUBLIC_HOST")).toBe("100.100.10.5");
+    expect(prompter.prompts).toEqual(["Connection [2]: ", "Apply this configuration? [Y/n/back] "]);
+    expect(fixture.state.inference).toEqual(inference);
+    expect(fixture.state.requests.every((request) => request === "GET /api/v0/health")).toBe(true);
+    expect(providerCalls(runner)).toEqual([]);
+    // Existing installations already have their images; updates refresh them.
+    expect(runner.index("pull")).toBe(-1);
   });
 
-  test.each([
-    false,
-    true,
-  ])("defaults to the first Codex catalog model after connection (authenticate=%s)", async (authenticate) => {
+  test("a busy port keeps the typed answers and returns to the start prompt", async () => {
     const fixture = createSetupFixture();
-    fixture.state.authenticated = !authenticate;
-    const runner = new SetupRunner(() => {
-      fixture.state.authenticated = true;
-    });
-    runner.models.set("openai-codex", ["catalog-first", "catalog-second"]);
-    const answers = new AnswerPrompter(["", ""]);
-    const prompter = sessionPrompter({ model: "", authenticate });
-    prompter.question = (prompt) => answers.question(prompt);
-    await setupCommand(fixture.paths, runner, { presentation: silentPresentation }, prompter);
-    expect(answers.prompts).toContain("Inference model [catalog-first]: ");
-    expect(fixture.state.inference.modelId).toBe("catalog-first");
-    expect(runner.calls.some((call) => providerAction(call) === "login")).toBe(authenticate);
-  });
-
-  test("requires an account-backed model choice when the setup default is unavailable", async () => {
-    const fixture = createSetupFixture();
-    let runner: SetupRunner;
-    runner = new SetupRunner(() => {
-      fixture.state.authenticated = true;
-      runner.models.set("openai-codex", ["account-fast", "account-deep"]);
-    });
-    const selections = new SelectionPrompter([], ["account-deep"]);
-    const prompter: SetupPrompter = selections;
-    prompter.session = sessionPrompter({
-      model: "retired-default",
-      authenticate: true,
-    }).session;
-    const output: string[] = [];
+    const port = parseEnvironment(fixture.environment).get("OPENTEAM_API_PORT")!;
+    const runner = new SetupRunner();
+    runner.tailscale = JSON.stringify({ TCP: { [port]: { TCPForward: `127.0.0.1:${port}` } } });
+    const prompter = new AnswerPrompter(["1", "yes", "no"]);
+    const { output, presentation } = recordingPresentation();
 
     await setupCommand(
       fixture.paths,
       runner,
-      { presentation: { ...silentPresentation, message: (message) => output.push(message) } },
+      { presentation, detectedPrivateHost: "100.94.42.50" },
       prompter
     );
 
-    expect(selections.selections).toContainEqual({
-      prompt: "Inference model",
-      options: [
-        { label: "account-fast", value: "account-fast" },
-        { label: "account-deep", value: "account-deep" },
-      ],
-      current: "account-fast",
-    });
-    expect(output.join("\n")).toContain(
-      "Codex does not provide retired-default to this account. Choose an available model."
-    );
-    expect(fixture.state.inference).toEqual({
-      providerId: "openai-codex",
-      modelId: "account-deep",
-      reasoning: "high",
-    });
-  });
-
-  test("automatically uses the sole account-backed model when the setup default is unavailable", async () => {
-    const fixture = createSetupFixture();
-    let runner: SetupRunner;
-    runner = new SetupRunner(() => {
-      fixture.state.authenticated = true;
-      runner.models.set("openai-codex", ["account-only"]);
-      runner.reasoning.set("openai-codex/account-only", {
-        levels: ["low", "medium"],
-        defaultLevel: "low",
-      });
-    });
-    const output: string[] = [];
-
-    await setupCommand(
-      fixture.paths,
-      runner,
-      { presentation: { ...silentPresentation, message: (message) => output.push(message) } },
-      sessionPrompter({ model: "retired-default", authenticate: true })
-    );
-
-    expect(output).toContain("Selected the only available model: account-only.");
-    expect(output).toContain("account-only does not support thinking high; using low.");
-    expect(fixture.state.inference).toEqual({
-      providerId: "openai-codex",
-      modelId: "account-only",
-      reasoning: "low",
-    });
-  });
-
-  test("skipping inference starts no provider validation or sign-in", async () => {
-    const fixture = createSetupFixture();
-    const runner = new SetupRunner();
-    const output: string[] = [];
-    const presentation: SetupPresentation = {
-      ...silentPresentation,
-      message: (message) => output.push(message),
-    };
-
-    await setupCommand(
-      fixture.paths,
-      runner,
-      { presentation },
-      new AnswerPrompter(["", "skip", "yes"])
-    );
-
-    expect(runner.calls.some((call) => providerAction(call) === "models")).toBe(false);
-    expect(runner.calls.some((call) => providerAction(call) === "login")).toBe(false);
-    expect(fixture.state.authenticated).toBe(false);
-    expect(output).toContain(
-      "Inference setup was skipped. Connect a provider later with openteam setup."
-    );
-  });
-
-  test("onboards an Anthropic subscription through OAuth", async () => {
-    const fixture = createSetupFixture();
-    const runner = new SetupRunner(() => {
-      fixture.state.authenticated = true;
-    });
-
-    await setupCommand(
-      fixture.paths,
-      runner,
-      { presentation: silentPresentation, detectedLogins: [] },
-      new AnswerPrompter(["", "claude-code", "yes", ""])
-    );
-
-    const login = runner.calls.find((call) => providerAction(call) === "login");
-    expect(login?.args.slice(-3)).toEqual(["login", "claude-code", "oauth"]);
-    expect(login?.args).not.toContain("--no-TTY");
-    expect(login?.options?.inherit).toBe(true);
-    const environment = readFileSync(fixture.paths.environment, "utf8");
-    expect(environment).not.toContain("OPENTEAM_PI_PROVIDER");
-    expect(environment).not.toContain("OPENTEAM_PI_MODEL");
-    expect(fixture.state.inference).toEqual({
-      providerId: "claude-code",
-      modelId: "claude-sonnet-5",
-      reasoning: "high",
-    });
-  });
-
-  test("onboards an Anthropic API key over stdin", async () => {
-    const fixture = createSetupFixture();
-    const apiKey = "anthropic-onboarding-secret";
-    const runner = new SetupRunner(() => {
-      fixture.state.authenticated = true;
-    });
-
-    await setupCommand(
-      fixture.paths,
-      runner,
-      { presentation: silentPresentation },
-      new AnswerPrompter(["", "anthropic", apiKey, "yes", ""])
-    );
-
-    const login = runner.calls.find((call) => providerAction(call) === "login");
-    expect(login?.args.slice(-3)).toEqual(["login", "anthropic", "api_key"]);
-    expect(login?.args).toContain("--no-TTY");
-    expect(login?.options?.input).toBe(`${apiKey}\n`);
-    expect(runner.calls.flatMap((call) => call.args).join(" ")).not.toContain(apiKey);
-    expect(readFileSync(fixture.paths.environment, "utf8")).not.toContain(apiKey);
-  });
-
-  test("OpenRouter setup connects with an API key and selects from its discovered catalog", async () => {
-    const fixture = createSetupFixture();
-    const runner = new SetupRunner(() => {
-      fixture.state.authenticated = true;
-    });
-    await setupCommand(
-      fixture.paths,
-      runner,
-      { presentation: silentPresentation, detectedLogins: [] },
-      new AnswerPrompter(["", "openrouter", "synthetic-openrouter-key", "yes"])
-    );
-    const login = runner.calls.find((call) => providerAction(call) === "login");
-    expect(login?.args.slice(-3)).toEqual(["login", "openrouter", "api_key"]);
-    expect(login?.options?.input).toBe("synthetic-openrouter-key\n");
-    expect(fixture.state.inference).toMatchObject({
-      providerId: "openrouter",
-      modelId: "author/tool-model",
-    });
-  });
-
-  test("registers a generic provider before startup and sends its password only to login stdin", async () => {
-    const fixture = createSetupFixture();
-    const password = "generic-onboarding-secret";
-    const runner = new SetupRunner(() => {
-      fixture.state.authenticated = true;
-    });
-
-    await setupCommand(
-      fixture.paths,
-      runner,
-      { presentation: silentPresentation },
-      new AnswerPrompter([
-        "",
-        "custom",
-        "acme",
-        "Acme AI",
-        "https://api.example.com/v1/",
-        "openai-responses",
-        "acme-chat",
-        "yes",
-        password,
-        "yes",
-      ])
-    );
-
-    const actions = runner.calls.map(providerAction);
-    const addIndex = actions.indexOf("add-custom");
-    const modelIndex = actions.indexOf("models");
-    const upIndex = runner.calls.findIndex((call) => call.args.includes("up"));
-    const loginIndex = actions.indexOf("login");
-    expect(addIndex).toBeGreaterThanOrEqual(0);
-    expect(modelIndex).toBeGreaterThan(addIndex);
-    expect(loginIndex).toBeGreaterThan(upIndex);
-    expect(modelIndex).toBeGreaterThan(loginIndex);
-    const registration = JSON.parse(runner.calls[addIndex]?.options?.input ?? "{}") as Record<
-      string,
-      unknown
-    >;
-    expect(registration).toEqual({
-      id: "acme",
-      name: "Acme AI",
-      baseUrl: "https://api.example.com/v1",
-      api: "openai-responses",
-      model: "acme-chat",
-      reasoning: true,
-      createOnly: true,
-    });
-    expect(JSON.stringify(registration)).not.toContain(password);
-    expect(runner.calls[loginIndex]?.options?.input).toBe(`${password}\n`);
-    expect(runner.calls.flatMap((call) => call.args).join(" ")).not.toContain(password);
-    const environment = readFileSync(fixture.paths.environment, "utf8");
-    expect(environment).not.toContain("OPENTEAM_PI_PROVIDER");
-    expect(environment).not.toContain("OPENTEAM_PI_MODEL");
-    expect(fixture.state.inference).toEqual({
-      providerId: "acme",
-      modelId: "acme-chat",
-      reasoning: "high",
-    });
-    expect(environment).not.toContain(password);
-  });
-
-  test("requires a listed model after authentication when an advanced choice is unavailable", async () => {
-    const fixture = createSetupFixture();
-    const runner = new SetupRunner(() => {
-      fixture.state.authenticated = true;
-    });
-
-    await setupCommand(
-      fixture.paths,
-      runner,
-      { presentation: silentPresentation, advanced: true },
-      new AnswerPrompter([
-        "local",
-        "",
-        "",
-        "openai",
-        "not-a-real-model",
-        "",
-        "",
-        "yes",
-        "test-key",
-        "yes",
-        "gpt-5.5",
-      ])
-    );
-
-    const actions = runner.calls.map(providerAction);
-    expect(actions.indexOf("models")).toBeGreaterThan(actions.indexOf("login"));
-    expect(fixture.state.inference).toEqual({
-      providerId: "openai",
-      modelId: "gpt-5.5",
-      reasoning: "high",
-    });
-  });
-
-  test("does not overwrite an existing custom provider during onboarding", async () => {
-    const fixture = createSetupFixture();
-    const runner = new SetupRunner();
-    runner.models.set("acme", ["existing-model"]);
-
-    await expect(
-      setupCommand(
-        fixture.paths,
-        runner,
-        { presentation: silentPresentation },
-        new AnswerPrompter([
-          "",
-          "custom",
-          "acme",
-          "Acme Replacement",
-          "https://replacement.example.com",
-          "openai-completions",
-          "replacement-model",
-          "no",
-          "no",
-          "yes",
-        ])
-      )
-    ).rejects.toThrow("already exists");
-
-    expect(runner.models.get("acme")).toEqual(["existing-model"]);
+    expect(prompter.prompts).toEqual([
+      "Connection [2]: ",
+      "Apply this configuration? [Y/n/back] ",
+      "Apply this configuration? [Y/n/back] ",
+    ]);
+    expect(
+      output.some((message) => message.includes(`Tailscale Serve already uses port ${port}`))
+    ).toBe(true);
+    expect(output).toContain("Setup cancelled; no configuration was changed.");
     expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
-    expect(runner.calls.some((call) => providerAction(call) === "remove-custom")).toBe(false);
-    expect(runner.calls.some((call) => call.args.includes("up"))).toBe(false);
+    expect(runner.index("up")).toBe(-1);
   });
 
-  test("removes a newly registered provider and restores env when Compose rejects it", async () => {
+  test("the interactive session runs startup checks before it returns its answers", async () => {
     const fixture = createSetupFixture();
+    const port = parseEnvironment(fixture.environment).get("OPENTEAM_API_PORT")!;
     const runner = new SetupRunner();
-    runner.failComposeValidation = true;
-
-    await expect(
-      setupCommand(
-        fixture.paths,
-        runner,
-        { presentation: silentPresentation },
-        new AnswerPrompter([
-          "",
-          "custom",
-          "acme",
-          "Acme AI",
-          "https://api.example.com",
-          "anthropic-messages",
-          "acme-chat",
-          "yes",
-          "no",
-          "yes",
-        ])
-      )
-    ).rejects.toThrow("new configuration is invalid");
-
-    expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
-    expect(runner.models.has("acme")).toBe(false);
-    expect(runner.calls.some((call) => providerAction(call) === "remove-custom")).toBe(true);
-    expect(runner.calls.some((call) => call.args.includes("up"))).toBe(false);
-  });
-
-  test("removes a newly registered provider and restores env when startup fails", async () => {
-    const fixture = createSetupFixture();
-    const runner = new SetupRunner();
-    runner.failStartup = true;
-
-    await expect(
-      setupCommand(
-        fixture.paths,
-        runner,
-        { presentation: silentPresentation },
-        new AnswerPrompter([
-          "",
-          "custom",
-          "acme",
-          "Acme AI",
-          "https://api.example.com",
-          "openai-completions",
-          "acme-chat",
-          "no",
-          "no",
-          "yes",
-        ])
-      )
-    ).rejects.toThrow("previous configuration was restored");
-
-    expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
-    expect(runner.models.has("acme")).toBe(false);
-    expect(runner.calls.some((call) => providerAction(call) === "remove-custom")).toBe(true);
-    expect(runner.calls.filter((call) => call.args.includes("up"))).toHaveLength(2);
-  });
-
-  test("rejects an OAuth helper that exits zero without saving authentication", async () => {
-    const fixture = createSetupFixture({ owner: true });
-    const runner = new SetupRunner();
-    runner.failVerify = true;
-    const output: string[] = [];
-    const presentation: SetupPresentation = {
-      ...silentPresentation,
-      message: (message) => output.push(message),
-      summary: (title) => output.push(title),
-    };
-    await expect(
-      setupCommand(
-        fixture.paths,
-        runner,
-        { presentation, detectedLogins: [] },
-        sessionPrompter({ authenticate: true })
-      )
-    ).rejects.toThrow("sign-in did not complete or could not be verified");
-    expect(runner.calls.some((call) => providerAction(call) === "login")).toBe(true);
-    expect(runner.calls.some((call) => providerAction(call) === "verify")).toBe(true);
-    expect(output.join("\n")).not.toContain("is connected");
-    expect(output.join("\n")).not.toContain("OpenTeam is ready");
-    expect(output.join("\n")).not.toContain("secret-test-token");
-  });
-
-  test("does not declare setup ready when saved authentication is unavailable to the server", async () => {
-    const fixture = createSetupFixture({ owner: true });
-    const output: string[] = [];
-    await expect(
-      setupCommand(
-        fixture.paths,
-        new SetupRunner(),
-        {
-          detectedLogins: [],
-          presentation: { ...silentPresentation, summary: (title) => output.push(title) },
-        },
-        sessionPrompter({ authenticate: true })
-      )
-    ).rejects.toThrow("OpenTeam cannot use it yet");
-    expect(output).not.toContain("OpenTeam is ready");
-  });
-
-  test("uses the CLI version in setup and labels the installed server release separately", async () => {
-    const fixture = createSetupFixture({ authenticated: true, owner: true });
-    const output: string[] = [];
-    const prompter = sessionPrompter({});
-    const collect = prompter.session!;
-    prompter.session = async (input) => {
-      expect(input.version).toBe(CLI_VERSION);
-      expect(input.notes).toContainEqual({
-        text: "Installed server release: v1.2.3.",
-        tone: "muted",
-      });
-      return collect(input);
-    };
-    await setupCommand(
-      fixture.paths,
-      new SetupRunner(),
-      {
-        detectedLogins: [],
-        presentation: { ...silentPresentation, message: (message) => output.push(message) },
+    runner.tailscale = JSON.stringify({ TCP: { [port]: { TCPForward: `127.0.0.1:${port}` } } });
+    const issues: Array<string | null> = [];
+    const answers = new AnswerPrompter([]);
+    const prompter: SetupPrompter = {
+      question: (prompt) => answers.question(prompt),
+      secret: (prompt) => answers.secret(prompt),
+      async session(input) {
+        const local = localConfiguration(input);
+        issues.push(
+          await input.check!({
+            ...local,
+            accessMode: "private",
+            bindHost: "0.0.0.0",
+            viewerBindHost: "0.0.0.0",
+            publicHost: "100.94.42.50",
+            publicUrl: `http://100.94.42.50:${port}`,
+          })
+        );
+        issues.push(await input.check!(local));
+        return local;
       },
-      prompter
-    );
-    expect(output).toContain("Installed server release: v1.2.3");
-  });
+      close() {},
+    };
 
-  test("reports authentication readiness failure without leaking the submitted API key", async () => {
-    const fixture = createSetupFixture();
-    const apiKey = "failed-auth-secret";
-    const runner = new SetupRunner();
-
-    await expect(
-      setupCommand(
-        fixture.paths,
-        runner,
-        { presentation: silentPresentation },
-        new AnswerPrompter(["", "openai", apiKey, "yes", ""])
-      )
-    ).rejects.toThrow("openteam provider login openai");
-
-    const login = runner.calls.find((call) => providerAction(call) === "login");
-    expect(login?.options?.input).toBe(`${apiKey}\n`);
-    expect(runner.calls.flatMap((call) => call.args).join(" ")).not.toContain(apiKey);
-    expect(readFileSync(fixture.paths.environment, "utf8")).not.toContain(apiKey);
-  });
-
-  test("refuses to run setup while another OpenTeam server answers on the API port", async () => {
-    const fixture = createSetupFixture({ authenticated: true, owner: false });
-    const runner = new SetupRunner();
-    runner.running = ["postgres"];
-    const port = parseEnvironment(fixture.environment).get("OPENTEAM_API_PORT");
-    runner.publishedBy = { [String(port)]: "openteam-dev-server-1\topenteam-dev" };
-    const prompter = new AnswerPrompter([]);
-
-    await expect(
+    await capturingConsole(() =>
       setupCommand(fixture.paths, runner, { presentation: silentPresentation }, prompter)
-    ).rejects.toThrow(
-      "Another OpenTeam server is answering at http://127.0.0.1:" +
-        `${port}, but this installation's server is not running. It is container openteam-dev-server-1 (Compose project openteam-dev).`
     );
-    expect(prompter.prompts).toHaveLength(0);
-    expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
-    expect(runner.calls.some((call) => call.args.includes("up"))).toBe(false);
+
+    expect(issues[0]).toContain(`Tailscale Serve already uses port ${port}`);
+    expect(issues[1]).toBeNull();
+    expect(runner.index("up")).toBeGreaterThan(0);
   });
 
-  test("checks Tailscale before broadening a running server's bind address", async () => {
+  test("still refuses a conflict that appears after the session's own check", async () => {
     const fixture = createSetupFixture({ authenticated: true });
     const port = parseEnvironment(fixture.environment).get("OPENTEAM_API_PORT")!;
     const runner = new SetupRunner();
@@ -1326,134 +675,306 @@ describe("interactive setup", () => {
     ).rejects.toThrow(`Tailscale Serve already uses port ${port}`);
 
     expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
-    expect(runner.calls.some((call) => call.args.includes("up"))).toBe(false);
-    expect(runner.calls.some((call) => call.args.includes("owner-credentials"))).toBe(false);
+    expect(runner.index("up")).toBe(-1);
+    expect(runner.index("owner-credentials")).toBe(-1);
   });
 
-  test("explains a rejected control token instead of a bare Unauthorized", async () => {
-    const fixture = createSetupFixture({ authenticated: true });
-    fixture.state.rejectControlToken = true;
+  test("ends with the server, username, and where to get the apps", async () => {
+    const fixture = createSetupFixture({ owner: false });
+    const { output, presentation } = recordingPresentation();
+    const { printed } = await capturingConsole(() =>
+      setupCommand(
+        fixture.paths,
+        new SetupRunner(),
+        { presentation },
+        sessionPrompter({
+          accessMode: "private",
+          bindHost: "0.0.0.0",
+          viewerBindHost: "0.0.0.0",
+          publicHost: "100.94.42.50",
+          publicUrl: `http://100.94.42.50:${parseEnvironment(fixture.environment).get("OPENTEAM_API_PORT")}`,
+          ownerUsername: "openteam",
+          ownerPassword: "correct horse battery staple",
+        })
+      )
+    );
+
+    const port = parseEnvironment(fixture.environment).get("OPENTEAM_API_PORT");
+    expect(output.slice(output.indexOf("OpenTeam is ready"))).toEqual([
+      "OpenTeam is ready",
+      `Server: http://100.94.42.50:${port}`,
+      "Username: openteam",
+      "Next: open the OpenTeam app and sign in with this server and username.",
+      "Desktop: https://openteam.so/download",
+      "iPhone: https://testflight.apple.com/join/KFBFPkjP",
+      "The app will help you connect a model and create your first bot.",
+    ]);
+    // The connection was just chosen and models belong to the app, so neither is flagged.
+    expect(printed).not.toContain("Network exposure");
+    expect(printed).not.toContain("Inference");
+    expect(printed).not.toContain("openteam setup");
+    // Memory and disk come from the machine running the test, so they may add warnings.
+    expect(printed).toMatch(/All checks passed\.|Checks passed with \d+ warnings?\./);
+  });
+
+  test("a failed image download restores the previous configuration", async () => {
+    const fixture = createSetupFixture({ owner: false });
     const runner = new SetupRunner();
+    runner.failPull = true;
 
     await expect(
       setupCommand(
         fixture.paths,
         runner,
         { presentation: silentPresentation },
-        new AnswerPrompter([])
+        sessionPrompter({ ownerPassword: "correct horse battery staple" })
       )
-    ).rejects.toThrow("rejected this installation's control token");
+    ).rejects.toThrow("Could not download OpenTeam");
+
+    expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
+    expect(runner.index("up")).toBe(-1);
   });
 
-  test("imports a detected Codex sign-in instead of opening a browser", async () => {
-    const fixture = createSetupFixture();
-    const runner = new SetupRunner(() => {
-      fixture.state.authenticated = true;
-    });
-    const home = mkdtempSync(join(tmpdir(), "openteam-cli-home-"));
-    temporaryDirectories.push(home);
-    mkdirSync(join(home, ".codex"), { recursive: true });
-    const accessToken = fakeJwt({
-      exp: Math.floor(Date.now() / 1000) + 3600,
-      "https://api.openai.com/auth": { chatgpt_account_id: "acct-123" },
-    });
-    writeFileSync(
-      join(home, ".codex", "auth.json"),
-      JSON.stringify({
-        auth_mode: "chatgpt",
-        tokens: { access_token: accessToken, refresh_token: "codex-refresh-secret" },
-      })
-    );
-    const detected = {
-      provider: "openai-codex" as const,
-      source: "Codex CLI (~/.codex/auth.json)",
-    };
-    const output: string[] = [];
+  test("restores env when Compose rejects the configuration or startup fails", async () => {
+    const rejected = createSetupFixture();
+    const invalid = new SetupRunner();
+    invalid.failComposeValidation = true;
+    await expect(
+      setupCommand(
+        rejected.paths,
+        invalid,
+        { presentation: silentPresentation },
+        sessionPrompter({ timeZone: "Europe/London" })
+      )
+    ).rejects.toThrow("new configuration is invalid");
+    expect(readFileSync(rejected.paths.environment, "utf8")).toBe(rejected.environment);
+    expect(invalid.index("up")).toBe(-1);
 
-    await setupCommand(
-      fixture.paths,
-      runner,
-      {
-        presentation: { ...silentPresentation, message: (message) => output.push(message) },
-        detectedLogins: [detected],
-        loginDetection: { home, env: {}, platform: "linux" },
-      },
-      sessionPrompter({
-        provider: "openai-codex",
-        model: "gpt-5.5",
-        authenticate: true,
-        authType: "oauth",
-        reuseLogin: detected,
-      })
-    );
-
-    const importCall = runner.calls.find((call) => providerAction(call) === "import");
-    expect(importCall?.args).toContain("--no-TTY");
-    expect(importCall?.args.slice(-2)).toEqual(["import", "openai-codex"]);
-    expect(JSON.parse(runner.imports[0] ?? "{}")).toMatchObject({
-      type: "oauth",
-      access: accessToken,
-      refresh: "codex-refresh-secret",
-      accountId: "acct-123",
-    });
-    expect(runner.calls.some((call) => providerAction(call) === "login")).toBe(false);
-    expect(runner.calls.flatMap((call) => call.args).join(" ")).not.toContain(
-      "codex-refresh-secret"
-    );
-    expect(output).toContain("Reused your Codex CLI (~/.codex/auth.json) sign-in.");
+    const failing = createSetupFixture();
+    const runner = new SetupRunner();
+    runner.failStartup = true;
+    await expect(
+      setupCommand(
+        failing.paths,
+        runner,
+        { presentation: silentPresentation },
+        sessionPrompter({ timeZone: "Europe/London" })
+      )
+    ).rejects.toThrow("previous configuration was restored");
+    expect(readFileSync(failing.paths.environment, "utf8")).toBe(failing.environment);
+    expect(runner.calls.filter((call) => call.args.includes("up"))).toHaveLength(2);
   });
 
-  test("falls back to a fresh sign-in without displaying import diagnostics or credentials", async () => {
-    const fixture = createSetupFixture();
-    const runner = new SetupRunner(() => {
-      fixture.state.authenticated = true;
-    });
-    runner.failImport = true;
-    const home = mkdtempSync(join(tmpdir(), "openteam-cli-home-"));
-    temporaryDirectories.push(home);
-    mkdirSync(join(home, ".claude"), { recursive: true });
-    writeFileSync(
-      join(home, ".claude", ".credentials.json"),
-      JSON.stringify({
-        claudeAiOauth: {
-          accessToken: "claude-access",
-          refreshToken: "claude-refresh-secret",
-          expiresAt: Date.now() + 3600_000,
-        },
-      })
-    );
-    const detected = {
-      provider: "claude-code" as const,
-      source: "Claude Code (~/.claude/.credentials.json)",
-    };
-    const output: string[] = [];
+  test("Ctrl-C during the download stops a first setup with advice and keeps its answers", async () => {
+    const fixture = createSetupFixture({ owner: false });
+    const runner = new SetupRunner();
+    runner.interrupted = "pull";
 
-    await setupCommand(
+    const error = await setupCommand(
       fixture.paths,
       runner,
-      {
-        presentation: { ...silentPresentation, message: (message) => output.push(message) },
-        detectedLogins: [detected],
-        loginDetection: { home, env: {}, platform: "linux" },
-      },
-      sessionPrompter({
-        provider: "claude-code",
-        model: "claude-sonnet-5",
-        authenticate: true,
-        authType: "oauth",
-        reuseLogin: detected,
-      })
+      { presentation: silentPresentation },
+      sessionPrompter({ ownerPassword: "correct horse battery staple", timeZone: "Europe/London" })
+    ).catch((failure: unknown) => failure);
+
+    expect(error).toMatchObject({ exitCode: 130 });
+    expect((error as Error).message).toMatch(
+      /^Setup was interrupted\. Run .*setup.* to finish setting up OpenTeam\.$/
+    );
+    // The next run offers the same answers.
+    expect(
+      parseEnvironment(readFileSync(fixture.paths.environment, "utf8")).get("OPENTEAM_TIME_ZONE")
+    ).toBe("Europe/London");
+    expect(runner.index("up")).toBe(-1);
+    expect(existsSync(fixture.paths.updateLock)).toBe(false);
+  });
+
+  test("a command that Ctrl-C kills outright reports 130, like Docker Compose does", () => {
+    expect(new SystemCommandRunner().run("sh", ["-c", "kill -INT $$"]).status).toBe(130);
+  });
+
+  test("Ctrl-C that a Docker command fails on still ends setup with the advice and exit 130", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-setup-interrupt-"));
+    temporaryDirectories.push(directory);
+    const child = Bun.spawn(
+      [process.execPath, join(import.meta.dir, "fixtures/setup-interrupt.ts"), directory],
+      { stdout: "pipe", stderr: "pipe" }
+    );
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    expect(stdout).not.toContain("setup failed");
+    expect(stderr).toContain("Setup was interrupted.");
+    expect(code).toBe(130);
+    expect(existsSync(installationPaths(directory).updateLock)).toBe(false);
+  }, 15000);
+
+  test("Ctrl-C while an installation restarts puts its configuration back without restarting", async () => {
+    const fixture = createSetupFixture();
+    const runner = new SetupRunner();
+    runner.interrupted = "up";
+
+    await expect(
+      setupCommand(
+        fixture.paths,
+        runner,
+        { presentation: silentPresentation },
+        sessionPrompter({ timeZone: "Europe/London" })
+      )
+    ).rejects.toMatchObject({
+      exitCode: 130,
+      message: expect.stringMatching(/^Setup was interrupted/),
+    });
+
+    expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
+    expect(runner.calls.filter((call) => call.args.includes("up"))).toHaveLength(1);
+  });
+
+  test("a first setup that cannot start says how to retry instead of starting placeholder settings", async () => {
+    const fixture = createSetupFixture({ owner: false });
+    const runner = new SetupRunner();
+    runner.failStartup = true;
+
+    await expect(
+      setupCommand(
+        fixture.paths,
+        runner,
+        { presentation: silentPresentation },
+        sessionPrompter({
+          ownerPassword: "correct horse battery staple",
+          timeZone: "Europe/London",
+        })
+      )
+    ).rejects.toThrow(
+      /^OpenTeam did not start: Docker Compose failed: startup failed\. Fix the problem, then run .*setup.* again\.$/
     );
 
-    expect(runner.calls.some((call) => providerAction(call) === "import")).toBe(true);
-    const login = runner.calls.find((call) => providerAction(call) === "login");
-    expect(login?.args.slice(-3)).toEqual(["login", "claude-code", "oauth"]);
-    expect(login?.options?.inherit).toBe(true);
-    expect(output.some((message) => message.includes("fresh provider sign-in"))).toBe(true);
-    expect(output.join("\n")).not.toContain("Usage:");
-    expect(output.join("\n")).not.toContain("claude-refresh-secret");
-    expect(runner.calls.flatMap((call) => call.args).join(" ")).not.toContain(
-      "claude-refresh-secret"
+    expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
+    expect(runner.calls.filter((call) => call.args.includes("up"))).toHaveLength(1);
+  });
+
+  test("a first setup recreates its containers; a later one only applies changes", async () => {
+    const first = createSetupFixture({ owner: false });
+    const fresh = new SetupRunner();
+    await capturingConsole(() =>
+      setupCommand(
+        first.paths,
+        fresh,
+        { presentation: silentPresentation },
+        sessionPrompter({
+          ownerUsername: "sam",
+          ownerPassword: "correct horse battery staple",
+          timeZone: "Europe/London",
+        })
+      )
+    );
+    expect(fresh.calls.find((call) => call.args.includes("up"))?.args).toContain(
+      "--force-recreate"
+    );
+
+    const existing = createSetupFixture();
+    const rerun = new SetupRunner();
+    await capturingConsole(() =>
+      setupCommand(
+        existing.paths,
+        rerun,
+        { presentation: silentPresentation },
+        sessionPrompter({ timeZone: "Europe/London" })
+      )
+    );
+    expect(rerun.calls.find((call) => call.args.includes("up"))?.args).not.toContain(
+      "--force-recreate"
+    );
+  });
+
+  test("a failed download ends its reason with a sentence before the advice", async () => {
+    const fixture = createSetupFixture({ owner: false });
+    const runner = new SetupRunner();
+    runner.failPull = true;
+
+    await expect(
+      setupCommand(
+        fixture.paths,
+        runner,
+        { presentation: silentPresentation },
+        sessionPrompter({ ownerPassword: "correct horse battery staple" })
+      )
+    ).rejects.toThrow(
+      "Could not download OpenTeam: Docker Compose failed: pull failed. Check your"
+    );
+  });
+
+  test("uses the CLI version in setup and labels the installed server release separately", async () => {
+    const fixture = createSetupFixture({ authenticated: true, owner: true });
+    const prompter = sessionPrompter({});
+    const collect = prompter.session!;
+    prompter.session = async (input) => {
+      expect(input.version).toBe(CLI_VERSION);
+      expect(input.stages.map((stage) => stage.label)).toEqual([
+        "Connection",
+        "Account",
+        "Review",
+        "Checks",
+      ]);
+      expect(input.notes).toContainEqual({
+        text: "Installed server release: v1.2.3.",
+        tone: "muted",
+      });
+      return collect(input);
+    };
+    const { output, presentation } = recordingPresentation();
+    await capturingConsole(() =>
+      setupCommand(fixture.paths, new SetupRunner(), { presentation }, prompter)
+    );
+    expect(output).toContain("Installed server release: v1.2.3");
+  });
+
+  test("an existing installation refuses setup while another OpenTeam server answers on its port", async () => {
+    const fixture = createSetupFixture({ authenticated: true });
+    const runner = new SetupRunner();
+    runner.running = ["postgres"];
+    const port = parseEnvironment(fixture.environment).get("OPENTEAM_API_PORT");
+    runner.publishedBy = { [String(port)]: "openteam-dev-server-1\topenteam-dev" };
+    const prompter = new AnswerPrompter([]);
+
+    await expect(
+      setupCommand(fixture.paths, runner, { presentation: silentPresentation }, prompter)
+    ).rejects.toThrow(
+      "Another OpenTeam server is answering at http://127.0.0.1:" +
+        `${port}, but this installation's server is not running. It is container openteam-dev-server-1 (Compose project openteam-dev).`
+    );
+    expect(prompter.prompts).toHaveLength(0);
+    expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
+    expect(runner.index("up")).toBe(-1);
+  });
+
+  test("a new installation moves to a free port when another OpenTeam server has the default", async () => {
+    const fixture = createSetupFixture({ owner: false });
+    const runner = new SetupRunner();
+    runner.running = ["postgres"];
+    const port = parseEnvironment(fixture.environment).get("OPENTEAM_API_PORT");
+    runner.publishedBy = { [String(port)]: "openteam-server-1\topenteam" };
+    const seen: Array<Parameters<NonNullable<SetupPrompter["session"]>>[0]> = [];
+    const answers = new AnswerPrompter([]);
+    const prompter: SetupPrompter = {
+      question: (prompt) => answers.question(prompt),
+      secret: (prompt) => answers.secret(prompt),
+      session: async (input) => {
+        seen.push(input);
+        return null;
+      },
+      close() {},
+    };
+
+    await setupCommand(fixture.paths, runner, { presentation: silentPresentation }, prompter);
+
+    const offered = seen[0]?.current.get("OPENTEAM_API_PORT");
+    expect(offered).toBeDefined();
+    expect(offered).not.toBe(port);
+    expect(seen[0]?.notes?.map((note) => note.text)).toContain(
+      `Port ${port} is already in use; using ${offered} as the local API default.`
     );
   });
 
@@ -1479,11 +1000,10 @@ describe("interactive setup", () => {
           ? { status: 1, stdout: "", stderr: "Serve permission denied" }
           : { status: 0, stdout: "{}", stderr: "" };
     };
-    const output: string[] = [];
+    const { output, presentation } = recordingPresentation();
     const prompter = sessionPrompter({
       accessMode: "tailscale",
       publicUrl: `https://${host}`,
-      skipInference: true,
     });
     const collect = prompter.session!;
     prompter.session = (input) => {
@@ -1494,12 +1014,7 @@ describe("interactive setup", () => {
       setupCommand(
         fixture.paths,
         runner,
-        {
-          fresh: true,
-          detectedPrivateHost: "100.100.10.5",
-          detectedLogins: [],
-          presentation: { ...silentPresentation, message: (message) => output.push(message) },
-        },
+        { fresh: true, detectedPrivateHost: "100.100.10.5", presentation },
         prompter
       )
     ).rejects.toThrow("Previous configuration restored");
@@ -1507,7 +1022,7 @@ describe("interactive setup", () => {
     expect(output.some((message) => message.includes("Keeping private HTTP"))).toBe(false);
   });
 
-  test("cancels setup before provider validation without changing anything", async () => {
+  test("cancels setup without changing anything", async () => {
     const fixture = createSetupFixture();
     const runner = new SetupRunner();
 
@@ -1515,87 +1030,48 @@ describe("interactive setup", () => {
       fixture.paths,
       runner,
       { presentation: silentPresentation },
-      new AnswerPrompter(["", "", "no"])
+      new AnswerPrompter(["", "no"])
     );
 
     expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
-    expect(runner.calls.some((call) => providerAction(call))).toBe(false);
-    expect(runner.calls.some((call) => call.args.includes("up"))).toBe(false);
+    expect(providerCalls(runner)).toEqual([]);
+    expect(runner.index("up")).toBe(-1);
   });
 
   test("applies a configuration produced by an interactive session and records it", async () => {
     const fixture = createSetupFixture({ owner: false });
-    const runner = new SetupRunner(() => {
-      fixture.state.authenticated = true;
-    });
-    const output: string[] = [];
-    const presentation: SetupPresentation = {
-      ...silentPresentation,
-      message: (message) => output.push(message),
-      summary: (title, rows) => output.push(title, ...rows.map((row) => row.value)),
-    };
+    const runner = new SetupRunner();
+    const { output, presentation } = recordingPresentation();
     const seen: Array<Parameters<NonNullable<SetupPrompter["session"]>>[0]> = [];
-    const answers = new AnswerPrompter([]);
-    const prompter: SetupPrompter = {
-      question: (prompt) => answers.question(prompt),
-      secret: (prompt) => answers.secret(prompt),
-      async session(input) {
-        seen.push(input);
-        return {
-          accessMode: "local",
-          bindHost: "127.0.0.1",
-          viewerBindHost: "127.0.0.1",
-          publicHost: "127.0.0.1",
-          publicUrl: `http://127.0.0.1:${input.current.get("OPENTEAM_API_PORT")}`,
-          composeProfiles: "direct",
-          ownerUsername: "session.owner",
-          ownerPassword: "correct horse battery staple",
-          apiPort: input.current.get("OPENTEAM_API_PORT") ?? "8787",
-          timeZone: "UTC",
-          provider: "claude-code",
-          model: "claude-sonnet-5",
-          thinking: "high",
-          workerConcurrency: "8",
-          authenticate: true,
-          authType: "oauth",
-        };
-      },
-      close() {},
+    const prompter = sessionPrompter({
+      ownerUsername: "session.owner",
+      ownerPassword: "correct horse battery staple",
+    });
+    const collect = prompter.session!;
+    prompter.session = (input) => {
+      seen.push(input);
+      return collect(input);
     };
 
-    await setupCommand(fixture.paths, runner, { presentation }, prompter);
+    await capturingConsole(() => setupCommand(fixture.paths, runner, { presentation }, prompter));
 
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({
       version: CLI_VERSION,
-      authenticated: false,
       fresh: true,
       ownerConfigured: false,
-      currentOwnerUsername: "openteam",
+      currentOwnerUsername: "",
     });
-    expect(seen[0]?.stages.map((stage) => stage.label)).toEqual([
-      "Connection",
-      "Account",
-      "Inference",
-      "Review",
-      "Checks",
-    ]);
     expect(output).toContain("Configuration ready");
-    expect(output).toContain("Claude Code · claude-sonnet-5");
+    expect(output).toContain("Username: session.owner");
     expect(readManifest(fixture.paths)?.ownerUsername).toBe("session.owner");
-    const login = runner.calls.find((call) => providerAction(call) === "login");
-    expect(login?.args.slice(-3)).toEqual(["login", "claude-code", "oauth"]);
-    expect(fixture.state.inference).toEqual({
-      providerId: "claude-code",
-      modelId: "claude-sonnet-5",
-      reasoning: "high",
-    });
+    expect(providerCalls(runner)).toEqual([]);
   });
 
   test("a cancelled interactive session leaves the installation untouched", async () => {
     const fixture = createSetupFixture();
     const runner = new SetupRunner();
-    const output: string[] = [];
+    const { output, presentation } = recordingPresentation();
     const answers = new AnswerPrompter([]);
     const prompter: SetupPrompter = {
       question: (prompt) => answers.question(prompt),
@@ -1604,17 +1080,33 @@ describe("interactive setup", () => {
       close() {},
     };
 
-    await setupCommand(
-      fixture.paths,
-      runner,
-      { presentation: { ...silentPresentation, message: (message) => output.push(message) } },
-      prompter
-    );
+    await setupCommand(fixture.paths, runner, { presentation }, prompter);
 
     expect(output).toContain("Setup cancelled; no configuration was changed.");
     expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
-    expect(runner.calls.some((call) => providerAction(call))).toBe(false);
-    expect(runner.calls.some((call) => call.args.includes("up"))).toBe(false);
+    expect(providerCalls(runner)).toEqual([]);
+    expect(runner.index("up")).toBe(-1);
+  });
+
+  test("a cancelled first setup says how to finish it later", async () => {
+    const fixture = createSetupFixture({ owner: false });
+    const runner = new SetupRunner();
+    const { output, presentation } = recordingPresentation();
+    const answers = new AnswerPrompter([]);
+    const prompter: SetupPrompter = {
+      question: (prompt) => answers.question(prompt),
+      secret: (prompt) => answers.secret(prompt),
+      session: async () => null,
+      close() {},
+    };
+
+    await setupCommand(fixture.paths, runner, { presentation }, prompter);
+
+    expect(output).toContain("Setup cancelled; no configuration was changed.");
+    expect(output.at(-1)).toMatch(
+      /^Run .*setup.* when you're ready to finish setting up OpenTeam\.$/
+    );
+    expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
   });
 
   test("password-only account updates pass the secret over stdin and never command arguments", async () => {
@@ -1636,7 +1128,7 @@ describe("interactive setup", () => {
       updatedAt: now,
       ownerUsername: "openteam",
     });
-    const runner = new SetupRunner(() => undefined);
+    const runner = new SetupRunner();
     await accountUpdateCommand(
       paths,
       runner,
@@ -1670,7 +1162,7 @@ describe("interactive setup", () => {
       ownerUsername: "openteam",
     });
 
-    const usernameRunner = new SetupRunner(() => undefined);
+    const usernameRunner = new SetupRunner();
     await accountUpdateCommand(paths, usernameRunner, {
       username: "Renamed.Owner",
       password: false,
@@ -1679,11 +1171,11 @@ describe("interactive setup", () => {
       candidate.args.includes("owner-credentials")
     );
     expect(usernameCall?.options?.input).toBe(
-      JSON.stringify({ operation: "update", username: "renamed.owner" })
+      JSON.stringify({ operation: "update", username: "Renamed.Owner" })
     );
-    expect(readManifest(paths)?.ownerUsername).toBe("renamed.owner");
+    expect(readManifest(paths)?.ownerUsername).toBe("Renamed.Owner");
 
-    const bothRunner = new SetupRunner(() => undefined);
+    const bothRunner = new SetupRunner();
     await accountUpdateCommand(
       paths,
       bothRunner,
@@ -1697,10 +1189,10 @@ describe("interactive setup", () => {
     expect(bothCall?.options?.input).toBe(
       JSON.stringify({
         operation: "update",
-        username: "final.owner",
+        username: "Final.Owner",
         password: "another correct horse battery",
       })
     );
-    expect(readManifest(paths)?.ownerUsername).toBe("final.owner");
+    expect(readManifest(paths)?.ownerUsername).toBe("Final.Owner");
   });
 });

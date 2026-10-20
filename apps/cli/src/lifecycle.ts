@@ -30,6 +30,7 @@ import {
 import { CLI_VERSION, DEFAULT_REPOSITORY, PROJECT_NAME } from "./constants";
 import { type ComposeProject, DOCKER_OUTPUT_HINT, requireComposeProject } from "./docker";
 import { printDoctor, runDoctor } from "./doctor";
+import { dockerMissing, renderDockerRequired, startDockerDesktop } from "./docker-preflight";
 import { doctorNextSteps } from "./doctor-ui";
 import { CliError } from "./errors";
 import { checkHealth, type HealthResult, withExpectedVersion } from "./health";
@@ -127,8 +128,8 @@ const printStartupReady = (
               {
                 text:
                   health.inference === "missing"
-                    ? `No AI provider is connected. Run ${installationCommand(paths, "setup")} to connect one before starting AI tasks.`
-                    : `AI is not ready (${health.inference}). Run ${installationCommand(paths, "setup")} to check your provider connection.`,
+                    ? `No model is connected yet. Connect one in the OpenTeam app under Settings → Server, or run ${installationCommand(paths, "model")} on this server.`
+                    : `AI is not ready (${health.inference}). Check the model connection in the OpenTeam app under Settings → Server, or run ${installationCommand(paths, "doctor")}.`,
                 tone: "warning" as const,
               },
             ]
@@ -211,7 +212,12 @@ export const installCommand = async (
       await setupCommand(
         paths,
         runner,
-        { advanced: options.advanced, fresh: true, countdown: options.command === "install" },
+        {
+          advanced: options.advanced,
+          fresh: true,
+          countdown: options.command === "install",
+          pullImages: true,
+        },
         suppliedPrompter
       );
     } else {
@@ -222,9 +228,18 @@ export const installCommand = async (
   }
 
   const projectName = normalizeProjectName(options.projectName || PROJECT_NAME);
+  const desktop = await startDockerDesktop(runner);
   const diagnosis = await runDoctor(paths, runner, projectName, {
     checkInstallPorts: options.noSetup,
   });
+  if (dockerMissing(diagnosis)) {
+    console.log(
+      renderDockerRequired(installationCommand(paths, "setup"), {
+        desktopStarting: desktop === "timed-out",
+      })
+    );
+    throw new CliError("Docker is required.", 2, true);
+  }
   if (diagnosis.ok) {
     const report = new TerminalReport();
     report.notice("Server requirements checked", "success");
@@ -272,26 +287,33 @@ export const installCommand = async (
   });
   ensureDirectory(paths.directory);
   const now = new Date().toISOString();
-  writeFileAtomic(paths.compose, release.compose, 0o600);
-  writeFileAtomic(
-    paths.environment,
-    createEnvironment({ version, imagePrefix: options.imagePrefix }),
-    0o600
-  );
-  writeManifest(paths, {
-    schemaVersion: 1,
-    repository,
-    version,
-    composeUrl: release.composeUrl,
-    installedAt: now,
-    updatedAt: now,
-    projectName,
-  });
+  const environment = createEnvironment({ version, imagePrefix: options.imagePrefix });
+  try {
+    writeFileAtomic(paths.compose, release.compose, 0o600);
+    writeFileAtomic(paths.environment, environment, 0o600);
+    writeManifest(paths, {
+      schemaVersion: 1,
+      repository,
+      version,
+      composeUrl: release.composeUrl,
+      installedAt: now,
+      updatedAt: now,
+      projectName,
+    });
+  } catch (error) {
+    // A partial first install would block the next attempt, so leave none of it behind.
+    for (const file of [paths.compose, paths.environment, paths.manifest]) {
+      rmSync(file, { force: true });
+    }
+    throw new CliError(
+      `Could not save the OpenTeam configuration in ${paths.directory}: ${error instanceof Error ? error.message : error}. Free up disk space or fix the folder's permissions, then run ${installationCommand(paths, "setup")} again.`
+    );
+  }
 
-  const project = requireComposeProject(paths, runner, projectName);
-  printMessage("Pulling OpenTeam container images…");
-  project.runOrThrow(["pull"], { inherit: true });
   if (options.noSetup) {
+    const project = requireComposeProject(paths, runner, projectName);
+    printMessage("Pulling OpenTeam container images…");
+    project.runOrThrow(["pull"], { inherit: true });
     await startProject(project, paths, runner, version);
     printMessage(`Installation configuration: ${paths.directory}`, "muted");
     printMessage(
@@ -299,7 +321,13 @@ export const installCommand = async (
     );
     return;
   }
-  await setupCommand(paths, runner, { advanced: options.advanced, fresh: true }, suppliedPrompter);
+  // Setup asks every question first, then downloads the images and starts the server.
+  await setupCommand(
+    paths,
+    runner,
+    { advanced: options.advanced, fresh: true, pullImages: true },
+    suppliedPrompter
+  );
 };
 
 export const doctorCommand = async (

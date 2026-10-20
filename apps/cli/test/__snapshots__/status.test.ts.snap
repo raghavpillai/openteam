@@ -18,10 +18,11 @@ exports[`status and health reports healthy: All containers healthy: healthy 1`] 
   READINESS ─────────────────────────────────────────────────────────────────────────────
   ✓ Server                  Ready · responding with the installed release
     Checked at              http://127.0.0.1:8787/api/v0/health
-    AI credentials          Configured · model request not tested
+    AI model                Connected
 
   CONNECTION ────────────────────────────────────────────────────────────────────────────
     Server                  http://127.0.0.1:8787
+    Username                owner
     Access                  This machine only
     Version                 1.2.3
     Compose project         friend-team
@@ -54,10 +55,11 @@ exports[`status and health reports live-ready: Live dependencies healthy: live-r
   ✓ Database                Ready
   ✓ Queue database          Ready
   ✓ Computer API            Ready
-    AI credentials          Configured · model request not tested
+    AI model                Connected
 
   CONNECTION ────────────────────────────────────────────────────────────────────────────
     Server                  http://127.0.0.1:8787
+    Username                owner
     Access                  This machine only
     Version                 1.2.3
     Compose project         friend-team
@@ -99,6 +101,7 @@ exports[`status and health reports database-unavailable: Database is unreachable
 
   CONNECTION ────────────────────────────────────────────────────────────────────────────
     Server                  http://127.0.0.1:8787
+    Username                owner
     Access                  This machine only
     Version                 1.2.3
     Compose project         friend-team
@@ -163,6 +166,7 @@ exports[`status and health reports invalid-json: Docker returns malformed contai
 
   CONNECTION ────────────────────────────────────────────────────────────────────────────
     Server                  http://127.0.0.1:8787
+    Username                owner
     Access                  This machine only
     Version                 1.2.3
     Compose project         friend-team
@@ -195,6 +199,7 @@ exports[`status and health reports stopped: All containers stopped cleanly: stop
 
   CONNECTION ────────────────────────────────────────────────────────────────────────────
     Server                  http://127.0.0.1:8787
+    Username                owner
     Access                  This machine only
     Version                 1.2.3
     Compose project         friend-team
@@ -240,13 +245,14 @@ exports[`status and health reports starting: Container health checks starting: s
     Checked at
       http://127.0.0.1:8787/api/v0/healt
       h
-    AI credentials
-      Configured · model request not
-      tested
+    AI model
+      Connected
 
   CONNECTION ──────────────────────────
     Server
       http://127.0.0.1:8787
+    Username
+      owner
     Access
       This machine only
     Version
@@ -286,10 +292,11 @@ exports[`status and health reports job-failed: Database migration failed: job-fa
   READINESS ─────────────────────────────────────────────────────────────────────────────
   ✓ Server                  Ready · responding with the installed release
     Checked at              http://127.0.0.1:8787/api/v0/health
-    AI credentials          Configured · model request not tested
+    AI model                Connected
 
   CONNECTION ────────────────────────────────────────────────────────────────────────────
     Server                  http://127.0.0.1:8787
+    Username                owner
     Access                  This machine only
     Version                 1.2.3
     Compose project         friend-team

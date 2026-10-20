@@ -32,7 +32,10 @@ function fixture(config: object = {}) {
         const current = serve as { TCP?: object; Web?: object };
         serve = {
           TCP: { ...current.TCP, [port]: { HTTPS: true } },
-          Web: { ...current.Web, [`${host}:${port}`]: { Handlers: { "/": { Proxy: args.at(-1) } } } },
+          Web: {
+            ...current.Web,
+            [`${host}:${port}`]: { Handlers: { "/": { Proxy: args.at(-1) } } },
+          },
         };
         return { status: 0, stdout: "", stderr: "" };
       }
@@ -57,7 +60,6 @@ test("setup prefers private Tailscale HTTPS and creates a verified persistent ro
     version: "test",
     stages: SETUP_STAGES,
     current: new Map(),
-    authenticated: true,
     fresh: true,
     ownerConfigured: true,
     preferredHttpsHost: candidate.host,
@@ -74,6 +76,25 @@ test("setup prefers private Tailscale HTTPS and creates a verified persistent ro
   ]);
   expect(configureTailscaleRoute(f.runner, candidate, "8787")).toBe(false);
   expect(f.calls.filter((args) => args.includes("--bg"))).toHaveLength(1);
+});
+
+test("a re-run keeps the connection already in use instead of suggesting Tailscale HTTPS", () => {
+  const setup = createSetupSession({
+    version: "test",
+    stages: SETUP_STAGES,
+    current: new Map([
+      ["OPENTEAM_ACCESS_MODE", "private"],
+      ["OPENTEAM_PUBLIC_URL", `http://${host}:8788`],
+      ["OPENTEAM_API_PORT", "8788"],
+    ]),
+    fresh: false,
+    ownerConfigured: true,
+    preferredHttpsHost: host,
+  });
+  expect(setup.configuration()).toMatchObject({
+    accessMode: "private",
+    publicUrl: `http://${host}:8788`,
+  });
 });
 
 test("detection avoids disabled HTTPS and every incompatible route", () => {
@@ -143,7 +164,6 @@ test("setup reuses an existing private HTTPS port without replacing another app 
     version: "test",
     stages: SETUP_STAGES,
     current: new Map(),
-    authenticated: true,
     fresh: true,
     ownerConfigured: true,
     preferredHttpsHost: address,

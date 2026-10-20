@@ -6,7 +6,7 @@ Guided setup covers most installations. This page shows where to change each set
 
 | Setting | Where to change it |
 | --- | --- |
-| Model provider | Desktop **Settings → Server**, `openteam setup`, or `openteam model` (sign in first with `openteam provider login`) |
+| Model provider | Desktop **Settings → Server**, or `openteam model` (sign in first with `openteam provider login`) |
 | Model and reasoning level | Desktop **Settings → Server**, or `openteam model` |
 | Web search and page fetching | **Settings → Providers** on desktop or iPhone |
 | Voice transcription | Desktop **Settings → Server**, or `openteam model` |
@@ -26,7 +26,7 @@ Run this on the server host:
 openteam setup --advanced
 ```
 
-Advanced setup lets you change the [connection mode](remote-access.md), **API port** (default `8787`), time zone, tasks at once, model, and thinking level. Running setup again keeps your account and data.
+Advanced setup lets you change the [connection mode](remote-access.md), **API port** (default `8787`), time zone, and tasks at once. Running setup again keeps your account, data, and model settings.
 
 **Time zone.** Setup uses the host's time zone. Routines you schedule in the app use the time zone of the device you schedule them on. Other routines use the server's time zone unless their schedule names one.
 
@@ -40,7 +40,7 @@ The [install directory](../getting-started/installation.md#where-openteam-is-ins
 - `compose.yaml`: the Docker services for your version
 - `installation.json`: a record of how the server was installed
 
-Setup and updates maintain these files, so change settings with the CLI instead of editing them. Don't put model API keys in `.env`; connect providers with `openteam setup` or in the app. Include this directory in your [backups](../manage/backups.md).
+Setup and updates maintain these files, so change settings with the CLI instead of editing them. Don't put model API keys in `.env`; connect providers in the app or with `openteam provider login`. Include this directory in your [backups](../manage/backups.md).
 
 
 ## Desktop memory limits

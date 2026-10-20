@@ -1,3 +1,6 @@
+import { realpathSync } from "node:fs";
+import { delimiter, join } from "node:path";
+import { CLI_UPDATE_TARGET_ENV, isStandaloneCliExecutable } from "./cli-update";
 import type { InstallationPaths } from "./config";
 import { defaultInstallDirectory } from "./config";
 import type { ProviderRow, ModelRow } from "./providers";
@@ -5,8 +8,53 @@ export { renderStatus } from "./status-ui";
 import type { PersistedUpdateState } from "./update-safety";
 import { TerminalReport, type TerminalOptions, type TerminalTone } from "./terminal";
 
+const quoteArgument = (value: string, platform = process.platform): string =>
+  `'${value.replace(/'/g, platform === "win32" ? "''" : "'\\''")}'`;
+
+const sameFile = (left: string, right: string): boolean => {
+  try {
+    return realpathSync(left) === realpathSync(right);
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * How to run this CLI in printed hints. Right after installation its directory may not
+ * be on this terminal's PATH yet, so name the running binary by its absolute path then.
+ * A staged update names the CLI it replaces.
+ */
+export const cliProgram = (
+  options: {
+    executable?: string;
+    argv?: readonly string[];
+    path?: string;
+    platform?: NodeJS.Platform;
+    standalone?: boolean;
+  } = {}
+): string => {
+  const running = process.execPath;
+  const executable = options.executable ?? (process.env[CLI_UPDATE_TARGET_ENV]?.trim() || running);
+  const platform = options.platform ?? process.platform;
+  const standalone =
+    options.standalone ?? isStandaloneCliExecutable(options.argv ?? process.argv, running);
+  if (!standalone) return "openteam";
+  const name = platform === "win32" ? "openteam.exe" : "openteam";
+  const onPath = (options.path ?? process.env.PATH ?? "")
+    .split(platform === "win32" ? ";" : delimiter)
+    .some((entry) => entry && sameFile(join(entry, name), executable));
+  if (onPath) return "openteam";
+  if (!/[^\w./:\\-]/.test(executable)) return executable;
+  // PowerShell runs a quoted path only through its call operator.
+  return `${platform === "win32" ? "& " : ""}${quoteArgument(executable, platform)}`;
+};
+
+let program: string | undefined;
+/** The running CLI as it should appear in hints; computed once per process. */
+export const cliCommand = (): string => (program ??= cliProgram());
+
 export const installationCommand = (paths: InstallationPaths, command: string): string =>
-  `openteam ${command}${paths.directory === defaultInstallDirectory() ? "" : ` --dir '${paths.directory.replace(/'/g, process.platform === "win32" ? "''" : "'\\''")}'`}`;
+  `${cliCommand()} ${command}${paths.directory === defaultInstallDirectory() ? "" : ` --dir ${quoteArgument(paths.directory)}`}`;
 
 export const renderSummary = (
   command: string,

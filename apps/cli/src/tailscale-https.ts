@@ -1,3 +1,4 @@
+import { userInfo } from "node:os";
 import { CliError } from "./errors";
 import type { CommandRunner } from "./process";
 
@@ -108,7 +109,37 @@ export function tailscaleRoute(
     : "occupied";
 }
 
-export function inspectTailscale(runner: CommandRunner): TailscaleInspection {
+export interface TailscaleUser {
+  platform: NodeJS.Platform;
+  uid: number;
+  username: string;
+}
+const currentUser = (): TailscaleUser => ({
+  platform: process.platform,
+  uid: process.getuid?.() ?? -1,
+  username: userInfo().username,
+});
+
+/** On Linux only root and the Tailscale operator may change Serve routes. */
+function serveIssue(runner: CommandRunner, user: TailscaleUser): string | null {
+  if (user.platform !== "linux" || user.uid === 0) return null;
+  let prefs: Json;
+  try {
+    prefs = object(JSON.parse(execute(runner, ["debug", "prefs"])));
+  } catch {
+    prefs = {};
+  }
+  // Unreadable or unfamiliar prefs are unknown; Serve reports its own permission error.
+  if (typeof prefs.ControlURL !== "string") return null;
+  return prefs.OperatorUser === user.username
+    ? null
+    : `Tailscale HTTPS needs permission to manage Tailscale Serve. Run sudo tailscale set --operator=${user.username} on the server host, then retry.`;
+}
+
+export function inspectTailscale(
+  runner: CommandRunner,
+  user: TailscaleUser = currentUser()
+): TailscaleInspection {
   try {
     const status = read(runner, ["status", "--json"]);
     if (status.BackendState !== "Running")
@@ -139,7 +170,7 @@ export function inspectTailscale(runner: CommandRunner): TailscaleInspection {
       node,
       issue:
         Array.isArray(status.CertDomains) && status.CertDomains.includes(host)
-          ? null
+          ? serveIssue(runner, user)
           : "Enable HTTPS certificates for your tailnet at https://login.tailscale.com/admin/dns, then retry. Both devices must be connected to Tailscale.",
     };
   } catch (error) {

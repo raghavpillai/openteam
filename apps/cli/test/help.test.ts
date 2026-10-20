@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { renderHelp } from "../src/command-ui";
 import { helpFor } from "../src/help";
 
 describe("CLI help", () => {
@@ -9,6 +10,19 @@ describe("CLI help", () => {
     expect(help).not.toContain("provider login [provider]");
     expect(help).not.toContain("--compose-url");
     expect(help).not.toContain("--password");
+  });
+
+  test("renders every global command as an aligned row", () => {
+    const rendered = renderHelp(helpFor("global"), { color: false, width: 100 });
+    for (const command of [
+      "install",
+      "status",
+      "tailscale",
+      "notifications",
+      "uninstall",
+      "account",
+    ])
+      expect(rendered).toMatch(new RegExp(`^ {4}${command} {2,}\\S`, "m"));
   });
 
   test("shows only relevant options on command help pages", () => {

@@ -1,3 +1,4 @@
+import { cliCommand } from "./command-ui";
 import type { DoctorCheck, DoctorResult } from "./doctor";
 import { MINIMUM_COMPOSE_VERSION } from "./docker";
 import { colorEnabled } from "./ui";
@@ -9,11 +10,15 @@ import {
 } from "./terminal";
 
 const scopedCommands = (text: string, result: DoctorResult): string => {
-  if (!result.commandDirectory) return text;
-  const path = `'${result.commandDirectory.replace(/'/g, result.platform === "win32" ? "''" : "'\\''")}'`;
+  const program = cliCommand();
+  if (!result.commandDirectory && program === "openteam") return text;
+  const path = result.commandDirectory
+    ? ` --dir '${result.commandDirectory.replace(/'/g, result.platform === "win32" ? "''" : "'\\''")}'`
+    : "";
   return text.replace(
-    /openteam (provider list|model list|install|setup|start|status|doctor|logs|update)\b(?! --dir\b)/g,
-    (command) => `${command} --dir ${path}`
+    // Skip names inside a path the hint already resolved, such as /home/me/.local/bin/openteam.
+    /(?<![\w./\\'-])openteam (provider list|model list|install|setup|start|status|doctor|logs|update)\b(?! --dir\b)/g,
+    (_command, name: string) => `${program} ${name}${path}`
   );
 };
 
@@ -50,9 +55,11 @@ const checkAction = (check: DoctorCheck): string | undefined => {
     case "Compose configuration":
       return "Correct the reported error in the installation's configuration files, or restore them from a known-good backup before starting OpenTeam.";
     case "Owner account":
-      return "Run openteam setup to finish account and provider setup.";
+      return "Run openteam setup to create your account.";
     case "Network exposure":
-      return "Run openteam setup to review the access mode, public URL, and bind addresses. Use HTTPS for public access; keep private HTTP behind a trusted LAN or VPN.";
+      return check.level === "fail"
+        ? "Run openteam setup to repair the access mode, public URL, and bind addresses."
+        : "Keep plain HTTP on a trusted LAN or VPN. For access from anywhere, choose an HTTPS connection with openteam setup.";
     case "Compose services":
       if (!/^not running:/i.test(check.detail))
         return "Docker could not list the services. Run docker info, then inspect the reported Compose error before trying openteam status again.";
@@ -90,15 +97,18 @@ const checkAction = (check: DoctorCheck): string | undefined => {
       return "Check the public URL, firewall, and reverse proxy; verify the proxy forwards HTTP and WebSocket traffic to OpenTeam's configured API port.";
     case "Inference":
     case "AI connection":
+      // Models are managed in the apps; the model command covers servers without one.
       if (/429|quota|billing|rate.?limit/i.test(check.detail))
-        return "Check the model provider's quota or billing, or wait for its rate limit to reset. Use openteam model list to choose another available model if needed.";
+        return "Check the model provider's quota or billing, or wait for its rate limit to reset. To switch models, use Settings → Server in the OpenTeam app, or run openteam model.";
       if (/401|403|invalid.*(?:key|token)|unauthorized|authentication/i.test(check.detail))
-        return "Run openteam provider list to inspect the provider connection, then openteam setup to reconnect it.";
+        return "Reconnect the provider in the OpenTeam app under Settings → Server. On a server without the app, run openteam model.";
       if (/timed out|timeout|ECONNREFUSED|ENOTFOUND|network|connection refused/i.test(check.detail))
         return "Check network access from the server and computer services to the model provider, including proxy or VPN settings. Inspect openteam logs computer and retry openteam doctor.";
       if (/model.*(?:unavailable|not found|does not exist|not supported)/i.test(check.detail))
-        return "Run openteam model list to see models available to the connected account, then use openteam setup to select one.";
-      return "Run openteam provider list to check sign-in, then openteam model list to check available models. Use openteam setup to change the provider or model.";
+        return "Choose an available model in the OpenTeam app under Settings → Server. On a server without the app, run openteam model list to see the models this account can use.";
+      if (/\bmissing\b/i.test(check.detail))
+        return "Connect a model in the OpenTeam app under Settings → Server. On a server without the app, run openteam model.";
+      return "Check the model connection in the OpenTeam app under Settings → Server. On a server without the app, run openteam provider list and openteam model list.";
     case "Transcription":
       if (/server connection|installation credentials/i.test(check.detail))
         return "Run openteam status and check the server connection and installation control token. Inspect openteam logs server before testing transcription again.";

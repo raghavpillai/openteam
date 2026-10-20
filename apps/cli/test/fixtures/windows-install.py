@@ -29,8 +29,9 @@ sys.stderr.reconfigure(encoding='utf-8')
 OUTPUT = Path(sys.argv[1]).resolve()
 ASSETS = OUTPUT / 'assets'
 PASSED = []
-KEYS = {'escape': '\x1b', 'enter': '\r', 'letter': 'x', 'space': ' ',
+KEYS = {'escape': '\x1b', 'q': 'q', 'enter': '\r', 'letter': 'x', 'space': ' ',
         'ctrl-c': '\x03', 'arrow': '\x1b[A', 'paste': 'cancel pasted text\r'}
+CANCEL_KEYS = ('escape', 'q', 'ctrl-c')
 SHELLS = [shutil.which(name) for name in ('powershell.exe', 'pwsh.exe')]
 assert all(SHELLS), 'Both Windows PowerShell 5.1 and PowerShell 7 are required'
 ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
@@ -151,7 +152,7 @@ Invoke-Expression ([System.IO.File]::ReadAllText($env:NATIVE_INSTALL_SCRIPT))
             label = Path(shell).stem
             scenarios = ['missing-docker', 'raw-fallback', 'bad-checksum', 'stopped',
                          'no-compose', 'old-compose', 'noninteractive', 'cancel-escape',
-                         'cancel-enter', 'cancel-ctrl-c']
+                         'cancel-q', 'cancel-ctrl-c']
             for scenario in scenarios:
                 name = f'{label}-bootstrap-{scenario}'
                 directory = base / name
@@ -224,15 +225,17 @@ Invoke-Expression ([System.IO.File]::ReadAllText($env:NATIVE_INSTALL_SCRIPT))
                     terminal=True, key=KEYS.get(scenario), columns=40 if scenario == 'narrow' else 100)
                 check(code == 0 and result_path.exists(), 'Countdown did not finish cleanly', output)
                 result = json.loads(result_path.read_text())
-                proceed = scenario in ('continue', 'narrow')
+                # Enter starts at once; Esc, q, and Ctrl-C cancel; other keys are ignored.
+                proceed = scenario not in CANCEL_KEYS
                 check(result['proceed'] == proceed, 'Wrong countdown outcome', output)
                 check(result['rawRestored'] and result['listenersRestored'],
                       'Countdown left terminal raw mode or input listeners behind', output)
-                if proceed:
+                if scenario in (*CANCEL_KEYS, 'enter'):
+                    check(result['elapsed'] < 2500, 'Keyboard response was delayed', output)
+                elif scenario != 'paste':
+                    # ConPTY may deliver a paste's final Enter on its own, which starts at once.
                     check(4900 <= result['elapsed'] < 7000, 'Countdown was not five seconds', output)
                     check(steps == set('12345'), 'Missing a visible countdown step', output)
-                else:
-                    check(result['elapsed'] < 2500, 'Keyboard cancellation was delayed', output)
                 record(name, output)
 
 finally:

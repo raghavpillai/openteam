@@ -19,7 +19,7 @@ Usage:
 
 Getting started:
   install       Install OpenTeam and run guided setup
-  setup         Finish setup or change accounts and settings
+  setup         Set up or change the connection and account
 
 Your installation:
   status        Show container health and server readiness
@@ -30,7 +30,7 @@ Your installation:
   stop          Stop OpenTeam
   logs          View troubleshooting logs
   tailscale     Enable, inspect, or disable private Tailscale HTTPS
-  notifications Configure iOS push credentials or show their status
+  notifications  Configure iOS push credentials or show their status
   uninstall     Remove OpenTeam services and CLI
 
 Models and accounts:
@@ -130,12 +130,12 @@ Advanced release/testing options:
 
   setup: `${heading(
     "openteam setup [options]",
-    "Check prerequisites, install the server if needed, and finish account and provider setup.\nRun this again to change an existing setup. Inference can be skipped for now."
+    "Check prerequisites, install the server if needed, and set up its connection and your account.\nRun this again to change the connection. Connect a model in the OpenTeam app under Settings → Server."
   )}
 
 Options:
 ${directoryOption}
-  --advanced            Also show server, model, and performance settings
+  --advanced            Also show the API port, time zone, and tasks at once
 ${helpHint}`,
 
   doctor: `${heading(

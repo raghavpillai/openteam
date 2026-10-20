@@ -39,7 +39,7 @@ def load(name, title):
     rows = [json.loads(line) for line in (args.recordings / name).read_text().splitlines()]
     return rows[0], rows[1:], title
 
-clips = [load('installer-continue.cast', 'Automatic setup'), load('installer-cancel.cast', 'Press any key to cancel')]
+clips = [load('installer-continue.cast', 'Automatic setup'), load('installer-cancel.cast', 'Press Esc to cancel')]
 columns = max(clip[0]['width'] for clip in clips)
 rows = max(clip[0]['height'] for clip in clips)
 width = math.ceil((columns * cell + 96) / 2) * 2

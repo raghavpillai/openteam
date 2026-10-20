@@ -321,7 +321,7 @@ describe("doctor model API connection", () => {
     expect(result.checks).toContainEqual({
       level: "warn",
       label: "AI connection",
-      detail: "not tested; no provider is connected. Run openteam setup",
+      detail: "not tested; no model is connected. Connect one in the OpenTeam app",
     });
     expect(runner.probes).toHaveLength(0);
     expect(

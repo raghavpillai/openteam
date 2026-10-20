@@ -45,7 +45,8 @@ export class SystemCommandRunner implements CommandRunner {
               : "pipe",
       });
       return {
-        status: result.status ?? 1,
+        // A child that Ctrl-C killed outright reports it the way a shell does.
+        status: result.status ?? (result.signal === "SIGINT" ? 130 : 1),
         stdout: typeof result.stdout === "string" ? result.stdout : "",
         stderr: typeof result.stderr === "string" ? result.stderr : "",
         error: result.error,

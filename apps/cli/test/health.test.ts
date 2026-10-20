@@ -96,4 +96,34 @@ describe("installation health URL", () => {
       writer.mockRestore();
     }
   });
+
+  test("does not print failed probes while a starting server becomes ready", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-health-"));
+    temporaryDirectories.push(directory);
+    const paths = installationPaths(directory);
+    let requests = 0;
+    const server = Bun.serve({
+      port: 0,
+      fetch: () =>
+        ++requests === 1
+          ? new Response("starting", { status: 503 })
+          : Response.json({ status: "ready" }),
+    });
+    servers.push(server);
+    writeFileAtomic(paths.environment, `OPENTEAM_API_PORT=${server.port}\n`);
+
+    const output: string[] = [];
+    const writer = spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      output.push(String(chunk));
+      return true;
+    });
+    try {
+      const result = await waitForHealth(paths, 30_000);
+      expect(result.ok).toBe(true);
+      expect(requests).toBeGreaterThan(1);
+      expect(output.join("")).not.toContain("HTTP 503");
+    } finally {
+      writer.mockRestore();
+    }
+  });
 });

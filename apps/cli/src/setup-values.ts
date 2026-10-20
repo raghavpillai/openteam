@@ -1,59 +1,8 @@
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
-import type { ReusableProvider } from "./detected-logins";
-import type { RuntimeInferenceSettings } from "./runtime-settings";
 import type { SetupStage } from "./ui";
 
-export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
-export const DEFAULT_RUNTIME_INFERENCE: RuntimeInferenceSettings = {
-  providerId: "openai-codex",
-  modelId: "",
-  reasoning: "medium",
-};
 export const ACCESS_MODES = ["private", "local", "https", "proxy", "http", "tailscale"] as const;
-export const CUSTOM_PROVIDER_APIS = [
-  "openai-responses",
-  "openai-completions",
-  "anthropic-messages",
-  "google-generative-ai",
-] as const;
-export const BUILTIN_PROVIDER_CHOICES = [
-  {
-    label: "Codex",
-    description: "Sign in with ChatGPT in your browser. No API key needed.",
-    value: "openai-codex",
-  },
-  {
-    label: "Claude Code",
-    description: "Reuse your Claude Code sign-in or connect a Claude subscription.",
-    value: "claude-code",
-  },
-  {
-    label: "OpenAI API key",
-    description: "Use an API key billed through your OpenAI account.",
-    value: "openai",
-  },
-  {
-    label: "Anthropic API key",
-    description: "Use an API key billed through your Anthropic account.",
-    value: "anthropic",
-  },
-  {
-    label: "OpenRouter API key",
-    description: "Access models through your OpenRouter account.",
-    value: "openrouter",
-  },
-] as const;
-export const CUSTOM_PROVIDER_CHOICE = {
-  label: "Another AI provider",
-  description: "Connect an OpenAI-, Anthropic-, or Google-compatible service.",
-  value: "custom",
-} as const;
-export const SKIP_INFERENCE_CHOICE = {
-  label: "Skip for now",
-  description: "Finish setup without connecting a model provider. You can do this later.",
-  value: "skip",
-} as const;
 export const ACCESS_CHOICES = [
   {
     title: "Private network",
@@ -90,10 +39,6 @@ export const ACCESS_CHOICES = [
 export const SETUP_STAGES: readonly SetupStage[] = [
   { label: "Connection", description: "Choose where you want to use OpenTeam from." },
   { label: "Account", description: "Create the username and password you will sign in with." },
-  {
-    label: "Inference",
-    description: "Choose the model account OpenTeam will use, or skip it for now.",
-  },
   { label: "Review", description: "Check your choices, then start OpenTeam." },
   { label: "Checks", description: "Make sure everything is ready." },
 ] as const;
@@ -103,15 +48,11 @@ export const HTTP_WARNINGS = [
 ] as const;
 
 export type AccessMode = (typeof ACCESS_MODES)[number];
-export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
-export type CustomProviderApi = (typeof CUSTOM_PROVIDER_APIS)[number];
 
+/** Networking and account choices. Models are connected later in the apps. */
 export interface SetupConfiguration {
   accessMode: AccessMode;
   timeZone: string;
-  provider: string;
-  model: string;
-  thinking: ThinkingLevel;
   workerConcurrency: string;
   apiPort: string;
   bindHost: "127.0.0.1" | "0.0.0.0";
@@ -121,31 +62,35 @@ export interface SetupConfiguration {
   composeProfiles: "https" | "direct";
   ownerUsername: string;
   ownerPassword?: string;
-  authenticate: boolean;
-  skipInference?: boolean;
-  authType: "oauth" | "api_key";
-  apiKey?: string;
-  customProvider?: SetupCustomProvider;
-  /** Copy an existing vendor CLI sign-in into Pi instead of opening a browser. */
-  reuseLogin?: { provider: ReusableProvider; source: string };
 }
 
-export interface SetupCustomProvider {
-  id: string;
-  name: string;
-  baseUrl: string;
-  api: CustomProviderApi;
-  model: string;
-  reasoning: boolean;
-}
+const USERNAME_SEPARATORS = "-_.";
 
+/**
+ * Usernames: 3–30 letters, numbers, dashes, underscores or dots, starting and ending with a letter
+ * or number. The case you type is kept for display; signing in works in any case. The server
+ * applies the same rules (apps/server/src/username.ts).
+ */
 export const validateOwnerUsername = (value: string): string => {
-  const username = value.trim().toLowerCase();
-  if (username.length < 3 || username.length > 30 || !/^[a-z0-9_.]+$/.test(username)) {
+  const username = value.trim();
+  if (!username) throw new Error("Enter a username.");
+  if (/\s/.test(username)) throw new Error("Usernames can't contain spaces.");
+  const invalid = [...username].find(
+    (character) => !/[A-Za-z0-9]/.test(character) && !USERNAME_SEPARATORS.includes(character)
+  );
+  if (invalid) {
     throw new Error(
-      "Username must be 3-30 characters and use only letters, numbers, underscores, or dots."
+      `"${invalid}" isn't allowed. Use letters, numbers, dashes, underscores, or dots.`
     );
   }
+  if (username.length < 3 || username.length > 30) throw new Error("Use 3 to 30 characters.");
+  if (
+    USERNAME_SEPARATORS.includes(username[0]!) ||
+    USERNAME_SEPARATORS.includes(username.at(-1)!)
+  ) {
+    throw new Error("Start and end with a letter or number.");
+  }
+  if (/[-_.]{2}/.test(username)) throw new Error("Use one dash, underscore, or dot at a time.");
   return username;
 };
 
@@ -171,74 +116,6 @@ export const validateTimeZone = (value: string): string => {
   } catch {
     throw new Error("Enter a valid IANA time zone, such as America/New_York.");
   }
-};
-
-export const validateModel = (value: string): string => {
-  const normalized = singleLine("Model", value);
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(normalized)) {
-    throw new Error("Model names may contain letters, numbers, dots, colons, slashes, or hyphens.");
-  }
-  return normalized;
-};
-
-export const validateProviderId = (value: string): string => {
-  const normalized = singleLine("Inference provider", value).toLowerCase();
-  if (!/^[a-z0-9][a-z0-9._-]*$/.test(normalized)) {
-    throw new Error(
-      "Provider ids may contain lowercase letters, numbers, dots, underscores, or hyphens."
-    );
-  }
-  return normalized;
-};
-
-export const validateProviderName = (value: string): string => {
-  const normalized = singleLine("Provider name", value).trim();
-  if (normalized.length > 100) throw new Error("Provider name must be 100 characters or fewer.");
-  return normalized;
-};
-
-export const validateProviderBaseUrl = (value: string): string => {
-  const normalized = singleLine("Provider base URL", value);
-  let parsed: URL;
-  try {
-    parsed = new URL(normalized);
-  } catch {
-    throw new Error("Enter a valid provider base URL.");
-  }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    throw new Error("Provider base URL must use HTTP or HTTPS.");
-  }
-  return parsed.toString().replace(/\/$/, "");
-};
-
-export const validateCustomProviderApi = (value: string): CustomProviderApi => {
-  const normalized = value.trim().toLowerCase();
-  if (!CUSTOM_PROVIDER_APIS.includes(normalized as CustomProviderApi)) {
-    throw new Error(`Choose one of: ${CUSTOM_PROVIDER_APIS.join(", ")}.`);
-  }
-  return normalized as CustomProviderApi;
-};
-
-export const validateProviderSelection = (value: string, currentProvider: string): string => {
-  const normalized = value.trim().toLowerCase();
-  if (
-    normalized === "custom" ||
-    normalized === currentProvider ||
-    BUILTIN_PROVIDER_CHOICES.some((choice) => choice.value === normalized)
-  ) {
-    return normalized;
-  }
-  throw new Error("Choose openai-codex, claude-code, openai, anthropic, openrouter, or custom.");
-};
-
-export const defaultProviderAuthType = (providerId: string): "oauth" | "api_key" =>
-  providerId === "openai-codex" || providerId === "claude-code" ? "oauth" : "api_key";
-
-export const validateThinking = (value: string): ThinkingLevel => {
-  if (!THINKING_LEVELS.includes(value as ThinkingLevel)) {
-    throw new Error(`Choose one of: ${THINKING_LEVELS.join(", ")}.`);
-  }
-  return value as ThinkingLevel;
 };
 
 export const validateIntegerInRange =
@@ -289,28 +166,6 @@ export const accessLabel = (value: AccessMode): string =>
     private: "Private network",
     local: "This machine only",
   })[value];
-
-export const providerLabel = (providerId: string): string =>
-  BUILTIN_PROVIDER_CHOICES.find((choice) => choice.value === providerId)?.label ?? providerId;
-
-export const customProviderApiLabel = (api: CustomProviderApi): string =>
-  ({
-    "openai-responses": "OpenAI Responses",
-    "openai-completions": "OpenAI-compatible chat",
-    "anthropic-messages": "Anthropic Messages",
-    "google-generative-ai": "Google Generative AI",
-  })[api];
-
-export const thinkingLabel = (level: ThinkingLevel): string =>
-  ({
-    off: "Off",
-    minimal: "Minimal",
-    low: "Low",
-    medium: "Medium",
-    high: "High",
-    xhigh: "Extra high",
-    max: "Maximum",
-  })[level];
 
 const privateAddressRank = (address: string): number | null => {
   if (/^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(address)) return 0;

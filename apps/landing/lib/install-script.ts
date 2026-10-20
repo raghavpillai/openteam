@@ -49,9 +49,10 @@ command_exists curl || fail "curl is required to download the OpenTeam CLI."
 
 repository=$(printenv OPENTEAM_REPOSITORY 2>/dev/null || printf raghavpillai/openteam)
 cli_version=$(printenv OPENTEAM_VERSION 2>/dev/null || printf latest)
+# Downloads give up when no data arrives for 20 seconds instead of waiting forever.
 if [ "$cli_version" = "latest" ]; then
-  release_json=$(curl -fsSL "https://api.github.com/repos/$repository/releases/latest") ||
-    fail "no public OpenTeam release is available yet."
+  release_json=$(curl -fsSL --connect-timeout 15 --speed-limit 1 --speed-time 20 "https://api.github.com/repos/$repository/releases/latest") ||
+    fail "could not look up the latest OpenTeam release on GitHub. Check your internet connection and try again, or set OPENTEAM_VERSION to install a specific version."
   release_tag=$(printf '%s' "$release_json" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
   [ -n "$release_tag" ] || fail "the latest GitHub release did not include a tag."
 else
@@ -75,14 +76,14 @@ trap cleanup EXIT HUP INT TERM
 step "$diamond" "Downloading CLI $release_tag$ellipsis" "$cyan"
 # Prefer the gzip copy (about a third of the size); fall back to the raw binary for releases
 # that predate it. The checksum below is always verified against the decompressed binary.
-if command_exists gunzip && curl -fsL --retry 3 --connect-timeout 15 "$release_base/$asset_name.gz" -o "$binary_path.gz" 2>/dev/null; then
+if command_exists gunzip && curl -fsL --retry 3 --connect-timeout 15 --speed-limit 1 --speed-time 20 "$release_base/$asset_name.gz" -o "$binary_path.gz" 2>/dev/null; then
   gunzip -f "$binary_path.gz" || fail "could not decompress $asset_name.gz."
 else
   rm -f "$binary_path.gz"
-  curl -fsSL --retry 3 --connect-timeout 15 "$release_base/$asset_name" -o "$binary_path" ||
+  curl -fsSL --retry 3 --connect-timeout 15 --speed-limit 1 --speed-time 20 "$release_base/$asset_name" -o "$binary_path" ||
     fail "could not download $asset_name from $release_tag."
 fi
-curl -fsSL --retry 3 --connect-timeout 15 "$release_base/SHA256SUMS" -o "$checksums_path" ||
+curl -fsSL --retry 3 --connect-timeout 15 --speed-limit 1 --speed-time 20 "$release_base/SHA256SUMS" -o "$checksums_path" ||
   fail "could not download checksums for $release_tag."
 
 expected_checksum=$(awk -v name="$asset_name" '$2 == name || $2 ~ ("/" name "$") { print $1; exit }' "$checksums_path")
@@ -114,9 +115,67 @@ fi
 
 step "$checkmark" "CLI installed" "$green"
 say "    $installed_binary"
+
+# Make openteam available in new terminals. OPENTEAM_NO_MODIFY_PATH=1 leaves profiles alone.
+path_marker="# Added by the OpenTeam installer"
+shell_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+tilde_path() {
+  awk -v home="$user_home" -v path="$1" 'BEGIN { if (index(path, home "/") == 1) print "~" substr(path, length(home) + 1); else print path }'
+}
+# Prints the profile when it changed; returns 1 when the profile could not be written.
+add_path_line() {
+  profile=$1; line=$2
+  if [ -f "$profile" ] && grep -qxF "$line" "$profile" 2>/dev/null; then
+    return 0
+  fi
+  mkdir -p "$(dirname "$profile")" 2>/dev/null || return 1
+  { [ ! -s "$profile" ] || printf '\n'; printf '%s\n%s\n' "$path_marker" "$line"; } >>"$profile" 2>/dev/null || return 1
+  tilde_path "$profile"
+}
+# Empty variables count as unset.
+setting() {
+  value=$(printenv "$1" 2>/dev/null || true)
+  if [ -n "$value" ]; then printf '%s' "$value"; else printf '%s' "$2"; fi
+}
+add_to_path() {
+  shell_name=$(basename "$(setting SHELL sh)")
+  export_line="export PATH=$(shell_quote "$bin_directory"):\"\$PATH\""
+  case "$shell_name" in
+    zsh)
+      zsh_directory=$(setting ZDOTDIR "$user_home")
+      changed=$(add_path_line "$zsh_directory/.zshrc" "$export_line") || return 1 ;;
+    bash)
+      changed=$(add_path_line "$user_home/.bashrc" "$export_line") || return 1
+      if [ "$binary_os" = "darwin" ]; then
+        # Terminal on macOS starts login shells, which read only the first of these files.
+        login_profile="$user_home/.bash_profile"
+        for candidate in "$user_home/.bash_profile" "$user_home/.bash_login" "$user_home/.profile"; do
+          if [ -f "$candidate" ]; then login_profile=$candidate; break; fi
+        done
+        login_changed=$(add_path_line "$login_profile" "$export_line") || return 1
+        if [ -n "$changed" ] && [ -n "$login_changed" ]; then changed="$changed and $login_changed"
+        else changed="$changed$login_changed"; fi
+      fi ;;
+    fish)
+      fish_directory=$(setting XDG_CONFIG_HOME "$user_home/.config")
+      changed=$(add_path_line "$fish_directory/fish/conf.d/openteam.fish" "fish_add_path -g $(shell_quote "$bin_directory")") || return 1 ;;
+    *)
+      changed=$(add_path_line "$user_home/.profile" "$export_line") || return 1 ;;
+  esac
+  if [ -n "$changed" ]; then
+    say "  Added $(tilde_path "$bin_directory") to your PATH in $changed. Open a new terminal to use openteam."
+  else
+    say "  Open a new terminal to use openteam."
+  fi
+}
 case ":$PATH:" in
   *":$bin_directory:"*) ;;
-  *) say "  Add $bin_directory to PATH to run openteam later." ;;
+  *)
+    if [ "$(printenv OPENTEAM_NO_MODIFY_PATH 2>/dev/null || true)" = "1" ] || ! add_to_path; then
+      say "  Add $bin_directory to PATH to run openteam from new terminals."
+    fi ;;
 esac
 
 printf '\n  %bSERVER SETUP%b\n\n' "$bold$cyan" "$reset"
@@ -203,12 +262,18 @@ try {
   Copy-Item -Force $binaryPath $installedBinary
   Write-Step ([char]0x2713) "CLI installed" "Green"
   Write-Host "    $installedBinary"
-  $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-  if (-not $userPath) { $userPath = "" }
-  if (-not (($userPath -split ";") -contains $binDirectory)) {
-    $newPath = if ($userPath) { "$($userPath.TrimEnd(";"));$binDirectory" } else { $binDirectory }
-    [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-    Write-Host "Added $binDirectory to your user PATH."
+  if ($env:OPENTEAM_NO_MODIFY_PATH -ne "1") {
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    if (-not $userPath) { $userPath = "" }
+    if (-not (($userPath -split ";") -contains $binDirectory)) {
+      $newPath = if ($userPath) { "$($userPath.TrimEnd(";"));$binDirectory" } else { $binDirectory }
+      [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+      Write-Host "  Added $binDirectory to your PATH."
+    }
+    # The user PATH applies to new terminals; this one needs it too.
+    if (-not (($env:Path -split ";") -contains $binDirectory)) {
+      $env:Path = if ($env:Path) { "$($env:Path.TrimEnd(";"));$binDirectory" } else { $binDirectory }
+    }
   }
   Write-Host ""
   Write-Step "SERVER" "SETUP"

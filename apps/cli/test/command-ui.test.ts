@@ -1,6 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { installationPaths } from "../src/config";
 import {
+  cliProgram,
   renderCommandError,
   renderHelp,
   renderModelCatalog,
@@ -201,5 +205,52 @@ describe("CLI presentation", () => {
   test("falls back to a sensible width for unavailable terminal dimensions", () => {
     expect(new TerminalReport({ width: Number.NaN }).width).toBe(90);
     expect(new TerminalReport({ width: 0 }).width).toBe(90);
+  });
+});
+
+describe("CLI name in hints", () => {
+  const directories: string[] = [];
+  afterEach(() => {
+    for (const directory of directories.splice(0))
+      rmSync(directory, { recursive: true, force: true });
+  });
+
+  test("uses the absolute path until the installed directory is on PATH", () => {
+    const root = mkdtempSync(join(tmpdir(), "openteam-cli-name-"));
+    directories.push(root);
+    const bin = join(root, "bin");
+    const linked = join(root, "linked");
+    mkdirSync(bin);
+    mkdirSync(linked);
+    const executable = join(bin, "openteam");
+    writeFileSync(executable, "", { mode: 0o755 });
+    symlinkSync(executable, join(linked, "openteam"));
+    const program = (path: string) =>
+      cliProgram({ executable, standalone: true, path, platform: "linux" });
+
+    expect(program("/usr/bin:/bin")).toBe(executable);
+    expect(program(`/usr/bin:${bin}`)).toBe("openteam");
+    expect(program(`${linked}:/usr/bin`)).toBe("openteam");
+    // Running from source, or bundled in the desktop app, keeps the short name.
+    expect(cliProgram({ executable, standalone: false, path: "" })).toBe("openteam");
+  });
+
+  test("quotes paths the shell would split", () => {
+    expect(
+      cliProgram({
+        executable: "/home/Jane Doe/.local/bin/openteam",
+        standalone: true,
+        path: "",
+        platform: "linux",
+      })
+    ).toBe("'/home/Jane Doe/.local/bin/openteam'");
+    expect(
+      cliProgram({
+        executable: "C:\\Users\\Jane Doe\\AppData\\Local\\OpenTeam\\bin\\openteam.exe",
+        standalone: true,
+        path: "",
+        platform: "win32",
+      })
+    ).toBe("& 'C:\\Users\\Jane Doe\\AppData\\Local\\OpenTeam\\bin\\openteam.exe'");
   });
 });

@@ -13,6 +13,7 @@ import {
   writeFileAtomic,
   writeManifest,
 } from "../src/config";
+import * as config from "../src/config";
 import { runDoctor } from "../src/doctor";
 import * as ports from "../src/ports";
 import {
@@ -24,6 +25,7 @@ import {
   UPDATE_PROGRESS_PREFIX,
 } from "../src/lifecycle";
 import type { CommandRunner, RunOptions, RunResult } from "../src/process";
+import type { SetupPrompter } from "../src/setup";
 import { readUpdateState } from "../src/update-safety";
 
 class HealthyDockerRunner implements CommandRunner {
@@ -184,6 +186,129 @@ const releaseFixture = () => {
   ];
 };
 
+describe("fresh install", () => {
+  test("asks every setup question before pulling images, then starts and points to the apps", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-fresh-install-"));
+    temporaryDirectories.push(directory);
+    const paths = installationPaths(join(directory, "installation"));
+    const health = Bun.serve({
+      port: 0,
+      fetch() {
+        const version = parseEnvironment(readFileSync(paths.environment, "utf8")).get(
+          "OPENTEAM_VERSION"
+        );
+        return Response.json({
+          status: "ready",
+          runtime: { inference: "missing" },
+          release: { releaseVersion: version },
+        });
+      },
+    });
+    servers.push(health);
+    // Keep the new installation's health checks on the fixture instead of port 8787.
+    const original = config.createEnvironment;
+    const environment = spyOn(config, "createEnvironment").mockImplementation((options) =>
+      replaceEnvironmentValue(original(options), "OPENTEAM_API_PORT", String(health.port))
+    );
+    const runner = new HealthyDockerRunner();
+    const answers = [
+      "2",
+      "Raghav-P",
+      "correct horse battery staple",
+      "correct horse battery staple",
+      "yes",
+    ];
+    const prompts: Array<{ prompt: string; calls: number; manifest: boolean }> = [];
+    const ask = async (prompt: string) => {
+      prompts.push({ prompt, calls: runner.calls.length, manifest: existsSync(paths.manifest) });
+      const answer = answers.shift();
+      if (answer === undefined) throw new Error(`No answer for ${prompt}`);
+      return answer;
+    };
+    const prompter: SetupPrompter = { question: ask, secret: ask, close() {} };
+    const output: string[] = [];
+    const log = spyOn(console, "log").mockImplementation((...values) => {
+      output.push(values.join(" "));
+    });
+    const write = spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      await installCommand(
+        paths,
+        parseArguments(["install", ...releaseFixture()]),
+        runner,
+        prompter
+      );
+    } finally {
+      log.mockRestore();
+      write.mockRestore();
+      environment.mockRestore();
+    }
+
+    expect(answers).toEqual([]);
+    expect(prompts.every((prompt) => prompt.manifest)).toBe(true);
+    const answered = prompts.at(-1)!.calls;
+    const pull = runner.calls.findIndex((call) => call.args.includes("pull"));
+    const up = runner.calls.findIndex((call) => call.args.includes("up"));
+    expect(pull).toBeGreaterThanOrEqual(answered);
+    expect(up).toBeGreaterThan(pull);
+    expect(runner.calls.some((call) => call.args.includes("openteam-pi-auth"))).toBe(false);
+    expect(readManifest(paths)?.ownerUsername).toBe("Raghav-P");
+    const printed = output.join("\n");
+    expect(printed).toContain("OpenTeam is ready");
+    expect(printed).toContain(
+      "Next: open the OpenTeam app and sign in with this server and username."
+    );
+    expect(printed).toContain("https://openteam.so/download");
+    expect(printed).toContain("https://testflight.apple.com/join/KFBFPkjP");
+    expect(printed).toContain("The app will help you connect a model and create your first bot.");
+    expect(printed).not.toContain("Inference");
+  });
+});
+
+describe("interrupted first install", () => {
+  test("a first install that cannot save its files leaves none behind, so it can be retried", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-partial-install-"));
+    temporaryDirectories.push(directory);
+    const paths = installationPaths(join(directory, "installation"));
+    const original = config.writeFileAtomic;
+    const write = spyOn(config, "writeFileAtomic").mockImplementation((path, contents, mode) => {
+      if (path === paths.environment) throw new Error("ENOSPC: no space left on device, write");
+      original(path, contents, mode);
+    });
+    const prompter: SetupPrompter = {
+      question: async () => "",
+      secret: async () => "",
+      close() {},
+    };
+    const log = spyOn(console, "log").mockImplementation(() => undefined);
+    const output = spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      await expect(
+        installCommand(
+          paths,
+          parseArguments(["install", ...releaseFixture()]),
+          new HealthyDockerRunner(),
+          prompter
+        )
+      ).rejects.toThrow(
+        `Could not save the OpenTeam configuration in ${paths.directory}: ENOSPC: no space left on device, write.`
+      );
+    } finally {
+      write.mockRestore();
+      log.mockRestore();
+      output.mockRestore();
+    }
+
+    for (const file of [paths.compose, paths.environment, paths.manifest]) {
+      expect(existsSync(file)).toBe(false);
+    }
+    const diagnosis = await runDoctor(paths, new HealthyDockerRunner(), "openteam", {
+      checkInstallPorts: false,
+    });
+    expect(diagnosis.checks.find((check) => check.label === "Installation")?.level).toBe("warn");
+  });
+});
+
 describe("installed lifecycle", () => {
   test("reinstall refreshes release images while preserving account, environment and data", async () => {
     const { paths } = fixture();
@@ -191,7 +316,11 @@ describe("installed lifecycle", () => {
     const environment = readFileSync(paths.environment, "utf8");
     writeFileAtomic(paths.compose, "old local image configuration");
     writeManifest(paths, { ...manifest, uninstalledAt: new Date().toISOString() });
-    await installCommand(paths, parseArguments(["install", ...releaseFixture()]), new HealthyDockerRunner());
+    await installCommand(
+      paths,
+      parseArguments(["install", ...releaseFixture()]),
+      new HealthyDockerRunner()
+    );
     expect(readFileSync(paths.compose, "utf8")).toContain("example/openteam-server");
     expect(readFileSync(paths.environment, "utf8")).toBe(environment);
     expect(readManifest(paths)?.ownerUsername).toBe(manifest.ownerUsername);
@@ -231,9 +360,11 @@ describe("installed lifecycle", () => {
         log.mockRestore();
       }
       expect(output.join("\n")).toContain("already running");
-      expect(output.join("\n").includes("No AI provider is connected")).toBe(
-        inference === "missing"
-      );
+      expect(output.join("\n").includes("No model is connected yet")).toBe(inference === "missing");
+      if (inference === "missing")
+        expect(output.join(" ").replace(/\s+/g, " ")).toContain(
+          "Connect one in the OpenTeam app under Settings → Server, or run openteam model"
+        );
     }
   });
 
@@ -419,7 +550,7 @@ describe("installed lifecycle", () => {
     expect(result.checks).toContainEqual({
       level: "warn",
       label: "Inference",
-      detail: "status is missing; connect a model provider before starting a task",
+      detail: "status is missing; connect a model before starting a task",
     });
   });
 

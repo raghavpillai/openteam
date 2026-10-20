@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { stripVTControlCharacters } from "node:util";
-import { renderSetupCountdown, waitForAutomaticSetup } from "../src/setup-countdown";
+import { countdownKey, renderSetupCountdown, waitForAutomaticSetup } from "../src/setup-countdown";
 import { terminalTextWidth } from "../src/terminal";
 
 test("countdown fits narrow terminals with and without color", () => {
@@ -15,6 +15,14 @@ test("countdown fits narrow terminals with and without color", () => {
     }
 });
 
+test("Enter starts now; Esc, q, Ctrl-C, and Ctrl-D cancel; other input is ignored", () => {
+  for (const chunk of ["\r", "\n", "\r\n", "\r\r"]) expect(countdownKey(chunk)).toBe("start");
+  for (const chunk of ["\x1b", "\x1b\x1b", "q", "Q", "\x03", "\x04", "x\x03"])
+    expect(countdownKey(chunk)).toBe("cancel");
+  for (const chunk of ["x", " ", "\x1b[A", "\x1bOB", "multi\nline", "qq"])
+    expect(countdownKey(chunk)).toBeNull();
+});
+
 test("redirected input never silently approves automatic setup", async () => {
   if (!process.stdin.isTTY || !process.stdout.isTTY)
     expect(await waitForAutomaticSetup()).toBe(false);
@@ -24,6 +32,7 @@ const python = Bun.which("python3");
 describe.skipIf(!python || process.platform === "win32")("real terminal countdown", () => {
   test.each([
     "escape",
+    "q",
     "enter",
     "letter",
     "ctrl-c",
@@ -69,14 +78,18 @@ describe.skipIf(!python || process.platform === "win32")("real terminal countdow
     expect(result.rawRestored).toBe(true);
     expect(result.listenersRestored).toBe(true);
     expect(results.find((row) => "terminalRestored" in row).terminalRestored).toBe(true);
-    const proceed = ["continue", "resize", "dumb"].includes(scenario);
+    const proceed = !["escape", "q", "ctrl-c"].includes(scenario);
+    const immediate = !proceed || scenario === "enter";
     expect(result.proceed).toBe(proceed);
     expect(output.includes("Starting setup…")).toBe(proceed);
-    if (proceed) {
+    expect(cleaned.replace(/\s+/g, " ")).toContain("Press Enter to start now, or Esc to cancel.");
+    if (immediate) expect(result.elapsed).toBeLessThan(2000);
+    else {
+      // Stray keys, arrows, and pastes neither cancel nor skip the countdown.
       expect(result.elapsed).toBeGreaterThanOrEqual(4900);
       expect(result.elapsed).toBeLessThan(7000);
       for (const seconds of [5, 4, 3, 2, 1]) expect(output).toContain(`Starting in ${seconds}s`);
-    } else expect(result.elapsed).toBeLessThan(2000);
+    }
     if (scenario === "dumb") expect(output).not.toContain("\x1b[");
     else expect(output).toContain("\x1b[?25h");
   }, 12_000);

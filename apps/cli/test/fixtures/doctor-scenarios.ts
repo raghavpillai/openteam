@@ -396,7 +396,7 @@ export const doctorScenarios: DoctorScenario[] = [
     "missing-owner",
     "First-run account setup is incomplete",
     [issue("Owner account", "not configured; run openteam setup")],
-    "finish account"
+    "create your account"
   ),
   scenario(
     "unsafe-bind",
@@ -508,7 +508,7 @@ export const doctorScenarios: DoctorScenario[] = [
     "provider-expired",
     "Provider sign-in has expired",
     [issue("AI connection", "example/model: HTTP 401: unauthorized")],
-    "reconnect it"
+    "Reconnect the provider in the OpenTeam app"
   ),
   scenario(
     "provider-quota",
@@ -528,7 +528,7 @@ export const doctorScenarios: DoctorScenario[] = [
     "model-unavailable",
     "Saved model is unavailable",
     [issue("AI connection", "example/model: model is unavailable")],
-    "models available"
+    "Choose an available model in the OpenTeam app"
   ),
   scenario(
     "transcription-error",

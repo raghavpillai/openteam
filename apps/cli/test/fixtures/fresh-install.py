@@ -2,7 +2,7 @@
 
 Only release download URLs are redirected to fixture assets. Docker commands use
 real executables and a separate empty engine, never the host's Docker socket.
-The successful setup uses a tiny Compose fixture and cancels before account setup.
+The successful setup uses a tiny Compose fixture and cancels before it starts anything.
 """
 import errno
 import fcntl
@@ -66,11 +66,12 @@ def environment(name, docker=False, compose=False):
     env = {**os.environ, 'PATH': f'{tools}:{TOOLS}:/usr/bin:/bin',
            'DOCKER_CONFIG': str(config), 'DOCKER_HOST': 'tcp://engine:2375',
            'TERM': 'xterm-256color', 'NO_COLOR': '1', 'OPENTEAM_VERSION': '0.0.1',
-           'OPENTEAM_BIN_DIR': str(directory / 'bin')}
+           'OPENTEAM_BIN_DIR': str(directory / 'bin'), 'SHELL': '/bin/bash'}
     return directory, env
 
 def execute(args, env, terminal=False, columns=80, cancel_at=None, timeout=45,
-            cancel_key=b'\x1b', cancel_delay=0, recording=None):
+            cancel_key=b'\x1b', cancel_delay=0, recording=None, keys=()):
+    """Send cancel_key after cancel_at appears; `keys` sends (marker, key) pairs first, in order."""
     if not terminal:
         process = subprocess.run(args, env=env, stdin=subprocess.DEVNULL,
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
@@ -85,6 +86,7 @@ def execute(args, env, terminal=False, columns=80, cancel_at=None, timeout=45,
     deadline = time.monotonic() + timeout
     cancelled = False
     cancel_due = None
+    pending = list(keys)
     try:
         while time.monotonic() < deadline:
             if cancel_due is not None and time.monotonic() >= cancel_due and not cancelled:
@@ -101,7 +103,12 @@ def execute(args, env, terminal=False, columns=80, cancel_at=None, timeout=45,
                 if not data: break
                 output += data
                 events.append([round(time.monotonic() - started, 3), 'o', data.decode(errors='replace')])
-                if cancel_at and cancel_at.lower() in ansi.sub('', output.decode(errors='replace')).lower() and cancel_due is None:
+                if pending and pending[0][0].lower() in ansi.sub('', output.decode(errors='replace')).lower():
+                    marker, key = pending.pop(0)
+                    os.write(master, key)
+                    events.append([round(time.monotonic() - started, 3), 'i', key.decode()])
+                    continue
+                if cancel_at and not pending and cancel_at.lower() in ansi.sub('', output.decode(errors='replace')).lower() and cancel_due is None:
                     cancel_due = time.monotonic() + cancel_delay + .05
         else:
             os.killpg(pid, signal.SIGKILL)
@@ -131,14 +138,21 @@ def bootstrap(name, env_options=None, terminal=False, raw=False, bad=False, colu
         check('✓ Download verified' in ansi.sub('', output), 'Installer status glyph did not render', output)
     cli = directory / 'bin/openteam'
     check(code == (1 if bad else 2), 'Wrong bootstrap exit code', output)
+    flat = ' '.join(ansi.sub('', output).split())
     if bad:
         check(not cli.exists() and 'checksum did not match' in output, 'Bad binary was installed', output)
     else:
         check(cli.is_file() and os.access(cli, os.X_OK), 'CLI was not installed', output)
         check(hashlib.sha256(cli.read_bytes()).digest() == hashlib.sha256(binary_asset.read_bytes()).digest(), 'CLI checksum changed')
-        check('CLI installed' in output and 'Server setup paused' in output, 'Missing installed/paused distinction', output)
-        check('The docker command was not found' in ' '.join(output.split()), 'Missing Docker diagnosis', output)
-        check('Install Docker Engine' in ' '.join(output.split()), 'Missing recovery instructions', output)
+        check('CLI installed' in output and 'Docker is required.' in flat, 'Missing installed/Docker distinction', output)
+        check('Install Docker Engine' in flat, 'Missing recovery instructions', output)
+        check('to your PATH in ~/.bashrc. Open a new terminal to use openteam.' in flat, 'Installer did not add the CLI to PATH', output)
+        check(f"export PATH='{cli.parent}':\"$PATH\"" in (BASE / '.bashrc').read_text(), 'PATH line missing from ~/.bashrc')
+        if not terminal:
+            # Narrow terminals wrap the link and path; check them where they fit on one line.
+            check('Install Docker Engine and the Compose plugin: https://docs.docker.com/engine/install/' in flat, 'Missing Docker link', output)
+            # The new PATH applies to new terminals; hints name the CLI so it works in this one.
+            check(f'Then run: {cli} setup' in flat, 'Hint does not use the installed CLI path', output)
     check(not installation.exists(), 'Preflight wrote server configuration')
     record(name, output)
     return directory, env, cli
@@ -204,8 +218,17 @@ check(code == 2 and 'interactive terminal' in output, 'Noninteractive setup was 
 check(not (directory / 'installation').exists(), 'Noninteractive setup downloaded server configuration')
 record('noninteractive-setup', output)
 
-for name, key in [('escape', b'\x1b'), ('enter', b'\r'), ('letter', b'x'),
-                  ('space', b' '), ('arrow', b'\x1b[A'), ('ctrl-c', b'\x03')]:
+# The real CLI validates/downloads a test Compose bundle and reaches its interactive
+# first-run screen. Images are pulled only after every setup answer, so none are pulled here.
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs): super().__init__(*args, directory='/fixtures/assets', **kwargs)
+    def log_message(self, *_): pass
+server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+url = f'http://127.0.0.1:{server.server_port}'
+release = ['--compose-url', url + '/openteam-compose.yaml', '--checksum-url', url + '/SHA256SUMS', '--allow-unsigned']
+
+for name, key in [('escape', b'\x1b'), ('q', b'q'), ('ctrl-c', b'\x03')]:
     cancel_directory, cancel_env = environment('countdown-' + name, docker=True, compose=True)
     cancel_env.pop('NO_COLOR', None)
     target = cancel_directory / 'installation'
@@ -214,25 +237,27 @@ for name, key in [('escape', b'\x1b'), ('enter', b'\r'), ('letter', b'x'),
         cancel_delay=2.1 if name == 'escape' else 0,
         recording='installer-cancel' if name == 'escape' else None)
     check(code == 0 and 'Setup cancelled' in output, 'Countdown cancellation failed', output)
-    check('openteam setup' in output and not target.exists(), 'Cancelled install changed server files', output)
+    check('setup' in output and not target.exists(), 'Cancelled install changed server files', output)
     check((cancel_directory / 'bin/openteam').is_file(), 'Cancellation removed the CLI', output)
     check('Starting setup…' not in output, 'Cancelled countdown continued', output)
     record('countdown-cancel-' + name, output)
 
-# The real CLI validates/downloads a test Compose bundle, pulls one tiny image
-# into the isolated engine, and reaches its interactive first-run screen.
-class Handler(http.server.SimpleHTTPRequestHandler):
-    def __init__(self, *args, **kwargs): super().__init__(*args, directory='/fixtures/assets', **kwargs)
-    def log_message(self, *_): pass
-server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-threading.Thread(target=server.serve_forever, daemon=True).start()
-url = f'http://127.0.0.1:{server.server_port}'
+# Enter skips the wait; stray keys neither cancel nor skip it.
+for name, key in [('enter', b'\r'), ('letter', b'x'), ('arrow', b'\x1b[A')]:
+    key_directory, key_env = environment('countdown-' + name, docker=True, compose=True)
+    target = key_directory / 'installation'
+    code, output = execute(['/bin/sh', '/fixtures/install.sh', '--dir', str(target), *release],
+        key_env, terminal=True, keys=[('Starting in 5s', key)], cancel_at='Tailscale HTTPS', timeout=60)
+    check(code == 0 and 'Starting setup…' in output and 'cancelled' in output.lower(), 'Countdown key did not lead to setup', output)
+    counted = all(f'Starting in {seconds}s' in output for seconds in range(5, 0, -1))
+    check(counted == (name != 'enter'), 'Countdown key changed the wait unexpectedly', output)
+    record('countdown-key-' + name, output)
+
 try:
     demo_env = {**env}
     demo_env.pop('NO_COLOR', None)
     code, output = execute(['/bin/sh', '/fixtures/install.sh', '--dir', str(directory / 'installation'),
-        '--compose-url', url + '/openteam-compose.yaml', '--checksum-url', url + '/SHA256SUMS',
-        '--allow-unsigned'], demo_env, terminal=True, cancel_at='Tailscale HTTPS', timeout=120,
+        *release], demo_env, terminal=True, cancel_at='Tailscale HTTPS', timeout=120,
         recording='installer-continue')
     for seconds in range(5, 0, -1):
         check(f'Starting in {seconds}s' in output, 'Missing countdown step', output)
@@ -256,5 +281,7 @@ finally:
     server.shutdown()
 code, output = execute(['/opt/docker/docker', 'ps', '-aq'], env)
 check(code == 0 and not output.strip(), 'Setup started containers before confirmation', output)
-record('no-services-started-before-confirmation', 'The isolated engine has no containers.')
+code, output = execute(['/opt/docker/docker', 'images', '-q'], env)
+check(code == 0 and not output.strip(), 'Setup pulled images before the questions were answered', output)
+record('no-services-started-before-confirmation', 'The isolated engine has no containers or images.')
 print(f'\n{len(passed)} fresh installation checks passed.', flush=True)

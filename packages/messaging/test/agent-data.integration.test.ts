@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPrismaClient } from "@openteam/db";
 import { AgentDataStore, type MemoryInferenceRequest } from "../src/agent-data";
-import { readMemoryTree } from "../src/memory-files";
+import { MEMORY_EXTRACTION_SYSTEM_PROMPT } from "../src/memory-prompts";
 import { parseSkillFile } from "../src/skill-files";
 import managedCatalog from "../src/prompts/managed-skills.json";
 
@@ -72,7 +72,7 @@ test("plugin and managed skill caches use the Bot filesystem contract", async ()
   }
 });
 
-test("turn memory extracts, summarizes episodes, and synthesizes dreaming evidence", async () => {
+test("turn memory extracts facts from memorable turns", async () => {
   if (!databaseUrl) return;
 
   const prisma = createPrismaClient(databaseUrl);
@@ -81,55 +81,13 @@ test("turn memory extracts, summarizes episodes, and synthesizes dreaming eviden
   const workspace = join(temporary, "workspace");
   const botId = crypto.randomUUID();
   const requests: MemoryInferenceRequest[] = [];
-  let synthesisAttempts = 0;
   const memoryInference = async (request: MemoryInferenceRequest) => {
     requests.push(request);
-    if (request.kind === "extraction") {
-      return "profile: Prefers lifecycle tests.";
-    }
-    if (request.kind === "episode") {
-      return "Validated memory behavior over six turns.";
-    }
-    if (request.kind === "synthesis") {
-      synthesisAttempts += 1;
-      const prompt = JSON.parse(request.prompt) as {
-        newEvidence: Array<{ id: string }>;
-      };
-      if (synthesisAttempts === 1) {
-        return JSON.stringify({
-          changes: [
-            {
-              action: "create",
-              content: "This first proposal intentionally omits citations.",
-              kind: "log",
-            },
-          ],
-        });
-      }
-      return JSON.stringify({
-        changes: [
-          {
-            action: "create",
-            content: "Dreaming captured a verified preference.",
-            kind: "log",
-            sourceEvidenceIds: [prompt.newEvidence[0]?.id],
-          },
-        ],
-      });
-    }
-    return JSON.stringify({ approved: true });
+    return "profile: Prefers lifecycle tests.";
   };
   const store = new AgentDataStore(prisma, {
     root,
     workspaceRoot: workspace,
-    memorySynthesisDebounceMs: 60_000,
-    memoryInference,
-  });
-  const dreamingStore = new AgentDataStore(prisma, {
-    root,
-    workspaceRoot: workspace,
-    memoryDreamingEnabled: true,
-    memorySynthesisDebounceMs: 60_000,
     memoryInference,
   });
 
@@ -152,33 +110,52 @@ test("turn memory extracts, summarizes episodes, and synthesizes dreaming eviden
         occurredAt: Date.parse(`2026-08-${String(20 + turn).padStart(2, "0")}T12:00:00Z`),
       });
     }
-    const afterEpisode = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
-    expect(afterEpisode.episodePending).toBe(0);
-    expect(afterEpisode.episodeTurns).toEqual([]);
-    expect(
-      (await readMemoryTree(store.memoryDirectory(botId, "agent"))).map((fact) => fact.content)
-    ).toEqual(
-      expect.arrayContaining([
-        "Prefers lifecycle tests.",
-        "[episode] Validated memory behavior over six turns.",
-      ])
-    );
-
-    await dreamingStore.recordTurnMemory(botId, {
-      user: "A dreaming turn should be synthesized.",
-      assistant: "This is evidence for the synthesizer.",
+    // A review a stopped worker never finished is carried into the next one.
+    await prisma.bot.update({
+      where: { id: botId },
+      data: { pendingMemoryExchanges: [{ id: "interrupted", user: "Interrupted detail.", agent: "Held." }] },
     });
-    await dreamingStore.runMemorySynthesisNow();
+    const runId = crypto.randomUUID();
+    await store.recordTurnMemory(botId, {
+      user: "Remember lifecycle detail 6.",
+      assistant: "Recorded detail 6.",
+      occurredAt: Date.parse("2026-08-26T23:30:00Z"),
+      timeZone: "Asia/Tokyo",
+      runId,
+    });
+    expect(requests.at(-1)?.instructions).toBe(MEMORY_EXTRACTION_SYSTEM_PROMPT);
+    expect(requests.at(-1)?.prompt).toEndWith(
+      [
+        "- Prefers lifecycle tests.",
+        "",
+        "Today's date: Thursday Aug 27, 2026 (Asia/Tokyo)",
+        "",
+        "Earlier exchange (not yet reviewed):",
+        "User: Interrupted detail.",
+        "Assistant: Held.",
+        "",
+        "Latest exchange:",
+        "User: Remember lifecycle detail 6.",
+        "Assistant: Recorded detail 6.",
+      ].join("\n")
+    );
+    expect((await prisma.bot.findUniqueOrThrow({ where: { id: botId } })).pendingMemoryExchanges).toEqual([]);
     expect(
-      (await readMemoryTree(store.memoryDirectory(botId, "agent"))).map((fact) => fact.content)
-    ).toContain("Dreaming captured a verified preference.");
-    expect(requests.filter((request) => request.kind === "extraction")).toHaveLength(6);
-    expect(requests.filter((request) => request.kind === "episode")).toHaveLength(1);
-    expect(requests.filter((request) => request.kind === "synthesis")).toHaveLength(2);
-    expect(requests.filter((request) => request.kind === "verification")).toHaveLength(1);
+      await prisma.memoryFact.findMany({
+        where: { namespace: `agent:${botId}` },
+        select: { fact: true, tier: true, origin: true, turnId: true, createdAt: true },
+      })
+    ).toEqual([
+      {
+        fact: "Prefers lifecycle tests.",
+        tier: "profile",
+        origin: "extract",
+        turnId: null,
+        createdAt: new Date("2026-08-20T12:00:00Z"),
+      },
+    ]);
+    expect(requests.filter((request) => request.kind === "extraction")).toHaveLength(7);
   } finally {
-    await store.stopMemoryLifecycle();
-    await dreamingStore.stopMemoryLifecycle();
     await prisma.bot.deleteMany({ where: { id: botId } });
     await prisma.$disconnect();
     await rm(temporary, { recursive: true, force: true });
@@ -250,16 +227,6 @@ test("agent-data files are authoritative and preserve malformed settings", async
         name: "Existing skill",
         description: "use this when checking projections",
         body: "# Original",
-      },
-    });
-    await prisma.memoryFact.create({
-      data: {
-        namespace: "user",
-        scope: "user",
-        tier: "profile",
-        fact: "The user likes generated files.",
-        factHash: hash("The user likes generated files."),
-        writtenByBotId: botId,
       },
     });
 
@@ -366,7 +333,7 @@ test("agent-data files are authoritative and preserve malformed settings", async
         "",
       ].join("\n")
     );
-    // A folder left by the retired shared-project feature is neither imported nor deleted.
+    // Memory files and folders left by retired features are neither imported nor deleted.
     const leftoverShard = join(root, "projects", "file-parity", "memory", "by-agent", botId, "profile.md");
     await mkdir(join(leftoverShard, ".."), { recursive: true });
     await writeFile(leftoverShard, "- (2026-08-27) A leftover shard is not memory.\n");
@@ -388,25 +355,13 @@ test("agent-data files are authoritative and preserve malformed settings", async
     expect(await prisma.channel.findUniqueOrThrow({ where: { id: groupId } })).toMatchObject({
       name: "Hand-edited room",
     });
+    expect(await prisma.memoryFact.count({ where: { writtenByBotId: botId } })).toBe(0);
+    expect(await readFile(join(botDirectory, "memory", "profile.md"), "utf8")).toContain(
+      "The bot remembers hand-edited Markdown."
+    );
     expect(
-      await prisma.memoryFact.findFirst({
-        where: {
-          namespace: `agent:${botId}`,
-          fact: "The bot remembers hand-edited Markdown.",
-        },
-      })
-    ).not.toBeNull();
-    expect(
-      await prisma.memoryFact.findFirst({
-        where: {
-          namespace: `user:agent:${botId}`,
-          fact: "Shared user memory is one global namespace.",
-        },
-      })
-    ).not.toBeNull();
-    expect(
-      await prisma.memoryFact.findFirst({ where: { fact: "A leftover shard is not memory." } })
-    ).toBeNull();
+      await readFile(join(root, "user-memory", "by-agent", botId, "profile.md"), "utf8")
+    ).toContain("Shared user memory is one global namespace.");
     expect(await readFile(leftoverShard, "utf8")).toContain("A leftover shard is not memory.");
     expect(await prisma.savedSkill.findUniqueOrThrow({ where: { id: skillId } })).toMatchObject({
       name: "Edited skill",
@@ -421,20 +376,6 @@ test("agent-data files are authoritative and preserve malformed settings", async
       scheduleText: "@daily",
       enabled: false,
     });
-
-    await writeFile(
-      join(botDirectory, "memory", "profile.md"),
-      ["# About the user", "<!-- Removing a bullet forgets it. -->", ""].join("\n")
-    );
-    await store.reconcileBot(botId);
-    expect(
-      await prisma.memoryFact.findFirst({
-        where: {
-          namespace: `agent:${botId}`,
-          fact: "The bot remembers hand-edited Markdown.",
-        },
-      })
-    ).toBeNull();
 
     await rm(join(botDirectory, "profile.json"));
     await store.reconcileBot(botId);

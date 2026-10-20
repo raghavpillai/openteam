@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOpenTeamClient } from "../../../packages/client-core/src/client";
 import { AgentDataStore } from "@openteam/messaging";
-import { memoryLogicalId, readMemoryTree } from "../../../packages/messaging/src/memory-files";
+import { memoryLogicalId } from "../../../packages/messaging/src/memory-facts";
 import { AppService } from "../src/app-service";
 import { clientRoutes } from "../src/routes/client";
 import { eventRoutes } from "../src/routes/event";
@@ -21,15 +21,13 @@ async function fixture(
     peerId: string;
     root: string;
     client: ReturnType<typeof createOpenTeamClient>;
-  }) => Promise<void>,
-  dreaming = false
+  }) => Promise<void>
 ) {
   const root = await mkdtemp(join(tmpdir(), "memory-controls-"));
   const env = {
     DATABASE_URL: databaseUrl!,
     OPENTEAM_WORKSPACE_ROOT: root,
     OPENTEAM_AGENT_DATA_ROOT: join(root, "data"),
-    OPENTEAM_MEMORY_DREAMING: String(dreaming),
   };
   const previous = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
   Object.assign(process.env, env);
@@ -82,12 +80,10 @@ async function fixture(
         },
       });
       await store.initializeBot(id);
-      await mkdir(store.memoryDirectory(id, "agent"), { recursive: true });
     }
     await run({ app, store, botId, peerId, root, client });
   } finally {
     await store.stopWatching();
-    await store.stopMemoryLifecycle();
     await app.eventWakeup.stop();
     await app.prisma.memoryFact.deleteMany({ where: { writtenByBotId: { in: [botId, peerId] } } });
     await app.prisma.event.deleteMany({ where: { entityId: { in: [botId, peerId] } } });
@@ -107,15 +103,11 @@ dbTest(
       const saved = await client.botMemories(botId);
       expect(saved.total).toBe(1);
       expect(saved.memories[0]?.content).toBe(fact);
-      expect(await store.recallMemory(botId, { query: "CONTROL914", scope: "agent" })).toContain(
-        fact
-      );
+      expect(await store.recallMemory(botId, { query: "CONTROL914" })).toContain(`[profile] ${fact}`);
       expect((await client.deleteBotMemory(peerId, saved.memories[0]!.id)).total).toBe(0);
       expect((await client.botMemories(botId)).total).toBe(1);
       expect((await client.deleteBotMemory(botId, saved.memories[0]!.id)).total).toBe(0);
-      expect(await store.recallMemory(botId, { query: "CONTROL914", scope: "agent" })).toContain(
-        "(0 searched)"
-      );
+      expect((await client.botMemories(botId)).total).toBe(0);
       expect((await client.deleteBotMemory(botId, saved.memories[0]!.id)).total).toBe(0);
       await expect(client.botMemories("..%2F")).rejects.toMatchObject({ status: 404 });
       await expect(client.deleteBotMemory(botId, "../profile.md")).rejects.toMatchObject({
@@ -127,11 +119,9 @@ dbTest(
 );
 
 dbTest(
-  "clear invalidates populated main/fork caches, retains episodes and conversation, excludes shared and peer stores",
+  "clear invalidates populated main/fork caches, retains the conversation, excludes shared and peer stores",
   async () =>
     fixture(async ({ app, store, botId, peerId, client }) => {
-      const pending = [{ ts: 1, user: "Remember the ongoing rehearsal", agent: "Noted" }];
-      await app.prisma.bot.update({ where: { id: botId }, data: { episodeTurns: pending } });
       const conversation = await app.prisma.conversation.findUniqueOrThrow({ where: { botId } });
       await store.writeMemory(botId, {
         scope: "agent",
@@ -152,10 +142,11 @@ dbTest(
         data: { botId, scope: "fork", scopeId: crypto.randomUUID() },
       });
       const cached = {
-        memoryEpoch: 3,
-        memoryRender: "stale saved fact",
-        memoryHasFacts: true,
         profileSection: "preserve profile",
+        promptSections: {
+          memory: { render: "stale saved fact", compactionEpoch: 3 },
+          automations: { render: "preserve routines", compactionEpoch: 3 },
+        },
       };
       await app.prisma.agentPromptSnapshot.upsert({
         where: { botId },
@@ -166,98 +157,84 @@ dbTest(
         data: { contextSessionId: context.id, ...cached },
       });
       expect((await client.clearBotMemories(botId)).total).toBe(0);
-      expect(await app.prisma.agentPromptSnapshot.findUnique({ where: { botId } })).toMatchObject({
-        memoryEpoch: -1,
-        memoryRender: "",
-        memoryHasFacts: false,
-        profileSection: "preserve profile",
-      });
+      // The pinned memory facts are dropped everywhere, so the next turn shows the deletion.
+      const unpinned = { profileSection: "preserve profile", promptSections: { automations: { render: "preserve routines", compactionEpoch: 3 } } };
+      expect(await app.prisma.agentPromptSnapshot.findUnique({ where: { botId } })).toMatchObject(unpinned);
       expect(
         await app.prisma.contextPromptSnapshot.findUnique({
           where: { contextSessionId: context.id },
         })
-      ).toMatchObject({ memoryEpoch: -1, memoryRender: "", memoryHasFacts: false });
-      expect(
-        (await app.prisma.bot.findUniqueOrThrow({ where: { id: botId } })).episodeTurns
-      ).toEqual(pending);
+      ).toMatchObject(unpinned);
       expect(await app.prisma.conversation.findUnique({ where: { botId } })).toEqual(conversation);
-      expect(await store.recallMemory(botId, { query: "CONTROL914", scope: "agent" })).toContain(
-        "(0 searched)"
-      );
-      expect(await store.recallMemory(botId, { query: "CONTROL914", scope: "user" })).toContain(
-        "shared user fact"
+      expect(await store.recallMemory(botId, { query: "CONTROL914" })).not.toContain("own saved fact");
+      expect(await store.recallMemory(botId, { query: "CONTROL914" })).toContain(
+        "[shared_profile via Memory controls fixture] CONTROL914 shared user fact."
       );
       expect((await client.botMemories(peerId)).total).toBe(1);
     })
 );
 
 dbTest(
-  "list and delete include old room copies, remove duplicates, and preserve surrounding Markdown",
+  "list shows one entry per fact, and deleting it removes every copy",
   async () =>
-    fixture(async ({ store, botId, client }) => {
-      const room = await store.resolveMemoryConversation(botId);
+    fixture(async ({ app, store, botId, client }) => {
       const fact = "CONTROL914 historical duplicate.";
       await store.writeMemory(botId, { scope: "agent", tier: "profile", fact });
-      await store.writeMemory(botId, {
-        scope: "conversation",
-        memoryConversationId: room.id,
-        tier: "log",
-        fact,
-      });
-      await store.writeMemory(botId, {
-        scope: "conversation",
-        memoryConversationId: room.id,
-        tier: "profile",
-        fact: "CONTROL914 room-only fact.",
-      });
-      const path = join(store.memoryDirectory(botId, "agent"), "profile.md");
-      await writeFile(
-        path,
-        (await readFile(path, "utf8")) +
-          "\nKeep this manual comment.\n- (2026-09-14) " +
-          fact +
-          "\n"
-      );
+      await store.writeMemory(botId, { scope: "agent", tier: "log", fact: "CONTROL914 log-only fact." });
+      // Facts indexed from hand-edited memory files could repeat a line.
+      const copy = await app.prisma.memoryFact.findFirstOrThrow({ where: { namespace: `agent:${botId}`, fact } });
+      const { id: _id, ...duplicate } = copy;
+      await app.prisma.memoryFact.create({ data: { ...duplicate, sourcePath: "log/2026-09.md", tier: "log" } });
       const listed = await client.botMemories(botId);
       expect(listed.total).toBe(2);
+      expect(listed.memories.find((memory) => memory.content === fact)?.kind).toBe("profile");
       expect((await client.deleteBotMemory(botId, memoryLogicalId(fact))).total).toBe(1);
-      expect(await readFile(path, "utf8")).toContain("Keep this manual comment.");
-      expect(await readMemoryTree(store.memoryDirectory(botId, "agent"))).toHaveLength(0);
+      expect(await app.prisma.memoryFact.count({ where: { namespace: `agent:${botId}`, fact } })).toBe(0);
       expect((await client.clearBotMemories(botId)).total).toBe(0);
-      expect(
-        await readMemoryTree(store.memoryDirectory(botId, "conversation", room.id))
-      ).toHaveLength(0);
-      expect(
-        await store.recallMemory(botId, { query: "CONTROL914", scope: "agent" }, room.id)
-      ).toContain("(0 searched)");
+      expect((await client.botMemories(botId)).total).toBe(0);
     })
 );
 
 dbTest(
-  "clear covers more than the visible list limit and records dreaming tombstones",
+  "clear covers more than the visible list limit",
   async () =>
-    fixture(async ({ store, botId, client }) => {
-      const root = store.memoryDirectory(botId, "agent");
+    fixture(async ({ app, store, botId, client }) => {
       const contents = Array.from({ length: 1003 }, (_, i) => `CONTROL914 record ${i}.`);
-      await writeFile(
-        join(root, "profile.md"),
-        "# About the user\n" + contents.map((fact) => `- (2026-09-14) ${fact}\n`).join("")
-      );
+      await app.prisma.memoryFact.createMany({
+        data: contents.map((fact, sourceOrdinal) => ({
+          namespace: `agent:${botId}`, scope: "agent", tier: "profile", fact, factHash: fact,
+          logicalId: memoryLogicalId(fact), sourceOrdinal, origin: "tool", writtenByBotId: botId,
+          createdAt: new Date("2026-09-14"),
+        })),
+      });
       const snapshot = await client.botMemories(botId);
       expect(snapshot.total).toBe(1003);
       expect(snapshot.memories.length).toBe(1000);
       expect((await client.clearBotMemories(botId)).total).toBe(0);
-      expect(
-        await readFile(
-          join(root, ".dreaming", "tombstones", memoryLogicalId(contents[1002]!) + ".deleted"),
-          "utf8"
-        )
-      ).toBe("");
-      expect(await store.recallMemory(botId, { query: "CONTROL914", scope: "agent" })).toContain(
-        "(0 searched)"
-      );
-    }, true),
+      expect((await client.botMemories(botId)).total).toBe(0);
+    }),
   30_000
+);
+
+dbTest(
+  "old memory files on the computer are neither read nor changed",
+  async () =>
+    fixture(async ({ store, botId, client }) => {
+      const directory = join(store.botDirectory(botId), "memory");
+      await mkdir(join(directory, "log"), { recursive: true });
+      const text = "# About the user\n\n- (2026-09-14) CONTROL914 fact left on disk.\n";
+      await writeFile(join(directory, "profile.md"), text);
+      await store.startWatching();
+      await store.reconcileBot(botId);
+      await store.writeMemory(botId, { scope: "agent", tier: "log", fact: "CONTROL914 saved to rows." });
+      expect((await client.botMemories(botId)).memories.map((memory) => memory.content)).toEqual([
+        "CONTROL914 saved to rows.",
+      ]);
+      expect(await store.recallMemory(botId, { query: "left on disk" })).toStartWith("No facts");
+      expect((await client.clearBotMemories(botId)).total).toBe(0);
+      expect(await readFile(join(directory, "profile.md"), "utf8")).toBe(text);
+      expect(await readdir(join(directory, "log"))).toEqual([]);
+    })
 );
 
 dbTest(
@@ -289,32 +266,6 @@ dbTest(
       expect(await events()).toHaveLength(2);
       await client.clearBotMemories(botId);
       expect(await events()).toHaveLength(2);
-      await workerStore.stopMemoryLifecycle();
-    })
-);
-
-dbTest(
-  "real file watcher publishes manual memory edits, and reopen reads edits even without events",
-  async () =>
-    fixture(async ({ app, store, botId, client }) => {
-      await store.startWatching();
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      const path = join(store.memoryDirectory(botId, "agent"), "profile.md");
-      await writeFile(path, "# Profile\n- (2026-09-14) CONTROL914 manual edit.\n");
-      let count = 0;
-      for (let i = 0; i < 80 && !count; i++) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        count = await app.prisma.event.count({
-          where: { topic: "memory.changed", entityId: botId },
-        });
-      }
-      expect(count).toBeGreaterThan(0);
-      expect((await client.botMemories(botId)).memories[0]?.content).toBe(
-        "CONTROL914 manual edit."
-      );
-      await store.stopWatching();
-      await writeFile(path, "# Profile\n- (2026-09-14) CONTROL914 edit while disconnected.\n");
-      expect((await client.botMemories(botId)).memories[0]?.content).toContain("disconnected");
     })
 );
 
@@ -327,7 +278,6 @@ dbTest("automatic learning becomes visible only after inference and commit finis
     const learner = new AgentDataStore(app.prisma, {
       root: store.root,
       workspaceRoot: store.workspaceRoot,
-      memoryDreamingEnabled: false,
       memoryInference: async () => {
         entered();
         return inference;
@@ -345,16 +295,10 @@ dbTest("automatic learning becomes visible only after inference and commit finis
       expect((await client.botMemories(botId)).memories[0]?.content).toBe(
         "CONTROL914 calibration is JADE-8241."
       );
-      expect(await store.recallMemory(botId, { query: "JADE-8241", scope: "agent" })).toContain(
-        "[log]"
-      );
-      expect(
-        (await app.prisma.bot.findUniqueOrThrow({ where: { id: botId } })).episodePending
-      ).toBe(1);
+      expect(await store.recallMemory(botId, { query: "JADE-8241" })).toContain("[journal]");
     } finally {
       release("NONE");
       await turn;
-      await learner.stopMemoryLifecycle();
     }
   })
 );

@@ -1085,6 +1085,10 @@ export const RequestBoxHelpInput = Schema.Struct({
 });
 export type RequestBoxHelpInput = typeof RequestBoxHelpInput.Type;
 
+/** profile and journal are the bot's own memory; shared_profile and shared_journal are its shard of shared user memory. */
+export const MemoryType = Schema.Literal("profile", "journal", "shared_profile", "shared_journal");
+export type MemoryType = typeof MemoryType.Type;
+
 /** The shared durable-state handler's input. Each state tool is one fixed target of it. */
 export const UpdateStateInput = Schema.Struct({
   target: Schema.Literal(
@@ -1109,8 +1113,7 @@ export const UpdateStateInput = Schema.Struct({
     "clear"
   ),
   fact: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
-  tier: Schema.optional(Schema.Literal("profile", "log", "note")),
-  scope: Schema.optional(Schema.Literal("agent", "user")),
+  type: Schema.optional(MemoryType),
   id: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   name: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   title: Schema.optional(Schema.String),
@@ -1134,8 +1137,7 @@ const optionalText = Schema.optional(Schema.String.pipe(Schema.minLength(1)));
 export const UpdateMemoryToolInput = Schema.Struct({
   action: Schema.Literal("write", "forget"),
   fact: Schema.String.pipe(Schema.minLength(1)),
-  tier: Schema.optional(Schema.Literal("profile", "log", "note")),
-  scope: Schema.optional(Schema.Literal("agent", "user")),
+  type: MemoryType,
 });
 export type UpdateMemoryToolInput = typeof UpdateMemoryToolInput.Type;
 
@@ -1305,7 +1307,6 @@ export const ComputerTurnRequest = Schema.Struct({
   userInfoEpoch: Schema.optional(Schema.Number),
   connectorInstructions: Schema.optional(Schema.String),
   agentProfileSnapshot: Schema.optional(Schema.Unknown),
-  memorySnapshot: Schema.optional(Schema.Unknown),
   todoUpdate: Schema.optional(Schema.NullOr(Schema.String)),
   automationTrigger: Schema.optional(Schema.NullOr(Schema.String)),
   resetSelfSummaryCount: Schema.optional(Schema.Boolean),

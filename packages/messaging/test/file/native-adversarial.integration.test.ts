@@ -100,11 +100,10 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
   const outsideAvatar = join(temporary, "outside.png");
   await mkdir(workspace, { recursive: true });
   const store = new AgentDataStore(prisma, { root, workspaceRoot: workspace });
-  const dreamingStore = new AgentDataStore(prisma, {
-    root,
-    workspaceRoot: workspace,
-    memoryDreamingEnabled: true,
-  });
+  const pinnedFacts = async (botId: string) => {
+    const prompt = await store.promptContext(botId);
+    return (await store.preparePlatformSections(botId, undefined, prompt.compactionEpoch, {}, prompt.memory)).memory!.facts;
+  };
 
   const firstBotId = randomUUID();
   const secondBotId = randomUUID();
@@ -189,7 +188,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
 
     const initialPrompt = await store.promptContext(firstBotId);
     expect(initialPrompt.profileSection).toContain("Watcher One");
-    expect(initialPrompt.memoryRender).toBe("");
+    expect(initialPrompt.memory.facts).toEndWith("No facts recorded yet.");
     expect(initialPrompt.skillRender).toBe("");
 
     await store.startWatching();
@@ -555,7 +554,6 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       tier: "profile",
       fact: "The first fact is visible before memory freezes.",
     });
-    await expect(access(join(firstDirectory, "memory", ".dreaming"))).rejects.toThrow();
     await Promise.all(
       Array.from({ length: 8 }, (_, index) =>
         store.writeMemory(firstBotId, {
@@ -565,36 +563,24 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
         })
       )
     );
-    const concurrentMemory = await readFile(
-      join(firstDirectory, "memory", "log", `${new Date().toISOString().slice(0, 7)}.md`),
-      "utf8"
-    );
+    const concurrentMemory = await prisma.memoryFact.findMany({
+      where: { namespace: `agent:${firstBotId}` },
+      orderBy: { sourceOrdinal: "asc" },
+    });
+    expect(concurrentMemory.map((fact) => fact.sourceOrdinal)).toEqual([...Array(9).keys()]);
     for (let index = 0; index < 8; index += 1) {
-      expect(concurrentMemory).toContain(`Concurrent memory fact ${index}.`);
+      expect(concurrentMemory.map((fact) => fact.fact)).toContain(`Concurrent memory fact ${index}.`);
     }
-    const firstMemoryPrompt = await store.promptContext(firstBotId);
-    expect(firstMemoryPrompt.memoryRender).toContain(
+    expect(await pinnedFacts(firstBotId)).toContain(
       "The first fact is visible before memory freezes."
     );
-    const memoryPath = join(firstDirectory, "memory", "profile.md");
-    await atomicWrite(
-      memoryPath,
-      `${await readFile(memoryPath, "utf8")}- (2026-08-27) The second fact waits for compaction.\n`
-    );
-    await eventually(
-      () =>
-        prisma.memoryFact.findFirst({
-          where: {
-            namespace: `agent:${firstBotId}`,
-            fact: "The second fact waits for compaction.",
-          },
-        }),
-      (fact) => fact !== null,
-      "memory watcher"
-    );
-    expect((await store.promptContext(firstBotId)).memoryRender).not.toContain(
-      "The second fact waits for compaction."
-    );
+    await store.writeMemory(firstBotId, {
+      scope: "agent",
+      tier: "profile",
+      fact: "The second fact waits for compaction.",
+      at: new Date("2026-08-27"),
+    });
+    expect(await pinnedFacts(firstBotId)).not.toContain("The second fact waits for compaction.");
 
     await prisma.conversation.update({
       where: { id: firstConversationId },
@@ -602,7 +588,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     });
     const compactedPrompt = await store.promptContext(firstBotId);
     expect(compactedPrompt.profileSection).toContain("Renamed on disk");
-    expect(compactedPrompt.memoryRender).toContain("The second fact waits for compaction.");
+    expect(await pinnedFacts(firstBotId)).toContain("The second fact waits for compaction.");
     expect(compactedPrompt.skillRender).toContain("Disk-owned skill");
 
     await store.writeMemory(firstBotId, {
@@ -619,17 +605,17 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       where: { id: firstConversationId },
       data: { compactionEpoch: { increment: 1 } },
     });
-    const mergedMemory = await store.promptContext(firstBotId);
-    expect(mergedMemory.memoryRender).toContain("User fact written by watcher one.");
-    expect(mergedMemory.memoryRender).toContain("User fact written by watcher two.");
+    const mergedMemory = await pinnedFacts(firstBotId);
+    expect(mergedMemory).toContain("User fact written by watcher one.");
+    expect(mergedMemory).toContain("User fact written by watcher two.");
 
     await store.forgetMemory(firstBotId, {
       scope: "user",
       fact: "User fact written by watcher one.",
     });
-    const afterForget = await store.promptContext(firstBotId);
-    expect(afterForget.memoryRender).not.toContain("User fact written by watcher one.");
-    expect(afterForget.memoryRender).toContain("User fact written by watcher two.");
+    const afterForget = (await store.promptContext(firstBotId)).memory.facts;
+    expect(afterForget).not.toContain("User fact written by watcher one.");
+    expect(afterForget).toContain("User fact written by watcher two.");
 
     const groupDirectory = join(root, "agents", groupId);
     await atomicWrite(
@@ -813,37 +799,6 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       "avatar source must stay inside"
     );
 
-    await prisma.bot.update({ where: { id: firstBotId }, data: { episodePending: 5 } });
-    for (let index = 0; index < 13; index += 1) {
-      await dreamingStore.recordTurnMemory(firstBotId, {
-        user: `Dreaming evidence ${index}`,
-        assistant: `Dreaming answer ${index}`,
-        occurredAt: index,
-      });
-    }
-    expect(await prisma.bot.findUniqueOrThrow({ where: { id: firstBotId } })).toMatchObject({
-      episodePending: 0,
-    });
-    await expect(access(join(firstDirectory, "memory", ".dreaming", "evidence"))).rejects.toThrow();
-    await expect(
-      access(join(firstDirectory, "memory", ".dreaming", "next-refresh-at"))
-    ).rejects.toThrow();
-
-    await store.recordTurnMemory(firstBotId, {
-      user: "Thanks!",
-      assistant: "You're welcome.",
-    });
-    expect((await prisma.bot.findUniqueOrThrow({ where: { id: firstBotId } })).episodePending).toBe(
-      0
-    );
-    await store.recordTurnMemory(firstBotId, {
-      user: "Should this memorable question advance the episode counter?",
-      assistant: "Yes.",
-    });
-    expect((await prisma.bot.findUniqueOrThrow({ where: { id: firstBotId } })).episodePending).toBe(
-      1
-    );
-
     await atomicWrite(join(root, "settings.json"), "{ malformed\n");
     const malformedRootSettings = await store.loadRootSettings();
     expect(malformedRootSettings.valid).toBe(false);
@@ -942,9 +897,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     expect(await store.loadActiveAgentId()).toBe(secondBotId);
 
     const secondDirectory = store.botDirectory(secondBotId);
-    const secondUserMemory = join(root, "user-memory", "by-agent", secondBotId, "profile.md");
     await access(secondDirectory);
-    await access(secondUserMemory);
     await prisma.bot.update({
       where: { id: secondBotId },
       data: { status: "archived", avatarPath: null },
@@ -959,20 +912,10 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       status: "active",
     });
     await expect(access(secondDirectory)).rejects.toThrow();
-    await access(secondUserMemory);
-    await atomicWrite(
-      secondUserMemory,
-      "- (2026-08-27) An archived writer's user shard remains authoritative.\n"
+    // An archived writer's shard of shared user memory is kept.
+    expect(await store.recallMemory(firstBotId, { query: "watcher two" })).toContain(
+      "User fact written by watcher two."
     );
-    await store.reconcileBot(firstBotId);
-    expect(
-      await prisma.memoryFact.findFirst({
-        where: {
-          namespace: `user:agent:${secondBotId}`,
-          fact: "An archived writer's user shard remains authoritative.",
-        },
-      })
-    ).not.toBeNull();
   } finally {
     await store.stopWatching();
     await prisma.channel.deleteMany({

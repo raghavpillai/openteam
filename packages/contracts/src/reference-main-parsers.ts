@@ -5,6 +5,7 @@ const invariant=(value,message)=>{if(!value)throw new Error(message);};
 class SandToolInputError extends Error {}
 const CLOUD_AGENT_INJECTED_SECRET_NAMES_ENV_VAR = "CLOUD_AGENT_INJECTED_SECRET_NAMES";
 var UPDATE_MEMORY_TOOL_NAME = "UpdateMemory";
+var MEMORY_TYPE_NAMES = ["profile", "journal", "shared_profile", "shared_journal"];
 var OTHER_STATE_TOOLS = "Routines have their own UpdateRoutine tool. Skills, profile and settings, picture, and channels have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.";
 
 function nonEmptyTuple(items) {
@@ -521,12 +522,11 @@ var memoryParameters = external_exports.object({
     })
   }),
   fact: external_exports.string().trim().min(1).describe("One self-contained sentence. For forget, the exact recorded text."),
-  tier: external_exports.enum(["profile", "log", "note"]).optional().describe(
-    'write only. "profile" is kept in mind every turn (keep it small), "log" (default) is dated history, "note" fades fast.'
-  ),
-  scope: external_exports.enum(["agent", "user"]).optional().describe(
-    'Default "agent", your own memory. "user" is shared memory every assistant should know.'
-  )
+  type: external_exports.enum(MEMORY_TYPE_NAMES, {
+    errorMap: () => ({
+      message: `${UPDATE_MEMORY_TOOL_NAME}: pick the memory type it belongs in: ${MEMORY_TYPE_NAMES.join(", ")}.`
+    })
+  })
 });
 
 var routineParameters = external_exports.object({
@@ -1330,8 +1330,6 @@ var copyFromBoxParameters = external_exports.object({
   )
 });
 
-var RECALL_MEMORY_SCOPES = ["agent", "user", "all"];
-
 var RECALL_MEMORY_MAX_LIMIT = 50;
 
 var RECALL_MEMORY_DEFAULT_LIMIT = 20;
@@ -1339,9 +1337,6 @@ var RECALL_MEMORY_DEFAULT_LIMIT = 20;
 var recallMemoryParameters = external_exports.object({
   query: external_exports.string().trim().min(1).describe(
     "What to look for. Facts sharing distinctive words with the query rank first; when nothing overlaps (short identifiers like a ticket id or an acronym) a literal case-insensitive substring match is used instead."
-  ),
-  scope: external_exports.enum(RECALL_MEMORY_SCOPES).optional().catch(void 0).describe(
-    'Which memory to search: "agent" is your own memory, "user" is the shared user memory every assistant of this user contributes to, "all" (default) is both.'
   ),
   limit: external_exports.number().int().min(1).max(RECALL_MEMORY_MAX_LIMIT).optional().catch(void 0).describe(
     `Maximum facts to return (default ${RECALL_MEMORY_DEFAULT_LIMIT}, max ${RECALL_MEMORY_MAX_LIMIT}).`

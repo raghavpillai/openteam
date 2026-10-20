@@ -130,7 +130,7 @@ export class InternalToolService {
           throw new ApiError(409, "context_epoch_invalid", "Context epoch is not the current or next summary");
         }
         await this.prisma.contextSession.updateMany({ where: { id: session.id, compactionEpoch: { lt: args.epoch! } }, data: { compactionEpoch: args.epoch } });
-        return this.messaging.platformPrompt(request.botId, session.id, args.connectorInstructions ?? "", run.memoryConversationId ?? undefined,
+        return this.messaging.platformPrompt(request.botId, session.id, args.connectorInstructions ?? "", run.channelId,
           run.taskConfiguration ? parseTaskConfiguration(run.taskConfiguration) : undefined);
       }
       const parentOnlyTools = new Set([
@@ -170,8 +170,7 @@ export class InternalToolService {
       if (request.tool === "ReadTranscript") return readTranscript(this.prisma, context, request.arguments);
       if (request.tool === "ReadAgentActivity") return readAgentActivity(this.prisma, { botId: childIdentity?.parentBotId ?? request.botId }, request.arguments);
       if (request.tool === "RecallMemory") {
-        const memoryContextId = run.memoryConversationId ?? (await this.messaging.agentData.resolveMemoryConversation(request.botId, run.channelId)).id;
-        return this.messaging.agentData.recallMemory(request.botId, request.arguments, memoryContextId);
+        return this.messaging.agentData.recallMemory(request.botId, request.arguments, run.channelId);
       }
       if (request.tool === "SendFeedback" || request.tool === "CreateBotShareJson") {
         if (!this.richMessages) throw new Error("Review service unavailable");

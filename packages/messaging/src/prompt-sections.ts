@@ -3,6 +3,23 @@ export interface PromptSectionSnapshot {
   render: string;
   compactionEpoch: number;
   announcedRender?: string;
+  /** memory only: the other assistants' shared facts last shown, and their fingerprint. */
+  otherAgentRender?: string;
+  otherAgentFingerprint?: string;
+}
+
+/** Memory facts pin per epoch with no change notes; only other assistants' shared changes are announced. */
+export interface MemoryContextLive {
+  facts: string;
+  otherAgents?: { render: string; fingerprint: string };
+}
+
+export interface MemoryContextReceipt {
+  epoch: number;
+  render: string;
+  previousFingerprint: string;
+  otherAgentRender: string;
+  otherAgentFingerprint: string;
 }
 
 export interface PromptSectionReceipt {
@@ -14,7 +31,6 @@ export interface PromptSectionReceipt {
 }
 
 export const SECTION_LABELS: Record<string, string> = {
-  memory: "Memory",
   automations: "Routines",
   agent_directory: "Teammates and groups",
   mcp_instructions: "Connector instructions",
@@ -25,7 +41,7 @@ export function parsePromptSections(value: unknown): Record<string, PromptSectio
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const result: Record<string, PromptSectionSnapshot> = {};
   for (const [name, candidate] of Object.entries(value)) {
-    if (!Object.hasOwn(SECTION_LABELS, name) || !candidate || typeof candidate !== "object")
+    if ((!Object.hasOwn(SECTION_LABELS, name) && name !== "memory") || !candidate || typeof candidate !== "object")
       continue;
     const entry = candidate as PromptSectionSnapshot;
     if (typeof entry.render !== "string" || !Number.isSafeInteger(entry.compactionEpoch)) continue;
@@ -34,6 +50,9 @@ export function parsePromptSections(value: unknown): Record<string, PromptSectio
       compactionEpoch: entry.compactionEpoch,
       ...(typeof entry.announcedRender === "string"
         ? { announcedRender: entry.announcedRender }
+        : {}),
+      ...(name === "memory" && typeof entry.otherAgentRender === "string" && typeof entry.otherAgentFingerprint === "string"
+        ? { otherAgentRender: entry.otherAgentRender, otherAgentFingerprint: entry.otherAgentFingerprint }
         : {}),
     };
   }
@@ -64,6 +83,59 @@ export function preparePromptSections(
     }
   }
   return { snapshots, sections, receipts, update: renderPromptSectionUpdates(receipts) };
+}
+
+/** Pin the memory facts for the epoch, and note when another assistant's shared facts changed since. */
+export function prepareMemoryContext(
+  snapshots: Record<string, PromptSectionSnapshot>,
+  epoch: number,
+  live: MemoryContextLive
+): { facts: string; changed: boolean; receipt?: MemoryContextReceipt } {
+  const pinned = snapshots.memory;
+  const other = live.otherAgents;
+  if (!pinned || pinned.compactionEpoch !== epoch) {
+    snapshots.memory = {
+      render: live.facts,
+      compactionEpoch: epoch,
+      ...(other ? { otherAgentRender: other.render, otherAgentFingerprint: other.fingerprint } : {}),
+    };
+    return { facts: live.facts, changed: false };
+  }
+  if (!other) return { facts: pinned.render, changed: false };
+  if (pinned.otherAgentRender === undefined || pinned.otherAgentFingerprint === undefined) {
+    snapshots.memory = { ...pinned, otherAgentRender: other.render, otherAgentFingerprint: other.fingerprint };
+    return { facts: pinned.render, changed: false };
+  }
+  if (pinned.otherAgentRender === other.render && pinned.otherAgentFingerprint === other.fingerprint)
+    return { facts: pinned.render, changed: false };
+  return {
+    facts: pinned.render,
+    changed: pinned.otherAgentFingerprint !== other.fingerprint && pinned.otherAgentRender !== other.render,
+    receipt: {
+      epoch,
+      render: pinned.render,
+      previousFingerprint: pinned.otherAgentFingerprint,
+      otherAgentRender: other.render,
+      otherAgentFingerprint: other.fingerprint,
+    },
+  };
+}
+
+export function acknowledgeMemoryContext(stored: unknown, receipt: MemoryContextReceipt) {
+  const snapshots = parsePromptSections(stored);
+  const current = snapshots.memory;
+  if (
+    current?.compactionEpoch === receipt.epoch &&
+    current.render === receipt.render &&
+    current.otherAgentFingerprint === receipt.previousFingerprint
+  ) {
+    snapshots.memory = {
+      ...current,
+      otherAgentRender: receipt.otherAgentRender,
+      otherAgentFingerprint: receipt.otherAgentFingerprint,
+    };
+  }
+  return snapshots;
 }
 
 export function acknowledgePromptSections(

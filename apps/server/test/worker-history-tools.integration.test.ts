@@ -23,13 +23,12 @@ databaseTest("workers never recall memory or read history; the parent does", asy
     const channel = await prisma.channel.create({ data: { kind: "bot_dm", name: "main", directKey: `bot:${parent.id}`, members: { create: { botId: parent.id, ordinal: 0 } } } });
     channelIds.push(channel.id);
     await store.initializeBot(parent.id);
-    const memory = await store.resolveMemoryConversation(parent.id, channel.id);
-    const parentRun = await prisma.run.create({ data: { botId: parent.id, conversationId: parent.conversation!.id, channelId: channel.id, userMessageId: crypto.randomUUID(), status: "running", memoryConversationId: memory.id } });
+    const parentRun = await prisma.run.create({ data: { botId: parent.id, conversationId: parent.conversation!.id, channelId: channel.id, userMessageId: crypto.randomUUID(), status: "running" } });
     const state = new DurableStateService(prisma, {} as never, store, {} as never);
     const service = new InternalToolService(prisma, { agentData: store } as never, state, async () => {}, {} as never, {} as never, {} as never, {} as never);
     const call = (run: { id: string; botId: string; conversationId: string; channelId: string | null }, tool: string, args: unknown) =>
       Effect.runPromise(service.execute({ runId: run.id, botId: run.botId, conversationId: run.conversationId, channelId: run.channelId!, deliveryId: null, tool, arguments: args, callId: crypto.randomUUID() }));
-    await call(parentRun, "UpdateMemory", { action: "write", tier: "profile", fact: "VERMILION invoices go to Dana." });
+    await call(parentRun, "UpdateMemory", { action: "write", type: "profile", fact: "VERMILION invoices go to Dana." });
 
     const worker = async (subagentType: string) => {
       const child = await prisma.bot.create({ data: { name: `${subagentType} worker`, status: "active", defaultDirectory: root, conversation: { create: {} } }, include: { conversation: true } });

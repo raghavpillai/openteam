@@ -30,7 +30,7 @@ const env = {
   OPENTEAM_ASSET_ROOT: join(runtimeRoot, "assets"),
   OPENTEAM_PI_AGENT_DIR: "/home/box/.pi/agent",
   OPENTEAM_BOX_STORE_ROOT: "/box-store", OPENTEAM_BOX_COPY_IN: "false",
-  OPENTEAM_MEMORY_DREAMING: "false", OPENTEAM_TIME_ZONE: "America/New_York",
+  OPENTEAM_TIME_ZONE: "America/New_York",
   OPENTEAM_WORKER_CONCURRENCY: "2",
 };
 // A simulator token must never be dispatched to the real APNs service.

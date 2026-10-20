@@ -63,8 +63,6 @@ test.skipIf(!databaseUrl)(
         channels.push(channel.id);
       }
       const channelId = channels[0]!;
-      const audience = await store.resolveMemoryConversation(botId, channelId);
-      const otherAudience = await store.resolveMemoryConversation(botId, channels[1]!);
       const createRun = async (origin: "routine" | "user" = "routine") =>
         prisma.run.create({
           data: {
@@ -74,7 +72,6 @@ test.skipIf(!databaseUrl)(
             origin,
             userMessageId: crypto.randomUUID(),
             status: "running",
-            memoryConversationId: audience.id,
           },
         });
       const run = await createRun();
@@ -190,14 +187,14 @@ test.skipIf(!databaseUrl)(
         data: { botId, scope: "automation", scopeId: silent.id },
       });
       const restarted = new AgentMessaging(prisma, messaging.boss, store);
-      const prompt = await restarted.platformPrompt(botId, home.id, "", audience.id);
+      const prompt = await restarted.platformPrompt(botId, home.id, "", channelId);
       expect(prompt.ambientContext).toContain("All systems unchanged");
       expect(prompt.ambientContext).not.toContain("Earlier progress");
       expect(prompt.ambientContext).not.toContain(handoff);
       expect(
-        (await restarted.platformPrompt(botId, home.id, "", otherAudience.id)).ambientContext ?? ""
+        (await restarted.platformPrompt(botId, home.id, "", channels[1]!)).ambientContext ?? ""
       ).not.toContain("All systems unchanged");
-      const routinePrompt = await restarted.platformPrompt(botId, automation.id, "", audience.id);
+      const routinePrompt = await restarted.platformPrompt(botId, automation.id, "", channelId);
       expect(routinePrompt.instructions).toContain("WakeParent is the only route");
       expect(routinePrompt.ambientContext).toBeNull();
       await restarted.acknowledgePlatformPrompt(botId, automation.id, routinePrompt);
@@ -209,7 +206,7 @@ test.skipIf(!databaseUrl)(
       await addFinal(later.id, "A newer silent result arrived after the prompt was built.");
       await prisma.$transaction((tx) => saveSilentAutomationResult(tx, later.id));
       await restarted.acknowledgePlatformPrompt(botId, home.id, prompt);
-      const refreshed = await restarted.platformPrompt(botId, home.id, "", audience.id);
+      const refreshed = await restarted.platformPrompt(botId, home.id, "", channelId);
       expect(refreshed.ambientContext).not.toContain("All systems unchanged");
       expect(refreshed.ambientContext).toContain("A newer silent result");
       // A scheduling failure rolls back both result and parent inbox, allowing a safe retry.

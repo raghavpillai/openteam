@@ -211,7 +211,7 @@
   },
   "RecallMemory": {
     "name": "RecallMemory",
-    "description": "Search your durable memory for facts that are not in the memory section of your prompt: older log entries, notes that have aged out of the recent slice, and shared user facts recorded by any of this user's assistants.\nRead-only. Results list each fact with its date, tier (profile | log) and, for shared facts, which assistant learned it.\nTo add or drop a fact use UpdateMemory. Prefer this tool over grepping memory folders.",
+    "description": "Search your durable memory for facts that are not in the memory section of your prompt: older journal entries, notes that have aged out of the recent slice, and shared user facts recorded by any of this user's assistants.\nRead-only. Results list each fact with its date, memory type and, for shared facts, which assistant learned it.\nTo add or drop a fact use UpdateMemory. Prefer this tool over grepping memory folders.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -219,15 +219,6 @@
           "type": "string",
           "minLength": 1,
           "description": "What to look for. Facts sharing distinctive words with the query rank first; when nothing overlaps (short identifiers like a ticket id or an acronym) a literal case-insensitive substring match is used instead."
-        },
-        "scope": {
-          "type": "string",
-          "enum": [
-            "agent",
-            "user",
-            "all"
-          ],
-          "description": "Which memory to search: \"agent\" is your own memory, \"user\" is the shared user memory every assistant of this user contributes to, \"all\" (default) is both."
         },
         "limit": {
           "type": "integer",
@@ -243,7 +234,7 @@
   },
   "UpdateMemory": {
     "name": "UpdateMemory",
-    "description": "Change your durable memory. write saves a fact (deduped); forget drops one by its exact recorded text (find it with RecallMemory, or read the memory folder when it is on your computer), so pair it with a write to correct a fact. Prefer this over editing memory files with the shell. Save without asking and mention it in passing. Routines have their own UpdateRoutine tool. Skills, profile and settings, picture, and channels have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.",
+    "description": "Change your durable memory. Pick the memory type that fits:\n- profile: Lasting facts about the user and how to work with them, kept in mind every turn. Keep it small.\n- journal: Dated history. Only the latest entries stay in view.\n- shared_profile: Lasting facts about the user that every assistant they run keeps in mind, such as their name and time zone.\n- shared_journal: Dated history every assistant the user runs should know.\nwrite saves a fact (deduped); forget drops one by its exact recorded text (find it with RecallMemory), so pair it with a write to correct a fact. Save without asking and mention it in passing. Routines have their own UpdateRoutine tool. Skills, profile and settings, picture, and channels have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -259,27 +250,20 @@
           "minLength": 1,
           "description": "One self-contained sentence. For forget, the exact recorded text."
         },
-        "tier": {
+        "type": {
           "type": "string",
           "enum": [
             "profile",
-            "log",
-            "note"
-          ],
-          "description": "write only. \"profile\" is kept in mind every turn (keep it small), \"log\" (default) is dated history, \"note\" fades fast."
-        },
-        "scope": {
-          "type": "string",
-          "enum": [
-            "agent",
-            "user"
-          ],
-          "description": "Default \"agent\", your own memory. \"user\" is shared memory every assistant should know."
+            "journal",
+            "shared_profile",
+            "shared_journal"
+          ]
         }
       },
       "required": [
         "action",
-        "fact"
+        "fact",
+        "type"
       ]
     }
   },

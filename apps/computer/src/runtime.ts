@@ -322,13 +322,6 @@ export class ComputerRuntime {
           request.agentProfileSnapshot
         );
       }
-      if (request.memorySnapshot) {
-        await this.botStore?.setPromptSnapshot(
-          active.botId,
-          "memoryPromptSnapshot",
-          request.memorySnapshot
-        );
-      }
       await this.botStore?.appendConversationEnvelope(active.botId, {
         role: "user",
         content: request.content,

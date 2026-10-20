@@ -99,14 +99,13 @@ databaseTest("each state tool updates its fixed target and names itself in error
 
     await expect(call("UpdateProject", { action: "create", project: "launch", name: "x" })).rejects.toThrow("Unknown tool UpdateProject");
 
-    expect(await call("UpdateMemory", { action: "write", fact: "State tools fixture fact." })).toBe(
-      "Remembered in your memory (log): State tools fixture fact."
+    expect(await call("UpdateMemory", { action: "write", type: "journal", fact: "State tools fixture fact." })).toBe(
+      "Remembered in your memory (journal): State tools fixture fact."
     );
-    await expect(call("UpdateMemory", { action: "write", scope: "project", fact: "x" })).rejects.toThrow("Expected 'agent' | 'user', received 'project'");
-    await expect(call("UpdateMemory", { action: "create", fact: "x" })).rejects.toThrow("UpdateMemory only writes or forgets memory");
+    await expect(call("UpdateMemory", { action: "write", type: "project", fact: "x" })).rejects.toThrow("pick the memory type it belongs in");
+    await expect(call("UpdateMemory", { action: "create", type: "profile", fact: "x" })).rejects.toThrow("UpdateMemory only writes or forgets memory");
     await expect(call("update_state", { target: "memory", action: "write", fact: "x" })).rejects.toThrow("Unknown tool update_state");
   } finally {
-    await store.stopMemoryLifecycle();
     if (botId) {
       await prisma.idempotencyRecord.deleteMany({ where: { scope: `state:${botId}` } });
       await prisma.memoryFact.deleteMany({ where: { writtenByBotId: botId } });

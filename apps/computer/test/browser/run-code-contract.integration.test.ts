@@ -281,6 +281,10 @@ describe.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)("browser_run_code
     expect((await run(`async (page) => page.locator('#missing').click({ timeout: 200 })`)).error.message).toContain("Timeout 200ms exceeded");
     expect((await run(`async (page) => { await page.goto('${origin}/slow'); return page.title(); }`)).result).toBe("Slow page");
     expect(await run(`async (page) => { throw new Error('intentional'); }`)).toEqual({ error: { code: "job_failed", message: "intentional" }, stdio: [] });
+    // A call the script forgot to await fails the script with its own error, not as a crashed worker.
+    const unawaited = await run(`async (page) => { page.locator('#missing').click({ timeout: 200 }); await page.waitForTimeout(3000); return 'done'; }`);
+    expect(unawaited.error.code).toBe("job_failed");
+    expect(unawaited.error.message).toContain("Timeout 200ms exceeded");
     expect((await run(`async (page) => page.title()`))).toEqual({ result: "Slow page", stdio: [] });
     expect((await run(`not a function at all`)).error.code).toBe("job_failed");
     expect((await run(`42`)).error.message).toContain("must be a function");

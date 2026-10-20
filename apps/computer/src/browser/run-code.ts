@@ -472,9 +472,14 @@ process.stdin.on('end', async () => {
   if (usesRefs) await Promise.all([...allowed].filter(p => refPages[ids.get(p)] !== undefined).map(p => deadline(mapRefs(p, refPages[ids.get(p)]),3000).catch(() => {})));
   const sandbox=vm.createContext({page:wrap(page),console:consoleObject,Blob,Buffer,URL,TextEncoder,TextDecoder}, {codeGeneration:{strings:false,wasm:false}});
   started=true;
+  // A promise the script never awaited fails the script with its own error instead of ending this process.
+  let failUnawaited;
+  const unawaited=new Promise((_,reject)=>{failUnawaited=reject;});
+  unawaited.catch(()=>{});
+  process.on('unhandledRejection',error=>failUnawaited(error));
   const script=new vm.Script('('+code+'\n)',{filename:'browser_run_code.js'}).runInContext(sandbox,{timeout:30000});
   if(typeof script!=='function')throw new TypeError('code must be a function such as async (page) => { ...; return value; }');
-  const result=await script(sandbox.page,{fileChooser});
+  const result=await Promise.race([script(sandbox.page,{fileChooser}),unawaited]);
   await Promise.all(popupTasks);
 
   // Image Blobs come back as images named by their key; a PDF Blob is saved.

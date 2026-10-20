@@ -95,6 +95,19 @@ function VoiceWave({ stream }: { stream: MediaStream | null }) {
     let peak = 0;
     let frame = 0;
     let lastSample = performance.now();
+    // Size and ink change rarely; reading them every frame would force style and layout.
+    let width = element.clientWidth;
+    let height = element.clientHeight;
+    let ink = getComputedStyle(element).color;
+    const resize = new ResizeObserver(() => {
+      width = element.clientWidth;
+      height = element.clientHeight;
+    });
+    resize.observe(element);
+    const theme = new MutationObserver(() => {
+      ink = getComputedStyle(element).color;
+    });
+    theme.observe(document.documentElement, { attributeFilter: ["data-theme", "class"] });
     const draw = (now: number) => {
       frame = requestAnimationFrame(draw);
       if (analyser) {
@@ -106,8 +119,6 @@ function VoiceWave({ stream }: { stream: MediaStream | null }) {
         level += (target - level) * (target > level ? 0.45 : 0.12);
         peak = Math.max(peak, level);
       }
-      const width = element.clientWidth;
-      const height = element.clientHeight;
       const ratio = Math.min(2, window.devicePixelRatio || 1);
       if (element.width !== Math.round(width * ratio)) element.width = Math.round(width * ratio);
       if (element.height !== Math.round(height * ratio)) element.height = Math.round(height * ratio);
@@ -122,7 +133,7 @@ function VoiceWave({ stream }: { stream: MediaStream | null }) {
       const progress = Math.min(1, (now - lastSample) / WAVE_SAMPLE_MS);
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
       context.clearRect(0, 0, width, height);
-      context.fillStyle = getComputedStyle(element).color;
+      context.fillStyle = ink;
       for (let slot = 0; slot < capacity; slot++) {
         const x = width - (slot + progress) * WAVE_STEP_PX;
         if (x < -2) break;
@@ -141,6 +152,8 @@ function VoiceWave({ stream }: { stream: MediaStream | null }) {
     frame = requestAnimationFrame(draw);
     return () => {
       cancelAnimationFrame(frame);
+      resize.disconnect();
+      theme.disconnect();
       source?.disconnect();
       analyser?.disconnect();
       for (const clone of tap?.getTracks() ?? []) clone.stop();

@@ -160,6 +160,8 @@
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  /* The orb sits centred in the bar's rounded end, like the composer's own buttons. */
+  margin-left: 8px;
   color: var(--vm-muted);
 }
 .vm-spacer {

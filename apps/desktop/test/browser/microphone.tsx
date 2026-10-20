@@ -319,6 +319,8 @@ async function run() {
     () => tallestBar() > 4 * Math.min(2, window.devicePixelRatio || 1),
     "Waveform did not respond to the real synthetic audio stream"
   );
+  // Past the minimum voice note length before sending.
+  await pause(700);
   button("Send voice note").click();
   await waitFor(
     () => sent.some((text) => text.includes("Microphone choice works")),

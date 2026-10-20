@@ -8,9 +8,9 @@ Your data lives in a database and several Docker volumes. Back them up together,
 
 | What | Contains |
 | --- | --- |
-| Database | Bots, conversations, run history, plugin accounts, and private skills |
+| Database | Bots, conversations, memory, run history, plugin accounts, and private skills |
 | `computer_home` volume | Browser profiles, website sign-ins, and model provider sign-ins |
-| `agent_data` volume | Memory, skills, routines, bot profiles, and model settings |
+| `agent_data` volume | Skills, routines, bot profiles, and model settings |
 | `workspace` volume | Files in `/workspace` |
 | `assets` volume | Attachments |
 | `box_store` volume | Snapshots of the bots' computer files |

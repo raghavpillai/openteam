@@ -1702,6 +1702,7 @@ export class WakeWorker {
     });
     if (!exchange) return;
     await this.agentData.recordTurnMemory(claimed.botId, {
+      runId: claimed.runId,
       user: exchange.user,
       assistant: exchange.assistant,
       hidden: !["user", "group"].includes(claimed.origin),

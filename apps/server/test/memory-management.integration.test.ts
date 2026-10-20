@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOpenTeamClient } from "../../../packages/client-core/src/client";
 import { AgentDataStore } from "@openteam/messaging";
-import { memoryLogicalId, readMemoryTree } from "../../../packages/messaging/src/memory-files";
+import { memoryLogicalId } from "../../../packages/messaging/src/memory-facts";
 import { AppService } from "../src/app-service";
 import { clientRoutes } from "../src/routes/client";
 import { eventRoutes } from "../src/routes/event";
@@ -80,7 +80,6 @@ async function fixture(
         },
       });
       await store.initializeBot(id);
-      await mkdir(store.memoryDirectory(id, "agent"), { recursive: true });
     }
     await run({ app, store, botId, peerId, root, client });
   } finally {
@@ -184,26 +183,22 @@ dbTest(
 );
 
 dbTest(
-  "list and delete remove duplicates and preserve surrounding Markdown",
+  "list shows one entry per fact, and deleting it removes every copy",
   async () =>
-    fixture(async ({ store, botId, client }) => {
+    fixture(async ({ app, store, botId, client }) => {
       const fact = "CONTROL914 historical duplicate.";
       await store.writeMemory(botId, { scope: "agent", tier: "profile", fact });
       await store.writeMemory(botId, { scope: "agent", tier: "log", fact: "CONTROL914 log-only fact." });
-      const path = join(store.memoryDirectory(botId, "agent"), "profile.md");
-      await writeFile(
-        path,
-        (await readFile(path, "utf8")) +
-          "\nKeep this manual comment.\n- (2026-09-14) " +
-          fact +
-          "\n"
-      );
+      // Facts indexed from hand-edited memory files could repeat a line.
+      const copy = await app.prisma.memoryFact.findFirstOrThrow({ where: { namespace: `agent:${botId}`, fact } });
+      const { id: _id, ...duplicate } = copy;
+      await app.prisma.memoryFact.create({ data: { ...duplicate, sourcePath: "log/2026-09.md", tier: "log" } });
       const listed = await client.botMemories(botId);
       expect(listed.total).toBe(2);
+      expect(listed.memories.find((memory) => memory.content === fact)?.kind).toBe("profile");
       expect((await client.deleteBotMemory(botId, memoryLogicalId(fact))).total).toBe(1);
-      expect(await readFile(path, "utf8")).toContain("Keep this manual comment.");
+      expect(await app.prisma.memoryFact.count({ where: { namespace: `agent:${botId}`, fact } })).toBe(0);
       expect((await client.clearBotMemories(botId)).total).toBe(0);
-      expect(await readMemoryTree(store.memoryDirectory(botId, "agent"))).toHaveLength(0);
       expect(await store.recallMemory(botId, { query: "CONTROL914", scope: "agent" })).toContain(
         "(0 searched)"
       );
@@ -213,13 +208,15 @@ dbTest(
 dbTest(
   "clear covers more than the visible list limit",
   async () =>
-    fixture(async ({ store, botId, client }) => {
-      const root = store.memoryDirectory(botId, "agent");
+    fixture(async ({ app, store, botId, client }) => {
       const contents = Array.from({ length: 1003 }, (_, i) => `CONTROL914 record ${i}.`);
-      await writeFile(
-        join(root, "profile.md"),
-        "# About the user\n" + contents.map((fact) => `- (2026-09-14) ${fact}\n`).join("")
-      );
+      await app.prisma.memoryFact.createMany({
+        data: contents.map((fact, sourceOrdinal) => ({
+          namespace: `agent:${botId}`, scope: "agent", tier: "profile", fact, factHash: fact,
+          logicalId: memoryLogicalId(fact), sourceOrdinal, origin: "tool", writtenByBotId: botId,
+          createdAt: new Date("2026-09-14"),
+        })),
+      });
       const snapshot = await client.botMemories(botId);
       expect(snapshot.total).toBe(1003);
       expect(snapshot.memories.length).toBe(1000);
@@ -229,6 +226,27 @@ dbTest(
       );
     }),
   30_000
+);
+
+dbTest(
+  "old memory files on the computer are neither read nor changed",
+  async () =>
+    fixture(async ({ store, botId, client }) => {
+      const directory = join(store.botDirectory(botId), "memory");
+      await mkdir(join(directory, "log"), { recursive: true });
+      const text = "# About the user\n\n- (2026-09-14) CONTROL914 fact left on disk.\n";
+      await writeFile(join(directory, "profile.md"), text);
+      await store.startWatching();
+      await store.reconcileBot(botId);
+      await store.writeMemory(botId, { scope: "agent", tier: "log", fact: "CONTROL914 saved to rows." });
+      expect((await client.botMemories(botId)).memories.map((memory) => memory.content)).toEqual([
+        "CONTROL914 saved to rows.",
+      ]);
+      expect(await store.recallMemory(botId, { query: "left on disk" })).toStartWith("No facts");
+      expect((await client.clearBotMemories(botId)).total).toBe(0);
+      expect(await readFile(join(directory, "profile.md"), "utf8")).toBe(text);
+      expect(await readdir(join(directory, "log"))).toEqual([]);
+    })
 );
 
 dbTest(
@@ -260,31 +278,6 @@ dbTest(
       expect(await events()).toHaveLength(2);
       await client.clearBotMemories(botId);
       expect(await events()).toHaveLength(2);
-    })
-);
-
-dbTest(
-  "real file watcher publishes manual memory edits, and reopen reads edits even without events",
-  async () =>
-    fixture(async ({ app, store, botId, client }) => {
-      await store.startWatching();
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      const path = join(store.memoryDirectory(botId, "agent"), "profile.md");
-      await writeFile(path, "# Profile\n- (2026-09-14) CONTROL914 manual edit.\n");
-      let count = 0;
-      for (let i = 0; i < 80 && !count; i++) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        count = await app.prisma.event.count({
-          where: { topic: "memory.changed", entityId: botId },
-        });
-      }
-      expect(count).toBeGreaterThan(0);
-      expect((await client.botMemories(botId)).memories[0]?.content).toBe(
-        "CONTROL914 manual edit."
-      );
-      await store.stopWatching();
-      await writeFile(path, "# Profile\n- (2026-09-14) CONTROL914 edit while disconnected.\n");
-      expect((await client.botMemories(botId)).memories[0]?.content).toContain("disconnected");
     })
 );
 

@@ -18,7 +18,7 @@ test.skipIf(
     try {
       await store.openForWake(id);
       await store.closeAgent(id);
-      const file = join(directory, "memory", "saved.txt");
+      const file = join(directory, "automations", "saved.txt");
       await writeFile(file, "preserved fixture data");
       expect((await stat(directory)).uid).toBe(0);
       expect((await stat(directory)).mode & 0o777).toBe(0o770);

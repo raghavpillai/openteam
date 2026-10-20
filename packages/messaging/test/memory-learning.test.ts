@@ -1,53 +1,61 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
-  applyExtractedMemories,
   buildExtractionUserPrompt,
+  gatherExtractionMemories,
+  isMemorableExchange,
   parseExtractedMemories,
 } from "../src/memory-learning";
-import { appendMemoryFact, readMemoryTree } from "../src/memory-files";
 
-test("corrections remove only supplied facts, preserve unrelated Markdown, and persist notes once", async () => {
-  const root = await mkdtemp(join(tmpdir(), "memory-correction-"));
-  const now = new Date("2026-09-12T12:00:00Z");
-  try {
-    await writeFile(
-      join(root, "profile.md"),
-      "# Keep this heading\nManual prose.\n- (2020-01-01) Lives in Boston.\n"
-    );
-    await appendMemoryFact(root, "Unrelated protected preference.", "profile", now);
-    const existing = ["Lives in Boston."];
-    const parsed = parseExtractedMemories(
-      "remove: Lives in Boston.\nremove: Unrelated protected preference.\nprofile: Lives in NYC.\nnote: Likes cobalt for the demo.",
-      existing
-    );
-    expect(await applyExtractedMemories(root, parsed, existing, now)).toEqual({
-      added: ["Lives in NYC.", "[note] Likes cobalt for the demo."],
-      removed: ["Lives in Boston."],
-    });
-    expect(await applyExtractedMemories(root, parsed, existing, now)).toEqual({
-      added: [],
-      removed: [],
-    });
-    const facts = await readMemoryTree(root);
-    expect(facts.map(({ content }) => content)).toEqual([
-      "Unrelated protected preference.",
-      "Lives in NYC.",
-      "[note] Likes cobalt for the demo.",
-    ]);
-    expect(facts.at(-1)).toMatchObject({
-      tier: "note",
-      importance: 0.5,
-      sourcePath: "log/2026-09.md",
-    });
-    expect(await readFile(join(root, "profile.md"), "utf8")).toStartWith(
-      "# Keep this heading\nManual prose."
-    );
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+test("extraction lines add, retire and prefix facts, skipping ones already known", () => {
+  expect(
+    parseExtractedMemories(
+      [
+        "remove: Lives in Boston.",
+        "profile: Lives in NYC.",
+        "- note: Likes cobalt for the demo.",
+        "log: Lives in Boston.",
+        "An untagged line is history.",
+        "NONE",
+      ].join("\n"),
+      ["Lives in Boston."]
+    )
+  ).toEqual({
+    additions: [
+      { content: "Lives in NYC.", kind: "profile" },
+      { content: "[note] Likes cobalt for the demo.", kind: "log" },
+      { content: "An untagged line is history.", kind: "log" },
+    ],
+    removals: ["Lives in Boston."],
+  });
+  expect(parseExtractedMemories("  NONE \n", [])).toEqual({ additions: [], removals: [] });
+});
+
+test("the learner sees in-prompt facts first, then a few older ones that share words", () => {
+  const day = (n: number) => new Date(Date.UTC(2026, 0, 1) + n * 86_400_000);
+  const facts = [
+    { content: "Old profile fact.", tier: "profile", createdAt: day(0), importance: 1 },
+    { content: "Newer profile fact.", tier: "profile", createdAt: day(5), importance: 1 },
+    ...Array.from({ length: 31 }, (_, i) => ({
+      content: `Journal entry ${i}.`,
+      tier: "log",
+      createdAt: day(10 + i),
+      importance: 1,
+    })),
+  ];
+  const gathered = gatherExtractionMemories(facts, "What was in journal entry 0?");
+  expect(gathered.slice(0, 2)).toEqual(["Newer profile fact.", "Old profile fact."]);
+  expect(gathered.slice(2, 32)).toEqual(
+    Array.from({ length: 30 }, (_, i) => `Journal entry ${30 - i}.`)
+  );
+  // The oldest entry fell out of the recent slice but shares "journal" and "entry".
+  expect(gathered.slice(32)).toEqual(["Journal entry 0."]);
+});
+
+test("small talk is skipped, anything substantive is reviewed", () => {
+  expect(isMemorableExchange("thanks!")).toBe(false);
+  expect(isMemorableExchange("ok")).toBe(false);
+  expect(isMemorableExchange("ok?")).toBe(true);
+  expect(isMemorableExchange("I moved to Lyon")).toBe(true);
 });
 
 test("an empty exchange still renders the extraction prompt shape", () => {

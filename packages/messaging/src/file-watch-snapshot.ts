@@ -1,7 +1,7 @@
 import { lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
-const watchedRoots = ["agents", "user-memory", "workflows", "managed-skills", "plugin-skills"];
+const watchedRoots = ["agents", "workflows", "managed-skills", "plugin-skills"];
 
 /** Metadata only: never read memory contents or descend into runtime/attachment stores. */
 export async function snapshotWatchedFiles(

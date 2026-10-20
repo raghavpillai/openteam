@@ -65,11 +65,12 @@ test("profile, first-fact memory, and skills freeze independently per context ep
         2
       )}\n`
     );
-    await mkdir(join(botDirectory, "memory"), { recursive: true });
-    await writeFile(
-      join(botDirectory, "memory", "profile.md"),
-      "# About the user\n\n- (2026-08-28) First fact is visible immediately.\n"
-    );
+    await store.writeMemory(botId, {
+      scope: "agent",
+      tier: "profile",
+      fact: "First fact is visible immediately.",
+      at: new Date("2026-08-28"),
+    });
     await store.writeSkill(botId, {
       name: "Epoch skill",
       description: "appears only after a context summary refresh",
@@ -112,22 +113,14 @@ test("profile, first-fact memory, and skills freeze independently per context ep
       "Snapshot Renamed"
     );
 
-    // Raw file removal does not bypass the epoch freeze once a fact-bearing
-    // snapshot exists. Official forgetMemory deliberately invalidates it below.
-    await writeFile(join(botDirectory, "memory", "profile.md"), "# About the user\n");
-    expect((await store.promptContext(botId, homeContextId)).memoryRender).toContain(
-      "First fact is visible immediately."
-    );
-
-    await writeFile(
-      join(botDirectory, "memory", "profile.md"),
-      [
-        "# About the user",
-        "",
-        "- (2026-08-28) First fact is visible immediately.",
-        "- (2026-08-28) Second fact waits for compaction.",
-        "",
-      ].join("\n")
+    await store.writeMemory(botId, {
+      scope: "agent",
+      tier: "profile",
+      fact: "Second fact waits for compaction.",
+      at: new Date("2026-08-28"),
+    });
+    expect((await store.promptContext(botId, homeContextId)).memoryRender).not.toContain(
+      "Second fact waits for compaction."
     );
     await prisma.contextSession.update({
       where: { id: groupContextId },

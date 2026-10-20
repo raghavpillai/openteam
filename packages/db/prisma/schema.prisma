@@ -384,11 +384,16 @@ model MemoryFact {
   fact           String
   factHash       String
   logicalId      String      @default("")
+  // Where a fact sat in the memory files it was indexed from before rows became the source of truth.
   sourcePath     String      @default("")
+  // Insertion order within the namespace; breaks createdAt ties.
   sourceOrdinal  Int         @default(0)
   sourceLine     Int         @default(0)
   importance     Float       @default(1)
+  // How the fact was saved: tool, extract or template; "filesystem" for facts indexed from memory files.
   origin         String      @default("legacy")
+  // The run that saved the fact, when there was one.
+  turnId         String?
   writtenByBotId String?      @db.Uuid
   writtenByBot   Bot?         @relation("MemoryFactWriter", fields: [writtenByBotId], references: [id], onDelete: SetNull)
   createdAt      DateTime     @default(now())

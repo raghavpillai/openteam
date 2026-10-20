@@ -272,7 +272,6 @@ export class BotAgentStore {
     try {
       await this.initializeAgent(agentId);
       const directory = this.agentDirectory(agentId);
-      await ensureSharedAgentDirectory(join(directory, "memory"));
       await ensureSharedAgentDirectory(join(directory, "automations"));
       const storePath = join(directory, "store.db");
       const blobPath = join(directory, "conversation-blobs.db");

@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPrismaClient } from "@openteam/db";
 import { AgentDataStore, type MemoryInferenceRequest } from "../src/agent-data";
-import { readMemoryTree } from "../src/memory-files";
 import { parseSkillFile } from "../src/skill-files";
 import managedCatalog from "../src/prompts/managed-skills.json";
 
@@ -110,10 +109,27 @@ test("turn memory extracts facts from memorable turns", async () => {
         occurredAt: Date.parse(`2026-08-${String(20 + turn).padStart(2, "0")}T12:00:00Z`),
       });
     }
+    const runId = crypto.randomUUID();
+    await store.recordTurnMemory(botId, {
+      user: "Remember lifecycle detail 6.",
+      assistant: "Recorded detail 6.",
+      runId,
+    });
     expect(
-      (await readMemoryTree(store.memoryDirectory(botId, "agent"))).map((fact) => fact.content)
-    ).toEqual(["Prefers lifecycle tests."]);
-    expect(requests.filter((request) => request.kind === "extraction")).toHaveLength(6);
+      await prisma.memoryFact.findMany({
+        where: { namespace: `agent:${botId}` },
+        select: { fact: true, tier: true, origin: true, turnId: true, createdAt: true },
+      })
+    ).toEqual([
+      {
+        fact: "Prefers lifecycle tests.",
+        tier: "profile",
+        origin: "extract",
+        turnId: null,
+        createdAt: new Date("2026-08-20T12:00:00Z"),
+      },
+    ]);
+    expect(requests.filter((request) => request.kind === "extraction")).toHaveLength(7);
   } finally {
     await prisma.bot.deleteMany({ where: { id: botId } });
     await prisma.$disconnect();
@@ -186,16 +202,6 @@ test("agent-data files are authoritative and preserve malformed settings", async
         name: "Existing skill",
         description: "use this when checking projections",
         body: "# Original",
-      },
-    });
-    await prisma.memoryFact.create({
-      data: {
-        namespace: "user",
-        scope: "user",
-        tier: "profile",
-        fact: "The user likes generated files.",
-        factHash: hash("The user likes generated files."),
-        writtenByBotId: botId,
       },
     });
 
@@ -302,7 +308,7 @@ test("agent-data files are authoritative and preserve malformed settings", async
         "",
       ].join("\n")
     );
-    // A folder left by the retired shared-project feature is neither imported nor deleted.
+    // Memory files and folders left by retired features are neither imported nor deleted.
     const leftoverShard = join(root, "projects", "file-parity", "memory", "by-agent", botId, "profile.md");
     await mkdir(join(leftoverShard, ".."), { recursive: true });
     await writeFile(leftoverShard, "- (2026-08-27) A leftover shard is not memory.\n");
@@ -324,25 +330,13 @@ test("agent-data files are authoritative and preserve malformed settings", async
     expect(await prisma.channel.findUniqueOrThrow({ where: { id: groupId } })).toMatchObject({
       name: "Hand-edited room",
     });
+    expect(await prisma.memoryFact.count({ where: { writtenByBotId: botId } })).toBe(0);
+    expect(await readFile(join(botDirectory, "memory", "profile.md"), "utf8")).toContain(
+      "The bot remembers hand-edited Markdown."
+    );
     expect(
-      await prisma.memoryFact.findFirst({
-        where: {
-          namespace: `agent:${botId}`,
-          fact: "The bot remembers hand-edited Markdown.",
-        },
-      })
-    ).not.toBeNull();
-    expect(
-      await prisma.memoryFact.findFirst({
-        where: {
-          namespace: `user:agent:${botId}`,
-          fact: "Shared user memory is one global namespace.",
-        },
-      })
-    ).not.toBeNull();
-    expect(
-      await prisma.memoryFact.findFirst({ where: { fact: "A leftover shard is not memory." } })
-    ).toBeNull();
+      await readFile(join(root, "user-memory", "by-agent", botId, "profile.md"), "utf8")
+    ).toContain("Shared user memory is one global namespace.");
     expect(await readFile(leftoverShard, "utf8")).toContain("A leftover shard is not memory.");
     expect(await prisma.savedSkill.findUniqueOrThrow({ where: { id: skillId } })).toMatchObject({
       name: "Edited skill",
@@ -357,20 +351,6 @@ test("agent-data files are authoritative and preserve malformed settings", async
       scheduleText: "@daily",
       enabled: false,
     });
-
-    await writeFile(
-      join(botDirectory, "memory", "profile.md"),
-      ["# About the user", "<!-- Removing a bullet forgets it. -->", ""].join("\n")
-    );
-    await store.reconcileBot(botId);
-    expect(
-      await prisma.memoryFact.findFirst({
-        where: {
-          namespace: `agent:${botId}`,
-          fact: "The bot remembers hand-edited Markdown.",
-        },
-      })
-    ).toBeNull();
 
     await rm(join(botDirectory, "profile.json"));
     await store.reconcileBot(botId);

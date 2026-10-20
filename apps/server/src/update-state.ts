@@ -230,7 +230,11 @@ export class DurableStateService {
     }
 
     const tier = input.tier ?? "log";
-    const saved = await this.agentData.writeMemory(botId, { scope, channelId, tier, fact });
+    const saved = await this.agentData.writeMemory(
+      botId,
+      { scope, channelId, tier: tier === "profile" ? "profile" : "log", fact: tier === "note" ? `[note] ${fact}` : fact },
+      { source: "tool", ...(runId ? { turnId: runId } : {}) }
+    );
     return {
       target: "memory",
       action: "write",

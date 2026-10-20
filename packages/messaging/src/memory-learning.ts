@@ -1,9 +1,4 @@
-import {
-  appendMemoryFact,
-  forgetMemoryFact,
-  normalizeMemoryContent,
-  type MemoryFileFact,
-} from "./memory-files";
+import { normalizeMemoryContent } from "./memory-facts";
 import { relevanceTokens } from "./recall-memory";
 
 // Compatibility target: the inspected Grok Bot ecc8113 file-memory lifecycle.
@@ -32,20 +27,26 @@ export const isMemorableExchange = (userMessage: string): boolean => {
   return !TRIVIAL_EXCHANGES.has(normalized);
 };
 
-/** Profile first, then recent salient history, then up to ten relevant older facts. */
+export interface ExtractionFact {
+  content: string;
+  tier: string;
+  createdAt: Date;
+  importance: number;
+}
+
+/** Profile first, then recent salient history, then up to ten relevant older facts. Facts arrive oldest first. */
 export const gatherExtractionMemories = (
-  facts: readonly MemoryFileFact[],
+  facts: readonly ExtractionFact[],
   exchange: string
 ): string[] => {
-  // Use a tree-wide ordinal: sourceOrdinal alone restarts in each monthly file.
   const indexed = facts.map((fact, order) => ({ fact, order }));
   type IndexedFact = (typeof indexed)[number];
   const byRecency = (left: IndexedFact, right: IndexedFact): number =>
     right.fact.createdAt.getTime() - left.fact.createdAt.getTime() || right.order - left.order;
   const rank = ({ fact }: IndexedFact): number =>
     Math.log2(fact.importance) + fact.createdAt.getTime() / (30 * 86_400_000);
-  const profile = indexed.filter(({ fact }) => fact.sourcePath === "profile.md").sort(byRecency);
-  const logs = indexed.filter(({ fact }) => fact.sourcePath !== "profile.md").sort(byRecency);
+  const profile = indexed.filter(({ fact }) => fact.tier === "profile").sort(byRecency);
+  const logs = indexed.filter(({ fact }) => fact.tier !== "profile").sort(byRecency);
   const recent = [...logs].sort(
     (left, right) => rank(right) - rank(left) || byRecency(left, right)
   );
@@ -111,25 +112,4 @@ export const parseExtractedMemories = (
     result.additions.push({ content, kind: tag === "profile" ? "profile" : "log" });
   }
   return result;
-};
-
-/** Caller holds the same bot-file mutation lock used by explicit writes. */
-export const applyExtractedMemories = async (
-  root: string,
-  extraction: ExtractedMemories,
-  knownMemories: readonly string[],
-  now: Date
-): Promise<{ added: string[]; removed: string[] }> => {
-  const knownKeys = new Set(knownMemories.map(memoryKey));
-  const removed: string[] = [];
-  for (const content of extraction.removals) {
-    if (!knownKeys.has(memoryKey(content))) continue;
-    if ((await forgetMemoryFact(root, content)).forgotten) removed.push(content);
-  }
-  const added: string[] = [];
-  for (const fact of extraction.additions) {
-    if ((await appendMemoryFact(root, fact.content, fact.kind, now)).added)
-      added.push(fact.content);
-  }
-  return { added, removed };
 };

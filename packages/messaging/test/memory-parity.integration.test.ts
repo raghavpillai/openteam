@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPrismaClient } from "@openteam/db";
 import { AgentDataStore, type MemoryInferenceRequest } from "../src/agent-data";
-import { readMemoryTree } from "../src/memory-files";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 const databaseTest = databaseUrl ? test : test.skip;
@@ -109,9 +108,8 @@ databaseTest(
 
       expect(requests[0]?.prompt).toContain(longUser);
 
-      const root = store.memoryDirectory(botId, "agent");
-      const facts = await readMemoryTree(root);
-      expect(facts.map(({ content }) => content)).toEqual(
+      const facts = await prisma.memoryFact.findMany({ where: { namespace: `agent:${botId}` } });
+      expect(facts.map(({ fact }) => fact)).toEqual(
         expect.arrayContaining([
           "Prefers visual explanations.",
           "Lives in NYC.",

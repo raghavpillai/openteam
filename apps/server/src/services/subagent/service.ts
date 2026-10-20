@@ -532,15 +532,7 @@ export class SubagentService {
     if (!subagent) {
       return this.launch(context, { ...input, resume: undefined }, restoredId);
     }
-    // History keeps workers of types that no longer run.
-    const type = subagent.subagentType;
-    if (!Schema.is(SubagentType)(type)) {
-      throw new ApiError(
-        409,
-        "subagent_type_retired",
-        `${type} subagents are no longer available, so this one can't be resumed. Start a new Task instead; computerUse handles browser and desktop work.`
-      );
-    }
+    const type = Schema.decodeUnknownSync(SubagentType)(subagent.subagentType);
     if (["provisioning", "queued", "running"].includes(subagent.status)) {
       throw new ApiError(
         409,

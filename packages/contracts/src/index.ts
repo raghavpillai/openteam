@@ -1670,8 +1670,7 @@ export interface SubagentActivityView {
   parentToolCallId: string;
   currentRunId: string | null;
   description: string;
-  /** Stored type. History can name a type that is no longer offered. */
-  subagentType: string;
+  subagentType: SubagentType;
   runInBackground: boolean;
   status: "provisioning" | "queued" | "running" | "completed" | "failed" | "stopped";
   /** Sanitized completion candidate. It is never inserted into chat automatically. */

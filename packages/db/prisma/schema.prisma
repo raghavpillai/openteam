@@ -175,10 +175,6 @@ enum IdempotencyStatus {
 enum MemoryScope {
   agent
   user
-  // Unused since projects were removed. `prisma db push` won't drop an enum value without --accept-data-loss.
-  project
-  // Unused since conversation memory was removed; archived bots still have rows with it.
-  conversation
 }
 
 enum MemoryTier {
@@ -249,11 +245,6 @@ model Bot {
   draftingDisabled Boolean      @default(false)
   /// Lowercased addresses this Bot may email without a review card.
   draftAllowedRecipients String[] @default([])
-  // Unused since memory dreaming was removed. `prisma db push` won't drop a non-empty column without --accept-data-loss.
-  dreamingEnabled     Boolean     @default(false)
-  // Unused since episode summaries were removed; kept because db push won't drop a non-empty column.
-  episodePending      Int         @default(0)
-  episodeTurns        Json        @default("[]")
   /// Exchanges whose memory extraction has not finished; one left after a restart is reviewed with the next turn.
   pendingMemoryExchanges Json     @default("[]")
   avatarPath       String?
@@ -289,7 +280,6 @@ model Bot {
   pluginActivities PluginActivity[]
   pluginInvocations PluginInvocation[]
   contextSessions ContextSession[]
-  memoryConversations MemoryConversation[]
   processSecrets ProcessSecret[]
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
@@ -327,9 +317,6 @@ model Subagent {
   subagentType     String
   model            String?
   reasoning        String?
-  // Retired worker-mode flag: nothing reads or writes it. Deploys run `db push` without
-  // --accept-data-loss, which cannot drop a column that still holds values.
-  combinedComputerUse Boolean @default(false)
   taskConfiguration Json?
   fileAttachments  Json           @default("[]")
   runInBackground  Boolean        @default(true)
@@ -381,20 +368,14 @@ model MemoryFact {
   namespace      String
   scope          MemoryScope
   tier           MemoryTier  @default(log)
-  // Unused since conversation memory was removed; kept because db push won't drop a non-empty column.
-  memoryConversationId String? @db.Uuid
-  memoryConversation MemoryConversation? @relation(fields: [memoryConversationId], references: [id], onDelete: Cascade)
   fact           String
   factHash       String
   logicalId      String      @default("")
-  // Where a fact sat in the memory files it was indexed from before rows became the source of truth.
-  sourcePath     String      @default("")
   // Insertion order within the namespace; breaks createdAt ties.
   sourceOrdinal  Int         @default(0)
-  sourceLine     Int         @default(0)
   importance     Float       @default(1)
-  // How the fact was saved: tool, extract or template; "filesystem" for facts indexed from memory files.
-  origin         String      @default("legacy")
+  // How the fact was saved: tool, extract or template.
+  origin         String      @default("tool")
   // The run that saved the fact, when there was one.
   turnId         String?
   writtenByBotId String?      @db.Uuid
@@ -402,32 +383,9 @@ model MemoryFact {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  @@unique([namespace, sourcePath, sourceOrdinal])
   @@index([namespace, logicalId, createdAt])
   @@index([namespace, tier, updatedAt])
   @@index([writtenByBotId, updatedAt])
-  @@index([memoryConversationId, tier, createdAt])
-}
-
-// Unused since conversation memory and its audience partitions were removed.
-// Kept because db push won't drop a non-empty table.
-model MemoryConversation {
-  id          String @id @default(uuid()) @db.Uuid
-  botId       String @db.Uuid
-  bot         Bot @relation(fields: [botId], references: [id], onDelete: Cascade)
-  address     String
-  audienceKey String
-  userScope   String
-  defaultScope String
-  teamShared  Boolean @default(false)
-  episodeTurns Json @default("[]")
-  facts       MemoryFact[]
-  runs        Run[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@unique([botId, address, audienceKey])
-  @@index([botId, audienceKey])
 }
 
 model SavedSkill {
@@ -737,12 +695,6 @@ model ContextPromptSnapshot {
   systemDescription     String         @default("")
   announcedName         String         @default("")
   announcedDescription  String         @default("")
-  // Unused since the second memory freeze was removed; kept because db push won't drop a non-empty column.
-  memoryEpoch           Int            @default(-1)
-  memoryRender          String         @default("")
-  memoryHasFacts        Boolean        @default(false)
-  // The memory prompt version; a new one drops promptSections.memory once.
-  memoryAudienceKey     String         @default("")
   skillEpoch            Int            @default(-1)
   skillRender           String         @default("")
   promptSections        Json           @default("{}")
@@ -759,8 +711,6 @@ model AgentPromptSnapshot {
   systemDescription     String   @default("")
   announcedName         String   @default("")
   announcedDescription  String   @default("")
-  // The memory prompt version; a new one drops promptSections.memory once.
-  memoryAudienceKey     String   @default("")
   skillEpoch            Int      @default(-1)
   skillRender           String   @default("")
   promptSections        Json     @default("{}")
@@ -813,9 +763,6 @@ model Run {
   bot            Bot          @relation(fields: [botId], references: [id], onDelete: Cascade)
   conversationId String       @db.Uuid
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  // Unused since conversation memory was removed; kept because db push won't drop a non-empty column.
-  memoryConversationId String? @db.Uuid
-  memoryConversation MemoryConversation? @relation(fields: [memoryConversationId], references: [id], onDelete: SetNull)
   userMessageId  String       @unique @db.Uuid
   status         RunStatus    @default(queued)
   runtimeTurnId  String?

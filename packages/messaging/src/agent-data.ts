@@ -112,8 +112,6 @@ const AVATAR_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"] as 
 const MEMORY_INFERENCE_DEADLINE_MS = 90_000;
 const MAX_HELD_MEMORY_EXCHANGES = 5;
 const AGENT_LOCK = "openteam-agent-data";
-// Stored in the prompt snapshots' memoryAudienceKey; a new value re-renders frozen memory once.
-const MEMORY_PROMPT_VERSION = "native-agent-v2";
 const ROOT_SETTINGS_VERSION = 1;
 const MAX_FILE_WARNINGS = 20;
 const MAX_SAVED_SKILLS = 100;
@@ -2530,15 +2528,6 @@ export class AgentDataStore {
     }
 
     const sharedConversation = await this.isSharedConversation(botId, channelId);
-    // A new memory prompt version re-renders each conversation's pinned memory once.
-    if (snapshot.memoryAudienceKey !== MEMORY_PROMPT_VERSION) {
-      const sections = { ...parsePromptSections(snapshot.promptSections) };
-      delete sections.memory;
-      const data = { memoryAudienceKey: MEMORY_PROMPT_VERSION, promptSections: asInputJson(sections) };
-      snapshot = contextSessionId
-        ? await this.prisma.contextPromptSnapshot.update({ where: { contextSessionId }, data })
-        : await this.prisma.agentPromptSnapshot.update({ where: { botId }, data });
-    }
     const memory = await this.renderMemory(botId, sharedConversation);
 
     let skillRender: string;
@@ -2686,7 +2675,7 @@ export class AgentDataStore {
     const names = new Map(writers.map((writer) => [writer.id, writer.name]));
     const own = facts.filter((fact) => fact.scope !== "user").sort((a, b) =>
       Number(b.tier === "profile") - Number(a.tier === "profile") || b.createdAt.getTime() - a.createdAt.getTime() ||
-      (a.sourcePath < b.sourcePath ? 1 : a.sourcePath > b.sourcePath ? -1 : 0) || b.sourceOrdinal - a.sourceOrdinal);
+      b.sourceOrdinal - a.sourceOrdinal);
     const shared = new Map<string, (typeof facts)[number]>();
     for (const fact of facts.filter((fact) => fact.scope === "user").sort((a, b) => (a.writtenByBotId ?? "").localeCompare(b.writtenByBotId ?? ""))) {
       const key = normalizeMemoryContent(fact.fact).toLowerCase();

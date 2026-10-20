@@ -9,7 +9,6 @@ const snapshot = (overrides: Record<string, unknown> = {}) => ({
   systemDescription: "Description",
   announcedName: "Bot",
   announcedDescription: "Description",
-  memoryAudienceKey: "native-agent-v2",
   promptSections: {},
   skillEpoch: 7,
   skillRender: "Frozen skills",
@@ -64,20 +63,6 @@ describe("prompt-context frozen epoch fast path", () => {
     expect(fixture.calls).toEqual({ memory: 1, skills: 0, updates: [] });
     expect(context.memory).toEqual({ policy: "Memory policy", facts: "Live facts" });
     expect(context.skillRender).toBe("Frozen skills");
-  });
-
-  test("a snapshot from an older memory prompt drops its pinned memory once", async () => {
-    const fixture = promptStore(snapshot({
-      memoryAudienceKey: "native-agent-v1:",
-      promptSections: {
-        memory: { render: "Durable memory with the old policy", compactionEpoch: 7 },
-        automations: { render: "Frozen routines", compactionEpoch: 7 },
-      },
-    }));
-    await fixture.store.promptContext("bot-1");
-    expect(fixture.calls.updates).toEqual([
-      { memoryAudienceKey: "native-agent-v2", promptSections: { automations: { render: "Frozen routines", compactionEpoch: 7 } } },
-    ]);
   });
 
   test("existing frozen sessions receive installed skills without resetting the user workflow snapshot", async () => {

@@ -181,10 +181,10 @@ dbTest(
       const fact = "CONTROL914 historical duplicate.";
       await store.writeMemory(botId, { scope: "agent", tier: "profile", fact });
       await store.writeMemory(botId, { scope: "agent", tier: "log", fact: "CONTROL914 log-only fact." });
-      // Facts indexed from hand-edited memory files could repeat a line.
+      // Deleting a fact removes every row that records it.
       const copy = await app.prisma.memoryFact.findFirstOrThrow({ where: { namespace: `agent:${botId}`, fact } });
       const { id: _id, ...duplicate } = copy;
-      await app.prisma.memoryFact.create({ data: { ...duplicate, sourcePath: "log/2026-09.md", tier: "log" } });
+      await app.prisma.memoryFact.create({ data: { ...duplicate, sourceOrdinal: duplicate.sourceOrdinal + 1, tier: "log" } });
       const listed = await client.botMemories(botId);
       expect(listed.total).toBe(2);
       expect(listed.memories.find((memory) => memory.content === fact)?.kind).toBe("profile");
@@ -214,27 +214,6 @@ dbTest(
       expect((await client.botMemories(botId)).total).toBe(0);
     }),
   30_000
-);
-
-dbTest(
-  "old memory files on the computer are neither read nor changed",
-  async () =>
-    fixture(async ({ store, botId, client }) => {
-      const directory = join(store.botDirectory(botId), "memory");
-      await mkdir(join(directory, "log"), { recursive: true });
-      const text = "# About the user\n\n- (2026-09-14) CONTROL914 fact left on disk.\n";
-      await writeFile(join(directory, "profile.md"), text);
-      await store.startWatching();
-      await store.reconcileBot(botId);
-      await store.writeMemory(botId, { scope: "agent", tier: "log", fact: "CONTROL914 saved to rows." });
-      expect((await client.botMemories(botId)).memories.map((memory) => memory.content)).toEqual([
-        "CONTROL914 saved to rows.",
-      ]);
-      expect(await store.recallMemory(botId, { query: "left on disk" })).toStartWith("No facts");
-      expect((await client.clearBotMemories(botId)).total).toBe(0);
-      expect(await readFile(join(directory, "profile.md"), "utf8")).toBe(text);
-      expect(await readdir(join(directory, "log"))).toEqual([]);
-    })
 );
 
 dbTest(

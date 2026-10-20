@@ -247,7 +247,6 @@ test("agent-data files are authoritative and preserve malformed settings", async
     expect(
       JSON.parse(await readFile(join(root, "agents", groupId, "profile.json"), "utf8"))
     ).toEqual({ name: "Filesystem room", description: "Coordinates filesystem parity." });
-    await mkdir(join(botDirectory, "memory", "log"), { recursive: true });
     await mkdir(join(botDirectory, "skills", skillId), { recursive: true });
     const avatarBytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
     await writeFile(join(botDirectory, "avatar.png"), avatarBytes);
@@ -277,15 +276,6 @@ test("agent-data files are authoritative and preserve malformed settings", async
         null,
         2
       )
-    );
-    await writeFile(
-      join(botDirectory, "memory", "profile.md"),
-      [
-        "# About the user",
-        "<!-- Safe to read, grep, and edit. -->",
-        "- (2026-08-27) The bot remembers hand-edited Markdown.",
-        "",
-      ].join("\n")
     );
     await writeFile(
       join(botDirectory, "skills", skillId, "SKILL.md"),
@@ -321,22 +311,6 @@ test("agent-data files are authoritative and preserve malformed settings", async
       join(root, "agents", groupId, "profile.json"),
       JSON.stringify({ name: "Hand-edited room", description: "" }, null, 2)
     );
-    await mkdir(join(root, "user-memory", "by-agent", botId), {
-      recursive: true,
-    });
-    await writeFile(
-      join(root, "user-memory", "by-agent", botId, "profile.md"),
-      [
-        "# About the user",
-        "- (2026-08-27) The user likes generated files.",
-        "- (2026-08-27) Shared user memory is one global namespace.",
-        "",
-      ].join("\n")
-    );
-    // Memory files and folders left by retired features are neither imported nor deleted.
-    const leftoverShard = join(root, "projects", "file-parity", "memory", "by-agent", botId, "profile.md");
-    await mkdir(join(leftoverShard, ".."), { recursive: true });
-    await writeFile(leftoverShard, "- (2026-08-27) A leftover shard is not memory.\n");
 
     const reconciled = await store.reconcileBot(botId);
     expect(reconciled.warnings).toEqual([]);
@@ -355,14 +329,6 @@ test("agent-data files are authoritative and preserve malformed settings", async
     expect(await prisma.channel.findUniqueOrThrow({ where: { id: groupId } })).toMatchObject({
       name: "Hand-edited room",
     });
-    expect(await prisma.memoryFact.count({ where: { writtenByBotId: botId } })).toBe(0);
-    expect(await readFile(join(botDirectory, "memory", "profile.md"), "utf8")).toContain(
-      "The bot remembers hand-edited Markdown."
-    );
-    expect(
-      await readFile(join(root, "user-memory", "by-agent", botId, "profile.md"), "utf8")
-    ).toContain("Shared user memory is one global namespace.");
-    expect(await readFile(leftoverShard, "utf8")).toContain("A leftover shard is not memory.");
     expect(await prisma.savedSkill.findUniqueOrThrow({ where: { id: skillId } })).toMatchObject({
       name: "Edited skill",
       body: "# Edited body",

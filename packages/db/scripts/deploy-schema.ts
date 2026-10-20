@@ -24,6 +24,69 @@ const prepareSearchProjection = async (): Promise<boolean> => {
   }
 };
 
+// db push without --accept-data-loss refuses to drop storage that still holds values, so
+// storage the app no longer has is dropped here first. Every statement is a no-op once done.
+const RETIRE_UNUSED_STORAGE = `
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+      AND table_name = 'ContextPromptSnapshot' AND column_name = 'memoryAudienceKey') THEN
+    -- Frozen memory from the old prompt layout re-renders once.
+    UPDATE "ContextPromptSnapshot" SET "promptSections" = "promptSections" - 'memory';
+    UPDATE "AgentPromptSnapshot" SET "promptSections" = "promptSections" - 'memory';
+  END IF;
+  IF to_regclass('"Subagent"') IS NOT NULL THEN
+    UPDATE "Subagent" SET "subagentType" = 'computerUse' WHERE "subagentType" = 'browserUse';
+    UPDATE "Subagent" SET "taskConfiguration" = "taskConfiguration" - 'combinedComputerUse'
+      WHERE "taskConfiguration" ? 'combinedComputerUse';
+  END IF;
+  IF to_regclass('"Run"') IS NOT NULL THEN
+    UPDATE "Run" SET "taskConfiguration" = "taskConfiguration" - 'combinedComputerUse'
+      WHERE "taskConfiguration" ? 'combinedComputerUse';
+  END IF;
+  IF to_regclass('"TaskSettings"') IS NOT NULL THEN
+    UPDATE "TaskSettings" SET "configuration" = "configuration" - 'combinedComputerUse'
+      WHERE "configuration" ? 'combinedComputerUse';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+      WHERE t.typnamespace = current_schema()::regnamespace AND t.typname = 'MemoryScope'
+        AND e.enumlabel NOT IN ('agent', 'user')) THEN
+    DELETE FROM "MemoryFact" WHERE "scope"::text NOT IN ('agent', 'user');
+    ALTER TYPE "MemoryScope" RENAME TO "MemoryScope_retired";
+    CREATE TYPE "MemoryScope" AS ENUM ('agent', 'user');
+    ALTER TABLE "MemoryFact" ALTER COLUMN "scope" TYPE "MemoryScope" USING "scope"::text::"MemoryScope";
+    DROP TYPE "MemoryScope_retired";
+  END IF;
+END $$;
+ALTER TABLE IF EXISTS "MemoryFact" DROP COLUMN IF EXISTS "memoryConversationId",
+  DROP COLUMN IF EXISTS "sourcePath", DROP COLUMN IF EXISTS "sourceLine";
+ALTER TABLE IF EXISTS "Run" DROP COLUMN IF EXISTS "memoryConversationId";
+DROP TABLE IF EXISTS "MemoryConversation";
+ALTER TABLE IF EXISTS "Bot" DROP COLUMN IF EXISTS "dreamingEnabled",
+  DROP COLUMN IF EXISTS "episodePending", DROP COLUMN IF EXISTS "episodeTurns";
+ALTER TABLE IF EXISTS "ContextPromptSnapshot" DROP COLUMN IF EXISTS "memoryEpoch",
+  DROP COLUMN IF EXISTS "memoryRender", DROP COLUMN IF EXISTS "memoryHasFacts",
+  DROP COLUMN IF EXISTS "memoryAudienceKey";
+ALTER TABLE IF EXISTS "AgentPromptSnapshot" DROP COLUMN IF EXISTS "memoryAudienceKey";
+ALTER TABLE IF EXISTS "Subagent" DROP COLUMN IF EXISTS "combinedComputerUse";
+`;
+
+const retireUnusedStorage = async () => {
+  const client = new Client({ connectionString });
+  await client.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(RETIRE_UNUSED_STORAGE);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    await client.end();
+  }
+};
+
+await retireUnusedStorage();
 const schemaWasPrepared = await prepareSearchProjection();
 const prisma = Bun.spawn(
   [

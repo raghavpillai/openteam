@@ -77,7 +77,6 @@ test.skipIf(!databaseUrl)(
             if (input.content.includes("WP_ROUTINE_CHILD")) await routineChildGate;
             if (input.subagentType === "computerUse") {
               expect(input.taskConfiguration).toMatchObject({ graphicalAvailable: true });
-              expect(input.taskConfiguration).not.toHaveProperty("combinedComputerUse");
               expect(input.instructions).toContain("Computer and the browser_* tools");
               expect(input.model).not.toContain("ignored-model");
             }

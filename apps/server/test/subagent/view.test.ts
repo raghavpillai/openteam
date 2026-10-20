@@ -25,13 +25,6 @@ const storedSubagent = (result: string | null, error: unknown = null) => ({
 });
 
 describe("subagent activity view", () => {
-  test("keeps the stored type of a worker that no longer runs", () => {
-    const stored = storedSubagent("Done.");
-    const view = subagentActivityView({ ...stored, subagent: { ...stored.subagent, subagentType: "browserUse" } });
-    expect(view.subagentType).toBe("browserUse");
-    expect(view.status).toBe("completed");
-  });
-
   test("keeps child completion text out of the renderer snapshot", () => {
     const view = subagentActivityView(
       storedSubagent(

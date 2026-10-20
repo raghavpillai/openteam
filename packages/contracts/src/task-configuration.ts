@@ -28,8 +28,6 @@ export function parseTaskConfiguration(input: unknown): TaskConfiguration {
           "defaultExecutorProfile",
           "graphicalAvailable",
           "disabledToolIdentifiers",
-          // Retired worker-mode switch, still in saved settings and run snapshots. Ignored.
-          "combinedComputerUse",
         ].includes(key)
     )
   )

@@ -108,17 +108,8 @@ test("the roster names one graphical worker for browser and desktop work", () =>
   expect(headless).not.toContain("dispatch browser and desktop work to computerUse");
 });
 
-test("saved settings and snapshots with the retired worker-mode switch still load", () => {
-  for (const combinedComputerUse of [true, false]) {
-    const stored = { ...config, combinedComputerUse };
-    expect(parseTaskConfiguration(stored)).toEqual(config);
-    expect(parseTaskConfiguration(JSON.parse(JSON.stringify(stored)))).not.toHaveProperty(
-      "combinedComputerUse"
-    );
-  }
-  expect(parseTaskConfiguration({ combinedComputerUse: true, executorProfiles: [] })).toEqual(
-    defaultTaskConfiguration()
-  );
+test("settings outside the Task configuration are refused", () => {
+  expect(() => parseTaskConfiguration({ ...config, combinedComputerUse: true })).toThrow("Unknown Task setting");
 });
 
 test("invalid and ambiguous profile configurations cannot be saved", () => {

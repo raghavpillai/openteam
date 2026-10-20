@@ -48,24 +48,6 @@ describe("OpenTeam-compatible subagent launch semantics", () => {
     expect(result).toContain("Agent ID: sand-subagent-278ef2fe-2d3f-4689-bfa5-b506254f1cc3");
   });
 
-  test("a stored worker of a retired type cannot be resumed", async () => {
-    let transactions = 0;
-    const db: any = {
-      subagent: {
-        findFirst: async () => ({ id: "278ef2fe-2d3f-4689-bfa5-b506254f1cc3", subagentType: "browserUse", status: "completed" }),
-      },
-      $transaction: async () => { transactions += 1; },
-    };
-    const service = new SubagentService(db, null as any, null as any, "/workspace", null as any, null as any) as any;
-    const resumed = service.resume(
-      { botId: "parent", runId: "parent-run", channelId: "channel", callId: "call" },
-      { description: "Check again", prompt: "Open the page again.", resume: "sand-subagent-278ef2fe-2d3f-4689-bfa5-b506254f1cc3" }
-    );
-    await expect(resumed).rejects.toMatchObject({ code: "subagent_type_retired" });
-    await expect(resumed).rejects.toThrow("browserUse subagents are no longer available");
-    expect(transactions).toBe(0);
-  });
-
   test("has no generic child pool cap and locks only computerUse per parent", async () => {
     let countCalls = 0;
     const available = {

@@ -14,7 +14,7 @@ export const memoryLogicalId = (content: string): string =>
     .digest("hex")
     .slice(0, 16);
 
-/** Facts saved before notes and episodes were retired keep their prefixes and weights. */
+/** A learned note keeps its [note] prefix; episode facts rank above other journal facts and notes below them. */
 export const memoryTier = (content: string, tier: "profile" | "log"): "profile" | "log" | "note" =>
   content.startsWith("[note] ") ? "note" : tier;
 

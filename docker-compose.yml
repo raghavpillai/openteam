@@ -119,7 +119,7 @@ services:
       - seccomp:unconfined
       - apparmor:unconfined
       - label:disable
-      - systempaths:unconfined
+      - systempaths=unconfined
     devices:
       - /dev/net/tun:/dev/net/tun
     healthcheck:

@@ -11,7 +11,7 @@ services:
     mem_limit: 3g
     memswap_limit: 3g
     cap_add: [ALL]
-    security_opt: [seccomp:unconfined, apparmor:unconfined, label:disable, systempaths:unconfined]
+    security_opt: [seccomp:unconfined, apparmor:unconfined, label:disable, systempaths=unconfined]
     devices: [/dev/net/tun:/dev/net/tun]
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=512m

@@ -370,7 +370,6 @@ const canaryServer = Bun.serve({
       choices = [{ index: 0, delta: { role: "assistant" }, finish_reason: "stop" }];
     } else {
       canaryMemoryInferenceCount += 1;
-      const input = JSON.stringify(messages);
       const content = '{"facts":[]}';
       choices = [{ index: 0, delta: { role: "assistant", content }, finish_reason: "stop" }];
     }

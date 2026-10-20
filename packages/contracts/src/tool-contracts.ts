@@ -339,6 +339,14 @@ contracts.SendFeedback!.inputSchema.properties.wantsResponse = {
 };
 contracts.SendFeedback!.inputSchema.required = [...contracts.SendFeedback!.inputSchema.required, "wantsResponse"];
 
+// Routine writes apply directly; there is no confirmation card.
+adaptDescription("UpdateRoutine", [
+  [
+    "\nCreating or changing a routine may ask the user to confirm, since it's the one change that acts while they're away. If it does, they'll see a card and you'll get their answer back as the tool result; don't ask first, and don't retry a denied write.",
+    "",
+  ],
+]);
+
 // StopSubagent reaches this agent's own subagents only; there are no cloud agents.
 adaptDescription("StopSubagent", [
   [
@@ -393,7 +401,12 @@ adaptDescription("request_box_help", [
   [" It is the last step of the `sign-in` skill.", ""],
   [
     "one-time code you cannot read from an inbox goes to RequestUserForm first when it is among your tools, embedded and cross-origin fields included; entering the card itself is the Secure Form.",
-    "one-time code you cannot get from the user's connected sources goes to RequestUserForm first when it is among your tools, embedded and cross-origin fields included.",
+    "one-time code you cannot get from the user's connected sources goes to RequestUserForm first when it is among your tools, fields in same-origin frames included.",
+  ],
+  // The form host refuses a cross-origin frame, so that field comes here directly.
+  [
+    "Hand off only when that tool is not offered, the step is not a typed field, or the host",
+    "Hand off only when that tool is not offered, the step is not a typed field, the field is inside a cross-origin iframe, or the host",
   ],
 ]);
 adaptArgument("request_box_help", "reason", [['"auth" for any sign-in step (login, SSO, passkey, 2FA),', '"auth" for a sign-in step,']]);

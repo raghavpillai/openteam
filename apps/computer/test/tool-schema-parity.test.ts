@@ -36,7 +36,7 @@ describe("captured tool contract wiring", () => {
     const task = (runtime as any).dynamicCatalog(active).flatMap((namespace: any) => namespace.tools).find((tool: any) => tool.name === "Task");
     expect(task.inputSchema).toEqual(taskToolContract(taskConfiguration).inputSchema);
     const userInfo = enrichUserInfo("<user_info></user_info>", { cwd: "/tmp", transcriptPath: "/tmp/transcript", namespaces: [], taskConfiguration });
-    expect(userInfo).toContain("computerUse: browser and desktop work");
+    expect(userInfo).toContain("computerUse: Delegate a self-contained browser or desktop task");
     // Worker inference is server-controlled; profiles are not model-selectable.
     expect(userInfo).not.toContain("quick: Small jobs");
     const computer = runtime.customTools({ ...active, runtimeProfile: "subagent", subagentType: "computerUse" });

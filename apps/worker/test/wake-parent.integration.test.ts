@@ -131,7 +131,7 @@ test.skipIf(!databaseUrl)(
               const parentContext = await app!.prisma.contextSession.findUniqueOrThrow({ where: { id: input.contextSessionId } });
               const refreshed = await call("RefreshPromptContext", { contextSessionId: input.contextSessionId, epoch: parentContext.compactionEpoch });
               expect((refreshed as any).instructions).toContain("quick: Short fixture tasks");
-              expect((refreshed as any).instructions).toContain("computerUse: browser and desktop work");
+              expect((refreshed as any).instructions).toContain("computerUse: Delegate a self-contained browser or desktop task");
               const result=await call("Task",{description:"Foreground fixture",prompt:"WP_FOREGROUND_CHILD",subagent_type:"executor",run_in_background:false,model:"quick"});
               expect(String(result)).toContain("WP_FOREGROUND_RESULT");
               const id = /Agent ID: (sand-subagent-[\da-f-]+)/.exec(String(result))?.[1];

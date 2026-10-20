@@ -633,7 +633,8 @@ describe("API contracts", () => {
     expect(UPDATE_MEMORY_TOOL.description).not.toContain("memory folder");
     const routine = UPDATE_ROUTINE_TOOL.inputSchema as { properties: Record<string, { enum?: string[] }> };
     expect(routine.properties.action?.enum).toEqual(["create", "update", "pause", "resume", "delete"]);
-    expect(UPDATE_ROUTINE_TOOL.description).toContain("may ask the user to confirm");
+    // Routine writes apply directly; no confirmation card exists.
+    expect(UPDATE_ROUTINE_TOOL.description).not.toContain("confirm");
     expect(Object.keys((UPDATE_PROFILE_TOOL.inputSchema as { properties: object }).properties)).toEqual([
       "name", "description", "title", "avatar_shape", "avatar_color", "hidden_from_sidebar", "notify_on_updates",
     ]);

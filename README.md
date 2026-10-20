@@ -15,8 +15,8 @@ take over when needed, or come back when the work is done.
 
 - **Give bots a computer.** Each bot has its own screen and browser. All bots share a workspace
   and website sign-ins, so they can build on each other's files and you only sign in once.
-- **Keep context.** Conversations resume after restarts. Bots keep editable Markdown memory
-  about themselves, you, and your projects.
+- **Keep context.** Conversations resume after restarts. Bots remember what they learn about
+  themselves and you across conversations.
 - **Work as a team.** Bring multiple bots into a group chat, let them message each other, or delegate
   tasks to subagents.
 - **Automate recurring work.** Save instructions as routines that run on a schedule or respond

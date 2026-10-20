@@ -230,10 +230,9 @@
               "executor",
               "videoReview",
               "watchVideo",
-              "computerUse",
-              "browserUse"
+              "computerUse"
             ],
-            "description": "Subagent type to use for this task. Must be one of: executor, videoReview, watchVideo, computerUse, browserUse."
+            "description": "Subagent type to use for this task. Must be one of: executor, videoReview, watchVideo, computerUse."
           },
           "file_attachments": {
             "type": "array",

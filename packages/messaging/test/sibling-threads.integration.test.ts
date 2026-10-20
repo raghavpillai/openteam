@@ -39,7 +39,9 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)("other conversations list v
     const current=await db.contextSession.create({data:{botId,scope:"channel",scopeId:ids[0]!}});
     const sibling=await db.contextSession.create({data:{botId,scope:"channel",scopeId:ids[1]!}});
     await db.contextSession.create({data:{botId,scope:"channel",scopeId:ids[2]!}});
-    for(let i=1;i<=3;i++)await db.channelMessage.create({data:{channelId:ids[1]!,sender:i%2?"user":"agent",senderBotId:i%2?null:botId,content:`Visible row ${i}`}});
+    // Distinct times: rows written in the same millisecond have no defined transcript order.
+    const sentAt=Date.now();
+    for(let i=1;i<=3;i++)await db.channelMessage.create({data:{channelId:ids[1]!,sender:i%2?"user":"agent",senderBotId:i%2?null:botId,content:`Visible row ${i}`,createdAt:new Date(sentAt+i)}});
     const listed=await listSiblingThreads(db,botId,current.id);
     expect(listed).toEqual([{sessionId:sibling.id,channelId:ids[1]!,name:`Room ${ids[1]}`,kind:"group chat",lastActivityAt:expect.any(Date)}]);
     // The listed session is readable by session_id; the transcript tool replaced the sibling reader.

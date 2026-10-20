@@ -1,16 +1,16 @@
 import managedSkills from "./prompts/managed-skills.json";
 import { managedSkillIsForMain } from "./managed-skill-agents";
 import { join } from "node:path";
-import grokPlatform from "./prompts/grok-platform.json";
+import platformPrompt from "./prompts/platform.json";
 import { INLINE_WORKFLOWS } from "./prompts/inline-workflows";
 import { EXECUTION_EVIDENCE_INSTRUCTIONS } from "./prompts/execution-evidence";
 import { resolveTimeZone } from "./timestamps";
 import { AUTHENTICATION_INSTRUCTIONS } from "./prompts/authentication";
 
 /** Standalone, reviewed runtime asset; never load the local findings directory. */
-export const PLATFORM_SYSTEM_PROMPT_VERSION = grokPlatform.version;
+export const PLATFORM_SYSTEM_PROMPT_VERSION = platformPrompt.version;
 export const PLATFORM_BASE_SYSTEM_PROMPT = [
-  ...grokPlatform.sections.map(({ text }) => text),
+  ...platformPrompt.sections.map(({ text }) => text),
   AUTHENTICATION_INSTRUCTIONS,
 ]
   .join("\n\n");

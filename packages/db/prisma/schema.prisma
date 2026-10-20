@@ -250,6 +250,7 @@ model Bot {
   draftAllowedRecipients String[] @default([])
   // Unused since memory dreaming was removed. `prisma db push` won't drop a non-empty column without --accept-data-loss.
   dreamingEnabled     Boolean     @default(false)
+  // Unused since episode summaries were removed; kept because db push won't drop a non-empty column.
   episodePending      Int         @default(0)
   episodeTurns        Json        @default("[]")
   avatarPath       String?

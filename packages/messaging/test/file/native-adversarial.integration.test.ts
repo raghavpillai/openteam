@@ -807,21 +807,6 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       "avatar source must stay inside"
     );
 
-    await store.recordTurnMemory(firstBotId, {
-      user: "Thanks!",
-      assistant: "You're welcome.",
-    });
-    expect((await prisma.bot.findUniqueOrThrow({ where: { id: firstBotId } })).episodePending).toBe(
-      0
-    );
-    await store.recordTurnMemory(firstBotId, {
-      user: "Should this memorable question advance the episode counter?",
-      assistant: "Yes.",
-    });
-    expect((await prisma.bot.findUniqueOrThrow({ where: { id: firstBotId } })).episodePending).toBe(
-      1
-    );
-
     await atomicWrite(join(root, "settings.json"), "{ malformed\n");
     const malformedRootSettings = await store.loadRootSettings();
     expect(malformedRootSettings.valid).toBe(false);

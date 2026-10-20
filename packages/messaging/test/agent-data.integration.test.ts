@@ -72,7 +72,7 @@ test("plugin and managed skill caches use the Bot filesystem contract", async ()
   }
 });
 
-test("turn memory extracts and summarizes episodes", async () => {
+test("turn memory extracts facts from memorable turns", async () => {
   if (!databaseUrl) return;
 
   const prisma = createPrismaClient(databaseUrl);
@@ -83,10 +83,7 @@ test("turn memory extracts and summarizes episodes", async () => {
   const requests: MemoryInferenceRequest[] = [];
   const memoryInference = async (request: MemoryInferenceRequest) => {
     requests.push(request);
-    if (request.kind === "extraction") {
-      return "profile: Prefers lifecycle tests.";
-    }
-    return "Validated memory behavior over six turns.";
+    return "profile: Prefers lifecycle tests.";
   };
   const store = new AgentDataStore(prisma, {
     root,
@@ -113,19 +110,10 @@ test("turn memory extracts and summarizes episodes", async () => {
         occurredAt: Date.parse(`2026-08-${String(20 + turn).padStart(2, "0")}T12:00:00Z`),
       });
     }
-    const afterEpisode = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
-    expect(afterEpisode.episodePending).toBe(0);
-    expect(afterEpisode.episodeTurns).toEqual([]);
     expect(
       (await readMemoryTree(store.memoryDirectory(botId, "agent"))).map((fact) => fact.content)
-    ).toEqual(
-      expect.arrayContaining([
-        "Prefers lifecycle tests.",
-        "[episode] Validated memory behavior over six turns.",
-      ])
-    );
+    ).toEqual(["Prefers lifecycle tests."]);
     expect(requests.filter((request) => request.kind === "extraction")).toHaveLength(6);
-    expect(requests.filter((request) => request.kind === "episode")).toHaveLength(1);
   } finally {
     await prisma.bot.deleteMany({ where: { id: botId } });
     await prisma.$disconnect();

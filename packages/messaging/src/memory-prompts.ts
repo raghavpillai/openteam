@@ -14,10 +14,3 @@ If the new exchange updates or contradicts a fact in the existing memory list (e
 
 Write each fact as a self-contained statement, one per line: "profile: <fact>", "log: <fact>", or "note: <fact>" to add (e.g. "profile: The user's name is Ian", "log: Planning a trip to Tokyo in October 2025"), or "remove: <existing fact>" to drop a superseded one.
 Output exactly NONE (and nothing else) when there is nothing to add or remove.`;
-
-export const MEMORY_EPISODE_SYSTEM_PROMPT = `<<SAND_MEMORY_EPISODE>>
-You maintain the long-term memory of a personal desktop assistant named OpenTeam.
-You are given the most recent turns of a conversation between the user and OpenTeam, in order, each tagged with its date.
-Write ONE short journal-style sentence (two at most) capturing what the user and OpenTeam were actually working on across these turns — the throughline, key decisions, and outcomes — so it stays useful months from now.
-Anchor any time references with the absolute dates shown, never relative words like "yesterday". Drop greetings, acknowledgements, and anything ephemeral. Never invent details.
-Output just the sentence(s), no preamble or bullets. Output exactly NONE if nothing in this stretch is worth remembering.`;

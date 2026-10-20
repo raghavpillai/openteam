@@ -371,9 +371,7 @@ const canaryServer = Bun.serve({
     } else {
       canaryMemoryInferenceCount += 1;
       const input = JSON.stringify(messages);
-      const content = input.includes("SAND_MEMORY_EPISODE")
-        ? '{"narrative":null}'
-        : '{"facts":[]}';
+      const content = '{"facts":[]}';
       choices = [{ index: 0, delta: { role: "assistant", content }, finish_reason: "stop" }];
     }
     const chunks = [

@@ -10,7 +10,7 @@ const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 const databaseTest = databaseUrl ? test : test.skip;
 
 databaseTest(
-  "a turn corrects durable memory, announces the replacement until delivered, and preserves full episode evidence",
+  "a turn corrects durable memory and announces the replacement until delivered",
   async () => {
     const prisma = createPrismaClient(databaseUrl!);
     const temporary = await mkdtemp(join(tmpdir(), "memory-parity-integration-"));
@@ -21,11 +21,8 @@ databaseTest(
     const store = new AgentDataStore(prisma, {
       root: join(temporary, "agent-data"),
       workspaceRoot: workspace,
-      memoryEpisodeInterval: 2,
       memoryInference: async (request) => {
         requests.push(request);
-        if (request.kind === "episode")
-          return "On September 12, 2026, moved to NYC and chose cobalt for the demo.";
         if (requests.filter(({ kind }) => kind === "extraction").length === 1) {
           expect(request.prompt).toContain("Lives in Boston.");
           expect(request.prompt).toContain("Prefers visual explanations.");
@@ -68,7 +65,6 @@ databaseTest(
         hidden: true,
       });
       expect(requests).toHaveLength(0);
-      expect((await prisma.bot.findUniqueOrThrow({ where: { id: botId } })).episodePending).toBe(0);
 
       const longUser = `${"Context ".repeat(300)}I now live in NYC, and cobalt is good for this demo.`;
       await store.recordTurnMemory(botId, {
@@ -76,11 +72,6 @@ databaseTest(
         assistant: "Understood.",
         occurredAt: Date.parse("2026-09-12T10:00:00Z"),
       });
-      const pending = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
-      expect(pending.episodePending).toBe(1);
-      expect(pending.episodeTurns).toEqual([
-        { ts: Date.parse("2026-09-12T10:00:00Z"), user: longUser, agent: "Understood." },
-      ]);
       const current = await store.promptContext(botId, contextId);
       expect(current.memoryRender).toBe(first.memoryRender);
       expect(current.liveMemoryRender).toContain("Lives in NYC.");
@@ -116,16 +107,7 @@ databaseTest(
         ).update
       ).toBeNull();
 
-      await store.recordTurnMemory(botId, {
-        user: "The decision is final for the demo.",
-        assistant: "Recorded.",
-        occurredAt: Date.parse("2026-09-12T11:00:00Z"),
-      });
-      expect(requests.filter(({ kind }) => kind === "episode")).toHaveLength(1);
-      expect(requests.find(({ kind }) => kind === "episode")?.prompt).toContain(longUser);
-      const after = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
-      expect(after.episodePending).toBe(0);
-      expect(after.episodeTurns).toEqual([]);
+      expect(requests[0]?.prompt).toContain(longUser);
 
       const root = store.memoryDirectory(botId, "agent");
       const facts = await readMemoryTree(root);
@@ -134,7 +116,6 @@ databaseTest(
           "Prefers visual explanations.",
           "Lives in NYC.",
           "[note] Likes cobalt for this demo.",
-          "[episode] On September 12, 2026, moved to NYC and chose cobalt for the demo.",
         ])
       );
       const restarted = new AgentDataStore(prisma, { root: store.root, workspaceRoot: workspace });

@@ -323,60 +323,6 @@ databaseTest(
 );
 
 databaseTest(
-  "automatic extraction and episode buffers belong to the bot across rooms",
-  async () => {
-    const requests: Array<{ kind: string; prompt: string }> = [];
-    const f = await fixture({
-      memoryEpisodeInterval: 2,
-      memoryInference: async (request) => {
-        requests.push(request);
-        return request.kind === "episode"
-          ? "Worked on the COBALT launch."
-          : "log: COBALT launch uses amber.";
-      },
-    });
-    try {
-      const [room, sibling, different] = f.rooms;
-      await f.store.recordTurnMemory(f.botId, {
-        memoryConversationId: room!.id,
-        user: "For this room we chose amber for the COBALT launch.",
-        assistant: "Recorded.",
-      });
-      await f.store.recordTurnMemory(f.botId, {
-        memoryConversationId: different!.id,
-        user: "For this other room we chose a separate launch plan.",
-        assistant: "Recorded.",
-      });
-      expect(requests.filter((r) => r.kind === "episode")).toHaveLength(1);
-      await f.store.recordTurnMemory(f.botId, {
-        memoryConversationId: room!.id,
-        user: "Continue developing the COBALT launch with the same amber palette.",
-        assistant: "Done.",
-      });
-      const episode = requests.find((r) => r.kind === "episode")!;
-      expect(episode.prompt).toContain("other room");
-      expect(
-        (await f.prisma.memoryConversation.findUniqueOrThrow({ where: { id: different!.id } }))
-          .episodeTurns
-      ).toHaveLength(0);
-      expect(
-        (await f.prisma.bot.findUniqueOrThrow({ where: { id: f.botId } })).episodePending
-      ).toBe(1);
-      expect(await f.store.recallMemory(f.botId, { query: "COBALT" }, sibling!.id)).toContain(
-        "[episode]"
-      );
-      expect(await f.store.recallMemory(f.botId, { query: "COBALT" }, f.personal.id)).toContain(
-        "launch uses amber"
-      );
-      expect(await f.prisma.memoryFact.count({ where: { writtenByBotId: f.botId, scope: "conversation" } })).toBe(0);
-      expect(await f.prisma.memoryFact.count({ where: { namespace: `agent:${f.botId}`, fact: "COBALT launch uses amber." } })).toBe(1);
-    } finally {
-      await f.cleanup();
-    }
-  }
-);
-
-databaseTest(
   "the complete archive stays readable and writable beyond old file and row ceilings",
   async () => {
     const f = await fixture();

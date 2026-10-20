@@ -4,10 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   applyExtractedMemories,
-  buildEpisodeUserPrompt,
   buildExtractionUserPrompt,
-  getMemoryEpisodeInterval,
-  parseEpisodeNarrative,
   parseExtractedMemories,
 } from "../src/memory-learning";
 import { appendMemoryFact, readMemoryTree } from "../src/memory-files";
@@ -53,25 +50,8 @@ test("corrections remove only supplied facts, preserve unrelated Markdown, and p
   }
 });
 
-test("episode input uses absolute dates and retains important details after character 2000", () => {
-  const user = `${"x".repeat(2100)} The final decision is cobalt.`;
-  const prompt = buildEpisodeUserPrompt([
-    { ts: Date.parse("2026-09-12T12:00:00Z"), user, agent: " Done. " },
-  ]);
-  expect(prompt).toContain("(2026-09-12)");
-  expect(prompt).toContain(user);
-  expect(prompt).toEndWith("OpenTeam: Done.");
-  expect(parseEpisodeNarrative("  NONE \n")).toBeNull();
-  expect(
-    parseEpisodeNarrative(" Chose   cobalt.\nScheduled the review for September 20, 2026. ")
-  ).toBe("Chose cobalt. Scheduled the review for September 20, 2026.");
+test("an empty exchange still renders the extraction prompt shape", () => {
   expect(buildExtractionUserPrompt("", "", [])).toBe(
     "Existing memory:\n(empty)\n\nLatest exchange:\nUser: (no message)\nAssistant: (no message)"
   );
-  expect(
-    getMemoryEpisodeInterval({
-      OPENTEAM_MEMORY_EPISODE_INTERVAL: "3",
-      SAND_MEMORY_EPISODE_INTERVAL: "9",
-    })
-  ).toBe(3);
 });

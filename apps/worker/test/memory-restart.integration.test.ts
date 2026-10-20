@@ -19,7 +19,7 @@ interface TurnInput {
   instructions: string;
 }
 databaseTest(
-  "a real worker process preserves bot-wide memory and episode buffers across a crash",
+  "a real worker process preserves bot-wide memory across a crash",
   async () => {
     const root = await mkdtemp(join(tmpdir(), "worker-memory-routing-"));
     let app: AppService | undefined,
@@ -237,10 +237,6 @@ databaseTest(
             where: { channelId: groupId, status: { in: ["queued", "running"] } },
           })) === 0
       );
-      const beforeRestart = await app.prisma.bot.findMany({
-        where: { id: { in: botIds } },
-        select: { id: true, episodeTurns: true },
-      });
       await worker.crash();
       await worker.start();
       expect(workerPids[0]).not.toBe(workerPids[1]);
@@ -250,28 +246,12 @@ databaseTest(
           clientId: crypto.randomUUID(),
         })
       );
-      await until(
-        async () =>
-          seen.length >= 4 &&
-          (
-            await app!.prisma.bot.findMany({ where: { id: { in: botIds } } })
-          ).filter((c) => Array.isArray(c.episodeTurns) && c.episodeTurns.length >= 2).length === 2
-      );
-      const afterRestart = await app.prisma.bot.findMany({
-        where: { id: { in: botIds } },
-        select: { id: true, episodeTurns: true },
-      });
+      await until(async () => seen.length >= 4);
       for (const original of seen.slice(0, 2)) {
         const next = seen.slice(2).find((x) => x.input.botId === original.input.botId)!;
         expect(next.input.contextSessionId).toBe(original.input.contextSessionId);
         expect(next.recall).toContain("ORBIT-913 background decision uses amber.");
       }
-      expect(
-        beforeRestart.filter((c) => Array.isArray(c.episodeTurns) && c.episodeTurns.length === 1)
-      ).toHaveLength(2);
-      expect(
-        afterRestart.filter((c) => Array.isArray(c.episodeTurns) && c.episodeTurns.length >= 2)
-      ).toHaveLength(2);
       expect(
         await app.prisma.memoryFact.count({
           where: {

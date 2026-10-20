@@ -13,12 +13,6 @@ const TRIVIAL_EXCHANGES = new Set(
   )
 );
 
-export interface MemoryEpisodeTurn {
-  ts: number;
-  user: string;
-  agent: string;
-}
-
 export interface ExtractedMemories {
   additions: Array<{ content: string; kind: "profile" | "log" }>;
   removals: string[];
@@ -36,15 +30,6 @@ export const isMemorableExchange = (userMessage: string): boolean => {
     .replace(/\s+/g, " ")
     .trim();
   return !TRIVIAL_EXCHANGES.has(normalized);
-};
-
-export const getMemoryEpisodeInterval = (
-  env: Record<string, string | undefined> = process.env
-): number => {
-  const raw = env.OPENTEAM_MEMORY_EPISODE_INTERVAL ?? env.SAND_MEMORY_EPISODE_INTERVAL;
-  if (raw == null) return 6;
-  const parsed = Number.parseInt(raw.trim(), 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 6;
 };
 
 /** Profile first, then recent salient history, then up to ten relevant older facts. */
@@ -147,23 +132,4 @@ export const applyExtractedMemories = async (
       added.push(fact.content);
   }
   return { added, removed };
-};
-
-export const buildEpisodeUserPrompt = (turns: readonly MemoryEpisodeTurn[]): string => {
-  const blocks = turns.map((turn) => {
-    const date =
-      Number.isFinite(turn.ts) && turn.ts > 0
-        ? new Date(turn.ts).toISOString().slice(0, 10)
-        : "unknown date";
-    const lines = [`(${date})`];
-    if (turn.user.trim()) lines.push(`User: ${turn.user.trim()}`);
-    if (turn.agent.trim()) lines.push(`OpenTeam: ${turn.agent.trim()}`);
-    return lines.join("\n");
-  });
-  return ["Recent turns, oldest first:", "", blocks.join("\n\n")].join("\n");
-};
-
-export const parseEpisodeNarrative = (raw: string): string | null => {
-  const narrative = normalizeMemoryContent(raw);
-  return narrative && narrative.toUpperCase() !== "NONE" ? narrative : null;
 };

@@ -76,19 +76,12 @@ import { acknowledgePromptSections, parsePromptSections, preparePromptSections, 
 import { parseRecallInput, recallMemoryResult } from "./recall-memory";
 import {
   applyExtractedMemories,
-  buildEpisodeUserPrompt,
   buildExtractionUserPrompt,
   gatherExtractionMemories,
-  getMemoryEpisodeInterval,
   isMemorableExchange,
-  parseEpisodeNarrative,
   parseExtractedMemories,
-  type MemoryEpisodeTurn,
 } from "./memory-learning";
-import {
-  MEMORY_EPISODE_SYSTEM_PROMPT,
-  MEMORY_EXTRACTION_SYSTEM_PROMPT,
-} from "./memory-prompts";
+import { MEMORY_EXTRACTION_SYSTEM_PROMPT } from "./memory-prompts";
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 const AVATAR_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"] as const;
@@ -183,8 +176,6 @@ const ensureEditableBotDirectory = async (directory: string): Promise<void> => {
 
 export type BotFileTarget = "profile" | "settings" | "instructions" | "avatar";
 
-type PendingEpisodeTurn = MemoryEpisodeTurn;
-
 export type MemoryInferenceRequest = Omit<ComputerInferenceRequest, "model" | "reasoning"> & {
   signal?: AbortSignal;
 };
@@ -196,7 +187,6 @@ interface AgentDataStoreOptions {
   workspaceRoot?: string;
   assetRoot?: string;
   memoryInference?: MemoryInference;
-  memoryEpisodeInterval?: number;
 }
 
 export interface PendingIdentityAnnouncement {
@@ -329,24 +319,6 @@ const asInputJson = (value: unknown): Prisma.InputJsonValue =>
 
 const boundedString = (value: unknown, maximum: number, fallback = ""): string =>
   typeof value === "string" ? value.slice(0, maximum) : fallback;
-
-const parseEpisodeTurns = (value: unknown): PendingEpisodeTurn[] => {
-  if (!Array.isArray(value)) return [];
-  const turns: PendingEpisodeTurn[] = [];
-  for (const entry of value) {
-    if (!entry || Array.isArray(entry) || typeof entry !== "object") continue;
-    const item = entry as Record<string, unknown>;
-    const user = typeof item.user === "string" ? item.user : "";
-    const agent = typeof item.agent === "string" ? item.agent : "";
-    if (!user && !agent) continue;
-    turns.push({
-      ts: typeof item.ts === "number" && Number.isFinite(item.ts) && item.ts >= 0 ? item.ts : 0,
-      user,
-      agent,
-    });
-  }
-  return turns;
-};
 
 const profileDocument = (bot: {
   name: string;
@@ -738,7 +710,6 @@ export class AgentDataStore {
   private readonly agentAttachmentPaths = new Map<string, string>();
   private readonly agentAttachmentPathLookups = new Map<string, Promise<string | null>>();
   private readonly memoryInference: MemoryInference | null;
-  private readonly memoryEpisodeInterval: number;
   private timelineEventSink:
     | ((
         tx: Tx,
@@ -767,10 +738,6 @@ export class AgentDataStore {
         join(resolve(this.root, ".."), ".openteam-assets")
     );
     this.memoryInference = options.memoryInference ?? null;
-    this.memoryEpisodeInterval = options.memoryEpisodeInterval ?? getMemoryEpisodeInterval();
-    if (!Number.isInteger(this.memoryEpisodeInterval) || this.memoryEpisodeInterval < 1) {
-      throw new Error("Memory episode interval must be a positive integer");
-    }
   }
 
   setTimelineEventSink(
@@ -3418,57 +3385,6 @@ export class AgentDataStore {
     await this.reconcileBot(botId);
   }
 
-  private async appendEpisodeTurn(
-    botId: string,
-    turn: PendingEpisodeTurn,
-    memoryConversationId?: string
-  ): Promise<PendingEpisodeTurn[]> {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`episode:${memoryConversationId ?? botId}`}))`;
-      const current = memoryConversationId
-        ? await tx.memoryConversation.findFirstOrThrow({ where: { id: memoryConversationId, botId }, select: { episodeTurns: true } })
-        : await tx.bot.findUniqueOrThrow({ where: { id: botId }, select: { episodeTurns: true } });
-      const turns = [...parseEpisodeTurns(current.episodeTurns), turn];
-      if (memoryConversationId) await tx.memoryConversation.update({ where: { id: memoryConversationId }, data: { episodeTurns: asInputJson(turns) } });
-      else await tx.bot.update({ where: { id: botId }, data: { episodeTurns: asInputJson(turns), episodePending: turns.length } });
-      return turns;
-    });
-  }
-
-  private async clearEpisodeTurns(botId: string, memoryConversationId?: string): Promise<void> {
-    if (memoryConversationId) {
-      await this.prisma.memoryConversation.updateMany({ where: { id: memoryConversationId, botId }, data: { episodeTurns: asInputJson([]) } });
-      return;
-    }
-    await this.prisma.bot.updateMany({
-      where: { id: botId },
-      data: { episodeTurns: asInputJson([]), episodePending: 0 },
-    });
-  }
-
-  private async summarizeEpisode(botId: string, turns: PendingEpisodeTurn[], memoryConversationId?: string): Promise<void> {
-    try {
-      const response = await this.inferMemory({
-        kind: "episode",
-        instructions: MEMORY_EPISODE_SYSTEM_PROMPT,
-        prompt: buildEpisodeUserPrompt(turns),
-      });
-      if (!response) return;
-      const narrative = parseEpisodeNarrative(response);
-      if (!narrative) return;
-      const latest = turns.reduce((maximum, turn) => Math.max(maximum, turn.ts), 0);
-      await this.writeMemory(botId, {
-        scope: memoryConversationId ? "conversation" : "agent",
-        tier: "log",
-        memoryConversationId,
-        fact: `[episode] ${narrative}`,
-        at: new Date(latest || Date.now()),
-      });
-    } finally {
-      await this.clearEpisodeTurns(botId, memoryConversationId);
-    }
-  }
-
   async recordTurnMemory(
     botId: string,
     input: {
@@ -3495,15 +3411,6 @@ export class AgentDataStore {
       occurredAt,
       memoryConversationId,
     }).catch((error) => console.warn(`memory extraction for ${botId}`, error));
-    const pending = await this.appendEpisodeTurn(botId, {
-      ts: occurredAt,
-      user: input.user,
-      agent: input.assistant,
-    }, memoryConversationId);
-    if (pending.length < this.memoryEpisodeInterval) return;
-    await this.summarizeEpisode(botId, pending, memoryConversationId).catch((error) =>
-      console.warn(`episode summary for ${botId}`, error)
-    );
   }
 
   async materializeAttachments(

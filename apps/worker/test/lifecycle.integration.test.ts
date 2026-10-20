@@ -78,12 +78,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       }
       if (request.method === "POST" && url.pathname === "/v1/infer") {
         const body = (await request.json()) as { kind?: string };
-        const text =
-          body.kind === "extraction"
-            ? "NONE"
-            : body.kind === "episode"
-              ? "NONE"
-              : '{"approved":true}';
+        const text = body.kind === "extraction" ? "NONE" : '{"approved":true}';
         return Response.json({ text });
       }
       if (request.method === "PUT" && url.pathname.startsWith("/v1/workspaces/")) {

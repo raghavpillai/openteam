@@ -124,11 +124,9 @@ dbTest(
 );
 
 dbTest(
-  "clear invalidates populated main/fork caches, retains episodes and conversation, excludes shared and peer stores",
+  "clear invalidates populated main/fork caches, retains the conversation, excludes shared and peer stores",
   async () =>
     fixture(async ({ app, store, botId, peerId, client }) => {
-      const pending = [{ ts: 1, user: "Remember the ongoing rehearsal", agent: "Noted" }];
-      await app.prisma.bot.update({ where: { id: botId }, data: { episodeTurns: pending } });
       const conversation = await app.prisma.conversation.findUniqueOrThrow({ where: { botId } });
       await store.writeMemory(botId, {
         scope: "agent",
@@ -174,9 +172,6 @@ dbTest(
           where: { contextSessionId: context.id },
         })
       ).toMatchObject({ memoryEpoch: -1, memoryRender: "", memoryHasFacts: false });
-      expect(
-        (await app.prisma.bot.findUniqueOrThrow({ where: { id: botId } })).episodeTurns
-      ).toEqual(pending);
       expect(await app.prisma.conversation.findUnique({ where: { botId } })).toEqual(conversation);
       expect(await store.recallMemory(botId, { query: "CONTROL914", scope: "agent" })).toContain(
         "(0 searched)"
@@ -337,9 +332,6 @@ dbTest("automatic learning becomes visible only after inference and commit finis
       expect(await store.recallMemory(botId, { query: "JADE-8241", scope: "agent" })).toContain(
         "[log]"
       );
-      expect(
-        (await app.prisma.bot.findUniqueOrThrow({ where: { id: botId } })).episodePending
-      ).toBe(1);
     } finally {
       release("NONE");
       await turn;

@@ -20,7 +20,8 @@ struct ServerActivitySection: View {
         ResourceGauge(label: "CPU", value: activity?.cpuPercent)
         ResourceGauge(label: "RAM", value: activity?.memoryPercent)
         ResourceGauge(label: "Disk", value: activity?.diskPercent)
-      }.padding(.vertical, 12)
+      }
+      .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
     } header: {
       HStack {
         Text("Live activity")
@@ -36,8 +37,7 @@ struct ServerActivitySection: View {
         .font(.caption2)
       }.textCase(nil)
     } footer: {
-      Text(
-        "System CPU & RAM · OpenTeam data disk. In Docker, system usage is for the Linux host/VM.")
+      Text("Host/VM CPU & RAM · OpenTeam data disk").font(.caption2)
     }
     .onAppear { visible = true }
     .onDisappear { visible = false }
@@ -81,32 +81,20 @@ private struct ResourceGauge: View {
         ? NativePalette.color("B97808", "FBBF24") : NativePalette.color("DC4545", "F87171")
   }
   var body: some View {
-    VStack(spacing: 7) {
-      GeometryReader { geometry in
-        let width = geometry.size.width
-        ZStack {
-          GaugeArc().stroke(
-            .primary.opacity(0.08), style: StrokeStyle(lineWidth: 7, lineCap: .round))
-          if let percent, percent > 0 {
-            GaugeArc().trim(from: 0, to: Double(percent) / 100)
-              .stroke(color, style: StrokeStyle(lineWidth: 7, lineCap: .round))
-          }
-          VStack(spacing: 1) {
-            Text(percent.map { "\($0)%" } ?? "—")
-              .font(.system(size: 23, weight: .semibold, design: .rounded))
-              .monospacedDigit().foregroundStyle(color).minimumScaleFactor(0.7)
-            Text("used").font(.system(size: 10)).foregroundStyle(.secondary)
-          }.offset(y: width * 0.06)
-          HStack {
-            Text("0")
-            Spacer()
-            Text("100")
-          }
-          .font(.system(size: 9)).foregroundStyle(.secondary)
-          .padding(.horizontal, 3).frame(maxHeight: .infinity, alignment: .bottom)
+    VStack(spacing: 2) {
+      ZStack {
+        GaugeArc().stroke(
+          .primary.opacity(0.08), style: StrokeStyle(lineWidth: 4.5, lineCap: .round))
+        if let percent, percent > 0 {
+          GaugeArc().trim(from: 0, to: Double(percent) / 100)
+            .stroke(color, style: StrokeStyle(lineWidth: 4.5, lineCap: .round))
         }
-      }.aspectRatio(1.15, contentMode: .fit)
-      Text(label).font(.system(size: 13, weight: .medium))
+        Text(percent.map { "\($0)%" } ?? "—")
+          .font(.system(size: 17, weight: .semibold, design: .rounded))
+          .monospacedDigit().foregroundStyle(color).minimumScaleFactor(0.7)
+          .offset(y: 6)
+      }.frame(width: 72, height: 52)
+      Text(label).font(.system(size: 11, weight: .medium))
     }
     .frame(maxWidth: .infinity)
     .accessibilityElement(children: .ignore)

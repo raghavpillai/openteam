@@ -23,8 +23,8 @@ function ResourceGauge({ label, value }: { label: string; value: number | null }
       role="img"
       aria-label={`${label}: ${percent === null ? "unavailable" : `${percent}% used`}`}
     >
-      <div className={`relative mx-auto w-full max-w-[160px] ${color}`}>
-        <svg viewBox="0 0 160 124" className="w-full" aria-hidden="true">
+      <div className={`mx-auto w-full max-w-[80px] ${color}`}>
+        <svg viewBox="0 0 160 112" className="w-full" aria-hidden="true">
           <path
             d="M 22 103 A 64 64 0 1 1 138 103"
             pathLength="100"
@@ -47,32 +47,16 @@ function ResourceGauge({ label, value }: { label: string; value: number | null }
           )}
           <text
             x="80"
-            y="78"
+            y="84"
             textAnchor="middle"
             fill="currentColor"
-            className="text-[28px] font-semibold tabular-nums"
+            className="text-[34px] font-semibold tabular-nums"
           >
             {percent === null ? "—" : `${percent}%`}
           </text>
-          <text
-            x="80"
-            y="97"
-            textAnchor="middle"
-            fill="currentColor"
-            className="text-[11px] text-foreground-tertiary"
-          >
-            used
-          </text>
         </svg>
-        <div
-          className="absolute inset-x-3 bottom-0 flex justify-between text-[10px] tabular-nums text-foreground-tertiary"
-          aria-hidden="true"
-        >
-          <span>0</span>
-          <span>100</span>
-        </div>
       </div>
-      <p className="mt-2 text-[13px] font-medium">{label}</p>
+      <p className="text-[11px] font-medium">{label}</p>
     </div>
   );
 }
@@ -125,8 +109,8 @@ export function ServerActivity() {
   }, [visible]);
 
   return (
-    <section aria-label="Live server activity" className="mb-6">
-      <div className="mb-3 flex items-center justify-between gap-3">
+    <section aria-label="Live server activity" className="mb-4">
+      <div className="mb-2 flex items-center justify-between gap-3">
         <h3 className="text-[13px] font-medium">Live activity</h3>
         <span
           className="flex items-center gap-1.5 text-[11px] text-foreground-tertiary"
@@ -144,15 +128,15 @@ export function ServerActivity() {
                 : "Connecting…"}
         </span>
       </div>
-      <SettingsGroup className="py-5">
+      <SettingsGroup className="py-2">
         <div className="grid grid-cols-3 gap-3">
           <ResourceGauge label="CPU" value={activity?.cpuPercent ?? null} />
           <ResourceGauge label="RAM" value={activity?.memoryPercent ?? null} />
           <ResourceGauge label="Disk" value={activity?.diskPercent ?? null} />
         </div>
       </SettingsGroup>
-      <p className="mt-2.5 text-[11px] leading-relaxed text-foreground-tertiary">
-        System CPU &amp; RAM · OpenTeam data disk. In Docker, system usage is for the Linux host/VM.
+      <p className="mt-1.5 text-[10px] leading-relaxed text-foreground-tertiary">
+        Host/VM CPU &amp; RAM · OpenTeam data disk
       </p>
     </section>
   );

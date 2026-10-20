@@ -1,5 +1,5 @@
-// Server-backed wording captured from GrokBot's native update_state tool on
-// 2026-09-14. File-backed GrokBot uses read/grep hints instead of RecallMemory.
+// Server-backed wording for UpdateMemory results. Memory kept in files on the
+// agent's own computer can also be read and grepped instead of using RecallMemory.
 // Keep structured state/event/idempotency records internal to the application.
 export function formatMemoryToolResult(result: Record<string, unknown>): string | Record<string, unknown> {
   if (result.target !== "memory" || !["write", "forget"].includes(String(result.action))) return result;

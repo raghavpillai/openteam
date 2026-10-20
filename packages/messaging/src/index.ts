@@ -2256,7 +2256,7 @@ export class AgentMessaging {
       siblings.length ? `Other active conversations (read with read_sibling_thread using session_id):\n${siblings.map(s => `- ${s.name}: ${s.sessionId}`).join("\n")}` : "",
       agentPrompt.profileSection,
       frozen.sections.agent_instructions,
-      "Use GetDynamicTools with namespace cursor to discover SendToAgent, ListAgents/ListGroups, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, and CreateChannel/UpdateChannel. Invoke discovered tools with CallDynamicTool.",
+      "Use GetDynamicTools with namespace cursor to discover SendToAgent, ListAgents/ListGroups, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, CreateChannel/UpdateChannel, and UpdateSkill/UpdateProfile/UpdateAvatar/DisconnectChannel/UpdateProject. Invoke discovered tools with CallDynamicTool.",
       A2A_PLATFORM_INSTRUCTIONS,
       graphicalDelegationInstructions(taskConfiguration),
       taskUserInfo(taskConfiguration),
@@ -2265,7 +2265,7 @@ export class AgentMessaging {
         ? `Durable task queue (reconcile it with TodoWrite on each wake):\n${todoContext.join("\n")}`
         : "The durable task queue is empty.",
       "In a room wake, speak only when you add something useful. Finishing without SendToUser is a valid silent turn.",
-      "Use update_state for durable memory, scheduled routines, skills, profile, settings, connector disconnects, projects, and avatars. It is a write API. The current durable state relevant to you is supplied below on every turn.",
+      "Use UpdateMemory for durable memory and UpdateRoutine for scheduled routines. Skills, profile and settings, avatars, connector disconnects, and projects have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel, and UpdateProject. These are write APIs. The current durable state relevant to you is supplied below on every turn.",
       renderPlatformRuntimeInstructions({
         agentDataRoot: this.agentData.root,
         botId,

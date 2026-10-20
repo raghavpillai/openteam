@@ -241,7 +241,7 @@
   },
   "RecallMemory": {
     "name": "RecallMemory",
-    "description": "Search your durable memory for facts that are not in the memory section of your prompt: older log entries, notes that have aged out of the recent slice, and shared user facts recorded by any of this user's assistants.\nRead-only. Results list each fact with its date, tier (profile | log) and, for shared facts, which assistant learned it.\nTo add or drop a fact use update_state (target \"memory\"). Prefer this tool over grepping memory folders.",
+    "description": "Search your durable memory for facts that are not in the memory section of your prompt: older log entries, notes that have aged out of the recent slice, and shared user facts recorded by any of this user's assistants.\nRead-only. Results list each fact with its date, tier (profile | log) and, for shared facts, which assistant learned it.\nTo add or drop a fact use UpdateMemory. Prefer this tool over grepping memory folders.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -271,48 +271,23 @@
       ]
     }
   },
-  "update_state": {
-    "name": "update_state",
-    "description": "Change your OWN durable state: what you remember (own, shared user, or project), the routines you run, the skills you save, your profile and settings, which channels you're connected to, which projects you've joined, and your picture. Prefer this over editing those files with the shell — read them with RecallMemory, or with Read and grep when they are on your computer.\n\ntarget + action:\n- memory write: save a durable fact (fact, tier, optional scope). scope \"agent\" (default) is your own memory; \"user\" is shared user-memory every assistant should know; \"project\" needs project=<slug> and writes your shard in that project. tier \"profile\" is foundational and kept in mind every turn; \"log\" (default) is dated history; \"note\" fades fast. Facts are deduped.\n- memory forget: drop a fact by its EXACT recorded text (fact, same scope/project). Pair with a write for the corrected version.\n- routine create: save a routine (name, prompt, and either schedule or trigger). prompt is what you do each time it fires, written to your future self.\n- routine update: rewrite an existing one in place (id, plus any of name/prompt/schedule/trigger/enabled you mean to change). Omitted fields keep their current values; it keeps its history.\n- routine pause: (id) disarm one the user wants back later.\n- routine resume: (id) rearm a paused one.\n- routine delete: (id) remove a finite watch as soon as it has done its job.\n- skill write: save or rewrite a reusable skill (name, description, body; id to rewrite). The description is REQUIRED and is what a reader uses to decide whether the skill applies, so write it as \"use this when …\". A skill has no trigger — a saved task that runs on a schedule is a routine.\n- skill delete: (id). Cursor-managed skills can't be edited or deleted.\n- profile set: your name (the chat title the user sees in the sidebar and header), description, title (the short role label beside your name), avatar_shape, and/or avatar_color (your default mark, hidden while a custom picture is installed). Only the fields you pass change. For your picture use target avatar.\n- settings set: hidden_from_sidebar, notify_on_updates. Only the fields you pass change.\n- channel disconnect: (platform). The connector closes the live connection within a few seconds.\n- project create: (project slug, name, optional description). Creates the folder + project.md and joins it; if the slug already exists this is create-is-join.\n- project join: (project slug).\n- project leave: (project slug).\n- avatar set: (path to an image on your box or the host — write/download it first, then install it here; a box path under /workspace is fine).\n- avatar clear: back to the default picture.\n\nJust do it and mention it in passing — don't narrate a save or ask permission for an ordinary one. Creating or changing a ROUTINE may ask the user to confirm, since it's the one change that acts while they're away; if it does, they'll see a card and you'll get their answer back as the tool result.",
+  "UpdateMemory": {
+    "name": "UpdateMemory",
+    "description": "Change your durable memory. write saves a fact (deduped); forget drops one by its exact recorded text (find it with RecallMemory, or read the memory folder when it is on your computer), so pair it with a write to correct a fact. Prefer this over editing memory files with the shell. Save without asking and mention it in passing. Routines have their own UpdateRoutine tool. Skills, profile and settings, picture, channels, and projects have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel, UpdateProject.",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "target": {
-          "type": "string",
-          "enum": [
-            "memory",
-            "routine",
-            "skill",
-            "profile",
-            "settings",
-            "channel",
-            "project",
-            "avatar"
-          ],
-          "description": "Which part of your own state to change."
-        },
         "action": {
           "type": "string",
           "enum": [
             "write",
-            "forget",
-            "create",
-            "update",
-            "pause",
-            "resume",
-            "delete",
-            "set",
-            "disconnect",
-            "join",
-            "leave",
-            "clear"
-          ],
-          "description": "What to do. memory: write | forget. routine: create | update | pause | resume | delete. skill: write | delete. profile: set. settings: set. channel: disconnect. project: create | join | leave. avatar: set | clear."
+            "forget"
+          ]
         },
         "fact": {
           "type": "string",
           "minLength": 1,
-          "description": "memory only. The fact, one self-contained sentence. For forget, the EXACT text of the recorded fact (find it with RecallMemory first, or read the memory folder when it is on your computer)."
+          "description": "One self-contained sentence. For forget, the exact recorded text."
         },
         "tier": {
           "type": "string",
@@ -321,7 +296,7 @@
             "log",
             "note"
           ],
-          "description": "memory write only. Defaults to log. Keep profile small."
+          "description": "write only. \"profile\" is kept in mind every turn (keep it small), \"log\" (default) is dated history, \"note\" fades fast."
         },
         "scope": {
           "type": "string",
@@ -330,32 +305,55 @@
             "user",
             "project"
           ],
-          "description": "memory only. Defaults to agent (your own memory)."
+          "description": "Default \"agent\", your own memory. \"user\" is shared memory every assistant should know. \"project\" writes your shard in a project you have joined and needs project."
         },
         "project": {
           "type": "string",
           "minLength": 1,
-          "description": "Project slug. Required for memory when scope is \"project\", and for every project action."
+          "description": "The project's slug. Required when scope is \"project\"."
+        }
+      },
+      "required": [
+        "action",
+        "fact"
+      ]
+    }
+  },
+  "UpdateRoutine": {
+    "name": "UpdateRoutine",
+    "description": "Create or change your routines: saved prompts that fire on a schedule or when an outside event arrives, even while the user is away. Your current routines and their folder ids are listed under Scheduled routines in your prompt.\nBe proactive: when an ask is recurring, time-based, or \"tell me when X\", create a routine (or offer one when unsure it's wanted) instead of doing it once. Read the managed `routines` skill before creating or changing one; it has the full recipe, including every trigger shape.\n- create: name, prompt, and schedule or trigger. update: id plus only the fields to change; omitted fields keep their current values and the routine keeps its history. pause (disarm one the user wants back later), resume (rearm it), delete (remove a finite watch as soon as it has done its job): id.\nschedule: 5-field cron in the user's local time (or @hourly/@daily/@weekly/@monthly/\"@every 2h\"), at least 5 minutes apart. A clock time the user names is saved as named (\"8am\" is \"0 8 * * *\"); only an ask that names no time takes the minute from the latest <timestamp>.\nCreating or changing a routine may ask the user to confirm, since it's the one change that acts while they're away. If it does, they'll see a card and you'll get their answer back as the tool result; don't ask first, and don't retry a denied write.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "create",
+            "update",
+            "pause",
+            "resume",
+            "delete"
+          ]
         },
         "id": {
           "type": "string",
           "minLength": 1,
-          "description": "The routine's folder or the skill's id. Required for every routine action except create, and for skill delete. Omit on a skill write to create a new one."
+          "description": "The routine's folder id. Required except on create."
         },
         "name": {
           "type": "string",
           "minLength": 1,
-          "description": "routine/skill/project create: its name. Required on create and on a skill write; on routine update, omit to keep the current name. profile: your new name, which is the chat title the user sees."
+          "description": "Required on create. On update, omit to keep the current name."
         },
         "prompt": {
           "type": "string",
           "minLength": 1,
-          "description": "routine only. What you should do each time it fires, written to your future self. Write it as an INTENT, not a frozen tool recipe: a connector's schema can change between fires, so describe the goal and let each run look the tool up. Required on create; on update, omit to keep the current prompt."
+          "description": "What you should do each time it fires, written to your future self. Write it as an INTENT, not a frozen tool recipe: a connector's schema can change between fires, so describe the goal and let each run look the tool up. Required on create; on update, omit to keep the current prompt."
         },
         "schedule": {
           "type": "string",
           "minLength": 1,
-          "description": "routine only. Shorthand for a cron trigger — \"0 7 * * *\", \"@daily\", \"@every 2h\" — interpreted in the user's local time. Calendar shorthands take their clock fields from the routine's creation time, and unphased @every intervals anchor to creation. A clock time the user names is saved as named, so \"8am\" is \"0 8 * * *\" and \"daily at 2\" is \"0 2 * * *\"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 \"hourly\" is \"32 * * * *\". Use this OR trigger, never both. On update, omit (with trigger) to keep the current fire condition."
+          "description": "Shorthand for a cron trigger — \"0 7 * * *\", \"@daily\", \"@every 2h\" — interpreted in the user's local time. Calendar shorthands take their clock fields from the routine's creation time, and unphased @every intervals anchor to creation. A clock time the user names is saved as named, so \"8am\" is \"0 8 * * *\" and \"daily at 2\" is \"0 2 * * *\"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 \"hourly\" is \"32 * * * *\". Use this OR trigger, never both. On update, omit (with trigger) to keep the current fire condition."
         },
         "trigger": {
           "anyOf": [
@@ -803,6 +801,34 @@
                   "properties": {
                     "type": {
                       "type": "string",
+                      "const": "email"
+                    },
+                    "inbox": {
+                      "type": "string",
+                      "description": "One of the user's connected Email plugin inbox addresses (ListEmailInboxes)."
+                    },
+                    "from": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Optional sender addresses. Omit for any sender."
+                    },
+                    "requireAuthPass": {
+                      "type": "boolean",
+                      "description": "Default true; false also wakes on mail that failed SPF/DKIM/DMARC."
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "inbox"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
                       "const": "webhook"
                     }
                   },
@@ -847,6 +873,9 @@
                           },
                           {
                             "$ref": "#/properties/trigger/anyOf/0/anyOf/8"
+                          },
+                          {
+                            "$ref": "#/properties/trigger/anyOf/0/anyOf/9"
                           }
                         ]
                       },
@@ -864,93 +893,20 @@
             {
               "type": "array",
               "items": {
-                "$ref": "#/properties/trigger/anyOf/0/anyOf/9/properties/listeners/items"
+                "$ref": "#/properties/trigger/anyOf/0/anyOf/10/properties/listeners/items"
               },
               "minItems": 1,
               "description": "Bare-array shorthand for the group form: any one member fires the prompt."
             }
           ],
-          "description": "What fires the routine. Prefer an event listener (Slack, GitHub, Origin, Microsoft Teams, Linear, Sentry, PagerDuty) over polling on a cron when the event you care about is one of the listed shapes; never pass both this and the schedule argument."
+          "description": "What fires the routine. Prefer an event listener (Slack, GitHub, Origin, Microsoft Teams, Linear, Sentry, PagerDuty, email) over polling on a cron when the event you care about is one of the listed shapes; never pass both this and the schedule argument."
         },
         "enabled": {
           "type": "boolean",
-          "description": "routine create/update only. On create, defaults to true. On update, omit to leave the current arming alone (use pause/resume to toggle)."
-        },
-        "description": {
-          "type": "string",
-          "description": "skill write: REQUIRED. One line on when to use the skill. profile: your new description. project create: optional summary."
-        },
-        "body": {
-          "type": "string",
-          "minLength": 1,
-          "description": "skill write only. The recipe, in markdown."
-        },
-        "title": {
-          "type": "string",
-          "description": "profile set only. The short role label shown as a chip beside your name (\"Designer\"), not the chat title — that is your name. Pass \"\" to clear it."
-        },
-        "avatar_shape": {
-          "type": "string",
-          "enum": [
-            "blob",
-            "pebble",
-            "bean",
-            "egg",
-            "squircle",
-            "tablet",
-            "capsule",
-            "cylinder",
-            "hex",
-            "gem",
-            "crystal",
-            "wedge",
-            "shield",
-            "dome",
-            "arch",
-            "cloud",
-            "teardrop",
-            "leaf"
-          ],
-          "description": "profile set only. The shape of your default mark in the sidebar. Not visible while a custom picture is installed."
-        },
-        "avatar_color": {
-          "type": "string",
-          "enum": [
-            "black",
-            "brown",
-            "red",
-            "orange",
-            "yellow",
-            "green",
-            "cyan",
-            "blue",
-            "violet",
-            "magenta",
-            "gray"
-          ],
-          "description": "profile set only. The color of your default mark in the sidebar. Not visible while a custom picture is installed."
-        },
-        "hidden_from_sidebar": {
-          "type": "boolean",
-          "description": "settings set only. Removes your row from the user's sidebar; you stay fully functional and reachable through Cmd-K and the Hidden chats manager."
-        },
-        "notify_on_updates": {
-          "type": "boolean",
-          "description": "settings set only. The \"Notify me about this assistant\" toggle."
-        },
-        "platform": {
-          "type": "string",
-          "minLength": 1,
-          "description": "channel disconnect only. The platform to disconnect."
-        },
-        "path": {
-          "type": "string",
-          "minLength": 1,
-          "description": "avatar set only. Absolute path to an image you already have (write or download it first, with Shell on your own computer or Shell using the user's computer's machineId, then install it here). A path on your box under /workspace is fine — no CopyFromBox needed. png/jpg/webp/gif/svg under 5 MB."
+          "description": "On create, defaults to true. On update, omit to leave the current arming alone (use pause/resume to toggle)."
         }
       },
       "required": [
-        "target",
         "action"
       ]
     }
@@ -2261,6 +2217,191 @@
       },
       "required": [
         "channel_id"
+      ]
+    }
+  },
+  "UpdateSkill": {
+    "name": "UpdateSkill",
+    "description": "Save, rewrite, or delete one of your reusable skills. Skills are a shared library: every assistant can use a saved skill, and deleting one removes it for all of them. A skill has no trigger; a saved task that runs on a schedule is a routine. Managed and plugin skills can't be changed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "write",
+            "delete"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "An existing skill's id. Required for delete. On write, pass it only to rewrite that skill; omit it to create one (its id is made from the name)."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required on write."
+        },
+        "description": {
+          "type": "string",
+          "description": "Required on write: one line a reader uses to decide it applies (\"use this when …\")."
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required on write. The recipe, in markdown."
+        }
+      },
+      "required": [
+        "action"
+      ]
+    }
+  },
+  "UpdateProfile": {
+    "name": "UpdateProfile",
+    "description": "Change your profile and settings. Only the fields you pass change. For your picture use UpdateAvatar.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Your name, the chat title the user sees in the sidebar and header."
+        },
+        "description": {
+          "type": "string",
+          "description": "Your intro."
+        },
+        "title": {
+          "type": "string",
+          "description": "Short role label beside your name (\"Designer\"), not the chat title; \"\" clears it."
+        },
+        "avatar_shape": {
+          "type": "string",
+          "enum": [
+            "blob",
+            "pebble",
+            "bean",
+            "egg",
+            "squircle",
+            "tablet",
+            "capsule",
+            "cylinder",
+            "hex",
+            "gem",
+            "crystal",
+            "wedge",
+            "shield",
+            "dome",
+            "arch",
+            "cloud",
+            "teardrop",
+            "leaf"
+          ],
+          "description": "Your default mark, hidden while a custom picture is installed."
+        },
+        "avatar_color": {
+          "type": "string",
+          "enum": [
+            "black",
+            "brown",
+            "red",
+            "orange",
+            "yellow",
+            "green",
+            "cyan",
+            "blue",
+            "violet",
+            "magenta",
+            "gray"
+          ],
+          "description": "The color of your default mark."
+        },
+        "hidden_from_sidebar": {
+          "type": "boolean",
+          "description": "Hides your sidebar row without deleting your conversation or scheduled work; you stay reachable through Cmd-K and the Hidden chats manager."
+        },
+        "notify_on_updates": {
+          "type": "boolean",
+          "description": "The \"Notify me about this assistant\" toggle."
+        }
+      }
+    }
+  },
+  "UpdateAvatar": {
+    "name": "UpdateAvatar",
+    "description": "Set or clear your profile picture. Write or download the image first; clear restores the default picture.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "set",
+            "clear"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "set only. Absolute path to an image you already have (write or download it first, with Shell on your own computer or Shell using the user's computer's machineId, then install it here). A path on your box under /workspace is fine — no CopyFromBox needed. png/jpg/webp/gif/svg under 5 MB."
+        }
+      },
+      "required": [
+        "action"
+      ]
+    }
+  },
+  "DisconnectChannel": {
+    "name": "DisconnectChannel",
+    "description": "Disconnect one of your channels; the connector closes the live connection within a few seconds.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "platform": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The platform to disconnect."
+        }
+      },
+      "required": [
+        "platform"
+      ]
+    }
+  },
+  "UpdateProject": {
+    "name": "UpdateProject",
+    "description": "Create, join, or leave a project. Projects are optional and opt-in: only the memory of projects you have joined enters your context. create makes the project folder and its project.md and joins it; if the slug already exists, create joins that project instead (create-is-join). Save project facts with UpdateMemory (scope \"project\").",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "create",
+            "join",
+            "leave"
+          ]
+        },
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The project's slug: lowercase letters, numbers, and single hyphens."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required on create."
+        },
+        "description": {
+          "type": "string",
+          "description": "create only. An optional one-line summary."
+        }
+      },
+      "required": [
+        "action",
+        "project"
       ]
     }
   },

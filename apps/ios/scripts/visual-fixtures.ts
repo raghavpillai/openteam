@@ -97,7 +97,7 @@ export function visualFixture(base: any, scene: string) {
       rows.forEach(([sender,content],i)=>message(channel.id,sender,content,i+1));
     } else if (isDark) {
       const rows:["user"|"agent",string][]=[
-        ["user", 'Call update_state target memory action forget with exact fact "MDEEP914S stable key is APRICOT-8136.". Return the exact tool result.'],
+        ["user", 'Call UpdateMemory action forget with exact fact "MDEEP914S stable key is APRICOT-8136.". Return the exact tool result.'],
         ["agent", "Forgetting that memory now."],
         ["agent", "Forgot from your memory: MDEEP914S stable key is APRICOT-8136."],
         ["user", 'Call RecallMemory query "MDEEP914S", scope agent, limit 50. Return the exact result. Do not read files or contact other bots.'],

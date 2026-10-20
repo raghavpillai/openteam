@@ -202,7 +202,7 @@
     },
     {
       "name": "RecallMemory",
-      "description": "Search your durable memory for facts that are not in the memory section of your prompt: older log entries, notes that have aged out of the recent slice, and shared user facts recorded by any of this user's assistants.\nRead-only. Results list each fact with its date, tier (profile | log) and, for shared facts, which assistant learned it.\nTo add or drop a fact use update_state (target \"memory\"). Prefer this tool over grepping memory folders.",
+      "description": "Search your durable memory for facts that are not in the memory section of your prompt: older log entries, notes that have aged out of the recent slice, and shared user facts recorded by any of this user's assistants.\nRead-only. Results list each fact with its date, tier (profile | log) and, for shared facts, which assistant learned it.\nTo add or drop a fact use UpdateMemory. Prefer this tool over grepping memory folders.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -241,242 +241,215 @@
       }
     },
     {
-      "name": "update_state",
-      "description": "Change your OWN durable state: what you remember (own, shared user, or project), the routines you run, the skills you save, your profile and settings, which channels you're connected to, which projects you've joined, and your picture. Prefer this over editing those files with the shell — you still use shell tools to read and grep them.\n\ntarget + action:\n- memory write: save a durable fact (fact, tier, optional scope). scope \"agent\" (default) is your own memory; \"user\" is shared user-memory every assistant should know; \"project\" needs project=<slug> and writes your shard in that project. tier \"profile\" is foundational and kept in mind every turn; \"log\" (default) is dated history; \"note\" fades fast. Facts are deduped.\n- memory forget: drop a fact by its EXACT recorded text (fact, same scope/project). Pair with a write for the corrected version.\n- routine create: save a routine (name, prompt, and either schedule or trigger). prompt is what you do each time it fires, written to your future self.\n- routine update: rewrite an existing one in place (id, plus any of name/prompt/schedule/trigger/enabled you mean to change). Omitted fields keep their current values; it keeps its history.\n- routine pause: (id) disarm one the user wants back later.\n- routine resume: (id) rearm a paused one.\n- routine delete: (id) remove a finite watch as soon as it has done its job.\n- skill write: save or rewrite a reusable skill (name, description, body; id to rewrite). The description is REQUIRED and is what a reader uses to decide whether the skill applies, so write it as \"use this when …\". A skill has no trigger — a saved task that runs on a schedule is a routine.\n- skill delete: (id). Cursor-managed skills can't be edited or deleted.\n- profile set: your name and/or description. For your picture use target avatar.\n- settings set: hidden_from_sidebar, notify_on_updates. Only the fields you pass change.\n- channel disconnect: (platform). The connector closes the live connection within a few seconds.\n- project create: (project slug, name, optional description). Creates the folder + project.md and joins it; if the slug already exists this is create-is-join.\n- project join: (project slug).\n- project leave: (project slug).\n- avatar set: (absolute path, or a path relative to your agent folder, to an image inside your agent-data directory; bytes are copied into canonical avatar.<type>, so the source can then be deleted).\n- avatar clear: back to the default picture.\n\nJust do it and mention it in passing — don't narrate a save or ask permission for an ordinary one. Creating or changing a ROUTINE may ask the user to confirm, since it's the one change that acts while they're away; if it does, they'll see a card and you'll get their answer back as the tool result.",
+      "name": "UpdateMemory",
+      "description": "Change your durable memory. write saves a fact (deduped); forget drops one by its exact recorded text (find it with RecallMemory, or read the memory folder when it is on your computer), so pair it with a write to correct a fact. Prefer this over editing memory files with the shell. Save without asking and mention it in passing. Routines have their own UpdateRoutine tool. Skills, profile and settings, picture, channels, and projects have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel, UpdateProject.",
       "parameters": {
+        "type": "object",
         "properties": {
           "action": {
-            "description": "What to do. memory: write | forget. routine: create | update | pause | resume | delete. skill: write | delete. profile: set. settings: set. channel: disconnect. project: create | join | leave. avatar: set | clear.",
+            "type": "string",
             "enum": [
               "write",
-              "forget",
-              "create",
-              "update",
-              "pause",
-              "resume",
-              "delete",
-              "set",
-              "disconnect",
-              "join",
-              "leave",
-              "clear"
-            ],
-            "type": "string"
-          },
-          "body": {
-            "description": "skill write only. The recipe, in markdown.",
-            "minLength": 1,
-            "type": "string"
-          },
-          "description": {
-            "description": "skill write: REQUIRED. One line on when to use the skill. profile: your new description. project create: optional summary.",
-            "type": "string"
-          },
-          "enabled": {
-            "description": "routine create/update only. On create, defaults to true. On update, omit to leave the current arming alone (use pause/resume to toggle).",
-            "type": "boolean"
+              "forget"
+            ]
           },
           "fact": {
-            "description": "memory only. The fact, one self-contained sentence. For forget, the EXACT text of the recorded fact (read or grep the relevant memory folder first).",
+            "type": "string",
             "minLength": 1,
-            "type": "string"
-          },
-          "hidden_from_sidebar": {
-            "description": "settings set only. Removes your row from the user's sidebar; you stay fully functional and reachable through Cmd-K and the Hidden chats manager.",
-            "type": "boolean"
-          },
-          "id": {
-            "description": "The routine's returned id or automation folder, or the skill's id. Required for every routine action except create, and for skill delete. Omit on a skill write to create a new one.",
-            "minLength": 1,
-            "type": "string"
-          },
-          "name": {
-            "description": "routine/skill/project create: its name. Required on create and on a skill write; on routine update, omit to keep the current name. profile: your new name.",
-            "minLength": 1,
-            "type": "string"
-          },
-          "notify_on_updates": {
-            "description": "settings set only. The \"Notify me about this assistant\" toggle.",
-            "type": "boolean"
-          },
-          "path": {
-            "description": "avatar set only. Absolute path, or a path relative to your agent folder, to a png/jpg/jpeg/webp/gif/svg under 5 MB inside /home/box/agent-data/agents/<your-bot-id>. Bytes are copied into the canonical avatar file, so the source can be deleted after installation.",
-            "minLength": 1,
-            "type": "string"
-          },
-          "platform": {
-            "description": "channel disconnect only. The platform to disconnect.",
-            "minLength": 1,
-            "type": "string"
-          },
-          "project": {
-            "description": "Project slug. Required for memory when scope is \"project\", and for every project action.",
-            "minLength": 1,
-            "type": "string"
-          },
-          "prompt": {
-            "description": "routine only. What you should do each time it fires, written to your future self. Write it as an INTENT, not a frozen tool recipe: a connector's schema can change between fires, so describe the goal and let each run look the tool up. Required on create; on update, omit to keep the current prompt.",
-            "minLength": 1,
-            "type": "string"
-          },
-          "schedule": {
-            "description": "routine only. Shorthand for a cron trigger — \"0 7 * * *\", \"@daily\", \"@every 2h\" — interpreted in the user's local time unless prefixed with CRON_TZ=<IANA zone>. Preserve an explicitly named timezone: for 09:00 UTC use CRON_TZ=UTC 0 9 * * *; for 09:00 Asia/Tokyo use CRON_TZ=Asia/Tokyo 0 9 * * *. Do not convert a pinned zone to the user's local cron time. A clock time the user names is saved as named, so \"8am\" is \"0 8 * * *\" and \"daily at 2\" is \"0 2 * * *\"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 \"hourly\" is \"32 * * * *\". Use this OR trigger, never both. On update, omit (with trigger) to keep the current fire condition.",
-            "minLength": 1,
-            "type": "string"
-          },
-          "scope": {
-            "description": "Memory only. Defaults to agent: your memory across every conversation with this bot. User is shared user memory; project requires a project slug.",
-            "enum": [
-              "agent",
-              "user",
-              "project"
-            ],
-            "type": "string"
-          },
-          "target": {
-            "description": "Which part of your own state to change.",
-            "enum": [
-              "memory",
-              "routine",
-              "skill",
-              "profile",
-              "settings",
-              "channel",
-              "project",
-              "avatar"
-            ],
-            "type": "string"
+            "description": "One self-contained sentence. For forget, the exact recorded text."
           },
           "tier": {
-            "description": "memory write only. Defaults to log. Keep profile small.",
+            "type": "string",
             "enum": [
               "profile",
               "log",
               "note"
             ],
-            "type": "string"
+            "description": "write only. \"profile\" is kept in mind every turn (keep it small), \"log\" (default) is dated history, \"note\" fades fast."
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "agent",
+              "user",
+              "project"
+            ],
+            "description": "Default \"agent\", your own memory. \"user\" is shared memory every assistant should know. \"project\" writes your shard in a project you have joined and needs project."
+          },
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The project's slug. Required when scope is \"project\"."
+          }
+        },
+        "required": [
+          "action",
+          "fact"
+        ]
+      }
+    },
+    {
+      "name": "UpdateRoutine",
+      "description": "Create or change your routines: saved prompts that fire on a schedule or when an outside event arrives, even while the user is away. Your current routines and their folder ids are listed under Scheduled routines in your prompt.\nBe proactive: when an ask is recurring, time-based, or \"tell me when X\", create a routine (or offer one when unsure it's wanted) instead of doing it once. Read the managed `routines` skill before creating or changing one; it has the full recipe, including every trigger shape.\n- create: name, prompt, and schedule or trigger. update: id plus only the fields to change; omitted fields keep their current values and the routine keeps its history. pause (disarm one the user wants back later), resume (rearm it), delete (remove a finite watch as soon as it has done its job): id.\nschedule: 5-field cron in the user's local time (or @hourly/@daily/@weekly/@monthly/\"@every 2h\"), at least 5 minutes apart. A clock time the user names is saved as named (\"8am\" is \"0 8 * * *\"); only an ask that names no time takes the minute from the latest <timestamp>.\nCreating or changing a routine may ask the user to confirm, since it's the one change that acts while they're away. If it does, they'll see a card and you'll get their answer back as the tool result; don't ask first, and don't retry a denied write.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "create",
+              "update",
+              "pause",
+              "resume",
+              "delete"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The routine's folder id. Required except on create."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Required on create. On update, omit to keep the current name."
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What you should do each time it fires, written to your future self. Write it as an INTENT, not a frozen tool recipe: a connector's schema can change between fires, so describe the goal and let each run look the tool up. Required on create; on update, omit to keep the current prompt."
+          },
+          "schedule": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Shorthand for a cron trigger — \"0 7 * * *\", \"@daily\", \"@every 2h\" — interpreted in the user's local time. Calendar shorthands take their clock fields from the routine's creation time, and unphased @every intervals anchor to creation. A clock time the user names is saved as named, so \"8am\" is \"0 8 * * *\" and \"daily at 2\" is \"0 2 * * *\"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 \"hourly\" is \"32 * * * *\". Use this OR trigger, never both. On update, omit (with trigger) to keep the current fire condition."
           },
           "trigger": {
             "anyOf": [
               {
                 "anyOf": [
                   {
+                    "type": "object",
                     "properties": {
-                      "schedule": {
-                        "description": "A 5-field cron expression in the user's local time (\"0 7 * * *\"), or a shorthand (@hourly/@daily/@weekly/@monthly, \"@every 30m\"). A clock time the user names is saved as named, so \"8am\" is \"0 8 * * *\" and \"daily at 2\" is \"0 2 * * *\"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 \"hourly\" is \"32 * * * *\". Pin an explicitly requested timezone with CRON_TZ=<IANA zone>, e.g. CRON_TZ=UTC 0 9 * * * or CRON_TZ=Asia/Tokyo 0 9 * * *.",
-                        "minLength": 1,
-                        "type": "string"
-                      },
                       "type": {
-                        "const": "cron",
-                        "type": "string"
+                        "type": "string",
+                        "const": "cron"
+                      },
+                      "schedule": {
+                        "$ref": "#/properties/schedule",
+                        "description": "A 5-field cron expression in the user's local time (\"0 7 * * *\"), or a shorthand (@hourly/@daily/@weekly/@monthly, \"@every 30m\"). Calendar shorthands take their clock fields from the routine's creation time, and unphased @every intervals anchor to creation. A clock time the user names is saved as named, so \"8am\" is \"0 8 * * *\" and \"daily at 2\" is \"0 2 * * *\"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 \"hourly\" is \"32 * * * *\"."
                       }
                     },
                     "required": [
                       "type",
                       "schedule"
-                    ],
-                    "type": "object"
+                    ]
                   },
                   {
+                    "type": "object",
                     "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "slack"
+                      },
                       "channel": {
-                        "description": "A channel (\"#eng\"), a DM (\"@dana\"), or \"*\" for anywhere.",
+                        "type": "string",
                         "minLength": 1,
-                        "type": "string"
+                        "description": "A channel (\"#eng\"), a DM (\"@dana\"), or \"*\" for anywhere."
                       },
                       "match": {
                         "anyOf": [
                           {
+                            "type": "object",
                             "properties": {
                               "kind": {
-                                "const": "mention",
-                                "type": "string"
+                                "type": "string",
+                                "const": "mention"
                               }
                             },
                             "required": [
                               "kind"
-                            ],
-                            "type": "object"
+                            ]
                           },
                           {
+                            "type": "object",
                             "properties": {
-                              "keyword": {
-                                "minLength": 1,
-                                "type": "string"
-                              },
                               "kind": {
-                                "const": "keyword",
-                                "type": "string"
+                                "type": "string",
+                                "const": "keyword"
+                              },
+                              "keyword": {
+                                "type": "string",
+                                "minLength": 1
                               }
                             },
                             "required": [
                               "kind",
                               "keyword"
-                            ],
-                            "type": "object"
+                            ]
                           },
                           {
+                            "type": "object",
                             "properties": {
                               "kind": {
-                                "const": "message",
-                                "type": "string"
+                                "type": "string",
+                                "const": "message"
                               }
                             },
                             "required": [
                               "kind"
-                            ],
-                            "type": "object"
+                            ]
                           },
                           {
+                            "type": "object",
                             "properties": {
-                              "bySelf": {
-                                "description": "When true, only the user's own reactions fire it — not a colleague's.",
-                                "type": "boolean"
+                              "kind": {
+                                "type": "string",
+                                "const": "reaction"
                               },
                               "emoji": {
-                                "description": "Normalized short names without colons (\"eyes\", \"white_check_mark\"). Absent or empty means any emoji.",
+                                "type": "array",
                                 "items": {
-                                  "minLength": 1,
-                                  "type": "string"
+                                  "type": "string",
+                                  "minLength": 1
                                 },
-                                "type": "array"
+                                "description": "Normalized short names without colons (\"eyes\", \"white_check_mark\"). Absent or empty means any emoji."
                               },
-                              "kind": {
-                                "const": "reaction",
-                                "type": "string"
+                              "bySelf": {
+                                "type": "boolean",
+                                "description": "When true, only the user's own reactions fire it — not a colleague's."
                               }
                             },
                             "required": [
                               "kind"
-                            ],
-                            "type": "object"
+                            ]
                           }
                         ],
                         "description": "What makes a message count as a match."
-                      },
-                      "type": {
-                        "const": "slack",
-                        "type": "string"
                       }
                     },
                     "required": [
                       "type",
                       "channel",
                       "match"
-                    ],
-                    "type": "object"
+                    ]
                   },
                   {
+                    "type": "object",
                     "properties": {
-                      "ciBranch": {
-                        "description": "REQUIRED when repo-wide events includes ci-passed or ci-failed: the one branch whose settled checks fire them (\"main\"). Omit it when pr is set; that PR scopes CI instead.",
+                      "type": {
+                        "type": "string",
+                        "const": "github"
+                      },
+                      "repo": {
+                        "type": "string",
                         "minLength": 1,
-                        "type": "string"
+                        "description": "One concrete \"owner/name\" repo. No wildcards; omit pr for repo-wide events."
                       },
                       "events": {
-                        "description": "Which GitHub events fire this routine. For a PR babysitter, use [\"review-requested\", \"review-approved\", \"review-changes-requested\", \"review-commented\", \"pr-comment\", \"inline-review-comment\", \"review-thread-resolved\", \"review-thread-unresolved\", \"pr-pushed\", \"pr-merged\", \"pr-closed\", \"ci-passed\", \"ci-failed\"].",
+                        "type": "array",
                         "items": {
+                          "type": "string",
                           "enum": [
                             "pr-opened",
                             "pr-pushed",
@@ -493,47 +466,52 @@
                             "issue-assigned",
                             "ci-passed",
                             "ci-failed"
-                          ],
-                          "type": "string"
+                          ]
                         },
                         "minItems": 1,
-                        "type": "array"
+                        "description": "Which GitHub events fire this routine. For a PR babysitter, use [\"review-requested\", \"review-approved\", \"review-changes-requested\", \"review-commented\", \"pr-comment\", \"inline-review-comment\", \"review-thread-resolved\", \"review-thread-unresolved\", \"pr-pushed\", \"pr-merged\", \"pr-closed\", \"ci-passed\", \"ci-failed\"]."
                       },
                       "pr": {
-                        "description": "Optional pull request number. When set, only events for that PR fire; a listener containing pr-merged or pr-closed deletes itself after that terminal wake finishes.",
+                        "type": "integer",
                         "exclusiveMinimum": 0,
-                        "type": "integer"
-                      },
-                      "repo": {
-                        "description": "One concrete \"owner/name\" repo. No wildcards; omit pr for repo-wide events.",
-                        "minLength": 1,
-                        "type": "string"
-                      },
-                      "type": {
-                        "const": "github",
-                        "type": "string"
+                        "description": "Optional pull request number. When set, only events for that PR fire; a listener containing pr-merged or pr-closed deletes itself after that terminal wake finishes."
                       },
                       "userAllowlist": {
-                        "description": "Git usernames that may fire this listener (\"alice\", \"@bob\"). Absent or empty means anyone. Does not apply to ci-passed/ci-failed — CI is never user-gated.",
+                        "type": "array",
                         "items": {
-                          "minLength": 1,
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1
                         },
-                        "type": "array"
+                        "description": "Git usernames that may fire this listener (\"alice\", \"@bob\"). Absent or empty means anyone. Does not apply to ci-passed/ci-failed — CI is never user-gated."
+                      },
+                      "ciBranch": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "REQUIRED when repo-wide events includes ci-passed or ci-failed: the one branch whose settled checks fire them (\"main\"). Omit it when pr is set; that PR scopes CI instead."
                       }
                     },
                     "required": [
                       "type",
                       "repo",
                       "events"
-                    ],
-                    "type": "object"
+                    ]
                   },
                   {
+                    "type": "object",
                     "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "origin"
+                      },
+                      "repo": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "One concrete native Origin \"owner/name\" repo. Mirrored repos are rejected; no wildcards."
+                      },
                       "events": {
-                        "description": "Which Origin events fire this routine. For a PR babysitter, use [\"review-requested\", \"review-approved\", \"review-changes-requested\", \"review-commented\", \"pr-comment\", \"inline-review-comment\", \"review-thread-resolved\", \"review-thread-unresolved\", \"pr-pushed\", \"pr-merged\", \"ci-passed\", \"ci-failed\"].",
+                        "type": "array",
                         "items": {
+                          "type": "string",
                           "enum": [
                             "pr-opened",
                             "pr-pushed",
@@ -548,182 +526,176 @@
                             "review-thread-unresolved",
                             "ci-passed",
                             "ci-failed"
-                          ],
-                          "type": "string"
+                          ]
                         },
                         "minItems": 1,
-                        "type": "array"
+                        "description": "Which Origin events fire this routine. For a PR babysitter, use [\"review-requested\", \"review-approved\", \"review-changes-requested\", \"review-commented\", \"pr-comment\", \"inline-review-comment\", \"review-thread-resolved\", \"review-thread-unresolved\", \"pr-pushed\", \"pr-merged\", \"ci-passed\", \"ci-failed\"]."
                       },
                       "pr": {
-                        "description": "Optional Origin pull request number. Required for ci-passed/ci-failed; a listener containing pr-merged deletes itself after that merged wake finishes.",
+                        "type": "integer",
                         "exclusiveMinimum": 0,
-                        "type": "integer"
-                      },
-                      "repo": {
-                        "description": "One concrete native Origin \"owner/name\" repo. Mirrored repos are rejected; no wildcards.",
-                        "minLength": 1,
-                        "type": "string"
-                      },
-                      "type": {
-                        "const": "origin",
-                        "type": "string"
+                        "description": "Optional Origin pull request number. Required for ci-passed/ci-failed; a listener containing pr-merged deletes itself after that merged wake finishes."
                       },
                       "userAllowlist": {
-                        "description": "Origin actor IDs in either user-facing or internal numeric form. PR/comment events gate the PR owner; review/reviewer/thread events require both actor and PR owner; CI ignores this list. Missing required identities fail closed.",
+                        "type": "array",
                         "items": {
-                          "minLength": 1,
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1
                         },
-                        "type": "array"
+                        "description": "Origin actor IDs in either user-facing or internal numeric form. PR/comment events gate the PR owner; review/reviewer/thread events require both actor and PR owner; CI ignores this list. Missing required identities fail closed."
                       }
                     },
                     "required": [
                       "type",
                       "repo",
                       "events"
-                    ],
-                    "type": "object"
+                    ]
                   },
                   {
+                    "type": "object",
                     "properties": {
-                      "blockUnauthenticatedTeamsUsers": {
-                        "description": "When true, messages from unauthenticated Microsoft Teams users do not fire it.",
-                        "type": "boolean"
-                      },
-                      "channelIds": {
-                        "description": "Optional channel filter using Microsoft Teams Graph API channel IDs. Empty or absent means every channel.",
-                        "items": {
-                          "type": "string"
-                        },
-                        "type": "array"
-                      },
-                      "messageContains": {
-                        "description": "Optional message text filter. Empty or absent means any message.",
-                        "type": "string"
-                      },
-                      "messageContainsIsRegex": {
-                        "description": "Whether messageContains is a regular expression.",
-                        "type": "boolean"
-                      },
-                      "teamId": {
-                        "description": "One Microsoft Teams Graph API team ID. At least one of teamId or teamIds is required.",
-                        "type": "string"
-                      },
-                      "teamIds": {
-                        "description": "Microsoft Teams Graph API team IDs. At least one of teamId or teamIds is required.",
-                        "items": {
-                          "type": "string"
-                        },
-                        "type": "array"
+                      "type": {
+                        "type": "string",
+                        "const": "microsoftTeams"
                       },
                       "tenantId": {
-                        "description": "The Microsoft Entra tenant ID.",
+                        "type": "string",
                         "minLength": 1,
-                        "type": "string"
+                        "description": "The Microsoft Entra tenant ID."
                       },
-                      "type": {
-                        "const": "microsoftTeams",
-                        "type": "string"
+                      "teamId": {
+                        "type": "string",
+                        "description": "One Microsoft Teams Graph API team ID. At least one of teamId or teamIds is required."
+                      },
+                      "teamIds": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "description": "Microsoft Teams Graph API team IDs. At least one of teamId or teamIds is required."
+                      },
+                      "channelIds": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "description": "Optional channel filter using Microsoft Teams Graph API channel IDs. Empty or absent means every channel."
+                      },
+                      "messageContains": {
+                        "type": "string",
+                        "description": "Optional message text filter. Empty or absent means any message."
+                      },
+                      "messageContainsIsRegex": {
+                        "type": "boolean",
+                        "description": "Whether messageContains is a regular expression."
+                      },
+                      "blockUnauthenticatedTeamsUsers": {
+                        "type": "boolean",
+                        "description": "When true, messages from unauthenticated Microsoft Teams users do not fire it."
                       }
                     },
                     "required": [
                       "type",
                       "tenantId"
-                    ],
-                    "type": "object"
+                    ]
                   },
                   {
+                    "type": "object",
                     "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "linear"
+                      },
                       "event": {
                         "anyOf": [
                           {
+                            "type": "object",
                             "properties": {
                               "case": {
+                                "type": "string",
                                 "const": "issueCreated",
-                                "description": "Fire when a Linear issue is created.",
-                                "type": "string"
+                                "description": "Fire when a Linear issue is created."
                               }
                             },
                             "required": [
                               "case"
-                            ],
-                            "type": "object"
+                            ]
                           },
                           {
+                            "type": "object",
                             "properties": {
                               "case": {
+                                "type": "string",
                                 "const": "statusChanged",
-                                "description": "Fire when a Linear issue changes status.",
-                                "type": "string"
+                                "description": "Fire when a Linear issue changes status."
                               },
                               "statusIds": {
-                                "description": "Optional narrowing filter using Linear status UUIDs. Empty or absent means any status.",
+                                "type": "array",
                                 "items": {
                                   "type": "string"
                                 },
-                                "type": "array"
+                                "description": "Optional narrowing filter using Linear status UUIDs. Empty or absent means any status."
                               }
                             },
                             "required": [
                               "case"
-                            ],
-                            "type": "object"
+                            ]
                           },
                           {
+                            "type": "object",
                             "properties": {
                               "case": {
+                                "type": "string",
                                 "const": "endOfCycle",
-                                "description": "Fire when a Linear cycle ends.",
-                                "type": "string"
+                                "description": "Fire when a Linear cycle ends."
                               },
                               "cycleIds": {
-                                "description": "Optional narrowing filter using Linear cycle UUIDs. Empty or absent means any cycle.",
+                                "type": "array",
                                 "items": {
                                   "type": "string"
                                 },
-                                "type": "array"
+                                "description": "Optional narrowing filter using Linear cycle UUIDs. Empty or absent means any cycle."
                               }
                             },
                             "required": [
                               "case"
-                            ],
-                            "type": "object"
+                            ]
                           }
                         ],
                         "description": "Which Linear event fires this routine."
                       },
                       "projectIds": {
-                        "description": "Optional narrowing filter using Linear project UUIDs. Empty or absent means any project.",
+                        "type": "array",
                         "items": {
                           "type": "string"
                         },
-                        "type": "array"
+                        "description": "Optional narrowing filter using Linear project UUIDs. Empty or absent means any project."
                       },
                       "teamIds": {
-                        "description": "Optional narrowing filter using Linear team UUIDs. Empty or absent means any team.",
+                        "type": "array",
                         "items": {
                           "type": "string"
                         },
-                        "type": "array"
-                      },
-                      "type": {
-                        "const": "linear",
-                        "type": "string"
+                        "description": "Optional narrowing filter using Linear team UUIDs. Empty or absent means any team."
                       }
                     },
                     "required": [
                       "type",
                       "event"
-                    ],
-                    "type": "object"
+                    ]
                   },
                   {
+                    "type": "object",
                     "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "sentry"
+                      },
                       "event": {
-                        "description": "The Sentry event to watch.",
+                        "type": "object",
                         "properties": {
                           "case": {
-                            "description": "Which Sentry issue event fires the routine.",
+                            "type": "string",
                             "enum": [
                               "issueCreated",
                               "issueResolved",
@@ -732,39 +704,39 @@
                               "issueUnresolved",
                               "issueAny"
                             ],
-                            "type": "string"
+                            "description": "Which Sentry issue event fires the routine."
                           }
                         },
                         "required": [
                           "case"
                         ],
-                        "type": "object"
+                        "description": "The Sentry event to watch."
                       },
                       "projectIds": {
-                        "description": "Optional project ID filter. Empty or absent means any Sentry project.",
+                        "type": "array",
                         "items": {
                           "type": "string"
                         },
-                        "type": "array"
-                      },
-                      "type": {
-                        "const": "sentry",
-                        "type": "string"
+                        "description": "Optional project ID filter. Empty or absent means any Sentry project."
                       }
                     },
                     "required": [
                       "type",
                       "event"
-                    ],
-                    "type": "object"
+                    ]
                   },
                   {
+                    "type": "object",
                     "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "pagerduty"
+                      },
                       "event": {
-                        "description": "The PagerDuty event to watch.",
+                        "type": "object",
                         "properties": {
                           "case": {
-                            "description": "Which PagerDuty incident event fires the routine.",
+                            "type": "string",
                             "enum": [
                               "incidentTriggered",
                               "incidentAcknowledged",
@@ -772,76 +744,76 @@
                               "incidentEscalated",
                               "incidentAny"
                             ],
-                            "type": "string"
+                            "description": "Which PagerDuty incident event fires the routine."
                           }
                         },
                         "required": [
                           "case"
                         ],
-                        "type": "object"
+                        "description": "The PagerDuty event to watch."
                       },
                       "serviceIds": {
-                        "description": "Optional service ID filter. Empty or absent means any PagerDuty service.",
+                        "type": "array",
                         "items": {
                           "type": "string"
                         },
-                        "type": "array"
-                      },
-                      "type": {
-                        "const": "pagerduty",
-                        "type": "string"
+                        "description": "Optional service ID filter. Empty or absent means any PagerDuty service."
                       }
                     },
                     "required": [
                       "type",
                       "event"
-                    ],
-                    "type": "object"
+                    ]
                   },
                   {
+                    "type": "object",
                     "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "email"
+                      },
+                      "inbox": {
+                        "type": "string",
+                        "description": "One of the user's connected Email plugin inbox addresses (ListEmailInboxes)."
+                      },
                       "from": {
-                        "description": "Optional sender addresses. Omit for any sender.",
+                        "type": "array",
                         "items": {
                           "type": "string"
                         },
-                        "type": "array"
-                      },
-                      "inbox": {
-                        "description": "One of the user's connected Email plugin inbox addresses (ListEmailInboxes).",
-                        "type": "string"
+                        "description": "Optional sender addresses. Omit for any sender."
                       },
                       "requireAuthPass": {
-                        "description": "Default true; false also wakes on mail that failed SPF/DKIM/DMARC.",
-                        "type": "boolean"
-                      },
-                      "type": {
-                        "const": "email",
-                        "type": "string"
+                        "type": "boolean",
+                        "description": "Default true; false also wakes on mail that failed SPF/DKIM/DMARC."
                       }
                     },
                     "required": [
                       "type",
                       "inbox"
-                    ],
-                    "type": "object"
+                    ]
                   },
                   {
+                    "type": "object",
                     "properties": {
                       "type": {
-                        "const": "webhook",
-                        "type": "string"
+                        "type": "string",
+                        "const": "webhook"
                       }
                     },
                     "required": [
                       "type"
-                    ],
-                    "type": "object"
+                    ]
                   },
                   {
+                    "type": "object",
                     "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "group"
+                      },
                       "listeners": {
-                        "description": "Any one of these fires the same prompt. Origin may mix with cron, Slack, or GitHub, but not with server-only listener types.",
+                        "type": "array",
                         "items": {
                           "anyOf": [
                             {
@@ -877,50 +849,35 @@
                           ]
                         },
                         "minItems": 1,
-                        "type": "array"
-                      },
-                      "type": {
-                        "const": "group",
-                        "type": "string"
+                        "description": "Any one of these fires the same prompt. Origin may mix with cron, Slack, or GitHub, but not with server-only listener types."
                       }
                     },
                     "required": [
                       "type",
                       "listeners"
-                    ],
-                    "type": "object"
+                    ]
                   }
                 ]
               },
               {
-                "description": "Bare-array shorthand for the group form: any one member fires the prompt.",
+                "type": "array",
                 "items": {
                   "$ref": "#/properties/trigger/anyOf/0/anyOf/10/properties/listeners/items"
                 },
                 "minItems": 1,
-                "type": "array"
+                "description": "Bare-array shorthand for the group form: any one member fires the prompt."
               }
             ],
             "description": "What fires the routine. Prefer an event listener (Slack, GitHub, Origin, Microsoft Teams, Linear, Sentry, PagerDuty, email) over polling on a cron when the event you care about is one of the listed shapes; never pass both this and the schedule argument."
           },
-          "title": {
-            "type": "string"
-          },
-          "avatar_shape": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 80
-          },
-          "avatar_color": {
-            "type": "string",
-            "description": "Named avatar color (black, brown, red, orange, yellow, green, cyan, blue, violet, magenta, gray), or a six-digit hex color."
+          "enabled": {
+            "type": "boolean",
+            "description": "On create, defaults to true. On update, omit to leave the current arming alone (use pause/resume to toggle)."
           }
         },
         "required": [
-          "target",
           "action"
-        ],
-        "type": "object"
+        ]
       }
     },
     {

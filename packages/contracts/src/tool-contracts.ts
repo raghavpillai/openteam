@@ -197,6 +197,16 @@ for (const excluded of ["CloudAgent", "GenerateImage", "request_scm_connect"])
     `${excluded}, `,
     ""
   );
+// The namespaced state tools postdate the captured catalog list.
+for (const [after, added] of [
+  ["CreateChannel, ", "DisconnectChannel, "],
+  ["UpdateAgent, ", "UpdateAvatar, "],
+  ["UpdateChannel, ", "UpdateProfile, UpdateProject, UpdateSkill, "],
+] as const) {
+  if (!contracts.GetDynamicTools!.description.includes(after))
+    throw new Error(`GetDynamicTools reference text changed: ${after}`);
+  contracts.GetDynamicTools!.description = contracts.GetDynamicTools!.description.replace(after, after + added);
+}
 const send = contracts.SendToUser!;
 export const SEND_TO_USER_BATCH_GUIDANCE =
   "When several separate text replies to the same conversation are fully ready, emit their SendToUser calls together in one assistant response, in display order, instead of waiting for a model round trip between messages. Keep end_turn false until the final call. Do not batch messages whose content depends on a preceding tool result, or user input.";
@@ -311,4 +321,4 @@ export function withReferenceContract<
 }
 
 export const FIRST_PARTY_NAMESPACE_DESCRIPTION =
-  "Native OpenTeam tools for this session. These are highly recommended and useful tools that you should use when the right situation arises. Don't be afraid to look at one if it seems relevant, even if you don't end up using it. You MUST read the tool schemas before calling them.\n\nHere are some crucial instructions:\n- AuthenticateMcpServer: Start authentication for a connector that needs auth.\n- AwaitShell: Use to sleep and check shell progress. Never sleep using shell.\n- CheckSubagent: Inspect a running background subagent's status and recent actions.\n- CopyFromBox: Copy a file from your box onto the user's computer.\n- CopyToBox: Copy a file from the user's computer onto your box.\n- MessageSubagent: Send a new instruction into a running background subagent.\n- remap_user_form_targets: Only after a request_user_form receipt says a field's value is HELD: remap its new target.\n- request_user_form: Show the user an in-chat form; the host fills the box browser with their answers.\n- SearchPlugins: Search installable plugins/connectors when a task needs a service.\n- SendFeedback: Send the user's product feedback to the OpenTeam maintainers when they ask. Ask whether they want a reply unless they already said.\n- StopSubagent: Abort a running background subagent.\n- TodoWrite: Use this tool to manage complex multi-step tasks.";
+  "Native OpenTeam tools for this session. These are highly recommended and useful tools that you should use when the right situation arises. Don't be afraid to look at one if it seems relevant, even if you don't end up using it. You MUST read the tool schemas before calling them.\n\nHere are some crucial instructions:\n- AuthenticateMcpServer: Start authentication for a connector that needs auth.\n- AwaitShell: Use to sleep and check shell progress. Never sleep using shell.\n- CheckSubagent: Inspect a running background subagent's status and recent actions.\n- CopyFromBox: Copy a file from your box onto the user's computer.\n- CopyToBox: Copy a file from the user's computer onto your box.\n- DisconnectChannel: Disconnect one of your connected channels.\n- MessageSubagent: Send a new instruction into a running background subagent.\n- remap_user_form_targets: Only after a request_user_form receipt says a field's value is HELD: remap its new target.\n- request_user_form: Show the user an in-chat form; the host fills the box browser with their answers.\n- SearchPlugins: Search installable plugins/connectors when a task needs a service.\n- SendFeedback: Send the user's product feedback to the OpenTeam maintainers when they ask. Ask whether they want a reply unless they already said.\n- StopSubagent: Abort a running background subagent.\n- TodoWrite: Use this tool to manage complex multi-step tasks.\n- UpdateAvatar: Set or clear your profile picture.\n- UpdateProfile: Change your name, description, title, default mark, or sidebar and notification settings.\n- UpdateProject: Create, join, or leave a shared project.\n- UpdateSkill: Save, rewrite, or delete your reusable skills.";

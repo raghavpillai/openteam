@@ -22,6 +22,7 @@ export * from "./plugin-settings";
 export * from "./routine-types";
 export * from "./memory-management";
 export * from "./automation-tools";
+export * from "./state-tools";
 
 export interface NativeToolDefinition {
   name: string;
@@ -1098,6 +1099,7 @@ export const RequestBoxHelpInput = Schema.Struct({
 });
 export type RequestBoxHelpInput = typeof RequestBoxHelpInput.Type;
 
+/** The shared durable-state handler's input. Each state tool is one fixed target of it. */
 export const UpdateStateInput = Schema.Struct({
   target: Schema.Literal(
     "memory",
@@ -1145,7 +1147,74 @@ export const UpdateStateInput = Schema.Struct({
 });
 export type UpdateStateInput = typeof UpdateStateInput.Type;
 
-export const UPDATE_STATE_TOOL = nativeTool("update_state");
+const optionalText = Schema.optional(Schema.String.pipe(Schema.minLength(1)));
+
+export const UpdateMemoryInput = Schema.Struct({
+  action: Schema.Literal("write", "forget"),
+  fact: Schema.String.pipe(Schema.minLength(1)),
+  tier: Schema.optional(Schema.Literal("profile", "log", "note")),
+  scope: Schema.optional(Schema.Literal("agent", "user", "project")),
+  project: optionalText,
+});
+export type UpdateMemoryInput = typeof UpdateMemoryInput.Type;
+
+export const UpdateRoutineInput = Schema.Struct({
+  action: Schema.Literal("create", "update", "pause", "resume", "delete"),
+  id: optionalText,
+  name: optionalText,
+  prompt: optionalText,
+  schedule: optionalText,
+  trigger: Schema.optional(Schema.Unknown),
+  enabled: Schema.optional(Schema.Boolean),
+});
+export type UpdateRoutineInput = typeof UpdateRoutineInput.Type;
+
+export const UpdateSkillInput = Schema.Struct({
+  action: Schema.Literal("write", "delete"),
+  id: optionalText,
+  name: optionalText,
+  description: Schema.optional(Schema.String),
+  body: optionalText,
+});
+export type UpdateSkillInput = typeof UpdateSkillInput.Type;
+
+export const UpdateProfileInput = Schema.Struct({
+  name: optionalText,
+  description: Schema.optional(Schema.String),
+  title: Schema.optional(Schema.String),
+  avatar_shape: optionalText,
+  avatar_color: UpdateStateInput.fields.avatar_color,
+  hidden_from_sidebar: Schema.optional(Schema.Boolean),
+  notify_on_updates: Schema.optional(Schema.Boolean),
+});
+export type UpdateProfileInput = typeof UpdateProfileInput.Type;
+
+export const UpdateAvatarInput = Schema.Struct({
+  action: Schema.Literal("set", "clear"),
+  path: optionalText,
+});
+export type UpdateAvatarInput = typeof UpdateAvatarInput.Type;
+
+export const DisconnectChannelInput = Schema.Struct({
+  platform: Schema.String.pipe(Schema.minLength(1)),
+});
+export type DisconnectChannelInput = typeof DisconnectChannelInput.Type;
+
+export const UpdateProjectInput = Schema.Struct({
+  action: Schema.Literal("create", "join", "leave"),
+  project: Schema.String.pipe(Schema.minLength(1)),
+  name: optionalText,
+  description: Schema.optional(Schema.String),
+});
+export type UpdateProjectInput = typeof UpdateProjectInput.Type;
+
+export const UPDATE_MEMORY_TOOL = nativeTool("UpdateMemory");
+export const UPDATE_ROUTINE_TOOL = nativeTool("UpdateRoutine");
+export const UPDATE_SKILL_TOOL = cursorTool("UpdateSkill");
+export const UPDATE_PROFILE_TOOL = cursorTool("UpdateProfile");
+export const UPDATE_AVATAR_TOOL = cursorTool("UpdateAvatar");
+export const DISCONNECT_CHANNEL_TOOL = cursorTool("DisconnectChannel");
+export const UPDATE_PROJECT_TOOL = cursorTool("UpdateProject");
 
 export const SCREENSHOT_TOOL = nativeTool("Screenshot");
 

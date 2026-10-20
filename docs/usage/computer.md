@@ -33,9 +33,13 @@ Some sites block automated browsers or ask for extra verification. If that happe
 
 Bots can use passwordless `sudo` to install system packages and change their Linux
 computer. This gives them access to all container files, including provider
-credentials. It does not grant administrator access to your own computer.
+credentials. The container has all Linux capabilities, unrestricted seccomp and LSM
+profiles, writable kernel filesystems, an executable `/tmp`, and `/dev/net/tun` for
+VPN clients. Main, executor, computer/browser and knowledge workers can use sudo;
+video workers review supplied media without tools. This shares the
+Docker host kernel; it does not provide a separate VM security boundary.
 System packages survive restarts but must be reinstalled after container recreation
-or upgrades. VPNs still require additional networking permissions and devices.
+or upgrades. VPN applications may still need service configuration.
 
 ## Use your own computer
 

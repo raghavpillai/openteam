@@ -77,4 +77,8 @@ fi
 
 cd /workspace
 
-exec "$@"
+# Match the writable kernel filesystems inside the bot computer's namespaces.
+mount -o remount,rw /sys
+mount -o remount,rw /sys/fs/cgroup
+# Preserve the full inheritable capability set when shells/GUI drop to runner.
+exec setpriv --inh-caps +all "$@"

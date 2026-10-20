@@ -383,6 +383,7 @@ export class RuntimeTools {
   }
 
   customTools(active: ActiveTurn) {
+    if (active.subagentType === "videoReview" || active.subagentType === "watchVideo") return [];
     const native = (
       tool: (typeof NATIVE_TOOLS)[number],
       description: string = tool.description

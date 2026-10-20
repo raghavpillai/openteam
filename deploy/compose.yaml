@@ -119,13 +119,16 @@ services:
         condition: service_completed_successfully
       workspace-init:
         condition: service_completed_successfully
-    cap_drop: ["ALL"]
-    cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
+    cap_add: ["ALL"]
     security_opt:
       - no-new-privileges:false
+      - seccomp:unconfined
+      - apparmor:unconfined
+      - label:disable
+      - systempaths:unconfined
     read_only: false
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,size=512m
+    devices:
+      - /dev/net/tun:/dev/net/tun
     healthcheck:
       test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:8790/health');process.exit(r.ok?0:1)"]
       interval: 3s

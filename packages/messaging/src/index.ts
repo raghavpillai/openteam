@@ -585,7 +585,7 @@ export const subagentSpecializationInstructions = (type: SubagentType, combinedC
     ].join("\n");
   }
   if (type === "videoReview" || type === "watchVideo") {
-    return "Review the supplied media frames directly. The original video path is also available to Shell and Read when file-based inspection helps.";
+    return "Review the supplied media frames directly. No tools are available to this worker.";
   }
   if (type === "knowledgeWork") {
     return [

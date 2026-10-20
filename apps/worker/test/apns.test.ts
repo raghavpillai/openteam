@@ -24,7 +24,6 @@ const alert: AgentNotificationPayload = {
   channelId: "channel",
   botId: "bot",
   runId: "run",
-  deepLink: "openteam:///chat/channel",
   badgeCount: 2,
   messageSequence: "9007199254740993",
   notificationSequence: "24",
@@ -129,7 +128,7 @@ describe("native APNs delivery", () => {
       device,
       {
         ...alert,
-        kind: "agent-needs-input",
+        kind: "reaction",
         title: heavy,
         body: heavy,
         sender: { ...alert.sender!, name: heavy },
@@ -137,6 +136,12 @@ describe("native APNs delivery", () => {
       1,
       "large"
     );
+  });
+  test("tells the phone which thread a reply belongs to", () => {
+    const threaded = apnsPayload(device, { ...alert, threadMessageId: "reply-1" }, 2);
+    const plain = apnsPayload(device, alert, 2);
+    expect((threaded.data as Record<string, unknown>).threadMessageId).toBe("reply-1");
+    expect((plain.data as Record<string, unknown>).threadMessageId).toBeUndefined();
   });
   test("rejects a mismatched app, invalid environment, token or signing key without sending", async () => {
     let requests = 0;
@@ -147,7 +152,7 @@ describe("native APNs delivery", () => {
     for (const invalid of [
       { ...device, apnsTopic: "another.app" },
       { ...device, apnsEnvironment: "unknown" },
-      { ...device, pushToken: "ExpoPushToken[abc]" },
+      { ...device, pushToken: "zz".repeat(32) },
       { ...device, notificationScope: null },
     ]) {
       await expect(
@@ -174,21 +179,17 @@ describe("native APNs delivery", () => {
 });
 
 import { PushNotificationDispatcher } from "../src/push-notifications";
-async function dispatch(result: { status: number; reason?: string } | Error, withExpo = false) {
-  const native = {
-    ...device,
-    id: "native",
-    provider: "apns",
-    enabled: true,
-    authRequired: false,
-    authSession: null,
-  };
-  const devices = withExpo
-    ? [
-        native,
-        { ...native, id: "expo", provider: "expo", pushToken: "ExpoPushToken[legacy-device]" },
-      ]
-    : [native];
+async function dispatch(result: { status: number; reason?: string } | Error) {
+  const devices = [
+    {
+      ...device,
+      id: "native",
+      provider: "apns",
+      enabled: true,
+      authRequired: false,
+      authSession: null,
+    },
+  ];
   const updates: any[] = [],
     disabled: any[] = [],
     sends: string[] = [];
@@ -232,18 +233,21 @@ async function dispatch(result: { status: number; reason?: string } | Error, wit
       return result;
     },
   };
-  const dispatcher = new PushNotificationDispatcher(
-    prisma as never,
-    (async () => new Response("Expo offline", { status: 503 })) as unknown as typeof fetch,
-    null,
-    "disabled",
-    client as never
-  );
+  const dispatcher = new PushNotificationDispatcher(prisma as never, "disabled", client as never);
   await dispatcher.drain();
   return { updates, disabled, sends };
 }
 
 describe("native push outbox recovery", () => {
+  test("settles an accepted APNs delivery", async () => {
+    const value = await dispatch({ status: 200 });
+    expect(value.sends).toEqual(["native"]);
+    expect(value.disabled).toEqual([]);
+    expect(value.updates.at(-1)).toMatchObject({
+      where: { id: "native" },
+      data: { status: "delivered", deliveredAt: expect.any(Date) },
+    });
+  });
   test("retires unregistered tokens instead of repeatedly sending to a deleted app", async () => {
     for (const result of [
       { status: 410, reason: "Unregistered" },
@@ -264,12 +268,5 @@ describe("native push outbox recovery", () => {
       expect(value.updates.at(-1).data.status).toBe("failed");
       expect(value.updates.at(-1).data.availableAt.getTime()).toBeGreaterThan(Date.now());
     }
-  });
-  test("preserves an accepted APNs delivery during an Expo outage", async () => {
-    const value = await dispatch({ status: 200 }, true);
-    expect(value.updates.filter((v) => v.where.id === "native").at(-1).data.status).toBe(
-      "delivered"
-    );
-    expect(value.updates.filter((v) => v.where.id === "expo").at(-1).data.status).toBe("failed");
   });
 });

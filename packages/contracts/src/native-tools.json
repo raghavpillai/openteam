@@ -924,66 +924,6 @@
       }
     },
     {
-      "name": "ExternalShell",
-      "description": "Executes a shell command on the user's computer, the same filesystem ExternalRead acts on. That machine is NOT your own computer: every action there needs the user's approval, so use Shell for anything your own computer can do.\n\nOtherwise identical to Shell: same parameters, same foreground/background and `block_until_ms` semantics, and the same persistent terminal sessions and terminals-folder conventions. All guidance in the Shell tool description applies here, substituting ExternalShell for Shell, ExternalRead for Read, and AwaitExternalShell for AwaitShell.",
-      "parameters": {
-        "properties": {
-          "block_until_ms": {
-            "description": "How long to block and wait for the command to complete before moving it to background (in milliseconds). Defaults to 30000ms (30 seconds). Set to 0 to immediately run the command in the background. The timer includes the shell startup time.",
-            "type": "number"
-          },
-          "command": {
-            "description": "The command to execute",
-            "type": "string"
-          },
-          "description": {
-            "description": "Clear, concise description of what this command does in 5-10 words",
-            "type": "string"
-          },
-          "request_smart_mode_approval": {
-            "description": "Set to true when immediately retrying the exact same command after Auto-review blocks it and you decide the user should approve it through the native approval card.",
-            "type": "boolean"
-          },
-          "smart_mode_block_reason": {
-            "description": "Provide the exact block reason returned by Auto-review in the prior rejection. Required when request_smart_mode_approval is true so the approval card shows the original classifier reason without re-running the classifier.",
-            "type": "string"
-          },
-          "working_directory": {
-            "description": "The absolute path to the working directory to execute the command in (defaults to current directory)",
-            "type": "string"
-          }
-        },
-        "required": [
-          "command"
-        ],
-        "type": "object"
-      }
-    },
-    {
-      "name": "ExternalRead",
-      "description": "Reads a file on the user's computer, the same filesystem ExternalShell acts on. That machine is NOT your own computer: it is reached over a connection the user has to approve, so use Read for everything on your own box, including your own files under /home/box.\n\nText files include line numbers and support offset/limit paging. Image files (jpeg/jpg, png, gif, webp) are returned inline so you can see them. PDF files are converted to text.",
-      "parameters": {
-        "properties": {
-          "limit": {
-            "description": "The number of lines to read. Only provide if the file is too large to read at once.",
-            "type": "integer"
-          },
-          "offset": {
-            "description": "The line number to start reading from. Positive values are 1-indexed from the start of the file. Negative values count backwards from the end (e.g. -1 is the last line). Only provide if the file is too large to read at once.",
-            "type": "integer"
-          },
-          "path": {
-            "description": "The absolute path of the file to read.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "path"
-        ],
-        "type": "object"
-      }
-    },
-    {
       "name": "ListMachines",
       "description": "Lists the user's connected computers and the exact machineId used to target one with Shell or Read. This operation is read-only; never guess a machine id.",
       "parameters": {

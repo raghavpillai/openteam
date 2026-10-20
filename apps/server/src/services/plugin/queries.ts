@@ -16,8 +16,7 @@ import {
   PLUGIN_CONNECTION_STATUS_MAX_IDS,
 } from "@openteam/contracts";
 import { Prisma, type PrismaClient } from "@openteam/db";
-import { connectionNamespace, fileTransferCapabilities } from "@openteam/plugin-sdk";
-import type { PluginDefinition } from "../../plugins/catalog";
+import { connectionNamespace, fileTransferCapabilities, type PluginDefinition } from "@openteam/plugin-sdk";
 import { serviceEffect } from "../service-utils";
 import {
   catalogView,
@@ -71,11 +70,7 @@ export class PluginQueries {
               .update(canonicalJson(install.manifest))
               .digest("hex"),
             catalog: definitionFromManifest(install.manifest)
-              ? catalogView(
-                  definitionFromManifest(install.manifest)!,
-                  true,
-                  catalog.find((plugin) => plugin.key === install.pluginKey)
-                )
+              ? catalogView(definitionFromManifest(install.manifest)!, true)
               : undefined,
             id: install.id,
             pluginKey: install.pluginKey,

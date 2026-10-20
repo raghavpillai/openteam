@@ -2,8 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { auth, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { PluginToolDefinition } from "./catalog";
-import { discoverAllTools } from "@openteam/plugin-sdk";
+import { discoverAllTools, type PluginToolDefinition } from "@openteam/plugin-sdk";
 
 export interface HttpMcpConnectionOptions {
   endpoint: string;

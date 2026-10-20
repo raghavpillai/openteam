@@ -179,23 +179,15 @@ export const messageRenderKey = (message: ChannelMessageView): string =>
 
 export const channelMessageAddress = (message: ChannelMessageView): string => {
   const address = messageMetadata(message).address;
-  if (typeof address === "string") return address;
-  if (message.sender === "user") return `t${message.sequence}u`;
-  return typeof address === "string" ? address : `t${message.sequence}a0`;
+  return typeof address === "string" ? address : message.id;
 };
 
 export const replyTargetFor = (
   message: ChannelMessageView,
-  messagesById: ReadonlyMap<string, ChannelMessageView>,
-  messagesByAddress: ReadonlyMap<string, ChannelMessageView> = new Map()
+  messagesById: ReadonlyMap<string, ChannelMessageView>
 ): ChannelMessageView | null => {
-  const metadata = messageMetadata(message);
-  if (typeof metadata.replyTo === "string") {
-    const target = messagesById.get(metadata.replyTo);
-    if (target) return target;
-  }
-  const legacyAddress = typeof metadata.reply_to === "string" ? metadata.reply_to : null;
-  return legacyAddress ? (messagesByAddress.get(legacyAddress) ?? null) : null;
+  const replyTo = messageMetadata(message).replyTo;
+  return typeof replyTo === "string" ? (messagesById.get(replyTo) ?? null) : null;
 };
 
 export const messageSenderLabel = (

@@ -15,10 +15,7 @@ export async function nextMessageAddress(tx: Prisma.TransactionClient, channelId
 export async function resolveMessageAddress(tx: Prisma.TransactionClient, channelId: string, address: string) {
   const exact = await tx.channelMessage.findFirst({where:{channelId,metadata:{path:["address"],equals:address}}});
   if (exact) return exact;
-  const legacy = address.match(/^t(\d+)(?:u|a\d+)$/);
-  if (!legacy && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(address)) return null;
-  const message = await tx.channelMessage.findFirst({where:{channelId,...(legacy ? {sequence:BigInt(legacy[1]!)} : {id:address})}});
-  // New addresses must never resolve to a different legacy sequence by accident.
-  if (legacy && message && typeof (message.metadata as any)?.address === "string") return null;
-  return message;
+  // Messages without a transcript address (system rows) are addressed by id.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(address)) return null;
+  return tx.channelMessage.findFirst({where:{channelId,id:address}});
 }

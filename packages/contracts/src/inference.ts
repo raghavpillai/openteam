@@ -138,14 +138,10 @@ export const piModelRef = (providerId: string, modelId: string): PiModelRef => (
 export const formatPiModelRef = (model: PiModelRef): string =>
   `${model.providerId}/${model.modelId}`;
 
-/** A bare model id keeps the configured/default provider for backwards compatibility. */
-export const parsePiModelRef = (
-  value: string,
-  defaultProvider = DEFAULT_PI_INFERENCE_PROVIDER
-): PiModelRef => {
+/** Parses a provider-qualified `provider/model` reference. */
+export const parsePiModelRef = (value: string): PiModelRef => {
   const normalized = normalizeInferenceModelId(value);
   const separator = normalized.indexOf("/");
-  return separator > 0
-    ? piModelRef(normalized.slice(0, separator), normalized.slice(separator + 1))
-    : piModelRef(defaultProvider, normalized);
+  if (separator <= 0) throw new Error(`A provider-qualified inference model is required: ${value}`);
+  return piModelRef(normalized.slice(0, separator), normalized.slice(separator + 1));
 };

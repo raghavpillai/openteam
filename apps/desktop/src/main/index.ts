@@ -46,7 +46,6 @@ import { NativeActionReceipts } from "./host/action-receipts";
 import { isAddressInUseError } from "./host/bridge-listener";
 import { HostJobManager } from "./host/job-manager";
 import {
-  type DesktopAgentNotificationState,
   DesktopNotificationManager,
   type DesktopNotificationSnapshot,
   parseNotificationChannels,
@@ -804,36 +803,10 @@ ipcMain.handle("openteam:updates:update-server", async (event, value) => {
   return serverUpdater.update(request.serverUrl, request.targetVersion, request.sshTarget);
 });
 
-const desktopAgentState = (value: unknown): DesktopAgentNotificationState | null => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const candidate = value as Record<string, unknown>;
-  if (
-    ![candidate.botId, candidate.channelId, candidate.name].every(
-      (field) => typeof field === "string"
-    ) ||
-    ![candidate.notificationsEnabled, candidate.hiddenFromSidebar, candidate.isRunning].every(
-      (field) => typeof field === "boolean"
-    ) ||
-    (candidate.awaitingReason !== null && typeof candidate.awaitingReason !== "string") ||
-    (candidate.lastMessageId !== null && typeof candidate.lastMessageId !== "string") ||
-    (candidate.lastMessagePreview !== null && typeof candidate.lastMessagePreview !== "string") ||
-    typeof candidate.unreadCount !== "number" ||
-    !Number.isFinite(candidate.unreadCount)
-  ) {
-    return null;
-  }
-  return candidate as unknown as DesktopAgentNotificationState;
-};
-
 const desktopNotificationSnapshot = (value: unknown): DesktopNotificationSnapshot | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const candidate = value as { notificationRouting?: unknown; cursor?: unknown; agents?: unknown; channels?: unknown };
-  const routing = candidate.notificationRouting as Record<string, unknown> | undefined;
-  if (routing !== undefined && (!routing || typeof routing !== "object" ||
-    typeof routing.smartEnabled !== "boolean" || ![routing.serverTime, routing.iosActiveUntil, routing.macActiveUntil].every(value => typeof value === "number" && Number.isFinite(value) && value >= 0))) return null;
-  const agents = candidate.agents;
-  const channels =
-    candidate.channels === undefined ? undefined : parseNotificationChannels(candidate.channels);
+  const candidate = value as { cursor?: unknown; channels?: unknown };
+  const channels = parseNotificationChannels(candidate.channels);
   if (channels === null) return null;
   if (
     candidate.cursor !== undefined &&
@@ -841,16 +814,7 @@ const desktopNotificationSnapshot = (value: unknown): DesktopNotificationSnapsho
   ) {
     return null;
   }
-  if (!Array.isArray(agents) || agents.length > 10_000) return null;
-  const parsed = agents.map(desktopAgentState);
-  return parsed.every((agent): agent is DesktopAgentNotificationState => Boolean(agent))
-    ? {
-        notificationRouting: routing as unknown as DesktopNotificationSnapshot["notificationRouting"],
-        agents: parsed,
-        ...(candidate.cursor ? { cursor: candidate.cursor } : {}),
-        ...(channels !== undefined ? { channels } : {}),
-      }
-    : null;
+  return { channels, ...(candidate.cursor ? { cursor: candidate.cursor } : {}) };
 };
 
 ipcMain.on("openteam:notifications:sync", (event, request: unknown) => {
@@ -1118,8 +1082,6 @@ if (!hasSingleInstanceLock) {
         )
       );
       localMachine.machineId = await loadMachineIdentity(join(app.getPath("userData"), "machine-id"));
-      // Separate from legacy auth-session.bin: do not access Keychain to migrate.
-      // Users with an encrypted session sign in once to create the new local file.
       authTokenStore = new DesktopAuthTokenStore(
         join(app.getPath("userData"), "auth-session.json")
       );
@@ -1167,16 +1129,13 @@ if (!hasSingleInstanceLock) {
             icon: notificationEvent.sender?.avatarDataUrl
               ? nativeImage.createFromDataURL(notificationEvent.sender.avatarDataUrl)
               : undefined,
-            silent: notificationEvent.sound === null,
-            urgency: notificationEvent.urgency,
+            silent: true,
           });
           activeNotifications.add(notification);
-          if (notificationEvent.notificationId)
-            activityNotifications.set(notificationEvent.notificationId, notification);
+          activityNotifications.set(notificationEvent.notificationId, notification);
           const release = () => {
             activeNotifications.delete(notification);
-            if (notificationEvent.notificationId)
-              activityNotifications.delete(notificationEvent.notificationId);
+            activityNotifications.delete(notificationEvent.notificationId);
           };
           notification.once("close", release);
           notification.once("show", () => {
@@ -1197,10 +1156,10 @@ if (!hasSingleInstanceLock) {
           });
           notification.on("click", () => {
             focusMainWindow();
-            mainWindow?.webContents.send(
-              "openteam:notification-click",
-              notificationEvent.channelId
-            );
+            mainWindow?.webContents.send("openteam:notification-click", {
+              channelId: notificationEvent.channelId,
+              threadMessageId: notificationEvent.threadMessageId,
+            });
           });
           notification.show();
         },

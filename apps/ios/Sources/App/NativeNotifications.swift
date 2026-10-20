@@ -410,7 +410,10 @@ final class NativeNotifications {
       store.error = "This conversation is no longer available."
       return
     }
-    await store.open(push.channelId)
+    // A reply inside a thread opens that thread; if it can't load, open the chat.
+    let thread = push.data["threadMessageId"].string
+    if !thread.isEmpty { await store.open(push.channelId, messageID: thread) }
+    if store.navigation != [push.channelId] { await store.open(push.channelId) }
   }
   nonisolated static func payload(_ userInfo: [AnyHashable: Any]) -> NativePush {
     let value =
@@ -484,7 +487,7 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate,
       let manager = NativeNotifications.shared
       Task { _ = await manager.receive(push) }
       guard manager.shouldPresent(push) else { return [] }
-      return ["message", "reaction", "agent-needs-input"].contains(push.data["kind"].string)
+      return ["message", "reaction"].contains(push.data["kind"].string)
         ? [.banner, .list, .sound] : [.banner, .list]
     }
   }
@@ -502,12 +505,12 @@ struct PushNotificationSettings: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       if let smart = notifications.smartEnabled {
-        Toggle("Pause alerts on other devices while I’m active", isOn: Binding(
+        Toggle("Pause iPhone alerts while I’m using my Mac", isOn: Binding(
           get: { notifications.smartEnabled ?? smart },
           set: { value in Task { await notifications.setSmartEnabled(value) } }
         )).disabled(notifications.changingSmartPreference).tint(NativePalette.toggle)
           .accessibilityIdentifier("smart-notifications-toggle")
-        Text("Your iPhone takes priority while OpenTeam is open. Otherwise, phone alerts pause while you’re using your Mac and resume after five minutes of inactivity.")
+        Text("Alerts pause while you’re using your Mac, unless OpenTeam is open here. They resume after five minutes of Mac inactivity.")
           .font(.footnote).foregroundStyle(NativePalette.muted)
       }
       Toggle(

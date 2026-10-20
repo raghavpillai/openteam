@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { discoverRemoteTools, invokeRemoteTool } from "../../src/services/plugin-service";
+import { McpHttpClientManager } from "../../src/plugins/mcp-client-manager";
 
 let server: ReturnType<typeof Bun.serve> | null = null;
+const http = new McpHttpClientManager();
 
-afterEach(() => {
+afterEach(async () => {
+  await http.closeAll();
   server?.stop(true);
   server = null;
 });
@@ -74,8 +76,8 @@ describe("remote MCP transport", () => {
     });
     const endpoint = `http://127.0.0.1:${server.port}`;
 
-    expect((await discoverRemoteTools(endpoint)).map((tool) => tool.name)).toEqual(["echo"]);
-    expect(await invokeRemoteTool(endpoint, "echo", { text: "hello" })).toMatchObject({
+    expect((await http.discover("connection", { endpoint })).map((tool) => tool.name)).toEqual(["echo"]);
+    expect(await http.call("connection", { endpoint }, "echo", { text: "hello" })).toMatchObject({
       content: [{ type: "text" }],
     });
     expect(methods).toEqual([

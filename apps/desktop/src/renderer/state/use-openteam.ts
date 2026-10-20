@@ -11,7 +11,6 @@ import { toggleOwnReaction } from "@openteam/product-core/messages";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createDesktopLiveSyncController, shouldRefreshForEvent } from "../client/event-stream";
-import { ClientError } from "../client/http";
 import { api, type ChannelClientState, type ClientBootstrapView } from "../client/openteam-api";
 import {
   DURABLE_SEND_ACCEPTED_EVENT,
@@ -97,7 +96,6 @@ export function useOpenTeam() {
   const refreshNeedsForeground = useRef(false);
   const refreshError = useRef<unknown>(null);
   const initialRefreshStarted = useRef(false);
-  const legacyMode = useRef(false);
   const bootstrapRef = useRef<ClientBootstrapView | null>(null);
   const bootstrapEpoch = useRef(0);
   const histories = useRef(new Map<string, LoadedChannelHistory>());
@@ -116,7 +114,6 @@ export function useOpenTeam() {
   const threadContextIdsCache = useRef(new Map<string, ReadonlySet<string>>());
   const searchContextIdsCache = useRef(new Map<string, ReadonlySet<string>>());
   const caches = useRef(createSnapshotCaches());
-  const runtimeEndpointMissing = useRef(false);
   const lastRuntimePoll = useRef(0);
   const lastRefreshCompletedAt = useRef(0);
 
@@ -146,7 +143,6 @@ export function useOpenTeam() {
       else commit();
       recordPerformance("snapshot.reconcile", performance.now() - startedAt, {
         changed,
-        mode: legacyMode.current ? "legacy" : "bounded",
         messages: next.channelMessages.length,
       });
     },
@@ -354,7 +350,7 @@ export function useOpenTeam() {
   const backgroundHistoryRunning = useRef(false);
   const backgroundHistoryNeed = useCallback((channelId: string) => {
     const bootstrap = bootstrapRef.current;
-    if (!bootstrap || legacyMode.current) return null;
+    if (!bootstrap) return null;
     return backgroundHistoryNeedFor({
       bootstrap,
       channelId,
@@ -426,7 +422,6 @@ export function useOpenTeam() {
 
   const loadChannel = useCallback(
     async (channelId: string) => {
-      if (legacyMode.current) return;
       const bootstrap = bootstrapRef.current;
       if (bootstrap && !bootstrap.channels.some((channel) => channel.id === channelId)) return;
       touchHistory(channelId);
@@ -454,7 +449,6 @@ export function useOpenTeam() {
       direction: MessageHistoryDirection,
       viewportMessageIds?: readonly string[]
     ) => {
-      if (legacyMode.current) return;
       const fill = direction === "older" ? ("older-first" as const) : ("newer-first" as const);
       if (viewportMessageIds) setHistoryViewport(channelId, viewportMessageIds, fill);
       const existing = histories.current.get(channelId);
@@ -568,7 +562,6 @@ export function useOpenTeam() {
 
   const loadOlder = useCallback(
     async (channelId: string, viewportMessageIds?: readonly string[]) => {
-      if (legacyMode.current) return;
       const existing = histories.current.get(channelId);
       const window = historyWindows.current.get(channelId);
       if (viewportMessageIds) {
@@ -653,7 +646,6 @@ export function useOpenTeam() {
           (message) => message.channelId === channelId && message.id === messageId
         )
       );
-      if (legacyMode.current) return snapshotHasTarget;
       const cached = histories.current.get(channelId);
       const targetIsPrimary = Boolean(cached?.messages.some((message) => message.id === messageId));
       if (targetIsPrimary) {
@@ -748,7 +740,6 @@ export function useOpenTeam() {
 
   const jumpToLatest = useCallback(
     async (channelId: string) => {
-      if (legacyMode.current) return;
       const current = histories.current.get(channelId);
       const window = historyWindows.current.get(channelId);
       if (!current || !window || (!window.context && !window.primaryHasNewerGap)) return;
@@ -837,68 +828,52 @@ export function useOpenTeam() {
             refreshNeedsForeground.current = false;
             refreshError.current = null;
             try {
-              if (legacyMode.current) {
-                const incoming = await api.snapshot();
-                cursor.current = incoming.cursor;
-                publish(incoming, cycleQuiet);
-              } else {
-                let bootstrap: ClientBootstrapView;
-                try {
-                  bootstrap = await api.bootstrap();
-                } catch (cause) {
-                  if (!(cause instanceof ClientError) || cause.status !== 404) throw cause;
-                  legacyMode.current = true;
-                  const incoming = await api.snapshot();
-                  cursor.current = incoming.cursor;
-                  publish(incoming, cycleQuiet);
-                  continue;
-                }
-                bootstrapRef.current = bootstrap;
-                bootstrapEpoch.current += 1;
-                cursor.current = bootstrap.cursor;
-                lastRuntimePoll.current = Date.now();
-                const validChannelIds = new Set(bootstrap.channels.map((channel) => channel.id));
-                let removedInvalidHistory = false;
-                historyLru.current = historyLru.current.filter((channelId) => {
-                  if (validChannelIds.has(channelId)) return true;
-                  invalidateHistory(channelId);
-                  removedInvalidHistory = true;
-                  return false;
-                });
-                if (removedInvalidHistory) {
-                  setHistoryRevision((value) => value + 1);
-                }
-                for (const [channelId, state] of channelStates.current) {
-                  if (
-                    compareSequence({ sequence: state.revision }, { sequence: bootstrap.cursor }) <
-                    0
-                  ) {
-                    channelStates.current.delete(channelId);
-                  }
-                }
-                // Channel hydration is supplementary. Publish the bounded shell
-                // first so a stale saved selection or a transient history error
-                // can never strand the app on its connecting screen.
-                publishBootstrap(cycleQuiet);
-                const activeChannel = historyLru.current[0];
-                if (activeChannel && histories.current.has(activeChannel)) {
-                  const history = histories.current.get(activeChannel);
-                  const state = channelStates.current.get(activeChannel);
-                  // The saved channel can begin loading before bootstrap resolves.
-                  // Reuse that just-completed page instead of immediately issuing
-                  // the same history/state pair a second time during startup.
-                  if (
-                    !history ||
-                    Date.now() - history.loadedAt >= 250 ||
-                    !state ||
-                    compareSequence({ sequence: state.revision }, { sequence: bootstrap.cursor }) <
-                      0
-                  ) {
-                    await fetchChannel(activeChannel, false, true);
-                  }
-                }
-                void syncBackgroundHistories();
+              const bootstrap = await api.bootstrap();
+              bootstrapRef.current = bootstrap;
+              bootstrapEpoch.current += 1;
+              cursor.current = bootstrap.cursor;
+              lastRuntimePoll.current = Date.now();
+              const validChannelIds = new Set(bootstrap.channels.map((channel) => channel.id));
+              let removedInvalidHistory = false;
+              historyLru.current = historyLru.current.filter((channelId) => {
+                if (validChannelIds.has(channelId)) return true;
+                invalidateHistory(channelId);
+                removedInvalidHistory = true;
+                return false;
+              });
+              if (removedInvalidHistory) {
+                setHistoryRevision((value) => value + 1);
               }
+              for (const [channelId, state] of channelStates.current) {
+                if (
+                  compareSequence({ sequence: state.revision }, { sequence: bootstrap.cursor }) <
+                  0
+                ) {
+                  channelStates.current.delete(channelId);
+                }
+              }
+              // Channel hydration is supplementary. Publish the bounded shell
+              // first so a stale saved selection or a transient history error
+              // can never strand the app on its connecting screen.
+              publishBootstrap(cycleQuiet);
+              const activeChannel = historyLru.current[0];
+              if (activeChannel && histories.current.has(activeChannel)) {
+                const history = histories.current.get(activeChannel);
+                const state = channelStates.current.get(activeChannel);
+                // The saved channel can begin loading before bootstrap resolves.
+                // Reuse that just-completed page instead of immediately issuing
+                // the same history/state pair a second time during startup.
+                if (
+                  !history ||
+                  Date.now() - history.loadedAt >= 250 ||
+                  !state ||
+                  compareSequence({ sequence: state.revision }, { sequence: bootstrap.cursor }) <
+                    0
+                ) {
+                  await fetchChannel(activeChannel, false, true);
+                }
+              }
+              void syncBackgroundHistories();
               setError(null);
               refreshError.current = null;
               lastRefreshCompletedAt.current = Date.now();
@@ -919,7 +894,7 @@ export function useOpenTeam() {
       refreshInFlight.current = task;
       return task;
     },
-    [fetchChannel, invalidateHistory, publish, publishBootstrap, syncBackgroundHistories]
+    [fetchChannel, invalidateHistory, publishBootstrap, syncBackgroundHistories]
   );
 
   const reactToMessage = useCallback(
@@ -931,10 +906,7 @@ export function useOpenTeam() {
       if (previous) patchMessage(toggleOwnReaction(previous, emoji));
       try {
         const result = await api.reactToMessage(messageId, emoji);
-        // Rolling upgrades can pair the new renderer with the legacy reaction
-        // response, which did not include the authoritative message.
-        if (result.message) patchMessage(result.message);
-        else await refresh(true);
+        patchMessage(result.message);
         return result;
       } catch (cause) {
         if (previous) patchMessage(previous);
@@ -969,7 +941,7 @@ export function useOpenTeam() {
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: Snapshot presence starts one poller; refs and publishBootstrap carry the latest snapshot.
   useEffect(() => {
-    if (!snapshot || legacyMode.current || runtimeEndpointMissing.current) return;
+    if (!snapshot) return;
     let cancelled = false;
     let polling = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -978,7 +950,7 @@ export function useOpenTeam() {
       if (!cancelled) timer = setTimeout(() => void poll(), 30_000);
     };
     const poll = async () => {
-      if (cancelled || polling || runtimeEndpointMissing.current) return;
+      if (cancelled || polling) return;
       if (!isWindowVisible()) {
         schedule();
         return;
@@ -992,10 +964,8 @@ export function useOpenTeam() {
           bootstrapRef.current = { ...bootstrap, runtime: view.runtime };
           publishBootstrap(true);
         }
-      } catch (cause) {
-        if (cause instanceof ClientError && cause.status === 404) {
-          runtimeEndpointMissing.current = true;
-        }
+      } catch {
+        // The next poll retries.
       } finally {
         polling = false;
         schedule();
@@ -1087,28 +1057,9 @@ export function useOpenTeam() {
     [refresh]
   );
 
-  const legacySnapshot = legacyMode.current ? snapshot : null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: The revision deliberately invalidates projections derived from mutable history refs.
   const historyByChannel = useMemo(() => {
     const status = new Map<string, ChannelHistoryStatus>();
-    if (legacySnapshot) {
-      // Legacy snapshots already contain complete transcripts; there is no
-      // separate history request whose completion could release the spinner.
-      const counts = new Map<string, number>();
-      for (const message of legacySnapshot.channelMessages) {
-        counts.set(message.channelId, (counts.get(message.channelId) ?? 0) + 1);
-      }
-      for (const channel of legacySnapshot.channels) {
-        status.set(channel.id, {
-          initialLoading: false, generation: 0, mode: "latest",
-          hasOlder: false, hasNewer: false, hasNewerGap: false,
-          loadingOlder: false, loadingNewer: false,
-          loadedMessages: counts.get(channel.id) ?? 0, retainedBytes: 0,
-          activityTruncated: false, threadContextTruncated: false,
-        });
-      }
-      return status;
-    }
     for (const [channelId, history] of histories.current) {
       const state = channelStates.current.get(channelId);
       const window = historyWindows.current.get(channelId) ?? emptyChannelMessageWindow();
@@ -1131,7 +1082,7 @@ export function useOpenTeam() {
       });
     }
     return status;
-  }, [historyRevision, legacySnapshot]);
+  }, [historyRevision]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: The revision deliberately invalidates projections derived from mutable history refs.
   const threadContextMessageIdsByChannel = useMemo(() => {

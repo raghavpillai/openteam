@@ -134,7 +134,7 @@ try {
       const settings = await Bun.file(process.env.OPENTEAM_AGENT_DATA_ROOT + "/transcription.json").json();
       let apiKey = null;
       if (settings.encryptedApiKey) {
-        const secret = process.env.OPENTEAM_AUTH_SECRET ?? process.env.BETTER_AUTH_SECRET;
+        const secret = process.env.OPENTEAM_AUTH_SECRET;
         const key = createHash("sha256").update("openteam-transcription-v1:" + secret).digest();
         const bytes = Buffer.from(settings.encryptedApiKey, "base64");
         const decipher = createDecipheriv("aes-256-gcm", key, bytes.subarray(0, 12));

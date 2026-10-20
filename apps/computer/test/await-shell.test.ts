@@ -161,7 +161,7 @@ test("Read exposes supervisor terminal logs while retaining checks on adjacent f
   const privatePath = join(root, "auth.json");
   await writeFile(privatePath, "test fixture");
   await expect(executor.read({ path: privatePath }, root)).rejects.toThrow("agent-inaccessible");
-  const escape = join(root, "terminals", `${crypto.randomUUID()}.log`);
+  const escape = join(root, "terminals", "4242424242.log");
   await symlink(privatePath, escape);
   await expect(executor.read({ path: escape }, root)).rejects.toThrow("agent-inaccessible");
 });

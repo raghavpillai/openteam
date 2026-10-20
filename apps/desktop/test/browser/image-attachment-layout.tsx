@@ -86,7 +86,7 @@ async function run() {
     { name: "portrait", width: 400, height: 800, expected: [150, 300] },
     { name: "landscape", width: 1600, height: 900, expected: [320, 180] },
     { name: "small", width: 80, height: 60, expected: [80, 60] },
-    { name: "legacy", expected: [320, 180] },
+    { name: "no-dimensions", expected: [320, 180] },
     { name: "invalid", width: 0, height: Infinity, expected: [320, 180] },
     { name: "broken", width: 400, height: 800, expected: [150, 300] },
   ];

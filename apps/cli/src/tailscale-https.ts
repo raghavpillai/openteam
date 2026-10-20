@@ -225,17 +225,3 @@ export function removeTailscaleRoute(
       `Tailscale Serve port ${port} could not be removed. Inspect tailscale serve status.`
     );
 }
-
-// Compatibility for callers that only need a best-effort probe.
-export function ensureTailscaleHttps(
-  runner: CommandRunner,
-  node: TailscaleHttps,
-  port: string
-): boolean {
-  try {
-    configureTailscaleRoute(runner, node, port);
-    return true;
-  } catch {
-    return false;
-  }
-}

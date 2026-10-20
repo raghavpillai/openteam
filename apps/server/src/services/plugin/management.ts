@@ -58,7 +58,7 @@ async function fetchPackageResource(value: string): Promise<{ bytes: Uint8Array;
   }
   const response = await fetch(url, {
     signal: AbortSignal.timeout(30_000),
-    headers: { "User-Agent": "OpenBot-Plugins" },
+    headers: { "User-Agent": "OpenTeam-Plugins" },
   });
   if (!response.ok)
     throw new ApiError(

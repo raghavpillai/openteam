@@ -7,7 +7,7 @@ import { AgentDataStore } from "@openteam/messaging";
 import { parsePluginRuntimeComponents } from "@openteam/plugin-sdk";
 import { importPackageArchive } from "@openteam/plugin-sdk/archive";
 import { Effect } from "effect";
-import { pluginCatalog } from "../../src/plugins/catalog";
+import { pluginCatalog } from "@openteam/plugins";
 import { PluginService } from "../../src/services/plugin-service";
 import { pluginRuntimeContext } from "../../../worker/src/plugins";
 

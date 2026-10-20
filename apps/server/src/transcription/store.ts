@@ -97,8 +97,7 @@ export class TranscriptionStore {
   private pendingWrite: Promise<unknown> = Promise.resolve();
   constructor(
     readonly path: string,
-    private readonly secret: () => string | undefined = () =>
-      process.env.OPENTEAM_AUTH_SECRET ?? process.env.BETTER_AUTH_SECRET
+    private readonly secret: () => string | undefined = () => process.env.OPENTEAM_AUTH_SECRET
   ) {}
 
   private key(): Buffer {

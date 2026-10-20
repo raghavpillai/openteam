@@ -2,8 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   agentNotificationPresentation,
   notificationGraphemes,
-  notificationMessageInputReason,
-  notificationMessagePreview,
   truncateNotificationText,
 } from "../src";
 
@@ -11,35 +9,20 @@ describe("notification text", () => {
   test("defines one exact presentation and delivery policy for every agent notification type", () => {
     expect(
       agentNotificationPresentation({
-        kind: "agent-needs-input",
+        kind: "message",
         botName: "  Probe  ",
-        body: "  Approve\nthis   command  ",
+        body: "  Finished\nthe   command  ",
       })
-    ).toEqual({
-      title: "Probe",
-      body: "Approve this command",
-      sound: "default",
-      urgency: "critical",
-    });
-    expect(agentNotificationPresentation({ kind: "agent-needs-input", botName: "Probe" })).toEqual({
-      title: "Probe",
-      body: "Waiting for your input.",
-      sound: "default",
-      urgency: "critical",
-    });
-    expect(
-      agentNotificationPresentation({ kind: "agent-done", botName: "Probe", body: "Finished" })
-    ).toEqual({
-      title: "Probe",
-      body: "Finished",
-      sound: null,
-      urgency: "normal",
-    });
-    expect(agentNotificationPresentation({ kind: "agent-done", botName: "Probe" })).toEqual({
+    ).toEqual({ title: "Probe", body: "Finished the command", sound: "default" });
+    expect(agentNotificationPresentation({ kind: "message", botName: "Probe" })).toEqual({
       title: "Probe",
       body: "Open OpenTeam to see what it did.",
-      sound: null,
-      urgency: "normal",
+      sound: "default",
+    });
+    expect(agentNotificationPresentation({ kind: "reaction", botName: "" })).toEqual({
+      title: "OpenTeam",
+      body: "Reacted to your message.",
+      sound: "default",
     });
   });
 
@@ -70,68 +53,5 @@ describe("notification text", () => {
         expect(truncateNotificationText(input, limit)).toBe(previous);
       }
     }
-  });
-
-  test("provides useful structured fallbacks for attachment-only messages", () => {
-    expect(
-      notificationMessagePreview({
-        content: "",
-        metadata: {
-          attachments: [
-            { kind: "image", mimeType: "image/png" },
-            { kind: "image", mimeType: "image/jpeg" },
-          ],
-        },
-      })
-    ).toBe("Sent 2 images.");
-    expect(notificationMessagePreview({ content: "", metadata: { type: "secret_request" } })).toBe(
-      "Waiting for your input."
-    );
-  });
-
-  test("includes archive filenames without repeating an existing caption", () => {
-    const metadata = { attachments: [{ fileName: "evidence.zip", kind: "file" }] };
-    expect(notificationMessagePreview({ metadata })).toBe("Sent 1 archive. 📎 evidence.zip");
-    expect(notificationMessagePreview({ content: "Sent 1 archive", metadata })).toBe("Sent 1 archive 📎 evidence.zip");
-    expect(notificationMessagePreview({ content: "Attached evidence.zip", metadata })).toBe("Attached evidence.zip");
-  });
-
-  test("classifies interactive and secret messages as needs-input reasons", () => {
-    expect(
-      notificationMessageInputReason({
-        content: "Deploy to production?",
-        metadata: { type: "widget" },
-      })
-    ).toBe("Deploy to production?");
-    expect(
-      notificationMessageInputReason({ content: "", metadata: { type: "secret-request" } })
-    ).toBe("Waiting for your input.");
-    expect(
-      notificationMessageInputReason({
-        content: "Deploy to production?",
-        metadata: { type: "widget", respondedValue: "No" },
-      })
-    ).toBeNull();
-    expect(
-      notificationMessageInputReason({
-        content: "Deploy to production?",
-        metadata: { type: "widget", widgetDismissed: true },
-      })
-    ).toBeNull();
-    expect(
-      notificationMessageInputReason({
-        content: "Secret requested",
-        metadata: { type: "secret-request", secretProvided: true },
-      })
-    ).toBeNull();
-    expect(
-      notificationMessagePreview({
-        content: "Deploy to production?",
-        metadata: { type: "widget", widgetDismissed: true },
-      })
-    ).toBe("Open OpenTeam to see what it did.");
-    expect(
-      notificationMessageInputReason({ content: "Finished", metadata: { type: "text" } })
-    ).toBeNull();
   });
 });

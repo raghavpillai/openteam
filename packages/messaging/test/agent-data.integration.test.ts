@@ -291,9 +291,8 @@ test("agent-data files are authoritative and preserve malformed settings", async
     ).toEqual({ name: "Filesystem room", description: "Coordinates filesystem parity." });
     await mkdir(join(botDirectory, "memory", "log"), { recursive: true });
     await mkdir(join(botDirectory, "skills", skillId), { recursive: true });
-    const avatarPath = join(workspace, "avatar.png");
     const avatarBytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
-    await writeFile(avatarPath, avatarBytes);
+    await writeFile(join(botDirectory, "avatar.png"), avatarBytes);
 
     await writeFile(
       join(botDirectory, "profile.json"),
@@ -305,7 +304,6 @@ test("agent-data files are authoritative and preserve malformed settings", async
           avatarShape: "◆",
           avatarColor: "#123456",
           namedBy: "user",
-          avatar: avatarPath,
         },
         null,
         2
@@ -406,7 +404,6 @@ test("agent-data files are authoritative and preserve malformed settings", async
       avatarPath: await realpath(join(botDirectory, "avatar.png")),
     });
     expect(await readFile(join(botDirectory, "avatar.png"))).toEqual(Buffer.from(avatarBytes));
-    await expect(access(join(botDirectory, "avatar.json"))).rejects.toThrow();
     expect(await prisma.channel.findUniqueOrThrow({ where: { id: groupId } })).toMatchObject({
       name: "Hand-edited room",
     });

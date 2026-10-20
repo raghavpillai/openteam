@@ -114,11 +114,7 @@ export default function ProvidersSettings() {
       .then((next) => active && setView(next))
       .catch((cause) => {
         if (!active) return;
-        setError(
-          (cause as { status?: number })?.status === 404
-            ? "This server doesn't support provider settings yet. Update the server, then reopen Settings."
-            : clientErrorMessage(cause, "Could not load provider settings")
-        );
+        setError(clientErrorMessage(cause, "Could not load provider settings"));
       })
       .finally(() => active && setBusy(null));
     return () => {

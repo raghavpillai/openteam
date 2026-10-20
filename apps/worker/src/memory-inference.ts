@@ -10,7 +10,7 @@ export const memoryInferenceSettings = (
   env: Record<string, string | undefined> = process.env
 ): ServerInferenceSettings => {
   const model = env.OPENTEAM_MEMORY_MODEL?.trim();
-  const reference = model ? parsePiModelRef(model, main.providerId) : main;
+  const reference = model ? parsePiModelRef(model) : main;
   return serverInferenceSettings(
     reference.providerId,
     reference.modelId,

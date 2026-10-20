@@ -1,4 +1,5 @@
-import { type PluginDefinition, pluginCatalog, validatePluginCatalog } from "./catalog";
+import { type PluginDefinition, validatePluginCatalog } from "@openteam/plugin-sdk";
+import { pluginCatalog } from "@openteam/plugins";
 
 type JsonObject = Record<string, unknown>;
 

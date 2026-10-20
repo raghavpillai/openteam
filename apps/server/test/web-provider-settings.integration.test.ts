@@ -220,7 +220,6 @@ test.skipIf(!databaseUrl)("database constraints accept every catalog provider an
     await expect(Promise.resolve(prisma.webToolProvider.update({ where: exa, data: { checkStatus: "maybe", checkedAt: new Date() } }))).rejects.toThrow();
     await expect(Promise.resolve(prisma.webToolProvider.update({ where: exa, data: { checkStatus: "passed" } }))).rejects.toThrow();
     await expect(Promise.resolve(prisma.webSearchSettings.create({ data: { id: "another" } }))).rejects.toThrow();
-    await expect(Promise.resolve(prisma.webSearchSettings.update({ where: { id: "global" }, data: { apiKey: "legacy" } }))).rejects.toThrow();
   } finally {
     await reset(prisma);
     await prisma.$disconnect();

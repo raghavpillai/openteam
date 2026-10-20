@@ -6,7 +6,7 @@ image=${1:?Usage: bash scripts/test-computer-python-runtime.sh IMAGE}
 docker run --rm -i --network none --entrypoint sh "$image" <<'CONTAINER'
 set -eu
 mkdir -p /home/box/.local/share/private /home/box/.cache /home/box/.pi/agent
-chmod 700 /home/box/.local /home/box/.cache /home/box/.local/share/private
+chmod 700 /home/box/.local/share/private
 printf synthetic > /home/box/.pi/agent/auth.json
 printf synthetic > /home/box/.local/share/private/token
 cat > /tmp/runner-check.sh <<'RUNNER'

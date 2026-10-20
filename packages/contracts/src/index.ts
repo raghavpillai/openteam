@@ -187,18 +187,15 @@ export type UpdateBotInput = typeof UpdateBotInput.Type;
 export const PushDevicePlatform = Schema.Literal("ios", "android");
 export type PushDevicePlatform = typeof PushDevicePlatform.Type;
 
+/** Native iOS APNs registration; the hex device token is lowercased by the server. */
 export const RegisterPushDeviceInput = Schema.Struct({
   installationId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(200)),
-  platform: PushDevicePlatform,
-  pushToken: Schema.String.pipe(
-    Schema.minLength(20),
-    Schema.maxLength(512),
-    Schema.pattern(/^(?:(?:ExponentPushToken|ExpoPushToken)\[[A-Za-z0-9_-]+\]|(?:[a-fA-F0-9]{2}){32,100})$/)
-  ),
-  provider: Schema.optional(Schema.Literal("expo", "apns")),
-  apnsEnvironment: Schema.optional(Schema.Literal("development", "production")),
-  apnsTopic: Schema.optional(Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9.-]{2,199}$/))),
-  notificationScope: Schema.optional(Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/))),
+  platform: Schema.Literal("ios"),
+  pushToken: Schema.String.pipe(Schema.pattern(/^(?:[a-fA-F0-9]{2}){32,100}$/)),
+  provider: Schema.Literal("apns"),
+  apnsEnvironment: Schema.Literal("development", "production"),
+  apnsTopic: Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9.-]{2,199}$/)),
+  notificationScope: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)),
   timeZone: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120))),
   locale: Schema.optional(Schema.String.pipe(Schema.minLength(2), Schema.maxLength(35))),
 });
@@ -225,10 +222,11 @@ export interface AgentNotificationPayload {
   runId: string;
   title: string;
   body: string;
-  deepLink: string;
   badgeCount: number;
-  notificationSequence?: string;
-  messageSequence?: string;
+  notificationSequence: string;
+  messageSequence: string;
+  /** Set when the message is a reply inside a thread, so opening the alert opens that thread. */
+  threadMessageId?: string;
   sender?: import("./notification-content").NotificationSender;
 }
 
@@ -1071,8 +1069,6 @@ export const SEND_TO_AGENT_TOOL = cursorTool("SendToAgent");
 
 export const SEND_TO_USER_TOOL = nativeTool("SendToUser");
 export const REACT_TO_MESSAGE_TOOL = nativeTool("ReactToMessage");
-export const EXTERNAL_SHELL_TOOL = nativeTool("ExternalShell");
-export const EXTERNAL_READ_TOOL = nativeTool("ExternalRead");
 export const SHELL_TOOL = nativeTool("Shell");
 export const READ_TOOL = nativeTool("Read");
 export const LIST_MACHINES_TOOL = nativeTool("ListMachines");
@@ -1664,8 +1660,7 @@ export interface Snapshot {
     queue: "ready" | "unavailable";
     computer: "ready" | "unavailable";
     inference: "ready" | "missing" | "invalid" | "unavailable";
-    /** Absent on older servers; clients must keep voice notes disabled in that case. */
-    transcription?: "configured" | "missing" | "invalid";
+    transcription: "configured" | "missing" | "invalid";
   };
 }
 

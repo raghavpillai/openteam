@@ -21,9 +21,6 @@ import { searchCategories } from "./input";
 export async function clientRoutes(context: RouteContext): Promise<Response | undefined> {
   const { app, request, url, path, authMode, authenticatedSessionId } = context;
 
-  if (request.method === "GET" && ["/api/snapshot", "/api/bootstrap"].includes(path)) {
-    return json(await run(app.clientSnapshot()));
-  }
   if (request.method === "POST" && path === "/api/notification-devices") {
     if (authMode === "required" && !authenticatedSessionId) {
       return json(
@@ -61,13 +58,6 @@ export async function clientRoutes(context: RouteContext): Promise<Response | un
     return json(await run(app.notifications.snapshot()), 200, { "cache-control": "no-store" });
   }
 
-  if (request.method === "GET" && path === "/api/client-snapshot") {
-    const startedAt = performance.now();
-    const snapshot = await run(app.clientSnapshot());
-    return json(snapshot, 200, {
-      "server-timing": `snapshot;dur=${(performance.now() - startedAt).toFixed(2)}`,
-    });
-  }
   if (request.method === "GET" && path === "/api/client-bootstrap") {
     const startedAt = performance.now();
     const bootstrap = await run(app.clientBootstrap());

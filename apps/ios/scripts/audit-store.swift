@@ -54,12 +54,3 @@ import Foundation
     )
   }
 }
-
-#if !canImport(UIKit)
-  // The probe never migrates an installed iOS application or registers push notifications.
-  enum NativeNotifications {
-    static func scope(_ record: SessionRecord) -> String {
-      fatalError("Unexpected iOS migration in isolated store audit")
-    }
-  }
-#endif

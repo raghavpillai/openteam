@@ -30,7 +30,11 @@ test.skipIf(!databaseUrl)(
         data: installationIds.map((installationId, index) => ({
           installationId,
           platform: "ios" as const,
-          pushToken: `ExpoPushToken[${crypto.randomUUID()}]`,
+          provider: "apns",
+          pushToken: crypto.randomUUID().replaceAll("-", "").repeat(2),
+          apnsEnvironment: "production",
+          apnsTopic: "dev.openteam.mobile.swift",
+          notificationScope: "cd".repeat(32),
           authRequired: index < 2,
           authSessionId: index === 0 ? retiringSessionId : index === 1 ? retainedSessionId : null,
           enabled: true,

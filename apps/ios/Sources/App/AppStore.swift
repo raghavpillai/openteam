@@ -216,7 +216,6 @@ final class AppStore {
         beginReauthentication()
         return
       }
-      try LegacyInstallation.migrate()
       server = UserDefaults.standard.string(forKey: "server") ?? server
       guard let saved = try SecureSession.read() else {
         phase = .signedOut
@@ -1256,14 +1255,11 @@ final class AppStore {
     let defaults = UserDefaults.standard
     guard defaults.bool(forKey: LocalDataReset.pendingKey) else { return }
     do {
-      if !testing {
-        try SecureSession.clear()
-        try LegacyInstallation.clear()
-      }
+      if !testing { try SecureSession.clear() }
       var directories = [testDirectory]
       #if canImport(UIKit)
         if !testing {
-          // Clear all accounts, including the previous RN app's sandbox data.
+          // Clear every account's sandbox data.
           directories = [.applicationSupportDirectory, .cachesDirectory, .documentDirectory]
             .flatMap { FileManager.default.urls(for: $0, in: .userDomainMask) }
           directories.append(FileManager.default.temporaryDirectory)

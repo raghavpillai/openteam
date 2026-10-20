@@ -828,7 +828,6 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     expect(await readFile(join(firstDirectory, "avatar.png"))).toEqual(Buffer.from(avatarBytes));
     await rm(validAvatar);
     expect(await readFile(join(firstDirectory, "avatar.png"))).toEqual(Buffer.from(avatarBytes));
-    await expect(access(join(firstDirectory, "avatar.json"))).rejects.toThrow();
     await writeFile(outsideAvatar, avatarBytes);
     const escapedAvatar = join(firstDirectory, "escaped.png");
     await symlink(outsideAvatar, escapedAvatar);

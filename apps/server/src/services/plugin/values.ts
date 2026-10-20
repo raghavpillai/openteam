@@ -3,9 +3,8 @@ import { createToolValidator } from "@openteam/plugin-sdk/json-schema";
 import type { PluginConnectionView, PluginDynamicNamespace } from "@openteam/contracts";
 import { ApiError } from "@openteam/contracts";
 import type { Prisma } from "@openteam/db";
-import type { PluginDefinition, PluginToolDefinition } from "../../plugins/catalog";
 import { toJson } from "../service-utils";
-import { pluginIconUrl, substituteConfiguration, fieldsForConnector, validateValues, type ConfigValue } from "@openteam/plugin-sdk";
+import { pluginIconUrl, substituteConfiguration, fieldsForConnector, validateValues, type ConfigValue, type PluginDefinition, type PluginToolDefinition } from "@openteam/plugin-sdk";
 
 export function runtimeConfiguration(connection: {
   configuration: Prisma.JsonValue;
@@ -318,11 +317,7 @@ export const definitionFromManifest = (value: unknown): PluginDefinition | undef
   return manifest as unknown as PluginDefinition;
 };
 
-export const catalogView = (
-  plugin: PluginDefinition,
-  installed: boolean,
-  iconFallback?: PluginDefinition
-) => ({
+export const catalogView = (plugin: PluginDefinition, installed: boolean) => ({
   key: plugin.key,
   version: plugin.version,
   name: plugin.name,
@@ -336,8 +331,7 @@ export const catalogView = (
   homepageUrl: plugin.homepageUrl ?? null,
   sourceUrl: plugin.sourceUrl ?? null,
   sourceRevision: plugin.sourceRevision ?? null,
-  // Older installed snapshots can use the catalog artwork without updating their package.
-  logoUrl: pluginIconUrl(plugin) ?? (iconFallback ? pluginIconUrl(iconFallback) : null),
+  logoUrl: pluginIconUrl(plugin) ?? null,
   installationSteps: plugin.installationSteps ?? ["Install the plugin from the registry.", ...(plugin.connections.length ? ["Complete any provider setup, then connect your account.", "Confirm the connection is ready and enable access for the Bots that need it."] : ["Enable the plugin for the Bots that need it."])],
   setupFields: plugin.setupFields ?? [],
   setup: plugin.setup ?? null,

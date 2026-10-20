@@ -8,7 +8,6 @@ import { ApiError } from "@openteam/contracts";
 import type { Prisma, PrismaClient } from "@openteam/db";
 import type { AgentDataStore } from "@openteam/messaging";
 import { Effect, Either } from "effect";
-import type { PluginDefinition, PluginToolDefinition } from "../plugins/catalog";
 import { McpHttpClientManager } from "../plugins/mcp-client-manager";
 import { OAuthReauthorizationRequiredError } from "../plugins/packaged-oauth";
 import { OpenTeamMarketplaceSource } from "../plugins/openteam-marketplace";
@@ -19,6 +18,8 @@ import {
   fieldsForConnector,
   validateValues,
   type ConfigValue,
+  type PluginDefinition,
+  type PluginToolDefinition,
 } from "@openteam/plugin-sdk";
 import { PluginConnectors } from "./plugin/connectors";
 import type { PollableConnection } from "./plugin/events";
@@ -624,12 +625,8 @@ export class PluginService {
     serviceEffect(async () => {
       const connection = await this.connectionOrThrow(connectionId);
       const oauth = jsonObject(jsonObject(connection.credentials).oauth);
-      // Authenticated users may discard a legacy agent-created orphan. This
-      // exception is cancellation-only; redemption still requires the owner.
-      const cancelSessionId = oauth.callbackMode === "manual" && oauth.callbackSessionId === null && sessionId !== null
-        ? null : sessionId;
       const context: PluginOAuthDesktopContext | undefined = oauth.callbackMode === "manual"
-        ? { redirectUrl: String(oauth.redirectUrl), sessionId: cancelSessionId, mode: "manual" }
+        ? { redirectUrl: String(oauth.redirectUrl), sessionId, mode: "manual" }
         : redirectUrl ? { redirectUrl: validateDesktopCallback(redirectUrl), sessionId } : undefined;
       return runAuthentication(this.cancelAuthentication(connectionId, state, context));
     });
@@ -1346,7 +1343,5 @@ export class PluginService {
     return this.transport.stopRuntime(connectionId, transport, generation);
   }
 }
-
-export { discoverRemoteTools, invokeRemoteTool } from "./plugin/transport";
 
 export { boundPluginResult } from "./plugin/values";

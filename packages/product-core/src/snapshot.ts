@@ -124,7 +124,3 @@ export const selectChannelRows = (
     });
 };
 
-/** @deprecated Use the platform-neutral ChannelRowProjection name. */
-export type MobileChannelRow = ChannelRowProjection;
-/** @deprecated Use selectChannelRows. */
-export const selectMobileChannelRows = selectChannelRows;

@@ -11,7 +11,7 @@ export type ModelProvider = {
   modelMessage?: string;
   custom?: boolean;
   authType?: "oauth" | "api_key" | null;
-  authMethods?: Array<{ type: "oauth" | "api_key"; label: string; subscription: boolean }>;
+  authMethods: Array<{ type: "oauth" | "api_key"; label: string; subscription: boolean }>;
 };
 export type ModelChoice = {
   providerId: string;
@@ -113,7 +113,8 @@ export const createModelSettingsAPI = (paths: InstallationPaths): ModelSettingsA
         typeof value.id !== "string" ||
         typeof value.name !== "string" ||
         typeof value.connected !== "boolean" ||
-        typeof value.modelCount !== "number"
+        typeof value.modelCount !== "number" ||
+        !Array.isArray(value.authMethods)
       )
         throw invalid();
       return {
@@ -126,16 +127,14 @@ export const createModelSettingsAPI = (paths: InstallationPaths): ModelSettingsA
         custom: typeof value.custom === "boolean" ? value.custom : undefined,
         authType:
           value.authType === "oauth" || value.authType === "api_key" ? value.authType : null,
-        authMethods: Array.isArray(value.authMethods)
-          ? value.authMethods.flatMap((method) =>
-              object(method) &&
-              (method.type === "oauth" || method.type === "api_key") &&
-              typeof method.label === "string" &&
-              typeof method.subscription === "boolean"
-                ? [{ type: method.type, label: method.label, subscription: method.subscription }]
-                : []
-            )
-          : undefined,
+        authMethods: value.authMethods.flatMap((method) =>
+          object(method) &&
+          (method.type === "oauth" || method.type === "api_key") &&
+          typeof method.label === "string" &&
+          typeof method.subscription === "boolean"
+            ? [{ type: method.type, label: method.label, subscription: method.subscription }]
+            : []
+        ),
       };
     });
     const models = body.models.map((value) => {

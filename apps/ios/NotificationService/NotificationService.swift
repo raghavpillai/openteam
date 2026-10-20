@@ -15,10 +15,9 @@ final class NotificationService: UNNotificationServiceExtension {
     handler = contentHandler
     fallback = request.content
     lock.unlock()
-    // Expo puts custom data under body; direct APNs and local tests use data or root.
-    let info = request.content.userInfo
-    let data = (info["body"] as? [String: Any]) ?? (info["data"] as? [String: Any]) ?? (info as? [String: Any]) ?? [:]
-    guard ["message", "reaction", "agent-needs-input", "agent-done"].contains(data["kind"] as? String ?? ""),
+    // OpenTeam's custom APNs fields live under data.
+    let data = request.content.userInfo["data"] as? [String: Any] ?? [:]
+    guard ["message", "reaction"].contains(data["kind"] as? String ?? ""),
           let botId = data["botId"] as? String,
           let channelId = data["channelId"] as? String,
           let content = request.content.mutableCopy() as? UNMutableNotificationContent else {

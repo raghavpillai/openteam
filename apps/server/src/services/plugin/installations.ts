@@ -5,9 +5,9 @@ import {
   substituteConfiguration,
   validateValues,
   type ConfigValue,
+  type PluginDefinition,
 } from "@openteam/plugin-sdk";
 import type { PrismaClient } from "@openteam/db";
-import type { PluginDefinition } from "../../plugins/catalog";
 import { appendEvent, serviceEffect, toJson } from "../service-utils";
 import { definitionFromManifest, hasPlaceholder, manifestJson } from "./values";
 import { resolveUpstreamPlugin } from "../../plugins/upstream-package";

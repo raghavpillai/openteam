@@ -53,7 +53,8 @@ export const BOT_AGENT_STORE_MAX_OPEN_AGENTS = 32;
 export const BOT_AGENT_STORE_IDLE_CLOSE_MS = 2 * 60_000;
 
 // The computer supervisor and server/worker have different UIDs, but share
-// the box group. Repair older directories too; mkdir does not change their mode.
+// the box group. The server and worker create some of these directories with
+// owner-only modes, and mkdir does not change an existing directory's mode.
 const ensureSharedAgentDirectory = async (directory: string): Promise<void> => {
   await mkdir(directory, { recursive: true, mode: 0o770 });
   const mode = (await stat(directory)).mode & 0o7777;

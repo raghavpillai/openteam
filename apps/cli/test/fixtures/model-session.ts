@@ -93,8 +93,14 @@ export const modelFixture = () => {
         inference: { ...inference },
         modelProviderId: provider,
         providers: [
-          { id: "example", name: "Example AI", connected: true, modelCount: 2 },
-          { id: "offline", name: "Disconnected AI", connected: false, modelCount: 1 },
+          { id: "example", name: "Example AI", connected: true, modelCount: 2, authMethods: [] },
+          {
+            id: "offline",
+            name: "Disconnected AI",
+            connected: false,
+            modelCount: 1,
+            authMethods: [],
+          },
         ],
         models: (provider === "example"
           ? ([

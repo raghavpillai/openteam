@@ -37,13 +37,3 @@ export function suppressMobileNotification(
 ): boolean {
   return routing.smartEnabled && routing.iosActiveUntil <= now && routing.macActiveUntil > now;
 }
-
-/** Translate the server lease to a bounded local duration, tolerating clock skew. */
-export function desktopNotificationQuietMs(routing: NotificationRouting): number {
-  return routing.smartEnabled
-    ? Math.max(
-        0,
-        Math.min(NOTIFICATION_PRESENCE_TTL_MS, routing.iosActiveUntil - routing.serverTime)
-      )
-    : 0;
-}

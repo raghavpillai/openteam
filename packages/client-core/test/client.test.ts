@@ -3,7 +3,6 @@ import {
   consumeProductEventStream,
   createOpenTeamClient,
   normalizeBaseUrl,
-  normalizeClientSnapshot,
   sidebarPreferencesFromRootSettings,
 } from "../src";
 
@@ -546,7 +545,7 @@ describe("mobile-safe OpenTeam client", () => {
       },
     });
 
-    await expect(client.snapshot()).rejects.toMatchObject({ status: 401 });
+    await expect(client.bootstrap()).rejects.toMatchObject({ status: 401 });
     expect(new Headers(calls[0]?.headers).get("authorization")).toBe("Bearer signed-session");
     expect(unauthorized).toEqual(["signed-session"]);
   });
@@ -577,32 +576,5 @@ describe("mobile-safe OpenTeam client", () => {
     expect(client.screenFrameUrl("bot/1", 42)).toBe(
       "http://openteam.test/api/v0/bots/bot%2F1/screen/frame?v=42"
     );
-  });
-
-  test("normalizes missing snapshot lists during reconnect", () => {
-    const snapshot = normalizeClientSnapshot({
-      cursor: "partial",
-      workspace: {
-        root: "/workspace",
-        sharedDirectory: "/workspace/shared",
-        botsDirectory: "/workspace/bots",
-        projectsDirectory: "/workspace/projects",
-      },
-      runtime: {
-        server: "ready",
-        database: "ready",
-        queue: "ready",
-        computer: "ready",
-        inference: "ready",
-      },
-    } as Parameters<typeof normalizeClientSnapshot>[0]);
-
-    expect(snapshot.bots).toEqual([]);
-    expect(snapshot.channels).toEqual([]);
-    expect(snapshot.channelMessages).toEqual([]);
-    expect(snapshot.channelRounds).toEqual([]);
-    expect(snapshot.runs).toEqual([]);
-    expect(snapshot.runItems).toEqual([]);
-    expect(snapshot.subagents).toEqual([]);
   });
 });

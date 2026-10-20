@@ -124,16 +124,3 @@ export interface WebProviderCheckResult {
   ok: boolean;
   message: string;
 }
-
-/** Legacy single-tool shapes, kept for clients older than Settings → Providers. */
-export interface WebSearchSettingsView {
-  provider: string | null;
-  hasApiKey: boolean;
-  configured: boolean;
-}
-
-export interface WebFetchSettingsView {
-  provider: string | null;
-  hasApiKey: boolean;
-  configured: boolean;
-}

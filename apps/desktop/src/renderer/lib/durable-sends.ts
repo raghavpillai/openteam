@@ -56,39 +56,19 @@ const storageKey = (scope: string): string => `openteam:send-journal:v1:${scope}
 const storageFor = (scope: string) => ({
   read: async (): Promise<unknown> => {
     const host = window.openteam?.deliveryJournal;
-    if (host) {
-      try {
-        const journal = await host.read(scope);
-        if (journal) return journal;
-      } catch {
-        // A legacy renderer journal is still a valid crash-recovery source if
-        // the host bridge is temporarily unavailable during startup.
-      }
-    }
+    if (host) return host.read(scope).catch(() => null);
+    // Browser dev mode has no host bridge; the journal lives in localStorage.
     const encoded = localStorage.getItem(storageKey(scope));
     if (!encoded) return null;
-    let journal: unknown;
     try {
-      journal = JSON.parse(encoded) as unknown;
+      return JSON.parse(encoded) as unknown;
     } catch {
       return null;
     }
-    if (host) {
-      try {
-        await host.write(scope, journal);
-        localStorage.removeItem(storageKey(scope));
-      } catch {
-        // Keep the legacy copy until a later host-backed write succeeds.
-      }
-    }
-    return journal;
   },
   write: async (journal: DurableSendJournal): Promise<void> => {
-    if (window.openteam?.deliveryJournal) {
-      await window.openteam.deliveryJournal.write(scope, journal);
-      localStorage.removeItem(storageKey(scope));
-      return;
-    }
+    const host = window.openteam?.deliveryJournal;
+    if (host) return host.write(scope, journal);
     localStorage.setItem(storageKey(scope), JSON.stringify(journal));
   },
 });

@@ -79,25 +79,12 @@ interface Window {
       activity: () => Promise<{ active: boolean; idleSeconds: number }>;
       onActivityChange: (callback: () => void) => () => void;
       sync: (snapshot: {
-        notificationRouting?: import("@openteam/contracts/notification-presence").NotificationRouting;
         cursor?: string;
-        channels?: Array<
+        channels: Array<
           import("@openteam/contracts/notification-content").ChannelNotificationState & {
             unreadCount: number;
           }
         >;
-        agents: Array<{
-          botId: string;
-          channelId: string;
-          name: string;
-          notificationsEnabled: boolean;
-          hiddenFromSidebar: boolean;
-          isRunning: boolean;
-          awaitingReason: string | null;
-          lastMessageId: string | null;
-          lastMessagePreview: string | null;
-          unreadCount: number;
-        }>;
       }) => void;
       setVisibleChannel: (channelId: string | null) => void;
       status: () => Promise<{
@@ -113,7 +100,9 @@ interface Window {
       main: Electron.ProcessMemoryInfo;
       gpu: Electron.GPUFeatureStatus;
     }>;
-    onNotificationClick: (listener: (channelId: string) => void) => () => void;
+    onNotificationClick: (
+      listener: (target: { channelId: string; threadMessageId?: string }) => void
+    ) => () => void;
     versions: Readonly<{ app: string; electron: string; chrome: string }>;
   };
 }

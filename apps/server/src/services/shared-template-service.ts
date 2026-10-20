@@ -1,4 +1,4 @@
-import { pluginCatalog } from "../plugins/catalog";
+import { pluginCatalog } from "@openteam/plugins";
 import { parseOpenTeamMarketplace } from "../plugins/openteam-marketplace";
 import { createHash } from "node:crypto";
 import { ApiError, parseBotRecipe, type BotRecipe } from "@openteam/contracts";

@@ -115,7 +115,7 @@ const serverUpdateRequest = (value: unknown) => {
 
 const notificationSnapshot = (value: unknown) => {
   const input = record(value, "Notification snapshot");
-  if (!Array.isArray(input.agents) || input.agents.length > 10_000) {
+  if (!Array.isArray(input.channels) || input.channels.length > 10_000) {
     throw new Error("Notification snapshot is invalid");
   }
   return value;
@@ -270,9 +270,16 @@ contextBridge.exposeInMainWorld("openteam", {
     openSettings: () => ipcRenderer.invoke("openteam:notifications:open-settings"),
   },
   getProcessMetrics: () => ipcRenderer.invoke("openteam:performance-snapshot"),
-  onNotificationClick: (listener: (channelId: string) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, channelId: unknown) => {
-      if (typeof channelId === "string") listener(channelId);
+  onNotificationClick: (
+    listener: (target: { channelId: string; threadMessageId?: string }) => void
+  ) => {
+    const handler = (_event: Electron.IpcRendererEvent, target: unknown) => {
+      const { channelId, threadMessageId } = (target ?? {}) as Record<string, unknown>;
+      if (typeof channelId !== "string") return;
+      listener({
+        channelId,
+        ...(typeof threadMessageId === "string" ? { threadMessageId } : {}),
+      });
     };
     ipcRenderer.on("openteam:notification-click", handler);
     return () => ipcRenderer.removeListener("openteam:notification-click", handler);

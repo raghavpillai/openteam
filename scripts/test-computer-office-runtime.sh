@@ -5,7 +5,7 @@ image=${1:?Usage: bash scripts/test-computer-office-runtime.sh IMAGE}
 docker run --rm -i --network none --entrypoint sh "$image" <<'CONTAINER'
 set -eu
 mkdir -p /home/box/.config/private /workspace/office-qa
-chmod 700 /home/box/.config /home/box/.config/private
+chmod 700 /home/box/.config/private
 printf synthetic > /home/box/.config/private/token
 printf 'name,amount\nAlpha,12\nBeta,8\n' > /workspace/office-qa/input.csv
 chown -R runner:box /workspace/office-qa

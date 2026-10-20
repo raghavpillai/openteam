@@ -304,7 +304,7 @@ export default function App() {
   useEffect(() => () => readReceipts.current.clear(), []);
   useEffect(() => () => {
     // Cancel avatar work and reset native presence/cursors across sign-out or server changes.
-    syncDesktopNotificationSnapshot(window.openteam?.notifications, null, new Set());
+    syncDesktopNotificationSnapshot(window.openteam?.notifications, null);
   }, []);
 
   useEffect(() => {
@@ -349,7 +349,7 @@ export default function App() {
     return () => window.removeEventListener(OPENTEAM_DEEP_LINK_EVENT, handleDeepLink);
   }, []);
   useEffect(() => {
-    const unsubscribe = window.openteam?.onNotificationClick((channelId) => {
+    const unsubscribe = window.openteam?.onNotificationClick(({ channelId, threadMessageId }) => {
       invalidateSearchNavigation(selectedId, searchMessageTarget?.channelId);
       setA2AExchange(null);
       a2aExchangeTrigger.current = null;
@@ -359,9 +359,19 @@ export default function App() {
       setInspectorMode("summary");
       markChannelRead(channelId);
       setDetailsOpen(false);
+      if (!threadMessageId) return;
+      // A reply inside a thread opens that thread at the reply, like a search result.
+      const nonce = ++searchLoadNonce.current;
+      void ensureMessageLoaded(channelId, threadMessageId)
+        .then((found) => {
+          if (found && searchLoadNonce.current === nonce)
+            setSearchMessageTarget({ channelId, messageId: threadMessageId, nonce });
+        })
+        .catch(() => undefined);
     });
     return unsubscribe;
   }, [
+    ensureMessageLoaded,
     invalidateSearchNavigation,
     markChannelRead,
     searchMessageTarget?.channelId,
@@ -372,12 +382,8 @@ export default function App() {
     if (selectedId) void loadChannel(selectedId).catch(() => undefined);
   }, [loadChannel, selectedId]);
   useEffect(() => {
-    syncDesktopNotificationSnapshot(
-      window.openteam?.notifications,
-      snapshot,
-      sidebarPreferences.unreadIds
-    );
-  }, [sidebarPreferences.unreadIds, snapshot]);
+    syncDesktopNotificationSnapshot(window.openteam?.notifications, snapshot);
+  }, [snapshot]);
   useEffect(() => {
     const publishVisibleChannel = () => {
       const focused = document.hasFocus();

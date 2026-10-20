@@ -19,5 +19,4 @@ export * from "./external-draft";
 export * from "./http";
 export * from "./plugin-marketplace";
 export * from "./screen";
-export * from "./snapshot";
 export * from "./sync";

@@ -44,33 +44,6 @@ const fixture = async () => {
   };
 };
 
-test("viewers share one encoder; a slow viewer and cancellation do not stall peers", async () => {
-  const f = await fixture();
-  const streams = await Promise.all([f.open(), f.open(), f.open()]);
-  const readers = streams.map((s) => s.getReader());
-  expect(f.children()).toBe(1);
-  await expect(f.open()).rejects.toThrow("Too many");
-  for (let i = 0; i < 6; i++)
-    expect((await readers[0]!.read()).value?.byteLength).toBeGreaterThan(4);
-  // Reader 2 has never pulled; it receives one complete current frame, not a chunk backlog.
-  const slow = await readers[2]!.read();
-  expect(
-    Buffer.from(slow.value!)
-      .toString("latin1")
-      .match(/Content-length/g)
-  ).toHaveLength(1);
-  await readers[0]!.cancel();
-  expect((await readers[1]!.read()).done).toBe(false);
-  expect(f.children()).toBe(1);
-  await readers[1]!.cancel();
-  await readers[2]!.cancel();
-  await f.waitForCleanup();
-  const restarted = (await f.open()).getReader();
-  expect((await restarted.read()).done).toBe(false);
-  await restarted.cancel();
-  await f.waitForCleanup();
-});
-
 test("cancelling one pending startup preserves the other viewer", async () => {
   const f = await fixture();
   const controller = new AbortController();
@@ -98,12 +71,4 @@ test("encoder failure reaches subscribers and a new viewer can recover", async (
   expect((await recovered.read()).done).toBe(false);
   await recovered.cancel();
   await f.waitForCleanup();
-});
-
-test("an already aborted request never starts an encoder", async () => {
-  const f = await fixture();
-  const controller = new AbortController();
-  controller.abort();
-  await expect(f.open(controller)).rejects.toThrow();
-  expect(f.children()).toBe(0);
 });

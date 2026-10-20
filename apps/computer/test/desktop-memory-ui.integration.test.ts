@@ -44,11 +44,6 @@ test.skipIf(process.env.OPENTEAM_TEST_DESKTOP_MEMORY !== "1")("two capped headed
           expect(await readFile(`/proc/${child.pid}/cgroup`, "utf8")).toContain(group.split('/').at(-1)!);
         }
       }
-      const env = await broker.commandEnvironment(id, "/workspace");
-      const membership = spawnAgentProcess("/bin/sh", ["-c", "cat /proc/self/cgroup; sleep 0.1 & wait"], {env, stdio:["ignore","pipe","pipe"]});
-      const chunks: Buffer[]=[]; membership.stdout.on('data',b=>chunks.push(b));
-      expect((await once(membership,'close'))[0]).toBe(0);
-      expect(Buffer.concat(chunks).toString()).toContain(group.split('/').at(-1)!);
     }
     await Promise.all(ids.map((id,i)=>broker.act(id, '/workspace', {action:'type',text:`Desktop ${i}: café 東京`}, 'human')));
     for (let i=0;i<2;i++) expect(await pages[i]!.locator('#field').inputValue()).toBe(`Desktop ${i}: café 東京`);

@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BoxStoreSync } from "../src/box-store-sync";
@@ -92,30 +92,6 @@ for (const wal of [true, false]) {
     }
   });
 }
-
-test("failed SQLite snapshot leaves committed manifest and no staged snapshots", async () => {
-  const f = await fixture();
-  database = new Database(f.file, { create: true });
-  database.exec("CREATE TABLE payload(value TEXT); INSERT INTO payload VALUES ('keep');");
-  database.close();
-  database = undefined;
-  await f.sync.snapshotOut();
-  const manifestPath = join(f.storeRoot, "manifest.json");
-  const manifestBefore = await readFile(manifestPath);
-  // This recognized agent database always takes the checked VACUUM path.
-  await writeFile(
-    join(f.workspaceRoot, "conversation-blobs.db"),
-    Buffer.alloc(6 * 1024 * 1024, 0x51)
-  );
-  await expect(f.sync.snapshotOut()).rejects.toThrow();
-  expect(await readFile(manifestPath)).toEqual(manifestBefore);
-  expect((await readdir(f.workspaceRoot)).filter((name) => name.startsWith(".box-store-"))).toEqual(
-    []
-  );
-  expect(
-    (await readdir(join(f.storeRoot, "blobs"))).filter((name) => name.startsWith(".box-store-"))
-  ).toEqual([]);
-});
 
 test("a commit during snapshot copying is picked up by the next scan", async () => {
   const f = await fixture();

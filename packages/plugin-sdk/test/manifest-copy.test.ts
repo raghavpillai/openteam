@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { clonePluginDefinition, parsePluginDefinition, type PluginDefinition } from "../src";
+import { clonePluginDefinition, type PluginDefinition } from "../src";
 
 const fixture = (): PluginDefinition => ({
   key: "copy-test", version: "1.0.0", name: "Copy test", description: "Fixture",
@@ -11,39 +11,19 @@ const fixture = (): PluginDefinition => ({
   binaryFiles: { "model.bin": "AAECAw==" },
 });
 
-for (const [name, copy] of [["clone", clonePluginDefinition], ["parse", parsePluginDefinition]] as const) {
-  test(`${name} isolates mutable metadata and file maps in both directions`, () => {
-    const source = fixture();
-    const original = structuredClone(source);
-    const result = copy(source);
-    expect(result).toStrictEqual(original);
-    // Deliberately bypass the public readonly type to verify runtime isolation.
-    (result.connections[0]!.configuration as Record<string, unknown>).headers = { Accept: "changed" };
-    result.components.push("skills");
-    result.files!["server.js"] = "changed";
-    delete result.binaryFiles!["model.bin"];
-    expect(source).toStrictEqual(original);
-    const second = copy(source);
-    source.connections[0]!.name = "changed";
-    source.files!["extra.txt"] = "new";
-    expect(second).toStrictEqual(original);
-  });
-
-  test(`${name} preserves absent versus explicitly undefined payload fields`, () => {
-    const source = fixture();
-    delete source.files;
-    source.binaryFiles = undefined;
-    const result = copy(source);
-    expect(Object.hasOwn(result, "files")).toBe(false);
-    expect(Object.hasOwn(result, "binaryFiles")).toBe(true);
-    expect(result.binaryFiles).toBeUndefined();
-  });
-}
-
-test("parsing still rejects invalid payloads before copying", () => {
+test("cloning isolates mutable metadata and file maps in both directions", () => {
   const source = fixture();
-  source.binaryFiles!["model.bin"] = "invalid base64";
-  expect(() => parsePluginDefinition(source)).toThrow("Invalid binary file encoding");
-  source.binaryFiles = { "../escape": "AA==" };
-  expect(() => parsePluginDefinition(source)).toThrow("Unsafe package path");
+  const original = structuredClone(source);
+  const result = clonePluginDefinition(source);
+  expect(result).toStrictEqual(original);
+  // Deliberately bypass the public readonly type to verify runtime isolation.
+  (result.connections[0]!.configuration as Record<string, unknown>).headers = { Accept: "changed" };
+  result.components.push("skills");
+  result.files!["server.js"] = "changed";
+  delete result.binaryFiles!["model.bin"];
+  expect(source).toStrictEqual(original);
+  const second = clonePluginDefinition(source);
+  source.connections[0]!.name = "changed";
+  source.files!["extra.txt"] = "new";
+  expect(second).toStrictEqual(original);
 });

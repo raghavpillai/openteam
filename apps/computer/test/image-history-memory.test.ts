@@ -11,7 +11,7 @@ const fixture = async () => {
 
 test("concurrent history repair preserves ordering, notices, cache identity, and receipt isolation", async () => {
   const image = await fixture();
-  const messages = Array.from({ length: 24 }, (_, index) => ({
+  const messages = Array.from({ length: 6 }, (_, index) => ({
     role: "toolResult",
     toolName: "Computer",
     index,

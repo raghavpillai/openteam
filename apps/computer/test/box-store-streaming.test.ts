@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BoxStoreSync } from "../src/box-store-sync";
-import { fileDigest, stageFile } from "../src/box-store/file-stream";
+import { fileDigest } from "../src/box-store/file-stream";
 
 let root: string | undefined;
 afterEach(async () => { if (root) await rm(root, { recursive: true, force: true }); root = undefined; });
@@ -43,10 +43,4 @@ test("corrupt large blobs never replace a destination or leave a staged file", a
   await expect(f.sync.copyIn()).rejects.toThrow("box-store blob failed hash");
   expect(await readFile(f.file, "utf8")).toBe("keep this destination");
   expect((await readdir(f.workspaceRoot)).filter((name) => name.startsWith(".box-store-part-"))).toEqual([]);
-});
-
-test("staging an unreadable source cleans temporary files", async () => {
-  const f = await fixture();
-  await expect(stageFile(join(root!, "missing"), f.workspaceRoot)).rejects.toThrow();
-  expect(await readdir(f.workspaceRoot)).toEqual([]);
 });

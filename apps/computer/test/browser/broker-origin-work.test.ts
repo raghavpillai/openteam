@@ -20,27 +20,16 @@ const setup = () => {
   return broker;
 };
 
-test("unchanged state is read once per origin and browser context", async () => {
+test("state is read once per context, falling back when the first tab fails", async () => {
   const broker = setup();
-  const browser = peer("one", [target("a"), target("b"), target("c", "private")]);
+  const browser = peer("one", [target("closed"), target("a"), target("b"), target("c", "private")]);
   broker.peers.set("one", browser);
-  const reads: string[] = [];
-  broker.readOriginState = async (_peer: unknown, tab: ReturnType<typeof target>) => {
-    reads.push(tab.targetId); return state("old");
-  };
-  await broker.reconcile();
-  expect(reads).toEqual(["a", "c"]);
-});
-
-test("a failed first tab falls back to another tab for the same origin", async () => {
-  const broker = setup();
-  broker.peers.set("one", peer("one", [target("closed"), target("working"), target("extra")]));
   const reads: string[] = [];
   broker.readOriginState = async (_peer: unknown, tab: ReturnType<typeof target>) => {
     reads.push(tab.targetId); return tab.targetId === "closed" ? null : state("old");
   };
   await broker.reconcile();
-  expect(reads).toEqual(["closed", "working"]);
+  expect(reads).toEqual(["closed", "a", "c"]);
 });
 
 test("changed state is not written back to its source and is restored once per destination context", async () => {
@@ -59,30 +48,18 @@ test("changed state is not written back to its source and is restored once per d
   expect(broker.origins.get(origin).localStorage).toEqual([["value", "new"]]);
 });
 
-test("a failed restore retries another destination tab", async () => {
+test("failed and ineffective restores retry another destination tab", async () => {
   const broker = setup();
   broker.peers.set("source", peer("source", [target("source")]));
-  broker.peers.set("destination", peer("destination", [target("closed"), target("working")]));
+  broker.peers.set("destination", peer("destination", [target("closed"), target("stale"), target("working")]));
   let restored = false;
   const writes: string[] = [];
   broker.readOriginState = async (browser: { botId: string }) => state(browser.botId === "source" || restored ? "new" : "old");
   broker.writeOriginState = async (_peer: unknown, tab: ReturnType<typeof target>) => {
-    writes.push(tab.targetId);restored = tab.targetId === "working";return restored;
+    writes.push(tab.targetId);
+    restored = tab.targetId === "working";
+    return tab.targetId !== "closed";
   };
   await broker.reconcile();
-  expect(writes).toEqual(["closed", "working"]);
-});
-
-test("a restore that did not take effect can retry through another tab", async () => {
-  const broker = setup();
-  broker.peers.set("source", peer("source", [target("source")]));
-  broker.peers.set("destination", peer("destination", [target("stale"), target("working")]));
-  let restored = false;
-  const writes: string[] = [];
-  broker.readOriginState = async (browser: { botId: string }) => state(browser.botId === "source" || restored ? "new" : "old");
-  broker.writeOriginState = async (_peer: unknown, tab: ReturnType<typeof target>) => {
-    writes.push(tab.targetId);restored = tab.targetId === "working";return true;
-  };
-  await broker.reconcile();
-  expect(writes).toEqual(["stale", "working"]);
+  expect(writes).toEqual(["closed", "stale", "working"]);
 });

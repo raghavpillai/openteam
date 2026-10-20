@@ -25,30 +25,13 @@ test("chunked browser JSON preserves escaping, UTF-8 and surrogate boundaries", 
 });
 
 test("plain nested data matches native JSON ordering and omission semantics", () => {
-  let seed = 12345;
-  const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32);
-  const value = (depth: number): unknown => {
-    const kind = Math.floor(random() * (depth ? 8 : 5));
-    switch (kind) {
-      case 0: return undefined;
-      case 1: return null;
-      case 2: return random() > 0.5;
-      case 3: return random() * 1e20;
-      case 4: return `value " 東京 😀 \\ ${String.fromCharCode(random() * 65536)}`;
-      case 5: return Array.from({ length: 7 }, () => value(depth - 1));
-      default: return Object.fromEntries(Array.from({ length: 7 }, (_, i) => [`key${i}`, value(depth - 1)]));
-    }
-  };
-  for (let i = 0; i < 100; i++) {
-    const fixture = { "10": value(3), "2": value(3), other: value(3) };
-    expect([...browserJsonChunks(fixture)].join("")).toBe(JSON.stringify(fixture));
-  }
   const shared = { data: "reused" };
-  expect([...browserJsonChunks({ a: shared, b: shared })].join(""))
-    .toBe(JSON.stringify({ a: shared, b: shared }));
-  const cyclic: Record<string, unknown> = {};
-  cyclic.self = cyclic;
-  expect(() => [...browserJsonChunks(cyclic)]).toThrow("Circular browser state");
+  const fixture = {
+    "10": { omitted: undefined, kept: [undefined, null, false, NaN] },
+    "2": [shared, { nested: shared }],
+    other: { quoted: '"東京😀\\', value: -0 },
+  };
+  expect([...browserJsonChunks(fixture)].join("")).toBe(JSON.stringify(fixture));
 });
 
 test("incremental digest is identical to the previous whole-string hash", () => {

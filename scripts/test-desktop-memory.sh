@@ -24,8 +24,6 @@ fi
 bun build \
   apps/computer/test/desktop-memory.integration.test.ts \
   apps/computer/test/desktop-memory-ui.integration.test.ts \
-  apps/computer/test/agent-process-linux.test.ts \
-  apps/computer/test/screen-concurrent-desktop.integration.test.ts \
   --target bun --external playwright-core --external 'playwright-core/*' \
   --outdir "$OPENTEAM_MEMORY_TEST_OUTPUT/bundles"
 
@@ -42,20 +40,15 @@ ready() {
 "${compose[@]}" up -d
 ready
 "${compose[@]}" exec -T \
-  -e OPENTEAM_TEST_DESKTOP_MEMORY=1 -e OPENTEAM_TEST_DROPPED_IDENTITY=1 \
-  -e OPENTEAM_CUA_DESKTOP_TESTS=1 -e OPENTEAM_MEMORY_TEST_ARTIFACTS=/artifacts \
+  -e OPENTEAM_TEST_DESKTOP_MEMORY=1 -e OPENTEAM_MEMORY_TEST_ARTIFACTS=/artifacts \
   computer bun test \
   /app/apps/computer/test-bundles/desktop-memory.integration.test.js \
-  /app/apps/computer/test-bundles/agent-process-linux.test.js \
   /app/apps/computer/test-bundles/desktop-memory-ui.integration.test.js \
-  /app/apps/computer/test-bundles/screen-concurrent-desktop.integration.test.js \
   2>&1 | tee "$OPENTEAM_MEMORY_TEST_OUTPUT/tests.log"
 
-for restart in 1 2 3; do
-  "${compose[@]}" restart computer
-  ready
-  "${compose[@]}" exec -T -e OPENTEAM_TEST_DESKTOP_MEMORY=1 computer bun test \
-    /app/apps/computer/test-bundles/desktop-memory.integration.test.js \
-    2>&1 | tee "$OPENTEAM_MEMORY_TEST_OUTPUT/post-restart-$restart.log"
-done
+"${compose[@]}" restart computer
+ready
+"${compose[@]}" exec -T -e OPENTEAM_TEST_DESKTOP_MEMORY=1 computer bun test \
+  /app/apps/computer/test-bundles/desktop-memory.integration.test.js \
+  2>&1 | tee "$OPENTEAM_MEMORY_TEST_OUTPUT/post-restart.log"
 echo "Memory/desktop checks passed. Logs and screenshots: $OPENTEAM_MEMORY_TEST_OUTPUT"

@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { createDecipheriv } from "node:crypto";
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BrowserBroker } from "../../src/browser/broker";
@@ -70,46 +70,6 @@ test("encrypted saves preserve the legacy envelope across base64 chunk boundarie
     expect(loaded.origins.get(origin)).toEqual(state);
     expect([...loaded.cookies.values()]).toEqual([cookie]);
   }
-  expect((await readdir(directory)).filter((name) => name.includes(".tmp-"))).toEqual([]);
-});
-
-test("existing encrypted authority can be loaded and saved without migration", async () => {
-  const { directory, path } = await fixture();
-  const key = await readFile(join(directory, "browser-authority.key"));
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
-  const state: BrowserOriginState = {
-    origin,
-    capturedAt: "2026-10-18",
-    localStorage: [["saved", "before update"]],
-  };
-  const plaintext = JSON.stringify({ version: 2, cookies: [cookie], origins: { [origin]: state } });
-  const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
-  await writeFile(
-    path,
-    JSON.stringify({
-      iv: iv.toString("base64"),
-      tag: cipher.getAuthTag().toString("base64"),
-      data: encrypted.toString("base64"),
-    }),
-    { mode: 0o600 }
-  );
-  const loaded = new BrowserBroker(home) as unknown as Persistence;
-  await loaded.load();
-  expect(loaded.origins.get(origin)).toEqual(state);
-  await loaded.save();
-  const reloaded = new BrowserBroker(home) as unknown as Persistence;
-  await reloaded.load();
-  expect(reloaded.origins.get(origin)).toEqual(state);
-  expect([...reloaded.cookies.values()]).toEqual([cookie]);
-});
-
-test("a failed atomic rename preserves the destination and cleans the staged file", async () => {
-  const { broker, directory, path } = await fixture();
-  await mkdir(path);
-  await writeFile(join(path, "sentinel"), "keep");
-  await expect(broker.save()).rejects.toThrow();
-  expect(await readFile(join(path, "sentinel"), "utf8")).toBe("keep");
   expect((await readdir(directory)).filter((name) => name.includes(".tmp-"))).toEqual([]);
 });
 

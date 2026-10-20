@@ -139,7 +139,6 @@
     "test:message-send-motion": "bun scripts/test-message-send-motion.ts",
     "test:sidebar-parity": "bun scripts/test-sidebar-parity.ts",
     "test:provider-settings": "bun scripts/test-provider-settings.ts",
-    "test:server-activity": "bun scripts/test-server-activity.ts",
     "test:parity-review": "bun scripts/test-parity-review.ts",
     "test:update-ui": "bun scripts/test-desktop-update-ui.ts",
     "test:native:e2e": "bun test/host/fixtures/capability-integration.ts",

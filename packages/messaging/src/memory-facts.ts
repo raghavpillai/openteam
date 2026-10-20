@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export const MAX_MEMORY_CONTENT = 500;
+const MAX_MEMORY_CONTENT = 500;
 
 /** How a fact was saved, stored in MemoryFact.origin with the run that saved it. */
 export type MemoryProvenance = { source: "tool" | "extract" | "template"; turnId?: string };

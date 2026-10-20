@@ -28,7 +28,7 @@ const MEMORY_UPDATE_GUIDANCE =
 const USER_MEMORY_PROMPT_HEADER =
   "User memory: durable facts shared across every assistant this user runs. Those include their name, timezone, lasting preferences, and anything all of the user's assistants should know. This is separate from your own memory (shown below) and is visible to all of them.";
 
-export function formatMemoryDate(createdAtMs: number) {
+function formatMemoryDate(createdAtMs: number) {
   if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return "unknown date";
   return new Date(createdAtMs).toISOString().slice(0, 10);
 }

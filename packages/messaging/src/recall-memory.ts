@@ -18,8 +18,8 @@ export const relevanceTokens = (text: string) =>
       .filter((token) => !STOPWORDS.has(token))
   );
 
-export const RECALL_MEMORY_DEFAULT_LIMIT = 20;
-export const RECALL_MEMORY_MAX_LIMIT = 50;
+const RECALL_MEMORY_DEFAULT_LIMIT = 20;
+const RECALL_MEMORY_MAX_LIMIT = 50;
 const RECALL_MEMORY_CHAR_BUDGET = 4_000;
 const SEARCHED_LABEL = "your memory and the shared user memory";
 

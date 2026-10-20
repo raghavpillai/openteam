@@ -116,7 +116,8 @@ describe("main-agent graphical delegation instructions", () => {
       }
       // Only executor and knowledgeWork can look back through their own run, other bots, and memory.
       if (subagentType === "executor" || subagentType === "knowledgeWork") {
-        expect(prompt.instructions).toContain("The cursor namespace exposes TodoWrite, ReadTranscript and ReadAgentActivity");
+        expect(prompt.instructions).toContain("The cursor namespace exposes ReadTranscript and ReadAgentActivity");
+        expect(prompt.instructions).not.toContain("TodoWrite");
         expect(prompt.instructions).toContain("RecallMemory searches the bot's memory");
       } else {
         expect(prompt.instructions).not.toContain("ReadAgentActivity");

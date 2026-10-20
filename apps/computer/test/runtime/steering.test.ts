@@ -128,7 +128,7 @@ test("queued corrections prevent native, browser and computer actions from execu
   tools.processSecrets = async () => ({});
   tools.screens = {commandEnvironment:async()=>({})};
   tools.nativeToolExecutor = { shell: async () => { executions++; return { content: [], details: {} }; } };
-  const active = { subagentType: "computerUse", pendingSteers: [{ inboxId: "new-input", content: "Correct the task" }] };
+  const active = { subagentType: "computerUse", runtimeProfile: "subagent", pluginNamespaces: [], pendingSteers: [{ inboxId: "new-input", content: "Correct the task" }] };
   const catalog = tools.customTools(active);
   for (const name of ["Shell", "Read", "Computer", "browser_click"]) {
     const tool = catalog.find((candidate: any) => candidate.name === name);

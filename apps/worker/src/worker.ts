@@ -194,8 +194,9 @@ export const subagentRuntimeOwners = (
   pluginBotId: subagentUsesParentConnectors(identity?.subagentType) ? identity!.parentBotId : botId,
 });
 
+/** Connectors reach the main agent and the workers that use the parent's connectors; graphical and media workers get none. */
 export const subagentLoadsPluginContext = (subagentType: SubagentType | null): boolean =>
-  subagentType !== "computerUse" && subagentType !== "browserUse";
+  subagentType === null || subagentUsesParentConnectors(subagentType);
 
 /** Plugin skills name the agents they are for; the main agent is the default. */
 export const pluginSkillAgent = (

@@ -93,6 +93,13 @@ test.skipIf(!databaseUrl)(
         );
       for (const tool of AUTOMATION_PARENT_ONLY_TOOLS)
         await expect(call(run.id, tool, {})).rejects.toThrow("Use WakeParent");
+      // Routine runs move files through connectors, like their parent, until they hand off.
+      const transferService = makeService();
+      (transferService as unknown as { plugins: unknown }).plugins = {
+        fileTransfers: { prepare: async (_context: unknown, args: { tool: string }) => ({ prepared: args.tool }) },
+      };
+      for (const tool of ["upload_file", "download_file"])
+        expect(await call(run.id, "PrepareConnectorTransfer", { tool, input: {} }, transferService)).toEqual({ prepared: tool });
       const ordinary = await createRun("user");
       await expect(call(ordinary.id, "WakeParent", { message: "Wrong mode" })).rejects.toThrow(
         "active automation"
@@ -140,6 +147,9 @@ test.skipIf(!databaseUrl)(
       await expect(call(run.id, "TodoWrite", { todos: [] })).rejects.toThrow(
         "already handed control"
       );
+      await expect(
+        call(run.id, "PrepareConnectorTransfer", { tool: "upload_file", input: {} }, transferService)
+      ).rejects.toThrow("already handed control");
       const addFinal = async (runId: string, content: string) => {
         const message = await prisma.message.create({
           data: {

@@ -35,7 +35,7 @@ afterEach(async () => {
 });
 
 const toolNames = (subagentType: string | null, skillAccess: "read" | "tool" = "tool") =>
-  ((new ComputerRuntime() as unknown as { tools: any }).tools.customTools({ subagentType, skillAccess }) as Array<{ name: string }>).map(
+  ((new ComputerRuntime() as unknown as { tools: any }).tools.customTools({ subagentType, skillAccess, runtimeProfile: subagentType ? "subagent" : "agent", pluginNamespaces: [] }) as Array<{ name: string }>).map(
     (tool) => tool.name
   );
 

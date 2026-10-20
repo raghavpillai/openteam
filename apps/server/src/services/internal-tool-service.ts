@@ -95,11 +95,6 @@ export class InternalToolService {
       // Private supervisor operation, never registered in any model catalog.
       if (request.tool === "RefreshToolCatalog") return {namespaces:await this.plugins.dynamicNamespaces(childIdentity?.parentBotId ?? request.botId)};
       if (request.tool === "ReadProcessSecrets") return { environment: await processEnvironment(this.prisma, request.botId) };
-      if (request.tool === "PrepareConnectorTransfer" || request.tool === "ExecuteConnectorTransfer") {
-        const args = request.arguments as Record<string, unknown>;
-        if (run.origin === "routine" || (childIdentity && args.tool !== "download_file")) throw new ApiError(403, "parent_transfer_required", "This file transfer must be performed by the parent bot; subagents can only download");
-        return request.tool === "PrepareConnectorTransfer" ? this.plugins.fileTransfers.prepare(context, args) : this.plugins.fileTransfers.execute(context, args, signal, transfer);
-      }
       if (run.origin === "routine" && AUTOMATION_PARENT_ONLY_TOOLS.has(request.tool)) {
         throw new ApiError(403, "automation_tool_forbidden", "Use WakeParent to hand this communication or review to the parent agent");
       }
@@ -111,6 +106,11 @@ export class InternalToolService {
       if (run.origin === "routine" && !["RefreshPromptContext", "AcknowledgePromptContext", "AcknowledgeCardOutcomes"].includes(request.tool) &&
         (await this.prisma.automationResult.findUnique({ where: { runId: automationContextRunId(run.id, inboxPayload) }, select: { wakeRunId: true } }))?.wakeRunId) {
         throw new ApiError(409, "automation_turn_ended", "This automation already handed control to its parent");
+      }
+      if (request.tool === "PrepareConnectorTransfer" || request.tool === "ExecuteConnectorTransfer") {
+        const args = request.arguments as Record<string, unknown>;
+        if (childIdentity && args.tool !== "download_file") throw new ApiError(403, "parent_transfer_required", "This file transfer must be performed by the parent bot; subagents can only download");
+        return request.tool === "PrepareConnectorTransfer" ? this.plugins.fileTransfers.prepare(context, args) : this.plugins.fileTransfers.execute(context, args, signal, transfer);
       }
       if (request.tool === "AcknowledgeCardOutcomes") {
         await this.messaging.acknowledgeCardOutcomes(request.botId, (request.arguments as { receipts: Array<{ messageId: string; outcomeId: string }> }).receipts);

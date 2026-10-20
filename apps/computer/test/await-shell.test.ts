@@ -135,10 +135,14 @@ test("discovers and invokes AwaitShell locally across turns with bot scope", asy
     runtimeProfile: "subagent",
     subagentType: "executor",
   });
+  // Executors call AwaitShell directly rather than through the cursor namespace.
+  await expect(
+    subagent.find((t) => t.name === "CallDynamicTool")!.execute("via-namespace", args)
+  ).rejects.toThrow("Unknown dynamic tool");
   await expect(
     subagent
-      .find((t) => t.name === "CallDynamicTool")!
-      .execute("host-blocked", { ...args, arguments: { ...args.arguments, machineId: "host" } })
+      .find((t) => t.name === "AwaitShell")!
+      .execute("host-blocked", { ...args.arguments, machineId: "host" })
   ).rejects.toThrow("Subagents cannot target");
 });
 

@@ -53,9 +53,11 @@ describe("subagent runtime ownership", () => {
     expect(subagentLoadsPluginContext("knowledgeWork")).toBe(true);
   });
 
-  test("graphical workers never receive plugin tools or runtime packages", () => {
+  test("graphical and media workers never receive plugin tools or runtime packages", () => {
     expect(subagentLoadsPluginContext("computerUse")).toBe(false);
     expect(subagentLoadsPluginContext("browserUse")).toBe(false);
+    expect(subagentLoadsPluginContext("videoReview")).toBe(false);
+    expect(subagentLoadsPluginContext("watchVideo")).toBe(false);
     expect(subagentLoadsPluginContext("executor")).toBe(true);
     expect(subagentLoadsPluginContext(null)).toBe(true);
   });

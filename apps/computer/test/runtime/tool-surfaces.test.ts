@@ -65,11 +65,18 @@ const turnRequest = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-const toolNames = (subagentType: "computerUse" | "browserUse" | "executor" | null) => {
+const workerTurn = (subagentType: string | null, overrides: Record<string, unknown> = {}) => ({
+  subagentType,
+  runtimeProfile: subagentType ? "subagent" : "agent",
+  pluginNamespaces: [],
+  ...overrides,
+}) as any;
+
+const toolNames = (subagentType: string | null) => {
   const runtime = runtimeTools() as unknown as {
     customTools(active: { subagentType: typeof subagentType }): Array<{ name: string }>;
   };
-  return runtime.customTools({ subagentType }).map((tool) => tool.name);
+  return runtime.customTools(workerTurn(subagentType)).map((tool) => tool.name);
 };
 
 const toolDescriptions = (subagentType: "computerUse" | "browserUse") => {
@@ -80,7 +87,7 @@ const toolDescriptions = (subagentType: "computerUse" | "browserUse") => {
     }>;
   };
   return Object.fromEntries(
-    runtime.customTools({ subagentType }).map((tool) => [tool.name, tool.description])
+    runtime.customTools(workerTurn(subagentType)).map((tool) => [tool.name, tool.description])
   );
 };
 
@@ -159,25 +166,26 @@ describe("specialized subagent tool surfaces", () => {
     expect(visible.every((tool) => !("execute" in tool))).toBe(true);
   });
 
-  test("combined computerUse receives Shell, Read, Computer and the browser tools", () => {
-    expect(toolNames("computerUse")).toEqual(["Shell", "Read", "Computer", ...BROWSER_USE_TOOLS.map(tool => tool.name)]);
+  test("combined computerUse receives Shell, Read, AwaitShell, Computer and the browser tools", () => {
+    expect(toolNames("computerUse")).toEqual(["Shell", "Read", "AwaitShell", "Computer", ...BROWSER_USE_TOOLS.map(tool => tool.name)]);
   });
 
   test("split and resumed graphical workers retain disabled-tool restrictions", () => {
     const runtime = runtimeTools() as any;
     const taskConfiguration = { combinedComputerUse: false, executorProfiles: [], disabledToolIdentifiers: ["SHELL", "BROWSER_CDP", "OPENAI_COMPUTER_USE"] };
-    expect(runtime.customTools({ subagentType: "computerUse", taskConfiguration }).map((tool: any) => tool.name)).toEqual(["Read"]);
-    const browser = runtime.customTools({ subagentType: "browserUse", taskConfiguration }).map((tool: any) => tool.name);
+    expect(runtime.customTools(workerTurn("computerUse", { taskConfiguration })).map((tool: any) => tool.name)).toEqual(["Read"]);
+    const browser = runtime.customTools(workerTurn("browserUse", { taskConfiguration })).map((tool: any) => tool.name);
     expect(browser).toContain("browser_snapshot");
     expect(browser).not.toContain("browser_cdp");
     expect(browser).not.toContain("Shell");
     expect(browser).not.toContain("Computer");
   });
 
-  test("browserUse receives only Shell, Read, and the direct browser tools", () => {
+  test("browserUse receives only Shell, Read, AwaitShell, and the direct browser tools", () => {
     expect(toolNames("browserUse")).toEqual([
       "Shell",
       "Read",
+      "AwaitShell",
       ...BROWSER_USE_TOOLS.map((tool) => tool.name),
     ]);
   });
@@ -191,7 +199,59 @@ describe("specialized subagent tool surfaces", () => {
     expect(names).toContain("Read");
     expect(names).toContain("GetDynamicTools");
     expect(names).toContain("CallDynamicTool");
-    expect(subagentDynamicToolNames("cursor")).toEqual(["download_file", "WebFetch", "WebSearch", "AwaitShell", "TodoWrite"]);
+    expect(names).not.toContain("Screenshot");
+    expect(subagentDynamicToolNames("cursor")).toEqual(["download_file", "WebFetch", "WebSearch", "AwaitShell"]);
+  });
+
+  test("executor and knowledgeWork call the web and shell-wait tools directly", async () => {
+    const runtime = runtimeTools() as any;
+    for (const subagentType of ["executor", "knowledgeWork"]) {
+      const names = toolNames(subagentType);
+      expect(names).toEqual(expect.arrayContaining(["Shell", "Read", "AwaitShell", "WebSearch", "WebFetch"]));
+      expect(names).not.toContain("Screenshot");
+      const cursor = runtime.dynamicCatalog(workerTurn(subagentType)).find((namespace: any) => namespace.name === "cursor").tools.map((tool: any) => tool.name);
+      expect(cursor).not.toContain("WebSearch");
+      expect(cursor).not.toContain("WebFetch");
+      expect(cursor).not.toContain("AwaitShell");
+      expect(cursor).not.toContain("TodoWrite");
+    }
+    const searches: string[] = [];
+    runtime.webTools.search = async (query: string) => {
+      searches.push(query);
+      return { content: [{ type: "text", text: "results" }], details: {} };
+    };
+    const active = { ...workerTurn("executor"), runId: "run-1", discoveredDynamicTools: new Set(), pendingSteers: [] };
+    const result = await runtime.executeOpenTeamTool(active, "call-1", "WebSearch", { search_term: "openteam" });
+    expect(result.content[0].text).toBe("results");
+    expect(searches).toEqual(["openteam"]);
+    expect(toolNames("executor")).not.toContain("TodoWrite");
+    expect(runtime.customTools(workerTurn("executor", { readOnly: true })).map((tool: any) => tool.name)).toEqual(
+      expect.arrayContaining(["WebSearch", "WebFetch"])
+    );
+    expect(runtime.customTools(workerTurn("executor", { readOnly: true })).map((tool: any) => tool.name)).not.toContain("AwaitShell");
+  });
+
+  test("graphical workers wait on their background shells with AwaitShell", async () => {
+    const runtime = runtimeTools() as any;
+    const waits: unknown[] = [];
+    runtime.nativeToolExecutor.awaitShell = async (input: unknown, _signal: unknown, scope: string) => {
+      waits.push([input, scope]);
+      return { content: [{ type: "text", text: "done" }], details: {} };
+    };
+    const active = { ...workerTurn("computerUse"), botId: "worker-bot", runId: "run-1", pendingSteers: [] };
+    const result = await runtime.executeOpenTeamTool(active, "call-1", "AwaitShell", { shell_id: "7", block_until_ms: 1000 });
+    expect(result.content[0].text).toBe("done");
+    expect(waits).toEqual([[expect.objectContaining({ shell_id: "7" }), "worker-bot"]]);
+  });
+
+  test("routine runs can upload and download files; their workers can only download", () => {
+    const runtime = runtimeTools() as any;
+    const cursor = (overrides: Record<string, unknown>) =>
+      runtime.dynamicCatalog({ pluginNamespaces: [], ...overrides }).find((namespace: any) => namespace.name === "cursor").tools.map((tool: any) => tool.name);
+    expect(cursor({ runtimeProfile: "agent", requestSource: "automation" })).toEqual(expect.arrayContaining(["upload_file", "download_file"]));
+    const worker = cursor({ runtimeProfile: "subagent", subagentType: "executor", requestSource: "automation" });
+    expect(worker).toContain("download_file");
+    expect(worker).not.toContain("upload_file");
   });
 
   test("executor and knowledgeWork can look back; other workers cannot", () => {
@@ -203,13 +263,13 @@ describe("specialized subagent tool surfaces", () => {
       runtime.dynamicCatalog({ runtimeProfile, subagentType, pluginNamespaces: [] }).find((namespace) => namespace.name === "cursor")?.tools ?? [];
     for (const subagentType of ["executor", "knowledgeWork"]) {
       const tools = cursor("subagent", subagentType);
-      expect(tools.map((tool) => tool.name)).toEqual(["download_file", "WebFetch", "WebSearch", "AwaitShell", "TodoWrite", "ReadTranscript", "ReadAgentActivity"]);
+      expect(tools.map((tool) => tool.name)).toEqual(["download_file", "ReadTranscript", "ReadAgentActivity"]);
       expect(tools.find((tool) => tool.name === "ReadTranscript")!.description).toContain("With no id it reads your own run");
-      expect(runtime.customTools({ subagentType }).map((tool) => tool.name)).toContain("RecallMemory");
+      expect(runtime.customTools(workerTurn(subagentType)).map((tool) => tool.name)).toContain("RecallMemory");
     }
     for (const subagentType of ["computerUse", "browserUse"]) {
       expect(cursor("subagent", subagentType).map((tool) => tool.name)).not.toContain("ReadTranscript");
-      expect(runtime.customTools({ subagentType }).map((tool) => tool.name)).not.toContain("RecallMemory");
+      expect(runtime.customTools(workerTurn(subagentType)).map((tool) => tool.name)).not.toContain("RecallMemory");
     }
     const main = cursor("agent");
     expect(main.map((tool) => tool.name)).toEqual(expect.arrayContaining(["ReadTranscript", "ReadAgentActivity"]));
@@ -220,7 +280,7 @@ describe("specialized subagent tool surfaces", () => {
     const runtime = runtimeTools() as unknown as {
       customTools(active: { subagentType: string | null; skillAccess?: "read" | "tool" }): Array<{ name: string }>;
     };
-    const names = (subagentType: string | null, skillAccess?: "read" | "tool") => runtime.customTools({ subagentType, skillAccess }).map((tool) => tool.name);
+    const names = (subagentType: string | null, skillAccess?: "read" | "tool") => runtime.customTools(workerTurn(subagentType, { skillAccess })).map((tool) => tool.name);
     expect(names("knowledgeWork", "tool")).toContain("Skill");
     expect(names("knowledgeWork", "read")).not.toContain("Skill");
     expect(names("executor", "tool")).not.toContain("Skill");

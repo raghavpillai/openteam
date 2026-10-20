@@ -70,6 +70,7 @@ import {
   retainedDynamicTools,
   type DynamicNamespaceDefinition,
   resolveDynamicTool,
+  decodeDynamicArguments,
 } from "../dynamic-tool-gateway";
 import { assertGraphicalShellBoundary } from "../graphical-shell-policy";
 import {
@@ -99,7 +100,19 @@ export const SUBAGENT_PRIVATE_NATIVE_TOOLS: ReadonlySet<string> = new Set([
   SEND_TO_USER_TOOL.name,
   REACT_TO_MESSAGE_TOOL.name,
   UPDATE_STATE_TOOL.name,
+  SCREENSHOT_TOOL.name,
 ]);
+
+/** First-party tools a worker calls directly instead of looking them up with GetDynamicTools. */
+export const workerTopLevelTools = (
+  active: Pick<ActiveTurn, "subagentType" | "readOnly">
+): readonly string[] => {
+  if (active.subagentType === "executor" || active.subagentType === "knowledgeWork")
+    return active.readOnly ? ["WebSearch", "WebFetch"] : ["AwaitShell", "WebSearch", "WebFetch"];
+  if (active.subagentType === "computerUse" || active.subagentType === "browserUse")
+    return ["AwaitShell"];
+  return [];
+};
 
 export class RuntimeTools {
   private readonly shellWaits = new Map<string, Set<AbortController>>();
@@ -440,6 +453,18 @@ export class RuntimeTools {
               this.callComputerUse(active, args, signal)
             ),
         });
+    const topLevelTools = () => workerTopLevelTools(active).map((name) => {
+      const tool = this.firstPartyTool(active, name);
+      return defineTool({
+        name,
+        label: name,
+        description: tool.description,
+        parameters: Type.Unsafe<Record<string, unknown>>(tool.inputSchema),
+        executionMode: "parallel",
+        execute: (callId: string, args: unknown, signal?: AbortSignal) =>
+          this.executeOpenTeamTool(active, callId, name, args, signal),
+      });
+    });
     const browserTools = () => BROWSER_USE_TOOLS.map((tool) =>
           defineTool({
             name: tool.name,
@@ -456,9 +481,12 @@ export class RuntimeTools {
     if (active.subagentType === "computerUse" || active.subagentType === "browserUse") {
       return [
         ...workerNativeTools.map(workerNative),
+        ...topLevelTools(),
         ...(active.subagentType === "computerUse" ? [computerTool()] : []),
         ...(active.subagentType === "browserUse" || active.taskConfiguration?.combinedComputerUse !== false ? browserTools() : []),
-      ].filter(tool => taskToolEnabled(active.taskConfiguration, tool.name));
+      ].filter(tool => taskToolEnabled(active.taskConfiguration, tool.name) &&
+        // AwaitShell only waits on Shell's background commands.
+        (tool.name !== "AwaitShell" || taskToolEnabled(active.taskConfiguration, SHELL_TOOL.name)));
     }
     const availableNativeTools = NATIVE_TOOLS.filter(
       (tool) =>
@@ -472,6 +500,7 @@ export class RuntimeTools {
     );
     return [
       ...availableNativeTools.map((tool) => native(tool)),
+      ...topLevelTools(),
       // knowledgeWork carries skills of its own; with tool access it loads them with Skill.
       ...(active.subagentType === "knowledgeWork" && active.skillAccess === "tool" ? [skillTool("knowledgeWork")] : []),
     ];
@@ -499,7 +528,8 @@ export class RuntimeTools {
       args = expandPluginAgent(active.pluginRuntimePackages ?? [], args as Record<string, unknown>);
     if (
       active.readOnly &&
-      !["Read", "RecallMemory", "GetDynamicTools", "CallDynamicTool", "ListSections"].includes(tool)
+      !["Read", "RecallMemory", "GetDynamicTools", "CallDynamicTool", "ListSections"].includes(tool) &&
+      !workerTopLevelTools(active).includes(tool)
     )
       throw new Error("This plugin agent is read-only");
     if (active.readOnly && tool === "Read" && (args as Record<string, unknown>).machineId)
@@ -521,6 +551,15 @@ export class RuntimeTools {
       throw new Error("Use WakeParent to hand this communication to the parent agent");
     }
     args = normalizeMainToolArguments(tool, args);
+    if (workerTopLevelTools(active).includes(tool)) {
+      const definition = this.firstPartyTool(active, tool);
+      return definition.execute(
+        active,
+        callId,
+        definition.decodeArguments(decodeDynamicArguments(args)),
+        signal
+      );
+    }
     if (tool === SHELL_TOOL.name) {
       const shellInput = Schema.decodeUnknownSync(ShellToolInput)(args);
       assertGraphicalShellBoundary(shellInput.command, active.subagentType);
@@ -1338,7 +1377,27 @@ export class RuntimeTools {
     return result;
   }
 
+  /** The catalog GetDynamicTools serves: a worker's top-level tools are left out. */
   private dynamicCatalog(
+    active: ActiveTurn
+  ): Array<DynamicNamespaceDefinition<RuntimeDynamicTool>> {
+    const topLevel = workerTopLevelTools(active);
+    return this.fullDynamicCatalog(active).map((namespace) =>
+      namespace.name === "cursor" && topLevel.length
+        ? { ...namespace, tools: namespace.tools.filter((tool) => !topLevel.includes(tool.name)) }
+        : namespace
+    );
+  }
+
+  private firstPartyTool(active: ActiveTurn, name: string): RuntimeDynamicTool {
+    const tool = this.fullDynamicCatalog(active)
+      .find((namespace) => namespace.name === "cursor")
+      ?.tools.find((candidate) => candidate.name === name);
+    if (!tool) throw new Error(`Unknown first-party tool: ${name}`);
+    return tool;
+  }
+
+  private fullDynamicCatalog(
     active: ActiveTurn
   ): Array<DynamicNamespaceDefinition<RuntimeDynamicTool>> {
     return dynamicCatalog(
@@ -1350,9 +1409,7 @@ export class RuntimeTools {
       [
         // Subagents may download into the shared box; uploads write to the
         // user's accounts and stay with the parent.
-        ...(active.requestSource === "automation"
-          ? []
-          : CONNECTOR_TRANSFER_TOOLS.filter(
+        ...CONNECTOR_TRANSFER_TOOLS.filter(
               (definition) => active.runtimeProfile !== "subagent" || definition.name === "download_file"
             ).map(
               (definition): RuntimeDynamicTool => ({
@@ -1368,7 +1425,7 @@ export class RuntimeTools {
                     signal
                   ),
               })
-            )),
+            ),
         ...(active.runtimeProfile === "subagent" || active.requestSource === "automation"
           ? []
           : DESKTOP_CAPABILITY_TOOLS.map(

@@ -184,14 +184,15 @@ export function dynamicCatalog(
       decodeArguments: (args) => Schema.decodeUnknownSync(AwaitShellInput)(parseHostAwaitShellRequest(args)),
       execute: executeAwaitShell,
     },
-    {
+    // Workers report to their parent, which owns the todo list.
+    ...(active.runtimeProfile === "subagent" ? [] : [{
       name: TODO_WRITE_TOOL.name,
       description: TODO_WRITE_TOOL.description,
       inputSchema: TODO_WRITE_TOOL.inputSchema,
-      source: "first-party",
-      decodeArguments: (args) => Schema.decodeUnknownSync(TodoWriteInput)(args),
-      execute: (turn, callId, args, signal) => executeTodoWrite(turn, callId, args, signal),
-    },
+      source: "first-party" as const,
+      decodeArguments: (args: unknown) => Schema.decodeUnknownSync(TodoWriteInput)(args),
+      execute: executeTodoWrite,
+    }]),
     ...(active.runtimeProfile === "subagent"
       ? subagentHasHistoryTools(active.subagentType)
         ? [{ ...readTranscriptTool, description: READ_TRANSCRIPT_SUBAGENT_DESCRIPTION }, readAgentActivityTool]

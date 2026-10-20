@@ -2088,17 +2088,14 @@ export class AgentMessaging {
         bot.subagentIdentity.subagentType === "browserUse"
           ? "Your tool surface is intentionally specialized; GetDynamicTools, parent orchestration, agent administration, and channel administration are unavailable."
           : subagentHasHistoryTools(bot.subagentIdentity.subagentType)
-            ? `The cursor namespace exposes TodoWrite, ReadTranscript and ReadAgentActivity; parent orchestration and administration tools are unavailable.\n${WORKER_HISTORY_INSTRUCTIONS}`
-            : "The cursor namespace exposes TodoWrite only; parent orchestration and administration tools are unavailable.",
+            ? `The cursor namespace exposes ReadTranscript and ReadAgentActivity; parent orchestration and administration tools are unavailable.\n${WORKER_HISTORY_INSTRUCTIONS}`
+            : "",
         `The computer filesystem is shared. Every agent, room, routine, A2A wake, and subagent starts in ${bot.defaultDirectory}.`,
         bot.subagentIdentity.subagentType === "computerUse" ||
         bot.subagentIdentity.subagentType === "browserUse"
           ? ""
           : `Your current timezone is ${this.defaultTimeZone}.`,
         connectorInstructions.trim(),
-        todoContext.length > 0
-          ? `Your durable task list:\n${todoContext.join("\n")}`
-          : "Your durable task list is empty.",
         bot.instructions ? `Subagent instructions:\n${bot.instructions}` : "",
       ]
         .filter(Boolean)

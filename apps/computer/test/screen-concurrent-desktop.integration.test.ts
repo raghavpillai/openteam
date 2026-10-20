@@ -50,7 +50,7 @@ test.skipIf(process.env.OPENTEAM_CUA_DESKTOP_TESTS !== "1")(
                 id,
                 "/workspace",
                 { action: "type", text: `${id}:${i}:${text}` },
-                i % 2 ? "human" : "agent"
+                "agent"
               )
             )
           );
@@ -63,16 +63,36 @@ test.skipIf(process.env.OPENTEAM_CUA_DESKTOP_TESTS !== "1")(
 
       const id = ids[0]!;
       const page = pages[0]!;
+      // Human input invalidates agent work queued against an older screen.
+      // Preserve that guard while checking that the human operation completes.
+      const mixed = await Promise.allSettled([
+        broker.act(id, "/workspace", { action: "wait", ms: 100 }, "agent"),
+        broker.act(id, "/workspace", { action: "type", text: " HUMAN" }, "human"),
+        broker.act(id, "/workspace", { action: "type", text: "STALE_INPUT" }, "agent"),
+      ]);
+      expect(mixed[0]!.status).toBe("fulfilled");
+      expect(mixed[1]!.status).toBe("fulfilled");
+      expect(mixed[2]!.status).toBe("rejected");
+      if (mixed[2]!.status === "rejected")
+        expect(mixed[2]!.reason.message).toContain("Graphical control changed");
+      expect(await page.locator("#field").inputValue()).toBe(
+        chunks.map((text, i) => `${id}:${i}:${text}`).join("") + " HUMAN"
+      );
       await page.locator("#field").fill("");
       await page.locator("#field").focus();
+      // Keep the batch pending after real native input so interruption does not
+      // depend on polling the page faster than the keyboard helper can type.
       const agent = broker
-        .actComputerUse(id, "/workspace", [{ action: "type", text: "AGENT ".repeat(2000) }])
+        .actComputerUse(id, "/workspace", [
+          { action: "type", text: "AGENT input" },
+          { action: "wait", durationMs: 10_000 },
+        ])
         .then(
           () => "finished",
           () => "interrupted"
         );
       await page.waitForFunction(
-        () => (document.querySelector("#field") as HTMLTextAreaElement).value.length > 10
+        () => (document.querySelector("#field") as HTMLTextAreaElement).value === "AGENT input"
       );
       const queued = broker
         .act(id, "/workspace", { action: "type", text: "STALE_INPUT" }, "agent")
@@ -92,20 +112,23 @@ test.skipIf(process.env.OPENTEAM_CUA_DESKTOP_TESTS !== "1")(
       await broker.actComputerUse(id, "/workspace", [{ action: "type", text: " RESUMED" }]);
       expect(await page.locator("#field").inputValue()).toBe(stopped + " HUMAN RESUMED");
       console.info(
-        "Takeover interrupted active typing, rejected stale input, allowed human input and resumed cleanly"
+        "Takeover interrupted the active batch, rejected stale input, allowed human input and resumed cleanly"
       );
 
       const env = await broker.commandEnvironment(id, "/workspace");
       const mapping = () => run("xmodmap", ["-pke"], { env, captureStdout: true });
       const before = await mapping();
       const typing = broker
-        .act(id, "/workspace", { action: "type", text: "東京Ω🙂".repeat(2000) }, "agent")
+        .actComputerUse(id, "/workspace", [
+          { action: "type", text: "東京Ω🙂" },
+          { action: "wait", durationMs: 10_000 },
+        ])
         .then(
           () => "finished",
           () => "interrupted"
         );
       await page.waitForFunction(() =>
-        (document.querySelector("#field") as HTMLTextAreaElement).value.includes("東")
+        (document.querySelector("#field") as HTMLTextAreaElement).value.endsWith("東京Ω🙂")
       );
       await broker.pauseAgent(id, "/workspace", true);
       expect(await typing).toBe("interrupted");
@@ -116,7 +139,7 @@ test.skipIf(process.env.OPENTEAM_CUA_DESKTOP_TESTS !== "1")(
       await broker.pauseAgent(id, "/workspace", false);
       await broker.act(id, "/workspace", { action: "type", text: " clean 🙂" }, "human");
       expect((await page.locator("#field").inputValue()).endsWith(" clean 🙂")).toBe(true);
-      console.info("Pause interrupts Unicode input and restores the X11 keymap");
+      console.info("Pause interrupts a native Unicode input batch; the X11 keymap is unchanged");
 
       const viewerBrowser = await chromium.launch({
         executablePath: "/usr/local/bin/google-chrome",

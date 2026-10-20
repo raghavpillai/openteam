@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 """Initialize only the container's private cgroup v2 tree, before serving work."""
+import errno
 import os
 from pathlib import Path
 import time
@@ -36,11 +37,18 @@ for attempt in range(100):
         except ProcessLookupError:
             pass
     if not (root / 'cgroup.procs').read_text().strip():
-        break
+        try:
+            (root / 'cgroup.subtree_control').write_text('+memory')
+            break
+        except OSError as error:
+            # A concurrent docker exec/health probe can enter the root between
+            # draining it and enabling the controller. Drain and retry that
+            # specific race; every other setup failure still fails closed.
+            if error.errno != errno.EBUSY:
+                raise
     time.sleep(.01)
 else:
     raise SystemExit('Could not drain the container cgroup; refusing unbounded startup')
-(root / 'cgroup.subtree_control').write_text('+memory')
 (root / 'desktops').mkdir(exist_ok=True)
 (root / 'desktops/cgroup.subtree_control').write_text('+memory')
 os.chmod(root / 'desktops', 0o755)

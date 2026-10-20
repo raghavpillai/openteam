@@ -6,6 +6,8 @@ import { desktopMemoryForSpawn } from "../src/desktop-memory";
 import { spawnAgentProcess } from "../src/agent-process";
 import { once } from "node:events";
 import type { Browser } from "playwright-core";
+import { createJimp } from "@jimp/core";
+import jpeg from "@jimp/js-jpeg";
 
 test.skipIf(process.env.OPENTEAM_TEST_DESKTOP_MEMORY !== "1")("two capped headed desktops preserve UI and tabs while one hits its memory limit", async () => {
   const home = await mkdtemp("/tmp/memory-ui-");
@@ -50,6 +52,41 @@ test.skipIf(process.env.OPENTEAM_TEST_DESKTOP_MEMORY !== "1")("two capped headed
     }
     await Promise.all(ids.map((id,i)=>broker.act(id, '/workspace', {action:'type',text:`Desktop ${i}: café 東京`}, 'human')));
     for (let i=0;i<2;i++) expect(await pages[i]!.locator('#field').inputValue()).toBe(`Desktop ${i}: café 東京`);
+    // Exercise the real shared encoder, including a viewer that initially does
+    // not read. It must inherit this desktop's budget and stop after cancellation.
+    const controllers = Array.from({ length: 4 }, () => new AbortController());
+    try {
+      const streams = await Promise.all(controllers.slice(0, 3).map(controller =>
+        broker.stream(ids[0]!, "/workspace", controller.signal)));
+      const readers = streams.map(stream => stream.getReader());
+      const session = (broker as any).sessions.get(ids[0]!);
+      const encoders = session.processes.filter((child: { spawnargs: string[] }) =>
+        child.spawnargs.includes("-boundary_tag"));
+      expect(encoders).toHaveLength(1);
+      const encoder = encoders[0];
+      expect(await readFile(`/proc/${encoder.pid}/cgroup`, "utf8"))
+        .toContain(desktopMemoryForSpawn(ids[0]!)!.split("/").at(-1)!);
+      await expect(broker.stream(ids[0]!, "/workspace", controllers[3]!.signal))
+        .rejects.toThrow("Too many");
+      const decode = createJimp({ formats: [jpeg] });
+      for (const index of [0, 0, 2]) {
+        const frame = Buffer.from((await readers[index]!.read()).value!);
+        const start = frame.indexOf("\r\n\r\n") + 4;
+        const length = Number(/Content-length:\s*(\d+)/i.exec(frame.toString("ascii", 0, start))![1]);
+        const image = await decode.read(frame.subarray(start, start + length));
+        expect(image.width).toBe(1280);
+        expect(image.height).toBe(800);
+      }
+      await readers[0]!.cancel();
+      expect((await readers[1]!.read()).done).toBe(false);
+      const closed = once(encoder, "close");
+      await readers[1]!.cancel();
+      await readers[2]!.cancel();
+      await closed;
+      expect(session.processes.includes(encoder)).toBe(false);
+    } finally {
+      for (const controller of controllers) controller.abort();
+    }
     // Test only: choose the allocator itself for OOM, so existing user-visible
     // fixture tabs remain intact. Production does not change OOM priorities.
     const env = await broker.commandEnvironment(ids[0]!, '/workspace');

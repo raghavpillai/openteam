@@ -84,7 +84,7 @@ databaseTest(
         if (input.channelId === groupId && roundIndex === 0) {
           const saved = await call("UpdateMemory", {
             action: "write",
-            tier: "profile",
+            type: "profile",
             fact: "ORBIT-913 explicit decision uses amber.",
           });
           const recall = await call("RecallMemory", { query: "ORBIT-913" });

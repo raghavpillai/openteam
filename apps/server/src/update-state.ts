@@ -39,6 +39,8 @@ const stateError = (tool: StateToolName, action: string): never => {
 };
 
 const PROFILE_FIELDS = ["name", "description", "title", "avatar_shape", "avatar_color"] as const;
+const SHARED_MEMORY_SHARED_CONVERSATION_REFUSAL =
+  "shared_profile and shared_journal are the owner's memory across their assistants and are not written from a shared conversation.";
 const SETTINGS_FIELDS = ["hidden_from_sidebar", "notify_on_updates"] as const;
 
 const stateToolArguments = {
@@ -215,35 +217,23 @@ export class DurableStateService {
       return stateError(tool, input.action);
     }
     const fact = requiredText(input.fact, "fact", tool, input.action);
+    const type = input.type;
+    if (!type) throw new ApiError(400, "state_field_required", `${tool} ${input.action} requires type`);
+    const scope = type === "shared_profile" || type === "shared_journal" ? "user" : "agent";
     const run = runId ? await this.prisma.run.findFirst({ where: { id: runId, botId }, select: { channelId: true } }) : null;
-    const channelId = run?.channelId;
-    const scope = input.scope ?? "agent";
-    if (input.action === "forget") {
-      const removed = await this.agentData.forgetMemory(botId, { scope, channelId, fact });
-      return {
-        target: "memory",
-        action: "forget",
-        forgotten: removed.forgotten,
-        scope,
-        fact: removed.content,
-      };
+    if (scope === "user" && (await this.agentData.isSharedConversation(botId, run?.channelId))) {
+      return { target: "memory", action: input.action, type, refused: SHARED_MEMORY_SHARED_CONVERSATION_REFUSAL };
     }
-
-    const tier = input.tier ?? "log";
+    if (input.action === "forget") {
+      const removed = await this.agentData.forgetMemory(botId, { scope, fact });
+      return { target: "memory", action: "forget", type, forgotten: removed.forgotten, fact: removed.content };
+    }
     const saved = await this.agentData.writeMemory(
       botId,
-      { scope, channelId, tier: tier === "profile" ? "profile" : "log", fact: tier === "note" ? `[note] ${fact}` : fact },
+      { scope, tier: type === "profile" || type === "shared_profile" ? "profile" : "log", fact },
       { source: "tool", ...(runId ? { turnId: runId } : {}) }
     );
-    return {
-      target: "memory",
-      action: "write",
-      id: saved.logicalId,
-      saved: saved.saved,
-      scope,
-      tier,
-      fact: saved.content,
-    };
+    return { target: "memory", action: "write", type, id: saved.logicalId, saved: saved.saved, fact: saved.content };
   }
 
   private async skill(

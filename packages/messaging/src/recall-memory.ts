@@ -18,31 +18,43 @@ export const relevanceTokens = (text: string) =>
       .filter((token) => !STOPWORDS.has(token))
   );
 
+export const RECALL_MEMORY_DEFAULT_LIMIT = 20;
+export const RECALL_MEMORY_MAX_LIMIT = 50;
+const RECALL_MEMORY_CHAR_BUDGET = 4_000;
+const SEARCHED_LABEL = "your memory and the shared user memory";
+
 export function parseRecallInput(input: unknown) {
   const args = input as Record<string, unknown> | null;
   if (!args || typeof args.query !== "string" || !args.query.trim())
     throw new Error("RecallMemory query must be nonempty");
   return {
     query: args.query.trim(),
-    scope:
-      typeof args.scope === "string" && ["agent", "user", "all"].includes(args.scope)
-        ? (args.scope as "agent" | "user" | "all")
-        : ("all" as const),
     limit:
       typeof args.limit === "number" &&
       Number.isInteger(args.limit) &&
       args.limit >= 1 &&
-      args.limit <= 50
+      args.limit <= RECALL_MEMORY_MAX_LIMIT
         ? args.limit
-        : 20,
+        : RECALL_MEMORY_DEFAULT_LIMIT,
   };
 }
 
+/** The memory type a fact belongs to, and which assistant learned a shared one. */
+const candidateLabel = (fact: RecallCandidate) => {
+  const profile = fact.tier === "profile";
+  if (fact.scope === "agent") return profile ? "profile" : "journal";
+  const via = fact.via?.trim() ?? "";
+  return `${profile ? "shared_profile" : "shared_journal"}${via ? ` via ${via}` : ""}`;
+};
+
+const formatDate = (date: Date) =>
+  Number.isFinite(date.getTime()) && date.getTime() > 0 ? date.toISOString().slice(0, 10) : "unknown date";
+
+/** Rank by distinct shared words, then newest; fall back to a literal match when nothing overlaps. */
 export function recallMemoryResult(input: unknown, candidates: readonly RecallCandidate[]) {
-  const { query, scope, limit } = parseRecallInput(input);
-  const scoped = candidates.filter((fact) => scope === "all" || fact.scope === scope);
+  const { query, limit } = parseRecallInput(input);
   const queryTokens = relevanceTokens(query);
-  const overlaps = scoped
+  const overlaps = candidates
     .map((fact) => ({
       fact,
       score: [...relevanceTokens(fact.content)].filter((token) => queryTokens.has(token)).length,
@@ -52,33 +64,25 @@ export function recallMemoryResult(input: unknown, candidates: readonly RecallCa
   const matches = (
     overlaps.length
       ? overlaps.map(({ fact }) => fact)
-      : scoped
+      : candidates
           .filter((fact) => fact.content.toLowerCase().includes(query.toLowerCase()))
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
   ).slice(0, limit);
-  const label =
-    scope === "agent"
-      ? "your memory"
-      : scope === "user"
-        ? "the shared user memory"
-        : "your memory and the shared user memory";
   if (!matches.length)
-    return `No facts in ${label} match "${query}" (${scoped.length} searched). Try different words, or a shorter literal fragment.`;
+    return `No facts in ${SEARCHED_LABEL} match "${query}" (${candidates.length} searched). Try different words, or a shorter literal fragment.`;
   const lines = [
-    `Top ${matches.length} ${matches.length === 1 ? "match" : "matches"} for "${query}" in ${label} (${scoped.length} ${scoped.length === 1 ? "fact" : "facts"} searched):`,
+    `Top ${matches.length} ${matches.length === 1 ? "match" : "matches"} for "${query}" in ${SEARCHED_LABEL} (${candidates.length} ${candidates.length === 1 ? "fact" : "facts"} searched):`,
   ];
-  let budget = 4_000;
+  let budget = RECALL_MEMORY_CHAR_BUDGET;
   let shown = 0;
   for (const fact of matches) {
-    const provenance =
-      fact.scope === "user" ? `, shared${fact.via?.trim() ? ` via ${fact.via.trim()}` : ""}` : "";
-    const line = `- (${Number.isFinite(fact.createdAt.getTime()) && fact.createdAt.getTime() > 0 ? fact.createdAt.toISOString().slice(0, 10) : "unknown date"}) [${fact.tier === "profile" ? "profile" : "log"}${provenance}] ${fact.content}`;
+    const line = `- (${formatDate(fact.createdAt)}) [${candidateLabel(fact)}] ${fact.content}`;
     if (shown > 0 && line.length > budget) break;
     lines.push(line);
     budget -= line.length;
     shown += 1;
   }
   if (shown < matches.length)
-    lines.push(`(${matches.length - shown} more matches not shown — narrow the query.)`);
+    lines.push(`(${matches.length - shown} more matches not shown. Narrow the query.)`);
   return lines.join("\n");
 }

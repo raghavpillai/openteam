@@ -625,7 +625,7 @@ describe("API contracts", () => {
       expect(schema.properties).not.toHaveProperty("target");
       // Every advertised argument survives the argument parser.
       expect(Object.keys(normalizeMainToolArguments(name, {
-        ...{ UpdateMemory: { action: "write", fact: "x" }, UpdateRoutine: { action: "pause", id: "r" }, UpdateSkill: { action: "delete", id: "s" },
+        ...{ UpdateMemory: { action: "write", fact: "x", type: "journal" }, UpdateRoutine: { action: "pause", id: "r" }, UpdateSkill: { action: "delete", id: "s" },
           UpdateProfile: {}, UpdateAvatar: { action: "clear" }, DisconnectChannel: { platform: "slack" } }[name],
         target: "memory",
       }))).not.toContain("target");
@@ -635,11 +635,12 @@ describe("API contracts", () => {
       required: string[];
     };
     expect(memory.properties.action?.enum).toEqual(["write", "forget"]);
-    expect(memory.properties.scope?.enum).toEqual(["agent", "user"]);
-    expect(memory.properties).not.toHaveProperty("project");
-    expect(memory.required).toEqual(["action", "fact"]);
+    expect(memory.properties.type?.enum).toEqual(["profile", "journal", "shared_profile", "shared_journal"]);
+    expect(Object.keys(memory.properties)).toEqual(["action", "fact", "type"]);
+    expect(memory.required).toEqual(["action", "fact", "type"]);
+    expect(UPDATE_MEMORY_TOOL.description).toStartWith("Change your durable memory. Pick the memory type that fits:\n- profile: ");
     expect(UPDATE_MEMORY_TOOL.description).toContain("UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.");
-    expect(UPDATE_MEMORY_TOOL.description).not.toContain("project");
+    expect(UPDATE_MEMORY_TOOL.description).not.toContain("memory folder");
     const routine = UPDATE_ROUTINE_TOOL.inputSchema as { properties: Record<string, { enum?: string[] }> };
     expect(routine.properties.action?.enum).toEqual(["create", "update", "pause", "resume", "delete"]);
     expect(UPDATE_ROUTINE_TOOL.description).toContain("may ask the user to confirm");
@@ -650,17 +651,15 @@ describe("API contracts", () => {
       Schema.decodeUnknownSync(UpdateMemoryInput)({
         action: "write",
         fact: "The user prefers concise status updates.",
-        tier: "profile",
-        scope: "user",
+        type: "shared_profile",
       })
     ).toEqual({
       action: "write",
       fact: "The user prefers concise status updates.",
-      tier: "profile",
-      scope: "user",
+      type: "shared_profile",
     });
-    expect(() => Schema.decodeUnknownSync(UpdateMemoryInput)({ action: "write" })).toThrow();
-    expect(() => Schema.decodeUnknownSync(UpdateMemoryInput)({ action: "write", fact: "x", scope: "project" })).toThrow();
+    expect(() => Schema.decodeUnknownSync(UpdateMemoryInput)({ action: "write", fact: "x" })).toThrow();
+    expect(() => Schema.decodeUnknownSync(UpdateMemoryInput)({ action: "write", fact: "x", type: "note" })).toThrow();
     expect(
       Schema.decodeUnknownSync(UpdateRoutineInput)({
         action: "create",
@@ -673,12 +672,18 @@ describe("API contracts", () => {
       title: "",
       hidden_from_sidebar: true,
     });
-    expect(() => normalizeMainToolArguments("UpdateMemory", { action: "create", fact: "x" })).toThrow(
+    expect(() => normalizeMainToolArguments("UpdateMemory", { action: "create", fact: "x", type: "profile" })).toThrow(
       "UpdateMemory only writes or forgets memory. Routines have their own UpdateRoutine tool."
     );
+    expect(() => normalizeMainToolArguments("UpdateMemory", { action: "write", fact: "x", type: "log" })).toThrow(
+      "UpdateMemory: pick the memory type it belongs in: profile, journal, shared_profile, shared_journal."
+    );
+    expect(() => normalizeMainToolArguments("UpdateMemory", { action: "write", fact: "x" })).toThrow(
+      "UpdateMemory: pick the memory type it belongs in"
+    );
     expect(() => normalizeMainToolArguments("UpdateProfile", { avatar_shape: "triangle" })).toThrow();
-    expect(() => normalizeMainToolArguments("UpdateMemory", { action: "write", fact: "x", scope: "project" })).toThrow();
-    expect(normalizeMainToolArguments("UpdateMemory", { action: "write", fact: "x", project: "launch" })).toEqual({ action: "write", fact: "x" });
+    expect(normalizeMainToolArguments("UpdateMemory", { action: "write", fact: "x", type: "journal", scope: "user", tier: "note" })).toEqual({ action: "write", fact: "x", type: "journal" });
+    expect(normalizeMainToolArguments("RecallMemory", { query: "launch", scope: "user", limit: 99 })).toEqual({ query: "launch" });
   });
 
   test("renders state results for the tool that ran", () => {

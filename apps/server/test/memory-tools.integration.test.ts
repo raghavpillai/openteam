@@ -11,18 +11,18 @@ import { UPDATE_MEMORY_TOOL } from "@openteam/contracts";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 const databaseTest = databaseUrl ? test : test.skip;
+const SHARED_REFUSAL =
+  "Not saved: shared_profile and shared_journal are the owner's memory across their assistants and are not written from a shared conversation.";
 
 databaseTest(
-  "real memory tool dispatch uses the run channel, persists, recalls, forgets, and enforces restrictions",
+  "memory tools save by type, report the reference outcomes, and keep shared memory out of group rooms",
   async () => {
     const prisma = createPrismaClient(databaseUrl!);
     const root = await mkdtemp(join(tmpdir(), "memory-tool-route-"));
     const botId = crypto.randomUUID();
     const peerId = crypto.randomUUID();
     const conversationId = crypto.randomUUID();
-    const runId = crypto.randomUUID();
-    let channelId = "";
-    let personalChannelId = "";
+    const channelIds: string[] = [];
     const store = new AgentDataStore(prisma, { root: join(root, "data"), workspaceRoot: root });
     try {
       await prisma.bot.create({
@@ -38,36 +38,19 @@ databaseTest(
       await prisma.bot.create({
         data: { id: peerId, name: "Peer", status: "active", defaultDirectory: root },
       });
-      const channel = await prisma.channel.create({
+      const group = await prisma.channel.create({
         data: {
           kind: "group",
           name: "Tool room",
-          members: {
-            create: [
-              { botId, ordinal: 0 },
-              { botId: peerId, ordinal: 1 },
-            ],
-          },
+          members: { create: [{ botId, ordinal: 0 }, { botId: peerId, ordinal: 1 }] },
         },
       });
-      channelId = channel.id;
+      const personal = await prisma.channel.create({
+        data: { name: "Personal memory fixture", kind: "bot_dm", directKey: `bot:${botId}`, members: { create: { botId, ordinal: 0 } } },
+      });
+      channelIds.push(group.id, personal.id);
       await store.initializeBot(botId);
-      await prisma.run.create({
-        data: {
-          id: runId,
-          botId,
-          conversationId,
-          channelId,
-          userMessageId: crypto.randomUUID(),
-          status: "running",
-        },
-      });
-      const state = new DurableStateService(
-        prisma,
-        {} as never,
-        store,
-        {} as never
-      );
+      const state = new DurableStateService(prisma, {} as never, store, {} as never);
       const service = new InternalToolService(
         prisma,
         { agentData: store } as never,
@@ -78,99 +61,105 @@ databaseTest(
         {} as never,
         {} as never
       );
-      const call = (tool: string, args: unknown, callId = crypto.randomUUID()) =>
-        Effect.runPromise(
-          service.execute({
-            runId,
-            botId,
-            conversationId,
-            channelId,
-            deliveryId: null,
-            tool,
-            arguments: args,
-            callId,
-          })
-        );
-      const request = {
-        action: "write",
-        tier: "profile",
-        fact: "COBALT delivery uses amber.",
+      const runIn = async (channelId: string) => {
+        const run = await prisma.run.create({
+          data: { botId, conversationId, channelId, userMessageId: crypto.randomUUID(), status: "running" },
+        });
+        return {
+          id: run.id,
+          call: (tool: string, args: unknown, callId = crypto.randomUUID()) =>
+            Effect.runPromise(
+              service.execute({ runId: run.id, botId, conversationId, channelId, deliveryId: null, tool, arguments: args, callId })
+            ),
+        };
       };
+
+      // A group room: the bot's own memory works; the owner's shared memory is off limits.
+      const room = await runIn(group.id);
+      const request = { action: "write", type: "profile", fact: "COBALT delivery uses amber." };
       const callId = crypto.randomUUID();
-      const saved = await call("UpdateMemory", request, callId);
+      const saved = await room.call("UpdateMemory", request, callId);
       expect(saved).toBe(`Remembered in your memory (profile): ${request.fact}`);
-      expect(await call("UpdateMemory", request, callId)).toEqual(saved);
-      expect(await call("RecallMemory", { query: "COBALT", scope: "agent" })).toContain(
-        "[profile]"
-      );
-      expect(await call("UpdateMemory", request)).toBe("Not saved — nothing was saved to your memory — the fact was empty or already recorded. Call RecallMemory to see what is already there.");
-      expect(await prisma.memoryFact.count({ where: { namespace: `agent:${botId}`, fact: request.fact } })).toBe(1);
-      const cached = await prisma.idempotencyRecord.findUniqueOrThrow({ where: { scope_key: { scope: `state:${botId}`, key: callId } } });
-      expect(cached.response).toMatchObject({ saved: true, scope: "agent", fact: request.fact });
-      await expect(call("UpdateMemory", { ...request, scope: "conversation", fact: "ORBIT914V relay key is COPPER-8357." })).rejects.toThrow();
-      expect(await prisma.memoryFact.count({ where: { writtenByBotId: botId, fact: { contains: "ORBIT914V" } } })).toBe(0);
-      // Tool arguments cannot substitute their own channel or memory owner.
-      await store.writeMemory(botId, {
-        scope: "user",
-        tier: "profile",
-        fact: "Personal heliotrope choice.",
-      });
+      expect(await room.call("UpdateMemory", request, callId)).toEqual(saved);
       expect(
-        await call("RecallMemory", {
-          query: "heliotrope",
-          scope: "user",
-          channelId: null,
+        await prisma.memoryFact.findMany({
+          where: { namespace: `agent:${botId}` },
+          select: { fact: true, scope: true, tier: true, origin: true, turnId: true },
         })
-      ).not.toContain("Personal heliotrope choice.");
-      await expect(call("UpdateMemory", { ...request, scope: "user" })).rejects.toThrow(
-        "cannot be written"
+      ).toEqual([{ fact: request.fact, scope: "agent", tier: "profile", origin: "tool", turnId: room.id }]);
+      expect(await room.call("UpdateMemory", request)).toBe(
+        "Not saved: nothing was saved to your memory. The fact was empty or already recorded. Call RecallMemory to see what is already there."
       );
-      const shared = await call("UpdateMemory", {
-        ...request,
-        scope: "agent",
-        fact: "Team COBALT policy.",
-      });
-      expect(shared).toBe("Remembered in your memory (profile): Team COBALT policy.");
-      expect(
-        await call("UpdateMemory", { action: "forget", fact: request.fact })
-      ).toBe(`Forgot from your memory: ${request.fact}`);
-      expect(await call("RecallMemory", { query: "delivery" })).not.toContain("uses amber");
-      expect(await prisma.memoryFact.count({ where: { writtenByBotId: botId, scope: "agent", fact: request.fact } })).toBe(0);
-      expect(await call("UpdateMemory", { action: "forget", fact: request.fact })).toBe("Not saved — no fact with exactly that text is recorded in your memory. Call RecallMemory for the exact wording first.");
-      const forgotten = await call("UpdateMemory", {
-        action: "forget",
-        scope: "agent",
-        fact: "Team COBALT policy.",
-      });
-      expect(forgotten).toBe("Forgot from your memory: Team COBALT policy.");
+      expect(await room.call("UpdateMemory", { action: "write", type: "journal", fact: "Shipped the COBALT beta." })).toBe(
+        "Remembered in your memory (journal): Shipped the COBALT beta."
+      );
+      expect(await room.call("UpdateMemory", { ...request, type: "shared_profile", fact: "Lives in Lyon." })).toBe(SHARED_REFUSAL);
+      expect(await room.call("UpdateMemory", { action: "forget", type: "shared_journal", fact: "Lives in Lyon." })).toBe(SHARED_REFUSAL);
+      await store.writeMemory(botId, { scope: "user", tier: "profile", fact: "Personal heliotrope choice." });
+      expect(await room.call("RecallMemory", { query: "COBALT" })).toBe(
+        [
+          'Top 2 matches for "COBALT" in your memory and the shared user memory (2 facts searched):',
+          `- (${new Date().toISOString().slice(0, 10)}) [journal] Shipped the COBALT beta.`,
+          `- (${new Date().toISOString().slice(0, 10)}) [profile] COBALT delivery uses amber.`,
+        ].join("\n")
+      );
+      expect(await room.call("RecallMemory", { query: "heliotrope" })).toStartWith("No facts in your memory");
+      expect(await room.call("UpdateMemory", { action: "forget", type: "profile", fact: request.fact })).toBe(
+        `Forgot from your memory: ${request.fact}`
+      );
+      expect(await room.call("UpdateMemory", { action: "forget", type: "profile", fact: request.fact })).toBe(
+        "Not saved: no fact with exactly that text is recorded in your memory. Call RecallMemory for the exact wording first."
+      );
       const multiline = "Normalized\n  spacing\t" + "x".repeat(520);
-      expect(await call("UpdateMemory", { ...request, fact: multiline })).toBe(`Remembered in your memory (profile): ${("Normalized spacing " + "x".repeat(520)).slice(0, 500)}`);
-      expect(await call("UpdateMemory", { ...request, tier: "note", fact: "Ephemeral choice." })).toBe("Remembered in your memory (note): [note] Ephemeral choice.");
-      const personalChannel = await prisma.channel.create({ data: { name: "Personal memory fixture", kind: "bot_dm", directKey: `bot:${botId}`, members: { create: { botId, ordinal: 0 } } } });
-      personalChannelId = personalChannel.id;
-      const personalRun = await prisma.run.create({ data: {
-        botId, conversationId, channelId: personalChannel.id, userMessageId: crypto.randomUUID(), status: "running",
-      } });
-      const personalCall = (args: unknown) => Effect.runPromise(service.execute({
-        runId: personalRun.id, botId, conversationId, channelId: personalChannel.id, deliveryId: null,
-        tool: "UpdateMemory", arguments: args, callId: crypto.randomUUID(),
-      }));
-      expect(await personalCall({ ...request, scope: "user" })).toBe(`Remembered in shared user memory (profile): ${request.fact}`);
-      expect(await personalCall({ ...request, scope: "user" })).toBe("Not saved — nothing was saved to shared user memory — the fact was empty or already recorded. Call RecallMemory to see what is already there.");
-      expect(await personalCall({ action: "forget", scope: "user", fact: request.fact })).toBe(`Forgot from shared user memory: ${request.fact}`);
-      expect(await personalCall({ action: "forget", scope: "user", fact: request.fact })).toBe("Not saved — no fact with exactly that text is recorded in shared user memory. Call RecallMemory for the exact wording first.");
-      await expect(call("RecallMemory", { query: " " })).rejects.toThrow("String must contain at least 1 character");
-      await expect(call("RequestMemory", { query: "COBALT" })).rejects.toThrow("Unknown tool");
-      await expect(call("update_state", { target: "memory", ...request })).rejects.toThrow("Unknown tool update_state");
-      await prisma.run.update({ where: { id: runId }, data: { status: "completed" } });
-      await expect(call("RecallMemory", { query: "COBALT" })).rejects.toThrow("not active");
-      const schema = UPDATE_MEMORY_TOOL.inputSchema as { properties: { scope: { enum: string[] } } };
-      expect(schema.properties.scope.enum).toEqual(["agent", "user"]);
+      expect(await room.call("UpdateMemory", { ...request, fact: multiline })).toBe(
+        `Remembered in your memory (profile): ${("Normalized spacing " + "x".repeat(520)).slice(0, 500)}`
+      );
+      await expect(room.call("UpdateMemory", { ...request, type: "note" })).rejects.toThrow(
+        "UpdateMemory: pick the memory type it belongs in: profile, journal, shared_profile, shared_journal."
+      );
+      await expect(room.call("UpdateMemory", { action: "write", fact: "No type." })).rejects.toThrow("pick the memory type");
+
+      // The owner's own chat writes the bot's shard of shared user memory.
+      const home = await runIn(personal.id);
+      const shared = { action: "write", type: "shared_profile", fact: "Lives in Lyon." };
+      expect(await home.call("UpdateMemory", shared)).toBe("Remembered in shared user memory (shared_profile): Lives in Lyon.");
+      expect(await home.call("UpdateMemory", shared)).toBe(
+        "Not saved: nothing was saved to shared user memory. The fact was empty or already recorded. Call RecallMemory to see what is already there."
+      );
+      expect(await home.call("UpdateMemory", { action: "write", type: "shared_journal", fact: "Started at Acme." })).toBe(
+        "Remembered in shared user memory (shared_journal): Started at Acme."
+      );
+      expect(
+        await prisma.memoryFact.findMany({
+          where: { namespace: `user:agent:${botId}`, fact: { in: ["Lives in Lyon.", "Started at Acme."] } },
+          orderBy: { sourceOrdinal: "asc" },
+          select: { fact: true, scope: true, tier: true },
+        })
+      ).toEqual([
+        { fact: "Lives in Lyon.", scope: "user", tier: "profile" },
+        { fact: "Started at Acme.", scope: "user", tier: "log" },
+      ]);
+      expect(await home.call("RecallMemory", { query: "Lyon Acme" })).toContain("[shared_profile via Memory tool route] Lives in Lyon.");
+      expect(await home.call("RecallMemory", { query: "Acme" })).toContain("[shared_journal via Memory tool route] Started at Acme.");
+      expect(await home.call("RecallMemory", { query: "heliotrope" })).toContain("[shared_profile via Memory tool route] Personal heliotrope choice.");
+      expect(await home.call("UpdateMemory", { action: "forget", type: "shared_profile", fact: "lives in  LYON." })).toBe(
+        "Forgot from shared user memory: lives in LYON."
+      );
+      expect(await home.call("UpdateMemory", { action: "forget", type: "shared_profile", fact: "Lives in Lyon." })).toBe(
+        "Not saved: no fact with exactly that text is recorded in shared user memory. Call RecallMemory for the exact wording first."
+      );
+
+      await expect(room.call("RecallMemory", { query: " " })).rejects.toThrow("String must contain at least 1 character");
+      await expect(room.call("RequestMemory", { query: "COBALT" })).rejects.toThrow("Unknown tool");
+      await expect(room.call("update_state", { target: "memory", ...request })).rejects.toThrow("Unknown tool update_state");
+      await prisma.run.update({ where: { id: room.id }, data: { status: "completed" } });
+      await expect(room.call("RecallMemory", { query: "COBALT" })).rejects.toThrow("not active");
+      const schema = UPDATE_MEMORY_TOOL.inputSchema as { properties: { type: { enum: string[] } } };
+      expect(schema.properties.type.enum).toEqual(["profile", "journal", "shared_profile", "shared_journal"]);
     } finally {
       await prisma.idempotencyRecord.deleteMany({ where: { scope: `state:${botId}` } });
       await prisma.memoryFact.deleteMany({ where: { writtenByBotId: { in: [botId, peerId] } } });
-      if (channelId) await prisma.channel.deleteMany({ where: { id: channelId } });
-      if (personalChannelId) await prisma.channel.deleteMany({ where: { id: personalChannelId } });
+      await prisma.channel.deleteMany({ where: { id: { in: channelIds } } });
       await prisma.bot.deleteMany({ where: { id: { in: [botId, peerId] } } });
       await prisma.$disconnect();
       await rm(root, { recursive: true, force: true });

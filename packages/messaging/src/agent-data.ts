@@ -969,7 +969,7 @@ export class AgentDataStore {
   }
 
   /** A group room is a shared conversation: it neither reads nor writes the owner's shared user memory. */
-  private async sharedConversation(botId: string, channelId?: string | null): Promise<boolean> {
+  async isSharedConversation(botId: string, channelId?: string | null): Promise<boolean> {
     if (!channelId) return false;
     const channel = await this.prisma.channel.findFirst({
       where: { id: channelId, members: { some: { botId } } },
@@ -2236,15 +2236,6 @@ export class AgentDataStore {
     }, { maxWait: 10_000, timeout: 60_000 });
   }
 
-  private async assertMemoryWritable(botId: string, scope: MemoryScope, channelId?: string | null): Promise<void> {
-    if (scope === "user" && (await this.sharedConversation(botId, channelId)))
-      throw new ApiError(
-        403,
-        "memory_user_scope_refused",
-        'scope "user" is the owner\'s memory across their agents and cannot be written from this conversation.'
-      );
-  }
-
   /** Append one fact unless the namespace already records the same text. The caller checks the bot is active. */
   private async insertMemoryFact(
     tx: Tx,
@@ -2293,14 +2284,12 @@ export class AgentDataStore {
     botId: string,
     input: {
       scope: MemoryScope;
-      channelId?: string | null;
       tier: "profile" | "log";
       fact: string;
       at?: Date;
     },
     provenance: MemoryProvenance = { source: "tool" }
   ): Promise<{ saved: boolean; logicalId: string; content: string }> {
-    await this.assertMemoryWritable(botId, input.scope, input.channelId);
     return this.prisma.$transaction(async (tx) => {
       const bot = await tx.bot.findUnique({ where: { id: botId }, select: { status: true } });
       if (!bot || bot.status !== "active") throw new Error("Cannot write memory for an inactive bot");
@@ -2312,11 +2301,9 @@ export class AgentDataStore {
     botId: string,
     input: {
       scope: MemoryScope;
-      channelId?: string | null;
       fact: string;
     }
   ): Promise<{ forgotten: boolean; logicalId: string; content: string }> {
-    await this.assertMemoryWritable(botId, input.scope, input.channelId);
     const content = normalizeMemoryContent(input.fact);
     const forgotten = await this.prisma.$transaction(async (tx) => {
       const removed = await this.deleteMemoryFact(tx, botId, input.scope, content);
@@ -2529,7 +2516,7 @@ export class AgentDataStore {
       }
     }
 
-    const sharedConversation = await this.sharedConversation(botId, channelId);
+    const sharedConversation = await this.isSharedConversation(botId, channelId);
     // Re-render frozen memory once when its prompt shape changes.
     const audienceKey = MEMORY_PROMPT_VERSION;
     if (snapshot.memoryAudienceKey !== audienceKey) {
@@ -2685,11 +2672,11 @@ export class AgentDataStore {
 
   async recallMemory(botId: string, input: unknown, channelId?: string | null): Promise<string> {
     const args = parseRecallInput(input);
-    const userVisible = !(await this.sharedConversation(botId, channelId));
+    const userVisible = !(await this.isSharedConversation(botId, channelId));
     const facts = await this.prisma.memoryFact.findMany({
       where: { OR: [
-        ...(args.scope !== "user" ? [{ namespace: `agent:${botId}` }] : []),
-        ...(args.scope !== "agent" && userVisible ? [{ namespace: { startsWith: "user:agent:" } }] : []),
+        { namespace: memoryNamespace(botId, "agent") },
+        ...(userVisible ? [{ namespace: { startsWith: "user:agent:" } }] : []),
       ] },
       orderBy: [{ createdAt: "desc" }, { sourceOrdinal: "desc" }],
     });

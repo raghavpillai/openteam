@@ -432,9 +432,9 @@ describe("durable state tools", () => {
       return { content: [], details: {} };
     };
     const active = { ...workerTurn(null), runId: "run-1", pendingSteers: [], discoveredDynamicTools: new Set() };
-    await runtime.executeOpenTeamTool(active, "memory", "UpdateMemory", { target: "memory", action: "write", fact: " Prefers tea. " });
+    await runtime.executeOpenTeamTool(active, "memory", "UpdateMemory", { target: "memory", action: "write", fact: " Prefers tea. ", type: "profile" });
     await runtime.executeOpenTeamTool(active, "routine", "UpdateRoutine", { action: "pause", id: "brief" });
-    await expect(runtime.executeOpenTeamTool(active, "invalid", "UpdateMemory", { action: "create", fact: "x" })).rejects.toThrow(
+    await expect(runtime.executeOpenTeamTool(active, "invalid", "UpdateMemory", { action: "create", fact: "x", type: "profile" })).rejects.toThrow(
       "UpdateMemory only writes or forgets memory"
     );
     const cursor = runtime.dynamicCatalog(active).find((namespace: any) => namespace.name === "cursor");
@@ -450,7 +450,7 @@ describe("durable state tools", () => {
     }
     expect(() => cursor.tools.find((tool: any) => tool.name === "UpdateProfile").decodeArguments({ avatar_shape: "triangle" })).toThrow();
     expect(calls).toEqual([
-      { tool: "UpdateMemory", args: { action: "write", fact: "Prefers tea." } },
+      { tool: "UpdateMemory", args: { action: "write", fact: "Prefers tea.", type: "profile" } },
       { tool: "UpdateRoutine", args: { action: "pause", id: "brief" } },
       ...namespaced.map(([tool, args]) => ({ tool, args })),
     ]);

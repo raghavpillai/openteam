@@ -103,15 +103,11 @@ dbTest(
       const saved = await client.botMemories(botId);
       expect(saved.total).toBe(1);
       expect(saved.memories[0]?.content).toBe(fact);
-      expect(await store.recallMemory(botId, { query: "CONTROL914", scope: "agent" })).toContain(
-        fact
-      );
+      expect(await store.recallMemory(botId, { query: "CONTROL914" })).toContain(`[profile] ${fact}`);
       expect((await client.deleteBotMemory(peerId, saved.memories[0]!.id)).total).toBe(0);
       expect((await client.botMemories(botId)).total).toBe(1);
       expect((await client.deleteBotMemory(botId, saved.memories[0]!.id)).total).toBe(0);
-      expect(await store.recallMemory(botId, { query: "CONTROL914", scope: "agent" })).toContain(
-        "(0 searched)"
-      );
+      expect((await client.botMemories(botId)).total).toBe(0);
       expect((await client.deleteBotMemory(botId, saved.memories[0]!.id)).total).toBe(0);
       await expect(client.botMemories("..%2F")).rejects.toMatchObject({ status: 404 });
       await expect(client.deleteBotMemory(botId, "../profile.md")).rejects.toMatchObject({
@@ -172,11 +168,9 @@ dbTest(
         })
       ).toMatchObject({ memoryEpoch: -1, memoryRender: "", memoryHasFacts: false });
       expect(await app.prisma.conversation.findUnique({ where: { botId } })).toEqual(conversation);
-      expect(await store.recallMemory(botId, { query: "CONTROL914", scope: "agent" })).toContain(
-        "(0 searched)"
-      );
-      expect(await store.recallMemory(botId, { query: "CONTROL914", scope: "user" })).toContain(
-        "shared user fact"
+      expect(await store.recallMemory(botId, { query: "CONTROL914" })).not.toContain("own saved fact");
+      expect(await store.recallMemory(botId, { query: "CONTROL914" })).toContain(
+        "[shared_profile via Memory controls fixture] CONTROL914 shared user fact."
       );
       expect((await client.botMemories(peerId)).total).toBe(1);
     })
@@ -199,9 +193,7 @@ dbTest(
       expect((await client.deleteBotMemory(botId, memoryLogicalId(fact))).total).toBe(1);
       expect(await app.prisma.memoryFact.count({ where: { namespace: `agent:${botId}`, fact } })).toBe(0);
       expect((await client.clearBotMemories(botId)).total).toBe(0);
-      expect(await store.recallMemory(botId, { query: "CONTROL914", scope: "agent" })).toContain(
-        "(0 searched)"
-      );
+      expect((await client.botMemories(botId)).total).toBe(0);
     })
 );
 
@@ -221,9 +213,7 @@ dbTest(
       expect(snapshot.total).toBe(1003);
       expect(snapshot.memories.length).toBe(1000);
       expect((await client.clearBotMemories(botId)).total).toBe(0);
-      expect(await store.recallMemory(botId, { query: "CONTROL914", scope: "agent" })).toContain(
-        "(0 searched)"
-      );
+      expect((await client.botMemories(botId)).total).toBe(0);
     }),
   30_000
 );
@@ -307,9 +297,7 @@ dbTest("automatic learning becomes visible only after inference and commit finis
       expect((await client.botMemories(botId)).memories[0]?.content).toBe(
         "CONTROL914 calibration is JADE-8241."
       );
-      expect(await store.recallMemory(botId, { query: "JADE-8241", scope: "agent" })).toContain(
-        "[log]"
-      );
+      expect(await store.recallMemory(botId, { query: "JADE-8241" })).toContain("[journal]");
     } finally {
       release("NONE");
       await turn;

@@ -28,7 +28,7 @@ databaseTest("workers never recall memory or read history; the parent does", asy
     const service = new InternalToolService(prisma, { agentData: store } as never, state, async () => {}, {} as never, {} as never, {} as never, {} as never);
     const call = (run: { id: string; botId: string; conversationId: string; channelId: string | null }, tool: string, args: unknown) =>
       Effect.runPromise(service.execute({ runId: run.id, botId: run.botId, conversationId: run.conversationId, channelId: run.channelId!, deliveryId: null, tool, arguments: args, callId: crypto.randomUUID() }));
-    await call(parentRun, "UpdateMemory", { action: "write", tier: "profile", fact: "VERMILION invoices go to Dana." });
+    await call(parentRun, "UpdateMemory", { action: "write", type: "profile", fact: "VERMILION invoices go to Dana." });
 
     const worker = async (subagentType: string) => {
       const child = await prisma.bot.create({ data: { name: `${subagentType} worker`, status: "active", defaultDirectory: root, conversation: { create: {} } }, include: { conversation: true } });

@@ -41,3 +41,59 @@ The [install directory](../getting-started/installation.md#where-openteam-is-ins
 - `installation.json`: a record of how the server was installed
 
 Setup and updates maintain these files, so change settings with the CLI instead of editing them. Don't put model API keys in `.env`; connect providers with `openteam setup` or in the app. Include this directory in your [backups](../manage/backups.md).
+
+
+## Desktop memory limits
+
+The Compose stack limits each agent desktop to **10 GiB** by default. This includes
+its headed Chrome, desktop services, native applications, and descendants of
+commands launched in that desktop. It does not evict tabs or windows during
+normal operation. Linux may kill an offending process when a hard limit is hit;
+unsaved work in that process can be lost.
+
+A separate ceiling protects against several desktops growing at once and includes
+the shared Bun runtime. It is the smaller of **12 GiB** and **75% of the Linux
+host's RAM** (Docker VM RAM on macOS). A ceiling is not a reservation. Swap is
+disabled for the computer to avoid unlimited swapping. Other services and host
+applications still need adequate RAM; these limits do not guarantee that an
+otherwise overloaded host cannot run out of memory. Hitting the combined limit
+may kill the shared runtime and restart the computer container.
+
+Compose overrides in the install environment:
+
+- `OPENTEAM_DESKTOP_MEMORY_LIMIT=10g`: each desktop's ceiling.
+- `OPENTEAM_COMPUTER_MEMORY_LIMIT=12g`: the combined computer ceiling, also bounded
+  by the 75% host rule. Use a smaller value to leave more room for other services.
+
+Sizes use binary units: `10g` is 10 × 1024³ bytes. Recreate the computer and its
+memory-init helper when changing these settings; this interrupts active work.
+The two settings are independent: a desktop cannot exceed the remaining combined
+budget even if it has not reached its own 10 GiB limit.
+
+Enforcement requires Linux cgroup v2 and the `computer-memory-init` Compose
+service. This small helper joins only the computer's PID/mount namespaces to make
+its private cgroup tree writable and lower the combined limit when necessary. It
+starts with `SYS_ADMIN`, `SYS_CHROOT`, and `SYS_PTRACE` and an unconfined AppArmor
+profile, then drops every effective, permitted and inheritable capability and
+sets `no_new_privs` before waiting for the computer to exit. It has no network,
+Docker socket, credentials or host filesystem mounts. The computer keeps its
+existing restricted capabilities, seccomp and AppArmor profile. The helper
+restarts with the computer's PID namespace. Setup fails closed if the memory
+controller cannot be initialized.
+
+Agent processes enter their desktop cgroup before dropping privileges and
+executing the command. Children, including daemonized native applications,
+inherit the group. The launcher is statically linked so agent-supplied loader
+variables cannot execute code with supervisor privileges. Agents cannot write
+the cgroup controls. Destroying or restarting a failed desktop also clears its
+orphaned descendants. Shared inference, browser automation helpers, plugin/MCP infrastructure and jobs that
+are not attached to a desktop are covered by the combined limit.
+
+Direct native development runs do not enable cgroups unless configured. Provider
+login/import commands can still run as one-off containers without the helper.
+Inspect effective kernel limits inside the computer at
+`/sys/fs/cgroup/memory.max` and `/sys/fs/cgroup/desktops/*/memory.max`; Docker's
+configured memory value alone may be higher than the host-adjusted limit.
+
+References: [Docker memory limits](https://docs.docker.com/engine/containers/resource_constraints/)
+and [Linux cgroup v2](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html).

@@ -31,7 +31,31 @@ export const notificationGraphemes = (value: string): string[] => {
     : Array.from(normalized);
 };
 
+// Large ASCII previews only need a bounded normalized prefix. Fall back for
+// Unicode, unusual limits, or long whitespace runs to preserve exact behavior.
+const largeAsciiNotificationPreview = (value: string, limit: number): string | null => {
+  if (value.length < 4096 || !Number.isFinite(limit) || limit < 0 || limit > 1024) return null;
+  let prefix = "";
+  let space = false;
+  const scanned = Math.min(value.length, Math.ceil(limit) * 2 + 64);
+  for (let index = 0; index < scanned; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code > 127) return null;
+    if (code === 32 || (code >= 9 && code <= 13)) {
+      space = prefix.length > 0;
+      continue;
+    }
+    if (space) prefix += " ";
+    prefix += value[index];
+    space = false;
+    if (prefix.length > limit) return `${prefix.slice(0, Math.max(0, Math.trunc(limit - 1)))}…`;
+  }
+  return scanned === value.length ? prefix : null;
+};
+
 export const truncateNotificationText = (value: string, limit = 140): string => {
+  const preview = largeAsciiNotificationPreview(value, limit);
+  if (preview !== null) return preview;
   const normalized = normalizeNotificationText(value);
   if (normalized.length <= limit) return normalized;
   if (Number.isNaN(limit) || limit < 0) return "…";

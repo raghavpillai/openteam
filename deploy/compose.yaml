@@ -80,8 +80,12 @@ services:
   computer:
     labels: *openteam-labels
     image: ${OPENTEAM_IMAGE_PREFIX:?OPENTEAM_IMAGE_PREFIX is required}-computer:${OPENTEAM_VERSION:?OPENTEAM_VERSION is required}
+    cgroup: private
+    mem_limit: ${OPENTEAM_COMPUTER_MEMORY_LIMIT:-12g}
+    memswap_limit: ${OPENTEAM_COMPUTER_MEMORY_LIMIT:-12g}
     hostname: openteam
     environment:
+      OPENTEAM_DESKTOP_MEMORY_LIMIT: ${OPENTEAM_DESKTOP_MEMORY_LIMIT:-10g}
       OPENTEAM_COMPUTER_PORT: 8790
       OPENTEAM_CONTROL_TOKEN: ${OPENTEAM_CONTROL_TOKEN:?OPENTEAM_CONTROL_TOKEN is required}
       OPENTEAM_WORKSPACE_ROOT: /workspace
@@ -123,6 +127,28 @@ services:
       - openteam_agent_data:/home/box/sand-data
       - openteam_workspace:/workspace
       - openteam_box_store:/box-store
+
+  computer-memory-init:
+    labels: *openteam-labels
+    image: ${OPENTEAM_IMAGE_PREFIX:?OPENTEAM_IMAGE_PREFIX is required}-computer:${OPENTEAM_VERSION:?OPENTEAM_VERSION is required}
+    entrypoint: ["/usr/local/bin/openteam-memory-init"]
+    pid: service:computer
+    network_mode: none
+    depends_on:
+      computer:
+        condition: service_started
+    cap_drop: ["ALL"]
+    cap_add: ["SYS_ADMIN", "SYS_CHROOT", "SYS_PTRACE"]
+    security_opt:
+      - no-new-privileges:true
+      # Only the bootstrap helper enters the computer's mount namespace.
+      # It drops all capabilities immediately after configuring memory controls.
+      - apparmor:unconfined
+    read_only: true
+    mem_limit: 32m
+    memswap_limit: 32m
+    pids_limit: 16
+    restart: unless-stopped
 
   server:
     labels: *openteam-labels

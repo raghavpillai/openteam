@@ -1,8 +1,9 @@
 import { collectBoxStoreBlobsLocked, withBoxStoreOperation } from "./box-store/garbage-collection";
 import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { chmod, lstat, mkdir, readdir, readFile, rm, stat, utimes } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, readFile, rename, rm, stat, utimes } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { fileDigest, stageFile, STREAM_FILE_THRESHOLD } from "./box-store/file-stream";
 import {
   type BoxStoreDirtyHint,
   type BoxStoreManifest,
@@ -21,6 +22,8 @@ import {
   sqliteSidecar,
   temporaryName,
 } from "./box-store/manifest";
+
+type SnapshotContent = Buffer | Awaited<ReturnType<typeof stageFile>>;
 
 export class BoxStoreSync {
   private readonly storeRoot: string;
@@ -371,8 +374,10 @@ export class BoxStoreSync {
     );
     for (const file of orderedFiles) {
       const target = this.targetFor(file.path);
-      const existing = await readFile(target).catch(() => null);
-      if (existing && digest(existing) === file.sha256) {
+      const existingHash = file.size > STREAM_FILE_THRESHOLD
+        ? await fileDigest(target).catch(() => null)
+        : await readFile(target).then(digest).catch(() => null);
+      if (existingHash === file.sha256) {
         skipped += 1;
         continue;
       }
@@ -380,9 +385,20 @@ export class BoxStoreSync {
       if (agentId && sqliteName(basename(file.path)) && this.hasLiveAgentHandle(agentId)) {
         throw new Error(`box-store refused to replace a live agent database: ${agentId}`);
       }
-      const blob = await readFile(join(this.blobsRoot, file.sha256));
-      if (digest(blob) !== file.sha256) throw new Error(`box-store blob failed hash: ${file.path}`);
-      await atomicWrite(target, blob, file.mode);
+      const blobPath = join(this.blobsRoot, file.sha256);
+      if (file.size > STREAM_FILE_THRESHOLD) {
+        const staged = await stageFile(blobPath, dirname(target), file.mode);
+        try {
+          if (staged.sha256 !== file.sha256) throw new Error(`box-store blob failed hash: ${file.path}`);
+          await rename(staged.path, target);
+        } finally {
+          await rm(staged.path, { force: true }).catch(() => undefined);
+        }
+      } else {
+        const blob = await readFile(blobPath);
+        if (digest(blob) !== file.sha256) throw new Error(`box-store blob failed hash: ${file.path}`);
+        await atomicWrite(target, blob, file.mode);
+      }
       await chmod(target, file.mode).catch(() => undefined);
       copied += 1;
     }
@@ -539,21 +555,32 @@ export class BoxStoreSync {
       this.metrics.signatureReuses += 1;
       return;
     }
-    const bytes = sqliteName(basename(path))
-      ? await this.sqliteSnapshot(path)
-      : await readFile(path);
+    let content: SnapshotContent;
+    let snapshotSignature = signature;
+    if (sqliteName(basename(path))) {
+      const snapshot = await this.sqliteSnapshot(path, info);
+      content = snapshot.content;
+      snapshotSignature = snapshot.signature ?? signature;
+    } else {
+      content =
+        info.size > BigInt(STREAM_FILE_THRESHOLD)
+          ? await stageFile(path, this.blobsRoot)
+          : await readFile(path);
+    }
+    const size = Buffer.isBuffer(content) ? content.byteLength : content.size;
+    const sha256 = Buffer.isBuffer(content) ? digest(content) : content.sha256;
+    if (Buffer.isBuffer(content)) await this.storeBlob(sha256, content);
+    else await this.storeStagedBlob(content);
     this.metrics.sourceFilesRead += 1;
-    this.metrics.sourceBytesRead += bytes.byteLength;
-    const sha256 = digest(bytes);
+    this.metrics.sourceBytesRead += size;
     this.metrics.contentHashes += 1;
-    await this.storeBlob(sha256, bytes);
     files.set(logical, {
       path: logical,
       sha256,
-      size: bytes.byteLength,
+      size,
       mode: Number(info.mode & 0o777n),
     });
-    nextSignatures.set(logical, signature);
+    nextSignatures.set(logical, snapshotSignature);
   }
 
   private async sourceSignature(
@@ -570,7 +597,10 @@ export class BoxStoreSync {
     return `${base}|wal:${walSignature}`;
   }
 
-  private async sqliteSnapshot(path: string): Promise<Buffer> {
+  private async sqliteSnapshot(
+    path: string,
+    identity: { dev: bigint; ino: bigint; mode: bigint }
+  ): Promise<{ content: SnapshotContent; signature?: string }> {
     const sidecars = [`${path}-wal`, `${path}-shm`];
     const unopenedStoreMarkers = [...sidecars, join(dirname(path), "conversation-blobs.db")];
     if (
@@ -581,23 +611,65 @@ export class BoxStoreSync {
         )
       ).every((entry) => entry === null)
     ) {
-      const bytes = await readFile(path);
+      const content = await this.sqliteSnapshotContent(path);
       const stayedUnopened = (
         await Promise.all(
           unopenedStoreMarkers.map((candidate) => stat(candidate).catch(() => null))
         )
       ).every((entry) => entry === null);
-      if (stayedUnopened) return bytes;
+      if (stayedUnopened) return { content };
+      if (!Buffer.isBuffer(content)) await rm(content.path, { force: true });
     }
     const temporary = join(dirname(path), `.box-store-snap-${randomUUID()}`);
     const database = new Database(path, { readonly: true, strict: true });
     try {
+      const version = () =>
+        (database.query("PRAGMA data_version").get() as { data_version: number }).data_version;
+      const before = version();
       this.metrics.sqliteVacuums += 1;
       database.exec(`VACUUM INTO '${temporary.replaceAll("'", "''")}'`);
-      return await readFile(temporary);
+      const content = await this.sqliteSnapshotContent(temporary);
+      // Opening the WAL may change its ctime even without a commit (Linux).
+      // Refresh the signature only if this same database stayed unchanged
+      // through the snapshot and the final stat; otherwise the next scan retries.
+      let signature: string | undefined;
+      try {
+        const current = await lstat(path, { bigint: true });
+        if (
+          current.dev === identity.dev &&
+          current.ino === identity.ino &&
+          current.mode === identity.mode
+        ) {
+          const observed = await this.sourceSignature(path, current, true);
+          if (version() === before) signature = observed;
+        }
+      } catch {
+        // A concurrent removal/replacement must not mark newer state as saved.
+      }
+      return { content, signature };
     } finally {
       database.close(false);
       await rm(temporary, { force: true }).catch(() => undefined);
+    }
+  }
+
+  private async sqliteSnapshotContent(path: string): Promise<SnapshotContent> {
+    return (await stat(path)).size > STREAM_FILE_THRESHOLD
+      ? stageFile(path, this.blobsRoot)
+      : readFile(path);
+  }
+
+  private async storeStagedBlob(staged: Awaited<ReturnType<typeof stageFile>>): Promise<void> {
+    try {
+      const target = join(this.blobsRoot, staged.sha256);
+      if (await stat(target).catch(() => null)) {
+        const now = new Date();
+        await utimes(target, now, now);
+      } else {
+        await rename(staged.path, target);
+      }
+    } finally {
+      await rm(staged.path, { force: true }).catch(() => undefined);
     }
   }
 

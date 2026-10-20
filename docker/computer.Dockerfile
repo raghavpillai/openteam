@@ -46,6 +46,12 @@ RUN apt-get update \
     /tmp/openteam-wallpaper-base.png \
     /openteam-wallpaper.png
 
+FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS memory-tools
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev && rm -rf /var/lib/apt/lists/*
+COPY docker/openteam-memory-init.c docker/openteam-desktop-exec.c /tmp/
+RUN gcc -static -O2 -Wall -Wextra -Werror /tmp/openteam-memory-init.c -o /openteam-memory-init \
+  && gcc -static -O2 -Wall -Wextra -Werror /tmp/openteam-desktop-exec.c -o /openteam-desktop-exec
+
 FROM oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61 AS runtime
 
 RUN apt-get update \
@@ -133,6 +139,8 @@ COPY --from=build --chown=box:box /app/node_modules /app/node_modules
 COPY --from=build --chown=box:box /app/apps/computer/node_modules /app/apps/computer/node_modules
 COPY --from=build --chown=box:box /app/apps/computer/dist/main.js /app/apps/computer/dist/main.js
 COPY --from=build --chown=box:box /app/apps/computer/dist/provider-cli.js /app/apps/computer/dist/provider-cli.js
+COPY --from=memory-tools /openteam-memory-init /openteam-desktop-exec /usr/local/bin/
+COPY docker/openteam-memory-setup.py /usr/local/bin/openteam-memory-setup.py
 COPY --chown=box:box docker/computer-entrypoint.sh /usr/local/bin/openteam-computer-entrypoint
 COPY --chown=box:box docker/openteam-pi-auth /usr/local/bin/openteam-pi-auth
 COPY --chown=box:box docker/desktop /usr/share/openteam-desktop

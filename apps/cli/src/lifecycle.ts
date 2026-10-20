@@ -463,7 +463,11 @@ const updateCommandUnlocked = async (
     report("pulling", `Pulling OpenTeam ${target} container images`, target);
     project.runOrThrow(["pull"], { inherit: true, composeFile: nextCompose });
     maintenanceStarted = true;
-    project.runOrThrow(["stop", "server", "worker", "computer"], { inherit: true });
+    project.runOrThrow([
+      "stop", "server", "worker",
+      ...(/^  computer-memory-init:/m.test(readFileSync(paths.compose, "utf8")) ? ["computer-memory-init"] : []),
+      "computer",
+    ], { inherit: true });
     report("backing-up", `Backing up the OpenTeam database before ${target}`, target);
     backupPath = createDatabaseBackup(paths, project, manifest.version, target);
     persisted = writeUpdateState(paths, { ...persisted, backupPath });
@@ -501,7 +505,11 @@ const updateCommandUnlocked = async (
     let databaseRecoveryError: string | null = null;
     if (newStackStarted && backupPath) {
       try {
-        project.runOrThrow(["stop", "server", "worker", "computer"], { inherit: true });
+        project.runOrThrow([
+          "stop", "server", "worker",
+          ...(/^  computer-memory-init:/m.test(readFileSync(paths.compose, "utf8")) ? ["computer-memory-init"] : []),
+          "computer",
+        ], { inherit: true });
         restoreDatabaseBackup(project, backupPath);
       } catch (restoreError) {
         databaseRecoveryError =

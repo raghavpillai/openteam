@@ -1,3 +1,4 @@
+import { removeDesktopMemory } from "./desktop-memory";
 import { type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { chmod, chown, cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -337,6 +338,7 @@ export class ScreenBroker {
       await this.inputQueues.get(session);
       await this.browserBroker.detach(botId);
       await stopProcesses(session);
+      await removeDesktopMemory(botId);
       await this.profileAuthority.publish(session.profileDirectory);
       await session.startPromise?.catch(() => undefined);
       this.sessions.delete(botId);
@@ -439,6 +441,7 @@ export class ScreenBroker {
     );
     await this.browserBroker.detach(session.botId);
     await stopProcesses(session);
+    await removeDesktopMemory(session.botId);
     try {
       await this.prepareAgentDirectory(session.profileDirectory, 0o770);
       if (stoppedOwnedBrowser) await this.profileAuthority.publish(session.profileDirectory);

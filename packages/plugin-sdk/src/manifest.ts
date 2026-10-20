@@ -102,6 +102,21 @@ const validateFields = (fields: readonly PluginField[], allowEnvironment = false
   }
 };
 
+/** Clone mutable package data without copying immutable installation payload strings. */
+export function clonePluginDefinition(plugin: PluginDefinition): PluginDefinition {
+  const { files, binaryFiles, ...metadata } = plugin;
+  const cloneFiles = (value: Record<string, string> | undefined) =>
+    value && Object.getPrototypeOf(value) === Object.prototype &&
+    Object.values(value).every((content) => typeof content === "string")
+      ? { ...value }
+      : structuredClone(value);
+  return {
+    ...structuredClone(metadata),
+    ...(Object.hasOwn(plugin, "files") ? { files: cloneFiles(files) } : {}),
+    ...(Object.hasOwn(plugin, "binaryFiles") ? { binaryFiles: cloneFiles(binaryFiles) } : {}),
+  };
+}
+
 export function parsePluginDefinition(value: unknown): PluginDefinition {
   const plugin = objectValue(value) as unknown as PluginDefinition;
   if (!identifier.test(plugin.key ?? "")) throw new Error(`Invalid plugin key: ${plugin.key}`);
@@ -363,7 +378,7 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
     }
   if (paths.size > 1000 || total > 20 * 1024 * 1024)
     throw new Error("Package exceeds its 20 MB or 1,000 file limit");
-  return structuredClone(plugin);
+  return clonePluginDefinition(plugin);
 }
 
 export function validatePluginCatalog(catalog: readonly PluginDefinition[]): void {

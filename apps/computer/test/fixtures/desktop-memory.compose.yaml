@@ -10,10 +10,9 @@ services:
     # The entire disposable fixture stays within a smaller host budget.
     mem_limit: 3g
     memswap_limit: 3g
-    cap_drop: [ALL]
-    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
-    security_opt: [no-new-privileges:true]
-    read_only: true
+    cap_add: [ALL]
+    security_opt: [seccomp:unconfined, apparmor:unconfined, label:disable, systempaths:unconfined]
+    devices: [/dev/net/tun:/dev/net/tun]
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=512m
       - /home/box:rw,nosuid,size=256m

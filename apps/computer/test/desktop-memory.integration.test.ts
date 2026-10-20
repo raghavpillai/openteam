@@ -16,7 +16,7 @@ async function output(command: string, args: string[], id: string) {
   return { code, signal, stdout: Buffer.concat(chunks).toString(), stderr: Buffer.concat(errors).toString() };
 }
 
-test.skipIf(!enabled)("10 GiB is per desktop, descendants inherit and cannot remove their limit", async () => {
+test.skipIf(!enabled)("10 GiB is per desktop and inherited by ordinary and sudo descendants", async () => {
   const ids = ["memory-a/../../supervisor", "memory-b"];
   const before = process.env.OPENTEAM_DESKTOP_MEMORY_LIMIT;
   process.env.OPENTEAM_DESKTOP_MEMORY_LIMIT = "10g";
@@ -30,9 +30,14 @@ test.skipIf(!enabled)("10 GiB is per desktop, descendants inherit and cannot rem
     }
     const result = await output("/bin/sh", ["-c", 'id -u; cat /proc/self/cgroup; sh -c "cat /proc/self/cgroup"; if echo max > "$1/memory.max" 2>/dev/null; then exit 20; fi; if echo 0 > /sys/fs/cgroup/supervisor/cgroup.procs 2>/dev/null; then exit 21; fi; exit 0', "probe", a!], ids[0]!);
     expect(result.code).toBe(0);
-    expect(result.stdout.split("\n")[0]).toBe("1001");
+    expect(result.stdout.split("\n")[0]).toBe("1000");
     expect(result.stdout.match(new RegExp(a!.split("/").at(-1)!, "g"))).toHaveLength(2);
     expect(await readFile("/proc/self/cgroup", "utf8")).toContain("/supervisor");
+    const elevated = await output("/usr/bin/sudo", ["-n", "sh", "-c", "id -u; cat /proc/self/cgroup"], ids[0]!);
+    expect(elevated.code).toBe(0);
+    expect(elevated.stdout.split("\n")[0]).toBe("0");
+    expect(elevated.stdout).toContain(a!.split("/").at(-1)!);
+    expect((await output("/usr/bin/id", ["-G"], ids[0]!)).stdout.trim()).toBe("1000 998");
     // Orphan descendants retain membership after their launching shell exits.
     const orphan = await output("/bin/sh", ["-c", 'sleep 60 </dev/null >/dev/null 2>&1 &'], ids[0]!);
     expect(orphan.code).toBe(0);

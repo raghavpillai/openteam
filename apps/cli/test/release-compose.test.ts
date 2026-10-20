@@ -59,6 +59,7 @@ describe("release Compose rendering", () => {
     expect(rendered).not.toContain("OPENTEAM_PI_PROVIDER");
     expect(rendered).not.toContain("OPENTEAM_PI_MODEL");
     expect(rendered).not.toContain("OPENTEAM_PI_THINKING");
-    expect(rendered).toContain('cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]');
+    expect(rendered).toContain('cap_add: ["ALL"]');
+    expect(rendered).toContain("/dev/net/tun:/dev/net/tun");
   });
 });

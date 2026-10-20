@@ -24,6 +24,7 @@ export function enrichUserInfo(
   const environment = [
     `OS Version: ${platform()} ${release()}`,
     "Shell: /bin/bash",
+    "The Linux computer supports passwordless sudo for system changes and package installation.",
     `Workspace Path: ${input.cwd}`,
     `Is directory a git repo: ${existsSync(join(input.cwd, ".git")) ? "Yes" : "Unknown (inspect the workspace if needed)"}`,
   ].join("\n");

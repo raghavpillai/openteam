@@ -76,16 +76,19 @@ its private cgroup tree writable and lower the combined limit when necessary. It
 starts with `SYS_ADMIN`, `SYS_CHROOT`, and `SYS_PTRACE` and an unconfined AppArmor
 profile, then drops every effective, permitted and inheritable capability and
 sets `no_new_privs` before waiting for the computer to exit. It has no network,
-Docker socket, credentials or host filesystem mounts. The computer keeps its
-existing restricted capabilities, seccomp and AppArmor profile. The helper
+Docker socket, credentials or host filesystem mounts. The computer retains its
+administrator access and passwordless sudo support. The helper
 restarts with the computer's PID namespace. Setup fails closed if the memory
 controller cannot be initialized.
 
-Agent processes enter their desktop cgroup before dropping privileges and
-executing the command. Children, including daemonized native applications,
-inherit the group. The launcher is statically linked so agent-supplied loader
-variables cannot execute code with supervisor privileges. Agents cannot write
-the cgroup controls. Destroying or restarting a failed desktop also clears its
+Agent processes enter their desktop cgroup before `setpriv` initializes the
+desktop user's UID, GID, and supplementary groups. Children, including sudo
+commands and daemonized native applications, inherit the group. The statically
+linked launcher enters the group before executing the identity switch.
+Ordinary commands cannot write the cgroup controls, but administrator commands
+can explicitly change or bypass both the desktop and combined limits. These are
+default resource budgets, not an isolation boundary against administrator access.
+Destroying or restarting a failed desktop also clears its
 orphaned descendants. Shared inference, browser automation helpers, plugin/MCP infrastructure and jobs that
 are not attached to a desktop are covered by the combined limit.
 

@@ -115,6 +115,10 @@ const subagentDynamicToolNames = (namespace: string) => {
 };
 
 describe("specialized subagent tool surfaces", () => {
+  test.each(["videoReview", "watchVideo"])("%s reviews supplied media without tools", (subagentType) => {
+    expect((runtimeTools() as any).customTools({ subagentType })).toEqual([]);
+  });
+
   test("image generation is removed while unconfigured search remains discoverable", () => {
     for (const names of [dynamicToolNames("cursor"), subagentDynamicToolNames("cursor")]) {
       expect(names).not.toContain("GenerateImage");

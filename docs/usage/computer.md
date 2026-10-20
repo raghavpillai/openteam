@@ -29,6 +29,18 @@ There are two ways to sign a bot in:
 
 Some sites block automated browsers or ask for extra verification. If that happens, take over to finish the step, or ask the bot to find another way.
 
+## Administrator commands
+
+Bots can use passwordless `sudo` to install system packages and change their Linux
+computer. This gives them access to all container files, including provider
+credentials. The container has all Linux capabilities, unrestricted seccomp and LSM
+profiles, writable kernel filesystems, an executable `/tmp`, and `/dev/net/tun` for
+VPN clients. Main, executor, computer/browser and knowledge workers can use sudo;
+video workers review supplied media without tools. This shares the
+Docker host kernel; it does not provide a separate VM security boundary.
+System packages survive restarts but must be reinstalled after container recreation
+or upgrades. VPN applications may still need service configuration.
+
 ## Use your own computer
 
 The desktop app can connect your own computer to OpenTeam, so bots can work with local files and tools. The app makes an outgoing connection, so you don't need to open any ports.

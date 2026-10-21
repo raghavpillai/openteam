@@ -233,8 +233,10 @@ describe("Grok-derived platform prompt integration", () => {
     });
     expect(prompt).toContain("/var/lib/openteam/agents/current-bot");
     expect(prompt).toContain("/var/lib/openteam/workflows/<slug>/SKILL.md");
-    expect(prompt).toContain("configured timezone is UTC");
+    expect(prompt).toContain("The user lives in UTC (currently UTC+0), and the box clock is set to that zone, so `date`, file mtimes, and other box-local times already read in the user's time.");
     expect(prompt).not.toContain("/home/box");
     expect(prompt).not.toContain("UTC-7");
+    expect(renderPlatformRuntimeInstructions({ agentDataRoot: "/data", botId: "b", workingDirectory: "/w", timeZone: "Asia/Kolkata" }))
+      .toContain("The user lives in Asia/Kolkata (currently UTC+5:30), and the box clock is set to that zone");
   });
 });

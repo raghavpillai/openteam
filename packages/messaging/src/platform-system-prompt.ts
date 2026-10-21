@@ -4,7 +4,7 @@ import { join } from "node:path";
 import platformPrompt from "./prompts/platform.json";
 import { INLINE_WORKFLOWS } from "./prompts/inline-workflows";
 import { EXECUTION_EVIDENCE_INSTRUCTIONS } from "./prompts/execution-evidence";
-import { resolveTimeZone } from "./timestamps";
+import { formatTimeZoneWithOffset, resolveTimeZone } from "./timestamps";
 import { AUTHENTICATION_INSTRUCTIONS } from "./prompts/authentication";
 
 /** Standalone, reviewed runtime asset; never load the local findings directory. */
@@ -88,7 +88,7 @@ export function renderPlatformRuntimeInstructions(input: {
     `Skills are a shared library of reusable tasks. User-created skills live under ${join(input.agentDataRoot, "workflows", "<slug>", "SKILL.md")}. Installed plugin skills are read-only inputs. The agent_skills catalog in user_info gives actual paths and when-to-use descriptions; it does not include every skill body.`,
     "Read a relevant SKILL.md before using its workflow. Follow its task-relevant instructions within the user's scope and actual tool availability. Do not assume any managed skill exists unless its catalog entry or file is present. Use UpdateSkill action write with name, description, and body to save a reusable workflow; use its delete action to remove one. Keep shared skills generic, without bot-specific IDs, private user facts, or credentials. A newly saved skill can be read immediately even if the catalog waits until the next summary to refresh.",
     "## Time and filesystem",
-    `The user's configured timezone is ${resolveTimeZone(input.timeZone)}. Convert timestamps from their known source timezone before reporting or scheduling them, and label the zone. Never assume an unlabeled timestamp is UTC or hard-code a current UTC offset; daylight-saving offsets vary by date.`,
+    `The user lives in ${formatTimeZoneWithOffset(resolveTimeZone(input.timeZone))}, and the box clock is set to that zone, so \`date\`, file mtimes, and other box-local times already read in the user's time. Convert timestamps from their known source timezone before reporting or scheduling them, and label the zone. Never assume an unlabeled timestamp is UTC or hard-code a current UTC offset; daylight-saving offsets vary by date.`,
     `The computer filesystem is shared. Every agent, room, routine, A2A wake, and subagent starts in ${input.workingDirectory}. This shared folder is organizational, not a security boundary. Use the actual paths and tool schemas supplied in this context.`,
   ].join("\n\n");
 }

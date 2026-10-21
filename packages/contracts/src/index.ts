@@ -4,7 +4,7 @@ import { withReferenceContract, referenceTool } from "./tool-contracts";
 import { Schema } from "effect";
 import { BOT_AVATAR_COLOR_NAMES } from "./bot-avatar";
 export { validateProcessSecretName } from "./process-secrets";
-import { MAX_INLINE_IMAGE_URL_LENGTH, MAX_TASK_ATTACHMENTS, isTaskMediaPath } from "./media-input";
+import { MAX_INLINE_IMAGE_URL_LENGTH, MAX_TASK_ATTACHMENTS, TASK_ATTACHMENT_LIMIT_MESSAGE, isTaskMediaPath } from "./media-input";
 import cursorToolsDocument from "./cursor-tools.json";
 export * from "./user-forms";
 export { formatUserFormReceipt } from "./user-form-receipts";
@@ -384,7 +384,7 @@ export const TaskInput = Schema.Struct({
   file_attachments: Schema.optional(Schema.Array(Schema.String.pipe(Schema.filter(isTaskMediaPath, {
     message: () => "Task file_attachments accepts supported images or videos only. For ZIPs, PDFs and other files, put the shared filesystem path in the Task prompt and omit file_attachments.",
   }))).pipe(Schema.maxItems(MAX_TASK_ATTACHMENTS, {
-    message: () => `Task accepts at most ${MAX_TASK_ATTACHMENTS} file_attachments. Split the media across separate tasks.`,
+    message: () => TASK_ATTACHMENT_LIMIT_MESSAGE,
   }))),
   run_in_background: Schema.optional(Schema.Boolean),
   read_only: Schema.optional(Schema.Boolean),

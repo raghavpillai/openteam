@@ -1,4 +1,4 @@
-import { statfs } from "node:fs/promises";
+import { readFile, rm, stat, statfs, writeFile } from "node:fs/promises";
 
 const GIB = 1024 ** 3;
 const HEARTBEAT_MS = 5 * 60_000;
@@ -33,39 +33,75 @@ export function classifyDiskPressure(
   return "healthy";
 }
 
-/** One low-disk episode lasts from leaving healthy until recovering; each bot hears about it once. */
+/** A reminder is spent once a model step taken after it was saved, as the reference commits at that step's checkpoint. */
+export function diskPressureReminderStepPersisted(messages: ReadonlyArray<{ role: string; customType?: string; stopReason?: string }>): boolean {
+  const reminder = messages.findLastIndex((message) => message.role === "custom" && message.customType === "openteam-disk-pressure");
+  return reminder >= 0 && messages.slice(reminder + 1).some((message) => message.role === "assistant" && message.stopReason !== "aborted" && message.stopReason !== "error");
+}
+
+type VolumeSnapshot = { device: string; availableBytes: number; totalBytes: number };
+
+/**
+ * One low-disk episode lasts from any watched volume leaving healthy until all recover; each bot
+ * hears about it once. The episode and who heard survive a restart in a ledger, as in the reference.
+ */
 export class DiskPressureMonitor {
-  private level: DiskPressureLevel = "healthy";
-  private episode = 0;
+  private readonly levels = new Map<string, DiskPressureLevel>();
+  private episode: string | null = null;
+  private told = new Set<string>();
   private checkedAt = Number.NEGATIVE_INFINITY;
-  private readonly told = new Map<string, number>();
+  private restored = false;
 
   constructor(
-    private readonly root: string,
-    private readonly read = async (path: string) => {
-      const stats = await statfs(path);
-      return { availableBytes: stats.bavail * stats.bsize, totalBytes: stats.blocks * stats.bsize };
+    private readonly roots: string[],
+    private readonly ledgerPath?: string,
+    private readonly read = async (path: string): Promise<VolumeSnapshot> => {
+      const [stats, volume] = await Promise.all([stat(path), statfs(path)]);
+      return { device: String(stats.dev), availableBytes: volume.bavail * volume.bsize, totalBytes: volume.blocks * volume.bsize };
     },
     private readonly now = () => Date.now()
   ) {}
 
+  private async restore(): Promise<void> {
+    if (this.restored || !this.ledgerPath) return;
+    this.restored = true;
+    const ledger = await readFile(this.ledgerPath, "utf8").then((text) => JSON.parse(text), () => null);
+    if (ledger?.version !== 1 || typeof ledger.episode !== "string") return;
+    this.episode = ledger.episode;
+    this.told = new Set(Array.isArray(ledger.told) ? ledger.told.filter((id: unknown) => typeof id === "string") : []);
+  }
+
+  private async persist(): Promise<void> {
+    if (!this.ledgerPath) return;
+    if (this.episode === null) await rm(this.ledgerPath, { force: true });
+    else await writeFile(this.ledgerPath, JSON.stringify({ version: 1, episode: this.episode, told: [...this.told] }));
+  }
+
   private async refresh(): Promise<void> {
+    await this.restore();
     if (this.now() - this.checkedAt < HEARTBEAT_MS) return;
     this.checkedAt = this.now();
-    const snapshot = await this.read(this.root).catch(() => null);
-    if (!snapshot) return;
-    const next = classifyDiskPressure(snapshot, this.level);
-    if (this.level === "healthy" && next !== "healthy") this.episode += 1;
-    this.level = next;
+    const snapshots = (await Promise.all(this.roots.map((root) => this.read(root).catch(() => null)))).filter((snapshot) => snapshot !== null);
+    if (!snapshots.length) return;
+    // Roots on one device count once.
+    for (const snapshot of new Map(snapshots.map((snapshot) => [snapshot.device, snapshot])).values())
+      this.levels.set(snapshot.device, classifyDiskPressure(snapshot, this.levels.get(snapshot.device)));
+    const low = [...this.levels.values()].some((level) => level !== "healthy");
+    if (low === (this.episode !== null)) return;
+    this.episode = low ? crypto.randomUUID() : null;
+    this.told.clear();
+    await this.persist().catch(() => console.warn("Disk pressure ledger write failed"));
   }
 
   /** The episode this bot still has to hear about, if the disk is low. */
-  async claim(botId: string): Promise<number | null> {
+  async claim(botId: string): Promise<string | null> {
     await this.refresh();
-    return this.level !== "healthy" && this.told.get(botId) !== this.episode ? this.episode : null;
+    return this.episode !== null && !this.told.has(botId) ? this.episode : null;
   }
 
-  commit(botId: string, episode: number): void {
-    this.told.set(botId, episode);
+  async commit(botId: string, episode: string): Promise<void> {
+    if (episode !== this.episode || this.told.has(botId)) return;
+    this.told.add(botId);
+    await this.persist().catch(() => console.warn("Disk pressure ledger write failed"));
   }
 }

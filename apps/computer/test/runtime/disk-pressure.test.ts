@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { classifyDiskPressure, DISK_PRESSURE_REMINDER, DiskPressureMonitor } from "../../src/runtime/disk-pressure";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { classifyDiskPressure, DISK_PRESSURE_REMINDER, DiskPressureMonitor, diskPressureReminderStepPersisted } from "../../src/runtime/disk-pressure";
 
 const GIB = 1024 ** 3;
 
@@ -15,22 +18,65 @@ test("low disk uses the reference thresholds with recovery hysteresis", () => {
 test("each bot hears about a low-disk episode once, and again after the disk recovers and fills", async () => {
   let available = 50 * GIB;
   let now = 0;
-  const monitor = new DiskPressureMonitor("/workspace", async () => ({ availableBytes: available, totalBytes: 100 * GIB }), () => now);
+  const monitor = new DiskPressureMonitor(["/workspace"], undefined, async () => ({ device: "1", availableBytes: available, totalBytes: 100 * GIB }), () => now);
   expect(await monitor.claim("a")).toBeNull();
   available = 5 * GIB;
   now += 5 * 60_000;
   const episode = await monitor.claim("a");
-  expect(episode).toBe(1);
-  monitor.commit("a", episode!);
+  expect(episode).toBeString();
+  await monitor.commit("a", episode!);
   expect(await monitor.claim("a")).toBeNull();
-  expect(await monitor.claim("b")).toBe(1);
+  expect(await monitor.claim("b")).toBe(episode);
   available = 60 * GIB;
   now += 5 * 60_000;
   expect(await monitor.claim("b")).toBeNull();
   available = 5 * GIB;
   now += 5 * 60_000;
-  expect(await monitor.claim("a")).toBe(2);
+  const next = await monitor.claim("a");
+  expect(next).toBeString();
+  expect(next).not.toBe(episode);
   expect(DISK_PRESSURE_REMINDER).toContain("Never delete anything without their explicit yes.");
+});
+
+test("like the reference, the worst of the workspace, agent data and temp volumes counts, once per device", async () => {
+  const volumes: Record<string, { device: string; availableBytes: number; totalBytes: number }> = {
+    "/workspace": { device: "1", availableBytes: 50 * GIB, totalBytes: 100 * GIB },
+    "/data": { device: "1", availableBytes: 50 * GIB, totalBytes: 100 * GIB },
+    "/tmp": { device: "2", availableBytes: 1 * GIB, totalBytes: 10 * GIB },
+  };
+  const monitor = new DiskPressureMonitor(Object.keys(volumes), undefined, async (path) => volumes[path]!);
+  expect(await monitor.claim("a")).toBeString();
+});
+
+test("a restarted computer keeps the episode and who already heard about it, as the reference's ledger does", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openteam-disk-ledger-"));
+  try {
+    const ledger = join(root, "disk-pressure-reminders.json");
+    let available = 5 * GIB;
+    const read = async () => ({ device: "1", availableBytes: available, totalBytes: 100 * GIB });
+    const before = new DiskPressureMonitor(["/workspace"], ledger, read);
+    const episode = await before.claim("a");
+    await before.commit("a", episode!);
+    const after = new DiskPressureMonitor(["/workspace"], ledger, read);
+    expect(await after.claim("a")).toBeNull();
+    expect(await after.claim("b")).toBe(episode);
+    available = 60 * GIB;
+    const recovered = new DiskPressureMonitor(["/workspace"], ledger, read);
+    expect(await recovered.claim("b")).toBeNull();
+    available = 5 * GIB;
+    const refilled = new DiskPressureMonitor(["/workspace"], ledger, read);
+    expect(await refilled.claim("a")).not.toBe(episode);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("the reminder is spent once a model step after it was saved, even if the turn is then interrupted", () => {
+  const reminder = { role: "custom", customType: "openteam-disk-pressure" };
+  expect(diskPressureReminderStepPersisted([reminder])).toBe(false);
+  expect(diskPressureReminderStepPersisted([reminder, { role: "assistant", stopReason: "aborted" }])).toBe(false);
+  expect(diskPressureReminderStepPersisted([{ role: "assistant", stopReason: "toolUse" }, reminder])).toBe(false);
+  expect(diskPressureReminderStepPersisted([reminder, { role: "assistant", stopReason: "toolUse" }, { role: "assistant", stopReason: "aborted" }])).toBe(true);
 });
 
 test("a main-agent turn on a low disk gets the reminder before its first request", async () => {

@@ -27,6 +27,7 @@ import {
   type ServerInferenceSettings,
 } from "@openteam/contracts";
 import { mkdir, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { BotAgentStore } from "./bot-agent-store";
 import {
@@ -61,7 +62,7 @@ import { retryFirstOutputStalls, streamDeadlines, type StreamTimers } from "./ru
 import { directDynamicToolsExtension } from "./runtime/direct-dynamic-tools";
 import { enrichUserInfo, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder } from "./runtime/prompt-context";
 import { pinDynamicToolCatalog } from "./runtime/catalog-snapshot";
-import { DiskPressureMonitor } from "./runtime/disk-pressure";
+import { DiskPressureMonitor, diskPressureReminderStepPersisted } from "./runtime/disk-pressure";
 import { defaultTaskConfiguration, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 import { assertSessionPath, existingContextSessionPath } from "./runtime/session-path";
 import { RuntimeTools } from "./runtime/tools";
@@ -99,7 +100,8 @@ export class ComputerRuntime {
   );
   private inferenceSettings = defaultServerInferenceSettings();
   private readonly workspaceRoot = resolve(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace");
-  private readonly diskPressure = new DiskPressureMonitor(this.workspaceRoot);
+  // The reference watches its workspace, data and temp volumes and keeps its ledger in its data root.
+  private readonly diskPressure = new DiskPressureMonitor([this.workspaceRoot, this.agentDir, tmpdir()], join(this.agentDir, "disk-pressure-reminders.json"));
 
   private modelRuntime: ModelRuntime | null = null;
   private readonly inferenceProviders = new InferenceProviderService(
@@ -872,9 +874,9 @@ export class ComputerRuntime {
         });
       }
     } finally {
-      // A turn that saw the low-disk reminder and finished has told the user; others try again.
-      if (status === "completed" && active.diskPressureReminded && active.diskPressureEpisode != null)
-        this.diskPressure.commit(active.botId, active.diskPressureEpisode);
+      if (active.diskPressureReminded && active.diskPressureEpisode != null && active.session &&
+        diskPressureReminderStepPersisted(active.session.messages as Array<{ role: string }>))
+        await this.diskPressure.commit(active.botId, active.diskPressureEpisode);
       this.compaction.parkBackground(active.contextSessionId);
       attachSession(active);
       if (this.botStore) {

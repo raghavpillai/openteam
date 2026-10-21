@@ -86,7 +86,7 @@ export interface ActiveTurn {
   lastAgentMessage?: { id: string; text: string };
   outputLimitReminded?: boolean;
   /** The low-disk episode this main-agent turn tells the bot about, and whether it went out. */
-  diskPressureEpisode?: number | null;
+  diskPressureEpisode?: string | null;
   diskPressureReminded?: boolean;
   /** A typed message superseded this run; calls it cut off say so. */
   interruptedByUserAt?: number;

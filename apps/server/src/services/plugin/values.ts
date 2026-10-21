@@ -210,17 +210,19 @@ export const canonicalJson = (value: unknown): string => {
 };
 
 const MAX_PLUGIN_IMAGE_BASE64 = 2 * 1024 * 1024;
+/** A transport ceiling only: the computer writes text over 40 KB to a file the agent reads selectively. */
+export const PLUGIN_RESULT_TEXT_LIMIT = 4_000_000;
 
 export const boundPluginResult = (
   value: unknown,
   depth = 0,
-  budget = { remaining: 200_000 }
+  budget = { remaining: PLUGIN_RESULT_TEXT_LIMIT }
 ): unknown => {
   if (budget.remaining <= 0) return "[result limit reached]";
   budget.remaining -= 20;
   if (depth >= 8) return "[nested value omitted]";
   if (typeof value === "string") {
-    const limit = Math.max(0, Math.min(100_000, budget.remaining));
+    const limit = Math.max(0, Math.min(PLUGIN_RESULT_TEXT_LIMIT, budget.remaining));
     budget.remaining -= Math.min(value.length, limit);
     return value.length > limit ? `${value.slice(0, limit)}… [truncated]` : value;
   }

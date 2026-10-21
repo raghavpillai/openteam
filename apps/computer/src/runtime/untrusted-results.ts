@@ -62,6 +62,9 @@ export function untrustedResultsExtension(): {
     hidden: true,
     factory(pi) {
       pi.on("context", async (event) => ({ messages: fenceToolResults(await repairImageHistory(event.messages)) }));
+      // A connector reports its own failures in a successful call; flag those like thrown errors.
+      pi.on("tool_result", async (event) =>
+        (event.details as { isError?: unknown } | undefined)?.isError === true ? { isError: true } : undefined);
     },
   };
 }

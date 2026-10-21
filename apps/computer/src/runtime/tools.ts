@@ -25,6 +25,7 @@ import {
 import { createHash } from "node:crypto";
 import { DESKTOP_CAPABILITY_TOOLS } from "@openteam/contracts/desktop-capabilities";
 import { agentFileIO } from "../agent-file-io";
+import { connectorResultParts, spillConnectorText } from "./connector-results";
 import { boundToolImage } from "./image-input";
 import { redactSecrets } from "@openteam/shell-jobs";
 import { validateProcessSecretName } from "@openteam/contracts";
@@ -1379,22 +1380,21 @@ export class RuntimeTools {
         active.endTurnRequested = true;
       }
     }
-    // A plugin's MCP image content reaches the model as images, like native screenshots,
-    // instead of base64 text inside the rendered JSON.
-    const content = tool === "PluginCall" && body && typeof body === "object" && Array.isArray((body as Record<string, unknown>).content)
-      ? ((body as Record<string, unknown>).content as unknown[]) : [];
-    const images = content.filter((part): part is { type: "image"; data: string; mimeType: string } =>
-      !!part && typeof part === "object" && (part as any).type === "image" && typeof (part as any).data === "string" && typeof (part as any).mimeType === "string");
-    const rendered = images.length
-      ? { ...(body as Record<string, unknown>), content: content.map(part => images.includes(part as any) ? { type: "image", mimeType: (part as any).mimeType, attachedBelow: true } : part) }
-      : body;
+    if (tool === "PluginCall") {
+      const { parts, isError } = connectorResultParts(body);
+      const spilled = await spillConnectorText(parts, active.cwd, (path, data) => agentFileIO("write", path, undefined, data));
+      return {
+        content: spilled.parts,
+        details: { tool, ...(isError ? { isError: true } : {}), ...(spilled.outputPath ? { outputPath: spilled.outputPath } : {}) },
+        ...(active.endTurnRequested ? { terminate: true } : {}),
+      };
+    }
     return {
       content: [
         {
           type: "text" as const,
-          text: renderControlResult(tool, rendered, args as Record<string, any>),
+          text: renderControlResult(tool, body, args as Record<string, any>),
         },
-        ...images.map(image => ({ type: "image" as const, data: image.data, mimeType: image.mimeType })),
       ],
       details: {
         tool,

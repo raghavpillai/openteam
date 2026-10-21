@@ -102,7 +102,6 @@ interface RoutineWakeHost {
       availableAt?: Date;
       occurredAt?: Date;
       timeZone?: string | null;
-      automationTrigger?: string;
       wrapUserContent?: boolean;
     }
   ): Promise<{ run: { id: string } }>;
@@ -283,17 +282,6 @@ export const manualRoutineWakeContent = (input: {
   provenance: string;
   routineStatuses?: ReadonlyArray<{ name: string; folder: string; status: string }>;
 }): string => routineWakeContent({ ...input, kind: "manual" });
-
-export const scheduledRoutineTriggerContext = (input: {
-  name: string;
-  scheduledFor: Date;
-}): string =>
-  [
-    "<automation_trigger_info>",
-    `[OpenTeam routine: ${input.name}]`,
-    `Scheduled occurrence: ${input.scheduledFor.toISOString()}`,
-    "</automation_trigger_info>",
-  ].join("\n");
 
 export const appendRoutineRunLedger = (
   current: unknown,
@@ -700,15 +688,11 @@ const uiView = (routine: {
   };
 };
 
-const eventWake = async (
-  tx: Prisma.TransactionClient,
+const eventWake = (
   routine: { name: string; slug: string; scheduleText: string; prompt: string; provenance: string; timezone: string },
-  botId: string,
   events: readonly AutomationEvent[],
-  firedAt: Date,
-  rewrittenMessageId?: string
+  firedAt: Date
 ) => {
-  const latest = events[events.length - 1]!;
   return {
     content: routineWakeContent({
       kind: "event",
@@ -720,13 +704,6 @@ const eventWake = async (
       eventCount: events.length,
       provenance: routine.provenance,
     }),
-    automationTrigger: `<automation_trigger_info>\n${JSON.stringify({
-      routine: routine.name,
-      source: latest.source,
-      eventId: latest.id,
-      ...(events.length > 1 ? { eventIds: events.map((event) => event.id) } : {}),
-      occurredAt: latest.occurredAt ?? firedAt.toISOString(),
-    }).replace(/</g, "\\u003c")}\n</automation_trigger_info>`,
   };
 };
 
@@ -967,7 +944,7 @@ export class RoutineService {
           origin: "routine",
           type: event ? "routine.event" : "routine.manual",
           ...(event
-            ? await eventWake(tx, routine, routineOwner.id, [event], firedAt)
+            ? eventWake(routine, [event], firedAt)
             : {
                 content: routineWakeContent({
                   kind: "manual",
@@ -978,7 +955,6 @@ export class RoutineService {
                   prompt: routine.prompt,
                   provenance: routine.provenance,
                 }),
-                automationTrigger: scheduledRoutineTriggerContext({ name: routine.name, scheduledFor: firedAt }),
               }),
           clientId: dedupeKey,
           priority: 290,
@@ -1090,11 +1066,11 @@ export class RoutineService {
       data: { events: jsonInput(events), coalescedKeys: { push: dedupeKey } },
     });
     if (inbox && pending.run) {
-      const wake = await eventWake(tx, routine, botId, events, pending.scheduledFor, pending.run.userMessageId);
+      const wake = eventWake(routine, events, pending.scheduledFor);
       const content = timestampUserTurn(wake.content, { occurredAt: pending.scheduledFor, timeZone: routine.timezone });
       await tx.inboxEvent.update({
         where: { id: inbox.id },
-        data: { payload: jsonInput({ ...(inbox.payload as Record<string, unknown>), content, automationTrigger: wake.automationTrigger }) },
+        data: { payload: jsonInput({ ...(inbox.payload as Record<string, unknown>), content }) },
       });
       await tx.message.update({ where: { id: pending.run.userMessageId }, data: { content } });
     }
@@ -1134,7 +1110,7 @@ export class RoutineService {
       channelId: channel.id,
       origin: "routine",
       type: "routine.event",
-      ...(await eventWake(tx, routine, routine.botId, events, now)),
+      ...eventWake(routine, events, now),
       clientId: followUp.dedupeKey,
       priority: 290,
       occurredAt: now,
@@ -1683,10 +1659,6 @@ export class RoutineService {
               scheduledFor,
               prompt: routine.prompt,
               provenance: routine.provenance,
-            }),
-            automationTrigger: scheduledRoutineTriggerContext({
-              name: routine.name,
-              scheduledFor,
             }),
             clientId: dedupeKey,
             priority: 100,

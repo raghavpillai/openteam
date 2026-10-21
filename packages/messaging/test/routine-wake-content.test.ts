@@ -1,12 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   manualRoutineWakeContent,
-  scheduledRoutineTriggerContext,
   scheduledRoutineWakeContent,
 } from "../src/routines";
 
 describe("scheduled routine wake content", () => {
-  test("keeps the durable trigger separate from the ordinary wake text", () => {
+  test("carries no trigger block, only the ordinary wake text", () => {
     const content = scheduledRoutineWakeContent({
       name: "Daily audit",
       folder: "daily-audit",
@@ -21,14 +20,6 @@ describe("scheduled routine wake content", () => {
     expect(content).toContain("read its current workflow file");
     expect(content).toContain("discover the current tool schema");
     expect(content).toContain("do not send filler or progress acknowledgements");
-    expect(
-      scheduledRoutineTriggerContext({
-        name: "Daily audit",
-        scheduledFor: new Date("2026-08-28T11:00:00.000Z"),
-      })
-    ).toBe(
-      "<automation_trigger_info>\n[OpenTeam routine: Daily audit]\nScheduled occurrence: 2026-08-28T11:00:00.000Z\n</automation_trigger_info>"
-    );
   });
 
   test("matches Bot's trusted manual-run framing", () => {

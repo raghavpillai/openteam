@@ -655,7 +655,6 @@ export interface WakeInput {
   wrapUserContent?: boolean;
   replyToMessageId?: string;
   isFork?: boolean;
-  automationTrigger?: string;
   automationContextRunId?: string;
   taskContextRunId?: string;
   includeAttachmentPaths?: boolean;
@@ -912,7 +911,6 @@ export class AgentMessaging {
           isFork: input.isFork === true,
           deliveryMode: "turn",
           timeZone: resolveTimeZone(input.timeZone ?? this.defaultTimeZone),
-          automationTrigger: input.automationTrigger,
           automationContextRunId: input.automationContextRunId,
           taskContextRunId: input.taskContextRunId,
           revival: input.revival,
@@ -2900,7 +2898,6 @@ export {
   nextRoutineRun,
   normalizeRoutineSchedule,
   RoutineService,
-  scheduledRoutineTriggerContext,
   scheduledRoutineWakeContent,
 } from "./routines";
 export {

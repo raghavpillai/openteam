@@ -1,4 +1,3 @@
-import { describeOutputLocation } from "@openteam/contracts/reference-formatters";
 import { SearchProviderClient } from "./search-provider";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
@@ -9,6 +8,14 @@ import { FetchProviderClient } from "./fetch-provider";
 import { agentFileIO } from "./agent-file-io";
 
 export const WEB_INLINE_CHARACTERS = 100_000;
+
+/** The reference's inline cut: the first characters, then how many lines were left out. */
+export const truncateWebContent = (content: string, maxSize = WEB_INLINE_CHARACTERS): string => {
+  if (content.length <= maxSize) return content;
+  let linesTruncated = 1;
+  for (let index = content.indexOf("\n", maxSize); index !== -1; index = content.indexOf("\n", index + 1)) linesTruncated++;
+  return `${content.slice(0, maxSize)}\n\n...[${linesTruncated} line${linesTruncated === 1 ? "" : "s"} truncated]`;
+};
 
 export class WebTools {
   constructor(
@@ -50,10 +57,11 @@ export class WebTools {
     const header = `# Content from ${resultUrl}\n\n${provenance} ${freshness}\n\n${note ? `Note: ${note}\n\n` : ""}`;
     let text = header + content;
     let outputPath: string | undefined;
-    if (text.length > WEB_INLINE_CHARACTERS) {
+    if (content.length > WEB_INLINE_CHARACTERS) {
+      // Inline the first 100,000 characters as the reference does; the rest stays readable in a file.
       outputPath = resolve(cwd, ".openteam", "web", `${randomUUID()}.md`);
-      await agentFileIO("write", outputPath, signal, Buffer.from(text));
-      text = header + describeOutputLocation({ filePath: outputPath, sizeBytes: Buffer.byteLength(text), lineCount: text.split("\n").length }, {});
+      await agentFileIO("write", outputPath, signal, Buffer.from(content));
+      text = `${header}${truncateWebContent(content)}\n\nFull page saved to ${outputPath}.`;
     }
     return {
       content: [{ type: "text" as const, text }],

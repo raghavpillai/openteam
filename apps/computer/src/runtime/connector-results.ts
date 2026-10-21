@@ -36,7 +36,7 @@ const truncateUtf8 = (text: string, maxBytes: number) => {
   const buffer = Buffer.from(text, "utf8");
   if (buffer.byteLength <= maxBytes) return text;
   const decoded = new TextDecoder("utf-8", { fatal: false }).decode(buffer.subarray(0, maxBytes));
-  return decoded.endsWith("�") ? decoded.slice(0, -1) : decoded;
+  return decoded.endsWith("\uFFFD") ? decoded.slice(0, -1) : decoded;
 };
 
 /**

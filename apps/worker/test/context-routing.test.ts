@@ -3,7 +3,7 @@ import {
   automationTriggerForWake,
   contextScopeForRun,
   runtimeRequestSourceForOrigin,
-  turnContentWithProfileUpdate,
+  turnContentWithNotes,
   wakeResetsSelfSummaryCount,
 } from "../src/worker";
 
@@ -85,11 +85,28 @@ describe("OpenTeam-style runtime context routing", () => {
     expect(automationTriggerForWake("routine", "untagged routine")).toBeNull();
   });
 
-  test("prepends a profile announcement to the same hidden user-role turn", () => {
-    const update = "<<SAND_AGENT_PROFILE_UPDATE:v1:fixture>>";
-    expect(turnContentWithProfileUpdate(update, "[event]\n- Renamed to Test")).toBe(
-      `${update}\n\n[event]\n- Renamed to Test`
+  test("puts turn notes in one reminder block ahead of the timestamped query", () => {
+    const update = "[SAND_HIDDEN_PROMPT]<<SAND_AGENT_PROFILE_UPDATE:v1:fixture>>\n<agent_profile_update>\n</agent_profile_update>";
+    const sections = "<instructions_update>\nchanged\n</instructions_update>";
+    const query = "<timestamp>Monday, Oct 20, 2026, 9:00 AM (UTC)</timestamp>\n<user_query>\nhi\n</user_query>";
+    expect(turnContentWithNotes({ origin: "user", runtimeProfile: "agent", notes: [update, null, sections] }, query)).toBe([
+      "<system_reminder>",
+      update,
+      "",
+      sections,
+      "",
+      "Reply to this message by actually invoking the SendToUser tool. Make a real tool/function call, not text you write. Plain assistant text is NEVER delivered; only a real SendToUser tool invocation reaches the user, so if you don't invoke the tool they just see silence.",
+      "</system_reminder>",
+      query,
+    ].join("\n"));
+    // Hidden host prompts and non-user wakes keep their notes but get no reply reminder.
+    expect(turnContentWithNotes({ origin: "agent", runtimeProfile: "agent", notes: [update] }, "[event]\n- Renamed to Test")).toBe(
+      `<system_reminder>\n${update}\n</system_reminder>\n[event]\n- Renamed to Test`
     );
-    expect(turnContentWithProfileUpdate(null, "normal user turn")).toBe("normal user turn");
+    expect(turnContentWithNotes({ origin: "user", runtimeProfile: "agent", notes: [] }, "[SAND_HIDDEN_PROMPT]form")).toBe("[SAND_HIDDEN_PROMPT]form");
+    expect(turnContentWithNotes({ origin: "user", runtimeProfile: "subagent", notes: [null] }, query)).toBe(query);
+    expect(turnContentWithNotes({ origin: "user", runtimeProfile: "agent", notes: [], unfinishedTasks: true }, query)).toStartWith(
+      "<system_reminder>\nThe user interrupted your work to send you a message. Follow the new message first."
+    );
   });
 });

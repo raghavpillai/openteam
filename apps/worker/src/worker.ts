@@ -1,4 +1,10 @@
-import { publishMessageNotification, workerSkillAccess } from "@openteam/messaging";
+import {
+  publishMessageNotification,
+  turnOwesReplyReminder,
+  turnSystemReminder,
+  withTurnSystemReminder,
+  workerSkillAccess,
+} from "@openteam/messaging";
 import { createHash } from "node:crypto";
 import type {
   AssetRef,
@@ -213,10 +219,23 @@ export const wakeResetsSelfSummaryCount = (inboxType: string): boolean =>
     "timeline.event",
   ].includes(inboxType);
 
-export const turnContentWithProfileUpdate = (
-  profileUpdate: string | null,
+/** Turn notes (profile and instruction updates, reminders) go in one reminder block ahead of the query. */
+export const turnContentWithNotes = (
+  input: {
+    origin: RunOrigin;
+    runtimeProfile: "agent" | "subagent";
+    notes: ReadonlyArray<string | null | undefined>;
+    unfinishedTasks?: boolean;
+  },
   content: string
-): string => [profileUpdate, content].filter(Boolean).join("\n\n");
+): string =>
+  withTurnSystemReminder(
+    turnSystemReminder(input.notes, {
+      unfinishedTasks: input.unfinishedTasks,
+      reply: input.runtimeProfile === "agent" && turnOwesReplyReminder(input.origin, content),
+    }),
+    content
+  );
 
 export const automationTriggerForWake = (
   origin: RunOrigin,
@@ -1292,10 +1311,11 @@ export class WakeWorker {
         screenBotId: claimed.screenBotId,
         conversationId: claimed.conversationId,
         sessionPath: claimed.sessionPath,
-        content: [
-          turnContentWithProfileUpdate(platformPrompt.agentProfileUpdate, claimed.content),
-          platformPrompt.instructionsUpdate,
-        ].filter(Boolean).join("\n\n"),
+        content: turnContentWithNotes({
+          origin: claimed.origin,
+          runtimeProfile: claimed.runtimeProfile,
+          notes: [platformPrompt.agentProfileUpdate, platformPrompt.instructionsUpdate],
+        }, claimed.content),
         prependMessages: [...missedMessages, ...(platformPrompt.ambientContext ? [{
           id: `${claimed.clientId}:ambient`,
           content: `[SAND_HIDDEN_PROMPT]${platformPrompt.ambientContext}`,

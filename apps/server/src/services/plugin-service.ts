@@ -61,8 +61,11 @@ const runAuthentication = async <A>(effect: Effect.Effect<A, Error>): Promise<A>
 /** Typed user turns; wakes from revivals, agents, events, routines and channels are not the user asking. */
 const USER_STARTED_RUN_ORIGINS: ReadonlySet<RunOrigin> = new Set(["user"]);
 
-export const describeInstallNotUserTurn = (displayName: string) =>
-  `Nothing was installed: the user did not start this turn, and installing adds ${displayName} to their account. Only install when the user asks for it in their own chat with you, never on a turn a routine, another agent, or a Slack or Teams message started. Tell the user this needs ${displayName}, which they can add themselves in OpenTeam.`;
+export const describeInstallNotUserTurn = (displayName: string, origin?: RunOrigin) =>
+  origin === "group"
+    // Adapted: a user can start a room turn, so the reference's "did not start this turn" would be false there.
+    ? `Nothing was installed: this is a group-room turn, and installing adds ${displayName} to your user's account, which happens only when they ask for it in their own 1:1 chat with you. If your user wants ${displayName}, ask them to continue in your 1:1 chat (pass "to":"dm" on SendToUser to reach it) or to add it themselves in OpenTeam.`
+    : `Nothing was installed: the user did not start this turn, and installing adds ${displayName} to their account. Only install when the user asks for it in their own chat with you, never on a turn a routine, another agent, or a Slack or Teams message started. Tell the user this needs ${displayName}, which they can add themselves in OpenTeam.`;
 
 export class PluginService {
   readonly fileTransfers: ConnectorFileTransfers;
@@ -264,7 +267,7 @@ export class PluginService {
     const args = await this.resolveToolArguments(request.action, request.arguments);
     if (request.action === "InstallPlugin" && !USER_STARTED_RUN_ORIGINS.has(request.origin)) {
       const detail = await this.catalogDetail(String(args.pluginKey)) as { plugin?: { name?: string } };
-      return describeInstallNotUserTurn(detail.plugin?.name ?? String(args.pluginKey));
+      return describeInstallNotUserTurn(detail.plugin?.name ?? String(args.pluginKey), request.origin);
     }
     signal?.throwIfAborted();
     try {

@@ -255,6 +255,9 @@ export class RuntimeTools {
   private readonly shellWaits = new Map<string, Set<AbortController>>();
   private readonly stepFileWriters = new Map<string, Set<Promise<unknown>>>();
   private readonly foregroundShells = new Map<string, Set<{ active: ActiveTurn; controller: AbortController }>>();
+  /** Box shells a stopped subagent left running in the background end with it. */
+  stopBackgroundShells(botId: string) { return this.nativeToolExecutor.stopBackgroundShells(botId); }
+
   interruptShellWaits(runId: string) {
     for (const wait of this.shellWaits.get(runId) ?? [])
       wait.abort(new Error("A new user message arrived"));

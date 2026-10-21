@@ -81,6 +81,7 @@ export const isDeliveryOwed = (
 export class ComputerRuntime {
   private readonly tools: RuntimeTools;
   get userForms() { return this.tools.userForms; }
+  stopBackgroundShells(botId: string) { return this.tools.stopBackgroundShells(botId); }
 
   private readonly activeByRun = new Map<string, ActiveTurn>();
   private readonly activeByContext = new Map<string, ActiveTurn>();

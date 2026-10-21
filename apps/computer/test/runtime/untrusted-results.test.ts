@@ -82,3 +82,22 @@ test("calls cut off by a stop read as interrupted instead of aborted or unanswer
   ]);
   expect((output[4] as any).isError).toBe(true);
 });
+
+test("the finished-todos reminder follows the fenced TodoWrite list, outside the fence", async () => {
+  const { renderControlResult, todoCleanupReminder } = await import("@openteam/contracts/tool-results");
+  const todos = [
+    ...Array.from({ length: 21 }, (_, index) => ({ id: `done-${index}`, content: `Done ${index}`, status: "completed" })),
+    { id: "21", content: "t21", status: "pending" },
+  ];
+  const text = renderControlResult("TodoWrite", { todos }, {});
+  expect(text).not.toContain("system_reminder");
+  expect(text).toEndWith("- **PENDING**: t21 (id: 21)");
+  const reminder = todoCleanupReminder(todos)!;
+  expect(reminder).toBe("<system_reminder>\nYou have many finished todos. Consider cleaning up old ones.\n</system_reminder>");
+  expect(todoCleanupReminder(todos.slice(1))).toBeNull();
+  const [fenced] = fenceToolResults([
+    { role: "toolResult", toolName: "TodoWrite", content: [{ type: "text", text }], details: { systemReminders: [reminder] } },
+  ]);
+  const parts = (fenced as unknown as { content: Array<{ text: string }> }).content;
+  expect(parts.map((part) => part.text).slice(-2)).toEqual(["</cursor_untrusted_data_1337>", reminder]);
+});

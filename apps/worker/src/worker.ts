@@ -1,4 +1,10 @@
-import { publishMessageNotification, workerSkillAccess } from "@openteam/messaging";
+import {
+  publishMessageNotification,
+  turnOwesReplyReminder,
+  turnSystemReminder,
+  withTurnSystemReminder,
+  workerSkillAccess,
+} from "@openteam/messaging";
 import { createHash } from "node:crypto";
 import type {
   AssetRef,
@@ -142,7 +148,6 @@ interface Claimed {
   conversationId: string;
   ownerId: string;
   content: string;
-  automationTrigger: string | null;
   images: RuntimeInlineImage[];
   clientId: string;
   cwd: string;
@@ -158,6 +163,8 @@ interface Claimed {
   taskConfiguration: TaskConfiguration | null;
   fileAttachments: string[];
   attachmentOwnerBotId: string;
+  /** The non-user run this typed message superseded. */
+  interruptedRunId: string | null;
 }
 
 export const contextScopeForRun = (
@@ -188,6 +195,13 @@ const REQUEST_SOURCE_BY_ORIGIN = {
 
 export const runtimeRequestSourceForOrigin = (origin: RunOrigin): RuntimeRequestSource =>
   REQUEST_SOURCE_BY_ORIGIN[origin];
+
+/** Interrupted wakes that run again, and how often: agent messages up to 3 times, the rest once. */
+export const WAKE_REDRIVE_LIMITS: Partial<Record<RunOrigin, number>> = {
+  agent: 3,
+  connector: 1,
+  background_revival: 1,
+};
 
 export const runOwesUserDelivery = (origin: RunOrigin): boolean =>
   ["user", "bootstrap", "connector", "handoff_resume", "broadcast"].includes(origin);
@@ -258,25 +272,23 @@ export const revivalBatch = <T extends RevivalWake>(claimed: T, pending: readonl
   return { content: renderRevivalBatchPrompt(completions), folded };
 };
 
-export const turnContentWithProfileUpdate = (
-  profileUpdate: string | null,
+/** Turn notes (profile and instruction updates, reminders) go in one reminder block ahead of the query. */
+export const turnContentWithNotes = (
+  input: {
+    origin: RunOrigin;
+    runtimeProfile: "agent" | "subagent";
+    notes: ReadonlyArray<string | null | undefined>;
+    unfinishedTasks?: boolean;
+  },
   content: string
-): string => [profileUpdate, content].filter(Boolean).join("\n\n");
-
-export const automationTriggerForWake = (
-  origin: RunOrigin,
-  content: string,
-  supplied: string | null = null
-): string | null => {
-  if (origin !== "routine") return null;
-  const suppliedMatch = supplied?.match(
-    /<automation_trigger_info>[\s\S]*?<\/automation_trigger_info>/i
-  )?.[0];
-  if (suppliedMatch) return suppliedMatch;
-  return (
-    content.match(/<automation_trigger_info>[\s\S]*?<\/automation_trigger_info>/i)?.[0] ?? null
+): string =>
+  withTurnSystemReminder(
+    turnSystemReminder(input.notes, {
+      unfinishedTasks: input.unfinishedTasks,
+      reply: input.runtimeProfile === "agent" && turnOwesReplyReminder(input.origin, content),
+    }),
+    content
   );
-};
 
 const assetRefs = (value: unknown): AssetRef[] => {
   if (!Array.isArray(value)) return [];
@@ -311,21 +323,19 @@ export const turnCompletionFailure = (
   return new Error(runtimeMessage ?? `Computer turn ended with status ${event.status}`);
 };
 
+/** The learner reviews every memorable turn: what the bot sent plus all its own text, even when both are empty. */
 export const resolveTurnMemoryExchange = (input: {
   visibleUser?: { content: string; createdAt: Date } | null;
   internalUser?: { content: string; createdAt: Date } | null;
   visibleAssistant: Array<{ content: string }>;
-  internalAssistant?: { content: string } | null;
+  internalAssistant: Array<{ content: string }>;
 }): { user: string; assistant: string; occurredAt: number } | null => {
   const user = input.visibleUser?.content.trim() || input.internalUser?.content.trim() || "";
-  const assistant =
-    input.visibleAssistant
-      .map((message) => message.content.trim())
-      .filter(Boolean)
-      .join("\n") ||
-    input.internalAssistant?.content.trim() ||
-    "";
-  if (!user || !assistant) return null;
+  const assistant = [...input.visibleAssistant, ...input.internalAssistant]
+    .map((message) => message.content.trim())
+    .filter(Boolean)
+    .join("\n");
+  if (!user) return null;
   return {
     user,
     assistant,
@@ -1139,8 +1149,8 @@ export class WakeWorker {
           attachments?: unknown;
           clientId?: string;
           channelId?: string;
-          automationTrigger?: unknown;
           automationContextRunId?: string;
+          interruptedRunId?: unknown;
         };
         if (!payload.content || !payload.clientId) {
           await tx.inboxEvent.update({
@@ -1274,8 +1284,7 @@ export class WakeWorker {
           conversationId: inbox.conversationId,
           ownerId,
           content: batch?.content ?? payload.content,
-          automationTrigger:
-            typeof payload.automationTrigger === "string" ? payload.automationTrigger : null,
+          interruptedRunId: typeof payload.interruptedRunId === "string" ? payload.interruptedRunId : null,
           images: await this.messaging.assets.runtimeImages(assetRefs(payload.attachments)),
           clientId: payload.clientId,
           cwd: this.workspaceRoot,
@@ -1362,10 +1371,12 @@ export class WakeWorker {
         screenBotId: claimed.screenBotId,
         conversationId: claimed.conversationId,
         sessionPath: claimed.sessionPath,
-        content: [
-          turnContentWithProfileUpdate(platformPrompt.agentProfileUpdate, claimed.content),
-          platformPrompt.instructionsUpdate,
-        ].filter(Boolean).join("\n\n"),
+        content: turnContentWithNotes({
+          origin: claimed.origin,
+          runtimeProfile: claimed.runtimeProfile,
+          notes: [platformPrompt.automationStatus, platformPrompt.agentProfileUpdate, platformPrompt.instructionsUpdate],
+          unfinishedTasks: await this.supersededUnfinishedRun(claimed),
+        }, claimed.content),
         prependMessages: [...missedMessages, ...(platformPrompt.ambientContext ? [{
           id: `${claimed.clientId}:ambient`,
           content: `[SAND_HIDDEN_PROMPT]${platformPrompt.ambientContext}`,
@@ -1379,11 +1390,6 @@ export class WakeWorker {
         connectorInstructions: pluginContext.skillInstructions,
         agentProfileSnapshot: platformPrompt.agentProfileSnapshot ?? undefined,
         todoUpdate: platformPrompt.todoUpdate,
-        automationTrigger: automationTriggerForWake(
-          claimed.origin,
-          claimed.content,
-          claimed.automationTrigger
-        ),
         resetSelfSummaryCount: wakeResetsSelfSummaryCount(claimed.inboxType),
         requestSource: runtimeRequestSourceForOrigin(claimed.origin),
         channelId: claimed.channelId,
@@ -1636,6 +1642,55 @@ export class WakeWorker {
     }
   }
 
+  /** The run this typed message superseded was cut off rather than finished. */
+  private async supersededUnfinishedRun(claimed: Claimed): Promise<boolean> {
+    if (!claimed.interruptedRunId) return false;
+    const run = await this.prisma.run.findFirst({
+      where: { id: claimed.interruptedRunId, botId: claimed.botId },
+      select: { status: true },
+    });
+    return Boolean(run && ["cancelled", "interrupted"].includes(run.status));
+  }
+
+  /** A wake cut off by a typed or priority message runs again after it, a bounded number of times. */
+  private async redriveSupersededWake(tx: Prisma.TransactionClient, claimed: Claimed): Promise<void> {
+    const limit = WAKE_REDRIVE_LIMITS[claimed.origin];
+    if (!limit) return;
+    const inbox = await tx.inboxEvent.findUnique({
+      where: { id: claimed.inboxId },
+      select: { payload: true, priority: true },
+    });
+    const payload = (inbox?.payload ?? {}) as {
+      content?: string; clientId?: string; channelId?: string; attachments?: unknown;
+      timeZone?: string; automationContextRunId?: string; taskContextRunId?: string;
+    };
+    if (!inbox || !payload.content || !payload.clientId) return;
+    const [original, previous] = payload.clientId.match(/^(.*?)(?::redrive:(\d+))?$/)!.slice(1);
+    const attempt = Number(previous ?? 0) + 1;
+    const clientId = `${original}:redrive:${attempt}`;
+    if (attempt > limit) return;
+    const [bot, existing] = await Promise.all([
+      tx.bot.findUnique({ where: { id: claimed.botId }, select: { status: true } }),
+      tx.inboxEvent.findUnique({ where: { idempotencyKey: clientId }, select: { id: true } }),
+    ]);
+    if (bot?.status !== "active" || existing) return;
+    await this.messaging.enqueueWake(tx, {
+      botId: claimed.botId,
+      channelId: claimed.runChannelId ?? payload.channelId ?? claimed.channelId,
+      origin: claimed.origin,
+      type: claimed.inboxType,
+      content: payload.content,
+      attachments: assetRefs(payload.attachments),
+      clientId,
+      priority: inbox.priority,
+      wrapUserContent: false,
+      includeAttachmentPaths: false,
+      ...(payload.timeZone ? { timeZone: payload.timeZone } : {}),
+      ...(payload.automationContextRunId ? { automationContextRunId: payload.automationContextRunId } : {}),
+      ...(payload.taskContextRunId ? { taskContextRunId: payload.taskContextRunId } : {}),
+    });
+  }
+
   private async fail(claimed: Claimed, error: unknown, interrupted = false): Promise<void> {
     if (
       interrupted &&
@@ -1656,7 +1711,13 @@ export class WakeWorker {
         current?.error && !Array.isArray(current.error) && typeof current.error === "object"
           ? (current.error as Prisma.InputJsonObject)
           : null;
-      priorityInterrupted = currentError?.code === "priority_peer_interrupt";
+      // The typed message may land before the server records the cancel; its wake names this run.
+      const supersededByUser = await tx.inboxEvent.findFirst({
+        where: { botId: claimed.botId, payload: { path: ["interruptedRunId"], equals: claimed.runId } },
+        select: { id: true },
+      });
+      priorityInterrupted = currentError?.code === "priority_peer_interrupt" ||
+        (Boolean(supersededByUser) && current?.status !== "failed");
       const failureDetails = (priorityInterrupted || current?.status === "cancelled") && currentError ? currentError : details;
       const finalStatus =
         current?.status === "cancelled"
@@ -1675,6 +1736,7 @@ export class WakeWorker {
       });
       const settledRoutine = await reconcileRoutineExecution(tx, claimed.runId);
       if (settledRoutine) await this.routines.afterExecution(tx, settledRoutine);
+      if (priorityInterrupted) await this.redriveSupersededWake(tx, claimed);
       if (claimed.origin === "bootstrap") {
         const onboarding = await tx.bot.updateMany({
           where: { id: claimed.botId, onboardingStatus: "running" },
@@ -1867,9 +1929,7 @@ export class WakeWorker {
           })
         : null;
     const internalUser = messages.find((message) => message.role === "user");
-    const internalAssistant = [...messages]
-      .reverse()
-      .find((message) => message.role === "assistant");
+    const internalAssistant = messages.filter((message) => message.role === "assistant");
     const exchange = resolveTurnMemoryExchange({
       visibleUser,
       internalUser,

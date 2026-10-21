@@ -253,7 +253,7 @@ export class ChannelService {
       this.afterDurableAcceptance("direct message follow-up", async () => {
         if (accepted.bootstrapRunId)
           await cancelSkippedBootstrap(this.computerFetch, this.prisma, accepted.bootstrapRunId);
-        if (accepted.interruptRunId) await this.interruptNonUserRun(accepted.interruptRunId);
+        if (accepted.interruptRunId) await this.interruptNonUserRun(accepted.interruptRunId, true);
         if (accepted.steer) await this.dispatchSteer(accepted.steer);
       });
       return accepted.response;
@@ -514,7 +514,8 @@ export class ChannelService {
     });
   }
 
-  async interruptNonUserRun(runId: string): Promise<void> {
+  /** byUser: a typed message superseded the run, so its cut-off calls say the user interrupted them. */
+  async interruptNonUserRun(runId: string, byUser = false): Promise<void> {
     const run = await this.prisma.run.findUnique({ where: { id: runId } });
     if (
       !run ||
@@ -526,6 +527,7 @@ export class ChannelService {
     try {
       const response = await this.computerFetch(COMPUTER_API_PATHS.turnCancel(runId), {
         method: "POST",
+        ...(byUser ? { body: JSON.stringify({ reason: "user_message" }) } : {}),
       });
       if (!response.ok) return;
       await this.prisma.$transaction(async (tx) => {

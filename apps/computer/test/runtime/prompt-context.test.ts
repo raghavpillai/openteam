@@ -5,9 +5,8 @@ import {
   enrichUserInfo,
   renderDynamicToolCatalog,
   promptFingerprint,
-  EARLY_RESULT_REMINDER,
+  ACK_REMINDER,
   PROGRESS_REMINDER,
-  executionClock,
 } from "../../src/runtime/prompt-context";
 
 const user = { role: "user", content: "do work" };
@@ -16,17 +15,6 @@ const call = (name: string, args = {}) => ({
   content: [{ type: "toolCall", name, arguments: args }],
 });
 const active = { requestSource: "turn", subagentType: null } as const;
-
-test("execution clock reports actual invocation interval without restarting parent deadlines", () => {
-  const start = Date.parse("2026-09-25T17:52:23Z");
-  const messages = executionClock(start, start + 158000);
-  expect(messages[0]?.content).toContain("elapsed 158 seconds");
-  expect(messages[0]?.content).toContain("2026-09-25T17:55:01.000Z");
-  expect(messages[0]?.content).toContain("not total user wait");
-  expect(executionClock(undefined, start)).toEqual([]);
-  expect(executionClock(NaN, start)).toEqual([]);
-  expect(executionClock(start, start - 1000)[0]?.content).toContain("elapsed 0 seconds");
-});
 
 test("runtime context describes actual tools and preserves saved skill catalog", () => {
   const text = enrichUserInfo(
@@ -78,7 +66,7 @@ test("main user_info follows the reference layout and leaves transcripts to Read
 test("acknowledgement reminders fire during work, with silent/worker exclusions", () => {
   const messages = [user, call("Read"), call("Shell")];
   expect(communicationReminder([user, call("Read")], active)).toBeNull();
-  expect(communicationReminder(messages, active)?.kind).toBe("ack");
+  expect(communicationReminder(messages, active)).toEqual({ kind: "ack", content: ACK_REMINDER });
   expect(communicationReminder(messages, { ...active, requestSource: "automation" })).toBeNull();
   expect(communicationReminder(messages, { ...active, subagentType: "executor" })).toBeNull();
   expect(
@@ -89,54 +77,25 @@ test("acknowledgement reminders fire during work, with silent/worker exclusions"
   ).toBeNull();
 });
 
-test("opening acknowledgement is followed by a result reminder after work", () => {
-  expect(communicationReminder([user, call("SendToUser", { type: "text" })], active)).toBeNull();
-  expect(
-    communicationReminder([user, call("SendToUser", { type: "text" }), call("Read")], active)
-  ).toEqual({ kind: "early-result", content: EARLY_RESULT_REMINDER });
-  expect(
-    communicationReminder(
-      [user, call("SendToUser", { type: "widget" }), call("Read"), call("Read")],
-      active
-    )?.kind
-  ).toBe("ack");
-});
+const reminderNote = (content: string) => ({ role: "custom", customType: "openteam-communication-reminder", content });
+/** Runs the hook before each step the way the context hook does, appending what it injects. */
+const simulate = (steps: Array<ReturnType<typeof call>>) => {
+  const messages: any[] = [user];
+  const fired: Array<{ before: number; kind: string }> = [];
+  steps.forEach((step, index) => {
+    const reminder = communicationReminder(messages, active);
+    if (reminder) {
+      fired.push({ before: index + 1, kind: reminder.kind });
+      messages.push(reminderNote(reminder.content));
+    }
+    messages.push(step, { role: "toolResult", toolCallId: `call-${index}`, content: [] });
+  });
+  return fired;
+};
 
-test("early reminders allow unfinished work; prolonged silence requires an update", () => {
-  const start = [user, call("SendToUser", { type: "text" }), call("Read")];
-  const note = {
-    role: "custom",
-    customType: "openteam-communication-reminder",
-    content: EARLY_RESULT_REMINDER,
-  };
-  expect(communicationReminder([...start, note, call("Read")], active)).toBeNull();
-  expect(
-    communicationReminder(
-      [...start, note, ...Array.from({ length: 6 }, () => call("Read"))],
-      active
-    )
-  ).toEqual({ kind: "progress", content: PROGRESS_REMINDER });
-  expect(
-    communicationReminder(
-      [...start, note, call("SendToUser", { type: "text" }), call("Read")],
-      active
-    )?.kind
-  ).toBe("early-result");
-});
-
-test("injected user-role notes do not hide a long silent streak or a newer real user turn", () => {
-  const note = {
-    role: "user",
-    content: EARLY_RESULT_REMINDER,
-    providerOptions: { cursor: { sandEarlyResultReminder: true } },
-  };
-  const start = [user, call("SendToUser", { type: "text" }), call("Read"), note];
-  expect(
-    communicationReminder([...start, ...Array.from({ length: 6 }, () => call("Read"))], active)
-      ?.kind
-  ).toBe("progress");
-  expect(communicationReminder([...start, user, call("Read"), call("Read")], active)?.kind).toBe(
-    "ack"
+test("the ack repeats every two silent calls until the user hears from the bot", () => {
+  expect(simulate(Array.from({ length: 13 }, () => call("Shell")))).toEqual(
+    [3, 5, 7, 9, 11, 13].map((before) => ({ before, kind: "ack" }))
   );
 });
 
@@ -186,4 +145,54 @@ test("the catalog in user_info is pinned for the epoch; a changed cursor namespa
   expect(pinDynamicToolCatalog(log, 0, [cursor(["TodoWrite", "UploadFile"]), gmail]).update).toBeNull();
   // A new epoch (after a summary) renders the live catalog again.
   expect(pinDynamicToolCatalog(log, 1, [cursor(["TodoWrite", "UploadFile"]), gmail]).catalog).toContain('<namespace name="gmail"');
+});
+
+test("after an ack the progress reminder fires once per seven silent calls, not every step", () => {
+  expect(simulate([call("SendToUser", { type: "text" }), ...Array.from({ length: 16 }, () => call("Shell"))])).toEqual([
+    { before: 9, kind: "progress" },
+    { before: 16, kind: "progress" },
+  ]);
+});
+
+test("a reaction that went through acknowledges the user; a widget or failed reaction does not", () => {
+  const react = { role: "assistant", content: [{ type: "toolCall", id: "r", name: "ReactToMessage", arguments: { emoji: "👍" } }] };
+  const reacted = (isError: boolean) => [user, react, { role: "toolResult", toolCallId: "r", isError, content: [] }, call("Shell"), call("Shell")];
+  expect(communicationReminder(reacted(false), active)).toBeNull();
+  expect(communicationReminder(reacted(true), active)?.kind).toBe("ack");
+  expect(communicationReminder([user, call("SendToUser", { type: "widget" }), call("Read"), call("Read")], active)?.kind).toBe("ack");
+  expect(communicationReminder([user, call("SendToUser", { type: "widget" }), call("Read")], active)).toBeNull();
+});
+
+test("a newer real user message starts a new acknowledgement window", () => {
+  expect(communicationReminder([user, call("SendToUser", { type: "text" }), call("Read"), user, call("Read"), call("Read")], active)?.kind).toBe("ack");
+  // Injected reminder blocks are skipped when looking back for the ack.
+  const hold = { role: "custom", customType: "openteam-end-turn-hold", content: "<system_reminder>\nYour turn did not end.\n</system_reminder>" };
+  expect(communicationReminder([user, call("SendToUser", { type: "text" }), hold, call("Read"), call("Read")], active)).toBeNull();
+});
+
+test("a reply cut off at the output limit gets one reminder to continue in smaller pieces", async () => {
+  const { OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder } = await import("../../src/runtime/prompt-context");
+  const cut = { role: "assistant", content: [{ type: "text", text: "Part one" }], stopReason: "length" };
+  expect(owesOutputLimitReminder([user, cut, { role: "toolResult", toolCallId: "x" }], {})).toBe(true);
+  expect(owesOutputLimitReminder([user, cut], { outputLimitReminded: true })).toBe(false);
+  expect(owesOutputLimitReminder([user, { ...cut, stopReason: "stop" }], {})).toBe(false);
+  const { ComputerRuntime } = await import("../../src/runtime");
+  const runtime = new ComputerRuntime() as any;
+  runtime.compaction = { beginUserQuery: async () => {}, settleAtTurnEnd: async () => null, parkBackground() {} };
+  runtime.cleanup = async () => {};
+  const prompts: string[] = [];
+  const messages: any[] = [];
+  const active = {
+    subagentType: "executor", requestSource: "subagent", turnId: "t", runId: "r", contextSessionId: "c",
+    attachmentTempDirectories: [], sentMessageCount: 0,
+    session: {
+      messages,
+      prompt: async (text: string) => { prompts.push(text); messages.push(user, prompts.length === 1 ? cut : { ...cut, stopReason: "length" }); },
+      getContextUsage: () => undefined, getAllTools: () => [], getActiveToolNames: () => [],
+    },
+    queue: { push() {}, end() {} },
+  } as any;
+  await runtime.execute(active, "Write the report.", []);
+  expect(prompts).toEqual(["Write the report.", OUTPUT_LIMIT_REMINDER]);
+  expect(OUTPUT_LIMIT_REMINDER).toBe("<system_reminder>Your response was cut off because it exceeded the output token limit. Please break your work into smaller pieces. Continue from where you left off.</system_reminder>");
 });

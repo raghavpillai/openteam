@@ -154,7 +154,7 @@ export async function automationContinuationRoute(
   tx: Prisma.TransactionClient,
   botId: string,
   sourceRunId: string
-): Promise<Pick<WakeInput, "origin" | "automationContextRunId" | "automationTrigger"> | null> {
+): Promise<Pick<WakeInput, "origin" | "automationContextRunId"> | null> {
   const source = await tx.run.findFirst({
     where: { id: sourceRunId, botId },
     include: { inboxEvents: { take: 1, select: { payload: true } } },
@@ -167,15 +167,7 @@ export async function automationContinuationRoute(
     select: { wakeRunId: true },
   });
   if (handoff?.wakeRunId) return null;
-  const trigger =
-    payload && typeof payload === "object" && !Array.isArray(payload)
-      ? payload.automationTrigger
-      : null;
-  return {
-    origin: "routine",
-    automationContextRunId: rootId,
-    ...(typeof trigger === "string" ? { automationTrigger: trigger } : {}),
-  };
+  return { origin: "routine", automationContextRunId: rootId };
 }
 
 export const AUTOMATION_RUN_INSTRUCTIONS = [

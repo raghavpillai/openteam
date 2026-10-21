@@ -14,7 +14,6 @@ import type { TaskConfiguration } from "@openteam/contracts/task-configuration";
 export type TurnStatus = "completed" | "failed" | "interrupted";
 
 export interface ActiveTurn {
-  runtimeStartedAt?: number;
   taskConfiguration?: TaskConfiguration;
   pluginRuntimePackages?: readonly import("@openteam/plugin-sdk").PluginRuntimePackage[];
   pluginAbortController?: AbortController;
@@ -43,7 +42,6 @@ export interface ActiveTurn {
   compactionReadPiMessages?: () => BotMessage[];
   pendingCompactionMeasurement?: { compactionId: string; epoch: number };
   todoUpdate: string | null;
-  automationTrigger: string | null;
   resetSelfSummaryCount: boolean;
   requestSource: NonNullable<ComputerTurnRequest["requestSource"]>;
   turnId: string;
@@ -62,6 +60,12 @@ export interface ActiveTurn {
   lastGraphicalSurface?: "browser" | "computer";
   sentMessageCount: number;
   toolActivityAfterLastSend: boolean;
+  /** Call order of the latest response; delivery bookkeeping follows it although its calls run in parallel. */
+  responseCallOrder?: Map<string, number>;
+  responseActivity?: Set<number>;
+  responseLastSendIndex?: number;
+  /** SendToUser calls of a response go out one after another, in call order. */
+  sendChain?: Promise<unknown>;
   initialUserStarted: boolean;
   initialUserClientId?: string;
   pendingSteers: Array<{
@@ -81,6 +85,16 @@ export interface ActiveTurn {
   /** Exact stop calls already emitted alongside a closing response. */
   pendingDeliveryCleanup?: Map<string, string>;
   acknowledgedCardOutcomes?: Set<string>;
+  /** computerUse only: failure classes of the current run of failed calls. */
+  toolFailureStreak?: string[];
+  toolFailureBreakerTripped?: boolean;
+  lastAgentMessage?: { id: string; text: string };
+  outputLimitReminded?: boolean;
+  /** The low-disk episode this main-agent turn tells the bot about, and whether it went out. */
+  diskPressureEpisode?: number | null;
+  diskPressureReminded?: boolean;
+  /** A typed message superseded this run; calls it cut off say so. */
+  interruptedByUserAt?: number;
 }
 
 export interface RuntimeDynamicTool extends DynamicToolDefinition {

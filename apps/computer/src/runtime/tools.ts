@@ -1,10 +1,11 @@
 import { applyArgumentAliases, normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { onlyPendingBackgroundWork } from "./background-status";
+import { markDelivered } from "./events";
 import { spoolFile } from "@openteam/plugin-sdk/file-spool";
 import { agentReadStream, agentWriteStream } from "../agent-file-stream";
 import { stageAttachment } from "../attachment-staging";
 import { buildUserFormRemapReceipt } from "@openteam/contracts/reference-form-results";
-import { renderDesktopResult, renderControlResult, sendToUserFailure, toolErrorDetail } from "@openteam/contracts/tool-results";
+import { renderDesktopResult, renderControlResult, sendToUserFailure, todoCleanupReminder, toolErrorDetail } from "@openteam/contracts/tool-results";
 import { coerceArgumentsToJsonSchema, invalidArgumentsMessage } from "@openteam/contracts/tool-arguments";
 import {
   describeUploadFileOutcome,
@@ -234,6 +235,21 @@ export const workerTopLevelTools = (
 /** Calls that can create a file a Read in the same step is waiting for. */
 const SAME_STEP_FILE_WRITERS: ReadonlySet<string> = new Set(["Shell", "AwaitShell", "CopyToBox"]);
 const SAME_STEP_READ_WAIT_MS = 120_000;
+/** A call cut off because a typed message superseded the run reads as interrupted by the user, as in the reference. */
+const interruptibleByUser = <T extends { name: string; execute: (...args: any[]) => Promise<any> }>(active: ActiveTurn, tool: T): T => ({
+  ...tool,
+  execute: async (...args: any[]) => {
+    const started = Date.now();
+    try {
+      return await tool.execute(...args);
+    } catch (error) {
+      const at = active.interruptedByUserAt;
+      // Shell and AwaitShell already word their own interruption, as the reference does.
+      if (at === undefined || /^Error: .* interrupted /.test(error instanceof Error ? error.message : "")) throw error;
+      throw new Error(`Error: ${tool.name} was interrupted by the user after ${Math.max(0, at - started)}ms before it completed.`);
+    }
+  },
+});
 
 export class RuntimeTools {
   private readonly shellWaits = new Map<string, Set<AbortController>>();
@@ -496,41 +512,6 @@ export class RuntimeTools {
     }));
   }
 
-  async refreshPrompt(active: ActiveTurn, epoch: number) {
-    const result = await this.callControlPlaneTool(
-      active,
-      `${active.runId}:context:${epoch}`,
-      "RefreshPromptContext",
-      {
-        contextSessionId: active.contextSessionId,
-        epoch,
-        connectorInstructions: active.connectorInstructions ?? "",
-      }
-    );
-    const content = result.content.find((part) => part.type === "text");
-    if (content?.type !== "text") throw new Error("Context refresh returned no prompt");
-    return JSON.parse(content.text) as {
-      instructions: string;
-      userInfo: string | null;
-      userInfoEpoch: number;
-      instructionsUpdate?: string | null;
-      ambientContext?: string | null;
-      acknowledgement?: unknown;
-    };
-  }
-
-  async acknowledgePrompt(active: ActiveTurn, acknowledgement: unknown) {
-    await this.callControlPlaneTool(
-      active,
-      `${active.runId}:context-ack:${crypto.randomUUID()}`,
-      "AcknowledgePromptContext",
-      {
-        contextSessionId: active.contextSessionId,
-        acknowledgement,
-      }
-    );
-  }
-
   private readonly privateBrowserValues = new Map<string, Set<string>>();
   private readonly browserUseSessions = new Map<string, BrowserUseSession>();
 
@@ -546,6 +527,10 @@ export class RuntimeTools {
   }
 
   customTools(active: ActiveTurn) {
+    return this.definedTools(active).map((tool) => interruptibleByUser(active, tool));
+  }
+
+  private definedTools(active: ActiveTurn) {
     if (active.subagentType === "videoReview" || active.subagentType === "watchVideo") return [];
     const native = (
       tool: (typeof NATIVE_TOOLS)[number],
@@ -580,17 +565,8 @@ export class RuntimeTools {
               }
             : tool.inputSchema
         ),
-        executionMode: ([
-          "Read",
-          "Shell",
-          "Screenshot",
-          "GetDynamicTools",
-          "CallDynamicTool",
-          "RecallMemory",
-          "ListSections",
-        ].includes(tool.name)
-          ? "parallel"
-          : "sequential") as "parallel" | "sequential",
+        // Every call starts as soon as the response ends, as in the reference; sends keep call order (below).
+        executionMode: "parallel",
         execute: (callId: string, args: unknown, signal?: AbortSignal) =>
           this.executeOpenTeamTool(active, callId, tool.name, args, signal),
       });
@@ -686,7 +662,14 @@ export class RuntimeTools {
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     this.assertCurrentInput(active);
     const name = tool === CALL_DYNAMIC_TOOL_TOOL.name ? (args as { toolName?: unknown } | null)?.toolName : tool;
-    const run = this.executeScopedTool(active, callId, tool, args, signal);
+    // Pi starts a parallel batch in call order, so chaining sends here delivers them in call order.
+    const run = tool === SEND_TO_USER_TOOL.name
+      ? (active.sendChain ?? Promise.resolve()).then(() => {
+          this.assertCurrentInput(active);
+          return this.executeScopedTool(active, callId, tool, args, signal);
+        })
+      : this.executeScopedTool(active, callId, tool, args, signal);
+    if (tool === SEND_TO_USER_TOOL.name) active.sendChain = run.catch(() => undefined);
     // Calls issued in one step start in order, so a later Read in the step can wait for these.
     const writers = typeof name === "string" && SAME_STEP_FILE_WRITERS.has(name)
       ? this.stepFileWriters.get(active.runId) ?? new Set<Promise<unknown>>()
@@ -1507,8 +1490,7 @@ export class RuntimeTools {
       typeof body === "object" &&
       ((body as Record<string, unknown>).reacted === true || (body as Record<string, unknown>).removed === true)
     ) {
-      active.sentMessageCount += 1;
-      active.toolActivityAfterLastSend = false;
+      markDelivered(active, callId);
       active.endTurnRequested = true;
     }
     if (
@@ -1525,8 +1507,7 @@ export class RuntimeTools {
       !Array.isArray(body) &&
       (body as Record<string, unknown>).sent === true
     ) {
-      active.sentMessageCount += 1;
-      active.toolActivityAfterLastSend = false;
+      markDelivered(active, callId);
       const input = args as { end_turn?: boolean; type?: string };
       if (
         input.end_turn === true ||
@@ -1559,7 +1540,7 @@ export class RuntimeTools {
         tool,
         ...(tool === "CheckSubagent" ? {pendingBackgroundWork: onlyPendingBackgroundWork(body)} : {}),
         ...(tool === "TodoWrite" && body && typeof body === "object" && "todos" in body
-          ? { todos: body.todos }
+          ? { todos: body.todos, ...(todoCleanupReminder(body.todos) ? { systemReminders: [todoCleanupReminder(body.todos)] } : {}) }
           : {}),
       },
       ...(active.endTurnRequested ? { terminate: true } : {}),
@@ -1605,7 +1586,7 @@ export class RuntimeTools {
         ) {
           return [];
         }
-        return [`- [${todo.status}] ${todo.id}: ${todo.content}`];
+        return [`- **${todo.status.toUpperCase()}**: ${todo.content} (id: ${todo.id})`];
       });
       active.todoUpdate = lines.length > 0 ? lines.join("\n") : null;
     } catch {

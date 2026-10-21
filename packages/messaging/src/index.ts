@@ -57,7 +57,8 @@ import {
 } from "./platform-system-prompt";
 import { formatFriendlyDate, resolveTimeZone, timestampUserTurn } from "./timestamps";
 import { renderAgentSkillsSection } from "./skill-catalog";
-import type { MemoryContextReceipt, PromptSectionReceipt } from "./prompt-sections";
+import type { AutomationStatusReceipt, MemoryContextReceipt, PromptSectionReceipt } from "./prompt-sections";
+import { renderAutomationStatusReminder, routineDefinitionLine } from "./automation-status";
 import { renderMemoryContextBlock } from "./memory-rendering";
 
 export type { BotFileTarget } from "./agent-data";
@@ -122,10 +123,13 @@ export interface PlatformPrompt {
   todoUpdate: string | null;
   agentProfileSnapshot: AgentPromptContext["profileSnapshot"] | null;
   instructionsUpdate?: string | null;
+  /** The <automation_status> reminder, only when it changed since the one in context. */
+  automationStatus?: string | null;
   ambientContext?: string | null;
   acknowledgement?: {
     sections: PromptSectionReceipt[];
     memory?: MemoryContextReceipt;
+    automationStatus?: AutomationStatusReceipt;
     identity?: AgentPromptContext["identityReceipt"];
     dismissedMessageIds: string[];
     outcomeIds?: Array<{ messageId: string; outcomeId: string }>;
@@ -523,50 +527,6 @@ export const buildGroupTurnPrompt = (input: {
   ].join("\n");
 };
 
-export const routineRuntimeStatus = (
-  input: {
-    runLedger: unknown;
-    lastRunAt?: Date | string | null;
-  },
-  timeZone?: string | null
-): string => {
-  const entries = Array.isArray(input.runLedger)
-    ? input.runLedger.filter(
-        (entry): entry is Record<string, unknown> =>
-          Boolean(entry) && typeof entry === "object" && !Array.isArray(entry)
-      )
-    : [];
-  const latest = entries.sort(
-    (left, right) => Number(right.startedAt ?? 0) - Number(left.startedAt ?? 0)
-  )[0];
-  const lastRunValue = latest?.finishedAt ?? latest?.startedAt ?? input.lastRunAt;
-  if (!lastRunValue) return "never run";
-  const lastRunAt =
-    lastRunValue instanceof Date
-      ? lastRunValue
-      : new Date(typeof lastRunValue === "number" ? lastRunValue : String(lastRunValue));
-  if (!Number.isFinite(lastRunAt.getTime())) return "last run status unknown";
-  const rendered = new Intl.DateTimeFormat("en-US", {
-    timeZone: resolveTimeZone(timeZone),
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  }).format(lastRunAt);
-  const outcome =
-    latest?.status === "ok"
-      ? "succeeded"
-      : latest?.status === "error"
-        ? "failed"
-        : latest?.status === "running"
-          ? "running"
-          : "unknown";
-  return `last run ${rendered} (${outcome})`;
-};
-
 export const directAgentWake = (input: {
   senderId: string;
   senderName: string;
@@ -574,11 +534,6 @@ export const directAgentWake = (input: {
   priority: boolean;
   interrupted: boolean;
   images?: ReadonlyArray<{ url: string; alt?: string }>;
-  routineStatuses?: ReadonlyArray<{
-    name: string;
-    folder: string;
-    status: string;
-  }>;
 }): string => {
   const senderName = compactName(input.senderName);
   const arrival = input.priority
@@ -586,21 +541,6 @@ export const directAgentWake = (input: {
       ? "This is a PRIORITY instruction from another assistant — not the user typing here. It interrupted your previous non-user work. Drop conflicting in-flight work and follow it now. Your user can already see it in this chat."
       : "This is a PRIORITY instruction from another assistant — not the user typing here. Handle it ahead of other non-user work. Your user can already see it in this chat."
     : "This is another assistant reaching out — not the user typing here. It arrived asynchronously, and your user can already see it in this chat.";
-  const routineStatuses = input.routineStatuses ?? [];
-  const reminder = routineStatuses.length
-    ? [
-        "<system_reminder>",
-        "<automation_status>",
-        "Current routine runtime status. This snapshot is authoritative for this turn and supersedes earlier routine status reminders.",
-        ...routineStatuses.map(
-          (routine) =>
-            `- ${compactName(routine.name)} (folder ${compactName(routine.folder)}): ${routine.status}`
-        ),
-        "</automation_status>",
-        "</system_reminder>",
-        "",
-      ]
-    : [];
   const images = input.images ?? [];
   const imageLines =
     images.length > 0
@@ -615,13 +555,7 @@ export const directAgentWake = (input: {
         ]
       : [];
   return [
-    `[SAND_HIDDEN_PROMPT]${reminder[0] ?? `[agent] A message just arrived from another of your user's agents: ${senderName} (id: ${input.senderId}).`}`,
-    ...reminder.slice(1),
-    ...(reminder.length
-      ? [
-          `[agent] A message just arrived from another of your user's agents: ${senderName} (id: ${input.senderId}).`,
-        ]
-      : []),
+    `[SAND_HIDDEN_PROMPT][agent] A message just arrived from another of your user's agents: ${senderName} (id: ${input.senderId}).`,
     arrival,
     "",
     `${senderName}: ${input.message}`,
@@ -713,11 +647,12 @@ export interface WakeInput {
   wrapUserContent?: boolean;
   replyToMessageId?: string;
   isFork?: boolean;
-  automationTrigger?: string;
   automationContextRunId?: string;
   taskContextRunId?: string;
   includeAttachmentPaths?: boolean;
   revival?: RevivalCompletion;
+  /** A typed message that superseded this non-user run gets the unfinished-tasks reminder. */
+  interruptedRunId?: string;
 }
 
 export interface ToolContext {
@@ -968,10 +903,10 @@ export class AgentMessaging {
           isFork: input.isFork === true,
           deliveryMode: "turn",
           timeZone: resolveTimeZone(input.timeZone ?? this.defaultTimeZone),
-          automationTrigger: input.automationTrigger,
           automationContextRunId: input.automationContextRunId,
           taskContextRunId: input.taskContextRunId,
           revival: input.revival,
+          interruptedRunId: input.interruptedRunId,
         }),
         priority: input.priority,
         availableAt: input.availableAt,
@@ -1140,22 +1075,18 @@ export class AgentMessaging {
       input.isFork !== true &&
       ["running"].includes(activeRun.status);
     if (!canSteer || !activeRun) {
+      const interruptRunId =
+        activeRun && activeRun.origin !== "user" && ["running"].includes(activeRun.status)
+          ? activeRun.id
+          : null;
       const queued = await this.enqueueWake(tx, {
         ...input,
         origin: "user",
         type: "user.message",
         priority: PRIORITY.user,
+        ...(interruptRunId ? { interruptedRunId: interruptRunId } : {}),
       }, preparedAttachmentPaths);
-      return {
-        ...queued,
-        steer: null,
-        interruptRunId:
-          activeRun &&
-          activeRun.origin !== "user" &&
-          ["running"].includes(activeRun.status)
-            ? activeRun.id
-            : null,
-      };
+      return { ...queued, steer: null, interruptRunId };
     }
 
     const baseRuntimeContent = timestampUserTurn(input.content, {
@@ -2119,7 +2050,7 @@ export class AgentMessaging {
 
   /** channelId is the run's channel (null for a home run); undefined renders no pending automation results. */
   async platformPrompt(botId: string, contextSessionId?: string, connectorInstructions = "", channelId?: string | null, taskConfigurationSnapshot?: TaskConfiguration): Promise<PlatformPrompt> {
-    const context = contextSessionId ? await this.prisma.contextSession.findFirst({ where: { id: contextSessionId, botId }, select: { scope: true } }) : null;
+    const context = contextSessionId ? await this.prisma.contextSession.findFirst({ where: { id: contextSessionId, botId }, select: { scope: true, scopeId: true } }) : null;
     const automation = context?.scope === "automation";
     const bot = await this.prisma.bot.findUniqueOrThrow({
       where: { id: botId },
@@ -2129,6 +2060,10 @@ export class AgentMessaging {
       },
     });
     const todoContext = bot.todos.map((todo) => `- [${todo.status}] ${todo.id}: ${todo.content}`);
+    // The summary carrier lists todos in the reference's format.
+    const todoUpdate = bot.todos.length > 0
+      ? bot.todos.map((todo) => `- **${todo.status.toUpperCase()}**: ${todo.content} (id: ${todo.id})`).join("\n")
+      : null;
     if (bot.subagentIdentity) {
       const type = bot.subagentIdentity.subagentType as SubagentType;
       // Executors and knowledgeWork work across the box and the user's computers; browser and media workers do not.
@@ -2156,7 +2091,7 @@ export class AgentMessaging {
         instructions,
         userInfo: workerSkills ? ["<user_info>", workerSkills, "</user_info>"].join("\n") : null,
         userInfoEpoch: null,
-        todoUpdate: todoContext.length > 0 ? todoContext.join("\n") : null,
+        todoUpdate,
         agentProfileSnapshot: null,
         agentProfileUpdate: null,
       };
@@ -2207,9 +2142,10 @@ export class AgentMessaging {
           select: { platform: true },
           orderBy: { platform: "asc" },
         }),
+        // Creation order: a run touching a routine must not reorder the frozen list.
         this.prisma.routine.findMany({
           where: { botId, deletedAt: null },
-          orderBy: { updatedAt: "desc" },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
           take: 50,
         }),
         this.prisma.$queryRaw<Array<{ id: string; content: string; metadata: Prisma.JsonValue }>>(
@@ -2279,16 +2215,17 @@ export class AgentMessaging {
           : {};
       return metadata.type === "widget" && metadata.widgetDismissed === true ? [message.id] : [];
     });
-    const routineContext = routines.map(
-      (routine) =>
-        `- ${routine.name} (${routine.slug}): ${routine.enabled ? "active" : "paused"}; ${routine.scheduleText}; next ${routine.nextRunAt?.toISOString() ?? "none"}`
-    );
+    // Definitions are frozen with the section; next and last runs ride on the per-turn <automation_status>.
+    const routineContext = routines.map(routineDefinitionLine);
+    const firingRoutineId = automation && context?.scopeId
+      ? (await this.prisma.routineExecution.findUnique({ where: { runId: context.scopeId }, select: { routineId: true } }))?.routineId
+      : null;
     const frozen = await this.agentData.preparePlatformSections(botId, contextSessionId, agentPrompt.compactionEpoch, {
       agent_instructions: bot.instructions ? `Additional durable instructions:\n${bot.instructions}` : "",
       automations: routineContext.length ? `Scheduled routines:\n${routineContext.join("\n")}` : "You have no scheduled routines.",
       agent_directory: `## Teammates and groups\n${teammates ? TEAMMATES_POINTER : NO_TEAMMATES_SECTION}`,
       mcp_instructions: connectorInstructions,
-    }, agentPrompt.memory);
+    }, agentPrompt.memory, renderAutomationStatusReminder(routines, this.defaultTimeZone, firingRoutineId));
     const siblings = await listSiblingThreads(this.prisma, botId, contextSessionId);
     // The reference order: identity first; the sibling digest after memory and connector
     // instructions after the directory, so per-turn changes sit late in the cached prefix.
@@ -2336,19 +2273,20 @@ export class AgentMessaging {
     return {
       instructions: automation ? `${instructions}\n\n${AUTOMATION_RUN_INSTRUCTIONS}\n\nUse cursor.ReadTranscript with in="${botId}" only when the saved task needs earlier conversation detail; the parent conversation has deliberately not been copied into this automation context.` : instructions,
       instructionsUpdate: [frozen.update, frozen.memory?.update].filter(Boolean).join("\n\n") || null,
+      automationStatus: frozen.automationStatus?.note ?? null,
       ambientContext: automation ? null : [
         dismissedWidgetPrompts.length > 0 ? buildDismissedQuestionsNote(dismissedWidgetPrompts) : "",
         ...richMessagePrompts,
         ...automationResults.map((result) => `[Silent automation result ${result.runId}]\nThis result waited for your next natural boundary and has not been shown to the user. Use it as relevant to the current task; it is not a request for an unsolicited notification.\n${result.message}`),
       ].filter(Boolean).join("\n\n") || null,
-      acknowledgement: { identity: agentPrompt.identityReceipt, sections: frozen.receipts, memory: frozen.memory?.receipt, automationResultRunIds: automationResults.map((result) => result.runId), dismissedMessageIds: automation ? [] : dismissedIds, outcomeIds: (automation ? [] : pendingRichMessages).flatMap((message) => {
+      acknowledgement: { identity: agentPrompt.identityReceipt, sections: frozen.receipts, memory: frozen.memory?.receipt, automationStatus: frozen.automationStatus?.receipt, automationResultRunIds: automationResults.map((result) => result.runId), dismissedMessageIds: automation ? [] : dismissedIds, outcomeIds: (automation ? [] : pendingRichMessages).flatMap((message) => {
         const metadata = message.metadata as Record<string, unknown>;
         return typeof metadata.outcomeId === "string" && typeof metadata.outcomeText === "string" ? [{ messageId: message.id, outcomeId: metadata.outcomeId }] : [];
       }) },
       agentProfileUpdate: agentPrompt.identityAnnouncement || null,
       userInfo,
       userInfoEpoch: agentPrompt.compactionEpoch,
-      todoUpdate: todoContext.length > 0 ? todoContext.join("\n") : null,
+      todoUpdate,
       agentProfileSnapshot: agentPrompt.profileSnapshot,
     };
   }
@@ -2356,7 +2294,7 @@ export class AgentMessaging {
   async acknowledgePlatformPrompt(botId: string, contextSessionId: string | undefined, prompt: PlatformPrompt) {
     const acknowledgement = prompt.acknowledgement;
     if (!acknowledgement) return;
-    await this.agentData.acknowledgePlatformSections(botId, contextSessionId, acknowledgement.sections, acknowledgement.memory);
+    await this.agentData.acknowledgePlatformSections(botId, contextSessionId, acknowledgement.sections, acknowledgement.memory, acknowledgement.automationStatus);
     if (acknowledgement.dismissedMessageIds.length) {
       await this.prisma.$executeRaw(Prisma.sql`
         UPDATE "ChannelMessage"
@@ -2506,10 +2444,6 @@ export class AgentMessaging {
         where: { id: input.target_id },
         include: {
           subagentIdentity: { select: { id: true } },
-          routines: {
-            where: { deletedAt: null },
-            orderBy: { createdAt: "asc" },
-          },
         },
       });
       if (target?.id === source.id) {
@@ -2581,14 +2515,6 @@ export class AgentMessaging {
           priority: Boolean(input.priority),
           interrupted: Boolean(interruptRunId),
           images: input.images,
-          routineStatuses: target.routines.map((routine) => ({
-            name: routine.name,
-            folder: routine.slug,
-            status: routineRuntimeStatus(
-              routine,
-              resolveTimeZone(context.timeZone ?? this.defaultTimeZone)
-            ),
-          })),
         }),
         attachments,
         clientId: `agent:${context.callId}:${target.id}`,
@@ -2962,7 +2888,6 @@ export {
   nextRoutineRun,
   normalizeRoutineSchedule,
   RoutineService,
-  scheduledRoutineTriggerContext,
   scheduledRoutineWakeContent,
 } from "./routines";
 export {
@@ -2978,6 +2903,13 @@ export {
   resolveTimeZone,
   timestampUserTurn,
 } from "./timestamps";
+export {
+  turnOwesReplyReminder,
+  turnSystemReminder,
+  UNFINISHED_TASKS_REMINDER,
+  USER_REPLY_REMINDER,
+  withTurnSystemReminder,
+} from "./turn-notes";
 export { PRIORITY, TRANSCRIPT_PROJECTION_DEBOUNCE_SECONDS };
 
 const safeVisibleMetadata = (value: unknown): Record<string, unknown> => {

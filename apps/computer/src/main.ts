@@ -623,7 +623,8 @@ const server = Bun.serve({
 
       const cancelMatch = url.pathname.match(/^\/v1\/turns\/([^/]+)\/cancel$/);
       if (request.method === "POST" && cancelMatch?.[1]) {
-        await runtime.cancel(cancelMatch[1]);
+        const body = await request.json().catch(() => null) as { reason?: unknown } | null;
+        await runtime.cancel(cancelMatch[1], body?.reason === "user_message" ? "user_message" : undefined);
         return json({ ok: true });
       }
 

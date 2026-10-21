@@ -552,7 +552,7 @@ describe("compaction durable state capture", () => {
     const active = { todoUpdate: "- [pending] stale: Old snapshot" };
     await runtime.executeTodoWrite(active, "call-1", { todos: [] });
     expect(active.todoUpdate).toBe(
-      "- [completed] audit: Review parity\n- [in_progress] ship: Run checks"
+      "- **COMPLETED**: Review parity (id: audit)\n- **IN_PROGRESS**: Run checks (id: ship)"
     );
   });
 

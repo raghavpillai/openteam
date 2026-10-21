@@ -1,6 +1,6 @@
 import { readAgentActivity, readTranscript } from "@openteam/messaging";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
-import { parseTaskConfiguration, subagentUsesParentConnectors } from "@openteam/contracts/task-configuration";
+import { subagentUsesParentConnectors } from "@openteam/contracts/task-configuration";
 import {
   AgentSendToUserInput,
   validateProcessSecretName,
@@ -108,7 +108,7 @@ export class InternalToolService {
         await Promise.allSettled(children.map((child) => this.subagents.stop(request.botId, request.callId, { subagent_id: botSubagentId(child.id) })));
         return woken;
       }
-      if (run.origin === "routine" && !["RefreshPromptContext", "AcknowledgePromptContext", "AcknowledgeCardOutcomes"].includes(request.tool) &&
+      if (run.origin === "routine" && request.tool !== "AcknowledgeCardOutcomes" &&
         (await this.prisma.automationResult.findUnique({ where: { runId: automationContextRunId(run.id, inboxPayload) }, select: { wakeRunId: true } }))?.wakeRunId) {
         throw new ApiError(409, "automation_turn_ended", "This automation already handed control to its parent");
       }
@@ -124,23 +124,6 @@ export class InternalToolService {
       }
       if (request.tool === "RecordUserFormRemap" && !childIdentity && this.richMessages) {
         return this.richMessages.recordFormRemap(request.botId, request.arguments as import("@openteam/contracts").UserFormReceipt);
-      }
-      if (["RefreshPromptContext", "AcknowledgePromptContext"].includes(request.tool)) {
-        const args = request.arguments as { contextSessionId?: string; epoch?: number; connectorInstructions?: string; acknowledgement?: unknown };
-        const session = await this.prisma.contextSession.findFirst({ where: { id: args.contextSessionId, botId: request.botId } });
-        if (!session || !args.contextSessionId) throw new ApiError(403, "context_unavailable", "Context does not belong to this bot");
-        if (request.tool === "AcknowledgePromptContext") {
-          await this.messaging.acknowledgePlatformPrompt(request.botId, session.id, {
-            acknowledgement: args.acknowledgement,
-          } as Parameters<AgentMessaging["acknowledgePlatformPrompt"]>[2]);
-          return { acknowledged: true };
-        }
-        if (!Number.isSafeInteger(args.epoch) || args.epoch! < session.compactionEpoch || args.epoch! > session.compactionEpoch + 1) {
-          throw new ApiError(409, "context_epoch_invalid", "Context epoch is not the current or next summary");
-        }
-        await this.prisma.contextSession.updateMany({ where: { id: session.id, compactionEpoch: { lt: args.epoch! } }, data: { compactionEpoch: args.epoch } });
-        return this.messaging.platformPrompt(request.botId, session.id, args.connectorInstructions ?? "", run.channelId,
-          run.taskConfiguration ? parseTaskConfiguration(run.taskConfiguration) : undefined);
       }
       const parentOnlyTools = new Set([
         "DraftExternalMessage", "SendFeedback", "CreateBotShareJson",

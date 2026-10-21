@@ -159,9 +159,7 @@ export function renderControlResult(
       result.todos.every((t: any) => t.status !== "in_progress")
     )
       text += " No TODOs are marked in-progress, make sure to mark them before starting the next.";
-    if (result.todos.filter((t: any) => ["completed", "cancelled"].includes(t.status)).length > 20)
-      text +=
-        "\n\n<system_reminder>You have many finished todos. Consider cleaning up old ones.</system_reminder>";
+    // The finished-todos cleanup reminder rides after the fenced result (todoCleanupReminder).
     return (
       text +
       "\n\nHere are the latest contents of your todo list:\n" +
@@ -282,3 +280,9 @@ function renderStopAllSubagents(result: Record<string, any>): string {
     `Do not resume, redispatch, or continue the stopped work unless the user asks again. ${SHELLS_NOT_COVERED}`,
   ].join("\n");
 }
+
+/** Appended after a TodoWrite result, outside its data fence, when many finished todos remain. */
+export const todoCleanupReminder = (todos: unknown): string | null =>
+  Array.isArray(todos) && todos.filter((todo: any) => ["completed", "cancelled"].includes(todo?.status)).length > 20
+    ? "<system_reminder>\nYou have many finished todos. Consider cleaning up old ones.\n</system_reminder>"
+    : null;

@@ -17,7 +17,6 @@ import {
   type BotSummaryResult,
   botSummarySystemPrompt,
   botSummaryResponse,
-  replaceBotUserInfo,
   canonicalJson,
   isValidBotEarlyThreshold,
   estimateBotMeasuredContextTokens,
@@ -27,9 +26,22 @@ import { textFromContent } from "./content";
 import { inferenceReasoningOptions } from "./reasoning";
 import type { RuntimeTools } from "./tools";
 import type { ActiveTurn } from "./types";
-import { communicationReminder, executionClock, executionReceipts, promptFingerprint } from "./prompt-context";
+import { communicationReminder, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder, promptFingerprint } from "./prompt-context";
 import { compactRepeatedDiscovery } from "./discovery-context";
+import { DISK_PRESSURE_REMINDER } from "./disk-pressure";
 import { graphicalProgressReminder } from "./graphical-completion";
+
+const TOO_MANY_MEDIA_MARKERS = [
+  "request contained too many images or documents",
+  "too many images or documents error",
+  "too many images and documents",
+  "too much media",
+];
+// Pi's overflow detector recognizes this phrase, which routes the error into compaction.
+const MEDIA_OVERFLOW_NOTE = "context_length_exceeded: too many images or documents";
+
+export const isTooManyMediaError = (message: unknown): boolean =>
+  typeof message === "string" && TOO_MANY_MEDIA_MARKERS.some((marker) => message.toLowerCase().includes(marker));
 
 export const modelVisibleSummaryTools = (
   tools: ReadonlyArray<{
@@ -70,9 +82,9 @@ export function compactionObservation(active: ActiveTurn): Omit<BotObservation, 
     tools,
     projectRoot: active.cwd,
     isRootProject: active.isRootProject,
-    transcriptPath: active.sessionPath ?? undefined,
+    // Workers have no ReadTranscript, which the transcript guidance points to.
+    transcriptPath: active.subagentType ? undefined : active.sessionPath ?? undefined,
     todoUpdate: active.todoUpdate ?? undefined,
-    automationTrigger: active.automationTrigger ?? undefined,
   };
 }
 
@@ -97,7 +109,6 @@ export function compactionExtension(
   ) => Promise<BotSummaryResult>,
   sessionManager: SessionManager,
   active: ActiveTurn,
-  refreshContext?: (epoch: number) => Promise<void>,
   acknowledgeToolOutcomes?: (messages: BotMessage[]) => Promise<void>
 ): { name: string; hidden: boolean; factory: ExtensionFactory } {
   const readPiMessages = () => sessionManager.buildSessionContext().messages as BotMessage[];
@@ -148,6 +159,23 @@ export function compactionExtension(
           );
           event.messages = [...event.messages, active.session.messages.at(-1)!];
         }
+        if (active.diskPressureEpisode != null && !active.diskPressureReminded && active.session) {
+          active.diskPressureReminded = true;
+          await active.session.sendCustomMessage(
+            { customType: "openteam-disk-pressure", content: DISK_PRESSURE_REMINDER, display: false, details: { episode: active.diskPressureEpisode, origin: "host" } },
+            { triggerTurn: false }
+          );
+          event.messages = [...event.messages, active.session.messages.at(-1)!];
+        }
+        // Calls cut off at the output limit come back as errors; say why once, before the retry.
+        if (owesOutputLimitReminder(readPiMessages(), active) && active.session) {
+          active.outputLimitReminded = true;
+          await active.session.sendCustomMessage(
+            { customType: "openteam-output-limit", content: OUTPUT_LIMIT_REMINDER, display: false, details: { origin: "host" } },
+            { triggerTurn: false }
+          );
+          event.messages = [...event.messages, active.session.messages.at(-1)!];
+        }
         const reminder = communicationReminder(readPiMessages(), active);
         if (reminder && active.session) {
           await active.session.sendCustomMessage(
@@ -175,16 +203,11 @@ export function compactionExtension(
           ...observation,
         });
         const adopted = compaction.takeProjectedEvent(active.contextSessionId);
+        // A mid-loop summary keeps this turn's system prompt and user_info; the
+        // next user turn renders them for the new epoch, as in the reference.
         if (adopted) {
           active.compactionEarlyThreshold = undefined;
           publishCompaction(active, adopted);
-          await refreshContext?.(adopted.epoch);
-          // Refresh may append durable update notes after the projection's base
-          // was committed. Re-read that tail before acknowledging it to the model.
-          messages = replaceBotUserInfo(
-            await compaction.contextMessages(active.contextSessionId, readPiMessages()),
-            active.userInfoMessage
-          );
         }
         active.compactionRequestMessages = structuredClone(readPiMessages());
         messages = compactRepeatedDiscovery(messages);
@@ -215,9 +238,7 @@ export function compactionExtension(
             },
           });
         }
-        return {
-          messages: [...messages, ...executionClock(active.runtimeStartedAt), ...executionReceipts(readPiMessages(), active.runtimeStartedAt)] as typeof event.messages,
-        };
+        return { messages: messages as typeof event.messages };
       });
       pi.on("message_start", async (event) => {
         if (event.message.role === "assistant") {
@@ -256,6 +277,11 @@ export function compactionExtension(
       pi.on("message_end", async (event) => {
         if (event.message.role !== "assistant" || !active.session) return;
         const message = event.message as unknown as BotMessage;
+        // Too many images or documents is recovered like an overflow: Pi summarizes and retries.
+        if (message.stopReason === "error" && isTooManyMediaError(message.errorMessage)) {
+          compaction.forceReason(active.contextSessionId, "approaching_image_limit");
+          return { message: { ...event.message, errorMessage: `${String(message.errorMessage)} (${MEDIA_OVERFLOW_NOTE})` } };
+        }
         if (["error", "aborted"].includes(String(message.stopReason))) return;
         const measuredInputTokens = responseTokens(message, false);
         if (active.pendingCompactionMeasurement && measuredInputTokens > 0) {
@@ -278,6 +304,9 @@ export function compactionExtension(
         ) {
           active.compactionEarlyThreshold = early;
         }
+        // Launch only over settled history, as the reference does at step start: a
+        // response with calls waits for the next context hook, after its results.
+        if (Array.isArray(message.content) && message.content.some((part) => part?.type === "toolCall")) return;
         await compaction.observe({
           ...observation,
           infer,
@@ -315,7 +344,6 @@ export function compactionExtension(
         if (!adopted) return;
         active.compactionEarlyThreshold = undefined;
         publishCompaction(active, adopted);
-        await refreshContext?.(adopted.epoch);
       });
       pi.on("session_compact_failed", async () => {
         if (deferredAutomatic) {
@@ -343,7 +371,19 @@ export async function inferCompaction(
   // The summarization wrapper sends the normal model-visible schemas through
   // a stream-only session. Calling the model runtime directly gives us the same
   // surface while making tool execution structurally impossible.
-  const result = await modelRuntime.completeSimple(
+  const result = request.external ? await modelRuntime.completeSimple(
+    model,
+    {
+      systemPrompt: request.systemPrompt,
+      messages: [{ role: "user", content: [{ type: "text", text: request.external.prompt }], timestamp: Date.now() }] as never,
+      tools: [],
+    },
+    {
+      signal,
+      ...inferenceReasoningOptions(model, active.reasoning),
+      maxTokens: Math.min(request.external.maxTokens, model.maxTokens || request.external.maxTokens),
+    }
+  ) : await modelRuntime.completeSimple(
     model,
     {
       systemPrompt: botSummarySystemPrompt(request.systemPrompt),

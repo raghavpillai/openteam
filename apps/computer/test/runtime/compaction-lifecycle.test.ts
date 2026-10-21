@@ -159,8 +159,6 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
       acknowledgeToolOutcomes: async () => {},
       interruptShellWaits() {},
       cancelApprovals() {},
-      refreshPrompt: async () => ({ instructions: "System fixture", userInfo: null }),
-      acknowledgePrompt: async () => {},
       userForms: { beginTurn: async () => {}, endTurn: async () => {} },
     };
     try {
@@ -390,8 +388,6 @@ for (const timing of ["terminal-ready", "terminal-pending"] as const) {
       acknowledgeToolOutcomes: async () => {},
       interruptShellWaits() {},
       cancelApprovals() {},
-      refreshPrompt: async () => ({ instructions: "System fixture", userInfo: null }),
-      acknowledgePrompt: async () => {},
       userForms: { beginTurn: async () => {}, endTurn: async () => {} },
     };
     try {

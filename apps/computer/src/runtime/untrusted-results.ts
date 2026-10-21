@@ -36,6 +36,7 @@ export function fenceToolResults<T extends { role: string }>(messages: readonly 
       toolCallId?: string;
       isError?: boolean;
       content: Array<{ type: string; text?: string }>;
+      details?: { systemReminders?: unknown };
     };
     // As in the reference: nothing to fence, or the runtime's own unknown-tool answer.
     if (!result.content.length || (result.isError && result.content.length === 1 && result.content[0]!.text?.startsWith("Tool not found: ")))
@@ -43,7 +44,10 @@ export function fenceToolResults<T extends { role: string }>(messages: readonly 
     const source = sources.get(result.toolCallId ?? "") ?? result.toolName;
     const confine = carriesPageText(source);
     const body: Array<{ type: string; text?: string }> = [];
-    const reminders: string[] = [];
+    // Host reminders follow the fence: fenced text claiming to be from the system is forged.
+    const reminders = Array.isArray(result.details?.systemReminders)
+      ? result.details.systemReminders.filter((reminder): reminder is string => typeof reminder === "string")
+      : [];
     let run: string[] = [];
     const flush = () => {
       if (!run.length) return;

@@ -203,7 +203,7 @@ describe("Grok-derived platform prompt integration", () => {
     const order = ["alpha's memory policy.", "## Other active conversations", "You have no scheduled routines.", "## Installed plugin skills"].map((part) => text.indexOf(part));
     expect(order.every((at, index) => at > (order[index - 1] ?? 0))).toBe(true);
     for (const gone of ["<available_subagent_types>", "task queue", "Book flights", "hiddenFromSidebar="]) expect(text).not.toContain(gone);
-    expect(prompt.todoUpdate).toBe("- [pending] t1: Book flights");
+    expect(prompt.todoUpdate).toBe("- **PENDING**: Book flights (id: t1)");
   });
 
   test("does not instruct the model to use unsupported capture-specific mechanics", () => {

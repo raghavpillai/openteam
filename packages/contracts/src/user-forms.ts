@@ -241,6 +241,10 @@ export function parseFormRemap(value: unknown): Array<{ fieldId: string; target:
   });
 }
 
+export const USER_FORM_FILL_FAILURE_KINDS = ["driver_unavailable","target_gone","target_missing","in_unreachable_frame","in_closed_shadow","frame_origin_refused","fill_op_failed","hidden_target","page_moved"];
+/** A remap cannot cure these, so the host drops the value instead of holding it. */
+export const USER_FORM_REMAP_CANNOT_CURE = ["driver_unavailable","in_unreachable_frame","in_closed_shadow","frame_origin_refused"];
+
 /** Whitelist the status-only host response before it reaches durable model data. */
 export function parseUserFormReceipt(raw: unknown): UserFormReceipt {
   const value = record(raw);
@@ -275,7 +279,7 @@ export function parseUserFormReceipt(raw: unknown): UserFormReceipt {
     ...(typeof value.domain === "string" ? {domain:normalizeFormDomain(value.domain)} : {}),
     ...(value.requestedSubmit === true ? {requestedSubmit:true} : {}),
     ...(value.fieldTypes && typeof value.fieldTypes === "object" ? {fieldTypes:Object.fromEntries(Object.entries(value.fieldTypes).filter(([key,type]) => fields.some(field=>field.id===key) && ["text","email","tel","password","otp","number","date","select","textarea","checkbox"].includes(String(type)))) as Record<string,UserFormField["type"]>} : {}),
-    ...(value.fillFailureKinds && typeof value.fillFailureKinds === "object" ? {fillFailureKinds:Object.fromEntries(Object.entries(value.fillFailureKinds).filter(([key,kind])=>fields.some(field=>field.id===key) && ["driver_unavailable","target_gone","target_missing","in_unreachable_frame","in_closed_shadow","fill_op_failed","hidden_target","page_moved"].includes(String(kind)))) as Record<string,string>} : {}),
+    ...(value.fillFailureKinds && typeof value.fillFailureKinds === "object" ? {fillFailureKinds:Object.fromEntries(Object.entries(value.fillFailureKinds).filter(([key,kind])=>fields.some(field=>field.id===key) && USER_FORM_FILL_FAILURE_KINDS.includes(String(kind)))) as Record<string,string>} : {}),
     ...(value.domainMismatch && typeof value.domainMismatch === "object" ? {domainMismatch: typeof (value.domainMismatch as any).liveHost === "string" ? {liveHost:normalizeFormDomain((value.domainMismatch as any).liveHost)} : {}} : {}),
     ...(value.pageMoved && typeof value.pageMoved === "object" && ["navigated","target_gone"].includes((value.pageMoved as any).signal) ? {pageMoved:{signal:(value.pageMoved as any).signal}} : {}),
     ...(value.interrupted === true ? { interrupted: true } : {}),

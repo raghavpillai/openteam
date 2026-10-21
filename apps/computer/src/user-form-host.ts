@@ -9,6 +9,8 @@ import {
   parseFormRemap,
   parseUserForm,
   validateUserFormValues,
+  USER_FORM_FILL_FAILURE_KINDS,
+  USER_FORM_REMAP_CANNOT_CURE,
   type UserForm,
   type UserFormField,
   type UserFormReceipt,
@@ -438,7 +440,8 @@ export class UserFormHost {
         continue;
       }
       let filled = false;
-      let failureKind = "driver_unavailable";
+      // Like the reference, a field skipped after the page left the consented host carries no kind.
+      let failureKind: string | undefined = receipt.domainMismatch ? undefined : receipt.pageMoved ? "page_moved" : "driver_unavailable";
       if (!receipt.domainMismatch && !receipt.pageMoved && browser && saved.binding) {
         try { filled = await browser.fill(saved.binding, field, value); failureKind = "fill_op_failed"; }
         catch (error) {
@@ -446,11 +449,12 @@ export class UserFormHost {
           const message = failure.message ?? "";
           if (failure.kind === "domain_mismatch" || /changed domain/.test(message)) receipt.domainMismatch = {liveHost:failure.liveHost};
           else if (failure.kind === "page_moved") receipt.pageMoved = {signal:"navigated"};
-          failureKind = failure.kind ?? (/stale|unknown.*ref/i.test(message) ? "target_gone" : /hidden/i.test(message) ? "hidden_target" : /missing|ambiguous/i.test(message) ? "target_missing" : /Cross-origin/i.test(message) ? "in_unreachable_frame" : "fill_op_failed");
+          failureKind = receipt.domainMismatch ? undefined : receipt.pageMoved ? "page_moved" : failure.kind ?? (/stale|unknown.*ref/i.test(message) ? "target_gone" : /hidden/i.test(message) ? "hidden_target" : /missing|ambiguous/i.test(message) ? "target_missing" : "fill_op_failed");
+          if (failureKind && !USER_FORM_FILL_FAILURE_KINDS.includes(failureKind)) failureKind = "fill_op_failed";
         }
       }
-      if (!filled) (receipt.fillFailureKinds ??= {})[field.id] = receipt.pageMoved ? "page_moved" : failureKind;
-      const retain = !filled && !remap && !receipt.domainMismatch;
+      if (!filled && failureKind) (receipt.fillFailureKinds ??= {})[field.id] = failureKind;
+      const retain = !filled && !remap && !receipt.domainMismatch && !(failureKind && USER_FORM_REMAP_CANNOT_CURE.includes(failureKind));
       receipt.fields.push({ id: field.id, status: filled ? "filled" : retain ? "held" : "dropped" });
       if (retain) held[field.id] = value;
     }

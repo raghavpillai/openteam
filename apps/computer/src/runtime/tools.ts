@@ -3,10 +3,8 @@ import { onlyPendingBackgroundWork } from "./background-status";
 import { spoolFile } from "@openteam/plugin-sdk/file-spool";
 import { agentReadStream, agentWriteStream } from "../agent-file-stream";
 import { stageAttachment } from "../attachment-staging";
-import {
-  describeOutputLocation,
-  buildUserFormRemapReceipt,
-} from "@openteam/contracts/reference-formatters";
+import { describeOutputLocation } from "@openteam/contracts/reference-formatters";
+import { buildUserFormRemapReceipt } from "@openteam/contracts/reference-form-results";
 import { renderDesktopResult, renderControlResult } from "@openteam/contracts/tool-results";
 import {
   describeUploadFileOutcome,

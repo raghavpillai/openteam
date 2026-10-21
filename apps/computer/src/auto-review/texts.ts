@@ -52,10 +52,10 @@ export const APPROVAL_INTERRUPTED =
 export const FEEDBACK_NOT_APPROVED_MESSAGE =
   "Feedback was not sent: the user did not approve sending it. Do not retry; ask the user what they would like to do instead.";
 export const FEEDBACK_APPROVAL_UNAVAILABLE_MESSAGE =
-  "Feedback was not sent: sending feedback needs the user's approval, which is not available in this conversation. Tell the user to use Help > Send Feedback instead.";
+  "Feedback was not sent: sending feedback needs the user's approval, which is not available in this conversation. Tell the user to send it to the OpenTeam maintainers themselves instead.";
 /** Adapted: the deployment's privacy settings stand in for the reference's privacy mode. */
 export const FEEDBACK_PRIVACY_MODE_MESSAGE =
-  "The feedback tool is unavailable under this deployment's privacy settings. Tell the user to send their feedback themselves via Help > Send Feedback.";
+  "The feedback tool is unavailable under this deployment's privacy settings. Tell the user to send their feedback to the OpenTeam maintainers themselves.";
 /** Adapted: the deployment's support destination stands in for the reference's team. */
 export const FEEDBACK_APPROVAL_REASON =
   "This exact text will be sent to the configured OpenTeam support destination from your account as product feedback. Nothing is sent unless you approve.";

@@ -129,3 +129,30 @@ test('a PR watch deletes itself once the wake for its merged pull request finish
   expect(await prisma.routineRevision.findFirst({ where: { routineId: watch.id, callId: { startsWith: 'routine-terminal:' } } })).not.toBeNull();
  } finally { await prisma.bot.deleteMany({ where: { id: botId } }); await prisma.channel.deleteMany({ where: { id: channelId } }); await prisma.$disconnect(); await rm(root, { recursive: true, force: true }); }
 });
+test('a wake keeps the first 25 events that arrived during a run, as the reference clamps it, and still recognizes the rest', async () => {
+ if (!url) return;
+ const prisma = createPrismaClient(url); const root = await mkdtemp(join(tmpdir(), 'event-clamp-')); const botId = crypto.randomUUID(), channelId = crypto.randomUUID();
+ const data = new AgentDataStore(prisma, { root: join(root, 'data'), workspaceRoot: root });
+ const messaging = new AgentMessaging(prisma, { send: async () => crypto.randomUUID(), sendDebounced: async () => crypto.randomUUID() } as never, data);
+ const routines = new RoutineService(prisma, messaging, data);
+ try {
+  await prisma.bot.create({ data: { id: botId, name: 'Clamp fixture', defaultDirectory: root, status: 'active', onboardingStatus: 'completed', conversation: { create: {} } } });
+  await prisma.channel.create({ data: { id: channelId, kind: 'bot_dm', directKey: `bot:${botId}`, name: 'Clamp fixture', members: { create: { botId, ordinal: 0 } } } });
+  await data.initializeBot(botId); await data.writeRootSettings({});
+  await routines.mutate(botId, crypto.randomUUID(), null, { action: 'create', name: 'Mentions', prompt: 'Summarize the mentions.', trigger: { type: 'slack', channel: '#eng', match: { kind: 'message' } } });
+  const message = (n: number) => ({ id: `slack-${n}`, source: 'slack', kind: 'message', channel: '#eng', text: `message ${n}` });
+  const [first] = await routines.dispatchEvent({ kind: 'bot', id: botId }, message(1));
+  await prisma.run.update({ where: { id: first!.runId! }, data: { status: 'running' } });
+  await prisma.inboxEvent.updateMany({ where: { runId: first!.runId! }, data: { status: 'processing' } });
+  await prisma.routineExecution.update({ where: { id: first!.id }, data: { status: 'running' } });
+  const later = [];
+  for (let n = 2; n <= 28; n++) later.push(...(await routines.dispatchEvent({ kind: 'bot', id: botId }, message(n))));
+  expect(new Set(later.map((execution) => execution.id)).size).toBe(1);
+  const followUp = await prisma.routineExecution.findUniqueOrThrow({ where: { id: later[0]!.id } });
+  expect((followUp.events as Array<{ id: string }>).map((event) => event.id)).toEqual(Array.from({ length: 25 }, (_, i) => `slack-${i + 2}`));
+  // An event past the cap was absorbed, not delivered; a redelivery of it does not start another run.
+  expect((await routines.dispatchEvent({ kind: 'bot', id: botId }, message(28)))[0]!.id).toBe(followUp.id);
+  expect((await routines.dispatchEvent({ kind: 'bot', id: botId }, message(3)))[0]!.id).toBe(followUp.id);
+  expect(await prisma.routineExecution.count({ where: { routine: { botId } } })).toBe(2);
+ } finally { await prisma.bot.deleteMany({ where: { id: botId } }); await prisma.channel.deleteMany({ where: { id: channelId } }); await prisma.$disconnect(); await rm(root, { recursive: true, force: true }); }
+});

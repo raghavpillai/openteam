@@ -51,7 +51,7 @@ test("parsers keep the reference arguments OpenTeam supports", async () => {
     stopped_all: true, stopped: [entry("a")], already_finished: [entry("b")], failed: [{ ...entry("c"), error: "timeout" }],
   }, { all: true }).split("\n");
   expect(receipt).toEqual([
-    "Stopped 1 of 3 running subagent(s). They are torn down and will not report back:",
+    "Stopped 1 of 3 running subagent(s). They are torn down, will not report back, and anything they dispatched or ran inside their own turn ends with them:",
     '- sand-subagent-a [executor] "Worker a"',
     "1 had already finished before the stop reached them (you are revived with a finished subagent's result separately):",
     '- sand-subagent-b [executor] "Worker b"',

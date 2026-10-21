@@ -34,7 +34,7 @@ test.skipIf(!databaseUrl)("agent manual OAuth hands off without creating or repl
     const anonymous = createOpenTeamClient({ baseUrl: f.server.url.origin });
     await expect(anonymous.authenticatePlugin(connection.id)).rejects.toMatchObject({ code: "unauthorized" });
     await expect(Effect.runPromise(f.service.authenticate(connection.id))).rejects.toThrow("signed-in session");
-    const request = { callId, botId: crypto.randomUUID(), runId: crypto.randomUUID(), action: "AuthenticateMcpServer", arguments: { connectionId: connection.id, forceReauth: true } };
+    const request = { callId, botId: crypto.randomUUID(), runId: crypto.randomUUID(), action: "AuthenticateMcpServer", arguments: { connectionId: connection.id, forceReauth: true }, origin: "user" as const };
     const before = await rowFor(f, connection.id);
     const result = await f.service.requestAction(request) as any;
     expect(result.actionResult).toMatchObject({ connectionId: connection.id, status: "awaiting_user", requiresUserAction: true, accountLabel: "default", pluginId: connection.pluginKey });

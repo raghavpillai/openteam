@@ -53,6 +53,7 @@ test.skipIf(!databaseUrl)(
         callId,
         action: "AuthenticateMcpServer",
         arguments: { server_id: source.pluginKey, account_label: "work" },
+        origin: "user" as const,
       };
       const result=await service.requestAction(request) as any;
       const pinnedId=result.actionResult.id;

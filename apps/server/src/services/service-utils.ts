@@ -1,3 +1,5 @@
+import { ApiError } from "@openteam/contracts";
+import { COMPUTER_API_PATHS } from "@openteam/contracts/service-protocol";
 import type { Prisma } from "@openteam/db";
 import { Effect } from "effect";
 import { createHash } from "node:crypto";
@@ -34,6 +36,15 @@ export const toError = (error: unknown) =>
   error instanceof Error ? error : new Error(String(error));
 
 export type ComputerFetch = (path: string, init: RequestInit) => Promise<Response>;
+
+/** A stopped subagent is torn down with what it ran: its background box shells end too. */
+export const stopSubagentShells = async (computerFetch: ComputerFetch, childBotId: string) => {
+  const response = await computerFetch(COMPUTER_API_PATHS.backgroundShellsStop(childBotId), {
+    method: "POST",
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) throw new ApiError(502, "subagent_shells_not_stopped", `The subagent's background commands could not be stopped: ${await response.text()}`);
+};
 
 export const metadataRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value)

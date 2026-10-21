@@ -65,7 +65,7 @@ for (const [provider, spec] of Object.entries(CASES)) {
     expect(result).toMatchObject({ configured: true, provider, url: spec.finalUrl });
     expect("text" in result && result.text).toStartWith("# Page");
     expect(JSON.stringify(result)).not.toContain(key);
-    const web = await new WebTools(new SearchProviderClient(), client(spec.success)).fetch(url, process.cwd());
+    const web = await new WebTools(new SearchProviderClient(), client(spec.success)).fetch(url);
     expect(web.content[0]!.text).toContain("# Page");
   });
   test(`${provider} reports page failures inside a successful response`, async () => {
@@ -90,7 +90,7 @@ test("Firecrawl notes truncated PDFs and reports sites it declines as refusals, 
     note: "Firecrawl read only the first 25 of 194 PDF pages. Download the PDF with Shell and use Read for the rest.",
   });
   expect(await firecrawl(pdf(5, 5)).fetch(url)).not.toHaveProperty("note");
-  const web = await new WebTools(new SearchProviderClient(), firecrawl(pdf(25, 194))).fetch(url, process.cwd());
+  const web = await new WebTools(new SearchProviderClient(), firecrawl(pdf(25, 194))).fetch(url);
   expect(web.content[0]!.text).toContain("Note: Firecrawl read only the first 25 of 194 PDF pages.");
 
   const declined = () =>
@@ -145,11 +145,11 @@ test("fetch defaults to built-in, can be turned off, and never sends a request w
     const result = new WebTools(
       new SearchProviderClient(),
       new FetchProviderClient(() => ({ provider }), request)
-    ).fetch(url, process.cwd());
+    ).fetch(url);
     await expect(result).rejects.toThrow("is selected but its API key is missing. No page was fetched");
   }
   await expect(
-    new WebTools(new SearchProviderClient(), new FetchProviderClient(() => ({ provider: null }), request)).fetch(url, process.cwd())
+    new WebTools(new SearchProviderClient(), new FetchProviderClient(() => ({ provider: null }), request)).fetch(url)
   ).rejects.toThrow("Web fetch is turned off");
   expect(requests).toBe(0);
 });
@@ -223,36 +223,21 @@ test("runtime fetch configuration defaults from server and observes provider cha
   await expect(configuration()).rejects.toThrow("settings could not be loaded");
 });
 
-test("oversized extraction spills redacted full content to an actual file", async () => {
-  const { mkdtemp, readFile, rm } = await import("node:fs/promises");
-  const { tmpdir } = await import("node:os");
-  const { join } = await import("node:path");
-  const cwd = await mkdtemp(join(tmpdir(), "web-fetch-spill-"));
-  try {
-    const client = new FetchProviderClient(
-      () => ({ provider: "exa", apiKey: key }),
-      async () =>
-        Response.json({
-          results: [{ url, text: "Start\n" + "text ".repeat(25000) + key + "\nEnd" }],
-        }),
-      validate
-    );
-    const result = await new WebTools(new SearchProviderClient(), client).fetch(url, cwd);
-    expect(result.content[0]!.text).toContain("source: unknown");
-    const outputPath = "outputPath" in result.details ? result.details.outputPath : undefined;
-    expect(outputPath).toBeDefined();
-    // The first 100,000 characters stay inline, then the reference marker and a pointer to the whole page.
-    const inline = result.content[0]!.text;
-    expect(inline).toContain(`\n\nStart\n${"text ".repeat(19_998)}text\n\n...[2 lines truncated]\n\nFull page saved to ${outputPath}.`);
-    expect(inline.endsWith(`Full page saved to ${outputPath}.`)).toBe(true);
-    const full = await readFile(outputPath!, "utf8");
-    expect(full.startsWith("Start\n")).toBe(true);
-    expect(full).toContain("End");
-    expect(full).toContain("[redacted]");
-    expect(full).not.toContain(key);
-  } finally {
-    await rm(cwd, { recursive: true, force: true });
-  }
+test("a long page is cut inline at 100,000 characters with the reference marker, with no file", async () => {
+  const client = new FetchProviderClient(
+    () => ({ provider: "exa", apiKey: key }),
+    async () => Response.json({ results: [{ url, text: "Start\n" + "text ".repeat(25000) + key + "\nEnd" }] }),
+    validate
+  );
+  const result = await new WebTools(new SearchProviderClient(), client).fetch(url);
+  const text = result.content[0]!.text;
+  expect(text).toContain("source: unknown");
+  // The header, the first 100,000 characters of the page, then the count of the lines left out.
+  expect(text.endsWith(`\n\nStart\n${"text ".repeat(19_998)}text\n\n...[2 lines truncated]`)).toBe(true);
+  expect(text).not.toContain(key);
+  expect(text).not.toContain("saved to");
+  expect(result.details).not.toHaveProperty("outputPath");
+  expect(result.details.characters).toBe("Start\n".length + 125_000 + "[redacted]\nEnd".length);
 });
 
 test("Exa cache provenance reaches the agent without inventing a crawl timestamp", async () => {
@@ -262,7 +247,7 @@ test("Exa cache provenance reaches the agent without inventing a crawl timestamp
       async () => Response.json({ results: [{ url: finalUrl, text: 'Price $9975; delivery to Thailand.' }], statuses: [{ id: url, status: 'success', source }] }),
       validate
     );
-    const page = await new WebTools(new SearchProviderClient(), client).fetch(url, process.cwd());
+    const page = await new WebTools(new SearchProviderClient(), client).fetch(url);
     const expected = source === "cached" || source === "crawled" ? source : "unknown";
     expect(page.details).toMatchObject({ source: expected, requestedUrl: url, url: finalUrl });
     expect(Number.isNaN(Date.parse(page.details.retrievedAt))).toBe(false);

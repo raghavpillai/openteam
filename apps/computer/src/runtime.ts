@@ -81,6 +81,7 @@ export const isDeliveryOwed = (
 export class ComputerRuntime {
   private readonly tools: RuntimeTools;
   get userForms() { return this.tools.userForms; }
+  stopBackgroundShells(botId: string) { return this.tools.stopBackgroundShells(botId); }
 
   private readonly activeByRun = new Map<string, ActiveTurn>();
   private readonly activeByContext = new Map<string, ActiveTurn>();
@@ -296,7 +297,6 @@ export class ComputerRuntime {
       pluginRuntimePackages: request.pluginRuntimePackages as import("@openteam/plugin-sdk").PluginRuntimePackage[] | undefined,
       pluginAbortController: new AbortController(),
       readOnly: request.readOnly ?? false,
-      skillAccess: request.skillAccess ?? "read",
       attachmentTempDirectories: [],
     };
     this.activeByRun.set(active.runId, active);

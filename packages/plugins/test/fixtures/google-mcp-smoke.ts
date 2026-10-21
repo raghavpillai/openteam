@@ -47,7 +47,7 @@ try {
    if(key==='gmail'){
     assert.equal((await call('create_draft',{subject:'Large binary transport fixture',attachments:[{filename:'large.bin',mimeType:'application/octet-stream',content:Buffer.alloc(9*1024*1024,42).toString('base64')}]})).id,'large-draft');
     const search=await connected.callTool({name:'search_threads',arguments:{query:'invoice acme'}}) as any;
-    assert.deepEqual(JSON.parse(search.content[0].text),{threads:[]});
+    assert.deepEqual(JSON.parse(search.content[0].text),{});
     assert.match(search.content[1].text,/^Note: no thread matched this query, and one empty search does not show the message is missing\./);
    }
    else if(key==='google-calendar')assert.equal((await call('search_events',{query:'interviewing job candidates'})).events[0].id,'hiring');

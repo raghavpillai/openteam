@@ -14,7 +14,7 @@ function fixture() {
       childRunId: "child",
       runInBackground: true,
       status: "running",
-      subagent: { id: "sub", currentRunId: "child", status: "running" },
+      subagent: { id: "sub", childBotId: "sub-bot", currentRunId: "child", status: "running" },
     },
     {
       id: "background-attempt",
@@ -22,10 +22,11 @@ function fixture() {
       childRunId: "background",
       runInBackground: true,
       status: "running",
-      subagent: { id: "bg", currentRunId: "background", status: "running" },
+      subagent: { id: "bg", childBotId: "bg-bot", currentRunId: "background", status: "running" },
     },
   ];
   const calls: string[] = [];
+  const shellStops: string[] = [];
   const events: any[] = [];
   const inbox: any[] = [];
   let queueRace = false;
@@ -90,6 +91,10 @@ function fixture() {
   let fetchImpl = async (_id: string) => new Response("{}", { status: 200 });
   const service = new RunService(db, async (path: string) => {
     const id = path.split("/")[3]!;
+    if (path.endsWith("/background-shells/stop")) {
+      shellStops.push(id);
+      return new Response('{"stopped":1}');
+    }
     calls.push(id);
     return fetchImpl(id);
   });
@@ -98,6 +103,7 @@ function fixture() {
     runs,
     children,
     calls,
+    shellStops,
     events,
     inbox,
     setFetch: (f: typeof fetchImpl) => (fetchImpl = f),
@@ -114,6 +120,8 @@ test("a stop leaves the parent's subagents running, since every Task runs in the
   await Effect.runPromise(f.service.cancel("parent"));
   expect(f.calls).toEqual(["parent"]);
   expect(f.runs.child.status).toBe("running");
+  // Their background shells keep running too; only StopSubagent ends a child's shells.
+  expect(f.shellStops).toEqual([]);
 });
 test("HTTP failure on a running parent returns failure", async () => {
   const f = fixture();

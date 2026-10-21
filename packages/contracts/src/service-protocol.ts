@@ -17,6 +17,7 @@ export const COMPUTER_API_PATHS = {
   agentStores: "/v1/agent-stores",
   reconcileAgentStores: "/v1/agent-stores/reconcile",
   turnCancel: (runId: string) => `/v1/turns/${encodeURIComponent(runId)}/cancel`,
+  backgroundShellsStop: (botId: string) => `/v1/bots/${encodeURIComponent(botId)}/background-shells/stop`,
   agentStore: (ownerId: string) => `/v1/agent-stores/${encodeURIComponent(ownerId)}`,
 } as const;
 

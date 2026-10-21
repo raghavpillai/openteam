@@ -15,7 +15,7 @@ import { type AgentDataStore, type AgentMessaging, PRIORITY, type ToolContext } 
 import { Effect, Schema } from "effect";
 import { fromPrisma } from "pg-boss";
 import type { RunService } from "../run-service";
-import { appendEvent, type ComputerFetch, hashRequest, toJson } from "../service-utils";
+import { appendEvent, type ComputerFetch, hashRequest, stopSubagentShells, toJson } from "../service-utils";
 import { taskInference, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 import { normalizeSubagentTypeName, parentOnlyDispatchNotice, subagentTitle, withSiteDispatchNotes } from "@openteam/contracts/subagent-dispatch";
 
@@ -343,6 +343,8 @@ export class SubagentService {
         if (!run || !["completed", "failed", "cancelled", "interrupted"].includes(run.status)) throw error;
       }
     }
+    // Before the stop is recorded, so a failure leaves it running and retryable.
+    await stopSubagentShells(this.computerFetch, subagent.childBotId);
     const stopped = await this.prisma.$transaction(async (tx) => {
       const stoppedAt = new Date();
       const updated = await tx.subagent.updateMany({

@@ -1,9 +1,9 @@
 import { renderReadText, renderPdfReadText } from "@openteam/contracts/read-output";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { randomInt } from "node:crypto";
-import { ShellJobRegistry, createShellEnvironmentCapture, loadShellEnvironment, SHELL_ENVIRONMENT_CAPTURE } from "@openteam/shell-jobs";
+import { ShellJobRegistry, createShellEnvironmentCapture, loadShellEnvironment, SHELL_ENVIRONMENT_CAPTURE, terminalFooter, terminalFrontmatter, type TerminalStatus } from "@openteam/shell-jobs";
 import { createWriteStream, type WriteStream } from "node:fs";
-import { access, mkdir, readFile, stat } from "node:fs/promises";
+import { access, mkdir, open, readFile, stat } from "node:fs/promises";
 import { dirname, extname, isAbsolute, resolve } from "node:path";
 import type { Readable } from "node:stream";
 import {
@@ -20,6 +20,8 @@ export const MAX_ACTIVE_SHELL_JOBS = 2;
 export const MAX_QUEUED_SHELL_JOBS = 8;
 export const MAX_SHELL_RUNTIME_MS = 2 * 60 * 60 * 1_000;
 export const SHELL_TERMINATION_GRACE_MS = 1_500;
+/** How often a running command's terminal header refreshes `running_for_ms`, as on the box. */
+const TERMINAL_HEADER_UPDATE_MS = 5_000;
 
 type HostChildStopReason =
   | "cancelled"
@@ -422,12 +424,17 @@ export const executeShell = async (
     const outputPath = resolve(terminalDir, `${shellId}.log`);
     outputFile = createWriteStream(outputPath, { flags: "wx", mode: 0o600 });
     const startedAt = Date.now();
-    const logHeader = `command: ${input.command}\nworking_directory: ${workingDirectory}\nstarted_at: ${new Date(startedAt).toISOString()}\n\n`;
-    const logHeaderBytes = Buffer.byteLength(logHeader);
-    if (logHeaderBytes + SHELL_LOG_FOOTER_RESERVE_BYTES > MAX_SHELL_LOG_BYTES) {
+    const title = typeof input.description === "string" && input.description.trim() ? input.description : undefined;
+    let pid: number | undefined;
+    // The box terminal format, so the AwaitShell description's header and footer hold here too.
+    const frontmatter = (status: TerminalStatus) => terminalFrontmatter({
+      pid, cwd: workingDirectory, command: input.command as string, title, status,
+      startedAt: new Date(startedAt).toISOString(), runningForMs: Date.now() - startedAt,
+    });
+    // The pid is added after spawn; the footer reserve covers its few bytes.
+    if (Buffer.byteLength(frontmatter("running")) + SHELL_LOG_FOOTER_RESERVE_BYTES > MAX_SHELL_LOG_BYTES) {
       throw new Error("ExternalShell command metadata exceeds the terminal log limit");
     }
-    const commandLogBudget = MAX_SHELL_LOG_BYTES - logHeaderBytes - SHELL_LOG_FOOTER_RESERVE_BYTES;
     const savedEnvironment = await loadShellEnvironment(terminalDir, "host", process.env);
     const environmentCapture = createShellEnvironmentCapture(dirname(savedEnvironment.path));
     const child = spawn("/bin/bash", ["--noprofile", "--norc", "-c", `${SHELL_ENVIRONMENT_CAPTURE}\n${input.command}`], {
@@ -437,6 +444,20 @@ export const executeShell = async (
       stdio: ["ignore", "pipe", "pipe", environmentCapture.fd],
     }) as HostChildProcess;
     environmentCapture.closeParent();
+    pid = child.pid;
+    const logHeader = frontmatter("running");
+    const logHeaderBytes = Buffer.byteLength(logHeader);
+    const commandLogBudget = MAX_SHELL_LOG_BYTES - logHeaderBytes - SHELL_LOG_FOOTER_RESERVE_BYTES;
+    let headerUpdate = Promise.resolve();
+    const rewriteHeader = (status: TerminalStatus) => (headerUpdate = headerUpdate.then(async () => {
+      const next = frontmatter(status);
+      // Fixed-width fields keep the length; never overwrite the first output bytes.
+      if (Buffer.byteLength(next) !== logHeaderBytes) return;
+      const file = await open(outputPath, "r+");
+      try { await file.write(next, 0, "utf8"); } finally { await file.close(); }
+    }).catch(() => undefined));
+    const headerTimer = setInterval(() => void rewriteHeader("running"), TERMINAL_HEADER_UPDATE_MS);
+    headerTimer.unref?.();
     const maxRuntimeMs = Math.max(1, executionOptions.maxRuntimeMs ?? MAX_SHELL_RUNTIME_MS);
     const job = shellJobs.start({
       id: shellId,
@@ -515,6 +536,7 @@ export const executeShell = async (
       try { await environmentCapture.persist(savedEnvironment.path, [], savedEnvironment.environment); }
       catch (error) { processError = error instanceof Error ? error : new Error("Could not persist shell environment"); stopReason = "output_stream_error"; }
       tree.rootClosed();
+      clearInterval(headerTimer);
       if (runtimeTimer) clearTimeout(runtimeTimer);
       signal?.removeEventListener("abort", abort);
       child.stdout.off("data", collect);
@@ -544,12 +566,14 @@ export const executeShell = async (
                   ? "failed"
                   : "completed";
       if (outputFile) {
-        await finishOutputFile(
-          outputFile,
-          `\n\nstatus: ${status}\nexit_code: ${exitCode ?? "null"}\nelapsed_ms: ${elapsedMs}\n`
-        );
+        await finishOutputFile(outputFile, terminalFooter(exitCode, elapsedMs));
         outputFile.off("error", onOutputError);
       }
+      // A command this host stopped is aborted, as on the box; one that could not run or log failed.
+      await rewriteHeader(
+        stopReason === "spawn_error" || stopReason === "output_stream_error" ? "failed"
+          : stopReason ? "aborted" : exitCode === 0 ? "succeeded" : "failed"
+      );
       job.finish(exitCode, stopReason ? (processError?.message ?? status) : undefined);
       resolveCompletion({ exitCode, reason: stopReason, error: processError });
     };

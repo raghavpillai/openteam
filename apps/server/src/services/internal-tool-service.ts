@@ -233,6 +233,7 @@ export class InternalToolService {
           callId: request.callId,
           action: request.tool,
           arguments: request.arguments,
+          origin: run.origin,
         }, signal);
       }
       if (request.tool === "PluginCall") {

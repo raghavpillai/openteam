@@ -3,7 +3,6 @@ import {
   turnOwesReplyReminder,
   turnSystemReminder,
   withTurnSystemReminder,
-  workerSkillAccess,
 } from "@openteam/messaging";
 import { createHash } from "node:crypto";
 import type {
@@ -18,8 +17,7 @@ import type {
 import { SEND_TO_USER_REPLY_NUDGE_PROMPT } from "@openteam/contracts";
 import { formatPiModelRef, normalizePiReasoningLevel } from "@openteam/contracts";
 import { selectTaskConfiguration, parseTaskConfiguration, subagentUsesParentConnectors, type TaskConfiguration, type TaskCapabilities } from "@openteam/contracts/task-configuration";
-import { finalizeInterruptedItems, interruptedProgress } from "./interrupted-progress";
-import { includeSubagentFailures } from "./subagent-result";
+import { finalizeInterruptedItems } from "./interrupted-progress";
 import { subagentTitle } from "@openteam/contracts/subagent-dispatch";
 import {
   COMPUTER_API_PATHS,
@@ -39,7 +37,11 @@ import {
   RoutineService,
   renderSubagentRevivalPrompt,
   renderQuietSubagentRevivalPrompt,
+  renderQuietRevivalBatchPrompt,
   renderRevivalBatchPrompt,
+  quietRoutineOriginNote,
+  automationContextRoutine,
+  automationBackgroundWorkRunning,
   subagentRevivalBlock,
   REVIVAL_HELD_AFTER_MS,
   type RevivalCompletion,
@@ -203,6 +205,8 @@ export const WAKE_REDRIVE_LIMITS: Partial<Record<RunOrigin, number>> = {
   background_revival: 1,
 };
 
+export const SUBAGENT_INTERRUPTED_RESULT = "The background task was interrupted before it finished.";
+
 export const runOwesUserDelivery = (origin: RunOrigin): boolean =>
   ["user", "bootstrap", "connector", "handoff_resume", "broadcast"].includes(origin);
 
@@ -249,10 +253,16 @@ interface RevivalWake {
 }
 
 const revivalOf = (wake: RevivalWake): RevivalCompletion | null => {
-  if (!REVIVAL_WAKES.has(wake.type) || wake.status !== "pending" || wake.run.origin !== "background_revival") return null;
+  if (!REVIVAL_WAKES.has(wake.type) || wake.status !== "pending" || !["background_revival", "routine"].includes(wake.run.origin)) return null;
   const revival = (wake.payload as { revival?: RevivalCompletion } | null)?.revival;
   return typeof revival?.block === "string" ? revival : null;
 };
+
+/** A background result resumes either the chat it came from or the routine run that started it. */
+export const routineRevivalContext = (wake: RevivalWake): string | null =>
+  wake.run.origin === "routine" && revivalOf(wake)
+    ? ((wake.payload as { automationContextRunId?: unknown }).automationContextRunId as string | undefined) ?? null
+    : null;
 
 /**
  * Background results ready in the same channel when the agent becomes free reach it
@@ -261,7 +271,16 @@ const revivalOf = (wake: RevivalWake): RevivalCompletion | null => {
  */
 export const revivalBatch = <T extends RevivalWake>(claimed: T, pending: readonly T[], now = Date.now()): { content: string; folded: T[] } | null => {
   if (!revivalOf(claimed)) return null;
-  const folded = pending.filter((wake) => wake.id !== claimed.id && wake.run.channelId === claimed.run.channelId && revivalOf(wake));
+  const routine = routineRevivalContext(claimed);
+  if (claimed.run.origin === "routine") {
+    // A routine run gets every result of its background work in one quiet turn, never marked held.
+    if (!routine) return null;
+    const folded = pending.filter((wake) => wake.id !== claimed.id && routineRevivalContext(wake) === routine);
+    if (!folded.length) return null;
+    const blocks = [claimed, ...folded].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()).map((wake) => revivalOf(wake)!.block);
+    return { content: renderQuietRevivalBatchPrompt(blocks), folded };
+  }
+  const folded = pending.filter((wake) => wake.id !== claimed.id && wake.run.origin === "background_revival" && wake.run.channelId === claimed.run.channelId && revivalOf(wake));
   const completions = [claimed, ...folded]
     .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
     .map((wake) => {
@@ -436,6 +455,7 @@ export class WakeWorker {
       appendAgentTimelineEvent(tx, this.messaging, input)
     );
     this.routines = new RoutineService(this.prisma, this.messaging, this.agentData);
+    this.messaging.onGroupRoutineSettled = (settled) => this.routines.afterGroupExecution(settled);
     this.pushNotifications = new PushNotificationDispatcher(this.prisma);
     this.boss.on("error", (error) => console.error("pg-boss", error));
   }
@@ -790,21 +810,23 @@ export class WakeWorker {
         await this.recoverGroupRoutineExecution(execution.id, execution.channelMessageId);
       }
     }
-    // A follow-up holding coalesced events has no wake until the run before it settles.
+    // A follow-up holding coalesced events has no wake or room turn until the run before it settles.
     const followUps = await this.prisma.routineExecution.findMany({
-      where: { status: "queued", runId: null, channelMessageId: null, routine: { bot: { status: "active" } } },
+      where: {
+        status: "queued", runId: null, channelMessageId: null,
+        routine: { OR: [{ bot: { status: "active" } }, { channel: { kind: "group", archivedAt: null } }] },
+      },
       select: { routineId: true },
       take: 100,
     });
-    for (const { routineId } of followUps)
-      await this.prisma.$transaction(tx => this.routines.startEventFollowUp(tx, routineId));
+    for (const { routineId } of followUps) await this.routines.runEventFollowUp(routineId);
   }
 
   private async recoverGroupRoutineExecution(
     executionId: string,
     rootMessageId: string
   ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    const settled = await this.prisma.$transaction(async (tx) => {
       const execution = await tx.routineExecution.findUnique({
         where: { id: executionId },
         include: { routine: { select: { runLedger: true, channelId: true } } },
@@ -875,7 +897,9 @@ export class WakeWorker {
           },
         },
       });
+      return { executionId: execution.id, routineId: execution.routineId };
     });
+    if (settled) await this.routines.afterGroupExecution(settled);
   }
 
   private async handleProvision(job: JobWithMetadata<ProvisionData>): Promise<void> {
@@ -1098,9 +1122,15 @@ export class WakeWorker {
             run: { include: { channel: true } },
           },
         });
+        // As in the reference's automation runs, a routine hears from its background work once
+        // none of it is still running; the last result to finish wakes it with all of them.
+        const busyRoutines = new Set<string>();
+        for (const context of new Set(candidates.flatMap((candidate) => routineRevivalContext(candidate) ?? [])))
+          if (await automationBackgroundWorkRunning(tx, botId, context)) busyRoutines.add(context);
         const inbox = candidates.find(candidate => {
           if (candidate.run.origin !== "routine") return !foregroundBusy;
           const payload = candidate.payload as { automationContextRunId?: string };
+          if (busyRoutines.has(routineRevivalContext(candidate) ?? "")) return false;
           return !automations.some(lease => lease.scope === `automation:${payload.automationContextRunId ?? candidate.runId}`);
         });
         if (!inbox) return null;
@@ -1370,7 +1400,6 @@ export class WakeWorker {
         deliveryId: claimed.deliveryId,
         runtimeProfile: claimed.runtimeProfile,
         subagentType: claimed.subagentType ?? undefined,
-        skillAccess: workerSkillAccess(claimed.subagentType),
         taskConfiguration,
         readOnly: claimed.readOnly,
         model: formatPiModelRef(selectedInference),
@@ -1785,7 +1814,7 @@ export class WakeWorker {
         }
       }
       await this.messaging.scheduleTranscriptProjection(tx, [claimed.botId]);
-      await this.failSubagent(tx, claimed, failureDetails);
+      await this.failSubagent(tx, claimed, failureDetails, interrupted);
     });
     await this.syncRoutineRunFile(claimed.botId, claimed.runId);
     if (claimed.deliveryId) {
@@ -1926,27 +1955,8 @@ export class WakeWorker {
       where: { runId: claimed.runId, role: "assistant", status: "completed" },
       orderBy: { updatedAt: "desc" },
     });
-    const failures = await tx.runItem.findMany({
-      where: {
-        runId: claimed.runId,
-        kind: { in: ["tool", "command"] },
-        OR: [
-          { status: "failed" },
-          { content: { path: ["result", "isError"], equals: true } },
-          // Shell execution may complete successfully as a tool transport while
-          // the command itself exits nonzero. Preserve that failure as well.
-          { kind: "command", content: { path: ["result", "details", "exitCode"], gt: 0 } },
-          { kind: "command", content: { path: ["result", "details", "exitCode"], lt: 0 } },
-        ],
-      },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      select: { kind: true, content: true },
-    });
-    const result = includeSubagentFailures(
-      finalMessage?.content.trim() ?? "",
-      failures.reverse()
-    );
+    // The parent gets the worker's own report, as in the reference.
+    const result = finalMessage?.content.trim() ?? "";
     await tx.subagent.update({
       where: { id: subagent.id },
       data: {
@@ -1996,7 +2006,8 @@ export class WakeWorker {
   private async failSubagent(
     tx: Prisma.TransactionClient,
     claimed: Claimed,
-    details: Prisma.InputJsonObject
+    details: Prisma.InputJsonObject,
+    interrupted: boolean
   ): Promise<void> {
     const subagent = await tx.subagent.findFirst({
       where: { childBotId: claimed.botId, currentRunId: claimed.runId },
@@ -2012,10 +2023,8 @@ export class WakeWorker {
     ) {
       return;
     }
-    const items = await tx.runItem.findMany({
-      where: { runId: claimed.runId, kind: "tool" }, orderBy: { createdAt: "desc" }, take: 24,
-    });
-    const result = interruptedProgress(items.reverse(), String(details.message ?? "Runtime interrupted"));
+    // A run the computer never settled reads as interrupted; a reported failure gives its error.
+    const result = interrupted ? SUBAGENT_INTERRUPTED_RESULT : String(details.message ?? "");
     await tx.subagent.update({
       where: { id: subagent.id },
       data: { status: "failed", error: details, result, completedAt: new Date() },
@@ -2083,7 +2092,7 @@ export class WakeWorker {
     const note = room?.kind === "group" ? groupRoomRevivalNote(room.name) : undefined;
     // A task a routine started reports back to that routine, which nobody is waiting on.
     const routine = route.origin === "routine" && route.automationContextRunId
-      ? (await tx.routineExecution.findUnique({ where: { runId: route.automationContextRunId }, select: { routine: { select: { name: true, slug: true } } } }))?.routine
+      ? await automationContextRoutine(tx, route.automationContextRunId)
       : undefined;
     const revival = { title: subagentTitle(subagent.prompt), subagentType: subagent.subagentType, status, result };
     await this.messaging.enqueueWake(tx, {
@@ -2093,10 +2102,10 @@ export class WakeWorker {
       taskContextRunId: sourcePayload?.taskContextRunId ?? subagent.parentRunId,
       type: `subagent.${status}`,
       content: (routine
-        ? renderQuietSubagentRevivalPrompt({ ...revival, routine: { name: routine.name, folder: routine.slug } })
+        ? renderQuietSubagentRevivalPrompt({ ...revival, routine })
         : renderSubagentRevivalPrompt(revival)) + (note ? `\n\n${note}` : ""),
       revival: {
-        block: subagentRevivalBlock(revival),
+        block: routine ? `${subagentRevivalBlock(revival)}\n${quietRoutineOriginNote(routine)}` : subagentRevivalBlock(revival),
         subagentType: subagent.subagentType,
         ...(note ? { note } : {}),
       },

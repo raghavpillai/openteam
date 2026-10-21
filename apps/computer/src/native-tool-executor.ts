@@ -94,6 +94,7 @@ export class NativeToolExecutor {
     return this.hostFetch(HOST_BRIDGE_PATHS.capabilities, { tool, botId, arguments: args, callId, machineId }, signal, undefined, 15 * 60_000);
   }
   private readonly shellJobs: ShellJobRegistry;
+  private readonly liveShells = new Map<string, { scope: string; background: boolean; stop: () => void }>();
   private readonly terminalDir: string;
   private readonly hostBridgeUrl: string;
   private readonly machines?: MachineDirectory;
@@ -126,6 +127,13 @@ export class NativeToolExecutor {
         process.env.OPENTEAM_AGENT_DATA_CANONICAL_ROOT ??
         "/home/box/sand-data"
     );
+  }
+
+  /** A stopped subagent's background commands end with it, through the same stop as an interrupted call. */
+  stopBackgroundShells(scope: string): number {
+    const running = [...this.liveShells.values()].filter((shell) => shell.scope === scope && shell.background);
+    for (const shell of running) shell.stop();
+    return running.length;
   }
 
   /** A routine run that handed off to its parent stops the background commands it started. */
@@ -243,6 +251,8 @@ export class NativeToolExecutor {
       abortedAt ??= Date.now();
       terminate();
     };
+    const live = { scope, background: false, stop: abort };
+    this.liveShells.set(shellId, live);
     // Like the reference, no Shell command outlives a day, even in the background.
     let expired = false;
     const hardTimer = setTimeout(() => { expired = true; terminate(); }, this.shellHardTimeoutMs);
@@ -261,6 +271,7 @@ export class NativeToolExecutor {
       const finish = async () => {
         if (settled) return;
         settled = true;
+        this.liveShells.delete(shellId);
         clearInterval(headerTimer);
         try { exitDirectory = (await environmentCapture.persist(savedEnvironment.path, Object.keys(routing.secretEnvironment ?? {}), savedEnvironment.environment))?.PWD; }
         catch (error) { environmentError = error instanceof Error ? error : new Error("Could not persist shell environment"); }
@@ -304,6 +315,7 @@ export class NativeToolExecutor {
     signal?.removeEventListener("abort", abort);
 
     if (!completed.done) {
+      live.background = true;
       this.shellJobs.markBackground(shellId);
       void completion.catch(() => undefined);
       const details = { shellId, status: "running", outputPath };

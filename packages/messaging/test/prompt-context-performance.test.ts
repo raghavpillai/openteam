@@ -81,10 +81,7 @@ describe("prompt-context frozen epoch fast path", () => {
         savedSkill: {
           findMany: async (args: unknown) => {
             findArgs = args;
-            return [
-              { name: "One", slug: "one", description: "First" },
-              { name: "Two", slug: "two", description: "Second" },
-            ];
+            return Array.from({ length: 103 }, (_, i) => ({ name: `Skill ${i}`, slug: i ? `s${i}` : "one", description: `Skill ${i}` }));
           },
           count: async () => 104,
         },
@@ -96,8 +93,11 @@ describe("prompt-context frozen epoch fast path", () => {
     ) as unknown as { renderSkills(botId: string): Promise<string> };
 
     const rendered = await store.renderSkills("bot-1");
-    expect(findArgs).toEqual({ orderBy: { updatedAt: "desc" }, take: 100 });
+    // Five past the cap are fetched so the notice can name the omitted skills' folders, as the reference's does.
+    expect(findArgs).toEqual({ orderBy: { updatedAt: "desc" }, take: 105 });
     expect(rendered).toContain("/agent-data/workflows/one/SKILL.md");
-    expect(rendered).toEndWith("\n\nAdditional skills omitted from this initial list (102). Directories containing omitted skills: /agent-data/workflows.");
+    expect(rendered).toContain("/agent-data/workflows/s99/SKILL.md");
+    expect(rendered).not.toContain("/agent-data/workflows/s100/SKILL.md");
+    expect(rendered).toEndWith("\n\nAdditional skills omitted from this initial list (4). Directories containing omitted skills: /agent-data/workflows/s100, /agent-data/workflows/s101, /agent-data/workflows/s102.");
   });
 });

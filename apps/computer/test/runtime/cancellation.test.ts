@@ -24,7 +24,7 @@ test("calls cut off because a typed message superseded the run say the user inte
   const controller = new AbortController();
   const active = {
     runId: "wake", session: null, pluginAbortController: controller, requestSource: "agent", subagentType: null,
-    readOnly: false, pluginRuntimePackages: [], pluginNamespaces: [], skillAccess: "read", sentMessageCount: 0,
+    readOnly: false, pluginRuntimePackages: [], pluginNamespaces: [], sentMessageCount: 0,
     initialUserStarted: true,
   } as unknown as ActiveTurn;
   internals.activeByRun.set("wake", active);

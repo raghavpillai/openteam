@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import managed from "../src/prompts/managed-skills.json";
 import { AgentDataStore } from "../src/agent-data";
-import { subagentSpecializationInstructions, workerSkillAccess } from "../src/index";
+import { subagentSpecializationInstructions } from "../src/index";
+import { agentSkillItem, omittedSkillsNotice, renderSkillCatalog } from "../src/skill-catalog";
 import { renderPlatformBaseSystemPrompt } from "../src/platform-system-prompt";
 
 const sha256 = (data: string | Buffer) => createHash("sha256").update(data).digest("hex");
@@ -67,19 +68,23 @@ test("knowledgeWork skills stay out of the main agent's catalog and workflow lis
     expect(catalog).toContain(`<agent_skill fullPath="${record("slides").filePath}">`);
     expect(catalog).not.toContain(record("slides-executor").filePath);
     expect(catalog).not.toContain(record("office-pptx").filePath);
-    // The knowledgeWork worker loads its own skills with the Skill tool, so its agent_skills block lists them by name.
-    const description = (id: string) => record(id).description.replace(/\s+/g, " ").trim();
-    expect(await store.renderWorkerSkillCatalog("knowledgeWork")).toBe(
+    // knowledgeWork has no Skill tool: like the main agent, its agent_skills block lists file paths to open with Read.
+    const kwCatalog = await store.renderWorkerSkillCatalog("knowledgeWork");
+    expect(kwCatalog).toBe(
       [
         "<agent_skills>",
-        "When a skill below fits the task, load it with Skill before acting on the task; do not just mention it.",
+        "When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively. Skills provide specialized capabilities and domain knowledge. To use a skill, read the skill file at the provided absolute path using the Read tool, then follow the instructions within. When a skill is relevant, read and follow it IMMEDIATELY as your first action. NEVER just announce or mention a skill without actually reading and following it. Only use skills listed below.",
         "",
-        "Your skills, one per line as name: when to use it. A skill that shares its name with another is listed by its path.",
-        `- slides-executor: ${description("slides-executor")}`,
-        `- office-pptx: ${description("office-pptx")}`,
+        "",
+        '<available_skills description="Skills the agent can use. Use the Read tool with the provided absolute path to fetch full contents.">',
+        `<agent_skill fullPath="${record("slides-executor").filePath}">${record("slides-executor").description}</agent_skill>`,
+        "",
+        `<agent_skill fullPath="${record("office-pptx").filePath}">${record("office-pptx").description}</agent_skill>`,
+        "</available_skills>",
         "</agent_skills>",
       ].join("\n")
     );
+    expect(kwCatalog).not.toMatch(/\bSkill\b(?! tool)|load it with|with query/);
     expect(await store.renderWorkerSkillCatalog("executor")).toBe("");
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -90,8 +95,28 @@ test("knowledgeWork skills stay out of the main agent's catalog and workflow lis
   expect(workflows).not.toContain("office-pptx");
 });
 
-test("the knowledgeWork worker loads its skills with the Skill tool; no other worker has skills", () => {
-  expect(workerSkillAccess("knowledgeWork")).toBe("tool");
-  for (const type of ["executor", "computerUse", "videoReview", null]) expect(workerSkillAccess(type)).toBe("read");
-  for (const type of ["knowledgeWork", "executor"] as const) expect(subagentSpecializationInstructions(type)).not.toContain("skill");
+test("knowledgeWork's prompt names no Skill tool", () => {
+  for (const type of ["knowledgeWork", "executor"] as const) expect(subagentSpecializationInstructions(type)).not.toContain("Skill");
+});
+
+// Expected texts rendered by the reference's own read-mode catalog builder (2026-10-21 build).
+test("the read-mode catalog shortens, then drops descriptions, then omits skills as the reference's does", () => {
+  const long = "Use this when the user asks about the topic in question; it covers setup, the main workflow, the common pitfalls and the final checks you run before you reply. ".repeat(2);
+  const skills = (count: number, root = "/home/box/agent-data/managed-skills") =>
+    Array.from({ length: count }, (_, i) => ({ fullPath: `${root}/skill-${String(i).padStart(3, "0")}/SKILL.md`, description: long }));
+  expect(renderSkillCatalog([])).toBe("");
+  expect(agentSkillItem("/a/q\"s/SKILL.md", "  a  b\n c ")).toBe('<agent_skill fullPath="/a/q&quot;s/SKILL.md">a b\n c</agent_skill>');
+  expect(agentSkillItem("/a/s/SKILL.md", " ")).toBe('<agent_skill fullPath="/a/s/SKILL.md" />');
+  const shortened = renderSkillCatalog(skills(12), 30_000);
+  expect(shortened).toContain('<agent_skill fullPath="/home/box/agent-data/managed-skills/skill-011/SKILL.md">Use this when the user asks about the topic...</agent_skill>');
+  expect(shortened).toContain("Only use skills listed below.");
+  const protectedKept = renderSkillCatalog([...skills(12), { fullPath: "/home/box/agent-data/managed-skills/purchases/SKILL.md", description: long }], 30_000);
+  expect(protectedKept).toContain('<agent_skill fullPath="/home/box/agent-data/managed-skills/skill-011/SKILL.md" />');
+  expect(protectedKept).toContain(`<agent_skill fullPath="/home/box/agent-data/managed-skills/purchases/SKILL.md">${long.trim()}</agent_skill>`);
+  const omitted = renderSkillCatalog([...skills(20), ...skills(20, "/home/box/agent-data/workflows")], 40_000);
+  expect(omitted).toContain("Use the skills listed below. If a later task specifically requires discovering more skills, additional skills may exist in the directories shown in the skills section.");
+  expect(omitted).toEndWith(
+    `<agent_skill fullPath="/home/box/agent-data/workflows/skill-004/SKILL.md" />\n\n${omittedSkillsNotice(15, [5, 6, 7, 8, 9].map((i) => `/home/box/agent-data/workflows/skill-00${i}`))}\n</available_skills>\n</agent_skills>`
+  );
+  expect(renderSkillCatalog(skills(40), 10_000)).toContain("No skills are listed below, but additional skills may exist");
 });

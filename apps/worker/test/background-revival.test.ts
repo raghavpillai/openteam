@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { renderRevivalBatchPrompt } from "@openteam/messaging";
+import { renderQuietRevivalBatchPrompt, renderRevivalBatchPrompt } from "@openteam/messaging";
 import { groupRoomRevivalNote, revivalBatch, WakeWorker } from "../src/worker";
 
 test("background subagent completion revives the parent with Bot's dedicated source", async () => {
@@ -83,6 +83,9 @@ test("a task a routine started reports back to the routine as quiet work nobody 
     "Status: done\nStill $49."
   );
   expect(calls[0]!.origin).toBe("routine");
+  expect((calls[0] as unknown as { revival: { block: string } }).revival.block).toBe(
+    'Background task "Check the price of the blue kettle" (computerUse) finished:\nStatus: done\nStill $49.\n(You started this during your routine "Price watch" (folder price-watch), and nobody is waiting on it.)'
+  );
   expect(calls[0]!.content).toBe(
     [
       "[A background task just completed] A background task you started has finished.",
@@ -147,4 +150,31 @@ test("a background result from a group room keeps its room note in the batch", a
   );
   expect(calls[0]?.revival?.note).toBe(groupRoomRevivalNote("Launch"));
   expect(calls[0]?.content).toEndWith(`\n\n${groupRoomRevivalNote("Launch")}`);
+});
+
+test("a routine's results fold into one quiet revival per routine run and are never marked held", () => {
+  const now = Date.parse("2026-10-21T12:00:00Z");
+  const wake = (id: string, secondsAgo: number, context: string, overrides: Record<string, unknown> = {}) => ({
+    id,
+    type: "subagent.completed",
+    status: "pending",
+    createdAt: new Date(now - secondsAgo * 1000),
+    payload: { automationContextRunId: context, revival: { block: `block ${id}`, subagentType: "executor" } },
+    run: { origin: "routine" as const, channelId: "dm" },
+    ...overrides,
+  });
+  const late = wake("a", 10 * 60, "run-1");
+  const shell = wake("b", 30, "run-1", { type: "shell.completed" });
+  const others = [
+    wake("other-run", 20, "run-2"),
+    wake("chat", 20, "run-1", { run: { origin: "background_revival", channelId: "dm" } }),
+    wake("wake", 20, "run-1", { type: "routine.event" }),
+  ];
+  const batch = revivalBatch(shell, [shell, ...others, late], now);
+  expect(batch?.folded.map((folded) => folded.id)).toEqual(["a"]);
+  expect(batch?.content).toBe(renderQuietRevivalBatchPrompt(["block a", "block b"]));
+  // A lone result keeps its own quiet prompt, however long it waited.
+  expect(revivalBatch(late, [late, ...others], now)).toBeNull();
+  // A chat revival never takes a routine's results.
+  expect(revivalBatch(others[1]!, [others[1]!, late, shell], now)).toBeNull();
 });

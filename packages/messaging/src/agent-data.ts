@@ -17,7 +17,7 @@ import { managedSkillAgents, managedSkillIsForMain } from "./managed-skill-agent
 import { safePackagePath } from "@openteam/plugin-sdk";
 import { originalSkillMarkdown } from "@openteam/plugin-sdk/skill-markdown";
 import { pluginSkillsForAgent, renderPluginSkillCatalog, type PluginSkillCache } from "./plugin-skill-catalog";
-import { agentSkillItem, omittedSkillsNotice, renderAgentSkillsSection } from "./skill-catalog";
+import { agentSkillItem, type CatalogItem, omittedSkillDirectories, omittedSkillsNotice, renderSkillCatalog } from "./skill-catalog";
 import { createHash, randomUUID } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
@@ -110,7 +110,6 @@ import {
   type MemoryExchange,
 } from "./memory-learning";
 import { resolveTimeZone } from "./timestamps";
-import { type CatalogSkill, renderSkillToolCatalog } from "@openteam/contracts/skill-tool";
 import { MEMORY_EXTRACTION_SYSTEM_PROMPT } from "./memory-prompts";
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
@@ -2848,33 +2847,32 @@ export class AgentDataStore {
     } catch {
       return "";
     }
-    const skills: CatalogSkill[] = [];
+    const skills: CatalogItem[] = [];
     for (const record of records) {
       const skill = record as Record<string, unknown>;
       if (!Array.isArray(skill.agents) || !skill.agents.includes(agent)) continue;
-      if (typeof skill.filePath !== "string" || typeof skill.description !== "string" || typeof skill.name !== "string") continue;
+      if (typeof skill.filePath !== "string" || typeof skill.description !== "string") continue;
       if (!(await stat(skill.filePath).catch(() => null))?.isFile()) continue;
-      skills.push({ name: skill.name, description: skill.description, filePath: skill.filePath });
+      skills.push({ fullPath: skill.filePath, description: skill.description });
     }
-    // The worker loads these with the Skill tool, so its catalog lists them by name.
-    const catalog = renderSkillToolCatalog(skills);
-    return catalog ? `<agent_skills>\n${catalog}\n</agent_skills>` : "";
+    // Read mode, as in the reference: the worker opens a skill with Read at its listed path.
+    return renderSkillCatalog(skills);
   }
 
   private async renderSkills(botId: string): Promise<string> {
     void botId;
+    // Five past the cap name the folders of the first omitted skills, as the reference's notice does.
     const [skills, total] = await Promise.all([
       this.prisma.savedSkill.findMany({
         orderBy: { updatedAt: "desc" },
-        take: MAX_SAVED_SKILLS,
+        take: MAX_SAVED_SKILLS + 5,
       }),
       this.prisma.savedSkill.count(),
     ]);
-    const blocks = skills.map((skill) =>
-      agentSkillItem(join(this.workflowsDirectory(), skill.slug, "SKILL.md"), skill.description)
-    );
+    const path = (slug: string) => join(this.workflowsDirectory(), slug, "SKILL.md");
+    const blocks = skills.slice(0, MAX_SAVED_SKILLS).map((skill) => agentSkillItem(path(skill.slug), skill.description));
     const omitted = Math.max(0, total - blocks.length);
-    if (omitted > 0) blocks.push(omittedSkillsNotice(omitted, [this.workflowsDirectory()]));
+    if (omitted > 0) blocks.push(omittedSkillsNotice(omitted, omittedSkillDirectories(skills.slice(MAX_SAVED_SKILLS).map((skill) => path(skill.slug)))));
     return blocks.join("\n\n");
   }
 

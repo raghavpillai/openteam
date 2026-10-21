@@ -8,6 +8,7 @@ export interface HostShellInput {
   command?: unknown;
   working_directory?: unknown;
   block_until_ms?: unknown;
+  description?: unknown;
 }
 
 export type HostJobPayload =

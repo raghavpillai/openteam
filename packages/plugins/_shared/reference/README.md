@@ -8,7 +8,7 @@
 
 They contain public interface metadata, no credentials or account data. Google provides the definitions; OpenTeam implements the operations against the generally available REST APIs. Reference input names, enums and descriptions are retained, with documented compatibility aliases and local extensions. This does not make the adapters Google's official MCP servers.
 
-The Gmail plugin applies Google's later corrections (seen October 21, 2026) to three texts on top of the pin: `label:` matches display names, the `category:` tab paragraph in search_threads, and create_draft's plain-text `body` and `includeSignature`. The rest of the pin is unchanged until a full refresh.
+The Gmail plugin applies Google's later corrections (seen October 21, 2026) to three texts on top of the pin: `label:` matches display names, the `category:` tab paragraph in search_threads, and create_draft's plain-text `body` and `includeSignature`. It also serves Google's newer `update_draft` and `delete_draft`, defined in `gmail/connector/server.ts` with create_draft's pinned htmlBody and attachment texts. The rest of the pin is unchanged until a full refresh.
 
 Reference documentation: https://developers.google.com/workspace/gmail/api/reference/mcp , https://developers.google.com/workspace/calendar/api/v3/reference/mcp , https://developers.google.com/workspace/drive/api/reference/mcp . Google licenses documentation under CC BY 4.0 and code samples under Apache 2.0; see https://developers.google.com/terms/site-policies . Attribution and provenance must accompany exports that embed these definitions. The generate script includes this notice in Google packages.
 

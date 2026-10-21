@@ -329,14 +329,19 @@ export class SubagentService {
         : [];
     });
     if (!handoffs.length) return [];
-    // A priority message's wake carries the urgent priority and starts the peer's turn on it.
+    // A priority message's wake carries the urgent priority and starts the peer's turn on it; a
+    // turn a typed message cut off runs again under `<key>:redrive:N`, and the newest one counts.
     const wakes = await this.prisma.inboxEvent.findMany({
-      where: { idempotencyKey: { in: handoffs.map((handoff) => handoff.key) }, priority: PRIORITY.urgentAgent },
+      where: {
+        OR: handoffs.flatMap(({ key }) => [{ idempotencyKey: key }, { idempotencyKey: { startsWith: `${key}:redrive:` } }]),
+        priority: PRIORITY.urgentAgent,
+      },
       select: { idempotencyKey: true, runId: true },
+      orderBy: { createdAt: "desc" },
     });
     const peers = new Map<string, { id: string; name: string; runId: string | null }>();
     for (const handoff of handoffs) {
-      const wake = wakes.find((candidate) => candidate.idempotencyKey === handoff.key);
+      const wake = wakes.find(({ idempotencyKey: key }) => key === handoff.key || key?.startsWith(`${handoff.key}:redrive:`));
       if (wake && !peers.has(handoff.id)) peers.set(handoff.id, { id: handoff.id, name: handoff.name, runId: wake.runId });
     }
     return Promise.all([...peers.values()].map(async (peer) => {

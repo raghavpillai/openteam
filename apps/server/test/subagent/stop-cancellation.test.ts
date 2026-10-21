@@ -97,6 +97,9 @@ test('stop all with nothing running reports an empty receipt', async () => {
  expect(await f.service.stop('parent', 'call', { all: true })).toEqual({ stopped_all: true, stopped: [], already_finished: [], failed: [], delegated: [] });
 });
 
+const matchesKey = (where: any, key: string) =>
+ where.OR.some((clause: any) => typeof clause.idempotencyKey === 'string' ? clause.idempotencyKey === key : key.startsWith(clause.idempotencyKey.startsWith));
+
 test('stop all cancels the turn a priority message started for a peer, with that turn\'s subagents, and reports idle peers', async () => {
  const cancelled: string[] = [];
  const children = [worker('peer-child', { parentBotId: 'peer-1', parentRunId: 'peer-run-1' })];
@@ -118,7 +121,7 @@ test('stop all cancels the turn a priority message started for a peer, with that
   { idempotencyKey: 'agent:call-2:peer-1', runId: 'peer-run-1' },
   { idempotencyKey: 'agent:call-1:peer-1', runId: 'peer-run-0' },
   { idempotencyKey: 'agent:call-3:peer-2', runId: 'peer-run-2' },
- ].filter((wake) => where.idempotencyKey.in.includes(wake.idempotencyKey) && where.priority === 250) };
+ ].filter((wake) => matchesKey(where, wake.idempotencyKey) && where.priority === 250) };
  db.run.findUnique = async ({ where }: any) => ({ status: where.id === 'peer-run-1' ? 'running' : 'completed' });
  const result: any = await f.service.stop('parent', 'call', { all: true });
  expect(Date.now() - since[0]!.getTime()).toBeGreaterThanOrEqual(24 * 60 * 60_000 - 1000);
@@ -129,4 +132,23 @@ test('stop all cancels the turn a priority message started for a peer, with that
  expect(cancelled).toEqual(['peer-run-1', 'run-peer-child']);
  expect(children[0]!.status).toBe('stopped');
  expect(f.stops).toEqual(['/v1/bots/bot-peer-child/background-shells/stop']);
+});
+
+test('stop all cancels a peer turn the worker ran again after a typed message cut it off', async () => {
+ const cancelled: string[] = [];
+ const f = stopAllFixture([], async (runId) => { cancelled.push(runId); });
+ const db = (f.service as any).prisma;
+ db.channelMessage.findMany = async () => [{ clientId: 'a2a:out:call-1', metadata: { toAgent: { id: 'peer-1', name: 'Researcher' } } }];
+ db.inboxEvent = { findMany: async ({ where, orderBy }: any) => {
+  expect(orderBy).toEqual({ createdAt: 'desc' });
+  return [
+   { idempotencyKey: 'agent:call-1:peer-1:redrive:1', runId: 'peer-run-1' },
+   { idempotencyKey: 'agent:call-1:peer-1', runId: 'peer-run-0' },
+   { idempotencyKey: 'agent:call-10:peer-1', runId: 'peer-run-9' },
+  ].filter((wake) => matchesKey(where, wake.idempotencyKey) && where.priority === 250);
+ } };
+ db.run.findUnique = async ({ where }: any) => ({ status: where.id === 'peer-run-1' ? 'running' : 'interrupted' });
+ const result: any = await f.service.stop('parent', 'call', { all: true });
+ expect(result.delegated).toEqual([{ id: 'peer-1', name: 'Researcher', result: 'stopped' }]);
+ expect(cancelled).toEqual(['peer-run-1']);
 });

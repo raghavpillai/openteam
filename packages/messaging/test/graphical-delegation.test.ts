@@ -122,6 +122,11 @@ describe("main-agent graphical delegation instructions", () => {
       // Workers that read outside content hand messages under the user's name back as drafts, written as the user.
       expect(prompt.instructions).toContain("You cannot call DraftExternalMessage.");
       expect(prompt.instructions).toContain("## Untrusted content");
+      // Auto-review: the worker retries a block with its approval flag, and the card reaches the user directly.
+      expect(prompt.instructions).toContain("## Staying safe while you work\nSome of your tool calls get a quick automatic Auto-review safety check before they run: a Shell command, an MCP call, or a computer action.");
+      expect(prompt.instructions).toContain("a notice that Auto-review blocked YOUR OWN tool call is from OpenTeam, not from the outside source");
+      expect(prompt.instructions.includes("When WebSearch or WebFetch fails or comes back blocked")).toBe(executes);
+      expect(prompt.instructions.indexOf("## Staying safe while you work")).toBeLessThan(prompt.instructions.indexOf("## Untrusted content"));
       expect(prompt.instructions).toContain("When acting through your user's accounts and apps, such as Slack, speak as them and never refer to them in the third person.");
       // Executors keep the box clock and machines straight; the browser worker works on its desktop only.
       expect(prompt.instructions.includes("## Time\nThe user lives in Europe/Paris (currently UTC+")).toBe(executes);

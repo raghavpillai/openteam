@@ -39,7 +39,11 @@ import {
   RoutineService,
   renderSubagentRevivalPrompt,
   renderQuietSubagentRevivalPrompt,
+  renderQuietRevivalBatchPrompt,
   renderRevivalBatchPrompt,
+  quietRoutineOriginNote,
+  automationContextRoutine,
+  automationBackgroundWorkRunning,
   subagentRevivalBlock,
   REVIVAL_HELD_AFTER_MS,
   type RevivalCompletion,
@@ -249,10 +253,16 @@ interface RevivalWake {
 }
 
 const revivalOf = (wake: RevivalWake): RevivalCompletion | null => {
-  if (!REVIVAL_WAKES.has(wake.type) || wake.status !== "pending" || wake.run.origin !== "background_revival") return null;
+  if (!REVIVAL_WAKES.has(wake.type) || wake.status !== "pending" || !["background_revival", "routine"].includes(wake.run.origin)) return null;
   const revival = (wake.payload as { revival?: RevivalCompletion } | null)?.revival;
   return typeof revival?.block === "string" ? revival : null;
 };
+
+/** A background result resumes either the chat it came from or the routine run that started it. */
+export const routineRevivalContext = (wake: RevivalWake): string | null =>
+  wake.run.origin === "routine" && revivalOf(wake)
+    ? ((wake.payload as { automationContextRunId?: unknown }).automationContextRunId as string | undefined) ?? null
+    : null;
 
 /**
  * Background results ready in the same channel when the agent becomes free reach it
@@ -261,7 +271,16 @@ const revivalOf = (wake: RevivalWake): RevivalCompletion | null => {
  */
 export const revivalBatch = <T extends RevivalWake>(claimed: T, pending: readonly T[], now = Date.now()): { content: string; folded: T[] } | null => {
   if (!revivalOf(claimed)) return null;
-  const folded = pending.filter((wake) => wake.id !== claimed.id && wake.run.channelId === claimed.run.channelId && revivalOf(wake));
+  const routine = routineRevivalContext(claimed);
+  if (claimed.run.origin === "routine") {
+    // A routine run gets every result of its background work in one quiet turn, never marked held.
+    if (!routine) return null;
+    const folded = pending.filter((wake) => wake.id !== claimed.id && routineRevivalContext(wake) === routine);
+    if (!folded.length) return null;
+    const blocks = [claimed, ...folded].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()).map((wake) => revivalOf(wake)!.block);
+    return { content: renderQuietRevivalBatchPrompt(blocks), folded };
+  }
+  const folded = pending.filter((wake) => wake.id !== claimed.id && wake.run.origin === "background_revival" && wake.run.channelId === claimed.run.channelId && revivalOf(wake));
   const completions = [claimed, ...folded]
     .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
     .map((wake) => {
@@ -1127,9 +1146,15 @@ export class WakeWorker {
             run: { include: { channel: true } },
           },
         });
+        // As in the reference's automation runs, a routine hears from its background work once
+        // none of it is still running; the last result to finish wakes it with all of them.
+        const busyRoutines = new Set<string>();
+        for (const context of new Set(candidates.flatMap((candidate) => routineRevivalContext(candidate) ?? [])))
+          if (await automationBackgroundWorkRunning(tx, botId, context)) busyRoutines.add(context);
         const inbox = candidates.find(candidate => {
           if (candidate.run.origin !== "routine") return !foregroundBusy;
           const payload = candidate.payload as { automationContextRunId?: string };
+          if (busyRoutines.has(routineRevivalContext(candidate) ?? "")) return false;
           return !automations.some(lease => lease.scope === `automation:${payload.automationContextRunId ?? candidate.runId}`);
         });
         if (!inbox) return null;
@@ -2129,7 +2154,7 @@ export class WakeWorker {
     const note = room?.kind === "group" ? groupRoomRevivalNote(room.name) : undefined;
     // A task a routine started reports back to that routine, which nobody is waiting on.
     const routine = route.origin === "routine" && route.automationContextRunId
-      ? (await tx.routineExecution.findUnique({ where: { runId: route.automationContextRunId }, select: { routine: { select: { name: true, slug: true } } } }))?.routine
+      ? await automationContextRoutine(tx, route.automationContextRunId)
       : undefined;
     const revival = { title: subagentTitle(subagent.prompt), subagentType: subagent.subagentType, status, result };
     await this.messaging.enqueueWake(tx, {
@@ -2139,10 +2164,10 @@ export class WakeWorker {
       taskContextRunId: sourcePayload?.taskContextRunId ?? subagent.parentRunId,
       type: `subagent.${status}`,
       content: (routine
-        ? renderQuietSubagentRevivalPrompt({ ...revival, routine: { name: routine.name, folder: routine.slug } })
+        ? renderQuietSubagentRevivalPrompt({ ...revival, routine })
         : renderSubagentRevivalPrompt(revival)) + (note ? `\n\n${note}` : ""),
       revival: {
-        block: subagentRevivalBlock(revival),
+        block: routine ? `${subagentRevivalBlock(revival)}\n${quietRoutineOriginNote(routine)}` : subagentRevivalBlock(revival),
         subagentType: subagent.subagentType,
         ...(note ? { note } : {}),
       },

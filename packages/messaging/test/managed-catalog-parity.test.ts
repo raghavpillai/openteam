@@ -5,7 +5,21 @@ import { join } from 'node:path';
 import { parse as yaml } from 'yaml';
 import managed from '../src/prompts/managed-skills.json';
 import { AgentDataStore } from '../src/agent-data';
+import { buildGroupTurnPrompt } from '../src/index';
 import { managedSkillIsForMain } from '../src/managed-skill-agents';
+
+const skill = (id: string) => managed.skills.find(s => s.id === id)!.content;
+const description = (id: string): string => yaml(skill(id).split('---')[1]!).description;
+
+test('the group-chat-turns trigger names the tag a room turn starts with', () => {
+  const turn = buildGroupTurnPrompt({ groupName: 'Launch', targetId: 'a', targetName: 'A', members: [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }], messages: [{ sender: 'user', content: 'hi' }] });
+  const tag = description('group-chat-turns').match(/starts with a (\[[^"]*")/)![1]!;
+  expect(turn.startsWith(tag)).toBe(true);
+  expect(skill('group-chat-turns')).toContain('in a room you never hand it over or have anyone sign in on it');
+  // Each room keeps its own context and gets plain text only.
+  expect(skill('group-chat-turns')).not.toContain('Your one conversation carries');
+  expect(skill('group-chat-turns')).toContain('Only plain text reaches the room');
+});
 
 test('managed workflows omit categorical authentication and transaction handovers', () => {
   const workflows = managed.skills.map(skill => skill.content).join('\n');

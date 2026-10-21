@@ -148,18 +148,12 @@ dbTest(
           automations: { render: "preserve routines", compactionEpoch: 3 },
         },
       };
-      await app.prisma.agentPromptSnapshot.upsert({
-        where: { botId },
-        create: { botId, ...cached },
-        update: cached,
-      });
       await app.prisma.contextPromptSnapshot.create({
         data: { contextSessionId: context.id, ...cached },
       });
       expect((await client.clearBotMemories(botId)).total).toBe(0);
       // The pinned memory facts are dropped everywhere, so the next turn shows the deletion.
       const unpinned = { profileSection: "preserve profile", promptSections: { automations: { render: "preserve routines", compactionEpoch: 3 } } };
-      expect(await app.prisma.agentPromptSnapshot.findUnique({ where: { botId } })).toMatchObject(unpinned);
       expect(
         await app.prisma.contextPromptSnapshot.findUnique({
           where: { contextSessionId: context.id },

@@ -2261,7 +2261,6 @@ export class AgentDataStore {
       const { count } = await tx.memoryFact.deleteMany({ where: { namespace, ...(memoryId ? { logicalId: memoryId } : {}) } });
       if (count > 0) await tx.event.create({ data: { topic: "memory.changed", entityId: botId, payload: { botId } } });
       // The owner's deletion reaches the bot at once: unpin memory in every conversation, even on an idempotent clear.
-      await tx.$executeRaw`UPDATE "AgentPromptSnapshot" SET "promptSections" = "promptSections" - 'memory' WHERE "botId" = ${botId}::uuid`;
       await tx.$executeRaw`UPDATE "ContextPromptSnapshot" SET "promptSections" = "promptSections" - 'memory' WHERE "contextSessionId" IN (SELECT "id" FROM "ContextSession" WHERE "botId" = ${botId}::uuid)`;
       return this.managedMemoryList(tx, botId);
     }, { maxWait: 10_000, timeout: 60_000 });
@@ -2466,19 +2465,14 @@ export class AgentDataStore {
     await this.withFileMutation(botId, `routine:${id}`, remove);
   }
 
-  async promptContext(botId: string, contextSessionId?: string, channelId?: string | null): Promise<AgentPromptContext> {
+  async promptContext(botId: string, contextSessionId: string, channelId?: string | null): Promise<AgentPromptContext> {
     const reconciliation = await this.reconcileBot(botId);
-    const bot = await this.prisma.bot.findUniqueOrThrow({
-      where: { id: botId },
-      include: { conversation: true },
+    const bot = await this.prisma.bot.findUniqueOrThrow({ where: { id: botId } });
+    const contextSession = await this.prisma.contextSession.findFirstOrThrow({
+      where: { id: contextSessionId, botId },
     });
-    const contextSession = contextSessionId
-      ? await this.prisma.contextSession.findFirstOrThrow({
-          where: { id: contextSessionId, botId },
-        })
-      : null;
-    const epoch = contextSession?.compactionEpoch ?? bot.conversation?.compactionEpoch ?? 0;
-    const announcementKey = `${botId}:${contextSessionId ?? "legacy"}`;
+    const epoch = contextSession.compactionEpoch;
+    const announcementKey = `${botId}:${contextSessionId}`;
     const liveProfile = [
       `You are ${bot.name}, a durable OpenTeam agent.`,
       bot.title ? `Your title is: ${bot.title}` : "",
@@ -2486,9 +2480,7 @@ export class AgentDataStore {
     ]
       .filter(Boolean)
       .join("\n\n");
-    let snapshot = contextSessionId
-      ? await this.prisma.contextPromptSnapshot.findUnique({ where: { contextSessionId } })
-      : await this.prisma.agentPromptSnapshot.findUnique({ where: { botId } });
+    let snapshot = await this.prisma.contextPromptSnapshot.findUnique({ where: { contextSessionId } });
     let profileSection: string;
     let identityAnnouncement = "";
     if (!snapshot || snapshot.profileEpoch !== epoch) {
@@ -2500,17 +2492,11 @@ export class AgentDataStore {
         announcedName: bot.name,
         announcedDescription: bot.description,
       };
-      snapshot = contextSessionId
-        ? await this.prisma.contextPromptSnapshot.upsert({
-            where: { contextSessionId },
-            create: { contextSessionId, ...snapshotData },
-            update: snapshotData,
-          })
-        : await this.prisma.agentPromptSnapshot.upsert({
-            where: { botId },
-            create: { botId, ...snapshotData },
-            update: snapshotData,
-          });
+      snapshot = await this.prisma.contextPromptSnapshot.upsert({
+        where: { contextSessionId },
+        create: { contextSessionId, ...snapshotData },
+        update: snapshotData,
+      });
       profileSection = liveProfile;
       this.pendingIdentityAnnouncements.delete(announcementKey);
     } else {
@@ -2545,11 +2531,7 @@ export class AgentDataStore {
       const liveSkills = await this.renderSkills(botId);
       skillRender = liveSkills;
       const data = { skillEpoch: epoch, skillRender: liveSkills };
-      if (contextSessionId) {
-        await this.prisma.contextPromptSnapshot.update({ where: { contextSessionId }, data });
-      } else {
-        await this.prisma.agentPromptSnapshot.update({ where: { botId }, data });
-      }
+      await this.prisma.contextPromptSnapshot.update({ where: { contextSessionId }, data });
     }
     // Installed capabilities can change between turns without compaction.
     // Keep user workflows frozen, but never freeze a missing managed or plugin catalog.
@@ -2583,7 +2565,7 @@ export class AgentDataStore {
 
   async preparePlatformSections(
     botId: string,
-    contextSessionId: string | undefined,
+    contextSessionId: string,
     epoch: number,
     live: Record<string, string>,
     memory?: MemoryContextLive,
@@ -2591,18 +2573,15 @@ export class AgentDataStore {
     automationStatus?: string | null
   ) {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`prompt-sections:${contextSessionId ?? botId}`}))`;
-      const snapshot = contextSessionId
-        ? await tx.contextPromptSnapshot.findUniqueOrThrow({ where: { contextSessionId } })
-        : await tx.agentPromptSnapshot.findUniqueOrThrow({ where: { botId } });
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`prompt-sections:${contextSessionId}`}))`;
+      const snapshot = await tx.contextPromptSnapshot.findUniqueOrThrow({ where: { contextSessionId } });
       const result = preparePromptSections(snapshot.promptSections, epoch, live);
       const pinned = memory ? prepareMemoryContext(result.snapshots, epoch, memory) : undefined;
       const status = automationStatus === undefined
         ? undefined
         : prepareAutomationStatus(result.snapshots, epoch, automationStatus, AUTOMATION_STATUS_CLEARED);
       const data = { promptSections: JSON.parse(JSON.stringify(result.snapshots)) as Prisma.InputJsonValue };
-      if (contextSessionId) await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
-      else await tx.agentPromptSnapshot.update({ where: { botId }, data });
+      await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
       return {
         ...result,
         memory: pinned && {
@@ -2617,36 +2596,31 @@ export class AgentDataStore {
 
   async acknowledgePlatformSections(
     botId: string,
-    contextSessionId: string | undefined,
+    contextSessionId: string,
     receipts: readonly PromptSectionReceipt[],
     memory?: MemoryContextReceipt,
     automationStatus?: AutomationStatusReceipt
   ) {
     if (!receipts.length && !memory && !automationStatus) return;
     await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`prompt-sections:${contextSessionId ?? botId}`}))`;
-      const snapshot = contextSessionId
-        ? await tx.contextPromptSnapshot.findUniqueOrThrow({ where: { contextSessionId } })
-        : await tx.agentPromptSnapshot.findUniqueOrThrow({ where: { botId } });
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`prompt-sections:${contextSessionId}`}))`;
+      const snapshot = await tx.contextPromptSnapshot.findUniqueOrThrow({ where: { contextSessionId } });
       const acknowledged = acknowledgePromptSections(snapshot.promptSections, receipts);
       const remembered = memory ? acknowledgeMemoryContext(acknowledged, memory) : acknowledged;
       const sections = automationStatus ? acknowledgeAutomationStatus(remembered, automationStatus) : remembered;
       const data = { promptSections: JSON.parse(JSON.stringify(sections)) as Prisma.InputJsonValue };
-      if (contextSessionId) await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
-      else await tx.agentPromptSnapshot.update({ where: { botId }, data });
+      await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
     });
   }
 
-  async acknowledgeIdentityAnnouncement(botId: string, contextSessionId?: string, receipt?: PendingIdentityAnnouncement): Promise<void> {
-    const announcementKey = `${botId}:${contextSessionId ?? "legacy"}`;
+  async acknowledgeIdentityAnnouncement(botId: string, contextSessionId: string, receipt?: PendingIdentityAnnouncement): Promise<void> {
+    const announcementKey = `${botId}:${contextSessionId}`;
     const pending = receipt ?? this.pendingIdentityAnnouncements.get(announcementKey);
     if (!pending) return;
     try {
       await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`identity-announcement:${botId}`}))`;
-        const snapshot = contextSessionId
-          ? await tx.contextPromptSnapshot.findUnique({ where: { contextSessionId } })
-          : await tx.agentPromptSnapshot.findUnique({ where: { botId } });
+        const snapshot = await tx.contextPromptSnapshot.findUnique({ where: { contextSessionId } });
         if (
           !snapshot ||
           snapshot.profileEpoch !== pending.epoch ||
@@ -2662,11 +2636,7 @@ export class AgentDataStore {
           announcedName: pending.announcedName,
           announcedDescription: pending.announcedDescription,
         };
-        if (contextSessionId) {
-          await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
-        } else {
-          await tx.agentPromptSnapshot.update({ where: { botId }, data });
-        }
+        await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
       });
     } finally {
       if (this.pendingIdentityAnnouncements.get(announcementKey) === pending) {

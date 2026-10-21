@@ -100,15 +100,16 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
   const outsideAvatar = join(temporary, "outside.png");
   await mkdir(workspace, { recursive: true });
   const store = new AgentDataStore(prisma, { root, workspaceRoot: workspace });
-  const pinnedFacts = async (botId: string) => {
-    const prompt = await store.promptContext(botId);
-    return (await store.preparePlatformSections(botId, undefined, prompt.compactionEpoch, {}, prompt.memory)).memory!.facts;
+  const pinnedFacts = async (botId: string, contextSessionId: string) => {
+    const prompt = await store.promptContext(botId, contextSessionId);
+    return (await store.preparePlatformSections(botId, contextSessionId, prompt.compactionEpoch, {}, prompt.memory)).memory!.facts;
   };
 
   const firstBotId = randomUUID();
   const secondBotId = randomUUID();
   const firstConversationId = randomUUID();
   const secondConversationId = randomUUID();
+  const firstContextId = randomUUID();
   const firstChannelId = randomUUID();
   const secondChannelId = randomUUID();
   const groupId = randomUUID();
@@ -137,6 +138,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
         status: "active",
         onboardingStatus: "completed",
         conversation: { create: { id: firstConversationId } },
+        contextSessions: { create: { id: firstContextId, scope: "home", scopeId: firstConversationId } },
       },
     });
     await prisma.bot.create({
@@ -186,7 +188,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     await store.writeGroupFilesForBot(firstBotId);
     await Promise.all([store.reconcileBot(firstBotId), store.reconcileBot(secondBotId)]);
 
-    const initialPrompt = await store.promptContext(firstBotId);
+    const initialPrompt = await store.promptContext(firstBotId, firstContextId);
     expect(initialPrompt.profileSection).toContain("Watcher One");
     expect(initialPrompt.memory.facts).toEndWith("No facts recorded yet.");
     expect(initialPrompt.skillRender).toBe("");
@@ -483,14 +485,14 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     expect(eventWakes).toHaveLength(6);
     expect(eventWakes.at(-1)?.content).toContain("- Renamed to Renamed on disk");
 
-    const frozenIdentity = await store.promptContext(firstBotId);
+    const frozenIdentity = await store.promptContext(firstBotId, firstContextId);
     expect(frozenIdentity.profileSection).toBe(initialPrompt.profileSection);
     expect(frozenIdentity.identityAnnouncement).toContain("Renamed on disk");
-    expect((await store.promptContext(firstBotId)).identityAnnouncement).toContain(
+    expect((await store.promptContext(firstBotId, firstContextId)).identityAnnouncement).toContain(
       "Renamed on disk"
     );
-    await store.acknowledgeIdentityAnnouncement(firstBotId);
-    expect((await store.promptContext(firstBotId)).identityAnnouncement).toBe("");
+    await store.acknowledgeIdentityAnnouncement(firstBotId, firstContextId);
+    expect((await store.promptContext(firstBotId, firstContextId)).identityAnnouncement).toBe("");
 
     const skillDirectory = join(root, "workflows", skillSlug);
     await atomicWrite(
@@ -547,7 +549,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
         ).slug
       )
     ).toBe(true);
-    expect((await store.promptContext(firstBotId)).skillRender).toBe("");
+    expect((await store.promptContext(firstBotId, firstContextId)).skillRender).toBe("");
 
     await store.writeMemory(firstBotId, {
       scope: "agent",
@@ -571,7 +573,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     for (let index = 0; index < 8; index += 1) {
       expect(concurrentMemory.map((fact) => fact.fact)).toContain(`Concurrent memory fact ${index}.`);
     }
-    expect(await pinnedFacts(firstBotId)).toContain(
+    expect(await pinnedFacts(firstBotId, firstContextId)).toContain(
       "The first fact is visible before memory freezes."
     );
     await store.writeMemory(firstBotId, {
@@ -580,15 +582,15 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       fact: "The second fact waits for compaction.",
       at: new Date("2026-08-27"),
     });
-    expect(await pinnedFacts(firstBotId)).not.toContain("The second fact waits for compaction.");
+    expect(await pinnedFacts(firstBotId, firstContextId)).not.toContain("The second fact waits for compaction.");
 
-    await prisma.conversation.update({
-      where: { id: firstConversationId },
+    await prisma.contextSession.update({
+      where: { id: firstContextId },
       data: { compactionEpoch: { increment: 1 } },
     });
-    const compactedPrompt = await store.promptContext(firstBotId);
+    const compactedPrompt = await store.promptContext(firstBotId, firstContextId);
     expect(compactedPrompt.profileSection).toContain("Renamed on disk");
-    expect(await pinnedFacts(firstBotId)).toContain("The second fact waits for compaction.");
+    expect(await pinnedFacts(firstBotId, firstContextId)).toContain("The second fact waits for compaction.");
     expect(compactedPrompt.skillRender).toContain("Disk-owned skill");
 
     await store.writeMemory(firstBotId, {
@@ -601,11 +603,11 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       tier: "profile",
       fact: "User fact written by watcher two.",
     });
-    await prisma.conversation.update({
-      where: { id: firstConversationId },
+    await prisma.contextSession.update({
+      where: { id: firstContextId },
       data: { compactionEpoch: { increment: 1 } },
     });
-    const mergedMemory = await pinnedFacts(firstBotId);
+    const mergedMemory = await pinnedFacts(firstBotId, firstContextId);
     expect(mergedMemory).toContain("User fact written by watcher one.");
     expect(mergedMemory).toContain("User fact written by watcher two.");
 
@@ -613,7 +615,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       scope: "user",
       fact: "User fact written by watcher one.",
     });
-    const afterForget = (await store.promptContext(firstBotId)).memory.facts;
+    const afterForget = (await store.promptContext(firstBotId, firstContextId)).memory.facts;
     expect(afterForget).not.toContain("User fact written by watcher one.");
     expect(afterForget).toContain("User fact written by watcher two.");
 

@@ -91,7 +91,7 @@ describe("main-agent graphical delegation instructions", () => {
       const prompt = await AgentMessaging.prototype.platformPrompt.call(
         messaging as unknown as AgentMessaging,
         "child",
-        undefined,
+        "child-context",
         "\n\n## Installed plugin skills\n\nSkill declared for this worker"
       );
       const media = subagentType === "videoReview" || subagentType === "watchVideo";
@@ -142,7 +142,7 @@ describe("main-agent graphical delegation instructions", () => {
       prisma: { bot: { findUniqueOrThrow: async () => ({ id: "child", name: "Worker", instructions: "", defaultDirectory: "/workspace",
         subagentIdentity: { parentBotId: "parent", subagentType: "executor", readOnly: true }, todos: [] }) } },
     });
-    const prompt = await AgentMessaging.prototype.platformPrompt.call(messaging as unknown as AgentMessaging, "child", undefined, "");
+    const prompt = await AgentMessaging.prototype.platformPrompt.call(messaging as unknown as AgentMessaging, "child", "child-context", "");
     expect(prompt.instructions).toContain("just do the work and report what you found or did.\nOperate in readonly mode: do not modify anything.");
     expect(prompt.instructions).toContain("- The user's own computers are out of reach in this run");
     expect(prompt.instructions).not.toContain("ListMachines");

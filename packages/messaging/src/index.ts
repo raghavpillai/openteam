@@ -1832,9 +1832,7 @@ export class AgentMessaging {
   }
 
   /** channelId is the run's channel (null for a home run); undefined renders no pending automation results. */
-  async platformPrompt(botId: string, contextSessionId?: string, connectorInstructions = "", channelId?: string | null, taskConfigurationSnapshot?: TaskConfiguration): Promise<PlatformPrompt> {
-    const context = contextSessionId ? await this.prisma.contextSession.findFirst({ where: { id: contextSessionId, botId }, select: { scope: true, scopeId: true } }) : null;
-    const automation = context?.scope === "automation";
+  async platformPrompt(botId: string, contextSessionId: string, connectorInstructions = "", channelId?: string | null, taskConfigurationSnapshot?: TaskConfiguration): Promise<PlatformPrompt> {
     const bot = await this.prisma.bot.findUniqueOrThrow({
       where: { id: botId },
       include: {
@@ -1879,6 +1877,8 @@ export class AgentMessaging {
         agentProfileUpdate: null,
       };
     }
+    const context = await this.prisma.contextSession.findFirst({ where: { id: contextSessionId, botId }, select: { scope: true, scopeId: true } });
+    const automation = context?.scope === "automation";
     const [agentPrompt, taskConfiguration] = await Promise.all([
       this.agentData.promptContext(botId, contextSessionId, channelId),
       taskConfigurationSnapshot ?? this.agentData.loadTaskConfiguration(),
@@ -2074,7 +2074,7 @@ export class AgentMessaging {
     };
   }
 
-  async acknowledgePlatformPrompt(botId: string, contextSessionId: string | undefined, prompt: PlatformPrompt) {
+  async acknowledgePlatformPrompt(botId: string, contextSessionId: string, prompt: PlatformPrompt) {
     const acknowledgement = prompt.acknowledgement;
     if (!acknowledgement) return;
     await this.agentData.acknowledgePlatformSections(botId, contextSessionId, acknowledgement.sections, acknowledgement.memory, acknowledgement.automationStatus);
@@ -2101,11 +2101,6 @@ export class AgentMessaging {
         WHERE "senderBotId" = ${botId}::uuid AND "id" = ${receipt.messageId}::uuid AND "metadata"->>'outcomeId' = ${receipt.outcomeId}
       `);
     }
-  }
-
-  async platformInstructions(botId: string, contextSessionId?: string): Promise<string> {
-    const prompt = await this.platformPrompt(botId, contextSessionId);
-    return [prompt.instructions, prompt.userInfo].filter(Boolean).join("\n\n");
   }
 
   async sendToAgent(context: ToolContext, input: SendToAgentInput): Promise<ToolResult> {

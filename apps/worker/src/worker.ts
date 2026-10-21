@@ -17,8 +17,7 @@ import type {
 import { SEND_TO_USER_REPLY_NUDGE_PROMPT } from "@openteam/contracts";
 import { formatPiModelRef, normalizePiReasoningLevel } from "@openteam/contracts";
 import { selectTaskConfiguration, parseTaskConfiguration, subagentUsesParentConnectors, type TaskConfiguration, type TaskCapabilities } from "@openteam/contracts/task-configuration";
-import { finalizeInterruptedItems, interruptedProgress } from "./interrupted-progress";
-import { includeSubagentFailures } from "./subagent-result";
+import { finalizeInterruptedItems } from "./interrupted-progress";
 import { subagentTitle } from "@openteam/contracts/subagent-dispatch";
 import {
   COMPUTER_API_PATHS,
@@ -205,6 +204,8 @@ export const WAKE_REDRIVE_LIMITS: Partial<Record<RunOrigin, number>> = {
   connector: 1,
   background_revival: 1,
 };
+
+export const SUBAGENT_INTERRUPTED_RESULT = "The background task was interrupted before it finished.";
 
 export const runOwesUserDelivery = (origin: RunOrigin): boolean =>
   ["user", "bootstrap", "connector", "handoff_resume", "broadcast"].includes(origin);
@@ -1846,7 +1847,7 @@ export class WakeWorker {
         }
       }
       await this.messaging.scheduleTranscriptProjection(tx, [claimed.botId]);
-      await this.failSubagent(tx, claimed, failureDetails);
+      await this.failSubagent(tx, claimed, failureDetails, interrupted);
     });
     await this.syncRoutineRunFile(claimed.botId, claimed.runId);
     if (claimed.deliveryId) {
@@ -1987,27 +1988,8 @@ export class WakeWorker {
       where: { runId: claimed.runId, role: "assistant", status: "completed" },
       orderBy: { updatedAt: "desc" },
     });
-    const failures = await tx.runItem.findMany({
-      where: {
-        runId: claimed.runId,
-        kind: { in: ["tool", "command"] },
-        OR: [
-          { status: "failed" },
-          { content: { path: ["result", "isError"], equals: true } },
-          // Shell execution may complete successfully as a tool transport while
-          // the command itself exits nonzero. Preserve that failure as well.
-          { kind: "command", content: { path: ["result", "details", "exitCode"], gt: 0 } },
-          { kind: "command", content: { path: ["result", "details", "exitCode"], lt: 0 } },
-        ],
-      },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      select: { kind: true, content: true },
-    });
-    const result = includeSubagentFailures(
-      finalMessage?.content.trim() ?? "",
-      failures.reverse()
-    );
+    // The parent gets the worker's own report, as in the reference.
+    const result = finalMessage?.content.trim() ?? "";
     await tx.subagent.update({
       where: { id: subagent.id },
       data: {
@@ -2059,7 +2041,8 @@ export class WakeWorker {
   private async failSubagent(
     tx: Prisma.TransactionClient,
     claimed: Claimed,
-    details: Prisma.InputJsonObject
+    details: Prisma.InputJsonObject,
+    interrupted: boolean
   ): Promise<void> {
     const subagent = await tx.subagent.findFirst({
       where: { childBotId: claimed.botId, currentRunId: claimed.runId },
@@ -2075,10 +2058,8 @@ export class WakeWorker {
     ) {
       return;
     }
-    const items = await tx.runItem.findMany({
-      where: { runId: claimed.runId, kind: "tool" }, orderBy: { createdAt: "desc" }, take: 24,
-    });
-    const result = interruptedProgress(items.reverse(), String(details.message ?? "Runtime interrupted"));
+    // A run the computer never settled reads as interrupted; a reported failure gives its error.
+    const result = interrupted ? SUBAGENT_INTERRUPTED_RESULT : String(details.message ?? "");
     await tx.subagent.update({
       where: { id: subagent.id },
       data: { status: "failed", error: details, result, completedAt: new Date() },

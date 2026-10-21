@@ -169,7 +169,6 @@ export const renderSubagentRevivalPrompt = (input: {
     `Background task "${input.title}" (${input.subagentType}) ${outcome}:`,
     input.result.trim(),
     "",
-    "When reporting this result, distinguish eventual completion from an error-free run. Preserve reported failed actions, user interventions and material fallbacks. Successful recovery does not erase them; summarize them accurately without repeating the work.",
     SUBAGENT_REVIVAL_INSTRUCTION,
   ].join("\n");
 };

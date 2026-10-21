@@ -1,17 +1,9 @@
 import { expect, test } from "bun:test";
-import { finalizeInterruptedItems, interruptedProgress } from "../src/interrupted-progress";
+import { finalizeInterruptedItems } from "../src/interrupted-progress";
 import { WakeWorker } from "../src/worker";
 
-const completed = { kind: "tool", status: "completed", content: { tool: "browser_snapshot", result: { details: { path: "/workspace/shared/screenshots/progress.png" }, content: [{ type: "text", text: "Completed (3/5): text, replacement, nested" }, { type: "image", data: "PRIVATE-BASE64" }] } } };
+const completed = { kind: "tool", status: "completed", content: { tool: "browser_snapshot", result: { details: { path: "/workspace/shared/screenshots/progress.png" }, content: [{ type: "text", text: "Completed (3/5): text, replacement, nested" }] } } };
 const pending = { id: "item", upstreamItemId: "click", kind: "tool", status: "running", content: { tool: "browser_click", status: "inProgress" } };
-
-test("interruption retains evidence without images or claiming the in-flight action completed", () => {
-  const result = interruptedProgress([completed, pending], "terminated");
-  expect(result).toContain("Completed (3/5)");
-  expect(result).toContain("Not verified");
-  expect(result).toContain("/workspace/shared/screenshots/progress.png");
-  expect(result).not.toContain("PRIVATE-BASE64");
-});
 
 test("unfinished items become terminal in the database and client event", async () => {
   let updated: any, event: any;
@@ -24,7 +16,7 @@ test("unfinished items become terminal in the database and client event", async 
   expect(event.data.payload.upstreamItemId).toBe("click");
 });
 
-test("failed graphical workers persist partial results and send those results to the parent", async () => {
+const failWorker = async (details: Record<string, unknown>, interrupted: boolean) => {
   const writes: any[] = [];
   let delivered: any;
   const worker = Object.create(WakeWorker.prototype) as any;
@@ -35,8 +27,17 @@ test("failed graphical workers persist partial results and send those results to
     runItem: { findMany: async () => [pending, completed] },
     event: { create: async () => {} },
   };
-  await worker.failSubagent(tx, { botId: "bot", runId: "run" }, { message: "terminated" });
+  await worker.failSubagent(tx, { botId: "bot", runId: "run" }, details, interrupted);
   expect(writes).toHaveLength(2);
-  expect(writes[0].data.result).toContain("Completed (3/5)");
+  expect(writes[1].data.result).toBe(writes[0].data.result);
   expect(delivered).toBe(writes[0].data.result);
+  return delivered;
+};
+
+test("an interrupted worker reports the reference's interruption line and no progress dump", async () => {
+  expect(await failWorker({ message: "terminated" }, true)).toBe("The background task was interrupted before it finished.");
+});
+
+test("a worker that failed reports its error message as is", async () => {
+  expect(await failWorker({ code: "runtime_interrupted", message: "Model provider returned 500" }, false)).toBe("Model provider returned 500");
 });

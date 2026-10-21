@@ -182,6 +182,8 @@ export class PluginQueries {
           connectorCount: plugin.connections.length,
           skills: plugin.skills.map(({ name, description }) => ({ name, description })),
         })),
+      // Installed plugins with a signed-out account say so in the results.
+      connections: ((await this.connectionStatuses()) as { connections: unknown[] }).connections,
     };
   };
 

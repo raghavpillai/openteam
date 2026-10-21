@@ -158,7 +158,7 @@ function describeInstalled(server) {
     server.disabledToolCount != null && server.disabledToolCount > 0 ? `tools=${server.toolCount}/${server.toolCount + server.disabledToolCount} enabled` : `tools=${server.toolCount}`
   ];
   if (server.pluginId != null) {
-    parts.push(`plugin=${server.pluginId} (remove via UninstallPlugin \u2014 removes the whole plugin)`);
+    parts.push(`plugin=${server.pluginId} (remove via UninstallPlugin, which removes the whole plugin)`);
   }
   if (server.statusDetail != null && server.statusDetail.length > 0) {
     parts.push(`detail="${server.statusDetail}"`);
@@ -190,15 +190,32 @@ function describePluginIncludes(plugin) {
   }
   return parts.length > 0 ? parts.join(", ") : "no primitives";
 }
-function describePluginSummary(plugin) {
+function describePluginSignIn(plugin, installed) {
+  if (!plugin.isInstalled) return null;
+  const rows = installed.filter((server) => server.pluginId === plugin.pluginId);
+  // OpenTeam lists a signed-in account as ready where the reference says connected.
+  const connectedServerIds = new Set(
+    rows.filter((server) => server.status === "connected" || server.status === "ready").map((server) => server.serverIdentifier)
+  );
+  const signedOut = rows.filter(
+    (server) => server.status === "needsAuth" && !connectedServerIds.has(server.serverIdentifier)
+  );
+  if (signedOut.length === 0) return null;
+  return signedOut.map(
+    (server) => `  ${server.serverIdentifier} (account=${encodeMcpAccountLabelForListing(server.accountKey)}) needs sign-in; call AuthenticateMcpServer with its server_id when the task needs it.`
+  ).join("\n");
+}
+function describePluginSummary(plugin, installed = []) {
   const parts = [
-    `- ${plugin.pluginId}: ${plugin.displayName} \u2014 ${plugin.description}`,
+    `- ${plugin.pluginId}: ${plugin.displayName}. ${plugin.description}`,
     `  (${[
       describePluginInstallState(plugin),
       `includes: ${describePluginIncludes(plugin)}`,
       `category=${plugin.category}`
     ].join("; ")})`
   ];
+  const signIn = describePluginSignIn(plugin, installed);
+  if (signIn != null) parts.push(signIn);
   const guidance = getDefaultMcpCustomInstruction(plugin.displayName);
   if (guidance.length > 0) {
     parts.push(`  usage guidance: ${guidance}`);
@@ -210,15 +227,33 @@ function describePluginFields(detail) {
   const lines2 = detail.fields.map((field) => {
     const flags = [
       field.isRequired ? "required" : "optional",
-      ...field.isSecret ? ["secret \u2014 ask the user, never guess"] : []
+      ...field.isSecret ? ["secret, so ask the user and never guess"] : []
     ].join(", ");
     return `  - ${field.key} (${field.label}; ${flags})`;
   });
   return ["Setup fields (pass in InstallPlugin values):", ...lines2].join("\n");
 }
-function describePluginDetail(detail) {
+function describePluginServer(server) {
+  return [
+    `- ${server.serverIdentifier}: ${server.name}`,
+    `account=${encodeMcpAccountLabelForListing(server.accountKey)}`,
+    `transport=${server.transport}`
+  ].join(" \xB7 ");
+}
+/** "live" lists full status rows (after an install); "omitted" leaves status to GetDynamicTools. */
+function describePluginServers(detail, statuses) {
+  if (detail.servers.length === 0) return null;
+  if (statuses === "live") {
+    return ["Its installed MCP server(s):", ...detail.servers.map((server) => describeInstalled(server))].join("\n");
+  }
+  return [
+    "Its installed MCP server(s); GetDynamicTools lists their live status and tools:",
+    ...detail.servers.map(describePluginServer)
+  ].join("\n");
+}
+function describePluginDetail(detail, statuses = "omitted") {
   const sections = [
-    `${detail.pluginId}: ${detail.displayName} \u2014 ${detail.description}`,
+    `${detail.pluginId}: ${detail.displayName}. ${detail.description}`,
     `${describePluginInstallState(detail)} \xB7 includes: ${describePluginIncludes(detail)} \xB7 category=${detail.category}`
   ];
   if (detail.skills.length > 0) {
@@ -226,23 +261,17 @@ function describePluginDetail(detail) {
       [
         "Skills:",
         ...detail.skills.map(
-          (skill) => `  - ${skill.name}${skill.description.length > 0 ? ` \u2014 ${truncateOneLine(skill.description, 140)}` : ""}`
+          (skill) => `  - ${skill.name}${skill.description.length > 0 ? `: ${truncateOneLine(skill.description, 140)}` : ""}`
         )
       ].join("\n")
     );
   }
   const fields2 = describePluginFields(detail);
   if (fields2 != null) sections.push(fields2);
-  if (detail.servers.length > 0) {
-    sections.push(
-      [
-        "Its installed MCP server(s) \u2014 statuses live in GetMcpServerStatus:",
-        ...detail.servers.map(describeInstalled)
-      ].join("\n")
-    );
-  }
+  const servers = describePluginServers(detail, statuses);
+  if (servers != null) sections.push(servers);
   if (detail.isInstalled && detail.installMode === "team-required") {
-    sections.push("Required by the user's team \u2014 it cannot be uninstalled.");
+    sections.push("It is required by the user's team, so it cannot be uninstalled.");
   }
   return sections.join("\n");
 }

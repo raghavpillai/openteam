@@ -214,7 +214,12 @@ export class InternalToolService {
           request.arguments && typeof request.arguments === "object"
             ? (request.arguments as Record<string, unknown>)
             : {};
-        const resolved = await this.plugins.resolveToolArguments(request.tool, input);
+        const resolved = await this.plugins.resolveToolArguments(request.tool, input).catch((error) => {
+          // An unknown server_id is answered by the listing formatter, as in the reference.
+          if (error instanceof ApiError && error.code === "connection_not_found") return null;
+          throw error;
+        });
+        if (!resolved) return { connections: [] };
         return this.plugins.connectionStatuses(typeof resolved.connectionId === "string" ? resolved.connectionId : undefined);
       }
       if (

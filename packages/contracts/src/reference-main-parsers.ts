@@ -1637,6 +1637,28 @@ function describeCronMatcher(matcher) {
   return `${englishEvery(time4.every)}${on}${window2}`;
 }
 
+function describeOneShotSchedule(schedule) {
+  const normalized = normalizeSchedule(schedule);
+  if (parseEveryIntervalMs(normalized) != null) return null;
+  if (splitScheduleTimeZone(normalized).schedule.startsWith("@")) return null;
+  const matcher = compileCronMatcher(normalized);
+  if (matcher == null || matcher.month.size !== 1 || !matcher.isDayOfMonthRestricted || matcher.dayOfMonth.size !== 1 || matcher.isDayOfWeekRestricted || matcher.hour.size !== 1 || matcher.minute.size !== 1) {
+    return null;
+  }
+  const [month] = matcher.month;
+  const [day] = matcher.dayOfMonth;
+  const [hour] = matcher.hour;
+  const [minute] = matcher.minute;
+  if (month == null || day == null || hour == null || minute == null) return null;
+  if (!isCalendarDate({ month, day })) return null;
+  return `${MONTHS[month - 1]} ${day} at ${formatClock(hour, minute)}`;
+}
+
+function isCalendarDate({ month, day }) {
+  const date6 = new Date(2e3, month - 1, day);
+  return date6.getMonth() === month - 1 && date6.getDate() === day;
+}
+
 function describeSchedule(schedule) {
   const normalized = normalizeSchedule(schedule);
   const intervalMs = parseEveryIntervalMs(normalized);
@@ -1650,7 +1672,8 @@ function describeSchedule(schedule) {
   }
   const matcher = compileCronMatcher(normalized);
   if (matcher == null) return normalized;
-  const prose = describeCronMatcher(matcher);
+  const oneShot = describeOneShotSchedule(normalized);
+  const prose = oneShot != null ? `Once ${oneShot}` : describeCronMatcher(matcher);
   if (prose == null) return normalized;
   return matcher.timeZone == null ? prose : `${prose} (${matcher.timeZone})`;
 }

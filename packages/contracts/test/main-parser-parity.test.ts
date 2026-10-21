@@ -65,3 +65,13 @@ test("parsers keep the reference arguments OpenTeam supports", async () => {
   expect(renderControlResult("StopSubagent", { stopped_all: true, stopped: [], already_finished: [], failed: [] }, { all: true }))
     .toStartWith("No background subagents are running, so there was nothing of your own to stop.");
 });
+test("a dated cron is described as a one-off", () => {
+  expect(describeTrigger({ type: "cron", schedule: "36 10 21 10 *" })).toBe("Once October 21 at 10:36 AM");
+  expect(describeTrigger({ type: "cron", schedule: "CRON_TZ=America/New_York 5 17 3 2 *" })).toBe("Once February 3 at 5:05 PM (America/New_York)");
+  // Not one-offs: a weekday restriction, several days, an impossible date, or a calendar shorthand.
+  expect(describeTrigger({ type: "cron", schedule: "0 9 21 10 1" })).not.toStartWith("Once");
+  expect(describeTrigger({ type: "cron", schedule: "0 9 1,15 10 *" })).not.toStartWith("Once");
+  expect(describeTrigger({ type: "cron", schedule: "0 9 31 2 *" })).not.toStartWith("Once");
+  expect(describeTrigger({ type: "cron", schedule: "@yearly" })).not.toStartWith("Once");
+  expect(describeTrigger({ type: "cron", schedule: "0 9 * * *" })).toBe("Every day at 9:00 AM");
+});

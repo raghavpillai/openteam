@@ -173,7 +173,9 @@ databaseTest("a routine run reads and changes only its own routine, and may paus
       target: "routine", action: "get", name: "Morning brief", folder: own.folder, enabled: true,
       prompt: "Morning brief prompt", trigger: { type: "cron", schedule: "0 8 * * *" },
     });
-    expect(await call({ action: "update", id: String(own.id), prompt: "Shorter brief" })).toMatchObject({ updated: true, prompt: "Shorter brief" });
+    const edited = await call({ action: "update", id: String(own.id), prompt: "Shorter brief" });
+    expect(edited).toMatchObject({ updated: true, prompt: "Shorter brief" });
+    expect(edited).not.toHaveProperty("delivery_nudge");
     expect(await call({ action: "pause", id: String(other.folder) })).toMatchObject({ paused: true });
     expect(await call({ action: "delete", id: String(third.folder) })).toMatchObject({ deleted: true });
     expect(await prisma.routine.count({ where: { botId, deletedAt: null } })).toBe(2);
@@ -186,7 +188,8 @@ databaseTest("a routine run reads and changes only its own routine, and may paus
     await expect(call({ action: "get", id: "missing" }, turn.id)).rejects.toThrow(
       'no routine with folder "missing" exists. Your routines and their folder ids are listed under Scheduled routines in your prompt.'
     );
-    expect(await call({ action: "create", name: "Allowed", prompt: "x", schedule: "0 9 * * *" }, turn.id)).toMatchObject({ created: true });
+    expect(await call({ action: "create", name: "Allowed", prompt: "x", schedule: "0 9 * * *" }, turn.id)).toMatchObject({ created: true, delivery_nudge: true });
+    expect(await call({ action: "pause", id: String(own.folder) }, turn.id)).not.toHaveProperty("delivery_nudge");
   } finally {
     if (botId) {
       await prisma.idempotencyRecord.deleteMany({ where: { scope: `state:${botId}` } });

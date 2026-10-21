@@ -94,20 +94,23 @@ export function renderControlResult(
         result.prompt,
       ].join("\n");
     if (result.target === "routine") {
+      // Resuming saves the routine again, so it reads like any other update.
       const verb = (
         {
           pause: "Paused",
-          resume: "Resumed",
+          resume: "Updated",
           delete: "Deleted",
           create: "Saved",
           update: "Updated",
         } as Record<string, string>
       )[args.action];
       const owner = result.owner?.kind === "group" ? ` Owner: group "${result.owner.name ?? result.owner.id}" (${result.owner.id}).` : "";
-      const summary = `${verb} routine "${result.name}" (folder ${result.folder ?? args.id})${["create", "update"].includes(args.action) ? ` — ${describeTrigger(result.trigger ?? {type:"cron",schedule:result.schedule})}${result.enabled ? "" : ", paused"}` : ""}.${owner}`;
-      if (typeof result.next_run_at === "string") return `${summary}\nNext scheduled occurrence: ${result.next_run_at}. Use this saved timestamp if reporting the next run; do not calculate or guess a different time.`;
-      if (result.next_run_at === null) return `${summary}\nNext scheduled occurrence: none${result.enabled === false ? " (paused)" : ""}.`;
-      return summary;
+      const summary = `${verb} routine "${result.name}" (folder ${result.folder ?? args.id})${["create", "update", "resume"].includes(args.action) ? `: ${describeTrigger(result.trigger ?? {type:"cron",schedule:result.schedule})}${result.enabled ? "" : ", paused"}` : ""}.${owner}`;
+      const next = args.action === "delete" ? ""
+        : typeof result.next_run_at === "string" ? `\nNext scheduled occurrence: ${localTime(result.next_run_at, result.timezone)}. Use this saved time if reporting the next run; do not calculate or guess a different time.`
+        : result.next_run_at === null ? `\nNext scheduled occurrence: none${result.enabled === false ? " (paused)" : ""}.`
+        : "";
+      return `${summary}${next}${result.delivery_nudge ? "\nGive the user a concise summary of what this routine does and where its result goes." : ""}`;
     }
     if (result.target === "avatar" && result.cleared)
       return "Cleared your picture — back to the default.";
@@ -191,6 +194,16 @@ export function renderControlResult(
     if (result.subagent_id) return describe(result, true);
   }
   return JSON.stringify(output);
+}
+
+/** A saved time in the routine's zone, labeled with that zone. */
+function localTime(iso: string, timeZone: unknown): string {
+  const options = { timeZoneName: "short" } as const;
+  try {
+    return new Date(iso).toLocaleString("en-US", typeof timeZone === "string" && timeZone ? { ...options, timeZone } : options);
+  } catch {
+    return new Date(iso).toLocaleString("en-US", options);
+  }
 }
 
 const PEERS_NOT_STOPPED =

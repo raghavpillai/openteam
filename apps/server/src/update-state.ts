@@ -209,7 +209,12 @@ export class DurableStateService {
           trigger: input.trigger,
           enabled: input.enabled,
         });
-        return { ...routine, owner: { ...owner, ...(group ? { name: group.name } : {}) } };
+        return {
+          ...routine,
+          owner: { ...owner, ...(group ? { name: group.name } : {}) },
+          // Outside a routine run, a saved routine is summarized for the user.
+          ...(!inRun && ["create", "update"].includes(input.action) ? { delivery_nudge: true } : {}),
+        };
       }
       case "skill":
         return this.skill(botId, input, tool);

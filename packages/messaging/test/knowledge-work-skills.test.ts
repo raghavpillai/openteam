@@ -64,9 +64,9 @@ test("knowledgeWork skills stay out of the main agent's catalog and workflow lis
     expect(record("office-pptx").agents).toEqual(["knowledgeWork"]);
     expect(record("slides").agents).toBeUndefined();
     const catalog: string = await (store as any).renderManagedSkills();
-    expect(catalog).toContain("managed:slides)");
-    expect(catalog).not.toContain("managed:slides-executor");
-    expect(catalog).not.toContain("managed:office-pptx");
+    expect(catalog).toContain(`<agent_skill fullPath="${record("slides").filePath}">`);
+    expect(catalog).not.toContain(record("slides-executor").filePath);
+    expect(catalog).not.toContain(record("office-pptx").filePath);
     // The knowledgeWork worker gets its own skills as an agent_skills block with file paths.
     const description = (id: string) => record(id).description;
     expect(await store.renderWorkerSkillCatalog("knowledgeWork")).toBe(

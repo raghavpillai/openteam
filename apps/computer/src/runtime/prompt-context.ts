@@ -73,13 +73,18 @@ export function enrichUserInfo(
     `OS Version: ${platform()} ${release()}`,
     "Shell: /bin/bash",
     "The Linux computer supports passwordless sudo for system changes and package installation.",
-    `Workspace Path: ${input.cwd}`,
-    `Is directory a git repo: ${existsSync(join(input.cwd, ".git")) ? "Yes" : "Unknown (inspect the workspace if needed)"}`,
-  ].join("\n");
+    existsSync(join(input.cwd, ".git"))
+      ? `Workspace Path: ${input.cwd}`
+      : `Workspace Path: ${input.cwd}\nIf editing a git workspace within your current directory, do not search or edit non-primary worktrees unless the user explicitly requests you to do so.`,
+  ].join("\n\n");
+  const context = base.replace(/<user_info>(\n?)/, (_, newline: string) => `<user_info>\n${environment}\n${newline}`);
+  // The reference lists subagent types right after memory, before teammates and skills.
+  const roster = input.subagent ? null : taskUserInfo(input.taskConfiguration);
+  const at = roster ? context.search(/\n\n<(?:teammates|agent_skills)>/) : -1;
   return [
-    base.replace("<user_info>", `<user_info>\n${environment}`),
-    `<agent_transcripts>\nPast conversation transcripts: ${input.transcriptPath}. Read relevant prior context when needed; do not cite internal transcript IDs to the user.\n</agent_transcripts>`,
-    ...(input.subagent ? [] : [taskUserInfo(input.taskConfiguration)]),
+    !roster ? context : at < 0 ? `${context}\n\n${roster}` : `${context.slice(0, at)}\n\n${roster}${context.slice(at)}`,
+    // The main agent reads past conversations with ReadTranscript, never the files.
+    ...(input.subagent ? [`<agent_transcripts>\nPast conversation transcripts: ${input.transcriptPath}. Read relevant prior context when needed; do not cite internal transcript IDs to the user.\n</agent_transcripts>`] : []),
     input.catalog ?? [],
   ].flat().join("\n\n");
 }

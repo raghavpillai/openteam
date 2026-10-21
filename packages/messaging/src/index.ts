@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { publishChannelNotification, publishMessageNotification } from "./notifications";
 export { publishChannelNotification, publishMessageNotification, channelNotificationStates } from "./notifications";
 import { messagePreviewText } from "@openteam/contracts/message-preview";
-import { defaultTaskConfiguration, subagentUsesParentConnectors, taskUserInfo, type TaskConfiguration } from "@openteam/contracts/task-configuration";
+import { defaultTaskConfiguration, subagentUsesParentConnectors, type TaskConfiguration } from "@openteam/contracts/task-configuration";
 import { COMBINED_GRAPHICAL_WORKER_PROMPT, EXECUTION_VERIFICATION_INSTRUCTIONS } from "./graphical-worker-prompts";
 import {
   type AdminBroadcastInput,
@@ -53,7 +53,8 @@ import {
   renderPlatformBaseSystemPrompt,
   renderPlatformRuntimeInstructions,
 } from "./platform-system-prompt";
-import { resolveTimeZone, timestampUserTurn } from "./timestamps";
+import { formatFriendlyDate, resolveTimeZone, timestampUserTurn } from "./timestamps";
+import { renderAgentSkillsSection } from "./skill-catalog";
 import type { MemoryContextReceipt, PromptSectionReceipt } from "./prompt-sections";
 import { renderMemoryContextBlock } from "./memory-rendering";
 
@@ -130,16 +131,17 @@ export interface PlatformPrompt {
   };
 }
 
-export const renderAgentSkillsUserInfo = (skillRender: string, memoryContext?: string, teammates?: string | null): string =>
+/** The main agent's user_info message in the reference's order. The computer adds its
+ * environment lines above the date and the subagent types after memory. */
+export const renderAgentSkillsUserInfo = (skillRender: string, memoryContext?: string, teammates?: string | null, todaysDate?: string): string =>
   [
-    "<user_info>",
-    ...(memoryContext ? [memoryContext, ""] : []),
-    ...(teammates ? [teammates] : []),
-    "<agent_skills>",
-    skillRender || "No saved skills are currently installed for you.",
-    "</agent_skills>",
-    "</user_info>",
-  ].join("\n");
+    ["<user_info>", ...(todaysDate ? [`Today's date: ${todaysDate}`] : []), "</user_info>"].join("\n"),
+    memoryContext,
+    teammates,
+    skillRender ? renderAgentSkillsSection(skillRender) : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
 export const SUBAGENT_REVIVAL_INSTRUCTION =
   'Pick the work back up: review the result(s), then either keep going or wrap up. If this result is genuinely new and relevant to the user, or the user asked to be told when this finished, tell them with a SendToUser. Lead with the concrete thing that finished, not a bare pronoun like "That" (they cannot see the background task). If it is stale, irrelevant, already handled, or a duplicate, and the user was not waiting on it, just stay silent and end the turn with no SendToUser rather than narrating it. Keep your status current, and clear it once everything is done and you\'re idle.';
@@ -162,22 +164,67 @@ export const renderSubagentRevivalPrompt = (input: {
   ].join("\n");
 };
 
-/** A finished background Shell, in the revival shape used for finished subagents. */
-export const renderShellCompletionPrompt = (input: ShellCompletionInput): string => {
+/** One finished background task as a revival lists it. A wake keeps its block so that
+ * completions ready at the same time reach the agent as one prompt. */
+export interface RevivalCompletion {
+  block: string;
+  subagentType: string;
+  /** Trailing context the single prompt adds, such as the group-room delivery note. */
+  note?: string;
+}
+
+export const subagentRevivalBlock = (input: { title: string; subagentType: string; status: "completed" | "failed"; result: string }): string =>
+  `Background task "${input.title}" (${input.subagentType}) ${input.status === "completed" ? "finished" : "failed"}:\n${input.result.trim()}`;
+
+export const shellCompletionBlock = (input: ShellCompletionInput): string => {
   const failed = input.exitCode !== 0 || Boolean(input.error);
-  const detail = [
+  return [
+    `Background task "${input.title ?? `Background command ${input.hostShellId ?? input.id}`}" (shell) ${failed ? "failed" : "finished"}:`,
     input.exitCode === null ? "" : input.exitCode !== 0 ? `exit_code=${input.exitCode}` : "",
     input.error ?? "",
     `Full output: ${input.outputPath}`,
     input.machineId ? `This is on the user’s computer; use Read or AwaitShell with machineId ${JSON.stringify(input.machineId)}.` : "",
-  ].filter(Boolean);
-  return [
+  ].filter(Boolean).join("\n");
+};
+
+/** A finished background Shell, in the revival shape used for finished subagents. */
+export const renderShellCompletionPrompt = (input: ShellCompletionInput): string =>
+  [
     "[SAND_HIDDEN_PROMPT][A background task just completed] A background task you started has finished.",
     "",
-    `Background task "${input.title ?? `Background command ${input.hostShellId ?? input.id}`}" (shell) ${failed ? "failed" : "finished"}:`,
-    ...detail,
+    shellCompletionBlock(input),
     "",
     SUBAGENT_REVIVAL_INSTRUCTION,
+  ].join("\n");
+
+/** A completion that waited at least this long for the agent to be free is marked late. */
+export const REVIVAL_HELD_AFTER_MS = 60_000;
+export const HELD_REVIVAL_NOTE =
+  "Some of these results were held back and arrive late; each one says how long it waited. Judge each by its age: act on it only if it is still current, and skip it if it is stale, already handled, or overtaken by a newer result. Never fold a held result into a reply about something else the user asked.";
+
+export const describeHeldDuration = (heldForMs: number): string => {
+  const minutes = Math.max(1, Math.round(heldForMs / 60_000));
+  if (minutes < 90) return minutes === 1 ? "1 minute" : `${minutes} minutes`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `${hours} hours` : `${Math.round(hours / 24)} days`;
+};
+
+/** Completions delivered in one turn, as the reference batches them; a late one says how long it waited. */
+export const renderRevivalBatchPrompt = (completions: ReadonlyArray<RevivalCompletion & { heldForMs?: number }>): string => {
+  const held = completions.some((completion) => completion.heldForMs !== undefined);
+  const notes = [...new Set(completions.flatMap((completion) => (completion.note ? [completion.note] : [])))];
+  return [
+    `[SAND_HIDDEN_PROMPT][A background task just completed] ${completions.length === 1 ? "A background task you started has finished." : `${completions.length} background tasks you started have finished.`}`,
+    "",
+    completions
+      .map(({ block, heldForMs }) =>
+        heldForMs === undefined ? block : `${block}\n(This finished about ${describeHeldDuration(heldForMs)} ago and reached you only now, so it may be out of date.)`
+      )
+      .join("\n\n"),
+    "",
+    SUBAGENT_REVIVAL_INSTRUCTION,
+    ...(held ? [HELD_REVIVAL_NOTE] : []),
+    ...notes.map((note) => `\n${note}`),
   ].join("\n");
 };
 
@@ -206,6 +253,9 @@ const TRANSCRIPT_PROJECTION_DEBOUNCE_SECONDS = 1;
 
 const compactName = (value: string): string => value.replace(/\s+/g, " ").trim().slice(0, 160);
 
+/** The reference adds that @Name renders a chip in the user's chat; our clients render no chips in bot messages. */
+export const TEAMMATE_MENTION_RULE =
+  "Writing @ and a teammate's exact name in your private chat does not reach the teammate; use SendToAgent.";
 /** The <teammates> block lists at most this many agents and group chats; the agent folders hold the rest. */
 export const PLATFORM_PROMPT_PEER_LIMIT = 40;
 export const PLATFORM_PROMPT_RELATED_PEER_LIMIT = 20;
@@ -276,7 +326,7 @@ export const renderTeammatesUserInfo = (input: {
   const root = input.agentsRoot;
   return [
     "<teammates>",
-    'Each teammate is its own assistant with its own chat, persona, and memory, and the user may not know you can reach them. When looping one in would genuinely help, offer it ("want me to ask your research agent?"), and treat "@ that agent", "tell my other agent\u2026", or "ask the group" as a request to send.',
+    `Each teammate is its own assistant with its own chat, persona, and memory, and the user may not know you can reach them. When looping one in would genuinely help, offer it ("want me to ask @Name?"), and treat "@ that agent", "tell my other agent\u2026", or "ask the group" as a request to send. ${TEAMMATE_MENTION_RULE}`,
     `Discovering agents is file-based. Every agent (yours included) is a sibling folder under ${root}. Read ${root}/<agentId>/profile.json (name, description) for any agent, and <agentId>/group.json ({ memberIds }) to see a group's members, with Shell. That is the full, fresh source when the lists below aren't enough.`,
     ...(peers.length
       ? [
@@ -675,6 +725,7 @@ export interface WakeInput {
   automationContextRunId?: string;
   taskContextRunId?: string;
   includeAttachmentPaths?: boolean;
+  revival?: RevivalCompletion;
 }
 
 export interface ToolContext {
@@ -847,6 +898,7 @@ export class AgentMessaging {
         botId: bot.id, channelId: channel.id, ...route, type: "shell.completed",
         clientId, priority: 50, wrapUserContent: false,
         content: renderShellCompletionPrompt(input),
+        revival: { block: shellCompletionBlock(input), subagentType: "shell" },
       });
       return { delivered: true };
     });
@@ -927,6 +979,7 @@ export class AgentMessaging {
           automationTrigger: input.automationTrigger,
           automationContextRunId: input.automationContextRunId,
           taskContextRunId: input.taskContextRunId,
+          revival: input.revival,
         }),
         priority: input.priority,
         availableAt: input.availableAt,
@@ -2247,20 +2300,16 @@ export class AgentMessaging {
       mcp_instructions: connectorInstructions,
     }, agentPrompt.memory);
     const siblings = await listSiblingThreads(this.prisma, botId, contextSessionId);
+    // The reference order: identity first; the sibling digest after memory and connector
+    // instructions after the directory, so per-turn changes sit late in the cached prefix.
     const instructions = [
-      frozen.sections.mcp_instructions,
       renderPlatformBaseSystemPrompt({ feedback: process.env.OPENTEAM_FEEDBACK_ALLOW_AGENT === "true" }),
-      renderOtherActiveConversations(siblings),
       agentPrompt.profileSection,
       frozen.sections.agent_instructions,
       "Use GetDynamicTools with namespace cursor to discover SendToAgent, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, CreateChannel/UpdateChannel, and UpdateSkill/UpdateProfile/UpdateAvatar/DisconnectChannel. Invoke discovered tools with CallDynamicTool.",
       A2A_PLATFORM_INSTRUCTIONS,
       graphicalDelegationInstructions(taskConfiguration),
-      taskUserInfo(taskConfiguration),
       "Subagents run in the background by default. Set run_in_background:false to wait for the result. Background completion is delivered after your turn ends; continue other work or end your turn instead of polling. Installed plugin agent templates are listed separately when available.",
-      todoContext.length > 0
-        ? `Durable task queue (reconcile it with TodoWrite on each wake):\n${todoContext.join("\n")}`
-        : "The durable task queue is empty.",
       "In a room wake, speak only when you add something useful. Finishing without SendToUser is a valid silent turn.",
       "Use UpdateMemory for durable memory and UpdateRoutine for scheduled routines. Skills, profile and settings, avatars, and connector disconnects have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, and DisconnectChannel.",
       renderPlatformRuntimeInstructions({
@@ -2269,11 +2318,12 @@ export class AgentMessaging {
         workingDirectory: bot.defaultDirectory,
         timeZone: this.defaultTimeZone,
       }),
-      `Your effective settings are hiddenFromSidebar=${bot.hiddenFromSidebar} and notifyOnAgentUpdates=${bot.notificationsEnabled}.`,
       `Use cursor.ReadTranscript for task-relevant saved conversation history or a dispatched worker’s observable activity. Transcript files are private runtime storage; do not open them with Read.`,
       frozen.sections.agent_directory,
       agentPrompt.memory.policy,
+      renderOtherActiveConversations(siblings),
       frozen.sections.automations,
+      frozen.sections.mcp_instructions,
       disconnected.length > 0
         ? `Disconnected connector platforms: ${disconnected.map(({ platform }) => platform).join(", ")}`
         : "No connector platform is marked disconnected.",
@@ -2286,7 +2336,8 @@ export class AgentMessaging {
     const userInfo = renderAgentSkillsUserInfo(
       agentPrompt.skillRender,
       frozen.memory ? renderMemoryContextBlock(frozen.memory.facts) : undefined,
-      teammates
+      teammates,
+      formatFriendlyDate(new Date(), this.defaultTimeZone)
     );
     const automationResults = !automation && channelId !== undefined ? await this.prisma.automationResult.findMany({
       where: { wakeRunId: null, acknowledgedAt: null, run: { botId, channelId } },

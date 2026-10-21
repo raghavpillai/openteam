@@ -208,7 +208,7 @@ test.each(['cached', 'missing', 'disabled'] as const)('retires cached skills wit
     const cache = JSON.parse(await readFile(join(data, 'managed-skills', 'cache.json'), 'utf8'));
     expect(cache.skills.map((skill: { id: string }) => skill.id)).toEqual(state === 'disabled' ? [] : managed.skills.map(skill => skill.id));
     const rendered = await (store as any).renderManagedSkills();
-    expect(rendered).not.toContain('managed:sign-in');
+    expect(rendered).not.toContain('/sign-in/SKILL.md');
     expect(rendered).not.toContain('site-playbooks-');
   } finally {
     if (previous === undefined) delete process.env.OPENTEAM_MANAGED_SKILLS;
@@ -231,7 +231,7 @@ test('active skills materialize and appear in metadata without injecting full bo
       expect(await readFile(entry.filePath,'utf8')).toBe(skill.content);
     }
     const rendered=await (store as any).renderManagedSkills();
-    for(const skill of managed.skills.filter(managedSkillIsForMain))expect(rendered).toContain(`managed:${skill.id}`);
+    for(const skill of managed.skills.filter(managedSkillIsForMain))expect(rendered).toContain(`<agent_skill fullPath="${join(root,'data/managed-skills',skill.id,'SKILL.md')}">`);
     expect(rendered).not.toContain('function tfs(');
   }finally{await rm(root,{recursive:true,force:true});}
 });

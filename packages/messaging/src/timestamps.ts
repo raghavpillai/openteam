@@ -33,6 +33,30 @@ const offsetLabel = (date: Date, timeZone: string): string => {
   return `UTC${sign}${hours}${minutes === "00" ? "" : `:${minutes}`}`;
 };
 
+/** "Europe/Paris (currently UTC+2)": the reference's zone label in the Time section. */
+export function formatTimeZoneWithOffset(timeZone: string, now = new Date()): string {
+  try {
+    const raw = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "shortOffset" })
+      .formatToParts(now)
+      .find((part) => part.type === "timeZoneName")?.value;
+    if (raw === undefined) return timeZone;
+    const offset = raw.replace(/^GMT/, "");
+    return `${timeZone} (currently UTC${offset || "+0"})`;
+  } catch {
+    return timeZone;
+  }
+}
+
+/** "Wednesday Oct 21, 2026": the reference's user_info date line. */
+export function formatFriendlyDate(date: Date, timeZone: string): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long", month: "short", day: "numeric", year: "numeric" })
+      .formatToParts(date)
+      .map((part) => [part.type, part.value])
+  );
+  return `${parts.weekday} ${parts.month} ${parts.day}, ${parts.year}`;
+}
+
 export function formatTurnTimestamp(
   value: Date | string,
   requestedTimeZone?: string | null

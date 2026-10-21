@@ -98,6 +98,6 @@ describe("prompt-context frozen epoch fast path", () => {
     const rendered = await store.renderSkills("bot-1");
     expect(findArgs).toEqual({ orderBy: { updatedAt: "desc" }, take: 100 });
     expect(rendered).toContain("/agent-data/workflows/one/SKILL.md");
-    expect(rendered).toContain("[102 additional skills omitted by the catalog budget]");
+    expect(rendered).toEndWith("\n\nAdditional skills omitted from this initial list (102). Directories containing omitted skills: /agent-data/workflows.");
   });
 });

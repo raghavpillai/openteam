@@ -813,8 +813,8 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     expect(
       groupTurns.every(
         (turn) =>
-          turn.userInfo?.startsWith("<user_info>\n<agent_skills>") &&
-          turn.userInfo.endsWith("</agent_skills>\n</user_info>") &&
+          turn.userInfo?.startsWith("<user_info>\nToday's date: ") &&
+          turn.userInfo.endsWith("</available_skills>\n</agent_skills>") &&
           turn.userInfoEpoch === 0
       )
     ).toBe(true);

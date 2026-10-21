@@ -45,6 +45,45 @@ test('connector skills install without asking and promise no connect card', () =
   expect(skill('add-connector')).toContain('You are not resumed when sign-in finishes.');
 });
 
+test('purchases takes the user\'s own card and keeps no card', () => {
+  expect(description('purchases')).toContain('Always follow this when dealing with credit cards');
+  const purchases = skill('purchases');
+  for (const rule of [
+    'call RequestUserForm with reason "checkout"',
+    'use them as given for this checkout, without asking them to re-enter the card in the Secure Form',
+    "Never tell the user you can't take their card",
+    'OpenTeam does not keep cards',
+    'verify whether the order went through (confirmation page, order history, email) before retrying',
+  ]) expect(purchases).toContain(rule);
+  // The form host cannot reach cross-origin card frames, so those go to the screen handoff.
+  expect(purchases).toContain('Card inputs inside a cross-origin frame');
+});
+
+test('commerce skills pay in the purchases order and keep no confirmation leftovers', () => {
+  for (const item of managed.skills) {
+    const lines = item.content.split('\n');
+    const long = lines.filter(line => line.length > 40);
+    expect([item.id, new Set(long).size]).toEqual([item.id, long.length]);
+    let next: number | undefined;
+    for (const line of lines) {
+      if (line.startsWith('#')) { next = undefined; continue; }
+      const step = Number(line.match(/^(\d+)\. /)?.[1]);
+      if (!step) continue;
+      if (next === undefined || step === 1) next = step;
+      expect(`${item.id} ${step}`).toBe(`${item.id} ${next}`);
+      next = step + 1;
+    }
+    if (item.id === 'routines' || item.id === 'box-desktop') continue;
+    expect(item.content).not.toMatch(/site playbook|A dismissed widget is a no|confirm with a widget|RequestVirtualCard|Stripe Link|Outlook|GetMcpTools/i);
+    if (item.content.includes('When the site wants payment')) expect(item.content).toContain('as the OpenTeam-managed `purchases` skill says');
+  }
+  expect(managed.skills.filter(s => s.content.includes('When the site wants payment')).map(s => s.id).sort()).toEqual(
+    ['accommodation-booking', 'flight-booking', 'food-ordering', 'restaurant-booking', 'scheduling'],
+  );
+  expect(skill('restaurant-booking')).toContain('Offer once to add the reservation to their calendar.');
+  expect(skill('flight-booking')).toContain("through the user's mail connector (Gmail or an Email plugin inbox)");
+});
+
 test('catalog has valid skill metadata and excludes retired workflows',()=>{
   expect(managed.skills).toHaveLength(25);
   expect(new Set(managed.skills.map(s=>s.id)).size).toBe(managed.skills.length);

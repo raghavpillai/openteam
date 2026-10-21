@@ -15,12 +15,14 @@ import XCTest
     return try JSONSerialization.jsonObject(with: data) as! [String: Any]
   }
 
-  private func launch(onboarding: Bool = true) async throws -> XCUIApplication {
+  private func launch(
+    onboarding: Bool = true, appearance: String = "light"
+  ) async throws -> XCUIApplication {
     continueAfterFailure = false
     _ = try await request("/__qa/reset", [:])
     if onboarding { _ = try await request("/__qa/control", ["onboarding": true]) }
     let app = XCUIApplication()
-    app.launchArguments = ["--ui-testing", "--server", base, "--appearance", "light"]
+    app.launchArguments = ["--ui-testing", "--server", base, "--appearance", appearance]
     if onboarding { app.launchArguments.append("--qa-onboarding") }
     app.launch()
     if onboarding { title("You're already connected", app) }
@@ -35,6 +37,30 @@ import XCTest
     let button = app.buttons[identifier]
     XCTAssertTrue(button.waitForExistence(timeout: 8))
     button.tap()
+  }
+
+  func testCompletesFirstBotOnboardingInDarkMode() async throws {
+    let app = try await launch(appearance: "dark")
+    tap("wizard-continue", app)
+    title("Talk instead of type?", app)
+    tap("wizard-skip", app)
+    title("Create your first bot", app)
+    let name = app.textFields["bot-name-field"]
+    name.tap()
+    let previous = name.value as? String ?? ""
+    name.typeText(
+      String(repeating: XCUIKeyboardKey.delete.rawValue, count: previous.count) + "QA First Bot")
+    tap("wizard-continue", app)
+    XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 20))
+    XCTAssertTrue(app.staticTexts["QA First Bot"].exists)
+    let state = try await request("/__qa/state")
+    let bots = state["bots"] as! [[String: Any]]
+    XCTAssertEqual(bots.count, 1)
+    XCTAssertEqual(bots.first?["name"] as? String, "QA First Bot")
+    let screenshot = XCTAttachment(screenshot: app.screenshot())
+    screenshot.name = "onboarding-first-bot-dark"
+    screenshot.lifetime = .keepAlways
+    add(screenshot)
   }
 
   func testCanKeepSavedAIAfterARefusedAlternative() async throws {

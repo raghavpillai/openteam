@@ -308,8 +308,9 @@ const server = Bun.serve({
     }
     if (path === "/api/v0/bots" && method === "POST") {
       const id = randomUUID(), now = new Date().toISOString();
-      const bot = { ...snapshot.bots[0], id, name:input.name, title:input.name, description:input.description ?? "", instructions:input.instructions ?? "", color:input.color ?? "#FD6A3A", icon:input.icon ?? "hexagon", conversationId:"conversation-"+id, dmChannelId:"channel-"+id, createdAt:now, updatedAt:now };
-      snapshot.bots.push(bot); snapshot.channels.push({ ...snapshot.channels[0], id:bot.dmChannelId, name:bot.name, directKey:id, members:[{botId:id,ordinal:0}], createdAt:now, updatedAt:now }); emit("bot.created"); return response(bot);
+      // First-run setup has no existing bot/channel to use as a complete template.
+      const bot = { ...mobileFixture.bots[0]!, id, name:input.name, title:input.name, description:input.description ?? "", instructions:input.instructions ?? "", color:input.color ?? "#FD6A3A", icon:input.icon ?? "hexagon", conversationId:"conversation-"+id, dmChannelId:"channel-"+id, createdAt:now, updatedAt:now };
+      snapshot.bots.push(bot); snapshot.channels.push({ ...mobileFixture.channels[0]!, id:bot.dmChannelId, name:bot.name, directKey:id, members:[{botId:id,ordinal:0}], createdAt:now, updatedAt:now }); emit("bot.created"); return response(bot);
     }
     if (path === "/api/v0/channels" && method === "POST") {
       const channel = { ...snapshot.channels[0], id:randomUUID(), kind:"group" as const, name:input.name, directKey:null, members:input.botIds.map((botId:string,ordinal:number)=>({botId,ordinal})) };

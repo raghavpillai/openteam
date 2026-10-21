@@ -507,7 +507,9 @@ export class PluginTransport {
       // Startup can wait for browser consent. Keep the RPC alive through the
       // computer's five-minute startup and tool-discovery budgets, and a call through its own.
       signal: AbortSignal.timeout(path.endsWith("/discover") ? 360_000 : path.endsWith("/call") ? MCP_TOOL_CALL_TIMEOUT_MS + 60_000 : 65_000),
-    });
+      // Bun's fetch otherwise gives up after 300 seconds whatever the signal allows.
+      timeout: false,
+    } as RequestInit);
     const value = await response.json().catch(() => ({}));
     if (!response.ok) {
       throw new ApiError(

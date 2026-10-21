@@ -1291,7 +1291,9 @@ export class RuntimeTools {
           callId,
         }),
         signal: requestSignal,
-      });
+        // Bun's fetch otherwise gives up after 300 seconds, inside the per-call guard.
+        timeout: false,
+      } as RequestInit);
       body = (await response.json()) as unknown;
     } catch (error) {
       if (timeout.aborted && !signal?.aborted)

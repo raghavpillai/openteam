@@ -4,6 +4,9 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { discoverAllTools, MCP_TOOL_CALL_TIMEOUT_MS, type PluginToolDefinition } from "@openteam/plugin-sdk";
 
+/** Bun's fetch otherwise gives up on a quiet tool call after 300 seconds, inside its own budget. */
+const LONG_CALL_INIT = { timeout: false } as RequestInit;
+
 export interface HttpMcpConnectionOptions {
   endpoint: string;
   headers?: Record<string, string>;
@@ -181,7 +184,7 @@ export class McpHttpClientManager {
       kind === "streamable-http"
         ? new StreamableHTTPClientTransport(new URL(options.endpoint), {
             authProvider: options.authProvider,
-            requestInit: { headers: options.headers },
+            requestInit: { headers: options.headers, ...LONG_CALL_INIT },
             reconnectionOptions: {
               initialReconnectionDelay: 500,
               maxReconnectionDelay: 10_000,
@@ -191,7 +194,7 @@ export class McpHttpClientManager {
           })
         : new SSEClientTransport(new URL(options.endpoint), {
             authProvider: options.authProvider,
-            requestInit: { headers: options.headers },
+            requestInit: { headers: options.headers, ...LONG_CALL_INIT },
             fetch: options.headers
               ? (url, init) =>
                   fetch(url, {

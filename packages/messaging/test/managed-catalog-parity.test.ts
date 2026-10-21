@@ -8,6 +8,7 @@ import { AgentDataStore } from '../src/agent-data';
 import { buildGroupTurnPrompt } from '../src/index';
 import { managedSkillIsForMain } from '../src/managed-skill-agents';
 import { normalizeMemoryContent } from '../src/memory-facts';
+import { referenceTool } from '@openteam/contracts/tool-contracts';
 
 const skill = (id: string) => managed.skills.find(s => s.id === id)!.content;
 const description = (id: string): string => yaml(skill(id).split('---')[1]!).description;
@@ -108,6 +109,21 @@ test('grocery and post-purchase work have their own skills', () => {
   expect(orders).toContain('A watch is a routine.');
   // No shipment cards and no store-alert inbox here.
   expect(orders).not.toMatch(/shipment card|alert email/);
+});
+
+test('forms, sending, skill and template skills follow the tools as they work here', () => {
+  const forms = skill('in-chat-forms');
+  expect(forms).toContain('A value the user already sent in chat needs no form');
+  // The form host reaches same-origin frames only; keep the skill in step with RequestUserForm.
+  expect(referenceTool('RequestUserForm').description).toContain('Fields inside a cross-origin iframe or a closed shadow root are not.');
+  expect(forms).toContain('or when the field sits inside a cross-origin iframe');
+  expect(forms).not.toContain('cross-origin ones included');
+  const send = skill('send-on-behalf');
+  expect(send).toContain('## Choosing and reporting the sending account');
+  expect(send).toContain('each connected Gmail account and each connected Email plugin inbox');
+  expect(send).toContain("call the Gmail connector's create_draft, with replyToMessageId for a reply");
+  expect(skill('skill-authoring')).toContain('SKILL.md is YAML frontmatter followed by the markdown recipe body.');
+  expect(skill('export-bot-template')).toContain('set `gettingStarted` to `{ "skill": "<its exact name from that list>" }`');
 });
 
 test('catalog has valid skill metadata and excludes retired workflows',()=>{

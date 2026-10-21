@@ -84,15 +84,19 @@ import {
 import { deleteSkillFolder, parseSkillFile, renderSkillFile, writeSkillFile } from "./skill-files";
 import type { AgentTimelineEvent } from "./timeline-events";
 import {
+  acknowledgeAutomationStatus,
   acknowledgeMemoryContext,
   acknowledgePromptSections,
   parsePromptSections,
+  prepareAutomationStatus,
   prepareMemoryContext,
   preparePromptSections,
+  type AutomationStatusReceipt,
   type MemoryContextLive,
   type MemoryContextReceipt,
   type PromptSectionReceipt,
 } from "./prompt-sections";
+import { AUTOMATION_STATUS_CLEARED } from "./automation-status";
 import { parseRecallInput, recallMemoryResult } from "./recall-memory";
 import {
   buildExtractionUserPrompt,
@@ -2582,7 +2586,9 @@ export class AgentDataStore {
     contextSessionId: string | undefined,
     epoch: number,
     live: Record<string, string>,
-    memory?: MemoryContextLive
+    memory?: MemoryContextLive,
+    /** The live <automation_status> reminder (null with no routines); undefined skips it. */
+    automationStatus?: string | null
   ) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`prompt-sections:${contextSessionId ?? botId}`}))`;
@@ -2591,6 +2597,9 @@ export class AgentDataStore {
         : await tx.agentPromptSnapshot.findUniqueOrThrow({ where: { botId } });
       const result = preparePromptSections(snapshot.promptSections, epoch, live);
       const pinned = memory ? prepareMemoryContext(result.snapshots, epoch, memory) : undefined;
+      const status = automationStatus === undefined
+        ? undefined
+        : prepareAutomationStatus(result.snapshots, epoch, automationStatus, AUTOMATION_STATUS_CLEARED);
       const data = { promptSections: JSON.parse(JSON.stringify(result.snapshots)) as Prisma.InputJsonValue };
       if (contextSessionId) await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
       else await tx.agentPromptSnapshot.update({ where: { botId }, data });
@@ -2601,6 +2610,7 @@ export class AgentDataStore {
           update: pinned.changed ? renderOtherAssistantMemoryUpdate(memory?.otherAgents?.render ?? "") : null,
           receipt: pinned.receipt,
         },
+        automationStatus: status,
       };
     });
   }
@@ -2609,16 +2619,18 @@ export class AgentDataStore {
     botId: string,
     contextSessionId: string | undefined,
     receipts: readonly PromptSectionReceipt[],
-    memory?: MemoryContextReceipt
+    memory?: MemoryContextReceipt,
+    automationStatus?: AutomationStatusReceipt
   ) {
-    if (!receipts.length && !memory) return;
+    if (!receipts.length && !memory && !automationStatus) return;
     await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`prompt-sections:${contextSessionId ?? botId}`}))`;
       const snapshot = contextSessionId
         ? await tx.contextPromptSnapshot.findUniqueOrThrow({ where: { contextSessionId } })
         : await tx.agentPromptSnapshot.findUniqueOrThrow({ where: { botId } });
       const acknowledged = acknowledgePromptSections(snapshot.promptSections, receipts);
-      const sections = memory ? acknowledgeMemoryContext(acknowledged, memory) : acknowledged;
+      const remembered = memory ? acknowledgeMemoryContext(acknowledged, memory) : acknowledged;
+      const sections = automationStatus ? acknowledgeAutomationStatus(remembered, automationStatus) : remembered;
       const data = { promptSections: JSON.parse(JSON.stringify(sections)) as Prisma.InputJsonValue };
       if (contextSessionId) await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
       else await tx.agentPromptSnapshot.update({ where: { botId }, data });

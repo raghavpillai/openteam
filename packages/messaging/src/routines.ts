@@ -700,90 +700,6 @@ const uiView = (routine: {
   };
 };
 
-const routineRuntimeStatus = (
-  routine: { runLedger: unknown; lastRunAt: Date | null },
-  timeZone: string
-): string => {
-  const ledger = Array.isArray(routine.runLedger)
-    ? routine.runLedger.filter(
-        (entry): entry is Record<string, unknown> =>
-          Boolean(entry) && typeof entry === "object" && !Array.isArray(entry)
-      )
-    : [];
-  const latest = ledger
-    .slice()
-    .sort((left, right) => Number(right.startedAt ?? 0) - Number(left.startedAt ?? 0))[0];
-  const lastRun = latest?.finishedAt ?? latest?.startedAt ?? routine.lastRunAt;
-  if (!lastRun) return "never run";
-  const at = lastRun instanceof Date ? lastRun : new Date(Number(lastRun));
-  if (!Number.isFinite(at.getTime())) return "last run status unknown";
-  const outcome =
-    latest?.status === "ok"
-      ? "succeeded"
-      : latest?.status === "error"
-        ? "failed"
-        : latest?.status === "running"
-          ? "running"
-          : "unknown";
-  const rendered = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  }).format(at);
-  return `last run ${rendered} (${outcome})`;
-};
-
-const routineStatusSnapshot = async (
-  tx: Prisma.TransactionClient,
-  botId: string,
-  timeZone: string,
-  rewrittenMessageId?: string
-): Promise<Array<{ name: string; folder: string; status: string }>> => {
-  const conversation = await tx.conversation.findUnique({
-    where: { botId },
-    select: { id: true },
-  });
-  if (conversation) {
-    const latestCompaction = await tx.contextCompaction.findFirst({
-      where: {
-        status: "adopted",
-        completedAt: { not: null },
-        contextSession: { botId, OR: [{ scope: "home", scopeId: conversation.id }, { scope: "channel", scopeId: (await tx.channel.findUnique({where:{directKey:`bot:${botId}`},select:{id:true}}))?.id ?? "missing" }] },
-      },
-      orderBy: { completedAt: "desc" },
-      select: { completedAt: true },
-    });
-    const alreadyDelivered = await tx.message.findFirst({
-      where: {
-        conversationId: conversation.id,
-        ...(latestCompaction?.completedAt
-          ? { createdAt: { gt: latestCompaction.completedAt } }
-          : {}),
-        content: { contains: "<automation_status>" },
-        ...(rewrittenMessageId ? { id: { not: rewrittenMessageId } } : {}),
-      },
-      select: { id: true },
-    });
-    if (alreadyDelivered) return [];
-  }
-  return (
-    await tx.routine.findMany({
-      where: { botId, deletedAt: null },
-      orderBy: { createdAt: "asc" },
-      select: { name: true, slug: true, runLedger: true, lastRunAt: true },
-    })
-  ).map((routine) => ({
-    name: routine.name,
-    folder: routine.slug,
-    status: routineRuntimeStatus(routine, timeZone),
-  }));
-};
-
 const eventWake = async (
   tx: Prisma.TransactionClient,
   routine: { name: string; slug: string; scheduleText: string; prompt: string; provenance: string; timezone: string },
@@ -803,7 +719,6 @@ const eventWake = async (
       prompt: withEventBlock(routine.prompt, events),
       eventCount: events.length,
       provenance: routine.provenance,
-      routineStatuses: await routineStatusSnapshot(tx, botId, routine.timezone, rewrittenMessageId),
     }),
     automationTrigger: `<automation_trigger_info>\n${JSON.stringify({
       routine: routine.name,
@@ -1062,7 +977,6 @@ export class RoutineService {
                   firedAt,
                   prompt: routine.prompt,
                   provenance: routine.provenance,
-                  routineStatuses: await routineStatusSnapshot(tx, routineOwner.id, routine.timezone),
                 }),
                 automationTrigger: scheduledRoutineTriggerContext({ name: routine.name, scheduledFor: firedAt }),
               }),
@@ -1668,8 +1582,6 @@ export class RoutineService {
           return { didDispatch: false, roundId: null as string | null };
         }
         const owner = routineOwnerFrom(routine);
-        const statusSnapshot =
-          owner.kind === "bot" ? await routineStatusSnapshot(tx, owner.id, routine.timezone) : [];
         // Cron occurrences are wall-clock anchored. Jump over downtime rather
         // than parsing every missed tick inside the database transaction.
         // Relative intervals retain their existing scheduled-time anchor.
@@ -1771,7 +1683,6 @@ export class RoutineService {
               scheduledFor,
               prompt: routine.prompt,
               provenance: routine.provenance,
-              routineStatuses: statusSnapshot,
             }),
             automationTrigger: scheduledRoutineTriggerContext({
               name: routine.name,

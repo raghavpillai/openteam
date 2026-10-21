@@ -39,6 +39,7 @@ import {
   type BotSummaryRequest,
   type BotSummaryResult,
   botUserInfoMessage,
+  RESUME_RECORDED_INPUT_PROMPT,
 } from "./bot-compaction";
 import { ComputerEventQueue } from "./computer-event-queue";
 import { InferenceProviderService } from "./inference-providers";
@@ -51,16 +52,17 @@ import {
   publishCompaction,
 } from "./runtime/compaction";
 import { textFromContent } from "./runtime/content";
-import { attachSession, routeEvent } from "./runtime/events";
-import { verifyGraphicalTaskCompletion } from "./runtime/graphical-completion";
+import { graphicalFinalReport } from "./runtime/graphical-completion";
+import { attachSession, routeEvent, startAgentMessage } from "./runtime/events";
 import { inferenceReasoningOptions, reasoningExtension } from "./runtime/reasoning";
 import { withAgentOutputBudget } from "./runtime/output-budget";
 import { inferenceMetricsExtension } from "./runtime/inference-metrics";
 import { IdleProviderConnections, InferenceProviderConnections } from "./runtime/provider-connections";
 import { untrustedResultsExtension } from "./runtime/untrusted-results";
 import { directDynamicToolsExtension } from "./runtime/direct-dynamic-tools";
-import { enrichUserInfo } from "./runtime/prompt-context";
+import { enrichUserInfo, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder } from "./runtime/prompt-context";
 import { pinDynamicToolCatalog } from "./runtime/catalog-snapshot";
+import { DiskPressureMonitor } from "./runtime/disk-pressure";
 import { defaultTaskConfiguration, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 import { assertSessionPath } from "./runtime/session-path";
 import { RuntimeTools } from "./runtime/tools";
@@ -96,6 +98,7 @@ export class ComputerRuntime {
   );
   private inferenceSettings = defaultServerInferenceSettings();
   private readonly workspaceRoot = resolve(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace");
+  private readonly diskPressure = new DiskPressureMonitor(this.workspaceRoot);
 
   private modelRuntime: ModelRuntime | null = null;
   private readonly inferenceProviders = new InferenceProviderService(
@@ -249,7 +252,6 @@ export class ComputerRuntime {
 
     const queue = new ComputerEventQueue();
     const active: ActiveTurn = {
-      runtimeStartedAt: Date.now(),
       taskConfiguration: request.taskConfiguration === undefined ? defaultTaskConfiguration() : parseTaskConfiguration(request.taskConfiguration),
       runId: request.runId,
       botId: request.botId,
@@ -269,7 +271,6 @@ export class ComputerRuntime {
         ? botUserInfoMessage(request.userInfo, request.userInfoEpoch ?? 0)
         : null,
       todoUpdate: request.todoUpdate ?? null,
-      automationTrigger: request.automationTrigger ?? null,
       resetSelfSummaryCount: request.resetSelfSummaryCount !== false,
       requestSource: request.requestSource ?? "turn",
       turnId: request.runId,
@@ -308,6 +309,7 @@ export class ComputerRuntime {
         throw new Error(`Pi inference provider ${modelRef.providerId} is not configured`);
       }
       if (!active.subagentType && active.requestSource !== "automation") await this.tools.userForms.beginTurn(active.botId, active.runId);
+      if (!active.subagentType) active.diskPressureEpisode = await this.diskPressure.claim(active.botId).catch(() => null);
       await this.botStore?.openForWake(active.botId);
       await this.botStore?.recordRequestId(active.botId, active.runId);
       await this.botStore?.appendConversationEnvelope(active.botId, {
@@ -389,7 +391,7 @@ export class ComputerRuntime {
       queue.push(contextState);
       queue.push({ type: "turn.started", turnId: active.turnId });
       const images = [...uploaded.images, ...attachments.images];
-      const content = recordedInputIds.has(`input:${request.clientMessageId}`) ? "[SAND_HIDDEN_PROMPT]Resume work on the previously recorded user input. Its original content is already in the session; avoid repeating completed actions." : request.content;
+      const content = recordedInputIds.has(`input:${request.clientMessageId}`) ? RESUME_RECORDED_INPUT_PROMPT : request.content;
       void this.execute(active, [content, uploaded.notice].filter(Boolean).join("\n"), images);
       return queue;
     } catch (error) {
@@ -464,9 +466,10 @@ export class ComputerRuntime {
     );
   }
 
-  async cancel(runId: string): Promise<void> {
+  async cancel(runId: string, reason?: "user_message"): Promise<void> {
     const active = this.activeByRun.get(runId);
     if (!active) throw new Error("Run is not actively executing");
+    if (reason === "user_message") active.interruptedByUserAt ??= Date.now();
     active.endTurnRequested = true;
     active.pluginAbortController?.abort();
     this.tools.interruptShellWaits(runId);
@@ -731,7 +734,7 @@ export class ComputerRuntime {
         keepRecentTokens: 1,
       },
       retry: { enabled: true, maxRetries: 3 },
-      steeringMode: "one-at-a-time",
+      steeringMode: "all",
       followUpMode: "one-at-a-time",
     });
     const resourceLoader = new DefaultResourceLoader({
@@ -789,23 +792,6 @@ export class ComputerRuntime {
       (...args) => this.inferCompaction(...args),
       sessionManager,
       active,
-      async (epoch) => {
-        if (active.subagentType) return;
-        const refreshed = await this.tools.refreshPrompt(active, epoch);
-        active.instructions = refreshed.instructions;
-        if (active.session) active.session.agent.state.systemPrompt = refreshed.instructions;
-        active.userInfoMessage = refreshed.userInfo ? botUserInfoMessage(enrichUserInfo(refreshed.userInfo, {
-          cwd: active.cwd, transcriptPath: active.sessionPath ?? "",
-          catalog: pinDynamicToolCatalog(sessionManager, refreshed.userInfoEpoch, this.tools.contextCatalog(active)).catalog,
-          taskConfiguration: active.taskConfiguration,
-        }), refreshed.userInfoEpoch) : null;
-        const note = [refreshed.ambientContext, refreshed.instructionsUpdate].filter(Boolean).join("\n\n");
-        if (note && active.session) await active.session.sendCustomMessage({
-          customType: "openteam-context-refresh", content: `[SAND_HIDDEN_PROMPT]${note}`, display: false,
-          details: { epoch, origin: "host" },
-        }, { triggerTurn: false });
-        await this.tools.acknowledgePrompt(active, refreshed.acknowledgement);
-      },
       (messages) => this.tools.acknowledgeToolOutcomes(active, messages)
     );
   }
@@ -841,7 +827,21 @@ export class ComputerRuntime {
       if (!session) throw new Error("Pi session is not attached");
       await this.compaction.beginUserQuery(active.contextSessionId, active.resetSelfSummaryCount);
       await active.session?.prompt(content, { source: "rpc", images });
-      await verifyGraphicalTaskCompletion(active);
+      // A reply cut off at the output limit ends the loop; continue it once.
+      if (owesOutputLimitReminder(session.messages as BotMessage[], active) && !active.endTurnRequested &&
+          !active.pluginAbortController?.signal.aborted) {
+        active.outputLimitReminded = true;
+        await session.prompt(OUTPUT_LIMIT_REMINDER, { source: "rpc", expandPromptTemplates: false });
+      }
+      const graphicalReport = graphicalFinalReport(active, active.compactionReadPiMessages?.() ?? (session.messages as BotMessage[]));
+      if (graphicalReport) {
+        startAgentMessage(active, graphicalReport.id);
+        active.queue.push({
+          type: "item.completed",
+          turnId: active.turnId,
+          item: { type: "agentMessage", id: graphicalReport.id, text: graphicalReport.text, status: "completed" },
+        });
+      }
       if (isDeliveryOwed(active.requestSource) && !active.endTurnRequested &&
           !active.pluginAbortController?.signal.aborted &&
           !["aborted", "error"].includes(active.lastStopReason ?? "")) {
@@ -894,6 +894,9 @@ export class ComputerRuntime {
         });
       }
     } finally {
+      // A turn that saw the low-disk reminder and finished has told the user; others try again.
+      if (status === "completed" && active.diskPressureReminded && active.diskPressureEpisode != null)
+        this.diskPressure.commit(active.botId, active.diskPressureEpisode);
       this.compaction.parkBackground(active.contextSessionId);
       attachSession(active);
       if (this.botStore) {

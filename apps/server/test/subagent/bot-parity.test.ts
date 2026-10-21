@@ -28,11 +28,8 @@ describe("OpenTeam-compatible subagent launch semantics", () => {
   });
 
   test("wraps live steering with Bot's continue-don't-restart instruction", () => {
-    const prompt = subagentSteerPrompt("Check the second tab too.");
-    expect(prompt).toStartWith("[Steering message from the parent agent that dispatched you]");
-    expect(prompt).toContain("Check the second tab too.");
-    expect(prompt).toEndWith(
-      "Take this into account and continue your task from where you are — do not start over."
+    expect(subagentSteerPrompt("  Check the second tab too.\n")).toBe(
+      "[Steering message from the parent agent that dispatched you]\n\nCheck the second tab too.\n\nTake this into account and continue your task from where you are. Do not start over."
     );
   });
 

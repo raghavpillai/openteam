@@ -1,5 +1,5 @@
 // The reference's profile-only per-turn extraction prompt.
-export const MEMORY_EXTRACTION_SYSTEM_PROMPT = `<<SAND_MEMORY_EXTRACTION>>
+export const MEMORY_EXTRACTION_SYSTEM_PROMPT = `<<OPENTEAM_MEMORY_EXTRACTION>>
 You maintain the long-term memory of a personal assistant. Read the latest exchange and decide what, if anything, is worth remembering for future, unrelated conversations.
 
 Only keep "profile" facts: enduring facts about who the user is and how to work with them, such as their name and how to address them, role, location, languages, lasting preferences and constraints, and important people or relationships. These are remembered indefinitely.

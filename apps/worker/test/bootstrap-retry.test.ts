@@ -13,7 +13,6 @@ const claimed = {
   conversationId: "conversation",
   ownerId: "owner",
   content: "[OpenTeam first start]",
-  automationTrigger: null,
   images: [],
   clientId: "bot:bot:bootstrap:v1",
   cwd: "/workspace",

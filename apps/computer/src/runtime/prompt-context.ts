@@ -99,113 +99,99 @@ export function promptFingerprint(system: string, userInfo: string, tools: unkno
 }
 
 export const ACK_REMINDER =
-  "<system_reminder>\nYou opened this turn by calling tools without first acknowledging the user. Acknowledge them now by actually invoking SendToUser with a one-line text acknowledgement, then continue the work. Plain assistant text is not shown to the user; a widget or attachment does not count as this acknowledgement.\n</system_reminder>";
+  "<system_reminder>\nYou opened this turn by calling tools without first sending to the user, so they are watching silence and may think the app froze. Acknowledge them RIGHT NOW by actually invoking the SendToUser tool. Make a real tool/function call, not text you write. Plain assistant text is NEVER shown to the user; only a real SendToUser tool invocation reaches them, so if you don't call the tool they just keep seeing silence. Make that first SendToUser a one-line text acknowledgement, before any further tool call, then continue the work. A widget or attachment does not count as this acknowledgement.\n</system_reminder>";
 export const PROGRESS_REMINDER =
   "<system_reminder>\nYou have made several tool calls without a SendToUser, so the user is currently watching silence. Actually invoke the SendToUser tool now. Make a real tool/function call, not text you write. Plain assistant text is NEVER shown to the user; only a real SendToUser tool invocation reaches them, so if you don't call the tool they just keep seeing silence. Send one brief update in a complete sentence, saying what you found or what happens next, not a play-by-play of each step, before continuing.\n</system_reminder>";
-export const EARLY_RESULT_REMINDER =
-  "<system_reminder>\nRemember: the user cannot see tool output or your thinking. Only SendToUser reaches them. If you have produced a result or finished what they asked, send it now with a SendToUser tool call before continuing or ending the turn. If you are still mid-task, keep working and send the result once you have it.\n</system_reminder>";
 
-/** Ephemeral tail context: a real clock without another tool/model round trip.
- * Never use a worker runtime start as the parent task's submission time. */
-export function executionClock(startedAt: number | undefined, now = Date.now()): BotMessage[] {
-  if (startedAt === undefined || !Number.isFinite(startedAt) || !Number.isFinite(now)) return [];
-  return [{
-    role: "user",
-    content: `[Host execution clock] Current UTC: ${new Date(now).toISOString()}. This runtime invocation started: ${new Date(startedAt).toISOString()}; elapsed ${Math.max(0, Math.floor((now - startedAt) / 1000))} seconds. This excludes earlier queue/parent work and is not total user wait. Honor the original task deadline; delegation, continuation, and compaction do not reset it.`,
-    timestamp: now,
-  }];
-}
+/** Sent once per turn after a response is cut off at the output limit, as in the reference. */
+export const OUTPUT_LIMIT_REMINDER =
+  "<system_reminder>Your response was cut off because it exceeded the output token limit. Please break your work into smaller pieces. Continue from where you left off.</system_reminder>";
 
-/** Count actual visible receipts, never model prose or projected compaction summaries. */
-export function executionReceipts(messages: readonly unknown[], startedAt: number | undefined, now = Date.now()): BotMessage[] {
-  if (startedAt === undefined || !Number.isFinite(startedAt)) return [];
-  const names = new Map<string, string>();
-  const receipts = new Map<string, {name: string; failed: boolean}>();
-  for (const raw of messages) {
-    const message = raw as any;
-    if (!message || typeof message !== "object") continue;
-    if (message.role === "assistant" && Array.isArray(message.content)) {
-      for (const call of message.content) if (call.type === "toolCall" && typeof call.id === "string") {
-        const name = call.name === "CallDynamicTool" && typeof call.arguments?.toolName === "string" ? call.arguments.toolName : call.name;
-        if (typeof name === "string") names.set(call.id, name);
-      }
-    }
-    if (message.role !== "toolResult" || typeof message.toolCallId !== "string" ||
-        typeof message.timestamp !== "number" || message.timestamp < startedAt) continue;
-    const name = names.get(message.toolCallId) ?? message.toolName;
-    if (typeof name !== "string") continue;
-    const shell = name === "Shell" || name === "AwaitShell";
-    const details = message.details;
-    const exitCode = shell && name === "AwaitShell" ? details?.exit_code : details?.exitCode;
-    // A running background job legitimately has no exit code. A terminal shell
-    // with a null code was interrupted (e.g. by a signal), not successful.
-    const interruptedShell = shell && (details?.status === "failed" ||
-      (details?.status === "completed" && exitCode === null));
-    receipts.set(message.toolCallId, {name, failed: message.isError === true || interruptedShell ||
-      (typeof exitCode === "number" && exitCode !== 0)});
-  }
-  if (!receipts.size) return [];
-  const counts: Record<string, {returned: number; failed: number}> = Object.create(null);
-  for (const receipt of receipts.values()) {
-    const count = counts[receipt.name] ??= {returned: 0, failed: 0};
-    count.returned++;
-    if (receipt.failed) count.failed++;
-  }
-  return [{role: "user", timestamp: now, content: `[Host tool receipts] ${JSON.stringify(counts)}. Scope: visible tool results returned during this runtime invocation only; excludes other workers, earlier invocations, pending calls and history absent after compaction. Returned includes failures. Do not label this whole-task totals. For a whole-task audit, aggregate recorded worker/parent receipts without double-counting; otherwise say that total is unavailable.`}];
-}
+/** The latest response hit the output limit and this turn has not been told yet. */
+export const owesOutputLimitReminder = (messages: readonly BotMessage[], active: Pick<ActiveTurn, "outputLimitReminded">): boolean =>
+  !active.outputLimitReminded && messages.findLast((message) => message.role === "assistant")?.stopReason === "length";
+
+const ACK_THRESHOLD = 1;
+const PROGRESS_THRESHOLD = 6;
+
+const cursorFlag = (message: BotMessage, flag: string) =>
+  (message.providerOptions?.cursor as Record<string, unknown> | undefined)?.[flag] === true;
 
 const isCommunicationReminder = (message: BotMessage) =>
   message.customType === "openteam-communication-reminder" ||
-  ["sandSendMessageReminder", "sandEarlyResultReminder", "sandStartOfTurnAckReminder"].some(
-    (flag) =>
-      (message.providerOptions?.cursor as Record<string, unknown> | undefined)?.[flag] === true
-  );
+  ["sandSendMessageReminder", "sandStartOfTurnAckReminder"].some((flag) => cursorFlag(message, flag));
 
-/** Synthetic notes never reset the real user-turn boundary. */
+const messageText = (message: BotMessage) =>
+  typeof message.content === "string"
+    ? message.content
+    : Array.isArray(message.content)
+      ? message.content.map((part) => (part?.type === "text" && typeof part.text === "string" ? part.text : "")).join("")
+      : "";
+
+/** A user-role message that holds only reminder blocks is host steering, not the start of a turn. */
+const isInjectedReminder = (message: BotMessage) => {
+  if (isCommunicationReminder(message)) return true;
+  if (message.role !== "user" && message.role !== "custom") return false;
+  const text = messageText(message).trim();
+  return /^<system_reminder>[\s\S]*<\/system_reminder>$/.test(text);
+};
+
+/** Every user-role message (a typed message, host note or reminder) restarts the count, as in the reference. */
+const isUserRole = (message: BotMessage) =>
+  message.role !== "assistant" && message.role !== "toolResult" && !cursorFlag(message, "isUserInfo");
+
+const toolCalls = (message: BotMessage) =>
+  message.role === "assistant" && Array.isArray(message.content)
+    ? message.content.flatMap((part) => {
+        if (!part || typeof part !== "object" || !["toolCall", "tool-call"].includes(String(part.type))) return [];
+        const call = part as Record<string, unknown>;
+        const args = call.arguments ?? call.args;
+        return [{ id: call.id ?? call.toolCallId, name: call.name ?? call.toolName, args: args && typeof args === "object" ? args as Record<string, unknown> : {} }];
+      })
+    : [];
+
+const isTextSend = (call: ReturnType<typeof toolCalls>[number]) =>
+  call.name === "SendToUser" && (call.args.type ?? "text") === "text";
+
+function callsSinceLastSend(messages: readonly BotMessage[]): number {
+  let count = 0;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!;
+    if (isUserRole(message)) break;
+    const calls = toolCalls(message);
+    if (calls.some((call) => call.name === "SendToUser")) break;
+    count += calls.length;
+  }
+  return count;
+}
+
+/** A text send, or a reaction that went through, acknowledges the turn's real user message. */
+function acknowledgedSinceTurnStart(messages: readonly BotMessage[]): boolean {
+  const failed = new Set<unknown>();
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!;
+    if (isInjectedReminder(message)) continue;
+    if (isUserRole(message)) return false;
+    if (message.role === "toolResult" && message.isError === true) failed.add(message.toolCallId);
+    for (const call of toolCalls(message)) {
+      if (isTextSend(call)) return true;
+      if (call.name === "ReactToMessage" && !failed.has(call.id) &&
+          messages.slice(index + 1).some((result) => result.role === "toolResult" && result.toolCallId === call.id)) return true;
+    }
+  }
+  return false;
+}
+
+/** The ack repeats every 2 silent calls until a text send or reaction; the progress note every 7 after that. */
 export function communicationReminder(
   messages: readonly BotMessage[],
   active: Pick<ActiveTurn, "requestSource" | "subagentType">
 ) {
   if (active.subagentType || !["user", "turn"].includes(active.requestSource)) return null;
-  let calls = 0;
-  let hasTextSend = false;
-  let hasSend = false;
-  let alreadyReminded = false;
-  const last = messages.at(-1) as (BotMessage & { customType?: string }) | undefined;
+  const last = messages.at(-1);
   if (last && isCommunicationReminder(last)) return null;
-  for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index]! as BotMessage & { customType?: string };
-    if (isCommunicationReminder(message)) {
-      if (!hasSend) alreadyReminded = true;
-      continue;
-    }
-    if (
-      message.role === "user" &&
-      !(message.providerOptions?.cursor as Record<string, unknown> | undefined)?.isUserInfo
-    )
-      break;
-    if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
-    for (const part of [...message.content].reverse()) {
-      if (!part || typeof part !== "object") continue;
-      const call = part as Record<string, unknown>;
-      if (!["toolCall", "tool-call"].includes(String(call.type))) continue;
-      const name = call.name ?? call.toolName;
-      if (name === "SendToUser") {
-        hasSend = true;
-        if (
-          (call.arguments ?? (call.args as unknown)) &&
-          typeof (call.arguments ?? call.args) === "object"
-        ) {
-          hasTextSend ||=
-            ((call.arguments ?? call.args) as Record<string, unknown>).type === "text";
-        }
-      }
-      if (!hasSend) calls += 1;
-    }
-  }
-  if (!hasTextSend && calls > 1 && !alreadyReminded) return { kind: "ack", content: ACK_REMINDER };
-  if (calls > 6) return { kind: "progress", content: PROGRESS_REMINDER };
-  if (hasSend && calls > 0 && !alreadyReminded)
-    return { kind: "early-result", content: EARLY_RESULT_REMINDER };
+  const calls = callsSinceLastSend(messages);
+  if (calls > ACK_THRESHOLD && !acknowledgedSinceTurnStart(messages)) return { kind: "ack", content: ACK_REMINDER };
+  if (calls > PROGRESS_THRESHOLD) return { kind: "progress", content: PROGRESS_REMINDER };
   return null;
 }

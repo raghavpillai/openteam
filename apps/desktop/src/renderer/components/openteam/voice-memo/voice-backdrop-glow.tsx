@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { getAudioContext } from "voice-glow";
 
 const GLOW_PADDING = 64;
-const REGIONS = 12;
+const REGIONS = 24;
 const ENVELOPE_MS = 50;
 
 // Push the outer edge along the capsule's normals. The inner edge remains the
@@ -182,7 +182,7 @@ export function VoiceBackdropGlow({
         for (let i = 0; i < REGIONS; i++) {
           const next = current.processing ? target : (history[i * 3] ?? 0);
           const value = regions[i] ?? 0;
-          regions[i] = value + (next - value) * (1 - Math.exp(-dt / (next > value ? 100 : 220)));
+          regions[i] = value + (next - value) * (1 - Math.exp(-dt / (next > value ? 55 : 95)));
         }
       }
       // Integrate phase across mode changes; only the palette turns, never the
@@ -209,13 +209,13 @@ export function VoiceBackdropGlow({
       colors.addColorStop(0.7, "#85bbff");
       colors.addColorStop(0.86, "#b0a0ff");
       colors.addColorStop(1, "#aa8cff");
-      const strength = current.dark ? 0.9 : 1;
+      const strength = current.dark ? 0.68 : 1.75;
       // Keep a small continuous base; a large uniform bloom would fill in all
       // the valleys and hide the voice-shaped silhouette above it.
       context.strokeStyle = colors;
       context.globalAlpha = 0.35 * strength;
-      context.lineWidth = 10;
-      context.filter = "blur(10px)";
+      context.lineWidth = 8;
+      context.filter = "blur(6px)";
       context.stroke(outline);
       const localPeak = (position: number) => {
         if (current.reducedMotion) return level * 0.45;
@@ -227,23 +227,23 @@ export function VoiceBackdropGlow({
           (regions[first] ?? 0) * (1 - blend) + (regions[(first + 1) % REGIONS] ?? 0) * blend;
         const side = (1 - Math.cos(position * Math.PI * 2)) / 2;
         const band = left * (1 - side) + right * side;
-        return Math.min(1, envelope * 1.1) ** 1.2 * (0.75 + band * 0.25);
+        return Math.min(1, Math.max(0, envelope - 0.2) * 2) ** 1.35 * (0.75 + band * 0.25);
       };
       context.fillStyle = colors;
       // Build a continuous falloff from several translucent blooms, broad and
       // faint outside, narrower and brighter near the bar. A single opaque
       // ribbon with a small blur looks like inflated tubing rather than light.
       for (let layer = 0; layer < 6; layer++) {
-        const scale = 1.75 - layer * 0.28;
+        const scale = 1.4 - layer * 0.22;
         context.globalAlpha = (0.055 + layer * 0.04) * (1 + level * 0.4) * strength;
-        context.filter = `blur(${14 - layer * 2}px)`;
+        context.filter = `blur(${10 - layer * 1.2}px)`;
         context.fill(
           glowRibbon(
             barWidth,
             barHeight,
             current.radius,
             outline,
-            (t) => (8 + localPeak(t) * 28) * scale
+            (t) => (4 + localPeak(t) * 24) * scale
           ),
           "evenodd"
         );

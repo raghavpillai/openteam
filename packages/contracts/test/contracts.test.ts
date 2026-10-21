@@ -637,7 +637,7 @@ describe("API contracts", () => {
     // Routine writes apply directly; no confirmation card exists.
     expect(UPDATE_ROUTINE_TOOL.description).not.toContain("confirm");
     expect(Object.keys((UPDATE_PROFILE_TOOL.inputSchema as { properties: object }).properties)).toEqual([
-      "name", "description", "title", "avatar_shape", "avatar_color", "hidden_from_sidebar", "notify_on_updates",
+      "name", "description", "title", "avatar_shape", "avatar_color", "hidden_from_sidebar", "notify_on_updates", "drafting_disabled",
     ]);
     expect(
       Schema.decodeUnknownSync(UpdateMemoryToolInput)({
@@ -705,7 +705,21 @@ describe("API contracts", () => {
       target: "avatar", action: "set", path: "downloads/pic.png", resolved_path: "/home/box/sand-data/bots/b1/avatar.png", updated: true,
     }, { action: "set", path: "downloads/pic.png" })).toBe("Updated your picture (avatar.png). Source pic.png can be deleted if you no longer need it.");
     expect(renderControlResult("UpdateAvatar", { target: "avatar", cleared: true }, { action: "clear" })).toBe(
-      "Cleared your picture — back to the default."
+      "Cleared your picture. It is back to the default."
+    );
+    // Refusals read as the reference's "Not saved" sentences, as ordinary results.
+    expect(renderControlResult("UpdateAvatar", { target: "avatar", action: "clear", refused: "you already have the default picture." }, { action: "clear" })).toBe(
+      "Not saved: you already have the default picture."
+    );
+    expect(renderControlResult("DisconnectChannel", { target: "channel", platform: "slack", refused: "slack is not connected." }, { platform: "slack" })).toBe(
+      "Not saved: slack is not connected."
+    );
+    expect(renderControlResult("UpdateProfile", { target: "settings", action: "set", refused: 'only the user can turn drafts off. Nothing was changed. Tell them to click "Disable drafts for this Bot" on a draft card.' }, { drafting_disabled: true })).toBe(
+      'Not saved: only the user can turn drafts off. Nothing was changed. Tell them to click "Disable drafts for this Bot" on a draft card.'
+    );
+    expect(renderControlResult("UpdateProfile", { target: "settings", updated: true }, { drafting_disabled: false })).toBe("Updated your settings: draftingDisabled.");
+    expect(renderControlResult("UpdateProfile", { target: "profile", updated: true, settings: { target: "settings", refused: "nothing to change." } }, { title: "x", drafting_disabled: true })).toBe(
+      "Updated your title.\nSettings not saved: nothing to change."
     );
     expect(renderControlResult("UpdateRoutine", { target: "routine", name: "Brief", folder: "brief", next_run_at: null, enabled: false }, {
       action: "pause", id: "brief",

@@ -796,7 +796,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     const escapedAvatar = join(firstDirectory, "escaped.png");
     await symlink(outsideAvatar, escapedAvatar);
     await expect(store.setAvatarFromPath(firstBotId, escapedAvatar)).rejects.toThrow(
-      "avatar source must stay inside"
+      "The avatar source must stay inside"
     );
 
     await atomicWrite(join(root, "settings.json"), "{ malformed\n");

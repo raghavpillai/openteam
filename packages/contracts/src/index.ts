@@ -1131,6 +1131,7 @@ export const UpdateStateInput = Schema.Struct({
   body: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   hidden_from_sidebar: Schema.optional(Schema.Boolean),
   notify_on_updates: Schema.optional(Schema.Boolean),
+  drafting_disabled: Schema.optional(Schema.Boolean),
   platform: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   path: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
 });
@@ -1173,6 +1174,7 @@ export const UpdateProfileToolInput = Schema.Struct({
   avatar_color: UpdateStateInput.fields.avatar_color,
   hidden_from_sidebar: Schema.optional(Schema.Boolean),
   notify_on_updates: Schema.optional(Schema.Boolean),
+  drafting_disabled: Schema.optional(Schema.Boolean),
 });
 export type UpdateProfileToolInput = typeof UpdateProfileToolInput.Type;
 

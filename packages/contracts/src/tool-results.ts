@@ -74,13 +74,18 @@ export function renderControlResult(
       avatar_shape: "avatar shape",
       avatar_color: "avatar color",
     };
+    const settingNames: Record<string, string> = {
+      hidden_from_sidebar: "hiddenFromSidebar",
+      notify_on_updates: "notifyOnAgentUpdates",
+      drafting_disabled: "draftingDisabled",
+    };
     const settingsText = () =>
-      `Updated your settings: ${["hidden_from_sidebar", "notify_on_updates"]
+      `Updated your settings: ${Object.keys(settingNames)
         .filter((key) => args[key] !== undefined)
-        .map((key) =>
-          key === "hidden_from_sidebar" ? "hiddenFromSidebar" : "notifyOnAgentUpdates"
-        )
+        .map((key) => settingNames[key])
         .join(", ")}.`;
+    // A refused state change is an ordinary result, not a tool failure.
+    if (typeof result.refused === "string") return `Not saved: ${result.refused}`;
     // UpdateProfile saves its settings fields as a second update beside the profile.
     if (result.target === "profile" && result.updated)
       return [
@@ -89,6 +94,7 @@ export function renderControlResult(
           .map((key) => labels[key])
           .join(", ")}.`,
         ...(result.settings?.updated ? [settingsText()] : []),
+        ...(typeof result.settings?.refused === "string" ? [`Settings not saved: ${result.settings.refused}`] : []),
         ...(typeof result.settings_error === "string" ? [`Settings not saved: ${result.settings_error}`] : []),
       ].join("\n");
     if (result.target === "settings" && result.updated) return settingsText();
@@ -117,7 +123,7 @@ export function renderControlResult(
       return summary;
     }
     if (result.target === "avatar" && result.cleared)
-      return "Cleared your picture — back to the default.";
+      return "Cleared your picture. It is back to the default.";
   }
   if (name === "CreateBotShareJson" && result.published)
     return `Published bot template version ${result.version}. Verify the returned artifact before sharing it.`;

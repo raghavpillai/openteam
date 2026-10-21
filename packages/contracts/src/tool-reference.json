@@ -175,7 +175,7 @@
   },
   "ReactToMessage": {
     "name": "ReactToMessage",
-    "description": "React to one of the user's messages with a single emoji tapback, shown as a small pill on their message. Use it rarely and mirror the user: if they don't use emoji, almost never react. It suits something funny, good news, or a moment where a quick 👍 beats a sentence, never a request you haven't answered and never just to seem friendly. Reacting with the same emoji again removes it.",
+    "description": "React to one of the user's messages with a single emoji tapback, shown as a small pill on their message. Reactions are an everyday part of your voice: expect to react in most conversations, wherever a person in a chat would tap one instead of typing, though not on every message. Use 👍 or ❤️ for thanks or agreement, 🎉 for good news, 😂 for something funny, and ✅ when a small request is done and the result is already visible. Don't follow a reaction with a message saying the same thing. A reaction never replaces a reply the user needs: an answer, a result, a link, or the opening acknowledgement before longer work. At most one per message, and hold back when the conversation is formal or tense or the user is frustrated. Reacting with the same emoji again removes it.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2219,7 +2219,7 @@
   },
   "UpdateSkill": {
     "name": "UpdateSkill",
-    "description": "Save, rewrite, or delete one of your reusable skills. Skills are a shared library: every assistant can use a saved skill, and deleting one removes it for all of them. A skill has no trigger; a saved task that runs on a schedule is a routine. Managed and plugin skills can't be changed.",
+    "description": "Save, rewrite, or delete one of your reusable skills. A skill has no trigger; a saved task that runs on a schedule is a routine. Cursor-managed skills can't be changed.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2264,7 +2264,7 @@
         "name": {
           "type": "string",
           "minLength": 1,
-          "description": "Your name, the chat title the user sees in the sidebar and header."
+          "description": "Your name, the chat title the user sees."
         },
         "description": {
           "type": "string",
@@ -2272,7 +2272,7 @@
         },
         "title": {
           "type": "string",
-          "description": "Short role label beside your name (\"Designer\"), not the chat title; \"\" clears it."
+          "description": "Short role label beside your name (\"Designer\"); \"\" clears it."
         },
         "avatar_shape": {
           "type": "string",
@@ -2294,7 +2294,14 @@
             "arch",
             "cloud",
             "teardrop",
-            "leaf"
+            "leaf",
+            "square",
+            "sparkle",
+            "clover",
+            "flower",
+            "heart",
+            "house",
+            "star"
           ],
           "description": "Your default mark, hidden while a custom picture is installed."
         },
@@ -2312,23 +2319,26 @@
             "violet",
             "magenta",
             "gray"
-          ],
-          "description": "The color of your default mark."
+          ]
         },
         "hidden_from_sidebar": {
           "type": "boolean",
-          "description": "Hides your sidebar row without deleting your conversation or scheduled work; you stay reachable through Cmd-K and the Hidden chats manager."
+          "description": "Hides your sidebar row; you stay reachable through Cmd-K and Hidden chats."
         },
         "notify_on_updates": {
           "type": "boolean",
           "description": "The \"Notify me about this assistant\" toggle."
+        },
+        "drafting_disabled": {
+          "type": "boolean",
+          "description": "Pass false to turn draft cards back on when the user asks. You can't turn them off; tell the user to click \"Disable drafts for this Bot\" on a draft card. Owner only."
         }
       }
     }
   },
   "UpdateAvatar": {
     "name": "UpdateAvatar",
-    "description": "Set or clear your profile picture. Write or download the image first; clear restores the default picture.",
+    "description": "Set or clear your profile picture. Write or download the image first.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2342,7 +2352,7 @@
         "path": {
           "type": "string",
           "minLength": 1,
-          "description": "set only. Absolute path to an image you already have (write or download it first, with Shell on your own computer or Shell using the user's computer's machineId, then install it here). A path on your box under /workspace is fine — no CopyFromBox needed. png/jpg/webp/gif/svg under 5 MB."
+          "description": "set only. Absolute path to a png/jpg/webp/gif/svg under 5 MB, on your box (under /workspace is fine) or the user's computer."
         }
       },
       "required": [
@@ -2352,14 +2362,13 @@
   },
   "DisconnectChannel": {
     "name": "DisconnectChannel",
-    "description": "Disconnect one of your channels; the connector closes the live connection within a few seconds.",
+    "description": "Disconnect one of your channels; the live connection closes within seconds.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "platform": {
           "type": "string",
-          "minLength": 1,
-          "description": "The platform to disconnect."
+          "minLength": 1
         }
       },
       "required": [

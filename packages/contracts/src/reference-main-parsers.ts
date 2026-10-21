@@ -561,26 +561,27 @@ var skillParameters = external_exports.object({
 });
 
 var profileParameters = external_exports.object({
-  name: external_exports.string().trim().min(1).optional().describe("Your name, the chat title the user sees in the sidebar and header."),
+  name: external_exports.string().trim().min(1).optional().describe("Your name, the chat title the user sees."),
   description: external_exports.string().trim().optional().describe("Your intro."),
-  title: external_exports.string().trim().optional().describe('Short role label beside your name ("Designer"), not the chat title; "" clears it.'),
+  title: external_exports.string().trim().optional().describe('Short role label beside your name ("Designer"); "" clears it.'),
   avatar_shape: external_exports.enum(nonEmptyTuple(BOT_MARK_SHAPES)).optional().describe("Your default mark, hidden while a custom picture is installed."),
-  avatar_color: external_exports.enum(nonEmptyTuple(BOT_MARK_COLORS)).optional().describe("The color of your default mark."),
-  hidden_from_sidebar: external_exports.boolean().optional().describe(
-    "Hides your sidebar row without deleting your conversation or scheduled work; you stay reachable through Cmd-K and the Hidden chats manager."
-  ),
-  notify_on_updates: external_exports.boolean().optional().describe('The "Notify me about this assistant" toggle.')
+  avatar_color: external_exports.enum(nonEmptyTuple(BOT_MARK_COLORS)).optional(),
+  hidden_from_sidebar: external_exports.boolean().optional().describe("Hides your sidebar row; you stay reachable through Cmd-K and Hidden chats."),
+  notify_on_updates: external_exports.boolean().optional().describe('The "Notify me about this assistant" toggle.'),
+  drafting_disabled: external_exports.boolean().optional().describe(
+    `Pass false to turn draft cards back on when the user asks. You can't turn them off; tell the user to click "Disable drafts for this Bot" on a draft card. Owner only.`
+  )
 });
 
 var avatarParameters = external_exports.object({
   action: external_exports.enum(["set", "clear"]),
   path: external_exports.string().trim().min(1).optional().describe(
-    "set only. Absolute path to an image you already have (write or download it first, with Shell on your own computer or Shell using the user's computer's machineId, then install it here). A path on your box under /workspace is fine \u2014 no CopyFromBox needed. png/jpg/webp/gif/svg under 5 MB."
+    "set only. Absolute path to a png/jpg/webp/gif/svg under 5 MB, on your box (under /workspace is fine) or the user's computer."
   )
 });
 
 var channelParameters = external_exports.object({
-  platform: external_exports.string().trim().min(1).describe("The platform to disconnect.")
+  platform: external_exports.string().trim().min(1)
 });
 
 var COMPUTER_ACTIONS = [

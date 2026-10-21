@@ -2,6 +2,7 @@
 // Pure captured reference input schemas and trigger rendering. No host entrypoints.
 import { z as external_exports } from "zod";
 import { refineDraftBody } from "./external-draft-body";
+import { formatArgumentIssues } from "./tool-arguments";
 const invariant=(value,message)=>{if(!value)throw new Error(message);};
 class SandToolInputError extends Error {}
 const CLOUD_AGENT_INJECTED_SECRET_NAMES_ENV_VAR = "CLOUD_AGENT_INJECTED_SECRET_NAMES";
@@ -925,6 +926,60 @@ function isValidAttachmentUrl(rawUrl) {
   }
 }
 
+var OTHER_FILES_AS_ATTACHMENTS = 'Send every other file (PDF, document, spreadsheet, video) as its own SendToUser call with type:"attachment" and url (file:// or https://), one call per file.';
+
+var NON_IMAGE_IN_IMAGES_ERROR = `each images url must be a picture that goes with your text, and this one is another kind of file, so nothing was sent. ${OTHER_FILES_AS_ATTACHMENTS}`;
+
+var IMAGE_EXTENSIONS = /* @__PURE__ */ new Set(["avif", "bmp", "gif", "ico", "jpeg", "jpg", "png", "svg", "webp", "heic", "heif"]);
+
+// Extensions the reference's attachment classifier names as a kind other than image;
+// an unknown extension stays a generic file and is not refused.
+var KNOWN_NON_IMAGE_EXTENSIONS = /* @__PURE__ */ new Set([
+  "m4v", "mov", "mp4", "ogv", "webm",
+  "aac", "flac", "m4a", "mp3", "oga", "ogg", "opus", "wav", "weba",
+  "pdf", "csv", "tsv", "xlsx", "xls", "json", "md", "markdown", "mdx", "html", "htm", "docx",
+  "txt", "text", "log", "rst", "adoc", "tex", "jsonc", "json5", "ndjson", "xml", "yaml", "yml", "toml", "ini", "cfg", "conf", "env",
+  "properties", "plist", "gradle", "css", "scss", "sass", "less", "js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts", "py", "pyi",
+  "rb", "go", "rs", "java", "kt", "kts", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "cs", "php", "swift", "scala", "dart", "lua", "pl",
+  "pm", "r", "sql", "graphql", "gql", "proto", "vue", "svelte", "astro", "sh", "bash", "zsh", "fish", "bat", "ps1", "tf", "tfvars",
+  "dockerfile", "diff", "patch",
+  "zip", "tar", "gz", "tgz", "bz2", "tbz2", "xz", "txz", "zst", "7z", "rar"
+]);
+
+function attachmentExtension(source) {
+  let subject = source;
+  try {
+    subject = new URL(source).pathname;
+    subject = decodeURIComponent(subject);
+  } catch {}
+  const base = subject.split(/[/\\]/).pop() ?? "";
+  const dot = base.lastIndexOf(".");
+  return dot <= 0 || dot === base.length - 1 ? null : base.slice(dot + 1).toLowerCase();
+}
+
+function isKnownNonImage(url2) {
+  const ext = attachmentExtension(url2);
+  return ext != null && !IMAGE_EXTENSIONS.has(ext) && KNOWN_NON_IMAGE_EXTENSIONS.has(ext);
+}
+
+var UNSUPPORTED_ATTACHMENT_FIELDS = ["attachments", "files"];
+
+function unsupportedAttachmentFieldError(field) {
+  return `${field} is not a SendToUser field, so it would be silently dropped. Nothing was sent. Put images that go with your text in images on the type:text message. ` + OTHER_FILES_AS_ATTACHMENTS;
+}
+
+// The issue is added beside the schema's own issues, so one reply reports both.
+function rejectingUnsupportedAttachmentFields(schema) {
+  return external_exports.preprocess((input, ctx) => {
+    if (typeof input !== "object" || input === null || Array.isArray(input)) return input;
+    for (const field of UNSUPPORTED_ATTACHMENT_FIELDS) {
+      if (!isFieldProvided(input[field])) continue;
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: [field], message: unsupportedAttachmentFieldError(field) });
+    }
+    return input;
+  }, schema);
+}
+
 function refineSendMessage(value, ctx) {
   for (const { field, types: types3 } of TYPE_SCOPED_SEND_MESSAGE_FIELDS) {
     if (types3.includes(value.type)) continue;
@@ -933,7 +988,7 @@ function refineSendMessage(value, ctx) {
     ctx.addIssue({
       code: external_exports.ZodIssueCode.custom,
       path: [field],
-      message: `${field} is only valid with ${allowed} and cannot ride a type:${value.type} message \u2014 it would be silently dropped. Nothing was sent. Re-send as separate SendToUser calls, one per type: this field on its own properly-typed message (${allowed}), and any text as its own type:text message.`
+      message: `${field} is only valid with ${allowed} and cannot be sent on a type:${value.type} message. It would be silently dropped. Nothing was sent. Re-send as separate SendToUser calls, one per type: this field on its own properly-typed message (${allowed}), and any text as its own type:text message.`
     });
   }
   if (value.channel != null && value.channel.length > 0 && value.type !== "text" && value.type !== "attachment") {
@@ -978,7 +1033,13 @@ function refineSendMessage(value, ctx) {
           ctx.addIssue({
             code: external_exports.ZodIssueCode.custom,
             path: ["images", index, "url"],
-            message: "each images url must include a file:// or https:// scheme"
+            message: "each images url must include a file:// or https:// scheme. For a file on your computer, put file:// before its absolute path (file:///workspace/chart.png) and send it again. Nothing was sent."
+          });
+        } else if (isKnownNonImage(image2.url)) {
+          ctx.addIssue({
+            code: external_exports.ZodIssueCode.custom,
+            path: ["images", index, "url"],
+            message: NON_IMAGE_IN_IMAGES_ERROR
           });
         }
       }
@@ -1028,7 +1089,7 @@ function refineSendMessage(value, ctx) {
         ctx.addIssue({
           code: external_exports.ZodIssueCode.custom,
           path: ["url"],
-          message: "url must include a file:// or https:// scheme when type is attachment"
+          message: "url must include a file:// or https:// scheme when type is attachment. For a file on your computer, put file:// before its absolute path (file:///workspace/report.pdf) and send it again. Nothing was sent."
         });
       }
       return;
@@ -1804,11 +1865,11 @@ const localSecretSchema = sendMessageObjectSchema.shape.secret.unwrap().extend({
 });
 // end_turn belongs to the invocation envelope in the captured host. Preserve it
 // here because OpenTeam receives that envelope together with the message fields.
-const adaptedSendSchema = sendMessageObjectSchema.extend({
+const adaptedSendSchema = rejectingUnsupportedAttachmentFields(sendMessageObjectSchema.extend({
   type: sendMessageObjectSchema.shape.type.default("text"),
   secret: localSecretSchema.optional(),
   end_turn: external_exports.boolean().optional(),
-}).superRefine(refineSendMessage);
+}).superRefine(refineSendMessage));
 // The user's per-Bot approval rules can send a card at once; waitForReview keeps it waiting
 // when the user asked to see the message first.
 const adaptedDraftSchema = draftExternalMessageObjectSchema.extend({
@@ -1825,7 +1886,16 @@ export function normalizeMainToolArguments(name:string, raw:unknown):Record<stri
       value.block_until_ms = value.block_until_ms < 0 ? 30_000 : Math.floor(value.block_until_ms);
     return value;
   }
-  if (name === "DraftExternalMessage") return adaptedDraftSchema.parse(raw);
-  return name === "SendToUser" ? adaptedSendSchema.parse(raw) : schemas[name] ? schemas[name].parse(raw) : raw as Record<string,any>;
+  const schema = name === "DraftExternalMessage" ? adaptedDraftSchema : name === "SendToUser" ? adaptedSendSchema : schemas[name];
+  if (!schema) return raw as Record<string,any>;
+  const parsed = schema.safeParse(raw, { errorMap: referenceTypeMessages });
+  if (parsed.success) return parsed.data;
+  throw new Error(formatArgumentIssues(parsed.error.issues));
 }
+// The reference's zod reports a wrong or missing value as "Invalid input: expected X, received Y";
+// a schema's own message for the field still wins.
+const referenceTypeMessages = (issue, ctx) =>
+  issue.code === "invalid_type" && (ctx.defaultError === "Required" || /^Expected .+, received .+$/.test(ctx.defaultError))
+    ? { message: `Invalid input: expected ${issue.expected}, received ${issue.received}` }
+    : { message: ctx.defaultError };
 export { describeTrigger };

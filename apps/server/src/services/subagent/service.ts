@@ -15,7 +15,6 @@ import { Prisma, type PrismaClient } from "@openteam/db";
 import { type AgentDataStore, type AgentMessaging, PRIORITY, type ToolContext } from "@openteam/messaging";
 import { Effect, Schema } from "effect";
 import { fromPrisma } from "pg-boss";
-import { setTimeout as delay } from "node:timers/promises";
 import type { RunService } from "../run-service";
 import { appendEvent, type ComputerFetch, hashRequest, toJson } from "../service-utils";
 import { taskInference, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
@@ -65,10 +64,6 @@ const agentIdLine = (id: string) =>
 export const subagentBackgroundResult = (id: string): string =>
   `Subagent is running in the background. When you end your turn, you will be automatically sent the subagent's final response upon its completion, so do not wait for it - either end your turn or work on something else.\n\n${agentIdLine(id)}`;
 
-/** A Task that waited for its subagent returns the subagent's last message. */
-export const subagentForegroundResult = (id: string, result: string | null): string =>
-  `This is the output of the subagent:\n\nresponse:\n<response>\n${result ?? "No output"}\n</response>\n\n${agentIdLine(id)}`;
-
 const failedTaskMessage = (status: string, error: Prisma.JsonValue | null): string => {
   const message = error && typeof error === "object" && !Array.isArray(error) && typeof error.message === "string" ? error.message : undefined;
   return `Error: ${message ?? (status === "stopped" ? "The subagent was stopped before it finished." : "The subagent failed before it finished.")}`;
@@ -108,7 +103,8 @@ export class SubagentService {
     private readonly agentData: AgentDataStore
   ) {}
 
-  async task(context: ToolContext, input: TaskInput, signal?: AbortSignal, foregroundYield = false) {
+  /** As in the reference, every Task runs in the background whatever run_in_background says. */
+  async task(context: ToolContext, input: TaskInput) {
     const nested = await this.prisma.subagent.findUnique({ where: { childBotId: context.botId } });
     if (nested) {
       throw new ApiError(403, "nested_subagent_forbidden", "Subagents cannot launch subagents");
@@ -131,7 +127,6 @@ export class SubagentService {
     if (!subagent && receipt) {
       throw new ApiError(409, "request_in_progress", "This Task call is already being accepted");
     }
-    if (foregroundYield && !attempt) throw new ApiError(409, "subagent_attempt_missing", "Cannot yield a Task that was not already started");
     // A dispatch that asks for steps only the parent can do says so in the result.
     const notice = parentOnlyDispatchNotice({ subagentType: input.subagent_type ?? (input.resume ? undefined : "executor"), prompt: input.prompt });
     const dispatched = (result: string) => (notice ? `${result}\n\n${notice}` : result);
@@ -175,23 +170,7 @@ export class SubagentService {
     if (!attempt) {
       throw new ApiError(409, "subagent_attempt_missing", "This Task attempt is unavailable");
     }
-    if (foregroundYield) {
-      // Persist notification ownership before allowing the parent to stop waiting.
-      // If completion won the race, return its result directly instead.
-      const changed = await this.prisma.subagentAttempt.updateMany({
-        where: {id: attempt.id, status: {in: ["provisioning", "queued", "running"]}},
-        data: {runInBackground: true},
-      });
-      if (changed.count) return {
-        foregroundYielded: true, status: "running", subagent_id: botSubagentId(subagent.id), attempt_id: attempt.id,
-        message: "Foreground wait yielded for a user update. The existing worker remains running and completion will wake you. Process the update and use MessageSubagent to relay changes; do not start a duplicate task.",
-      };
-      attempt = await this.prisma.subagentAttempt.findUniqueOrThrow({where: {id: attempt.id}});
-      if (attempt.status === "completed") return dispatched(subagentForegroundResult(subagent.id, attempt.result));
-      return failedTaskMessage(attempt.status, attempt.error);
-    }
-    const result = await this.taskResult(subagent, attempt, signal);
-    return typeof result === "string" && !result.startsWith("Error: ") ? dispatched(result) : result;
+    return dispatched(subagentBackgroundResult(subagent.id));
   }
 
   private receiptSubagentId(response: Prisma.JsonValue | null | undefined): string | null {
@@ -527,7 +506,6 @@ export class SubagentService {
           reasoning: selectedInference.reasoning,
           taskConfiguration: toJson(config),
           fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
-          runInBackground: input.run_in_background ?? true,
           readOnly: input.read_only ?? false,
           outputPath,
         },
@@ -555,7 +533,6 @@ export class SubagentService {
           description: name,
           prompt: input.prompt,
           fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
-          runInBackground: input.run_in_background ?? true,
           status: "provisioning",
         },
       });
@@ -643,7 +620,6 @@ export class SubagentService {
           description,
           prompt: input.prompt,
           fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
-          runInBackground: input.run_in_background ?? true,
           status: "queued",
         },
       });
@@ -657,7 +633,6 @@ export class SubagentService {
           description,
           prompt: input.prompt,
           fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
-          runInBackground: input.run_in_background ?? true,
           status: "queued",
           result: null,
           error: Prisma.DbNull,
@@ -767,28 +742,5 @@ export class SubagentService {
       result: subagent.result,
       error: subagent.error,
     };
-  }
-
-  private async taskResult(
-    subagent: Awaited<ReturnType<SubagentService["owned"]>>,
-    attempt: NonNullable<Awaited<ReturnType<SubagentService["attemptForCall"]>>>,
-    signal?: AbortSignal
-  ) {
-    if (attempt.runInBackground) return subagentBackgroundResult(subagent.id);
-    // A bounded long poll fits behind HTTP idle timeouts. The runtime repeats
-    // the same idempotent Task request until this exact attempt settles.
-    const deadline = Date.now() + 20_000;
-    while (true) {
-      signal?.throwIfAborted();
-      const current = await this.prisma.subagentAttempt.findUniqueOrThrow({ where: { id: attempt.id } });
-      if (current.status === "completed") return subagentForegroundResult(subagent.id, current.result);
-      if (current.status === "failed" || current.status === "stopped") return failedTaskMessage(current.status, current.error);
-      const parent = await this.prisma.run.findUnique({ where: { id: attempt.parentRunId }, select: { status: true } });
-      if (!parent || !["running"].includes(parent.status)) {
-        throw new ApiError(409, "parent_not_running", "The foreground task's parent is no longer running");
-      }
-      if (Date.now() >= deadline) return { foregroundPending: true, subagent_id: botSubagentId(subagent.id), attempt_id: attempt.id };
-      await delay(250, undefined, { signal });
-    }
   }
 }

@@ -1287,8 +1287,6 @@ export const COMPUTER_TOOL = {
 export const COMPUTER_USE_TOOL = { type: "function", ...referenceTool("Computer") };
 
 export const DynamicToolCallRequest = Schema.Struct({
-  // Runtime-only handoff when a typed message supersedes the parent; not a model-visible Task argument.
-  foregroundYield: Schema.optional(Schema.Boolean),
   runId: Schema.String,
   botId: Schema.String,
   conversationId: Schema.String,

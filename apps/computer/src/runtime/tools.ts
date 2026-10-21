@@ -1393,8 +1393,7 @@ export class RuntimeTools {
     callId: string,
     tool: string,
     args: unknown,
-    signal?: AbortSignal,
-    foregroundYield = false
+    signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     const timeoutMs = USER_PACED_CONTROL_TOOLS.has(tool) ? 24 * 60 * 60_000 : this.toolCallTimeoutMs;
     const timeout = AbortSignal.timeout(timeoutMs);
@@ -1408,7 +1407,6 @@ export class RuntimeTools {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          ...(foregroundYield ? {foregroundYield: true} : {}),
           runId: active.runId,
           botId: active.botId,
           conversationId: active.conversationId,
@@ -1429,21 +1427,9 @@ export class RuntimeTools {
         const name = NATIVE_TOOLS.some((native) => native.name === tool) ? tool : CALL_DYNAMIC_TOOL_TOOL.name;
         throw new Error(`${name === CALL_DYNAMIC_TOOL_TOOL.name ? "Tool execution error. " : ""}${toolCallTimedOutMessage(name, timeoutMs)}`);
       }
-      // A typed message superseded the turn while it waited on a foreground worker: the
-      // worker carries on in the background and reports back, as the reference's Tasks do.
-      if (tool === "Task" && !foregroundYield && signal?.aborted && active.interruptedByUserAt !== undefined)
-        return this.callControlPlaneToolRequest(active, callId, tool, args, undefined, true);
       throw error;
     }
     if (!response.ok) throw controlPlaneError(response.status, body);
-    if (
-      tool === "Task" &&
-      body &&
-      typeof body === "object" &&
-      (body as Record<string, unknown>).foregroundPending === true
-    ) {
-      return this.callControlPlaneTool(active, callId, tool, args, requestSignal);
-    }
     if (
       body &&
       typeof body === "object" &&

@@ -1027,7 +1027,7 @@ export class WakeWorker {
                 },
               });
             }
-            if (attempt?.runInBackground) {
+            if (attempt) {
               await this.notifySubagentParent(
                 tx,
                 {
@@ -1990,7 +1990,7 @@ export class WakeWorker {
         completedAt: new Date(),
       },
     });
-    const settledAttempt = await tx.subagentAttempt.update({
+    await tx.subagentAttempt.update({
       where: { id: attempt.id },
       data: {
         status: "completed",
@@ -2013,20 +2013,18 @@ export class WakeWorker {
         },
       },
     });
-    if (settledAttempt.runInBackground) {
-      await this.notifySubagentParent(
-        tx,
-        {
-          ...subagent,
-          parentRunId: attempt.parentRunId,
-          parentChannelId: attempt.parentChannelId,
-          description: attempt.description,
-          currentRunId: attempt.childRunId,
-        },
-        "completed",
-        result
-      );
-    }
+    await this.notifySubagentParent(
+      tx,
+      {
+        ...subagent,
+        parentRunId: attempt.parentRunId,
+        parentChannelId: attempt.parentChannelId,
+        description: attempt.description,
+        currentRunId: attempt.childRunId,
+      },
+      "completed",
+      result
+    );
   }
 
   private async failSubagent(
@@ -2056,7 +2054,7 @@ export class WakeWorker {
       where: { id: subagent.id },
       data: { status: "failed", error: details, result, completedAt: new Date() },
     });
-    const settledAttempt = await tx.subagentAttempt.update({
+    await tx.subagentAttempt.update({
       where: { id: attempt.id },
       data: { status: "failed", error: details, result, completedAt: new Date() },
     });
@@ -2075,20 +2073,18 @@ export class WakeWorker {
         },
       },
     });
-    if (settledAttempt.runInBackground) {
-      await this.notifySubagentParent(
-        tx,
-        {
-          ...subagent,
-          parentRunId: attempt.parentRunId,
-          parentChannelId: attempt.parentChannelId,
-          description: attempt.description,
-          currentRunId: attempt.childRunId,
-        },
-        "failed",
-        result
-      );
-    }
+    await this.notifySubagentParent(
+      tx,
+      {
+        ...subagent,
+        parentRunId: attempt.parentRunId,
+        parentChannelId: attempt.parentChannelId,
+        description: attempt.description,
+        currentRunId: attempt.childRunId,
+      },
+      "failed",
+      result
+    );
   }
 
   private async notifySubagentParent(

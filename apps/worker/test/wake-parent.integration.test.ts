@@ -128,11 +128,9 @@ test.skipIf(!databaseUrl)(
               // A Settings edit during a run must not change the model selected for its subsequent Tasks.
               await Effect.runPromise(app!.updateTaskSettings({ graphicalAvailable: false, executorProfiles: [] }));
               const result=await call("Task",{description:"Foreground fixture",prompt:"WP_FOREGROUND_CHILD",subagent_type:"executor",run_in_background:false,model:"quick"});
-              expect(String(result)).toContain("WP_FOREGROUND_RESULT");
-              const id = /Agent ID: (sand-subagent-[\da-f-]+)/.exec(String(result))?.[1];
-              expect(id).toBeDefined();
-              const resumed = await call("Task", { description: "Foreground fixture", prompt: "WP_FOREGROUND_CHILD follow-up", resume: id, model: "ignored-on-resume", run_in_background: false });
-              expect(String(resumed)).toContain("WP_FOREGROUND_RESULT");
+              // As in the reference, run_in_background:false still dispatches in the background.
+              expect(String(result)).toContain("Subagent is running in the background.");
+              expect(/Agent ID: (sand-subagent-[\da-f-]+)/.exec(String(result))?.[1]).toBeDefined();
               const launchId = crypto.randomUUID();
               const task = { description: "Managed background fixture", prompt: "WP_MANAGED_CHILD", subagent_type: "executor", model: "quick" };
               const background = await call("Task", task, launchId);
@@ -262,12 +260,10 @@ test.skipIf(!databaseUrl)(
       await Effect.runPromise(app.sendMessage(bot.conversationId, {clientId:crypto.randomUUID(),content:"WP_FOREGROUND_PARENT"}));
       await until(async()=>Boolean(await app!.prisma.channelMessage.findFirst({where:{channelId,content:"Foreground child finished."}})));
       const foreground = await app.prisma.subagent.findFirstOrThrow({where:{parentBotId:botId,description:"Foreground fixture"}});
-      expect(foreground.runInBackground).toBe(false);
       expect(foreground.model).toContain("foreground-fixture-model");
       expect(foreground.reasoning).toBe("low");
       const foregroundTurns = turns.filter(turn => turn.botId === foreground.childBotId);
-      expect(foregroundTurns).toHaveLength(2);
-      expect(foregroundTurns[1]!.sessionPath).not.toBeNull();
+      expect(foregroundTurns).toHaveLength(1);
       expect(foregroundTurns.every(turn => turn.model === foreground.model && turn.reasoning === "low")).toBe(true);
       const initialVisible = await app.prisma.channelMessage.count({ where: { channelId } });
       const execute = async (marker: string) => {

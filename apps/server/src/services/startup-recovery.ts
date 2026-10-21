@@ -96,7 +96,7 @@ export async function recover(
         parentToolCallId: attempt?.parentToolCallId,
         ...error,
       });
-      if ((attempt?.runInBackground ?? subagent.runInBackground) && attempt) {
+      if (attempt) {
         const parent = await tx.bot.findUnique({
           where: { id: subagent.parentBotId },
           select: { status: true },

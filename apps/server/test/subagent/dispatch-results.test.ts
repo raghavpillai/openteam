@@ -29,23 +29,11 @@ test("a dispatch whose prompt names a tool the child lacks carries the reminder 
   expect(resumed).toContain("This dispatch names UpdateMemory, which the resumed subagent does not have");
 });
 
-test("a foreground Task returns the subagent's output, or its failure as Error", async () => {
-  const run = (status: string, extra: Record<string, unknown> = {}) => {
-    const input = { description: "Flights", prompt: "Find flights and SendToUser them.", subagent_type: "executor", run_in_background: false };
-    const db: any = {
-      subagent: { findUnique: async () => null },
-      idempotencyRecord: { findUnique: async () => ({ requestHash: hashRequest(input), response: { subagentId: "child" } }) },
-      subagentAttempt: { findUniqueOrThrow: async () => ({ id: "attempt", status, ...extra }) },
-    };
-    const service = new SubagentService(db, null as never, null as never, "/workspace", null as never, null as never) as any;
-    service.attemptForCall = async () => ({ id: "attempt", runInBackground: false, parentRunId: "parent-run" });
-    service.owned = async () => ({ id: "child" });
-    return service.task({ botId: "parent", callId: "call" }, input);
-  };
-  const done: string = await run("completed", { result: "Found 3 flights." });
-  expect(done).toStartWith("This is the output of the subagent:\n\nresponse:\n<response>\nFound 3 flights.\n</response>\n\nAgent ID: sand-subagent-child");
-  expect(done).toContain("This dispatch names SendToUser");
-  expect(await run("failed", { error: { code: "runtime_restart", message: "Runtime restarted during this turn" } })).toBe("Error: Runtime restarted during this turn");
+test("run_in_background: false still dispatches in the background, as in the reference", async () => {
+  const result: string = await accepted({ description: "Flights", prompt: "Find flights.", subagent_type: "executor", run_in_background: false });
+  expect(result).toBe(
+    "Subagent is running in the background. When you end your turn, you will be automatically sent the subagent's final response upon its completion, so do not wait for it - either end your turn or work on something else.\n\nAgent ID: sand-subagent-child (can be used with the `resume` parameter to send a follow-up after it completes)"
+  );
 });
 
 const managed = (child: Record<string, unknown> | null) => {

@@ -21,6 +21,7 @@ test("automation calls WakeParent directly and keeps work tools, with all commun
     runtimeProfile: "agent",
     subagentType: null,
     pluginNamespaces: [],
+    feedback: "available",
   } as unknown as ActiveTurn;
   const names = [
     ...tools.customTools(turn).map((tool) => tool.name),
@@ -112,6 +113,7 @@ test("routine runs call plugin management directly and feedback after its approv
       pluginNamespaces: [],
       botId: "bot",
       runId: "routine-run",
+      feedback: "available",
     } as unknown as ActiveTurn;
     const native = tools.customTools(turn);
     const get = native.find((tool) => tool.name === "GetDynamicTools")!;

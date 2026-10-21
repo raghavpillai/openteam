@@ -886,7 +886,8 @@ test('the parent-only dispatch reminder names only tools the parent has and that
       ...(direct.includes('CallDynamicTool') ? runtime.dynamicCatalog(active).flatMap((namespace: any) => namespace.tools.map((tool: any) => tool.name)) : []),
     ]);
   };
-  const parent = new Set([...surface(workerTurn(null)), ...surface(workerTurn(null, { requestSource: 'automation' }))]);
+  // A deployment with a support destination, so the parent is offered SendFeedback.
+  const parent = new Set([...surface(workerTurn(null, { feedback: 'available' })), ...surface(workerTurn(null, { requestSource: 'automation', feedback: 'available' }))]);
   for (const type of ['executor', 'knowledgeWork', 'computerUse', 'videoReview', 'watchVideo', undefined]) {
     const child = type ? surface(workerTurn(type)) : new Set<string>();
     const listed = [...parentOnlyToolsFor(type).keys()];

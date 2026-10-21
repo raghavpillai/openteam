@@ -19,6 +19,8 @@ export interface ActiveTurn {
   pluginAbortController?: AbortController;
   closePluginSession?: () => Promise<void>;
   readOnly?: boolean;
+  /** Absent when no support destination is configured: SendFeedback is then not offered, as in the reference. */
+  feedback?: "available" | "privacy";
   runId: string;
   botId: string;
   contextSessionId: string;

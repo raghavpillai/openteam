@@ -73,6 +73,12 @@ test('the in-chat-forms catalog line leaves connected credentials to autonomous 
   expect(description('in-chat-forms')).toContain('REQUIRED before any typed web step whose value you cannot get from the user\'s connected sources (login, checkout address or card, phone, OTP)');
 });
 
+test('no-connector-fallback points logins at the Authentication section, not a missing skill', () => {
+  // The sign-in skill is not in the catalog; logins follow the Authentication section.
+  expect(skill('no-connector-fallback')).not.toContain("that skill's typed-login path");
+  expect(skill('no-connector-fallback')).toContain('then sign in as the Authentication section of your instructions says when it reaches the login.');
+});
+
 test('purchases takes the user\'s own card and keeps no card', () => {
   expect(description('purchases')).toContain('Always follow this when dealing with credit cards');
   const purchases = skill('purchases');

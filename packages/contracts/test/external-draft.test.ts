@@ -40,6 +40,24 @@ test('the main-tool parser keeps waitForReview and the captured draft rules', as
  expect(() => normalizeMainToolArguments('DraftExternalMessage', { ...args, channelId: 'C123456789' })).toThrow('only valid with platform:slack');
 });
 
+test("draft argument problems are named per field, and a lone recipient is a list", async () => {
+ const { normalizeMainToolArguments } = await import('../src/reference-main-parsers');
+ const email = { platform: 'email', providerIdentifier: 'gmail', from: 'me@example.com', to: ['ann@example.com'], subject: 'Hi', body: 'Hello' };
+ const refusal = (args: unknown) => { try { normalizeMainToolArguments('DraftExternalMessage', args); } catch (error) { return (error as Error).message; } throw new Error('accepted'); };
+ expect(refusal({ ...email, to: undefined })).toBe('Invalid arguments:\nto: to is required when platform is email');
+ expect(refusal({ ...email, from: undefined })).toBe('Invalid arguments:\nfrom: from is required when platform is email');
+ expect(refusal({ ...email, to: ['Ann <ann@x.com>'] })).toBe('Invalid arguments:\nto: to must carry plain email address(es) like user@example.com, not a display name or "Name <addr>" form. Got: Ann <ann@x.com>');
+ expect(refusal({ ...email, target: '#general' })).toBe('Invalid arguments:\ntarget: target is only valid with platform:slack and cannot be included in a platform:email draft. It would be silently dropped. Nothing was drafted. Re-send with only the fields that belong to platform:email.');
+ expect(normalizeMainToolArguments('DraftExternalMessage', { ...email, to: 'ann@example.com' }).to).toEqual(['ann@example.com']);
+});
+
+test("the draft receipt names the sending address", async () => {
+ const { renderControlResult } = await import('../src/tool-results');
+ expect(renderControlResult('DraftExternalMessage', { sent: true, message_id: 'm1' }, { platform: 'email', from: 'me@example.com', to: ['ann@example.com'] })).toBe(
+  'Draft email from me@example.com to ann@example.com is now an editable card in the chat (id: m1). Nothing has been sent; the user reviews, may edit, and sends or discards it from the card.'
+ );
+});
+
 test('a model email draft is unwrapped once; Slack drafts and user edits keep their lines', async () => {
  const { parseDraftExternalMessage } = await import('../src/external-draft-body');
  const wrapped = 'Thanks for sending over the revised proposal yesterday. I went through\nthe pricing section with the team this morning and we are aligned on\nthe overall structure.\n\nBest,\nRaghav';

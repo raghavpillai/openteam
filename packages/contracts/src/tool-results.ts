@@ -56,7 +56,7 @@ export function renderControlResult(
   if (name === "DraftExternalMessage" && result.sent) {
     const where =
       args.platform === "email"
-        ? `email to ${(args.to ?? []).join(", ")}`
+        ? `email from ${args.from} to ${[args.to ?? []].flat().join(", ")}`
         : `Slack message to ${result.target ?? args.target}`;
     const id = result.message_id ? ` (id: ${result.message_id})` : "";
     // The user's approval settings can send a card at once; the server says how that went.

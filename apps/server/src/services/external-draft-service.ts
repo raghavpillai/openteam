@@ -28,6 +28,10 @@ const UNCONFIRMED_DRAFT_OUTCOME =
 const fail = (message: string): never => {
   throw new ApiError(409, "draft_unavailable", message);
 };
+/** The connector could not confirm where a draft goes; create() words it as the reference's refusal. */
+const unverified = (reason: string): never => {
+  throw new ApiError(409, "draft_route_unverified", reason);
+};
 function connectorRecord(raw: unknown): Record<string, any> {
   if (typeof raw === "string") {
     try {
@@ -144,8 +148,9 @@ export class ExternalDraftService {
       const sendingAddresses = [
         ...new Set([identity, ...strings(result.sendingAddresses).map((address) => address.trim().toLowerCase())]),
       ].filter(Boolean);
-      if (!identity || !sendingAddresses.includes(draft.from!.toLowerCase()))
-        return fail("The selected mailbox does not match the draft From address");
+      if (!identity) return unverified("The mailbox did not report its sending address.");
+      if (!sendingAddresses.includes(draft.from!.toLowerCase()))
+        return fail(`Draft refused: from (${draft.from}) is not the address this account really sends as (${sendingAddresses.join(", ")}). Nothing was drafted. Call this tool again with from: ${identity}${sendingAddresses.length > 1 ? " or one of the other addresses listed." : "."}`);
       const signatures = Object.fromEntries(
         Object.entries(metadataRecord(result.signatures))
           .map(([address, html]) => [address.toLowerCase(), html] as const)
@@ -189,13 +194,12 @@ export class ExternalDraftService {
       typeof channel.messages === "string" &&
       /^Channel:\s*(.+?)\s*\(([^)]+)\)/.exec(channel.messages);
     if (!header || header[2] !== draft.channelId)
-      return fail("The Slack destination could not be verified");
+      return unverified(`The Slack connector did not report a channel for id ${draft.channelId}.`);
     const account = await read("slack_read_user_profile", {});
     const profile = typeof account.result === "string" ? account.result : "";
     const workspace = /^Organization Name:\s*(.+)$/m.exec(profile)?.[1]?.trim();
     const email = /^Email:\s*(\S+@\S+)$/m.exec(profile)?.[1];
-    if (!workspace || !email)
-      return fail("The Slack workspace and sending account could not be verified");
+    if (!workspace || !email) return unverified("The Slack connector did not report the sending account's workspace.");
     let thread: string | undefined;
     if (draft.threadTs) {
       const parent = await read("slack_read_thread", {
@@ -208,19 +212,22 @@ export class ExternalDraftService {
         typeof parent.messages !== "string" ||
         !parent.messages.includes(`Message TS: ${draft.threadTs}`)
       )
-        return fail("The Slack thread could not be verified");
+        return unverified(`The Slack connector did not report a thread parent for ts ${draft.threadTs}.`);
       thread = parent.messages.slice(0, 500);
     }
     return { identity: `${workspace} (${email})`, destination: header[1]!, thread };
   }
   async create(context: ToolContext, raw: unknown): Promise<string | Record<string, unknown>> {
     const draft = parseExternalDraft(raw);
-    const verification = await this.verify(
-      context.botId,
-      context.runId,
-      draft,
-      `draft-verify:${context.callId}`
-    );
+    const verification = await this.verify(context.botId, context.runId, draft, `draft-verify:${context.callId}`).catch((error: unknown) => {
+      // A connector that fails or answers unreadably leaves the routing unverified too; the
+      // draft's own refusals (wrong account, wrong from) keep their sentences.
+      if (error instanceof ApiError && error.code === "draft_unavailable" && !/^The connector (did not complete|returned an unreadable)/.test(error.message))
+        throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      const reason = /[.!?]$/.test(message) ? message : `${message}.`;
+      throw new ApiError(409, "draft_unavailable", `Draft refused: the routing could not be verified through the connector (${reason}). Nothing was drafted. Fix the routing (or the connector's connection) and call this tool again.`);
+    });
     if (draft.platform === "slack") draft.target = verification.destination;
     const bot = await this.prisma.bot.findUnique({
       where: { id: context.botId },

@@ -1145,6 +1145,9 @@ var requestBoxHelpParameters = external_exports.object({
 
 var DRAFT_PLATFORMS = ["email", "slack"];
 
+// A lone recipient string is read as a one-address list, as the reference's lenient arrays do.
+var lenientAddressList = (schema) => external_exports.preprocess((value) => typeof value === "string" ? [value] : value, schema);
+
 var draftExternalMessageObjectSchema = external_exports.object({
   platform: external_exports.enum(DRAFT_PLATFORMS).describe(
     "Which platform this draft is for. email requires providerIdentifier, from, to, subject, and body (plus replyToMessageId when replying within an existing email thread). slack requires providerIdentifier, target, channelId, and body (plus threadTs when replying in a thread)."
@@ -1156,10 +1159,10 @@ var draftExternalMessageObjectSchema = external_exports.object({
   from: external_exports.string().trim().optional().describe(
     `Required when platform is email. The exact email address the chosen account sends from, shown on the card's From row \u2014 a plain address like ariel@acme.com, never a display name and never guessed. If you don't already know it, read it from the mailbox first: call the Gmail connector's search_threads with query "in:sent" and use a returned message's sender field.`
   ),
-  to: external_exports.array(external_exports.string().trim().min(1)).optional().describe(
+  to: lenientAddressList(external_exports.array(external_exports.string().trim().min(1))).optional().describe(
     'Required when platform is email. The recipient(s), each a plain email address ("user@example.com" \u2014 the "Name <user@example.com>" form is not accepted).'
   ),
-  cc: external_exports.array(external_exports.string().trim().min(1)).optional().describe("Optional, email only. Cc recipient(s), each a plain email address."),
+  cc: lenientAddressList(external_exports.array(external_exports.string().trim().min(1))).optional().describe("Optional, email only. Cc recipient(s), each a plain email address."),
   subject: external_exports.string().trim().optional().describe("Required when platform is email. The subject line."),
   replyToMessageId: external_exports.string().trim().optional().describe(
     "Optional, email only. The provider's id of the message being replied to; this is the ONLY reply key the send uses, so set it whenever the draft replies within an existing thread and omit it for a fresh email."
@@ -1211,7 +1214,7 @@ function requireAddresses(ctx, field, values) {
   ctx.addIssue({
     code: external_exports.ZodIssueCode.custom,
     path: [field],
-    message: `${field} must carry plain email address(es) like user@example.com \u2014 not a display name or "Name <addr>" form. Got: ${invalid.join(", ")}`
+    message: `${field} must carry plain email address(es) like user@example.com, not a display name or "Name <addr>" form. Got: ${invalid.join(", ")}`
   });
 }
 
@@ -1222,7 +1225,7 @@ function refineDraftExternalMessage(value, ctx) {
     ctx.addIssue({
       code: external_exports.ZodIssueCode.custom,
       path: [field],
-      message: `${field} is only valid with platform:${platform2} and cannot ride a platform:${value.platform} draft \u2014 it would be silently dropped. Nothing was drafted. Re-send with only the fields that belong to platform:${value.platform}.`
+      message: `${field} is only valid with platform:${platform2} and cannot be included in a platform:${value.platform} draft. It would be silently dropped. Nothing was drafted. Re-send with only the fields that belong to platform:${value.platform}.`
     });
   }
   if (value.platform === "email") {

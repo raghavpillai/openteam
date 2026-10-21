@@ -96,7 +96,12 @@ test('connectors that declare reviewed sending verify, edit and send each card a
   const stale = await service.create(f.context('reply-d'), draft) as { message_id: string };
   identity = 'someone-else@example.com';
   expect((await Effect.runPromise(service.mutate(stale.message_id, { action: 'send' }))).message.metadata).toMatchObject({ cardState: 'failed' });
-  await expect(service.create(f.context('reply-e'), { ...draft, from: 'nobody@example.com' })).rejects.toThrow('does not match the draft From address');
+  await expect(service.create(f.context('reply-e'), { ...draft, from: 'nobody@example.com' })).rejects.toThrow(
+   'Draft refused: from (nobody@example.com) is not the address this account really sends as (someone-else@example.com, me@example.com, alias@example.com). Nothing was drafted. Call this tool again with from: someone-else@example.com or one of the other addresses listed.'
+  );
+  failSend = 'before';
+  await expect(service.create(f.context('reply-z'), draft)).rejects.toThrow('Draft refused: the routing could not be verified through the connector (');
+  failSend = null;
   await expect(service.create(f.context('reply-f'), { ...draft, providerIdentifier: 'not-a-connection' })).rejects.toThrow("can't send reviewed email");
   // GetMcpServerStatus lists accounts by namespace; drafts accept that form too.
   identity = 'me@example.com';

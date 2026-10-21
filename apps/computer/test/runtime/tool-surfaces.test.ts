@@ -745,3 +745,12 @@ test('browser workers retain their parent desktop session and steering cancels o
   tools.interruptShellWaits('wait-run'); await expect(pending).rejects.toThrow('new user message');
   expect(tools.shellWaits.size).toBe(0); expect(used).toEqual(['first','other','first']);
 });
+
+test('Computer rewrites other tools\' action names before its schema check', () => {
+  const runtime = runtimeTools() as any;
+  const computer = runtime.customTools(workerTurn('computerUse')).find((tool: any) => tool.name === 'Computer');
+  expect(computer.prepareArguments({ action: 'left_click', x: 3, y: 4 })).toEqual({ action: 'click', button: 'left', x: 3, y: 4 });
+  expect(() => computer.prepareArguments({ action: 'right_click', button: 'left' })).toThrow(
+    'Invalid arguments:\naction: Computer has no right_click action, and it would mean button "right", not "left". Send action "click" with the button you mean.'
+  );
+});

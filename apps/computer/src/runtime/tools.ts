@@ -17,6 +17,7 @@ import { parseReferenceArguments } from "@openteam/contracts/reference-parsers";
 import { HostShellCompletions } from "../host-shell-completions";
 import { expandPluginAgent } from "./plugin-components";
 import { skillTool } from "./skill-tool";
+import { computerArgumentsWithAliases } from "@openteam/contracts/computer-action-aliases";
 import {
   CONNECTOR_TRANSFER_TOOLS,
   CONNECTOR_TRANSFER_MAX_BYTES,
@@ -494,6 +495,8 @@ export class RuntimeTools {
             `scroll, and wait.${COMBINED_COMPUTER_GUIDANCE}`
           ),
           parameters: Type.Unsafe<Record<string, unknown>>(COMPUTER_USE_TOOL.inputSchema),
+          // Aliased actions must be rewritten before the schema check refuses them.
+          prepareArguments: (args: unknown) => computerArgumentsWithAliases(args) as Record<string, unknown>,
           executionMode: "sequential",
           execute: (callId, args, signal) =>
             this.executeGraphicalAction(active, signal, () =>

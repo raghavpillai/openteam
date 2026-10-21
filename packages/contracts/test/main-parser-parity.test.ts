@@ -54,3 +54,30 @@ test("parsers keep the reference arguments OpenTeam supports", async () => {
   expect(renderControlResult("StopSubagent", { stopped_all: true, stopped: [], already_finished: [], failed: [] }, { all: true }))
     .toStartWith("No background subagents are running, so there was nothing of your own to stop.");
 });
+
+test("the subagent tools take the reference's other names for subagent_id and refuse names that disagree", () => {
+  for (const alias of ["agentId", "agent_id", "subagentId", "target", "target_id", "id", "to"])
+    expect(normalizeMainToolArguments("CheckSubagent", { [alias]: "sand-subagent-1" }), alias).toEqual({ subagent_id: "sand-subagent-1" });
+  expect(normalizeMainToolArguments("MessageSubagent", { agent_id: "sand-subagent-1", message: "Try the second tab." }))
+    .toEqual({ subagent_id: "sand-subagent-1", message: "Try the second tab." });
+  expect(normalizeMainToolArguments("StopSubagent", { id: "sand-subagent-1" })).toEqual({ subagent_id: "sand-subagent-1" });
+  expect(normalizeMainToolArguments("StopSubagent", { subagent_id: "sand-subagent-1", id: "sand-subagent-2" })).toEqual({ subagent_id: "sand-subagent-1" });
+  expect(() => normalizeMainToolArguments("MessageSubagent", { agentId: "sand-subagent-1", to: "sand-subagent-2", message: "x" }))
+    .toThrow("Pass the subagent's id once, as subagent_id (from the Task result that dispatched it).");
+});
+
+test("Computer takes other tools' action names for the action they mean, also in then", async () => {
+  const { applyComputerActionAliases, computerArgumentsWithAliases } = await import("../src/computer-action-aliases");
+  expect(normalizeMainToolArguments("Computer", { action: "left_click", x: 4, y: 5 })).toMatchObject({ action: "click", button: "left", x: 4, y: 5 });
+  expect(normalizeMainToolArguments("Computer", { action: "double_click", x: 4, y: 5 })).toMatchObject({ action: "click", count: 2 });
+  expect(normalizeMainToolArguments("Computer", { action: "screenshot", then: [{ action: "mouse_move", x: 1, y: 2 }, { action: "type", text: "hi" }] }).then)
+    .toEqual([{ action: "move", x: 1, y: 2 }, { action: "type", text: "hi" }]);
+  expect(applyComputerActionAliases({ action: "triple_click", count: 3 })).toEqual({ kind: "value", value: { action: "click", count: 3 } });
+  expect(() => normalizeMainToolArguments("Computer", { action: "double_click", count: 3, x: 1, y: 1 }))
+    .toThrow("Computer has no double_click action, and it would mean count 2, not 3.");
+  expect(() => computerArgumentsWithAliases({ action: "click", x: 1, y: 1, then: [{ action: "left_click", text: "a" }] })).toThrow(
+    'Invalid arguments:\nthen.0.action: Computer has no left_click action, and click takes no text. Send action "click"; to hold keys during it, set modifiers, e.g. "shift" or "ctrl+shift".'
+  );
+  const unchanged = { action: "key", key: "Return" };
+  expect(computerArgumentsWithAliases(unchanged)).toBe(unchanged);
+});

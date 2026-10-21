@@ -108,9 +108,6 @@ struct SettingsView: View {
         Section {
           NavigationLink("More preferences") { NativePreferencesView() }
           Link("Help Center", destination: URL(string: "https://github.com/raghavpillai/openteam#readme")!)
-          ShareLink(
-            item: "OpenTeam feedback\nVersion \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")\niOS \(UIDevice.current.systemVersion)"
-          ) { Text("Send Feedback") }
         }
         Section {
           NavigationLink("Server status") { ServerStatusView() }

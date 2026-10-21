@@ -245,10 +245,12 @@ export class ExternalDraftService {
         : mode === "always-allow"
           ? { rule: `Allow recipient ${externalDraftRecipients(draft).join(", ")}` }
           : undefined;
+    const room = (await this.prisma.channel.findUnique({ where: { id: context.channelId }, select: { kind: true } }))?.kind === "group";
     const result = await this.messaging.sendVisible(context, {
       type: "external-draft",
       draft: { ...draft, verification, runId: context.runId },
       end_turn: false,
+      ...(room ? { to: "dm" } : {}),
       ...(sentUnder
         ? { cardState: "sending", sendStartedAt: new Date().toISOString(), sentUnder }
         : {}),
@@ -256,7 +258,7 @@ export class ExternalDraftService {
     const acknowledgement: string | Record<string, unknown> =
       typeof result.acknowledgement === "string"
         ? result.acknowledgement
-        : { ...(result.acknowledgement as Record<string, unknown>), target: verification.destination };
+        : { ...(result.acknowledgement as Record<string, unknown>), target: verification.destination, ...(room ? { in_dm: true } : {}) };
     if (!sentUnder || typeof acknowledgement === "string" || acknowledgement.duplicate)
       return acknowledgement;
     const delivered = await this.deliver(String(acknowledgement.message_id), false);

@@ -2698,7 +2698,8 @@ export class AgentMessaging {
         if (normalized.status !== "message") return { acknowledgement: { sent: false, silent: true }, interruptRunId: null };
         content = normalized.content;
       }
-      if (privateDm && input.type !== "text") {
+      // A room cannot hold a draft card, so a draft from a room goes to the bot's own 1:1 chat.
+      if (privateDm && input.type !== "text" && input.type !== "external-draft") {
         throw new ApiError(
           400,
           "dm_text_only",

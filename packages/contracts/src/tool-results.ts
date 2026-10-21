@@ -63,9 +63,11 @@ export function renderControlResult(
     if (result.delivery === "sent") return `Sent the ${where}${id}. ${result.note}`;
     if (result.delivery === "unknown")
       return `The ${where} was sent without review, but delivery is unconfirmed${id}. ${result.note}`;
-    if (result.delivery === "pending")
-      return `Draft ${where} is now an editable card in the chat${id}. ${result.note}`;
-    return `Draft ${where} is now an editable card in the chat${id}. Nothing has been sent; the user reviews, may edit, and sends or discards it from the card.`;
+    const card = result.in_dm
+      ? `is now an editable card in your own 1:1 chat with the user, not in this room (a room cannot hold draft cards); tell the room where it is${id}.`
+      : `is now an editable card in the chat${id}.`;
+    if (result.delivery === "pending") return `Draft ${where} ${card} ${result.note}`;
+    return `Draft ${where} ${card} Nothing has been sent; the user reviews, may edit, and sends or discards it from the card.`;
   }
   if (isStateTool(name)) {
     const labels: Record<string, string> = {

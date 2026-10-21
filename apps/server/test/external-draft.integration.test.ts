@@ -167,3 +167,23 @@ test('the approval menu lets a Bot email allowed recipients, or everyone, withou
   await expect(Effect.runPromise(service.mutate(anyone.message_id, { action: 'approval', mode: 'sometimes' }))).rejects.toThrow('Choose always-allow');
  } finally { await f.cleanup(); }
 });
+
+test('a draft made in a room becomes a card in the 1:1 chat', async () => {
+ if (!databaseUrl) return;
+ const f = await fixture('draft-room');
+ const plugins = { invoke: async (input: any) => input.arguments.action === 'verify' ? { identity: 'me@example.com' } : { id: 'sent' } };
+ const service = new ExternalDraftService(f.prisma, f.messaging, plugins as never);
+ const room = await f.prisma.channel.create({ data: { kind: 'group', name: 'Room', members: { create: { botId: f.botId, ordinal: 0 } } } });
+ try {
+  const draft = { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['ann@example.com'], subject: 'Hello', body: 'Hi Ann' };
+  const card = await service.create({ ...f.context('room-draft'), channelId: room.id }, draft) as Record<string, any>;
+  expect(card).toMatchObject({ in_dm: true });
+  const message = await f.prisma.channelMessage.findUniqueOrThrow({ where: { id: card.message_id } });
+  expect(message.channelId).not.toBe(room.id);
+  expect((await f.prisma.channel.findUniqueOrThrow({ where: { id: message.channelId } })).kind).toBe('bot_dm');
+  const { renderControlResult } = await import('@openteam/contracts/tool-results');
+  expect(renderControlResult('DraftExternalMessage', card, draft)).toBe(
+   `Draft email from me@example.com to ann@example.com is now an editable card in your own 1:1 chat with the user, not in this room (a room cannot hold draft cards); tell the room where it is (id: ${card.message_id}). Nothing has been sent; the user reviews, may edit, and sends or discards it from the card.`
+  );
+ } finally { await f.prisma.channel.deleteMany({ where: { id: room.id } }); await f.cleanup(); }
+});

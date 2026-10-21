@@ -111,6 +111,8 @@ const singleLine = (label: string, value: string): string => {
 export const validateTimeZone = (value: string): string => {
   const normalized = singleLine("Time zone", value);
   try {
+    // The box clock is set from the zone database, which has no "+05:30"-style offsets.
+    if (!/^[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)*$/.test(normalized)) throw new Error("not a zone name");
     new Intl.DateTimeFormat("en-US", { timeZone: normalized }).format();
     return normalized;
   } catch {

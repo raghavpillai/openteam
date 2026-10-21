@@ -8,7 +8,7 @@ import {
   type SetupSession,
   type SetupSessionInput,
 } from "../src/setup-session";
-import { SETUP_STAGES } from "../src/setup-values";
+import { SETUP_STAGES, validateTimeZone } from "../src/setup-values";
 import { SELECTABLE_ROW_KINDS } from "../src/ui";
 
 const PASSWORD = "correct horse battery staple";
@@ -516,4 +516,11 @@ describe.skipIf(process.platform === "win32" || !python)("setup terminal startup
     expect(code).toBe(0);
     expect(stripVTControlCharacters(output)).toContain('Applied {"attempts":[]}');
   }, 15000);
+});
+
+test("time zones are zone names the box clock can use", () => {
+  for (const zone of ["America/New_York", "Asia/Kolkata", "UTC", "Etc/GMT+5", "America/Argentina/Buenos_Aires"])
+    expect(validateTimeZone(zone)).toBe(zone);
+  for (const zone of ["+05:30", "-0800", "Mars/Olympus", "America/../UTC"])
+    expect(() => validateTimeZone(zone)).toThrow("Enter a valid IANA time zone, such as America/New_York.");
 });

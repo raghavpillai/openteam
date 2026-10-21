@@ -31,6 +31,10 @@ test('the routines skill ends its intent rule at the discovery tool, as the refe
   expect(skill('routines')).not.toContain('Store communication intent rather than names such as');
 });
 
+test('the routines skill says a write may wait on an approval card, as the reference does', () => {
+  expect(skill('routines')).toContain("Creating or changing a routine may ask the user to confirm before it saves, since a routine is the one thing you set up that acts while they're away. If it does, they see a card with the schedule and the instruction, and their answer comes back as your tool result, so don't ask for permission yourself first, and don't retry a denied write with reworded text.\nSituations that should usually become a routine");
+});
+
 test('managed workflows omit categorical authentication and transaction handovers', () => {
   const workflows = managed.skills.map(skill => skill.content).join('\n');
   for (const legacy of [

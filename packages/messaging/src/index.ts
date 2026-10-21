@@ -361,7 +361,9 @@ export const renderTeammatesUserInfo = (input: {
   ].join("\n");
 };
 
-const PRIORITY_INTERRUPTIBLE_ORIGINS: ReadonlySet<string> = new Set(["routine", "event", "background_revival", "broadcast"]);
+// Routine runs hold their own automation lease, never the foreground one, so a priority
+// message already runs beside them instead of waiting; the reference acknowledgement still names them.
+const PRIORITY_INTERRUPTIBLE_ORIGINS: ReadonlySet<string> = new Set(["event", "background_revival", "broadcast"]);
 
 export const directAgentAcknowledgement = (input: {
   targetName: string;

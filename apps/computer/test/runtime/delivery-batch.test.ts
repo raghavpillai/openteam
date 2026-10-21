@@ -114,3 +114,56 @@ for (const reason of ["steer", "cancel"] as const) test(`queued cleanup rechecks
   expect(calls.map(c => c.name)).toEqual(["SendToUser"]);
   expect(active.toolActivityAfterLastSend).toBe(true);
 });
+
+test("every main-agent tool runs in parallel; only graphical controls stay sequential", () => {
+  const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
+  const base = {requestSource: "turn", subagentType: null, readOnly: false, pluginRuntimePackages: [], pluginNamespaces: [], skillAccess: "read"};
+  const main = tools.customTools(base);
+  expect(main.map((tool: any) => tool.name)).toContain("SendToUser");
+  expect(main.filter((tool: any) => tool.executionMode !== "parallel")).toEqual([]);
+  const graphical = tools.customTools({...base, subagentType: "computerUse"});
+  expect(graphical.filter((tool: any) => tool.executionMode === "sequential").map((tool: any) => tool.name)).toContain("Computer");
+  expect(graphical.find((tool: any) => tool.name === "Shell").executionMode).toBe("parallel");
+});
+
+test("an ack goes out at once beside other calls, and sends of one response keep call order", async () => {
+  const {active, tools} = fixture();
+  const order: string[] = [];
+  const releases = new Map<string, () => void>();
+  tools.callControlPlaneTool = async (_turn: any, id: string) => {
+    order.push(`start:${id}`);
+    await new Promise<void>((resolve) => releases.set(id, resolve));
+    order.push(`end:${id}`);
+    return {content: [{type: "text", text: "ok"}], details: {}};
+  };
+  const ack = tools.executeOpenTeamTool(active, "ack", "SendToUser", {type: "text", content: "On it"});
+  const second = tools.executeOpenTeamTool(active, "second", "SendToUser", {type: "text", content: "Found it"});
+  const work = tools.executeOpenTeamTool(active, "work", "RecallMemory", {query: "tea"});
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  // Both run at once; the second send waits for the first.
+  expect([...order].sort()).toEqual(["start:ack", "start:work"]);
+  releases.get("work")!();
+  await work;
+  releases.get("ack")!();
+  await ack;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(order.slice(2)).toEqual(["end:work", "end:ack", "start:second"]);
+  releases.get("second")!();
+  await second;
+});
+
+for (const [label, parts, owed] of [
+  ["work after the ack still owes a report", ["ack", "search"], true],
+  ["a reply after the work covers it", ["search", "ack"], false],
+] as const) test(`parallel delivery bookkeeping follows call order: ${label}`, async () => {
+  const {active, call, batch} = fixture();
+  active.toolArgs = new Map();
+  const args = {ack: {type: "text", content: "Here you go"}, search: {search_term: "openteam"}};
+  const names = {ack: "SendToUser", search: "WebSearch"};
+  batch(parts.map((id) => ({type: "toolCall", name: names[id], id, arguments: args[id]})));
+  // Pi announces every call of a parallel batch before any of them settles.
+  for (const id of parts) routeEvent(undefined, active, {type: "tool_execution_start", toolName: names[id], toolCallId: id, args: args[id]} as any);
+  await call("ack", args.ack);
+  expect(active.sentMessageCount).toBe(1);
+  expect(active.toolActivityAfterLastSend).toBe(owed);
+});

@@ -61,6 +61,12 @@ export interface ActiveTurn {
   lastGraphicalSurface?: "browser" | "computer";
   sentMessageCount: number;
   toolActivityAfterLastSend: boolean;
+  /** Call order of the latest response; delivery bookkeeping follows it although its calls run in parallel. */
+  responseCallOrder?: Map<string, number>;
+  responseActivity?: Set<number>;
+  responseLastSendIndex?: number;
+  /** SendToUser calls of a response go out one after another, in call order. */
+  sendChain?: Promise<unknown>;
   initialUserStarted: boolean;
   initialUserClientId?: string;
   pendingSteers: Array<{

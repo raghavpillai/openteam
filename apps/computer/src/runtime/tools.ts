@@ -1,5 +1,6 @@
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { onlyPendingBackgroundWork } from "./background-status";
+import { markDelivered } from "./events";
 import { spoolFile } from "@openteam/plugin-sdk/file-spool";
 import { agentReadStream, agentWriteStream } from "../agent-file-stream";
 import { stageAttachment } from "../attachment-staging";
@@ -460,17 +461,8 @@ export class RuntimeTools {
               }
             : tool.inputSchema
         ),
-        executionMode: ([
-          "Read",
-          "Shell",
-          "Screenshot",
-          "GetDynamicTools",
-          "CallDynamicTool",
-          "RecallMemory",
-          "ListSections",
-        ].includes(tool.name)
-          ? "parallel"
-          : "sequential") as "parallel" | "sequential",
+        // Every call starts as soon as the response ends, as in the reference; sends keep call order (below).
+        executionMode: "parallel",
         execute: (callId: string, args: unknown, signal?: AbortSignal) =>
           this.executeOpenTeamTool(active, callId, tool.name, args, signal),
       });
@@ -560,7 +552,14 @@ export class RuntimeTools {
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     this.assertCurrentInput(active);
-    return this.executeScopedTool(active, callId, tool, args, signal);
+    if (tool !== SEND_TO_USER_TOOL.name) return this.executeScopedTool(active, callId, tool, args, signal);
+    // Pi starts a parallel batch in call order, so chaining here delivers sends in call order.
+    const send = (active.sendChain ?? Promise.resolve()).then(() => {
+      this.assertCurrentInput(active);
+      return this.executeScopedTool(active, callId, tool, args, signal);
+    });
+    active.sendChain = send.catch(() => undefined);
+    return send;
   }
 
   private async executeScopedTool(
@@ -1347,8 +1346,7 @@ export class RuntimeTools {
       typeof body === "object" &&
       ((body as Record<string, unknown>).reacted === true || (body as Record<string, unknown>).removed === true)
     ) {
-      active.sentMessageCount += 1;
-      active.toolActivityAfterLastSend = false;
+      markDelivered(active, callId);
       active.endTurnRequested = true;
     }
     if (
@@ -1365,8 +1363,7 @@ export class RuntimeTools {
       !Array.isArray(body) &&
       (body as Record<string, unknown>).sent === true
     ) {
-      active.sentMessageCount += 1;
-      active.toolActivityAfterLastSend = false;
+      markDelivered(active, callId);
       const input = args as { end_turn?: boolean; type?: string };
       if (
         input.end_turn === true ||

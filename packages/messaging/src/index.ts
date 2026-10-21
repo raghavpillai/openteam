@@ -1842,7 +1842,6 @@ export class AgentMessaging {
         todos: { orderBy: { position: "asc" }, take: TODO_MAX_ITEMS },
       },
     });
-    const todoContext = bot.todos.map((todo) => `- [${todo.status}] ${todo.id}: ${todo.content}`);
     // The summary carrier lists todos in the reference's format.
     const todoUpdate = bot.todos.length > 0
       ? bot.todos.map((todo) => `- **${todo.status.toUpperCase()}**: ${todo.content} (id: ${todo.id})`).join("\n")

@@ -1,7 +1,7 @@
 import { READ_TRANSCRIPT_TOOL, parseReadTranscriptInput } from "@openteam/contracts/read-transcript";
 import { READ_AGENT_ACTIVITY_TOOL, parseReadAgentActivityInput } from "@openteam/contracts/read-agent-activity";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
-import { withReferenceContract, taskToolContract, FIRST_PARTY_NAMESPACE_DESCRIPTION } from "@openteam/contracts/tool-contracts";
+import { withReferenceContract, taskToolContract, firstPartyNamespaceDescription } from "@openteam/contracts/tool-contracts";
 import pluginToolSchemas from "../plugin-tool-schemas.json";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import {
@@ -320,23 +320,24 @@ export function dynamicCatalog(
           ),
       })),
     }));
+  const firstPartyTools = (active.requestSource === "automation"
+    ? cursorTools.filter((tool) => !AUTOMATION_PARENT_ONLY_TOOLS.has(tool.name))
+    : cursorTools).map(withReferenceContract).flatMap(tool => {
+      if (tool.name === "Task") return [{ ...tool, ...taskToolContract(active.taskConfiguration) }];
+      if (tool.name !== "UploadFile" && tool.name !== "DownloadFile") return [tool];
+      // Offered only when a connected service can receive or serve files.
+      const operation = tool.name === "UploadFile" ? "upload" : "download";
+      const connections = active.pluginNamespaces.filter(namespace => namespace.fileTransfers?.[operation]);
+      if (!connections.length) return [];
+      return [{ ...tool, description: tool.description + "\n\nAvailable file connections this turn:\n" + connections.map(namespace => `- ${namespace.name}${namespace.namespaceStatus === "ready" ? "" : " (authentication or connection recovery required)"}`).join("\n") }];
+    });
   return [
     {
       name: "cursor",
-      description:
-        FIRST_PARTY_NAMESPACE_DESCRIPTION,
+      description: firstPartyNamespaceDescription(firstPartyTools.map((tool) => tool.name)),
       kind: "first-party",
       namespaceStatus: "ready",
-      tools: (active.requestSource === "automation"
-        ? cursorTools.filter((tool) => !AUTOMATION_PARENT_ONLY_TOOLS.has(tool.name))
-        : cursorTools).map(withReferenceContract).map(tool => {
-          if (tool.name === "Task") return { ...tool, ...taskToolContract(active.taskConfiguration) };
-          if (tool.name !== "UploadFile" && tool.name !== "DownloadFile") return tool;
-          const operation = tool.name === "UploadFile" ? "upload" : "download";
-          const connections = active.pluginNamespaces.filter(namespace => namespace.fileTransfers?.[operation]);
-          if (!connections.length) return tool;
-          return { ...tool, description: tool.description + "\n\nAvailable file connections this turn:\n" + connections.map(namespace => `- ${namespace.name}${namespace.namespaceStatus === "ready" ? "" : " (authentication or connection recovery required)"}`).join("\n") };
-        }),
+      tools: firstPartyTools,
     },
     ...pluginNamespaces,
   ];

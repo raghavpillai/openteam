@@ -50,7 +50,9 @@ describe("captured tool contract wiring", () => {
   });
   test("exposes the 82 active shared contracts through the actual model-facing profiles", () => {
     const runtime = new RuntimeTools({} as never, "http://unused.invalid", "test", "/tmp", "/tmp");
-    const base = { runtimeProfile: "agent", pluginNamespaces: [] } as unknown as ActiveTurn;
+    // File transfers are offered beside a connected file service.
+    const drive = { name: "google-drive", description: "Google Drive (default)", namespaceStatus: "ready", tools: [], fileTransfers: { upload: true, download: true } };
+    const base = { runtimeProfile: "agent", pluginNamespaces: [drive] } as unknown as ActiveTurn;
     const catalog = [
       base,
       { ...base, requestSource: "automation" },
@@ -72,7 +74,7 @@ describe("captured tool contract wiring", () => {
       // Beside the browser tools, Computer's captured text gains their guidance and nothing else.
       const description = name === "Computer"
         ? visible.description.replace(/(scroll, and wait\.) For anything inside a web page.*then BackSpace\./, "$1")
-        : visible.description;
+        : visible.description.replace(/\n\nAvailable file connections this turn:\n[\s\S]*$/, "");
       expect(description, name).toBe(referenceTool(name).description);
       expect(visible.inputSchema, name).toEqual(referenceTool(name).inputSchema);
     }

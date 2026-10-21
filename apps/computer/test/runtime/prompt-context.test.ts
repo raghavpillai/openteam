@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
   communicationReminder,
   enrichUserInfo,
+  renderDynamicToolCatalog,
   promptFingerprint,
   EARLY_RESULT_REMINDER,
   PROGRESS_REMINDER,
@@ -38,7 +39,7 @@ test("runtime context describes actual tools and preserves saved skill catalog",
   expect(text).toContain("Workspace Path: /workspace/task");
   expect(text).toContain("test skill");
   expect(text).toContain("<available_subagent_types>");
-  expect(text).toContain("Tools: Lookup");
+  expect(text).toContain('<namespace name="test" tools="Lookup" source="mcp" />');
   expect(promptFingerprint("system", text, [], 2)).toEqual(
     promptFingerprint("system", text, [], 2)
   );
@@ -110,4 +111,25 @@ test("injected user-role notes do not hide a long silent streak or a newer real 
   expect(communicationReminder([...start, user, call("Read"), call("Read")], active)?.kind).toBe(
     "ack"
   );
+});
+
+test("the dynamic tool catalog has the reference shape and marks connections that are not ready", () => {
+  expect(renderDynamicToolCatalog([
+    { name: "gmail", namespaceStatus: "ready", description: "Gmail (default)", tools: [{ name: "search_threads" }, { name: "create_draft" }] },
+    { name: "gmail--personal-2", namespaceStatus: "needsAuth", description: "Gmail (personal 2)", tools: [{ name: "search_threads" }] },
+    { name: "cursor", namespaceStatus: "ready", description: "First-party tools.\n\nHere are some crucial instructions:\n- Task: Spawn subagents natively.", tools: [{ name: "TodoWrite" }, { name: "request_box_help" }, { name: "AwaitShell" }, { name: "RequestUserForm" }] },
+    { name: "slack-stealth", namespaceStatus: "error", tools: [] },
+  ])).toBe([
+    "<dynamic_tool_catalog>",
+    "These dynamic tool namespaces were available when this conversation started. Availability may have changed, so use `GetDynamicTools` to check current state before calling `CallDynamicTool`.",
+    "",
+    "<dynamic_tool_namespaces>",
+    '<namespace name="cursor" tools="AwaitShell, request_box_help, RequestUserForm, TodoWrite" namespaceUseInstructions="First-party tools.\n\nHere are some crucial instructions:\n- Task: Spawn subagents natively." source="cursor" />',
+    '<namespace name="gmail" tools="create_draft, search_threads" source="mcp" />',
+    '<namespace name="gmail--personal-2" status="needsAuth" source="mcp" />',
+    '<namespace name="slack-stealth" status="error" source="mcp" />',
+    "</dynamic_tool_namespaces>",
+    "</dynamic_tool_catalog>",
+  ].join("\n"));
+  expect(renderDynamicToolCatalog([{ name: "cursor", tools: [] }])).toBeNull();
 });

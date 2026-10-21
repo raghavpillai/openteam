@@ -82,7 +82,7 @@ import {
 } from "../native-tool-executor";
 import type { ScreenBroker } from "../screen-broker";
 import { dynamicCatalog } from "./dynamic-catalog";
-import { taskToolContract } from "@openteam/contracts/tool-contracts";
+import { firstPartyNamespaceDescription, taskToolContract } from "@openteam/contracts/tool-contracts";
 import { subagentUsesParentConnectors, taskToolEnabled } from "@openteam/contracts/task-configuration";
 import { WebTools } from "../web-tools";
 import { SearchProviderClient } from "../search-provider";
@@ -396,9 +396,10 @@ export class RuntimeTools {
   }
 
   contextCatalog(active: ActiveTurn) {
-    return this.dynamicCatalog(active).map(({ name, description, tools }) => ({
+    return this.dynamicCatalog(active).map(({ name, description, namespaceStatus, tools }) => ({
       name,
       description,
+      namespaceStatus,
       tools: tools.map(({ name }) => ({ name })),
     }));
   }
@@ -1473,11 +1474,11 @@ export class RuntimeTools {
     active: ActiveTurn
   ): Array<DynamicNamespaceDefinition<RuntimeDynamicTool>> {
     const topLevel = workerTopLevelTools(active);
-    return this.fullDynamicCatalog(active).map((namespace) =>
-      namespace.name === "cursor" && topLevel.length
-        ? { ...namespace, tools: namespace.tools.filter((tool) => !topLevel.includes(tool.name)) }
-        : namespace
-    );
+    return this.fullDynamicCatalog(active).map((namespace) => {
+      if (namespace.name !== "cursor" || !topLevel.length) return namespace;
+      const tools = namespace.tools.filter((tool) => !topLevel.includes(tool.name));
+      return { ...namespace, tools, description: firstPartyNamespaceDescription(tools.map((tool) => tool.name)) };
+    });
   }
 
   private firstPartyTool(active: ActiveTurn, name: string): RuntimeDynamicTool {

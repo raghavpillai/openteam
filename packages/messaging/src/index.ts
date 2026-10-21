@@ -208,6 +208,9 @@ const TRANSCRIPT_PROJECTION_DEBOUNCE_SECONDS = 1;
 
 const compactName = (value: string): string => value.replace(/\s+/g, " ").trim().slice(0, 160);
 
+/** The reference adds that @Name renders a chip in the user's chat; our clients render no chips in bot messages. */
+export const TEAMMATE_MENTION_RULE =
+  "Writing @ and a teammate's exact name in your private chat does not reach the teammate; use SendToAgent.";
 /** The <teammates> block lists at most this many agents and group chats; the agent folders hold the rest. */
 export const PLATFORM_PROMPT_PEER_LIMIT = 40;
 export const PLATFORM_PROMPT_RELATED_PEER_LIMIT = 20;
@@ -278,7 +281,7 @@ export const renderTeammatesUserInfo = (input: {
   const root = input.agentsRoot;
   return [
     "<teammates>",
-    'Each teammate is its own assistant with its own chat, persona, and memory, and the user may not know you can reach them. When looping one in would genuinely help, offer it ("want me to ask your research agent?"), and treat "@ that agent", "tell my other agent\u2026", or "ask the group" as a request to send.',
+    `Each teammate is its own assistant with its own chat, persona, and memory, and the user may not know you can reach them. When looping one in would genuinely help, offer it ("want me to ask @Name?"), and treat "@ that agent", "tell my other agent\u2026", or "ask the group" as a request to send. ${TEAMMATE_MENTION_RULE}`,
     `Discovering agents is file-based. Every agent (yours included) is a sibling folder under ${root}. Read ${root}/<agentId>/profile.json (name, description) for any agent, and <agentId>/group.json ({ memberIds }) to see a group's members, with Shell. That is the full, fresh source when the lists below aren't enough.`,
     ...(peers.length
       ? [

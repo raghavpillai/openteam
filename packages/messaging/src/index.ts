@@ -164,22 +164,67 @@ export const renderSubagentRevivalPrompt = (input: {
   ].join("\n");
 };
 
-/** A finished background Shell, in the revival shape used for finished subagents. */
-export const renderShellCompletionPrompt = (input: ShellCompletionInput): string => {
+/** One finished background task as a revival lists it. A wake keeps its block so that
+ * completions ready at the same time reach the agent as one prompt. */
+export interface RevivalCompletion {
+  block: string;
+  subagentType: string;
+  /** Trailing context the single prompt adds, such as the group-room delivery note. */
+  note?: string;
+}
+
+export const subagentRevivalBlock = (input: { title: string; subagentType: string; status: "completed" | "failed"; result: string }): string =>
+  `Background task "${input.title}" (${input.subagentType}) ${input.status === "completed" ? "finished" : "failed"}:\n${input.result.trim()}`;
+
+export const shellCompletionBlock = (input: ShellCompletionInput): string => {
   const failed = input.exitCode !== 0 || Boolean(input.error);
-  const detail = [
+  return [
+    `Background task "${input.title ?? `Background command ${input.hostShellId ?? input.id}`}" (shell) ${failed ? "failed" : "finished"}:`,
     input.exitCode === null ? "" : input.exitCode !== 0 ? `exit_code=${input.exitCode}` : "",
     input.error ?? "",
     `Full output: ${input.outputPath}`,
     input.machineId ? `This is on the user’s computer; use Read or AwaitShell with machineId ${JSON.stringify(input.machineId)}.` : "",
-  ].filter(Boolean);
-  return [
+  ].filter(Boolean).join("\n");
+};
+
+/** A finished background Shell, in the revival shape used for finished subagents. */
+export const renderShellCompletionPrompt = (input: ShellCompletionInput): string =>
+  [
     "[SAND_HIDDEN_PROMPT][A background task just completed] A background task you started has finished.",
     "",
-    `Background task "${input.title ?? `Background command ${input.hostShellId ?? input.id}`}" (shell) ${failed ? "failed" : "finished"}:`,
-    ...detail,
+    shellCompletionBlock(input),
     "",
     SUBAGENT_REVIVAL_INSTRUCTION,
+  ].join("\n");
+
+/** A completion that waited at least this long for the agent to be free is marked late. */
+export const REVIVAL_HELD_AFTER_MS = 60_000;
+export const HELD_REVIVAL_NOTE =
+  "Some of these results were held back and arrive late; each one says how long it waited. Judge each by its age: act on it only if it is still current, and skip it if it is stale, already handled, or overtaken by a newer result. Never fold a held result into a reply about something else the user asked.";
+
+export const describeHeldDuration = (heldForMs: number): string => {
+  const minutes = Math.max(1, Math.round(heldForMs / 60_000));
+  if (minutes < 90) return minutes === 1 ? "1 minute" : `${minutes} minutes`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `${hours} hours` : `${Math.round(hours / 24)} days`;
+};
+
+/** Completions delivered in one turn, as the reference batches them; a late one says how long it waited. */
+export const renderRevivalBatchPrompt = (completions: ReadonlyArray<RevivalCompletion & { heldForMs?: number }>): string => {
+  const held = completions.some((completion) => completion.heldForMs !== undefined);
+  const notes = [...new Set(completions.flatMap((completion) => (completion.note ? [completion.note] : [])))];
+  return [
+    `[SAND_HIDDEN_PROMPT][A background task just completed] ${completions.length === 1 ? "A background task you started has finished." : `${completions.length} background tasks you started have finished.`}`,
+    "",
+    completions
+      .map(({ block, heldForMs }) =>
+        heldForMs === undefined ? block : `${block}\n(This finished about ${describeHeldDuration(heldForMs)} ago and reached you only now, so it may be out of date.)`
+      )
+      .join("\n\n"),
+    "",
+    SUBAGENT_REVIVAL_INSTRUCTION,
+    ...(held ? [HELD_REVIVAL_NOTE] : []),
+    ...notes.map((note) => `\n${note}`),
   ].join("\n");
 };
 
@@ -677,6 +722,7 @@ export interface WakeInput {
   automationContextRunId?: string;
   taskContextRunId?: string;
   includeAttachmentPaths?: boolean;
+  revival?: RevivalCompletion;
 }
 
 export interface ToolContext {
@@ -848,6 +894,7 @@ export class AgentMessaging {
         botId: bot.id, channelId: channel.id, ...route, type: "shell.completed",
         clientId, priority: 50, wrapUserContent: false,
         content: renderShellCompletionPrompt(input),
+        revival: { block: shellCompletionBlock(input), subagentType: "shell" },
       });
       return { delivered: true };
     });
@@ -928,6 +975,7 @@ export class AgentMessaging {
           automationTrigger: input.automationTrigger,
           automationContextRunId: input.automationContextRunId,
           taskContextRunId: input.taskContextRunId,
+          revival: input.revival,
         }),
         priority: input.priority,
         availableAt: input.availableAt,

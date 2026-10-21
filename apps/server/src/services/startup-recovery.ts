@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@openteam/db";
-import { type AgentMessaging, renderSubagentRevivalPrompt } from "@openteam/messaging";
+import { type AgentMessaging, renderSubagentRevivalPrompt, subagentRevivalBlock } from "@openteam/messaging";
 import type { PgBoss } from "pg-boss";
 import type { ComputerFetch } from "./service-utils";
 import { appendEvent } from "./service-utils";
@@ -112,6 +112,10 @@ export async function recover(
               status: "failed",
               result: error.message,
             }),
+            revival: {
+              block: subagentRevivalBlock({ title: attempt.description, subagentType: subagent.subagentType, status: "failed", result: error.message }),
+              subagentType: subagent.subagentType,
+            },
             clientId: `subagent:${subagent.id}:failed:${subagent.currentRunId}`,
             priority: 260,
             wrapUserContent: false,

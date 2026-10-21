@@ -7,6 +7,11 @@ import {
   renderAgentSkillsUserInfo,
   renderSubagentRevivalPrompt,
   renderShellCompletionPrompt,
+  renderRevivalBatchPrompt,
+  shellCompletionBlock,
+  subagentRevivalBlock,
+  describeHeldDuration,
+  HELD_REVIVAL_NOTE,
   SUBAGENT_REVIVAL_INSTRUCTION,
   subagentSpecializationInstructions,
 } from "../src/index";
@@ -151,6 +156,33 @@ describe("main-agent graphical delegation instructions", () => {
     );
     const host = renderShellCompletionPrompt({ id: "x", hostShellId: "77", machineId: "mac", scope: "bot", outputPath: "/h/77.log", exitCode: 0 });
     expect(host).toContain('Background task "Background command 77" (shell) finished:\nFull output: /h/77.log\nThis is on the user’s computer; use Read or AwaitShell with machineId "mac".\n');
+  });
+
+  test("batches completions that are ready together and dates the late ones", () => {
+    const report = subagentRevivalBlock({ title: "Find flights", subagentType: "executor", status: "completed", result: "Two nonstops found.\n" });
+    const shell = shellCompletionBlock({ id: "9", scope: "bot", outputPath: "/t/9.log", exitCode: 2, title: "npm test" });
+    expect(report).toBe('Background task "Find flights" (executor) finished:\nTwo nonstops found.');
+    expect(renderRevivalBatchPrompt([
+      { block: report, subagentType: "executor" },
+      { block: shell, subagentType: "shell", heldForMs: 7 * 60_000 + 10_000 },
+    ])).toBe([
+      "[SAND_HIDDEN_PROMPT][A background task just completed] 2 background tasks you started have finished.",
+      "",
+      'Background task "Find flights" (executor) finished:\nTwo nonstops found.',
+      "",
+      'Background task "npm test" (shell) failed:\nexit_code=2\nFull output: /t/9.log\n(This finished about 7 minutes ago and reached you only now, so it may be out of date.)',
+      "",
+      SUBAGENT_REVIVAL_INSTRUCTION,
+      HELD_REVIVAL_NOTE,
+    ].join("\n"));
+    expect(HELD_REVIVAL_NOTE).toBe("Some of these results were held back and arrive late; each one says how long it waited. Judge each by its age: act on it only if it is still current, and skip it if it is stale, already handled, or overtaken by a newer result. Never fold a held result into a reply about something else the user asked.");
+    const room = "This work belongs to group room \"Launch\".";
+    const single = renderRevivalBatchPrompt([{ block: report, subagentType: "executor", note: room, heldForMs: 2 * 3_600_000 }]);
+    expect(single).toStartWith("[SAND_HIDDEN_PROMPT][A background task just completed] A background task you started has finished.\n");
+    expect(single).toContain("(This finished about 2 hours ago and reached you only now");
+    expect(single).toEndWith(`${HELD_REVIVAL_NOTE}\n\n${room}`);
+    expect([30_000, 60_000, 89 * 60_000, 90 * 60_000, 47 * 3_600_000, 50 * 3_600_000].map(describeHeldDuration))
+      .toEqual(["1 minute", "1 minute", "89 minutes", "2 hours", "47 hours", "2 days"]);
   });
 
   test("renders an administrator broadcast as a hidden non-user wake", () => {

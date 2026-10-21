@@ -145,8 +145,8 @@ export function renderControlResult(
     if (result.target === "avatar" && result.cleared)
       return "Cleared your picture. It is back to the default.";
   }
-  if (name === "CreateBotShareJson" && result.published)
-    return `Published bot template version ${result.version}. Verify the returned artifact before sharing it.`;
+  if (name === "CreateBotShareJson" && result.staged)
+    return `Staged unpublished version ${result.version} of "${result.name}". It is not public until you confirm it.`;
   if (name === "SendFeedback" && result.feedbackStatus) {
     if (result.feedbackStatus === "sent") return `Feedback sent to the configured OpenTeam support destination. They ${result.wantsResponse ? "asked for a reply" : "did not ask for a reply"}. Confirm to the user that it went through.`;
     return String(result.outcome ?? "Feedback could not be confirmed. Do not retry automatically.");

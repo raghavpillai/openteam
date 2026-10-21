@@ -86,7 +86,7 @@ test("a rejected WakeParent leaves the automation able to continue", async () =>
   }
 });
 
-test("routine runs call plugin management and feedback directly, and keep working afterwards", async () => {
+test("routine runs call plugin management directly and feedback after its approval card, and keep working afterwards", async () => {
   const calls: Array<{ tool: string; arguments: unknown }> = [];
   const server = Bun.serve({
     port: 0,
@@ -95,6 +95,9 @@ test("routine runs call plugin management and feedback directly, and keep workin
       const body = (await request.json()) as { tool: string; arguments: unknown };
       calls.push(body);
       if (body.tool === "RefreshToolCatalog") return Response.json({ namespaces: [] });
+      // Feedback goes out only after the user approves its card.
+      if (body.tool === "RequestApproval") return Response.json({ status: "pending", approvalId: "card" });
+      if (body.tool === "AwaitApproval") return Response.json({ status: "approved", approvalId: "card" });
       if (body.tool === "SendFeedback")
         return Response.json({ feedbackStatus: "sent", wantsResponse: false, outcome: "Accepted." });
       return Response.json({ status: "completed", completed: true, actionResult: {}, connections: [] });
@@ -133,7 +136,7 @@ test("routine runs call plugin management and feedback directly, and keep workin
       );
       expect(result.content[0]!.type).toBe("text");
     }
-    expect(calls.filter((call) => call.tool !== "RefreshToolCatalog").map((call) => call.tool)).toEqual(ROUTINE_MANAGEMENT_TOOLS);
+    expect(calls.filter((call) => call.tool !== "RefreshToolCatalog").map((call) => call.tool)).toEqual(["RequestApproval", "AwaitApproval", ...ROUTINE_MANAGEMENT_TOOLS]);
     // Each completed plugin change refreshes the routine's own tool catalog.
     expect(calls.filter((call) => call.tool === "RefreshToolCatalog")).toHaveLength(ROUTINE_MANAGEMENT_TOOLS.length - 1);
     expect(turn.endTurnRequested).not.toBe(true);

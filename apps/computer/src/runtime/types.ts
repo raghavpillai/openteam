@@ -88,6 +88,9 @@ export interface ActiveTurn {
   diskPressureReminded?: boolean;
   /** A typed message superseded this run; calls it cut off say so. */
   interruptedByUserAt?: number;
+  /** Auto-review for this turn: the user's settings, and the classifier call on this turn's model. */
+  autoReview?: import("./auto-review").TurnAutoReview;
+  autoReviewComplete?: import("../auto-review/classifier").ClassifierCompletion;
 }
 
 export interface RuntimeDynamicTool extends DynamicToolDefinition {

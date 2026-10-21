@@ -25,6 +25,7 @@ import { appendEvent, metadataRecord, serviceEffect, toJson } from "./service-ut
 import { toChannelMessageView as messageView } from "./view-mappers";
 
 import { ExternalDraftService } from "./external-draft-service";
+import { ApprovalCardService } from "./approval-card-service";
 
 type Metadata = Record<string, unknown>;
 
@@ -109,13 +110,14 @@ export class RichMessageService {
   readonly sharedTemplates: SharedTemplateService;
   readonly feedback: FeedbackService;
   readonly externalDrafts: ExternalDraftService;
+  readonly approvals: ApprovalCardService;
   constructor(
     private readonly prisma: PrismaClient,
     private readonly messaging: AgentMessaging,
     private readonly plugins: PluginService,
     private readonly screens: ScreenService,
     bots?: BotService
-  ) { this.externalDrafts = new ExternalDraftService(prisma, messaging, plugins); this.sharedTemplates = new SharedTemplateService(prisma, messaging, bots); this.feedback = new FeedbackService(prisma); }
+  ) { this.externalDrafts = new ExternalDraftService(prisma, messaging, plugins); this.sharedTemplates = new SharedTemplateService(prisma, messaging, bots); this.feedback = new FeedbackService(prisma); this.approvals = new ApprovalCardService(prisma, messaging); }
 
   private recovering: Promise<void> | null = null;
   recoverPendingDeliveries(): Promise<void> {
@@ -126,6 +128,7 @@ export class RichMessageService {
         const service = this.externalDrafts;
         await Effect.runPromise(service.mutate(message.id, { action: "refresh" }));
       }
+      await this.approvals.sweep();
     })().finally(() => { this.recovering = null; });
     return this.recovering;
   }

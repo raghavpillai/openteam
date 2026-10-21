@@ -1,6 +1,7 @@
 import type { NotificationPresenceInput, NotificationRouting } from "@openteam/contracts/notification-presence";
 import type {AutomationWebhookInput,AutomationWebhookView} from "@openteam/contracts/automation-webhooks";
 import type { WebProviderCheckInput, WebProvidersInput, WebProvidersView } from "@openteam/contracts/web-search";
+import type { ApprovalDecision, AutoReviewSettings } from "@openteam/contracts/auto-review";
 import type {
   PluginComposerView,
   PluginTestInput,
@@ -179,6 +180,9 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
     saveAutomationWebhook: (input: AutomationWebhookInput) => transport.request<AutomationWebhookView>("/api/v0/server-settings/automation-webhooks",{method:"POST",body:JSON.stringify(input)}),
     removeAutomationWebhook: (id: string) => transport.request<{removed:boolean;notice:string|null}>(`/api/v0/server-settings/automation-webhooks/${encodeURIComponent(id)}`,{method:"DELETE"}),
     connectAutomationWebhook: (id: string) => transport.request<AutomationWebhookView>(`/api/v0/server-settings/automation-webhooks/${encodeURIComponent(id)}/connect`,{method:"POST"}),
+    autoReviewSettings: () => transport.request<AutoReviewSettings>("/api/v0/server-settings/auto-review"),
+    saveAutoReviewSettings: (value: Partial<AutoReviewSettings>) =>
+      transport.request<AutoReviewSettings>("/api/v0/server-settings/auto-review", { method: "PATCH", body: JSON.stringify(value) }),
     webProviders: () => transport.request<WebProvidersView>("/api/v0/server-settings/web-providers"),
     updateWebProviders: (input: WebProvidersInput) =>
       transport.request<WebProvidersView>("/api/v0/server-settings/web-providers", {
@@ -659,7 +663,10 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
           body: JSON.stringify({ value, clientId: createId() }),
         }
       ),
-    mutateSharedTemplate: (messageId: string, action: "import" | "unpublish", clientId?: string) =>
+    /** Answers an Auto-review approval card. */
+    answerApproval: (messageId: string, decision: ApprovalDecision) =>
+      transport.request<RichMessageMutationView>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/approval`, { method: "POST", body: JSON.stringify({ decision }) }),
+    mutateSharedTemplate: (messageId: string, action: "import" | "publish" | "unpublish", clientId?: string) =>
       transport.request<RichMessageMutationView & { botId?: string }>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/bot-template`, { method: "POST", body: JSON.stringify({ action, clientId }) }),
     sharedTemplateRecipe: (messageId: string) => transport.request<import("@openteam/contracts").BotRecipe>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/bot-template/recipe`),
     mutateExternalDraft: (messageId: string, action: "send" | "cancel" | "refresh", edits?: Record<string, unknown>) =>

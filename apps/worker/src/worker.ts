@@ -1315,6 +1315,16 @@ export class WakeWorker {
     }
   }
 
+  /** The bot the user talks to: a worker's top-level parent, whose approval cards it shares. */
+  private async userFacingBotId(botId: string): Promise<string> {
+    for (let depth = 0; depth < 8; depth++) {
+      const parent = await this.prisma.subagent.findUnique({ where: { childBotId: botId }, select: { parentBotId: true } });
+      if (!parent) break;
+      botId = parent.parentBotId;
+    }
+    return botId;
+  }
+
   private async execute(claimed: Claimed): Promise<void> {
     const heartbeat = setInterval(() => void this.heartbeat(claimed), 30_000);
     let completion: Extract<ComputerEvent, { type: "turn.completed" }> | null = null;
@@ -1330,6 +1340,7 @@ export class WakeWorker {
         this.agentData.loadInferenceSettings(),
         this.agentData.loadTaskConfiguration(),
       ]);
+      const [autoReview, autoReviewScope] = await Promise.all([this.agentData.loadAutoReviewSettings(), this.userFacingBotId(claimed.botId)]);
       const capabilityResponse = await this.computerFetch("/v1/task-capabilities", { method: "GET" });
       if (!capabilityResponse.ok) throw new Error("Could not determine Task computer capabilities");
       const capabilities = await capabilityResponse.json() as TaskCapabilities;
@@ -1405,6 +1416,7 @@ export class WakeWorker {
         attachmentOwnerBotId: claimed.attachmentOwnerBotId,
         dynamicNamespaces: pluginContext.dynamicNamespaces,
         pluginRuntimePackages: pluginContext.pluginRuntimePackages,
+        autoReview: { ...autoReview, scopeBotId: autoReviewScope },
       } satisfies ComputerTurnRequest;
       const beforeStart = await this.prisma.run.findUnique({ where: { id: claimed.runId }, select: { status: true } });
       if (beforeStart?.status === "cancelled") throw new Error("Run was cancelled before runtime dispatch");

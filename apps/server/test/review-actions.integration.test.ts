@@ -8,7 +8,7 @@ import { Effect } from 'effect';
 import { FeedbackService } from '../src/services/feedback-service';
 import { SharedTemplateService } from '../src/services/shared-template-service';
 const url = process.env.OPENTEAM_TEST_DATABASE_URL;
-test('requested templates publish directly and feedback sends without review', async () => {
+test('templates stage as drafts the owner publishes, and approved feedback sends', async () => {
  if (!url) return;
  const prisma = createPrismaClient(url); const root = await mkdtemp(join(tmpdir(), 'review-e2e-')); const botId = crypto.randomUUID(), conversationId = crypto.randomUUID(), channelId = crypto.randomUUID(), runId = crypto.randomUUID();
  const data = new AgentDataStore(prisma, { root: join(root, 'data'), workspaceRoot: root });
@@ -26,14 +26,25 @@ test('requested templates publish directly and feedback sends without review', a
   const context = { runId, botId, conversationId, channelId, deliveryId: null, origin: 'user' as const, callId: 'template-a', isFork: false, replyToMessageId: null };
   process.env.OPENTEAM_PUBLIC_TEMPLATES = 'true'; process.env.OPENTEAM_TEMPLATE_SHARING = 'true';
   const recipe = { profile: { name: 'Researcher', description: 'Research from sources' }, memory: [{ content: '[note] exclude' }, { content: 'Cite sources' }], skills: [{ name: 'Research', content: 'Read primary sources' }, { name: 'Bad', content: '---\nname: Bad\n---\nWrong' }], routines: [], plugins: [{ pluginId: 'uninstalled-plugin' }], gettingStarted: { skill: 'Research' }, visibility: 'public' };
-  const card = await service.publish(context, recipe) as { message_id: string; version: number };
+  const card = await service.publish(context, recipe) as { message_id: string; version: number; staged: boolean; name: string };
+  expect(card).toMatchObject({ staged: true, name: 'Researcher', version: 1 });
   const retry = await service.publish(context, recipe) as { message_id: string; version: number };
   expect(retry.message_id).toBe(card.message_id); expect(retry.version).toBe(1);
+  // A staged draft is private and cannot be imported until the owner publishes it.
+  const draft = await prisma.channelMessage.findUniqueOrThrow({ where: { id: card.message_id } });
+  expect(draft.metadata).toMatchObject({ cardState: 'draft', outcomeEchoed: true });
+  await expect(service.recipe(card.message_id, true)).rejects.toThrow('not found');
+  await expect(Effect.runPromise(service.mutate(card.message_id, { action: 'import', clientId: 'early-import' }))).rejects.toThrow('Publish this template before importing');
+  const published = await Effect.runPromise(service.mutate(card.message_id, { action: 'publish' }));
+  expect(published.message.metadata).toMatchObject({ cardState: 'published', outcomeText: 'The user published template version 1 with public visibility.', outcomeEchoed: false });
   expect((await service.recipe(card.message_id, true)).profile.name).toBe('Researcher');
   const staged = await service.recipe(card.message_id); expect(staged.memory).toHaveLength(1); expect(staged.skills).toHaveLength(1); expect(staged.plugins).toHaveLength(0);
   await Effect.runPromise(service.mutate(card.message_id, { action: 'import', clientId: 'fixture-import' })); expect(imported).toHaveLength(1); expect(JSON.stringify(imported)).toContain('Read primary sources');
   const next = await service.publish({ ...context, callId: 'template-b' }, recipe) as { message_id: string; version: number };
   expect(next.version).toBe(2);
+  // The published version stays live until the owner publishes the new draft.
+  expect((await service.recipe(card.message_id, true)).profile.name).toBe('Researcher');
+  await Effect.runPromise(service.mutate(next.message_id, { action: 'publish' }));
   await expect(service.recipe(card.message_id, true)).rejects.toThrow('not found');
   await Effect.runPromise(service.mutate(next.message_id, { action: 'unpublish' }));
   await expect(service.recipe(next.message_id, true)).rejects.toThrow('not found');

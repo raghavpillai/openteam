@@ -66,6 +66,7 @@ import { DiskPressureMonitor } from "./runtime/disk-pressure";
 import { defaultTaskConfiguration, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 import { assertSessionPath } from "./runtime/session-path";
 import { RuntimeTools } from "./runtime/tools";
+import { classifierCompletion } from "./runtime/auto-review";
 import { pluginComponentsExtension } from "./runtime/plugin-components";
 import type { ActiveTurn, RuntimeImage, TurnStatus } from "./runtime/types";
 import { ScreenBroker } from "./screen-broker";
@@ -298,6 +299,15 @@ export class ComputerRuntime {
       pluginAbortController: new AbortController(),
       readOnly: request.readOnly ?? false,
       attachmentTempDirectories: [],
+      ...(request.autoReview
+        ? {
+            autoReview: { ...request.autoReview, allowRules: [...request.autoReview.allowRules], askFirstRules: [...request.autoReview.askFirstRules] },
+            autoReviewComplete: classifierCompletion((context, signal) => {
+              const model = this.resolveModel(modelRef);
+              return this.requireModelRuntime().completeSimple(model, context as never, { signal, ...inferenceReasoningOptions(model, "low") }) as never;
+            }),
+          }
+        : {}),
     };
     this.activeByRun.set(active.runId, active);
     this.activeByContext.set(active.contextSessionId, active);

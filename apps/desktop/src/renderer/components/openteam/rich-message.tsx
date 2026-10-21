@@ -1,4 +1,5 @@
 import "./permission-cards.css";
+import { ApprovalCard } from "./approval-card";
 import { SharedTemplateCard } from "./shared-template-card";
 import { parseExternalDraft } from "@openteam/contracts/external-draft";
 import { ExternalDraftCard } from "./external-draft-card";
@@ -635,6 +636,7 @@ function ComputerHandoffCard({
 
 export function RichMessage({ message, bot }: { message: ChannelMessageView; bot?: BotView }) {
   const metadata = record(message.metadata);
+  if (metadata.type === "approval") return <ApprovalCard bot={bot} message={message} />;
   if (metadata.type === "bot-template" && metadata.template && typeof metadata.template === "object")
     return <SharedTemplateCard message={message} />;
   if (metadata.type === "external-draft") {

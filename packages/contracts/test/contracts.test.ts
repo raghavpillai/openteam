@@ -709,11 +709,11 @@ describe("API contracts", () => {
     expect(UPDATE_MEMORY_TOOL.description).not.toContain("memory folder");
     const routine = UPDATE_ROUTINE_TOOL.inputSchema as { properties: Record<string, { enum?: string[] }> };
     expect(routine.properties.action?.enum).toEqual(["create", "get", "update", "pause", "resume", "delete"]);
-    // Routine writes apply directly; no confirmation card exists.
-    expect(UPDATE_ROUTINE_TOOL.description).not.toContain("confirm");
+    // A routine write the Auto-review classifier blocks waits on an approval card.
+    expect(UPDATE_ROUTINE_TOOL.description).toContain("A change may ask the user to confirm on a card; don't ask first, and don't retry a denied write.");
     expect(UPDATE_ROUTINE_TOOL.description).toContain("- create: name, prompt, and schedule or trigger. get: id; returns the saved prompt and trigger. update: id plus only the fields to change. pause, resume, delete: id.\nBefore you change a routine's prompt or describe what it does, get it and work from the saved text, not from memory.");
     expect(UPDATE_ROUTINE_TOOL.description).toContain("folder ids are listed under Scheduled routines in your prompt, which shows no prompts.");
-    expect(UPDATE_ROUTINE_TOOL.description).toEndWith("Don't ask first, and don't retry a denied write.");
+    expect(UPDATE_ROUTINE_TOOL.description).toEndWith("A change may ask the user to confirm on a card; don't ask first, and don't retry a denied write.");
     expect(UPDATE_ROUTINE_TOOL.description).not.toMatch(/Cursor|JoinMeeting|automation_status|timing/);
     // The schema names trigger types only; the skill and the invalid-trigger reply carry the shapes.
     const listener = {
@@ -852,8 +852,10 @@ describe("renamed first-party tools", () => {
     expect(cookies.description).toContain("no approval dialog opens");
     expect(JSON.stringify(cookies)).not.toMatch(/Always allow|Approve once|approval dialog and wait|Already-granted/);
     const share = referenceTool("CreateBotShareJson");
-    expect(share.description).toStartWith("Publish a new version of this bot's template");
-    expect(share.description).not.toMatch(/Stage a draft|stays private|New templates are PUBLIC|fill-in placeholders|live geometric avatar/);
+    // The owner publishes a staged draft from its card, as in the reference.
+    expect(share.description).toStartWith("Stage a draft version of this bot from the reusable recipe.");
+    expect(share.description).toContain("The version stays private until the owner publishes it.");
+    expect(share.description).not.toMatch(/New templates are PUBLIC|fill-in placeholders|live geometric avatar/);
     const form = referenceTool("RequestUserForm");
     expect(form.description).toContain("Fields inside iframes (cross-origin ones included) and shadow roots are reachable: send the form for them instead of predicting a failure.");
     const boxHelp = referenceTool("request_box_help").description;
@@ -881,8 +883,8 @@ describe("renamed first-party tools", () => {
   });
 
   test("old snake_case names format nothing and parse nothing", () => {
-    expect(renderControlResult("create_bot_share_json", { published: true, version: 2 }, {})).toBe(JSON.stringify({ published: true, version: 2 }));
-    expect(renderControlResult("CreateBotShareJson", { published: true, version: 2 }, {})).toContain("version 2");
+    expect(renderControlResult("create_bot_share_json", { staged: true, version: 2, name: "Ada" }, {})).toBe(JSON.stringify({ staged: true, version: 2, name: "Ada" }));
+    expect(renderControlResult("CreateBotShareJson", { staged: true, version: 2, name: "Ada" }, {})).toBe('Staged unpublished version 2 of "Ada". It is not public until you confirm it.');
     for (const name of ["upload_file", "download_file", "request_user_form", "remap_user_form_targets", "create_bot_share_json", "import_chrome_cookies"])
       expect(() => referenceTool(name)).toThrow("No captured tool contract");
   });

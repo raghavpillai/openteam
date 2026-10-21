@@ -563,7 +563,11 @@ struct RichMessageCard: View {
     Text(template["recipe"]["profile"]["description"].string)
     DisclosureGroup("Complete template") { Text(template["recipe"].pretty).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
     ShareLink("Export template", item: template["recipe"].pretty)
-    Text(meta["outcomeText"].string.isEmpty ? state.capitalized : meta["outcomeText"].string)
+    Text(meta["outcomeText"].string.isEmpty ? (state == "draft" ? "Unpublished" : state.capitalized) : meta["outcomeText"].string)
+    if state == "draft" {
+      Text("Draft: only you can see it until you publish").font(.footnote).foregroundStyle(NativePalette.muted)
+      Button(busy ? "Publishing…" : "Publish") { templateAction("publish") }
+    }
     if state == "published" {
       Button("Create a bot from this template") { templateAction("import") }
       Button("Unpublish") { templateAction("unpublish") }

@@ -93,35 +93,45 @@ export class SharedTemplateService {
       content: `Shared ${recipe.profile.name} · version ${version}`, end_turn: false,
     });
     const messageId = String(metadataRecord(result.acknowledgement).message_id);
-    const current = await this.prisma.$transaction(async tx => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`template-publish:${context.botId}`}))`;
+    // A staged version is a draft only the owner sees until they press Publish on its card.
+    await this.prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
       const message = await tx.channelMessage.findUniqueOrThrow({ where: { id: messageId } });
       const metadata = metadataRecord(message.metadata);
-      if (metadata.cardState) return message;
-      const older = await tx.channelMessage.findMany({ where: {
-        senderBotId: context.botId, id: { not: messageId },
-        AND: [{ metadata: { path: ["type"], equals: "bot-template" } }, { metadata: { path: ["cardState"], equals: "published" } }],
-      } });
-      for (const prior of older) {
-        await tx.channelMessage.update({ where: { id: prior.id }, data: { metadata: toJson({
-          ...metadataRecord(prior.metadata), cardState: "unpublished", shareUrl: null,
-          outcomeId: crypto.randomUUID(), outcomeText: "A newer template version replaced this publication.", outcomeEchoed: false,
-        }) } });
-        await appendEvent(tx, "channel.message.updated", prior.id, { channelId: prior.channelId, messageId: prior.id });
-      }
-      const updated = await tx.channelMessage.update({ where: { id: messageId }, data: { metadata: toJson({
-        ...metadata, cardState: "published",
-        ...(recipe.visibility === "public" && process.env.OPENTEAM_PUBLIC_URL ? { shareUrl: `${process.env.OPENTEAM_PUBLIC_URL.replace(/\/$/, "")}/api/v0/templates/${messageId}` } : {}),
-        outcomeId: crypto.randomUUID(), outcomeText: `Template version ${version} was published with ${recipe.visibility} visibility.`, outcomeEchoed: false,
-      }) } });
+      if (metadata.cardState) return;
+      await tx.channelMessage.update({ where: { id: messageId }, data: { metadata: toJson({ ...metadata, cardState: "draft", outcomeEchoed: true }) } });
       await appendEvent(tx, "channel.message.updated", messageId, { channelId: message.channelId, messageId });
-      return updated;
     });
-    return { ...metadataRecord(result.acknowledgement), message_id: messageId, published: metadataRecord(current.metadata).cardState === "published", version, digest };
+    return { ...metadataRecord(result.acknowledgement), message_id: messageId, staged: true, name: recipe.profile.name, version, digest };
+  }
+  /** The owner's Publish: this version replaces the published one. */
+  private async publishDraft(tx: import("@openteam/db").Prisma.TransactionClient, message: { id: string; channelId: string; senderBotId: string | null; metadata: unknown }) {
+    const metadata = metadataRecord(message.metadata);
+    const template = metadataRecord(metadata.template);
+    const recipe = metadataRecord(template.recipe);
+    const older = await tx.channelMessage.findMany({ where: {
+      senderBotId: message.senderBotId, id: { not: message.id },
+      AND: [{ metadata: { path: ["type"], equals: "bot-template" } }, { metadata: { path: ["cardState"], equals: "published" } }],
+    } });
+    for (const prior of older) {
+      await tx.channelMessage.update({ where: { id: prior.id }, data: { metadata: toJson({
+        ...metadataRecord(prior.metadata), cardState: "unpublished", shareUrl: null,
+        outcomeId: crypto.randomUUID(), outcomeText: "A newer template version replaced this publication.", outcomeEchoed: false,
+      }) } });
+      await appendEvent(tx, "channel.message.updated", prior.id, { channelId: prior.channelId, messageId: prior.id });
+    }
+    const updated = await tx.channelMessage.update({ where: { id: message.id }, data: { metadata: toJson({
+      ...metadata, cardState: "published",
+      ...(recipe.visibility === "public" && process.env.OPENTEAM_PUBLIC_URL ? { shareUrl: `${process.env.OPENTEAM_PUBLIC_URL.replace(/\/$/, "")}/api/v0/templates/${message.id}` } : {}),
+      outcomeId: crypto.randomUUID(), outcomeText: `The user published template version ${String(template.version)} with ${String(recipe.visibility)} visibility.`, outcomeEchoed: false,
+    }) } });
+    await appendEvent(tx, "channel.message.updated", message.id, { channelId: message.channelId, messageId: message.id });
+    if (message.senderBotId) await this.messaging.scheduleTranscriptProjection(tx, [message.senderBotId]);
+    return updated;
   }
   mutate = (messageId: string, raw: unknown) => serviceEffect(async () => {
     const input = metadataRecord(raw);
-    if (!["import", "unpublish"].includes(String(input.action))) return unavailable("Choose import or unpublish");
+    if (!["import", "publish", "unpublish"].includes(String(input.action))) return unavailable("Choose import, publish or unpublish");
     const message = await this.prisma.$transaction(async tx => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
       const message = await tx.channelMessage.findUnique({ where: { id: messageId }, include: { channel: true } });
@@ -130,6 +140,12 @@ export class SharedTemplateService {
       if (input.action === "import") {
         if (metadata.cardState !== "published") return unavailable("Publish this template before importing");
         return message;
+      }
+      if (input.action === "publish") {
+        if (metadata.cardState !== "draft") return message;
+        if (process.env.OPENTEAM_TEMPLATE_SHARING === "false") return unavailable("Template sharing is disabled on this deployment");
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`template-publish:${message.senderBotId}`}))`;
+        return this.publishDraft(tx, message);
       }
       if (metadata.cardState !== "published") return message;
       const updated = await tx.channelMessage.update({ where: { id: messageId }, data: { metadata: toJson({

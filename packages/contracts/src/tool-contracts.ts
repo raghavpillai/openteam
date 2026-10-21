@@ -86,11 +86,10 @@ cookies.inputSchema.properties.origins.description = editReference("RequestCooki
   ["Pass one or more entries to open the approval dialog and wait.", "Pass one or more entries to import those cookies directly."],
 ]);
 
-// Templates publish at once from the bot's direct chat, team-visible unless the
-// deployment enables public sharing. Imports keep routines as unscheduled proposals.
+// Templates are staged from the bot's direct chat and published by the owner on the card, team-visible
+// unless the deployment enables public sharing. Imports keep routines as unscheduled proposals.
 const share = contracts.CreateBotShareJson!;
 share.description = editReference("CreateBotShareJson", share.description, [
-  ["Stage a draft version of this bot from the reusable recipe.", "Publish a new version of this bot's template from the reusable recipe."],
   [' selected according to the scope guidance below ("public" for a new template).', " selected according to the scope guidance below."],
   [
     "Omit avatars; the host copies the source bot's live geometric avatar when one exists and uses recipe avatars only as a fallback.",
@@ -117,7 +116,7 @@ share.description = editReference("CreateBotShareJson", share.description, [
   ["; per the export skill, add a kind:log memory", "; add a kind:log memory"],
   [
     "The version stays private until the owner publishes it.",
-    "Call it from this bot's direct chat with the user; elsewhere it is refused. Each call publishes a new version at once and replaces the previously published one; a template card in the chat shows it, and the user can unpublish it there. Verify the published receipt. This does not change the source bot. Importing creates a fresh isolated bot with its own provider sign-ins.",
+    "The version stays private until the owner publishes it. Call it from this bot's direct chat with the user; elsewhere it is refused. The template card in the chat shows the draft with a Publish button; publishing replaces the previously published version, and the user can unpublish it there. This does not change the source bot. Importing creates a fresh isolated bot with its own provider sign-ins.",
   ],
 ]);
 

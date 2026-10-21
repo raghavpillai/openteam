@@ -3,6 +3,7 @@ import { providerName } from "../../../lib/provider-names";
 import { LoadingOrb } from "../../ui/loading-orb";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { ModelTestStatus, primaryButton, secondaryButton, SignInProgress } from "../model-setup";
+import { ModelPicker } from "../setup/model-picker";
 import { ProviderMark } from "../setup/provider-marks";
 import { SettingsGroup, SettingsRow } from "./ui";
 
@@ -100,22 +101,14 @@ export default function ModelSettings() {
         <SettingsRow
           anchors={["inference-model"]}
           control={
-            <Select
-              disabled={working || !provider?.connected || !data?.models.length}
-              onValueChange={setup.selectModel}
+            <ModelPicker
+              models={data?.models ?? []}
               value={setup.modelId}
-            >
-              <SelectTrigger aria-label="Model" className={`${selectTrigger} w-[250px]`}>
-                <SelectValue placeholder="No models available" />
-              </SelectTrigger>
-              <SelectContent>
-                {(data?.models ?? []).map((model) => (
-                  <SelectItem key={model.modelId} value={model.modelId}>
-                    {model.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              providerName={providerName(setup.providerId, provider?.name)}
+              disabled={working || !provider?.connected || !data?.models.length}
+              onChange={setup.selectModel}
+              variant="settings"
+            />
           }
           description={provider?.modelMessage ?? "Used for every bot's work and background tasks."}
           title="Model"

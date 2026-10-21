@@ -103,7 +103,8 @@ atMost("startup bytes", result.renderer.startup.bytes, 1_200_000);
 if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure is missing");
 // noVNC's new dynamic boundary changes shared chunk layout: 1,205,086 bytes
 // versus 1,192,236 in the previous desktop. The 187 KB RFB client stays lazy.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_215_000);
+// Sharing the Model picker changes common chunks to 1,215,003 bytes.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_215_500);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -130,8 +131,9 @@ atMost("startup CSS bytes", startupCssBytes, 178_600);
 // October 20: thinking-orb loaders and the voice note glow add 72 KB / 28 KB gzip on demand.
 // With them and the server gauges: 16,425,283 bytes.
 // Main at 011a826d measures 16,438,552 after auto-review settings. The dedicated
-// lazy Model page adds 1,374 bytes; keep aggregate headroom below 0.02%.
-atMost("renderer bytes", result.renderer.bytes, 16_442_000);
+// lazy Model page with the shared searchable picker adds 3,643 bytes; keep
+// aggregate headroom below 0.02%.
+atMost("renderer bytes", result.renderer.bytes, 16_445_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -139,7 +141,7 @@ atMost("renderer bytes", result.renderer.bytes, 16_442_000);
 // provider icons, 4,041,683; with the topology and the model picker, 4,046,893; with the
 // chaos fixes, 4,050,224; with the sign-in-or-key step and the model select, 4,051,639; with
 // the thinking-orb loaders, the voice note glow and the server gauges, 4,083,231.
-// Main measures 4,087,077 gzip; the dedicated Model page measures 4,087,999.
+// Main measures 4,087,077 gzip; Model settings with search measures 4,089,485.
 atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_090_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
@@ -238,15 +240,17 @@ const lazyBudgets: Record<string, number> = {
   skillImport: 100_000,
   search: 100_000,
   groupAvatarEditor: 10_000,
-  // Main: 40,967 with auto-review settings; Model navigation brings this to 41,954.
+  // Main: 40,967 with auto-review settings; shared Model navigation measures 42,086.
   settingsInitial: 42_500,
-  settingsShell: 10_000,
+  // Sharing the searchable picker changes the common Radix chunk (10,025 bytes).
+  settingsShell: 10_200,
   settingsAbout: 10_000,
   // Main already measures 33,930 with auto-review rules.
   settingsGeneral: 34_000,
   settingsComputer: 31_000,
   // Provider sign-in, model selection and testing now load only on Settings → Model.
-  settingsModel: 45_000,
+  // Includes onboarding's shared searchable picker and compact popover (53,386 bytes).
+  settingsModel: 54_000,
   // Activity and Remote access stay in Server; measured 10,389 after extraction.
   settingsServer: 11_000,
   // Shares the select menu with Model. Measured October closure: 33,236.

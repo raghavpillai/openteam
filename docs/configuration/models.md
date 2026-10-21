@@ -30,6 +30,8 @@ On a server without a screen, you can also sign in on the host with `openteam pr
 
 In **Settings → Model**, pick a model and reasoning effort, and choose **Apply**. The app saves your choice, then sends a short test message to check that the model works. Or run `openteam model` on the host for an interactive picker.
 
+The model picker shows recommendations and lets you search long model lists by name or model ID. On desktop, you can also search by model maker. Selecting a model in settings waits for **Apply** before saving.
+
 All bots use the same model. Changes apply to new messages; a task that's already running finishes with the settings it started with.
 
 New installations have no saved model. After connecting a provider, the model picker defaults to the first available model in its catalog. Save or apply the selection to use it for new tasks. Existing saved model choices are preserved, even when the provider changes its catalog order.

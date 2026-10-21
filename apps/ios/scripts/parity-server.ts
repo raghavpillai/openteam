@@ -154,6 +154,7 @@ const server = Bun.serve({
     }
     if (path === "/__qa/control" && method === "POST") {
       if (input.modelSettings) serverSetup = new ServerSetupFixture(true);
+      if (input.largeModelCatalog !== undefined) serverSetup.largeModelCatalog = input.largeModelCatalog;
       if (input.onboarding) {
         snapshot.bots = []; snapshot.channels = []; snapshot.runs = []; snapshot.channelMessages = [];
         snapshot.runtime.transcription = "missing";

@@ -380,6 +380,7 @@ private struct ModelSettingsForm: View {
   @Environment(AppStore.self) private var store
   @Bindable var setup: ModelSetup
   @State private var confirmingDisconnect = false
+  @State private var choosingModel = false
   var body: some View {
     let data = setup.data
     let provider = setup.provider
@@ -438,13 +439,12 @@ private struct ModelSettingsForm: View {
       }
       Section {
         if let models = data?.models, !models.isEmpty {
-          Picker(
-            "Model",
-            selection: Binding(get: { setup.modelId }, set: { setup.selectModel($0) })
-          ) {
-            ForEach(models) { model in Text(model.name).tag(model.modelId) }
-          }.pickerStyle(.menu).disabled(busy || provider?.connected != true)
-            .accessibilityIdentifier("model-model-picker")
+          ModelDropdown(
+            models: models, selected: setup.modelId,
+            recommended: data?.recommendedModel?.modelId,
+            disabled: busy || provider?.connected != true,
+            accessibilityID: "model-model-picker", horizontalPadding: 0,
+            search: { choosingModel = true }, choose: { setup.selectModel($0) })
         } else {
           LabeledContent("Model") {
             Text("No models available").foregroundStyle(NativePalette.muted)
@@ -518,6 +518,12 @@ private struct ModelSettingsForm: View {
       ProviderWebSignInSheet(signIn: signIn) { url in
         Task { await setup.captured(url, for: signIn) }
       }
+    }
+    .sheet(isPresented: $choosingModel) {
+      ModelSearchSheet(
+        models: setup.data?.models ?? [], selected: setup.modelId,
+        recommended: setup.data?.recommendedModel?.modelId
+      ) { setup.selectModel($0) }
     }
     .confirmationDialog(
       "Disconnect \(provider?.name ?? "this provider")?", isPresented: $confirmingDisconnect,

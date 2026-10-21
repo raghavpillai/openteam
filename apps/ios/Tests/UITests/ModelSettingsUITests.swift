@@ -23,7 +23,11 @@ import XCTest
 
   private func select(_ id: String, _ name: String, _ app: XCUIApplication) {
     tap(id, app)
-    tap(name, app)
+    if id == "model-model-picker" {
+      let option = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", name)).firstMatch
+      XCTAssertTrue(option.waitForExistence(timeout: 10))
+      option.tap()
+    } else { tap(name, app) }
   }
 
   private func text(_ value: String, _ app: XCUIApplication) {
@@ -36,6 +40,74 @@ import XCTest
     tap("model-settings", app)
     XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10))
     XCTAssertTrue(app.buttons["model-provider-picker"].waitForExistence(timeout: 10))
+  }
+
+  private func searchFor(_ value: String, in field: XCUIElement) {
+    field.tap()
+    let clear = field.buttons["Clear text"]
+    if clear.exists { clear.tap() }
+    // Let SwiftUI finish each search update before the next synthesized key.
+    for character in value { field.typeText(String(character)) }
+    XCTAssertEqual(field.value as? String, value)
+  }
+
+  func testSearchesLargeCatalogAndSavesOnlyOnApplyInBothAppearances() async throws {
+    continueAfterFailure = false
+    for appearance in ["light", "dark"] {
+      _ = try await request("/__qa/reset", [:])
+      _ = try await request("/__qa/control", ["modelSettings": true, "largeModelCatalog": true])
+      let app = XCUIApplication()
+      app.launchArguments = ["--ui-testing", "--server", base, "--appearance", appearance]
+      app.launch()
+      openModel(app)
+      text("qa-saved-model", app)
+      tap("model-model-picker", app)
+      XCTAssertTrue(app.navigationBars["Choose a model"].waitForExistence(timeout: 10))
+      text("Recommended", app)
+      let search = app.searchFields.firstMatch
+      XCTAssertTrue(search.waitForExistence(timeout: 10))
+      searchFor("no-such-model", in: search)
+      XCTAssertFalse(app.buttons["model-option-anthropic/qa-model-17"].exists)
+      text("No Results", app)
+      searchFor("Anthropic 17", in: search)
+      let option = app.buttons["model-option-anthropic/qa-model-17"]
+      guard option.waitForExistence(timeout: 10) else {
+        XCTFail("The model must match the search: \(search.value ?? "")")
+        return
+      }
+      let screenshot = XCTAttachment(screenshot: app.screenshot())
+      screenshot.name = "model-picker-" + appearance
+      screenshot.lifetime = .keepAlways
+      add(screenshot)
+      // iOS hides the sheet toolbar while its search controller is active.
+      if !app.buttons["model-search-cancel"].exists { tap("Close", app) }
+      tap("model-search-cancel", app)
+      XCTAssertTrue(app.buttons["model-model-picker"].label.contains("Saved QA model"))
+      tap("model-model-picker", app)
+      XCTAssertTrue(search.waitForExistence(timeout: 10))
+      XCTAssertEqual(search.value as? String, "Search 22 models")
+      searchFor("Anthropic 17", in: search)
+      XCTAssertTrue(option.waitForExistence(timeout: 10))
+      option.tap()
+      XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10))
+      XCTAssertTrue(app.buttons["model-model-picker"].label.contains("QA model 17"))
+      var state = try await request("/__qa/state")["modelSettings"] as! [String: Any]
+      XCTAssertEqual((state["inference"] as! [String: String])["modelId"], "qa-saved-model")
+      select("model-reasoning-picker", "High", app)
+      tap("model-apply", app)
+      text("Working · replied", app)
+      state = try await request("/__qa/state")["modelSettings"] as! [String: Any]
+      let saved = ["providerId": "openrouter", "modelId": "anthropic/qa-model-17", "reasoning": "high"]
+      XCTAssertEqual(state["inference"] as! [String: String], saved)
+      XCTAssertEqual((state["tests"] as! [[String: String]]).last, saved)
+      app.terminate()
+      app.launch()
+      openModel(app)
+      text("anthropic/qa-model-17", app)
+      XCTAssertTrue(app.buttons["model-model-picker"].label.contains("QA model 17"))
+      XCTAssertTrue(app.buttons["model-reasoning-picker"].label.contains("High"))
+      app.terminate()
+    }
   }
 
   func testCanRetryLoadingModelSettings() async throws {

@@ -82,7 +82,12 @@ try {
     const picker = (name: string) => page.getByRole("combobox", { name, exact: true });
     const select = async (name: string, option: string) => {
       await picker(name).click();
-      await page.getByRole("option", { name: option, exact: true }).click();
+      if (name === "Model") {
+        await page
+          .getByRole("option")
+          .filter({ has: page.locator(".setup-picker-name", { hasText: option }) })
+          .click();
+      } else await page.getByRole("option", { name: option, exact: true }).click();
     };
     failInitial = true;
     await page.goto(`${base}test/browser/model-onboarding.html?view=model-settings&theme=${mode}`);
@@ -100,9 +105,14 @@ try {
     await select("Provider", "OpenAI");
     await page.getByRole("alert").filter({ hasText: "Provider catalog unavailable." }).waitFor();
     assert.equal(await picker("Provider").innerText(), "OpenRouter");
-    assert.equal(await picker("Model").innerText(), "Saved QA model");
+    assert.equal(
+      await picker("Model").locator(".setup-picker-value").innerText(),
+      "Saved QA model"
+    );
     assert.equal(await button("Apply").isDisabled(), true);
     await select("Provider", "OpenAI");
+    await button("Add API key").waitFor();
+    assert.equal(await picker("Model").innerText(), "No models available");
     await button("Add API key").click();
     await page.getByRole("textbox", { name: "API key", exact: true }).fill("qa-model-key");
     await button("Continue").click();
@@ -166,9 +176,54 @@ try {
       await page.getByRole("button", { name: "Model", exact: true }).getAttribute("aria-current"),
       "page"
     );
+    setup.largeModelCatalog = true;
+    await page.reload();
+    await page.getByText("In use: OpenRouter · Saved QA model", { exact: true }).waitFor();
+    const model = picker("Model");
+    await model.focus();
+    await model.press("Enter");
+    const list = page.getByRole("listbox", { name: "OpenRouter models" });
+    const filter = page.getByRole("textbox", { name: "Filter models" });
+    await filter.waitFor();
+    assert.equal(await list.getByRole("option").count(), 22);
+    await list.getByRole("option").filter({ hasText: "Recommended" }).waitFor();
+    assert.equal(await list.locator('[aria-selected="true"]').count(), 1);
+    await page.screenshot({ path: join(output, `desktop-picker-all-${mode}.png`), animations: "disabled" });
+    await filter.fill("no-such-model");
+    await page.getByText("No models match “no-such-model”", { exact: true }).waitFor();
+    assert.equal(await list.getByRole("option").count(), 0);
+    await filter.fill("Anthropic 17");
+    assert.equal(await list.getByRole("option").count(), 1);
+    await list.getByText("QA model 17", { exact: true }).waitFor();
+    await list.getByText("Anthropic", { exact: true }).waitFor();
+    await page.screenshot({ path: join(output, `desktop-picker-${mode}.png`), animations: "disabled" });
+    await filter.press("Escape");
+    assert.equal(
+      await page.getByRole("dialog", { name: "Settings", exact: true }).isVisible(),
+      true
+    );
+    assert.equal(await model.locator(".setup-picker-value").innerText(), "Saved QA model");
+    await model.press("Enter");
+    assert.equal(await filter.inputValue(), "");
+    await filter.fill("Anthropic 17");
+    await filter.press("Enter");
+    assert.equal(await model.locator(".setup-picker-value").innerText(), "QA model 17");
+    assert.equal(setup.inference.modelId, "qa-saved-model", "Choosing a model waits for Apply");
+    await select("Reasoning effort", "High");
+    await button("Apply").click();
+    await page.getByText(/Working · replied/).waitFor();
+    assert.deepEqual(setup.inference, {
+      providerId: "openrouter",
+      modelId: "anthropic/qa-model-17",
+      reasoning: "high",
+    });
+    await page.reload();
+    await page.getByText("In use: OpenRouter · Anthropic: QA model 17", { exact: true }).waitFor();
+    assert.equal(await model.locator(".setup-picker-value").innerText(), "QA model 17");
+    assert.equal(await picker("Reasoning effort").innerText(), "High");
     assert.deepEqual(errors, []);
     console.log(
-      `${mode}: Model navigation/deep link, provider failure/retry, key connection, model/reasoning save/test, failed save retention and reopen persistence passed`
+      `${mode}: Model navigation/deep link, provider failure/retry, key connection, model/reasoning save/test, failed save retention and reopen persistence; searchable catalog, maker matching, recommendations, empty state, Escape/Enter and Apply persistence passed`
     );
     await page.close();
   }

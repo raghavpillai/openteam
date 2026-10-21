@@ -1,4 +1,5 @@
 import type {
+  InferenceModelView,
   InferenceProviderAuthSessionView,
   PiReasoningLevel,
   ServerInferenceSettings,
@@ -18,6 +19,7 @@ export class ServerSetupFixture {
     modelId: "qa-saved-model",
     reasoning: "off",
   };
+  largeModelCatalog = false;
   saves: ServerInferenceSettings[] = [];
   tests: ServerInferenceSettings[] = [];
   private openaiConnected = false;
@@ -33,6 +35,21 @@ export class ServerSetupFixture {
   };
 
   settings(provider = this.inference.providerId): ServerSettingsView {
+    const extras: InferenceModelView[] = this.largeModelCatalog
+      ? Array.from({ length: 20 }, (_, index) => {
+          const maker = index % 2 ? "Anthropic" : "OpenAI";
+          return {
+            providerId: "openrouter",
+            modelId: `${maker.toLowerCase()}/qa-model-${index}`,
+            name: `${maker}: QA model ${index}`,
+            reasoning: true,
+            reasoningLevels: ["off", "low", "high"],
+            defaultReasoningLevel: "low",
+            contextWindow: 128000,
+            maxTokens: 4096,
+          };
+        })
+      : [];
     return {
       inference: { ...this.inference },
       providers: ["openrouter", "openai"].map((id) => ({
@@ -44,7 +61,11 @@ export class ServerSetupFixture {
         authType: id === "openrouter" || this.openaiConnected ? "api_key" : null,
         authSource: null,
         modelCount:
-          id === "openrouter" ? (this.modelSettings ? 2 : 1) : this.openaiConnected ? 1 : 0,
+          id === "openrouter"
+            ? (this.modelSettings ? 2 : 1) + extras.length
+            : this.openaiConnected
+              ? 1
+              : 0,
       })),
       models:
         provider === "openrouter"
@@ -74,6 +95,7 @@ export class ServerSetupFixture {
                     },
                   ]
                 : []),
+              ...extras,
             ]
           : this.openaiConnected
             ? [

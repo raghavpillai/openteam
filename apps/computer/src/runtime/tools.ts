@@ -787,7 +787,7 @@ export class RuntimeTools {
       // A first-party tool this agent already has directly runs natively, as in the reference.
       if (input.namespace === "cursor" && input.toolName !== GET_DYNAMIC_TOOLS_TOOL.name && input.toolName !== CALL_DYNAMIC_TOOL_TOOL.name &&
           this.directToolNames(active).includes(input.toolName))
-        return this.executeScopedTool(active, callId, input.toolName, decodeDynamicArguments(input.arguments), signal).catch(referenceError);
+        return this.executeOpenTeamTool(active, callId, input.toolName, decodeDynamicArguments(input.arguments), signal).catch(referenceError);
       return this.callDynamicTool(active, callId, input, signal, finishCleanup).catch(referenceError);
     }
 

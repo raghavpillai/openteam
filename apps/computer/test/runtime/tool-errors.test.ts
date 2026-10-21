@@ -110,3 +110,22 @@ test("DraftExternalMessage argument problems are named per field and a lone reci
   expect(calls.at(-1)).toMatchObject({ name: "DraftExternalMessage", args: { to: ["ann@example.com"] } });
   expect(result.content[0].text).toStartWith("Draft email from me@example.com to ann@example.com is now an editable card in the chat (id: m1).");
 });
+
+test("SendToUser through CallDynamicTool keeps call order with native sends and names a failed send", async () => {
+  const { tools, active, call } = fixture(() => Response.json({ error: { code: "reply_target_not_found", message: "The reply target was not found" } }, { status: 404 }));
+  await expect(call("CallDynamicTool", { namespace: "cursor", toolName: "SendToUser", arguments: { type: "text", content: "hi", reply_to: "t9u" } })).rejects.toThrow(
+    /^Error: Failed to send the message to the user: The reply target was not found$/
+  );
+  const delivered: string[] = [];
+  tools.callControlPlaneTool = async (_turn: any, _id: string, _name: string, args: any) => {
+    if (args.content === "first") await Bun.sleep(50);
+    delivered.push(args.content);
+    return { content: [{ type: "text", text: "Sent" }], details: {} };
+  };
+  active.sendChain = undefined;
+  await Promise.all([
+    call("SendToUser", { type: "text", content: "first" }),
+    call("CallDynamicTool", { namespace: "cursor", toolName: "SendToUser", arguments: { type: "text", content: "second" } }),
+  ]);
+  expect(delivered).toEqual(["first", "second"]);
+});

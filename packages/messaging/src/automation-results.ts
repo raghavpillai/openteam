@@ -63,11 +63,33 @@ async function pendingAutomationShells(
       )
     )
       return false;
+    // A completion's block names its output on its own line, also once batched into another wake.
     return !receipts.some((receipt) => {
-      const payload = receipt.payload as { content?: string };
-      return payload.content?.includes(`Output file: ${JSON.stringify(path)}.`);
+      const payload = receipt.payload as { content?: string; revival?: { block?: string } };
+      return (payload.revival?.block ?? payload.content ?? "").split("\n").includes(`Full output: ${path}`);
     });
   });
+}
+
+/** Whether background work an automation context started (background subagents, or background
+ * shells nothing has reported yet) is still running; its results wait until all of it is done. */
+export async function automationBackgroundWorkRunning(
+  tx: Prisma.TransactionClient,
+  botId: string,
+  rootId: string
+): Promise<boolean> {
+  const family = (await tx.run.findMany({
+    where: {
+      botId,
+      origin: "routine",
+      OR: [{ id: rootId }, { inboxEvents: { some: { payload: { path: ["automationContextRunId"], equals: rootId } } } }],
+    },
+    select: { id: true },
+  })).map((entry) => entry.id);
+  if (await tx.subagentAttempt.count({
+    where: { parentRunId: { in: family }, runInBackground: true, status: { in: ["provisioning", "queued", "running"] } },
+  })) return true;
+  return pendingAutomationShells(tx, botId, family);
 }
 
 /** One saved occurrence can span several parent turns and delegated workers. Returns the

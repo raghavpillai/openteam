@@ -15,6 +15,15 @@ export function decodeHeader(value = ''): string {
 }
 export const headersOf = (message: any): Record<string, string> => Object.fromEntries((message.payload?.headers ?? []).map((h: any) => [String(h.name).toLowerCase(), decodeHeader(h.value)]));
 const recipients = (value = '') => value.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(v => v.match(/<([^>]+)>/)?.[1] ?? v.trim()).filter(Boolean);
+// Google omits empty recipient lists.
+const listed = (value?: string) => { const list = recipients(value); return list.length ? list : undefined; };
+const webId = (id: unknown) => typeof id === 'string' && /^[0-9a-f]{1,16}$/i.test(id) ? BigInt(`0x${id}`).toString() : undefined;
+/** Gmail web's address for a thread or one of its messages, as Google's viewUrl gives it: the decimal form of the hex ids. */
+export function gmailViewUrl(account: string | undefined, threadId: unknown, messageId?: unknown): string | undefined {
+  const thread = webId(threadId), message = messageId === undefined ? '' : webId(messageId);
+  if (!account || !thread || message === undefined) return undefined;
+  return `https://mail.google.com/mail/?authuser=${account}#all/thread-f:${thread}${message ? `|msg-f:${message}` : ''}`;
+}
 export function normalizeMessage(message: any, format = 'FULL_CONTENT'): any {
   if (format === 'MESSAGE_FORMAT_UNSPECIFIED') format = 'FULL_CONTENT';
   const h = headersOf(message);
@@ -41,7 +50,7 @@ export function normalizeMessage(message: any, format = 'FULL_CONTENT'): any {
   return compact({
     id: message.id, threadId: message.threadId, labelIds: message.labelIds,
     historyId: message.historyId, internalDate: message.internalDate, sizeEstimate: message.sizeEstimate,
-    sender: h.from, toRecipients: recipients(h.to), ccRecipients: recipients(h.cc), bccRecipients: recipients(h.bcc),
+    sender: h.from, toRecipients: listed(h.to), ccRecipients: listed(h.cc), bccRecipients: listed(h.bcc),
     date: Number.isFinite(time) ? new Date(time).toISOString() : undefined,
     subject: metadata ? undefined : h.subject, snippet: metadata ? undefined : message.snippet,
     plaintextBody: full ? (text.join('\n') || (html.length ? plainHtml(html.join('\n')) : '')) : undefined,

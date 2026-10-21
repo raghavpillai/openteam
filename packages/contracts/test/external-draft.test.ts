@@ -89,3 +89,17 @@ test('HTML in an email body and Slack markup in a Slack body are refused before 
   ['`• inline` fine', []], ['``` code ```', []], ['~~~\n• inside\n~~~', []], ['```\n<https://a.b|c>\n```', []],
  ] as const) expect([...slackBodyProblems(body)]).toEqual([...problems]);
 });
+
+test("the draft contract carries the 10-21 field wording with OpenTeam's adaptations", async () => {
+ const { referenceTool } = await import('../src/tool-contracts');
+ const draft = referenceTool('DraftExternalMessage');
+ const fields = draft.inputSchema.properties;
+ expect(fields.to.description).toStartWith('Required for email. The recipient(s)');
+ expect(fields.subject.description).toBe('Required for email. The subject line.');
+ expect(fields.replyToMessageId.description).toBe("Optional, email only. The provider's id of the message being replied to, the ONLY key a reply threads on; omit it for a fresh email.");
+ expect(fields.target.description).toStartWith('Required for Slack. Where the message goes');
+ expect(fields.channelId.description).toStartWith('Required for Slack. The channel or DM conversation id');
+ expect(fields.from.description).toStartWith('Required for email. The plain address');
+ expect(draft.description).toContain('OpenTeam verifies the routing (sending address, channel, reply target) before the card appears, shows it on the card, and refuses the draft');
+ expect(Object.keys(fields)).not.toContain('forwardMessageId');
+});

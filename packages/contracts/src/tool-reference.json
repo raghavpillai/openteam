@@ -234,7 +234,7 @@
   },
   "UpdateMemory": {
     "name": "UpdateMemory",
-    "description": "Change your durable memory. Pick the memory type that fits:\n- profile: Lasting facts about the user and how to work with them, kept in mind every turn. Keep it small.\n- journal: Dated history. Only the latest entries stay in view.\n- shared_profile: Lasting facts about the user that every assistant they run keeps in mind, such as their name and time zone.\n- shared_journal: Dated history every assistant the user runs should know.\nwrite saves a fact (deduped); forget drops one by its exact recorded text (find it with RecallMemory), so pair it with a write to correct a fact. Save without asking and mention it in passing. Routines have their own UpdateRoutine tool. Skills, profile and settings, picture, and channels have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.",
+    "description": "Change your durable memory. Each memory type below holds one kind of fact. Save a fact to the type meant for it, and leave out a fact no type is meant for:\n- profile: Lasting facts about the user and how to work with them, kept in mind every turn. Keep it small.\n- journal: Dated history. Only the latest entries stay in view.\n- shared_profile: Lasting facts about the user that every assistant they run keeps in mind, such as their name and time zone.\n- shared_journal: Dated history every assistant the user runs should know.\nwrite saves a fact (deduped); forget drops one by its exact recorded text (find it with RecallMemory), so pair it with a write to correct a fact. Save without asking and mention it in passing. Routines have their own UpdateRoutine tool. Skills, profile and settings, picture, and channels have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1425,7 +1425,7 @@
   },
   "DraftExternalMessage": {
     "name": "DraftExternalMessage",
-    "description": "Draft an email or Slack message for the user to review as an editable composer card in the chat. This is how every email and Slack message leaves under the user's name, including when they ask you to send it (\"send X to Y\"): the card is where they confirm, and pressing Send is what sends. Use the connector's own send tools directly only when the user explicitly said not to draft or preview this message (\"just send it\"), or a standing permission they granted in this conversation or a saved send rule listed in your instructions covers it (see the system prompt's rules). You write the draft in the user's voice; they can edit the card's fields, then send or discard it. Sand sends it when they click Send, so NEVER follow this call with the connector's own send/draft tools for the same message unless the user tells you in chat to send this card, then send it unchanged. A connector create_draft is not this card: use it only to keep a draft in their mailbox (\"leave it in my drafts\") or carry a file attachment. You must also provide the routing the send will use, which the user cannot edit: providerIdentifier; for Slack, channelId (plus threadTs for a thread reply); for email, from, mailbox outlook for an Outlook connector (plus replyToMessageId for a thread reply). Sand verifies the routing (sending address, channel, reply target) through the connector before the card appears, shows those facts on it, and refuses the draft when verification fails or from is not the account's address. Drafting sends nothing and does not end your turn. If the user sends the card, you are resumed with what actually went out (edits included); if they discard it, with a short note. Treat a discard as a decline; don't redraft unasked.",
+    "description": "Draft an email or Slack message for the user to review as an editable composer card in the chat. This is how every email and Slack message leaves under the user's name, including when they ask you to send it (\"send X to Y\"): the card is where they confirm, and pressing Send is what sends. Use the connector's own send tools directly only when the user explicitly said not to draft or preview this message (\"just send it\"), or a standing permission they granted in this conversation or a saved send rule listed in your instructions covers it (see the system prompt's rules). You write the draft in the user's voice; they can edit the card's fields, then send or discard it. Sand sends it when they click Send, so NEVER follow this call with the connector's own send/draft tools for the same message unless the user tells you in chat to send this card, then send it unchanged. A connector create_draft is not this card: use it only to keep a draft in their mailbox (\"leave it in my drafts\") or carry a file attachment. You must also provide the routing the send will use, which the user cannot edit: providerIdentifier; for Slack, channelId (plus threadTs for a thread reply); for email, from, mailbox outlook for an Outlook connector (plus replyToMessageId for a thread reply). Sand verifies the routing (sending address, channel, reply target) before the card appears, shows it on the card, and refuses the draft when verification fails or from is not the account's address. Drafting sends nothing and does not end your turn. If the user sends the card, you are resumed with what actually went out (edits included); if they discard it, with a short note. Treat a discard as a decline; don't redraft unasked.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1474,7 +1474,7 @@
             "type": "string",
             "minLength": 1
           },
-          "description": "Required when platform is email. The recipient(s), each a plain address like \"user@example.com\", not \"Name <user@example.com>\"."
+          "description": "Required for email. The recipient(s), each a plain address like \"user@example.com\", not \"Name <user@example.com>\"."
         },
         "cc": {
           "type": "array",
@@ -1486,19 +1486,19 @@
         },
         "subject": {
           "type": "string",
-          "description": "Required when platform is email. The subject line."
+          "description": "Required for email. The subject line."
         },
         "replyToMessageId": {
           "type": "string",
-          "description": "Optional, email only. The provider's id of the message being replied to; this is the ONLY reply key the send uses, so set it whenever the draft replies within an existing thread and omit it for a fresh email."
+          "description": "Optional, email only. The provider's id of the message being replied to, the ONLY key a reply threads on; omit it for a fresh email."
         },
         "target": {
           "type": "string",
-          "description": "Required when platform is slack. Where the message goes, as the user reads it: a channel (\"#general\") or a person (\"Ariel Chen\")."
+          "description": "Required for Slack. Where the message goes, as the user reads it: a channel (\"#general\") or a person (\"Ariel Chen\")."
         },
         "channelId": {
           "type": "string",
-          "description": "Required when platform is slack. The channel or DM conversation id the send is addressed to (e.g. C0123456789), resolved with the connector's search tools, never guessed."
+          "description": "Required for Slack. The channel or DM conversation id the send is addressed to (e.g. C0123456789), resolved with the connector's search tools, never guessed."
         },
         "threadTs": {
           "type": "string",

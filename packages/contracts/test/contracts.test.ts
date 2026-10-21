@@ -629,7 +629,9 @@ describe("API contracts", () => {
     expect(memory.properties.type?.enum).toEqual(["profile", "journal", "shared_profile", "shared_journal"]);
     expect(Object.keys(memory.properties)).toEqual(["action", "fact", "type"]);
     expect(memory.required).toEqual(["action", "fact", "type"]);
-    expect(UPDATE_MEMORY_TOOL.description).toStartWith("Change your durable memory. Pick the memory type that fits:\n- profile: ");
+    expect(UPDATE_MEMORY_TOOL.description).toStartWith(
+      "Change your durable memory. Each memory type below holds one kind of fact. Save a fact to the type meant for it, and leave out a fact no type is meant for:\n- profile: "
+    );
     expect(UPDATE_MEMORY_TOOL.description).toContain("UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.");
     expect(UPDATE_MEMORY_TOOL.description).not.toContain("memory folder");
     const routine = UPDATE_ROUTINE_TOOL.inputSchema as { properties: Record<string, { enum?: string[] }> };

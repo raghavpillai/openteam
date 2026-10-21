@@ -518,7 +518,7 @@ for (const key of ["meetingId", "mailbox", "htmlBody", "proposedRule", "proposed
 draft.required = ["platform", "providerIdentifier", "body"];
 draft.properties.providerIdentifier.description = edited("DraftExternalMessage providerIdentifier", draft.properties.providerIdentifier.description, [["Required for email/Slack. ", ""]]);
 draft.properties.from.description = edited("DraftExternalMessage from", draft.properties.from.description, [
-  ["Email only. The plain address", "Required when platform is email. The plain address"],
+  ["Email only. The plain address", "Required for email. The plain address"],
   [
     /On Gmail, omit it to send from the account's default address; only \S+ REST Gmail connector can also send from a verified send-as alias\. Required for Outlook: get_me's mail field\./,
     "If you don't already know it, read it from the mailbox first: the Gmail connector's get_profile returns it as emailAddress (a Gmail Send mail as address also works), and an Email plugin inbox's address comes from ListEmailInboxes.",

@@ -32,6 +32,7 @@
     "./plugin-management": "./src/plugin-management.ts",
     "./user-forms": "./src/user-forms.ts",
     "./external-draft": "./src/external-draft.ts",
+    "./external-draft-body": "./src/external-draft-body.ts",
     "./bot-recipe": "./src/bot-recipe.ts",
     "./web-search": "./src/web-search.ts",
     "./automation-webhooks": "./src/automation-webhooks.ts",

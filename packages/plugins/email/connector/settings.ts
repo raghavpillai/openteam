@@ -15,6 +15,8 @@ export interface MailSettings {
   smtp: Endpoint;
   /** How the endpoints were chosen, for get_mailbox and error messages. */
   detectedBy: string;
+  /** The user's own addresses: their verified mail is marked as from the owner. */
+  owners: string[];
 }
 type Pair = { imap: string; smtp: string };
 
@@ -180,6 +182,17 @@ export async function detectServers(
 const automatic = (value: string | undefined) =>
   !value?.trim() || value.trim().toLowerCase() === "auto";
 
+/** `none`, or addresses separated by commas or spaces. */
+export function parseOwnerAddresses(value: string | undefined): string[] {
+  const text = value?.trim() ?? "";
+  if (!text || text.toLowerCase() === "none") return [];
+  const owners = [...new Set(text.split(/[\s,;]+/).filter(Boolean).map((entry) => entry.toLowerCase()))];
+  const invalid = owners.filter((entry) => !ADDRESS.test(entry));
+  if (invalid.length)
+    throw new Error(`Your own addresses must be plain email addresses separated by commas: ${invalid.join(", ")}`);
+  return owners;
+}
+
 /** Reads the account fields OpenTeam passes as environment variables. */
 export async function loadSettings(
   env: Record<string, string | undefined> = process.env,
@@ -203,5 +216,6 @@ export async function loadSettings(
     imap: parseEndpoint(automatic(env.IMAP_SERVER) ? servers!.imap : env.IMAP_SERVER!, "imap"),
     smtp: parseEndpoint(automatic(env.SMTP_SERVER) ? servers!.smtp : env.SMTP_SERVER!, "smtp"),
     detectedBy,
+    owners: parseOwnerAddresses(env.OWNER_ADDRESSES),
   };
 }

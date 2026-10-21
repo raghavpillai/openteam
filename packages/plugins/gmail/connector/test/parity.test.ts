@@ -12,9 +12,10 @@ const source = { id: 'message-1', threadId: 'thread-1', labelIds: ['INBOX'], pay
 
 test('Gmail builds a real multipart HTML reply with thread headers, Unicode and byte-exact attachments', async () => {
   const attachment = Buffer.from([0, 255, 1, 13, 10, 240]);
+  const chart = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.from('IHDR....IDAT....IEND', 'latin1')]);
   const h = harness(gmailTools, [source, { id: 'draft-1', message: { id: 'new-message', threadId: 'thread-1' } }]);
   const result = await h.call('create_draft', { replyToMessageId: 'message-1', body: 'My reply', htmlBody: '<b>My reply</b><img src="cid:chart.png">',
-    attachments: [{ filename: 'chart.png', mimeType: 'image/png', content: attachment.toString('base64'), inline: true }, { filename: 'résumé.bin', content: attachment.toString('base64') }] });
+    attachments: [{ filename: 'chart.png', mimeType: 'image/png', content: chart.toString('base64'), inline: true }, { filename: 'résumé.bin', content: attachment.toString('base64') }] });
   const request = h.requests[1]!.json;
   const parsed = await PostalMime.parse(Buffer.from(request.message.raw, 'base64url'));
   expect(request.message.threadId).toBe('thread-1');
@@ -37,7 +38,7 @@ test('Gmail supports empty/HTML-only drafts and rejects injected headers before 
   const parsed = await PostalMime.parse(Buffer.from(h.requests[0]!.json.message.raw,'base64url'));
   expect(parsed.html).toContain('Only HTML ✓');
   await expect(h.call('create_draft', { to: ['a@example.com\r\nBcc: other@example.com'] })).rejects.toThrow('newlines');
-  await expect(h.call('create_draft', { attachments: [{ filename: 'x', content: 'invalid!' }] })).rejects.toThrow('base64');
+  await expect(h.call('create_draft', { attachments: [{ filename: 'x', content: 'invalid!' }] })).rejects.toThrow("Not called: the attachment x is incomplete or isn't a valid attachment file");
   expect(h.requests).toHaveLength(1);
 });
 
@@ -59,7 +60,7 @@ test('Gmail fetches externally stored text MIME parts and normalizes draft IDs',
 
 test('Gmail search and draft lists return useful message metadata and real pagination', async () => {
   const h=harness(gmailTools,[{threads:[{id:'thread-1'}],nextPageToken:'next'},{id:'thread-1',messages:[source,{...source,id:'draft-msg',labelIds:['DRAFT']}]},{drafts:[{id:'draft'}],nextPageToken:'draft-next'},{id:'draft',message:source}]);
-  const search=await h.call('search_threads',{query:'from:sender',includeTrash:true,pageSize:4,view:'THREAD_VIEW_METADATA_ONLY'});
+  const { value: search }=await h.call('search_threads',{query:'from:sender',includeTrash:true,pageSize:4,view:'THREAD_VIEW_METADATA_ONLY'});
   expect(h.requests[0]!.url.searchParams.get('includeSpamTrash')).toBe('true');
   expect(search.nextPageToken).toBe('next');
   expect(search.threads[0].messages).toHaveLength(1);

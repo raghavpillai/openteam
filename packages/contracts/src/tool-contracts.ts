@@ -139,13 +139,13 @@ const transferConnection: [RegExp, string] = [
 const otherProviders = ["OneDrive", "Outlook", "SharePoint"].map(
   (provider): [RegExp, string] => [new RegExp(`\\n- ${provider}:[^\\n]*`), ""]
 );
-// The Gmail connection only creates drafts, so a draft carrying a file waits for the user to send it.
+// The Gmail connection cannot send, so a draft carrying a file waits for the user to send it.
 contracts.UploadFile!.description = editReference("UploadFile", contracts.UploadFile!.description, [
   transferConnection,
   ...otherProviders,
   [
     /- Gmail: destination\.draftId[^\n]*/,
-    "- Gmail: destination.draftId is the id create_draft returned (or one from list_drafts); the file is attached and the id stays the same. Attach last: finish recipients, subject and body with create_draft before calling UploadFile, because the Gmail connection cannot edit a draft afterwards. It cannot send one either, so the draft waits unsent in the user's Gmail Drafts; tell them it is there. A DraftExternalMessage card cannot carry this file. A Gmail draft here carries a file; it is not how you draft for review. The draft with its attachments must stay under 25 MB.",
+    "- Gmail: destination.draftId is the id create_draft returned (or one from list_drafts); the file is attached and the id stays the same. Attach last: Gmail's update_draft removes every attachment it is not handed again, so finish recipients, subject and body before calling UploadFile, and never call update_draft on a draft that already has an attachment (make a new draft and attach again instead). The Gmail connection cannot send a draft, so it waits unsent in the user's Gmail Drafts; tell them it is there. A DraftExternalMessage card cannot carry this file. A Gmail draft here carries a file; it is not how you draft for review. The draft with its attachments must stay under 25 MB.",
   ],
 ]);
 contracts.DownloadFile!.description = editReference("DownloadFile", contracts.DownloadFile!.description, [

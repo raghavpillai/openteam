@@ -14,6 +14,7 @@ import {
   formatChromeCookieImportOutcome,
 } from "@openteam/contracts/reference-formatters";
 import { parseReferenceArguments } from "@openteam/contracts/reference-parsers";
+import { parseDraftExternalMessage } from "@openteam/contracts/external-draft-body";
 import { HostShellCompletions } from "../host-shell-completions";
 import { expandPluginAgent } from "./plugin-components";
 import { skillTool } from "./skill-tool";
@@ -36,7 +37,6 @@ import {
   CallDynamicToolInput,
   COMPUTER_USE_TOOL,
   CURSOR_TOOLS,
-  parseExternalDraft,
   parseUserForm,
   parseFormRemap,
   formatUserFormReceipt,
@@ -1530,7 +1530,7 @@ export class RuntimeTools {
                   inputSchema: definition.inputSchema,
                   source: "first-party",
                   decodeArguments:
-                    name === "DraftExternalMessage" ? parseExternalDraft : (input) => input,
+                    name === "DraftExternalMessage" ? parseDraftExternalMessage : (input) => input,
                   execute: (turn, callId, args, signal) =>
                     this.callControlPlaneTool(turn, callId, name, args, signal),
                 };

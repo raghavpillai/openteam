@@ -1,0 +1,198 @@
+[
+ {
+  "name": "validPdf",
+  "attachment": {
+   "content": "JVBERi0xLjQKMSAwIG9iajw8Pj5lbmRvYmoKdHJhaWxlcjw8Pj4KJSVFT0YK",
+   "filename": "invoice.pdf",
+   "mimeType": "application/pdf"
+  },
+  "check": "valid",
+  "kind": "pdf",
+  "refusal": null
+ },
+ {
+  "name": "truncatedPdf",
+  "attachment": {
+   "content": "JVBERi0xLjQKMSAwIG9iajw8Pj4=",
+   "filename": "invoice.pdf",
+   "mimeType": "application/pdf"
+  },
+  "check": "pdf_no_trailer",
+  "kind": "pdf",
+  "refusal": "Not called: the attachment invoice.pdf is incomplete or isn't a valid PDF file, so the email would arrive without it. Create the draft with no attachments, then attach the file with UploadFile using destination.draftId. Nothing was created or sent."
+ },
+ {
+  "name": "textPdf",
+  "attachment": {
+   "content": "aGVsbG8gd29ybGQ=",
+   "filename": "report.pdf"
+  },
+  "check": "pdf_no_header",
+  "kind": "pdf",
+  "refusal": "Not called: the attachment report.pdf is incomplete or isn't a valid PDF file, so the email would arrive without it. Create the draft with no attachments, then attach the file with UploadFile using destination.draftId. Nothing was created or sent."
+ },
+ {
+  "name": "validPng",
+  "attachment": {
+   "content": "iVBORw0KGgouLi4uSUhEUi4uLi5JREFULi4uLklFTkSuQmCC",
+   "filename": "chart.png",
+   "mimeType": "image/png"
+  },
+  "check": "valid",
+  "kind": "png",
+  "refusal": null
+ },
+ {
+  "name": "cutPng",
+  "attachment": {
+   "content": "iVBORw0KGgouLi4uSUg=",
+   "filename": "chart.png",
+   "mimeType": "image/png"
+  },
+  "check": "image_incomplete",
+  "kind": "png",
+  "refusal": "Not called: the attachment chart.png is incomplete or isn't a valid PNG file, so the email would arrive without it. Create the draft with no attachments, then attach the file with UploadFile using destination.draftId. Nothing was created or sent."
+ },
+ {
+  "name": "pngAsJpeg",
+  "attachment": {
+   "content": "iVBORw0KGgouLi4uSUhEUi4uLi5JREFULi4uLklFTkSuQmCC",
+   "filename": "photo.jpg"
+  },
+  "check": "image_mismatch",
+  "kind": "jpeg",
+  "refusal": "Not called: the attachment photo.jpg is incomplete or isn't a valid JPEG file, so the email would arrive without it. Create the draft with no attachments, then attach the file with UploadFile using destination.draftId. Nothing was created or sent."
+ },
+ {
+  "name": "jpeg",
+  "attachment": {
+   "content": "/9j/4AAQSkZJRg==",
+   "filename": "photo.jpeg",
+   "mimeType": "image/jpeg; charset=binary"
+  },
+  "check": "valid",
+  "kind": "jpeg",
+  "refusal": null
+ },
+ {
+  "name": "gif",
+  "attachment": {
+   "content": "R0lGODlhLi4uLi4u",
+   "mimeType": "image/gif"
+  },
+  "check": "valid",
+  "kind": "gif",
+  "refusal": null
+ },
+ {
+  "name": "webp",
+  "attachment": {
+   "content": "UklGRgAAAABXRUJQVlA4IA==",
+   "filename": "a.webp"
+  },
+  "check": "valid",
+  "kind": "webp",
+  "refusal": null
+ },
+ {
+  "name": "badWebp",
+  "attachment": {
+   "content": "UklGRi4uLi5XRUJY",
+   "filename": "a.webp"
+  },
+  "check": "image_mismatch",
+  "kind": "webp",
+  "refusal": "Not called: the attachment a.webp is incomplete or isn't a valid WebP file, so the email would arrive without it. Create the draft with no attachments, then attach the file with UploadFile using destination.draftId. Nothing was created or sent."
+ },
+ {
+  "name": "other",
+  "attachment": {
+   "content": "YSxiCjEsMgo=",
+   "filename": "data.csv",
+   "mimeType": "text/csv"
+  },
+  "check": "valid",
+  "kind": "other",
+  "refusal": null
+ },
+ {
+  "name": "undecodable",
+  "attachment": {
+   "content": "not base64 at all!!",
+   "filename": "a.pdf"
+  },
+  "check": "undecodable",
+  "kind": "pdf",
+  "refusal": "Not called: the attachment a.pdf is incomplete or isn't a valid PDF file, so the email would arrive without it. Create the draft with no attachments, then attach the file with UploadFile using destination.draftId. Nothing was created or sent."
+ },
+ {
+  "name": "empty",
+  "attachment": {
+   "content": "",
+   "filename": "a.txt"
+  },
+  "check": "undecodable",
+  "kind": "other",
+  "refusal": "Not called: the attachment a.txt is incomplete or isn't a valid attachment file, so the email would arrive without it. Create the draft with no attachments, then attach the file with UploadFile using destination.draftId. Nothing was created or sent."
+ },
+ {
+  "name": "lengthMod1",
+  "attachment": {
+   "content": "QUJDR",
+   "filename": "a.txt"
+  },
+  "check": "undecodable",
+  "kind": "other",
+  "refusal": "Not called: the attachment a.txt is incomplete or isn't a valid attachment file, so the email would arrive without it. Create the draft with no attachments, then attach the file with UploadFile using destination.draftId. Nothing was created or sent."
+ },
+ {
+  "name": "dataUrl",
+  "attachment": {
+   "content": "data:application/pdf;base64,JVBERi0xLjQKMSAwIG9iajw8Pj5lbmRvYmoKdHJhaWxlcjw8Pj4KJSVFT0YK",
+   "filename": "invoice.pdf"
+  },
+  "check": "valid",
+  "kind": "pdf",
+  "refusal": null
+ },
+ {
+  "name": "urlSafeUnpadded",
+  "attachment": {
+   "content": "JVBERi0xLjQKMSAwIG9iajw8Pj5lbmRvYmoKdHJhaWxlcjw8Pj4KJSVFT0YK",
+   "filename": "invoice.pdf"
+  },
+  "check": "valid",
+  "kind": "pdf",
+  "refusal": null
+ },
+ {
+  "name": "whitespace",
+  "attachment": {
+   "content": "JVBERi0xLj\nQKMSAwIG9i\najw8Pj5lbm\nRvYmoKdHJh\naWxlcjw8Pj\n4KJSVFT0YK\n",
+   "filename": "invoice.pdf"
+  },
+  "check": "valid",
+  "kind": "pdf",
+  "refusal": null
+ },
+ {
+  "name": "noName",
+  "attachment": {
+   "content": "eHg=",
+   "mimeType": "application/pdf"
+  },
+  "check": "pdf_no_header",
+  "kind": "pdf",
+  "refusal": "Not called: the attachment (no name) is incomplete or isn't a valid PDF file, so the email would arrive without it. Create the draft with no attachments, then attach the file with UploadFile using destination.draftId. Nothing was created or sent."
+ },
+ {
+  "name": "upperExt",
+  "attachment": {
+   "content": "eHg=",
+   "filename": "SCAN.PDF"
+  },
+  "check": "pdf_no_header",
+  "kind": "pdf",
+  "refusal": "Not called: the attachment SCAN.PDF is incomplete or isn't a valid PDF file, so the email would arrive without it. Create the draft with no attachments, then attach the file with UploadFile using destination.draftId. Nothing was created or sent."
+ }
+]

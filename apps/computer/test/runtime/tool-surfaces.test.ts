@@ -356,6 +356,21 @@ describe("specialized subagent tool surfaces", () => {
     expect(calls).toEqual([{ tool: "StopSubagent", args: { all: true } }]);
   });
 
+  test("DraftExternalMessage refuses HTML email bodies and sends the server an unwrapped body", () => {
+    const runtime = runtimeTools() as unknown as {
+      dynamicCatalog(active: { runtimeProfile: "agent"; pluginNamespaces: [] }): Array<{
+        name: string;
+        tools: Array<{ name: string; decodeArguments(args: unknown): unknown }>;
+      }>;
+    };
+    const draft = runtime.dynamicCatalog({ runtimeProfile: "agent", pluginNamespaces: [] })
+      .find((namespace) => namespace.name === "cursor")!.tools.find((tool) => tool.name === "DraftExternalMessage")!;
+    const email = { platform: "email", providerIdentifier: "p", from: "me@example.com", to: ["ann@example.com"], subject: "Hi" };
+    expect(draft.decodeArguments({ ...email, body: "We reviewed the contract terms with legal on Monday and they asked us to\nadd a clause about data retention before anything gets signed.\n\nBest,\nAnn" }))
+      .toMatchObject({ body: "We reviewed the contract terms with legal on Monday and they asked us to add a clause about data retention before anything gets signed.\n\nBest,\nAnn" });
+    expect(() => draft.decodeArguments({ ...email, body: "Hello<br>See you" })).toThrow("body is plain text, so <br> would reach the recipient as literal text. Nothing was drafted.");
+  });
+
   test("normal agents expose the complete plugin lifecycle management surface", () => {
     expect(dynamicToolNames("cursor")).toEqual(
       expect.arrayContaining([

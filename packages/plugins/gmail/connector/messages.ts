@@ -1,5 +1,6 @@
 import { convert } from 'html-to-text';
-import { base64Bytes, compact } from '../../_shared/reference';
+import { compact } from '../../_shared/reference';
+import { decodeAttachment } from './guards';
 import type { Args } from '../../_shared/google';
 
 export const plainHtml = (html: string) => convert(html, { wordwrap: false, selectors: [{ selector: 'img', format: 'skip' }] });
@@ -80,6 +81,10 @@ export function draftMime(args: Args, original?: any) {
     const quote = `On ${originalHeaders.date ?? 'the previous message'}, ${originalHeaders.from ?? 'the sender'} wrote:`;
     if (body !== undefined || html === undefined) body = `${body ?? ''}\n\n${quote}\n${(normalized.plaintextBody ?? '').split('\n').map((line: string) => `> ${line}`).join('\n')}`;
     if (html !== undefined) html = `${html}<br><br>${escapeHtml(quote)}<blockquote>${normalized.htmlBody ?? escapeHtml(normalized.plaintextBody ?? '').replaceAll('\n', '<br>')}</blockquote>`;
+  } else if (args.inReplyTo) {
+    // A rewritten reply draft keeps its thread headers.
+    headers.push(`In-Reply-To: ${safeHeader(args.inReplyTo)}`);
+    headers.push(`References: ${safeHeader(args.references || args.inReplyTo)}`);
   }
   const texts = [];
   if (body !== undefined || html === undefined) texts.push(textPart(body ?? '', 'text/plain'));
@@ -88,7 +93,8 @@ export function draftMime(args: Args, original?: any) {
   let size = 0;
   const inline: string[] = [], regular: string[] = [];
   for (const attachment of args.attachments ?? []) {
-    const bytes = base64Bytes(attachment.content);
+    const bytes = decodeAttachment(attachment.content);
+    if (!bytes) throw new Error('Attachment content must be base64');
     size += bytes.length;
     if (size > 25 * 1024 * 1024) throw new Error('Combined attachments exceed 25 MB. Use a Drive link for larger files.');
     const name = safeHeader(attachment.filename ?? 'attachment');

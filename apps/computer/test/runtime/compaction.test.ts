@@ -872,3 +872,24 @@ test("a background summary never launches over a response whose calls have no re
   await handlers.message_end!({ message: answer("Blue is fine.") });
   expect(observed).toHaveLength(1);
 });
+
+test("a too-many-images error is recovered as an overflow, labeled as an image-limit summary", async () => {
+  const { isContextOverflow } = await import("@earendil-works/pi-ai");
+  const forced: string[] = [];
+  const coordinator = { forceReason: (_id: string, reason: string) => forced.push(reason), observe: async () => {} } as unknown as BotCompactionCoordinator;
+  const messages: BotMessage[] = [{ role: "user", content: "Look at these" }];
+  const active = {
+    contextSessionId: crypto.randomUUID(), instructions: "System", modelRef, reasoning: "off", userInfoMessage: null, cwd: "/tmp",
+    session: { messages, model, getContextUsage: () => undefined, getAllTools: () => [], getActiveToolNames: () => [] },
+    queue: { push() {} },
+  } as unknown as ActiveTurn;
+  const handlers: Record<string, (event: any) => Promise<any>> = {};
+  compactionExtension(coordinator, async () => ({ text: "" }), { buildSessionContext: () => ({ messages }) } as unknown as SessionManager, active)
+    .factory({ on: (name: string, handler: any) => { handlers[name] = handler; } } as never);
+  const failed = { ...answer(""), stopReason: "error", errorMessage: "400 Request contained too many images or documents (max 100)" };
+  const replaced = await handlers.message_end!({ message: failed });
+  expect(forced).toEqual(["approaching_image_limit"]);
+  expect(isContextOverflow(replaced.message, model.contextWindow)).toBe(true);
+  expect(isContextOverflow(failed as never, model.contextWindow)).toBe(false);
+  expect(await handlers.message_end!({ message: { ...failed, errorMessage: "500 server error" } })).toBeUndefined();
+});

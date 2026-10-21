@@ -2,6 +2,17 @@ import { randomUUID } from "node:crypto";
 import { BotNoSummaryResponseError } from "./response";
 import type { BotCompactionArchiveStore } from "./archive";
 import {
+  buildExternalSummaryPrompt,
+  type ExternalPartition,
+  externalDurableBlocks,
+  externalOutputTokens,
+  externalPromptChars,
+  externalSummaryMessage,
+  partitionForExternalSummary,
+  reduceExternalPromptChars,
+  SUMMARIZATION_SYSTEM_PROMPT,
+} from "./external";
+import {
   BOT_IMAGE_TRIGGER,
   botDurableBlocks,
   botMessageDigest,
@@ -88,6 +99,7 @@ export interface PendingSummary {
   reason: BotCompactionReason;
   capturedMessages: BotMessage[];
   partition: BotPartition;
+  external?: ExternalPartition;
   durableBlocks: string[];
   prefixDigest: string;
   systemDigest: string;
@@ -420,7 +432,8 @@ export class BotCompactionCoordinator {
       input.userInfoMessage ?? null
     );
     const pending = this.pending.get(input.contextSessionId);
-    if (!pending?.result) return current;
+    // Overflow summaries are adopted only through Pi's compaction, in their own layout.
+    if (!pending?.result || pending.external) return current;
     if (!this.matches(pending, input, current)) {
       pending.controller?.abort();
       this.pending.delete(input.contextSessionId);
@@ -669,6 +682,74 @@ export class BotCompactionCoordinator {
     throw lastError ?? new Error("Self-summary failed without an error");
   }
 
+  private async generateExternal(
+    messagesToSummarize: readonly BotMessage[],
+    infer: BotObservation["infer"],
+    signal: AbortSignal,
+    contextWindow: number
+  ): Promise<BotSummaryResult> {
+    const started = performance.now();
+    const maxTokens = externalOutputTokens(contextWindow, 0);
+    let budget = externalPromptChars(contextWindow, maxTokens);
+    let shorter = false;
+    let usage: BotSummaryUsage | undefined;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
+      const prompt = buildExternalSummaryPrompt(messagesToSummarize, { budget, shorter });
+      try {
+        const result = await infer({
+          systemPrompt: SUMMARIZATION_SYSTEM_PROMPT,
+          userInfoMessage: null,
+          messagesToSummarize: [],
+          shorter,
+          external: { prompt, maxTokens },
+        }, signal);
+        if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
+        if (result.usage) usage = addSummaryUsage(usage, result.usage);
+        if (!result.text.trim()) {
+          lastError = new Error("Summarization returned empty text");
+          continue;
+        }
+        return {
+          ...result,
+          ...(usage ? { usage } : {}),
+          generation: {
+            completedAt: new Date().toISOString(),
+            durationMs: Math.round(performance.now() - started),
+            inputTokens: typeof result.usage?.input === "number" ? result.usage.input + (result.usage.cacheRead ?? 0) + (result.usage.cacheWrite ?? 0) : null,
+            outputTokens: typeof result.usage?.output === "number" ? result.usage.output : null,
+          },
+        };
+      } catch (error) {
+        lastError = error;
+        if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
+        const directive = botSummaryRetryDirective(error, { retryNoSummaryResponse: true });
+        if (!directive.retry || attempt === 3) break;
+        if (directive.reduceInputs) budget = reduceExternalPromptChars(budget, attempt, prompt.length);
+        shorter ||= directive.shorter;
+        if (directive.delay) await this.retryDelay(signal);
+      }
+    }
+    throw lastError ?? new Error("External summarization failed without an error");
+  }
+
+  private retryDelay(signal: AbortSignal): Promise<void> {
+    return new Promise<void>((resolveDelay, rejectDelay) => {
+      const onAbort = () => {
+        clearTimeout(timer);
+        rejectDelay(new DOMException("Compaction aborted", "AbortError"));
+      };
+      const timer = setTimeout(() => {
+        signal.removeEventListener("abort", onAbort);
+        resolveDelay();
+      }, this.retryDelayMs);
+      timer.unref();
+      signal.addEventListener("abort", onAbort, { once: true });
+      if (signal.aborted) onAbort();
+    });
+  }
+
   async beforePiCompaction(input: {
     contextSessionId: string;
     piMessages: readonly BotMessage[];
@@ -725,7 +806,10 @@ export class BotCompactionCoordinator {
       const messageCount = 1 + current.filter((message) => message.role !== "system").length;
       if (messageCount < 3)
         throw new Error(`Self-summary requires at least 3 messages, got ${messageCount}`);
-      const partition = partitionForBotSummary(current);
+      // Overflow recovery uses the reference's external summarizer over a size-capped
+      // transcript; the in-progress request and its tail stay verbatim.
+      const external = input.reason === "overflow" ? partitionForExternalSummary(current, input.maxTokens ?? 0) : null;
+      const partition = external ?? partitionForBotSummary(current);
       if (!partition) return null;
       const forced = this.forcedReasons.get(input.contextSessionId);
       const reason: BotCompactionReason =
@@ -738,7 +822,10 @@ export class BotCompactionCoordinator {
         reason,
         capturedMessages: current,
         partition,
-        durableBlocks: botDurableBlocks(partition.lastUserMessage, input),
+        ...(external ? { external } : {}),
+        durableBlocks: external
+          ? externalDurableBlocks(external.messagesToSummarize, input)
+          : botDurableBlocks(partition.lastUserMessage, input),
         prefixDigest: botMessageDigest(current),
         systemDigest: sha256(input.systemPrompt),
         modelKey: input.modelKey ?? "",
@@ -750,13 +837,15 @@ export class BotCompactionCoordinator {
         turnCount: countBotTurns(current),
         startedAt: new Date().toISOString(),
         controller,
-        promise: this.generate(
-          partition,
-          input.systemPrompt,
-          input.infer,
-          AbortSignal.any([input.signal, controller.signal]),
-          input.tools
-        ),
+        promise: external
+          ? this.generateExternal(external.messagesToSummarize, input.infer, AbortSignal.any([input.signal, controller.signal]), input.maxTokens ?? 0)
+          : this.generate(
+              partition,
+              input.systemPrompt,
+              input.infer,
+              AbortSignal.any([input.signal, controller.signal]),
+              input.tools
+            ),
         result: null,
         projectedMidLoop: false,
       };
@@ -785,21 +874,36 @@ export class BotCompactionCoordinator {
       this.pending.delete(input.contextSessionId);
       return null;
     }
-    const tail = closeBotPreservedTail(pending.capturedMessages.length, refreshed);
+    const external = pending.external;
+    const tail = external
+      ? [
+          ...(external.requestAfterSummary ? [external.requestAfterSummary] : []),
+          // The failed overflow response is not history; Pi drops it before retrying.
+          ...closeBotPreservedTail(Math.min(external.tailStart, pending.capturedMessages.length), refreshed).filter(
+            (message) => !(message.role === "assistant" && ["error", "aborted"].includes(String(message.stopReason)))
+          ),
+        ]
+      : closeBotPreservedTail(pending.capturedMessages.length, refreshed);
     const completedAt = new Date().toISOString();
     const tokensAfter = estimateBotContextTokens(
       input.systemPrompt,
-      [
-        ...(pending.partition.userInfoMessage ? [pending.partition.userInfoMessage] : []),
-        pending.partition.lastUserMessage,
-        botSummaryMessage(
-          result.text,
-          (await this.store.manifest(input.contextSessionId)).selfSummaryCount + 1,
-          Date.parse(completedAt),
-          pending.durableBlocks
-        ),
-        ...tail,
-      ],
+      external
+        ? [
+            ...(pending.partition.userInfoMessage ? [pending.partition.userInfoMessage] : []),
+            externalSummaryMessage(result.text, pending.durableBlocks, Date.parse(completedAt)),
+            ...tail,
+          ]
+        : [
+            ...(pending.partition.userInfoMessage ? [pending.partition.userInfoMessage] : []),
+            pending.partition.lastUserMessage,
+            botSummaryMessage(
+              result.text,
+              (await this.store.manifest(input.contextSessionId)).selfSummaryCount + 1,
+              Date.parse(completedAt),
+              pending.durableBlocks
+            ),
+            ...tail,
+          ],
       input.tools
     );
     await this.store.stage(input.contextSessionId, {
@@ -811,6 +915,7 @@ export class BotCompactionCoordinator {
       lastUserMessage: pending.partition.lastUserMessage,
       preservedTailMessages: tail,
       durableBlocks: pending.durableBlocks,
+      ...(external ? { flavor: "external" as const } : {}),
       summarizedMessages: redactBotArchiveMessages(
         pending.partition.messagesToSummarize.filter((message) => !isSummary(message))
       ),

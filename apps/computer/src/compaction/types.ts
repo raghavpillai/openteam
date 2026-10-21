@@ -80,6 +80,8 @@ export interface BotArchiveBlob {
   lastUserMessage: BotMessage;
   preservedTailMessages: BotMessage[];
   durableBlocks?: string[];
+  /** "external": overflow recovery; the carrier precedes the verbatim tail, which starts at the request. */
+  flavor?: "external";
   summarizedMessages?: BotMessage[];
   selfSummaryCount: number;
   tokensBefore: number | null;
@@ -132,6 +134,8 @@ export interface BotSummaryRequest {
   messagesToSummarize: BotMessage[];
   shorter: boolean;
   tools?: readonly BotSummaryTool[];
+  /** Overflow recovery: one flattened-transcript prompt, no tools, capped output. */
+  external?: { prompt: string; maxTokens: number };
 }
 
 export interface BotSummaryTool {

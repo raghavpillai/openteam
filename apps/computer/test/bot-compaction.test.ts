@@ -1,3 +1,4 @@
+import type { BotSummaryRequest } from "../src/bot-compaction";
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -1158,27 +1159,29 @@ describe("Bot coordinator", () => {
     ).toHaveLength(9_000);
   });
 
-  test("retains reduced retry input after an empty response", async () => {
+  test("overflow recovery sends a size-capped transcript and shrinks it after an input-limit error", async () => {
     const store = new BotCompactionArchiveStore(await workspace());
     const coordinator = new BotCompactionCoordinator(store, 0);
     const contextSessionId = crypto.randomUUID();
     const messages: BotMessage[] = [text("user", "goal")];
     for (let index = 0; index < 12; index += 1) {
-      messages.push(text(index % 2 ? "assistant" : "user", `message-${index}`));
+      messages.push(text(index % 2 ? "assistant" : "user", `message-${index} ${"x".repeat(30_000)}`));
     }
     messages.push(text("user", "latest"), text("assistant", "current work"));
     const promptSizes: number[] = [];
-    const shorter: boolean[] = [];
+    const requests: BotSummaryRequest[] = [];
     const prepared = await coordinator.beforePiCompaction({
       contextSessionId,
       piMessages: messages,
       reason: "overflow",
       firstKeptEntryId: "kept-entry",
       tokensBefore: 100_000,
+      maxTokens: 100_000,
       systemPrompt: "system-v1",
+      tools: [{ name: "Read", description: "Read", parameters: {} }],
       infer: async (request) => {
-        promptSizes.push(request.messagesToSummarize.length);
-        shorter.push(request.shorter);
+        requests.push(request);
+        promptSizes.push(request.external?.prompt.length ?? 0);
         if (promptSizes.length === 1) {
           const error = new Error("input token limit");
           error.name = "InputTokenLimitError";
@@ -1191,9 +1194,24 @@ describe("Bot coordinator", () => {
     });
     expect(prepared?.summary).toBe("recovered");
     expect(promptSizes).toHaveLength(3);
-    expect(promptSizes.at(1) ?? 0).toBeLessThan(promptSizes.at(0) ?? 0);
+    expect(promptSizes[0]).toBeLessThanOrEqual(219_000);
+    expect(promptSizes.at(1)!).toBeLessThan(promptSizes.at(0)!);
     expect(promptSizes.at(2)).toBe(promptSizes.at(1));
-    expect(shorter).toEqual([false, false, false]);
+    expect(requests[0]!.systemPrompt).toStartWith("You are an intelligent assistant, tasked with summarizing the following conversation.");
+    expect(requests[0]!.tools).toBeUndefined();
+    expect(requests[0]!.external!.maxTokens).toBe(25_000);
+    expect(requests[0]!.external!.prompt).toContain("user: latest");
+    expect(requests[0]!.external!.prompt).toEndWith("following this structure and ensuring precision and thoroughness in your response.</summarization_request>");
+    // The carrier comes first; the latest request and its tail stay verbatim after it.
+    await coordinator.afterPiCompaction({ contextSessionId, piBaseMessageCount: messages.length });
+    const projected = await store.contextMessages(contextSessionId, messages);
+    const textOf = (message: BotMessage) => typeof message.content === "string" ? message.content : (message.content as Array<{ text?: string }>).map((part) => part.text ?? "").join("");
+    expect(projected.map(textOf)).toEqual([
+      "[Previous conversation summary]: recovered",
+      "latest",
+      "current work",
+    ]);
+    expect(projected[0]!.providerOptions).toEqual({ cursor: { isSummary: true } });
   });
 
   test("does not enter the configured retry delay for empty output", async () => {

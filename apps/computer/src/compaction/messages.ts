@@ -93,7 +93,7 @@ export const isUserInfo = (message: BotMessage): boolean => {
 export const isSummary = (message: BotMessage): boolean =>
   cursorOptions(message).isSummary === true;
 
-const isInjectedReminder = (message: BotMessage): boolean => {
+export const isInjectedReminder = (message: BotMessage): boolean => {
   const cursor = cursorOptions(message);
   // A user message holding only reminder blocks is host steering, never the request.
   if (message.role === "user" && /^<system_reminder>[\s\S]*<\/system_reminder>$/.test(messageText(message).trim())) return true;

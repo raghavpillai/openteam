@@ -31,6 +31,18 @@ import { compactRepeatedDiscovery } from "./discovery-context";
 import { DISK_PRESSURE_REMINDER } from "./disk-pressure";
 import { graphicalProgressReminder } from "./graphical-completion";
 
+const TOO_MANY_MEDIA_MARKERS = [
+  "request contained too many images or documents",
+  "too many images or documents error",
+  "too many images and documents",
+  "too much media",
+];
+// Pi's overflow detector recognizes this phrase, which routes the error into compaction.
+const MEDIA_OVERFLOW_NOTE = "context_length_exceeded: too many images or documents";
+
+export const isTooManyMediaError = (message: unknown): boolean =>
+  typeof message === "string" && TOO_MANY_MEDIA_MARKERS.some((marker) => message.toLowerCase().includes(marker));
+
 export const modelVisibleSummaryTools = (
   tools: ReadonlyArray<{
     name: string;
@@ -266,6 +278,11 @@ export function compactionExtension(
       pi.on("message_end", async (event) => {
         if (event.message.role !== "assistant" || !active.session) return;
         const message = event.message as unknown as BotMessage;
+        // Too many images or documents is recovered like an overflow: Pi summarizes and retries.
+        if (message.stopReason === "error" && isTooManyMediaError(message.errorMessage)) {
+          compaction.forceReason(active.contextSessionId, "approaching_image_limit");
+          return { message: { ...event.message, errorMessage: `${String(message.errorMessage)} (${MEDIA_OVERFLOW_NOTE})` } };
+        }
         if (["error", "aborted"].includes(String(message.stopReason))) return;
         const measuredInputTokens = responseTokens(message, false);
         if (active.pendingCompactionMeasurement && measuredInputTokens > 0) {
@@ -355,7 +372,19 @@ export async function inferCompaction(
   // The summarization wrapper sends the normal model-visible schemas through
   // a stream-only session. Calling the model runtime directly gives us the same
   // surface while making tool execution structurally impossible.
-  const result = await modelRuntime.completeSimple(
+  const result = request.external ? await modelRuntime.completeSimple(
+    model,
+    {
+      systemPrompt: request.systemPrompt,
+      messages: [{ role: "user", content: [{ type: "text", text: request.external.prompt }], timestamp: Date.now() }] as never,
+      tools: [],
+    },
+    {
+      signal,
+      ...inferenceReasoningOptions(model, active.reasoning),
+      maxTokens: Math.min(request.external.maxTokens, model.maxTokens || request.external.maxTokens),
+    }
+  ) : await modelRuntime.completeSimple(
     model,
     {
       systemPrompt: botSummarySystemPrompt(request.systemPrompt),

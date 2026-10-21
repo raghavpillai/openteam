@@ -40,7 +40,7 @@ test('managed workflows omit categorical authentication and transaction handover
 
 test('connector skills install without asking and promise no connect card', () => {
   // OpenTeam has no connect cards: InstallPlugin installs, AuthenticateMcpServer starts sign-in.
-  for (const item of managed.skills.filter(s => s.id !== 'routines')) {
+  for (const item of managed.skills) {
     expect(item.content).not.toMatch(/connect card (is the ask|appears|handles|is shown)/);
     expect(item.content).not.toContain('once the user agrees, install it');
   }
@@ -57,6 +57,15 @@ test('the routines skill lists the trigger shapes the UpdateRoutine parser answe
   expect(skill('routines')).not.toContain('ready-made link');
   expect(skill('routines')).not.toContain('from the routine panel');
   expect(skill('routines')).toContain("point the user at those settings rather than giving them a URL");
+});
+
+test('a routine run hands a recurring auth failure to its parent', () => {
+  // SendToUser and AuthenticateMcpServer are parent-only in a run, and there are no connect cards.
+  const routines = skill('routines');
+  expect(routines).not.toContain('connect card');
+  expect(routines).not.toContain('SendToUser, SendToUser');
+  expect(routines).toContain('A run cannot reach the user or start a sign-in itself, so call WakeParent naming exactly what needs reconnecting');
+  expect(routines).toContain('the parent then calls AuthenticateMcpServer and sends the user the connection-settings link it returns.');
 });
 
 test('purchases takes the user\'s own card and keeps no card', () => {
@@ -198,8 +207,7 @@ test('every tool a managed skill names exists under that name', async () => {
     for (const name of new Set(names))
       if (!words.has(name) && !tool(name) && !connectorTools.has(name) && !argumentNames.has(name)) unknown.push(`${item.id}: ${name}`);
   }
-  // The routines skill belongs to another change and still names the reference's GetMcpTools.
-  expect(unknown).toEqual(['routines: GetMcpTools']);
+  expect(unknown).toEqual([]);
 });
 
 test('catalog has valid skill metadata and excludes retired workflows',()=>{

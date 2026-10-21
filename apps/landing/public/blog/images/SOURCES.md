@@ -48,6 +48,11 @@ Staged screenshots for the self-hosting guide use a made-up home server (`192.16
 - `openteam-install-model-test.png`: a passed model test with OpenRouter's Auto Router.
 - `openteam-install-first-bot.png`: the Create your first bot screen.
 
+Screenshots for the local-models guide are real captures, not staged. They come from the shipping desktop renderer, run in a local browser against a throwaway OpenTeam test server whose bots used Qwen 3.5 4B on Ollama, on 2026-10-21. The chat shows the model's actual replies:
+
+- `openteam-local-models-settings.png`: Settings → Server → Model with Ollama as the provider and the `qwen3.5-agent:latest` model.
+- `openteam-local-models-chat.png`: a bot's first turns on the local model, including its repeated greetings.
+
 Diagrams and charts for the engineering posts were drawn for this blog in HTML and SVG on a 1,000 px canvas, rendered at 2× and scaled to 1600 px wide. Numbers come from the source code. Each post's version frames share one template, so each component stays in the same place as the design grows:
 
 - `memory-design-overview.png`: the memory design's steps, and the first step compared with the final design.

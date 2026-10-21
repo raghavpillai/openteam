@@ -1,4 +1,5 @@
 import { SmartNotificationSettings } from "./smart-notifications";
+import { AutoReviewSettingsSection } from "./auto-review";
 import { Copy } from "lucide-react";
 import { lazy, type PropsWithChildren, Suspense, useState } from "react";
 import { signOut } from "../../../client/auth";
@@ -120,6 +121,8 @@ export default function GeneralSettings() {
       </SettingsGroup>
 
       <SmartNotificationSettings />
+
+      <AutoReviewSettingsSection />
 
       <SectionLabel>Appearance</SectionLabel>
       <SettingsGroup>

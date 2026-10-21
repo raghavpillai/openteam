@@ -693,6 +693,10 @@ describe("API contracts", () => {
     expect(renderControlResult("DisconnectChannel", { target: "channel", platform: "slack", disconnected: true }, { platform: "slack" })).toContain(
       "Disconnected slack."
     );
+    // The installed file is the picture; the source the model passed is what it may delete.
+    expect(renderControlResult("UpdateAvatar", {
+      target: "avatar", action: "set", path: "downloads/pic.png", resolved_path: "/home/box/sand-data/bots/b1/avatar.png", updated: true,
+    }, { action: "set", path: "downloads/pic.png" })).toBe("Updated your picture (avatar.png). Source pic.png can be deleted if you no longer need it.");
     expect(renderControlResult("UpdateAvatar", { target: "avatar", cleared: true }, { action: "clear" })).toBe(
       "Cleared your picture — back to the default."
     );

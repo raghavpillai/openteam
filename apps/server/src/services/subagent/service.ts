@@ -216,10 +216,18 @@ export class SubagentService {
       // Locks the row against a racing completion; a worker that finished or moved on gets nothing.
       const current = await tx.subagent.updateMany({ where: { id: subagent.id, currentRunId: run.id, status: "running" }, data: { currentRunId: run.id } });
       if (current.count === 0) return null;
+      const accepted = (runId: string, interruptedRunId: string | null) =>
+        appendEvent(tx, "subagent.message_accepted", subagent.id, { parentBotId, subagentId: subagent.id, runId, interruptedRunId, callId });
       const pending = run.status === "queued" ? await tx.inboxEvent.findFirst({ where: { runId: run.id, type: "subagent.steer", status: "pending" } }) : null;
       if (pending) {
-        const replaced = await tx.inboxEvent.updateMany({ where: { id: pending.id, status: "pending" }, data: { payload: { ...(pending.payload as Prisma.JsonObject), content: steer } } });
-        if (replaced.count > 0) return { runId: run.id, interruptRunId: null };
+        const payload = pending.payload as Prisma.JsonObject;
+        const replaced = await tx.inboxEvent.updateMany({ where: { id: pending.id, status: "pending" }, data: { payload: { ...payload, content: steer } } });
+        if (replaced.count > 0) {
+          // The child's transcript shows the message the model gets.
+          if (typeof payload.messageId === "string") await tx.message.update({ where: { id: payload.messageId }, data: { content: steer } });
+          await accepted(run.id, null);
+          return { runId: run.id, interruptRunId: null };
+        }
       }
       const channelId = run.channelId;
       if (!channelId) return null;
@@ -235,9 +243,7 @@ export class SubagentService {
       });
       await tx.subagentAttempt.update({ where: { id: attempt.id }, data: { childRunId: wake.run.id } });
       await tx.subagent.update({ where: { id: subagent.id }, data: { currentRunId: wake.run.id } });
-      await appendEvent(tx, "subagent.message_accepted", subagent.id, {
-        parentBotId, subagentId: subagent.id, runId: wake.run.id, interruptedRunId: run.id, callId,
-      });
+      await accepted(wake.run.id, run.id);
       return { runId: wake.run.id, interruptRunId: run.id };
     });
     if (!dispatch) return this.noRunningSubagentMessage(parentBotId, input.subagent_id);

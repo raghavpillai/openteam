@@ -88,6 +88,12 @@ test("MessageSubagent interrupts the running worker turn and starts a new worker
   expect(f.wakes).toHaveLength(1);
   expect(f.cancels).toHaveLength(1);
   expect(f.inbox[1].payload.content).toBe(subagentSteerPrompt("Actually, only the first tab."));
+  // The child's transcript shows the message it will get, and the replacing call is recorded too.
+  expect(f.messages["message-turn-2"]).toBe(f.inbox[1].payload.content);
+  expect(f.events.filter((event) => event.topic === "subagent.message_accepted").map((event) => event.payload)).toEqual([
+    { parentBotId: "parent", subagentId: "child", runId: "turn-2", interruptedRunId: "turn-1", callId: "call-1" },
+    { parentBotId: "parent", subagentId: "child", runId: "turn-2", interruptedRunId: null, callId: "call-2" },
+  ]);
   // Serialized with the worker's claim of the child's wakes.
   expect(f.locks).toEqual(["SELECT pg_advisory_xact_lock(hashtext(bot-run-claim:child-bot))", "SELECT pg_advisory_xact_lock(hashtext(bot-run-claim:child-bot))"]);
 });

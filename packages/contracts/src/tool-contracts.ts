@@ -1,6 +1,7 @@
 import reference from "./tool-reference.json";
 import native from "./native-tools.json";
 import { APP_SETTINGS_ANCHORS } from "./app-deep-links";
+import { ROBOT_AVATAR_SHAPES } from "./robot-avatar";
 import { defaultTaskConfiguration, taskTypeNames, type TaskConfiguration } from "./task-configuration";
 
 export interface ToolContract {
@@ -196,6 +197,11 @@ const adaptArgument = (tool: string, path: string, edits: Edits) => {
   const property = path.split(".").reduce((schema: any, key) => schema.properties[key], contracts[tool]!.inputSchema);
   property.description = edited(`${tool} ${path}`, property.description, edits);
 };
+
+// Bots are drawn as robots, so the default mark is one of the robot shapes the apps render;
+// any other shape would silently fall back to the default robot.
+contracts.UpdateProfile!.inputSchema.properties.avatar_shape.enum = [...ROBOT_AVATAR_SHAPES];
+adaptArgument("UpdateProfile", "avatar_shape", [["Your default mark,", "Your default robot,"]]);
 
 // Local commands and reads run directly; there is no local-tool approval.
 adaptDescription("Shell", [["require the user's local-tool approval.", "execute directly."]]);

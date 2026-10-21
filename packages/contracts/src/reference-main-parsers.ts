@@ -3,6 +3,7 @@
 import { z as external_exports } from "zod";
 import { refineDraftBody } from "./external-draft-body";
 import { formatArgumentIssues } from "./tool-arguments";
+import { ROBOT_AVATAR_SHAPES } from "./robot-avatar";
 const invariant=(value,message)=>{if(!value)throw new Error(message);};
 class SandToolInputError extends Error {}
 const CLOUD_AGENT_INJECTED_SECRET_NAMES_ENV_VAR = "CLOUD_AGENT_INJECTED_SECRET_NAMES";
@@ -1851,7 +1852,11 @@ function describeTrigger(trigger2) {
   ].join(" or ");
 }
 
-const schemas={"UpdateMemory":memoryParameters,"UpdateRoutine":routineParameters,"UpdateSkill":skillParameters,"UpdateProfile":profileParameters,"UpdateAvatar":avatarParameters,"DisconnectChannel":channelParameters,"Computer":computerActionParameters,"SendToUser":sendMessageParameters,"ReactToMessage":reactToMessageParameters,"SendFeedback":sendFeedbackParameters,"request_box_help":requestBoxHelpParameters,"DraftExternalMessage":draftExternalMessageParameters,"CheckSubagent":checkSubagentParameters,"MessageSubagent":messageSubagentParameters,"StopSubagent":stopSubagentParameters,"SendToAgent":sendToAgentLenientParameters,"CreateAgent":createAgentParameters,"UpdateAgent":updateAgentParameters,"CreateChannel":createChannelParameters,"UpdateChannel":updateChannelParameters,"CopyToBox":copyToBoxParameters,"CopyFromBox":copyFromBoxParameters,"RecallMemory":recallMemoryParameters};
+// Bots are drawn as robots: the default mark is one of the robot shapes the apps render.
+const adaptedProfileParameters = profileParameters.extend({
+  avatar_shape: external_exports.enum(ROBOT_AVATAR_SHAPES).optional(),
+});
+const schemas={"UpdateMemory":memoryParameters,"UpdateRoutine":routineParameters,"UpdateSkill":skillParameters,"UpdateProfile":adaptedProfileParameters,"UpdateAvatar":avatarParameters,"DisconnectChannel":channelParameters,"Computer":computerActionParameters,"SendToUser":sendMessageParameters,"ReactToMessage":reactToMessageParameters,"SendFeedback":sendFeedbackParameters,"request_box_help":requestBoxHelpParameters,"DraftExternalMessage":draftExternalMessageParameters,"CheckSubagent":checkSubagentParameters,"MessageSubagent":messageSubagentParameters,"StopSubagent":stopSubagentParameters,"SendToAgent":sendToAgentLenientParameters,"CreateAgent":createAgentParameters,"UpdateAgent":updateAgentParameters,"CreateChannel":createChannelParameters,"UpdateChannel":updateChannelParameters,"CopyToBox":copyToBoxParameters,"CopyFromBox":copyFromBoxParameters,"RecallMemory":recallMemoryParameters};
 // Explicit deployment extensions: connector secrets and personal environment scope.
 // Keep the captured refinements for every other SendToUser field.
 const localSecretSchema = sendMessageObjectSchema.shape.secret.unwrap().extend({

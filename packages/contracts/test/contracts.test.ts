@@ -50,6 +50,7 @@ import {
 } from "../src";
 import { normalizeMainToolArguments } from "../src/reference-main-parsers";
 import { renderControlResult } from "../src/tool-results";
+import { ROBOT_AVATAR_SHAPES } from "../src/robot-avatar";
 import cursorToolsDocument from "../src/cursor-tools.json";
 import nativeToolsDocument from "../src/native-tools.json";
 
@@ -673,6 +674,12 @@ describe("API contracts", () => {
       "UpdateMemory: pick the memory type it belongs in"
     );
     expect(() => normalizeMainToolArguments("UpdateProfile", { avatar_shape: "triangle" })).toThrow();
+    // The apps draw robots; a mark shape they can't render would reset the robot to the default.
+    expect(() => normalizeMainToolArguments("UpdateProfile", { avatar_shape: "cloud" })).toThrow("avatar_shape");
+    expect(normalizeMainToolArguments("UpdateProfile", { avatar_shape: "owl" })).toEqual({ avatar_shape: "owl" });
+    const shape = (UPDATE_PROFILE_TOOL.inputSchema as any).properties.avatar_shape;
+    expect(shape.enum).toEqual([...ROBOT_AVATAR_SHAPES]);
+    expect(shape.description).toBe("Your default robot, hidden while a custom picture is installed.");
     expect(normalizeMainToolArguments("UpdateMemory", { action: "write", fact: "x", type: "journal", scope: "user", tier: "note" })).toEqual({ action: "write", fact: "x", type: "journal" });
     expect(normalizeMainToolArguments("RecallMemory", { query: "launch", scope: "user", limit: 99 })).toEqual({ query: "launch" });
   });

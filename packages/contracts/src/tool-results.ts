@@ -161,9 +161,9 @@ export function renderControlResult(
   if (name === "SendToUser" && result.delivery_failed)
     return `Message to ${result.channel} was not delivered${result.reason ? `: ${result.reason}` : "."}${result.reason && !/[.!?]$/.test(result.reason) ? "." : ""} Tell the user it did not go through.`;
   if (name === "SendToUser" && result.sent)
-    return result.message_address || result.message_id
+    return `${result.message_address || result.message_id
       ? `Message sent to user. (id: ${result.message_address ?? result.message_id})`
-      : "Message sent to user.";
+      : "Message sent to user."}${sendsLocalFileSnapshot(args) ? ` ${FILE_SNAPSHOT_NOTE}` : ""}`;
   if (name === "MessageSubagent" && result.delivered)
     return `Message delivered to subagent ${args.subagent_id}. It will interrupt what it's doing, take your message into account, and keep working. You'll be revived with its result when it finishes — don't wait on it.`;
   if (name === "StopSubagent" && result.stopped_all) return renderStopAllSubagents(result);
@@ -209,6 +209,21 @@ export function renderControlResult(
     if (result.subagent_id) return describe(result, true);
   }
   return JSON.stringify(output);
+}
+
+// The reference adds that the Library lists only the latest copy per path; OpenTeam has no Library.
+const FILE_SNAPSHOT_NOTE =
+  "The user got a copy of the file as it is now. Later edits to the file do not reach them until you send it again; earlier copies stay in the chat unchanged.";
+const PICTURE_OR_VIDEO = /\.(?:avif|bmp|gif|ico|jpe?g|png|svg|webp|heic|heif|m4v|mov|mp4|ogv|webm)$/i;
+
+/** A local file other than a picture or video is delivered as a copy of how it is now. */
+function sendsLocalFileSnapshot(args: Record<string, any>): boolean {
+  if (args.type !== "attachment" || typeof args.url !== "string" || !/^file:/i.test(args.url.trim())) return false;
+  let path = args.url.trim();
+  try {
+    path = decodeURIComponent(new URL(path).pathname);
+  } catch {}
+  return !PICTURE_OR_VIDEO.test(path);
 }
 
 const PEERS_NOT_STOPPED =

@@ -137,3 +137,13 @@ test("SendToUser text gets real line breaks for escaped ones outside code", () =
   expect(content("Saved to C:\\new\\report.txt")).toBe("Saved to C:\\new\\report.txt");
   expect(normalizeMainToolArguments("SendToUser", { type: "attachment", url: "file:///workspace/a\\nb.pdf" }).url).toBe("file:///workspace/a\\nb.pdf");
 });
+test("a sent local file other than a picture or video carries the snapshot note", async () => {
+  const { renderControlResult } = await import("../src/tool-results");
+  const note = " The user got a copy of the file as it is now. Later edits to the file do not reach them until you send it again; earlier copies stay in the chat unchanged.";
+  const sent = (args: Record<string, unknown>) => renderControlResult("SendToUser", { sent: true, message_address: "t2s1" }, args);
+  expect(sent({ type: "attachment", url: "file:///workspace/report.pdf" })).toBe(`Message sent to user. (id: t2s1)${note}`);
+  expect(sent({ type: "attachment", url: "file:///workspace/notes" })).toBe(`Message sent to user. (id: t2s1)${note}`);
+  for (const url of ["file:///workspace/chart.png", "file:///workspace/clip.MP4", "https://example.com/report.pdf"])
+    expect(sent({ type: "attachment", url })).toBe("Message sent to user. (id: t2s1)");
+  expect(sent({ type: "text", content: "hi", images: [{ url: "file:///workspace/a.png" }] })).toBe("Message sent to user. (id: t2s1)");
+});

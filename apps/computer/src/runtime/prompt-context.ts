@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { BotMessage } from "../bot-compaction";
 import type { ActiveTurn } from "./types";
 import { taskUserInfo, type TaskConfiguration } from "@openteam/contracts/task-configuration";
+import { isWallClockCut } from "./stream-deadlines";
 
 const hash = (value: unknown) =>
   createHash("sha256")
@@ -107,9 +108,11 @@ export const PROGRESS_REMINDER =
 export const OUTPUT_LIMIT_REMINDER =
   "<system_reminder>Your response was cut off because it exceeded the output token limit. Please break your work into smaller pieces. Continue from where you left off.</system_reminder>";
 
-/** The latest response hit the output limit and this turn has not been told yet. */
-export const owesOutputLimitReminder = (messages: readonly BotMessage[], active: Pick<ActiveTurn, "outputLimitReminded">): boolean =>
-  !active.outputLimitReminded && messages.findLast((message) => message.role === "assistant")?.stopReason === "length";
+/** The latest response hit the output limit, or the turn's first wall-clock cut, which the reference treats as one; this turn has not been told yet. */
+export const owesOutputLimitReminder = (messages: readonly BotMessage[], active: Pick<ActiveTurn, "outputLimitReminded">): boolean => {
+  const last = messages.findLast((message) => message.role === "assistant");
+  return !active.outputLimitReminded && (last?.stopReason === "length" || (last !== undefined && isWallClockCut(last as { stopReason?: string; errorMessage?: string })));
+};
 
 const ACK_THRESHOLD = 1;
 const PROGRESS_THRESHOLD = 6;

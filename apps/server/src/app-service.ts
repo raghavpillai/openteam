@@ -221,7 +221,7 @@ export class AppService {
       this.prisma,
       this.messaging,
       this.durableState,
-      (runId) => this.channels.interruptNonUserRun(runId),
+      (runId) => this.channels.interruptRun(runId),
       this.todos,
       this.subagents,
       this.administration,

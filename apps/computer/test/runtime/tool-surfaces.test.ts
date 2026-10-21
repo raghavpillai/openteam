@@ -730,20 +730,40 @@ describe("context turn reservation", () => {
   });
 });
 
-test('foreground Task yields existing worker identity for pending steering instead of polling forever', async () => {
+test('a typed message superseding the turn hands a foreground Task to the background instead of dropping its worker', async () => {
   const runtime = runtimeTools() as any;
   const previousFetch = globalThis.fetch;
-  let calls = 0;
-  globalThis.fetch = (async (_url:any, init:any) => { calls++; const body=JSON.parse(init.body); return Response.json(body.foregroundYield ? {foregroundYielded:true,subagent_id:'existing-worker',status:'running',message:'MessageSubagent'} : {foregroundPending:true,subagent_id:'existing-worker',attempt_id:'attempt'}); }) as unknown as typeof fetch;
+  const requests: any[] = [];
+  let started!: () => void;
+  const polling = new Promise<void>((resolve) => { started = resolve; });
+  globalThis.fetch = (async (_url:any, init:any) => {
+    const body = JSON.parse(init.body);
+    requests.push(body);
+    if (body.foregroundYield) return Response.json({foregroundYielded:true,subagent_id:'existing-worker',status:'running',message:'MessageSubagent'});
+    started();
+    return await new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError'))));
+  }) as unknown as typeof fetch;
   try {
-    const result = await runtime.callControlPlaneTool({pendingSteers:[{content:'Apply correction'}]}, 'call', 'Task', {});
-    expect(calls).toBe(2);
-    expect(result.content[0].text).toContain('existing-worker');
-    expect(result.content[0].text).toContain('MessageSubagent');
+    const active: any = {pendingSteers:[]};
+    const turn = new AbortController();
+    const result = runtime.callControlPlaneTool(active, 'call', 'Task', {prompt:'long task'}, turn.signal);
+    await polling;
+    active.interruptedByUserAt = Date.now();
+    turn.abort();
+    const yielded = await result;
+    expect(requests.map((request) => request.foregroundYield === true)).toEqual([false, true]);
+    expect(yielded.content[0].text).toContain('existing-worker');
+    expect(yielded.content[0].text).toContain('MessageSubagent');
+    // A plain stop keeps the abort.
+    const stop = new AbortController();
+    const stopped = runtime.callControlPlaneTool({pendingSteers:[]}, 'call-2', 'Task', {prompt:'other'}, stop.signal);
+    await Bun.sleep(10);
+    stop.abort();
+    await expect(stopped).rejects.toThrow('aborted');
   } finally {globalThis.fetch=previousFetch;}
 });
 
-test('foreground Task keeps the same call identity while waiting without steering', async () => {
+test('foreground Task keeps the same call identity while waiting', async () => {
   const runtime = runtimeTools() as any;
   const previousFetch = globalThis.fetch;
   const requests: any[] = [];

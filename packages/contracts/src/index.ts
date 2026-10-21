@@ -1287,7 +1287,7 @@ export const COMPUTER_TOOL = {
 export const COMPUTER_USE_TOOL = { type: "function", ...referenceTool("Computer") };
 
 export const DynamicToolCallRequest = Schema.Struct({
-  // Runtime-only handoff; not a model-visible Task argument.
+  // Runtime-only handoff when a typed message supersedes the parent; not a model-visible Task argument.
   foregroundYield: Schema.optional(Schema.Boolean),
   runId: Schema.String,
   botId: Schema.String,
@@ -1335,11 +1335,11 @@ export const ComputerTurnRequest = Schema.Struct({
 });
 export type ComputerTurnRequest = typeof ComputerTurnRequest.Type;
 
+/** A parent's MessageSubagent steer into its running worker; typed user messages start a new turn instead. */
 export const ComputerSteerRequest = Schema.Struct({
   inboxId: Schema.String,
   clientMessageId: Schema.String,
   content: Schema.String.pipe(Schema.minLength(1)),
-  images: Schema.optional(Schema.Array(RuntimeInlineImage).pipe(Schema.maxItems(6))),
 });
 export type ComputerSteerRequest = typeof ComputerSteerRequest.Type;
 

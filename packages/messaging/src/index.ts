@@ -655,7 +655,7 @@ export interface WakeInput {
   taskContextRunId?: string;
   includeAttachmentPaths?: boolean;
   revival?: RevivalCompletion;
-  /** A typed message that superseded this non-user run gets the unfinished-tasks reminder. */
+  /** The run this typed message superseded; it gets the unfinished-tasks reminder when that run had dispatched. */
   interruptedRunId?: string;
 }
 
@@ -675,14 +675,6 @@ export interface ToolContext {
 export interface ToolResult {
   acknowledgement: string | Record<string, unknown>;
   interruptRunId: string | null;
-}
-
-export interface SteerDispatch {
-  activeRunId: string;
-  inboxId: string;
-  clientMessageId: string;
-  content: string;
-  images: RuntimeInlineImage[];
 }
 
 export const validateSendToUserInput = (value: unknown): void => {
@@ -1075,236 +1067,27 @@ export class AgentMessaging {
       throw new Error(`Runnable target bot ${input.botId} was not found`);
     }
 
+    // As in the reference, a typed message supersedes the turn in progress, whatever
+    // started it, and runs as a new turn; the superseded run's calls read as interrupted.
     const activeRun = bot.lease[0]?.run;
-    const canSteer =
-      activeRun?.origin === "user" &&
-      activeRun.channelId === input.channelId &&
-      input.isFork !== true &&
-      ["running"].includes(activeRun.status);
-    if (!canSteer || !activeRun) {
-      const interruptRunId =
-        activeRun && activeRun.origin !== "user" && ["running"].includes(activeRun.status)
-          ? activeRun.id
-          : null;
-      const queued = await this.enqueueWake(tx, {
-        ...input,
-        origin: "user",
-        type: "user.message",
-        priority: PRIORITY.user,
-        ...(interruptRunId ? { interruptedRunId: interruptRunId } : {}),
-      }, preparedAttachmentPaths);
-      return { ...queued, steer: null, interruptRunId };
-    }
-
-    const baseRuntimeContent = timestampUserTurn(input.content, {
-      occurredAt: input.occurredAt,
-      timeZone: input.timeZone ?? this.defaultTimeZone,
-    });
-    const attachments = await this.attachmentsForWake(input);
-    const attachmentPaths = preparedAttachmentPaths ?? await this.agentData.materializeAttachments(
-      bot.id,
-      input.clientId,
-      attachments
-    );
-    const runtimeContent = attachmentPaths.length
-      ? `${baseRuntimeContent}\n\nAttached files available on the shared computer:\n${attachmentContext(attachmentPaths, attachments)}`
-      : baseRuntimeContent;
-
-    const messageId = crypto.randomUUID();
-    const message = await tx.message.create({
-      data: {
-        id: messageId,
-        botId: bot.id,
-        conversationId: bot.conversation.id,
-        runId: activeRun.id,
-        clientId: input.clientId,
-        role: "user",
-        content: runtimeContent,
-        status: "completed",
-      },
-    });
-    const inbox = await tx.inboxEvent.create({
-      data: {
-        botId: bot.id,
-        conversationId: bot.conversation.id,
-        runId: activeRun.id,
-        idempotencyKey: input.clientId,
-        type: "user.message",
-        deliveryMode: "steer",
-        payload: json({
-          messageId,
-          content: runtimeContent,
-          attachments,
-          clientId: input.clientId,
-          channelId: input.channelId,
-          deliveryId: null,
-          origin: "user",
-          replyToMessageId: input.replyToMessageId ?? null,
-          isFork: input.isFork === true,
-          deliveryMode: "steer",
-          timeZone: resolveTimeZone(input.timeZone ?? this.defaultTimeZone),
-        }),
-        status: "processing",
-        priority: PRIORITY.user,
-        attempts: 1,
-        claimedAt: new Date(),
-      },
-    });
-    await tx.event.create({
-      data: {
-        topic: "message.accepted",
-        entityId: messageId,
-        payload: json({
-          messageId,
-          runId: activeRun.id,
-          conversationId: bot.conversation.id,
-          botId: bot.id,
-          channelId: input.channelId,
-          origin: "user",
-          deliveryMode: "steer",
-          inboxId: inbox.id,
-        }),
-      },
-    });
-    return {
-      message,
-      run: activeRun,
-      inbox,
-      steer: {
-        activeRunId: activeRun.id,
-        inboxId: inbox.id,
-        clientMessageId: input.clientId,
-        content: runtimeContent,
-        images: await this.assets.runtimeImages(attachments),
-      } satisfies SteerDispatch,
-      interruptRunId: null,
-    };
+    const interruptRunId = activeRun?.status === "running" ? activeRun.id : null;
+    const queued = await this.enqueueWake(tx, {
+      ...input,
+      origin: "user",
+      type: "user.message",
+      priority: PRIORITY.user,
+      ...(interruptRunId ? { interruptedRunId: interruptRunId } : {}),
+    }, preparedAttachmentPaths);
+    return { ...queued, interruptRunId };
   }
 
-  async promoteSteerToWake(tx: Prisma.TransactionClient, inboxId: string, reason: string) {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`steer:${inboxId}`}))`;
-    const inbox = await tx.inboxEvent.findUnique({
-      where: { id: inboxId },
-      include: { run: true },
+  /** A worker steer belongs to its dispatched task; one its turn never took fails instead of becoming a new turn. */
+  async failUndeliveredSteers(tx: Prisma.TransactionClient, where: { runId: string } | { botId: string }, reason: string) {
+    const failed = await tx.inboxEvent.updateMany({
+      where: { ...where, deliveryMode: "steer", status: { in: ["pending", "processing"] } },
+      data: { status: "failed", completedAt: new Date(), error: json({ code: "subagent_steer_target_ended", reason }) },
     });
-    if (!inbox) throw new Error(`Steering inbox ${inboxId} was not found`);
-    if (inbox.deliveryMode !== "steer" || inbox.status === "completed") {
-      return { promoted: false, run: inbox.run };
-    }
-    if (!["pending", "processing"].includes(inbox.status)) {
-      return { promoted: false, run: inbox.run };
-    }
-    // A worker steer belongs to one dispatched task. Replaying it as a user
-    // turn loses the worker's authorization, parent and completion routing.
-    // Only ordinary user steering may fall back to a new foreground turn.
-    if (inbox.type === "subagent.steer") {
-      await tx.inboxEvent.update({
-        where: { id: inbox.id },
-        data: {
-          status: "failed",
-          completedAt: new Date(),
-          error: json({ code: "subagent_steer_target_ended", reason }),
-        },
-      });
-      return { promoted: false, run: inbox.run };
-    }
-    const payload = inbox.payload as {
-      messageId?: string;
-      content?: string;
-      clientId?: string;
-      channelId?: string;
-    };
-    if (!payload.messageId || !payload.content || !payload.clientId || !payload.channelId) {
-      throw new Error(`Steering inbox ${inboxId} has an invalid payload`);
-    }
-    const run = await tx.run.create({
-      data: {
-        id: crypto.randomUUID(),
-        botId: inbox.botId,
-        conversationId: inbox.conversationId,
-        userMessageId: payload.messageId,
-        origin: "user",
-        channelId: payload.channelId,
-      },
-    });
-    await tx.message.update({
-      where: { id: payload.messageId },
-      data: { runId: run.id },
-    });
-    await tx.inboxEvent.update({
-      where: { id: inbox.id },
-      data: {
-        runId: run.id,
-        deliveryMode: "turn",
-        payload: json({
-          ...payload,
-          deliveryMode: "turn",
-          fallbackFrom: "steer",
-          fallbackReason: reason,
-        }),
-        status: "pending",
-        availableAt: new Date(),
-        claimedAt: null,
-        completedAt: null,
-      },
-    });
-    await tx.event.create({
-      data: {
-        topic: "message.steer_fallback_queued",
-        entityId: payload.messageId,
-        payload: json({
-          messageId: payload.messageId,
-          inboxId: inbox.id,
-          previousRunId: inbox.runId,
-          runId: run.id,
-          reason,
-        }),
-      },
-    });
-    await this.boss.send(
-      "bot-wake",
-      { botId: inbox.botId },
-      {
-        db: fromPrisma(tx),
-        retryLimit: 5,
-        retryDelay: 2,
-        retryBackoff: true,
-        expireInSeconds: 3 * 60,
-      }
-    );
-    return { promoted: true, run };
-  }
-
-  async promoteUndeliveredSteers(tx: Prisma.TransactionClient, runId: string, reason: string) {
-    const pending = await tx.inboxEvent.findMany({
-      where: {
-        runId,
-        deliveryMode: "steer",
-        status: { in: ["pending", "processing"] },
-      },
-      orderBy: { createdAt: "asc" },
-      select: { id: true },
-    });
-    for (const inbox of pending) {
-      await this.promoteSteerToWake(tx, inbox.id, reason);
-    }
-    return pending.length;
-  }
-
-  async promoteOrphanedSteers(tx: Prisma.TransactionClient, botId: string, reason: string) {
-    const pending = await tx.inboxEvent.findMany({
-      where: {
-        botId,
-        deliveryMode: "steer",
-        status: { in: ["pending", "processing"] },
-      },
-      orderBy: { createdAt: "asc" },
-      select: { id: true },
-    });
-    for (const inbox of pending) {
-      await this.promoteSteerToWake(tx, inbox.id, reason);
-    }
-    return pending.length;
+    return failed.count;
   }
 
   async enqueueBootstrap(tx: Prisma.TransactionClient, botId: string, channelId: string) {

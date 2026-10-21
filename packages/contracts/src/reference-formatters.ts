@@ -295,48 +295,4 @@ function describeOutputLocation(loc, opts) {
   return `${lead} written to file: ${loc.filePath}
 Size: ${formatOutputLocationSize(loc.sizeBytes)}, ${loc.lineCount} lines`;
 }
-const SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME = "RemapUserFormTargets";
-const SAND_REMAP_USER_FORM_TARGETS_CALL_HINT = `CallDynamicTool with namespace "cursor", toolName "${SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME}", and arguments { "targets": [{ "fieldId": "<held id>", "target": { "kind": "ref" | "selector" | "label", "value": "<ref, selector, or label>" } }] } (GetDynamicTools on that namespace shows the schema)`;
-const REMAP_FAILED_STATUS_BY_KIND = {
-  driver_unavailable: "NOT FILLED: the host could not reach the box browser, so nothing was written",
-  target_gone: "NOT FILLED: the new ref no longer resolves \u2014 the page re-rendered since that snapshot",
-  target_missing: "NOT FILLED: nothing on the live page matched the new target",
-  in_unreachable_frame: "NOT FILLED: the new target sits in a frame the host cannot enter (cross-origin iframe)",
-  in_closed_shadow: "NOT FILLED: the new target sits behind a closed shadow root the host cannot reach",
-  fill_op_failed: "NOT FILLED: the new target resolved to a live element but the write errored",
-  hidden_target: "REFUSED: the new target resolved, but it is a control the user cannot see (display:none, zero-size, or aria-hidden) \u2014 a hidden twin, honeypot, or not-yet-revealed step. The host never writes into a hidden control",
-  page_moved: "NOT FILLED: the live tab moved to a different page or step before this write, so the host stopped"
-};
-function buildUserFormRemapReceipt(outcome) {
-  if (outcome.kind === "no_hold") {
-    return `Nothing to remap: the host holds no submitted values for this agent. A remap is offered on a fill receipt and is spent by the first ${SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME} call or by the end of that turn. If a field still needs filling, re-ask with a new RequestUserForm or hand the user the screen with request_box_help.`;
-  }
-  if (outcome.kind === "unknown_fields") {
-    return `Nothing was written: ${outcome.unknownFieldIds.map((id) => `"${id}"`).join(", ")} ${outcome.unknownFieldIds.length === 1 ? "is not a field" : "are not fields"} the host holds a value for. The held field ids are ${outcome.heldFieldIds.map((id) => `"${id}"`).join(", ")} \u2014 call again via ${SAND_REMAP_USER_FORM_TARGETS_CALL_HINT} with only those (the hold stands until this turn ends).`;
-  }
-  const lines2 = outcome.outcomes.map((fieldOutcome) => {
-    const kind = outcome.fillFailureKinds?.[fieldOutcome.id];
-    let status = "NOT FILLED (the write was refused)";
-    if (fieldOutcome.filled) {
-      status = "filled into the page with the value the user submitted";
-    } else if (kind !== void 0) {
-      status = REMAP_FAILED_STATUS_BY_KIND[kind];
-    }
-    return `- ${fieldOutcome.id}: ${status}`;
-  });
-  const notRemapped = outcome.notRemappedFieldIds.map(
-    (id) => `- ${id}: not remapped \u2014 its held value was discarded`
-  );
-  const mismatch = outcome.domainMismatch != null ? [
-    `The host REFUSED to write: the live page (${outcome.domainMismatch.liveHost != null ? `host ${outcome.domainMismatch.liveHost}` : "host unknown"}) is not the host the user consented to. Nothing was written.`
-  ] : [];
-  const anyFailed = outcome.outcomes.some((fieldOutcome) => !fieldOutcome.filled) || notRemapped.length > 0;
-  return [
-    "[Remap result \u2014 the host wrote the values the user already submitted; no value is returned to you:",
-    ...mismatch,
-    ...lines2,
-    ...notRemapped,
-    `The held values for this form are now discarded (one remap per form).${anyFailed ? " For a field that did not land, do NOT immediately re-issue a form for it: the user already typed it once. Continue the task if the page moved on, or hand the user the screen with request_box_help; re-ask with a new RequestUserForm only if the step cannot proceed any other way." : ""} Take a fresh page SNAPSHOT (not a screenshot) before the next action, and click the site's submit control yourself.]`
-  ].join("\n");
-}
-export { formatBytes2, describeUploadFileOutcome, formatBytes, describeDownloadFileOutcome, describeCookieOriginRequestEntry, describeGrants, formatChromeCookieImportOutcome, truncationNotice, renderContactsResult, MCP_LABEL_HOSTILE_CHARS, encodeMcpAccountLabelForListing, DEFAULT_MCP_CONNECTOR_INSTRUCTIONS, getDefaultMcpCustomInstruction, truncateOneLine, describeInstalled, describeInstalledList, describePluginInstallState, describePluginIncludes, describePluginSummary, describePluginFields, describePluginDetail, PLUGIN_QUERY_MIN_TOKEN_LENGTH, tokenizePluginQuery, scorePluginForToken, rankPluginsLexically, formatOutputLocationSize, describeOutputLocation, SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME, SAND_REMAP_USER_FORM_TARGETS_CALL_HINT, REMAP_FAILED_STATUS_BY_KIND, buildUserFormRemapReceipt };
+export { formatBytes2, describeUploadFileOutcome, formatBytes, describeDownloadFileOutcome, describeCookieOriginRequestEntry, describeGrants, formatChromeCookieImportOutcome, truncationNotice, renderContactsResult, MCP_LABEL_HOSTILE_CHARS, encodeMcpAccountLabelForListing, DEFAULT_MCP_CONNECTOR_INSTRUCTIONS, getDefaultMcpCustomInstruction, truncateOneLine, describeInstalled, describeInstalledList, describePluginInstallState, describePluginIncludes, describePluginSummary, describePluginFields, describePluginDetail, PLUGIN_QUERY_MIN_TOKEN_LENGTH, tokenizePluginQuery, scorePluginForToken, rankPluginsLexically, formatOutputLocationSize, describeOutputLocation };

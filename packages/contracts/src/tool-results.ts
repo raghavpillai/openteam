@@ -69,6 +69,9 @@ export function renderControlResult(
     if (result.delivery === "pending") return `Draft ${where} ${card} ${result.note}`;
     return `Draft ${where} ${card} Nothing has been sent; the user reviews, may edit, and sends or discards it from the card.`;
   }
+  if (name === "RequestUserForm" && result.sent)
+    return "Showed the form to the user; your turn is over. When they submit, the host fills the browser and resumes you with a per-field receipt (fill statuses only, never the submitted values). If they dismiss it, you'll be resumed with that outcome. If they choose to do the step on the screen instead, the host hands them the box directly (same as request_box_help) and you'll be resumed when they hand it back."
+      + (typeof result.preflightNote === "string" ? `\n\n${result.preflightNote}` : "");
   if (isStateTool(name)) {
     const labels: Record<string, string> = {
       name: "name",

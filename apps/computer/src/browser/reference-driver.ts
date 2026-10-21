@@ -1387,16 +1387,27 @@ async function fillCommitState(element, value) {
 	return element.evaluate(FILL_COMMIT_STATE_FN, value);
 }
 
-async function typeFillValuePerKey(page, element, value, secret, beforeWrite) {
+async function typeFillValuePerKey(page, element, value, secret, beforeWrite, bindEachKeyToTarget = false) {
 	if (secret !== true) {
 		await beforeWrite?.();
 		await page.keyboard.type(value, { delay: 20 });
 		return;
 	}
 	if (!(await element.evaluate(TOP_WINDOW_REACHABLE_FN))) {
-		throw new Error(
-			"The target sits in a cross-origin frame, where the host cannot watch keyboard focus across the frame boundary while a secret types, so the per-key fill was refused and the field was left unfilled. Hand the user the screen for this field.",
-		);
+		if (!bindEachKeyToTarget) {
+			throw new Error(
+				"The target sits in a cross-origin frame, where the host cannot watch keyboard focus across the frame boundary while a secret types, so the per-key fill was refused and the field was left unfilled. Hand the user the screen for this field.",
+			);
+		}
+		// ElementHandle.type focuses its element before typing. Repeating that
+		// action per character keeps a single-control secret bound to the resolved
+		// target even when a cross-origin parent changes focus between keys.
+		for (const char of value) {
+			await beforeWrite?.();
+			await element.type(char);
+			await sleep(20);
+		}
+		return;
 	}
 	noteSkippedDocuments(
 		"arming the secret-fill focus sentinel on every reachable document",
@@ -1724,7 +1735,7 @@ const referenceFill = async ({ request, page, element: suppliedElement = undefin
 						.catch((failure) =>
 							noteIgnoredFailure("clearing the masked control before per-key typing", failure),
 						);
-					await typeFillValuePerKey(page, element, request.value, request.secret, beforeWrite);
+					await typeFillValuePerKey(page, element, request.value, request.secret, beforeWrite, true);
 					if ((await fillCommitState(element, request.value)) === "swallowed") {
 						throw new Error(
 							"The control did not keep the inserted text: an input mask on the page rejected both the set-value insert and per-key typing, so the field was left unfilled.",

@@ -59,6 +59,7 @@ import { withAgentOutputBudget } from "./runtime/output-budget";
 import { inferenceMetricsExtension } from "./runtime/inference-metrics";
 import { IdleProviderConnections, InferenceProviderConnections } from "./runtime/provider-connections";
 import { untrustedResultsExtension } from "./runtime/untrusted-results";
+import { retryFirstOutputStalls, streamDeadlines, type StreamTimers } from "./runtime/stream-deadlines";
 import { directDynamicToolsExtension } from "./runtime/direct-dynamic-tools";
 import { enrichUserInfo, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder } from "./runtime/prompt-context";
 import { pinDynamicToolCatalog } from "./runtime/catalog-snapshot";
@@ -110,6 +111,8 @@ export class ComputerRuntime {
   private authenticated = false;
   private authentication: { type: "api_key" | "oauth"; source?: string } | undefined;
   private started = false;
+  /** Model stream deadline clock; tests replace it. */
+  private readonly streamTimers?: StreamTimers;
 
   constructor(
     private readonly screens = new ScreenBroker(),
@@ -770,11 +773,14 @@ export class ComputerRuntime {
     // Pi's request timeout covers headers. Its CLI also installs a body-idle
     // dispatcher, but embedded sessions need their own response-body guard.
     const stream = session.agent.streamFunction;
-    session.agent.streamFunction = (model, context, options) => stream(model, context,
+    const deadlines = streamDeadlines(this.streamTimers);
+    session.agent.streamFunction = deadlines.wrap((model, context, options) => stream(model, context,
       model.api === "openai-completions" ? {
         ...options,
         fetch: providerIdleFetch(options?.fetch ?? fetch, settingsManager.getHttpIdleTimeoutMs()),
-      } : options);
+      } : options));
+    session.subscribe((event) => deadlines.observe(event));
+    retryFirstOutputStalls(session);
     return session;
   }
 
@@ -822,7 +828,7 @@ export class ComputerRuntime {
       if (!session) throw new Error("Pi session is not attached");
       await this.compaction.beginUserQuery(active.contextSessionId, active.resetSelfSummaryCount);
       await active.session?.prompt(content, { source: "rpc", images });
-      // A reply cut off at the output limit ends the loop; continue it once.
+      // A reply cut off at the output limit (or the turn's first wall-clock cut) ends the loop; continue it once.
       if (owesOutputLimitReminder(session.messages as BotMessage[], active) && !active.endTurnRequested &&
           !active.pluginAbortController?.signal.aborted) {
         active.outputLimitReminded = true;

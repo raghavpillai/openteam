@@ -269,7 +269,7 @@
   },
   "UpdateRoutine": {
     "name": "UpdateRoutine",
-    "description": "Create or change your routines: saved prompts that fire on a schedule or when an outside event arrives, even while the user is away. Your current routines and their folder ids are listed under Scheduled routines in your prompt.\nBe proactive: when an ask is recurring, time-based, or \"tell me when X\", create a routine (or offer one when unsure it's wanted) instead of doing it once. Read the managed `routines` skill before creating or changing one; it has the full recipe, including every trigger shape.\n- create: name, prompt, and schedule or trigger. update: id plus only the fields to change; omitted fields keep their current values and the routine keeps its history. pause (disarm one the user wants back later), resume (rearm it), delete (remove a finite watch as soon as it has done its job): id.\nschedule: 5-field cron in the user's local time (or @hourly/@daily/@weekly/@monthly/\"@every 2h\"), at least 5 minutes apart. A clock time the user names is saved as named (\"8am\" is \"0 8 * * *\"); only an ask that names no time takes the minute from the latest <timestamp>.\nCreating or changing a routine may ask the user to confirm, since it's the one change that acts while they're away. If it does, they'll see a card and you'll get their answer back as the tool result; don't ask first, and don't retry a denied write.",
+    "description": "Read, create, or change your routines: saved prompts that fire on a schedule or when an outside event arrives, even while the user is away. Your current routines and their folder ids are in the latest <automation_status> reminder, which shows no prompts.\nBe proactive: when an ask is recurring, time-based, or \"tell me when X\", create a routine (or offer one when unsure it's wanted) instead of doing it once, except joining a meeting or saving what to do in one (JoinMeeting or UpdateMeeting). Read the Cursor-managed `routines` skill before creating or changing one; it has the full recipe, including every trigger shape.\n- create: name, prompt, and schedule or trigger. get: id; returns the saved prompt, trigger, and timing. update: id plus only the fields to change. pause, resume, delete: id.\nBefore you change a routine's prompt or describe what it does, get it and work from the saved text, not from memory.\nschedule: 5-field cron in the user's local time (or @hourly/@daily/@weekly/\"@every 2h\"), at least 5 minutes apart; take the minute from the latest <timestamp>, never :00 or :30 unless the user named it.\nA change may ask the user to confirm on a card; don't ask first, and don't retry a denied write.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -277,6 +277,7 @@
           "type": "string",
           "enum": [
             "create",
+            "get",
             "update",
             "pause",
             "resume",
@@ -291,567 +292,47 @@
         "name": {
           "type": "string",
           "minLength": 1,
-          "description": "Required on create. On update, omit to keep the current name."
+          "description": "Required on create."
         },
         "prompt": {
           "type": "string",
           "minLength": 1,
-          "description": "What you should do each time it fires, written to your future self. Write it as an INTENT, not a frozen tool recipe: a connector's schema can change between fires, so describe the goal and let each run look the tool up. Required on create; on update, omit to keep the current prompt."
+          "description": "What to do each time it fires, written to your future self as an intent, not a frozen tool recipe. Required on create."
         },
         "schedule": {
           "type": "string",
           "minLength": 1,
-          "description": "Shorthand for a cron trigger — \"0 7 * * *\", \"@daily\", \"@every 2h\" — interpreted in the user's local time. Calendar shorthands take their clock fields from the routine's creation time, and unphased @every intervals anchor to creation. A clock time the user names is saved as named, so \"8am\" is \"0 8 * * *\" and \"daily at 2\" is \"0 2 * * *\"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 \"hourly\" is \"32 * * * *\". Use this OR trigger, never both. On update, omit (with trigger) to keep the current fire condition."
+          "description": "See the description. Never with trigger."
         },
         "trigger": {
-          "anyOf": [
-            {
-              "anyOf": [
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "cron"
-                    },
-                    "schedule": {
-                      "$ref": "#/properties/schedule",
-                      "description": "A 5-field cron expression in the user's local time (\"0 7 * * *\"), or a shorthand (@hourly/@daily/@weekly/@monthly, \"@every 30m\"). Calendar shorthands take their clock fields from the routine's creation time, and unphased @every intervals anchor to creation. A clock time the user names is saved as named, so \"8am\" is \"0 8 * * *\" and \"daily at 2\" is \"0 2 * * *\"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 \"hourly\" is \"32 * * * *\"."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "schedule"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "slack"
-                    },
-                    "channel": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "A channel (\"#eng\"), a DM (\"@dana\"), or \"*\" for anywhere."
-                    },
-                    "match": {
-                      "anyOf": [
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "mention"
-                            }
-                          },
-                          "required": [
-                            "kind"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "keyword"
-                            },
-                            "keyword": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "keyword"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "message"
-                            }
-                          },
-                          "required": [
-                            "kind"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "reaction"
-                            },
-                            "emoji": {
-                              "type": "array",
-                              "items": {
-                                "type": "string",
-                                "minLength": 1
-                              },
-                              "description": "Normalized short names without colons (\"eyes\", \"white_check_mark\"). Absent or empty means any emoji."
-                            },
-                            "bySelf": {
-                              "type": "boolean",
-                              "description": "When true, only the user's own reactions fire it — not a colleague's."
-                            }
-                          },
-                          "required": [
-                            "kind"
-                          ]
-                        }
-                      ],
-                      "description": "What makes a message count as a match."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "channel",
-                    "match"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "github"
-                    },
-                    "repo": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "One concrete \"owner/name\" repo. No wildcards; omit pr for repo-wide events."
-                    },
-                    "events": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "enum": [
-                          "pr-opened",
-                          "pr-pushed",
-                          "pr-merged",
-                          "pr-closed",
-                          "review-requested",
-                          "review-approved",
-                          "review-changes-requested",
-                          "review-commented",
-                          "pr-comment",
-                          "inline-review-comment",
-                          "review-thread-resolved",
-                          "review-thread-unresolved",
-                          "issue-assigned",
-                          "ci-passed",
-                          "ci-failed"
-                        ]
-                      },
-                      "minItems": 1,
-                      "description": "Which GitHub events fire this routine. For a PR babysitter, use [\"review-requested\", \"review-approved\", \"review-changes-requested\", \"review-commented\", \"pr-comment\", \"inline-review-comment\", \"review-thread-resolved\", \"review-thread-unresolved\", \"pr-pushed\", \"pr-merged\", \"pr-closed\", \"ci-passed\", \"ci-failed\"]."
-                    },
-                    "pr": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0,
-                      "description": "Optional pull request number. When set, only events for that PR fire; a listener containing pr-merged or pr-closed deletes itself after that terminal wake finishes."
-                    },
-                    "userAllowlist": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "description": "Git usernames that may fire this listener (\"alice\", \"@bob\"). Absent or empty means anyone. Does not apply to ci-passed/ci-failed — CI is never user-gated."
-                    },
-                    "ciBranch": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "REQUIRED when repo-wide events includes ci-passed or ci-failed: the one branch whose settled checks fire them (\"main\"). Omit it when pr is set; that PR scopes CI instead."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "repo",
-                    "events"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "origin"
-                    },
-                    "repo": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "One concrete native Origin \"owner/name\" repo. Mirrored repos are rejected; no wildcards."
-                    },
-                    "events": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "enum": [
-                          "pr-opened",
-                          "pr-pushed",
-                          "pr-merged",
-                          "review-requested",
-                          "review-approved",
-                          "review-changes-requested",
-                          "review-commented",
-                          "pr-comment",
-                          "inline-review-comment",
-                          "review-thread-resolved",
-                          "review-thread-unresolved",
-                          "ci-passed",
-                          "ci-failed"
-                        ]
-                      },
-                      "minItems": 1,
-                      "description": "Which Origin events fire this routine. For a PR babysitter, use [\"review-requested\", \"review-approved\", \"review-changes-requested\", \"review-commented\", \"pr-comment\", \"inline-review-comment\", \"review-thread-resolved\", \"review-thread-unresolved\", \"pr-pushed\", \"pr-merged\", \"ci-passed\", \"ci-failed\"]."
-                    },
-                    "pr": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0,
-                      "description": "Optional Origin pull request number. Required for ci-passed/ci-failed; a listener containing pr-merged deletes itself after that merged wake finishes."
-                    },
-                    "userAllowlist": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "description": "Origin actor IDs in either user-facing or internal numeric form. PR/comment events gate the PR owner; review/reviewer/thread events require both actor and PR owner; CI ignores this list. Missing required identities fail closed."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "repo",
-                    "events"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "microsoftTeams"
-                    },
-                    "tenantId": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "The Microsoft Entra tenant ID."
-                    },
-                    "teamId": {
-                      "type": "string",
-                      "description": "One Microsoft Teams Graph API team ID. At least one of teamId or teamIds is required."
-                    },
-                    "teamIds": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Microsoft Teams Graph API team IDs. At least one of teamId or teamIds is required."
-                    },
-                    "channelIds": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Optional channel filter using Microsoft Teams Graph API channel IDs. Empty or absent means every channel."
-                    },
-                    "messageContains": {
-                      "type": "string",
-                      "description": "Optional message text filter. Empty or absent means any message."
-                    },
-                    "messageContainsIsRegex": {
-                      "type": "boolean",
-                      "description": "Whether messageContains is a regular expression."
-                    },
-                    "blockUnauthenticatedTeamsUsers": {
-                      "type": "boolean",
-                      "description": "When true, messages from unauthenticated Microsoft Teams users do not fire it."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "tenantId"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "linear"
-                    },
-                    "event": {
-                      "anyOf": [
-                        {
-                          "type": "object",
-                          "properties": {
-                            "case": {
-                              "type": "string",
-                              "const": "issueCreated",
-                              "description": "Fire when a Linear issue is created."
-                            }
-                          },
-                          "required": [
-                            "case"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "case": {
-                              "type": "string",
-                              "const": "statusChanged",
-                              "description": "Fire when a Linear issue changes status."
-                            },
-                            "statusIds": {
-                              "type": "array",
-                              "items": {
-                                "type": "string"
-                              },
-                              "description": "Optional narrowing filter using Linear status UUIDs. Empty or absent means any status."
-                            }
-                          },
-                          "required": [
-                            "case"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "case": {
-                              "type": "string",
-                              "const": "endOfCycle",
-                              "description": "Fire when a Linear cycle ends."
-                            },
-                            "cycleIds": {
-                              "type": "array",
-                              "items": {
-                                "type": "string"
-                              },
-                              "description": "Optional narrowing filter using Linear cycle UUIDs. Empty or absent means any cycle."
-                            }
-                          },
-                          "required": [
-                            "case"
-                          ]
-                        }
-                      ],
-                      "description": "Which Linear event fires this routine."
-                    },
-                    "projectIds": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Optional narrowing filter using Linear project UUIDs. Empty or absent means any project."
-                    },
-                    "teamIds": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Optional narrowing filter using Linear team UUIDs. Empty or absent means any team."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "event"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "sentry"
-                    },
-                    "event": {
-                      "type": "object",
-                      "properties": {
-                        "case": {
-                          "type": "string",
-                          "enum": [
-                            "issueCreated",
-                            "issueResolved",
-                            "issueAssigned",
-                            "issueArchived",
-                            "issueUnresolved",
-                            "issueAny"
-                          ],
-                          "description": "Which Sentry issue event fires the routine."
-                        }
-                      },
-                      "required": [
-                        "case"
-                      ],
-                      "description": "The Sentry event to watch."
-                    },
-                    "projectIds": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Optional project ID filter. Empty or absent means any Sentry project."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "event"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "pagerduty"
-                    },
-                    "event": {
-                      "type": "object",
-                      "properties": {
-                        "case": {
-                          "type": "string",
-                          "enum": [
-                            "incidentTriggered",
-                            "incidentAcknowledged",
-                            "incidentResolved",
-                            "incidentEscalated",
-                            "incidentAny"
-                          ],
-                          "description": "Which PagerDuty incident event fires the routine."
-                        }
-                      },
-                      "required": [
-                        "case"
-                      ],
-                      "description": "The PagerDuty event to watch."
-                    },
-                    "serviceIds": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Optional service ID filter. Empty or absent means any PagerDuty service."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "event"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "email"
-                    },
-                    "inbox": {
-                      "type": "string",
-                      "description": "One of the user's connected Email plugin inbox addresses (ListEmailInboxes)."
-                    },
-                    "from": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Optional sender addresses. Omit for any sender."
-                    },
-                    "requireAuthPass": {
-                      "type": "boolean",
-                      "description": "Default true; false also wakes on mail that failed SPF/DKIM/DMARC."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "inbox"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "webhook"
-                    }
-                  },
-                  "required": [
-                    "type"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "group"
-                    },
-                    "listeners": {
-                      "type": "array",
-                      "items": {
-                        "anyOf": [
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/0"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/1"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/2"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/3"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/4"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/5"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/6"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/7"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/8"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/9"
-                          }
-                        ]
-                      },
-                      "minItems": 1,
-                      "description": "Any one of these fires the same prompt. Origin may mix with cron, Slack, or GitHub, but not with server-only listener types."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "listeners"
-                  ]
-                }
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "slack",
+                "github",
+                "origin",
+                "microsoftTeams",
+                "linear",
+                "sentry",
+                "pagerduty",
+                "email",
+                "webhook",
+                "cron",
+                "group"
               ]
-            },
-            {
-              "type": "array",
-              "items": {
-                "$ref": "#/properties/trigger/anyOf/0/anyOf/10/properties/listeners/items"
-              },
-              "minItems": 1,
-              "description": "Bare-array shorthand for the group form: any one member fires the prompt."
             }
+          },
+          "required": [
+            "type"
           ],
-          "description": "What fires the routine. Prefer an event listener (Slack, GitHub, Origin, Microsoft Teams, Linear, Sentry, PagerDuty, email) over polling on a cron when the event you care about is one of the listed shapes; never pass both this and the schedule argument."
+          "additionalProperties": {},
+          "description": "An event listener instead of schedule. Fields depend on type; see Trigger shapes in the routines skill."
         },
         "enabled": {
           "type": "boolean",
-          "description": "On create, defaults to true. On update, omit to leave the current arming alone (use pause/resume to toggle)."
+          "description": "Defaults to true on create. On update, omit it and use pause or resume."
         }
       },
       "required": [

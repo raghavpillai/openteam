@@ -21,7 +21,16 @@ test("email routine triggers parse, describe, and validate against the model-fac
   expect(validate(input).valid).toBe(true);
   expect(validate({ ...input, trigger: [{ type: "cron", schedule: "0 9 * * 1-5" }, trigger] }).valid).toBe(true);
   expect(validate({ ...input, trigger: { type: "group", listeners: [{ type: "cron", schedule: "0 9 * * 1-5" }, trigger] } }).valid).toBe(true);
-  expect(validate({ ...input, trigger: { type: "email" } }).valid).toBe(false);
+  // The advertised trigger names only its type; the parser answers a bad one with every shape.
+  expect(validate({ ...input, trigger: { type: "email" } }).valid).toBe(true);
+  expect(validate({ ...input, trigger: { type: "imap" } }).valid).toBe(false);
+  let invalid = "";
+  try { normalizeMainToolArguments("UpdateRoutine", { ...input, trigger: { type: "email" } }); } catch (error) { invalid = (error as Error).message; }
+  // As the reference reports it: the union's own issue, then every trigger shape.
+  expect(invalid).toStartWith('Invalid arguments:\ntrigger: Invalid input\ntrigger: Not a valid trigger. Trigger shapes:\n  { "type": "slack"');
+  expect(invalid).toContain('{ "type": "email", "inbox": "<one of the user\'s connected Email plugin inbox addresses (ListEmailInboxes)>"');
+  expect(invalid).toEndWith('"blockUnauthenticatedTeamsUsers": true to ignore messages from unauthenticated Teams users.');
+  expect(normalizeMainToolArguments("UpdateRoutine", { action: "get", id: "brief" })).toEqual({ action: "get", id: "brief" });
   expect(normalizeMainToolArguments("UpdateRoutine", input).trigger).toEqual(trigger);
   expect(() => normalizeMainToolArguments("UpdateRoutine", { ...input, trigger: { type: "group", listeners: [{ type: "origin", repo: "o/r", events: ["pr-opened"] }, trigger] } })).toThrow("Origin can't be grouped with email");
   expect(describeTrigger(trigger)).toBe("When email arrives at bot@raghav.sh");
@@ -146,4 +155,14 @@ test("a sent local file other than a picture or video carries the snapshot note"
   for (const url of ["file:///workspace/chart.png", "file:///workspace/clip.MP4", "https://example.com/report.pdf"])
     expect(sent({ type: "attachment", url })).toBe("Message sent to user. (id: t2s1)");
   expect(sent({ type: "text", content: "hi", images: [{ url: "file:///workspace/a.png" }] })).toBe("Message sent to user. (id: t2s1)");
+});
+test("a dated cron is described as a one-off", () => {
+  expect(describeTrigger({ type: "cron", schedule: "36 10 21 10 *" })).toBe("Once October 21 at 10:36 AM");
+  expect(describeTrigger({ type: "cron", schedule: "CRON_TZ=America/New_York 5 17 3 2 *" })).toBe("Once February 3 at 5:05 PM (America/New_York)");
+  // Not one-offs: a weekday restriction, several days, an impossible date, or a calendar shorthand.
+  expect(describeTrigger({ type: "cron", schedule: "0 9 21 10 1" })).not.toStartWith("Once");
+  expect(describeTrigger({ type: "cron", schedule: "0 9 1,15 10 *" })).not.toStartWith("Once");
+  expect(describeTrigger({ type: "cron", schedule: "0 9 31 2 *" })).not.toStartWith("Once");
+  expect(describeTrigger({ type: "cron", schedule: "@yearly" })).not.toStartWith("Once");
+  expect(describeTrigger({ type: "cron", schedule: "0 9 * * *" })).toBe("Every day at 9:00 AM");
 });

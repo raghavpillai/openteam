@@ -29,11 +29,12 @@ import { DESKTOP_CAPABILITY_TOOLS } from "@openteam/contracts/desktop-capabiliti
 import { agentFileIO } from "../agent-file-io";
 import { boundToolImage } from "./image-input";
 import { redactSecrets } from "@openteam/shell-jobs";
-import { validateProcessSecretName } from "@openteam/contracts";
+import { validateProcessSecretName, WAKE_PARENT_TOOL } from "@openteam/contracts";
 import { type AgentToolResult, defineTool } from "@earendil-works/pi-coding-agent";
 import {
   AwaitShellInput,
   AUTOMATION_PARENT_ONLY_TOOLS,
+  AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED,
   CALL_DYNAMIC_TOOL_TOOL,
   CallDynamicToolInput,
   COMPUTER_USE_TOOL,
@@ -147,10 +148,11 @@ export const SUBAGENT_PRIVATE_NATIVE_TOOLS: ReadonlySet<string> = new Set([
   SCREENSHOT_TOOL.name,
 ]);
 
-/** First-party tools a worker calls directly instead of looking them up with GetDynamicTools. */
+/** First-party tools a worker or routine run calls directly instead of looking them up with GetDynamicTools. */
 export const workerTopLevelTools = (
-  active: Pick<ActiveTurn, "subagentType" | "readOnly">
+  active: Pick<ActiveTurn, "subagentType" | "readOnly"> & Partial<Pick<ActiveTurn, "requestSource" | "runtimeProfile">>
 ): readonly string[] => {
+  if (active.requestSource === "automation" && active.runtimeProfile !== "subagent") return [WAKE_PARENT_TOOL.name];
   if (active.subagentType === "executor" || active.subagentType === "knowledgeWork")
     return active.readOnly ? ["WebSearch", "WebFetch"] : ["AwaitShell", "WebSearch", "WebFetch"];
   if (active.subagentType === "computerUse") return ["AwaitShell"];
@@ -545,7 +547,8 @@ export class RuntimeTools {
         label: name,
         description: graphical ? tool.description.replace(MACHINE_ROUTING_AWAIT_SENTENCE, "") : tool.description,
         parameters: Type.Unsafe<Record<string, unknown>>(graphical ? boxScopedSchema(tool.inputSchema) : tool.inputSchema),
-        executionMode: "parallel",
+        // WakeParent ends the run, so nothing runs beside it.
+        executionMode: name === WAKE_PARENT_TOOL.name ? "sequential" : "parallel",
         execute: (callId: string, args: unknown, signal?: AbortSignal) =>
           this.executeOpenTeamTool(active, callId, name, args, signal),
       });
@@ -656,7 +659,7 @@ export class RuntimeTools {
     if (queuedAttachment) active.pendingDeliveryAttachments?.delete(callId);
     if (queuedCleanup) active.pendingDeliveryCleanup?.delete(callId);
     if (active.requestSource === "automation" && AUTOMATION_PARENT_ONLY_TOOLS.has(tool)) {
-      throw new Error("Use WakeParent to hand this communication to the parent agent");
+      throw new Error(AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED);
     }
     args = normalizeMainToolArguments(tool, args);
     if (workerTopLevelTools(active).includes(tool)) {
@@ -1419,8 +1422,12 @@ export class RuntimeTools {
       body &&
       typeof body === "object" &&
       (body as Record<string, unknown>).woken === true
-    )
+    ) {
       active.endTurnRequested = true;
+      // The handoff ends the automation, so its background commands stop with it.
+      const runs = (body as Record<string, unknown>).automation_run_ids;
+      this.nativeToolExecutor.stopAutomationShells(Array.isArray(runs) ? runs.filter((id): id is string => typeof id === "string") : [active.runId]);
+    }
     // A reaction can be the whole reply: with end_turn, a successful one delivers and ends the turn.
     if (
       tool === REACT_TO_MESSAGE_TOOL.name &&

@@ -357,13 +357,37 @@ contracts.SendFeedback!.inputSchema.properties.wantsResponse = {
 };
 contracts.SendFeedback!.inputSchema.required = [...contracts.SendFeedback!.inputSchema.required, "wantsResponse"];
 
-// Routine writes apply directly; there is no confirmation card.
 adaptDescription("UpdateRoutine", [
+  // The routine list lives in the frozen prompt section, not a per-turn reminder.
   [
-    "\nCreating or changing a routine may ask the user to confirm, since it's the one change that acts while they're away. If it does, they'll see a card and you'll get their answer back as the tool result; don't ask first, and don't retry a denied write.",
-    "",
+    "are in the latest <automation_status> reminder, which shows no prompts.",
+    "are listed under Scheduled routines in your prompt, which shows no prompts.",
+  ],
+  // There are no meeting tools.
+  [", except joining a meeting or saving what to do in one (JoinMeeting or UpdateMeeting).", "."],
+  ["Read the Cursor-managed `routines` skill", "Read the managed `routines` skill"],
+  // There is no timing field; get returns the saved schedule with the trigger.
+  ["returns the saved prompt, trigger, and timing.", "returns the saved prompt and trigger."],
+  // A clock time the user names is saved as named (decided for self-hosted installs).
+  [
+    'at least 5 minutes apart; take the minute from the latest <timestamp>, never :00 or :30 unless the user named it.',
+    'at least 5 minutes apart. A clock time the user names is saved as named ("8am" is "0 8 * * *"); only an ask that names no time takes the minute from the latest <timestamp>.',
+  ],
+  // Routine writes apply directly; there is no confirmation card, but a refused write stays refused.
+  [
+    "A change may ask the user to confirm on a card; don't ask first, and don't retry a denied write.",
+    "Don't ask first, and don't retry a denied write.",
   ],
 ]);
+// The runtime checks arguments against the advertised schema, so the bare-array group
+// shorthand the parser accepts is advertised beside the compact listener object.
+{
+  const { description, ...listener } = contracts.UpdateRoutine!.inputSchema.properties.trigger;
+  contracts.UpdateRoutine!.inputSchema.properties.trigger = {
+    anyOf: [listener, { type: "array", items: listener, minItems: 1 }],
+    description,
+  };
+}
 
 // StopSubagent reaches this agent's own subagents only; there are no cloud agents.
 adaptDescription("StopSubagent", [

@@ -2,9 +2,11 @@ import { expect, test } from 'bun:test';
 import { matchesAutomationEvent as match, parseAutomationEvent } from '../src/automation-events';
 import { parseStoredTrigger } from '../src/automation-trigger';
 const event = { id: 'delivery', source: 'github' as const, kind: 'ci-failed', text: 'Tests failed', repo: 'org/repo', actor: 'Alice', branch: 'main' };
-test('event matching respects source, repo, author, branch, OR listeners, and target-specific filters', () => {
+test('event matching respects source, repo, branch, OR listeners, and target-specific filters', () => {
  const github = parseStoredTrigger({ type: 'github', repo: 'org/repo', events: ['ci-failed'], ciBranch: 'main', userAllowlist: ['alice'] });
- expect(match(github, event)).toBe(true); expect(match(github, { ...event, actor: 'Mallory' })).toBe(false); expect(match(github, { ...event, branch: 'other' })).toBe(false);
+ expect(match(github, event)).toBe(true); expect(match(github, { ...event, branch: 'other' })).toBe(false);
+ // CI is never user-gated.
+ expect(match(github, { ...event, actor: 'Mallory' })).toBe(true);
  expect(match({ type: 'group', listeners: [{ type: 'cron', schedule: '@daily' }, github] }, event)).toBe(true);
  const slack = parseStoredTrigger({ type: 'slack', channel: '#eng', match: { kind: 'reaction', emoji: ['eyes'], bySelf: true } });
  expect(match(slack, { id: '1', source: 'slack', kind: 'reaction', text: '', channel: '#eng', emoji: ':eyes:', bySelf: true })).toBe(true);
@@ -14,6 +16,23 @@ test('event matching respects source, repo, author, branch, OR listeners, and ta
  expect(match(teams, { id: '1', source: 'microsoftTeams', kind: 'message', text: 'Deploy failed', tenantId: 'a', teamId: 'b' })).toBe(false);
  expect(match({ type: 'linear', event: { case: 'statusChanged', statusIds: ['done'] }, projectIds: ['project'] }, { id: '1', source: 'linear', kind: 'statusChanged', text: '', statusId: 'done', projectId: 'other' })).toBe(false);
  expect(() => parseAutomationEvent({ ...event, text: 'x'.repeat(32_001) })).toThrow();
+});
+test('a GitHub allowlist gates the user who drives each event kind', () => {
+ const listener = parseStoredTrigger({ type: 'github', repo: 'org/repo', pr: 7, userAllowlist: ['@Me'],
+  events: ['pr-pushed', 'pr-comment', 'review-approved', 'review-thread-resolved', 'issue-assigned', 'ci-failed'] });
+ const pr = { id: 'd', source: 'github' as const, text: '', repo: 'org/repo', pr: 7 };
+ // PR and comment events: the PR author, whoever pushed or commented.
+ expect(match(listener, { ...pr, kind: 'pr-pushed', actor: 'teammate', prOwner: 'me' })).toBe(true);
+ expect(match(listener, { ...pr, kind: 'pr-comment', actor: 'me', prOwner: 'teammate' })).toBe(false);
+ // Review events: the reviewer or the PR author.
+ expect(match(listener, { ...pr, kind: 'review-approved', actor: 'reviewer', prOwner: 'me' })).toBe(true);
+ expect(match(listener, { ...pr, kind: 'review-thread-resolved', actor: 'me', prOwner: 'teammate' })).toBe(true);
+ expect(match(listener, { ...pr, kind: 'review-approved', actor: 'reviewer', prOwner: 'teammate' })).toBe(false);
+ // Assignments: the assigner. CI: never gated. A missing identity fails closed.
+ expect(match(listener, { ...pr, kind: 'issue-assigned', actor: 'me' })).toBe(true);
+ expect(match(listener, { ...pr, kind: 'ci-failed', actor: 'github-actions' })).toBe(true);
+ expect(match(listener, { ...pr, kind: 'pr-pushed', actor: 'me' })).toBe(false);
+ expect(parseAutomationEvent({ ...pr, kind: 'pr-pushed', prOwner: 'me' }).prOwner).toBe('me');
 });
 test('email triggers match the receiving inbox, sender allowlist, and sender authentication', () => {
  const mail = { id: 'bot@example.com:7:42', source: 'email' as const, kind: 'received', text: 'Subject: Hi', channel: 'Bot@Example.com', actor: 'Alice@Partner.com', authenticatedUser: true };

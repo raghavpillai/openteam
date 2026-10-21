@@ -87,8 +87,9 @@ export function renderControlResult(
         .filter((key) => args[key] !== undefined)
         .map((key) => settingNames[key])
         .join(", ")}.`;
-    // A refused state change is an ordinary result, not a tool failure.
-    if (typeof result.refused === "string") return `Not saved: ${result.refused}`;
+    // A refused state change or read is an ordinary result, not a tool failure.
+    if (typeof result.refused === "string")
+      return `${result.target === "routine" && args.action === "get" ? "Not read" : "Not saved"}: ${result.refused}`;
     // UpdateProfile saves its settings fields as a second update beside the profile.
     if (result.target === "profile" && result.updated)
       return [
@@ -109,21 +110,34 @@ export function renderControlResult(
       return `Disconnected ${result.platform}. The connector closes the live connection within a few seconds.`;
     if (result.target === "avatar" && result.updated)
       return `Updated your picture (${result.resolved_path?.split("/").pop()}). Source ${result.path?.split("/").pop()} can be deleted if you no longer need it.`;
+    if (result.target === "routine" && args.action === "get")
+      return [
+        `Routine "${result.name}" (folder ${result.folder}), ${result.enabled ? "enabled" : "paused"}.`,
+        `Trigger: ${describeTrigger(result.trigger)}`,
+        result.trigger?.type === "cron"
+          ? `schedule: ${JSON.stringify(result.trigger.schedule)} (leave it out of an update unless the time itself changes)`
+          : `trigger: ${JSON.stringify(result.trigger)}`,
+        "Saved prompt:",
+        result.prompt,
+      ].join("\n");
     if (result.target === "routine") {
+      // Resuming saves the routine again, so it reads like any other update.
       const verb = (
         {
           pause: "Paused",
-          resume: "Resumed",
+          resume: "Updated",
           delete: "Deleted",
           create: "Saved",
           update: "Updated",
         } as Record<string, string>
       )[args.action];
       const owner = result.owner?.kind === "group" ? ` Owner: group "${result.owner.name ?? result.owner.id}" (${result.owner.id}).` : "";
-      const summary = `${verb} routine "${result.name}" (folder ${result.folder ?? args.id})${["create", "update"].includes(args.action) ? ` — ${describeTrigger(result.trigger ?? {type:"cron",schedule:result.schedule})}${result.enabled ? "" : ", paused"}` : ""}.${owner}`;
-      if (typeof result.next_run_at === "string") return `${summary}\nNext scheduled occurrence: ${result.next_run_at}. Use this saved timestamp if reporting the next run; do not calculate or guess a different time.`;
-      if (result.next_run_at === null) return `${summary}\nNext scheduled occurrence: none${result.enabled === false ? " (paused)" : ""}.`;
-      return summary;
+      const summary = `${verb} routine "${result.name}" (folder ${result.folder ?? args.id})${["create", "update", "resume"].includes(args.action) ? `: ${describeTrigger(result.trigger ?? {type:"cron",schedule:result.schedule})}${result.enabled ? "" : ", paused"}` : ""}.${owner}`;
+      const next = args.action === "delete" ? ""
+        : typeof result.next_run_at === "string" ? `\nNext scheduled occurrence: ${localTime(result.next_run_at, result.timezone)}. Use this saved time if reporting the next run; do not calculate or guess a different time.`
+        : result.next_run_at === null ? `\nNext scheduled occurrence: none${result.enabled === false ? " (paused)" : ""}.`
+        : "";
+      return `${summary}${next}${result.delivery_nudge ? "\nGive the user a concise summary of what this routine does and where its result goes." : ""}`;
     }
     if (result.target === "avatar" && result.cleared)
       return "Cleared your picture. It is back to the default.";
@@ -224,6 +238,16 @@ function sendsLocalFileSnapshot(args: Record<string, any>): boolean {
     path = decodeURIComponent(new URL(path).pathname);
   } catch {}
   return !PICTURE_OR_VIDEO.test(path);
+}
+
+/** A saved time in the routine's zone, labeled with that zone. */
+function localTime(iso: string, timeZone: unknown): string {
+  const options = { timeZoneName: "short" } as const;
+  try {
+    return new Date(iso).toLocaleString("en-US", typeof timeZone === "string" && timeZone ? { ...options, timeZone } : options);
+  } catch {
+    return new Date(iso).toLocaleString("en-US", options);
+  }
 }
 
 const PEERS_NOT_STOPPED =

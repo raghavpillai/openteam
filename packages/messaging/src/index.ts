@@ -842,6 +842,7 @@ export class AgentMessaging {
         : await tx.channel.findUnique({ where: { directKey: `bot:${bot.id}` } });
       if (!channel || channel.archivedAt) return { delivered: false, ignored: true };
       const route = input.automationRunId ? await automationContinuationRoute(tx, bot.id, input.automationRunId) : { origin: "background_revival" as const };
+      if (!route) return { delivered: false, ignored: true };
       await this.enqueueWake(tx, {
         botId: bot.id, channelId: channel.id, ...route, type: "shell.completed",
         clientId, priority: 50, wrapUserContent: false,

@@ -70,8 +70,12 @@ async function pendingAutomationShells(
   });
 }
 
-/** One saved occurrence can span several parent turns and delegated workers. */
-export async function reconcileRoutineExecution(tx: Prisma.TransactionClient, runId: string) {
+/** One saved occurrence can span several parent turns and delegated workers. Returns the
+ * execution that settled, for what follows it (RoutineService.afterExecution). */
+export async function reconcileRoutineExecution(
+  tx: Prisma.TransactionClient,
+  runId: string
+): Promise<{ executionId: string; routineId: string } | undefined> {
   const run = await tx.run.findUnique({
     where: { id: runId },
     include: { inboxEvents: { take: 1, select: { payload: true } } },
@@ -99,25 +103,28 @@ export async function reconcileRoutineExecution(tx: Prisma.TransactionClient, ru
   });
   if (family.some((entry) => ["queued", "running"].includes(entry.status)))
     return;
+  const handoff = await tx.automationResult.findUnique({ where: { runId: rootId }, select: { wakeRunId: true } });
+  // A handoff ends the automation; background work it started no longer reports to it.
   if (
-    await tx.subagentAttempt.count({
+    !handoff?.wakeRunId &&
+    (await tx.subagentAttempt.count({
       where: {
         parentRunId: { in: family.map((entry) => entry.id) },
         status: { in: ["provisioning", "queued", "running"] },
       },
-    })
+    }))
   )
     return;
   if (
-    await pendingAutomationShells(
+    !handoff?.wakeRunId &&
+    (await pendingAutomationShells(
       tx,
       root.botId,
       family.map((entry) => entry.id)
-    )
+    ))
   )
     return;
   const final = family[0]!;
-  const handoff = await tx.automationResult.findUnique({ where: { runId: rootId }, select: { wakeRunId: true } });
   const failedHandoff = !handoff?.wakeRunId && await tx.runItem.findFirst({ where: {
     runId: { in: family.map(entry => entry.id) }, status: "failed", kind: "tool",
     OR: [{ title: "WakeParent" }, { content: { path: ["arguments", "toolName"], equals: "WakeParent" } }],
@@ -136,15 +143,18 @@ export async function reconcileRoutineExecution(tx: Prisma.TransactionClient, ru
       ...(status === "completed" ? {} : { error: failedHandoff ? { code: "automation_handoff_failed", message: "The required parent handoff failed; no result was delivered", runItemId: failedHandoff.id } : final.error ?? Prisma.JsonNull }),
     },
   });
-  return updated.count > 0;
+  if (!updated.count) return;
+  const settled = await tx.routineExecution.findUnique({ where: { runId: rootId }, select: { id: true, routineId: true } });
+  return settled ? { executionId: settled.id, routineId: settled.routineId } : undefined;
 }
 
-/** Shell and delegated-worker completions resume their owning automation. */
+/** Shell and delegated-worker completions resume their owning automation. Once that
+ * automation handed off to its parent, they are dropped (null). */
 export async function automationContinuationRoute(
   tx: Prisma.TransactionClient,
   botId: string,
   sourceRunId: string
-): Promise<Pick<WakeInput, "origin" | "automationContextRunId" | "automationTrigger">> {
+): Promise<Pick<WakeInput, "origin" | "automationContextRunId" | "automationTrigger"> | null> {
   const source = await tx.run.findFirst({
     where: { id: sourceRunId, botId },
     include: { inboxEvents: { take: 1, select: { payload: true } } },
@@ -156,7 +166,7 @@ export async function automationContinuationRoute(
     where: { runId: rootId },
     select: { wakeRunId: true },
   });
-  if (handoff?.wakeRunId) return { origin: "background_revival" };
+  if (handoff?.wakeRunId) return null;
   const trigger =
     payload && typeof payload === "object" && !Array.isArray(payload)
       ? payload.automationTrigger
@@ -172,7 +182,7 @@ export const AUTOMATION_RUN_INSTRUCTIONS = [
   "## Automation run: parent-mediated communication",
   "You are running a saved automation in a separate context with the parent's work capabilities. Complete its instruction autonomously. This mode overrides instructions elsewhere to acknowledge work or communicate directly.",
   "You cannot mutate the visible chat, send to the user or another agent, react, ask a question, or surface a form, handoff, connector, draft, or share card. Local execution remains available.",
-  "Discover cursor.WakeParent with GetDynamicTools and invoke it with CallDynamicTool. WakeParent is the only route that wakes the parent to communicate outside this automation. Old instructions naming SendMessage or SendToUser mean: call WakeParent with the complete payload instead.",
+  "WakeParent is the only route that wakes the parent to communicate outside this automation. Old instructions naming SendMessage or SendToUser mean: call WakeParent with the complete payload instead.",
   "If the saved instruction requires notifying, reminding, telling, or asking the user, you MUST call WakeParent even when the work succeeded. Also use it when the parent must message another agent, make a decision, or take over a blocker. Include the complete result and what the parent should do in message. A successful WakeParent immediately ends your turn; nothing afterward is delivered.",
   "For work that can wait until the parent's next natural boundary, finish with a concise, complete final assistant message. Only that final message is saved silently as the automation result. It does not wake the parent or reach the user. Stay quiet by default; no acknowledgements or progress narration.",
   "You may delegate with Task. Background child completions resume this automation context, not the parent's chat. Incorporate their results before finishing. If more work remains with a child, you may end this turn and wait for its completion.",
@@ -219,8 +229,19 @@ export async function wakeAutomationParent(
         "Automation context does not belong to this run"
       );
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`automation-result:${rootId}`}))`;
+    // The caller stops the background work these runs started.
+    const automation_run_ids = (await tx.run.findMany({
+      where: {
+        botId: run.botId,
+        channelId: run.channelId,
+        origin: "routine",
+        OR: [{ id: rootId }, { inboxEvents: { some: { payload: { path: ["automationContextRunId"], equals: rootId } } } }],
+      },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    })).map((entry) => entry.id);
     const existing = await tx.automationResult.findUnique({ where: { runId: rootId } });
-    if (existing?.wakeRunId) return { woken: true, run_id: existing.wakeRunId };
+    if (existing?.wakeRunId) return { woken: true, run_id: existing.wakeRunId, automation_run_ids };
     const wake = await messaging.enqueueWake(tx, {
       botId: run.botId,
       channelId: context.channelId,
@@ -240,7 +261,7 @@ export async function wakeAutomationParent(
       create: { runId: rootId, message: input.message, wakeRunId: wake.run.id },
       update: { message: input.message, wakeRunId: wake.run.id },
     });
-    return { woken: true, run_id: wake.run.id };
+    return { woken: true, run_id: wake.run.id, automation_run_ids };
   });
 }
 

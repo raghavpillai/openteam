@@ -53,7 +53,8 @@ import {
   renderPlatformBaseSystemPrompt,
   renderPlatformRuntimeInstructions,
 } from "./platform-system-prompt";
-import { resolveTimeZone, timestampUserTurn } from "./timestamps";
+import { formatFriendlyDate, resolveTimeZone, timestampUserTurn } from "./timestamps";
+import { renderAgentSkillsSection } from "./skill-catalog";
 import type { MemoryContextReceipt, PromptSectionReceipt } from "./prompt-sections";
 import { renderMemoryContextBlock } from "./memory-rendering";
 
@@ -130,16 +131,17 @@ export interface PlatformPrompt {
   };
 }
 
-export const renderAgentSkillsUserInfo = (skillRender: string, memoryContext?: string, teammates?: string | null): string =>
+/** The main agent's user_info message in the reference's order. The computer adds its
+ * environment lines above the date and the subagent types after memory. */
+export const renderAgentSkillsUserInfo = (skillRender: string, memoryContext?: string, teammates?: string | null, todaysDate?: string): string =>
   [
-    "<user_info>",
-    ...(memoryContext ? [memoryContext, ""] : []),
-    ...(teammates ? [teammates] : []),
-    "<agent_skills>",
-    skillRender || "No saved skills are currently installed for you.",
-    "</agent_skills>",
-    "</user_info>",
-  ].join("\n");
+    ["<user_info>", ...(todaysDate ? [`Today's date: ${todaysDate}`] : []), "</user_info>"].join("\n"),
+    memoryContext,
+    teammates,
+    skillRender ? renderAgentSkillsSection(skillRender) : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
 export const SUBAGENT_REVIVAL_INSTRUCTION =
   'Pick the work back up: review the result(s), then either keep going or wrap up. If this result is genuinely new and relevant to the user, or the user asked to be told when this finished, tell them with a SendToUser. Lead with the concrete thing that finished, not a bare pronoun like "That" (they cannot see the background task). If it is stale, irrelevant, already handled, or a duplicate, and the user was not waiting on it, just stay silent and end the turn with no SendToUser rather than narrating it. Keep your status current, and clear it once everything is done and you\'re idle.';
@@ -2282,7 +2284,8 @@ export class AgentMessaging {
     const userInfo = renderAgentSkillsUserInfo(
       agentPrompt.skillRender,
       frozen.memory ? renderMemoryContextBlock(frozen.memory.facts) : undefined,
-      teammates
+      teammates,
+      formatFriendlyDate(new Date(), this.defaultTimeZone)
     );
     const automationResults = !automation && channelId !== undefined ? await this.prisma.automationResult.findMany({
       where: { wakeRunId: null, acknowledgedAt: null, run: { botId, channelId } },

@@ -17,6 +17,7 @@ import { managedSkillAgents, managedSkillIsForMain } from "./managed-skill-agent
 import { safePackagePath } from "@openteam/plugin-sdk";
 import { originalSkillMarkdown } from "@openteam/plugin-sdk/skill-markdown";
 import { pluginSkillsForAgent, renderPluginSkillCatalog, type PluginSkillCache } from "./plugin-skill-catalog";
+import { agentSkillItem, omittedSkillsNotice, renderAgentSkillsSection } from "./skill-catalog";
 import { createHash, randomUUID } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
@@ -2547,7 +2548,8 @@ export class AgentDataStore {
     }
     // Installed capabilities can change between turns without compaction.
     // Keep user workflows frozen, but never freeze a missing managed or plugin catalog.
-    skillRender = [skillRender, await this.renderManagedSkills(), await this.renderPluginSkills(botId)]
+    // The reference lists managed skills first, then plugin, then the user's own.
+    skillRender = [await this.renderManagedSkills(), await this.renderPluginSkills(botId), skillRender]
       .filter(Boolean)
       .join("\n\n");
     return {
@@ -2794,7 +2796,7 @@ export class AgentDataStore {
             typeof skill.description !== "string") continue;
         const path = join(this.managedSkillsDirectory(), skill.id, "SKILL.md");
         if (!(await stat(path).catch(() => null))?.isFile()) continue;
-        blocks.push(`- ${skill.name} (managed:${skill.id}): ${skill.description}\n  Path: ${path}`);
+        blocks.push(agentSkillItem(path, skill.description));
       }
       return blocks.join("\n\n");
     } catch { return ""; }
@@ -2838,19 +2840,9 @@ export class AgentDataStore {
       if (!Array.isArray(skill.agents) || !skill.agents.includes(agent)) continue;
       if (typeof skill.filePath !== "string" || typeof skill.description !== "string") continue;
       if (!(await stat(skill.filePath).catch(() => null))?.isFile()) continue;
-      entries.push(`<agent_skill fullPath="${skill.filePath}">${skill.description}</agent_skill>`);
+      entries.push(agentSkillItem(skill.filePath, skill.description));
     }
-    if (!entries.length) return "";
-    return [
-      "<agent_skills>",
-      "When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively. Skills provide specialized capabilities and domain knowledge. To use a skill, read the skill file at the provided absolute path using the Read tool, then follow the instructions within. When a skill is relevant, read and follow it IMMEDIATELY as your first action. NEVER just announce or mention a skill without actually reading and following it. Only use skills listed below.",
-      "",
-      "",
-      '<available_skills description="Skills the agent can use. Use the Read tool with the provided absolute path to fetch full contents.">',
-      entries.join("\n\n"),
-      "</available_skills>",
-      "</agent_skills>",
-    ].join("\n");
+    return entries.length ? renderAgentSkillsSection(entries.join("\n\n")) : "";
   }
 
   private async renderSkills(botId: string): Promise<string> {
@@ -2862,18 +2854,12 @@ export class AgentDataStore {
       }),
       this.prisma.savedSkill.count(),
     ]);
-    const blocks = skills.map(
-      (skill) =>
-        `- ${skill.name} (${skill.slug}): ${skill.description}\n  Path: ${join(
-          this.workflowsDirectory(),
-          skill.slug,
-          "SKILL.md"
-        )}`
+    const blocks = skills.map((skill) =>
+      agentSkillItem(join(this.workflowsDirectory(), skill.slug, "SKILL.md"), skill.description)
     );
     const omitted = Math.max(0, total - blocks.length);
-    return `${blocks.join("\n\n")}${
-      omitted > 0 ? `\n\n[${omitted} additional skills omitted by the catalog budget]` : ""
-    }`.trim();
+    if (omitted > 0) blocks.push(omittedSkillsNotice(omitted, [this.workflowsDirectory()]));
+    return blocks.join("\n\n");
   }
 
   async loadRootSettings(): Promise<{

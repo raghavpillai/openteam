@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { platform, release } from "node:os";
 import {
   communicationReminder,
   enrichUserInfo,
@@ -45,6 +46,32 @@ test("runtime context describes actual tools and preserves saved skill catalog",
   expect(promptFingerprint("system", text, ["Lookup"], 2).toolsSha).not.toBe(
     promptFingerprint("system", text, [], 2).toolsSha
   );
+});
+
+test("main user_info follows the reference layout and leaves transcripts to ReadTranscript", () => {
+  const base = [
+    "<user_info>\nToday's date: Wednesday Oct 21, 2026\n</user_info>",
+    "<memory_context>\nfacts\n</memory_context>",
+    "<teammates>\nroster\n</teammates>",
+    "<agent_skills>\ncatalog\n</agent_skills>",
+  ].join("\n\n");
+  const input = { cwd: "/workspace/task", transcriptPath: "/private/session.jsonl", namespaces: [{ name: "test", tools: [{ name: "Lookup" }] }] };
+  const text = enrichUserInfo(base, input);
+  expect(text).toStartWith(
+    `<user_info>\nOS Version: ${platform()} ${release()}\n\nShell: /bin/bash\n\nThe Linux computer supports passwordless sudo for system changes and package installation.\n\n` +
+      "Workspace Path: /workspace/task\nIf editing a git workspace within your current directory, do not search or edit non-primary worktrees unless the user explicitly requests you to do so.\n\n" +
+      "Today's date: Wednesday Oct 21, 2026\n</user_info>\n\n<memory_context>"
+  );
+  const order = ["</user_info>", "<memory_context>", "<available_subagent_types>", "<teammates>", "<agent_skills>", "<dynamic_tool_catalog>"].map((tag) => text.indexOf(tag));
+  expect(order.every((at, index) => at > (order[index - 1] ?? -1))).toBe(true);
+  expect(text).toContain("</memory_context>\n\n<available_subagent_types>\n");
+  expect(text).toContain("</available_subagent_types>\n\n<teammates>");
+  for (const gone of ["Is directory a git repo", "<agent_transcripts>", "/private/session.jsonl"]) expect(text).not.toContain(gone);
+  const worker = enrichUserInfo("<user_info>\n<agent_skills>\ncatalog\n</agent_skills>\n</user_info>", { ...input, subagent: true });
+  expect(worker).toContain("Workspace Path: /workspace/task\nIf editing a git workspace");
+  expect(worker).toContain("\n\n<agent_skills>");
+  expect(worker).toContain("<agent_transcripts>\nPast conversation transcripts: /private/session.jsonl.");
+  expect(worker).not.toContain("<available_subagent_types>");
 });
 
 test("acknowledgement reminders fire during work, with silent/worker exclusions", () => {

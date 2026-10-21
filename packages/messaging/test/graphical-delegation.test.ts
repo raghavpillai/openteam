@@ -11,6 +11,7 @@ import {
   subagentSpecializationInstructions,
 } from "../src/index";
 import { PLATFORM_BASE_SYSTEM_PROMPT } from "../src/platform-system-prompt";
+import { omittedSkillsNotice } from "../src/skill-catalog";
 
 describe("main-agent graphical delegation instructions", () => {
   test("the graphical worker omits categorical handover instructions", () => {
@@ -161,12 +162,27 @@ describe("main-agent graphical delegation instructions", () => {
     expect(wake).toContain("Use SendToUser");
   });
 
-  test("renders saved-skill metadata in a bounded user-info section", () => {
-    const userInfo = renderAgentSkillsUserInfo(
-      "- Verify release: Checks deployment state.\n  Path: /agent/skills/verify/SKILL.md"
-    );
-    expect(userInfo).toStartWith("<user_info>\n<agent_skills>");
-    expect(userInfo).toContain("/agent/skills/verify/SKILL.md");
-    expect(userInfo).toEndWith("</agent_skills>\n</user_info>");
+  test("renders the main skill catalog after user_info with the reference preamble", () => {
+    const item = '<agent_skill fullPath="/agent/skills/verify/SKILL.md">Checks deployment state.</agent_skill>';
+    const userInfo = renderAgentSkillsUserInfo(item, "<memory_context>\nfacts\n</memory_context>", "<teammates>\nroster\n</teammates>", "Wednesday Oct 21, 2026");
+    expect(userInfo).toBe([
+      "<user_info>\nToday's date: Wednesday Oct 21, 2026\n</user_info>",
+      "<memory_context>\nfacts\n</memory_context>",
+      "<teammates>\nroster\n</teammates>",
+      [
+        "<agent_skills>",
+        "When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively. Skills provide specialized capabilities and domain knowledge. To use a skill, read the skill file at the provided absolute path using the Read tool, then follow the instructions within. When a skill is relevant, read and follow it IMMEDIATELY as your first action. NEVER just announce or mention a skill without actually reading and following it. Only use skills listed below.",
+        "",
+        "",
+        '<available_skills description="Skills the agent can use. Use the Read tool with the provided absolute path to fetch full contents.">',
+        item,
+        "</available_skills>",
+        "</agent_skills>",
+      ].join("\n"),
+    ].join("\n\n"));
+    expect(renderAgentSkillsUserInfo("")).toBe("<user_info>\n</user_info>");
+    const omitted = renderAgentSkillsUserInfo(`${item}\n\n${omittedSkillsNotice(3, ["/agent/workflows"])}`);
+    expect(omitted).toContain("NEVER just announce or mention a skill without actually reading and following it. Use the skills listed below. If a later task specifically requires discovering more skills, additional skills may exist in the directories shown in the skills section.");
+    expect(omitted).toContain(`${item}\n\nAdditional skills omitted from this initial list (3). Directories containing omitted skills: /agent/workflows.\n</available_skills>`);
   });
 });

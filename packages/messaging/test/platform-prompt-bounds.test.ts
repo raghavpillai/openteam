@@ -104,7 +104,7 @@ describe("bounded teammates roster", () => {
           profileSnapshot: null,
           identityAnnouncement: "",
           memory: { policy: "## Memory\nMemory policy.", facts: "No facts recorded yet." },
-          skillRender: "",
+          skillRender: '<agent_skill fullPath="/agent-data/workflows/x/SKILL.md">X</agent_skill>',
           warnings: [],
         }),
         loadInferenceSettings: async () => ({

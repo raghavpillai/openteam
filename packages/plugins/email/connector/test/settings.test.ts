@@ -132,6 +132,18 @@ describe("mail server settings", () => {
     );
   });
 
+  test("the user's own addresses are optional, lowercased and checked", async () => {
+    const base = { EMAIL_ADDRESS: "bot@gmail.com", EMAIL_PASSWORD: "x" };
+    expect((await loadSettings(base, offline)).owners).toEqual([]);
+    expect((await loadSettings({ ...base, OWNER_ADDRESSES: "none" }, offline)).owners).toEqual([]);
+    expect(
+      (await loadSettings({ ...base, OWNER_ADDRESSES: " Me@Home.example, me@work.example;me@home.example " }, offline)).owners
+    ).toEqual(["me@home.example", "me@work.example"]);
+    await expect(loadSettings({ ...base, OWNER_ADDRESSES: "Me <me@home.example>" }, offline)).rejects.toThrow(
+      "Your own addresses must be plain email addresses separated by commas"
+    );
+  });
+
   test("Thunderbird provider entries yield the first TLS servers", () => {
     const xml = `<clientConfig><emailProvider id="x"><incomingServer type="pop3"><hostname>pop.x.test</hostname><port>995</port><socketType>SSL</socketType></incomingServer>
       <incomingServer type="imap"><hostname>imap.x.test</hostname><port>993</port><socketType>SSL</socketType></incomingServer>

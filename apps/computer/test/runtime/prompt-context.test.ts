@@ -93,3 +93,30 @@ test("a newer real user message starts a new acknowledgement window", () => {
   const hold = { role: "custom", customType: "openteam-end-turn-hold", content: "<system_reminder>\nYour turn did not end.\n</system_reminder>" };
   expect(communicationReminder([user, call("SendToUser", { type: "text" }), hold, call("Read"), call("Read")], active)).toBeNull();
 });
+
+test("a reply cut off at the output limit gets one reminder to continue in smaller pieces", async () => {
+  const { OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder } = await import("../../src/runtime/prompt-context");
+  const cut = { role: "assistant", content: [{ type: "text", text: "Part one" }], stopReason: "length" };
+  expect(owesOutputLimitReminder([user, cut, { role: "toolResult", toolCallId: "x" }], {})).toBe(true);
+  expect(owesOutputLimitReminder([user, cut], { outputLimitReminded: true })).toBe(false);
+  expect(owesOutputLimitReminder([user, { ...cut, stopReason: "stop" }], {})).toBe(false);
+  const { ComputerRuntime } = await import("../../src/runtime");
+  const runtime = new ComputerRuntime() as any;
+  runtime.compaction = { beginUserQuery: async () => {}, settleAtTurnEnd: async () => null, parkBackground() {} };
+  runtime.cleanup = async () => {};
+  const prompts: string[] = [];
+  const messages: any[] = [];
+  const active = {
+    subagentType: "executor", requestSource: "subagent", turnId: "t", runId: "r", contextSessionId: "c",
+    attachmentTempDirectories: [], sentMessageCount: 0,
+    session: {
+      messages,
+      prompt: async (text: string) => { prompts.push(text); messages.push(user, prompts.length === 1 ? cut : { ...cut, stopReason: "length" }); },
+      getContextUsage: () => undefined, getAllTools: () => [], getActiveToolNames: () => [],
+    },
+    queue: { push() {}, end() {} },
+  } as any;
+  await runtime.execute(active, "Write the report.", []);
+  expect(prompts).toEqual(["Write the report.", OUTPUT_LIMIT_REMINDER]);
+  expect(OUTPUT_LIMIT_REMINDER).toBe("<system_reminder>Your response was cut off because it exceeded the output token limit. Please break your work into smaller pieces. Continue from where you left off.</system_reminder>");
+});

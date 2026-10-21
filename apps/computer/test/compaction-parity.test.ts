@@ -874,3 +874,8 @@ test("a failed pending summary cannot skip the durable model projection", async 
   expect(projected).toContain("Continue with the correction");
   expect(projected).not.toContain("Built red");
 });
+
+test("a reminder-only user message is never kept as the request", () => {
+  const reminder = text("user", "<system_reminder>Your response was cut off because it exceeded the output token limit. Please break your work into smaller pieces. Continue from where you left off.</system_reminder>");
+  expect(partitionForBotSummary([...history(), reminder, text("assistant", "More")])!.lastUserMessage.content).toBe("Correction: keep blue");
+});

@@ -59,7 +59,7 @@ import { withAgentOutputBudget } from "./runtime/output-budget";
 import { inferenceMetricsExtension } from "./runtime/inference-metrics";
 import { IdleProviderConnections, InferenceProviderConnections } from "./runtime/provider-connections";
 import { untrustedResultsExtension } from "./runtime/untrusted-results";
-import { enrichUserInfo } from "./runtime/prompt-context";
+import { enrichUserInfo, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder } from "./runtime/prompt-context";
 import { defaultTaskConfiguration, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 import { assertSessionPath } from "./runtime/session-path";
 import { RuntimeTools } from "./runtime/tools";
@@ -813,6 +813,12 @@ export class ComputerRuntime {
       if (!session) throw new Error("Pi session is not attached");
       await this.compaction.beginUserQuery(active.contextSessionId, active.resetSelfSummaryCount);
       await active.session?.prompt(content, { source: "rpc", images });
+      // A reply cut off at the output limit ends the loop; continue it once.
+      if (owesOutputLimitReminder(session.messages as BotMessage[], active) && !active.endTurnRequested &&
+          !active.pluginAbortController?.signal.aborted) {
+        active.outputLimitReminded = true;
+        await session.prompt(OUTPUT_LIMIT_REMINDER, { source: "rpc", expandPromptTemplates: false });
+      }
       const graphicalReport = graphicalFinalReport(active, active.compactionReadPiMessages?.() ?? (session.messages as BotMessage[]));
       if (graphicalReport) {
         startAgentMessage(active, graphicalReport.id);

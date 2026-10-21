@@ -26,7 +26,7 @@ import { textFromContent } from "./content";
 import { inferenceReasoningOptions } from "./reasoning";
 import type { RuntimeTools } from "./tools";
 import type { ActiveTurn } from "./types";
-import { communicationReminder, promptFingerprint } from "./prompt-context";
+import { communicationReminder, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder, promptFingerprint } from "./prompt-context";
 import { compactRepeatedDiscovery } from "./discovery-context";
 import { graphicalProgressReminder } from "./graphical-completion";
 
@@ -142,6 +142,15 @@ export function compactionExtension(
               display: false,
               details: { origin: "host" },
             },
+            { triggerTurn: false }
+          );
+          event.messages = [...event.messages, active.session.messages.at(-1)!];
+        }
+        // Calls cut off at the output limit come back as errors; say why once, before the retry.
+        if (owesOutputLimitReminder(readPiMessages(), active) && active.session) {
+          active.outputLimitReminded = true;
+          await active.session.sendCustomMessage(
+            { customType: "openteam-output-limit", content: OUTPUT_LIMIT_REMINDER, display: false, details: { origin: "host" } },
             { triggerTurn: false }
           );
           event.messages = [...event.messages, active.session.messages.at(-1)!];

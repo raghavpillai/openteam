@@ -56,6 +56,14 @@ export const ACK_REMINDER =
 export const PROGRESS_REMINDER =
   "<system_reminder>\nYou have made several tool calls without a SendToUser, so the user is currently watching silence. Actually invoke the SendToUser tool now. Make a real tool/function call, not text you write. Plain assistant text is NEVER shown to the user; only a real SendToUser tool invocation reaches them, so if you don't call the tool they just keep seeing silence. Send one brief update in a complete sentence, saying what you found or what happens next, not a play-by-play of each step, before continuing.\n</system_reminder>";
 
+/** Sent once per turn after a response is cut off at the output limit, as in the reference. */
+export const OUTPUT_LIMIT_REMINDER =
+  "<system_reminder>Your response was cut off because it exceeded the output token limit. Please break your work into smaller pieces. Continue from where you left off.</system_reminder>";
+
+/** The latest response hit the output limit and this turn has not been told yet. */
+export const owesOutputLimitReminder = (messages: readonly BotMessage[], active: Pick<ActiveTurn, "outputLimitReminded">): boolean =>
+  !active.outputLimitReminded && messages.findLast((message) => message.role === "assistant")?.stopReason === "length";
+
 const ACK_THRESHOLD = 1;
 const PROGRESS_THRESHOLD = 6;
 

@@ -1,7 +1,7 @@
 export { readTranscript } from "./read-transcript";
 export { readAgentActivity } from "./read-agent-activity";
 export { workerSkillAccess } from "./skill-access";
-import { SKILL_ACCESS_COPY, type SkillAccess, workerSkillAccess } from "./skill-access";
+import { workerSkillAccess } from "./skill-access";
 import { attachmentContext } from "./attachment-context";
 import { listSiblingThreads, renderOtherActiveConversations } from "./sibling-threads";
 import { nextMessageAddress, resolveMessageAddress } from "./message-address";
@@ -584,16 +584,10 @@ export const WORKER_UNTRUSTED_CONTENT_SECTION = [
 export const WORKER_DRAFT_HANDOFF = "You cannot call DraftExternalMessage. When an email or Slack message should go out under the user's name, do not create the draft in the source app with Gmail create_draft or another connector draft tool. Tell the parent to call DraftExternalMessage: put that ask in your final message, with the recipient, the channel or connector, the thread or other context, the proposed text, and why it should go out. The only exception is an email draft that the user asked to keep in their mailbox, or that must carry a file attachment: save it in their mailbox with the email connector's create_draft, send nothing, and do not ask the parent to draft it.";
 
 
-export const subagentSpecializationInstructions = (type: SubagentType, skillAccess: SkillAccess = "read"): string => {
+export const subagentSpecializationInstructions = (type: SubagentType): string => {
   if (type === "computerUse") return COMBINED_GRAPHICAL_WORKER_PROMPT;
   if (type === "videoReview" || type === "watchVideo") {
     return "Review the supplied media frames directly. No tools are available to this worker.";
-  }
-  if (type === "knowledgeWork") {
-    return [
-      [SKILL_ACCESS_COPY[skillAccess].catalog, SKILL_ACCESS_COPY[skillAccess].load].filter(Boolean).join(" "),
-      `Use Shell, Read, and the other native tools for general execution on the shared OpenTeam computer.\n${EXECUTION_VERIFICATION_INSTRUCTIONS}`,
-    ].join("\n");
   }
   return `Use Shell, Read, and the other native tools for general execution on the shared OpenTeam computer.\n${EXECUTION_VERIFICATION_INSTRUCTIONS}`;
 };
@@ -2068,11 +2062,7 @@ export class AgentMessaging {
     });
     const todoContext = bot.todos.map((todo) => `- [${todo.status}] ${todo.id}: ${todo.content}`);
     if (bot.subagentIdentity) {
-      const skillAccess = workerSkillAccess(bot.subagentIdentity.subagentType);
-      const specialization = subagentSpecializationInstructions(
-        bot.subagentIdentity.subagentType as SubagentType,
-        skillAccess
-      );
+      const specialization = subagentSpecializationInstructions(bot.subagentIdentity.subagentType as SubagentType);
       const instructions = [
         `You are OpenTeam running as the ${bot.subagentIdentity.subagentType} subagent.`,
         "Complete the delegated task autonomously, then end your turn with a concise final assistant message in plain text. Only that final assistant message is relayed back to the parent agent as your result; text from earlier assistant messages is not included. Put the outcome and any context the parent needs in that last message.",
@@ -2088,9 +2078,9 @@ export class AgentMessaging {
       ]
         .filter(Boolean)
         .join("\n\n");
-      // Only knowledgeWork carries skills of its own, listed in its user_info block; with tool access the Skill tool lists them instead.
-      const workerSkills = bot.subagentIdentity.subagentType === "knowledgeWork" && skillAccess === "read"
-        ? await this.agentData.renderWorkerSkillCatalog("knowledgeWork")
+      // Only knowledgeWork carries skills of its own; its user_info lists them for the Skill tool.
+      const workerSkills = workerSkillAccess(bot.subagentIdentity.subagentType) === "tool"
+        ? await this.agentData.renderWorkerSkillCatalog(bot.subagentIdentity.subagentType)
         : "";
       return {
         instructions,

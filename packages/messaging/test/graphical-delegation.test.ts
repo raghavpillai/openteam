@@ -102,17 +102,6 @@ describe("main-agent graphical delegation instructions", () => {
       } else {
         expect(prompt.instructions).not.toContain("DraftExternalMessage");
       }
-      if (subagentType === "knowledgeWork") {
-        // With the skill tool switched on, the Skill tool lists the skills instead of the catalog block.
-        process.env.OPENTEAM_SKILL_TOOL = "true";
-        try {
-          const toolPrompt = await AgentMessaging.prototype.platformPrompt.call(messaging as unknown as AgentMessaging, "child", undefined, "");
-          expect(toolPrompt.userInfo).toBeNull();
-          expect(toolPrompt.instructions).toContain("in the description of the Skill tool");
-        } finally {
-          delete process.env.OPENTEAM_SKILL_TOOL;
-        }
-      }
       // Workers get what they need in their task: no memory, history or todo tools.
       for (const name of ["ReadTranscript", "ReadAgentActivity", "RecallMemory", "TodoWrite"]) expect(prompt.instructions).not.toContain(name);
       expect(prompt.instructions).toContain("Your current timezone is");

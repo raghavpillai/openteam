@@ -67,19 +67,16 @@ test("knowledgeWork skills stay out of the main agent's catalog and workflow lis
     expect(catalog).toContain("managed:slides)");
     expect(catalog).not.toContain("managed:slides-executor");
     expect(catalog).not.toContain("managed:office-pptx");
-    // The knowledgeWork worker gets its own skills as an agent_skills block with file paths.
-    const description = (id: string) => record(id).description;
+    // The knowledgeWork worker loads its own skills with the Skill tool, so its agent_skills block lists them by name.
+    const description = (id: string) => record(id).description.replace(/\s+/g, " ").trim();
     expect(await store.renderWorkerSkillCatalog("knowledgeWork")).toBe(
       [
         "<agent_skills>",
-        "When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively. Skills provide specialized capabilities and domain knowledge. To use a skill, read the skill file at the provided absolute path using the Read tool, then follow the instructions within. When a skill is relevant, read and follow it IMMEDIATELY as your first action. NEVER just announce or mention a skill without actually reading and following it. Only use skills listed below.",
+        "When a skill below fits the task, load it with Skill before acting on the task; do not just mention it.",
         "",
-        "",
-        '<available_skills description="Skills the agent can use. Use the Read tool with the provided absolute path to fetch full contents.">',
-        `<agent_skill fullPath="${record("slides-executor").filePath}">${description("slides-executor")}</agent_skill>`,
-        "",
-        `<agent_skill fullPath="${record("office-pptx").filePath}">${description("office-pptx")}</agent_skill>`,
-        "</available_skills>",
+        "Your skills, one per line as name: when to use it. A skill that shares its name with another is listed by its path.",
+        `- slides-executor: ${description("slides-executor")}`,
+        `- office-pptx: ${description("office-pptx")}`,
         "</agent_skills>",
       ].join("\n")
     );
@@ -93,26 +90,8 @@ test("knowledgeWork skills stay out of the main agent's catalog and workflow lis
   expect(workflows).not.toContain("office-pptx");
 });
 
-test("the knowledgeWork worker reads its own skills from its agent_skills section", () => {
-  const instructions = subagentSpecializationInstructions("knowledgeWork");
-  expect(instructions).toContain("in the agent_skills section of the user_info block near the start of the conversation");
-  expect(subagentSpecializationInstructions("executor")).not.toContain("agent_skills");
-});
-
-test("the skill tool switch is off by default and swaps the catalog for the Skill tool when on", async () => {
-  const previous = process.env.OPENTEAM_SKILL_TOOL;
-  try {
-    delete process.env.OPENTEAM_SKILL_TOOL;
-    expect(workerSkillAccess("knowledgeWork")).toBe("read");
-    process.env.OPENTEAM_SKILL_TOOL = "true";
-    expect(workerSkillAccess("knowledgeWork")).toBe("tool");
-    expect(workerSkillAccess("executor")).toBe("read");
-  } finally {
-    if (previous === undefined) delete process.env.OPENTEAM_SKILL_TOOL;
-    else process.env.OPENTEAM_SKILL_TOOL = previous;
-  }
-  const tool = subagentSpecializationInstructions("knowledgeWork", "tool");
-  expect(tool).toContain("Your skills are cataloged (name plus a when-to-use description) in the description of the Skill tool.");
-  expect(tool).toContain("Load a skill with the Skill tool instead of reading a SKILL.md with Read, even where other lines say to Read one.");
-  expect(tool).not.toContain("agent_skills");
+test("the knowledgeWork worker loads its skills with the Skill tool; no other worker has skills", () => {
+  expect(workerSkillAccess("knowledgeWork")).toBe("tool");
+  for (const type of ["executor", "computerUse", "videoReview", null]) expect(workerSkillAccess(type)).toBe("read");
+  for (const type of ["knowledgeWork", "executor"] as const) expect(subagentSpecializationInstructions(type)).not.toContain("skill");
 });

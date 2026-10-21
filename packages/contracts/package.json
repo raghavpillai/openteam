@@ -45,6 +45,7 @@
     "./read-agent-activity": "./src/read-agent-activity.ts",
     "./subagent-dispatch": "./src/subagent-dispatch.ts",
     "./computer-action-aliases": "./src/computer-action-aliases.ts",
+    "./skill-tool": "./src/skill-tool.ts",
     "./notification-presence": "./src/notification-presence.ts",
     "./tailscale": "./src/tailscale.ts"
   },

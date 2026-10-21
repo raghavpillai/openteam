@@ -105,6 +105,7 @@ import {
   type MemoryExchange,
 } from "./memory-learning";
 import { resolveTimeZone } from "./timestamps";
+import { type CatalogSkill, renderSkillToolCatalog } from "@openteam/contracts/skill-tool";
 import { MEMORY_EXTRACTION_SYSTEM_PROMPT } from "./memory-prompts";
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
@@ -2832,25 +2833,17 @@ export class AgentDataStore {
     } catch {
       return "";
     }
-    const entries: string[] = [];
+    const skills: CatalogSkill[] = [];
     for (const record of records) {
       const skill = record as Record<string, unknown>;
       if (!Array.isArray(skill.agents) || !skill.agents.includes(agent)) continue;
-      if (typeof skill.filePath !== "string" || typeof skill.description !== "string") continue;
+      if (typeof skill.filePath !== "string" || typeof skill.description !== "string" || typeof skill.name !== "string") continue;
       if (!(await stat(skill.filePath).catch(() => null))?.isFile()) continue;
-      entries.push(`<agent_skill fullPath="${skill.filePath}">${skill.description}</agent_skill>`);
+      skills.push({ name: skill.name, description: skill.description, filePath: skill.filePath });
     }
-    if (!entries.length) return "";
-    return [
-      "<agent_skills>",
-      "When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively. Skills provide specialized capabilities and domain knowledge. To use a skill, read the skill file at the provided absolute path using the Read tool, then follow the instructions within. When a skill is relevant, read and follow it IMMEDIATELY as your first action. NEVER just announce or mention a skill without actually reading and following it. Only use skills listed below.",
-      "",
-      "",
-      '<available_skills description="Skills the agent can use. Use the Read tool with the provided absolute path to fetch full contents.">',
-      entries.join("\n\n"),
-      "</available_skills>",
-      "</agent_skills>",
-    ].join("\n");
+    // The worker loads these with the Skill tool, so its catalog lists them by name.
+    const catalog = renderSkillToolCatalog(skills);
+    return catalog ? `<agent_skills>\n${catalog}\n</agent_skills>` : "";
   }
 
   private async renderSkills(botId: string): Promise<string> {

@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { getAudioContext } from "voice-glow";
 
-const GLOW_PADDING = 48;
+const GLOW_PADDING = 64;
 
-/** Two stationary washes of light behind the bar; audio alone changes their color. */
+/** A continuous rotating bloom, with brighter regions shaped by the voice. */
 export function VoiceBackdropGlow({
   stream,
   processing,
@@ -71,6 +71,7 @@ export function VoiceBackdropGlow({
     let level = 0;
     let left = 0;
     let right = 0;
+    let angle = 0;
     const bandLevel = (meter: AnalyserNode, from: number, to: number) => {
       const binHz = meter.context.sampleRate / meter.fftSize;
       let power = 0;
@@ -98,8 +99,8 @@ export function VoiceBackdropGlow({
         low = bandLevel(meter, 80, 900);
         high = bandLevel(meter, 900, 6000);
       }
-      // Volume drives both sides; vocal body and articulation change their hues
-      // independently. There is no clock-driven phase, travel, or color rotation.
+      // Vocal body and articulation swell different parts of the backdrop.
+      // Both sit over a continuous bloom so the entire bar always stays lit.
       if (!current.exiting) {
         const follow = (value: number, next: number) =>
           value +
@@ -108,6 +109,11 @@ export function VoiceBackdropGlow({
         level = follow(level, target);
         left = follow(left, target * 0.6 + low * 0.4);
         right = follow(right, target * 0.6 + high * 0.4);
+      }
+      // Integrate phase across mode changes; only the palette turns, never the
+      // canvas or bar. Reduced Motion keeps its current palette stationary.
+      if (!current.reducedMotion && !current.exiting) {
+        angle = (angle + dt * 0.00035) % (Math.PI * 2);
       }
       const ratio = Math.min(2, window.devicePixelRatio || 1);
       if (element.width !== Math.round(width * ratio)) element.width = Math.round(width * ratio);
@@ -118,12 +124,34 @@ export function VoiceBackdropGlow({
       const barWidth = width - GLOW_PADDING * 2;
       const barHeight = height - GLOW_PADDING * 2;
       if (barWidth <= 0 || barHeight <= 0) return;
-      // Keep both centers fixed. Only color, opacity and the soft spread respond.
-      const spreadX = Math.min(barWidth * 0.45, barWidth * 0.25 + GLOW_PADDING - 8);
+      const outline = new Path2D();
+      outline.roundRect(GLOW_PADDING, GLOW_PADDING, barWidth, barHeight, current.radius);
+      const colors = context.createConicGradient(angle, width / 2, height / 2);
+      colors.addColorStop(0, "#a46aff");
+      colors.addColorStop(0.17, "#f47ac5");
+      colors.addColorStop(0.34, "#ffaf75");
+      colors.addColorStop(0.5, "#5fe0c5");
+      colors.addColorStop(0.7, "#65b0ff");
+      colors.addColorStop(0.86, "#9a80ff");
+      colors.addColorStop(1, "#a46aff");
+      const strength = current.dark ? 0.9 : 1;
+      // A broad wash plus a softer near-edge bloom lights every part of the
+      // capsule, including its ends. Neither pass draws a crisp second border.
+      context.strokeStyle = colors;
+      context.globalAlpha = (0.6 + level * 0.4) * strength;
+      context.lineWidth = 22 + level * 24;
+      context.filter = `blur(${12 + level * 5}px)`;
+      context.stroke(outline);
+      context.globalAlpha = (0.5 + level * 0.4) * strength;
+      context.lineWidth = 8 + level * 10;
+      context.filter = "blur(5px)";
+      context.stroke(outline);
+      context.filter = "none";
+      const spreadX = Math.min(barWidth * 0.48, barWidth * 0.27 + GLOW_PADDING - 8);
       const cloud = (position: number, activity: number, hue: number) => {
         context.save();
         context.translate(GLOW_PADDING + barWidth * position, height / 2);
-        context.scale(spreadX, barHeight / 2 + 24 + activity * 16);
+        context.scale(spreadX, barHeight / 2 + 38 + activity * 24);
         const color = (alpha: number) => `hsl(${hue} 95% ${current.dark ? 64 : 67}% / ${alpha})`;
         const gradient = context.createRadialGradient(0, 0, 0, 0, 0, 1);
         gradient.addColorStop(0, color(1));
@@ -132,20 +160,20 @@ export function VoiceBackdropGlow({
         gradient.addColorStop(0.85, color(0.04));
         // Keep the hue at zero alpha so the bloom never fades through black.
         gradient.addColorStop(1, color(0));
-        context.globalAlpha = (0.28 + activity * 0.6 + level * 0.12) * (current.dark ? 0.9 : 1);
+        context.globalAlpha = (0.32 + activity * 0.6 + level * 0.08) * strength;
         context.fillStyle = gradient;
         context.fillRect(-1, -1, 2, 2);
         context.restore();
       };
-      cloud(0.25, left, 210 + left * 90);
-      cloud(0.75, right, 280 + right * 100);
+      const rotation = (angle * 180) / Math.PI;
+      cloud(0.2, left, 240 + rotation + left * 35);
+      cloud(0.5, level, 285 + rotation + level * 25);
+      cloud(0.8, right, 325 + rotation + right * 35);
       // Punch out the bar after drawing the bloom, keeping the input clear even
       // while its opaque surface and controls morph into place above this layer.
       context.globalCompositeOperation = "destination-out";
       context.globalAlpha = 1;
-      context.beginPath();
-      context.roundRect(GLOW_PADDING, GLOW_PADDING, barWidth, barHeight, current.radius);
-      context.fill();
+      context.fill(outline);
       context.globalCompositeOperation = "source-over";
     };
     frame = requestAnimationFrame(draw);

@@ -78,9 +78,9 @@
 }
 .vm-backdrop-glow {
   position: absolute;
-  inset: -48px;
-  width: calc(100% + 96px);
-  height: calc(100% + 96px);
+  inset: -64px;
+  width: calc(100% + 128px);
+  height: calc(100% + 128px);
   pointer-events: none;
   animation: vm-halo-in 420ms var(--vm-ease) both;
 }

@@ -374,12 +374,35 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
         remove_member_ids: [peer.id],
       })
     ).toBe(`Updated channel "Contract room" (id: ${groupId}). Members: Source.`);
-    await expect(
-      app.administration.updateChannel(outsider.id, "channel-not-found", {
+    expect(
+      await app.administration.updateChannel(outsider.id, "channel-not-found", {
         channel_id: groupId,
         add_member_ids: [outsider.id],
       })
-    ).rejects.toThrow(`No channel found with id ${groupId}.`);
+    ).toBe(`No channel found with id ${groupId}.`);
+    // Stale ids are dropped, a channel id is refused, and nothing left is refused.
+    const staleAck = await app.administration.createChannel(source.id, "create-stale-room", {
+      name: "Stale room", member_ids: [source.id, crypto.randomUUID()],
+    });
+    expect(staleAck).toMatch(/^Channel "Stale room" is ready \(id: [^)]+\)\. Members: Source\. /);
+    await expect(app.administration.createChannel(source.id, "create-nested-room", { name: "Nested", member_ids: [source.id, groupId] })).rejects.toThrow(
+      "A channel can only contain individual agents, not other channels. Remove the channel from the member list."
+    );
+    await expect(app.administration.createChannel(source.id, "create-empty-room", { name: "Empty", member_ids: [crypto.randomUUID()] })).rejects.toThrow(
+      "A channel needs at least one existing member agent."
+    );
+    expect(await app.administration.createAgent(source.id, "agent-create", { name: "Helper", description: "Helps." })).toMatch(
+      /^Created agent "Helper" \(id: [0-9a-f-]{36}\)\.$/
+    );
+    // UpdateAgent: empty fields are omitted, and an unknown id is an answer.
+    expect(await app.administration.updateAgent(source.id, "agent-noop", { agent_id: peer.id, name: " ", description: "" })).toBe(
+      "Nothing to update: provide a new name and/or description."
+    );
+    const unknownAgent = crypto.randomUUID();
+    expect(await app.administration.updateAgent(source.id, "agent-unknown", { agent_id: unknownAgent, name: "X" })).toBe(`No agent found with id ${unknownAgent}.`);
+    expect(await app.administration.updateAgent(source.id, "agent-rename", { agent_id: peer.id, name: "Peer", description: "" })).toBe(
+      `Updated agent "Peer" (id: ${peer.id}).`
+    );
   } finally {
     await Effect.runPromise(app.close());
     fakeComputer.stop(true);

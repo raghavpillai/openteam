@@ -74,13 +74,24 @@ test('connectors that declare reviewed sending verify, edit and send each card a
   expect(await f.card(retry.message_id)).toMatchObject({ cardState: 'sent' });
   expect((await f.card(retry.message_id)).sendError).toBeUndefined();
 
+  // An unconfirmed send or a discarded card does not wake the Bot; it reads the outcome on its next turn.
+  const wakes = () => f.prisma.inboxEvent.count({ where: { botId: f.botId, type: 'draft.response' } });
+  const wakesBefore = await wakes();
   const interrupted = await service.create(f.context('reply-c'), draft) as { message_id: string };
   failSend = 'after';
-  expect((await Effect.runPromise(service.mutate(interrupted.message_id, { action: 'send' }))).message.metadata).toMatchObject({ cardState: 'unknown' });
+  expect((await Effect.runPromise(service.mutate(interrupted.message_id, { action: 'send' }))).message.metadata).toMatchObject({ cardState: 'unknown', outcomeEchoed: false });
+  expect((await f.card(interrupted.message_id)).outcomeText).toStartWith('A send of your draft did not confirm. It may or may not have gone out. Do not send that message yourself (including via CallDynamicTool or any connector send tool). Check the destination before drafting or sending it again.\n\nFrom: Me@Example.com');
   const before = calls.length;
   await Effect.runPromise(service.mutate(interrupted.message_id, { action: 'send' }));
   expect(calls).toHaveLength(before);
   failSend = null;
+  const discarded = await service.create(f.context('reply-x'), draft) as { message_id: string };
+  await Effect.runPromise(service.mutate(discarded.message_id, { action: 'cancel' }));
+  expect(await f.card(discarded.message_id)).toMatchObject({ cardState: 'dismissed', outcomeEchoed: false });
+  expect((await f.card(discarded.message_id)).outcomeText).toStartWith('The user discarded your draft without sending. They refused to send it. Do not send that message yourself (including via CallDynamicTool or any connector send tool). Treat the draft as rejected; only draft or send again if the user explicitly asks.');
+  expect(await wakes()).toBe(wakesBefore);
+  const nextTurn = await f.messaging.platformPrompt(f.botId, undefined as never, '', null);
+  expect(JSON.stringify(nextTurn)).toContain('The user discarded your draft without sending.');
 
   const stale = await service.create(f.context('reply-d'), draft) as { message_id: string };
   identity = 'someone-else@example.com';

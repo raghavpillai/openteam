@@ -19,6 +19,12 @@ import { definitionFromManifest } from "./plugin/values";
 import { appendEvent, metadataRecord, serviceEffect, toJson } from "./service-utils";
 import { toChannelMessageView } from "./view-mappers";
 
+// A discarded or unconfirmed card does not wake the bot; it reads the outcome on its next turn.
+const DISCARDED_DRAFT_OUTCOME =
+  "The user discarded your draft without sending. They refused to send it. Do not send that message yourself (including via CallDynamicTool or any connector send tool). Treat the draft as rejected; only draft or send again if the user explicitly asks.";
+const UNCONFIRMED_DRAFT_OUTCOME =
+  "A send of your draft did not confirm. It may or may not have gone out. Do not send that message yourself (including via CallDynamicTool or any connector send tool). Check the destination before drafting or sending it again.";
+
 const fail = (message: string): never => {
   throw new ApiError(409, "draft_unavailable", message);
 };
@@ -312,11 +318,7 @@ export class ExternalDraftService {
       });
       const metadata = metadataRecord(claim.message.metadata);
       if (metadata.cardState === "dismissed" && !metadata.outcomeId)
-        return this.settle(
-          messageId,
-          "dismissed",
-          "The user discarded the draft. Nothing was sent; treat it as a decline and don't redraft unasked."
-        );
+        return this.settle(messageId, "dismissed", DISCARDED_DRAFT_OUTCOME, false, false);
       if (!claim.claimed) {
         if (metadata.cardState === "sending") {
           const call = await this.prisma.pluginInvocation.findUnique({
@@ -331,11 +333,7 @@ export class ExternalDraftService {
             }
           }
           if (Date.now() - Date.parse(String(metadata.sendStartedAt)) > 180_000)
-            return this.settle(
-              messageId,
-              "unknown",
-              "Delivery was interrupted. Check the mailbox or Slack before creating another draft; this send will not be repeated automatically."
-            );
+            return this.settle(messageId, "unknown", UNCONFIRMED_DRAFT_OUTCOME, false, false);
         }
         return { accepted: false, message: toChannelMessageView(claim.message), runId: null };
       }
@@ -410,13 +408,7 @@ export class ExternalDraftService {
       }
       return this.settle(messageId, "sent", sent, wake);
     } catch (error) {
-      if (enteredSend)
-        return this.settle(
-          messageId,
-          "unknown",
-          "The send did not return a confirmed result. Check the destination before retrying; no automatic resend will occur.",
-          wake
-        );
+      if (enteredSend) return this.settle(messageId, "unknown", UNCONFIRMED_DRAFT_OUTCOME, false, !wake);
       return this.reopen(
         messageId,
         error instanceof ApiError || error instanceof Error ? error.message : "The connector could not be reached"
@@ -492,7 +484,8 @@ export class ExternalDraftService {
       return { accepted: true, message: toChannelMessageView(message), runId: null };
     });
   }
-  private async settle(messageId: string, state: string, outcome: string, wake = true) {
+  /** wake: start a turn for the outcome now. echoed: the outcome was already reported, so it is not repeated next turn. */
+  private async settle(messageId: string, state: string, outcome: string, wake = true, echoed = !wake) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
       const message = await tx.channelMessage.findUniqueOrThrow({ where: { id: messageId } });
@@ -513,7 +506,7 @@ export class ExternalDraftService {
               metadataRecord(stored.verification)
             )}`.slice(0, 10000),
             // An automatic send reports back in the DraftExternalMessage result instead of a wake.
-            outcomeEchoed: !wake,
+            outcomeEchoed: echoed,
           }),
         },
       });

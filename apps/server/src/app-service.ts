@@ -202,6 +202,7 @@ export class AppService {
       this.agentData
     );
     this.routines = new RoutineService(this.prisma, this.messaging, this.agentData);
+    this.messaging.onGroupRoutineSettled = (settled) => this.routines.afterGroupExecution(settled);
     this.automationWebhooks = new AutomationWebhooksService(this.prisma, (owner, event) =>
       this.routines.dispatchEvent(owner, event)
     );

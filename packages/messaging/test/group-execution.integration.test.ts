@@ -496,6 +496,32 @@ describe.skipIf(!db)("durable group execution", () => {
     }
   });
 
+  test("a group PR watch deletes itself once the room turn for its merged pull request finishes", async () => {
+    const f = await fixture();
+    try {
+      const service = new RoutineService(db!, f.messaging);
+      f.messaging.onGroupRoutineSettled = (settled) => service.afterGroupExecution(settled);
+      const owner = { kind: "group" as const, id: f.channelId };
+      const create = async (name: string, trigger: unknown) =>
+        String((await service.mutateOwner(owner, randomUUID(), null, { action: "create", name, prompt: "Tell the room what changed.", trigger: trigger as never, source: "ui" })).id);
+      const watch = await create("Babysit 7", { type: "github", repo: "qa/pr", pr: 7, events: ["review-approved", "pr-merged", "pr-closed"] });
+      const subscription = await create("Merges", { type: "github", repo: "qa/pr", events: ["pr-merged"] });
+      const live = async () => (await db!.routine.findMany({ where: { channelId: f.channelId, deletedAt: null }, select: { id: true } })).map((routine) => routine.id).sort();
+      const settle = async (event: Record<string, unknown>) => {
+        await service.dispatchEvent(owner, { source: "github", repo: "qa/pr", pr: 7, text: "", ...event });
+        while (await f.active()) await f.finish((await f.active())!);
+      };
+      await settle({ id: `review-${randomUUID()}`, kind: "review-approved", actor: "reviewer" });
+      expect(await live()).toEqual([watch, subscription].sort());
+      await settle({ id: `merge-${randomUUID()}`, kind: "pr-merged", actor: "me" });
+      // The PR-scoped watch is gone; the repo-wide subscription stays.
+      expect(await live()).toEqual([subscription]);
+      expect(await db!.routineRevision.findFirst({ where: { routineId: watch, callId: { startsWith: "routine-terminal:" } } })).not.toBeNull();
+    } finally {
+      await f.cleanup();
+    }
+  });
+
   test("manual, scheduled and event group routines seed shared turns; any failed member fails the ledger", async () => {
     const f = await fixture();
     try {

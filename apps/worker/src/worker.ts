@@ -455,6 +455,7 @@ export class WakeWorker {
       appendAgentTimelineEvent(tx, this.messaging, input)
     );
     this.routines = new RoutineService(this.prisma, this.messaging, this.agentData);
+    this.messaging.onGroupRoutineSettled = (settled) => this.routines.afterGroupExecution(settled);
     this.pushNotifications = new PushNotificationDispatcher(this.prisma);
     this.boss.on("error", (error) => console.error("pg-boss", error));
   }
@@ -851,7 +852,7 @@ export class WakeWorker {
     executionId: string,
     rootMessageId: string
   ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    const settled = await this.prisma.$transaction(async (tx) => {
       const execution = await tx.routineExecution.findUnique({
         where: { id: executionId },
         include: { routine: { select: { runLedger: true, channelId: true } } },
@@ -922,7 +923,9 @@ export class WakeWorker {
           },
         },
       });
+      return { executionId: execution.id, routineId: execution.routineId };
     });
+    if (settled) await this.routines.afterGroupExecution(settled);
   }
 
   private async handleProvision(job: JobWithMetadata<ProvisionData>): Promise<void> {

@@ -1565,7 +1565,11 @@ export class AgentMessaging {
     return round;
   }
 
+  /** Called once a room transaction has settled a group routine's run (wired to RoutineService). */
+  onGroupRoutineSettled?: (settled: { executionId: string; routineId: string }) => Promise<unknown>;
+
   async advanceRound(roundId: string): Promise<void> {
+    let settledRoutine: { executionId: string; routineId: string } | undefined;
     try {
       const shouldAdvanceAgain = await this.prisma.$transaction(async (tx) => {
         await lockGroupRound(tx, roundId);
@@ -1626,6 +1630,7 @@ export class AgentMessaging {
                 ...(failed ? { error: { code: "group_routine_delivery_failed" } } : {}),
               },
             });
+            settledRoutine = { executionId: execution.id, routineId: execution.routineId };
             await tx.routine.update({
               where: { id: execution.routineId },
               data: {
@@ -1851,6 +1856,7 @@ export class AgentMessaging {
         });
         return null;
       });
+      if (settledRoutine) await this.onGroupRoutineSettled?.(settledRoutine);
       if (shouldAdvanceAgain) await this.advanceRound(shouldAdvanceAgain);
     } catch (error) {
       if ((error as { code?: string }).code !== "P2002") throw error;

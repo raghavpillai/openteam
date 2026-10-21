@@ -1212,6 +1212,13 @@ export class RoutineService {
     return { roundId };
   }
 
+  /** After a group routine's run settles, outside the room transaction that settled it: a
+   * finished PR watch deletes itself, and events that arrived meanwhile start the next turn. */
+  async afterGroupExecution(settled: { executionId: string; routineId: string }) {
+    await this.prisma.$transaction((tx) => this.finishTerminalWatch(tx, settled.executionId));
+    await this.runEventFollowUp(settled.routineId);
+  }
+
   /** startEventFollowUp in its own transaction, then the first room turn of a group follow-up. */
   async runEventFollowUp(routineId: string): Promise<boolean> {
     const started = await this.prisma.$transaction((tx) => this.startEventFollowUp(tx, routineId));

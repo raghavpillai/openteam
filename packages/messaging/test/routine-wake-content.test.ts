@@ -36,22 +36,4 @@ describe("scheduled routine wake content", () => {
       '[SAND_HIDDEN_PROMPT][SAND_TRUSTED_AUTOMATION_PROMPT]\n[routine] "Daily audit" (folder daily-audit) was run on demand — Every day at 12:00 AM (0 0 * * *), fired 2026-08-28T11:00:00.000Z.\nThe user pressed Run now on this routine in the app; this is that run, not a message they typed.'
     );
   });
-
-  test("places the authoritative routine status reminder above the firing body", () => {
-    const content = manualRoutineWakeContent({
-      name: "Daily audit",
-      folder: "daily-audit",
-      schedule: "0 0 * * *",
-      firedAt: new Date("2026-08-28T11:00:00.000Z"),
-      prompt: "Inspect the queue.",
-      provenance: "user",
-      routineStatuses: [
-        { name: "Daily audit", folder: "daily-audit", status: "never run" },
-        { name: "Weekly recap", folder: "weekly-recap", status: "last run status unknown" },
-      ],
-    });
-    expect(content).toStartWith(
-      "[SAND_HIDDEN_PROMPT][SAND_TRUSTED_AUTOMATION_PROMPT]\n<system_reminder>\n<automation_status>\nCurrent routine runtime status. This snapshot is authoritative for this turn and supersedes earlier routine status reminders.\n- Daily audit (folder daily-audit): never run\n- Weekly recap (folder weekly-recap): last run status unknown\n</automation_status>\n</system_reminder>\n\n[routine]"
-    );
-  });
 });

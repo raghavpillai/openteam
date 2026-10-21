@@ -6,7 +6,7 @@ import { type CSSProperties, useEffect, useId, useRef, useState } from "react";
 import { getAudioContext } from "voice-glow";
 import { BotArrowUpIcon, BotCloseIcon, BotPlusIcon } from "../../ai-elements/composer-icons";
 import { LoadingOrb, preloadLoadingOrb } from "../../ui/loading-orb";
-import { VoicePerimeterGlow } from "./voice-perimeter-glow";
+import { VoiceBackdropGlow } from "./voice-backdrop-glow";
 import "./voice-memo.css";
 
 export type VoiceMemoMode = "recording" | "processing";
@@ -226,13 +226,7 @@ export default function VoiceMemoLayer({
         } as CSSProperties
       }
     >
-      <div aria-hidden="true" className="vm-reveal">
-        <div className="vm-surface-liquid" style={{ filter: `url(#${gooId})` }}>
-          <span className="vm-surface-pill" />
-          <span className="vm-surface-drop" />
-        </div>
-      </div>
-      <VoicePerimeterGlow
+      <VoiceBackdropGlow
         dark={dark}
         exiting={exiting}
         processing={mode === "processing"}
@@ -240,6 +234,12 @@ export default function VoiceMemoLayer({
         reducedMotion={reducedMotion}
         stream={mode === "recording" ? stream : null}
       />
+      <div aria-hidden="true" className="vm-reveal">
+        <div className="vm-surface-liquid" style={{ filter: `url(#${gooId})` }}>
+          <span className="vm-surface-pill" />
+          <span className="vm-surface-drop" />
+        </div>
+      </div>
 
       <div className="vm-bar">
         <TimeChip elapsedMs={elapsedMs} gooId={gooId} processing={mode === "processing"} />

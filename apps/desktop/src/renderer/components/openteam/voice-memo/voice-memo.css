@@ -76,7 +76,7 @@
 .vm-root[data-exiting] .vm-surface-drop {
   animation: vm-surface-drop-out 460ms var(--vm-ease) both;
 }
-.vm-perimeter {
+.vm-backdrop-glow {
   position: absolute;
   inset: -48px;
   width: calc(100% + 96px);
@@ -84,7 +84,7 @@
   pointer-events: none;
   animation: vm-halo-in 420ms var(--vm-ease) both;
 }
-.vm-root[data-exiting] .vm-perimeter {
+.vm-root[data-exiting] .vm-backdrop-glow {
   animation: vm-halo-out 300ms ease-out both;
 }
 @keyframes vm-halo-in {

@@ -1339,8 +1339,12 @@ export class RuntimeTools {
       body &&
       typeof body === "object" &&
       (body as Record<string, unknown>).woken === true
-    )
+    ) {
       active.endTurnRequested = true;
+      // The handoff ends the automation, so its background commands stop with it.
+      const runs = (body as Record<string, unknown>).automation_run_ids;
+      this.nativeToolExecutor.stopAutomationShells(Array.isArray(runs) ? runs.filter((id): id is string => typeof id === "string") : [active.runId]);
+    }
     // A reaction can be the whole reply: with end_turn, a successful one delivers and ends the turn.
     if (
       tool === REACT_TO_MESSAGE_TOOL.name &&

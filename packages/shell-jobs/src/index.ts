@@ -142,6 +142,15 @@ export class ShellJobRegistry {
     } finally { await file.close(); }
   }
 
+  /** Background jobs still running that one of these automation runs started in this process. */
+  runningForAutomation(automationRunIds: ReadonlySet<string>): Array<{ id: string; pid: number }> {
+    return [...this.jobs.values()].flatMap((job) =>
+      job.background && !job.outcome && !job.recovered && job.pid !== undefined &&
+      job.automationRunId !== undefined && automationRunIds.has(job.automationRunId)
+        ? [{ id: job.id, pid: job.pid }] : []
+    );
+  }
+
   markBackground(id: string) {
     const job = this.jobs.get(id);
     if (!job) return;

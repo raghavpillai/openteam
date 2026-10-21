@@ -2001,6 +2001,7 @@ export class WakeWorker {
     // Delegated work belongs to the automation that launched it. Resume that
     // context unless it already handed responsibility to the main agent.
     const route = await automationContinuationRoute(tx, subagent.parentBotId, subagent.parentRunId);
+    if (!route) return;
     const source = await tx.run.findUnique({ where: { id: subagent.parentRunId }, include: { inboxEvents: { take: 1, select: { payload: true } } } });
     const sourcePayload = source?.inboxEvents[0]?.payload as { taskContextRunId?: string } | undefined;
     const room = await tx.channel.findUnique({ where: { id: subagent.parentChannelId }, select: { kind: true, name: true } });

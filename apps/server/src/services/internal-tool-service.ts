@@ -30,7 +30,7 @@ import { formatMemoryToolResult } from "../memory-tool-result";
 import type { AdministrationService } from "./administration-service";
 import type { PluginService } from "./plugin-service";
 import { serviceEffect } from "./service-utils";
-import type { SubagentService } from "./subagent/service";
+import { botSubagentId, type SubagentService } from "./subagent/service";
 import type { TodoService } from "./todo-service";
 import type { RichMessageService } from "./rich-message-service";
 import { processEnvironment } from "./process-secrets";
@@ -97,7 +97,14 @@ export class InternalToolService {
       request={...request,arguments:normalizeMainToolArguments(request.tool,request.arguments)};
       if (request.tool === "WakeParent") {
         if (childIdentity) throw new ApiError(403, "wake_parent_unavailable", "Only the automation itself can wake its parent");
-        return wakeAutomationParent(this.messaging, context, Schema.decodeUnknownSync(WakeParentInput)(request.arguments));
+        const woken = await wakeAutomationParent(this.messaging, context, Schema.decodeUnknownSync(WakeParentInput)(request.arguments));
+        // The handoff ends the automation, so the subagents it started stop with it.
+        const children = await this.prisma.subagent.findMany({
+          where: { parentBotId: request.botId, parentRunId: { in: woken.automation_run_ids }, status: { in: ["provisioning", "queued", "running"] } },
+          select: { id: true },
+        });
+        await Promise.allSettled(children.map((child) => this.subagents.stop(request.botId, request.callId, { subagent_id: botSubagentId(child.id) })));
+        return woken;
       }
       if (run.origin === "routine" && !["RefreshPromptContext", "AcknowledgePromptContext", "AcknowledgeCardOutcomes"].includes(request.tool) &&
         (await this.prisma.automationResult.findUnique({ where: { runId: automationContextRunId(run.id, inboxPayload) }, select: { wakeRunId: true } }))?.wakeRunId) {

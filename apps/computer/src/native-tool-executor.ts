@@ -100,6 +100,15 @@ export class NativeToolExecutor {
     );
   }
 
+  /** A routine run that handed off to its parent stops the background commands it started. */
+  stopAutomationShells(automationRunIds: readonly string[]): number {
+    const running = this.shellJobs.runningForAutomation(new Set(automationRunIds));
+    for (const job of running) {
+      try { process.kill(-job.pid, "SIGTERM"); } catch { /* It already exited. */ }
+    }
+    return running.length;
+  }
+
   async shellWorkingDirectory(input: Pick<ShellToolInput, "working_directory">, cwd: string, scope = "") {
     if (input.working_directory != null) return localPath(input.working_directory, cwd);
     const saved = await loadShellEnvironment(this.terminalDir, scope, {});

@@ -100,25 +100,28 @@ export async function reconcileRoutineExecution(tx: Prisma.TransactionClient, ru
   });
   if (family.some((entry) => ["queued", "running"].includes(entry.status)))
     return;
+  const handoff = await tx.automationResult.findUnique({ where: { runId: rootId }, select: { wakeRunId: true } });
+  // A handoff ends the automation; background work it started no longer reports to it.
   if (
-    await tx.subagentAttempt.count({
+    !handoff?.wakeRunId &&
+    (await tx.subagentAttempt.count({
       where: {
         parentRunId: { in: family.map((entry) => entry.id) },
         status: { in: ["provisioning", "queued", "running"] },
       },
-    })
+    }))
   )
     return;
   if (
-    await pendingAutomationShells(
+    !handoff?.wakeRunId &&
+    (await pendingAutomationShells(
       tx,
       root.botId,
       family.map((entry) => entry.id)
-    )
+    ))
   )
     return;
   const final = family[0]!;
-  const handoff = await tx.automationResult.findUnique({ where: { runId: rootId }, select: { wakeRunId: true } });
   const failedHandoff = !handoff?.wakeRunId && await tx.runItem.findFirst({ where: {
     runId: { in: family.map(entry => entry.id) }, status: "failed", kind: "tool",
     OR: [{ title: "WakeParent" }, { content: { path: ["arguments", "toolName"], equals: "WakeParent" } }],
@@ -141,12 +144,13 @@ export async function reconcileRoutineExecution(tx: Prisma.TransactionClient, ru
   return (await tx.routineExecution.findUnique({ where: { runId: rootId }, select: { routineId: true } }))?.routineId;
 }
 
-/** Shell and delegated-worker completions resume their owning automation. */
+/** Shell and delegated-worker completions resume their owning automation. Once that
+ * automation handed off to its parent, they are dropped (null). */
 export async function automationContinuationRoute(
   tx: Prisma.TransactionClient,
   botId: string,
   sourceRunId: string
-): Promise<Pick<WakeInput, "origin" | "automationContextRunId" | "automationTrigger">> {
+): Promise<Pick<WakeInput, "origin" | "automationContextRunId" | "automationTrigger"> | null> {
   const source = await tx.run.findFirst({
     where: { id: sourceRunId, botId },
     include: { inboxEvents: { take: 1, select: { payload: true } } },
@@ -158,7 +162,7 @@ export async function automationContinuationRoute(
     where: { runId: rootId },
     select: { wakeRunId: true },
   });
-  if (handoff?.wakeRunId) return { origin: "background_revival" };
+  if (handoff?.wakeRunId) return null;
   const trigger =
     payload && typeof payload === "object" && !Array.isArray(payload)
       ? payload.automationTrigger
@@ -221,8 +225,19 @@ export async function wakeAutomationParent(
         "Automation context does not belong to this run"
       );
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`automation-result:${rootId}`}))`;
+    // The caller stops the background work these runs started.
+    const automation_run_ids = (await tx.run.findMany({
+      where: {
+        botId: run.botId,
+        channelId: run.channelId,
+        origin: "routine",
+        OR: [{ id: rootId }, { inboxEvents: { some: { payload: { path: ["automationContextRunId"], equals: rootId } } } }],
+      },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    })).map((entry) => entry.id);
     const existing = await tx.automationResult.findUnique({ where: { runId: rootId } });
-    if (existing?.wakeRunId) return { woken: true, run_id: existing.wakeRunId };
+    if (existing?.wakeRunId) return { woken: true, run_id: existing.wakeRunId, automation_run_ids };
     const wake = await messaging.enqueueWake(tx, {
       botId: run.botId,
       channelId: context.channelId,
@@ -242,7 +257,7 @@ export async function wakeAutomationParent(
       create: { runId: rootId, message: input.message, wakeRunId: wake.run.id },
       update: { message: input.message, wakeRunId: wake.run.id },
     });
-    return { woken: true, run_id: wake.run.id };
+    return { woken: true, run_id: wake.run.id, automation_run_ids };
   });
 }
 

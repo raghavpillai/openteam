@@ -33,7 +33,7 @@ test("runtime context describes actual tools and preserves saved skill catalog",
     {
       cwd: "/workspace/task",
       transcriptPath: "/private/session.jsonl",
-      namespaces: [{ name: "test", description: "test namespace", tools: [{ name: "Lookup" }] }],
+      catalog: renderDynamicToolCatalog([{ name: "test", description: "test namespace", tools: [{ name: "Lookup" }] }]),
     }
   );
   expect(text).toContain("Workspace Path: /workspace/task");
@@ -132,4 +132,31 @@ test("the dynamic tool catalog has the reference shape and marks connections tha
     "</dynamic_tool_catalog>",
   ].join("\n"));
   expect(renderDynamicToolCatalog([{ name: "cursor", tools: [] }])).toBeNull();
+});
+
+test("the catalog in user_info is pinned for the epoch; a changed cursor namespace is announced once", async () => {
+  const { pinDynamicToolCatalog } = await import("../../src/runtime/catalog-snapshot");
+  const entries: Array<{ type: string; customType: string; data: unknown }> = [];
+  const log = { getEntries: () => entries, appendCustomEntry: (customType: string, data: unknown) => { entries.push({ type: "custom", customType, data }); } };
+  const cursor = (tools: string[]) => ({ name: "cursor", description: "First-party tools.", tools: tools.map((name) => ({ name })) });
+  const gmail = { name: "gmail", namespaceStatus: "ready", tools: [{ name: "search_threads" }] };
+  const first = pinDynamicToolCatalog(log, 0, [cursor(["TodoWrite"])]);
+  expect(first).toEqual({ catalog: renderDynamicToolCatalog([cursor(["TodoWrite"])]), update: null });
+  // A connector connected mid-conversation does not rewrite user_info.
+  expect(pinDynamicToolCatalog(log, 0, [cursor(["TodoWrite"]), gmail])).toEqual({ catalog: first.catalog, update: null });
+  const changed = pinDynamicToolCatalog(log, 0, [cursor(["TodoWrite", "UploadFile"]), gmail]);
+  expect(changed.catalog).toBe(first.catalog);
+  expect(changed.update).toBe([
+    "<system_reminder>",
+    '<user_info_catalog_update sections="dynamic_tool_snapshot">',
+    "The catalogs below have changed since the user_info message at the start of this conversation was written. They replace the same-named sections there; a later update of this kind replaces this one.",
+    "<dynamic_tool_namespaces>",
+    '<namespace name="cursor" tools="TodoWrite, UploadFile" namespaceUseInstructions="First-party tools." source="cursor" />',
+    "</dynamic_tool_namespaces>",
+    "</user_info_catalog_update>",
+    "</system_reminder>",
+  ].join("\n"));
+  expect(pinDynamicToolCatalog(log, 0, [cursor(["TodoWrite", "UploadFile"]), gmail]).update).toBeNull();
+  // A new epoch (after a summary) renders the live catalog again.
+  expect(pinDynamicToolCatalog(log, 1, [cursor(["TodoWrite", "UploadFile"]), gmail]).catalog).toContain('<namespace name="gmail"');
 });

@@ -377,11 +377,8 @@ adaptDescription("GetDynamicTools", [
     'a namespace whose namespaceStatus is "needsAuth" or "needsGrant" stays unusable until the user connects it or grants you access.',
     'a namespace whose namespaceStatus is "needsAuth" stays unusable until the user connects it.',
   ],
-  // First-party tools run without approvals, and user_info is rebuilt every turn.
-  [
-    "(their names are listed with that namespace in <user_info>, or in the most recent <user_info_catalog_update> block on a later user turn). Discover their schemas here, then invoke them via CallDynamicTool; they run natively with their own approvals and rendering.",
-    "(their names are listed with that namespace in <user_info>). Discover their schemas here, then invoke them via CallDynamicTool; they run natively with their own rendering.",
-  ],
+  // First-party tools run without approvals.
+  ["they run natively with their own approvals and rendering.", "they run natively with their own rendering."],
 ]);
 // No call reviewer or approval card consumes MCP call details.
 delete contracts.CallDynamicTool!.inputSchema.properties.mcpDetails;

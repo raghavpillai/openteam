@@ -26,16 +26,7 @@ const catalogAttribute = (value: string) => value.replace(/&/g, "&amp;").replace
  * listed by status alone, since none of its tools can be called yet.
  */
 export function renderDynamicToolCatalog(namespaces: readonly CatalogNamespace[]): string | null {
-  const ordered = [...namespaces].sort((a, b) => Number(b.name === "cursor") - Number(a.name === "cursor"));
-  const entries = ordered.flatMap((namespace) => {
-    const source = namespace.name === "cursor" ? "cursor" : "mcp";
-    if (source === "mcp" && namespace.namespaceStatus && namespace.namespaceStatus !== "ready")
-      return [`<namespace name="${catalogAttribute(namespace.name)}" status="${namespace.namespaceStatus}" source="mcp" />`];
-    if (!namespace.tools.length) return [];
-    const tools = namespace.tools.map((tool) => tool.name).sort((a, b) => a.localeCompare(b)).join(", ");
-    const instructions = source === "cursor" && namespace.description ? ` namespaceUseInstructions="${catalogAttribute(namespace.description)}"` : "";
-    return [`<namespace name="${catalogAttribute(namespace.name)}" tools="${catalogAttribute(tools)}"${instructions} source="${source}" />`];
-  });
+  const entries = catalogEntries(namespaces);
   if (!entries.length) return null;
   return [
     "<dynamic_tool_catalog>",
@@ -48,12 +39,32 @@ export function renderDynamicToolCatalog(namespaces: readonly CatalogNamespace[]
   ].join("\n");
 }
 
+/** The first-party namespace alone, which is what the reference re-announces when it changes mid-conversation. */
+export function renderCursorNamespaceStatement(namespaces: readonly CatalogNamespace[]): string {
+  const [entry] = catalogEntries(namespaces.filter((namespace) => namespace.name === "cursor"));
+  return `<dynamic_tool_namespaces>\n${entry ?? '(no built-in "cursor" namespace is available; discover the remaining namespaces with the discovery tool)'}\n</dynamic_tool_namespaces>`;
+}
+
+function catalogEntries(namespaces: readonly CatalogNamespace[]): string[] {
+  const ordered = [...namespaces].sort((a, b) => Number(b.name === "cursor") - Number(a.name === "cursor"));
+  return ordered.flatMap((namespace) => {
+    const source = namespace.name === "cursor" ? "cursor" : "mcp";
+    if (source === "mcp" && namespace.namespaceStatus && namespace.namespaceStatus !== "ready")
+      return [`<namespace name="${catalogAttribute(namespace.name)}" status="${namespace.namespaceStatus}" source="mcp" />`];
+    if (!namespace.tools.length) return [];
+    const tools = namespace.tools.map((tool) => tool.name).sort((a, b) => a.localeCompare(b)).join(", ");
+    const instructions = source === "cursor" && namespace.description ? ` namespaceUseInstructions="${catalogAttribute(namespace.description)}"` : "";
+    return [`<namespace name="${catalogAttribute(namespace.name)}" tools="${catalogAttribute(tools)}"${instructions} source="${source}" />`];
+  });
+}
+
 export function enrichUserInfo(
   base: string,
   input: {
     cwd: string;
     transcriptPath: string;
-    namespaces: CatalogNamespace[];
+    /** The rendered <dynamic_tool_catalog>, pinned for the compaction epoch. */
+    catalog: string | null;
     taskConfiguration?: TaskConfiguration;
     subagent?: boolean;
   }
@@ -69,7 +80,7 @@ export function enrichUserInfo(
     base.replace("<user_info>", `<user_info>\n${environment}`),
     `<agent_transcripts>\nPast conversation transcripts: ${input.transcriptPath}. Read relevant prior context when needed; do not cite internal transcript IDs to the user.\n</agent_transcripts>`,
     ...(input.subagent ? [] : [taskUserInfo(input.taskConfiguration)]),
-    renderDynamicToolCatalog(input.namespaces) ?? [],
+    input.catalog ?? [],
   ].flat().join("\n\n");
 }
 

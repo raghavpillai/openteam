@@ -60,6 +60,7 @@ import { IdleProviderConnections, InferenceProviderConnections } from "./runtime
 import { untrustedResultsExtension } from "./runtime/untrusted-results";
 import { directDynamicToolsExtension } from "./runtime/direct-dynamic-tools";
 import { enrichUserInfo } from "./runtime/prompt-context";
+import { pinDynamicToolCatalog } from "./runtime/catalog-snapshot";
 import { defaultTaskConfiguration, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 import { assertSessionPath } from "./runtime/session-path";
 import { RuntimeTools } from "./runtime/tools";
@@ -350,13 +351,19 @@ export class ComputerRuntime {
       active.session = session;
       this.bindTurnStop(active, session);
       active.sessionPath = openedSessionPath;
-      if (request.userInfo) active.userInfoMessage = botUserInfoMessage(enrichUserInfo(request.userInfo, {
-        cwd: active.cwd,
-        transcriptPath: openedSessionPath,
-        namespaces: this.tools.contextCatalog(active),
-        taskConfiguration: active.taskConfiguration,
-        subagent: Boolean(active.subagentType),
-      }), request.userInfoEpoch ?? 0);
+      if (request.userInfo) {
+        const pinned = pinDynamicToolCatalog(session.sessionManager, request.userInfoEpoch ?? 0, this.tools.contextCatalog(active));
+        active.userInfoMessage = botUserInfoMessage(enrichUserInfo(request.userInfo, {
+          cwd: active.cwd,
+          transcriptPath: openedSessionPath,
+          catalog: pinned.catalog,
+          taskConfiguration: active.taskConfiguration,
+          subagent: Boolean(active.subagentType),
+        }), request.userInfoEpoch ?? 0);
+        if (pinned.update) await session.sendCustomMessage({
+          customType: "openteam-catalog-update", content: pinned.update, display: false, details: { origin: "host" },
+        }, { triggerTurn: false });
+      }
       active.unsubscribe = session.subscribe((event) => this.routeEvent(active, event));
       const recordedInputIds = new Set(session.sessionManager.getEntries().flatMap((entry) => entry.type === "custom" && entry.customType === "openteam-input-receipt" && typeof (entry.data as { messageId?: unknown })?.messageId === "string" ? [(entry.data as { messageId: string }).messageId] : []));
       for (const message of request.prependMessages ?? []) {
@@ -788,7 +795,8 @@ export class ComputerRuntime {
         active.instructions = refreshed.instructions;
         if (active.session) active.session.agent.state.systemPrompt = refreshed.instructions;
         active.userInfoMessage = refreshed.userInfo ? botUserInfoMessage(enrichUserInfo(refreshed.userInfo, {
-          cwd: active.cwd, transcriptPath: active.sessionPath ?? "", namespaces: this.tools.contextCatalog(active),
+          cwd: active.cwd, transcriptPath: active.sessionPath ?? "",
+          catalog: pinDynamicToolCatalog(sessionManager, refreshed.userInfoEpoch, this.tools.contextCatalog(active)).catalog,
           taskConfiguration: active.taskConfiguration,
         }), refreshed.userInfoEpoch) : null;
         const note = [refreshed.ambientContext, refreshed.instructionsUpdate].filter(Boolean).join("\n\n");

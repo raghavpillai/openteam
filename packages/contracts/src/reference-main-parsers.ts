@@ -529,20 +529,49 @@ var memoryParameters = external_exports.object({
   })
 });
 
+// The routines skill's trigger shapes, which an invalid trigger is answered with. OpenTeam's
+// email listener reads a connected Email plugin inbox, and the cron example keeps a named time.
+var AUTOMATION_TRIGGER_SHAPE_LINES = [
+  '  { "type": "slack", "channel": "#eng" | "@someone" | "*", "match": { "kind": "mention" } | { "kind": "keyword", "keyword": "deploy" } | { "kind": "message" } | { "kind": "reaction" } }',
+  `A reaction match also takes two optional filters: "emoji" (short names without colons, e.g. { "kind": "reaction", "emoji": ["eyes", "pencil2"] }, and any one of them fires it; omit for any reaction) and "bySelf": true (only the user's OWN reactions, not a colleague's). Reach for both together with "channel": "*" when the user wants their own emoji to be the signal: "when I react :eyes: to anything, do X".`,
+  '  { "type": "github", "repo": "owner/name" (one concrete repo, no wildcard), "events": ["pr-opened" | "pr-pushed" | "pr-merged" | "pr-closed" | "review-requested" | "review-approved" | "review-changes-requested" | "review-commented" | "pr-comment" | "inline-review-comment" | "review-thread-resolved" | "review-thread-unresolved" | "issue-assigned" | "ci-passed" | "ci-failed", ...], "pr"?: 123 (OPTIONAL; only that pull request), "userAllowlist"?: ["octocat", ...] (OPTIONAL git logins, "@" optional; omit or leave empty for anyone), "ciBranch"?: "main" (REQUIRED for CI events when pr is absent) }',
+  `userAllowlist filters the github listener to events involving those git users; omit it (or leave it empty) to fire for anyone. The gated user is per event kind, matching who drives it: the PR author for pr-opened/pr-pushed/pr-merged/pr-comment/inline-review-comment; BOTH the actor AND the PR author for review-approved/review-changes-requested/review-commented/review-thread-resolved/review-thread-unresolved/review-requested; the assigner for issue-assigned; and it does NOT apply to ci-passed/ci-failed (CI is never user-gated). So "PRs I open" is the user's own login on the pr-* events, and "reviews on my PRs" is the user's login on the review-* events. Use the user's actual GitHub login (confirm it, e.g. with \`gh api user\`, rather than guessing from their display name).`,
+  'For a repo subscription, omit pr: { "type": "github", "repo": "owner/name", "events": ["pr-opened", "pr-merged"] }. pr-pushed, pr-comment, inline-review-comment, and review-commented are refused repo-wide; they need pr or userAllowlist.',
+  `For "subscribe to / babysit this PR", use this default pack: { "type": "github", "repo": "owner/name", "pr": 123, "events": ["review-requested", "review-approved", "review-changes-requested", "review-commented", "pr-comment", "inline-review-comment", "review-thread-resolved", "review-thread-unresolved", "pr-pushed", "pr-merged", "pr-closed", "ci-passed", "ci-failed"] }. With pr, CI means that PR's checks and ciBranch is unnecessary. Including pr-merged and pr-closed makes the routine delete itself after either terminal wake finishes. Without pr, CI remains branch-scoped: ciBranch names the ONE branch whose settled checks fire ci-passed / ci-failed. Ask which branch the user means (usually "main") rather than guessing.`,
+  '  { "type": "origin", "repo": "owner/name" (one concrete NATIVE Origin repo, and a mirrored repo is rejected), "events": ["pr-opened" | "pr-pushed" | "pr-merged" | "review-requested" | "review-approved" | "review-changes-requested" | "review-commented" | "pr-comment" | "inline-review-comment" | "review-thread-resolved" | "review-thread-unresolved" | "ci-passed" | "ci-failed", ...], "pr"?: 123, "userAllowlist"?: ["<Origin actor id>", ...] }',
+  "Origin userAllowlist accepts actor IDs in either user-facing or internal numeric form. It gates PR/comment events by the PR owner; review/reviewer/thread events require BOTH the actor and PR owner; CI ignores the allowlist. Missing required identities fail closed.",
+  'For "subscribe to / babysit this Origin PR", use this default pack: { "type": "origin", "repo": "owner/name", "pr": 123, "events": ["review-requested", "review-approved", "review-changes-requested", "review-commented", "pr-comment", "inline-review-comment", "review-thread-resolved", "review-thread-unresolved", "pr-pushed", "pr-merged", "ci-passed", "ci-failed"] }. Origin CI is PR-only: ci-passed / ci-failed are discarded unless pr is set. Including pr-merged makes the routine delete itself after its merged wake finishes. Use github only for GitHub repos and origin only for native Origin repos; never point origin at a GitHub mirror.',
+  '  { "type": "microsoftTeams", "tenantId": "<Microsoft Entra tenant id>", "teamIds": ["<Graph API team id>", ...], "channelIds"?: [...] (omit for every channel), "messageContains"?: "deploy" (omit for any message) }',
+  '  { "type": "linear", "event": { "case": "issueCreated" } | { "case": "statusChanged", "statusIds"?: [...] } | { "case": "endOfCycle", "cycleIds"?: [...] }, "projectIds"?: [...], "teamIds"?: [...] }',
+  '  { "type": "sentry", "event": { "case": "issueCreated" | "issueResolved" | "issueAssigned" | "issueArchived" | "issueUnresolved" | "issueAny" }, "projectIds"?: [...] }',
+  '  { "type": "pagerduty", "event": { "case": "incidentTriggered" | "incidentAcknowledged" | "incidentResolved" | "incidentEscalated" | "incidentAny" }, "serviceIds"?: [...] }',
+  `  { "type": "email", "inbox": "<one of the user's connected Email plugin inbox addresses (ListEmailInboxes)>", "from"?: ["sender@example.com", ...] (omit for any sender), "requireAuthPass"?: true (default; false also wakes on mail that failed SPF/DKIM/DMARC) }, which fires when mail arrives at that inbox. Mail matching no routine wakes nobody. The wake carries headers only; read the body with ReadEmailThread.`,
+  `  { "type": "webhook" }, which fires when an outside system POSTs to this routine's webhook URL. The user copies the URL and its sender key from the routine panel; you never see or need the key. To point them at a field, paste its ready-made link from the routine's line under Current routines.`,
+  "The id arrays on the linear/sentry/pagerduty shapes, and a microsoftTeams channelIds, are optional narrowing filters (platform ids/UUIDs); omit one to fire for any project, status, cycle, channel, or service. A microsoftTeams trigger always names its scope: tenantId plus at least one team id (teamIds) are required.",
+  '  { "type": "group", "listeners": [ ...several listeners... ] }, where any one fires the same prompt. Origin can group with cron, Slack, and GitHub; do not group it with Microsoft Teams, Linear, Sentry, PagerDuty, email, or webhook until those triggers share one scheduling authority.',
+  '  { "type": "cron", "schedule": "0 8 * * 1-5" }, a schedule written as a listener, in the same format as schedule. It belongs in a group, so one prompt fires both on time and on events; on its own, pass schedule instead.',
+  "A bare array of listeners, [ { ... }, { ... } ], is shorthand for the group form.",
+  'A microsoftTeams trigger also takes "teamId": "<one Graph API team id>" in place of teamIds, "messageContainsIsRegex": true to read messageContains as a regular expression, and "blockUnauthenticatedTeamsUsers": true to ignore messages from unauthenticated Teams users.'
+];
+var INVALID_AUTOMATION_TRIGGER_MESSAGE = ["Not a valid trigger. Trigger shapes:", ...AUTOMATION_TRIGGER_SHAPE_LINES].join("\n");
+var automationTriggerWithInvalidMessage = external_exports.unknown().transform((value, ctx) => {
+  const parsed = automationTrigger2.safeParse(value);
+  if (parsed.success) return parsed.data;
+  for (const issue of parsed.error.issues) ctx.addIssue({ ...issue });
+  ctx.addIssue({ code: external_exports.ZodIssueCode.custom, message: INVALID_AUTOMATION_TRIGGER_MESSAGE });
+  return external_exports.NEVER;
+});
+
 var routineParameters = external_exports.object({
-  action: external_exports.enum(["create", "update", "pause", "resume", "delete"]),
+  action: external_exports.enum(["create", "get", "update", "pause", "resume", "delete"]),
   id: external_exports.string().trim().min(1).optional().describe("The routine's folder id. Required except on create."),
-  name: external_exports.string().trim().min(1).optional().describe("Required on create. On update, omit to keep the current name."),
+  name: external_exports.string().trim().min(1).optional().describe("Required on create."),
   prompt: external_exports.string().trim().min(1).optional().describe(
-    "What you should do each time it fires, written to your future self. Write it as an INTENT, not a frozen tool recipe: a connector's schema can change between fires, so describe the goal and let each run look the tool up. Required on create; on update, omit to keep the current prompt."
+    "What to do each time it fires, written to your future self as an intent, not a frozen tool recipe. Required on create."
   ),
-  schedule: automationSchedule.optional().describe(
-    `Shorthand for a cron trigger \u2014 "0 7 * * *", "@daily", "@every 2h" \u2014 interpreted in the user's local time. Calendar shorthands take their clock fields from the routine's creation time, and unphased @every intervals anchor to creation. A clock time the user names is saved as named, so "8am" is "0 8 * * *" and "daily at 2" is "0 2 * * *"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 "hourly" is "32 * * * *". Use this OR trigger, never both. On update, omit (with trigger) to keep the current fire condition.`
-  ),
-  trigger: automationTrigger2.optional(),
-  enabled: external_exports.boolean().optional().describe(
-    "On create, defaults to true. On update, omit to leave the current arming alone (use pause/resume to toggle)."
-  )
+  schedule: automationSchedule.optional().describe("See the description. Never with trigger."),
+  trigger: automationTriggerWithInvalidMessage.optional(),
+  enabled: external_exports.boolean().optional().describe("Defaults to true on create. On update, omit it and use pause or resume.")
 });
 
 var skillParameters = external_exports.object({

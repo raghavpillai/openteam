@@ -1108,6 +1108,7 @@ export const UpdateStateInput = Schema.Struct({
     "write",
     "forget",
     "create",
+    "get",
     "update",
     "pause",
     "resume",
@@ -1146,7 +1147,7 @@ export const UpdateMemoryToolInput = Schema.Struct({
 export type UpdateMemoryToolInput = typeof UpdateMemoryToolInput.Type;
 
 export const UpdateRoutineToolInput = Schema.Struct({
-  action: Schema.Literal("create", "update", "pause", "resume", "delete"),
+  action: Schema.Literal("create", "get", "update", "pause", "resume", "delete"),
   id: optionalText,
   name: optionalText,
   prompt: optionalText,

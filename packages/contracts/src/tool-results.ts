@@ -81,6 +81,18 @@ export function renderControlResult(
       return `Disconnected ${result.platform}. The connector closes the live connection within a few seconds.`;
     if (result.target === "avatar" && result.updated)
       return `Updated your picture (${result.path?.split("/").pop()}). Source ${result.resolved_path?.split("/").pop()} can be deleted if you no longer need it.`;
+    if (result.target === "routine" && typeof result.refused === "string")
+      return `${args.action === "get" ? "Not read" : "Not saved"}: ${result.refused}`;
+    if (result.target === "routine" && args.action === "get")
+      return [
+        `Routine "${result.name}" (folder ${result.folder}), ${result.enabled ? "enabled" : "paused"}.`,
+        `Trigger: ${describeTrigger(result.trigger)}`,
+        result.trigger?.type === "cron"
+          ? `schedule: ${JSON.stringify(result.trigger.schedule)} (leave it out of an update unless the time itself changes)`
+          : `trigger: ${JSON.stringify(result.trigger)}`,
+        "Saved prompt:",
+        result.prompt,
+      ].join("\n");
     if (result.target === "routine") {
       const verb = (
         {

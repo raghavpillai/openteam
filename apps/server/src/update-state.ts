@@ -16,6 +16,7 @@ import {
 import type { Prisma, PrismaClient } from "@openteam/db";
 import {
   appendAgentTimelineEvent,
+  automationContextRunId,
   type AgentDataStore,
   type RoutineService,
   type TimelineEventWakeHost,
@@ -42,6 +43,13 @@ const PROFILE_FIELDS = ["name", "description", "title", "avatar_shape", "avatar_
 const SHARED_MEMORY_SHARED_CONVERSATION_REFUSAL =
   "shared_profile and shared_journal are the owner's memory across their assistants and are not written from a shared conversation.";
 const SETTINGS_FIELDS = ["hidden_from_sidebar", "notify_on_updates"] as const;
+// A routine run may pause or delete routines, but anything else waits for a conversation.
+const ROUTINE_RUN_REFUSALS = {
+  create: "a routine run cannot create another routine. Tell the user what you wanted to schedule and let them ask for it in a conversation.",
+  unverified: "a routine run cannot update a routine when the routine that started it cannot be verified. Tell the user what you wanted to change and let them ask for it in a conversation.",
+  update: "a routine run can only update the routine that started it. Tell the user what you wanted to change and let them ask for it in a conversation.",
+  enable: "a routine run cannot enable a routine. Tell the user what you wanted to resume and let them ask for it in a conversation.",
+};
 
 const stateToolArguments = {
   UpdateMemory: UpdateMemoryToolInput,
@@ -75,6 +83,7 @@ export class DurableStateService {
     const input: Partial<UpdateStateInput> = Schema.decodeUnknownSync(schema)(args);
     const run = (state: UpdateStateInput, key = callId) => this.execute(botId, key, state, runId, tool);
     if (tool === "DisconnectChannel") return run({ ...input, target: "channel", action: "disconnect" });
+    if (tool === "UpdateRoutine" && input.action === "get") return this.readRoutine(botId, runId, input.id);
     if (tool !== "UpdateProfile") return run({ ...input, target: STATE_TOOL_TARGETS[tool], action: input.action! });
     // Profile and settings are separate state. When both change, the settings half is
     // its own idempotent update under a derived call id.
@@ -178,11 +187,19 @@ export class DurableStateService {
         if (!["create", "update", "pause", "resume", "delete"].includes(input.action)) {
           return stateError(tool, input.action);
         }
-        const run = runId ? await this.prisma.run.findFirst({ where: { id: runId, botId }, select: { channelId: true } }) : null;
-        const group = run?.channelId ? await this.prisma.channel.findFirst({ where: {
-          id: run.channelId, kind: "group", archivedAt: null, members: { some: { botId } },
-        }, select: { id: true, name: true } }) : null;
-        const owner = group ? { kind: "group" as const, id: group.id } : { kind: "bot" as const, id: botId };
+        const { owner, group, firing, inRun } = await this.routineContext(botId, runId);
+        if (inRun) {
+          const own = input.id === firing?.id || input.id === firing?.slug;
+          const refused =
+            input.action === "create" ? ROUTINE_RUN_REFUSALS.create
+            : input.action === "resume" ? ROUTINE_RUN_REFUSALS.enable
+            : input.action !== "update" || input.id === undefined ? undefined
+            : !firing ? ROUTINE_RUN_REFUSALS.unverified
+            : !own ? ROUTINE_RUN_REFUSALS.update
+            : input.enabled === true ? ROUTINE_RUN_REFUSALS.enable
+            : undefined;
+          if (refused) return { target: "routine", action: input.action, refused };
+        }
         const routine = await this.routines.mutateOwner(owner, callId, runId, {
           action: input.action as "create" | "update" | "pause" | "resume" | "delete",
           id: input.id,
@@ -205,6 +222,42 @@ export class DurableStateService {
       case "avatar":
         return this.avatar(botId, input, tool);
     }
+  }
+
+  /** Whose routines this call reaches, and in a routine run, the routine that started it. */
+  private async routineContext(botId: string, runId: string | null) {
+    const run = runId ? await this.prisma.run.findFirst({ where: { id: runId, botId }, select: {
+      id: true, channelId: true, origin: true, inboxEvents: { take: 1, select: { payload: true } },
+    } }) : null;
+    const group = run?.channelId ? await this.prisma.channel.findFirst({ where: {
+      id: run.channelId, kind: "group", archivedAt: null, members: { some: { botId } },
+    }, select: { id: true, name: true } }) : null;
+    const owner = group ? { kind: "group" as const, id: group.id } : { kind: "bot" as const, id: botId };
+    const inRun = run?.origin === "routine";
+    const firing = inRun ? (await this.prisma.routineExecution.findUnique({
+      where: { runId: automationContextRunId(run.id, run.inboxEvents[0]?.payload) },
+      select: { routine: { select: { id: true, slug: true } } },
+    }))?.routine : undefined;
+    return { owner, group, firing, inRun };
+  }
+
+  /** UpdateRoutine get: the saved prompt and trigger, without changing anything. */
+  private async readRoutine(botId: string, runId: string | null, id: string | undefined): Promise<Record<string, unknown>> {
+    if (!id) throw new ApiError(400, "state_field_required", "'id' is required for routine get.");
+    // Routine files the bot edited directly are read back first.
+    await this.agentData.reconcileBot(botId);
+    const { owner, firing, inRun } = await this.routineContext(botId, runId);
+    if (inRun && id !== firing?.id && id !== firing?.slug)
+      return { target: "routine", action: "get", refused: "a routine run can only read the routine that started it." };
+    const routine = await this.routines.detailOwner(owner, id).catch((error: unknown) => {
+      if (error instanceof ApiError && error.code === "routine_not_found")
+        throw new ApiError(404, "routine_not_found", `no routine with folder "${id}" exists. Your routines and their folder ids are listed under Scheduled routines in your prompt.`);
+      throw error;
+    });
+    return {
+      target: "routine", action: "get", id: routine.id, folder: routine.folder, name: routine.name,
+      enabled: routine.enabled, schedule: routine.schedule, trigger: routine.trigger, prompt: routine.prompt,
+    };
   }
 
   private async memory(

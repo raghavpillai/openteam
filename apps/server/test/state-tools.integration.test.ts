@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { createPrismaClient } from "@openteam/db";
-import { AgentDataStore } from "@openteam/messaging";
+import { AgentDataStore, RoutineService } from "@openteam/messaging";
 import { InternalToolService } from "../src/services/internal-tool-service";
 import { DurableStateService } from "../src/update-state";
 
@@ -110,6 +110,86 @@ databaseTest("each state tool updates its fixed target and names itself in error
       await prisma.idempotencyRecord.deleteMany({ where: { scope: `state:${botId}` } });
       await prisma.memoryFact.deleteMany({ where: { writtenByBotId: botId } });
       await prisma.savedSkill.deleteMany({ where: { name: skillName } });
+      await prisma.bot.deleteMany({ where: { id: botId } });
+    }
+    if (channelId) await prisma.channel.deleteMany({ where: { id: channelId } });
+    await prisma.$disconnect();
+    await rm(root, { recursive: true, force: true });
+  }
+}, 30_000);
+
+databaseTest("a routine run reads and changes only its own routine, and may pause or delete others", async () => {
+  const prisma = createPrismaClient(databaseUrl!);
+  const root = await mkdtemp(join(tmpdir(), "routine-run-state-"));
+  const store = new AgentDataStore(prisma, { root: join(root, "data"), workspaceRoot: root });
+  let botId = "";
+  let channelId = "";
+  try {
+    const bot = await prisma.bot.create({
+      data: { name: "Routine run", status: "active", onboardingStatus: "completed", defaultDirectory: root, conversation: { create: {} } },
+      include: { conversation: true },
+    });
+    botId = bot.id;
+    channelId = (await prisma.channel.create({
+      data: { kind: "bot_dm", name: "main", directKey: `bot:${botId}`, members: { create: { botId, ordinal: 0 } } },
+    })).id;
+    await store.initializeBot(botId);
+    const routines = new RoutineService(prisma, { defaultTimeZone: "UTC", isTimelineSessionActive: async () => false } as never, store);
+    const state = new DurableStateService(prisma, routines, store, { isTimelineSessionActive: async () => false } as never);
+    const service = new InternalToolService(
+      prisma, { agentData: store } as never, state, async () => {}, {} as never, {} as never, {} as never, {} as never
+    );
+    const create = (name: string) => routines.mutate(botId, crypto.randomUUID(), null, { action: "create", name, prompt: `${name} prompt`, schedule: "0 8 * * *" });
+    const own = await create("Morning brief");
+    const other = await create("Evening wrap");
+    const third = await create("Weekly digest");
+    const revision = await prisma.routineRevision.findFirstOrThrow({ where: { routineId: String(own.id) } });
+    const run = await prisma.run.create({
+      data: { botId, conversationId: bot.conversation!.id, channelId, userMessageId: crypto.randomUUID(), status: "running", origin: "routine" },
+    });
+    await prisma.routineExecution.create({
+      data: { routineId: String(own.id), routineRevisionId: revision.id, runId: run.id, kind: "scheduled", status: "running", dedupeKey: crypto.randomUUID(), scheduledFor: new Date() },
+    });
+    const call = (args: unknown, runId = run.id) =>
+      Effect.runPromise(service.execute({
+        runId, botId, conversationId: bot.conversation!.id, channelId, deliveryId: null, tool: "UpdateRoutine", arguments: args, callId: crypto.randomUUID(),
+      })) as Promise<any>;
+
+    expect(await call({ action: "create", name: "Spawned", prompt: "x", schedule: "0 9 * * *" })).toEqual({
+      target: "routine", action: "create",
+      refused: "a routine run cannot create another routine. Tell the user what you wanted to schedule and let them ask for it in a conversation.",
+    });
+    expect((await call({ action: "update", id: String(other.folder), prompt: "rewritten" })).refused).toBe(
+      "a routine run can only update the routine that started it. Tell the user what you wanted to change and let them ask for it in a conversation."
+    );
+    const enable = "a routine run cannot enable a routine. Tell the user what you wanted to resume and let them ask for it in a conversation.";
+    expect((await call({ action: "update", id: String(own.folder), enabled: true })).refused).toBe(enable);
+    expect((await call({ action: "resume", id: String(own.id) })).refused).toBe(enable);
+    expect(await call({ action: "get", id: String(other.folder) })).toEqual({
+      target: "routine", action: "get", refused: "a routine run can only read the routine that started it.",
+    });
+    // Its own routine can be read and edited; any routine can be paused or deleted.
+    expect(await call({ action: "get", id: String(own.folder) })).toMatchObject({
+      target: "routine", action: "get", name: "Morning brief", folder: own.folder, enabled: true,
+      prompt: "Morning brief prompt", trigger: { type: "cron", schedule: "0 8 * * *" },
+    });
+    expect(await call({ action: "update", id: String(own.id), prompt: "Shorter brief" })).toMatchObject({ updated: true, prompt: "Shorter brief" });
+    expect(await call({ action: "pause", id: String(other.folder) })).toMatchObject({ paused: true });
+    expect(await call({ action: "delete", id: String(third.folder) })).toMatchObject({ deleted: true });
+    expect(await prisma.routine.count({ where: { botId, deletedAt: null } })).toBe(2);
+
+    // Outside a run, get reads any routine and an unknown folder names where the ids are.
+    const turn = await prisma.run.create({
+      data: { botId, conversationId: bot.conversation!.id, channelId, userMessageId: crypto.randomUUID(), status: "running" },
+    });
+    expect(await call({ action: "get", id: String(other.folder) }, turn.id)).toMatchObject({ name: "Evening wrap", enabled: false });
+    await expect(call({ action: "get", id: "missing" }, turn.id)).rejects.toThrow(
+      'no routine with folder "missing" exists. Your routines and their folder ids are listed under Scheduled routines in your prompt.'
+    );
+    expect(await call({ action: "create", name: "Allowed", prompt: "x", schedule: "0 9 * * *" }, turn.id)).toMatchObject({ created: true });
+  } finally {
+    if (botId) {
+      await prisma.idempotencyRecord.deleteMany({ where: { scope: `state:${botId}` } });
       await prisma.bot.deleteMany({ where: { id: botId } });
     }
     if (channelId) await prisma.channel.deleteMany({ where: { id: channelId } });

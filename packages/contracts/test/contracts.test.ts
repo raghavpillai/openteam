@@ -48,7 +48,7 @@ import {
   UpdateRoutineToolInput,
   UploadAssetInput,
 } from "../src";
-import { normalizeMainToolArguments } from "../src/reference-main-parsers";
+import { describeTrigger, normalizeMainToolArguments } from "../src/reference-main-parsers";
 import { renderControlResult } from "../src/tool-results";
 import cursorToolsDocument from "../src/cursor-tools.json";
 import nativeToolsDocument from "../src/native-tools.json";
@@ -632,9 +632,23 @@ describe("API contracts", () => {
     expect(UPDATE_MEMORY_TOOL.description).toContain("UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.");
     expect(UPDATE_MEMORY_TOOL.description).not.toContain("memory folder");
     const routine = UPDATE_ROUTINE_TOOL.inputSchema as { properties: Record<string, { enum?: string[] }> };
-    expect(routine.properties.action?.enum).toEqual(["create", "update", "pause", "resume", "delete"]);
+    expect(routine.properties.action?.enum).toEqual(["create", "get", "update", "pause", "resume", "delete"]);
     // Routine writes apply directly; no confirmation card exists.
     expect(UPDATE_ROUTINE_TOOL.description).not.toContain("confirm");
+    expect(UPDATE_ROUTINE_TOOL.description).toContain("- create: name, prompt, and schedule or trigger. get: id; returns the saved prompt and trigger. update: id plus only the fields to change. pause, resume, delete: id.\nBefore you change a routine's prompt or describe what it does, get it and work from the saved text, not from memory.");
+    expect(UPDATE_ROUTINE_TOOL.description).toContain("folder ids are listed under Scheduled routines in your prompt, which shows no prompts.");
+    expect(UPDATE_ROUTINE_TOOL.description).toEndWith("Don't ask first, and don't retry a denied write.");
+    expect(UPDATE_ROUTINE_TOOL.description).not.toMatch(/Cursor|JoinMeeting|automation_status|timing/);
+    // The schema names trigger types only; the skill and the invalid-trigger reply carry the shapes.
+    const listener = {
+      type: "object",
+      properties: { type: { type: "string", enum: ["slack", "github", "origin", "microsoftTeams", "linear", "sentry", "pagerduty", "email", "webhook", "cron", "group"] } },
+      required: ["type"], additionalProperties: {},
+    };
+    expect(routine.properties.trigger as unknown).toEqual({
+      anyOf: [listener, { type: "array", items: listener, minItems: 1 }],
+      description: "An event listener instead of schedule. Fields depend on type; see Trigger shapes in the routines skill.",
+    });
     expect(Object.keys((UPDATE_PROFILE_TOOL.inputSchema as { properties: object }).properties)).toEqual([
       "name", "description", "title", "avatar_shape", "avatar_color", "hidden_from_sidebar", "notify_on_updates",
     ]);
@@ -699,6 +713,18 @@ describe("API contracts", () => {
     expect(renderControlResult("UpdateRoutine", { target: "routine", name: "Brief", folder: "brief", next_run_at: null, enabled: false }, {
       action: "pause", id: "brief",
     })).toBe('Paused routine "Brief" (folder brief).\nNext scheduled occurrence: none (paused).');
+    const saved = { target: "routine", action: "get", name: "Brief", folder: "brief", enabled: true, prompt: "Summarize my inbox.\nPost it here." };
+    expect(renderControlResult("UpdateRoutine", { ...saved, trigger: { type: "cron", schedule: "0 8 * * *" } }, { action: "get", id: "brief" })).toBe(
+      'Routine "Brief" (folder brief), enabled.\nTrigger: Every day at 8:00 AM\nschedule: "0 8 * * *" (leave it out of an update unless the time itself changes)\nSaved prompt:\nSummarize my inbox.\nPost it here.'
+    );
+    const listener = { type: "slack", channel: "#eng", match: { kind: "mention" } };
+    expect(renderControlResult("UpdateRoutine", { ...saved, enabled: false, trigger: listener }, { action: "get", id: "brief" }).split("\n").slice(0, 3)).toEqual([
+      'Routine "Brief" (folder brief), paused.', `Trigger: ${describeTrigger(listener)}`, `trigger: ${JSON.stringify(listener)}`,
+    ]);
+    expect(renderControlResult("UpdateRoutine", { target: "routine", action: "get", refused: "a routine run can only read the routine that started it." }, { action: "get", id: "other" }))
+      .toBe("Not read: a routine run can only read the routine that started it.");
+    expect(renderControlResult("UpdateRoutine", { target: "routine", action: "create", refused: "a routine run cannot create another routine." }, { action: "create" }))
+      .toBe("Not saved: a routine run cannot create another routine.");
     // Persisted history keeps its text; the retired name no longer formats anything.
     expect(renderControlResult("update_state", { target: "channel", disconnected: true, platform: "slack" }, {})).toBe(
       JSON.stringify({ target: "channel", disconnected: true, platform: "slack" })

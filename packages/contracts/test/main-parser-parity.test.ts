@@ -21,7 +21,18 @@ test("email routine triggers parse, describe, and validate against the model-fac
   expect(validate(input).valid).toBe(true);
   expect(validate({ ...input, trigger: [{ type: "cron", schedule: "0 9 * * 1-5" }, trigger] }).valid).toBe(true);
   expect(validate({ ...input, trigger: { type: "group", listeners: [{ type: "cron", schedule: "0 9 * * 1-5" }, trigger] } }).valid).toBe(true);
-  expect(validate({ ...input, trigger: { type: "email" } }).valid).toBe(false);
+  // The advertised trigger names only its type; the parser answers a bad one with every shape.
+  expect(validate({ ...input, trigger: { type: "email" } }).valid).toBe(true);
+  expect(validate({ ...input, trigger: { type: "imap" } }).valid).toBe(false);
+  let invalid: unknown;
+  try { normalizeMainToolArguments("UpdateRoutine", { ...input, trigger: { type: "email" } }); } catch (error) { invalid = error; }
+  const issues = (invalid as { issues: Array<{ path: string[]; message: string }> }).issues;
+  expect(JSON.stringify(issues[0])).toContain('"path":["inbox"]');
+  expect(issues.at(-1)!.path).toEqual(["trigger"]);
+  expect(issues.at(-1)!.message).toStartWith('Not a valid trigger. Trigger shapes:\n  { "type": "slack"');
+  expect(issues.at(-1)!.message).toContain('{ "type": "email", "inbox": "<one of the user\'s connected Email plugin inbox addresses (ListEmailInboxes)>"');
+  expect(issues.at(-1)!.message).toEndWith('"blockUnauthenticatedTeamsUsers": true to ignore messages from unauthenticated Teams users.');
+  expect(normalizeMainToolArguments("UpdateRoutine", { action: "get", id: "brief" })).toEqual({ action: "get", id: "brief" });
   expect(normalizeMainToolArguments("UpdateRoutine", input).trigger).toEqual(trigger);
   expect(() => normalizeMainToolArguments("UpdateRoutine", { ...input, trigger: { type: "group", listeners: [{ type: "origin", repo: "o/r", events: ["pr-opened"] }, trigger] } })).toThrow("Origin can't be grouped with email");
   expect(describeTrigger(trigger)).toBe("When email arrives at bot@raghav.sh");

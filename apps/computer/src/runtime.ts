@@ -501,9 +501,8 @@ export class ComputerRuntime {
     const previousStop = session.agent.shouldStopAfterTurn;
     session.agent.shouldStopAfterTurn = (context, signal) => {
       if (active.endTurnRequested) {
-        // Pi's post-run loop otherwise drains queued steering even after its
-        // inner loop stops. Leave these inputs unacknowledged in the durable
-        // server inbox so they are promoted into a separate user turn.
+        // Pi's post-run loop otherwise drains queued host follow-ups even after
+        // its inner loop stops, which would run the model again after delivery.
         session.clearQueue();
         return true;
       }

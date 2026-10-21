@@ -37,6 +37,22 @@ test("new decks are written with PptxGenJS because the office toolkit ships with
   for (const file of shipped) expect(sha256(await readFile(join(root, "officekit-ts", file)))).toBe(toolkit.files[file]!);
 });
 
+test("a Google Slides deck lands in Drive once and is checked as Google draws it", async () => {
+  const slides = installed("slides")!.content;
+  expect(slides).toContain("**One file in their Drive.**");
+  expect(slides).toContain("- the edit surface: the local `.pptx`, or the live deck through the Slides MCP");
+  const executor = installed("slides-executor")!.content;
+  expect(executor).toContain("## Edit through the Slides MCP");
+  expect(executor).toContain("## A deck in Google Slides");
+  // Only tools the Slides and Drive connectors here actually serve.
+  const served = async (file: string) =>
+    (JSON.parse(await readFile(join(import.meta.dir, "../../plugins/_shared/reference", file), "utf8")) as { name: string }[]).map((tool) => tool.name);
+  const tools = [...(await served("slides.json")), ...(await served("drive-files.json"))];
+  for (const name of executor.match(/`([a-z]+_[a-z_]+)`/g)!.map((quoted) => quoted.slice(1, -1)).filter((name) => !name.endsWith("_")))
+    expect(tools).toContain(name);
+  expect(executor).not.toMatch(/update_presentation|read_slide_page_thumbnail/);
+});
+
 test("knowledgeWork skills stay out of the main agent's catalog and workflow list", async () => {
   const root = await mkdtemp(join(tmpdir(), "openteam-kw-skills-"));
   try {

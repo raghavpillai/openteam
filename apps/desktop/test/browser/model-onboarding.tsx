@@ -3,6 +3,8 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import "../../src/renderer/styles.css";
 import { Onboarding } from "../../src/renderer/components/openteam/onboarding";
+import { SettingsPanel } from "../../src/renderer/components/openteam/settings/panel";
+import { TooltipProvider } from "../../src/renderer/components/ui/tooltip";
 import ServerSettings from "../../src/renderer/components/openteam/settings/server";
 
 // Renders the first-run wizard or Settings → Server against a server (or fixture)
@@ -57,6 +59,13 @@ function QA() {
         setBots((current) => [...current, fakeBot(name, current.length + 1)]),
     };
   }, []);
+  const [settingsOpen, setSettingsOpen] = React.useState(true);
+  if (params.get("view") === "model-settings") return (
+    <TooltipProvider>
+      <button onClick={() => setSettingsOpen(true)}>Open settings</button>
+      <SettingsPanel open={settingsOpen} onOpenChange={setSettingsOpen} target={params.has("anchor") ? {anchor: "inference-model", nonce: 1} : undefined} />
+    </TooltipProvider>
+  );
   if (result) return <main style={{ padding: 60, font: "14px -apple-system" }}>{result}</main>;
   return params.get("view") === "settings" ? (
     <main className="bg-[#fcfcfc] p-8 text-foreground dark:bg-[#070707]" style={{ width: 702 }}>

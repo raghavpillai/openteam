@@ -19,7 +19,7 @@ Usage and billing go through your provider account. A subscription sign-in and a
 
 The first time you sign in, the app asks you to connect a model. Choose a provider, sign in or paste your API key, and the app picks a model and sends it a short test message.
 
-To connect or switch providers later, open **Settings → Server** in the desktop app. Under **Model**, choose a provider, then **Sign in** or **Add API key**. On iPhone, open **Settings → Model**.
+To connect or switch providers later, open **Settings → Model** on desktop or iPhone. Choose a provider, then **Sign in** or **Add API key**.
 
 - **ChatGPT and Claude:** the sign-in page opens in your browser. When you finish, the app connects on its own. If another app is using the sign-in's return address on your computer, copy the address your browser lands on and paste it into the app. On iPhone, ChatGPT shows a code to enter on its sign-in page instead.
 - **API keys:** paste the key when the app asks for it.
@@ -28,7 +28,7 @@ On a server without a screen, you can also sign in on the host with `openteam pr
 
 ## Choose a model
 
-In **Settings → Server**, pick a model and reasoning effort, and choose **Apply**. The app saves your choice, then sends a short test message to check that the model works. Or run `openteam model` on the host for an interactive picker.
+In **Settings → Model**, pick a model and reasoning effort, and choose **Apply**. The app saves your choice, then sends a short test message to check that the model works. Or run `openteam model` on the host for an interactive picker.
 
 All bots use the same model. Changes apply to new messages; a task that's already running finishes with the settings it started with.
 
@@ -65,10 +65,10 @@ If your endpoint needs a key, leave out `--no-auth` and the CLI will ask for it.
 
 ## Check the connection
 
-Choose **Test** in **Settings → Server** to send a short message to your model and see whether it replies. On the host, `openteam doctor` runs the same kind of check. A model can appear in the list and still fail if your account has no quota left.
+Choose **Test** in **Settings → Model** to send a short message to your model and see whether it replies. On the host, `openteam doctor` runs the same kind of check. A model can appear in the list and still fail if your account has no quota left.
 
 If no model is connected, or the connection stops working, the app shows a warning with a shortcut to these settings. Bots can't reply until you fix it.
 
-If your sign-in expires, choose **Disconnect** and connect again in **Settings → Server**, or run `openteam provider login`.
+If your sign-in expires, choose **Disconnect** and connect again in **Settings → Model**, or run `openteam provider login`.
 
 Web search and voice transcription use their own credentials. See [web search](web-search.md) and [voice notes](transcription.md).

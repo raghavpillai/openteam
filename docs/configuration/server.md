@@ -6,8 +6,8 @@ Guided setup covers most installations. This page shows where to change each set
 
 | Setting | Where to change it |
 | --- | --- |
-| Model provider | Desktop **Settings → Server**, or `openteam model` (sign in first with `openteam provider login`) |
-| Model and reasoning level | Desktop **Settings → Server**, or `openteam model` |
+| Model provider | **Settings → Model** on desktop or iPhone, or `openteam model` (sign in first with `openteam provider login`) |
+| Model and reasoning level | **Settings → Model** on desktop or iPhone, or `openteam model` |
 | Web search and page fetching | **Settings → Providers** on desktop or iPhone |
 | Voice transcription | Desktop **Settings → Server**, or `openteam model` |
 | Connection mode, including Tailscale HTTPS | `openteam setup` |

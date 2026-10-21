@@ -129,7 +129,9 @@ atMost("startup CSS bytes", startupCssBytes, 178_600);
 // and Claude, checked keys, and the model select.
 // October 20: thinking-orb loaders and the voice note glow add 72 KB / 28 KB gzip on demand.
 // With them and the server gauges: 16,425,283 bytes.
-atMost("renderer bytes", result.renderer.bytes, 16_428_000);
+// Main at 011a826d measures 16,438,552 after auto-review settings. The dedicated
+// lazy Model page adds 1,374 bytes; keep aggregate headroom below 0.02%.
+atMost("renderer bytes", result.renderer.bytes, 16_442_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -137,7 +139,8 @@ atMost("renderer bytes", result.renderer.bytes, 16_428_000);
 // provider icons, 4,041,683; with the topology and the model picker, 4,046,893; with the
 // chaos fixes, 4,050,224; with the sign-in-or-key step and the model select, 4,051,639; with
 // the thinking-orb loaders, the voice note glow and the server gauges, 4,083,231.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_085_000);
+// Main measures 4,087,077 gzip; the dedicated Model page measures 4,087,999.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_090_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -235,17 +238,18 @@ const lazyBudgets: Record<string, number> = {
   skillImport: 100_000,
   search: 100_000,
   groupAvatarEditor: 10_000,
-  settingsInitial: 40_000,
+  // Main: 40,967 with auto-review settings; Model navigation brings this to 41,954.
+  settingsInitial: 42_500,
   settingsShell: 10_000,
   settingsAbout: 10_000,
-  settingsGeneral: 30_000,
+  // Main already measures 33,930 with auto-review rules.
+  settingsGeneral: 34_000,
   settingsComputer: 31_000,
-  // Model provider sign-in (browser, code, or key), model test, and Remote
-  // access; Transcription loads separately. Measured October closure: 42,628; 48,572 with
-  // the official provider marks beside each provider (SVG paths, ~5.3 KB); 52,125 with the
-  // server gauges above them.
-  settingsServer: 53_000,
-  // Shares the select menu with Server. Measured October closure: 32,930.
+  // Provider sign-in, model selection and testing now load only on Settings → Model.
+  settingsModel: 45_000,
+  // Activity and Remote access stay in Server; measured 10,389 after extraction.
+  settingsServer: 11_000,
+  // Shares the select menu with Model. Measured October closure: 33,236.
   settingsTranscription: 34_000,
   // Search and Fetch pages with inlined 40 px WebP logos (~10 KB of the total).
   settingsProviders: 30_000,

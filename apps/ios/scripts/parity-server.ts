@@ -153,6 +153,7 @@ const server = Bun.serve({
       emit("channel.message.created",channel.id); return response({ok:true});
     }
     if (path === "/__qa/control" && method === "POST") {
+      if (input.modelSettings) serverSetup = new ServerSetupFixture(true);
       if (input.onboarding) {
         snapshot.bots = []; snapshot.channels = []; snapshot.runs = []; snapshot.channelMessages = [];
         snapshot.runtime.transcription = "missing";
@@ -183,7 +184,7 @@ const server = Bun.serve({
       if ("searchResults" in input) searchResults = input.searchResults;
       emit("snapshot.reset"); return response({ ok: true });
     }
-    if (path === "/__qa/state") return response({ messages: snapshot.channelMessages, requests: requestLog, settings, bots: snapshot.bots, channels: snapshot.channels, memories, routines, routineExecutions, contentReceipts, screen, configuration:functionality.configuration, pluginSettings:functionality.settings(snapshot.bots), sources:functionality.sources, skills:functionality.skills, webProviders: { ...webProvidersView(), patches: webProviders.patches, checks: webProviders.checks } });
+    if (path === "/__qa/state") return response({ messages: snapshot.channelMessages, requests: requestLog, modelSettings: { inference: serverSetup.inference, saves: serverSetup.saves, tests: serverSetup.tests }, settings, bots: snapshot.bots, channels: snapshot.channels, memories, routines, routineExecutions, contentReceipts, screen, configuration:functionality.configuration, pluginSettings:functionality.settings(snapshot.bots), sources:functionality.sources, skills:functionality.skills, webProviders: { ...webProvidersView(), patches: webProviders.patches, checks: webProviders.checks } });
     if (path === "/__qa/haptics") {
       if (method === "POST") hapticAudit.push(input);
       if (method === "DELETE") hapticAudit = [];

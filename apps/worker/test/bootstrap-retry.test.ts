@@ -213,8 +213,10 @@ describe("execute tells a computer outage from a reported failure", () => {
     worker.prisma = {
       pluginInstallation: { findMany: async () => [] },
       run: { update: async () => ({}), findUnique: async () => ({ status: "running" }) },
+      subagent: { findUnique: async () => null },
     };
     worker.agentData = {
+      loadAutoReviewSettings: async () => ({ enabled: true, allowRules: [], askFirstRules: [] }),
       loadInferenceSettings: async () => ({
         providerId: "openai",
         modelId: "gpt-5",

@@ -93,6 +93,8 @@ import { FetchProviderClient } from "../fetch-provider";
 import { serverSearchConfiguration, serverFetchConfiguration } from "../search-settings";
 import { UserFormHost, type FormBrowser, type FormPageBinding } from "../user-form-host";
 import { boxHelpPage } from "../box-help-page";
+import { AutoReviewGate, withApprovalRetryParameters } from "./auto-review";
+import { FEEDBACK_APPROVAL_UNAVAILABLE_MESSAGE, FEEDBACK_NOT_APPROVED_MESSAGE, USER_DECLINED } from "../auto-review/texts";
 import type { ActiveTurn, RuntimeDynamicTool } from "./types";
 import { renderShellAwaitResult } from "@openteam/shell-jobs";
 
@@ -252,6 +254,8 @@ const interruptibleByUser = <T extends { name: string; execute: (...args: any[])
 });
 
 export class RuntimeTools {
+  /** Auto-review: the safety check and approval cards for risky actions. */
+  readonly autoReview = new AutoReviewGate((active, callId, tool, args, signal) => this.privateControl(active, callId, tool, args, signal));
   private readonly shellWaits = new Map<string, Set<AbortController>>();
   private readonly stepFileWriters = new Map<string, Set<Promise<unknown>>>();
   private readonly foregroundShells = new Map<string, Set<{ active: ActiveTurn; controller: AbortController }>>();
@@ -550,6 +554,8 @@ export class RuntimeTools {
           `You cannot do that from here, so report the status ${active.requestSource === "automation" ? "with WakeParent" : "in your result"} instead of retrying.`
         );
       const visibleDescription = description;
+      // Auto-review adds the approval-retry parameters while it is on, as the reference does in enforce mode.
+      if (this.autoReview.enabled(active)) tool = withApprovalRetryParameters(tool);
       return defineTool({
         name: tool.name,
         label: tool.name,
@@ -598,7 +604,7 @@ export class RuntimeTools {
           executionMode: "sequential",
           execute: (callId, args, signal) =>
             this.executeGraphicalAction(active, signal, () =>
-              this.callComputerUse(active, args, signal)
+              this.callComputerUse(active, args, signal, callId)
             ),
         });
     // UploadFile and DownloadFile exist only while a connection can take or give files.
@@ -628,7 +634,7 @@ export class RuntimeTools {
             executionMode: "sequential",
             execute: (callId, args, signal) =>
               this.executeGraphicalAction(active, signal, () =>
-                this.callBrowserForTurn(active, tool.name, args, signal)
+                this.callBrowserForTurn(active, tool.name, args, signal, callId)
               ),
           })
         );
@@ -738,12 +744,13 @@ export class RuntimeTools {
     }
     if (tool === SHELL_TOOL.name) {
       assertShellWait(active, args, "ms");
-      const shellInput = Schema.decodeUnknownSync(ShellToolInput)(args);
+      // The approval retry fields are for Auto-review; the command runs without them.
+      const { request_smart_mode_approval: requestApproval, smart_mode_block_reason: blockReason, ...shellInput } =
+        Schema.decodeUnknownSync(ShellToolInput)(args);
       assertGraphicalShellBoundary(shellInput.command, active.subagentType);
+      if (shellInput.machineId && active.subagentType) throw new Error("Graphical subagents cannot target the user's local computer");
+      await this.autoReview.reviewShell(active, callId, { ...shellInput, request_smart_mode_approval: requestApproval, smart_mode_block_reason: blockReason }, active.cwd, signal);
       if (shellInput.machineId) {
-        if (active.subagentType) {
-          throw new Error("Graphical subagents cannot target the user's local computer");
-        }
         return (async () => {
           const result = await this.nativeToolExecutor.externalShell(shellInput, signal);
           if (
@@ -854,6 +861,10 @@ export class RuntimeTools {
         return this.executeScopedTool(active, callId, input.toolName, decodeDynamicArguments(input.arguments), signal).catch(referenceError);
       return this.callDynamicTool(active, callId, input, signal, finishCleanup).catch(referenceError);
     }
+    if (tool === "UpdateRoutine") {
+      const refused = await this.autoReview.reviewRoutineWrite(active, callId, args as Record<string, any>, signal);
+      if (refused !== undefined) return { content: [{ type: "text", text: `Not saved: ${refused}` }], details: { tool } };
+    }
 
     return this.callControlPlaneTool(active, callId, tool, args, signal);
   }
@@ -868,12 +879,14 @@ export class RuntimeTools {
   private async callComputerUse(
     active: ActiveTurn,
     args: unknown,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    callId = "computer"
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     signal?.throwIfAborted();
     const input = Schema.decodeUnknownSync(ComputerUseInput)(
       normalizeMainToolArguments("Computer", args)
     );
+    await this.autoReview.reviewComputer(active, callId, input, signal);
     const { then = [], description: _description, ...first } = input;
     const requestedActions = [first, ...then];
     const needsDesktopObservation = active.lastGraphicalSurface !== "computer" &&
@@ -911,14 +924,14 @@ export class RuntimeTools {
     };
   }
 
-  private async callBrowserForTurn(active: ActiveTurn, name: string, args: unknown, signal?: AbortSignal) {
-    if (name !== "browser_wait_for" && name !== "browser_run_code") return this.callBrowserUse(active, name, args, signal);
+  private async callBrowserForTurn(active: ActiveTurn, name: string, args: unknown, signal?: AbortSignal, callId = name) {
+    if (name !== "browser_wait_for" && name !== "browser_run_code") return this.callBrowserUse(active, name, args, signal, callId);
     const controller = new AbortController();
     const waits = this.shellWaits.get(active.runId) ?? new Set<AbortController>();
     waits.add(controller);
     this.shellWaits.set(active.runId, waits);
     try {
-      return await this.callBrowserUse(active, name, args, signal ? AbortSignal.any([signal, controller.signal]) : controller.signal);
+      return await this.callBrowserUse(active, name, args, signal ? AbortSignal.any([signal, controller.signal]) : controller.signal, callId);
     } finally {
       waits.delete(controller);
       if (!waits.size) this.shellWaits.delete(active.runId);
@@ -929,7 +942,8 @@ export class RuntimeTools {
     active: ActiveTurn,
     toolName: string,
     args: unknown,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    callId = toolName
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     const endpoint = await this.screens.browserEndpointForAgent(active.screenBotId, active.cwd);
     let browser = this.browserUseSessions.get(active.botId);
@@ -951,6 +965,8 @@ export class RuntimeTools {
     this.browserSessionScreens.set(active.botId, active.screenBotId);
     browser.configureUploads(this.workspaceRoot, [this.agentDir]);
     browser.registerPrivateValues([...(this.privateBrowserValues.get(active.screenBotId) ?? [])]);
+    if (this.autoReview.enabled(active) && args && typeof args === "object")
+      await this.autoReview.reviewBrowser(active, callId, toolName, args as Record<string, any>, browser.currentPageUrl(), signal);
     const result = await browser.execute(toolName, args, signal);
     active.lastGraphicalSurface = "browser";
     return result;
@@ -1671,8 +1687,21 @@ export class RuntimeTools {
                     name === "DraftExternalMessage"
                       ? (input) => parseDraftExternalMessage(normalizeMainToolArguments(name, input))
                       : (input) => input,
-                  execute: (turn, callId, args, signal) =>
-                    this.callControlPlaneTool(turn, callId, name, args, signal),
+                  execute: async (turn, callId, args, signal) => {
+                    if (name === "SendFeedback") {
+                      const message = typeof (args as { message?: unknown })?.message === "string" ? (args as { message: string }).message : "";
+                      const approval = await this.autoReview.requestFeedbackApproval(turn, callId, message, signal).catch((error: unknown) => {
+                        if (signal?.aborted) throw error;
+                        return { approved: false as const, reason: FEEDBACK_APPROVAL_UNAVAILABLE_MESSAGE };
+                      });
+                      if (!approval.approved)
+                        return {
+                          content: [{ type: "text", text: approval.reason === USER_DECLINED ? FEEDBACK_NOT_APPROVED_MESSAGE : approval.reason === FEEDBACK_APPROVAL_UNAVAILABLE_MESSAGE ? approval.reason : FEEDBACK_NOT_APPROVED_MESSAGE }],
+                          details: { tool: name },
+                        };
+                    }
+                    return this.callControlPlaneTool(turn, callId, name, args, signal);
+                  },
                 };
               }
             )),
@@ -1921,8 +1950,23 @@ export class RuntimeTools {
         throw report ? new Error(report) : error;
       }
     }, signal);
+    // External MCP calls get Auto-review; first-party tools run natively with their own approvals.
+    if (resolved.namespace.kind === "mcp") {
+      const descriptor = active.pluginNamespaces.find((namespace) => namespace.name === input.namespace)?.tools.find((tool) => tool.name === resolved.tool.name);
+      await this.autoReview.reviewMcp(active, callId, {
+        namespace: input.namespace,
+        serverDisplayName: input.namespace,
+        toolName: resolved.tool.name,
+        arguments: (resolved.arguments && typeof resolved.arguments === "object" ? resolved.arguments : {}) as Record<string, unknown>,
+        toolDescription: resolved.tool.description,
+        inputSchema: resolved.tool.inputSchema,
+        ...(descriptor?.readOnly === undefined ? {} : { readOnlyHint: descriptor.readOnly }),
+        ...(input.mcpDetails ? { details: input.mcpDetails } : {}),
+      }, signal);
+    }
     const invoke = async () => {
       signal?.throwIfAborted();
+      if (resolved.namespace.kind === "mcp") this.autoReview.assertNoPending(active);
       if (finishCleanup) {
         this.assertCurrentInput(active);
         active.pluginAbortController?.signal.throwIfAborted();

@@ -1334,6 +1334,13 @@ export const ComputerTurnRequest = Schema.Struct({
   subagentType: Schema.optional(SubagentType),
   taskConfiguration: Schema.optional(Schema.Unknown),
   readOnly: Schema.optional(Schema.Boolean),
+  /** Auto-review settings for the turn; scopeBotId is the user's bot whose cards share the one-pending limit. */
+  autoReview: Schema.optional(Schema.Struct({
+    enabled: Schema.Boolean,
+    allowRules: Schema.Array(Schema.String),
+    askFirstRules: Schema.Array(Schema.String),
+    scopeBotId: Schema.String,
+  })),
   model: Schema.String,
   reasoning: Schema.Literal(...PI_REASONING_LEVELS),
   fileAttachments: Schema.optional(Schema.Array(Schema.String)),

@@ -320,12 +320,12 @@ adaptArgument("SendToAgent", "priority", [[
 adaptArgument("SendToAgent", "target_id", [["Use an id from your teammates list, ListAgents, or ListGroups, not a name.", "Use an id from your teammates list, not a name."]]);
 contracts.SendToAgent!.inputSchema.required = contracts.SendToAgent!.inputSchema.required.filter((key: string) => key !== "priority");
 
-// Feedback goes to the deployment's configured destination, which can reply when asked; there is no approval card.
+// Feedback goes to the deployment's configured destination, which can reply when asked.
 adaptDescription("SendFeedback", [
   ["Send product feedback to the OpenTeam maintainers on the user's behalf.", "Send product feedback to the configured OpenTeam support destination on the user's behalf."],
   [
     /Feedback filed with this tool is read as product feedback but never receives a support response\. Do not ask whether the user wants a reply and do not promise one\. If they need help from support, tell them to email \S+\. The user reviews the exact message on an approval card and nothing is sent unless they approve\./,
-    "Set wantsResponse to whether they want a reply: ask unless they already said, and do not promise one. Deployment privacy settings apply.",
+    "Set wantsResponse to whether they want a reply: ask unless they already said, and do not promise one. Deployment privacy settings apply. The user reviews the exact message on an approval card and nothing is sent unless they approve.",
   ],
 ]);
 contracts.SendFeedback!.inputSchema.properties.wantsResponse = {
@@ -349,11 +349,6 @@ adaptDescription("UpdateRoutine", [
   [
     'at least 5 minutes apart; take the minute from the latest <timestamp>, never :00 or :30 unless the user named it.',
     'at least 5 minutes apart. A clock time the user names is saved as named ("8am" is "0 8 * * *"); only an ask that names no time takes the minute from the latest <timestamp>.',
-  ],
-  // Routine writes apply directly; there is no confirmation card, but a refused write stays refused.
-  [
-    "A change may ask the user to confirm on a card; don't ask first, and don't retry a denied write.",
-    "Don't ask first, and don't retry a denied write.",
   ],
 ]);
 // The runtime checks arguments against the advertised schema, so the bare-array group
@@ -396,14 +391,6 @@ adaptDescription("GetDynamicTools", [
     'a namespace whose namespaceStatus is "needsAuth" or "needsGrant" stays unusable until the user connects it or grants you access.',
     'a namespace whose namespaceStatus is "needsAuth" stays unusable until the user connects it.',
   ],
-  // First-party tools run without approvals.
-  ["they run natively with their own approvals and rendering.", "they run natively with their own rendering."],
-]);
-// No call reviewer or approval card consumes MCP call details.
-delete contracts.CallDynamicTool!.inputSchema.properties.mcpDetails;
-adaptDescription("CallDynamicTool", [
-  [" Set mcpDetails only for tools from external MCP namespaces; omit it for first-party tools in the cursor namespace.", ""],
-  ['  "mcpDetails": { "description": "Search the public docs for the example API" },\n', ""],
 ]);
 
 // Sign-ins are completed with the available tools first (the Authentication section), so no sign-in

@@ -709,11 +709,11 @@ describe("API contracts", () => {
     expect(UPDATE_MEMORY_TOOL.description).not.toContain("memory folder");
     const routine = UPDATE_ROUTINE_TOOL.inputSchema as { properties: Record<string, { enum?: string[] }> };
     expect(routine.properties.action?.enum).toEqual(["create", "get", "update", "pause", "resume", "delete"]);
-    // Routine writes apply directly; no confirmation card exists.
-    expect(UPDATE_ROUTINE_TOOL.description).not.toContain("confirm");
+    // A routine write the Auto-review classifier blocks waits on an approval card.
+    expect(UPDATE_ROUTINE_TOOL.description).toContain("A change may ask the user to confirm on a card; don't ask first, and don't retry a denied write.");
     expect(UPDATE_ROUTINE_TOOL.description).toContain("- create: name, prompt, and schedule or trigger. get: id; returns the saved prompt and trigger. update: id plus only the fields to change. pause, resume, delete: id.\nBefore you change a routine's prompt or describe what it does, get it and work from the saved text, not from memory.");
     expect(UPDATE_ROUTINE_TOOL.description).toContain("folder ids are listed under Scheduled routines in your prompt, which shows no prompts.");
-    expect(UPDATE_ROUTINE_TOOL.description).toEndWith("Don't ask first, and don't retry a denied write.");
+    expect(UPDATE_ROUTINE_TOOL.description).toEndWith("A change may ask the user to confirm on a card; don't ask first, and don't retry a denied write.");
     expect(UPDATE_ROUTINE_TOOL.description).not.toMatch(/Cursor|JoinMeeting|automation_status|timing/);
     // The schema names trigger types only; the skill and the invalid-trigger reply carry the shapes.
     const listener = {

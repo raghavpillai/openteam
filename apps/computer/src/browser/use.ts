@@ -787,6 +787,14 @@ export class BrowserUseSession {
     }
   }
 
+  /** The selected tab's address, which Auto-review reads as the action's target page. */
+  currentPageUrl(): string | undefined {
+    const pages = this.leasedPages();
+    const page = pages.find((candidate) => this.idFor(candidate) === this.currentViewId) ?? pages[0];
+    const url = page?.url();
+    return url && url !== "about:blank" ? url : undefined;
+  }
+
   private async ensurePage(requestedViewId?: string): Promise<Page> {
     const pages = this.leasedPages();
     if (requestedViewId) {

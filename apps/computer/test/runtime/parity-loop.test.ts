@@ -22,7 +22,7 @@ const model: Model<"openai-completions"> = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 };
 
-// Typed messages supersede a main turn instead of steering it; worker steering is in steering.test.ts.
+// Typed messages supersede a main turn instead of steering it.
 for (const { handoff, batch = false } of [{ handoff: false }, { handoff: true }, { handoff: false, batch: true }])
   test(`real Pi loop persists before acknowledgement, stops on ${handoff ? "WakeParent" : "end_turn"}, and recovers tape${batch ? " with three ordered replies" : ""}`, async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-parity-"));

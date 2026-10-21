@@ -1,5 +1,6 @@
 import { MachineDirectory } from "./machine-directory";
 import type { TaskConfiguration } from "@openteam/contracts/task-configuration";
+import type { ChildProcess } from "node:child_process";
 import { Readable } from "node:stream";
 import { agentReadStream, agentWriteStream } from "./agent-file-stream";
 import { formatBytes2 } from "@openteam/contracts/reference-formatters";
@@ -51,6 +52,8 @@ import { agentFileIO } from "./agent-file-io";
 import { protectedAgentDataPath } from "@openteam/contracts/agent-file-access";
 
 const DEFAULT_BLOCK_MS = 30_000;
+// How long a stopped command may keep its output open after the group kill (SIGKILL follows at 500 ms).
+const STOPPED_SHELL_GRACE_MS = 2_000;
 /** Text files above this size are streamed rather than loaded whole. */
 const READ_STREAM_THRESHOLD_BYTES = 8 * 1024 * 1024;
 /** Archives and media Read refuses by name, as in the reference. */
@@ -139,10 +142,21 @@ export class NativeToolExecutor {
   /** A routine run that handed off to its parent stops the background commands it started. */
   stopAutomationShells(automationRunIds: readonly string[]): number {
     const running = this.shellJobs.runningForAutomation(new Set(automationRunIds));
-    for (const job of running) {
-      try { process.kill(-job.pid, "SIGTERM"); } catch { /* It already exited. */ }
-    }
+    // The same stop as an interrupted call: TERM, then KILL, and the log records an abort.
+    for (const job of running) this.liveShells.get(job.id)?.stop();
     return running.length;
+  }
+
+  /** A descendant that left the process group (setsid) can hold the output pipes open after the kill; stop waiting for it. */
+  private async stoppedCompletion(child: ChildProcess, completion: Promise<number | null>) {
+    let graceTimer: ReturnType<typeof setTimeout> | undefined;
+    const closed = await Promise.race([
+      completion.then(() => true),
+      new Promise<false>((resolveGrace) => (graceTimer = setTimeout(() => resolveGrace(false), STOPPED_SHELL_GRACE_MS))),
+    ]);
+    clearTimeout(graceTimer);
+    if (!closed) { child.stdout?.destroy(); child.stderr?.destroy(); }
+    return completion;
   }
 
   async shellWorkingDirectory(input: Pick<ShellToolInput, "working_directory">, cwd: string, scope = "") {
@@ -247,9 +261,12 @@ export class NativeToolExecutor {
       signalGroup("SIGTERM");
       killTimer ??= setTimeout(() => signalGroup("SIGKILL"), 500);
     };
+    let stopped!: () => void;
+    const stopRequested = new Promise<{ done: false }>((resolveStop) => (stopped = () => resolveStop({ done: false })));
     const abort = () => {
       abortedAt ??= Date.now();
       terminate();
+      stopped();
     };
     const live = { scope, background: false, stop: abort };
     this.liveShells.set(shellId, live);
@@ -308,10 +325,11 @@ export class NativeToolExecutor {
       new Promise<{ done: false }>(
         (resolveTimeout) => (timeoutId = setTimeout(() => resolveTimeout({ done: false }), blockMs))
       ),
+      stopRequested,
     ]);
     if (timeoutId) clearTimeout(timeoutId);
     // A stopped command is being killed; report its interruption, not a backgrounding.
-    if (!completed.done && abortedAt !== undefined) completed = { done: true, exitCode: await completion };
+    if (!completed.done && abortedAt !== undefined) completed = { done: true, exitCode: await this.stoppedCompletion(child, completion) };
     signal?.removeEventListener("abort", abort);
 
     if (!completed.done) {

@@ -619,6 +619,23 @@ describe("context turn reservation", () => {
     expect(runtime.diagnostics.activeTurns).toBe(0);
   });
 
+  test("routine runs leave the once-per-episode low-disk reminder for the user's next turn", async () => {
+    const runtime = new ComputerRuntime() as any;
+    runtime.start = async () => {};
+    Object.assign(runtime.tools.userForms, { beginTurn: async () => {}, endTurn: async () => {} });
+    runtime.authenticated = true;
+    runtime.resolveModel = () => ({});
+    runtime.modelRuntime = { checkAuth: async () => ({ type: "oauth", source: "test" }), isUsingSubscription: () => true };
+    const claimed: string[] = [];
+    runtime.diskPressure = { claim: async (botId: string) => { claimed.push(botId); return 1; }, commit() {} };
+    runtime.contextState = async () => { throw new Error("stop after setup"); };
+    const botId = crypto.randomUUID();
+    await expect(runtime.run(turnRequest({ botId, requestSource: "automation" }))).rejects.toThrow("stop after setup");
+    expect(claimed).toEqual([]);
+    await expect(runtime.run(turnRequest({ botId }))).rejects.toThrow("stop after setup");
+    expect(claimed).toEqual([botId]);
+  });
+
   test("rejects an out-of-root persisted session before opening it", async () => {
     const runtime = new ComputerRuntime() as unknown as {
       authenticated: boolean;
@@ -741,7 +758,6 @@ test('Task returns the server receipt in one call, since every Task runs in the 
   try {
     const result = await runtime.callControlPlaneTool({}, 'call', 'Task', {prompt:'long task', run_in_background:false});
     expect(requests).toHaveLength(1);
-    expect(requests[0].foregroundYield).toBeUndefined();
     expect(result.content[0].text).toContain('Subagent is running in the background.');
   } finally {globalThis.fetch=previousFetch;}
 });
@@ -778,7 +794,7 @@ test('Task reads subagent_type spellings as their type and reports a refused dis
   try {
     const task = runtime.dynamicCatalog(workerTurn(null)).find((namespace: any) => namespace.name === 'cursor').tools.find((tool: any) => tool.name === 'Task');
     expect(task.decodeArguments({ description: 'Book', prompt: 'Book it', subagent_type: 'computer_use' }).subagent_type).toBe('computerUse');
-    const active = { ...workerTurn(null), runId: 'run-1', discoveredDynamicTools: new Set(['cursor/Task']) };
+    const active = { ...workerTurn(null), runId: 'run-1' };
     await expect(runtime.executeOpenTeamTool(active, 'call', 'CallDynamicTool', {
       namespace: 'cursor', toolName: 'Task', arguments: { description: 'Book', prompt: 'Book it', subagent_type: 'computer_use' },
     })).rejects.toThrow(/^Error: That background subagent is still running, so it can't be resumed yet\.$/);
@@ -823,7 +839,7 @@ test('the parent-only dispatch reminder names only tools the parent has and that
 
 test('a readonly worker lists and greps with Shell on the box, reads only through read tools, and moves no files', async () => {
   const runtime = runtimeTools() as any;
-  const readonly = workerTurn('executor', { readOnly: true, runId: 'run-ro', discoveredDynamicTools: new Set(),
+  const readonly = workerTurn('executor', { readOnly: true, runId: 'run-ro',
     pluginNamespaces: [{ name: 'gmail_work', description: 'Gmail', namespaceStatus: 'ready', tools: [
       { connectionId: 'c1', name: 'search_threads', description: '', inputSchema: { type: 'object' }, source: 'gmail/gmail' },
       { connectionId: 'c1', name: 'whoami', description: '', inputSchema: { type: 'object' }, source: 'custom/custom', readOnly: true },
@@ -838,7 +854,6 @@ test('a readonly worker lists and greps with Shell on the box, reads only throug
     return { content: [{ type: 'text', text: 'ok' }], details: {} };
   };
   for (const toolName of ['search_threads', 'whoami']) {
-    readonly.discoveredDynamicTools.add(`gmail_work/${toolName}`);
     await runtime.callDynamicTool(readonly, `call-${toolName}`, { namespace: 'gmail_work', toolName, arguments: {} });
   }
   expect(calls).toEqual(['search_threads', 'whoami']);

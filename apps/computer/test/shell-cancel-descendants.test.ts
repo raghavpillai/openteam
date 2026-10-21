@@ -21,6 +21,28 @@ for (const command of ["echo READY; sleep 3; echo UNEXPECTED", "trap '' TERM; ec
   } finally { clearTimeout(timer); await rm(root, {recursive: true, force: true}); }
 });
 
+test("a stopped command returns promptly even when a descendant left the process group holding its output", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openteam-shell-cancel-setsid-"));
+  await chmod(root, 0o755);
+  const executor = new NativeToolExecutor({agentDir: root, controlToken: "fixture"});
+  const controller = new AbortController();
+  const pidFile = join(root, "escaped.pid");
+  // The descendant moves to its own session, out of reach of the group kill, and keeps stdout open.
+  const command = `perl -MPOSIX -e 'setsid(); open(my $f, ">", "${pidFile}"); print $f $$; close $f; sleep 6' & echo READY; sleep 6`;
+  const timer = setTimeout(() => controller.abort(), 300);
+  const started = Date.now();
+  try {
+    const error = await executor.shell({command, block_until_ms: 10_000}, root, controller.signal).then(() => undefined, (error: Error) => error);
+    expect(error?.message).toMatch(/^Error: Shell command was interrupted by the user after \d+ms before it completed\./);
+    expect(Date.now() - started).toBeLessThan(4000);
+  } finally {
+    clearTimeout(timer);
+    const pid = Number(await readFile(pidFile, "utf8").catch(() => ""));
+    if (pid) try { process.kill(pid, "SIGKILL"); } catch { /* It already exited. */ }
+    await rm(root, {recursive: true, force: true});
+  }
+});
+
 test("a routine handoff stops the background commands its runs started, and only those", async () => {
   const root = await mkdtemp(join(tmpdir(), "openteam-shell-handoff-"));
   await chmod(root, 0o755);
@@ -41,6 +63,24 @@ test("a routine handoff stops the background commands its runs started, and only
     expect(await status(parent, 0)).toBe("running");
   } finally {
     for (const id of started) await status(id, 5000).catch(() => undefined);
+    await rm(root, {recursive: true, force: true});
+  }
+});
+
+test("a routine handoff ends TERM-trapping background commands and records them as aborted", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openteam-shell-handoff-trap-"));
+  await chmod(root, 0o755);
+  const executor = new NativeToolExecutor({agentDir: root, controlToken: "fixture"});
+  const result = await executor.shell({command: "trap '' TERM; echo READY; sleep 30 & wait", block_until_ms: 0}, root, undefined, undefined, "scope", {automationRunId: "routine-run"});
+  const { shellId, outputPath } = result.details as { shellId: string; outputPath: string };
+  try {
+    for (let i = 0; i < 200 && !(await readFile(outputPath, "utf8")).includes("READY"); i++) await Bun.sleep(10);
+    expect(executor.stopAutomationShells(["routine-run"])).toBe(1);
+    expect((await executor.awaitShell({shell_id: shellId, block_until_ms: 3000}, undefined, "scope")).details.status).toBe("completed");
+    expect(await readFile(outputPath, "utf8")).toContain("\nstatus: aborted  \n");
+  } finally {
+    executor.stopBackgroundShells("scope");
+    await executor.awaitShell({shell_id: shellId, block_until_ms: 5000}, undefined, "scope").catch(() => undefined);
     await rm(root, {recursive: true, force: true});
   }
 });

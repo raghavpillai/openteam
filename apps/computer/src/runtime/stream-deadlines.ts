@@ -69,6 +69,8 @@ export function streamDeadlines(timers: StreamTimers = systemTimers) {
           if (stall !== undefined) timers.clear(stall);
           if (wall !== undefined) timers.clear(wall);
           stall = wall = undefined;
+          // The run's signal outlives this call; don't keep the call alive through it.
+          options?.signal?.removeEventListener("abort", clear);
         };
         const fail = (errorMessage: string) => {
           if (settled) return;

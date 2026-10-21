@@ -5,7 +5,7 @@ function fixture(respond: (name: string, args: any) => Response) {
   const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
   const active: any = {
     runId: "fixture", botId: "fixture", screenBotId: "fixture", runtimeProfile: "agent", pluginNamespaces: [],
-    sentMessageCount: 0, toolActivityAfterLastSend: true, discoveredDynamicTools: new Set(), queue: { push() {} },
+    sentMessageCount: 0, toolActivityAfterLastSend: true, queue: { push() {} },
   };
   const calls: any[] = [];
   tools.callControlPlaneTool = async (turn: any, id: string, name: string, args: any) => {
@@ -16,10 +16,7 @@ function fixture(respond: (name: string, args: any) => Response) {
     } finally { globalThis.fetch = originalFetch; }
   };
   const call = (name: string, args: any) => tools.executeOpenTeamTool(active, `call-${calls.length}`, name, args);
-  const lookup = (toolName: string, args: any) => {
-    active.discoveredDynamicTools.add(`cursor/${toolName}`);
-    return call("CallDynamicTool", { namespace: "cursor", toolName, arguments: args });
-  };
+  const lookup = (toolName: string, args: any) => call("CallDynamicTool", { namespace: "cursor", toolName, arguments: args });
   return { tools, active, calls, call, lookup };
 }
 
@@ -90,7 +87,7 @@ test("CopyToBox takes the reference's computer_path aliases", async () => {
 
 test("a missing attachment is named before anything reaches the tool host", async () => {
   const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
-  const active: any = { runId: "fixture", botId: "fixture", runtimeProfile: "agent", pluginNamespaces: [], discoveredDynamicTools: new Set() };
+  const active: any = { runId: "fixture", botId: "fixture", runtimeProfile: "agent", pluginNamespaces: [] };
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => { throw new Error("the tool host must not be called"); }) as any;
   try {
@@ -109,4 +106,23 @@ test("DraftExternalMessage argument problems are named per field and a lone reci
   const result = await lookup("DraftExternalMessage", { ...draft, from: "me@example.com", to: "ann@example.com" });
   expect(calls.at(-1)).toMatchObject({ name: "DraftExternalMessage", args: { to: ["ann@example.com"] } });
   expect(result.content[0].text).toStartWith("Draft email from me@example.com to ann@example.com is now an editable card in the chat (id: m1).");
+});
+
+test("SendToUser through CallDynamicTool keeps call order with native sends and names a failed send", async () => {
+  const { tools, active, call } = fixture(() => Response.json({ error: { code: "reply_target_not_found", message: "The reply target was not found" } }, { status: 404 }));
+  await expect(call("CallDynamicTool", { namespace: "cursor", toolName: "SendToUser", arguments: { type: "text", content: "hi", reply_to: "t9u" } })).rejects.toThrow(
+    /^Error: Failed to send the message to the user: The reply target was not found$/
+  );
+  const delivered: string[] = [];
+  tools.callControlPlaneTool = async (_turn: any, _id: string, _name: string, args: any) => {
+    if (args.content === "first") await Bun.sleep(50);
+    delivered.push(args.content);
+    return { content: [{ type: "text", text: "Sent" }], details: {} };
+  };
+  active.sendChain = undefined;
+  await Promise.all([
+    call("SendToUser", { type: "text", content: "first" }),
+    call("CallDynamicTool", { namespace: "cursor", toolName: "SendToUser", arguments: { type: "text", content: "second" } }),
+  ]);
+  expect(delivered).toEqual(["first", "second"]);
 });

@@ -127,3 +127,13 @@ test("a reaction that could not be placed reads as its note", async () => {
   expect(renderControlResult("ReactToMessage", { reacted: false, removed: false, note: "No user message t9u in this chat, so nothing was reacted to." }, { message_address: "t9u", emoji: "👍" }))
     .toBe("No user message t9u in this chat, so nothing was reacted to.");
 });
+test("SendToUser text gets real line breaks for escaped ones outside code", () => {
+  const content = (text: string) => normalizeMainToolArguments("SendToUser", { type: "text", content: text }).content;
+  expect(content("hi\\nthere")).toBe("hi\nthere");
+  expect(content("Done.\\n\\n- one\\n- two")).toBe("Done.\n\n- one\n- two");
+  expect(content('She said \\"yes\\"')).toBe('She said "yes"');
+  expect(content("Use `printf 'a\\nb'` here")).toBe("Use `printf 'a\\nb'` here");
+  expect(content("```\nline\\nkept\n```")).toBe("```\nline\\nkept\n```");
+  expect(content("Saved to C:\\new\\report.txt")).toBe("Saved to C:\\new\\report.txt");
+  expect(normalizeMainToolArguments("SendToUser", { type: "attachment", url: "file:///workspace/a\\nb.pdf" }).url).toBe("file:///workspace/a\\nb.pdf");
+});

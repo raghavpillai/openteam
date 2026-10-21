@@ -3,6 +3,7 @@
 import { z as external_exports } from "zod";
 import { refineDraftBody } from "./external-draft-body";
 import { parseToolArguments } from "./tool-arguments";
+import { normalizeSendMessageTextContent } from "./send-text";
 import { ROBOT_AVATAR_SHAPES } from "./robot-avatar";
 const invariant=(value,message)=>{if(!value)throw new Error(message);};
 class SandToolInputError extends Error {}
@@ -1914,7 +1915,10 @@ export function normalizeMainToolArguments(name:string, raw:unknown):Record<stri
     return value;
   }
   const schema = name === "DraftExternalMessage" ? adaptedDraftSchema : name === "SendToUser" ? adaptedSendSchema : schemas[name];
-  return schema ? parseToolArguments(schema, raw) : raw as Record<string,any>;
+  if (!schema) return raw as Record<string,any>;
+  const args = parseToolArguments(schema, raw);
+  // Text content is delivered with real line breaks, as the reference repairs it at send time.
+  return name === "SendToUser" && args.type === "text" && args.content ? { ...args, content: normalizeSendMessageTextContent(args.content) } : args;
 }
 const ARGUMENT_ALIASES={"CopyToBox":COPY_TO_BOX_COMPUTER_PATH_ALIAS};
 /** The reference's argument aliases alone, for tools whose arguments are otherwise decoded elsewhere. */

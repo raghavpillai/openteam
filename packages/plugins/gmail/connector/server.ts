@@ -1,5 +1,6 @@
-import { GoogleApi, page, segment, servePlugin, string, tool, type Args, type Tool } from '../../_shared/google';
+import { GoogleApi, page, segment, servePlugin, string, tool, ToolNotes, type Args, type Tool } from '../../_shared/google';
 import { compact, mapConcurrent, referenceTool, referenceTools } from '../../_shared/reference';
+import { assertAttachmentsComplete, searchCoverageNote, unwrappedBody, withIdNote } from './guards';
 import { draftMime, headersOf, normalizeMessage, plainHtml } from './messages';
 
 /** Matches the server's HOST_ONLY_TOOL_META: OpenTeam calls the tool, Bots never see it. */
@@ -12,6 +13,33 @@ const colors: Record<string, any> = Object.fromEntries(colorSchema.enum.slice(1)
   const hex = colorSchema['x-google-enum-descriptions'][i + 1].match(/#[0-9a-f]{6}/g);
   return [key, { backgroundColor: hex[0], textColor: hex[1] }];
 }));
+// Google's current texts where the 2026-09-12 pin is wrong or silent and the REST implementation
+// behaves as Google now describes. Throws when a refreshed pin no longer holds the old text.
+const revised = (text: string, from: string, to: string) => {
+  if (!text.includes(from)) throw new Error(`Gmail reference text changed: ${from}`);
+  return text.replace(from, to);
+};
+const reference = (name: string) => referenceTools.gmail.find(t => t.name === name)! as any;
+const searchThreads = reference('search_threads');
+const createDraft = reference('create_draft');
+const searchThreadsText = {
+  description: revised(searchThreads.description, "\n\nNote: An empty JSON object",
+    "\n\nTo list threads in a specific inbox category tab, use the `category:` operator with `primary`, `social`, `promotions`, `updates`, or `forums` (e.g. `in:inbox category:promotions`).\n\nNote: An empty JSON object"),
+  query: { ...searchThreads.inputSchema.properties.query, description: revised(searchThreads.inputSchema.properties.query.description,
+    "`label:` — Under a specific label. The tool accepts label IDs, not display names. Use the `list_labels` tool to get the ID.",
+    "`label:` — Under a specific label, matched by its display name (the `name` from `list_labels`), for example `label:wins`. Label IDs such as `Label_123` match nothing. Quote a name that contains spaces (`label:\"Board Prep\"`) or replace its spaces and `/` with `-` (`label:board-prep`).") },
+};
+const createDraftText = {
+  description: revised(revised(createDraft.description,
+    "Plain text body content can be provided in `body`, and rich-text HTML content can be provided in `htmlBody` (if both are provided,",
+    "Plain text body content can be provided in `body` (do NOT format `body` with Markdown), and rich-text HTML content can be provided in `htmlBody` (use valid HTML tags for formatting; if both are provided,"),
+    "the `replyToMessageId` field.\n",
+    "the `replyToMessageId` field. Set `includeSignature` to true to append the user's configured Gmail web signature to the draft.\n"),
+  body: { ...createDraft.inputSchema.properties.body, description: revised(createDraft.inputSchema.properties.body.description,
+    "Optional. The main body content of the email draft.",
+    "Optional. The plain text body content of the email draft. Do NOT format this field with Markdown (such as headers `#`, bold `**`, bullet points `*`, or tables `|`). If formatted rich text is desired, use `html_body` instead.") },
+  includeSignature: { type: 'boolean', description: "Optional. Whether to append the user's configured Gmail web signature to the draft. Defaults to false." },
+};
 const normalizeLabel = (label: any) => compact({ ...label, labelId: label.id, labelType: label.type?.toUpperCase(),
   colorPreset: Object.entries(colors).find(([, c]) => c.backgroundColor === label.color?.backgroundColor && c.textColor === label.color?.textColor)?.[0] ?? 'LABEL_COLOR_PRESET_UNSPECIFIED',
   labelListVisibility: Object.keys(visibility).find(k => visibility[k] === label.labelListVisibility),
@@ -42,6 +70,12 @@ export function gmailTools(api = new GoogleApi('https://gmail.googleapis.com/gma
     const d = await api.request(`/drafts/${segment(id)}`, { format: format === 'RAW' ? 'raw' : 'full' });
     return { ...normalizeMessage(await hydrate(d.message ?? {}), format), id: d.id, messageId: d.message?.id };
   };
+  /** The signature Gmail web adds for the default send-as address. */
+  const defaultSignature = async (): Promise<string | undefined> => {
+    const aliases: any[] = (await api.request('/settings/sendAs')).sendAs ?? [];
+    const signature = (aliases.find(alias => alias.isDefault) ?? aliases.find(alias => alias.isPrimary))?.signature;
+    return typeof signature === 'string' && signature.trim() ? signature.slice(0, 20_000) : undefined;
+  };
   const tools: Tool[] = [
     tool('get_profile', 'Identify the signed-in Gmail account and mailbox counts.', {}, [], () => api.request('/profile')),
     tool('search_messages', 'Search messages using Gmail syntax. Follow nextPageToken for more results.', { query: string('Gmail query'), ...page }, ['query'], a => api.request('/messages', { q: a.query, pageToken: a.pageToken, maxResults: a.maxResults ?? 25 })),
@@ -69,23 +103,35 @@ export function gmailTools(api = new GoogleApi('https://gmail.googleapis.com/gma
     ref('search_threads', async a => {
       const query = a.query ?? '';
       const t = await api.request('/threads', { q: /\bin:(?:drafts?|anywhere)\b/i.test(query) ? query : `${query} -in:drafts`.trim(), includeSpamTrash: a.includeTrash ?? false, pageToken: a.pageToken, maxResults: a.pageSize ?? a.maxResults ?? 20 });
-      return compact({ threads: await mapConcurrent(t.threads ?? [], (t: any) => thread(t.id, a.view === 'THREAD_VIEW_METADATA_ONLY' ? 'METADATA_ONLY' : 'MINIMAL')), nextPageToken: t.nextPageToken });
-    }, { properties: { maxResults: page.maxResults } }),
-    ref('get_message', a => message(a.messageId, a.messageFormat)),
-    ref('get_thread', a => thread(a.threadId, a.messageFormat)),
-    ref('get_draft', a => draft(a.draftId, a.messageFormat)),
+      const value = compact({ threads: await mapConcurrent(t.threads ?? [], (t: any) => thread(t.id, a.view === 'THREAD_VIEW_METADATA_ONLY' ? 'METADATA_ONLY' : 'MINIMAL')), nextPageToken: t.nextPageToken });
+      // One narrow empty search, or a lookup's first page, is not proof the mail is missing.
+      const note = searchCoverageNote(a, value);
+      return note ? new ToolNotes(value, [note]) : value;
+    }, { description: searchThreadsText.description, properties: { query: searchThreadsText.query, maxResults: page.maxResults } }),
+    ref('get_message', withIdNote('message', a => message(a.messageId, a.messageFormat))),
+    ref('get_thread', withIdNote('thread', a => thread(a.threadId, a.messageFormat))),
+    ref('get_draft', withIdNote('draft', a => draft(a.draftId, a.messageFormat))),
     ref('list_drafts', async a => {
       const d = await api.request('/drafts', { q: a.query, pageToken: a.pageToken, maxResults: a.pageSize ?? a.maxResults ?? 20 });
       return compact({ drafts: await mapConcurrent(d.drafts ?? [], (d: any) => draft(d.id, a.view === 'DRAFT_VIEW_FULL' ? 'FULL_CONTENT' : 'METADATA_ONLY')), nextPageToken: d.nextPageToken });
     }, { properties: { maxResults: page.maxResults } }),
-    ref('create_draft', async a => {
+    ref('create_draft', async input => {
+      // Before the quoted reply is appended, like the reference's mailbox body unwrap.
+      let a = unwrappedBody(input);
+      assertAttachmentsComplete(a.attachments);
+      if (a.includeSignature === true) {
+        const signature = await defaultSignature();
+        if (signature) a = { ...a,
+          ...(typeof a.body === 'string' || a.htmlBody === undefined ? { body: `${a.body ?? ''}\n\n${plainHtml(signature)}` } : {}),
+          ...(typeof a.htmlBody === 'string' ? { htmlBody: `${a.htmlBody}<br><div dir="ltr" class="gmail_signature">${signature}</div>` } : {}) };
+      }
       const original = a.replyToMessageId ? await hydrate(await api.request(`/messages/${segment(a.replyToMessageId)}`, { format: 'full' })) : undefined;
       const mime = draftMime(a, original);
       const d = await api.request('/drafts', {}, 'POST', { message: compact(mime) });
       // The insert result is authoritative; a subsequent read must not make a successful write appear failed.
       return compact({ id: d.id, messageId: d.message?.id, threadId: d.message?.threadId ?? mime.threadId });
-    }, { risk: 'write', properties: { threadId: string('Legacy thread ID; use replyToMessageId for a correctly threaded reply') } }),
-    ref('update_message_labels', a => api.request(`/messages/${segment(a.messageId)}/modify`, {}, 'POST', { addLabelIds: a.addLabelIds ?? [], removeLabelIds: a.removeLabelIds ?? [] }), { risk: 'write' }),
+    }, { risk: 'write', description: createDraftText.description, properties: { body: createDraftText.body, includeSignature: createDraftText.includeSignature, threadId: string('Legacy thread ID; use replyToMessageId for a correctly threaded reply') } }),
+    ref('update_message_labels', withIdNote('message', a => api.request(`/messages/${segment(a.messageId)}/modify`, {}, 'POST', { addLabelIds: a.addLabelIds ?? [], removeLabelIds: a.removeLabelIds ?? [] })), { risk: 'write' }),
   ];
   // Card review: OpenTeam verifies the route when a Bot drafts, then sends only after the user presses Send.
   const sendingAs = async (from: string) => {
@@ -134,15 +180,15 @@ export function gmailTools(api = new GoogleApi('https://gmail.googleapis.com/gma
   for (const kind of ['message', 'thread'] as const) {
     const field = `${kind}Id`;
     const path = (a: Args) => `/${kind === 'message' ? 'messages' : 'threads'}/${segment(a[field])}`;
-    for (const remove of [false, true]) tools.push(ref(`${remove ? 'unlabel' : 'label'}_${kind}`, a => api.request(`${path(a)}/modify`, {}, 'POST', { [remove ? 'removeLabelIds' : 'addLabelIds']: a.labelIds }), { risk: 'write' }));
-    tools.push(ref(`apply_sensitive_${kind}_label`, a => {
+    for (const remove of [false, true]) tools.push(ref(`${remove ? 'unlabel' : 'label'}_${kind}`, withIdNote(kind, a => api.request(`${path(a)}/modify`, {}, 'POST', { [remove ? 'removeLabelIds' : 'addLabelIds']: a.labelIds })), { risk: 'write' }));
+    tools.push(ref(`apply_sensitive_${kind}_label`, withIdNote(kind, a => {
       const label = a.labelOption ?? a.labelId;
       if (!['TRASH', 'SPAM'].includes(label)) throw new Error('Choose TRASH or SPAM');
       return label === 'TRASH' ? api.request(`${path(a)}/trash`, {}, 'POST', {}) : api.request(`${path(a)}/modify`, {}, 'POST', { addLabelIds: ['SPAM'], removeLabelIds: ['INBOX'] });
-    }, { risk: 'destructive', properties: { labelId: string('Compatibility alias for labelOption', { enum: ['TRASH', 'SPAM'] }) }, required: [field], anyOf: [{ required: ['labelOption'] }, { required: ['labelId'] }] }));
+    }), { risk: 'destructive', properties: { labelId: string('Compatibility alias for labelOption', { enum: ['TRASH', 'SPAM'] }) }, required: [field], anyOf: [{ required: ['labelOption'] }, { required: ['labelId'] }] }));
     for (const undo of [false, true]) {
-      tools.push(ref(`${undo ? 'untrash' : 'trash'}_${kind}`, a => api.request(`${path(a)}/${undo ? 'untrash' : 'trash'}`, {}, 'POST', {}), { risk: undo ? 'write' : 'destructive' }));
-      tools.push(ref(`${undo ? 'unmark' : 'mark'}_${kind}_spam`, a => api.request(`${path(a)}/modify`, {}, 'POST', { addLabelIds: undo ? ['INBOX'] : ['SPAM'], removeLabelIds: undo ? ['SPAM'] : ['INBOX'] }), { risk: undo ? 'write' : 'destructive' }));
+      tools.push(ref(`${undo ? 'untrash' : 'trash'}_${kind}`, withIdNote(kind, a => api.request(`${path(a)}/${undo ? 'untrash' : 'trash'}`, {}, 'POST', {})), { risk: undo ? 'write' : 'destructive' }));
+      tools.push(ref(`${undo ? 'unmark' : 'mark'}_${kind}_spam`, withIdNote(kind, a => api.request(`${path(a)}/modify`, {}, 'POST', { addLabelIds: undo ? ['INBOX'] : ['SPAM'], removeLabelIds: undo ? ['SPAM'] : ['INBOX'] })), { risk: undo ? 'write' : 'destructive' }));
     }
   }
   return tools;

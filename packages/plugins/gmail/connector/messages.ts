@@ -1,5 +1,6 @@
 import { convert } from 'html-to-text';
-import { base64Bytes, compact } from '../../_shared/reference';
+import { compact } from '../../_shared/reference';
+import { decodeAttachment } from './guards';
 import type { Args } from '../../_shared/google';
 
 export const plainHtml = (html: string) => convert(html, { wordwrap: false, selectors: [{ selector: 'img', format: 'skip' }] });
@@ -88,7 +89,8 @@ export function draftMime(args: Args, original?: any) {
   let size = 0;
   const inline: string[] = [], regular: string[] = [];
   for (const attachment of args.attachments ?? []) {
-    const bytes = base64Bytes(attachment.content);
+    const bytes = decodeAttachment(attachment.content);
+    if (!bytes) throw new Error('Attachment content must be base64');
     size += bytes.length;
     if (size > 25 * 1024 * 1024) throw new Error('Combined attachments exceed 25 MB. Use a Drive link for larger files.');
     const name = safeHeader(attachment.filename ?? 'attachment');

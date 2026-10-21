@@ -663,6 +663,8 @@ export const PluginToolDescriptor = Schema.Struct({
   description: Schema.String,
   inputSchema: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
   source: Schema.String,
+  /** The server declares that the tool only reads. */
+  readOnly: Schema.optional(Schema.Boolean),
 });
 export type PluginToolDescriptor = typeof PluginToolDescriptor.Type;
 

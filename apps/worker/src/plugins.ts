@@ -135,6 +135,7 @@ export const pluginRuntimeContext = async (
               description: typeof tool.description === "string" ? tool.description : "",
               inputSchema: objectValue(tool.inputSchema),
               source: `${connection.installation.pluginKey}/${connection.connectorKey}`,
+              ...(tool.risk === "read" ? { readOnly: true } : {}),
             },
           ];
         })

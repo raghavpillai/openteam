@@ -127,7 +127,7 @@ test('forms, sending, skill and template skills follow the tools as they work he
 });
 
 test('catalog has valid skill metadata and excludes retired workflows',()=>{
-  expect(managed.skills).toHaveLength(27);
+  expect(managed.skills).toHaveLength(26);
   expect(new Set(managed.skills.map(s=>s.id)).size).toBe(managed.skills.length);
   for(const item of managed.skills){
     const front=yaml(item.content.split('---')[1]!);
@@ -135,6 +135,8 @@ test('catalog has valid skill metadata and excludes retired workflows',()=>{
     expect(item.id).not.toBe('sign-in');
     expect(item.id).not.toBe('source-control');
     expect(item.id).not.toBe('voice-calls');
+    // No teach-recording feature feeds this workflow.
+    expect(item.id).not.toBe('learn-from-demonstration');
     expect(item.id.startsWith('site-playbooks-')).toBe(false);
     expect(item.content).not.toContain('`sign-in`');
     expect(item.content).not.toContain('site-playbooks-');
@@ -149,7 +151,7 @@ test.each(['cached', 'missing', 'disabled'] as const)('retires cached skills wit
   delete process.env.OPENTEAM_MANAGED_SKILLS;
   try {
     if (state === 'cached') await store.syncPluginSkillCache([]);
-    const retired = ['sign-in', 'site-playbooks-airbnb', 'site-playbooks-google-flights', 'removed-custom-workflow'];
+    const retired = ['sign-in', 'site-playbooks-airbnb', 'site-playbooks-google-flights', 'learn-from-demonstration', 'removed-custom-workflow'];
     for (const id of retired) {
       const directory = join(data, 'managed-skills', id);
       await mkdir(directory, { recursive: true });

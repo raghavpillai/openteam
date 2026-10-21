@@ -5,6 +5,7 @@ import { refineDraftBody } from "./external-draft-body";
 import { parseToolArguments } from "./tool-arguments";
 import { normalizeSendMessageTextContent } from "./send-text";
 import { ROBOT_AVATAR_SHAPES } from "./robot-avatar";
+import { applyComputerActionAliases } from "./computer-action-aliases";
 const invariant=(value,message)=>{if(!value)throw new Error(message);};
 class SandToolInputError extends Error {}
 const CLOUD_AGENT_INJECTED_SECRET_NAMES_ENV_VAR = "CLOUD_AGENT_INJECTED_SECRET_NAMES";
@@ -801,7 +802,13 @@ function buildComputerParameters() {
   );
 }
 
-var computerActionParameters = buildComputerParameters();
+// Action names from other computer-use tools are rewritten to the action they mean before the check.
+var computerActionParameters = external_exports.preprocess((value, ctx) => {
+  const result = applyComputerActionAliases(value);
+  if (result.kind === "value") return result.value;
+  ctx.addIssue({ code: "custom", path: result.path, message: result.message });
+  return value;
+}, buildComputerParameters());
 
 var SEND_MESSAGE_TYPES = [
   "text",
@@ -1277,29 +1284,46 @@ var draftExternalMessageParameters = draftExternalMessageObjectSchema.superRefin
   refineDraftExternalMessage
 );
 
-var checkSubagentParameters = external_exports.object({
+var SUBAGENT_ID_ALIASES = ["agentId", "agent_id", "subagentId", "target", "target_id", "id", "to"];
+
+// The subagent's id under another common name is taken as subagent_id; names that disagree are refused.
+function normalizeSubagentIdArgs(value, ctx) {
+  if (!isUnknownRecord2(value) || value.subagent_id !== void 0) return value;
+  const aliases = SUBAGENT_ID_ALIASES.filter((key) => value[key] !== void 0);
+  if (aliases.length === 0) return value;
+  const ids = aliases.map((key) => value[key]);
+  if (new Set(ids).size > 1) {
+    ctx.addIssue({ code: "custom", path: ["subagent_id"], message: "Pass the subagent's id once, as subagent_id (from the Task result that dispatched it)." });
+    return value;
+  }
+  return { ...Object.fromEntries(Object.entries(value).filter(([key]) => !aliases.includes(key))), subagent_id: ids[0] };
+}
+
+var withSubagentIdAlias = (schema) => external_exports.preprocess(normalizeSubagentIdArgs, schema);
+
+var checkSubagentParameters = withSubagentIdAlias(external_exports.object({
   subagent_id: external_exports.string().trim().optional().describe(
     "The Agent ID of the subagent to inspect (from the Task tool result that dispatched it). Omit to list every subagent currently running."
   )
-});
+}));
 
-var messageSubagentParameters = external_exports.object({
+var messageSubagentParameters = withSubagentIdAlias(external_exports.object({
   subagent_id: external_exports.string().trim().min(1).describe(
     "The Agent ID of the running subagent to message (from the Task tool result that dispatched it)."
   ),
   message: external_exports.string().trim().min(1).describe(
     "The instruction to inject. The subagent interrupts what it is doing, reads this, and continues from where it was with its context intact."
   )
-});
+}));
 
-var stopSubagentParameters = external_exports.object({
+var stopSubagentParameters = withSubagentIdAlias(external_exports.object({
   subagent_id: external_exports.string().trim().optional().describe(
     'One running subagent\'s id, from the "Agent ID:" line of the Task result that dispatched it. Omit it when all is true.'
   ),
   all: external_exports.boolean().optional().describe("Set true to abort every background subagent you have running, in one call.")
 }).refine((args) => args.all === true !== (args.subagent_id !== void 0 && args.subagent_id.length > 0), {
   message: "Pass exactly one of subagent_id or all: true."
-});
+}));
 
 function isUnknownRecord2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);

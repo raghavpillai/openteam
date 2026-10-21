@@ -72,6 +72,7 @@ describe("main-agent graphical delegation instructions", () => {
     ] as const) {
       const messaging = Object.create(AgentMessaging.prototype) as Record<string, unknown>;
       Object.assign(messaging, {
+        defaultTimeZone: "Europe/Paris",
         agentData: { renderWorkerSkillCatalog: async (agent: string) => `<agent_skills>${agent} catalog</agent_skills>` },
         prisma: {
           bot: {
@@ -80,7 +81,7 @@ describe("main-agent graphical delegation instructions", () => {
               name: "Worker",
               instructions: "Child-only instructions",
               defaultDirectory: "/workspace",
-              subagentIdentity: { parentBotId: "parent", subagentType },
+              subagentIdentity: { parentBotId: "parent", subagentType, readOnly: false },
               todos: [],
             }),
           },
@@ -93,9 +94,8 @@ describe("main-agent graphical delegation instructions", () => {
         undefined,
         "\n\n## Installed plugin skills\n\nSkill declared for this worker"
       );
-      expect(prompt.instructions).toContain(`running as the ${subagentType} subagent`);
-      expect(prompt.instructions).toContain("## Installed plugin skills\n\nSkill declared for this worker");
-      expect(prompt.instructions).toContain("Only that final assistant message is relayed");
+      const media = subagentType === "videoReview" || subagentType === "watchVideo";
+      const executes = subagentType === "executor" || subagentType === "knowledgeWork";
       expect(prompt.instructions).not.toContain("Parent profile");
       expect(prompt.instructions).not.toContain(PLATFORM_BASE_SYSTEM_PROMPT);
       expect(prompt.instructions).not.toContain("SendToUser is your only voice");
@@ -103,28 +103,47 @@ describe("main-agent graphical delegation instructions", () => {
       expect(prompt.instructions).not.toContain("<agent_skills>");
       if (subagentType === "knowledgeWork") expect(prompt.userInfo).toBe("<user_info>\n<agent_skills>knowledgeWork catalog</agent_skills>\n</user_info>");
       else expect(prompt.userInfo).toBeNull();
-      // Workers that read outside content hand messages under the user's name back as drafts.
-      if (["executor", "knowledgeWork", "computerUse"].includes(subagentType)) {
-        expect(prompt.instructions).toContain("You cannot call DraftExternalMessage.");
-        expect(prompt.instructions).toContain("## Untrusted content");
-      } else {
-        expect(prompt.instructions).not.toContain("DraftExternalMessage");
-      }
-      if (subagentType === "knowledgeWork") {
-        // With the skill tool switched on, the Skill tool lists the skills instead of the catalog block.
-        process.env.OPENTEAM_SKILL_TOOL = "true";
-        try {
-          const toolPrompt = await AgentMessaging.prototype.platformPrompt.call(messaging as unknown as AgentMessaging, "child", undefined, "");
-          expect(toolPrompt.userInfo).toBeNull();
-          expect(toolPrompt.instructions).toContain("in the description of the Skill tool");
-        } finally {
-          delete process.env.OPENTEAM_SKILL_TOOL;
-        }
-      }
       // Workers get what they need in their task: no memory, history or todo tools.
       for (const name of ["ReadTranscript", "ReadAgentActivity", "RecallMemory", "TodoWrite"]) expect(prompt.instructions).not.toContain(name);
-      expect(prompt.instructions).toContain("Your current timezone is");
+      expect(prompt.instructions).not.toContain("Do not call SendToUser or SendToAgent.");
+      expect(prompt.instructions).not.toContain("Your current timezone is");
+      if (media) {
+        // A media worker's prompt is the whole review brief, with no tools or plugin skills to describe.
+        expect(prompt.instructions).toStartWith("You are running as a subagent under a parent agent.");
+        expect(prompt.instructions).toContain("**Accuracy is paramount** - The parent agent cannot see what you see.");
+        expect(prompt.instructions).toContain("You see sampled still frames, not audio; say so when a question depends on sound or on motion between frames.");
+        expect(prompt.instructions).not.toMatch(/coding agent|Canvas|DraftExternalMessage|Installed plugin skills|Child-only/);
+        continue;
+      }
+      expect(prompt.instructions).toContain(`running as the ${subagentType} subagent`);
+      expect(prompt.instructions).toContain("## Installed plugin skills\n\nSkill declared for this worker");
+      expect(prompt.instructions).toContain("Only that final assistant message is relayed");
+      expect(prompt.instructions).toContain("Subagent instructions:\nChild-only instructions");
+      // Workers that read outside content hand messages under the user's name back as drafts, written as the user.
+      expect(prompt.instructions).toContain("You cannot call DraftExternalMessage.");
+      expect(prompt.instructions).toContain("## Untrusted content");
+      expect(prompt.instructions).toContain("When acting through your user's accounts and apps, such as Slack, speak as them and never refer to them in the third person.");
+      // Executors keep the box clock and machines straight; the browser worker works on its desktop only.
+      expect(prompt.instructions.includes("## Time\nThe user lives in Europe/Paris (currently UTC+")).toBe(executes);
+      expect(prompt.instructions.includes("Call ListMachines to choose one of the user's registered computers")).toBe(executes);
+      expect(prompt.instructions).toContain("## Your box");
+      expect(prompt.instructions).not.toContain("CopyToBox");
     }
+  });
+
+  test("a read-only worker is told so, and its box section keeps it off the user's computers", async () => {
+    const messaging = Object.create(AgentMessaging.prototype) as Record<string, unknown>;
+    Object.assign(messaging, {
+      defaultTimeZone: "UTC",
+      agentData: { renderWorkerSkillCatalog: async () => "" },
+      prisma: { bot: { findUniqueOrThrow: async () => ({ id: "child", name: "Worker", instructions: "", defaultDirectory: "/workspace",
+        subagentIdentity: { parentBotId: "parent", subagentType: "executor", readOnly: true }, todos: [] }) } },
+    });
+    const prompt = await AgentMessaging.prototype.platformPrompt.call(messaging as unknown as AgentMessaging, "child", undefined, "");
+    expect(prompt.instructions).toContain("just do the work and report what you found or did.\nOperate in readonly mode: do not modify anything.");
+    expect(prompt.instructions).toContain("- The user's own computers are out of reach in this run");
+    expect(prompt.instructions).not.toContain("ListMachines");
+    expect(prompt.instructions).toContain("The user lives in UTC (currently UTC+0)");
   });
 
   test("renders the source-backed hidden completion wake without summary tags", () => {

@@ -17,6 +17,8 @@ import { parseDraftExternalMessage } from "@openteam/contracts/external-draft-bo
 import { HostShellCompletions } from "../host-shell-completions";
 import { expandPluginAgent } from "./plugin-components";
 import { skillTool } from "./skill-tool";
+import { isReadonlyConnectorRead } from "./readonly-connectors";
+import { computerArgumentsWithAliases } from "@openteam/contracts/computer-action-aliases";
 import {
   CONNECTOR_TRANSFER_TOOLS,
   CONNECTOR_TRANSFER_MAX_BYTES,
@@ -206,6 +208,9 @@ const boxScopedSchema = (schema: Readonly<Record<string, unknown>>): Record<stri
 const COMBINED_COMPUTER_GUIDANCE =
   " For anything inside a web page, use the browser_* tools first. Use Computer only for native UI (desktop apps, OS dialogs, browser chrome), a press-and-hold widget (click with holdDurationMs), or a step a browser tool has failed at for a technical reason, not to look at or wait on ordinary page state. After a click that did not land, re-target from the new screenshot before typing, and to replace a field's text, clear it first with key Control+a, then BackSpace.";
 
+/** A readonly agent lists and greps with Shell, since Read opens one file and cannot list a directory. */
+const READONLY_NATIVE_TOOLS = ["Read", "Shell", "RecallMemory", "GetDynamicTools", "CallDynamicTool", "ListSections"];
+
 export const SUBAGENT_PRIVATE_NATIVE_TOOLS: ReadonlySet<string> = new Set([
   "RecallMemory",
   "ListSections",
@@ -222,7 +227,7 @@ export const workerTopLevelTools = (
 ): readonly string[] => {
   if (active.requestSource === "automation" && active.runtimeProfile !== "subagent") return [WAKE_PARENT_TOOL.name];
   if (active.subagentType === "executor" || active.subagentType === "knowledgeWork")
-    return active.readOnly ? ["WebSearch", "WebFetch"] : ["AwaitShell", "WebSearch", "WebFetch"];
+    return active.readOnly ? ["AwaitShell", "WebSearch", "WebFetch"] : ["AwaitShell", "WebSearch", "WebFetch", "UploadFile", "DownloadFile"];
   if (active.subagentType === "computerUse") return ["AwaitShell"];
   return [];
 };
@@ -585,15 +590,21 @@ export class RuntimeTools {
             `scroll, and wait.${COMBINED_COMPUTER_GUIDANCE}`
           ),
           parameters: Type.Unsafe<Record<string, unknown>>(COMPUTER_USE_TOOL.inputSchema),
+          // Aliased actions must be rewritten before the schema check refuses them.
+          prepareArguments: (args: unknown) => computerArgumentsWithAliases(args) as Record<string, unknown>,
           executionMode: "sequential",
           execute: (callId, args, signal) =>
             this.executeGraphicalAction(active, signal, () =>
               this.callComputerUse(active, args, signal)
             ),
         });
-    const topLevelTools = () => workerTopLevelTools(active).map((name) => {
-      const tool = this.firstPartyTool(active, name);
-      return defineTool({
+    // UploadFile and DownloadFile exist only while a connection can take or give files.
+    const topLevelTools = () => {
+      const firstParty = this.fullDynamicCatalog(active).find((namespace) => namespace.name === "cursor")?.tools ?? [];
+      return workerTopLevelTools(active).flatMap((name) => {
+      const tool = firstParty.find((candidate) => candidate.name === name);
+      if (!tool) return [];
+      return [defineTool({
         name,
         label: name,
         description: graphical ? tool.description.replace(MACHINE_ROUTING_AWAIT_SENTENCE, "") : tool.description,
@@ -602,8 +613,9 @@ export class RuntimeTools {
         executionMode: name === WAKE_PARENT_TOOL.name ? "sequential" : "parallel",
         execute: (callId: string, args: unknown, signal?: AbortSignal) =>
           this.executeOpenTeamTool(active, callId, name, args, signal),
+      })];
       });
-    });
+    };
     const browserTools = () => BROWSER_USE_TOOLS.map((tool) =>
           defineTool({
             name: tool.name,
@@ -629,10 +641,7 @@ export class RuntimeTools {
     }
     const availableNativeTools = NATIVE_TOOLS.filter(
       (tool) =>
-        (!active.readOnly ||
-          ["Read", "RecallMemory", "GetDynamicTools", "CallDynamicTool", "ListSections"].includes(
-            tool.name
-          )) &&
+        (!active.readOnly || READONLY_NATIVE_TOOLS.includes(tool.name)) &&
         (active.requestSource !== "automation" || !AUTOMATION_PARENT_ONLY_TOOLS.has(tool.name)) &&
         (!active.subagentType || !SUBAGENT_PRIVATE_NATIVE_TOOLS.has(tool.name))
     );
@@ -697,11 +706,11 @@ export class RuntimeTools {
       args = expandPluginAgent(active.pluginRuntimePackages ?? [], args as Record<string, unknown>);
     if (
       active.readOnly &&
-      !["Read", "RecallMemory", "GetDynamicTools", "CallDynamicTool", "ListSections"].includes(tool) &&
+      !READONLY_NATIVE_TOOLS.includes(tool) &&
       !workerTopLevelTools(active).includes(tool)
     )
       throw new Error("This plugin agent is read-only");
-    if (active.readOnly && tool === "Read" && (args as Record<string, unknown>).machineId)
+    if (active.readOnly && ["Read", "Shell", "AwaitShell"].includes(tool) && (args as Record<string, unknown>).machineId)
       throw new Error("Read-only agents cannot access the user's computer");
     signal?.throwIfAborted();
     active.pluginAbortController?.signal.throwIfAborted();
@@ -1544,9 +1553,7 @@ export class RuntimeTools {
     args: TaskInput,
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    return (async () => {
-      return this.callControlPlaneTool(active, callId, TASK_TOOL.name, args, signal);
-    })();
+    return this.callControlPlaneTool(active, callId, TASK_TOOL.name, args, signal);
   }
 
   private async executeTodoWrite(
@@ -1621,7 +1628,7 @@ export class RuntimeTools {
       [
         // Workers that use the parent's connectors move files with them both ways;
         // graphical and media workers have no connector accounts.
-        ...(active.runtimeProfile !== "subagent" || subagentUsesParentConnectors(active.subagentType)
+        ...((active.runtimeProfile !== "subagent" || subagentUsesParentConnectors(active.subagentType)) && !active.readOnly
           ? CONNECTOR_TRANSFER_TOOLS
           : []
         ).map(
@@ -1891,14 +1898,10 @@ export class RuntimeTools {
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     if (
       active.readOnly &&
-      (input.namespace !== "cursor" ||
-        ![
-          "WebSearch",
-          "WebFetch",
-          "SearchPlugins",
-          "GetPlugin",
-          "GetMcpServerStatus",
-        ].includes(input.toolName))
+      (input.namespace === "cursor"
+        ? !["AwaitShell", "WebSearch", "WebFetch", "SearchPlugins", "GetPlugin", "GetMcpServerStatus"].includes(input.toolName)
+        : !active.pluginNamespaces.some((namespace) => namespace.name === input.namespace &&
+            namespace.tools.some((tool) => tool.name === input.toolName && isReadonlyConnectorRead(tool))))
     )
       throw new Error("This tool is unavailable to a read-only plugin agent");
     const options = this.lookupOptions(active);

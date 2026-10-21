@@ -180,7 +180,7 @@ export function renderControlResult(
       ? `Message sent to user. (id: ${result.message_address ?? result.message_id})`
       : "Message sent to user."}${sendsLocalFileSnapshot(args) ? ` ${FILE_SNAPSHOT_NOTE}` : ""}`;
   if (name === "MessageSubagent" && result.delivered)
-    return `Message delivered to subagent ${args.subagent_id}. It will interrupt what it's doing, take your message into account, and keep working. You'll be revived with its result when it finishes — don't wait on it.`;
+    return `Message delivered to subagent ${args.subagent_id}. It will interrupt what it's doing, take your message into account, and keep working. You'll be revived with its result when it finishes, so don't wait on it.`;
   if (name === "StopSubagent" && result.stopped_all) return renderStopAllSubagents(result);
   if (name === "StopSubagent" && result.stopped)
     return `Stopping subagent ${args.subagent_id}. It will be torn down and won't report back.`;
@@ -189,23 +189,23 @@ export function renderControlResult(
       seconds < 90
         ? `${seconds}s`
         : `${Math.floor(seconds / 60)}m${seconds % 60 ? ` ${seconds % 60}s` : ""}`;
+    // The reference words a call as pending until it ends, then done or failed.
+    const activity = (status: unknown) =>
+      status === "completed" ? "done" : status === "failed" || status === "cancelled" ? "failed" : "pending";
     const describe = (sub: any, detailed: boolean) => {
       const calls = sub.recent_tool_calls ?? [];
-      const status = typeof sub.status === "string" ? sub.status : "status unavailable";
-      const runStatus = typeof sub.run_status === "string" ? `; run: ${sub.run_status}` : "";
+      const status = typeof sub.status === "string" ? sub.status : "running";
       const lines = [
-        `- ${sub.subagent_id} [${sub.subagent_type}] "${sub.description}" — ${status}${runStatus}; elapsed ${elapsed(sub.elapsed_seconds)}, ${sub.tool_call_count ?? calls.length} tool call(s)`,
+        `- ${sub.subagent_id} [${sub.subagent_type}] "${sub.title}": ${status} for ${elapsed(sub.elapsed_seconds)}, ${sub.tool_call_count ?? calls.length} tool call(s)`,
       ];
       if (detailed) {
         lines.push(
-          calls.length ? "  Recent activity (oldest → newest):" : "  No tool activity recorded yet."
+          calls.length ? "  Recent activity (oldest first):" : "  No tool activity recorded yet."
         );
-        // Admission/start is not completion: preserve the persisted state so a
-        // pending or failed call cannot read like a completed worker action.
         lines.push(...[...calls].reverse().map((call: any) => {
           const error = call.status === "failed" && typeof call.error === "string" && call.error
             ? ` — error: ${JSON.stringify(call.error.slice(0, 500))}` : "";
-          return `    [${typeof call.status === "string" && call.status ? call.status : "status unavailable"}] ${call.tool}${error}`;
+          return `    [${activity(call.status)}] ${call.tool}${error}`;
         }));
         if (sub.transcript_path)
           lines.push(
@@ -251,22 +251,33 @@ function localTime(iso: string, timeZone: unknown): string {
   }
 }
 
-const PEERS_NOT_STOPPED =
-  "Peer agents you handed work to are not reached from here, so none of them was stopped. If any may still be working, message each with SendToAgent priority: true to stop, and tell the user what may still be running.";
+const SHELLS_NOT_COVERED = "Background shell commands you started yourself are not covered: terminate those with their reported PIDs.";
 
-/** The stop-everything receipt: exactly which subagents stopped, had finished, or could not be stopped. */
+/** What happened to one peer this agent handed work to with a priority message. */
+function describeDelegatedWork(peer: Record<string, any>): string {
+  const label = `${peer.name} (agent ${peer.id})`;
+  if (peer.result === "stopped") return `- ${label}: stop delivered; its turn is cancelled and its own subagents are being torn down.`;
+  if (peer.result === "not_running") return `- ${label}: already idle, nothing to stop.`;
+  return `- ${label}: stop failed${peer.detail ? ` (${peer.detail})` : ""}. Retry StopSubagent with all: true; if it fails again, tell the user it may still be working.`;
+}
+
+/** The stop-everything receipt: exactly which subagents stopped, had finished, or could not be stopped, and what happened to each peer. */
 function renderStopAllSubagents(result: Record<string, any>): string {
-  const listed = (entry: any) => `- ${entry.subagent_id} [${entry.subagent_type}] "${entry.description}"`;
+  const listed = (entry: any) => `- ${entry.subagent_id} [${entry.subagent_type}] "${entry.title}"`;
   const stopped: any[] = result.stopped ?? [], finished: any[] = result.already_finished ?? [], failed: any[] = result.failed ?? [];
+  const delegated: any[] = result.delegated ?? [];
   const total = stopped.length + finished.length + failed.length;
-  if (total === 0)
-    return `No background subagents are running, so there was nothing of your own to stop. ${PEERS_NOT_STOPPED} Background shell commands you started yourself are not subagents: terminate those with their reported PIDs.`;
+  if (total === 0 && delegated.length === 0)
+    return "No background subagents are running and no work is out with other agents, so there was nothing to stop. Background shell commands you started yourself are not subagents: terminate those with their reported PIDs.";
   return [
+    ...(total === 0 ? ["No background subagents of your own are running."] : []),
     ...(stopped.length ? [`Stopped ${stopped.length} of ${total} running subagent(s). They are torn down and will not report back:`, ...stopped.map(listed)] : []),
     ...(finished.length ? [`${finished.length} had already finished before the stop reached them (you are revived with a finished subagent's result separately):`, ...finished.map(listed)] : []),
     ...(failed.length ? [`${failed.length} could NOT be stopped and may still be running. Retry each with StopSubagent and its id; if it still fails, tell the user which work may still be running:`, ...failed.map((entry) => `${listed(entry)}: ${entry.error}`)] : []),
-    PEERS_NOT_STOPPED,
-    "Do not resume, redispatch, or continue the stopped work unless the user asks again. Background shell commands you started yourself are not covered: terminate those with their reported PIDs.",
+    ...(delegated.length
+      ? [`Work you handed to other agents (${delegated.filter((peer) => peer.result === "stopped").length} of ${delegated.length} stopped):`, ...delegated.map(describeDelegatedWork)]
+      : []),
+    `Do not resume, redispatch, or continue the stopped work unless the user asks again. ${SHELLS_NOT_COVERED}`,
   ].join("\n");
 }
 

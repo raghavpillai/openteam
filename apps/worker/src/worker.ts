@@ -20,6 +20,7 @@ import { formatPiModelRef, normalizePiReasoningLevel } from "@openteam/contracts
 import { selectTaskConfiguration, parseTaskConfiguration, subagentUsesParentConnectors, type TaskConfiguration, type TaskCapabilities } from "@openteam/contracts/task-configuration";
 import { finalizeInterruptedItems, interruptedProgress } from "./interrupted-progress";
 import { includeSubagentFailures } from "./subagent-result";
+import { subagentTitle } from "@openteam/contracts/subagent-dispatch";
 import {
   COMPUTER_API_PATHS,
   parseAgentDirectorySnapshot,
@@ -37,6 +38,7 @@ import {
   PRIORITY,
   RoutineService,
   renderSubagentRevivalPrompt,
+  renderQuietSubagentRevivalPrompt,
   renderRevivalBatchPrompt,
   subagentRevivalBlock,
   REVIVAL_HELD_AFTER_MS,
@@ -1982,7 +1984,7 @@ export class WakeWorker {
       select: { kind: true, content: true },
     });
     const result = includeSubagentFailures(
-      finalMessage?.content.trim() || "Subagent completed without a text report.",
+      finalMessage?.content.trim() ?? "",
       failures.reverse()
     );
     await tx.subagent.update({
@@ -2103,6 +2105,7 @@ export class WakeWorker {
       parentRunId: string;
       parentChannelId: string;
       description: string;
+      prompt: string;
       subagentType: string;
       currentRunId: string | null;
       outputPath: string;
@@ -2122,20 +2125,22 @@ export class WakeWorker {
     const sourcePayload = source?.inboxEvents[0]?.payload as { taskContextRunId?: string } | undefined;
     const room = await tx.channel.findUnique({ where: { id: subagent.parentChannelId }, select: { kind: true, name: true } });
     const note = room?.kind === "group" ? groupRoomRevivalNote(room.name) : undefined;
+    // A task a routine started reports back to that routine, which nobody is waiting on.
+    const routine = route.origin === "routine" && route.automationContextRunId
+      ? (await tx.routineExecution.findUnique({ where: { runId: route.automationContextRunId }, select: { routine: { select: { name: true, slug: true } } } }))?.routine
+      : undefined;
+    const revival = { title: subagentTitle(subagent.prompt), subagentType: subagent.subagentType, status, result };
     await this.messaging.enqueueWake(tx, {
       botId: subagent.parentBotId,
       channelId: subagent.parentChannelId,
       ...route,
       taskContextRunId: sourcePayload?.taskContextRunId ?? subagent.parentRunId,
       type: `subagent.${status}`,
-      content: renderSubagentRevivalPrompt({
-        title: subagent.description,
-        subagentType: subagent.subagentType,
-        status,
-        result,
-      }) + (note ? `\n\n${note}` : ""),
+      content: (routine
+        ? renderQuietSubagentRevivalPrompt({ ...revival, routine: { name: routine.name, folder: routine.slug } })
+        : renderSubagentRevivalPrompt(revival)) + (note ? `\n\n${note}` : ""),
       revival: {
-        block: subagentRevivalBlock({ title: subagent.description, subagentType: subagent.subagentType, status, result }),
+        block: subagentRevivalBlock(revival),
         subagentType: subagent.subagentType,
         ...(note ? { note } : {}),
       },

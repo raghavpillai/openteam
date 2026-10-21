@@ -47,6 +47,7 @@ export function pluginDynamicNamespaces(
             description: typeof tool.description === "string" ? tool.description : "",
             inputSchema: record(tool.inputSchema),
             source: `${connection.installation.pluginKey}/${connection.connectorKey}`,
+            ...(tool.risk === "read" ? { readOnly: true } : {}),
           }];
         })
       : [],

@@ -2,9 +2,9 @@ import { EXECUTION_EFFICIENCY_INSTRUCTIONS } from "./prompts/execution-efficienc
 
 export const NATIVE_DOCUMENT_INSTRUCTIONS = "The desktop includes Mousepad for plain text and LibreOffice Writer, Calc, Impress and Draw. For GUI-only tasks, operate them through Computer and native dialogs. Otherwise, openteam-screen-launch editor|writer|calc|impress|draw starts the app on this worker’s assigned desktop. The launcher stays running with the application; launch it in the background with stdout and stderr redirected to a file, then verify the window with Computer. Save in /home/box/Documents or the requested location. Verify the actual saved artifact against the requested content and format.";
 
-const YOUR_BOX = [
+const yourBox = (workingDirectory: string) => [
   "## Your box",
-  "You drive this agent's own desktop on the box with Computer and the browser_* tools, plus file reads (Read) and a shell (Shell). The box is a persistent Linux machine shared by all of this user's agents, and each agent gets its own desktop. These tools share one filesystem, so a file you build with Shell can be uploaded or imported in the browser, and browser downloads can be inspected with Read or processed with Shell. Shell starts in the working directory named below; files, installed tools, and browser logins persist across turns. The box is the only filesystem you can reach. The user's computer is a separate machine you have no tools for, so when a file needs to reach the user, leave it on the box and name its absolute box path in your final report; the parent agent delivers it from there.",
+  `You drive this agent's own desktop on the box with Computer and the browser_* tools, plus file reads (Read) and a shell (Shell). The box is a persistent Linux machine shared by all of this user's agents, and each agent gets its own desktop. These tools share one filesystem, so a file you build with Shell can be uploaded or imported in the browser, and browser downloads can be inspected with Read or processed with Shell. Shell starts in ${workingDirectory}, your scratch space; files, installed tools, and browser logins persist across turns. The box is the only filesystem you can reach. The user's computer is a separate machine you have no tools for, so when a file needs to reach the user, leave it on the box and name its absolute box path in your final report; the parent agent delivers it from there.`,
 ].join("\n\n");
 
 const PRESS_AND_HOLD_WAIT = "After you release a press-and-hold, a spinner or dots on the widget mean the site is still checking the hold, which can take a minute or more: keep calling Computer wait with durationMs 30000 and check each screenshot, for up to about three minutes in all, until the page moves on, and leave the widget and its dialog alone meanwhile, since closing the dialog only brings back a new challenge.";
@@ -43,8 +43,8 @@ const DESKTOP = [
 ].join("\n\n");
 
 /** Browser and desktop work on one box: browser tools for pages, Computer for the rest. */
-export const COMBINED_GRAPHICAL_WORKER_PROMPT = [
-  YOUR_BOX,
+export const combinedGraphicalWorkerPrompt = (workingDirectory: string) => [
+  yourBox(workingDirectory),
   "## Browser and desktop",
   `Use browser_run_code for anything inside a web page, with browser_snapshot and browser_take_screenshot to look. Use Computer only for native UI (desktop apps, OS dialogs, browser chrome), for a press-and-hold "I'm human" button and the wait while it verifies (Computer click with holdDurationMs, starting near 8000 and holding longer on each retry; browser_click cannot hold), or for a step a browser tool has actually failed at for a technical reason, then go back to the browser tools. Permission, approval, and sign-in refusals are not technical failures: follow the human-step rule for those. Don't use Computer to look at or wait on ordinary page state, and never drive the browser from Shell (CDP, Playwright, xdotool). If you used Computer, say why in your report. ${PRESS_AND_HOLD_WAIT}`,
   WORKING_FAST,

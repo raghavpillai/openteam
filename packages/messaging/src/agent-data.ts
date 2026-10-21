@@ -110,6 +110,7 @@ import {
   type MemoryExchange,
 } from "./memory-learning";
 import { resolveTimeZone } from "./timestamps";
+import { type CatalogSkill, renderSkillToolCatalog } from "@openteam/contracts/skill-tool";
 import { MEMORY_EXTRACTION_SYSTEM_PROMPT } from "./memory-prompts";
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
@@ -2847,15 +2848,17 @@ export class AgentDataStore {
     } catch {
       return "";
     }
-    const entries: string[] = [];
+    const skills: CatalogSkill[] = [];
     for (const record of records) {
       const skill = record as Record<string, unknown>;
       if (!Array.isArray(skill.agents) || !skill.agents.includes(agent)) continue;
-      if (typeof skill.filePath !== "string" || typeof skill.description !== "string") continue;
+      if (typeof skill.filePath !== "string" || typeof skill.description !== "string" || typeof skill.name !== "string") continue;
       if (!(await stat(skill.filePath).catch(() => null))?.isFile()) continue;
-      entries.push(agentSkillItem(skill.filePath, skill.description));
+      skills.push({ name: skill.name, description: skill.description, filePath: skill.filePath });
     }
-    return entries.length ? renderAgentSkillsSection(entries.join("\n\n")) : "";
+    // The worker loads these with the Skill tool, so its catalog lists them by name.
+    const catalog = renderSkillToolCatalog(skills);
+    return catalog ? `<agent_skills>\n${catalog}\n</agent_skills>` : "";
   }
 
   private async renderSkills(botId: string): Promise<string> {

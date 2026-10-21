@@ -24,7 +24,7 @@ test.skipIf(!databaseUrl)("background results that finish together reach the par
     const bot = await db.bot.create({ data: { id: botId, name: "Parent", defaultDirectory: root, status: "active", onboardingStatus: "completed", conversation: { create: {} } }, include: { conversation: true } });
     await db.channel.create({ data: { id: channelId, kind: "bot_dm", name: "Parent", directKey: `bot:${botId}`, members: { create: { botId, ordinal: 0 } } } });
     const source = await db.run.create({ data: { botId, conversationId: bot.conversation!.id, channelId, userMessageId: crypto.randomUUID(), status: "completed", origin: "user" } });
-    const subagent = (id: string, description: string) => ({ id, parentBotId: botId, parentRunId: source.id, parentChannelId: channelId, description, subagentType: "executor", currentRunId: crypto.randomUUID(), outputPath: "/tmp/x" });
+    const subagent = (id: string, description: string) => ({ id, parentBotId: botId, parentRunId: source.id, parentChannelId: channelId, description, prompt: description, subagentType: "executor", currentRunId: crypto.randomUUID(), outputPath: "/tmp/x" });
     await db.$transaction((tx) => notify(tx, subagent("s1", "Find flights"), "completed", "Two nonstops."));
     await worker.messaging.completeShell({ id: "42", scope: botId, channelId, outputPath: "/t/42.log", exitCode: 0, title: "npm test" });
     await db.$transaction((tx) => notify(tx, subagent("s2", "Find hotels"), "failed", "Site blocked."));

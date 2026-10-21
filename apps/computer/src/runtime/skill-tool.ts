@@ -3,23 +3,27 @@ import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { type AgentToolResult, defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import {
+  ambiguousSkillMessage,
+  type CatalogSkill,
+  renderSkillContent,
+  renderSkillSearch,
+  resolveSkill,
+  searchSkills,
+  SKILL_MAX_BODY_LENGTH,
+  SKILL_NAME_OR_QUERY_REQUIRED,
+  SKILL_NAME_PARAMETER,
+  SKILL_QUERY_PARAMETER,
+  SKILL_TOOL_DESCRIPTION,
+  SKILL_TOOL_NAME,
+  skillSearchLabel,
+  skillToolName,
+} from "@openteam/contracts/skill-tool";
 
-export const SKILL_TOOL_NAME = "Skill";
+export { SKILL_TOOL_NAME };
 
-const SKILL_TOOL_USAGE = [
-  "Load one of your skills by name and get its instructions.",
-  "Returns the SKILL.md body without its frontmatter. Unless the result says there is nothing more to read, it also names the skill's directory and any helper files your skill store lists beside it. Its instructions name the helper files they use; do not guess at other file names.",
-  "Call this instead of reading a SKILL.md with Read, then follow the instructions. Relative paths in a skill resolve against its directory; open a helper file with Read.",
-  "When a skill below fits the task, load it before acting on the task; do not just mention it.",
-].join("\n");
-
-const NAME_DESCRIPTION =
-  "The skill's name as this tool's skill list gives it, or the name in its frontmatter. The list gives a skill by its path when another skill shares its name; pass that path.";
-
-export interface AgentSkill {
-  name: string;
-  description: string;
-  filePath: string;
+export interface AgentSkill extends CatalogSkill {
+  id?: string;
 }
 
 const agentDataRoot = () => process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/home/box/agent-data";
@@ -40,22 +44,10 @@ export const agentSkills = (agent: string, root = agentDataRoot()): AgentSkill[]
       typeof skill.name === "string" &&
       typeof skill.description === "string" &&
       typeof skill.filePath === "string"
-      ? [{ name: skill.name, description: skill.description, filePath: skill.filePath }]
+      ? [{ ...(typeof skill.id === "string" ? { id: skill.id } : {}), name: skill.name, description: skill.description, filePath: skill.filePath }]
       : [];
   });
 };
-
-const listedName = (skill: AgentSkill, skills: readonly AgentSkill[]) =>
-  skills.filter((other) => other.name === skill.name).length > 1 ? skill.filePath : skill.name;
-
-export const skillToolDescription = (skills: readonly AgentSkill[]): string =>
-  [
-    SKILL_TOOL_USAGE,
-    "",
-    ...(skills.length
-      ? skills.map((skill) => `- ${listedName(skill, skills)}: ${skill.description}`)
-      : ["You have no skills to load."]),
-  ].join("\n");
 
 const stripFrontmatter = (content: string) =>
   content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").replace(/^\s+/, "");
@@ -73,38 +65,56 @@ const helperFiles = async (directory: string): Promise<string[]> => {
   return found.sort();
 };
 
-export const loadSkill = async (skills: readonly AgentSkill[], requested: string): Promise<string> => {
-  const name = requested.trim();
-  const byPath = skills.filter((skill) => skill.filePath === name);
-  const matches = byPath.length ? byPath : skills.filter((skill) => skill.name === name);
-  if (!matches.length)
+const loadSkillContent = async (skill: AgentSkill): Promise<string> => {
+  const name = skillToolName(skill);
+  const content = await readFile(skill.filePath, "utf8").catch((error: NodeJS.ErrnoException) => {
     throw new Error(
-      `No skill named "${name}". Your skills: ${skills.map((skill) => listedName(skill, skills)).join(", ") || "none"}.`
+      error.code === "ENOENT"
+        ? `The skill "${name}" is in your catalog but its SKILL.md is missing at ${skill.filePath}. The catalog may be out of date.`
+        : `Could not read the SKILL.md of "${name}" at ${skill.filePath}: ${error.message}.`
     );
-  if (matches.length > 1)
-    throw new Error(
-      `More than one skill is named "${name}". Pass one of these paths: ${matches.map((skill) => skill.filePath).join(", ")}.`
-    );
-  const skill = matches[0]!;
-  const body = stripFrontmatter(await readFile(skill.filePath, "utf8"));
+  });
+  const body = stripFrontmatter(content);
   const directory = dirname(skill.filePath);
-  const helpers = await helperFiles(directory);
-  return helpers.length
-    ? `${body.trimEnd()}\n\nSkill directory: ${directory}\nHelper files: ${helpers.join(", ")}`
-    : `${body.trimEnd()}\n\nThere is nothing more to read.`;
+  return renderSkillContent({ name, body, directory, files: await helperFiles(directory), truncated: body.length >= SKILL_MAX_BODY_LENGTH });
 };
 
-/** The Skill tool for a worker that carries skills of its own. */
+/** Load the named skill, or search by query; a name no skill has returns the closest matches. */
+export const loadOrSearchSkill = async (skills: readonly AgentSkill[], args: { name?: unknown; query?: unknown }): Promise<string> => {
+  const present = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
+  const name = present(args.name), query = present(args.query);
+  const search = (text: string, missingName?: string) =>
+    renderSkillSearch({
+      query: text,
+      results: searchSkills(skills, text),
+      labelOf: (skill) => skillSearchLabel(skills, skill),
+      hasSkills: skills.length > 0,
+      ...(missingName === undefined ? {} : { missingName }),
+    });
+  if (name === undefined) {
+    if (query === undefined) throw new Error(SKILL_NAME_OR_QUERY_REQUIRED);
+    return search(query);
+  }
+  const resolution = resolveSkill(skills, name);
+  if (resolution.kind === "missing") return search(query ?? name, name);
+  if (resolution.kind === "ambiguous") throw new Error(ambiguousSkillMessage(name, resolution.candidates));
+  return loadSkillContent(resolution.skill);
+};
+
+/** The Skill tool for a worker that carries skills of its own; its catalog is in the worker's agent_skills section. */
 export const skillTool = (agent: string) => {
   const skills = agentSkills(agent);
   return defineTool({
     name: SKILL_TOOL_NAME,
     label: SKILL_TOOL_NAME,
-    description: skillToolDescription(skills),
-    parameters: Type.Object({ name: Type.String({ minLength: 1, description: NAME_DESCRIPTION }) }),
+    description: SKILL_TOOL_DESCRIPTION,
+    parameters: Type.Object({
+      name: Type.Optional(Type.String({ description: SKILL_NAME_PARAMETER })),
+      query: Type.Optional(Type.String({ description: SKILL_QUERY_PARAMETER })),
+    }),
     executionMode: "parallel",
     execute: async (_callId, args): Promise<AgentToolResult<Record<string, unknown>>> => ({
-      content: [{ type: "text", text: await loadSkill(skills, String((args as { name?: unknown }).name ?? "")) }],
+      content: [{ type: "text", text: await loadOrSearchSkill(skills, args as { name?: unknown; query?: unknown }) }],
       details: {},
     }),
   });

@@ -3,7 +3,7 @@ import { SubagentService } from "../../src/services/subagent/service";
 
 function fixture(runStatus = "running", linkedRun = "current") {
   const child = { id: "child", parentBotId: "parent", childBotId: "child-bot", currentRunId: linkedRun,
-    status: "running", description: "Upload receipt", subagentType: "computerUse", createdAt: new Date(),
+    status: "running", description: "Upload receipt", prompt: "Upload the receipt to the expense site", subagentType: "computerUse", createdAt: new Date(),
     startedAt: new Date(), completedAt: null, stoppedAt: null, outputPath: "/tmp/transcript", result: null, error: null };
   const db = {
     subagent: {

@@ -204,7 +204,7 @@ describe("specialized subagent tool surfaces", () => {
     expect(names).toContain("CallDynamicTool");
     expect(names).not.toContain("Screenshot");
     const firstParty = (runtimeTools() as any).dynamicCatalog(workerTurn("executor")).find((namespace: any) => namespace.name === "cursor").tools.map((tool: any) => tool.name);
-    expect(firstParty).toEqual(["UploadFile", "DownloadFile"]);
+    expect(firstParty).toEqual([]);
   });
 
   test("executor and knowledgeWork call the web and shell-wait tools directly", async () => {
@@ -232,7 +232,6 @@ describe("specialized subagent tool surfaces", () => {
     expect(runtime.customTools(workerTurn("executor", { readOnly: true })).map((tool: any) => tool.name)).toEqual(
       expect.arrayContaining(["WebSearch", "WebFetch"])
     );
-    expect(runtime.customTools(workerTurn("executor", { readOnly: true })).map((tool: any) => tool.name)).not.toContain("AwaitShell");
   });
 
   test("graphical workers wait on their background shells with AwaitShell", async () => {
@@ -257,8 +256,8 @@ describe("specialized subagent tool surfaces", () => {
     for (const line of ["- ReadAgentActivity: Summarize", "- ReadTranscript: Read your full transcript", "- request_box_help: Hand your box's desktop", "- Task: Spawn subagents natively.", "- UploadFile: Send a box file to Google Drive or Gmail."])
       expect(main).toContain(line);
     expect(main.indexOf("- request_box_help:")).toBeLessThan(main.indexOf("- RequestUserForm:"));
-    // An executor's cursor namespace holds only the file tools, so only their cues appear.
-    expect(cursor(workerTurn("executor")).description).toBe(`${header}- DownloadFile: Fetch a Drive or Gmail file onto your box. Not URLs (WebFetch, curl) or box files (Read).\n- UploadFile: Send a box file to Google Drive or Gmail.`);
+    // An executor calls its file tools directly, so its cursor namespace has nothing to cue.
+    expect(cursor(workerTurn("executor")).description).toBe(header.split("\n\n")[0]);
     // With nothing to send files to or fetch them from, neither tool is offered.
     const bare = cursor(workerTurn(null, { pluginNamespaces: [{ ...driveNamespace, name: "linear", fileTransfers: undefined }] }));
     expect(bare.tools.map((tool: any) => tool.name)).not.toContain("UploadFile");
@@ -272,9 +271,13 @@ describe("specialized subagent tool surfaces", () => {
     const cursor = (overrides: Record<string, unknown>) =>
       runtime.dynamicCatalog({ pluginNamespaces: [driveNamespace], ...overrides }).find((namespace: any) => namespace.name === "cursor").tools.map((tool: any) => tool.name);
     expect(cursor({ runtimeProfile: "agent", requestSource: "automation" })).toEqual(expect.arrayContaining(["UploadFile", "DownloadFile"]));
+    // Executors and knowledgeWork call them directly, like the reference's statically offered tools.
     for (const subagentType of ["executor", "knowledgeWork"])
-      for (const requestSource of ["agent", "automation"])
-        expect(cursor({ runtimeProfile: "subagent", subagentType, requestSource })).toEqual(expect.arrayContaining(["UploadFile", "DownloadFile"]));
+      for (const requestSource of ["agent", "automation"]) {
+        const turn = workerTurn(subagentType, { requestSource });
+        expect(runtime.customTools(turn).map((tool: any) => tool.name)).toEqual(expect.arrayContaining(["UploadFile", "DownloadFile"]));
+        expect(cursor(turn)).not.toContain("UploadFile");
+      }
     for (const subagentType of ["computerUse", "videoReview", "watchVideo"]) {
       const worker = cursor({ runtimeProfile: "subagent", subagentType });
       expect(worker).not.toContain("UploadFile");
@@ -304,7 +307,7 @@ describe("specialized subagent tool surfaces", () => {
       for (const name of ["RecallMemory", "ReadTranscript", "ReadAgentActivity"]) expect(names, subagentType).not.toContain(name);
     }
     for (const subagentType of ["executor", "knowledgeWork"]) {
-      expect(cursor("subagent", subagentType).map((tool) => tool.name)).toEqual(["UploadFile", "DownloadFile"]);
+      expect(cursor("subagent", subagentType).map((tool) => tool.name)).toEqual([]);
     }
     const main = cursor("agent");
     expect(main.map((tool) => tool.name)).toEqual(expect.arrayContaining(["ReadTranscript", "ReadAgentActivity"]));
@@ -781,4 +784,83 @@ test('browser workers retain their parent desktop session and steering cancels o
   tools.interruptShellWaits('different-run'); expect(tools.shellWaits.size).toBe(1);
   tools.interruptShellWaits('wait-run'); await expect(pending).rejects.toThrow('new user message');
   expect(tools.shellWaits.size).toBe(0); expect(used).toEqual(['first','other','first']);
+});
+
+test('Task reads subagent_type spellings as their type and reports a refused dispatch as Error: reason', async () => {
+  const runtime = runtimeTools() as any;
+  const previousFetch = globalThis.fetch;
+  const sent: any[] = [];
+  globalThis.fetch = (async (_url: any, init: any) => {
+    sent.push(JSON.parse(init.body).arguments);
+    return Response.json({ error: { code: 'subagent_not_resumable', message: "That background subagent is still running, so it can't be resumed yet." } }, { status: 409 });
+  }) as unknown as typeof fetch;
+  try {
+    const task = runtime.dynamicCatalog(workerTurn(null)).find((namespace: any) => namespace.name === 'cursor').tools.find((tool: any) => tool.name === 'Task');
+    expect(task.decodeArguments({ description: 'Book', prompt: 'Book it', subagent_type: 'computer_use' }).subagent_type).toBe('computerUse');
+    const active = { ...workerTurn(null), runId: 'run-1', discoveredDynamicTools: new Set(['cursor/Task']), pendingSteers: [] };
+    await expect(runtime.executeOpenTeamTool(active, 'call', 'CallDynamicTool', {
+      namespace: 'cursor', toolName: 'Task', arguments: { description: 'Book', prompt: 'Book it', subagent_type: 'computer_use' },
+    })).rejects.toThrow(/^Error: That background subagent is still running, so it can't be resumed yet\.$/);
+    expect(sent[0].subagent_type).toBe('computerUse');
+  } finally { globalThis.fetch = previousFetch; }
+});
+
+test('Computer rewrites other tools\' action names before its schema check', () => {
+  const runtime = runtimeTools() as any;
+  const computer = runtime.customTools(workerTurn('computerUse')).find((tool: any) => tool.name === 'Computer');
+  expect(computer.prepareArguments({ action: 'left_click', x: 3, y: 4 })).toEqual({ action: 'click', button: 'left', x: 3, y: 4 });
+  expect(() => computer.prepareArguments({ action: 'right_click', button: 'left' })).toThrow(
+    'Invalid arguments:\naction: Computer has no right_click action, and it would mean button "right", not "left". Send action "click" with the button you mean.'
+  );
+});
+
+test('the parent-only dispatch reminder names only tools the parent has and that child type lacks', async () => {
+  const { parentOnlyToolsFor } = await import('@openteam/contracts/subagent-dispatch');
+  const runtime = runtimeTools() as any;
+  // A worker without CallDynamicTool cannot reach the catalog.
+  const surface = (active: Record<string, unknown>) => {
+    const direct: string[] = runtime.customTools(active).map((tool: any) => tool.name);
+    return new Set<string>([
+      ...direct,
+      ...(direct.includes('CallDynamicTool') ? runtime.dynamicCatalog(active).flatMap((namespace: any) => namespace.tools.map((tool: any) => tool.name)) : []),
+    ]);
+  };
+  const parent = new Set([...surface(workerTurn(null)), ...surface(workerTurn(null, { requestSource: 'automation' }))]);
+  for (const type of ['executor', 'knowledgeWork', 'computerUse', 'videoReview', 'watchVideo', undefined]) {
+    const child = type ? surface(workerTurn(type, { skillAccess: 'tool' })) : new Set<string>();
+    const listed = [...parentOnlyToolsFor(type).keys()];
+    expect(listed.length, String(type)).toBeGreaterThan(5);
+    for (const tool of listed) {
+      expect(parent.has(tool), `${type}: parent lacks ${tool}`).toBe(true);
+      expect(child.has(tool), `${type}: child has ${tool}`).toBe(false);
+    }
+  }
+  for (const type of ['executor', 'knowledgeWork', 'computerUse', 'videoReview', 'watchVideo'])
+    for (const tool of parentOnlyToolsFor(undefined).keys())
+      expect(surface(workerTurn(type)).has(tool), `${type} has resumable ${tool}`).toBe(false);
+});
+
+test('a readonly worker lists and greps with Shell on the box, reads only through read tools, and moves no files', async () => {
+  const runtime = runtimeTools() as any;
+  const readonly = workerTurn('executor', { readOnly: true, runId: 'run-ro', discoveredDynamicTools: new Set(), pendingSteers: [],
+    pluginNamespaces: [{ name: 'gmail_work', description: 'Gmail', namespaceStatus: 'ready', tools: [
+      { connectionId: 'c1', name: 'search_threads', description: '', inputSchema: { type: 'object' }, source: 'gmail/gmail' },
+      { connectionId: 'c1', name: 'whoami', description: '', inputSchema: { type: 'object' }, source: 'custom/custom', readOnly: true },
+      { connectionId: 'c1', name: 'send_message', description: '', inputSchema: { type: 'object' }, source: 'gmail/gmail' },
+    ] }] });
+  expect(runtime.customTools(readonly).map((tool: any) => tool.name)).toEqual(['Shell', 'Read', 'GetDynamicTools', 'CallDynamicTool', 'AwaitShell', 'WebSearch', 'WebFetch']);
+  expect(runtime.dynamicCatalog(readonly).find((namespace: any) => namespace.name === 'cursor').tools.map((tool: any) => tool.name)).toEqual([]);
+  await expect(runtime.executeOpenTeamTool(readonly, 'call-1', 'Shell', { command: 'ls', machineId: 'mac' })).rejects.toThrow("Read-only agents cannot access the user's computer");
+  const calls: string[] = [];
+  runtime.callControlPlaneTool = async (_active: unknown, _callId: string, _tool: string, args: any) => {
+    calls.push(args.toolName);
+    return { content: [{ type: 'text', text: 'ok' }], details: {} };
+  };
+  for (const toolName of ['search_threads', 'whoami']) {
+    readonly.discoveredDynamicTools.add(`gmail_work/${toolName}`);
+    await runtime.callDynamicTool(readonly, `call-${toolName}`, { namespace: 'gmail_work', toolName, arguments: {} });
+  }
+  expect(calls).toEqual(['search_threads', 'whoami']);
+  await expect(runtime.callDynamicTool(readonly, 'call-send', { namespace: 'gmail_work', toolName: 'send_message', arguments: {} }))
+    .rejects.toThrow('This tool is unavailable to a read-only plugin agent');
 });

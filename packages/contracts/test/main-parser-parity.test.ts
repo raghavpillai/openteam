@@ -46,7 +46,7 @@ test("parsers keep the reference arguments OpenTeam supports", async () => {
   expect(normalizeMainToolArguments("StopSubagent", { subagent_id: " sand-subagent-1 " })).toEqual({ subagent_id: "sand-subagent-1" });
   for (const invalid of [{}, { all: false }, { all: true, subagent_id: "sand-subagent-1" }])
     expect(() => normalizeMainToolArguments("StopSubagent", invalid), JSON.stringify(invalid)).toThrow("exactly one");
-  const entry = (id: string) => ({ subagent_id: `sand-subagent-${id}`, subagent_type: "executor", description: `Worker ${id}` });
+  const entry = (id: string) => ({ subagent_id: `sand-subagent-${id}`, subagent_type: "executor", title: `Worker ${id}` });
   const receipt = renderControlResult("StopSubagent", {
     stopped_all: true, stopped: [entry("a")], already_finished: [entry("b")], failed: [{ ...entry("c"), error: "timeout" }],
   }, { all: true }).split("\n");
@@ -57,11 +57,23 @@ test("parsers keep the reference arguments OpenTeam supports", async () => {
     '- sand-subagent-b [executor] "Worker b"',
     "1 could NOT be stopped and may still be running. Retry each with StopSubagent and its id; if it still fails, tell the user which work may still be running:",
     '- sand-subagent-c [executor] "Worker c": timeout',
-    expect.stringContaining("Peer agents you handed work to are not reached from here"),
-    expect.stringContaining("Do not resume, redispatch, or continue the stopped work"),
+    "Do not resume, redispatch, or continue the stopped work unless the user asks again. Background shell commands you started yourself are not covered: terminate those with their reported PIDs.",
   ]);
-  expect(renderControlResult("StopSubagent", { stopped_all: true, stopped: [], already_finished: [], failed: [] }, { all: true }))
-    .toStartWith("No background subagents are running, so there was nothing of your own to stop.");
+  expect(renderControlResult("StopSubagent", { stopped_all: true, stopped: [], already_finished: [], failed: [], delegated: [] }, { all: true }))
+    .toBe("No background subagents are running and no work is out with other agents, so there was nothing to stop. Background shell commands you started yourself are not subagents: terminate those with their reported PIDs.");
+  // Peers handed work with a priority message are stopped too, and each is reported.
+  expect(renderControlResult("StopSubagent", { stopped_all: true, stopped: [], already_finished: [], failed: [], delegated: [
+    { id: "p1", name: "Researcher", result: "stopped" },
+    { id: "p2", name: "Scout", result: "not_running" },
+    { id: "p3", name: "Writer", result: "failed", detail: "computer connection timeout" },
+  ] }, { all: true }).split("\n")).toEqual([
+    "No background subagents of your own are running.",
+    "Work you handed to other agents (1 of 3 stopped):",
+    "- Researcher (agent p1): stop delivered; its turn is cancelled and its own subagents are being torn down.",
+    "- Scout (agent p2): already idle, nothing to stop.",
+    "- Writer (agent p3): stop failed (computer connection timeout). Retry StopSubagent with all: true; if it fails again, tell the user it may still be working.",
+    "Do not resume, redispatch, or continue the stopped work unless the user asks again. Background shell commands you started yourself are not covered: terminate those with their reported PIDs.",
+  ]);
 });
 test("SendToUser refuses fields and files it would silently drop", () => {
   const refusal = (args: unknown) => {
@@ -165,4 +177,53 @@ test("a dated cron is described as a one-off", () => {
   expect(describeTrigger({ type: "cron", schedule: "0 9 31 2 *" })).not.toStartWith("Once");
   expect(describeTrigger({ type: "cron", schedule: "@yearly" })).not.toStartWith("Once");
   expect(describeTrigger({ type: "cron", schedule: "0 9 * * *" })).toBe("Every day at 9:00 AM");
+});
+
+test("the subagent tools take the reference's other names for subagent_id and refuse names that disagree", () => {
+  for (const alias of ["agentId", "agent_id", "subagentId", "target", "target_id", "id", "to"])
+    expect(normalizeMainToolArguments("CheckSubagent", { [alias]: "sand-subagent-1" }), alias).toEqual({ subagent_id: "sand-subagent-1" });
+  expect(normalizeMainToolArguments("MessageSubagent", { agent_id: "sand-subagent-1", message: "Try the second tab." }))
+    .toEqual({ subagent_id: "sand-subagent-1", message: "Try the second tab." });
+  expect(normalizeMainToolArguments("StopSubagent", { id: "sand-subagent-1" })).toEqual({ subagent_id: "sand-subagent-1" });
+  expect(normalizeMainToolArguments("StopSubagent", { subagent_id: "sand-subagent-1", id: "sand-subagent-2" })).toEqual({ subagent_id: "sand-subagent-1" });
+  expect(() => normalizeMainToolArguments("MessageSubagent", { agentId: "sand-subagent-1", to: "sand-subagent-2", message: "x" }))
+    .toThrow("Pass the subagent's id once, as subagent_id (from the Task result that dispatched it).");
+});
+
+test("Computer takes other tools' action names for the action they mean, also in then", async () => {
+  const { applyComputerActionAliases, computerArgumentsWithAliases } = await import("../src/computer-action-aliases");
+  expect(normalizeMainToolArguments("Computer", { action: "left_click", x: 4, y: 5 })).toMatchObject({ action: "click", button: "left", x: 4, y: 5 });
+  expect(normalizeMainToolArguments("Computer", { action: "double_click", x: 4, y: 5 })).toMatchObject({ action: "click", count: 2 });
+  expect(normalizeMainToolArguments("Computer", { action: "screenshot", then: [{ action: "mouse_move", x: 1, y: 2 }, { action: "type", text: "hi" }] }).then)
+    .toEqual([{ action: "move", x: 1, y: 2 }, { action: "type", text: "hi" }]);
+  expect(applyComputerActionAliases({ action: "triple_click", count: 3 })).toEqual({ kind: "value", value: { action: "click", count: 3 } });
+  expect(() => normalizeMainToolArguments("Computer", { action: "double_click", count: 3, x: 1, y: 1 }))
+    .toThrow("Computer has no double_click action, and it would mean count 2, not 3.");
+  expect(() => computerArgumentsWithAliases({ action: "click", x: 1, y: 1, then: [{ action: "left_click", text: "a" }] })).toThrow(
+    'Invalid arguments:\nthen.0.action: Computer has no left_click action, and click takes no text. Send action "click"; to hold keys during it, set modifiers, e.g. "shift" or "ctrl+shift".'
+  );
+  const unchanged = { action: "key", key: "Return" };
+  expect(computerArgumentsWithAliases(unchanged)).toBe(unchanged);
+});
+
+test("CheckSubagent and MessageSubagent results read as the reference words them", async () => {
+  const { renderControlResult } = await import("../src/tool-results");
+  const child = {
+    subagent_id: "sand-subagent-1", title: "Find the three cheapest nonstop flights", subagent_type: "executor", status: "running",
+    elapsed_seconds: 125, tool_call_count: 3, transcript_path: "/home/box/agent-data/agent-transcripts/c/c.jsonl",
+    recent_tool_calls: [{ tool: "WebSearch", status: "running" }, { tool: "Shell", status: "completed" }, { tool: "Read", status: "cancelled" }],
+  };
+  expect(renderControlResult("CheckSubagent", child, { subagent_id: "sand-subagent-1" }).split("\n").slice(0, 5)).toEqual([
+    '- sand-subagent-1 [executor] "Find the three cheapest nonstop flights": running for 2m 5s, 3 tool call(s)',
+    "  Recent activity (oldest first):",
+    "    [failed] Read",
+    "    [done] Shell",
+    "    [pending] WebSearch",
+  ]);
+  expect(renderControlResult("CheckSubagent", { subagents: [{ ...child, elapsed_seconds: 42 }] }, {})).toBe(
+    '1 subagent(s) running:\n- sand-subagent-1 [executor] "Find the three cheapest nonstop flights": running for 42s, 3 tool call(s)\nPass a subagent_id to see its recent activity and transcript path.'
+  );
+  expect(renderControlResult("MessageSubagent", { delivered: true }, { subagent_id: "sand-subagent-1", message: "x" })).toBe(
+    "Message delivered to subagent sand-subagent-1. It will interrupt what it's doing, take your message into account, and keep working. You'll be revived with its result when it finishes, so don't wait on it."
+  );
 });

@@ -4,6 +4,7 @@ import {
   assertSubagentCapacity,
   SubagentService,
   subagentBackgroundResult,
+  subagentForegroundResult,
   subagentSteerPrompt,
   subagentTaskContent,
   subagentTaskWake,
@@ -27,6 +28,14 @@ describe("OpenTeam-compatible subagent launch semantics", () => {
     });
   });
 
+  test("a computerUse task that names OpenTable or Resy carries the site's notes", () => {
+    const input: TaskInput = { description: "Tables", prompt: "Check Resy for a table for two tonight.", subagent_type: "computerUse" };
+    expect(subagentTaskContent(input)).toStartWith(`${input.prompt}\n\nResy notes, for checking open tables or booking on Resy.`);
+    expect(subagentTaskContent({ ...input, subagent_type: "executor" })).toBe(input.prompt);
+    // A resume names no type; the child's own type decides.
+    expect(subagentTaskWake({ ...input, subagent_type: undefined, resume: "sand-subagent-1" }, "computerUse").content).toContain("Resy notes");
+  });
+
   test("wraps live steering with Bot's continue-don't-restart instruction", () => {
     expect(subagentSteerPrompt("  Check the second tab too.\n")).toBe(
       "[Steering message from the parent agent that dispatched you]\n\nCheck the second tab too.\n\nTake this into account and continue your task from where you are. Do not start over."
@@ -34,15 +43,12 @@ describe("OpenTeam-compatible subagent launch semantics", () => {
   });
 
   test("returns Bot's background result with a resumable external id", () => {
-    const result = subagentBackgroundResult(
-      "278ef2fe-2d3f-4689-bfa5-b506254f1cc3"
+    expect(subagentBackgroundResult("278ef2fe-2d3f-4689-bfa5-b506254f1cc3")).toBe(
+      "Subagent is running in the background. When you end your turn, you will be automatically sent the subagent's final response upon its completion, so do not wait for it - either end your turn or work on something else.\n\nAgent ID: sand-subagent-278ef2fe-2d3f-4689-bfa5-b506254f1cc3 (can be used with the `resume` parameter to send a follow-up after it completes)"
     );
-    expect(result).toStartWith("Subagent is running in the background.");
-    expect(result).toContain("do not wait for it - either end your turn or work on something else");
-    expect(result).toContain('CheckSubagent with subagent_id="sand-subagent-278ef2fe-2d3f-4689-bfa5-b506254f1cc3"');
-    expect(result).not.toContain("tailing");
-    expect(result).not.toContain("/home/box/");
-    expect(result).toContain("Agent ID: sand-subagent-278ef2fe-2d3f-4689-bfa5-b506254f1cc3");
+    expect(subagentForegroundResult("1", "Found 3 flights.")).toBe(
+      "This is the output of the subagent:\n\nresponse:\n<response>\nFound 3 flights.\n</response>\n\nAgent ID: sand-subagent-1 (can be used with the `resume` parameter to send a follow-up after it completes)"
+    );
   });
 
   test("has no generic child pool cap and locks only computerUse per parent", async () => {
@@ -69,7 +75,7 @@ describe("OpenTeam-compatible subagent launch semantics", () => {
 
     const busy = { subagent: { count: async () => 1 } };
     await expect(assertSubagentCapacity("parent", "computerUse", busy as never)).rejects.toThrow(
-      "wait for it to finish (you're notified automatically), then dispatch another"
+      "Only one can run at a time. Wait for it to finish (you're notified automatically), then dispatch another."
     );
   });
 });

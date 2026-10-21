@@ -384,27 +384,27 @@ adaptDescription("UpdateRoutine", [
   };
 }
 
-// StopSubagent reaches this agent's own subagents only; there are no cloud agents.
+// StopSubagent reaches this agent's subagents and the peers it messaged with priority; there are no
+// cloud agents, and a stopped child's background shell commands keep running.
 adaptDescription("StopSubagent", [
   [
-    "Pass all: true instead to stop everything at once: every running subagent, plus, where this host can reach them, the other agents you handed work to (peers you messaged with priority and cloud agents you launched); the result says when it could not reach them.",
-    "Pass all: true instead to stop every running subagent at once. Peers you messaged are not reached from here; the result reminds you to message them.",
+    "(peers you messaged with priority and cloud agents you launched); the result says when it could not reach them.",
+    "(peers you messaged with priority); the result says when it could not reach them.",
   ],
   [
     "which could not be stopped, and what happened to each peer and cloud agent)",
-    "and which could not be stopped)",
+    "which could not be stopped, and what happened to each peer)",
   ],
 ]);
 adaptArgument("StopSubagent", "all", [
   [
-    ", and with them, where this host can reach them, every other agent you handed work to: peers you messaged with priority and cloud agents you launched (the result says when it could not).",
-    ".",
+    "every other agent you handed work to: peers you messaged with priority and cloud agents you launched (the result says when it could not).",
+    "every other agent you handed work to: peers you messaged with priority (the result says when it could not).",
   ],
   [
     " (computerUse, executor, and any other Task children, plus anything those children started), delivers a stop to each peer (which then stops its own subagents the same way), cancels each running cloud agent, and the result",
-    " (computerUse, executor, and any other Task children), and the result",
+    " (computerUse, executor, and any other Task children), delivers a stop to each peer (which then stops its own subagents the same way), and the result",
   ],
-  [" Do not combine with subagent_id.", " Peers you messaged are not stopped. Do not combine with subagent_id."],
 ]);
 
 // Connections are ready, need sign-in, or failed; there are no per-turn grants.

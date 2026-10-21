@@ -9,6 +9,6 @@ for (const method of ['completeSubagent','failSubagent']) test(`${method} sees a
   subagentAttempt:{findUnique:async()=>({id:'attempt',status:'running',runInBackground:false}),update:async()=>({runInBackground:true})},
   message:{findFirst:async()=>({content:'BETA926'})},runItem:{findMany:async()=>[]},event:{create:async()=>({})},
  };
- await worker[method](tx,{botId:'bot',runId:'run'},{message:'test failure'});
+ await worker[method](tx,{botId:'bot',runId:'run'},{message:'test failure'},false);
  expect(notified).toBe(1);
 });

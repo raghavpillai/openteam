@@ -1116,8 +1116,10 @@ export class RoutineService {
       data: { events: jsonInput(events), coalescedKeys: { push: dedupeKey } },
     });
     if (inbox && pending.run) {
-      const wake = eventWake(routine, events, pending.scheduledFor);
-      const content = timestampUserTurn(wake.content, { occurredAt: pending.scheduledFor, timeZone: routine.timezone });
+      // A follow-up fires when it starts, not when its first event arrived.
+      const startedAt = pending.enqueuedAt ?? pending.scheduledFor;
+      const wake = eventWake(routine, events, startedAt);
+      const content = timestampUserTurn(wake.content, { occurredAt: startedAt, timeZone: routine.timezone });
       await tx.inboxEvent.update({
         where: { id: inbox.id },
         data: { payload: jsonInput({ ...(inbox.payload as Record<string, unknown>), content }) },

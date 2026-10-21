@@ -50,9 +50,7 @@ export function TranscriptionSettingsPanel() {
       .catch(() => {
         if (!active) return;
         setFailed(true);
-        setMessage(
-          "Could not load transcription settings. Check the server connection and version."
-        );
+        setMessage("Could not load transcription settings. Check the server connection.");
       })
       .finally(() => {
         if (active) setBusy(false);

@@ -74,12 +74,13 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 step "$diamond" "Downloading CLI $release_tag$ellipsis" "$cyan"
-# Prefer the gzip copy (about a third of the size); fall back to the raw binary for releases
-# that predate it. The checksum below is always verified against the decompressed binary.
-if command_exists gunzip && curl -fsL --retry 3 --connect-timeout 15 --speed-limit 1 --speed-time 20 "$release_base/$asset_name.gz" -o "$binary_path.gz" 2>/dev/null; then
+# The gzip copy is about a third of the size; a host without gunzip takes the raw binary.
+# The checksum below is always verified against the decompressed binary.
+if command_exists gunzip; then
+  curl -fsSL --retry 3 --connect-timeout 15 --speed-limit 1 --speed-time 20 "$release_base/$asset_name.gz" -o "$binary_path.gz" ||
+    fail "could not download $asset_name.gz from $release_tag."
   gunzip -f "$binary_path.gz" || fail "could not decompress $asset_name.gz."
 else
-  rm -f "$binary_path.gz"
   curl -fsSL --retry 3 --connect-timeout 15 --speed-limit 1 --speed-time 20 "$release_base/$asset_name" -o "$binary_path" ||
     fail "could not download $asset_name from $release_tag."
 fi
@@ -235,19 +236,15 @@ $installerProgressPreference = $ProgressPreference
 $ProgressPreference = "SilentlyContinue"
 try {
   Write-Step ([char]0x25C7) "Downloading CLI $releaseTag$([char]0x2026)"
-  # Prefer the gzip copy; fall back to the raw binary for releases that predate it.
+  # The gzip copy is about a third of the size.
   # Basic parsing avoids browser/HTML prompts in Windows PowerShell 5.1.
   $compressedPath = "$binaryPath.gz"
-  try {
-    Invoke-WebRequest "$releaseBase/$assetName.gz" -UseBasicParsing -OutFile $compressedPath
-    $compressedStream = [System.IO.File]::OpenRead($compressedPath)
-    $binaryStream = [System.IO.File]::Create($binaryPath)
-    $gzipStream = New-Object System.IO.Compression.GZipStream($compressedStream, [System.IO.Compression.CompressionMode]::Decompress)
-    $gzipStream.CopyTo($binaryStream)
-    $gzipStream.Dispose(); $binaryStream.Dispose(); $compressedStream.Dispose()
-  } catch {
-    Invoke-WebRequest "$releaseBase/$assetName" -UseBasicParsing -OutFile $binaryPath
-  }
+  Invoke-WebRequest "$releaseBase/$assetName.gz" -UseBasicParsing -OutFile $compressedPath
+  $compressedStream = [System.IO.File]::OpenRead($compressedPath)
+  $binaryStream = [System.IO.File]::Create($binaryPath)
+  $gzipStream = New-Object System.IO.Compression.GZipStream($compressedStream, [System.IO.Compression.CompressionMode]::Decompress)
+  $gzipStream.CopyTo($binaryStream)
+  $gzipStream.Dispose(); $binaryStream.Dispose(); $compressedStream.Dispose()
   Invoke-WebRequest "$releaseBase/SHA256SUMS" -UseBasicParsing -OutFile $checksumsPath
   $checksumLine = Get-Content $checksumsPath | Where-Object {
     $fields = $_.Trim() -split "\s+", 2

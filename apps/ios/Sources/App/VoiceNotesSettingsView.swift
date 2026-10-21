@@ -22,7 +22,7 @@ struct VoiceNotesSettingsView: View {
           if loadFailed {
             InlineFailure(
               message:
-                "Could not load transcription settings. Check the server connection and version."
+                "Could not load transcription settings. Check the server connection."
             ) { Task { await load() } }
           } else {
             LoadingOrbLabel(title: "Loading…")

@@ -67,6 +67,29 @@ test("a screen change that skips the one before leaves no unhandled rejection", 
   }
 });
 
+test("a quick second change the same way keeps its direction when the first is skipped", async () => {
+  const runs: Array<{ finish: () => void; skip: () => void }> = [];
+  const root = fakeDocument((update) => {
+    update();
+    let finish!: () => void;
+    let skip!: () => void;
+    const finished = new Promise<void>((resolve, reject) => {
+      finish = resolve;
+      skip = () => reject(new DOMException("Transition was skipped", "AbortError"));
+    });
+    runs.push({ finish, skip });
+    return { ready: Promise.resolve(), updateCallbackDone: Promise.resolve(), finished };
+  });
+  changeScreen(() => {}, "back");
+  changeScreen(() => {}, "back");
+  runs[0]!.skip();
+  await Bun.sleep(1);
+  expect(root.dataset.setupDirection).toBe("back");
+  runs[1]!.finish();
+  await Bun.sleep(1);
+  expect(root.dataset.setupDirection).toBeUndefined();
+});
+
 test("a first appearance plays its entrance; a view transition brings things in itself", () => {
   expect(entrance(null, false)).toEqual({ mode: "enter", resumeAt: 0 });
   expect(entrance(null, true)).toEqual({ mode: "transition", resumeAt: 0 });

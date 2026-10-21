@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gzipSync } from "node:zlib";
 import { installScript, powerShellInstallScript } from "./install-script";
 
 describe("install script", () => {
@@ -46,15 +47,14 @@ describe("install script", () => {
     expect(powerShellInstallScript).toContain("& $installedBinary install @args");
   });
 
-  test("prefers the gzip download and falls back to the raw binary", () => {
+  test("downloads the gzip copy, or the raw binary on a host without gunzip", () => {
     expect(installScript).toContain('"$release_base/$asset_name.gz" -o "$binary_path.gz"');
+    expect(installScript).toContain('fail "could not download $asset_name.gz from $release_tag."');
     expect(installScript).toContain('gunzip -f "$binary_path.gz"');
     expect(installScript).toContain('"$release_base/$asset_name" -o "$binary_path"');
     expect(powerShellInstallScript).toContain('"$releaseBase/$assetName.gz"');
     expect(powerShellInstallScript).toContain("System.IO.Compression.GZipStream");
-    expect(powerShellInstallScript).toContain(
-      '"$releaseBase/$assetName" -UseBasicParsing -OutFile $binaryPath'
-    );
+    expect(powerShellInstallScript).not.toContain('"$releaseBase/$assetName" -UseBasicParsing');
   });
 
   test("gives up on a stalled download instead of waiting forever", () => {
@@ -114,7 +114,11 @@ const runInstaller = async (
   const names = ["darwin", "linux"].flatMap((os) =>
     ["x64", "arm64"].map((arch) => `openteam-${os}-${arch}`)
   );
-  for (const name of names) writeFileSync(join(assets, name), cli);
+  // Like a real release: each binary and its gzip copy.
+  for (const name of names) {
+    writeFileSync(join(assets, name), cli);
+    writeFileSync(join(assets, `${name}.gz`), gzipSync(cli));
+  }
   writeFileSync(join(assets, "SHA256SUMS"), names.map((name) => `${checksum}  ${name}\n`).join(""));
   writeFileSync(
     join(tools, "curl"),

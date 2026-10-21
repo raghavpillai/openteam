@@ -277,11 +277,11 @@ final class AppStore {
       let candidate = try API(server: server, timeout: 15)
       let mode = try await candidate.validateServer()
       guard authGeneration == epoch, !Task.isCancelled else { return }
-      // Show what was found for a moment, then move on. The version is a nicety:
-      // a server that doesn't report it still connects.
+      // Show what was found for a moment, then move on. The version is a nicety: one
+      // that doesn't arrive in time doesn't hold up connecting.
       let version = try? await candidate.request("/api/system/version", timeout: 4)
       guard authGeneration == epoch, !Task.isCancelled else { return }
-      foundServer = FoundServer(version: version.flatMap(ServerAddressText.releaseVersion))
+      foundServer = FoundServer(version: version?["releaseVersion"].string)
       #if canImport(UIKit)
         if feedback { NativeHaptics.play(.success, source: "auth.result") }
       #endif
@@ -633,8 +633,7 @@ final class AppStore {
   }
   /// Reads only the server's readiness, after model or voice settings change.
   func refreshRuntime() async {
-    guard let value = try? await request("/api/v0/client-runtime"),
-      case .object = value["runtime"], state.bootstrap != nil
+    guard let value = try? await request("/api/v0/client-runtime"), state.bootstrap != nil
     else { return }
     state.bootstrap?.runtime = value["runtime"]
     persist()

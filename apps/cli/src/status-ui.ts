@@ -200,9 +200,7 @@ export const renderStatus = (input: StatusReport, options: TerminalOptions = {})
         ? "Connected"
         : input.health.inference === "missing"
           ? "Not connected · connect one in the OpenTeam app"
-          : input.health.inference
-            ? `Not ready (${input.health.inference}) · check it in the OpenTeam app`
-            : "Not reported · run openteam doctor",
+          : `Not ready (${input.health.inference}) · check it in the OpenTeam app`,
       { tone: input.health.inference === "ready" ? "muted" : "warning" }
     );
   view.section("Connection").row("Server", input.server, { tone: "info" });

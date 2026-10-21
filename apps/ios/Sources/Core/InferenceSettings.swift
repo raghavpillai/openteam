@@ -1,7 +1,7 @@
 import Foundation
 
 /// The server's model ("inference") settings and provider sign-ins, as in
-/// packages/contracts/src/inference.ts. Optional fields tolerate older servers.
+/// packages/contracts/src/inference.ts.
 public struct InferenceSelection: Codable, Sendable, Equatable {
   public var providerId: String
   /// Empty until a model is chosen from a connected provider's catalog.
@@ -23,12 +23,6 @@ public struct InferenceAuthMethod: Codable, Sendable, Hashable {
     self.type = type
     self.label = label
     self.subscription = subscription
-  }
-  public init(from decoder: Decoder) throws {
-    let c = try decoder.container(keyedBy: CodingKeys.self)
-    type = try c.decode(String.self, forKey: .type)
-    label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
-    subscription = try c.decodeIfPresent(Bool.self, forKey: .subscription) ?? false
   }
   /// The button that starts this method.
   public var actionTitle: String { type == "oauth" ? "Sign in" : "Add API key" }
@@ -60,19 +54,6 @@ public struct InferenceProvider: Codable, Sendable, Identifiable, Hashable {
     self.modelCount = modelCount
     self.modelStatus = modelStatus
     self.modelMessage = modelMessage
-  }
-  public init(from decoder: Decoder) throws {
-    let c = try decoder.container(keyedBy: CodingKeys.self)
-    id = try c.decode(String.self, forKey: .id)
-    name = try c.decodeIfPresent(String.self, forKey: .name) ?? id
-    authMethods = try c.decodeIfPresent([InferenceAuthMethod].self, forKey: .authMethods) ?? []
-    connected = try c.decodeIfPresent(Bool.self, forKey: .connected) ?? false
-    authType = try c.decodeIfPresent(String.self, forKey: .authType)
-    authSource = try c.decodeIfPresent(String.self, forKey: .authSource)
-    custom = try c.decodeIfPresent(Bool.self, forKey: .custom) ?? false
-    modelCount = try c.decodeIfPresent(Int.self, forKey: .modelCount) ?? 0
-    modelStatus = try c.decodeIfPresent(String.self, forKey: .modelStatus)
-    modelMessage = try c.decodeIfPresent(String.self, forKey: .modelMessage)
   }
   /// Desktop's Connection row wording.
   public var connectionSummary: String {
@@ -110,17 +91,17 @@ public struct InferenceModel: Codable, Sendable, Identifiable, Hashable {
     self.maxTokens = maxTokens
     self.recommended = recommended
   }
+  /// `recommended` is sent only on the recommended model.
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     providerId = try c.decode(String.self, forKey: .providerId)
     modelId = try c.decode(String.self, forKey: .modelId)
-    name = try c.decodeIfPresent(String.self, forKey: .name) ?? modelId
-    reasoning = try c.decodeIfPresent(Bool.self, forKey: .reasoning) ?? false
-    reasoningLevels = try c.decodeIfPresent([String].self, forKey: .reasoningLevels) ?? []
-    defaultReasoningLevel =
-      try c.decodeIfPresent(String.self, forKey: .defaultReasoningLevel) ?? "off"
-    contextWindow = try c.decodeIfPresent(Int.self, forKey: .contextWindow) ?? 0
-    maxTokens = try c.decodeIfPresent(Int.self, forKey: .maxTokens) ?? 0
+    name = try c.decode(String.self, forKey: .name)
+    reasoning = try c.decode(Bool.self, forKey: .reasoning)
+    reasoningLevels = try c.decode([String].self, forKey: .reasoningLevels)
+    defaultReasoningLevel = try c.decode(String.self, forKey: .defaultReasoningLevel)
+    contextWindow = try c.decode(Int.self, forKey: .contextWindow)
+    maxTokens = try c.decode(Int.self, forKey: .maxTokens)
     recommended = try c.decodeIfPresent(Bool.self, forKey: .recommended) ?? false
   }
   private enum CodingKeys: String, CodingKey {
@@ -144,14 +125,6 @@ public struct ServerSettings: Codable, Sendable, Equatable {
     self.providers = providers
     self.models = models
     self.modelProviderId = modelProviderId
-  }
-  public init(from decoder: Decoder) throws {
-    let c = try decoder.container(keyedBy: CodingKeys.self)
-    inference = try c.decode(InferenceSelection.self, forKey: .inference)
-    providers = try c.decodeIfPresent([InferenceProvider].self, forKey: .providers) ?? []
-    models = try c.decodeIfPresent([InferenceModel].self, forKey: .models) ?? []
-    modelProviderId =
-      try c.decodeIfPresent(String.self, forKey: .modelProviderId) ?? inference.providerId
   }
   public func provider(_ id: String) -> InferenceProvider? { providers.first { $0.id == id } }
   /// The saved model, or nil when none is chosen yet.
@@ -229,18 +202,6 @@ public struct InferenceAuthSession: Codable, Sendable, Equatable {
     self.messages = messages
     self.error = error
   }
-  public init(from decoder: Decoder) throws {
-    let c = try decoder.container(keyedBy: CodingKeys.self)
-    id = try c.decode(String.self, forKey: .id)
-    providerId = try c.decode(String.self, forKey: .providerId)
-    authType = try c.decodeIfPresent(String.self, forKey: .authType) ?? "oauth"
-    status = try c.decode(String.self, forKey: .status)
-    prompt = try c.decodeIfPresent(InferenceAuthPrompt.self, forKey: .prompt)
-    authorizationUrl = try c.decodeIfPresent(String.self, forKey: .authorizationUrl)
-    deviceCode = try c.decodeIfPresent(InferenceDeviceCode.self, forKey: .deviceCode)
-    messages = try c.decodeIfPresent([String].self, forKey: .messages) ?? []
-    error = try c.decodeIfPresent(String.self, forKey: .error)
-  }
   public var finished: Bool { ["connected", "failed", "cancelled"].contains(status) }
   /// The answer a person would give anyway. A phone can't receive a localhost
   /// browser redirect, so a choice between "browser" and "device_code" takes the code.
@@ -294,13 +255,10 @@ public enum InferenceTestResult: Decodable, Sendable, Equatable {
   private enum CodingKeys: String, CodingKey { case ok, latencyMs, error }
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
-    if try c.decode(Bool.self, forKey: .ok) {
-      self = .passed(latencyMs: try c.decodeIfPresent(Double.self, forKey: .latencyMs) ?? 0)
-    } else {
-      self = .failed(
-        error: try c.decodeIfPresent(String.self, forKey: .error)
-          ?? "The model didn't respond. Try again.")
-    }
+    self =
+      try c.decode(Bool.self, forKey: .ok)
+      ? .passed(latencyMs: try c.decode(Double.self, forKey: .latencyMs))
+      : .failed(error: try c.decode(String.self, forKey: .error))
   }
 }
 
@@ -383,12 +341,6 @@ public struct ModelTestFailure: Equatable, Sendable {
       default:
         self.init(message: ProviderErrorText.plain(api.message), transient: false)
       }
-      return
-    }
-    if error is DecodingError {
-      self.init(
-        message: "The server returned an unexpected response. Try again or update your server.",
-        transient: false)
       return
     }
     self.init(message: ProviderErrorText.plain(error.localizedDescription), transient: false)

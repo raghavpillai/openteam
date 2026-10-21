@@ -237,15 +237,8 @@ export const configuredAccessMode = (
   current: ReadonlyMap<string, string>,
   fresh: boolean
 ): AccessMode => {
-  const stored = current.get("OPENTEAM_ACCESS_MODE");
-  if (stored && ACCESS_MODES.includes(stored as AccessMode)) {
-    if (!fresh) return stored as AccessMode;
-  }
-  if (fresh) return "private";
-  const publicUrl = current.get("OPENTEAM_PUBLIC_URL") || "";
-  if (publicUrl.startsWith("https://")) return "https";
-  if (current.get("OPENTEAM_BIND_HOST") === "127.0.0.1") return "local";
-  return "private";
+  const stored = current.get("OPENTEAM_ACCESS_MODE") as AccessMode | undefined;
+  return !fresh && stored && ACCESS_MODES.includes(stored) ? stored : "private";
 };
 
 const hostFromPublicUrl = (value: string | undefined): string | null => {

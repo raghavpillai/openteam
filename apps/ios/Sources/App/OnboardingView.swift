@@ -1314,9 +1314,8 @@ private struct OnboardingWizard: View {
       let result = try await store.request("/api/v0/bots", method: "POST", body: body)
       NativeHaptics.play(.success, source: "onboarding.create-bot")
       await store.refresh()
-      let channel = result["dmChannelId"].string
       // Home shows the new bot arriving, then zooms into its chat for the greeting.
-      finish(landing: channel.isEmpty ? nil : channel)
+      finish(landing: result["dmChannelId"].string)
     } catch {
       guard !UserFacingError.isCancelled(error) else { return }
       withAnimation(.snappy) { createError = UserFacingError.message(error) }

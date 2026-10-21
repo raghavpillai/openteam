@@ -1425,7 +1425,13 @@ function VoiceScreen({
                   <button
                     aria-checked={provider === option}
                     key={option}
-                    onClick={() => setProvider(option)}
+                    onClick={() => {
+                      if (option === provider) return;
+                      // A key belongs to one service, as on iOS.
+                      setProvider(option);
+                      setKey("");
+                      setError(null);
+                    }}
                     role="radio"
                     type="button"
                   >

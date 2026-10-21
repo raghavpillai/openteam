@@ -12,7 +12,7 @@ import {
 } from "@openteam/contracts";
 import { COMPUTER_API_PATHS } from "@openteam/contracts/service-protocol";
 import { Prisma, type PrismaClient } from "@openteam/db";
-import type { AgentDataStore, AgentMessaging, ToolContext } from "@openteam/messaging";
+import { type AgentDataStore, type AgentMessaging, PRIORITY, type ToolContext } from "@openteam/messaging";
 import { Effect, Schema } from "effect";
 import { fromPrisma } from "pg-boss";
 import { setTimeout as delay } from "node:timers/promises";
@@ -22,6 +22,9 @@ import { taskInference, parseTaskConfiguration } from "@openteam/contracts/task-
 import { normalizeSubagentTypeName, parentOnlyDispatchNotice, subagentTitle, withSiteDispatchNotes } from "@openteam/contracts/subagent-dispatch";
 
 const ACTIVE_STATUSES = ["provisioning", "queued", "running"] as const;
+// The sender's copy of a direct agent message, keyed by the call that sent it.
+const A2A_OUTGOING_PREFIX = "a2a:out:";
+const DELEGATED_WORK_WINDOW_MS = 24 * 60 * 60_000;
 
 // Parent-visible execution evidence, not authorization. Keep the observed
 // error separate from tool arguments, successful output, and image payloads.
@@ -332,11 +335,17 @@ export class SubagentService {
 
   /** Stop each running subagent on its own, so one failure never hides or blocks the others. */
   private async stopAll(parentBotId: string, callId: string) {
+    const [outcomes, delegated] = await Promise.all([this.stopRunningSubagents(parentBotId, callId), this.stopDelegatedWork(parentBotId, callId)]);
+    const of = (outcome: string) => outcomes.filter((entry) => entry.outcome === outcome).map(({ outcome: _, ...entry }) => entry);
+    return { stopped_all: true, stopped: of("stopped"), already_finished: of("finished"), failed: of("failed"), delegated };
+  }
+
+  private async stopRunningSubagents(parentBotId: string, callId: string) {
     const running = await this.prisma.subagent.findMany({
       where: { parentBotId, status: { in: [...ACTIVE_STATUSES] } },
       orderBy: { createdAt: "asc" },
     });
-    const outcomes = await Promise.all(running.map(async (subagent) => {
+    return Promise.all(running.map(async (subagent) => {
       const summary = { subagent_id: botSubagentId(subagent.id), subagent_type: subagent.subagentType, title: subagentTitle(subagent.prompt) };
       try {
         const result = await this.stopOne(parentBotId, callId, subagent);
@@ -348,8 +357,47 @@ export class SubagentService {
         return { ...summary, outcome: "failed" as const, error: error instanceof Error ? error.message : String(error) };
       }
     }));
-    const of = (outcome: string) => outcomes.filter((entry) => entry.outcome === outcome).map(({ outcome: _, ...entry }) => entry);
-    return { stopped_all: true, stopped: of("stopped"), already_finished: of("finished"), failed: of("failed") };
+  }
+
+  /**
+   * Peers this agent handed work to with a priority message in the last day: a turn that message
+   * started and is still going is cancelled, with the subagents it dispatched; any other peer is idle.
+   */
+  private async stopDelegatedWork(parentBotId: string, callId: string) {
+    const sent = await this.prisma.channelMessage.findMany({
+      where: { senderBotId: parentBotId, clientId: { startsWith: A2A_OUTGOING_PREFIX }, createdAt: { gte: new Date(Date.now() - DELEGATED_WORK_WINDOW_MS) } },
+      select: { clientId: true, metadata: true },
+      orderBy: { createdAt: "desc" },
+    });
+    const handoffs = sent.flatMap(({ clientId, metadata }) => {
+      const peer = (metadata as { toAgent?: { id?: unknown; name?: unknown } } | null)?.toAgent;
+      return clientId && typeof peer?.id === "string"
+        ? [{ key: `agent:${clientId.slice(A2A_OUTGOING_PREFIX.length)}:${peer.id}`, id: peer.id, name: typeof peer.name === "string" ? peer.name : peer.id }]
+        : [];
+    });
+    if (!handoffs.length) return [];
+    // A priority message's wake carries the urgent priority and starts the peer's turn on it.
+    const wakes = await this.prisma.inboxEvent.findMany({
+      where: { idempotencyKey: { in: handoffs.map((handoff) => handoff.key) }, priority: PRIORITY.urgentAgent },
+      select: { idempotencyKey: true, runId: true },
+    });
+    const peers = new Map<string, { id: string; name: string; runId: string | null }>();
+    for (const handoff of handoffs) {
+      const wake = wakes.find((candidate) => candidate.idempotencyKey === handoff.key);
+      if (wake && !peers.has(handoff.id)) peers.set(handoff.id, { id: handoff.id, name: handoff.name, runId: wake.runId });
+    }
+    return Promise.all([...peers.values()].map(async (peer) => {
+      const run = peer.runId ? await this.prisma.run.findUnique({ where: { id: peer.runId }, select: { status: true } }) : null;
+      if (!peer.runId || !run || !["queued", "running"].includes(run.status)) return { id: peer.id, name: peer.name, result: "not_running" as const };
+      try {
+        await Effect.runPromise(this.runs.cancel(peer.runId));
+        const dispatched = await this.prisma.subagent.findMany({ where: { parentBotId: peer.id, parentRunId: peer.runId, status: { in: [...ACTIVE_STATUSES] } } });
+        await Promise.all(dispatched.map((subagent) => this.stopOne(peer.id, callId, subagent)));
+        return { id: peer.id, name: peer.name, result: "stopped" as const };
+      } catch (error) {
+        return { id: peer.id, name: peer.name, result: "failed" as const, detail: error instanceof Error ? error.message : String(error) };
+      }
+    }));
   }
 
   private async stopOne(parentBotId: string, callId: string, subagent: Awaited<ReturnType<SubagentService["owned"]>>) {

@@ -43,6 +43,7 @@ test('new attempt is not stopped by acknowledgement for an older attempt',async(
 function stopAllFixture(children: any[], cancel: (runId: string) => Promise<void>) {
  const events: any[] = [];
  const db: any = {
+  channelMessage: { findMany: async () => [] },
   subagent: {
    findMany: async ({ where }: any) => children.filter((child) => child.parentBotId === where.parentBotId && where.status.in.includes(child.status)),
    findUnique: async ({ where }: any) => ({ ...children.find((child) => child.id === where.id) }),
@@ -73,11 +74,45 @@ test('stop all stops each running subagent on its own and reports every outcome'
   stopped: [{ subagent_id: 'sand-subagent-a', subagent_type: 'executor', title: 'Worker a' }],
   already_finished: [{ subagent_id: 'sand-subagent-c', subagent_type: 'executor', title: 'Worker c' }],
   failed: [{ subagent_id: 'sand-subagent-b', subagent_type: 'computerUse', title: 'Worker b', error: 'computer connection timeout' }],
+  delegated: [],
  });
  expect(children.map((child) => child.status)).toEqual(['stopped', 'running', 'completed', 'running', 'completed']);
  expect(f.events).toHaveLength(1);
 });
 test('stop all with nothing running reports an empty receipt', async () => {
  const f = stopAllFixture([worker('a', { status: 'completed' })], async () => {});
- expect(await f.service.stop('parent', 'call', { all: true })).toEqual({ stopped_all: true, stopped: [], already_finished: [], failed: [] });
+ expect(await f.service.stop('parent', 'call', { all: true })).toEqual({ stopped_all: true, stopped: [], already_finished: [], failed: [], delegated: [] });
+});
+
+test('stop all cancels the turn a priority message started for a peer, with that turn\'s subagents, and reports idle peers', async () => {
+ const cancelled: string[] = [];
+ const children = [worker('peer-child', { parentBotId: 'peer-1', parentRunId: 'peer-run-1' })];
+ const f = stopAllFixture(children, async (runId) => { cancelled.push(runId); });
+ const db = (f.service as any).prisma;
+ const since: Date[] = [];
+ db.channelMessage.findMany = async ({ where }: any) => {
+  expect(where).toMatchObject({ senderBotId: 'parent', clientId: { startsWith: 'a2a:out:' } });
+  since.push(where.createdAt.gte);
+  return [
+   { clientId: 'a2a:out:call-2', metadata: { toAgent: { id: 'peer-1', name: 'Researcher' } } },
+   { clientId: 'a2a:out:call-1', metadata: { toAgent: { id: 'peer-1', name: 'Researcher' } } },
+   { clientId: 'a2a:out:call-3', metadata: { toAgent: { id: 'peer-2', name: 'Scout' } } },
+   { clientId: 'a2a:out:call-4', metadata: { toAgent: { id: 'peer-3', name: 'Writer' } } },
+  ];
+ };
+ // Only priority messages count: call-4 was an ordinary message.
+ db.inboxEvent = { findMany: async ({ where }: any) => [
+  { idempotencyKey: 'agent:call-2:peer-1', runId: 'peer-run-1' },
+  { idempotencyKey: 'agent:call-1:peer-1', runId: 'peer-run-0' },
+  { idempotencyKey: 'agent:call-3:peer-2', runId: 'peer-run-2' },
+ ].filter((wake) => where.idempotencyKey.in.includes(wake.idempotencyKey) && where.priority === 250) };
+ db.run.findUnique = async ({ where }: any) => ({ status: where.id === 'peer-run-1' ? 'running' : 'completed' });
+ const result: any = await f.service.stop('parent', 'call', { all: true });
+ expect(Date.now() - since[0]!.getTime()).toBeGreaterThanOrEqual(24 * 60 * 60_000 - 1000);
+ expect(result.delegated).toEqual([
+  { id: 'peer-1', name: 'Researcher', result: 'stopped' },
+  { id: 'peer-2', name: 'Scout', result: 'not_running' },
+ ]);
+ expect(cancelled).toEqual(['peer-run-1', 'run-peer-child']);
+ expect(children[0]!.status).toBe('stopped');
 });

@@ -57,11 +57,23 @@ test("parsers keep the reference arguments OpenTeam supports", async () => {
     '- sand-subagent-b [executor] "Worker b"',
     "1 could NOT be stopped and may still be running. Retry each with StopSubagent and its id; if it still fails, tell the user which work may still be running:",
     '- sand-subagent-c [executor] "Worker c": timeout',
-    expect.stringContaining("Peer agents you handed work to are not reached from here"),
-    expect.stringContaining("Do not resume, redispatch, or continue the stopped work"),
+    "Do not resume, redispatch, or continue the stopped work unless the user asks again. Background shell commands you started yourself are not covered: terminate those with their reported PIDs.",
   ]);
-  expect(renderControlResult("StopSubagent", { stopped_all: true, stopped: [], already_finished: [], failed: [] }, { all: true }))
-    .toStartWith("No background subagents are running, so there was nothing of your own to stop.");
+  expect(renderControlResult("StopSubagent", { stopped_all: true, stopped: [], already_finished: [], failed: [], delegated: [] }, { all: true }))
+    .toBe("No background subagents are running and no work is out with other agents, so there was nothing to stop. Background shell commands you started yourself are not subagents: terminate those with their reported PIDs.");
+  // Peers handed work with a priority message are stopped too, and each is reported.
+  expect(renderControlResult("StopSubagent", { stopped_all: true, stopped: [], already_finished: [], failed: [], delegated: [
+    { id: "p1", name: "Researcher", result: "stopped" },
+    { id: "p2", name: "Scout", result: "not_running" },
+    { id: "p3", name: "Writer", result: "failed", detail: "computer connection timeout" },
+  ] }, { all: true }).split("\n")).toEqual([
+    "No background subagents of your own are running.",
+    "Work you handed to other agents (1 of 3 stopped):",
+    "- Researcher (agent p1): stop delivered; its turn is cancelled and its own subagents are being torn down.",
+    "- Scout (agent p2): already idle, nothing to stop.",
+    "- Writer (agent p3): stop failed (computer connection timeout). Retry StopSubagent with all: true; if it fails again, tell the user it may still be working.",
+    "Do not resume, redispatch, or continue the stopped work unless the user asks again. Background shell commands you started yourself are not covered: terminate those with their reported PIDs.",
+  ]);
 });
 test("SendToUser refuses fields and files it would silently drop", () => {
   const refusal = (args: unknown) => {

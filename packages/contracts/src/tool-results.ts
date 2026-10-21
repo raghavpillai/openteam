@@ -7,6 +7,25 @@ import {
   truncationNotice,
 } from "./reference-formatters";
 
+const SEND_TO_USER_FAILED = "Failed to send the message to the user";
+
+/** The reference's SendToUser failure: the reason follows one fixed lead-in. */
+export const sendToUserFailure = (detail: string): string => {
+  const reason = detail.trim();
+  if (reason.startsWith(SEND_TO_USER_FAILED)) return reason;
+  return reason ? `${SEND_TO_USER_FAILED}: ${reason}` : `${SEND_TO_USER_FAILED}.`;
+};
+
+/** A failed tool call's reason: the tool host's error message rather than its JSON envelope. */
+export const toolErrorDetail = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : String(error);
+  try {
+    const envelope = JSON.parse(message) as { message?: unknown } | null;
+    if (envelope && typeof envelope.message === "string") return envelope.message;
+  } catch {}
+  return message;
+};
+
 /** Keep private transport receipts structured; format only at the model boundary. */
 export function renderDesktopResult(
   name: string,

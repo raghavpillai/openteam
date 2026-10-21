@@ -7,7 +7,8 @@ import {
   describeOutputLocation,
   buildUserFormRemapReceipt,
 } from "@openteam/contracts/reference-formatters";
-import { renderDesktopResult, renderControlResult } from "@openteam/contracts/tool-results";
+import { renderDesktopResult, renderControlResult, sendToUserFailure, toolErrorDetail } from "@openteam/contracts/tool-results";
+import { coerceArgumentsToJsonSchema, invalidArgumentsMessage } from "@openteam/contracts/tool-arguments";
 import {
   describeUploadFileOutcome,
   describeDownloadFileOutcome,
@@ -560,7 +561,16 @@ export class RuntimeTools {
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     this.assertCurrentInput(active);
-    return this.executeScopedTool(active, callId, tool, args, signal);
+    try {
+      return await this.executeScopedTool(active, callId, tool, args, signal);
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      const report = invalidArgumentsMessage(error);
+      // Every SendToUser failure reads as one sentence saying the send failed and why.
+      if (tool === SEND_TO_USER_TOOL.name)
+        throw new Error(sendToUserFailure(report ?? toolErrorDetail(error)));
+      throw report ? new Error(report) : error;
+    }
   }
 
   private async executeScopedTool(
@@ -1759,7 +1769,20 @@ export class RuntimeTools {
     const receipts = active.discoveredDynamicTools.has(`${input.namespace}/${input.toolName}`)
       ? active.discoveredDynamicTools
       : new Set([...active.discoveredDynamicTools, ...retainedDynamicTools(catalog, active.dynamicDiscoveryMessages ?? [])]);
-    const resolved = resolveDynamicTool(catalog, receipts, input);
+    // String-encoded booleans, numbers and JSON become the advertised types before validation.
+    const firstParty = input.namespace === "cursor"
+      ? catalog.find((namespace) => namespace.name === "cursor")?.tools.find((tool) => tool.name === input.toolName)
+      : undefined;
+    const resolved = (() => {
+      try {
+        return resolveDynamicTool(catalog, receipts, firstParty && input.arguments && typeof input.arguments === "object"
+          ? { ...input, arguments: coerceArgumentsToJsonSchema(firstParty.inputSchema, input.arguments) as Record<string, unknown> }
+          : input);
+      } catch (error) {
+        const report = invalidArgumentsMessage(error);
+        throw report ? new Error(report) : error;
+      }
+    })();
     const invoke = async () => {
       signal?.throwIfAborted();
       if (finishCleanup) {

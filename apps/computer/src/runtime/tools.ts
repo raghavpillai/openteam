@@ -707,7 +707,9 @@ export class RuntimeTools {
       return this.nativeToolExecutor.listMachines(signal);
     }
     if (tool === SCREENSHOT_TOOL.name) {
-      const frame = await this.screens.screenshot(active.botId, active.cwd, signal);
+      const frame = await this.screens.screenshot(active.botId, active.cwd, signal).catch((error) => {
+        throw signal?.aborted ? error : new Error(`Screenshot failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
       const directory = join(this.workspaceRoot, "shared", "screenshots");
       await mkdir(directory, { recursive: true });
       const path = join(directory, `${active.botId}-${Date.now()}.png`);
@@ -716,7 +718,7 @@ export class RuntimeTools {
         content: [
           {
             type: "text" as const,
-            text: `Screenshot captured from the box desktop.\nScreenshot saved to ${path} — attach this file:// path with SendToUser to show the user the box.`,
+            text: `Screenshot captured from the box desktop.\nScreenshot saved to ${path}, and to show the user the box, attach this file:// path with SendToUser.`,
           },
           {
             type: "image" as const,
@@ -764,7 +766,9 @@ export class RuntimeTools {
     const needsDesktopObservation = active.lastGraphicalSurface !== "computer" &&
       requestedActions.some(action => ["click", "move", "drag", "scroll"].includes(action.action));
     const actions = needsDesktopObservation ? [{ action: "screenshot" as const }] : requestedActions;
-    const frame = await this.screens.actComputerUse(active.screenBotId, active.cwd, actions, signal);
+    const frame = await this.screens.actComputerUse(active.screenBotId, active.cwd, actions, signal).catch((error) => {
+      throw signal?.aborted ? error : new Error(`Computer action failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
     signal?.throwIfAborted();
     active.lastGraphicalSurface = "computer";
     const directory = join(this.workspaceRoot, "shared", "screenshots");
@@ -775,7 +779,7 @@ export class RuntimeTools {
       content: [
         {
           type: "text" as const,
-          text: `${needsDesktopObservation ? "Captured the native desktop before switching coordinate spaces. The requested pointer actions were NOT executed. Read this screenshot, then issue the actions using desktop coordinates; browser viewport coordinates omit the window chrome." : "Computer action ran on the box desktop."}\nScreenshot of the resulting screen saved to ${path} — include this file:// path in your report to the parent if it should be shown to the user.`,
+          text: `${needsDesktopObservation ? "Captured the native desktop before switching coordinate spaces. The requested pointer actions were NOT executed. Read this screenshot, then issue the actions using desktop coordinates; browser viewport coordinates omit the window chrome." : "Computer action ran on the box desktop."}\nScreenshot of the resulting screen saved to ${path}, and if it should be shown to the user, include this file:// path in your report to the parent.`,
         },
         {
           type: "image" as const,

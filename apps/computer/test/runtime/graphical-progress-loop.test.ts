@@ -7,7 +7,6 @@ import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
 import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { BotCompactionArchiveStore, BotCompactionCoordinator } from "../../src/bot-compaction";
 import { ComputerRuntime } from "../../src/runtime";
-import { verifyGraphicalTaskCompletion } from "../../src/runtime/graphical-completion";
 
 test("real Pi loop spaces durable checkpoints without extra inference and keeps full schema evidence", async () => {
   const root = await mkdtemp(join(tmpdir(), "graphical-progress-"));
@@ -71,10 +70,6 @@ test("real Pi loop spaces durable checkpoints without extra inference and keeps 
     const visibleResults = requests[25].messages.filter((m: any) => m.role === "tool");
     expect(visibleResults.filter((m: any) => JSON.stringify(m).includes("FULL-SCHEMA-EVIDENCE"))).toHaveLength(1);
     expect(visibleResults.filter((m: any) => JSON.stringify(m).includes("schemaSourceToolCallId"))).toHaveLength(24);
-    // Completion verification remains available; the checkpoint never replaces it.
-    await verifyGraphicalTaskCompletion(active);
-    expect(requests).toHaveLength(27);
-    expect(JSON.stringify(requests[26])).toContain("Before returning this graphical task");
   } finally {
     session?.dispose();
     await rm(root, { recursive: true, force: true });

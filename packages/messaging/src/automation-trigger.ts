@@ -143,6 +143,8 @@ const parseGithubLike = (
   let events = stringList(trigger.events, GITHUB_EVENT_KINDS.size, 80).filter((kind) =>
     allowed.has(kind)
   );
+  if (events.length === 0)
+    throw new Error(`the ${type} trigger needs 'events' (at least one ${type === "github" ? "GitHub" : "Origin"} event kind).`);
   const pr =
     typeof trigger.pr === "number" && Number.isSafeInteger(trigger.pr) && trigger.pr > 0
       ? trigger.pr
@@ -157,7 +159,11 @@ const parseGithubLike = (
   } else {
     events = events.filter((kind) => !CI_EVENT_KINDS.has(kind) || pr !== null);
   }
-  if (events.length === 0) throw new Error(`${type} trigger requires at least one usable event`);
+  // CI kinds a listener cannot scope are dropped; a listener left with none is refused.
+  if (events.length === 0)
+    throw new Error(type === "github"
+      ? "the github trigger needs 'ciBranch' (ci-passed and ci-failed fire on one branch's settled checks)."
+      : "the origin trigger needs 'pr' (Origin CI events are delivered only for one explicitly scoped PR).");
   const allowlist: string[] = [];
   const seen = new Set<string>();
   for (const candidate of stringList(trigger.userAllowlist, 50, 81)) {
@@ -297,6 +303,21 @@ export const parseStoredTrigger = (input: unknown): Record<string, unknown> => {
   if (type === "email") return parseEmail(trigger);
   if (type === "webhook") return { type };
   throw new Error(`unsupported automation trigger type: ${type}`);
+};
+
+const REPO_WIDE_FIREHOSE_KINDS = ["pr-pushed", "pr-comment", "inline-review-comment", "review-commented"];
+
+/** A repo listener with neither pr nor userAllowlist may not carry the high-volume kinds. */
+export const unboundedRepoListenerRefusal = (trigger: Record<string, unknown>): string | null => {
+  const listeners = trigger.type === "group" && Array.isArray(trigger.listeners) ? trigger.listeners : [trigger];
+  for (const listener of listeners as Array<Record<string, unknown>>) {
+    if (listener.type !== "github" && listener.type !== "origin") continue;
+    if (listener.pr !== undefined || (Array.isArray(listener.userAllowlist) && listener.userAllowlist.length > 0)) continue;
+    const kinds = (Array.isArray(listener.events) ? listener.events : []).filter((kind) => REPO_WIDE_FIREHOSE_KINDS.includes(String(kind)));
+    if (kinds.length)
+      return `the ${listener.type} listener on "${listener.repo}" was not saved: ${kinds.join(", ")} are not scoped on the repo. Narrow it with a 'pr' or 'userAllowlist' filter and try again.`;
+  }
+  return null;
 };
 
 export const firstCronSchedule = (trigger: Record<string, unknown>): string | null => {

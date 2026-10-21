@@ -1,6 +1,11 @@
 import { buildUserFormSubmittedAck, buildUserFormDismissedAck } from "./reference-form-results";
 import type { UserFormReceipt } from "./user-forms";
 
+// The reference's first fill pass reports a hidden twin as a missing target, and a field the
+// page moved away from carries no kind; only a remap reports those two.
+const submitFailureKinds = (kinds: Record<string, string> | undefined) => kinds && Object.fromEntries(Object.entries(kinds)
+  .flatMap(([id, kind]) => kind === "page_moved" ? [] : [[id, kind === "hidden_target" ? "target_missing" : kind]]));
+
 export function formatUserFormReceipt(receipt: UserFormReceipt): string {
   if (receipt.status === "escalated") return `The user chose to complete ${receipt.title ? `“${receipt.title}”` : "the form"} on the screen instead. Nothing was filled and no secret values were returned.`;
   if (receipt.title && !receipt.interrupted) {
@@ -8,10 +13,11 @@ export function formatUserFormReceipt(receipt: UserFormReceipt): string {
       fields: receipt.fields.map(field => ({id:field.id,type:receipt.fieldTypes?.[field.id] ?? "text"})) };
     if (receipt.status === "dismissed") return buildUserFormDismissedAck(form);
     const held = receipt.fields.filter(field => field.status === "held").map(field => field.id);
-    return buildUserFormSubmittedAck(form, receipt.fields.map(field => ({id:field.id,filled:field.status === "filled",fillFailed:["held","dropped","unknown"].includes(field.status)})), receipt.domainMismatch,
-      {attempted:receipt.submitAttempted,succeeded:receipt.submitSucceeded}, receipt.fillFailureKinds,
-      receipt.pageMoved ? {...receipt.pageMoved,valueScrubbedFreshSnapshot:receipt.snapshot} : undefined,
-      held.length ? {fieldIds:held,valueScrubbedFreshSnapshot:receipt.snapshot} : undefined);
+    return buildUserFormSubmittedAck(form, receipt.fields.map(field => ({id:field.id,filled:field.status === "filled",fillFailed:["held","dropped","unknown"].includes(field.status)})), {
+      domainMismatch: receipt.domainMismatch, submit: {attempted:receipt.submitAttempted,succeeded:receipt.submitSucceeded},
+      fillFailureKinds: submitFailureKinds(receipt.fillFailureKinds),
+      pageMoved: receipt.pageMoved ? {...receipt.pageMoved,valueScrubbedFreshSnapshot:receipt.snapshot} : undefined,
+      remap: held.length ? {fieldIds:held,valueScrubbedFreshSnapshot:receipt.snapshot} : undefined });
   }
   return [
     `User form ${receipt.formId}: ${receipt.status}. No submitted values are returned.`,

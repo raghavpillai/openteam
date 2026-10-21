@@ -19,8 +19,18 @@ import { definitionFromManifest } from "./plugin/values";
 import { appendEvent, metadataRecord, serviceEffect, toJson } from "./service-utils";
 import { toChannelMessageView } from "./view-mappers";
 
+// A discarded or unconfirmed card does not wake the bot; it reads the outcome on its next turn.
+const DISCARDED_DRAFT_OUTCOME =
+  "The user discarded your draft without sending. They refused to send it. Do not send that message yourself (including via CallDynamicTool or any connector send tool). Treat the draft as rejected; only draft or send again if the user explicitly asks.";
+const UNCONFIRMED_DRAFT_OUTCOME =
+  "A send of your draft did not confirm. It may or may not have gone out. Do not send that message yourself (including via CallDynamicTool or any connector send tool). Check the destination before drafting or sending it again.";
+
 const fail = (message: string): never => {
   throw new ApiError(409, "draft_unavailable", message);
+};
+/** The connector could not confirm where a draft goes; create() words it as the reference's refusal. */
+const unverified = (reason: string): never => {
+  throw new ApiError(409, "draft_route_unverified", reason);
 };
 function connectorRecord(raw: unknown): Record<string, any> {
   if (typeof raw === "string") {
@@ -138,8 +148,9 @@ export class ExternalDraftService {
       const sendingAddresses = [
         ...new Set([identity, ...strings(result.sendingAddresses).map((address) => address.trim().toLowerCase())]),
       ].filter(Boolean);
-      if (!identity || !sendingAddresses.includes(draft.from!.toLowerCase()))
-        return fail("The selected mailbox does not match the draft From address");
+      if (!identity) return unverified("The mailbox did not report its sending address.");
+      if (!sendingAddresses.includes(draft.from!.toLowerCase()))
+        return fail(`Draft refused: from (${draft.from}) is not the address this account really sends as (${sendingAddresses.join(", ")}). Nothing was drafted. Call this tool again with from: ${identity}${sendingAddresses.length > 1 ? " or one of the other addresses listed." : "."}`);
       const signatures = Object.fromEntries(
         Object.entries(metadataRecord(result.signatures))
           .map(([address, html]) => [address.toLowerCase(), html] as const)
@@ -183,13 +194,12 @@ export class ExternalDraftService {
       typeof channel.messages === "string" &&
       /^Channel:\s*(.+?)\s*\(([^)]+)\)/.exec(channel.messages);
     if (!header || header[2] !== draft.channelId)
-      return fail("The Slack destination could not be verified");
+      return unverified(`The Slack connector did not report a channel for id ${draft.channelId}.`);
     const account = await read("slack_read_user_profile", {});
     const profile = typeof account.result === "string" ? account.result : "";
     const workspace = /^Organization Name:\s*(.+)$/m.exec(profile)?.[1]?.trim();
     const email = /^Email:\s*(\S+@\S+)$/m.exec(profile)?.[1];
-    if (!workspace || !email)
-      return fail("The Slack workspace and sending account could not be verified");
+    if (!workspace || !email) return unverified("The Slack connector did not report the sending account's workspace.");
     let thread: string | undefined;
     if (draft.threadTs) {
       const parent = await read("slack_read_thread", {
@@ -202,19 +212,22 @@ export class ExternalDraftService {
         typeof parent.messages !== "string" ||
         !parent.messages.includes(`Message TS: ${draft.threadTs}`)
       )
-        return fail("The Slack thread could not be verified");
+        return unverified(`The Slack connector did not report a thread parent for ts ${draft.threadTs}.`);
       thread = parent.messages.slice(0, 500);
     }
     return { identity: `${workspace} (${email})`, destination: header[1]!, thread };
   }
   async create(context: ToolContext, raw: unknown): Promise<string | Record<string, unknown>> {
     const draft = parseExternalDraft(raw);
-    const verification = await this.verify(
-      context.botId,
-      context.runId,
-      draft,
-      `draft-verify:${context.callId}`
-    );
+    const verification = await this.verify(context.botId, context.runId, draft, `draft-verify:${context.callId}`).catch((error: unknown) => {
+      // A connector that fails or answers unreadably leaves the routing unverified too; the
+      // draft's own refusals (wrong account, wrong from) keep their sentences.
+      if (error instanceof ApiError && error.code === "draft_unavailable" && !/^The connector (did not complete|returned an unreadable)/.test(error.message))
+        throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      const reason = /[.!?]$/.test(message) ? message : `${message}.`;
+      throw new ApiError(409, "draft_unavailable", `Draft refused: the routing could not be verified through the connector (${reason}). Nothing was drafted. Fix the routing (or the connector's connection) and call this tool again.`);
+    });
     if (draft.platform === "slack") draft.target = verification.destination;
     const bot = await this.prisma.bot.findUnique({
       where: { id: context.botId },
@@ -232,10 +245,12 @@ export class ExternalDraftService {
         : mode === "always-allow"
           ? { rule: `Allow recipient ${externalDraftRecipients(draft).join(", ")}` }
           : undefined;
+    const room = (await this.prisma.channel.findUnique({ where: { id: context.channelId }, select: { kind: true } }))?.kind === "group";
     const result = await this.messaging.sendVisible(context, {
       type: "external-draft",
       draft: { ...draft, verification, runId: context.runId },
       end_turn: false,
+      ...(room ? { to: "dm" } : {}),
       ...(sentUnder
         ? { cardState: "sending", sendStartedAt: new Date().toISOString(), sentUnder }
         : {}),
@@ -243,7 +258,7 @@ export class ExternalDraftService {
     const acknowledgement: string | Record<string, unknown> =
       typeof result.acknowledgement === "string"
         ? result.acknowledgement
-        : { ...(result.acknowledgement as Record<string, unknown>), target: verification.destination };
+        : { ...(result.acknowledgement as Record<string, unknown>), target: verification.destination, ...(room ? { in_dm: true } : {}) };
     if (!sentUnder || typeof acknowledgement === "string" || acknowledgement.duplicate)
       return acknowledgement;
     const delivered = await this.deliver(String(acknowledgement.message_id), false);
@@ -312,11 +327,7 @@ export class ExternalDraftService {
       });
       const metadata = metadataRecord(claim.message.metadata);
       if (metadata.cardState === "dismissed" && !metadata.outcomeId)
-        return this.settle(
-          messageId,
-          "dismissed",
-          "The user discarded the draft. Nothing was sent; treat it as a decline and don't redraft unasked."
-        );
+        return this.settle(messageId, "dismissed", DISCARDED_DRAFT_OUTCOME, false, false);
       if (!claim.claimed) {
         if (metadata.cardState === "sending") {
           const call = await this.prisma.pluginInvocation.findUnique({
@@ -331,11 +342,7 @@ export class ExternalDraftService {
             }
           }
           if (Date.now() - Date.parse(String(metadata.sendStartedAt)) > 180_000)
-            return this.settle(
-              messageId,
-              "unknown",
-              "Delivery was interrupted. Check the mailbox or Slack before creating another draft; this send will not be repeated automatically."
-            );
+            return this.settle(messageId, "unknown", UNCONFIRMED_DRAFT_OUTCOME, false, false);
         }
         return { accepted: false, message: toChannelMessageView(claim.message), runId: null };
       }
@@ -410,13 +417,7 @@ export class ExternalDraftService {
       }
       return this.settle(messageId, "sent", sent, wake);
     } catch (error) {
-      if (enteredSend)
-        return this.settle(
-          messageId,
-          "unknown",
-          "The send did not return a confirmed result. Check the destination before retrying; no automatic resend will occur.",
-          wake
-        );
+      if (enteredSend) return this.settle(messageId, "unknown", UNCONFIRMED_DRAFT_OUTCOME, false, !wake);
       return this.reopen(
         messageId,
         error instanceof ApiError || error instanceof Error ? error.message : "The connector could not be reached"
@@ -492,7 +493,8 @@ export class ExternalDraftService {
       return { accepted: true, message: toChannelMessageView(message), runId: null };
     });
   }
-  private async settle(messageId: string, state: string, outcome: string, wake = true) {
+  /** wake: start a turn for the outcome now. echoed: the outcome was already reported, so it is not repeated next turn. */
+  private async settle(messageId: string, state: string, outcome: string, wake = true, echoed = !wake) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
       const message = await tx.channelMessage.findUniqueOrThrow({ where: { id: messageId } });
@@ -513,7 +515,7 @@ export class ExternalDraftService {
               metadataRecord(stored.verification)
             )}`.slice(0, 10000),
             // An automatic send reports back in the DraftExternalMessage result instead of a wake.
-            outcomeEchoed: !wake,
+            outcomeEchoed: echoed,
           }),
         },
       });

@@ -17,13 +17,13 @@ describe("agent-to-agent protocol", () => {
       "Sent to Researcher. This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now."
     );
     expect(directAgentAcknowledgement({ targetName: "Researcher", priority: true })).toBe(
-      "Sent to Researcher as a priority message — it will interrupt their current non-user work and wake them now. This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now."
+      "Sent to Researcher as a priority message — it jumps their queue and interrupts any routine or background work they are running; if they are mid-conversation with the user or handling another agent's message, it is delivered right after that. This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now."
     );
     expect(groupAgentAcknowledgement("Launch Room", { imageCount: 1 })).toBe(
       'Posted to "Launch Room". Its members will see it and reply on their own turns. Note: the attached image was NOT delivered — group messages are text-only for now; send images to an agent directly.'
     );
     expect(groupAgentAcknowledgement("Launch Room", { priority: true })).toBe(
-      'Posted to "Launch Room". Its members will see it and reply on their own turns.'
+      'Posted to "Launch Room". Its members will see it and reply on their own turns. Note: priority is 1:1 only — this post did not interrupt members.'
     );
     expect(groupAgentAcknowledgement("Launch Room", { imageCount: 2 })).toBe(
       'Posted to "Launch Room". Its members will see it and reply on their own turns. Note: the attached images were NOT delivered — group messages are text-only for now; send images to an agent directly.'
@@ -240,7 +240,7 @@ Current routine runtime status. This snapshot is authoritative for this turn and
 
   test("uses OpenTeam's exact room-turn message-limit notice", () => {
     expect(GROUP_MEMBER_TURN_MESSAGE_LIMIT_NOTICE).toBe(
-      "Not delivered — you've reached this room turn's 3-message limit. Consolidate, or wait for your next turn."
+      "This message was not delivered. You've reached this room turn's 3-message limit. Consolidate, or wait for your next turn."
     );
   });
 

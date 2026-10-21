@@ -1,13 +1,12 @@
-import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
+import { applyArgumentAliases, normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { onlyPendingBackgroundWork } from "./background-status";
 import { spoolFile } from "@openteam/plugin-sdk/file-spool";
 import { agentReadStream, agentWriteStream } from "../agent-file-stream";
 import { stageAttachment } from "../attachment-staging";
-import {
-  describeOutputLocation,
-  buildUserFormRemapReceipt,
-} from "@openteam/contracts/reference-formatters";
-import { renderDesktopResult, renderControlResult } from "@openteam/contracts/tool-results";
+import { describeOutputLocation } from "@openteam/contracts/reference-formatters";
+import { buildUserFormRemapReceipt } from "@openteam/contracts/reference-form-results";
+import { renderDesktopResult, renderControlResult, sendToUserFailure, toolErrorDetail } from "@openteam/contracts/tool-results";
+import { coerceArgumentsToJsonSchema, invalidArgumentsMessage } from "@openteam/contracts/tool-arguments";
 import {
   describeUploadFileOutcome,
   describeDownloadFileOutcome,
@@ -28,11 +27,12 @@ import { DESKTOP_CAPABILITY_TOOLS } from "@openteam/contracts/desktop-capabiliti
 import { agentFileIO } from "../agent-file-io";
 import { boundToolImage } from "./image-input";
 import { redactSecrets } from "@openteam/shell-jobs";
-import { validateProcessSecretName } from "@openteam/contracts";
+import { validateProcessSecretName, WAKE_PARENT_TOOL } from "@openteam/contracts";
 import { type AgentToolResult, defineTool } from "@earendil-works/pi-coding-agent";
 import {
   AwaitShellInput,
   AUTOMATION_PARENT_ONLY_TOOLS,
+  AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED,
   CALL_DYNAMIC_TOOL_TOOL,
   CallDynamicToolInput,
   COMPUTER_USE_TOOL,
@@ -146,10 +146,11 @@ export const SUBAGENT_PRIVATE_NATIVE_TOOLS: ReadonlySet<string> = new Set([
   SCREENSHOT_TOOL.name,
 ]);
 
-/** First-party tools a worker calls directly instead of looking them up with GetDynamicTools. */
+/** First-party tools a worker or routine run calls directly instead of looking them up with GetDynamicTools. */
 export const workerTopLevelTools = (
-  active: Pick<ActiveTurn, "subagentType" | "readOnly">
+  active: Pick<ActiveTurn, "subagentType" | "readOnly"> & Partial<Pick<ActiveTurn, "requestSource" | "runtimeProfile">>
 ): readonly string[] => {
+  if (active.requestSource === "automation" && active.runtimeProfile !== "subagent") return [WAKE_PARENT_TOOL.name];
   if (active.subagentType === "executor" || active.subagentType === "knowledgeWork")
     return active.readOnly ? ["WebSearch", "WebFetch"] : ["AwaitShell", "WebSearch", "WebFetch"];
   if (active.subagentType === "computerUse") return ["AwaitShell"];
@@ -544,7 +545,8 @@ export class RuntimeTools {
         label: name,
         description: graphical ? tool.description.replace(MACHINE_ROUTING_AWAIT_SENTENCE, "") : tool.description,
         parameters: Type.Unsafe<Record<string, unknown>>(graphical ? boxScopedSchema(tool.inputSchema) : tool.inputSchema),
-        executionMode: "parallel",
+        // WakeParent ends the run, so nothing runs beside it.
+        executionMode: name === WAKE_PARENT_TOOL.name ? "sequential" : "parallel",
         execute: (callId: string, args: unknown, signal?: AbortSignal) =>
           this.executeOpenTeamTool(active, callId, name, args, signal),
       });
@@ -598,18 +600,29 @@ export class RuntimeTools {
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     this.assertCurrentInput(active);
     const name = tool === CALL_DYNAMIC_TOOL_TOOL.name ? (args as { toolName?: unknown } | null)?.toolName : tool;
-    if (typeof name !== "string" || !SAME_STEP_FILE_WRITERS.has(name))
-      return this.executeScopedTool(active, callId, tool, args, signal);
-    // Calls issued in one step start in order, so a later Read in the step can wait for these.
     const run = this.executeScopedTool(active, callId, tool, args, signal);
-    const writers = this.stepFileWriters.get(active.runId) ?? new Set<Promise<unknown>>();
-    writers.add(run);
-    this.stepFileWriters.set(active.runId, writers);
+    // Calls issued in one step start in order, so a later Read in the step can wait for these.
+    const writers = typeof name === "string" && SAME_STEP_FILE_WRITERS.has(name)
+      ? this.stepFileWriters.get(active.runId) ?? new Set<Promise<unknown>>()
+      : undefined;
+    if (writers) {
+      writers.add(run);
+      this.stepFileWriters.set(active.runId, writers);
+    }
     try {
       return await run;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      const report = invalidArgumentsMessage(error);
+      // Every SendToUser failure reads as one sentence saying the send failed and why.
+      if (tool === SEND_TO_USER_TOOL.name)
+        throw new Error(sendToUserFailure(report ?? toolErrorDetail(error)));
+      throw report ? new Error(report) : error;
     } finally {
-      writers.delete(run);
-      if (!writers.size) this.stepFileWriters.delete(active.runId);
+      if (writers) {
+        writers.delete(run);
+        if (!writers.size) this.stepFileWriters.delete(active.runId);
+      }
     }
   }
 
@@ -644,7 +657,7 @@ export class RuntimeTools {
     if (queuedAttachment) active.pendingDeliveryAttachments?.delete(callId);
     if (queuedCleanup) active.pendingDeliveryCleanup?.delete(callId);
     if (active.requestSource === "automation" && AUTOMATION_PARENT_ONLY_TOOLS.has(tool)) {
-      throw new Error("Use WakeParent to hand this communication to the parent agent");
+      throw new Error(AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED);
     }
     args = normalizeMainToolArguments(tool, args);
     if (workerTopLevelTools(active).includes(tool)) {
@@ -1407,8 +1420,12 @@ export class RuntimeTools {
       body &&
       typeof body === "object" &&
       (body as Record<string, unknown>).woken === true
-    )
+    ) {
       active.endTurnRequested = true;
+      // The handoff ends the automation, so its background commands stop with it.
+      const runs = (body as Record<string, unknown>).automation_run_ids;
+      this.nativeToolExecutor.stopAutomationShells(Array.isArray(runs) ? runs.filter((id): id is string => typeof id === "string") : [active.runId]);
+    }
     // A reaction can be the whole reply: with end_turn, a successful one delivers and ends the turn.
     if (
       tool === REACT_TO_MESSAGE_TOOL.name &&
@@ -1599,8 +1616,11 @@ export class RuntimeTools {
                   description: definition.description,
                   inputSchema: definition.inputSchema,
                   source: "first-party",
+                  // The captured schema words each argument problem first; then the stored shape and body checks.
                   decodeArguments:
-                    name === "DraftExternalMessage" ? parseDraftExternalMessage : (input) => input,
+                    name === "DraftExternalMessage"
+                      ? (input) => parseDraftExternalMessage(normalizeMainToolArguments(name, input))
+                      : (input) => input,
                   execute: (turn, callId, args, signal) =>
                     this.callControlPlaneTool(turn, callId, name, args, signal),
                 };
@@ -1716,7 +1736,7 @@ export class RuntimeTools {
                 inputSchema: definition.inputSchema,
                 source: "first-party",
                 decodeArguments: (args) => {
-                  const value = args as Record<string, unknown>;
+                  const value = applyArgumentAliases(name, args) as Record<string, unknown>;
                   const required = name === "CopyToBox" ? "computer_path" : "box_path";
                   if (
                     !value ||
@@ -1829,7 +1849,20 @@ export class RuntimeTools {
     const receipts = active.discoveredDynamicTools.has(`${input.namespace}/${input.toolName}`)
       ? active.discoveredDynamicTools
       : new Set([...active.discoveredDynamicTools, ...retainedDynamicTools(catalog, active.dynamicDiscoveryMessages ?? [])]);
-    const resolved = resolveDynamicTool(catalog, receipts, input);
+    // String-encoded booleans, numbers and JSON become the advertised types before validation.
+    const firstParty = input.namespace === "cursor"
+      ? catalog.find((namespace) => namespace.name === "cursor")?.tools.find((tool) => tool.name === input.toolName)
+      : undefined;
+    const resolved = (() => {
+      try {
+        return resolveDynamicTool(catalog, receipts, firstParty && input.arguments && typeof input.arguments === "object"
+          ? { ...input, arguments: coerceArgumentsToJsonSchema(firstParty.inputSchema, input.arguments) as Record<string, unknown> }
+          : input);
+      } catch (error) {
+        const report = invalidArgumentsMessage(error);
+        throw report ? new Error(report) : error;
+      }
+    })();
     const invoke = async () => {
       signal?.throwIfAborted();
       if (finishCleanup) {

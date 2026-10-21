@@ -5,6 +5,7 @@ import {
   AgentSendToUserInput,
   validateProcessSecretName,
   AUTOMATION_PARENT_ONLY_TOOLS,
+  AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED,
   WakeParentInput,
   ApiError,
   CheckSubagentInput,
@@ -30,7 +31,7 @@ import { formatMemoryToolResult } from "../memory-tool-result";
 import type { AdministrationService } from "./administration-service";
 import type { PluginService } from "./plugin-service";
 import { serviceEffect } from "./service-utils";
-import type { SubagentService } from "./subagent/service";
+import { botSubagentId, type SubagentService } from "./subagent/service";
 import type { TodoService } from "./todo-service";
 import type { RichMessageService } from "./rich-message-service";
 import { processEnvironment } from "./process-secrets";
@@ -93,12 +94,19 @@ export class InternalToolService {
       if (request.tool === "RefreshToolCatalog") return {namespaces:await this.plugins.dynamicNamespaces(childIdentity?.parentBotId ?? request.botId)};
       if (request.tool === "ReadProcessSecrets") return { environment: await processEnvironment(this.prisma, request.botId) };
       if (run.origin === "routine" && AUTOMATION_PARENT_ONLY_TOOLS.has(request.tool)) {
-        throw new ApiError(403, "automation_tool_forbidden", "Use WakeParent to hand this communication or review to the parent agent");
+        throw new ApiError(403, "automation_tool_forbidden", AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED);
       }
       request={...request,arguments:normalizeMainToolArguments(request.tool,request.arguments)};
       if (request.tool === "WakeParent") {
         if (childIdentity) throw new ApiError(403, "wake_parent_unavailable", "Only the automation itself can wake its parent");
-        return wakeAutomationParent(this.messaging, context, Schema.decodeUnknownSync(WakeParentInput)(request.arguments));
+        const woken = await wakeAutomationParent(this.messaging, context, Schema.decodeUnknownSync(WakeParentInput)(request.arguments));
+        // The handoff ends the automation, so the subagents it started stop with it.
+        const children = await this.prisma.subagent.findMany({
+          where: { parentBotId: request.botId, parentRunId: { in: woken.automation_run_ids }, status: { in: ["provisioning", "queued", "running"] } },
+          select: { id: true },
+        });
+        await Promise.allSettled(children.map((child) => this.subagents.stop(request.botId, request.callId, { subagent_id: botSubagentId(child.id) })));
+        return woken;
       }
       if (run.origin === "routine" && !["RefreshPromptContext", "AcknowledgePromptContext", "AcknowledgeCardOutcomes"].includes(request.tool) &&
         (await this.prisma.automationResult.findUnique({ where: { runId: automationContextRunId(run.id, inboxPayload) }, select: { wakeRunId: true } }))?.wakeRunId) {
@@ -395,6 +403,11 @@ export class InternalToolService {
             };
           } catch (error) {
             if(error instanceof ApiError&&error.code==="external_file_review_required")throw error;
+            // Nothing left the box for these, so refuse now with the reason.
+            if (error instanceof ApiError && error.code === "connected_channel_address_invalid")
+              throw new ApiError(400, error.code, `"${input.channel}" is not a valid channel address, so nothing was sent. An address is shaped platform:chat.`);
+            if (error instanceof ApiError && ["connected_channel_unavailable", "connected_channel_ambiguous", "connected_channel_delivery_unsupported"].includes(error.code))
+              throw new ApiError(error.status, error.code, `${error.message}. Nothing was sent.`);
             const recoveryRunId = await this.messaging.enqueueChannelDeliveryFailure(
               context,
               input.channel,
@@ -405,6 +418,7 @@ export class InternalToolService {
                 sent: false,
                 channel: input.channel,
                 delivery_failed: true,
+                reason: (error instanceof Error ? error.message : String(error)).slice(0, 2_000),
                 recovery_run_id: recoveryRunId,
               },
               interruptRunId: null,

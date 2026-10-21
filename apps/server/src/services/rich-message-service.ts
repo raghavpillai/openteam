@@ -19,7 +19,8 @@ import { Prisma, type PrismaClient } from "@openteam/db";
 import { type AgentMessaging, type ToolContext, PRIORITY } from "@openteam/messaging";
 import { Effect } from "effect";
 import type { PluginService } from "./plugin-service";
-import type { ScreenService } from "./screen-service";
+import { UserFormRefusal, type ScreenService } from "./screen-service";
+import { buildUserFormUnsupportedTurnResult } from "@openteam/contracts/reference-form-results";
 import { appendEvent, metadataRecord, serviceEffect, toJson } from "./service-utils";
 import { toChannelMessageView as messageView } from "./view-mappers";
 
@@ -131,8 +132,13 @@ export class RichMessageService {
 
   async createUserForm(context: ToolContext, raw: unknown) {
     const form = parseUserForm(raw);
+    // Form cards are only shown in the private chat, so a room turn is told before any preflight.
+    const channel = await this.prisma.channel.findUnique({ where: { id: context.channelId }, select: { kind: true } });
+    if (channel?.kind === "group") return buildUserFormUnsupportedTurnResult(form, "room");
     const id = createHash("sha256").update(`${context.botId}:${context.callId}`).digest("hex");
-    const prepared = await this.screens.userFormAction(context.botId, id, "prepare", { form });
+    let prepared: unknown;
+    try { prepared = await this.screens.userFormAction(context.botId, id, "prepare", { form }); }
+    catch (error) { if (error instanceof UserFormRefusal) return error.message; throw error; }
     const result = await this.messaging.sendVisible(context, { type: "user-form", form: { ...parseUserForm(prepared), id }, end_turn: true });
     return {...result.acknowledgement as Record<string,unknown>,...(typeof metadataRecord(prepared).preflightNote === "string" ? {preflightNote:metadataRecord(prepared).preflightNote} : {})};
   }

@@ -16,6 +16,7 @@ import {
 import type { Prisma, PrismaClient } from "@openteam/db";
 import {
   appendAgentTimelineEvent,
+  automationContextRunId,
   type AgentDataStore,
   type RoutineService,
   type TimelineEventWakeHost,
@@ -34,6 +35,9 @@ const requiredText = (
   return text;
 };
 
+/** The reference's state refusal: a normal result the model reads as "Not saved: <reason>". */
+const refused = (target: string, action: string, reason: string) => ({ target, action, refused: reason });
+
 const stateError = (tool: StateToolName, action: string): never => {
   throw new ApiError(400, "state_action_invalid", `${tool} does not support action=${action}`);
 };
@@ -41,7 +45,16 @@ const stateError = (tool: StateToolName, action: string): never => {
 const PROFILE_FIELDS = ["name", "description", "title", "avatar_shape", "avatar_color"] as const;
 const SHARED_MEMORY_SHARED_CONVERSATION_REFUSAL =
   "shared_profile and shared_journal are the owner's memory across their assistants and are not written from a shared conversation.";
-const SETTINGS_FIELDS = ["hidden_from_sidebar", "notify_on_updates"] as const;
+const SETTINGS_FIELDS = ["hidden_from_sidebar", "notify_on_updates", "drafting_disabled"] as const;
+const DRAFTING_OFF_NEEDS_THE_USER =
+  'only the user can turn drafts off. Nothing was changed. Tell them to click "Disable drafts for this Bot" on a draft card.';
+// A routine run may pause or delete routines, but anything else waits for a conversation.
+const ROUTINE_RUN_REFUSALS = {
+  create: "a routine run cannot create another routine. Tell the user what you wanted to schedule and let them ask for it in a conversation.",
+  unverified: "a routine run cannot update a routine when the routine that started it cannot be verified. Tell the user what you wanted to change and let them ask for it in a conversation.",
+  update: "a routine run can only update the routine that started it. Tell the user what you wanted to change and let them ask for it in a conversation.",
+  enable: "a routine run cannot enable a routine. Tell the user what you wanted to resume and let them ask for it in a conversation.",
+};
 
 const stateToolArguments = {
   UpdateMemory: UpdateMemoryToolInput,
@@ -75,6 +88,7 @@ export class DurableStateService {
     const input: Partial<UpdateStateInput> = Schema.decodeUnknownSync(schema)(args);
     const run = (state: UpdateStateInput, key = callId) => this.execute(botId, key, state, runId, tool);
     if (tool === "DisconnectChannel") return run({ ...input, target: "channel", action: "disconnect" });
+    if (tool === "UpdateRoutine" && input.action === "get") return this.readRoutine(botId, runId, input.id);
     if (tool !== "UpdateProfile") return run({ ...input, target: STATE_TOOL_TARGETS[tool], action: input.action! });
     // Profile and settings are separate state. When both change, the settings half is
     // its own idempotent update under a derived call id.
@@ -86,6 +100,7 @@ export class DurableStateService {
     if (!changesSettings || PROFILE_FIELDS.every((field) => input[field] === undefined))
       return run(changesSettings ? settings : profile);
     const saved = await run(profile);
+    if (typeof saved.refused === "string") return saved;
     try {
       return { ...saved, settings: await run(settings, `${callId}:settings`) };
     } catch (error) {
@@ -178,11 +193,19 @@ export class DurableStateService {
         if (!["create", "update", "pause", "resume", "delete"].includes(input.action)) {
           return stateError(tool, input.action);
         }
-        const run = runId ? await this.prisma.run.findFirst({ where: { id: runId, botId }, select: { channelId: true } }) : null;
-        const group = run?.channelId ? await this.prisma.channel.findFirst({ where: {
-          id: run.channelId, kind: "group", archivedAt: null, members: { some: { botId } },
-        }, select: { id: true, name: true } }) : null;
-        const owner = group ? { kind: "group" as const, id: group.id } : { kind: "bot" as const, id: botId };
+        const { owner, group, firing, inRun } = await this.routineContext(botId, runId);
+        if (inRun) {
+          const own = input.id === firing?.id || input.id === firing?.slug;
+          const refused =
+            input.action === "create" ? ROUTINE_RUN_REFUSALS.create
+            : input.action === "resume" ? ROUTINE_RUN_REFUSALS.enable
+            : input.action !== "update" || input.id === undefined ? undefined
+            : !firing ? ROUTINE_RUN_REFUSALS.unverified
+            : !own ? ROUTINE_RUN_REFUSALS.update
+            : input.enabled === true ? ROUTINE_RUN_REFUSALS.enable
+            : undefined;
+          if (refused) return { target: "routine", action: input.action, refused };
+        }
         const routine = await this.routines.mutateOwner(owner, callId, runId, {
           action: input.action as "create" | "update" | "pause" | "resume" | "delete",
           id: input.id,
@@ -191,8 +214,22 @@ export class DurableStateService {
           schedule: input.schedule,
           trigger: input.trigger,
           enabled: input.enabled,
+        }).catch((error: unknown) => {
+          if (!(error instanceof ApiError)) throw error;
+          if (error.code === "routine_schedule_too_frequent")
+            return { target: "routine", action: input.action, refused: error.message };
+          if (error.code !== "routine_not_found") throw error;
+          if (input.action === "pause" || input.action === "delete")
+            return { target: "routine", action: input.action, refused: `no routine with folder "${input.id}" exists.` };
+          throw new ApiError(404, "routine_not_found", `no routine with folder "${input.id}" exists. List the automations folder, then pass its id.`);
         });
-        return { ...routine, owner: { ...owner, ...(group ? { name: group.name } : {}) } };
+        if (typeof routine.refused === "string") return routine;
+        return {
+          ...routine,
+          owner: { ...owner, ...(group ? { name: group.name } : {}) },
+          // Outside a routine run, a saved routine is summarized for the user.
+          ...(!inRun && ["create", "update"].includes(input.action) ? { delivery_nudge: true } : {}),
+        };
       }
       case "skill":
         return this.skill(botId, input, tool);
@@ -205,6 +242,42 @@ export class DurableStateService {
       case "avatar":
         return this.avatar(botId, input, tool);
     }
+  }
+
+  /** Whose routines this call reaches, and in a routine run, the routine that started it. */
+  private async routineContext(botId: string, runId: string | null) {
+    const run = runId ? await this.prisma.run.findFirst({ where: { id: runId, botId }, select: {
+      id: true, channelId: true, origin: true, inboxEvents: { take: 1, select: { payload: true } },
+    } }) : null;
+    const group = run?.channelId ? await this.prisma.channel.findFirst({ where: {
+      id: run.channelId, kind: "group", archivedAt: null, members: { some: { botId } },
+    }, select: { id: true, name: true } }) : null;
+    const owner = group ? { kind: "group" as const, id: group.id } : { kind: "bot" as const, id: botId };
+    const inRun = run?.origin === "routine";
+    const firing = inRun ? (await this.prisma.routineExecution.findUnique({
+      where: { runId: automationContextRunId(run.id, run.inboxEvents[0]?.payload) },
+      select: { routine: { select: { id: true, slug: true } } },
+    }))?.routine : undefined;
+    return { owner, group, firing, inRun };
+  }
+
+  /** UpdateRoutine get: the saved prompt and trigger, without changing anything. */
+  private async readRoutine(botId: string, runId: string | null, id: string | undefined): Promise<Record<string, unknown>> {
+    if (!id) throw new ApiError(400, "state_field_required", "'id' is required for routine get.");
+    // Routine files the bot edited directly are read back first.
+    await this.agentData.reconcileBot(botId);
+    const { owner, firing, inRun } = await this.routineContext(botId, runId);
+    if (inRun && id !== firing?.id && id !== firing?.slug)
+      return { target: "routine", action: "get", refused: "a routine run can only read the routine that started it." };
+    const routine = await this.routines.detailOwner(owner, id).catch((error: unknown) => {
+      if (error instanceof ApiError && error.code === "routine_not_found")
+        throw new ApiError(404, "routine_not_found", `no routine with folder "${id}" exists. Your routines and their folder ids are listed under Scheduled routines in your prompt.`);
+      throw error;
+    });
+    return {
+      target: "routine", action: "get", id: routine.id, folder: routine.folder, name: routine.name,
+      enabled: routine.enabled, schedule: routine.schedule, trigger: routine.trigger, prompt: routine.prompt,
+    };
   }
 
   private async memory(
@@ -243,23 +316,23 @@ export class DurableStateService {
   ): Promise<Record<string, unknown>> {
     if (input.action === "delete") {
       const id = requiredText(input.id, "id", tool, input.action);
-      const removed = await this.agentData.deleteSkill(botId, id);
-      if (!removed) {
-        throw new ApiError(404, "skill_not_found", "That skill does not belong to this bot");
-      }
+      if (!(await this.agentData.deleteSkill(botId, id)))
+        return refused("skill", "delete", `no skill with id "${id}" exists, or it is a managed or plugin skill, which cannot be deleted.`);
       return { target: "skill", action: "delete", id, deleted: true };
     }
     if (input.action !== "write") return stateError(tool, input.action);
 
-    const name = requiredText(input.name, "name", tool, input.action);
-    const description = requiredText(input.description, "description", tool, input.action);
-    const body = requiredText(input.body, "body", tool, input.action);
-    const saved = await this.agentData.writeSkill(botId, {
-      id: input.id,
-      name,
-      description,
-      body,
+    const missing = `no skill with id "${input.id}" exists, or the new fields were invalid. Managed and plugin skills cannot be edited.`;
+    const [name, description, body] = [input.name, input.description, input.body].map((value) => value?.trim());
+    if (!name || !description || !body)
+      return refused("skill", "write", input.id === undefined
+        ? "the skill could not be saved. A name, a one-line description, and a non-empty body are all required."
+        : missing);
+    const saved = await this.agentData.writeSkill(botId, { id: input.id, name, description, body }).catch((error: unknown) => {
+      if (error instanceof Error && error.message === "Skill not found") return null;
+      throw error;
     });
+    if (!saved) return refused("skill", "write", missing);
     return {
       target: "skill",
       action: "write",
@@ -276,15 +349,10 @@ export class DurableStateService {
     tool: StateToolName
   ): Promise<Record<string, unknown>> {
     if (input.action !== "set") return stateError(tool, input.action);
-    if (PROFILE_FIELDS.every((field) => input[field] === undefined)) {
-      throw new ApiError(
-        400,
-        "state_field_required",
-        `${tool} requires at least one of ${[...PROFILE_FIELDS, ...SETTINGS_FIELDS].join(", ")}`
-      );
-    }
-    const name =
-      input.name === undefined ? undefined : requiredText(input.name, "name", tool, "set");
+    if (PROFILE_FIELDS.every((field) => input[field] === undefined))
+      return refused("profile", "set", "nothing to change. Pass at least one of name, description, title, avatar_shape, or avatar_color.");
+    if (input.name !== undefined && !input.name.trim()) return refused("profile", "set", "a blank name is not allowed.");
+    const name = input.name?.trim();
     const description = input.description?.trim();
     const bot = await this.agentData.mutateBotFiles(botId, ["profile"], async (tx) => {
       const previous = await tx.bot.findUniqueOrThrow({ where: { id: botId } });
@@ -326,23 +394,22 @@ export class DurableStateService {
     tool: StateToolName
   ): Promise<Record<string, unknown>> {
     if (input.action !== "set") return stateError(tool, input.action);
-    if (SETTINGS_FIELDS.every((field) => input[field] === undefined)) {
-      throw new ApiError(
-        400,
-        "state_field_required",
-        `${tool} settings require hidden_from_sidebar and/or notify_on_updates`
-      );
-    }
+    // Drafts are turned off from a draft card by the user; the bot can only turn them back on.
+    if (input.drafting_disabled === true) return refused("settings", "set", DRAFTING_OFF_NEEDS_THE_USER);
+    if (SETTINGS_FIELDS.every((field) => input[field] === undefined))
+      return refused("settings", "set", "nothing to change. Pass at least one setting field.");
     const settings = await this.agentData.mutateBotFiles(botId, ["settings"], (tx) =>
       tx.bot.update({
         where: { id: botId },
         data: {
           hiddenFromSidebar: input.hidden_from_sidebar,
           notificationsEnabled: input.notify_on_updates,
+          draftingDisabled: input.drafting_disabled,
         },
         select: {
           hiddenFromSidebar: true,
           notificationsEnabled: true,
+          draftingDisabled: true,
         },
       })
     );
@@ -351,6 +418,7 @@ export class DurableStateService {
       action: "set",
       hidden_from_sidebar: settings.hiddenFromSidebar,
       notify_on_updates: settings.notificationsEnabled,
+      drafting_disabled: settings.draftingDisabled,
       updated: true,
     };
   }
@@ -362,6 +430,8 @@ export class DurableStateService {
   ): Promise<Record<string, unknown>> {
     if (input.action !== "disconnect") return stateError(tool, input.action);
     const platform = requiredText(input.platform, "platform", tool, input.action).toLowerCase();
+    const state = await this.prisma.botConnectorState.findUnique({ where: { botId_platform: { botId, platform } } });
+    if (!state?.connected) return { ...refused("channel", "disconnect", `${platform} is not connected.`), platform };
     const disconnectedAt = new Date();
     await this.prisma.botConnectorState.upsert({
       where: { botId_platform: { botId, platform } },
@@ -383,6 +453,8 @@ export class DurableStateService {
     tool: StateToolName
   ): Promise<Record<string, unknown>> {
     if (input.action === "clear") {
+      const bot = await this.prisma.bot.findUnique({ where: { id: botId }, select: { avatarPath: true } });
+      if (!bot?.avatarPath) return refused("avatar", "clear", "you already have the default picture.");
       await this.agentData.setAvatarFromPath(botId, null);
       return { target: "avatar", action: "clear", cleared: true };
     }
@@ -392,11 +464,7 @@ export class DurableStateService {
     try {
       saved = await this.agentData.setAvatarFromPath(botId, supplied);
     } catch (error) {
-      throw new ApiError(
-        400,
-        "avatar_path_invalid",
-        error instanceof Error ? error.message : "Avatar source is invalid"
-      );
+      return refused("avatar", "set", error instanceof Error ? error.message : "the picture could not be installed.");
     }
     return {
       target: "avatar",

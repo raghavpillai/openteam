@@ -19,13 +19,10 @@ describe("routine schedules", () => {
     expect(nextRoutineRun(tokyo, now).toISOString()).toBe("2026-09-25T00:00:00.000Z");
   });
   test.each([
-    "@every 1m",
-    "@every 31d",
     "@every nonsense",
     "@every 5m/5m",
     "@every 5m/invalid",
     "0 0 7 * * *",
-    "*/2 * * * *",
     "61 9 * * *",
     "0 0 30 2 *",
     "CRON_TZ=Not/A_Zone 0 9 * * *",
@@ -38,6 +35,16 @@ describe("routine schedules", () => {
     }
     expect(failure).toBeInstanceOf(ApiError);
     expect(failure).toMatchObject({ status: 400, code: "invalid_routine_schedule" });
+  });
+
+  test.each(["@every 1m", "*/2 * * * *", "0,3 9 * * *"])("refuses %s with the five-minute floor reason", (schedule) => {
+    expect(() => normalizeRoutineSchedule(schedule, "UTC")).toThrow(
+      expect.objectContaining({ status: 400, code: "routine_schedule_too_frequent", message: "routine schedules must be at least 5 minutes apart." })
+    );
+  });
+
+  test("long intervals are accepted", () => {
+    expect(normalizeRoutineSchedule("@every 40d", "UTC").intervalSeconds).toBe(40 * 86_400);
   });
 
   test("normalizes aliases and pinned time zones", () => {

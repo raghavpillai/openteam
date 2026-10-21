@@ -1,6 +1,7 @@
 import reference from "./tool-reference.json";
 import native from "./native-tools.json";
 import { APP_SETTINGS_ANCHORS } from "./app-deep-links";
+import { ROBOT_AVATAR_SHAPES } from "./robot-avatar";
 import { defaultTaskConfiguration, taskTypeNames, type TaskConfiguration } from "./task-configuration";
 
 export interface ToolContract {
@@ -57,11 +58,6 @@ contracts.RequestUserForm!.description = editReference("RequestUserForm", contra
   [
     "Show the user the Secure Form for a step where a page needs THEM to type something, such as a login, a checkout address, or a phone number.",
     "Show the user a native in-chat form when they need to supply missing input. If credentials or a verification code are already available through the user's connected sources, enter them with browser_type or browser_fill_form instead.",
-  ],
-  // The host fills same-origin frames only and refuses a cross-origin target.
-  [
-    "Fields inside iframes (cross-origin ones included) and shadow roots are reachable: send the form for them instead of predicting a failure.",
-    "Fields inside same-origin iframes and open shadow roots are reachable: send the form for them instead of predicting a failure. Fields inside a cross-origin iframe or a closed shadow root are not.",
   ],
   [
     "Use this instead of asking for credentials in chat, and instead of request_box_help when the step is just typing; the box handoff stays for",
@@ -196,6 +192,23 @@ const adaptArgument = (tool: string, path: string, edits: Edits) => {
   const property = path.split(".").reduce((schema: any, key) => schema.properties[key], contracts[tool]!.inputSchema);
   property.description = edited(`${tool} ${path}`, property.description, edits);
 };
+
+// Saved skills form one library that every assistant shares; managed and plugin skills are read-only.
+adaptDescription("UpdateSkill", [
+  ["one of your reusable skills.", "one of your reusable skills. Skills are a shared library: every assistant can use a saved skill, and deleting one removes it for all of them."],
+  ["Cursor-managed skills can't be changed.", "Managed and plugin skills can't be changed."],
+]);
+// The picture is installed from the bot's own agent directory; other paths are refused.
+adaptArgument("UpdateAvatar", "path", [[
+  "on your box (under /workspace is fine) or the user's computer.",
+  "inside your own agent directory (a relative path starts there). Write or copy the image there with Shell first.",
+]]);
+// Stdio MCP servers run on the bot's box.
+adaptArgument("AddMcpServer", "command", [["on OpenTeam's computer", "on your computer (the box)"]]);
+// Bots are drawn as robots, so the default mark is one of the robot shapes the apps render;
+// any other shape would silently fall back to the default robot.
+contracts.UpdateProfile!.inputSchema.properties.avatar_shape.enum = [...ROBOT_AVATAR_SHAPES];
+adaptArgument("UpdateProfile", "avatar_shape", [["Your default mark,", "Your default robot,"]]);
 
 // Local commands and reads run directly; there is no local-tool approval.
 adaptDescription("Shell", [["require the user's local-tool approval.", "execute directly."]]);
@@ -339,13 +352,37 @@ contracts.SendFeedback!.inputSchema.properties.wantsResponse = {
 };
 contracts.SendFeedback!.inputSchema.required = [...contracts.SendFeedback!.inputSchema.required, "wantsResponse"];
 
-// Routine writes apply directly; there is no confirmation card.
 adaptDescription("UpdateRoutine", [
+  // The routine list lives in the frozen prompt section, not a per-turn reminder.
   [
-    "\nCreating or changing a routine may ask the user to confirm, since it's the one change that acts while they're away. If it does, they'll see a card and you'll get their answer back as the tool result; don't ask first, and don't retry a denied write.",
-    "",
+    "are in the latest <automation_status> reminder, which shows no prompts.",
+    "are listed under Scheduled routines in your prompt, which shows no prompts.",
+  ],
+  // There are no meeting tools.
+  [", except joining a meeting or saving what to do in one (JoinMeeting or UpdateMeeting).", "."],
+  ["Read the Cursor-managed `routines` skill", "Read the managed `routines` skill"],
+  // There is no timing field; get returns the saved schedule with the trigger.
+  ["returns the saved prompt, trigger, and timing.", "returns the saved prompt and trigger."],
+  // A clock time the user names is saved as named (decided for self-hosted installs).
+  [
+    'at least 5 minutes apart; take the minute from the latest <timestamp>, never :00 or :30 unless the user named it.',
+    'at least 5 minutes apart. A clock time the user names is saved as named ("8am" is "0 8 * * *"); only an ask that names no time takes the minute from the latest <timestamp>.',
+  ],
+  // Routine writes apply directly; there is no confirmation card, but a refused write stays refused.
+  [
+    "A change may ask the user to confirm on a card; don't ask first, and don't retry a denied write.",
+    "Don't ask first, and don't retry a denied write.",
   ],
 ]);
+// The runtime checks arguments against the advertised schema, so the bare-array group
+// shorthand the parser accepts is advertised beside the compact listener object.
+{
+  const { description, ...listener } = contracts.UpdateRoutine!.inputSchema.properties.trigger;
+  contracts.UpdateRoutine!.inputSchema.properties.trigger = {
+    anyOf: [listener, { type: "array", items: listener, minItems: 1 }],
+    description,
+  };
+}
 
 // StopSubagent reaches this agent's own subagents only; there are no cloud agents.
 adaptDescription("StopSubagent", [
@@ -401,12 +438,7 @@ adaptDescription("request_box_help", [
   [" It is the last step of the `sign-in` skill.", ""],
   [
     "one-time code you cannot read from an inbox goes to RequestUserForm first when it is among your tools, embedded and cross-origin fields included; entering the card itself is the Secure Form.",
-    "one-time code you cannot get from the user's connected sources goes to RequestUserForm first when it is among your tools, fields in same-origin frames included.",
-  ],
-  // The form host refuses a cross-origin frame, so that field comes here directly.
-  [
-    "Hand off only when that tool is not offered, the step is not a typed field, or the host",
-    "Hand off only when that tool is not offered, the step is not a typed field, the field is inside a cross-origin iframe, or the host",
+    "one-time code you cannot get from the user's connected sources goes to RequestUserForm first when it is among your tools, embedded and cross-origin fields included; entering the card itself is that form.",
   ],
 ]);
 adaptArgument("request_box_help", "reason", [['"auth" for any sign-in step (login, SSO, passkey, 2FA),', '"auth" for a sign-in step,']]);
@@ -500,7 +532,7 @@ for (const key of ["meetingId", "mailbox", "htmlBody", "proposedRule", "proposed
 draft.required = ["platform", "providerIdentifier", "body"];
 draft.properties.providerIdentifier.description = edited("DraftExternalMessage providerIdentifier", draft.properties.providerIdentifier.description, [["Required for email/Slack. ", ""]]);
 draft.properties.from.description = edited("DraftExternalMessage from", draft.properties.from.description, [
-  ["Email only. The plain address", "Required when platform is email. The plain address"],
+  ["Email only. The plain address", "Required for email. The plain address"],
   [
     /On Gmail, omit it to send from the account's default address; only \S+ REST Gmail connector can also send from a verified send-as alias\. Required for Outlook: get_me's mail field\./,
     "If you don't already know it, read it from the mailbox first: the Gmail connector's get_profile returns it as emailAddress (a Gmail Send mail as address also works), and an Email plugin inbox's address comes from ListEmailInboxes.",
@@ -579,4 +611,4 @@ export function withReferenceContract<
 }
 
 export const FIRST_PARTY_NAMESPACE_DESCRIPTION =
-  "Native OpenTeam tools for this session. These are highly recommended and useful tools that you should use when the right situation arises. Don't be afraid to look at one if it seems relevant, even if you don't end up using it. You MUST read the tool schemas before calling them.\n\nHere are some crucial instructions:\n- AuthenticateMcpServer: Start authentication for a connector that needs auth.\n- AwaitShell: Use to sleep and check shell progress. Never sleep using shell.\n- CheckSubagent: Inspect a running background subagent's status and recent actions.\n- CopyFromBox: Copy a file from your box onto the user's computer.\n- CopyToBox: Copy a file from the user's computer onto your box.\n- DisconnectChannel: Disconnect one of your connected channels.\n- DownloadFile: Fetch a Drive or Gmail file onto your box. Not URLs (WebFetch, curl) or box files (Read).\n- MessageSubagent: Send a new instruction into a running background subagent.\n- RemapUserFormTargets: Only after a RequestUserForm receipt says a field's value is HELD: remap its new target.\n- RequestUserForm: Show the user an in-chat form; the host fills the box browser with their answers.\n- SearchPlugins: Search installable plugins/connectors when a task needs a service.\n- SendFeedback: Send the user's product feedback to the OpenTeam maintainers when they ask. Ask whether they want a reply unless they already said.\n- StopSubagent: Abort a running background subagent.\n- TodoWrite: Use this tool to manage complex multi-step tasks.\n- UpdateAvatar: Set or clear your profile picture.\n- UpdateProfile: Change your name, description, title, default mark, or sidebar and notification settings.\n- UpdateSkill: Save, rewrite, or delete your reusable skills.\n- UploadFile: Send a box file to Google Drive or Gmail.";
+  "Native OpenTeam tools for this session. These are highly recommended and useful tools that you should use when the right situation arises. Don't be afraid to look at one if it seems relevant, even if you don't end up using it. You MUST read the tool schemas before calling them.\n\nHere are some crucial instructions:\n- AuthenticateMcpServer: Start authentication for a connector that needs auth.\n- AwaitShell: Use to sleep and check shell progress. Never sleep using shell.\n- CheckSubagent: Inspect a running background subagent's status and recent actions.\n- CopyFromBox: Copy a file from your box onto the user's computer.\n- CopyToBox: Copy a file from the user's computer onto your box.\n- DisconnectChannel: Disconnect one of your connected channels.\n- DownloadFile: Fetch a Drive or Gmail file onto your box. Not URLs (WebFetch, curl) or box files (Read).\n- MessageSubagent: Send a new instruction into a running background subagent.\n- RemapUserFormTargets: Only after a RequestUserForm receipt says a field's value is HELD: remap its new target.\n- RequestUserForm: Show the user an in-chat form; the host fills the box browser with their answers.\n- SearchPlugins: Search installable plugins/connectors when a task needs a service.\n- SendFeedback: Send the user's product feedback to the OpenTeam maintainers when they ask. Ask whether they want a reply unless they already said.\n- StopSubagent: Abort a running background subagent.\n- TodoWrite: Use this tool to manage complex multi-step tasks.\n- UpdateAvatar: Set or clear your profile picture.\n- UpdateProfile: Change your name, description, title, default mark, or sidebar, notification, and drafting settings.\n- UpdateSkill: Save, rewrite, or delete your reusable skills.\n- UploadFile: Send a box file to Google Drive or Gmail.";

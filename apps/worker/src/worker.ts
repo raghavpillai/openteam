@@ -790,7 +790,11 @@ export class WakeWorker {
     });
     for (const execution of executions) {
       if (execution.runId && execution.run) {
-        const updated = await this.prisma.$transaction(tx => reconcileRoutineExecution(tx, execution.runId!));
+        const updated = await this.prisma.$transaction(async tx => {
+          const settled = await reconcileRoutineExecution(tx, execution.runId!);
+          if (settled) await this.routines.afterExecution(tx, settled);
+          return settled;
+        });
         if (updated && execution.routine.botId) {
           await this.syncRoutineRunFile(execution.routine.botId, execution.runId);
         }
@@ -800,6 +804,14 @@ export class WakeWorker {
         await this.recoverGroupRoutineExecution(execution.id, execution.channelMessageId);
       }
     }
+    // A follow-up holding coalesced events has no wake until the run before it settles.
+    const followUps = await this.prisma.routineExecution.findMany({
+      where: { status: "queued", runId: null, channelMessageId: null, routine: { bot: { status: "active" } } },
+      select: { routineId: true },
+      take: 100,
+    });
+    for (const { routineId } of followUps)
+      await this.prisma.$transaction(tx => this.routines.startEventFollowUp(tx, routineId));
   }
 
   private async recoverGroupRoutineExecution(
@@ -1427,7 +1439,8 @@ export class WakeWorker {
           where: { id: claimed.inboxId },
           data: { status: "completed", completedAt },
         });
-        await reconcileRoutineExecution(tx, claimed.runId);
+        const settledRoutine = await reconcileRoutineExecution(tx, claimed.runId);
+        if (settledRoutine) await this.routines.afterExecution(tx, settledRoutine);
         if (claimed.origin === "bootstrap") {
           const onboarding = await tx.bot.updateMany({
             where: { id: claimed.botId, onboardingStatus: "running" },
@@ -1658,7 +1671,8 @@ export class WakeWorker {
         where: { id: claimed.inboxId },
         data: { status: "failed", error: failureDetails, completedAt: new Date() },
       });
-      await reconcileRoutineExecution(tx, claimed.runId);
+      const settledRoutine = await reconcileRoutineExecution(tx, claimed.runId);
+      if (settledRoutine) await this.routines.afterExecution(tx, settledRoutine);
       if (claimed.origin === "bootstrap") {
         const onboarding = await tx.bot.updateMany({
           where: { id: claimed.botId, onboardingStatus: "running" },
@@ -2043,6 +2057,7 @@ export class WakeWorker {
     // Delegated work belongs to the automation that launched it. Resume that
     // context unless it already handed responsibility to the main agent.
     const route = await automationContinuationRoute(tx, subagent.parentBotId, subagent.parentRunId);
+    if (!route) return;
     const source = await tx.run.findUnique({ where: { id: subagent.parentRunId }, include: { inboxEvents: { take: 1, select: { payload: true } } } });
     const sourcePayload = source?.inboxEvents[0]?.payload as { taskContextRunId?: string } | undefined;
     const room = await tx.channel.findUnique({ where: { id: subagent.parentChannelId }, select: { kind: true, name: true } });

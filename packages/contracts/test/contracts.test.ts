@@ -48,8 +48,10 @@ import {
   UpdateRoutineToolInput,
   UploadAssetInput,
 } from "../src";
-import { normalizeMainToolArguments } from "../src/reference-main-parsers";
+import { describeTrigger, normalizeMainToolArguments } from "../src/reference-main-parsers";
 import { renderControlResult } from "../src/tool-results";
+import { ROBOT_AVATAR_SHAPES } from "../src/robot-avatar";
+import { parseUserForm, userFormPreparationRefusal } from "../src/user-forms";
 import cursorToolsDocument from "../src/cursor-tools.json";
 import nativeToolsDocument from "../src/native-tools.json";
 
@@ -628,15 +630,31 @@ describe("API contracts", () => {
     expect(memory.properties.type?.enum).toEqual(["profile", "journal", "shared_profile", "shared_journal"]);
     expect(Object.keys(memory.properties)).toEqual(["action", "fact", "type"]);
     expect(memory.required).toEqual(["action", "fact", "type"]);
-    expect(UPDATE_MEMORY_TOOL.description).toStartWith("Change your durable memory. Pick the memory type that fits:\n- profile: ");
+    expect(UPDATE_MEMORY_TOOL.description).toStartWith(
+      "Change your durable memory. Each memory type below holds one kind of fact. Save a fact to the type meant for it, and leave out a fact no type is meant for:\n- profile: "
+    );
     expect(UPDATE_MEMORY_TOOL.description).toContain("UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.");
     expect(UPDATE_MEMORY_TOOL.description).not.toContain("memory folder");
     const routine = UPDATE_ROUTINE_TOOL.inputSchema as { properties: Record<string, { enum?: string[] }> };
-    expect(routine.properties.action?.enum).toEqual(["create", "update", "pause", "resume", "delete"]);
+    expect(routine.properties.action?.enum).toEqual(["create", "get", "update", "pause", "resume", "delete"]);
     // Routine writes apply directly; no confirmation card exists.
     expect(UPDATE_ROUTINE_TOOL.description).not.toContain("confirm");
+    expect(UPDATE_ROUTINE_TOOL.description).toContain("- create: name, prompt, and schedule or trigger. get: id; returns the saved prompt and trigger. update: id plus only the fields to change. pause, resume, delete: id.\nBefore you change a routine's prompt or describe what it does, get it and work from the saved text, not from memory.");
+    expect(UPDATE_ROUTINE_TOOL.description).toContain("folder ids are listed under Scheduled routines in your prompt, which shows no prompts.");
+    expect(UPDATE_ROUTINE_TOOL.description).toEndWith("Don't ask first, and don't retry a denied write.");
+    expect(UPDATE_ROUTINE_TOOL.description).not.toMatch(/Cursor|JoinMeeting|automation_status|timing/);
+    // The schema names trigger types only; the skill and the invalid-trigger reply carry the shapes.
+    const listener = {
+      type: "object",
+      properties: { type: { type: "string", enum: ["slack", "github", "origin", "microsoftTeams", "linear", "sentry", "pagerduty", "email", "webhook", "cron", "group"] } },
+      required: ["type"], additionalProperties: {},
+    };
+    expect(routine.properties.trigger as unknown).toEqual({
+      anyOf: [listener, { type: "array", items: listener, minItems: 1 }],
+      description: "An event listener instead of schedule. Fields depend on type; see Trigger shapes in the routines skill.",
+    });
     expect(Object.keys((UPDATE_PROFILE_TOOL.inputSchema as { properties: object }).properties)).toEqual([
-      "name", "description", "title", "avatar_shape", "avatar_color", "hidden_from_sidebar", "notify_on_updates",
+      "name", "description", "title", "avatar_shape", "avatar_color", "hidden_from_sidebar", "notify_on_updates", "drafting_disabled",
     ]);
     expect(
       Schema.decodeUnknownSync(UpdateMemoryToolInput)({
@@ -673,6 +691,12 @@ describe("API contracts", () => {
       "UpdateMemory: pick the memory type it belongs in"
     );
     expect(() => normalizeMainToolArguments("UpdateProfile", { avatar_shape: "triangle" })).toThrow();
+    // The apps draw robots; a mark shape they can't render would reset the robot to the default.
+    expect(() => normalizeMainToolArguments("UpdateProfile", { avatar_shape: "cloud" })).toThrow("avatar_shape");
+    expect(normalizeMainToolArguments("UpdateProfile", { avatar_shape: "owl" })).toEqual({ avatar_shape: "owl" });
+    const shape = (UPDATE_PROFILE_TOOL.inputSchema as any).properties.avatar_shape;
+    expect(shape.enum).toEqual([...ROBOT_AVATAR_SHAPES]);
+    expect(shape.description).toBe("Your default robot, hidden while a custom picture is installed.");
     expect(normalizeMainToolArguments("UpdateMemory", { action: "write", fact: "x", type: "journal", scope: "user", tier: "note" })).toEqual({ action: "write", fact: "x", type: "journal" });
     expect(normalizeMainToolArguments("RecallMemory", { query: "launch", scope: "user", limit: 99 })).toEqual({ query: "launch" });
   });
@@ -693,12 +717,56 @@ describe("API contracts", () => {
     expect(renderControlResult("DisconnectChannel", { target: "channel", platform: "slack", disconnected: true }, { platform: "slack" })).toContain(
       "Disconnected slack."
     );
+    // The installed file is the picture; the source the model passed is what it may delete.
+    expect(renderControlResult("UpdateAvatar", {
+      target: "avatar", action: "set", path: "downloads/pic.png", resolved_path: "/home/box/sand-data/bots/b1/avatar.png", updated: true,
+    }, { action: "set", path: "downloads/pic.png" })).toBe("Updated your picture (avatar.png). Source pic.png can be deleted if you no longer need it.");
     expect(renderControlResult("UpdateAvatar", { target: "avatar", cleared: true }, { action: "clear" })).toBe(
-      "Cleared your picture — back to the default."
+      "Cleared your picture. It is back to the default."
+    );
+    // Refusals read as the reference's "Not saved" sentences, as ordinary results.
+    expect(renderControlResult("UpdateAvatar", { target: "avatar", action: "clear", refused: "you already have the default picture." }, { action: "clear" })).toBe(
+      "Not saved: you already have the default picture."
+    );
+    expect(renderControlResult("DisconnectChannel", { target: "channel", platform: "slack", refused: "slack is not connected." }, { platform: "slack" })).toBe(
+      "Not saved: slack is not connected."
+    );
+    expect(renderControlResult("UpdateProfile", { target: "settings", action: "set", refused: 'only the user can turn drafts off. Nothing was changed. Tell them to click "Disable drafts for this Bot" on a draft card.' }, { drafting_disabled: true })).toBe(
+      'Not saved: only the user can turn drafts off. Nothing was changed. Tell them to click "Disable drafts for this Bot" on a draft card.'
+    );
+    expect(renderControlResult("UpdateProfile", { target: "settings", updated: true }, { drafting_disabled: false })).toBe("Updated your settings: draftingDisabled.");
+    expect(renderControlResult("UpdateProfile", { target: "profile", updated: true, settings: { target: "settings", refused: "nothing to change." } }, { title: "x", drafting_disabled: true })).toBe(
+      "Updated your title.\nSettings not saved: nothing to change."
     );
     expect(renderControlResult("UpdateRoutine", { target: "routine", name: "Brief", folder: "brief", next_run_at: null, enabled: false }, {
       action: "pause", id: "brief",
     })).toBe('Paused routine "Brief" (folder brief).\nNext scheduled occurrence: none (paused).');
+    const created = { target: "routine", name: "Brief", folder: "brief", enabled: true, timezone: "America/Los_Angeles",
+      trigger: { type: "cron", schedule: "0 8 * * *" }, next_run_at: "2026-10-22T15:00:00.000Z" };
+    expect(renderControlResult("UpdateRoutine", { ...created, delivery_nudge: true }, { action: "create" })).toBe([
+      'Saved routine "Brief" (folder brief): Every day at 8:00 AM.',
+      "Next scheduled occurrence: 10/22/2026, 8:00:00 AM PDT. Use this saved time if reporting the next run; do not calculate or guess a different time.",
+      "Give the user a concise summary of what this routine does and where its result goes.",
+    ].join("\n"));
+    // A routine run gets no nudge; resuming reads like an update; deleting names no next run.
+    expect(renderControlResult("UpdateRoutine", created, { action: "update", id: "brief" })).toStartWith('Updated routine "Brief" (folder brief): Every day at 8:00 AM.\nNext');
+    expect(renderControlResult("UpdateRoutine", created, { action: "update", id: "brief" })).not.toContain("Give the user");
+    expect(renderControlResult("UpdateRoutine", created, { action: "resume", id: "brief" }).split("\n")[0]).toBe('Updated routine "Brief" (folder brief): Every day at 8:00 AM.');
+    expect(renderControlResult("UpdateRoutine", { ...created, enabled: false, next_run_at: null }, { action: "delete", id: "brief" })).toBe('Deleted routine "Brief" (folder brief).');
+    expect(renderControlResult("UpdateRoutine", { ...created, trigger: { type: "cron", schedule: "36 10 21 10 *" } }, { action: "create" }).split("\n")[0])
+      .toBe('Saved routine "Brief" (folder brief): Once October 21 at 10:36 AM.');
+    const saved = { target: "routine", action: "get", name: "Brief", folder: "brief", enabled: true, prompt: "Summarize my inbox.\nPost it here." };
+    expect(renderControlResult("UpdateRoutine", { ...saved, trigger: { type: "cron", schedule: "0 8 * * *" } }, { action: "get", id: "brief" })).toBe(
+      'Routine "Brief" (folder brief), enabled.\nTrigger: Every day at 8:00 AM\nschedule: "0 8 * * *" (leave it out of an update unless the time itself changes)\nSaved prompt:\nSummarize my inbox.\nPost it here.'
+    );
+    const listener = { type: "slack", channel: "#eng", match: { kind: "mention" } };
+    expect(renderControlResult("UpdateRoutine", { ...saved, enabled: false, trigger: listener }, { action: "get", id: "brief" }).split("\n").slice(0, 3)).toEqual([
+      'Routine "Brief" (folder brief), paused.', `Trigger: ${describeTrigger(listener)}`, `trigger: ${JSON.stringify(listener)}`,
+    ]);
+    expect(renderControlResult("UpdateRoutine", { target: "routine", action: "get", refused: "a routine run can only read the routine that started it." }, { action: "get", id: "other" }))
+      .toBe("Not read: a routine run can only read the routine that started it.");
+    expect(renderControlResult("UpdateRoutine", { target: "routine", action: "create", refused: "a routine run cannot create another routine." }, { action: "create" }))
+      .toBe("Not saved: a routine run cannot create another routine.");
     // Persisted history keeps its text; the retired name no longer formats anything.
     expect(renderControlResult("update_state", { target: "channel", disconnected: true, platform: "slack" }, {})).toBe(
       JSON.stringify({ target: "channel", disconnected: true, platform: "slack" })
@@ -715,7 +783,10 @@ describe("renamed first-party tools", () => {
     expect(share.description).toStartWith("Publish a new version of this bot's template");
     expect(share.description).not.toMatch(/Stage a draft|stays private|New templates are PUBLIC|fill-in placeholders|live geometric avatar/);
     const form = referenceTool("RequestUserForm");
-    expect(form.description).toContain("Fields inside a cross-origin iframe or a closed shadow root are not.");
+    expect(form.description).toContain("Fields inside iframes (cross-origin ones included) and shadow roots are reachable: send the form for them instead of predicting a failure.");
+    const boxHelp = referenceTool("request_box_help").description;
+    expect(boxHelp).toContain("goes to RequestUserForm first when it is among your tools, embedded and cross-origin fields included; entering the card itself is that form. Hand off only when that tool is not offered, the step is not a typed field, or the host refused the form or reported a failed fill");
+    expect(boxHelp).not.toContain("Secure Form");
     expect(form.description).not.toContain("Secure Form");
     expect(form.inputSchema.properties.fields.items.properties).not.toHaveProperty("default_value");
     expect(referenceTool("RemapUserFormTargets").description).toContain("right after a RequestUserForm receipt");
@@ -726,5 +797,33 @@ describe("renamed first-party tools", () => {
     expect(renderControlResult("CreateBotShareJson", { published: true, version: 2 }, {})).toContain("version 2");
     for (const name of ["upload_file", "download_file", "request_user_form", "remap_user_form_targets", "create_bot_share_json", "import_chrome_cookies"])
       expect(() => referenceTool(name)).toThrow("No captured tool contract");
+  });
+});
+
+describe("in-chat form results", () => {
+  const shown = "Showed the form to the user; your turn is over. When they submit, the host fills the browser and resumes you with a per-field receipt (fill statuses only, never the submitted values). If they dismiss it, you'll be resumed with that outcome. If they choose to do the step on the screen instead, the host hands them the box directly (same as request_box_help) and you'll be resumed when they hand it back.";
+  test("a shown form tells the model its turn is over and appends the dropped-field note", () => {
+    expect(renderControlResult("RequestUserForm", { sent: true, channel_id: "c1", message_address: "t2s1" }, {})).toBe(shown);
+    expect(renderControlResult("RequestUserForm", { sent: true, preflightNote: "NOTE: dropped" }, {})).toBe(`${shown}\n\nNOTE: dropped`);
+  });
+
+  test("a refused preparation is rebuilt from allowlisted kinds of the form's own fields", () => {
+    const form = parseUserForm({ title: "Pay", instruction: "Card", domain: "shop.example", fields: [
+      { id: "cc", label: "Card number", type: "text", secret: true, target: { kind: "selector", value: "#cc" } },
+      { id: "zip", label: "ZIP", type: "text", target: { kind: "selector", value: "#zip" } },
+    ] });
+    const structural = userFormPreparationRefusal(form, { error: "form_preflight_failed", message: "SECRET-246810",
+      fieldKinds: { cc: "in_unreachable_frame", zip: "in_closed_shadow", other: "target_missing", __proto__: "x" } });
+    expect(structural).toBe([
+      'The form "Pay" was NOT shown and nothing was asked of the user: the host preflighted every targeted field against the live page and ALL of them are structurally unreachable, so the fill would fail the same way after they typed.',
+      "- cc: target is inside a frame the host could not inspect (still loading or unreadable)",
+      "- zip: target is behind a closed shadow root the host cannot reach",
+      "Re-issuing this form (same targets, or fresh label/selector targets into the same unreachable frame or closed shadow root) will be refused the same way. Hand the user the screen with request_box_help so they can complete the step directly.",
+    ].join("\n"));
+    expect(userFormPreparationRefusal(form, { error: "form_preflight_failed", fieldKinds: { cc: "SECRET-246810" } })).toBeUndefined();
+    expect(userFormPreparationRefusal(form, { error: "form_preflight_failed", fieldKinds: { cc: "hidden_target" } }))
+      .toStartWith("No requested fields are reachable on the page. The form was not shown and nothing was asked of the user. The host did not ask the user for these fields because their controls are unavailable: cc (hidden_target).");
+    expect(userFormPreparationRefusal(form, { error: "form_driver_unavailable" })).toStartWith(
+      'The form "Pay" was NOT shown and nothing was asked of the user: the host could not reach the box browser at request time');
   });
 });

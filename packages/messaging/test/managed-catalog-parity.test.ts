@@ -27,7 +27,7 @@ test('the group-chat-turns trigger names the tag a room turn starts with', () =>
 });
 
 test('the routines skill ends its intent rule at the discovery tool, as the reference does', () => {
-  expect(skill('routines')).toContain('let each run look the tool up with your MCP discovery tool (GetMcpTools, or GetDynamicTools when that is the one you hold).');
+  expect(skill('routines')).toContain('let each run look the tool up with your MCP discovery tool (GetDynamicTools).');
   expect(skill('routines')).not.toContain('Store communication intent rather than names such as');
 });
 

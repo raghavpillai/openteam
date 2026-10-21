@@ -62,9 +62,13 @@ describe("message and Read boundaries", () => {
       totalLines: 0,
     });
   });
-  test("limit notices measure extracted characters, not binary PDF byte size", () => {
-    expect(renderReadText("a".repeat(100001), undefined, undefined, 2858365).text)
-      .toBe(readLimitNotice(100001));
+  test("limit notices report the file's size in bytes, in the reference wording", () => {
+    expect(renderReadText("a".repeat(100001), undefined, undefined, 2858365).text).toBe(
+      "Requested content exceeds maximum allowed characters (100000 characters). The file is 2858365 bytes.\nPlease use offset and limit parameters to read specific portions of the file, or use the 'grep' tool to search for specific content."
+    );
+  });
+  test("a single hidden line is singular", () => {
+    expect(renderReadText("one\ntwo\nthree", 2, 1).text).toBe("... 1 line not shown ...\n     2|two\n... 1 line not shown ...");
   });
   test("measures UTF-16 units rather than UTF-8 bytes or code points", () => {
     expect(renderReadText("😀".repeat(50_000)).exceededLimit).toBe(false);

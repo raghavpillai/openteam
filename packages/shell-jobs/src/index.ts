@@ -188,7 +188,8 @@ export class ShellJobRegistry {
       finish: (exitCode: number | null, error?: string) => {
         if (job.outcome) return;
         job.outcome = { exitCode, error, finishedAt: Date.now() };
-        this.persist(job);
+        // A lost receipt only costs restart recovery; it must never stall the caller.
+        try { this.persist(job); } catch { /* The terminal directory was removed. */ }
         notify();
         void this.flushCompletions();
         this.prune();

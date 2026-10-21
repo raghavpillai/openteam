@@ -14,7 +14,7 @@ test("binary reads fail locally and a later text read succeeds", async () => {
     const ex = new NativeToolExecutor({ agentDir: root, controlToken: "fixture" });
     for (const [name, bytes] of [["document.docx", Buffer.from([80,75,3,4,0,65])], ["nul.txt", Buffer.from([65,0,66])], ["invalid.txt", Buffer.from([255,254,253])]] as const) {
       await writeFile(join(root,name), bytes);
-      await expect(ex.read({path:join(root,name)},root)).rejects.toThrow("Binary files");
+      await expect(ex.read({path:join(root,name)},root)).rejects.toThrow(`Error: File content is binary data, not text: ${join(root,name)}`);
     }
     await writeFile(join(root,"ok.txt"),"café 日本語");
     expect(JSON.stringify(await ex.read({path:join(root,"ok.txt")},root))).toContain("café 日本語");

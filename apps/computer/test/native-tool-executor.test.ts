@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -15,9 +15,78 @@ describe("native computer tools", () => {
     const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
 
     const middle = await executor.read({ path, offset: 2, limit: 1 }, root);
-    expect(middle.content[0]).toEqual({ type: "text", text: "... 1 lines not shown ...\n     2|beta\n... 2 lines not shown ..." });
+    expect(middle.content[0]).toEqual({ type: "text", text: "... 1 line not shown ...\n     2|beta\n... 2 lines not shown ..." });
     const last = await executor.read({ path, offset: -2, limit: 1 }, root);
-    expect(last.content[0]).toEqual({ type: "text", text: "... 2 lines not shown ...\n     3|gamma\n... 1 lines not shown ..." });
+    expect(last.content[0]).toEqual({ type: "text", text: "... 2 lines not shown ...\n     3|gamma\n... 1 line not shown ..." });
+  });
+
+  test("Read failures use the reference error texts and are failed calls", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openteam-native-read-errors-"));
+    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
+    await mkdir(join(root, "folder"));
+    await writeFile(join(root, "data.raw"), Buffer.from([0, 1, 2, 3]));
+    await writeFile(join(root, "bundle.tar.gz"), "not really");
+    await writeFile(join(root, "six.txt"), "1\n2\n3\n4\n5\n6");
+    const failure = (path: string, offset?: number) =>
+      executor.read({ path, offset }, root).then(() => "resolved", (error: Error) => error.message);
+    expect(await failure(join(root, "folder"))).toBe(`Error: Path is a directory, not a file: ${join(root, "folder")}`);
+    expect(await failure(join(root, "data.raw"))).toBe(`Error: File content is binary data, not text: ${join(root, "data.raw")}`);
+    expect(await failure(join(root, "bundle.tar.gz"))).toBe("Error: Cannot read binary files of type gz");
+    expect(await failure(join(root, "six.txt"), 50)).toBe("Error: Offset 50 is beyond file length (6 lines)");
+    expect(await failure("   ")).toBe("Error: path is empty or only whitespace");
+    expect(await failure(join(root, "missing.txt"))).toBe("Error: File not found");
+  });
+
+  test("Read recognizes images by content, labels them, and refuses undecodable ones", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openteam-native-read-image-"));
+    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4AWP4////fwAJ+wP92PZgeAAAAABJRU5ErkJggg==", "base64");
+    await writeFile(join(root, "chart"), png);
+    const image = await executor.read({ path: join(root, "chart") }, root);
+    expect(image.content[0]).toEqual({ type: "text", text: `Read image file: ${await realpath(join(root, "chart"))}` });
+    expect(image.content[1]).toMatchObject({ type: "image", mimeType: "image/png" });
+    await writeFile(join(root, "broken.png"), png.subarray(0, 20));
+    await expect(executor.read({ path: join(root, "broken.png") }, root)).rejects.toThrow(
+      /^Error: File is not a valid image: its data could not be decoded \(.+\)\. A truncated or hand-copied file does this; write it again from the original bytes with code\.: /
+    );
+  });
+
+  test("Read renders a Jupyter notebook as cells and outputs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openteam-native-read-notebook-"));
+    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
+    const path = join(root, "analysis.ipynb");
+    await writeFile(path, JSON.stringify({
+      cells: [
+        { cell_type: "code", source: ["import math\n", "print(math.pi)"], outputs: [{ output_type: "stream", text: ["3.14\n"] }, { output_type: "execute_result", data: { "text/plain": "'done'" } }] },
+        { cell_type: "code", source: "1/0", outputs: [{ output_type: "error", traceback: ["\u001b[0;31mZeroDivisionError\u001b[0m: division by zero"] }] },
+        { cell_type: "markdown", source: "# Notes", outputs: [] },
+      ],
+    }));
+    expect((await executor.read({ path }, root)).content[0]).toEqual({
+      type: "text",
+      text: "\nCell 0:\n```\nimport math\nprint(math.pi)```\n\nCell 0 output:\n```\n3.14\n'done'```\n\n\nCell 1:\n```\n1/0```\n\nCell 1 output:\n```\nZeroDivisionError: division by zero```\n\n\nCell 2:\n```\n# Notes```\n\n",
+    });
+    await writeFile(path, JSON.stringify({ cells: [] }));
+    expect((await executor.read({ path }, root)).content[0]).toEqual({ type: "text", text: "Notebook is empty (0 cells)" });
+  });
+
+  test("Read streams large text files and keeps only the requested lines", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openteam-native-read-large-"));
+    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
+    const path = join(root, "server.log");
+    const line = "x".repeat(99);
+    // 9 MiB of 100-byte lines: past the streaming threshold.
+    const count = 94_372;
+    await writeFile(path, `${Array.from({ length: count }, (_, index) => `${String(index + 1).padStart(6, "0")}${line.slice(6)}`).join("\n")}\nLAST`);
+    const tail = await executor.read({ path, offset: -2 }, root);
+    expect(tail.content[0]).toEqual({ type: "text", text: `... ${count - 1} lines not shown ...\n ${String(count).padStart(5)}|${String(count).padStart(6, "0")}${line.slice(6)}\n ${String(count + 1).padStart(5)}|LAST` });
+    expect(tail.details).toMatchObject({ totalLines: count + 1, exceededLimit: false });
+    const middle = await executor.read({ path, offset: 1000, limit: 2 }, root);
+    expect(middle.content[0]).toEqual({ type: "text", text: `... 999 lines not shown ...\n  1000|001000${line.slice(6)}\n  1001|001001${line.slice(6)}\n... ${count + 1 - 1001} lines not shown ...` });
+    await expect(executor.read({ path }, root)).rejects.toThrow(`Requested content exceeds maximum allowed characters (100000 characters). The file is ${count * 100 + 4} bytes.`);
+    await expect(executor.read({ path, offset: count + 5 }, root)).rejects.toThrow(`Error: Offset ${count + 5} is beyond file length (${count + 1} lines)`);
+    await writeFile(join(root, "large.dat"), Buffer.alloc(9 * 1024 * 1024));
+    await expect(executor.read({ path: join(root, "large.dat") }, root)).rejects.toThrow("Error: File content is binary data, not text");
   });
 
   test("Read exposes supported agent files while fencing stores and host metadata", async () => {

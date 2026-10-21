@@ -156,8 +156,13 @@ export const workerTopLevelTools = (
   return [];
 };
 
+/** Calls that can create a file a Read in the same step is waiting for. */
+const SAME_STEP_FILE_WRITERS: ReadonlySet<string> = new Set(["Shell", "AwaitShell", "CopyToBox"]);
+const SAME_STEP_READ_WAIT_MS = 120_000;
+
 export class RuntimeTools {
   private readonly shellWaits = new Map<string, Set<AbortController>>();
+  private readonly stepFileWriters = new Map<string, Set<Promise<unknown>>>();
   private readonly foregroundShells = new Map<string, Set<{ active: ActiveTurn; controller: AbortController }>>();
   interruptShellWaits(runId: string) {
     for (const wait of this.shellWaits.get(runId) ?? [])
@@ -592,7 +597,20 @@ export class RuntimeTools {
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     this.assertCurrentInput(active);
-    return this.executeScopedTool(active, callId, tool, args, signal);
+    const name = tool === CALL_DYNAMIC_TOOL_TOOL.name ? (args as { toolName?: unknown } | null)?.toolName : tool;
+    if (typeof name !== "string" || !SAME_STEP_FILE_WRITERS.has(name))
+      return this.executeScopedTool(active, callId, tool, args, signal);
+    // Calls issued in one step start in order, so a later Read in the step can wait for these.
+    const run = this.executeScopedTool(active, callId, tool, args, signal);
+    const writers = this.stepFileWriters.get(active.runId) ?? new Set<Promise<unknown>>();
+    writers.add(run);
+    this.stepFileWriters.set(active.runId, writers);
+    try {
+      return await run;
+    } finally {
+      writers.delete(run);
+      if (!writers.size) this.stepFileWriters.delete(active.runId);
+    }
   }
 
   private async executeScopedTool(
@@ -695,8 +713,20 @@ export class RuntimeTools {
         return (() =>
           this.nativeToolExecutor.externalRead(readInput, signal))();
       }
+      const earlierWriters = [...(this.stepFileWriters.get(active.runId) ?? [])];
       const secrets = Object.values(await this.processSecrets(active, signal));
-      const result = await this.nativeToolExecutor.read(readInput, active.cwd);
+      const read = () => this.nativeToolExecutor.read(readInput, active.cwd);
+      const result = await read().catch(async (error) => {
+        // A Read issued beside the Shell call that creates its file waits for that call, then retries once.
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT" || !earlierWriters.length) throw error;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([
+          Promise.allSettled(earlierWriters),
+          new Promise((resolveWait) => (timer = setTimeout(resolveWait, SAME_STEP_READ_WAIT_MS))),
+        ]).finally(() => clearTimeout(timer));
+        signal?.throwIfAborted();
+        return read();
+      });
       return {
         ...result,
         content: result.content.map((part) =>

@@ -283,8 +283,9 @@ test("a stopped AwaitShell and invalid waits report the reference errors", async
   await expect(wait.execute("zero",{block_until_ms:0})).rejects.toThrow("Error awaiting task: Invalid arguments:\nshell_id: Required when block_until_ms is 0. Without shell_id there is nothing to check: pass the shell_id to check, or a nonzero block_until_ms to sleep.");
   await expect(wait.execute("cap",{block_until_ms:780_001})).rejects.toThrow("Error awaiting task: Invalid arguments:\nblock_until_ms: block_until_ms must be at most 780000 (13 minutes)");
   await expect(wait.execute("unknown",{shell_id:"999",block_until_ms:0})).rejects.toThrow("Error awaiting task: No shell found for id 999");
-  const started=await testTools(runtime,active).find(t=>t.name==="Shell")!.execute("start",{command:"sleep 1",block_until_ms:0});
+  const started=await testTools(runtime,active).find(t=>t.name==="Shell")!.execute("start",{command:"sleep 0.2",block_until_ms:0});
   await expect(wait.execute("regex",{shell_id:started.details.shellId,pattern:"(?=a)",block_until_ms:0})).rejects.toThrow("Error awaiting task: pattern is not valid RE2 syntax: invalid or unsupported Perl syntax. RE2 has no lookahead, lookbehind or backreferences.");
+  expect((await wait.execute("finish",{shell_id:started.details.shellId,block_until_ms:5000})).details).toMatchObject({status:"completed"});
   const controller=new AbortController();
   const pending=(runtime as unknown as {executeScopedTool(active:ActiveTurn,callId:string,tool:string,args:unknown,signal?:AbortSignal):Promise<unknown>})
     .executeScopedTool(active,"stopped","AwaitShell",{block_until_ms:60_000},controller.signal);
@@ -328,4 +329,18 @@ test("each Shell or AwaitShell call waits at most 13 minutes, or 58 for a comput
       namespace: "cursor", toolName: "AwaitShell", arguments: { block_until_ms: 780_001 },
     })
   ).rejects.toThrow("block_until_ms must be at most 780000 (13 minutes)");
+});
+
+test("a Read issued beside the Shell call that creates its file waits for it and retries once", async () => {
+  const {root}=await fixture();
+  const runtime=new RuntimeTools({} as ScreenBroker,"http://unused.invalid","test",root,root);
+  (runtime as any).processSecrets=async()=>({});
+  const active={runId:"same-step",runtimeProfile:"agent",botId:"bot-same-step",cwd:root,pluginNamespaces:[],discoveredDynamicTools:new Set<string>()} as unknown as ActiveTurn;
+  const tools=testTools(runtime,active);
+  const shell=tools.find(t=>t.name==="Shell")!.execute("make",{command:"sleep 0.3; printf made > chart.txt"});
+  const read=tools.find(t=>t.name==="Read")!.execute("read",{path:"chart.txt"});
+  expect((await read).content[0]).toEqual({type:"text",text:"     1|made"});
+  await shell;
+  // Without an earlier writer in the step, a missing file fails at once.
+  await expect(tools.find(t=>t.name==="Read")!.execute("again",{path:"absent.txt"})).rejects.toThrow("Error: File not found");
 });

@@ -3,9 +3,9 @@ import type { TaskConfiguration } from "@openteam/contracts/task-configuration";
 import { Readable } from "node:stream";
 import { agentReadStream, agentWriteStream } from "./agent-file-stream";
 import { formatBytes2 } from "@openteam/contracts/reference-formatters";
-import { renderReadText, renderPdfReadText } from "@openteam/contracts/read-output";
-import { boundToolImage } from "./runtime/image-input";
-import { decodeReadableText } from "./read-text";
+import { READ_CHAR_LIMIT, ReadWindowText, formatNotebookForModel, readLineWindow, renderReadText, renderPdfReadText } from "@openteam/contracts/read-output";
+import { boundToolImage, resizeImageForModel } from "./runtime/image-input";
+import { decodeReadableText, readableTextEncoding, sniffImageMimeType } from "./read-text";
 import { randomInt, randomUUID } from "node:crypto";
 import { constants, createReadStream, createWriteStream } from "node:fs";
 import { access, mkdir, open, realpath, stat } from "node:fs/promises";
@@ -52,6 +52,19 @@ import { agentFileIO } from "./agent-file-io";
 import { protectedAgentDataPath } from "@openteam/contracts/agent-file-access";
 
 const DEFAULT_BLOCK_MS = 30_000;
+/** Text files above this size are streamed rather than loaded whole. */
+const READ_STREAM_THRESHOLD_BYTES = 8 * 1024 * 1024;
+/** Archives and media Read refuses by name, as in the reference. */
+const UNSUPPORTED_BINARY_EXTENSIONS = /\.(zip|tar|gz|exe|dll|so|dylib|bin|mp4|webm|mov|avi|mkv|wmv|flv|m4v)$/i;
+
+interface ReadSource {
+  bytes(): Promise<Buffer>;
+  stream(): AsyncIterable<Buffer>;
+  close(): Promise<void>;
+}
+
+/** A Read result the model sees verbatim and flagged as failed (no "Error: " prefix). */
+class ReadResultError extends Error {}
 /** How often a running command's terminal header refreshes `running_for_ms`. */
 const TERMINAL_HEADER_UPDATE_MS = 5_000;
 // Shell output logs are named by their numeric shell_id.
@@ -347,10 +360,19 @@ export class NativeToolExecutor {
   }
 
   async read(input: ReadToolInput, cwd: string): Promise<AgentToolResult<Record<string, unknown>>> {
-    try { return await this.readLocal(localPath(input.path, cwd), input.offset, input.limit); }
+    if (!input.path.trim()) throw new Error("Error: path is empty or only whitespace");
+    const path = localPath(input.path, cwd);
+    const binary = UNSUPPORTED_BINARY_EXTENSIONS.exec(path)?.[1];
+    if (binary) throw new Error(`Error: Cannot read binary files of type ${binary.toLowerCase()}`);
+    try { return await this.readLocal(path, input.offset, input.limit); }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { ...textResult("Error: File not found"), isError: true } as AgentToolResult<Record<string, unknown>>;
-      throw error;
+      if (error instanceof ReadResultError) throw error;
+      const code = (error as NodeJS.ErrnoException).code;
+      const message = error instanceof Error ? error.message : String(error);
+      if (code === "ENOENT") throw Object.assign(new Error("Error: File not found"), { code });
+      // The agent-user reader reports only the errno text.
+      if (code === "EACCES" || code === "EPERM" || /^(EACCES|EPERM)\b/.test(message)) throw new Error("Error: Permission denied");
+      throw new Error(`Error: ${message}`);
     }
   }
 
@@ -402,7 +424,7 @@ export class NativeToolExecutor {
     if (response.kind === "image" && response.data && response.mimeType) {
       return {
         content: [
-          { type: "text", text: `Host file: ${response.path}` },
+          { type: "text", text: `Read image file: ${response.path}` },
           await boundToolImage(Buffer.from(response.data, "base64"), response.mimeType),
         ],
         details: { path: response.path, host: true },
@@ -483,52 +505,122 @@ export class NativeToolExecutor {
       terminalRoot !== undefined && TERMINAL_LOG_NAME.test(relative(terminalRoot, canonical));
     if (!terminalLog) await this.assertAgentReadable(canonical);
     const metadata = await stat(canonical);
-    if (!metadata.isFile()) throw new Error(`Not a file: ${path}`);
-    let bytes: Buffer;
-    if (terminalLog) {
-      // Supervisor-owned terminal logs are the sole privileged-read exception.
-      // Pin the descriptor and recheck its actual target before returning bytes.
-      const file = await open(canonical, constants.O_RDONLY | constants.O_NONBLOCK);
-      try {
-        const actual = await realpath(process.platform === "linux" ? `/proc/self/fd/${file.fd}` : `/dev/fd/${file.fd}`);
-        await this.assertProtectedReadPath(actual);
-        if (dirname(actual) !== terminalRoot || !TERMINAL_LOG_NAME.test(basename(actual)))
-          throw new Error("Read terminal log target changed");
-        const pinned = await file.stat();
-        if (!pinned.isFile() || pinned.size > HOST_TRANSFER_MAX_BYTES)
-          throw new Error("Source must be a regular file within the transfer size limit");
-        bytes = await file.readFile();
-      } finally { await file.close(); }
-    } else {
-      const protectedRoot = await realpath(this.agentDataCanonicalRoot).catch(() => this.agentDataCanonicalRoot);
-      bytes = await agentFileIO("read", canonical, undefined, { protectedRoot });
-    }
-    const plainText = decodeReadableText(bytes);
+    if (!metadata.isFile())
+      throw new Error(`${metadata.isDirectory() ? "Path is a directory, not a file" : "Path is neither a file nor a directory"}: ${path}`);
+    const extension = extname(canonical).toLowerCase();
+    const isPdf = extension === ".pdf";
+    const source = terminalLog ? await this.terminalLogSource(canonical, terminalRoot!) : await this.agentFileSource(canonical);
+    try {
+      // Large text files are streamed, keeping only the requested lines in memory.
+      if (metadata.size > READ_STREAM_THRESHOLD_BYTES && !isPdf && !imageMimeTypeForPath(canonical))
+        return await this.readLargeText(source, path, canonical, metadata.size, offset, limit);
+      const bytes = await source.bytes();
+      const plainText = decodeReadableText(bytes);
 
-    const mimeType = imageMimeTypeForPath(canonical);
-    if (mimeType && plainText === undefined) {
-      const data = bytes;
-      return {
-        content: [
-          { type: "text", text: `Image file: ${canonical}` },
-          await boundToolImage(data, mimeType),
-        ],
-        details: { path: canonical, bytes: data.length, mimeType },
-      };
-    }
-
-    let raw: string;
-    if (extname(canonical).toLowerCase() === ".pdf") {
-      raw = await this.pdfText(bytes);
-    } else {
-      if (plainText === undefined) {
-        throw new Error(`Binary files of type ${extname(canonical) || "unknown"} are not supported by the read executor`);
+      const mimeType = plainText === undefined ? sniffImageMimeType(bytes) ?? imageMimeTypeForPath(canonical) : undefined;
+      if (mimeType) {
+        let image: Awaited<ReturnType<typeof resizeImageForModel>>;
+        try { image = await resizeImageForModel(bytes, { webpWithoutCodec: "passthrough" }); }
+        catch (error) {
+          throw new Error(`File is not a valid image: its data could not be decoded (${error instanceof Error ? error.message : String(error)}). A truncated or hand-copied file does this; write it again from the original bytes with code.: ${path}`);
+        }
+        return {
+          content: [
+            { type: "text", text: `Read image file: ${canonical}` },
+            { type: "image", data: image.data.toString("base64"), mimeType: image.mimeType },
+          ],
+          details: { path: canonical, bytes: bytes.length, mimeType },
+        };
       }
-      raw = plainText;
+
+      let raw: string;
+      if (isPdf) raw = await this.pdfText(bytes);
+      else if (plainText === undefined) throw new Error(`File content is binary data, not text: ${path}`);
+      else raw = plainText;
+      const { text, ...details } = (isPdf ? renderPdfReadText : renderReadText)(raw, offset, limit, bytes.length);
+      if (details.exceededLimit) throw new ReadResultError(text);
+      const notebook = extension === ".ipynb" && offset === undefined && limit === undefined ? formatNotebookForModel(raw) : undefined;
+      return textResult(notebook ?? text, { path: canonical, ...details });
+    } finally { await source.close(); }
+  }
+
+  /** Two streaming passes: count the lines, then number only the requested window. */
+  private async readLargeText(source: ReadSource, path: string, canonical: string, fileSize: number, offset?: number, limit?: number) {
+    const decoded = async function* (encoding: string) {
+      const decoder = new TextDecoder(encoding);
+      for await (const chunk of source.stream()) yield decoder.decode(chunk, { stream: true });
+      yield decoder.decode();
+    };
+    let sample = Buffer.alloc(0);
+    for await (const chunk of source.stream()) {
+      sample = Buffer.concat([sample, chunk]);
+      if (sample.length >= 65_536) break;
     }
-    const isPdf = extname(canonical).toLowerCase() === ".pdf";
-    const { text, ...details } = (isPdf ? renderPdfReadText : renderReadText)(raw, offset, limit, bytes.length);
+    const encoding = readableTextEncoding(sample);
+    if (!encoding) throw new Error(`File content is binary data, not text: ${path}`);
+    let newlines = 0;
+    for await (const text of decoded(encoding))
+      for (let index = text.indexOf("\n"); index !== -1; index = text.indexOf("\n", index + 1)) newlines++;
+    const totalLines = newlines + 1;
+    const { start, end } = readLineWindow(totalLines, offset, limit);
+    const window = new ReadWindowText(start);
+    let line = 0;
+    let pending = "";
+    let open = true;
+    scan: for await (const text of decoded(encoding)) {
+      for (let from = 0; ;) {
+        const newline = text.indexOf("\n", from);
+        if (line >= start) {
+          pending += newline === -1 ? text.slice(from) : text.slice(from, newline);
+          // One enormous line must not be held in memory just to be refused.
+          if (pending.length > READ_CHAR_LIMIT + 1) { window.push(line, pending); open = false; break scan; }
+        }
+        if (newline === -1) break;
+        if (line >= start && !window.push(line, pending)) { open = false; break scan; }
+        pending = "";
+        if (++line >= end) { open = false; break scan; }
+        from = newline + 1;
+      }
+    }
+    if (open && line < end) window.push(line, pending);
+    const { text, ...details } = window.render(totalLines, end, fileSize, false);
+    if (details.exceededLimit) throw new ReadResultError(text);
     return textResult(text, { path: canonical, ...details });
+  }
+
+  private async agentFileSource(canonical: string): Promise<ReadSource> {
+    const protectedRoot = await realpath(this.agentDataCanonicalRoot).catch(() => this.agentDataCanonicalRoot);
+    return {
+      bytes: () => agentFileIO("read", canonical, undefined, { protectedRoot }),
+      stream: async function* () {
+        const reader = agentReadStream(canonical, undefined, { protectedRoot });
+        try {
+          yield* reader.stream as AsyncIterable<Buffer>;
+          await reader.done;
+        } finally { reader.cancel(); }
+      },
+      close: async () => undefined,
+    };
+  }
+
+  /** Supervisor-owned terminal logs are the sole privileged-read exception.
+   * Pin the descriptor and recheck its actual target before returning bytes. */
+  private async terminalLogSource(canonical: string, terminalRoot: string): Promise<ReadSource> {
+    const file = await open(canonical, constants.O_RDONLY | constants.O_NONBLOCK);
+    try {
+      const actual = await realpath(process.platform === "linux" ? `/proc/self/fd/${file.fd}` : `/dev/fd/${file.fd}`);
+      await this.assertProtectedReadPath(actual);
+      if (dirname(actual) !== terminalRoot || !TERMINAL_LOG_NAME.test(basename(actual)))
+        throw new Error("Read terminal log target changed");
+      const pinned = await file.stat();
+      if (!pinned.isFile() || pinned.size > HOST_TRANSFER_MAX_BYTES)
+        throw new Error("Source must be a regular file within the transfer size limit");
+    } catch (error) { await file.close(); throw error; }
+    return {
+      bytes: () => file.readFile(),
+      stream: () => file.createReadStream({ start: 0, autoClose: false }) as AsyncIterable<Buffer>,
+      close: () => file.close(),
+    };
   }
 
   private async assertProtectedReadPath(path: string): Promise<void> {
@@ -564,7 +656,7 @@ export class NativeToolExecutor {
       child.once("error", reject);
       child.once("exit", (code) => {
         if (code === 0) resolveAccess();
-        else reject(new Error(`Read is not allowed for an agent-inaccessible path: ${path}`));
+        else reject(Object.assign(new Error(`Read is not allowed for an agent-inaccessible path: ${path}`), { code: "EACCES" }));
       });
     });
   }

@@ -1954,8 +1954,9 @@ export class WakeWorker {
     });
     // The parent gets the worker's own report, as in the reference.
     const result = finalMessage?.content.trim() ?? "";
-    await tx.subagent.update({
-      where: { id: subagent.id },
+    // A parent's message can move the worker to a new turn after the read above; that turn reports instead.
+    const completed = await tx.subagent.updateMany({
+      where: { id: subagent.id, currentRunId: claimed.runId, status: { notIn: ["completed", "failed", "stopped"] } },
       data: {
         status: "completed",
         result,
@@ -1963,6 +1964,7 @@ export class WakeWorker {
         completedAt: new Date(),
       },
     });
+    if (completed.count === 0) return;
     await tx.subagentAttempt.update({
       where: { id: attempt.id },
       data: {
@@ -2022,10 +2024,11 @@ export class WakeWorker {
     }
     // A run the computer never settled reads as interrupted; a reported failure gives its error.
     const result = interrupted ? SUBAGENT_INTERRUPTED_RESULT : String(details.message ?? "");
-    await tx.subagent.update({
-      where: { id: subagent.id },
+    const failed = await tx.subagent.updateMany({
+      where: { id: subagent.id, currentRunId: claimed.runId, status: { notIn: ["completed", "failed", "stopped"] } },
       data: { status: "failed", error: details, result, completedAt: new Date() },
     });
+    if (failed.count === 0) return;
     await tx.subagentAttempt.update({
       where: { id: attempt.id },
       data: { status: "failed", error: details, result, completedAt: new Date() },

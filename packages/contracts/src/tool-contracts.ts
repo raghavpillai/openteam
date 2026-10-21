@@ -230,59 +230,42 @@ adaptArgument("CopyToBox", "computer_path", [["Any file type, up to 100 MiB;", "
 adaptDescription("CopyFromBox", [["Any type, up to 100 MiB;", "Any type or size;"]]);
 adaptArgument("CopyFromBox", "box_path", [["Any file type, up to 100 MiB;", "Any file type and any size;"]]);
 
+// SendToUser is the reference's concise variant, which its main agent gets: the description defers to the
+// "How a turn works", "Autonomy" and "Asking for decisions" prompt sections. Only the main agent has
+// SendToUser (workers and routine runs never do), so the long variant is not needed.
 const send = contracts.SendToUser!;
-export const SEND_TO_USER_BATCH_GUIDANCE =
-  "When several separate text replies to the same conversation are fully ready, emit their SendToUser calls together in one assistant response, in display order, instead of waiting for a model round trip between messages. Keep end_turn false until the final call. Do not batch messages whose content depends on a preceding tool result, or user input.";
 // There are no cloud agents, so the cursor-agent card is not offered.
 send.inputSchema.properties.type.enum = send.inputSchema.properties.type.enum.filter((type: string) => type !== "cursor-agent");
 delete send.inputSchema.properties.bcId;
-adaptArgument("SendToUser", "type", [[/cursor-agent to reference a \S+ cloud agent by its bcId \([^)]*\), /, ""]]);
+adaptArgument("SendToUser", "type", [["cursor-agent: a cloud agent card; ", ""]]);
 // There is no text-to-speech, so voice memos are not offered.
 delete send.inputSchema.properties.voice_memo;
-adaptArgument("SendToUser", "url", [[" Do not attach an audio file for a requested voice memo.", ""]]);
 // Channel delivery passes the chat address through as one destination; it has no Slack thread syntax.
 adaptArgument("SendToUser", "channel", [[
-  " On Slack a channel thread is slack:<channel id>:<thread ts>, a person is slack:<user id>, and a bare slack:<channel id> starts a new top-level post in a channel the bot has been added to (only when asked for one; answer messages in their thread).",
+  " Slack: slack:<channel id>:<thread ts> for a thread, slack:<user id> for a person, bare slack:<channel id> for a new top-level post only when asked for one.",
   "",
 ]]);
 send.description = edited("SendToUser", send.description, [
-  // No text-to-speech.
-  [
-    "A voice memo (whatever they call it: voice note, voice message, audio note) is type:text with voice_memo: true. Write the words to speak in content, as complete spoken sentences with no numbered lists, headers, or markdown. A requested list is spoken as first / next / last, not digits. Start with the thing they asked to hear; never “hit play.” The client plays those words as a pellet. When they asked to receive a memo, send only that one message: no status ack, no ordinary-text copy of the answer, and no audio file (.m4a, .mp3). Silence until then is correct. Set voice_memo: true only on those spoken words (the answer). After that memo, later SendToUser calls stay ordinary text unless they ask for another memo. ",
-    "",
-  ],
-  ["A requested voice memo is not an audio attachment; never attach .m4a or .mp3 for one. ", ""],
-  // No cloud agents.
-  [/Use \{"type":"cursor-agent"[\s\S]*?(?=Use \{"type":"widget")/, ""],
-  // Autonomy here allows no confirmation steps, and there are no approval cards.
-  [
-    "reserving a widget for a consequential or destructive go/no-go, true ambiguity you cannot resolve by looking it up, or something only the user knows.",
-    "reserving a widget for true ambiguity you cannot resolve by looking it up, or something only the user knows. Do not add confirmation widgets before actions.",
-  ],
-  ["(an editor or an approval card)", "(an editor such as a draft card)"],
-  ["When you do genuinely need a decision or confirmation,", "When you do genuinely need a decision,"],
+  // Sign-ins are completed with the available tools first (the Authentication section), so SSO and
+  // 2FA are not handed over by category.
+  ["(SSO, a passkey, 2FA, a captcha", "(a passkey, a captcha"],
   // Plugin setup secrets are team-bot only; connector credentials and personal scope are supported instead.
   [
-    'For a secret `${VAR}` setup field of a plugin (GetPlugin lists the field as secret), add "plugin_id" (the plugin\'s id) and pass the field key as "name"; one secret-request per key, after the plugin is installed.',
-    'For a connector credential, pass "connector" and "field" instead of "name"; the value is written to that connector\'s credential file. A named secret takes "scope": "bot" (the default) or "personal".',
+    "or with plugin_id a plugin's secret setup field (one request per key, after the plugin is installed).",
+    'or with connector and field instead of name, that connector\'s credential file. A named secret takes scope "bot" (the default) or "personal".',
   ],
-  // Sign-in steps follow the Authentication section; there is no sign-in skill.
-  ["follows the `sign-in` skill instead.)", "follows the Authentication section of your instructions instead.)"],
   // The app's deep links: settings anchors only, plus the plugin links tools return.
   [
-    'Write [Update Track](openteam://app/v1/settings?id=update-channel), not "Settings, Updates, Update Track".',
-    'Write [Web search provider](openteam://app/v1/settings?id=web-search-provider), not "Settings, Providers, Search".',
+    "e.g. [Update Track](openteam://app/v1/settings?id=update-channel)",
+    "e.g. [Web search provider](openteam://app/v1/settings?id=web-search-provider)",
   ],
   [
-    "account, theme, accent, language, spell-check, microphone, hardware-acceleration, hardware-acceleration-restart, network-debugger, notification-sound-enabled, notification-sound, timezone, local-execution, computers, auto-review, auto-review-rules, security-keys, usage, plan, cancel-trial, on-demand, billing, update-status, update-channel, automatic-updates, update-computer, reset-computer. Stuck or reset? Link update-computer first, then reset-computer.",
+    "account, theme, accent, language, spell-check, microphone, hardware-acceleration, hardware-acceleration-restart, network-debugger, notification-sound-enabled, notification-sound, timezone, local-execution, computers, auto-review, auto-review-rules, security-keys, usage, plan, cancel-trial, on-demand, billing, update-status, update-channel, automatic-updates, update-computer, reset-computer. When stuck, link update-computer before reset-computer.",
     `${APP_SETTINGS_ANCHORS.join(", ")}.`,
   ],
+  [" Bot template: [label](openteam://app/v1/bot-template?id=<share id>).", ""],
   [
-    ' A Bot template is [label](openteam://app/v1/bot-template?id=<share id>). Set label to the Bot\'s real name, never "Bot template" or its share id.',
-    "",
-  ],
-  [
-    " A teammate is [label](openteam://app/v1/agent?id=<id>). Your tab is [label](openteam://app/v1/sidebar?tab=<overview|routines|media|computer|members>).",
+    " Another bot: [label](openteam://app/v1/agent?id=<id>). Your tab: [label](openteam://app/v1/sidebar?tab=<overview|routines|media|computer|members>).",
     "",
   ],
 ]);
@@ -298,7 +281,7 @@ send.inputSchema.properties.secret = {
     name: {
       ...secretProperties.name,
       description: edited("SendToUser secret.name", secretProperties.name.description, [
-        [" With plugin_id, the plugin's `${VAR}` setup field key instead, exactly as GetPlugin lists it.", ""],
+        ["; with plugin_id, the plugin's `${VAR}` setup field key exactly as GetPlugin lists it.", "."],
       ]),
     },
     ...Object.fromEntries(
@@ -316,7 +299,6 @@ send.inputSchema.properties.secret = {
     { required: ["connector", "field"], not: { required: ["name"] } },
   ],
 };
-send.description += ` ${SEND_TO_USER_BATCH_GUIDANCE}`;
 
 // Peer priority marks urgency; every message still wakes its recipient.
 adaptDescription("SendToAgent", [

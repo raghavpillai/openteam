@@ -54,6 +54,8 @@ import { ROBOT_AVATAR_SHAPES } from "../src/robot-avatar";
 import { parseUserForm, userFormPreparationRefusal } from "../src/user-forms";
 import cursorToolsDocument from "../src/cursor-tools.json";
 import nativeToolsDocument from "../src/native-tools.json";
+import toolReference from "../src/tool-reference.json";
+import { APP_SETTINGS_ANCHORS } from "../src/app-deep-links";
 
 
 
@@ -472,6 +474,78 @@ describe("API contracts", () => {
     expect(schema.properties).not.toHaveProperty('credential');
     expect(reactToMessage!.inputSchema).toEqual(referenceTool('ReactToMessage').inputSchema);
     expect(sendToAgent!.inputSchema).toEqual(referenceTool('SendToAgent').inputSchema);
+  });
+
+  test("SendToUser is the reference's concise main-agent render with only OpenTeam's adaptations", () => {
+    // The capture is the concise variant the reference's main agent gets: end_turn on, and no
+    // credential requests, in-app actions, link items, cards, threaded replies or task threads.
+    const captured = toolReference.SendToUser;
+    // Every captured tool takes OpenTeam's product name and link scheme.
+    const [, scheme] = /\]\((\w+):\/\/app\/v1\/settings\?id=update-channel\)/.exec(captured.description)!;
+    const [, product] = /only in (.+) chat, never through a connector\./.exec(captured.description)!;
+    const expected = JSON.parse(
+      JSON.stringify(captured).replaceAll(product!, "OpenTeam").replaceAll(`${scheme}://`, "openteam://")
+    );
+    const properties = expected.inputSchema.properties;
+    const texts: Record<string, { description: string }> = {
+      tool: expected,
+      type: properties.type,
+      channel: properties.channel,
+      "secret.name": properties.secret.properties.name,
+    };
+    const adaptations: Array<[keyof typeof texts, string | RegExp, string]> = [
+      // Sign-ins, SSO and 2FA included, follow the Authentication section.
+      ["tool", "(SSO, a passkey, 2FA, a captcha", "(a passkey, a captcha"],
+      // Secrets are named variables or connector credential fields with a scope, never plugin fields.
+      [
+        "tool",
+        "or with plugin_id a plugin's secret setup field (one request per key, after the plugin is installed).",
+        'or with connector and field instead of name, that connector\'s credential file. A named secret takes scope "bot" (the default) or "personal".',
+      ],
+      ["secret.name", "; with plugin_id, the plugin's `${VAR}` setup field key exactly as GetPlugin lists it.", "."],
+      // The app links only its own settings rows; there are no recovery, Bot template, agent or tab links.
+      [
+        "tool",
+        "[Update Track](openteam://app/v1/settings?id=update-channel)",
+        "[Web search provider](openteam://app/v1/settings?id=web-search-provider)",
+      ],
+      [
+        "tool",
+        /one of: [^.]+\. When stuck, link update-computer before reset-computer\./,
+        `one of: ${APP_SETTINGS_ANCHORS.join(", ")}.`,
+      ],
+      ["tool", " Bot template: [label](openteam://app/v1/bot-template?id=<share id>).", ""],
+      [
+        "tool",
+        " Another bot: [label](openteam://app/v1/agent?id=<id>). Your tab: [label](openteam://app/v1/sidebar?tab=<overview|routines|media|computer|members>).",
+        "",
+      ],
+      // No cloud agents, and no Slack thread syntax in channel addresses.
+      ["type", "cursor-agent: a cloud agent card; ", ""],
+      ["channel", / Slack: .*$/, ""],
+    ];
+    for (const [key, from, to] of adaptations) {
+      const text = texts[key]!;
+      if (typeof from === "string") expect(text.description).toContain(from);
+      else expect(text.description).toMatch(from);
+      text.description = text.description.replace(from, () => to);
+    }
+    properties.type.enum = properties.type.enum.filter((type: string) => type !== "cursor-agent");
+    delete properties.bcId;
+    delete properties.voice_memo;
+    const secret = properties.secret;
+    delete secret.properties.plugin_id;
+    const local = nativeToolsDocument.native.find((tool) => tool.name === "SendToUser")!.parameters.properties.secret!;
+    for (const key of ["connector", "field", "scope"] as const) secret.properties[key] = local.properties[key];
+    secret.required = ["label"];
+    secret.oneOf = [
+      { required: ["name"], not: { anyOf: [{ required: ["connector"] }, { required: ["field"] }] } },
+      { required: ["connector", "field"], not: { required: ["name"] } },
+    ];
+
+    const actual = referenceTool("SendToUser");
+    expect(actual.description).toBe(expected.description);
+    expect(actual.inputSchema).toEqual(expected.inputSchema);
   });
 
   test("declares the supported Cursor-compatible subset including AwaitShell", () => {

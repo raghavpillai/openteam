@@ -1,7 +1,7 @@
 {
   "SendToUser": {
     "name": "SendToUser",
-    "description": "Say something to the user in the Grok Bot chat. This is your only voice. The user only ever sees the content of SendToUser calls; your plain assistant text is invisible to them (it is just your private scratchpad), so a reply counts only once it is inside SendToUser, including short, casual, or social replies like \"Hey\" or \"Doing good, you?\". Finish a turn where someone is waiting on you without calling SendToUser and they see total silence and assume you ignored them; the lone exception is a scheduled routine (a [routine] run) whose saved instruction says to stay quiet when there's nothing to report, where ending with no SendToUser is correct rather than filler like \"(no change.)\". Keep the user posted along the way, not just at the end: post an update for a real result, decision, blocker, or change of plan, and batch or omit routine mechanics, retries, and minor snags rather than narrating each one; prefer fewer, higher-signal updates over a play-by-play. Still, never vanish into a long silent run on something the user is waiting on. This also covers results: output the user is waiting on counts as delivered only inside a SendToUser, so an opening acknowledgement does not discharge it (ack ≠ delivery). Say \"done\" only when the requested end state is verified; otherwise name the exact state (drafted, sent, waiting, blocked). Before the final send, check that it delivers everything the user explicitly asked for, in the form they asked for it, and nothing they would have to strip out; include the result itself, or say plainly that it is unavailable, rather than \"done\", a pointer to an earlier message, or process notes. If you ran something for the user, send the actual result before you yield. Use {\"type\":\"text\",\"content\":\"...\"} for normal messages; use actual newline characters for paragraph or list breaks, not literal backslash-n text. A voice memo (whatever they call it: voice note, voice message, audio note) is type:text with voice_memo: true. Write the words to speak in content, as complete spoken sentences with no numbered lists, headers, or markdown. A requested list is spoken as first / next / last, not digits. Start with the thing they asked to hear; never “hit play.” The client plays those words as a pellet. When they asked to receive a memo, send only that one message: no status ack, no ordinary-text copy of the answer, and no audio file (.m4a, .mp3). Silence until then is correct. Set voice_memo: true only on those spoken words (the answer). After that memo, later SendToUser calls stay ordinary text unless they ask for another memo. In text content you can point back at an earlier message with [label](sand-msg:<address>), e.g. \"Covered in [my earlier breakdown](sand-msg:t2s1)\". It renders as a chip that jumps there. Addresses match reply_to (a user [t3u] tag, or the id a send hands back) but never thread. Use only when pointing back helps; write the label as the sentence needs; never a bare address. These links only work in the in-app chat; do not use them in Slack or other outside channels. During a local group-chat turn, SendToUser delivers to that room; pass \"to\":\"dm\" to instead deliver a text message privately to your own user's 1:1 chat (the room never sees it). That is useful when someone in a room asks you to tell your user something, or when a result is for your user alone. Use {\"type\":\"attachment\",\"url\":\"file:///absolute/path/to/file.png\"} for actual files or standalone media; https:// file/media URLs are also accepted. A requested voice memo is not an audio attachment; never attach .m4a or .mp3 for one. The rule for images: if image(s) belong WITH what you're saying, attach them to the text message itself. {\"type\":\"text\",\"content\":\"...\",\"images\":[{\"url\":\"file:///absolute/path/to/shot.png\",\"alt\":\"...\"}]} renders them inside the same chat bubble, below your text (one image full width, several as a compact gallery). Use {\"type\":\"attachment\"} only when the image IS the whole message, with no accompanying text; videos and non-image files always go as attachments. Never embed images as markdown ![](...) in content. Use {\"type\":\"cursor-agent\",\"bcId\":\"bc-...\"} to reference a Cursor cloud agent: it renders as a card the user can click to open that agent in Cursor. Always use this instead of pasting a cloud agent's URL or bcId as text. In your own text call it a \"cloud agent\" or by its name; \"card\" is only how this attachment renders, never a word you write to the user (no \"(card)\" label). Use {\"type\":\"widget\",\"widget\":{...}} to ask the user a question with selectable options instead of asking in plain text, but ask rarely. By default decide and proceed (see Autonomy), reserving a widget for a consequential or destructive go/no-go, true ambiguity you cannot resolve by looking it up, or something only the user knows. Do not use a widget to confirm a tool that already opens its own review UI (an editor or an approval card); call that tool instead, because a widget ends the turn and blocks the UI. Every option must be a real, verified choice, never invented, guessed, or a plausible-looking placeholder; if you do not know the real options, look them up first (search the relevant connector, tool, or directory) rather than presenting fakes. Use {\"type\":\"secret-request\",\"secret\":{\"label\":\"...\",\"name\":\"CRM_API_TOKEN\"}} to ask for a credential (an API token, key, or secret). They get a masked secure input, the value is saved where this bot can use it, and you are told where once they submit; a plain secret is then available as process.env.NAME in new processes. For a secret `${VAR}` setup field of a plugin (GetPlugin lists the field as secret), add \"plugin_id\" (the plugin's id) and pass the field key as \"name\"; one secret-request per key, after the plugin is installed. If secret-request is not available in this chat, the tool says so and who should continue where; tell them that in text. NEVER ask anyone to paste a token, key, or password into the chat. You only learn that they provided it. Sending a secret-request ends your turn; you are resumed once they submit. When a task needs access the operating system gates behind a consent dialog (reading a protected folder like Documents/Desktop/Downloads, screen recording, the microphone, the camera, ...), just attempt the action directly. The OS surfaces its own permission dialog naturally when it is required, and the user grants there. Do NOT announce it first, invent a permission card or click-path, or promise that \"your system will ask\". Attempt the action and let the real dialog appear. (A sign-in, one-time code, or captcha on your box's desktop follows the `sign-in` skill instead.) The user picks an option and its value comes back to you as their reply. In the chat, the resolved card keeps your question and shows their selection checked under it, so phrase the prompt as a natural conversational question (never a menu instruction like \"Pick one of the following\") and give every option a value that reads like a reply the user would actually send. The user can also dismiss the question without answering; you'll be told on your next turn. Treat that as a decline and don't re-ask. Example: {\"type\":\"widget\",\"widget\":{\"prompt\":\"Deploy to production?\",\"options\":[{\"label\":\"Deploy\",\"value\":\"Yes, deploy now\",\"style\":\"primary\"},{\"label\":\"Cancel\",\"value\":\"No, hold off\",\"style\":\"danger\"}]}}. When you do genuinely need a decision or confirmation, this widget is how you ask, not plain text. Sending a widget ends your turn; make it your last action and stop, and the user's selection arrives as the next message. The chat renders Grok Bot deep links as pills that open the target. Write [Update Track](grokbot://app/v1/settings?id=update-channel), not \"Settings, Updates, Update Track\". A settings row is [label](grokbot://app/v1/settings?id=<anchor>), where <anchor> is one of: account, theme, accent, language, spell-check, microphone, hardware-acceleration, hardware-acceleration-restart, network-debugger, notification-sound-enabled, notification-sound, timezone, local-execution, computers, auto-review, auto-review-rules, security-keys, usage, plan, cancel-trial, on-demand, billing, update-status, update-channel, automatic-updates, update-computer, reset-computer. Stuck or reset? Link update-computer first, then reset-computer. Never write your own plugin link: InstallPlugin if missing, AuthenticateMcpServer if needsAuth. A Bot template is [label](grokbot://app/v1/bot-template?id=<share id>). Set label to the Bot's real name, never \"Bot template\" or its share id. Use real target names as labels. Labels are loading, hover, and plain-text fallbacks. Use only listed anchors in Grok Bot chat, never through a connector. A teammate is [label](grokbot://app/v1/agent?id=<id>). Your tab is [label](grokbot://app/v1/sidebar?tab=<overview|routines|media|computer|members>). Set end_turn to true on your final SendToUser call when your reply is complete. A successful send completes the turn without another assistant message. Omit it or set false for acknowledgements and progress updates when you still need to work. Send all required results and attachments before the final call. Do not parallelize the final call with work you still need. You can end your turn while subagents are working as long as you are done for now.",
+    "description": "Send a message to the user. Follow \"How a turn works\" in your instructions for when to reply, update, and finish, and \"Autonomy\" and \"Asking for decisions\" before asking the user anything. Say \"done\" only once the end state is verified; otherwise name the actual state (drafted, sent, waiting, blocked). The final send delivers everything asked for, in the form asked: the result itself or a plain statement that it is unavailable, never a pointer to an earlier message or process notes. For an OS permission (a protected folder, screen recording, microphone, camera), just attempt the action and let the OS show its own dialog; don't announce it or invent a permission card. A box-desktop step only the user can do (SSO, a passkey, 2FA, a captcha the subagent could not get past, a payment confirmation, a login you can't fill) goes to request_box_help. Secret requests: The value is saved where this bot can use it and you are told where after submit: a plain secret as process.env.NAME, or with plugin_id a plugin's secret setup field (one request per key, after the plugin is installed). If this chat can't take one, the tool says who should continue where; relay that in text. In-app links: Link app places as pills, e.g. [Update Track](grokbot://app/v1/settings?id=update-channel), never a click-path. Settings: [label](grokbot://app/v1/settings?id=<anchor>), <anchor> one of: account, theme, accent, language, spell-check, microphone, hardware-acceleration, hardware-acceleration-restart, network-debugger, notification-sound-enabled, notification-sound, timezone, local-execution, computers, auto-review, auto-review-rules, security-keys, usage, plan, cancel-trial, on-demand, billing, update-status, update-channel, automatic-updates, update-computer, reset-computer. When stuck, link update-computer before reset-computer. Never write plugin links: InstallPlugin if missing, AuthenticateMcpServer if needsAuth. Bot template: [label](grokbot://app/v1/bot-template?id=<share id>). Label each link with its target's real name. Use only these links, only in Grok Bot chat, never through a connector. Another bot: [label](grokbot://app/v1/agent?id=<id>). Your tab: [label](grokbot://app/v1/sidebar?tab=<overview|routines|media|computer|members>).",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -14,15 +14,15 @@
             "cursor-agent",
             "secret-request"
           ],
-          "description": "text for chat messages (default), attachment for actual files or standalone media, widget for an interactive question with selectable options, cursor-agent to reference a Cursor cloud agent by its bcId (renders as a card that opens the agent in Cursor on click), secret-request to ask the user for a credential through a secure masked input (never a chat paste)."
+          "description": "text (default); attachment: a file or standalone media; widget: a question with options; cursor-agent: a cloud agent card; secret-request: a masked input for a token, key, or password."
         },
         "content": {
           "type": "string",
-          "description": "Required when type is text. The message to show to the user. Use actual newline characters for paragraph or list breaks, not literal backslash-n text. Only valid with type:text."
+          "description": "Required for type:text. Markdown with real newlines, not literal \\n. In the in-app chat only, you may link an earlier message as [words](sand-msg:<address>); never a bare address, and never in Slack or other outside channels."
         },
         "url": {
           "type": "string",
-          "description": "Required when type is attachment. Use file:// for local files or https:// for remote files and standalone media. Do not attach an audio file for a requested voice memo."
+          "description": "Required for type:attachment. A file:// or https:// file, video, or image sent alone, such as file:///workspace/report.pdf."
         },
         "images": {
           "type": "array",
@@ -32,41 +32,41 @@
               "url": {
                 "type": "string",
                 "minLength": 1,
-                "description": "file:// or https:// URL of the image."
+                "description": "file:// or https:// URL, such as file:///workspace/chart.png."
               },
               "alt": {
                 "type": "string",
-                "description": "Optional short description of this image, shown on hover and as its fullscreen caption."
+                "description": "Shown on hover and as the fullscreen caption."
               }
             },
             "required": [
               "url"
             ]
           },
-          "description": "Optional, only for type:text. Image(s) that belong with this message; they render inside the same chat bubble, below your text. One image renders full width, and several render as a compact gallery. Use whenever you're showing something you're talking about; use type:attachment only for an image that IS the whole message."
+          "description": "type:text. Images shown in the same bubble, below the text; use type:attachment only when an image is the whole message. Never embed ![](…) in content."
         },
         "alt": {
           "type": "string",
-          "description": "Optional. A short description (alt text) of what the image shows, for type:attachment. Shown to the user on hover and in the fullscreen viewer."
+          "description": "type:attachment. Image description, shown on hover and fullscreen."
         },
         "reply_to": {
           "type": "string",
-          "description": "Optional. Address of a prior message to reply under (for example, t3u or t3s1). If the current user message was sent through Reply, omit this to reply under the same message automatically. Otherwise, omitting it posts normally in the main chat. Set it only to choose a different prior message."
+          "description": "Address of an earlier message to thread under (e.g. t3u, t3s1). A message sent through Reply is answered in its thread without it."
         },
         "channel": {
           "type": "string",
-          "description": "Optional. A connected messaging channel address to deliver this to instead of the in-app Grok Bot chat, shaped platform:chat, the address shown to you in an [inbound] wake. On Slack a channel thread is slack:<channel id>:<thread ts>, a person is slack:<user id>, and a bare slack:<channel id> starts a new top-level post in a channel the bot has been added to (only when asked for one; answer messages in their thread). Omit to send to the in-app chat (the default). Only valid with type:text or type:attachment."
+          "description": "type:text or attachment. Deliver to a connected channel instead of this chat, as platform:chat from an [inbound] wake. Slack: slack:<channel id>:<thread ts> for a thread, slack:<user id> for a person, bare slack:<channel id> for a new top-level post only when asked for one."
         },
         "to": {
           "type": "string",
           "enum": [
             "dm"
           ],
-          "description": "Optional, only meaningful during a local group-chat turn. Pass \"dm\" to deliver this message privately to YOUR OWN user's 1:1 chat instead of the room; the room never sees it. Only valid with type:text. Outside a group-chat turn it is ignored because your user is already the audience."
+          "description": "type:text in a group-chat turn. \"dm\" delivers privately to your own user's 1:1 chat instead of the room."
         },
         "voice_memo": {
           "type": "boolean",
-          "description": "A voice memo (whatever they call it: voice note, voice message, audio note) is type:text with voice_memo: true. Write the words to speak in content, as complete spoken sentences with no numbered lists, headers, or markdown. A requested list is spoken as first / next / last, not digits. Start with the thing they asked to hear; never “hit play.” The client plays those words as a pellet. When they asked to receive a memo, send only that one message: no status ack, no ordinary-text copy of the answer, and no audio file (.m4a, .mp3). Silence until then is correct. Optional, only for type:text with no images or channel. Set it only on that spoken answer. Later SendToUser calls stay ordinary text unless they ask for another memo."
+          "description": "type:text without images or channel. Speaks content as a voice memo; follow the voice memo rules in your instructions."
         },
         "widget": {
           "type": "object",
@@ -91,7 +91,7 @@
                   "value": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "Text sent back to you when this option is picked. Defaults to the label. Make it read like something the user would naturally say in reply."
+                    "description": "Reply text returned when picked; defaults to label."
                   },
                   "description": {
                     "type": "string",
@@ -115,26 +115,26 @@
             },
             "multiSelect": {
               "type": "boolean",
-              "description": "When true, several options may apply. The user toggles any subset, then submits once. Picked values return in one reply, one per line."
+              "description": "Allow several picks, returned one per line."
             },
             "allowCustom": {
               "type": "boolean",
-              "description": "When true, the user can type a custom free-text answer instead of choosing one of the options."
+              "description": "Allow a typed answer."
             },
             "dismissOnMoveOn": {
               "type": "boolean",
-              "description": "When true, this widget auto-dismisses (becomes inert, shows a muted Dismissed state) once the user sends a newer message without answering it. Omit/false to keep the question live and answerable indefinitely. Set true only for low-stakes questions that become moot if the user moves on; keep it off for real decisions you still need answered."
+              "description": "Auto-dismiss once the user sends a newer message without answering."
             }
           },
           "required": [
             "prompt",
             "options"
           ],
-          "description": "Required when type is widget. A question with one-line options: { prompt, options: [{ label, value?, style? }], multiSelect?, allowCustom?, dismissOnMoveOn? }. The user picks one option; its value comes back as their reply, and the chat shows the resolved card with their selection checked under your prompt, so phrase the prompt as a natural question, not a menu instruction. The user can also dismiss the question without answering; you'll be told on your next turn, so treat that as a decline and don't re-ask. Only valid with type:widget."
+          "description": "Required for type:widget. A question with options; the picked value returns as the user's reply."
         },
         "bcId": {
           "type": "string",
-          "description": "Required when type is cursor-agent. The bcId of the Cursor cloud agent to reference (e.g. bc-xxxxxxxx-...)."
+          "description": "Required for type:cursor-agent. The cloud agent's bcId (bc-…); it renders as a card that opens the agent. In text, call it a cloud agent or by its name, never a card."
         },
         "secret": {
           "type": "object",
@@ -142,33 +142,33 @@
             "label": {
               "type": "string",
               "minLength": 1,
-              "description": "What credential to ask for, shown as the card title and echoed in the field placeholder (\"Paste your …\"), e.g. \"Slack bot token\"."
+              "description": "Card title, e.g. \"Slack bot token\"."
             },
             "description": {
               "type": "string",
-              "description": "Optional short help shown under the label."
+              "description": "Short help under the label."
             },
             "name": {
               "type": "string",
               "minLength": 1,
               "maxLength": 128,
-              "description": "The environment variable name new box processes will read, e.g. \"CRM_API_TOKEN\". With plugin_id, the plugin's `${VAR}` setup field key instead, exactly as GetPlugin lists it."
+              "description": "Environment variable name, e.g. \"CRM_API_TOKEN\"; with plugin_id, the plugin's `${VAR}` setup field key exactly as GetPlugin lists it."
             },
             "plugin_id": {
               "type": "string",
               "pattern": "^[1-9]\\d*$",
-              "description": "Only on a shared team bot, and only for a secret `${VAR}` setup field of a plugin already on the bot: the plugin's STABLE id (from SearchPlugins / GetPlugin). The value is saved as that plugin's team variable `name` on the bot, never as a bot secret or a box environment variable."
+              "description": "Team bots only: the plugin's id from SearchPlugins or GetPlugin, when name is one of its secret `${VAR}` setup fields."
             }
           },
           "required": [
             "label",
             "name"
           ],
-          "description": "Required when type is secret-request. Asks for a credential through a masked secure input. The value never reaches you or the chat. You only learn that it was provided, and where it was saved. Do not ask anyone to paste a token, key, or password."
+          "description": "Required for type:secret-request. Asks for a single token, key, or password (one field; use RequestUserForm for multi-field asks like logins) through a masked input and ends your turn; you resume once it is submitted, and the value never reaches you or the chat."
         },
         "end_turn": {
           "type": "boolean",
-          "description": "Set end_turn to true on your final SendToUser call when your reply is complete. A successful send completes the turn without another assistant message. Omit it or set false for acknowledgements and progress updates when you still need to work. Send all required results and attachments before the final call. Do not parallelize the final call with work you still need. You can end your turn while subagents are working as long as you are done for now."
+          "description": "True ends the turn once this send succeeds."
         }
       }
     }

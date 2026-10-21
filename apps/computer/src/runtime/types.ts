@@ -92,6 +92,8 @@ export interface ActiveTurn {
   toolFailureStreak?: string[];
   toolFailureBreakerTripped?: boolean;
   lastAgentMessage?: { id: string; text: string };
+  /** A typed message superseded this run; calls it cut off say so. */
+  interruptedByUserAt?: number;
 }
 
 export interface RuntimeDynamicTool extends DynamicToolDefinition {

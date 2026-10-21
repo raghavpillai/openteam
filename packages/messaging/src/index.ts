@@ -653,6 +653,8 @@ export interface WakeInput {
   automationContextRunId?: string;
   taskContextRunId?: string;
   includeAttachmentPaths?: boolean;
+  /** A typed message that superseded this non-user run gets the unfinished-tasks reminder. */
+  interruptedRunId?: string;
 }
 
 export interface ToolContext {
@@ -910,6 +912,7 @@ export class AgentMessaging {
           automationTrigger: input.automationTrigger,
           automationContextRunId: input.automationContextRunId,
           taskContextRunId: input.taskContextRunId,
+          interruptedRunId: input.interruptedRunId,
         }),
         priority: input.priority,
         availableAt: input.availableAt,
@@ -1078,22 +1081,18 @@ export class AgentMessaging {
       input.isFork !== true &&
       ["running"].includes(activeRun.status);
     if (!canSteer || !activeRun) {
+      const interruptRunId =
+        activeRun && activeRun.origin !== "user" && ["running"].includes(activeRun.status)
+          ? activeRun.id
+          : null;
       const queued = await this.enqueueWake(tx, {
         ...input,
         origin: "user",
         type: "user.message",
         priority: PRIORITY.user,
+        ...(interruptRunId ? { interruptedRunId: interruptRunId } : {}),
       }, preparedAttachmentPaths);
-      return {
-        ...queued,
-        steer: null,
-        interruptRunId:
-          activeRun &&
-          activeRun.origin !== "user" &&
-          ["running"].includes(activeRun.status)
-            ? activeRun.id
-            : null,
-      };
+      return { ...queued, steer: null, interruptRunId };
     }
 
     const baseRuntimeContent = timestampUserTurn(input.content, {

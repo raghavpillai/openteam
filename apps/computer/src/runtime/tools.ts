@@ -157,6 +157,21 @@ export const workerTopLevelTools = (
   return [];
 };
 
+/** A call cut off because a typed message superseded the run reads as interrupted by the user, as in the reference. */
+const interruptibleByUser = <T extends { name: string; execute: (...args: any[]) => Promise<any> }>(active: ActiveTurn, tool: T): T => ({
+  ...tool,
+  execute: async (...args: any[]) => {
+    const started = Date.now();
+    try {
+      return await tool.execute(...args);
+    } catch (error) {
+      const at = active.interruptedByUserAt;
+      if (at === undefined) throw error;
+      throw new Error(`Error: ${tool.name} was interrupted by the user after ${Math.max(0, at - started)}ms before it completed.`);
+    }
+  },
+});
+
 export class RuntimeTools {
   private readonly shellWaits = new Map<string, Set<AbortController>>();
   interruptShellWaits(runId: string) {
@@ -433,6 +448,10 @@ export class RuntimeTools {
   }
 
   customTools(active: ActiveTurn) {
+    return this.definedTools(active).map((tool) => interruptibleByUser(active, tool));
+  }
+
+  private definedTools(active: ActiveTurn) {
     if (active.subagentType === "videoReview" || active.subagentType === "watchVideo") return [];
     const native = (
       tool: (typeof NATIVE_TOOLS)[number],

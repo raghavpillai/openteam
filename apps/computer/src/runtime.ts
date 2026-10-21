@@ -456,9 +456,10 @@ export class ComputerRuntime {
     );
   }
 
-  async cancel(runId: string): Promise<void> {
+  async cancel(runId: string, reason?: "user_message"): Promise<void> {
     const active = this.activeByRun.get(runId);
     if (!active) throw new Error("Run is not actively executing");
+    if (reason === "user_message") active.interruptedByUserAt ??= Date.now();
     active.endTurnRequested = true;
     active.pluginAbortController?.abort();
     this.tools.interruptShellWaits(runId);

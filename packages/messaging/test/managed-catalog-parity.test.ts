@@ -21,6 +21,8 @@ test('the group-chat-turns trigger names the tag a room turn starts with', () =>
   // Each room keeps its own context and gets plain text only.
   expect(skill('group-chat-turns')).not.toContain('Your one conversation carries');
   expect(skill('group-chat-turns')).toContain('Only plain text reaches the room');
+  // Widgets render only in the app, so a confirmation on a channel becomes a numbered plain-text question.
+  expect(skill('channels')).toContain('ask a multiple-choice question as plain text with the options as a numbered list and tell them to reply with their choice.');
 });
 
 test('managed workflows omit categorical authentication and transaction handovers', () => {

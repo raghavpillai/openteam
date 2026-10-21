@@ -631,7 +631,6 @@ export class SubagentService {
     return [
       "You are running as a subagent under a parent agent.",
       "Do not spawn additional subagents. Nested subagents are unavailable.",
-      "Do not create Canvas files unless requested by the user or by your instructions.",
     ].join("\n");
   }
 

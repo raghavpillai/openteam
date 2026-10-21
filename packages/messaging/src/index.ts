@@ -2,6 +2,7 @@ export { readTranscript } from "./read-transcript";
 export { readAgentActivity } from "./read-agent-activity";
 export { workerSkillAccess } from "./skill-access";
 import { workerSkillAccess } from "./skill-access";
+import { mediaReviewPrompt, renderWorkerBoxSection, renderWorkerTimeSection, WORKER_READONLY_LINE, WORKER_USER_IDENTITY_LINE } from "./worker-prompts";
 import { attachmentContext } from "./attachment-context";
 import { listSiblingThreads, renderOtherActiveConversations } from "./sibling-threads";
 import { nextMessageAddress, resolveMessageAddress } from "./message-address";
@@ -13,8 +14,8 @@ import { join } from "node:path";
 import { publishChannelNotification, publishMessageNotification } from "./notifications";
 export { publishChannelNotification, publishMessageNotification, channelNotificationStates } from "./notifications";
 import { messagePreviewText } from "@openteam/contracts/message-preview";
-import { defaultTaskConfiguration, subagentUsesParentConnectors, taskUserInfo, type TaskConfiguration } from "@openteam/contracts/task-configuration";
-import { COMBINED_GRAPHICAL_WORKER_PROMPT, EXECUTION_VERIFICATION_INSTRUCTIONS } from "./graphical-worker-prompts";
+import { defaultTaskConfiguration, taskUserInfo, type TaskConfiguration } from "@openteam/contracts/task-configuration";
+import { combinedGraphicalWorkerPrompt, EXECUTION_VERIFICATION_INSTRUCTIONS } from "./graphical-worker-prompts";
 import {
   type AdminBroadcastInput,
   type AgentImageInput,
@@ -584,13 +585,9 @@ export const WORKER_UNTRUSTED_CONTENT_SECTION = [
 export const WORKER_DRAFT_HANDOFF = "You cannot call DraftExternalMessage. When an email or Slack message should go out under the user's name, do not create the draft in the source app with Gmail create_draft or another connector draft tool. Tell the parent to call DraftExternalMessage: put that ask in your final message, with the recipient, the channel or connector, the thread or other context, the proposed text, and why it should go out. The only exception is an email draft that the user asked to keep in their mailbox, or that must carry a file attachment: save it in their mailbox with the email connector's create_draft, send nothing, and do not ask the parent to draft it.";
 
 
-export const subagentSpecializationInstructions = (type: SubagentType): string => {
-  if (type === "computerUse") return COMBINED_GRAPHICAL_WORKER_PROMPT;
-  if (type === "videoReview" || type === "watchVideo") {
-    return "Review the supplied media frames directly. No tools are available to this worker.";
-  }
-  return `Use Shell, Read, and the other native tools for general execution on the shared OpenTeam computer.\n${EXECUTION_VERIFICATION_INSTRUCTIONS}`;
-};
+/** The type-specific part of a worker's prompt; the box section covers where executors work. */
+export const subagentSpecializationInstructions = (type: SubagentType, workingDirectory = "/workspace"): string =>
+  type === "computerUse" ? combinedGraphicalWorkerPrompt(workingDirectory) : mediaReviewPrompt(type) ?? EXECUTION_VERIFICATION_INSTRUCTIONS;
 
 const json = (value: unknown): Prisma.InputJsonValue =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -2062,26 +2059,28 @@ export class AgentMessaging {
     });
     const todoContext = bot.todos.map((todo) => `- [${todo.status}] ${todo.id}: ${todo.content}`);
     if (bot.subagentIdentity) {
-      const specialization = subagentSpecializationInstructions(bot.subagentIdentity.subagentType as SubagentType);
-      const instructions = [
-        `You are OpenTeam running as the ${bot.subagentIdentity.subagentType} subagent.`,
-        "Complete the delegated task autonomously, then end your turn with a concise final assistant message in plain text. Only that final assistant message is relayed back to the parent agent as your result; text from earlier assistant messages is not included. Put the outcome and any context the parent needs in that last message.",
-        "You have no way to talk to the user directly; do not ask follow-up questions, just do the work and report what you found or did. Do not call SendToUser or SendToAgent.",
-        subagentUsesParentConnectors(bot.subagentIdentity.subagentType) ||
-        bot.subagentIdentity.subagentType === "computerUse"
-          ? `${WORKER_UNTRUSTED_CONTENT_SECTION}\n\n${WORKER_DRAFT_HANDOFF}` : "",
-        specialization,
-        `The computer filesystem is shared. Every agent, room, routine, A2A wake, and subagent starts in ${bot.defaultDirectory}.`,
-        `Your current timezone is ${this.defaultTimeZone}.`,
+      const type = bot.subagentIdentity.subagentType as SubagentType;
+      // Executors and knowledgeWork work across the box and the user's computers; browser and media workers do not.
+      const executes = type === "executor" || type === "knowledgeWork";
+      const instructions = mediaReviewPrompt(type) ?? [
+        [
+          `You are OpenTeam running as the ${type} subagent.`,
+          "Complete the delegated task autonomously, then end your turn with a concise final assistant message in plain text. Only that final assistant message is relayed back to the parent agent as your result; text from earlier assistant messages is not included. Put the outcome and any context the parent needs in that last message.",
+          "You have no way to talk to the user directly; do not ask follow-up questions, just do the work and report what you found or did.",
+          ...(bot.subagentIdentity.readOnly ? [WORKER_READONLY_LINE] : []),
+        ].join("\n"),
+        `${WORKER_UNTRUSTED_CONTENT_SECTION}\n\n${WORKER_DRAFT_HANDOFF}`,
+        WORKER_USER_IDENTITY_LINE,
+        executes ? renderWorkerTimeSection(this.defaultTimeZone) : "",
         connectorInstructions.trim(),
+        executes ? renderWorkerBoxSection({ readOnly: bot.subagentIdentity.readOnly, workingDirectory: bot.defaultDirectory }) : "",
+        subagentSpecializationInstructions(type, bot.defaultDirectory),
         bot.instructions ? `Subagent instructions:\n${bot.instructions}` : "",
       ]
         .filter(Boolean)
         .join("\n\n");
       // Only knowledgeWork carries skills of its own; its user_info lists them for the Skill tool.
-      const workerSkills = workerSkillAccess(bot.subagentIdentity.subagentType) === "tool"
-        ? await this.agentData.renderWorkerSkillCatalog(bot.subagentIdentity.subagentType)
-        : "";
+      const workerSkills = workerSkillAccess(type) === "tool" ? await this.agentData.renderWorkerSkillCatalog(type) : "";
       return {
         instructions,
         userInfo: workerSkills ? ["<user_info>", workerSkills, "</user_info>"].join("\n") : null,

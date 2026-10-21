@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { equalOAuthState, validateDesktopCallback, parseManualCallback, oauthCallbackMode, MANUAL_OAUTH_REDIRECT, type PluginOAuthDesktopContext } from "../plugins/oauth-callback";
 import type { PluginOAuthCallbackInput } from "@openteam/contracts/plugin-management";
-import { pluginToolArguments } from "./plugin/tool-arguments";
+import { normalizeAccountLabel, pluginToolArguments } from "./plugin/tool-arguments";
 import { connectionNamespaces } from "@openteam/plugin-sdk";
 import type { ConfigurePluginConnectionInput, PluginTestInput } from "@openteam/contracts";
 import { ApiError } from "@openteam/contracts";
@@ -324,13 +324,14 @@ export class PluginService {
     if (action === "UninstallMcpServer") {
       const connection = await this.connectionOrThrow(connectionId);
       if (!connection.installation.pluginKey.startsWith("custom-mcp-")) {
+        const plugin = connection.installation.pluginKey;
         throw new ApiError(
           409,
           "marketplace_plugin_required",
-          "Marketplace MCP servers must be removed by uninstalling their plugin"
+          `${connection.name} was installed from marketplace plugin ${plugin}, so removing it removes that whole plugin, every connector and skill it added, not just this server. Use UninstallPlugin with plugin id ${plugin} instead, and disclose that full scope to the user first.`
         );
       }
-      return Effect.runPromise(this.uninstall(connection.installation.pluginKey));
+      return { ...(await Effect.runPromise(this.uninstall(connection.installation.pluginKey))), name: connection.name };
     }
     if (action === "AuthenticateMcpServer") {
       if (typeof args.createAccountLabel === "string") {
@@ -363,6 +364,16 @@ export class PluginService {
     const args = pluginToolArguments(action, value);
     for (const key of ["connectionIds", "createAccountLabel", "createAccountId", "createServerId"]) if (key in args)
       throw new ApiError(400, "private_plugin_argument", `${key} is assigned by the action service`);
+    if ((action === "InstallPlugin" || action === "UninstallPlugin") && typeof args.pluginKey === "string") {
+      const detail = await this.catalogDetail(args.pluginKey).catch((error: unknown) => {
+        if (error instanceof ApiError && error.code === "plugin_not_found") return null;
+        throw error;
+      }) as { installed?: boolean; plugin?: { name?: string } } | null;
+      if (!detail)
+        throw new ApiError(404, "plugin_not_found", `No plugin with id "${args.pluginKey}". Ids come from SearchPlugins. Run it and use the id it lists.`);
+      if (action === "UninstallPlugin" && !detail.installed)
+        throw new ApiError(404, "plugin_not_installed", `${detail.plugin?.name ?? args.pluginKey} (plugin ${args.pluginKey}) is not installed, so there is nothing to uninstall.`);
+    }
     if (action === "AddMcpServer") args.createServerId = crypto.randomUUID();
     if (action === "RestartMcpServers" && !args.connectionId && !args.server_id) {
       args.connectionIds = (await this.prisma.pluginConnection.findMany({
@@ -375,16 +386,20 @@ export class PluginService {
     const connections = await this.prisma.pluginConnection.findMany({ include: { installation: true } });
     const namespaces = connectionNamespaces(connections);
     const matches = connections.filter(c => c.id === args.server_id || namespaces.get(c.id) === args.server_id || c.installation.pluginKey === args.server_id);
-    if (!matches.length) throw new ApiError(404, "connection_not_found", "Server not found; use GetMcpServerStatus");
+    if (!matches.length) throw new ApiError(404, "connection_not_found", `No installed MCP server "${args.server_id}". Run GetMcpServerStatus to list every server with its identifier.`);
     const groups = new Set(matches.map(c => `${c.installationId}/${c.connectorKey}`));
     if (groups.size !== 1) throw new ApiError(409, "account_ambiguous", "Use a server identifier from GetMcpServerStatus");
     const source = matches[0]!;
     const accounts = connections.filter(c => c.installationId === source.installationId && c.connectorKey === source.connectorKey);
-    const selected = typeof args.account_label === "string" ? accounts.filter(c => c.alias === args.account_label) : matches;
-    if (!selected.length && action === "AuthenticateMcpServer" && typeof args.account_label === "string") {
-      args.createAccountLabel = args.account_label;
+    const label = typeof args.account_label === "string" ? normalizeAccountLabel(args.account_label) : undefined;
+    const selected = label !== undefined ? accounts.filter(c => normalizeAccountLabel(c.alias) === label) : matches;
+    if (!selected.length && action === "AuthenticateMcpServer" && label !== undefined) {
+      args.createAccountLabel = label;
       args.createAccountId = crypto.randomUUID();
     } else if (selected.length !== 1) throw new ApiError(409, "account_ambiguous", "Select one account_label from GetMcpServerStatus");
+    if (action === "RenameMcpAccount" && typeof args.accountLabel === "string" &&
+        accounts.some(c => c.id !== selected[0]!.id && normalizeAccountLabel(c.alias) === args.accountLabel))
+      throw new ApiError(409, "connection_alias_exists", "That account alias already exists");
     const id = (selected[0] ?? source).id;
     if (args.connectionId && args.connectionId !== id) throw new ApiError(400, "account_ambiguous", "Conflicting connectionId and server_id");
     args.connectionId = id;

@@ -83,3 +83,34 @@ test.skipIf(!databaseUrl)(
     }
   }
 );
+
+test.skipIf(!databaseUrl)("account labels match case-insensitively and unknown names get the reference texts", async () => {
+  const db = createPrismaClient(databaseUrl!);
+  const service = new PluginService(db);
+  let installationId: string | undefined;
+  try {
+    const source = await Effect.runPromise(service.addCustomMcp({ name: "Fixture", url: "https://fixture.example.test/mcp", auth: "oauth", alias: "work" }));
+    installationId = source.installationId;
+    const [connection] = await db.pluginConnection.findMany({ where: { installationId } });
+    // "Work" re-authenticates the existing "work" account instead of creating a second one.
+    const resolved = await service.resolveToolArguments("AuthenticateMcpServer", { server_id: source.pluginKey, account_label: "Work" });
+    expect(resolved.connectionId).toBe(connection!.id);
+    expect(resolved).not.toHaveProperty("createAccountLabel");
+    expect(await service.resolveToolArguments("AuthenticateMcpServer", { server_id: source.pluginKey, account_label: "Personal" })).toMatchObject({ createAccountLabel: "personal" });
+    expect((await service.resolveToolArguments("RemoveMcpAccount", { server_id: source.pluginKey, account_label: 'account="WORK"' })).connectionId).toBe(connection!.id);
+    await expect(service.resolveToolArguments("SetMcpInstructions", { server_id: "slack", instructions: "x" })).rejects.toThrow(
+      'No installed MCP server "slack". Run GetMcpServerStatus to list every server with its identifier.'
+    );
+    if (!(await db.pluginInstallation.findUnique({ where: { pluginKey: "linear" } })))
+      await expect(service.resolveToolArguments("UninstallPlugin", { pluginId: "linear" })).rejects.toThrow(
+        "Linear (plugin linear) is not installed, so there is nothing to uninstall."
+      );
+    await expect(service.resolveToolArguments("InstallPlugin", { id: "no-such-plugin" })).rejects.toThrow(
+      'No plugin with id "no-such-plugin". Ids come from SearchPlugins. Run it and use the id it lists.'
+    );
+  } finally {
+    await service.close();
+    if (installationId) await db.pluginInstallation.deleteMany({ where: { id: installationId } });
+    await db.$disconnect();
+  }
+});

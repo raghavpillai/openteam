@@ -226,12 +226,12 @@ export function dynamicCatalog(
             inputSchema: pluginToolSchemas.GetPlugin,
             source: "first-party" as const,
             decodeArguments: (args: unknown) => {
-              const pluginKey =
-                args && typeof args === "object"
-                  ? ((args as Record<string, unknown>).plugin_id ?? (args as Record<string, unknown>).pluginKey)
-                  : undefined;
-              if (typeof pluginKey !== "string") throw new Error("pluginKey is required");
-              return { pluginKey: pluginKey.trim() };
+              const input = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
+              // The reference accepts id and pluginId for plugin_id.
+              const spellings = [input.plugin_id, input.pluginKey, input.pluginId, input.id].filter((value) => value !== undefined);
+              if (new Set(spellings).size > 1) throw new Error("Pass the plugin's id once, as plugin_id (from SearchPlugins).");
+              if (typeof spellings[0] !== "string" || !spellings[0].trim()) throw new Error("plugin_id is required: the stable plugin id from SearchPlugins.");
+              return { pluginKey: spellings[0].trim() };
             },
             execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
               callControlPlaneTool(turn, callId, "GetPlugin", args, signal),

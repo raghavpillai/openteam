@@ -19,6 +19,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { RunService } from "../run-service";
 import { appendEvent, type ComputerFetch, hashRequest, toJson } from "../service-utils";
 import { taskInference, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
+import { normalizeSubagentTypeName, parentOnlyDispatchNotice, subagentTitle, withSiteDispatchNotes } from "@openteam/contracts/subagent-dispatch";
 
 const ACTIVE_STATUSES = ["provisioning", "queued", "running"] as const;
 
@@ -34,35 +35,41 @@ const failedToolError = (status: string, content: unknown): string | undefined =
   return text ? text.text.slice(0, 500) : undefined;
 };
 
-export const subagentTaskContent = (input: TaskInput): string => input.prompt;
+/** A browser task that names a site with known pitfalls carries that site's notes. */
+export const subagentTaskContent = (input: TaskInput, type: SubagentType = input.subagent_type ?? "executor"): string =>
+  type === "computerUse" ? withSiteDispatchNotes(input.prompt) : input.prompt;
 
-export const subagentTaskWake = (input: TaskInput) => ({
-  content: subagentTaskContent(input),
+export const subagentTaskWake = (input: TaskInput, type?: SubagentType) => ({
+  content: subagentTaskContent(input, type),
   wrapUserContent: false as const,
 });
 
 export const subagentSteerPrompt = (message: string): string =>
   [
     "[Steering message from the parent agent that dispatched you]",
-    "",
-    message,
-    "",
-    "Take this into account and continue your task from where you are — do not start over.",
-  ].join("\n");
+    message.trim(),
+    "Take this into account and continue your task from where you are. Do not start over.",
+  ].join("\n\n");
 
 export const botSubagentId = (id: string): string =>
   id.startsWith("sand-subagent-") ? id : `sand-subagent-${id}`;
 
 export const openteamSubagentId = (id: string): string => id.replace(/^sand-subagent-/, "");
 
+const agentIdLine = (id: string) =>
+  `Agent ID: ${botSubagentId(id)} (can be used with the \`resume\` parameter to send a follow-up after it completes)`;
+
 export const subagentBackgroundResult = (id: string): string =>
-  [
-    `Subagent is running in the background. If needed, use CheckSubagent with subagent_id="${botSubagentId(id)}" to inspect its status and progress. When you end your turn, you will be automatically sent the subagent's final response upon its completion, so do not wait for it - either end your turn or work on something else.`,
-    'Before invoking CheckSubagent, load its schema with GetDynamicTools(namespace="cursor", toolName="CheckSubagent") if it is not already loaded.',
-    "Do NOT try to predict the subagent's response before it replies.",
-    "",
-    `Agent ID: ${botSubagentId(id)} (can be used with the \`resume\` parameter to send a follow-up after it completes)`,
-  ].join("\n");
+  `Subagent is running in the background. When you end your turn, you will be automatically sent the subagent's final response upon its completion, so do not wait for it - either end your turn or work on something else.\n\n${agentIdLine(id)}`;
+
+/** A Task that waited for its subagent returns the subagent's last message. */
+export const subagentForegroundResult = (id: string, result: string | null): string =>
+  `This is the output of the subagent:\n\nresponse:\n<response>\n${result ?? "No output"}\n</response>\n\n${agentIdLine(id)}`;
+
+const failedTaskMessage = (status: string, error: Prisma.JsonValue | null): string => {
+  const message = error && typeof error === "object" && !Array.isArray(error) && typeof error.message === "string" ? error.message : undefined;
+  return `Error: ${message ?? (status === "stopped" ? "The subagent was stopped before it finished." : "The subagent failed before it finished.")}`;
+};
 
 type SubagentDatabase = PrismaClient | Prisma.TransactionClient;
 
@@ -83,7 +90,7 @@ export const assertSubagentCapacity = async (
     throw new ApiError(
       409,
       "subagent_computer_in_use",
-      "A computerUse subagent is already using the box's desktop. Only one can run at a time — wait for it to finish (you're notified automatically), then dispatch another."
+      "A computerUse subagent is already using the box's desktop. Only one can run at a time. Wait for it to finish (you're notified automatically), then dispatch another."
     );
   }
 };
@@ -122,6 +129,9 @@ export class SubagentService {
       throw new ApiError(409, "request_in_progress", "This Task call is already being accepted");
     }
     if (foregroundYield && !attempt) throw new ApiError(409, "subagent_attempt_missing", "Cannot yield a Task that was not already started");
+    // A dispatch that asks for steps only the parent can do says so in the result.
+    const notice = parentOnlyDispatchNotice({ subagentType: input.subagent_type ?? (input.resume ? undefined : "executor"), prompt: input.prompt });
+    const dispatched = (result: string) => (notice ? `${result}\n\n${notice}` : result);
     if (!receipt) {
       try {
         receipt = await this.prisma.idempotencyRecord.create({
@@ -174,10 +184,11 @@ export class SubagentService {
         message: "Foreground wait yielded for a user update. The existing worker remains running and completion will wake you. Process the update and use MessageSubagent to relay changes; do not start a duplicate task.",
       };
       attempt = await this.prisma.subagentAttempt.findUniqueOrThrow({where: {id: attempt.id}});
-      if (attempt.status === "completed") return `${attempt.result || "Subagent completed without a text report."}\n\nAgent ID: ${botSubagentId(subagent.id)}`;
-      return {subagent_id: botSubagentId(subagent.id), status: attempt.status, error: attempt.error, result: attempt.result};
+      if (attempt.status === "completed") return dispatched(subagentForegroundResult(subagent.id, attempt.result));
+      return failedTaskMessage(attempt.status, attempt.error);
     }
-    return this.taskResult(subagent, attempt, signal);
+    const result = await this.taskResult(subagent, attempt, signal);
+    return typeof result === "string" && !result.startsWith("Error: ") ? dispatched(result) : result;
   }
 
   private receiptSubagentId(response: Prisma.JsonValue | null | undefined): string | null {
@@ -198,28 +209,22 @@ export class SubagentService {
       if (running.length === 0) return "No background subagents are running right now.";
       return { subagents: await Promise.all(running.map((subagent) => this.inspect(subagent))) };
     }
-    const subagent = await this.activeOwned(parentBotId, input.subagent_id).catch((error) => {
-      if (error instanceof ApiError) return error.message;
-      throw error;
-    });
+    const subagent = await this.runningOwned(parentBotId, input.subagent_id);
     if (typeof subagent === "string") return subagent;
     return this.inspect(subagent);
   }
 
   async message(parentBotId: string, callId: string, input: MessageSubagentInput) {
-    const subagent = await this.activeOwned(parentBotId, input.subagent_id);
+    const subagent = await this.runningOwned(parentBotId, input.subagent_id);
+    if (typeof subagent === "string") return subagent;
     const currentRunId = subagent.currentRunId;
-    if (subagent.status !== "running" || !currentRunId) {
-      throw new ApiError(409, "subagent_not_running", "The subagent is not currently running");
-    }
+    if (subagent.status !== "running" || !currentRunId) return this.noRunningSubagentMessage(parentBotId, input.subagent_id);
     const dispatch = await this.prisma.$transaction(async (tx) => {
       const run = await tx.run.findUnique({
         where: { id: currentRunId },
         include: { conversation: true },
       });
-      if (!run || !["running"].includes(run.status)) {
-        throw new ApiError(409, "subagent_not_running", "The subagent is not currently running");
-      }
+      if (!run || !["running"].includes(run.status)) return null;
       const clientMessageId = `subagent-steer:${callId}`;
       const content = subagentSteerPrompt(input.message);
       const duplicate = await tx.inboxEvent.findUnique({
@@ -289,6 +294,7 @@ export class SubagentService {
       });
       return { runId: run.id, inboxId: inbox.id, clientMessageId, content, duplicate: false };
     });
+    if (!dispatch) return this.noRunningSubagentMessage(parentBotId, input.subagent_id);
     if (!dispatch.duplicate) {
       const input = {
         inboxId: dispatch.inboxId,
@@ -317,7 +323,11 @@ export class SubagentService {
 
   async stop(parentBotId: string, callId: string, input: StopSubagentInput) {
     if (input.all === true) return this.stopAll(parentBotId, callId);
-    return this.stopOne(parentBotId, callId, await this.activeOwned(parentBotId, input.subagent_id));
+    const subagent = await this.runningOwned(parentBotId, input.subagent_id);
+    if (typeof subagent === "string") return subagent;
+    const result = await this.stopOne(parentBotId, callId, subagent);
+    // A subagent that finished before the stop reached it is no longer running.
+    return result.stopped || (ACTIVE_STATUSES as readonly string[]).includes(result.status) ? result : this.noRunningSubagentMessage(parentBotId, input.subagent_id);
   }
 
   /** Stop each running subagent on its own, so one failure never hides or blocks the others. */
@@ -327,7 +337,7 @@ export class SubagentService {
       orderBy: { createdAt: "asc" },
     });
     const outcomes = await Promise.all(running.map(async (subagent) => {
-      const summary = { subagent_id: botSubagentId(subagent.id), subagent_type: subagent.subagentType, description: subagent.description };
+      const summary = { subagent_id: botSubagentId(subagent.id), subagent_type: subagent.subagentType, title: subagentTitle(subagent.prompt) };
       try {
         const result = await this.stopOne(parentBotId, callId, subagent);
         if (result.stopped) return { ...summary, outcome: "stopped" as const };
@@ -342,7 +352,7 @@ export class SubagentService {
     return { stopped_all: true, stopped: of("stopped"), already_finished: of("finished"), failed: of("failed") };
   }
 
-  private async stopOne(parentBotId: string, callId: string, subagent: Awaited<ReturnType<SubagentService["activeOwned"]>>) {
+  private async stopOne(parentBotId: string, callId: string, subagent: Awaited<ReturnType<SubagentService["owned"]>>) {
     if (subagent.currentRunId) {
       try {
         await Effect.runPromise(this.runs.cancel(subagent.currentRunId));
@@ -533,11 +543,18 @@ export class SubagentService {
       return this.launch(context, { ...input, resume: undefined }, restoredId);
     }
     const type = Schema.decodeUnknownSync(SubagentType)(subagent.subagentType);
+    if (input.subagent_type !== undefined && normalizeSubagentTypeName(input.subagent_type) !== normalizeSubagentTypeName(type)) {
+      throw new ApiError(
+        409,
+        "subagent_type_mismatch",
+        `Cannot resume a "${type}" subagent as "${input.subagent_type}". A resumed subagent keeps its type: omit \`subagent_type\` to resume this child, or start a new "${input.subagent_type}" subagent without \`resume\`.`
+      );
+    }
     if (["provisioning", "queued", "running"].includes(subagent.status)) {
       throw new ApiError(
         409,
         "subagent_not_resumable",
-        "That background subagent is still running, so it can't be resumed yet — you're notified automatically when it finishes. To act on it while it runs, use MessageSubagent to send it an instruction or StopSubagent to abort it (CheckSubagent shows how it's doing)."
+        "That background subagent is still running, so it can't be resumed yet. You're notified automatically when it finishes. To act on it while it runs, use MessageSubagent to send it an instruction or StopSubagent to abort it (CheckSubagent shows how it's doing)."
       );
     }
     return this.prisma.$transaction(async (tx) => {
@@ -563,7 +580,7 @@ export class SubagentService {
         channelId,
         origin: "agent",
         type: "subagent.resume",
-        ...subagentTaskWake(input),
+        ...subagentTaskWake(input, type),
         clientId: `subagent:${subagent.id}:resume:${context.callId}`,
         priority: 350,
       });
@@ -626,7 +643,8 @@ export class SubagentService {
     return subagent;
   }
 
-  private async activeOwned(parentBotId: string, id: string) {
+  /** A running subagent of this parent, or the reference's not-running answer, which is an ordinary result. */
+  private async runningOwned(parentBotId: string, id: string) {
     const subagent = await this.prisma.subagent.findFirst({
       where: {
         id: openteamSubagentId(id),
@@ -634,14 +652,7 @@ export class SubagentService {
         status: { in: [...ACTIVE_STATUSES] },
       },
     });
-    if (!subagent) {
-      throw new ApiError(
-        404,
-        "subagent_not_running",
-        await this.noRunningSubagentMessage(parentBotId, id)
-      );
-    }
-    return subagent;
+    return subagent ?? this.noRunningSubagentMessage(parentBotId, id);
   }
 
   private async noRunningSubagentMessage(parentBotId: string, id: string): Promise<string> {
@@ -690,7 +701,7 @@ export class SubagentService {
     const end = subagent.completedAt ?? subagent.stoppedAt ?? new Date();
     return {
       subagent_id: botSubagentId(subagent.id),
-      description: subagent.description,
+      title: subagentTitle(subagent.prompt),
       subagent_type: subagent.subagentType,
       status: subagent.status,
       run_status: currentRun?.status ?? null,
@@ -723,10 +734,8 @@ export class SubagentService {
     while (true) {
       signal?.throwIfAborted();
       const current = await this.prisma.subagentAttempt.findUniqueOrThrow({ where: { id: attempt.id } });
-      if (current.status === "completed") return `${current.result || "Subagent completed without a text report."}\n\nAgent ID: ${botSubagentId(subagent.id)}`;
-      if (current.status === "failed" || current.status === "stopped") {
-        return { subagent_id: botSubagentId(subagent.id), status: current.status, error: current.error, result: current.result };
-      }
+      if (current.status === "completed") return subagentForegroundResult(subagent.id, current.result);
+      if (current.status === "failed" || current.status === "stopped") return failedTaskMessage(current.status, current.error);
       const parent = await this.prisma.run.findUnique({ where: { id: attempt.parentRunId }, select: { status: true } });
       if (!parent || !["running"].includes(parent.status)) {
         throw new ApiError(409, "parent_not_running", "The foreground task's parent is no longer running");

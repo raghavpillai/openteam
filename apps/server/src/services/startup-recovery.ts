@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@openteam/db";
 import { type AgentMessaging, renderSubagentRevivalPrompt } from "@openteam/messaging";
+import { subagentTitle } from "@openteam/contracts/subagent-dispatch";
 import type { PgBoss } from "pg-boss";
 import type { ComputerFetch } from "./service-utils";
 import { appendEvent } from "./service-utils";
@@ -107,7 +108,7 @@ export async function recover(
             origin: "background_revival",
             type: "subagent.failed",
             content: renderSubagentRevivalPrompt({
-              title: attempt.description,
+              title: subagentTitle(attempt.prompt),
               subagentType: subagent.subagentType,
               status: "failed",
               result: error.message,

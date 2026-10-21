@@ -14,6 +14,7 @@ import { formatPiModelRef, normalizePiReasoningLevel } from "@openteam/contracts
 import { selectTaskConfiguration, parseTaskConfiguration, subagentUsesParentConnectors, type TaskConfiguration, type TaskCapabilities } from "@openteam/contracts/task-configuration";
 import { finalizeInterruptedItems, interruptedProgress } from "./interrupted-progress";
 import { includeSubagentFailures } from "./subagent-result";
+import { subagentTitle } from "@openteam/contracts/subagent-dispatch";
 import {
   COMPUTER_API_PATHS,
   parseAgentDirectorySnapshot,
@@ -1852,7 +1853,7 @@ export class WakeWorker {
       select: { kind: true, content: true },
     });
     const result = includeSubagentFailures(
-      finalMessage?.content.trim() || "Subagent completed without a text report.",
+      finalMessage?.content.trim() ?? "",
       failures.reverse()
     );
     await tx.subagent.update({
@@ -1973,6 +1974,7 @@ export class WakeWorker {
       parentRunId: string;
       parentChannelId: string;
       description: string;
+      prompt: string;
       subagentType: string;
       currentRunId: string | null;
       outputPath: string;
@@ -1997,7 +1999,7 @@ export class WakeWorker {
       taskContextRunId: sourcePayload?.taskContextRunId ?? subagent.parentRunId,
       type: `subagent.${status}`,
       content: renderSubagentRevivalPrompt({
-        title: subagent.description,
+        title: subagentTitle(subagent.prompt),
         subagentType: subagent.subagentType,
         status,
         result,

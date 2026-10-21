@@ -746,6 +746,25 @@ test('browser workers retain their parent desktop session and steering cancels o
   expect(tools.shellWaits.size).toBe(0); expect(used).toEqual(['first','other','first']);
 });
 
+test('Task reads subagent_type spellings as their type and reports a refused dispatch as Error: reason', async () => {
+  const runtime = runtimeTools() as any;
+  const previousFetch = globalThis.fetch;
+  const sent: any[] = [];
+  globalThis.fetch = (async (_url: any, init: any) => {
+    sent.push(JSON.parse(init.body).arguments);
+    return Response.json({ error: { code: 'subagent_not_resumable', message: "That background subagent is still running, so it can't be resumed yet." } }, { status: 409 });
+  }) as unknown as typeof fetch;
+  try {
+    const task = runtime.dynamicCatalog(workerTurn(null)).find((namespace: any) => namespace.name === 'cursor').tools.find((tool: any) => tool.name === 'Task');
+    const args = task.decodeArguments({ description: 'Book', prompt: 'Book it', subagent_type: 'computer_use' });
+    expect(args.subagent_type).toBe('computerUse');
+    await expect(task.execute({ ...workerTurn(null), pendingSteers: [] }, 'call', args)).rejects.toThrow(
+      "Error: That background subagent is still running, so it can't be resumed yet."
+    );
+    expect(sent[0].subagent_type).toBe('computerUse');
+  } finally { globalThis.fetch = previousFetch; }
+});
+
 test('Computer rewrites other tools\' action names before its schema check', () => {
   const runtime = runtimeTools() as any;
   const computer = runtime.customTools(workerTurn('computerUse')).find((tool: any) => tool.name === 'Computer');
@@ -753,4 +772,30 @@ test('Computer rewrites other tools\' action names before its schema check', () 
   expect(() => computer.prepareArguments({ action: 'right_click', button: 'left' })).toThrow(
     'Invalid arguments:\naction: Computer has no right_click action, and it would mean button "right", not "left". Send action "click" with the button you mean.'
   );
+});
+
+test('the parent-only dispatch reminder names only tools the parent has and that child type lacks', async () => {
+  const { parentOnlyToolsFor } = await import('@openteam/contracts/subagent-dispatch');
+  const runtime = runtimeTools() as any;
+  // A worker without CallDynamicTool cannot reach the catalog.
+  const surface = (active: Record<string, unknown>) => {
+    const direct: string[] = runtime.customTools(active).map((tool: any) => tool.name);
+    return new Set<string>([
+      ...direct,
+      ...(direct.includes('CallDynamicTool') ? runtime.dynamicCatalog(active).flatMap((namespace: any) => namespace.tools.map((tool: any) => tool.name)) : []),
+    ]);
+  };
+  const parent = new Set([...surface(workerTurn(null)), ...surface(workerTurn(null, { requestSource: 'automation' }))]);
+  for (const type of ['executor', 'knowledgeWork', 'computerUse', 'videoReview', 'watchVideo', undefined]) {
+    const child = type ? surface(workerTurn(type, { skillAccess: 'tool' })) : new Set<string>();
+    const listed = [...parentOnlyToolsFor(type).keys()];
+    expect(listed.length, String(type)).toBeGreaterThan(5);
+    for (const tool of listed) {
+      expect(parent.has(tool), `${type}: parent lacks ${tool}`).toBe(true);
+      expect(child.has(tool), `${type}: child has ${tool}`).toBe(false);
+    }
+  }
+  for (const type of ['executor', 'knowledgeWork', 'computerUse', 'videoReview', 'watchVideo'])
+    for (const tool of parentOnlyToolsFor(undefined).keys())
+      expect(surface(workerTurn(type)).has(tool), `${type} has resumable ${tool}`).toBe(false);
 });

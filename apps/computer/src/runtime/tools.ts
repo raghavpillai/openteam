@@ -102,6 +102,15 @@ export const GRAPHICAL_WORKER_SHELL_DESCRIPTION = [
 export const GRAPHICAL_WORKER_READ_DESCRIPTION =
   "Reads a file on the box, the same filesystem Shell acts on.\n\nText files include line numbers and support offset/limit paging. Image files (jpeg/jpg, png, gif, webp) are returned inline so you can see them. PDF files are converted to text.";
 
+const taskErrorReason = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : String(error);
+  try {
+    const envelope = JSON.parse(message) as { message?: unknown } | null;
+    if (envelope && typeof envelope.message === "string") return envelope.message;
+  } catch {}
+  return message.replace(/^Error: /, "");
+};
+
 /** How long a handoff waits for the box browser to show the step's page. */
 const BOX_HELP_PAGE_TIMEOUT_MS = 12_000;
 
@@ -1416,9 +1425,11 @@ export class RuntimeTools {
     args: TaskInput,
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    return (async () => {
-      return this.callControlPlaneTool(active, callId, TASK_TOOL.name, args, signal);
-    })();
+    return this.callControlPlaneTool(active, callId, TASK_TOOL.name, args, signal).catch((error: unknown) => {
+      if (signal?.aborted) throw error;
+      // A refused dispatch reads as the reference's "Error: <reason>", not the host's error envelope.
+      throw new Error(`Error: ${taskErrorReason(error)}`);
+    });
   }
 
   private async executeTodoWrite(

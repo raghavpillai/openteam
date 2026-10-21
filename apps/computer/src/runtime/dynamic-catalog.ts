@@ -1,6 +1,7 @@
 import { READ_TRANSCRIPT_TOOL, parseReadTranscriptInput } from "@openteam/contracts/read-transcript";
 import { READ_AGENT_ACTIVITY_TOOL, parseReadAgentActivityInput } from "@openteam/contracts/read-agent-activity";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
+import { withCanonicalSubagentType } from "@openteam/contracts/subagent-dispatch";
 import { withReferenceContract, taskToolContract, FIRST_PARTY_NAMESPACE_DESCRIPTION } from "@openteam/contracts/tool-contracts";
 import pluginToolSchemas from "../plugin-tool-schemas.json";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
@@ -274,9 +275,9 @@ export function dynamicCatalog(
             description: TASK_TOOL.description,
             inputSchema: TASK_TOOL.inputSchema,
             source: "first-party" as const,
-            decodeArguments: (args: unknown) => Schema.decodeUnknownSync(TaskInput)(args),
+            decodeArguments: (args: unknown) => Schema.decodeUnknownSync(TaskInput)(withCanonicalSubagentType(args)),
             execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
-              executeReviewedTask(turn, callId, Schema.decodeUnknownSync(TaskInput)(args), signal),
+              executeReviewedTask(turn, callId, Schema.decodeUnknownSync(TaskInput)(withCanonicalSubagentType(args)), signal),
           },
           controlPlaneTool(CHECK_SUBAGENT_TOOL, CheckSubagentInput),
           controlPlaneTool(MESSAGE_SUBAGENT_TOOL, MessageSubagentInput),

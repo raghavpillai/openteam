@@ -37,6 +37,7 @@ test("background subagent completion revives the parent with Bot's dedicated sou
       parentRunId: "parent-run-1",
       parentChannelId: "channel-1",
       description: "Check release",
+      prompt: "Check that the release checklist passes on main and report any failing step.",
       subagentType: "executor",
       currentRunId: "child-run-1",
       outputPath: "/tmp/result.jsonl",
@@ -54,4 +55,7 @@ test("background subagent completion revives the parent with Bot's dedicated sou
     priority: 260,
     wrapUserContent: false,
   });
+  expect((calls[0] as { content: string }).content).toContain(
+    'Background task "Check that the release checklist passes on main and report any failing step." (executor) finished:\nRelease checks passed.'
+  );
 });

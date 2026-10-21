@@ -37,7 +37,7 @@ test("parsers keep the reference arguments OpenTeam supports", async () => {
   expect(normalizeMainToolArguments("StopSubagent", { subagent_id: " sand-subagent-1 " })).toEqual({ subagent_id: "sand-subagent-1" });
   for (const invalid of [{}, { all: false }, { all: true, subagent_id: "sand-subagent-1" }])
     expect(() => normalizeMainToolArguments("StopSubagent", invalid), JSON.stringify(invalid)).toThrow("exactly one");
-  const entry = (id: string) => ({ subagent_id: `sand-subagent-${id}`, subagent_type: "executor", description: `Worker ${id}` });
+  const entry = (id: string) => ({ subagent_id: `sand-subagent-${id}`, subagent_type: "executor", title: `Worker ${id}` });
   const receipt = renderControlResult("StopSubagent", {
     stopped_all: true, stopped: [entry("a")], already_finished: [entry("b")], failed: [{ ...entry("c"), error: "timeout" }],
   }, { all: true }).split("\n");
@@ -80,4 +80,26 @@ test("Computer takes other tools' action names for the action they mean, also in
   );
   const unchanged = { action: "key", key: "Return" };
   expect(computerArgumentsWithAliases(unchanged)).toBe(unchanged);
+});
+
+test("CheckSubagent and MessageSubagent results read as the reference words them", async () => {
+  const { renderControlResult } = await import("../src/tool-results");
+  const child = {
+    subagent_id: "sand-subagent-1", title: "Find the three cheapest nonstop flights", subagent_type: "executor", status: "running",
+    elapsed_seconds: 125, tool_call_count: 3, transcript_path: "/home/box/agent-data/agent-transcripts/c/c.jsonl",
+    recent_tool_calls: [{ tool: "WebSearch", status: "running" }, { tool: "Shell", status: "completed" }, { tool: "Read", status: "cancelled" }],
+  };
+  expect(renderControlResult("CheckSubagent", child, { subagent_id: "sand-subagent-1" }).split("\n").slice(0, 5)).toEqual([
+    '- sand-subagent-1 [executor] "Find the three cheapest nonstop flights": running for 2m 5s, 3 tool call(s)',
+    "  Recent activity (oldest first):",
+    "    [failed] Read",
+    "    [done] Shell",
+    "    [pending] WebSearch",
+  ]);
+  expect(renderControlResult("CheckSubagent", { subagents: [{ ...child, elapsed_seconds: 42 }] }, {})).toBe(
+    '1 subagent(s) running:\n- sand-subagent-1 [executor] "Find the three cheapest nonstop flights": running for 42s, 3 tool call(s)\nPass a subagent_id to see its recent activity and transcript path.'
+  );
+  expect(renderControlResult("MessageSubagent", { delivered: true }, { subagent_id: "sand-subagent-1", message: "x" })).toBe(
+    "Message delivered to subagent sand-subagent-1. It will interrupt what it's doing, take your message into account, and keep working. You'll be revived with its result when it finishes, so don't wait on it."
+  );
 });

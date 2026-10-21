@@ -174,10 +174,7 @@ Invoke-Expression ([System.IO.File]::ReadAllText($env:NATIVE_INSTALL_SCRIPT))
                             'NO_COLOR': '1'})
                 if scenario == 'missing-gzip-rejected':
                     env['NATIVE_MISSING_GZIP'] = '1'
-                if scenario == 'missing-gzip-rejected':
-                    check(code != 0 and not cli.exists() and 'gzip unavailable' in cleaned,
-                          'A release without its gzip asset must fail instead of using a legacy raw download', output)
-                elif scenario == 'bad-checksum':
+                if scenario == 'bad-checksum':
                     env['NATIVE_BAD_CHECKSUM'] = '1'
                 cancel = scenario.startswith('cancel-')
                 code, output, _ = execute(
@@ -187,7 +184,10 @@ Invoke-Expression ([System.IO.File]::ReadAllText($env:NATIVE_INSTALL_SCRIPT))
                 (OUTPUT / (name + '.log')).write_text(output, encoding='utf-8')
                 cli = bin_directory / 'openteam.exe'
                 cleaned = ' '.join(ANSI.sub('', output).split())
-                if scenario == 'bad-checksum':
+                if scenario == 'missing-gzip-rejected':
+                    check(code != 0 and not cli.exists() and 'gzip unavailable' in cleaned,
+                          'A release without its gzip asset must fail instead of using a legacy raw download', output)
+                elif scenario == 'bad-checksum':
                     check(code != 0 and not cli.exists() and 'checksum did not match' in cleaned,
                           'Corrupt download was not rejected', output)
                 else:

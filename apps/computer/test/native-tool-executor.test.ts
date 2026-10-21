@@ -95,6 +95,65 @@ describe("native computer tools", () => {
     expect(await readFile(outputPath, "utf8")).toContain("exit_code: 0");
   });
 
+  shellTest("Shell keeps the head and tail of long output and spills large output to a file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openteam-native-large-"));
+    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
+    const medium = await executor.shell(
+      { command: "printf 'START'; head -c 30000 /dev/zero | tr '\\0' m; printf 'END'", block_until_ms: 5_000 },
+      root
+    );
+    const text = (medium.content[0] as { text: string }).text;
+    expect(text).toStartWith(`Exit code: 0\n\nCommand output (truncated to 20000 characters):\n\n\`\`\`\nSTART${"m".repeat(9_995)}\n\n... (output truncated) ...\n\n${"m".repeat(9_997)}END\n\`\`\``);
+    expect(medium.details).not.toHaveProperty("spillPath");
+
+    const large = await executor.shell({ command: "seq 1 50000", block_until_ms: 5_000 }, root);
+    const spillPath = (large.details as { spillPath: string }).spillPath;
+    expect(spillPath).toStartWith(join(root, ".openteam", "agent-tools"));
+    expect((large.content[0] as { text: string }).text).toMatch(
+      /^Exit code: 0\n\nCommand output has been written to: \S+\.txt \(282\.1 KB, 50000 lines\)\n\nCommand completed in \d+ ms\.\n\nShell state \(cwd, env vars\) persists for subsequent calls\.$/
+    );
+    const spilled = await readFile(spillPath, "utf8");
+    expect(spilled.startsWith("1\n2\n")).toBe(true);
+    expect(spilled.endsWith("49999\n50000\n")).toBe(true);
+  });
+
+  shellTest("Shell reports the final directory, signal kills and the terminal header", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openteam-native-cwd-"));
+    await mkdir(join(root, "sub"));
+    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
+    const moved = await executor.shell({ command: "cd sub", working_directory: root, description: "Enter sub" }, root);
+    expect((moved.content[0] as { text: string }).text).toEndWith(
+      `Shell state (cwd, env vars) persists for subsequent calls. Current directory: ${join(root, "sub")}`
+    );
+    const log = await readFile((moved.details as { outputPath: string }).outputPath, "utf8");
+    expect(log).toMatch(
+      new RegExp(`^---\\npid: \\d+\\ncwd: "${root}"\\ncommand: "cd sub"\\ntitle: "Enter sub"\\nstatus: succeeded\\nstarted_at: \\S+\\nrunning_for_ms: \\d+ *\\n---\\n\\n---\\nexit_code: 0\\nelapsed_ms: \\d+\\nended_at: \\S+\\n---\\n$`)
+    );
+    const killed = await executor.shell({ command: "echo before; kill -9 $$" }, root);
+    expect((killed.content[0] as { text: string }).text).toBe(
+      `Exit code: -1\n\nCommand output:\n\n\`\`\`\nbefore\n\n\`\`\`\n\nCommand completed in ${(killed.details as { elapsedMs: number }).elapsedMs} ms.\n\nShell state (cwd, env vars) persists for subsequent calls.\n\nThis command was killed by signal 9 (SIGKILL), possibly because the machine ran out of memory. If nothing else killed it, use less memory: run fewer jobs in parallel, process data in smaller batches, or stop background processes you no longer need.`
+    );
+  });
+
+  shellTest("a command that outlives block_until_ms keeps its early output and a live header", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openteam-native-timeout-"));
+    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
+    const result = await executor.shell({ command: "echo starting; sleep 6; echo done", block_until_ms: 300 }, root);
+    const { shellId, outputPath } = result.details as { shellId: string; outputPath: string };
+    expect((result.content[0] as { text: string }).text).toMatch(
+      new RegExp(`^The command did not complete in 300ms and was sent to the background\\.\\nShell ID: ${shellId}\\nPID: \\d+\\nThe output is being written to ${outputPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\. Don't mention Shell ID to the user\\.\\n\\nOutput collected before backgrounding:\\n\\n\`\`\`\\nstarting\\n\\n\`\`\`$`)
+    );
+    const header = async () => (await readFile(outputPath, "utf8")).split("---\n")[1]!;
+    expect(await header()).toContain("status: running  \n");
+    await new Promise((resolveWait) => setTimeout(resolveWait, 5_400));
+    // The running time is rewritten in place every 5 seconds without moving the output.
+    expect(Number((await header()).match(/running_for_ms: (\d+)/)?.[1])).toBeGreaterThanOrEqual(5_000);
+    expect((await readFile(outputPath, "utf8")).split("---\n")[2]).toBe("starting\n");
+    const done = await executor.awaitShell({ shell_id: shellId, block_until_ms: 3_000 });
+    expect(done.details).toMatchObject({ status: "completed", exit_code: 0 });
+    expect(await header()).toContain("status: succeeded\n");
+  }, 15_000);
+
   test("Shell backgrounds long commands and exposes their log path", async () => {
     const root = await mkdtemp(join(tmpdir(), "openteam-native-background-"));
     const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
@@ -145,7 +204,11 @@ describe("native computer tools", () => {
       const read = await executor.externalRead({ path: "/host/notes.txt" });
       expect(read.content[0]).toEqual({ type: "text", text: "1: host-read-ok" });
       const shell = await executor.externalShell({ command: "printf host-shell-ok" });
-      expect(shell.content[0]).toEqual({ type: "text", text: "host-shell-ok" });
+      // Host results use the same layout as box results.
+      expect(shell.content[0]).toEqual({
+        type: "text",
+        text: "Exit code: 0\n\nCommand output:\n\n```\nhost-shell-ok\n```\n\nCommand completed in 3 ms.\n\nShell state (cwd, env vars) persists for subsequent calls.",
+      });
       expect(requests).toEqual([
         {
           path: "/v1/read",

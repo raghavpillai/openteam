@@ -62,7 +62,7 @@ import {
   UPDATE_ROUTINE_TOOL,
 } from "@openteam/contracts";
 import { Schema } from "effect";
-import { parseHostAwaitShellRequest } from "@openteam/contracts/service-protocol";
+import { parseHostAwaitShellRequest, type ShellAwaitResponse } from "@openteam/contracts/service-protocol";
 import { mkdir, writeFile, realpath } from "node:fs/promises";
 import { join, basename, resolve, dirname, sep } from "node:path";
 import { Type } from "typebox";
@@ -116,7 +116,7 @@ const assertShellWait = (active: Pick<ActiveTurn, "subagentType">, args: unknown
   const capMs = shellWaitCapMs(active);
   const blockMs = (args as { block_until_ms?: unknown } | null)?.block_until_ms;
   if (typeof blockMs === "number" && blockMs > capMs)
-    throw new Error(`block_until_ms must be at most ${waitLimit(capMs, unit)}`);
+    throw new Error(`${unit ? "" : "Invalid arguments:\nblock_until_ms: "}block_until_ms must be at most ${waitLimit(capMs, unit)}`);
 };
 const boxScopedSchema = (schema: Readonly<Record<string, unknown>>): Record<string, unknown> => {
   const { machineId: _machineId, ...properties } = (schema.properties ?? {}) as Record<string, unknown>;
@@ -158,9 +158,27 @@ export const workerTopLevelTools = (
 
 export class RuntimeTools {
   private readonly shellWaits = new Map<string, Set<AbortController>>();
+  private readonly foregroundShells = new Map<string, Set<{ active: ActiveTurn; controller: AbortController }>>();
   interruptShellWaits(runId: string) {
     for (const wait of this.shellWaits.get(runId) ?? [])
       wait.abort(new Error("A new user message arrived"));
+    // A new user message backgrounds a running foreground command so the turn can
+    // answer it. A stop (the turn is ending) kills the command instead.
+    for (const shell of this.foregroundShells.get(runId) ?? [])
+      if (!shell.active.endTurnRequested) shell.controller.abort();
+  }
+
+  private async withForegroundShell<T>(active: ActiveTurn, run: (background: AbortSignal) => Promise<T>): Promise<T> {
+    const entry = { active, controller: new AbortController() };
+    const shells = this.foregroundShells.get(active.runId) ?? new Set();
+    shells.add(entry);
+    this.foregroundShells.set(active.runId, shells);
+    try {
+      return await run(entry.controller.signal);
+    } finally {
+      shells.delete(entry);
+      if (!shells.size) this.foregroundShells.delete(active.runId);
+    }
   }
 
   private async awaitShellForTurn(
@@ -168,12 +186,26 @@ export class RuntimeTools {
     args: unknown,
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
+    const started = Date.now();
+    try {
+      return await this.awaitShellOnce(turn, args, started, signal);
+    } catch (error) {
+      if (signal?.aborted) throw new Error(`Error: Await was interrupted by the user after ${Date.now() - started}ms.`);
+      throw new Error(`Error awaiting task: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private async awaitShellOnce(
+    turn: ActiveTurn,
+    args: unknown,
+    started: number,
+    signal?: AbortSignal
+  ): Promise<AgentToolResult<Record<string, unknown>>> {
     assertShellWait(turn, args, "");
     const input = Schema.decodeUnknownSync(AwaitShellInput)(parseHostAwaitShellRequest(args));
     if (input.machineId && (turn.subagentType || turn.runtimeProfile === "subagent"))
       throw new Error("Subagents cannot target the user's local computer");
-    const controller = new AbortController(),
-      started = Date.now();
+    const controller = new AbortController();
     const waits = this.shellWaits.get(turn.runId) ?? new Set<AbortController>();
     waits.add(controller);
     this.shellWaits.set(turn.runId, waits);
@@ -190,14 +222,14 @@ export class RuntimeTools {
         );
       } catch (error) {
         if (!controller.signal.aborted || signal?.aborted) throw error;
-        if (input.shell_id) result = await execute(0, signal);
-        else {
-          const receipt = { status: "slept" as const, waited_ms: Date.now() - started };
-          result = {
-            content: [{ type: "text", text: renderShellAwaitResult(receipt) }],
-            details: receipt,
-          };
-        }
+        // Released by a new user message: report the job's state now and say why.
+        const receipt: ShellAwaitResponse = input.shell_id
+          ? ((await execute(0, signal)).details as unknown as ShellAwaitResponse)
+          : { status: "slept", waited_ms: Date.now() - started };
+        result = {
+          content: [{ type: "text", text: renderShellAwaitResult(receipt, true) }],
+          details: { ...receipt, released_by_user_message: true },
+        };
       }
       if (
         input.machineId &&
@@ -638,7 +670,7 @@ export class RuntimeTools {
           ? await this.screens.commandEnvironment(active.screenBotId, active.cwd)
           : undefined;
       const secretEnvironment = await this.processSecrets(active, signal);
-      return this.nativeToolExecutor.shell(
+      return this.withForegroundShell(active, (background) => this.nativeToolExecutor.shell(
         shellInput,
         active.cwd,
         signal,
@@ -648,9 +680,10 @@ export class RuntimeTools {
           channelId: active.channelId,
           secretEnvironment,
           secrets: Object.values(secretEnvironment),
+          background,
           ...(active.requestSource === "automation" ? { automationRunId: active.runId } : {}),
         }
-      );
+      ));
     }
     if (tool === READ_TOOL.name) {
       const readInput = Schema.decodeUnknownSync(ReadToolInput)(args);

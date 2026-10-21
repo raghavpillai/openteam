@@ -36,7 +36,7 @@ test("malformed images become notices, including old history, without mutating r
   expect((await repairImageHistory([receipt]))[0]).toBe(repaired[0]);
 });
 
-test("shell restores scoped cwd/env after errors, honors overrides and recovers from deleted cwd", async () => {
+test("shell restores scoped cwd/env after errors, honors overrides and refuses a deleted cwd", async () => {
   const root=await mkdtemp(join(tmpdir(),"edge-shell-"));
   try {
     await mkdir(join(root,"sub"));
@@ -50,8 +50,16 @@ test("shell restores scoped cwd/env after errors, honors overrides and recovers 
     expect(await ex.shellWorkingDirectory({},root,"a")).toBe(root);
     await run(`cd '${root}/sub'`);
     await rm(join(root,"sub"),{recursive:true});
+    // A deleted directory stops the command instead of running it somewhere else.
+    const refused = await run("touch should-not-exist");
+    expect(refused.details.exitCode).toBe(1);
+    expect((refused.content[0] as {text:string}).text).toContain(`The shell's working directory no longer exists: ${root}/sub. The command did not run. Re-run it with working_directory set to an existing directory.`);
+    expect((await run("touch should-not-exist")).details.exitCode).toBe(1);
+    expect(await stat(join(root,"should-not-exist")).catch(()=>null)).toBeNull();
+    expect((await run("printf recovered",root)).details.exitCode).toBe(0);
     expect(await ex.shellWorkingDirectory({},root,"a")).toBe(root);
     expect((await run("printf recovered")).details.exitCode).toBe(0);
+    await expect(run("pwd",join(root,"missing"))).rejects.toThrow(`Error: Command failed to spawn: working directory does not exist: ${root}/missing; the command did not run`);
   } finally { await rm(root,{recursive:true,force:true}); }
 });
 

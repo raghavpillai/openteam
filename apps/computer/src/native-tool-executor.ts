@@ -6,8 +6,8 @@ import { formatBytes2 } from "@openteam/contracts/reference-formatters";
 import { renderReadText, renderPdfReadText } from "@openteam/contracts/read-output";
 import { boundToolImage } from "./runtime/image-input";
 import { decodeReadableText } from "./read-text";
-import { randomInt } from "node:crypto";
-import { constants, createWriteStream } from "node:fs";
+import { randomInt, randomUUID } from "node:crypto";
+import { constants, createReadStream, createWriteStream } from "node:fs";
 import { access, mkdir, open, realpath, stat } from "node:fs/promises";
 import { dirname, basename, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
@@ -19,6 +19,21 @@ import type {
 } from "@openteam/contracts";
 import { ShellJobRegistry, SecretRedactor, redactSecrets, validateShellWait, renderShellAwaitResult, type ShellCompletion } from "@openteam/shell-jobs";
 import { createShellEnvironmentCapture, loadShellEnvironment, SHELL_ENVIRONMENT_CAPTURE } from "@openteam/shell-jobs";
+import {
+  SHELL_FILE_OUTPUT_THRESHOLD_BYTES,
+  SHELL_OOM_NOTE,
+  ShellOutputCollector,
+  formatInterruptedShellResult,
+  formatShellBackgroundedResult,
+  formatShellCompletedResult,
+  formatShellStartedResult,
+  shellTimedOutIntro,
+  shellUserBackgroundedIntro,
+  terminalFooter,
+  terminalFrontmatter,
+  truncateShellOutput,
+  type TerminalStatus,
+} from "@openteam/shell-jobs";
 import {
   HOST_BRIDGE_PATHS,
   HOST_INLINE_OUTPUT_MAX_BYTES,
@@ -37,6 +52,8 @@ import { agentFileIO } from "./agent-file-io";
 import { protectedAgentDataPath } from "@openteam/contracts/agent-file-access";
 
 const DEFAULT_BLOCK_MS = 30_000;
+/** How often a running command's terminal header refreshes `running_for_ms`. */
+const TERMINAL_HEADER_UPDATE_MS = 5_000;
 // Shell output logs are named by their numeric shell_id.
 const TERMINAL_LOG_NAME = /^[0-9]+\.log$/;
 
@@ -44,11 +61,6 @@ export const sanitizedShellEnvironment = (
   source: NodeJS.ProcessEnv,
   workingDirectory: string
 ): NodeJS.ProcessEnv => sanitizedAgentEnvironment(source, { PWD: workingDirectory });
-
-const bounded = (value: string): string =>
-  value.length <= HOST_INLINE_OUTPUT_MAX_BYTES
-    ? value
-    : `${value.slice(0, HOST_INLINE_OUTPUT_MAX_BYTES)}\n… output truncated; complete output is in the terminal file`;
 
 const localPath = (path: string, cwd: string): string =>
   isAbsolute(path) ? resolve(path) : resolve(cwd, path);
@@ -104,12 +116,7 @@ export class NativeToolExecutor {
     if (input.working_directory != null) return localPath(input.working_directory, cwd);
     const saved = await loadShellEnvironment(this.terminalDir, scope, {});
     const persisted = saved.environment.PWD;
-    if (persisted && isAbsolute(persisted)) {
-      // A deleted previous directory must not strand every subsequent call.
-      const info = await stat(persisted).catch(() => null);
-      if (info?.isDirectory()) return persisted;
-    }
-    return cwd;
+    return persisted && isAbsolute(persisted) ? persisted : cwd;
   }
 
   async shell(
@@ -118,14 +125,24 @@ export class NativeToolExecutor {
     signal?: AbortSignal,
     environment?: NodeJS.ProcessEnv,
     scope = "",
-    routing: { channelId?: string; automationRunId?: string; secrets?: string[]; secretEnvironment?: Record<string, string> } = {}
+    routing: { channelId?: string; automationRunId?: string; secrets?: string[]; secretEnvironment?: Record<string, string>; background?: AbortSignal } = {}
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     signal?.throwIfAborted();
+    const startedAt = Date.now();
     const workingDirectory = await this.shellWorkingDirectory(input, cwd, scope);
-    const directory = await stat(workingDirectory);
-    if (!directory.isDirectory()) throw new Error(`Not a directory: ${workingDirectory}`);
+    if (!(await stat(workingDirectory).catch(() => undefined))?.isDirectory()) {
+      if (input.working_directory != null)
+        throw new Error(`Error: Command failed to spawn: working directory does not exist: ${workingDirectory}; the command did not run`);
+      // Never run a command somewhere else after its remembered directory was deleted.
+      return textResult(formatShellCompletedResult({
+        exitCode: 1,
+        elapsedMs: Date.now() - startedAt,
+        output: truncateShellOutput(`The shell's working directory no longer exists: ${workingDirectory}. The command did not run. Re-run it with working_directory set to an existing directory.\n`),
+      }), { status: "completed", exitCode: 1 });
+    }
     await mkdir(this.terminalDir, { recursive: true });
     const savedEnvironment = await loadShellEnvironment(this.terminalDir, scope, environment ?? process.env, environment);
+    const secrets = routing.secrets ?? [];
 
     const shellId = String(randomInt(100000, 2147483647));
     const outputPath = resolve(this.terminalDir, `${shellId}.log`);
@@ -133,9 +150,6 @@ export class NativeToolExecutor {
       flags: "wx",
       mode: 0o600,
     });
-    const startedAt = Date.now();
-    const header = redactSecrets(`command: ${input.command}\nworking_directory: ${workingDirectory}\nstarted_at: ${new Date(startedAt).toISOString()}\n\n`, routing.secrets ?? []);
-    outputFile.write(header);
 
     const environmentCapture = createShellEnvironmentCapture(dirname(savedEnvironment.path));
     const child = spawn("/bin/bash", ["--noprofile", "--norc", "-c", `${SHELL_ENVIRONMENT_CAPTURE}\n${input.command}`], {
@@ -146,38 +160,58 @@ export class NativeToolExecutor {
       stdio: ["ignore", "pipe", "pipe", environmentCapture.fd],
     });
     environmentCapture.closeParent();
-    const chunks: Buffer[] = [];
+    const command = redactSecrets(input.command, secrets);
+    const title = input.description?.trim() ? redactSecrets(input.description, secrets) : undefined;
+    const frontmatter = (status: TerminalStatus) => terminalFrontmatter({
+      pid: child.pid, cwd: workingDirectory, command, title, status,
+      startedAt: new Date(startedAt).toISOString(), runningForMs: Date.now() - startedAt,
+    });
+    const header = frontmatter("running");
+    const headerBytes = Buffer.byteLength(header);
+    outputFile.write(header);
+    let headerUpdate = Promise.resolve();
+    const rewriteHeader = (status: TerminalStatus) => (headerUpdate = headerUpdate.then(async () => {
+      const next = frontmatter(status);
+      // The fixed-width fields keep the length; if the running time ever outgrows
+      // its padding, stop updating rather than overwrite the first output bytes.
+      if (Buffer.byteLength(next) !== headerBytes) return;
+      const file = await open(outputPath, "r+");
+      try { await file.write(next, 0, "utf8"); } finally { await file.close(); }
+    }).catch(() => undefined));
+    const headerTimer = setInterval(() => void rewriteHeader("running"), TERMINAL_HEADER_UPDATE_MS);
+    headerTimer.unref();
+
     const job = this.shellJobs.start({
       id: shellId,
       scope,
       outputPath,
-      outputOffset: Buffer.byteLength(header),
+      outputOffset: headerBytes,
       startedAt,
       pid: child.pid,
       channelId: routing.channelId,
       automationRunId: routing.automationRunId,
+      title: (title ?? command).slice(0, 4000),
     });
-    let bytes = 0;
-    const collect = (chunk: Buffer) => {
+    const output = new ShellOutputCollector();
+    const collect = (chunk: Buffer, stream: "stdout" | "stderr") => {
+      if (!chunk.length) return;
       outputFile.write(chunk, (error) => {
         if (!error) job.outputWritten(chunk.length);
       });
-      if (bytes < HOST_INLINE_OUTPUT_MAX_BYTES) {
-        const remaining = HOST_INLINE_OUTPUT_MAX_BYTES - bytes;
-        chunks.push(chunk.subarray(0, remaining));
-        bytes += Math.min(chunk.length, remaining);
-      }
+      output.push(chunk, stream);
     };
-    const stdoutRedactor = new SecretRedactor(routing.secrets ?? []);
-    const stderrRedactor = new SecretRedactor(routing.secrets ?? []);
-    child.stdout!.on("data", chunk => collect(stdoutRedactor.write(chunk)));
-    child.stderr!.on("data", chunk => collect(stderrRedactor.write(chunk)));
-    child.stdout!.once("end", () => collect(stdoutRedactor.end()));
-    child.stderr!.once("end", () => collect(stderrRedactor.end()));
+    const stdoutRedactor = new SecretRedactor(secrets);
+    const stderrRedactor = new SecretRedactor(secrets);
+    child.stdout!.on("data", chunk => collect(stdoutRedactor.write(chunk), "stdout"));
+    child.stderr!.on("data", chunk => collect(stderrRedactor.write(chunk), "stderr"));
+    child.stdout!.once("end", () => collect(stdoutRedactor.end(), "stdout"));
+    child.stderr!.once("end", () => collect(stderrRedactor.end(), "stderr"));
 
     const signalGroup = agentProcessGroupSignaler(child);
     let killTimer: ReturnType<typeof setTimeout> | undefined;
+    let abortedAt: number | undefined;
     const abort = () => {
+      abortedAt ??= Date.now();
       signalGroup("SIGTERM");
       killTimer ??= setTimeout(() => signalGroup("SIGKILL"), 500);
     };
@@ -185,6 +219,9 @@ export class NativeToolExecutor {
     signal?.addEventListener("abort", abort, { once: true });
     if (signal?.aborted) abort();
     let processError: Error | undefined;
+    let environmentError: Error | undefined;
+    let exitSignal: NodeJS.Signals | null = null;
+    let exitDirectory: string | undefined;
     const completion = new Promise<number | null>((resolveCompletion) => {
       let closed = false;
       let settled = false;
@@ -192,10 +229,12 @@ export class NativeToolExecutor {
       const finish = async () => {
         if (settled) return;
         settled = true;
-        {
-          try { await environmentCapture.persist(savedEnvironment.path, Object.keys(routing.secretEnvironment ?? {}), savedEnvironment.environment); }
-          catch (error) { processError = error instanceof Error ? error : new Error("Could not persist shell environment"); }
-        }
+        clearInterval(headerTimer);
+        try { exitDirectory = (await environmentCapture.persist(savedEnvironment.path, Object.keys(routing.secretEnvironment ?? {}), savedEnvironment.environment))?.PWD; }
+        catch (error) { environmentError = error instanceof Error ? error : new Error("Could not persist shell environment"); }
+        await rewriteHeader(abortedAt !== undefined ? "aborted" : exitCode === 0 ? "succeeded" : "failed");
+        // A command that ran to completion is reported as such even if its shell
+        // state could not be saved; AwaitShell and the completion notice show its exit.
         job.finish(exitCode, processError?.message);
         resolveCompletion(exitCode);
       };
@@ -207,51 +246,85 @@ export class NativeToolExecutor {
         child.kill("SIGTERM");
         if (closed) finish();
       });
-      child.once("close", (code) => {
+      child.once("close", (code, closeSignal) => {
         closed = true;
         exitCode = code;
+        exitSignal = closeSignal;
         if (outputFile.destroyed) {
           finish();
           return;
         }
-        const elapsedMs = Date.now() - startedAt;
-        outputFile.end(
-          `\n\nstatus: completed\nexit_code: ${code ?? "null"}\nelapsed_ms: ${elapsedMs}\n`,
-          finish
-        );
+        outputFile.end(terminalFooter(code, Date.now() - startedAt), finish);
       });
     });
 
     const blockMs = Math.max(0, Math.min(2_147_483_647, input.block_until_ms ?? DEFAULT_BLOCK_MS));
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    const completed = await Promise.race([
+    let onBackground: (() => void) | undefined;
+    let completed = await Promise.race([
       completion.then((exitCode) => ({ done: true as const, exitCode })),
-      new Promise<{ done: false }>(
-        (resolveTimeout) => (timeoutId = setTimeout(() => resolveTimeout({ done: false }), blockMs))
+      new Promise<{ done: false; manual: false }>(
+        (resolveTimeout) => (timeoutId = setTimeout(() => resolveTimeout({ done: false, manual: false }), blockMs))
       ),
+      // A new user message moves a running foreground command to the background.
+      new Promise<{ done: false; manual: true }>((resolveBackground) => {
+        if (!routing.background) return;
+        onBackground = () => resolveBackground({ done: false, manual: true });
+        if (routing.background.aborted) onBackground();
+        else routing.background.addEventListener("abort", onBackground, { once: true });
+      }),
     ]);
     if (timeoutId) clearTimeout(timeoutId);
+    if (onBackground) routing.background?.removeEventListener("abort", onBackground);
+    // A stopped command is being killed; report its interruption, not a backgrounding.
+    if (!completed.done && abortedAt !== undefined) completed = { done: true, exitCode: await completion };
     signal?.removeEventListener("abort", abort);
 
     if (!completed.done) {
       this.shellJobs.markBackground(shellId);
       void completion.catch(() => undefined);
-      return textResult(
-        `Background command started successfully.\nShell ID: ${shellId}\nPID: ${child.pid}\nCommand: ${redactSecrets(input.command, routing.secrets ?? [])}\nOutput will be written to ${outputPath}. Don't mention Shell ID to the user.`,
-        { shellId, status: "running", outputPath }
-      );
+      const details = { shellId, status: "running", outputPath };
+      if (blockMs === 0 && !completed.manual)
+        return textResult(formatShellStartedResult({ shellId, pid: child.pid, command, outputPath }), details);
+      return textResult(formatShellBackgroundedResult({
+        intro: completed.manual ? shellUserBackgroundedIntro(Date.now() - startedAt) : shellTimedOutIntro(blockMs),
+        shellId,
+        pid: child.pid,
+        outputPath,
+        partial: output.excerpt(),
+      }), completed.manual ? { ...details, backgroundedBy: "user_message" } : details);
     }
 
-    if (processError) throw processError;
-    const output = bounded(Buffer.concat(chunks).toString("utf8"));
+    const elapsedMs = Date.now() - startedAt;
+    if (abortedAt !== undefined) throw new Error(formatInterruptedShellResult(abortedAt - startedAt, output.excerpt()));
+    if (processError ?? environmentError) throw processError ?? environmentError;
+    let spillPath: string | undefined;
+    if (output.bytes > SHELL_FILE_OUTPUT_THRESHOLD_BYTES) {
+      // The terminal log is supervisor-private, so the complete output also goes
+      // to a file the agent can search with Shell, as the reference does.
+      const path = resolve(cwd, ".openteam", "agent-tools", `${randomUUID()}.txt`);
+      try {
+        await agentWriteStream(path, createReadStream(outputPath, { start: headerBytes, end: headerBytes + output.bytes - 1 }));
+        spillPath = path;
+      } catch { /* The inline head and tail still show the output's ends. */ }
+    }
     return textResult(
-      `Exit code: ${completed.exitCode ?? "null"}\n\nCommand output:\n\n\`\`\`\n${output}\n\`\`\`\n\nCommand completed in ${Date.now() - startedAt} ms.\n\nShell state (cwd, env vars) persists for subsequent calls.`,
+      formatShellCompletedResult({
+        exitCode: completed.exitCode ?? -1,
+        elapsedMs,
+        ...(spillPath
+          ? { outputLocation: { filePath: spillPath, sizeBytes: output.bytes, lineCount: output.lines } }
+          : { output: output.excerpt() }),
+        workingDirectory: input.working_directory != null ? (exitDirectory ?? workingDirectory) : undefined,
+        note: exitSignal === "SIGKILL" || completed.exitCode === 137 ? SHELL_OOM_NOTE : undefined,
+      }),
       {
         shellId,
         status: "completed",
         exitCode: completed.exitCode,
         outputPath,
-        elapsedMs: Date.now() - startedAt,
+        elapsedMs,
+        ...(spillPath ? { spillPath } : {}),
       }
     );
   }
@@ -286,16 +359,33 @@ export class NativeToolExecutor {
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     const request = { ...input } satisfies HostShellRequest;
+    const blockMs = input.block_until_ms ?? DEFAULT_BLOCK_MS;
     const response = await this.hostFetch(
       HOST_BRIDGE_PATHS.shell,
       request,
       signal,
       parseHostShellResponse,
-      Math.min(2_147_483_647, Math.max(120_000, (input.block_until_ms ?? DEFAULT_BLOCK_MS) + 60_000))
-    );
-    return textResult(response.output || JSON.stringify(response), {
-      ...response,
+      Math.min(2_147_483_647, Math.max(120_000, blockMs + 60_000))
+    ).catch((error) => {
+      // The computer cannot see how far the command got before the call was stopped.
+      if (signal?.aborted) throw new Error("Error: Shell command was interrupted before it completed. It may still be running.");
+      throw error;
     });
+    const details = { ...response };
+    if (response.status === "running")
+      return textResult(blockMs === 0
+        ? formatShellStartedResult({ shellId: response.shell_id, command: input.command, outputPath: response.output_path })
+        : formatShellBackgroundedResult({ intro: shellTimedOutIntro(blockMs), shellId: response.shell_id, outputPath: response.output_path, partial: truncateShellOutput(response.output) }), details);
+    const bytes = Buffer.byteLength(response.output);
+    // Large host output stays in the host's terminal log. The size is known only
+    // when the host returned all of it.
+    return textResult(formatShellCompletedResult({
+      exitCode: response.exit_code ?? -1,
+      elapsedMs: response.elapsed_ms,
+      ...(bytes > SHELL_FILE_OUTPUT_THRESHOLD_BYTES
+        ? { outputLocation: { filePath: response.output_path, sizeBytes: bytes, ...(bytes < HOST_INLINE_OUTPUT_MAX_BYTES ? { lineCount: response.output.split("\n").length - 1 } : {}) } }
+        : { output: truncateShellOutput(response.output) }),
+    }), details);
   }
 
   async externalRead(

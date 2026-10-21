@@ -12,8 +12,11 @@ for (const command of ["echo READY; sleep 3; echo UNEXPECTED", "trap '' TERM; ec
   const started = Date.now();
   const timer = setTimeout(() => controller.abort(), 200);
   try {
-    const result = await executor.shell({command, block_until_ms: 5000}, root, controller.signal);
-    expect(JSON.stringify(result.content)).not.toContain("UNEXPECTED");
+    // A stopped command is an interruption error with the output it printed, never a completion.
+    const error = await executor.shell({command, block_until_ms: 5000}, root, controller.signal).then(() => undefined, (error: Error) => error);
+    expect(error?.message).toMatch(/^Error: Shell command was interrupted by the user after \d+ms before it completed\./);
+    expect(error?.message).not.toContain("UNEXPECTED");
+    if (command.startsWith("echo") || command.startsWith("trap")) expect(error?.message).toContain("Output collected before interruption:\n\n```\nREADY\n\n```");
     expect(Date.now() - started).toBeLessThan(2000);
   } finally { clearTimeout(timer); await rm(root, {recursive: true, force: true}); }
 });

@@ -193,7 +193,8 @@ describe("Bot summary partition", () => {
     expect(rendered).toContain("<summary_content>");
     expect(rendered).toContain("Total summaries generated so far for this user query: 2");
     expect(rendered).not.toContain("Project root:");
-    expect(rendered).toContain("<transcript_location>/sessions/turn.jsonl</transcript_location>");
+    expect(rendered).toContain("<transcript_location>\\nThis is the full transcript of your past conversation");
+    expect(rendered).not.toContain("/sessions/turn.jsonl");
     expect(rendered).toContain("<todo_update>\\n- finish parity\\n</todo_update>");
     expect(durableBlocks).toContain(attachedSkills);
     expect(rendered).not.toContain("<conversation_summary>");

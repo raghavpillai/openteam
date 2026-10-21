@@ -1445,7 +1445,7 @@ export class RuntimeTools {
         ) {
           return [];
         }
-        return [`- [${todo.status}] ${todo.id}: ${todo.content}`];
+        return [`- **${todo.status.toUpperCase()}**: ${todo.content} (id: ${todo.id})`];
       });
       active.todoUpdate = lines.length > 0 ? lines.join("\n") : null;
     } catch {

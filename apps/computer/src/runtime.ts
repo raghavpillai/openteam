@@ -39,6 +39,7 @@ import {
   type BotSummaryRequest,
   type BotSummaryResult,
   botUserInfoMessage,
+  RESUME_RECORDED_INPUT_PROMPT,
 } from "./bot-compaction";
 import { ComputerEventQueue } from "./computer-event-queue";
 import { InferenceProviderService } from "./inference-providers";
@@ -266,7 +267,6 @@ export class ComputerRuntime {
         ? botUserInfoMessage(request.userInfo, request.userInfoEpoch ?? 0)
         : null,
       todoUpdate: request.todoUpdate ?? null,
-      automationTrigger: request.automationTrigger ?? null,
       resetSelfSummaryCount: request.resetSelfSummaryCount !== false,
       requestSource: request.requestSource ?? "turn",
       turnId: request.runId,
@@ -381,7 +381,7 @@ export class ComputerRuntime {
       queue.push(contextState);
       queue.push({ type: "turn.started", turnId: active.turnId });
       const images = [...uploaded.images, ...attachments.images];
-      const content = recordedInputIds.has(`input:${request.clientMessageId}`) ? "[SAND_HIDDEN_PROMPT]Resume work on the previously recorded user input. Its original content is already in the session; avoid repeating completed actions." : request.content;
+      const content = recordedInputIds.has(`input:${request.clientMessageId}`) ? RESUME_RECORDED_INPUT_PROMPT : request.content;
       void this.execute(active, [content, uploaded.notice].filter(Boolean).join("\n"), images);
       return queue;
     } catch (error) {

@@ -2067,6 +2067,10 @@ export class AgentMessaging {
       },
     });
     const todoContext = bot.todos.map((todo) => `- [${todo.status}] ${todo.id}: ${todo.content}`);
+    // The summary carrier lists todos in the reference's format.
+    const todoUpdate = bot.todos.length > 0
+      ? bot.todos.map((todo) => `- **${todo.status.toUpperCase()}**: ${todo.content} (id: ${todo.id})`).join("\n")
+      : null;
     if (bot.subagentIdentity) {
       const skillAccess = workerSkillAccess(bot.subagentIdentity.subagentType);
       const specialization = subagentSpecializationInstructions(
@@ -2096,7 +2100,7 @@ export class AgentMessaging {
         instructions,
         userInfo: workerSkills ? ["<user_info>", workerSkills, "</user_info>"].join("\n") : null,
         userInfoEpoch: null,
-        todoUpdate: todoContext.length > 0 ? todoContext.join("\n") : null,
+        todoUpdate,
         agentProfileSnapshot: null,
         agentProfileUpdate: null,
       };
@@ -2290,7 +2294,7 @@ export class AgentMessaging {
       agentProfileUpdate: agentPrompt.identityAnnouncement || null,
       userInfo,
       userInfoEpoch: agentPrompt.compactionEpoch,
-      todoUpdate: todoContext.length > 0 ? todoContext.join("\n") : null,
+      todoUpdate,
       agentProfileSnapshot: agentPrompt.profileSnapshot,
     };
   }

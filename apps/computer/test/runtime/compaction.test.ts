@@ -277,7 +277,6 @@ test("streamed input usage starts a summary before assistant completion and ever
     reasoning: "off",
     userInfoMessage: null,
     todoUpdate: "Current todo",
-    automationTrigger: "<automation_trigger>clock</automation_trigger>",
     isRootProject: true,
     cwd: root,
     sessionPath: "/fixture/transcript",
@@ -323,7 +322,6 @@ test("streamed input usage starts a summary before assistant completion and ever
     expect(compactionObservation(active)).toMatchObject({
       todoUpdate: "Current todo",
       isRootProject: true,
-      automationTrigger: "<automation_trigger>clock</automation_trigger>",
       transcriptPath: "/fixture/transcript",
     });
     usedTokens = 60_000;
@@ -333,11 +331,14 @@ test("streamed input usage starts a summary before assistant completion and ever
     const rendered = JSON.stringify(projected);
     for (const value of [
       "Current todo",
-      "automation_trigger",
       "Project root:",
-      "fixture/transcript",
+      "cursor.ReadTranscript and no id",
     ])
       expect(rendered).toContain(value);
+    // The session file is private runtime storage; the carrier names no path or automation trigger.
+    expect(rendered).not.toContain("fixture/transcript");
+    expect(rendered).not.toContain("automation_trigger");
+    expect(compactionObservation({ ...active, subagentType: "executor" } as ActiveTurn).transcriptPath).toBeUndefined();
     await handlers.message_start!({ message: { role: "assistant" } });
     expect(active.compactionEarlyThreshold).toBeUndefined();
   } finally {

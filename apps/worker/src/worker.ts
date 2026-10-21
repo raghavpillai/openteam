@@ -142,7 +142,6 @@ interface Claimed {
   conversationId: string;
   ownerId: string;
   content: string;
-  automationTrigger: string | null;
   images: RuntimeInlineImage[];
   clientId: string;
   cwd: string;
@@ -236,21 +235,6 @@ export const turnContentWithNotes = (
     }),
     content
   );
-
-export const automationTriggerForWake = (
-  origin: RunOrigin,
-  content: string,
-  supplied: string | null = null
-): string | null => {
-  if (origin !== "routine") return null;
-  const suppliedMatch = supplied?.match(
-    /<automation_trigger_info>[\s\S]*?<\/automation_trigger_info>/i
-  )?.[0];
-  if (suppliedMatch) return suppliedMatch;
-  return (
-    content.match(/<automation_trigger_info>[\s\S]*?<\/automation_trigger_info>/i)?.[0] ?? null
-  );
-};
 
 const assetRefs = (value: unknown): AssetRef[] => {
   if (!Array.isArray(value)) return [];
@@ -1101,7 +1085,6 @@ export class WakeWorker {
           attachments?: unknown;
           clientId?: string;
           channelId?: string;
-          automationTrigger?: unknown;
           automationContextRunId?: string;
         };
         if (!payload.content || !payload.clientId) {
@@ -1223,8 +1206,6 @@ export class WakeWorker {
           conversationId: inbox.conversationId,
           ownerId,
           content: payload.content,
-          automationTrigger:
-            typeof payload.automationTrigger === "string" ? payload.automationTrigger : null,
           images: await this.messaging.assets.runtimeImages(assetRefs(payload.attachments)),
           clientId: payload.clientId,
           cwd: this.workspaceRoot,
@@ -1329,11 +1310,6 @@ export class WakeWorker {
         connectorInstructions: pluginContext.skillInstructions,
         agentProfileSnapshot: platformPrompt.agentProfileSnapshot ?? undefined,
         todoUpdate: platformPrompt.todoUpdate,
-        automationTrigger: automationTriggerForWake(
-          claimed.origin,
-          claimed.content,
-          claimed.automationTrigger
-        ),
         resetSelfSummaryCount: wakeResetsSelfSummaryCount(claimed.inboxType),
         requestSource: runtimeRequestSourceForOrigin(claimed.origin),
         channelId: claimed.channelId,

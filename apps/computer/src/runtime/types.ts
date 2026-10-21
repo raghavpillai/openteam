@@ -42,7 +42,6 @@ export interface ActiveTurn {
   compactionReadPiMessages?: () => BotMessage[];
   pendingCompactionMeasurement?: { compactionId: string; epoch: number };
   todoUpdate: string | null;
-  automationTrigger: string | null;
   resetSelfSummaryCount: boolean;
   requestSource: NonNullable<ComputerTurnRequest["requestSource"]>;
   turnId: string;

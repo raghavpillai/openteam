@@ -70,9 +70,9 @@ export function compactionObservation(active: ActiveTurn): Omit<BotObservation, 
     tools,
     projectRoot: active.cwd,
     isRootProject: active.isRootProject,
-    transcriptPath: active.sessionPath ?? undefined,
+    // Workers have no ReadTranscript, which the transcript guidance points to.
+    transcriptPath: active.subagentType ? undefined : active.sessionPath ?? undefined,
     todoUpdate: active.todoUpdate ?? undefined,
-    automationTrigger: active.automationTrigger ?? undefined,
   };
 }
 

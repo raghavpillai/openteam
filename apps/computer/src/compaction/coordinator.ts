@@ -121,7 +121,6 @@ export interface BotObservation {
   isRootProject?: boolean;
   transcriptPath?: string;
   todoUpdate?: string;
-  automationTrigger?: string;
   infer: (request: BotSummaryRequest, signal: AbortSignal) => Promise<BotSummaryResult>;
 }
 
@@ -687,7 +686,6 @@ export class BotCompactionCoordinator {
     isRootProject?: boolean;
     transcriptPath?: string;
     todoUpdate?: string;
-    automationTrigger?: string;
     infer: BotObservation["infer"];
     signal: AbortSignal;
   }): Promise<BotPreparedCompaction | null> {

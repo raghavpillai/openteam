@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  automationTriggerForWake,
   contextScopeForRun,
   runtimeRequestSourceForOrigin,
   turnContentWithNotes,
@@ -66,23 +65,6 @@ describe("OpenTeam-style runtime context routing", () => {
     expect(wakeResetsSelfSummaryCount("subagent.stopped")).toBe(false);
     expect(wakeResetsSelfSummaryCount("subagent.cancelled")).toBe(false);
     expect(wakeResetsSelfSummaryCount("timeline.event")).toBe(false);
-  });
-
-  test("carries only the original tagged automation trigger for routine wakes", () => {
-    const tagged =
-      "<automation_trigger_info>\nRoutine: audit\n</automation_trigger_info>\nRun it now.";
-    expect(automationTriggerForWake("routine", tagged)).toBe(
-      "<automation_trigger_info>\nRoutine: audit\n</automation_trigger_info>"
-    );
-    expect(
-      automationTriggerForWake(
-        "routine",
-        "Routine wake text has no tags.",
-        "<automation_trigger_info>\nRoutine: supplied\n</automation_trigger_info>"
-      )
-    ).toContain("Routine: supplied");
-    expect(automationTriggerForWake("agent", tagged)).toBeNull();
-    expect(automationTriggerForWake("routine", "untagged routine")).toBeNull();
   });
 
   test("puts turn notes in one reminder block ahead of the timestamped query", () => {

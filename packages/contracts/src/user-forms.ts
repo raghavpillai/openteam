@@ -1,3 +1,4 @@
+import { buildUserFormDriverUnavailableResult, buildUserFormSkippedFieldsNote, buildUserFormUnfillableResult } from "./reference-form-results";
 export interface UserFormTarget {
   kind: "ref" | "selector" | "label";
   value: string;
@@ -290,15 +291,10 @@ export function parseUserFormReceipt(raw: unknown): UserFormReceipt {
   };
 }
 
-/** Status-only preparation diagnostics. Never accept raw driver error text. */
+/** Status-only diagnostics for a form-level preparation failure. Never accept raw driver error text. */
 export const FORM_PREPARATION_FAILURE_MESSAGES: Record<string, string> = {
-  target_missing: "The form target is missing or ambiguous. Inspect a fresh browser snapshot and choose the intended control.",
-  target_unavailable: "The form target is not an enabled editable control. Inspect a fresh browser snapshot.",
-  hidden_target: "The form target is hidden. Choose the visible control from a fresh browser snapshot.",
   page_moved: "The form document changed. Inspect the current page and request fresh targets.",
   domain_mismatch: "The form tab changed domain. Open the intended page before requesting the form.",
-  in_unreachable_frame: "The form target is in an inaccessible frame. Use browser handoff if a fresh snapshot cannot reach it.",
-  in_closed_shadow: "The form target is inside an inaccessible shadow root. Use browser handoff.",
   ambiguous_tab: "More than one browser tab matches the form domain. Keep only the intended matching tab open.",
   tab_missing: "No live browser tab matches the form domain. Open the page before requesting the form.",
 };
@@ -309,4 +305,31 @@ export function formPreparationFailureMessage(raw: unknown): string | undefined 
   const messages = [...new Set(kinds.filter(kind => typeof kind === "string" && Object.hasOwn(FORM_PREPARATION_FAILURE_MESSAGES, kind))
     .map(kind => FORM_PREPARATION_FAILURE_MESSAGES[kind]))];
   return messages.length ? messages.join(" ") : undefined;
+}
+
+const PREFLIGHT_FIELD_KINDS = [...USER_FORM_FILL_FAILURE_KINDS, "target_unavailable", "domain_mismatch"];
+const STRUCTURAL_FIELD_KINDS = ["in_unreachable_frame", "in_closed_shadow"];
+const structural = (kinds: Record<string, string>) => Object.values(kinds).every(kind => STRUCTURAL_FIELD_KINDS.includes(kind));
+
+/** The note on a shown form whose preflight dropped some targeted fields. */
+export function userFormSkippedFieldsNote(kinds: Record<string, string>): string {
+  return structural(kinds) ? buildUserFormSkippedFieldsNote(kinds) : `The host did not ask the user for these fields because their controls are unavailable: ${Object.entries(kinds).map(([id, kind]) => `${id} (${kind})`).join(", ")}. Inspect a fresh browser snapshot. If this step cannot proceed, use request_box_help; do not ask the user to type into the same unavailable controls again.`;
+}
+/** The result when the preflight reached none of the targeted fields, so the form was not shown. */
+export function userFormUnreachableResult(form: UserForm, kinds: Record<string, string>): string {
+  return structural(kinds) ? buildUserFormUnfillableResult(form, kinds) : `No requested fields are reachable on the page. The form was not shown and nothing was asked of the user. ${userFormSkippedFieldsNote(kinds)}`;
+}
+/** Rebuild a refused preparation's result from the host's status-only body: allowlisted kinds of
+ * the form's own targeted fields, never driver text or values. */
+export function userFormPreparationRefusal(form: UserForm, raw: unknown): string | undefined {
+  if (!raw || typeof raw !== "object") return;
+  const body = raw as Record<string, unknown>;
+  if (body.error === "form_driver_unavailable") return buildUserFormDriverUnavailableResult(form);
+  if (body.error !== "form_preflight_failed" || !body.fieldKinds || typeof body.fieldKinds !== "object") return;
+  const reported = body.fieldKinds as Record<string, unknown>;
+  const kinds = Object.fromEntries(form.fields.flatMap(field => {
+    const kind = Object.hasOwn(reported, field.id) ? reported[field.id] : undefined;
+    return field.target && typeof kind === "string" && PREFLIGHT_FIELD_KINDS.includes(kind) ? [[field.id, kind]] : [];
+  }));
+  return Object.keys(kinds).length ? userFormUnreachableResult(form, kinds) : undefined;
 }

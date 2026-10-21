@@ -3,7 +3,7 @@ import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { formatUserFormReceipt, parseUserForm } from "@openteam/contracts";
-import { UserFormHost, formVaultKey, type FormBrowser } from "../src/user-form-host";
+import { FormPreparationError, UserFormHost, formVaultKey, type FormBrowser } from "../src/user-form-host";
 
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
@@ -169,4 +169,26 @@ test("fill receipts drop values a remap cannot cure and report kinds as the refe
   const unreachable = await offline.submit("bot", "offline", { cc: "4242424242424242", zip: "94110" });
   expect(unreachable.fields.map(field => field.status)).toEqual(["dropped", "dropped"]);
   expect(formatUserFormReceipt(unreachable)).toContain("FILL FAILED: the host could not reach the box browser");
+});
+
+test("preflight refusals carry status-only bodies, and an unreachable browser is retried once", async () => {
+  const f = await fixture();
+  f.browser.prepare = async () => ({ binding: { pageId: "page", domain: "example.com" }, reachable: [], failureKinds: { email: "in_closed_shadow", password: "in_unreachable_frame" } });
+  const structural = await f.host.prepare("bot", "structural", form).catch(error => error);
+  expect(structural).toBeInstanceOf(FormPreparationError);
+  expect(structural.body).toEqual({ error: "form_preflight_failed", fieldKinds: { email: "in_closed_shadow", password: "in_unreachable_frame" } });
+  expect(structural.message).toStartWith('The form "Sign in" was NOT shown and nothing was asked of the user');
+  let attempts = 0;
+  f.browser.prepare = async (requested) => {
+    if (++attempts === 1) throw new Error("connect ECONNREFUSED");
+    return { binding: { pageId: "page", domain: "example.com" }, reachable: requested.fields.map((field) => field.id) };
+  };
+  expect((await f.host.prepare("bot", "retried", form)).fields).toHaveLength(2);
+  expect(attempts).toBe(2);
+  f.browser.prepare = async () => { throw new Error("Browser has been closed"); };
+  const down = await f.host.prepare("bot", "down", form).catch(error => error);
+  expect(down.body).toEqual({ error: "form_driver_unavailable" });
+  expect(down.message).toContain("the host could not reach the box browser at request time");
+  f.browser.prepare = async () => { throw Object.assign(new Error("No live browser tab matches the form domain."), { kind: "tab_missing" }); };
+  await expect(f.host.prepare("bot", "tab", form)).rejects.toMatchObject({ kind: "tab_missing" });
 });

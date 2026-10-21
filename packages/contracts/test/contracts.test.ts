@@ -50,6 +50,7 @@ import {
 } from "../src";
 import { normalizeMainToolArguments } from "../src/reference-main-parsers";
 import { renderControlResult } from "../src/tool-results";
+import { parseUserForm, userFormPreparationRefusal } from "../src/user-forms";
 import cursorToolsDocument from "../src/cursor-tools.json";
 import nativeToolsDocument from "../src/native-tools.json";
 
@@ -726,5 +727,33 @@ describe("renamed first-party tools", () => {
     expect(renderControlResult("CreateBotShareJson", { published: true, version: 2 }, {})).toContain("version 2");
     for (const name of ["upload_file", "download_file", "request_user_form", "remap_user_form_targets", "create_bot_share_json", "import_chrome_cookies"])
       expect(() => referenceTool(name)).toThrow("No captured tool contract");
+  });
+});
+
+describe("in-chat form results", () => {
+  const shown = "Showed the form to the user; your turn is over. When they submit, the host fills the browser and resumes you with a per-field receipt (fill statuses only, never the submitted values). If they dismiss it, you'll be resumed with that outcome. If they choose to do the step on the screen instead, the host hands them the box directly (same as request_box_help) and you'll be resumed when they hand it back.";
+  test("a shown form tells the model its turn is over and appends the dropped-field note", () => {
+    expect(renderControlResult("RequestUserForm", { sent: true, channel_id: "c1", message_address: "t2s1" }, {})).toBe(shown);
+    expect(renderControlResult("RequestUserForm", { sent: true, preflightNote: "NOTE: dropped" }, {})).toBe(`${shown}\n\nNOTE: dropped`);
+  });
+
+  test("a refused preparation is rebuilt from allowlisted kinds of the form's own fields", () => {
+    const form = parseUserForm({ title: "Pay", instruction: "Card", domain: "shop.example", fields: [
+      { id: "cc", label: "Card number", type: "text", secret: true, target: { kind: "selector", value: "#cc" } },
+      { id: "zip", label: "ZIP", type: "text", target: { kind: "selector", value: "#zip" } },
+    ] });
+    const structural = userFormPreparationRefusal(form, { error: "form_preflight_failed", message: "SECRET-246810",
+      fieldKinds: { cc: "in_unreachable_frame", zip: "in_closed_shadow", other: "target_missing", __proto__: "x" } });
+    expect(structural).toBe([
+      'The form "Pay" was NOT shown and nothing was asked of the user: the host preflighted every targeted field against the live page and ALL of them are structurally unreachable, so the fill would fail the same way after they typed.',
+      "- cc: target is inside a frame the host could not inspect (still loading or unreadable)",
+      "- zip: target is behind a closed shadow root the host cannot reach",
+      "Re-issuing this form (same targets, or fresh label/selector targets into the same unreachable frame or closed shadow root) will be refused the same way. Hand the user the screen with request_box_help so they can complete the step directly.",
+    ].join("\n"));
+    expect(userFormPreparationRefusal(form, { error: "form_preflight_failed", fieldKinds: { cc: "SECRET-246810" } })).toBeUndefined();
+    expect(userFormPreparationRefusal(form, { error: "form_preflight_failed", fieldKinds: { cc: "hidden_target" } }))
+      .toStartWith("No requested fields are reachable on the page. The form was not shown and nothing was asked of the user. The host did not ask the user for these fields because their controls are unavailable: cc (hidden_target).");
+    expect(userFormPreparationRefusal(form, { error: "form_driver_unavailable" })).toStartWith(
+      'The form "Pay" was NOT shown and nothing was asked of the user: the host could not reach the box browser at request time');
   });
 });

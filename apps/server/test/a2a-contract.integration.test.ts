@@ -92,24 +92,26 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
       isFork: false,
     };
 
-    await expect(
-      app.messaging.sendToAgent(context, { target_id: source.id, message: "self" })
-    ).rejects.toThrow(
-      "You can't message yourself with SendToAgent. Use SendToUser to talk to the user, or pick a different target id."
-    );
+    // Refusals are answers the model reads, not tool failures.
+    expect(
+      await app.messaging.sendToAgent(context, { target_id: source.id, message: "self" })
+    ).toEqual({
+      acknowledgement: "You can't message yourself with SendToAgent. Use SendToUser to talk to the user, or pick a different target id.",
+      interruptRunId: null,
+    });
     const missingId = crypto.randomUUID();
-    await expect(
-      app.messaging.sendToAgent(
+    expect(
+      await app.messaging.sendToAgent(
         { ...context, callId: "a2a-missing" },
         { target_id: missingId, message: "missing" }
       )
-    ).rejects.toThrow(`No agent found with id ${missingId}.`);
-    await expect(
-      app.messaging.sendToAgent(
+    ).toEqual({ acknowledgement: `No agent found with id ${missingId}.`, interruptRunId: null });
+    expect(
+      await app.messaging.sendToAgent(
         { ...context, callId: "a2a-not-group" },
         { target_id: source.dmChannelId, message: "not a group" }
       )
-    ).rejects.toThrow(`${source.dmChannelId} is not a group chat.`);
+    ).toEqual({ acknowledgement: `${source.dmChannelId} is not a group chat.`, interruptRunId: null });
 
     const createAck = await app.administration.createChannel(source.id, "create-contract-room", {
       name: "Contract room",
@@ -249,8 +251,8 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
       await app.prisma.botRunLease.findUniqueOrThrow({ where: { botId_scope: { botId: outsider.id, scope: "foreground" } } })
     ).toMatchObject({ runId: userRun.id });
 
-    await expect(
-      app.messaging.sendToAgent(
+    expect(
+      await app.messaging.sendToAgent(
         {
           ...context,
           runId: outsiderTurn.run.id,
@@ -261,7 +263,7 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
         },
         { target_id: groupId, message: "not seated" }
       )
-    ).rejects.toThrow("You can only post to a group you're a member of.");
+    ).toMatchObject({ acknowledgement: "You can only post to a group you're a member of." });
 
     expect(
       await app.messaging.sendToAgent(
@@ -289,7 +291,7 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
     );
     expect(posted).toMatchObject({
       acknowledgement:
-        'Posted to "Contract room". Its members will see it and reply on their own turns. Note: the attached image was NOT delivered — group messages are text-only for now; send images to an agent directly.',
+        'Posted to "Contract room". Its members will see it and reply on their own turns. Note: the attached image was NOT delivered — group messages are text-only for now; send images to an agent directly. Note: priority is 1:1 only — this post did not interrupt members.',
       interruptRunId: null,
     });
     const groupRow = await app.prisma.channelMessage.findFirstOrThrow({

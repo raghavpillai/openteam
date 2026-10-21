@@ -23,7 +23,7 @@ describe("agent-to-agent protocol", () => {
       'Posted to "Launch Room". Its members will see it and reply on their own turns. Note: the attached image was NOT delivered — group messages are text-only for now; send images to an agent directly.'
     );
     expect(groupAgentAcknowledgement("Launch Room", { priority: true })).toBe(
-      'Posted to "Launch Room". Its members will see it and reply on their own turns.'
+      'Posted to "Launch Room". Its members will see it and reply on their own turns. Note: priority is 1:1 only — this post did not interrupt members.'
     );
     expect(groupAgentAcknowledgement("Launch Room", { imageCount: 2 })).toBe(
       'Posted to "Launch Room". Its members will see it and reply on their own turns. Note: the attached images were NOT delivered — group messages are text-only for now; send images to an agent directly.'

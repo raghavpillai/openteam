@@ -349,6 +349,7 @@ export const groupAgentAcknowledgement = (
       `Note: the attached ${imageCount === 1 ? "image was" : "images were"} NOT delivered — group messages are text-only for now; send images to an agent directly.`
     );
   }
+  if (options.priority) result.push("Note: priority is 1:1 only — this post did not interrupt members.");
   return result.join(" ");
 };
 
@@ -2333,6 +2334,8 @@ export class AgentMessaging {
 
   async sendToAgent(context: ToolContext, input: SendToAgentInput): Promise<ToolResult> {
     let groupRoundId: string | null = null;
+    // A refused send is an answer the model reads, not a tool failure.
+    const refusal = (acknowledgement: string) => ({ acknowledgement, interruptRunId: null });
     const result = await this.prisma.$transaction(async (tx) => {
       const source = await tx.bot.findUnique({
         where: { id: context.botId },
@@ -2346,15 +2349,15 @@ export class AgentMessaging {
         include: { members: true },
       });
       if (addressedChannel && addressedChannel.kind !== "group") {
-        throw new Error(`${input.target_id} is not a group chat.`);
+        return refusal(`${input.target_id} is not a group chat.`);
       }
       if (addressedChannel?.kind === "group" && addressedChannel.archivedAt) {
-        throw new Error(`No group found with id ${input.target_id}.`);
+        return refusal(`No group found with id ${input.target_id}.`);
       }
       const group = addressedChannel;
       if (group) {
         if (!group.members.some((member) => member.botId === context.botId)) {
-          throw new Error("You can only post to a group you're a member of.");
+          return refusal("You can only post to a group you're a member of.");
         }
         if (context.channelId === group.id && context.deliveryId) {
           throw new ApiError(
@@ -2375,6 +2378,7 @@ export class AgentMessaging {
           return {
             acknowledgement: groupAgentAcknowledgement(group.name, {
               imageCount: input.images?.length,
+              priority: input.priority,
             }),
             interruptRunId: null,
           };
@@ -2438,6 +2442,7 @@ export class AgentMessaging {
         return {
           acknowledgement: groupAgentAcknowledgement(group.name, {
             imageCount: input.images?.length,
+            priority: input.priority,
           }),
           interruptRunId: null,
         };
@@ -2453,7 +2458,7 @@ export class AgentMessaging {
         },
       });
       if (target?.id === source.id) {
-        throw new Error(
+        return refusal(
           "You can't message yourself with SendToAgent. Use SendToUser to talk to the user, or pick a different target id."
         );
       }
@@ -2462,7 +2467,7 @@ export class AgentMessaging {
         !["active", "provisioning"].includes(target.status) ||
         target.subagentIdentity
       ) {
-        throw new Error(`No agent found with id ${input.target_id}.`);
+        return refusal(`No agent found with id ${input.target_id}.`);
       }
       const directContent = clampAgentMessage(input.message);
       if (!directContent) {

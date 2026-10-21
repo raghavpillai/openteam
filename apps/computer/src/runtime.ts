@@ -51,7 +51,8 @@ import {
   publishCompaction,
 } from "./runtime/compaction";
 import { textFromContent } from "./runtime/content";
-import { attachSession, routeEvent } from "./runtime/events";
+import { graphicalFinalReport } from "./runtime/graphical-completion";
+import { attachSession, routeEvent, startAgentMessage } from "./runtime/events";
 import { inferenceReasoningOptions, reasoningExtension } from "./runtime/reasoning";
 import { withAgentOutputBudget } from "./runtime/output-budget";
 import { inferenceMetricsExtension } from "./runtime/inference-metrics";
@@ -827,6 +828,15 @@ export class ComputerRuntime {
       if (!session) throw new Error("Pi session is not attached");
       await this.compaction.beginUserQuery(active.contextSessionId, active.resetSelfSummaryCount);
       await active.session?.prompt(content, { source: "rpc", images });
+      const graphicalReport = graphicalFinalReport(active, active.compactionReadPiMessages?.() ?? (session.messages as BotMessage[]));
+      if (graphicalReport) {
+        startAgentMessage(active, graphicalReport.id);
+        active.queue.push({
+          type: "item.completed",
+          turnId: active.turnId,
+          item: { type: "agentMessage", id: graphicalReport.id, text: graphicalReport.text, status: "completed" },
+        });
+      }
       if (isDeliveryOwed(active.requestSource) && !active.endTurnRequested &&
           !active.pluginAbortController?.signal.aborted &&
           !["aborted", "error"].includes(active.lastStopReason ?? "")) {

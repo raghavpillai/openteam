@@ -89,6 +89,10 @@ export interface ActiveTurn {
   /** Exact stop calls already emitted alongside a closing response. */
   pendingDeliveryCleanup?: Map<string, string>;
   acknowledgedCardOutcomes?: Set<string>;
+  /** computerUse only: failure classes of the current run of failed calls. */
+  toolFailureStreak?: string[];
+  toolFailureBreakerTripped?: boolean;
+  lastAgentMessage?: { id: string; text: string };
 }
 
 export interface RuntimeDynamicTool extends DynamicToolDefinition {

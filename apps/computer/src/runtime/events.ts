@@ -2,6 +2,7 @@ import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
 import type { BotAgentStore } from "../bot-agent-store";
 import { safeToolResult, textFromContent, thinkingFromContent, toolItem } from "./content";
+import { observeGraphicalToolResult } from "./graphical-completion";
 import type { ActiveTurn } from "./types";
 
 function isBackgroundStatusCheck(toolName: string, args: unknown): boolean {
@@ -172,6 +173,7 @@ export function routeEvent(
       turnId: active.turnId,
     });
     if (text && active.currentAssistantId) {
+      active.lastAgentMessage = { id: active.currentAssistantId, text };
       startAgentMessage(active, active.currentAssistantId);
       active.queue.push({
         type: "item.completed",
@@ -234,6 +236,8 @@ export function routeEvent(
 
   if (event.type === "tool_execution_end") {
     const stored = active.toolArgs.get(event.toolCallId);
+    const outcome = event.result as {isError?: boolean; content?: unknown} | undefined;
+    observeGraphicalToolResult(active, event.isError || outcome?.isError === true, textFromContent(outcome?.content));
     if (stored?.toolName === "GetDynamicTools") {
       const result = event.result as {isError?: boolean} | undefined;
       if (event.isError || result?.isError) markToolActivity(active, event.toolCallId);

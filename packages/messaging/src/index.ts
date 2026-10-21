@@ -20,7 +20,7 @@ import { publishChannelNotification, publishMessageNotification } from "./notifi
 export { publishChannelNotification, publishMessageNotification, channelNotificationStates } from "./notifications";
 import { messagePreviewText } from "@openteam/contracts/message-preview";
 import { defaultTaskConfiguration, type TaskConfiguration } from "@openteam/contracts/task-configuration";
-import { combinedGraphicalWorkerPrompt, EXECUTION_VERIFICATION_INSTRUCTIONS } from "./graphical-worker-prompts";
+import { combinedGraphicalWorkerPrompt } from "./graphical-worker-prompts";
 import {
   type AdminBroadcastInput,
   type AgentImageInput,
@@ -597,7 +597,7 @@ export const WORKER_DRAFT_HANDOFF = "You cannot call DraftExternalMessage. When 
 
 /** The type-specific part of a worker's prompt; the box section covers where executors work. */
 export const subagentSpecializationInstructions = (type: SubagentType, workingDirectory = "/workspace"): string =>
-  type === "computerUse" ? combinedGraphicalWorkerPrompt(workingDirectory) : mediaReviewPrompt(type) ?? EXECUTION_VERIFICATION_INSTRUCTIONS;
+  type === "computerUse" ? combinedGraphicalWorkerPrompt(workingDirectory) : mediaReviewPrompt(type) ?? "";
 
 const json = (value: unknown): Prisma.InputJsonValue =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;

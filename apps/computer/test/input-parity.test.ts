@@ -65,6 +65,31 @@ describe("GrokBot input parity at the runtime boundary", () => {
     }
   );
 
+  test.skipIf(!Bun.which("pdftotext"))(
+    "reads a PDF whole with the reference's page markers, and a PDF without a text layer as just its markers",
+    async () => {
+      const root = await temporary();
+      const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
+      const read = async (name: string, range: { offset?: number; limit?: number } = {}) => {
+        const file = join(root, name);
+        await copyFile(new URL(`./fixtures/input-parity/${name}`, import.meta.url), file);
+        const result = await executor.read({ path: file, ...range }, root);
+        return (result.content[0] as { text: string }).text;
+      };
+      // Oracle: pdf-parse 2.4.5 (the reference's extractor) returns, for these fixtures,
+      // "Page one line A\nPage one line B\n\n-- 1 of 3 --\n\nPage two only line\n\n-- 2 of 3 --\n\n…"
+      // and "\n\n-- 1 of 2 --\n\n\n\n-- 2 of 2 --\n\n"; Read numbers them like any text file.
+      expect(await read("three-pages.pdf")).toBe([
+        "Page one line A", "Page one line B", "", "-- 1 of 3 --", "",
+        "Page two only line", "", "-- 2 of 3 --", "",
+        "Third page first", "Third page second", "Third page third", "", "-- 3 of 3 --", "", "",
+      ].map((line, index) => `${String(index + 1).padStart(6)}|${line}`).join("\n"));
+      expect(await read("three-pages.pdf", { offset: 6, limit: 1 })).toBe("... 5 lines not shown ...\n     6|Page two only line\n... 10 lines not shown ...");
+      expect(await read("no-text-layer.pdf")).toBe(["", "", "-- 1 of 2 --", "", "", "", "-- 2 of 2 --", "", ""]
+        .map((line, index) => `${String(index + 1).padStart(6)}|${line}`).join("\n"));
+    }
+  );
+
   test("matches the independently extracted host geometry, including thin-image exceptions", () => {
     // Oracle: host 886e13a, SHA d54bf2ea6a49e2dfad656c4889b4f202e92817fb00fa829aadbb6aa76dc5fecc.
     for (const [w, h, max, ew, eh, changed] of [

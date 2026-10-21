@@ -115,13 +115,15 @@ export const formatNotebookForModel = (raw: string): string | undefined => {
   return cells.length ? `${cells.join("\n\n")}\n\n` : "Notebook is empty (0 cells)";
 };
 
-/** PDF line ranges refer to extracted text, never physical page numbers. */
-export const renderPdfReadText = (raw: string, offset?: number, limit?: number, fileSize = raw.length) => {
-  const result = renderReadText(raw, offset, limit ?? 200, fileSize);
-  return {
-    ...result,
-    text: `PDF text extraction (line offsets refer to extracted text, not PDF pages).${raw.trim() ? "" : " No text layer was extracted; the document may require OCR."}\n${result.text}`,
-    extraction: "pdf-text" as const,
-    extractedCharacters: raw.length,
-  };
+/** pdftotext ends each page with a form feed. The reference's pdf-parse ends each page's text with
+ * `\n\n-- N of M --\n\n`, so a Read shows which page a line is on. */
+export const pdfPagesText = (raw: string): string => {
+  if (!raw) return raw;
+  const pages = raw.replace(/\r\n?/g, "\n").split("\f");
+  if (pages.length > 1 && pages.at(-1) === "") pages.pop();
+  return pages.map((page, index) => `${page.replace(/\n+$/, "")}\n\n-- ${index + 1} of ${pages.length} --\n\n`).join("");
 };
+
+/** Like the reference, a PDF's text renders like any other file: no default limit and no header. */
+export const renderPdfReadText = (raw: string, offset?: number, limit?: number, fileSize = raw.length) =>
+  renderReadText(pdfPagesText(raw), offset, limit, fileSize);

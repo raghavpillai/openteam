@@ -55,9 +55,9 @@ Diagrams and charts for the engineering posts were drawn for this blog in HTML a
 Diagrams for the Claude Duet comparison use the same method. Claude Duet facts come from Anthropic's announcement and help center on 2026-10-21; OpenTeam facts come from its docs and code:
 
 - `claude-duet-scorecard.png`: where Claude Duet and OpenTeam differ.
-- `claude-duet-where-it-runs.png`: where each agent runs and holds your data.
+- `claude-duet-where-each-runs.png`: where each agent runs and holds your data.
 - `claude-duet-morning-brief.png`: an OpenTeam morning-brief routine from schedule to sent reply.
-- `claude-duet-urgent-email.png`: Duet's interval checks next to an OpenTeam email-triggered routine.
+- `claude-duet-urgent-email-timing.png`: Duet's interval checks next to an OpenTeam email-triggered routine.
 
 ## Third-party images
 

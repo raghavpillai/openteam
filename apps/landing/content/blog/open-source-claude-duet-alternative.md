@@ -26,15 +26,15 @@ Duet facts are from [Anthropic's announcement](https://claude.com/resources/arti
 | License | Proprietary | GPL-3.0 |
 | Where it runs | Anthropic's cloud | Your computer, home server or cloud VM |
 | Models | Claude Opus 5.5 only | One per server: Claude, GPT, OpenRouter models or a local model |
-| Agents | One Duet per account, with topic channels | A team of bots; group chats of up to 6 |
+| Agents | One agent: a main thread plus topic channels | A team of bots; group chats of up to 6 |
 | Computer | A cloud VM with a browser you can't watch | A Linux desktop per bot that you can watch and take over |
 | Morning brief | Built in | A routine you write in one sentence |
 | Checks your apps | "Every few hours"; interval not published | Exact times, intervals down to 5 minutes, or new mail within about a minute |
 | Approvals | Before every send, payment, signature or deletion | Email and Slack drafts wait for your Send; no approval step for other actions |
-| Passwords | Typed into a separate form Duet can't see | Typed into a secure form the model can't read back |
+| Passwords | Typed into a separate form, kept out of Duet's chat | Typed into a secure form the model can't read back |
 | Texts and calls | Doesn't text other people or make calls | Texts from your Mac's Messages; calls through call4me |
 | Your own computer | Can't see your files | Reads and copies files through the desktop app |
-| Connectors | 6,000+ in the Claude Marketplace | 16 bundled plugins plus any MCP server |
+| Connectors | 6,000+ connectors and plugins in the Claude Marketplace | 16 bundled plugins plus any MCP server |
 | Usage limits | Counts toward your plan's five-hour and weekly limits | None from OpenTeam; your provider bills per token |
 | Apps | iPhone and Android for invited users; web | macOS (Apple silicon), Linux x64; iPhone beta |
 | Your data | Anthropic's cloud; region not published | Your server; your model provider sees what bots send it |
@@ -55,7 +55,7 @@ It runs only on Claude Opus 5.5: "You can't choose a model." It's an app for iPh
 
 ### 1. It's US-only, Pro and Max only, and waitlisted
 
-Duet needs "A Pro or Max plan / A Claude account in the US / An invitation from the waitlist" ([help center](https://support.claude.com/en/articles/17631495-get-started-with-claude-duet)). Team and Enterprise plans aren't included yet, and access "opens in waves." Its payments through Link require a US payment method too ([Anthropic](https://support.claude.com/en/articles/17666484-how-to-use-link-by-stripe-with-claude-duet)). If you're in the UK, Canada, India, Australia or the EU, there's no date.
+Duet needs a Pro or Max plan, a Claude account in the US and an invitation from the waitlist ([help center](https://support.claude.com/en/articles/17631495-get-started-with-claude-duet)). Team and Enterprise plans aren't included yet, and access "opens in waves." Its payments through Link require a US payment method too ([Anthropic](https://support.claude.com/en/articles/17666484-how-to-use-link-by-stripe-with-claude-duet)). If you're in the UK, Canada, India, Australia or the EU, there's no date.
 
 ### 2. Your inbox, calendar and sign-ins live in Anthropic's cloud
 
@@ -77,7 +77,7 @@ Anthropic's own limits list says: "You can't watch Claude Duet work in its brows
 
 OpenTeam is software you install. The server runs in Docker on a Mac, Windows or Linux machine, with 8 GB of RAM recommended ([installation](/docs/getting-started/installation)). You talk to your bots from the desktop app on macOS or Linux, or from the iPhone beta. Every bot gets its own Linux computer on that server, and everything it learns stays on your disk.
 
-![Two columns: Claude Duet, where the app on web or iPhone talks to one Duet agent, your connected apps and Opus 5.5 inside Anthropic's cloud; and OpenTeam, where Mac, Linux and iPhone apps reach your own server holding a team of bots with Linux computers, routines, memory, sign-ins and plugins, which sends prompts to a hosted or local model you pick](/blog/images/claude-duet-where-it-runs.png "Duet is a service in Anthropic's cloud. OpenTeam runs on your machine and sends prompts to the model you choose. Diagram: OpenTeam.")
+![Two columns: Claude Duet, where the app on web or iPhone talks to one Duet agent, your connected apps and Opus 5.5 inside Anthropic's cloud; and OpenTeam, where Mac, Linux and iPhone apps reach your own server holding a team of bots with Linux computers, routines, memory, sign-ins and plugins, which sends prompts to a hosted or local model you pick](/blog/images/claude-duet-where-each-runs.png "Duet is a service in Anthropic's cloud. OpenTeam runs on your machine and sends prompts to the model you choose. Diagram: OpenTeam.")
 
 ## Head to head: Claude Duet vs OpenTeam
 
@@ -104,17 +104,17 @@ You control what counts. Write "skip newsletters," "only clients at @northwind.e
 
 ### Watching your apps through the day
 
-Duet checks "at set intervals, so something urgent can arrive between checks" ([help center](https://support.claude.com/en/articles/17631495-get-started-with-claude-duet)). You can ask it to check more or less, but Anthropic sets the timetable, and every check spends your plan's limits.
+Duet checks "at set intervals, so something urgent can arrive between checks" ([help center](https://support.claude.com/en/articles/17631495-get-started-with-claude-duet)). You can tell it "what you want to hear about and how often," but Anthropic doesn't publish the interval, and every check counts toward your plan's limits.
 
 OpenTeam gives you the clock. A routine can have up to eight schedules, as exact times in your time zone or intervals as short as every five minutes. It can also start on an event instead: a GitHub issue, a Slack message, a Linear update, a Sentry or PagerDuty alert, a Microsoft Teams message, or any signed webhook.
 
 For email, the [Email plugin](/docs/integrations/email) checks each connected mailbox about once a minute. A routine can watch for chosen senders, and by default only mail that passes DMARC fires it, so forged senders are ignored. It connects over IMAP, so Gmail and Google Workspace accounts need an app password. Outlook and Microsoft 365 can't connect this way, since Microsoft doesn't allow app passwords.
 
-![Two lanes: Claude Duet checks at set intervals every few hours, quoting Anthropic that something urgent can arrive between checks; OpenTeam's email routine sees a 10:12 email by about 10:13, reads and decides, and messages you with a reply draft](/blog/images/claude-duet-urgent-email.png "An urgent email at 10:12 AM: Duet sees it at its next check, OpenTeam's email routine within about a minute. Diagram: OpenTeam.")
+![Two lanes: Claude Duet checks at set intervals every few hours, quoting Anthropic that something urgent can arrive between checks; OpenTeam's email routine sees a 10:12 email by about 10:13, reads and decides, and messages you with a reply draft](/blog/images/claude-duet-urgent-email-timing.png "An urgent email at 10:12 AM: Duet sees it at its next check, OpenTeam's email routine within about a minute. Diagram: OpenTeam.")
 
 ### Doing the work: one cloud VM, or a computer per bot
 
-Duet does its work in a cloud VM with its own browser, out of sight. You see results and approval requests, not the screen.
+Duet does its work in a cloud VM with its own browser, out of sight. Its Tasks tab shows what it's working on, and Anthropic says it "can't yet show you its browser." For now, you see results and approval requests, not the screen.
 
 In OpenTeam, every bot has its own persistent Linux desktop with Chromium and a terminal ([computer](/docs/usage/computer)). You can open any bot's screen and watch it work live, then take control with a click. When a bot hits something only you can do, it posts a card asking you to take over, and you hand it back when you're done.
 
@@ -146,7 +146,7 @@ For other actions, OpenTeam bots act directly. They don't stop before deleting a
 
 Both keep passwords away from the model in the same way. In Duet, you type a password "into a separate form on your device," which sends it straight to the browser. In OpenTeam, a bot asks you to fill a secure form, and the server fills it into the page on the exact site shown. The values are write-only, so the model never gets them back. Card numbers work the same way.
 
-Two caveats are worth knowing. Values a bot reads from 1Password, and two-factor codes it fetches, appear in the conversation. And Duet can pay with Stripe's Link and Shopify's Shop Pay using one-time virtual cards, which OpenTeam doesn't offer.
+Two caveats are worth knowing. Values a bot reads from 1Password, and two-factor codes it fetches, appear in the conversation. And Duet can pay through Stripe's Link, which asks you to approve the spend and pays with a one-time card scoped to the merchant and amount ([Anthropic](https://support.claude.com/en/articles/17666484-how-to-use-link-by-stripe-with-claude-duet)). It can also check out with Shopify's Shop Pay. OpenTeam offers neither.
 
 ### Models: Opus 5.5, or whatever you choose
 
@@ -194,8 +194,8 @@ You can have a working morning brief tonight, wherever you live.
 - **Zero setup.** You join a waitlist, install an app and connect accounts; Anthropic runs everything. OpenTeam needs Docker, a machine that stays on, a model key or local model, your own Google Cloud app for Google accounts, and some comfort with a terminal.
 - **Phone-first apps.** Duet has iPhone and Android apps with push notifications. OpenTeam's iPhone app is a TestFlight beta, and its push alerts need Apple credentials on your server that most people won't have. There's no Android or web app, and desktop apps exist only for macOS on Apple silicon and Linux x64.
 - **Approvals for everything consequential.** Duet stops before sends, payments, signatures and deletions, and its classifiers screen actions and sensitive data. Anthropic says red teams and an outside firm tested it. OpenTeam's approval step covers email and Slack drafts.
-- **Payments and breadth.** One-time virtual cards through Link and Shop Pay, and 6,000+ connectors including QuickBooks, HubSpot and Docusign. OpenTeam bundles 16 plugins plus any MCP server.
-- **Judgment out of the box.** Anthropic designed Duet around Opus 5.5 and tuned it to decide what's urgent, with your Claude memory, skills and connectors carried over. In OpenTeam, results depend on the model you pick and the instructions you write, and one human account per server is the limit.
+- **Payments and breadth.** Link payments with one-time cards, Shop Pay checkout, and over 6,000 connectors and plugins, including QuickBooks, HubSpot and Docusign. OpenTeam bundles 16 plugins plus any MCP server.
+- **Judgment out of the box.** Anthropic designed Duet around Opus 5.5 and built it "to decide what needs you, what can wait, and when to check with you first," with your Claude memory, skills and connectors carried over. In OpenTeam, results depend on the model you pick and the instructions you write, and one human account per server is the limit.
 
 If you're in the US, on Pro or Max, and want a proactive agent on your phone with no setup, join Duet's waitlist. Everyone else can run OpenTeam today.
 

@@ -2781,7 +2781,9 @@ export class AgentMessaging {
         throw new ApiError(
           409,
           "awaiting_user_response",
-          "A question or secure handoff is already waiting for the user. Stop this turn and wait for them to respond."
+          ["widget", "secret-request"].includes(input.type)
+            ? "This turn already asks the user something (a question widget, a secret or credential request, or another card), and only one can be open at a time, so this one was not shown. The user's answer arrives as the next message; ask this then if it still matters."
+            : "This turn is already waiting on the user (you sent a question widget or handed the box back to them), so this message was not delivered. Wait for the user. Their response arrives as the next message. Then say this on your next turn."
         );
       }
       if (channel.kind === "group" && context.deliveryId) {

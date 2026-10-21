@@ -126,6 +126,35 @@ test('forms, sending, skill and template skills follow the tools as they work he
   expect(skill('export-bot-template')).toContain('set `gettingStarted` to `{ "skill": "<its exact name from that list>" }`');
 });
 
+test('every tool a managed skill names exists under that name', async () => {
+  const plugins = join(import.meta.dir, '../../plugins');
+  const connectorTools = new Set<string>();
+  for (const file of ['calendar', 'docs', 'drive', 'drive-files', 'gmail', 'sheets', 'slides'])
+    for (const tool of JSON.parse(await readFile(join(plugins, '_shared/reference', `${file}.json`), 'utf8')) as { name: string }[]) connectorTools.add(tool.name);
+  for (const file of ['gmail/connector/server.ts', 'email/connector/server.ts'])
+    for (const [, name] of (await readFile(join(plugins, file), 'utf8')).matchAll(/(?:tool\('|name: ")(\w+)['"]/g)) connectorTools.add(name!);
+  const tool = (name: string) => { try { return referenceTool(name); } catch { return undefined; } };
+  const argumentNames = new Set(managed.skills.flatMap(s => [...s.content.matchAll(/\b[A-Z][A-Za-z]+\b/g)].flatMap(([name]) => Object.keys(tool(name)?.inputSchema.properties ?? {}))));
+  const words = new Set([
+    'AgentMail', 'ContentType', 'DejaVu', 'DevTools', 'DoorDash', 'GitHub', 'GitLab', 'LibreOffice', 'LinkedIn', 'OpenTable', 'OpenTeam',
+    'PagerDuty', 'PartName', 'PowerPoint', 'PptxGenJS', 'SaaS', 'TheFork', 'WhatsApp', 'YouTube',
+    // Prompt blocks, stock states and routine wake blocks, not tools.
+    'user_info', 'agent_skills', 'in_stock', 'out_of_stock', 'made_to_order', 'github_event', 'linear_event', 'microsoft_teams_message',
+    'origin_event', 'pagerduty_event', 'sentry_event', 'slack_message', 'webhook_event',
+  ]);
+  const unknown: string[] = [];
+  for (const item of managed.skills) {
+    const prose = item.content.replace(/```[\s\S]*?```/g, '');
+    const names = [...prose.matchAll(/\b[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)+\b/g)].map(([name]) => name).filter(name => !/^[\dA-F]+$/.test(name));
+    // office-pptx names python-pptx attributes, not tools.
+    if (item.id !== 'office-pptx') names.push(...[...prose.matchAll(/(?<![\w./-])[a-z]+(?:_[a-z]+)+(?![\w/-])/g)].map(([name]) => name));
+    for (const name of new Set(names))
+      if (!words.has(name) && !tool(name) && !connectorTools.has(name) && !argumentNames.has(name)) unknown.push(`${item.id}: ${name}`);
+  }
+  // The routines skill belongs to another change and still names the reference's GetMcpTools.
+  expect(unknown).toEqual(['routines: GetMcpTools']);
+});
+
 test('catalog has valid skill metadata and excludes retired workflows',()=>{
   expect(managed.skills).toHaveLength(26);
   expect(new Set(managed.skills.map(s=>s.id)).size).toBe(managed.skills.length);

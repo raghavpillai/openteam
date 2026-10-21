@@ -116,7 +116,7 @@ for (const reason of ["steer", "cancel"] as const) test(`queued cleanup rechecks
 
 test("every main-agent tool runs in parallel; only graphical controls stay sequential", () => {
   const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
-  const base = {requestSource: "turn", subagentType: null, readOnly: false, pluginRuntimePackages: [], pluginNamespaces: [], skillAccess: "read"};
+  const base = {requestSource: "turn", subagentType: null, readOnly: false, pluginRuntimePackages: [], pluginNamespaces: []};
   const main = tools.customTools(base);
   expect(main.map((tool: any) => tool.name)).toContain("SendToUser");
   expect(main.filter((tool: any) => tool.executionMode !== "parallel")).toEqual([]);

@@ -315,15 +315,13 @@ describe("specialized subagent tool surfaces", () => {
     expect(runtime.customTools(workerTurn(null)).map((tool) => tool.name)).toContain("RecallMemory");
   });
 
-  test("only knowledgeWork with tool access gets the Skill tool", () => {
-    const runtime = runtimeTools() as unknown as {
-      customTools(active: { subagentType: string | null; skillAccess?: "read" | "tool" }): Array<{ name: string }>;
-    };
-    const names = (subagentType: string | null, skillAccess?: "read" | "tool") => runtime.customTools(workerTurn(subagentType, { skillAccess })).map((tool) => tool.name);
-    expect(names("knowledgeWork", "tool")).toContain("Skill");
-    expect(names("knowledgeWork", "read")).not.toContain("Skill");
-    expect(names("executor", "tool")).not.toContain("Skill");
-    expect(names(null, "tool")).not.toContain("Skill");
+  test("no agent has a Skill tool: knowledgeWork, like the main agent, reads its skills by path", () => {
+    const runtime = runtimeTools() as unknown as { customTools(active: unknown): Array<{ name: string }> };
+    for (const type of ["knowledgeWork", "executor", "computerUse", null]) {
+      const names = runtime.customTools(workerTurn(type)).map((tool) => tool.name);
+      expect(names, String(type)).not.toContain("Skill");
+      expect(names, String(type)).toContain("Read");
+    }
   });
 
   test("graphical workers receive compact box-scoped Shell and Read guidance", () => {
@@ -827,7 +825,7 @@ test('the parent-only dispatch reminder names only tools the parent has and that
   };
   const parent = new Set([...surface(workerTurn(null)), ...surface(workerTurn(null, { requestSource: 'automation' }))]);
   for (const type of ['executor', 'knowledgeWork', 'computerUse', 'videoReview', 'watchVideo', undefined]) {
-    const child = type ? surface(workerTurn(type, { skillAccess: 'tool' })) : new Set<string>();
+    const child = type ? surface(workerTurn(type)) : new Set<string>();
     const listed = [...parentOnlyToolsFor(type).keys()];
     expect(listed.length, String(type)).toBeGreaterThan(5);
     for (const tool of listed) {

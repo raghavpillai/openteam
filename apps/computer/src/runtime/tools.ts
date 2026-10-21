@@ -16,7 +16,6 @@ import { parseReferenceArguments } from "@openteam/contracts/reference-parsers";
 import { parseDraftExternalMessage } from "@openteam/contracts/external-draft-body";
 import { HostShellCompletions } from "../host-shell-completions";
 import { expandPluginAgent } from "./plugin-components";
-import { skillTool } from "./skill-tool";
 import { isReadonlyConnectorRead } from "./readonly-connectors";
 import { computerArgumentsWithAliases } from "@openteam/contracts/computer-action-aliases";
 import {
@@ -648,8 +647,6 @@ export class RuntimeTools {
     return [
       ...availableNativeTools.map((tool) => native(tool)),
       ...topLevelTools(),
-      // knowledgeWork carries skills of its own; with tool access it loads them with Skill.
-      ...(active.subagentType === "knowledgeWork" && active.skillAccess === "tool" ? [skillTool("knowledgeWork")] : []),
     ];
   }
 

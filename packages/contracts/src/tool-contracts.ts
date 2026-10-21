@@ -269,6 +269,11 @@ send.description = edited("SendToUser", send.description, [
     "",
   ],
 ]);
+// OpenTeam's own addition: the runtime delivers parallel sends in call order, so ready replies
+// need no model round trip between them.
+export const SEND_TO_USER_BATCH_GUIDANCE =
+  "When several separate text replies to the same conversation are fully ready, emit their SendToUser calls together in one assistant response, in display order, instead of waiting for a model round trip between messages. Keep end_turn false until the final call. Do not batch messages whose content depends on a preceding tool result, or user input.";
+send.description += ` ${SEND_TO_USER_BATCH_GUIDANCE}`;
 // Retain private connector-key requests and personal scope supported by this deployment.
 const localSecret = native.native.find((tool) => tool.name === "SendToUser")!.parameters.properties
   .secret!;

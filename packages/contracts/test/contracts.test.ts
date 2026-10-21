@@ -1,7 +1,7 @@
 // biome-ignore-all lint/suspicious/noThenProperty: The external Computer contract intentionally names its action sequence "then".
 
 import { describe, expect, test } from "bun:test";
-import { referenceTool } from "../src/tool-contracts";
+import { referenceTool, SEND_TO_USER_BATCH_GUIDANCE } from "../src/tool-contracts";
 import { Schema } from "effect";
 import {
   AdminBroadcastInput,
@@ -542,6 +542,9 @@ describe("API contracts", () => {
       { required: ["name"], not: { anyOf: [{ required: ["connector"] }, { required: ["field"] }] } },
       { required: ["connector", "field"], not: { required: ["name"] } },
     ];
+
+    // OpenTeam's own batching paragraph follows the reference text.
+    expected.description += ` ${SEND_TO_USER_BATCH_GUIDANCE}`;
 
     const actual = referenceTool("SendToUser");
     expect(actual.description).toBe(expected.description);

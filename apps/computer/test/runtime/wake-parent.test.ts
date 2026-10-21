@@ -14,7 +14,7 @@ const ROUTINE_MANAGEMENT_TOOLS = [
   "RemoveMcpAccount",
 ];
 
-test("automation discovers WakeParent and work tools, with all communication surfaces removed", () => {
+test("automation calls WakeParent directly and keeps work tools, with all communication surfaces removed", () => {
   const tools = new RuntimeTools({} as never, "http://127.0.0.1", "fixture", "/tmp", "/tmp");
   const turn = {
     requestSource: "automation",
@@ -26,7 +26,8 @@ test("automation discovers WakeParent and work tools, with all communication sur
     ...tools.customTools(turn).map((tool) => tool.name),
     ...tools.contextCatalog(turn).flatMap((namespace) => namespace.tools.map((tool) => tool.name)),
   ];
-  expect(names).toContain("WakeParent");
+  expect(tools.customTools(turn).map((tool) => tool.name)).toContain("WakeParent");
+  expect(tools.contextCatalog(turn).flatMap((namespace) => namespace.tools.map((tool) => tool.name))).not.toContain("WakeParent");
   for (const name of AUTOMATION_PARENT_ONLY_TOOLS) expect(names).not.toContain(name);
   for (const name of [
     "Shell",
@@ -52,9 +53,11 @@ test("automation discovers WakeParent and work tools, with all communication sur
   for (const profile of [
     { requestSource: "turn", runtimeProfile: "agent", subagentType: null },
     { requestSource: "agent", runtimeProfile: "subagent", subagentType: "executor" },
+    { requestSource: "automation", runtimeProfile: "subagent", subagentType: "executor" },
   ]) {
-    const catalog = tools.contextCatalog({ ...turn, ...profile } as ActiveTurn);
-    expect(catalog.flatMap((ns) => ns.tools.map((tool) => tool.name))).not.toContain("WakeParent");
+    const other = { ...turn, ...profile } as ActiveTurn;
+    expect(tools.contextCatalog(other).flatMap((ns) => ns.tools.map((tool) => tool.name))).not.toContain("WakeParent");
+    expect(tools.customTools(other).map((tool) => tool.name)).not.toContain("WakeParent");
   }
 });
 
@@ -74,30 +77,9 @@ test("a rejected WakeParent leaves the automation able to continue", async () =>
       discoveredDynamicTools: new Set(),
       botId: "bot",
     } as unknown as ActiveTurn;
-    const native = tools.customTools(turn);
-    await native
-      .find((tool) => tool.name === "GetDynamicTools")!
-      .execute(
-        "discover",
-        { namespace: "cursor", toolName: "WakeParent" },
-        undefined,
-        undefined,
-        {} as never
-      );
+    const wake = tools.customTools(turn).find((tool) => tool.name === "WakeParent")!;
     await expect(
-      native
-        .find((tool) => tool.name === "CallDynamicTool")!
-        .execute(
-          "wake",
-          {
-            namespace: "cursor",
-            toolName: "WakeParent",
-            arguments: { message: "Complete report" },
-          },
-          undefined,
-          undefined,
-          {} as never
-        )
+      wake.execute("wake", { message: "Complete report" }, undefined, undefined, {} as never)
     ).rejects.toThrow("storage unavailable");
     expect(turn.endTurnRequested).not.toBe(true);
   } finally {

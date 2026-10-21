@@ -27,7 +27,7 @@ import { DESKTOP_CAPABILITY_TOOLS } from "@openteam/contracts/desktop-capabiliti
 import { agentFileIO } from "../agent-file-io";
 import { boundToolImage } from "./image-input";
 import { redactSecrets } from "@openteam/shell-jobs";
-import { validateProcessSecretName } from "@openteam/contracts";
+import { validateProcessSecretName, WAKE_PARENT_TOOL } from "@openteam/contracts";
 import { type AgentToolResult, defineTool } from "@earendil-works/pi-coding-agent";
 import {
   AwaitShellInput,
@@ -146,10 +146,11 @@ export const SUBAGENT_PRIVATE_NATIVE_TOOLS: ReadonlySet<string> = new Set([
   SCREENSHOT_TOOL.name,
 ]);
 
-/** First-party tools a worker calls directly instead of looking them up with GetDynamicTools. */
+/** First-party tools a worker or routine run calls directly instead of looking them up with GetDynamicTools. */
 export const workerTopLevelTools = (
-  active: Pick<ActiveTurn, "subagentType" | "readOnly">
+  active: Pick<ActiveTurn, "subagentType" | "readOnly"> & Partial<Pick<ActiveTurn, "requestSource" | "runtimeProfile">>
 ): readonly string[] => {
+  if (active.requestSource === "automation" && active.runtimeProfile !== "subagent") return [WAKE_PARENT_TOOL.name];
   if (active.subagentType === "executor" || active.subagentType === "knowledgeWork")
     return active.readOnly ? ["WebSearch", "WebFetch"] : ["AwaitShell", "WebSearch", "WebFetch"];
   if (active.subagentType === "computerUse") return ["AwaitShell"];
@@ -507,7 +508,8 @@ export class RuntimeTools {
         label: name,
         description: graphical ? tool.description.replace(MACHINE_ROUTING_AWAIT_SENTENCE, "") : tool.description,
         parameters: Type.Unsafe<Record<string, unknown>>(graphical ? boxScopedSchema(tool.inputSchema) : tool.inputSchema),
-        executionMode: "parallel",
+        // WakeParent ends the run, so nothing runs beside it.
+        executionMode: name === WAKE_PARENT_TOOL.name ? "sequential" : "parallel",
         execute: (callId: string, args: unknown, signal?: AbortSignal) =>
           this.executeOpenTeamTool(active, callId, name, args, signal),
       });

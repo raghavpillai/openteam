@@ -80,10 +80,9 @@ for (const { withSteer, handoff, batch = false, lateSteer = false } of [{ withSt
                           id: toolId,
                           type: "function",
                           function: {
-                            name: handoff ? "CallDynamicTool" : "SendToUser",
+                            name: handoff ? "WakeParent" : "SendToUser",
                             arguments: JSON.stringify(handoff ? {
-                              namespace: "cursor", toolName: "WakeParent",
-                              arguments: { message: "Fixture result: notify the user." },
+                              message: "Fixture result: notify the user.",
                             } : {
                               type: "text",
                               content: lateSteer ? (requests.length === 1 ? "Stale result" : "Corrected result") : "Fixture result",
@@ -167,10 +166,6 @@ for (const { withSteer, handoff, batch = false, lateSteer = false } of [{ withSt
         acceptedSteerIds: new Set(),
         queue: { push: (event: any) => acknowledged.push(event) },
       } as unknown as ActiveTurn;
-      if (handoff) {
-        const discover = toolHost.customTools(active).find((tool) => tool.name === "GetDynamicTools")!;
-        await discover.execute("discover-wake", { namespace: "cursor", toolName: "WakeParent" }, undefined, undefined, {} as never);
-      }
       const sessions = join(root, "sessions");
       await mkdir(sessions);
       const manager = SessionManager.create(root, sessions, { id: active.contextSessionId });

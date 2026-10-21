@@ -205,18 +205,21 @@ export class SubagentService {
     if (typeof subagent === "string") return subagent;
     const currentRunId = subagent.currentRunId;
     if (subagent.status !== "running" || !currentRunId) return this.noRunningSubagentMessage(parentBotId, input.subagent_id);
-    const content = subagentSteerPrompt(input.message);
+    const steer = subagentSteerPrompt(input.message);
     const dispatch = await this.prisma.$transaction(async (tx) => {
+      // Serialized with the worker's claim, so a pending turn is never rewritten after the worker read it.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`bot-run-claim:${subagent.childBotId}`}))`;
       const run = await tx.run.findUnique({ where: { id: currentRunId } });
       if (!run || !["queued", "running"].includes(run.status)) return null;
       const attempt = await tx.subagentAttempt.findUnique({ where: { childRunId: run.id } });
       if (!attempt) return null;
-      if (run.status === "queued") {
-        const pending = await tx.inboxEvent.findFirst({ where: { runId: run.id, type: "subagent.steer", status: "pending" } });
-        if (pending) {
-          await tx.inboxEvent.update({ where: { id: pending.id }, data: { payload: { ...(pending.payload as Record<string, unknown>), content } } });
-          return { runId: run.id, interruptRunId: null };
-        }
+      // Locks the row against a racing completion; a worker that finished or moved on gets nothing.
+      const current = await tx.subagent.updateMany({ where: { id: subagent.id, currentRunId: run.id, status: "running" }, data: { currentRunId: run.id } });
+      if (current.count === 0) return null;
+      const pending = run.status === "queued" ? await tx.inboxEvent.findFirst({ where: { runId: run.id, type: "subagent.steer", status: "pending" } }) : null;
+      if (pending) {
+        const replaced = await tx.inboxEvent.updateMany({ where: { id: pending.id, status: "pending" }, data: { payload: { ...(pending.payload as Prisma.JsonObject), content: steer } } });
+        if (replaced.count > 0) return { runId: run.id, interruptRunId: null };
       }
       const channelId = run.channelId;
       if (!channelId) return null;
@@ -225,7 +228,7 @@ export class SubagentService {
         channelId,
         origin: "agent",
         type: "subagent.steer",
-        content,
+        content: steer,
         wrapUserContent: false,
         clientId: `subagent-steer:${callId}`,
         priority: 350,

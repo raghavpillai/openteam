@@ -94,7 +94,7 @@ import { serverSearchConfiguration, serverFetchConfiguration } from "../search-s
 import { UserFormHost, type FormBrowser, type FormPageBinding } from "../user-form-host";
 import { boxHelpPage } from "../box-help-page";
 import { AutoReviewGate, withApprovalRetryParameters } from "./auto-review";
-import { APPROVAL_EXPIRED, FEEDBACK_APPROVAL_UNAVAILABLE_MESSAGE, FEEDBACK_NOT_APPROVED_MESSAGE, USER_DECLINED } from "../auto-review/texts";
+import { APPROVAL_EXPIRED, FEEDBACK_APPROVAL_UNAVAILABLE_MESSAGE, FEEDBACK_NOT_APPROVED_MESSAGE, FEEDBACK_PRIVACY_MODE_MESSAGE, USER_DECLINED } from "../auto-review/texts";
 import type { ActiveTurn, RuntimeDynamicTool } from "./types";
 import { renderShellAwaitResult } from "@openteam/shell-jobs";
 
@@ -1581,7 +1581,7 @@ export class RuntimeTools {
             )),
         ...(active.runtimeProfile === "subagent"
           ? []
-          : ["DraftExternalMessage", "SendFeedback", "CreateBotShareJson"].map(
+          : ["DraftExternalMessage", ...(active.feedback ? ["SendFeedback"] : []), "CreateBotShareJson"].map(
               (name): RuntimeDynamicTool => {
                 const definition = CURSOR_TOOLS.find((tool) => tool.tool === name)!;
                 return {
@@ -1596,6 +1596,7 @@ export class RuntimeTools {
                       : (input) => input,
                   execute: async (turn, callId, args, signal) => {
                     if (name === "SendFeedback") {
+                      if (turn.feedback === "privacy") return { content: [{ type: "text", text: FEEDBACK_PRIVACY_MODE_MESSAGE }], details: { tool: name } };
                       const message = typeof (args as { message?: unknown })?.message === "string" ? (args as { message: string }).message : "";
                       const approval = await this.autoReview.requestFeedbackApproval(turn, callId, message, signal).catch((error: unknown) => {
                         if (signal?.aborted) throw error;

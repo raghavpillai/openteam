@@ -26,8 +26,8 @@ import {
   SEND_TO_USER_REPLY_NUDGE_PROMPT,
   type ServerInferenceSettings,
 } from "@openteam/contracts";
-import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { BotAgentStore } from "./bot-agent-store";
 import {
@@ -62,9 +62,9 @@ import { retryFirstOutputStalls, streamDeadlines, type StreamTimers } from "./ru
 import { directDynamicToolsExtension } from "./runtime/direct-dynamic-tools";
 import { enrichUserInfo, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder } from "./runtime/prompt-context";
 import { pinDynamicToolCatalog } from "./runtime/catalog-snapshot";
-import { DiskPressureMonitor } from "./runtime/disk-pressure";
+import { DiskPressureMonitor, diskPressureReminderStepPersisted } from "./runtime/disk-pressure";
 import { defaultTaskConfiguration, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
-import { assertSessionPath } from "./runtime/session-path";
+import { assertSessionPath, existingContextSessionPath } from "./runtime/session-path";
 import { RuntimeTools } from "./runtime/tools";
 import { classifierCompletion } from "./runtime/auto-review";
 import { pluginComponentsExtension } from "./runtime/plugin-components";
@@ -100,7 +100,8 @@ export class ComputerRuntime {
   );
   private inferenceSettings = defaultServerInferenceSettings();
   private readonly workspaceRoot = resolve(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace");
-  private readonly diskPressure = new DiskPressureMonitor(this.workspaceRoot);
+  // The reference watches its workspace, data and temp volumes and keeps its ledger in its data root.
+  private readonly diskPressure = new DiskPressureMonitor([this.workspaceRoot, this.agentDir, tmpdir()], join(this.agentDir, "disk-pressure-reminders.json"));
 
   private modelRuntime: ModelRuntime | null = null;
   private readonly inferenceProviders = new InferenceProviderService(
@@ -298,6 +299,7 @@ export class ComputerRuntime {
       pluginRuntimePackages: request.pluginRuntimePackages as import("@openteam/plugin-sdk").PluginRuntimePackage[] | undefined,
       pluginAbortController: new AbortController(),
       readOnly: request.readOnly ?? false,
+      ...(request.feedback ? { feedback: request.feedback } : {}),
       attachmentTempDirectories: [],
       ...(request.autoReview
         ? {
@@ -348,9 +350,11 @@ export class ComputerRuntime {
       // Reserve the run/context before the first asynchronous setup operation.
       // Otherwise two requests can both pass the checks above and open the same
       // append-only Pi session concurrently.
+      // A turn sent right after a cancelled first turn can arrive before the server
+      // recorded that turn's session; it continues the file rather than starting a second.
       const sessionPath = request.sessionPath
         ? assertSessionPath(this.sessionsDir, request.sessionPath)
-        : null;
+        : await existingContextSessionPath(this.sessionsDir, active.contextSessionId);
       const contextState = await this.contextState(active.contextSessionId);
       await this.compactionArchive.enforceSizeLimit(active.contextSessionId, sessionPath);
       const uploaded = await prepareUserImages(decodeInlineImages(request.images ?? []));
@@ -447,21 +451,11 @@ export class ComputerRuntime {
   private async recoverStagedCompaction(contextSessionId: string): Promise<void> {
     const stagedId = await this.compaction.stagedId(contextSessionId);
     if (!stagedId) return;
-    if (!existsSync(this.sessionsDir)) {
+    const sessionPath = await existingContextSessionPath(this.sessionsDir, contextSessionId);
+    if (!sessionPath) {
       await this.compaction.recoverStaged(contextSessionId, 0, []);
       return;
     }
-    const suffix = `_${contextSessionId}.jsonl`;
-    const candidates = (await readdir(this.sessionsDir)).filter((name) => name.endsWith(suffix));
-    if (candidates.length > 1) {
-      throw new Error(`Multiple Pi sessions exist for context ${contextSessionId}`);
-    }
-    const candidate = candidates[0];
-    if (!candidate) {
-      await this.compaction.recoverStaged(contextSessionId, 0, []);
-      return;
-    }
-    const sessionPath = assertSessionPath(this.sessionsDir, join(this.sessionsDir, candidate));
     const manager = SessionManager.open(sessionPath, this.sessionsDir);
     const persistedCompactionIds = manager.getBranch().flatMap((entry) => {
       if (entry.type !== "compaction" || !entry.details || typeof entry.details !== "object") {
@@ -670,11 +664,7 @@ export class ComputerRuntime {
     active: ActiveTurn
   ): Promise<AgentSession> {
     const manager = request.sessionPath
-      ? SessionManager.open(
-          assertSessionPath(this.sessionsDir, request.sessionPath),
-          this.sessionsDir,
-          request.cwd
-        )
+      ? SessionManager.open(request.sessionPath, this.sessionsDir, request.cwd)
       : SessionManager.create(request.cwd, this.sessionsDir, {
           id: request.contextSessionId,
         });
@@ -884,9 +874,9 @@ export class ComputerRuntime {
         });
       }
     } finally {
-      // A turn that saw the low-disk reminder and finished has told the user; others try again.
-      if (status === "completed" && active.diskPressureReminded && active.diskPressureEpisode != null)
-        this.diskPressure.commit(active.botId, active.diskPressureEpisode);
+      if (active.diskPressureReminded && active.diskPressureEpisode != null && active.session &&
+        diskPressureReminderStepPersisted(active.session.messages as Array<{ role: string }>))
+        await this.diskPressure.commit(active.botId, active.diskPressureEpisode);
       this.compaction.parkBackground(active.contextSessionId);
       attachSession(active);
       if (this.botStore) {

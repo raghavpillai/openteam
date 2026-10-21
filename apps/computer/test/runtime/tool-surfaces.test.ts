@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -636,6 +636,70 @@ describe("context turn reservation", () => {
     expect(claimed).toEqual([botId]);
   });
 
+  test("a turn sent before the cancelled first turn's session was recorded continues that session file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openteam-session-race-"));
+    temporaryRoots.push(root);
+    const runtime = new ComputerRuntime() as any;
+    runtime.sessionsDir = join(root, "sessions", "openteam");
+    runtime.contextSessionsDir = join(root, "context-sessions");
+    runtime.compactionArchive = new BotCompactionArchiveStore(runtime.contextSessionsDir);
+    runtime.compaction = new BotCompactionCoordinator(runtime.compactionArchive, 0);
+    await mkdir(runtime.sessionsDir, { recursive: true });
+    runtime.start = async () => {};
+    Object.assign(runtime.tools.userForms, { beginTurn: async () => {}, endTurn: async () => {} });
+    runtime.tools.recoverFormOutcomes = async () => {};
+    runtime.diskPressure = { claim: async () => null, commit() {} };
+    runtime.authenticated = true;
+    runtime.resolveModel = () => ({});
+    runtime.modelRuntime = { checkAuth: async () => ({ type: "oauth", source: "test" }), isUsingSubscription: () => true };
+    // A session that writes the turn to its file, then runs until it is cancelled.
+    runtime.createStandaloneSession = async (_cwd: string, _instructions: string, manager: SessionManager) => {
+      let stop!: () => void;
+      const stopped = new Promise<void>((resolve) => { stop = resolve; });
+      return {
+        sessionManager: manager,
+        get sessionFile() { return manager.getSessionFile(); },
+        get sessionId() { return manager.getSessionId(); },
+        messages: [],
+        agent: {},
+        subscribe: () => () => {},
+        clearQueue() {},
+        dispose() {},
+        abort: async () => stop(),
+        async prompt(text: string) {
+          manager.appendMessage({ role: "user", content: [{ type: "text", text }], timestamp: Date.now() });
+          manager.appendMessage({
+            role: "assistant", content: [{ type: "text", text: "working" }], api: "openai-codex-responses", provider: "openai-codex", model: "test",
+            usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+            stopReason: "stop", timestamp: Date.now(),
+          });
+          await stopped;
+        },
+      };
+    };
+    const attachedPath = async (events: AsyncIterable<any>) => {
+      let path: string | undefined;
+      for await (const event of events) if (event.type === "session.attached") path = event.sessionPath;
+      return path;
+    };
+    const botId = crypto.randomUUID();
+    const contextSessionId = crypto.randomUUID();
+    const first = turnRequest({ botId, contextSessionId });
+    const firstAttached = attachedPath(await runtime.run(first));
+    while (!runtime.activeByRun.get(first.runId)?.session?.sessionManager.getEntries().length) await Bun.sleep(5);
+    // The user spoke first: the first turn is cancelled, and the worker sends the next turn
+    // before it has recorded the first turn's session path.
+    await runtime.cancel(first.runId);
+    const firstPath = await firstAttached;
+    expect(firstPath).toBeString();
+    const second = turnRequest({ botId, contextSessionId, sessionPath: null });
+    const secondEvents = await runtime.run(second);
+    while (!runtime.activeByRun.get(second.runId)?.session) await Bun.sleep(5);
+    await runtime.cancel(second.runId);
+    expect(await attachedPath(secondEvents)).toBe(firstPath);
+    expect(await readdir(runtime.sessionsDir)).toHaveLength(1);
+  });
+
   test("rejects an out-of-root persisted session before opening it", async () => {
     const runtime = new ComputerRuntime() as unknown as {
       authenticated: boolean;
@@ -822,7 +886,8 @@ test('the parent-only dispatch reminder names only tools the parent has and that
       ...(direct.includes('CallDynamicTool') ? runtime.dynamicCatalog(active).flatMap((namespace: any) => namespace.tools.map((tool: any) => tool.name)) : []),
     ]);
   };
-  const parent = new Set([...surface(workerTurn(null)), ...surface(workerTurn(null, { requestSource: 'automation' }))]);
+  // A deployment with a support destination, so the parent is offered SendFeedback.
+  const parent = new Set([...surface(workerTurn(null, { feedback: 'available' })), ...surface(workerTurn(null, { requestSource: 'automation', feedback: 'available' }))]);
   for (const type of ['executor', 'knowledgeWork', 'computerUse', 'videoReview', 'watchVideo', undefined]) {
     const child = type ? surface(workerTurn(type)) : new Set<string>();
     const listed = [...parentOnlyToolsFor(type).keys()];

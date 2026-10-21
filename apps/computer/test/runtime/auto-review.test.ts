@@ -17,6 +17,7 @@ import {
   APPROVAL_EXPIRED,
   CLASSIFIER_MANUAL_REVIEW_ERROR_REASON,
   FEEDBACK_NOT_APPROVED_MESSAGE,
+  FEEDBACK_PRIVACY_MODE_MESSAGE,
   PENDING_APPROVAL_REASON,
   USER_DECLINED,
 } from "../../src/auto-review/texts";
@@ -270,7 +271,7 @@ test("a blocked routine write shows its card directly; a denial is not saved", a
 
 test("SendFeedback always asks on a card, even with Auto-review off, and sends only on approval", async () => {
   const tools = runtimeTools();
-  const active = turn("/tmp", () => ALLOW, { autoReview: { enabled: false, allowRules: [], askFirstRules: [], scopeBotId: "bot" } });
+  const active = turn("/tmp", () => ALLOW, { feedback: "available", autoReview: { enabled: false, allowRules: [], askFirstRules: [], scopeBotId: "bot" } });
   const calls: Array<[string, any]> = [];
   const declined = await withControlPlane((tool, args) => {
     calls.push([tool, args]);
@@ -287,6 +288,19 @@ test("SendFeedback always asks on a card, even with Auto-review off, and sends o
     return { feedbackStatus: "sent", wantsResponse: false, outcome: "accepted" };
   }, () => tools.executeOpenTeamTool(active, "b", "CallDynamicTool", { namespace: "cursor", toolName: "SendFeedback", arguments: { message: "Love the app", wantsResponse: false } }));
   expect(calls.map(([tool]) => tool)).toEqual(["RequestApproval", "AwaitApproval", "SendFeedback"]);
+});
+
+test("SendFeedback is offered only with a support destination, and privacy settings refuse it without a card", async () => {
+  const tools = runtimeTools();
+  const cursorTools = (feedback?: string) => tools.dynamicCatalog(turn("/tmp", () => ALLOW, { feedback })).find((namespace: any) => namespace.name === "cursor").tools.map((tool: any) => tool.name);
+  expect(cursorTools()).not.toContain("SendFeedback");
+  expect(cursorTools("privacy")).toContain("SendFeedback");
+  expect(cursorTools("available")).toContain("SendFeedback");
+  const calls: string[] = [];
+  const refused = await withControlPlane((tool) => { calls.push(tool); return {}; },
+    () => tools.executeOpenTeamTool(turn("/tmp", () => ALLOW, { feedback: "privacy" }), "a", "CallDynamicTool", { namespace: "cursor", toolName: "SendFeedback", arguments: { message: "Love the app", wantsResponse: false } }));
+  expect(refused.content[0].text).toBe(FEEDBACK_PRIVACY_MODE_MESSAGE);
+  expect(calls).toEqual([]);
 });
 
 test("computer and browser actions raise the card on their own; looking passes untouched", async () => {

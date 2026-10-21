@@ -3462,21 +3462,13 @@
   },
   "ReadTranscript": {
     "name": "ReadTranscript",
-    "description": "Read a full transcript: every user message, your replies, your reasoning, and each tool call with its input and result, one JSON object per line, oldest first. With no id it reads this conversation, including what was compacted out of your context, so use it to explain what you did in an earlier turn or routine run. Pass subagent_id for a Task subagent you dispatched, agent_id for another agent the same user owns, or session_id for another of your conversations. Returns the newest messages first; page back with `before`.",
+    "description": "Read a full transcript: every user message, your replies, your reasoning, and each tool call with its input and result, one JSON object per line, oldest first. With no in it reads this conversation, including what was compacted out of your context, so use it to explain what you did in an earlier turn or routine run. Pass in=<id> for a Task subagent you dispatched, another agent the same user owns, or another of your conversations. Returns the newest messages first; page back with `before`.",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "session_id": {
+        "in": {
           "type": "string",
-          "description": "Read another of your conversations (a session_id from the other active conversations list)."
-        },
-        "agent_id": {
-          "type": "string",
-          "description": "Read another agent owned by the same user (an agent id from your agent directory)."
-        },
-        "subagent_id": {
-          "type": "string",
-          "description": "Read a background subagent you dispatched with Task, running or finished (the Agent ID from the Task result)."
+          "description": "Which transcript to read: \"this\" (the default) for this conversation, or the id of another of your conversations (a session_id from the other active conversations list), of another agent the same user owns (from your agent directory), or of a background subagent you dispatched with Task (the Agent ID from its result)."
         },
         "limit": {
           "type": "integer",

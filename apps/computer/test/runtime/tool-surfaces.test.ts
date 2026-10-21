@@ -286,7 +286,7 @@ describe("specialized subagent tool surfaces", () => {
     }
     const main = cursor("agent");
     expect(main.map((tool) => tool.name)).toEqual(expect.arrayContaining(["ReadTranscript", "ReadAgentActivity"]));
-    expect(main.find((tool) => tool.name === "ReadTranscript")!.description).toContain("Pass subagent_id for a Task subagent you dispatched");
+    expect(main.find((tool) => tool.name === "ReadTranscript")!.description).toContain("Pass in=<id> for a Task subagent you dispatched");
     expect(runtime.customTools(workerTurn(null)).map((tool) => tool.name)).toContain("RecallMemory");
   });
 

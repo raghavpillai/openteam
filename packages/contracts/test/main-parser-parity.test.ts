@@ -114,3 +114,11 @@ test("reference aliases and wrong-tool hints for file tools", async () => {
   );
   expect(parseConnectorTransfer("UploadFile", { connection: "google-drive", sourcePath: "/workspace/a.pdf" })).toMatchObject({ sourcePath: "/workspace/a.pdf" });
 });
+test("CheckSubagent points at the subagent's transcript by id", async () => {
+  const { renderControlResult } = await import("../src/tool-results");
+  const detail = renderControlResult("CheckSubagent", {
+    subagent_id: "sand-subagent-1", subagent_type: "executor", description: "Fix", status: "running", elapsed_seconds: 5, recent_tool_calls: [], transcript_path: "/private/run.jsonl",
+  }, { subagent_id: "sand-subagent-1" });
+  expect(detail.split("\n").at(-1)).toBe("  Full transcript: call ReadTranscript with in=sand-subagent-1 for the complete play-by-play.");
+  expect(detail).not.toContain("/private/run.jsonl");
+});

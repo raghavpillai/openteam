@@ -183,7 +183,7 @@ export function renderControlResult(
         }));
         if (sub.transcript_path)
           lines.push(
-            `  Private transcript reference: ${sub.transcript_path}. Use cursor.ReadTranscript with this subagent_id for observable history; do not open the path with Read.`
+            `  Full transcript: call ReadTranscript with in=${sub.subagent_id} for the complete play-by-play.`
           );
       }
       return lines.join("\n");

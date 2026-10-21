@@ -1,6 +1,7 @@
 // @ts-nocheck
 // Pure captured reference input schemas and trigger rendering. No host entrypoints.
 import { z as external_exports } from "zod";
+import { refineDraftBody } from "./external-draft-body";
 const invariant=(value,message)=>{if(!value)throw new Error(message);};
 class SandToolInputError extends Error {}
 const CLOUD_AGENT_INJECTED_SECRET_NAMES_ENV_VAR = "CLOUD_AGENT_INJECTED_SECRET_NAMES";
@@ -1812,7 +1813,7 @@ const adaptedSendSchema = sendMessageObjectSchema.extend({
 // when the user asked to see the message first.
 const adaptedDraftSchema = draftExternalMessageObjectSchema.extend({
   waitForReview: external_exports.boolean().optional(),
-}).superRefine(refineDraftExternalMessage);
+}).superRefine(refineDraftExternalMessage).superRefine(refineDraftBody);
 export function normalizeMainToolArguments(name:string, raw:unknown):Record<string,any>{
   if (name === "Shell" && raw && typeof raw === "object" && !Array.isArray(raw)) {
     const value = {...raw};

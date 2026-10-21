@@ -131,7 +131,7 @@ public struct TranscriptionDraft: Equatable, Sendable {
     guard let saved else { return true }
     return !apiKey.isEmpty || removeKey || saved.settings != settings
   }
-  /// The PATCH body: omitting `apiKey` keeps the saved key; null removes it.
+  /// The PUT body: omitting `apiKey` keeps the saved key; null removes it.
   public var body: JSON {
     var fields: [String: JSON] = [
       "enabled": .bool(settings.enabled), "provider": .string(settings.provider.rawValue),

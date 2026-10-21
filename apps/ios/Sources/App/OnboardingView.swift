@@ -174,7 +174,10 @@ private struct OnboardingWizard: View {
     }
     .onChange(of: setup.session?.prompt?.id) { _, _ in pasted = "" }
     .onChange(of: apiKey) { _, _ in keyError = nil }
-    .onChange(of: voiceProvider) { _, _ in voiceError = nil }
+    .onChange(of: voiceProvider) { _, _ in
+      voiceKey = ""
+      voiceError = nil
+    }
     .onChange(of: voiceKey) { _, _ in voiceError = nil }
     .onChange(of: botName) { _, value in
       if value.count > 120 { botName = String(value.prefix(120)) }
@@ -492,11 +495,14 @@ private struct OnboardingWizard: View {
   private var settingsMissing: Bool { setup.data == nil }
   private var loadFailure: String? { settingsMissing && setup.busy == nil ? setup.error : nil }
 
-  /// Loads the AI settings, then checks a saved model once.
+  /// Loads the AI settings and checks a saved model if its earlier test was cleared.
   private func loadAndCheck() async {
     await setup.start()
-    if !savedChecked, setup.data?.savedModel != nil, setup.test == .idle, setup.session == nil {
+    if let saved = setup.data?.savedModel, setup.test == .idle, setup.session == nil {
       savedChecked = true
+      // A cancelled or refused sign-in cleared the test and selected another provider.
+      await setup.selectProvider(saved.providerId)
+      guard !Task.isCancelled else { return }
       await setup.runTest()
     }
   }
@@ -1166,26 +1172,18 @@ private struct OnboardingWizard: View {
     draft.choose(provider)
     draft.settings.enabled = true
     draft.apiKey = key
+    var enabled: TranscriptionSettingsView?
     do {
       let saved = try await store.request(
-        TranscriptionRequest.path, method: "PATCH", body: draft.body
+        TranscriptionRequest.path, method: "PUT", body: draft.body
       ).decode(TranscriptionSettingsView.self)
       voice = saved
+      enabled = saved
       let check = try await store.request(
         TranscriptionRequest.checkPath, method: "POST", body: .object([:]), timeout: 90
       ).decode(TranscriptionCheck.self)
       if check.level == "fail" {
-        withAnimation(.snappy) { voiceError = check.detail.isEmpty ? "That key didn't work." : check.detail }
-        // Leave voice notes off rather than on with a key that doesn't work.
-        var off = TranscriptionDraft(saved)
-        off.settings.enabled = false
-        if let value = try? await store.request(
-          TranscriptionRequest.path, method: "PATCH", body: off.body
-        ).decode(TranscriptionSettingsView.self) {
-          voice = value
-        }
-        await store.refreshRuntime()
-        return
+        throw APIError(check.detail.isEmpty ? "That key didn't work." : check.detail)
       }
       await store.refreshRuntime()
       UIAccessibility.post(notification: .announcement, argument: "Voice notes are on")
@@ -1194,6 +1192,18 @@ private struct OnboardingWizard: View {
       guard step == .voice else { return }
       go(.bot)
     } catch {
+      // A failed check, including a request error, must leave voice notes off.
+      if let enabled {
+        var off = TranscriptionDraft(enabled)
+        off.settings.enabled = false
+        off.removeKey = true
+        if let value = try? await store.request(
+          TranscriptionRequest.path, method: "PUT", body: off.body
+        ).decode(TranscriptionSettingsView.self) {
+          voice = value
+        }
+        await store.refreshRuntime()
+      }
       guard !UserFacingError.isCancelled(error) else { return }
       withAnimation(.snappy) { voiceError = UserFacingError.message(error) }
     }
@@ -1372,6 +1382,11 @@ private struct OnboardingWizard: View {
           identifier: "wizard-different-ai"
         ) {
           withAnimation(.smooth) { changingModel = true }
+        }
+      } else if changingModel, testPassed, let label = savedLabel {
+        // Asked for a different AI while the saved one works: keeping it is the way back.
+        WizardLink(title: "Keep your current AI", identifier: "wizard-keep-saved", detail: label) {
+          withAnimation(.smooth) { changingModel = false }
         }
       } else {
         WizardLink(

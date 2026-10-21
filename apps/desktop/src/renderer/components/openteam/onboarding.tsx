@@ -582,7 +582,8 @@ function ModelScreen({
   useEffect(() => {
     if (tested.current || !saved || setup.busy || setup.test.status !== "idle") return;
     tested.current = true;
-    void setup.runTest();
+    // Back from another provider restores the saved provider's catalog and selection too.
+    void setup.selectProvider(saved.providerId).then(() => setup.runTest(saved.providerId));
   }, [saved, setup]);
 
   useEffect(() => {
@@ -601,6 +602,12 @@ function ModelScreen({
   }, [setup]);
 
   const others = (setup.data?.providers ?? []).filter((provider) => !NAMES[provider.id]);
+  // Asked for a different AI while the saved one works: Back (or Esc) keeps it after all.
+  const keepSaved =
+    saved && changing && setup.test.status === "passed" && !frame.onBack
+      ? () => changeScreen(() => setChanging(false), "back")
+      : undefined;
+  useSetupKeyboard(keepSaved);
 
   if (!setup.data) {
     const failed = Boolean(setup.error) && !setup.busy && reloaded.current;
@@ -736,10 +743,13 @@ function ModelScreen({
       {...frame}
       body="Sign in with a ChatGPT or Claude plan you already pay for, or use an API key."
       footer={
-        <SetupLink onClick={onSkip}>
-          Skip for now — bots can't reply until you connect one
-        </SetupLink>
+        keepSaved ? null : (
+          <SetupLink onClick={onSkip}>
+            Skip for now — bots can't reply until you connect one
+          </SetupLink>
+        )
       }
+      onBack={frame.onBack ?? keepSaved}
       title="Choose your bots' AI"
       visual={<ProvidersVisual />}
     >
@@ -1364,22 +1374,24 @@ function VoiceScreen({
       model: HOSTED_TRANSCRIPTION_MODELS[chosen] ?? "",
       language: "",
     };
+    let saved = false;
     try {
       await api.updateTranscriptionSettings({ ...settings, enabled: true, apiKey });
+      saved = true;
       const check = await api.checkTranscription();
       if (check.level === "fail") {
-        // Don't leave voice notes on with a key the provider just rejected.
-        await api
-          .updateTranscriptionSettings({ ...settings, enabled: false, apiKey: null })
-          .catch(() => {});
-        requestRuntimeRefresh();
-        setError(check.detail);
-        setState("idle");
-        return;
+        throw new Error(check.detail || "That key didn't work.");
       }
       requestRuntimeRefresh();
       setState("done");
     } catch (cause) {
+      // A failed check, including a request error, must leave voice notes off.
+      if (saved) {
+        await api
+          .updateTranscriptionSettings({ ...settings, enabled: false, apiKey: null })
+          .catch(() => {});
+        requestRuntimeRefresh();
+      }
       setError(requestErrorMessage(cause, "Couldn't turn on voice notes. Try again."));
       setState("idle");
     }

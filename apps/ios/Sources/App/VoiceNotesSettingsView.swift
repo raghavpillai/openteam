@@ -178,7 +178,7 @@ struct VoiceNotesSettingsView: View {
     var message: String?
     await operation.run {
       let value = try await store.request(
-        TranscriptionRequest.path, method: "PATCH", body: draft.body
+        TranscriptionRequest.path, method: "PUT", body: draft.body
       ).decode(TranscriptionSettingsView.self)
       saved = value
       draft = TranscriptionDraft(value)

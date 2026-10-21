@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import { FunctionalFixtures } from "./functional-fixtures";
 import { contentScene } from "./content-fixtures";
 import { validateFixtureRequest } from "./validate-fixture-request";
+import { ServerSetupFixture } from "./server-setup-fixture";
 import { validateUserFormValues } from "../../../packages/contracts/src/user-forms";
 import { DEFAULT_FETCH_PROVIDER, WEB_PROVIDER_LISTS, WEB_TOOLS, webProviderInfo, type WebProviderInfo, type WebTool } from "../../../packages/contracts/src/web-search";
 
@@ -30,6 +31,7 @@ let pagedHistory = false;
 let failures: Record<string, {status?: number; message?: string; count?: number; delayMs?: number}> = {};
 let searchResults: unknown[] | null = null;
 let functionality = new FunctionalFixtures();
+let serverSetup = new ServerSetupFixture();
 let screen = {state:"ready",width:1280,height:800,humanTakeover:false,apps:["chromium","thunar","terminal"]};
 let contentReceipts:any[] = [];
 let routineExecutions:any[] = [];
@@ -47,6 +49,7 @@ function reset() {
   requestLog.length = 0;
   failures = {}; searchResults = null; authExpired = false; invalidServer = false; missingToken = false;
   functionality = new FunctionalFixtures(); screen.humanTakeover=false; screen.state="ready"; contentReceipts=[]; routineExecutions=[];
+  serverSetup = new ServerSetupFixture();
   webProviders = { selected: { search: null, fetch: DEFAULT_FETCH_PROVIDER }, rows: { search: {}, fetch: {} }, patches: [], checks: [] };
   memories = [{ id: "memory-fixture", content: "Prefers concise summaries and clear next steps.", createdAt: 1789473600000, kind: "profile" }];
   settings = { version: 2, pinnedIds: [], unreadIds: [], unassignedCollapsed: false, sections: [], sectionByChannel: {}, channelOrderByGroup: {} };
@@ -150,6 +153,10 @@ const server = Bun.serve({
       emit("channel.message.created",channel.id); return response({ok:true});
     }
     if (path === "/__qa/control" && method === "POST") {
+      if (input.onboarding) {
+        snapshot.bots = []; snapshot.channels = []; snapshot.runs = []; snapshot.channelMessages = [];
+        snapshot.runtime.transcription = "missing";
+      }
       offline = input.offline ?? offline; dropNextSend = input.dropNextSend ?? dropNextSend; authRequired = input.authRequired ?? authRequired;
       dropNextRoutineRun = input.dropNextRoutineRun ?? dropNextRoutineRun;
       if (input.screenState) screen.state = input.screenState;
@@ -201,6 +208,8 @@ const server = Bun.serve({
     if (path === "/api/auth/get-session") return response({ session: { id: "fixture" }, user: { id: "fixture-owner", name: "Fixture owner", username: "fixture", email: "fixture@example.invalid" } });
     const invalid = validateFixtureRequest(path,method,input); if(invalid)return response({message:invalid},400);
     requestLog.push({ method, path, ...(input.clientId ? { clientId: input.clientId } : {}) });
+    const setupResponse = serverSetup.handle(path, method, input, url);
+    if (setupResponse) return setupResponse;
     if (process.env.SWIFT_QA_LIVE_SCREEN_URL && /\/screen(?:\/(?:frame|stream|takeover|actions))?$/.test(path)) {
       const target = new URL(path, process.env.SWIFT_QA_LIVE_SCREEN_URL);
       if (!["127.0.0.1", "localhost"].includes(target.hostname)) throw new Error("Live QA screen must be loopback-only");

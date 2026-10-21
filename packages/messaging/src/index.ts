@@ -888,7 +888,6 @@ export class AgentMessaging {
         runId,
         idempotencyKey: input.clientId,
         type: input.type,
-        deliveryMode: "turn",
         payload: json({
           messageId,
           content: runtimeContent,
@@ -899,7 +898,6 @@ export class AgentMessaging {
           origin: input.origin,
           replyToMessageId: input.replyToMessageId ?? null,
           isFork: input.isFork === true,
-          deliveryMode: "turn",
           timeZone: resolveTimeZone(input.timeZone ?? this.defaultTimeZone),
           automationContextRunId: input.automationContextRunId,
           taskContextRunId: input.taskContextRunId,
@@ -921,7 +919,6 @@ export class AgentMessaging {
           botId: bot.id,
           channelId: input.channelId,
           origin: input.origin,
-          deliveryMode: "turn",
         }),
       },
     });

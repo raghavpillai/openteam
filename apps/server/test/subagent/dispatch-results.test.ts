@@ -12,7 +12,7 @@ const accepted = (input: Record<string, unknown>) => {
     idempotencyRecord: { findUnique: async () => ({ requestHash: hashRequest(input), response: { subagentId: "child" } }) },
   };
   const service = new SubagentService(db, null as never, null as never, "/workspace", null as never, null as never) as any;
-  service.attemptForCall = async () => ({ id: "attempt", subagentId: "child", status: "running", runInBackground: true });
+  service.attemptForCall = async () => ({ id: "attempt", subagentId: "child", status: "running" });
   service.owned = async () => ({ id: "child" });
   return service.task({ botId: "parent", callId: "call" }, input);
 };

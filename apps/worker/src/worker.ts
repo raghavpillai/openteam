@@ -754,7 +754,6 @@ export class WakeWorker {
 
     const pending = await this.prisma.inboxEvent.findMany({
       where: {
-        deliveryMode: "turn",
         status: "pending",
         availableAt: { lte: new Date() },
         bot: { status: "active" },
@@ -949,7 +948,6 @@ export class WakeWorker {
         const pending = await tx.inboxEvent.count({
           where: {
             botId,
-            deliveryMode: "turn",
             status: "pending",
             availableAt: { lte: new Date() },
           },
@@ -1103,7 +1101,6 @@ export class WakeWorker {
         const candidates = await tx.inboxEvent.findMany({
           where: {
             botId,
-            deliveryMode: "turn",
             OR: [
               { status: "pending" },
               { status: "processing", claimedAt: { lt: staleAt } },
@@ -1345,7 +1342,7 @@ export class WakeWorker {
       // Replay failed user inputs whose durable-session delivery was never
       // acknowledged, including a turn a typed message superseded before its input
       // reached the model. Runtime message IDs prevent duplication after a lost ack.
-      const missed = claimed.runtimeProfile === "agent" && claimed.origin !== "routine" ? await this.prisma.inboxEvent.findMany({ where: { botId: claimed.botId, conversationId: claimed.conversationId, deliveryMode: "turn", runId: { not: claimed.runId }, run: { channelId: claimed.channelId, origin: "user", inputDeliveredAt: null, OR: [{ status: { in: ["failed", "interrupted"] } }, { status: "cancelled", error: { path: ["code"], equals: "priority_peer_interrupt" } }] } }, orderBy: { createdAt: "asc" }, take: 20 }) : [];
+      const missed = claimed.runtimeProfile === "agent" && claimed.origin !== "routine" ? await this.prisma.inboxEvent.findMany({ where: { botId: claimed.botId, conversationId: claimed.conversationId, runId: { not: claimed.runId }, run: { channelId: claimed.channelId, origin: "user", inputDeliveredAt: null, OR: [{ status: { in: ["failed", "interrupted"] } }, { status: "cancelled", error: { path: ["code"], equals: "priority_peer_interrupt" } }] } }, orderBy: { createdAt: "asc" }, take: 20 }) : [];
       const missedMessages = await Promise.all(missed.flatMap((event) => {
         const payload = event.payload as { content?: string; clientId?: string; attachments?: unknown };
         if (!payload.content || !payload.clientId) return [];

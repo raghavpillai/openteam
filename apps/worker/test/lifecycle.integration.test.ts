@@ -388,7 +388,6 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     );
     const redirectedTurn = seenTurns.find((turn) => turnBody(turn.content) === "redirect the active task")!;
     expect(redirectedTurn.images).toEqual([inlineImage]);
-    expect((await app.prisma.inboxEvent.findUniqueOrThrow({ where: { idempotencyKey: "client-superseding-0004" } })).deliveryMode).toBe("turn");
     onTurn = async () => {};
 
     let peerId = "";
@@ -574,7 +573,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       await app.prisma.inboxEvent.findUniqueOrThrow({
         where: { idempotencyKey: "client-cancel-queued-0007" },
       })
-    ).toMatchObject({ status: "completed", deliveryMode: "turn" });
+    ).toMatchObject({ status: "completed" });
 
     const group = await Effect.runPromise(
       app.createGroup({

@@ -29,7 +29,7 @@ export class RunService {
           });
           if (updated.count === 0) return false;
           await tx.inboxEvent.updateMany({
-            where: { runId, deliveryMode: "turn", status: "pending" },
+            where: { runId, status: "pending" },
             data: {
               status: "completed",
               completedAt,

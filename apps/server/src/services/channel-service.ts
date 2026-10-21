@@ -527,7 +527,7 @@ export class ChannelService {
   async interruptRun(runId: string, byUser = false, carriesRecovery = false): Promise<void> {
     const run = await this.prisma.run.findUnique({
       where: { id: runId },
-      include: { inboxEvents: { where: { deliveryMode: "turn" }, select: { payload: true }, take: 1 } },
+      include: { inboxEvents: { select: { payload: true }, take: 1 } },
     });
     if (
       !run ||

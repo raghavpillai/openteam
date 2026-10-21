@@ -7,7 +7,6 @@ type StoredAttempt = {
   parentToolCallId: string;
   childRunId: string | null;
   description: string;
-  runInBackground: boolean;
   status: string;
   result: string | null;
   error: unknown;
@@ -33,7 +32,6 @@ export const subagentActivityView = (attempt: StoredAttempt): Snapshot["subagent
   currentRunId: attempt.childRunId,
   description: attempt.description,
   subagentType: attempt.subagent.subagentType as Snapshot["subagents"][number]["subagentType"],
-  runInBackground: attempt.runInBackground,
   status: attempt.status as Snapshot["subagents"][number]["status"],
   // Completion text is a private parent wake. The renderer only needs durable
   // lineage for active-task rows; do not project the

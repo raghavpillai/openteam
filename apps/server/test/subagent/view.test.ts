@@ -8,7 +8,6 @@ const storedSubagent = (result: string | null, error: unknown = null) => ({
   parentToolCallId: "call-1",
   childRunId: "child-run-1",
   description: "Check the release",
-  runInBackground: true,
   status: "completed",
   result,
   error,

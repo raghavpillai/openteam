@@ -12,7 +12,6 @@ const attempt = (overrides: Partial<SubagentActivityView> = {}): SubagentActivit
   currentRunId: "child-run-1",
   description: "Check the release",
   subagentType: "executor",
-  runInBackground: true,
   status: "running",
   summary: null,
   errorMessage: null,

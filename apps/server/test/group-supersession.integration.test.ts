@@ -124,7 +124,7 @@ test.skipIf(!db)(
                         if (method !== "findMany") return Reflect.get(delegate, method);
                         return async (args: Parameters<typeof delegate.findMany>[0]) => {
                           const candidates = await delegate.findMany(args);
-                          if (args?.where?.deliveryMode === "turn") {
+                          if (args?.where?.OR && args.where.botId) {
                             expect(
                               candidates.some((candidate) => candidate.runId === old.run.id)
                             ).toBe(true);

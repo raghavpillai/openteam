@@ -87,7 +87,7 @@ export async function automationBackgroundWorkRunning(
     select: { id: true },
   })).map((entry) => entry.id);
   if (await tx.subagentAttempt.count({
-    where: { parentRunId: { in: family }, runInBackground: true, status: { in: ["provisioning", "queued", "running"] } },
+    where: { parentRunId: { in: family }, status: { in: ["provisioning", "queued", "running"] } },
   })) return true;
   return pendingAutomationShells(tx, botId, family);
 }

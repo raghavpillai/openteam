@@ -33,6 +33,18 @@ test('managed workflows omit categorical authentication and transaction handover
   ]) expect(workflows).not.toContain(legacy);
 });
 
+test('connector skills install without asking and promise no connect card', () => {
+  // OpenTeam has no connect cards: InstallPlugin installs, AuthenticateMcpServer starts sign-in.
+  for (const item of managed.skills.filter(s => s.id !== 'routines')) {
+    expect(item.content).not.toMatch(/connect card (is the ask|appears|handles|is shown)/);
+    expect(item.content).not.toContain('once the user agrees, install it');
+  }
+  expect(skill('no-connector-fallback')).toContain('Install a missing connector with InstallPlugin without asking.');
+  expect(skill('no-connector-fallback')).toContain('a row reading needsAuth is a connector, so call AuthenticateMcpServer and never open the box for that service');
+  expect(skill('add-connector')).toContain('**Only related plugins match**');
+  expect(skill('add-connector')).toContain('You are not resumed when sign-in finishes.');
+});
+
 test('catalog has valid skill metadata and excludes retired workflows',()=>{
   expect(managed.skills).toHaveLength(25);
   expect(new Set(managed.skills.map(s=>s.id)).size).toBe(managed.skills.length);

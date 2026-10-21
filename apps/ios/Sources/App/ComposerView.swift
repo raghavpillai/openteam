@@ -54,7 +54,19 @@ struct ComposerView: View {
       .padding(.bottom, keyboardPresented ? 18 : -4)
       // The voice glow rises from the bottom of the screen, behind the composer.
       .background(alignment: .bottom) {
-        VoiceGlowBackdrop(memo: memo).ignoresSafeArea(edges: .bottom)
+        GeometryReader { composer in
+          // Safe-area insets can be consumed by the floating bars. Measure against the
+          // actual window, so the shader’s rounded bottom follows the phone’s edge.
+          let window = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows).first(where: \.isKeyWindow)
+          let frame = composer.frame(in: .global)
+          let bottom = window?.bounds.maxY ?? frame.maxY
+          let height = window?.bounds.height ?? composer.size.height
+          VoiceGlowBackdrop(memo: memo)
+            .frame(width: composer.size.width, height: height)
+            .position(x: composer.size.width / 2,
+              y: composer.size.height + max(0, bottom - frame.maxY) - height / 2)
+        }
       }
       .background {
         #if DEBUG

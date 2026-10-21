@@ -621,7 +621,7 @@
     },
     {
       "tool": "WebFetch",
-      "description": "Fetch a public HTTP(S) URL using the configured provider: built-in HTTP (no key), Exa Contents, or Tavily Extract. Returns source text/Markdown, a source URL, and a box file for content over 100000 characters. Private/local URLs and embedded URL credentials are rejected. Built-in HTTP pins redirects to public IPs and does not run JavaScript; remote extraction uses the provider’s crawler. No authenticated browser state is used. Responses are limited to 5 MiB. Report missing keys and extraction failures accurately; there is no silent provider fallback.",
+      "description": "Fetch a public HTTP(S) URL using the configured provider: built-in HTTP (no key), Exa Contents, or Tavily Extract. Returns source text/Markdown and a source URL; content over 100000 characters is cut there. Private/local URLs and embedded URL credentials are rejected. Built-in HTTP pins redirects to public IPs and does not run JavaScript; remote extraction uses the provider’s crawler. No authenticated browser state is used. Responses are limited to 5 MiB. Report missing keys and extraction failures accurately; there is no silent provider fallback.",
       "inputSchema": {
         "type": "object",
         "properties": {

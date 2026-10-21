@@ -5,6 +5,7 @@ import {
   AgentSendToUserInput,
   validateProcessSecretName,
   AUTOMATION_PARENT_ONLY_TOOLS,
+  AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED,
   WakeParentInput,
   ApiError,
   CheckSubagentInput,
@@ -92,7 +93,7 @@ export class InternalToolService {
       if (request.tool === "RefreshToolCatalog") return {namespaces:await this.plugins.dynamicNamespaces(childIdentity?.parentBotId ?? request.botId)};
       if (request.tool === "ReadProcessSecrets") return { environment: await processEnvironment(this.prisma, request.botId) };
       if (run.origin === "routine" && AUTOMATION_PARENT_ONLY_TOOLS.has(request.tool)) {
-        throw new ApiError(403, "automation_tool_forbidden", "Use WakeParent to hand this communication or review to the parent agent");
+        throw new ApiError(403, "automation_tool_forbidden", AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED);
       }
       request={...request,arguments:normalizeMainToolArguments(request.tool,request.arguments)};
       if (request.tool === "WakeParent") {

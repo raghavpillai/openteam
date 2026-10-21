@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { RuntimeTools } from "../../src/runtime/tools";
 import type { ActiveTurn } from "../../src/runtime/types";
-import { AUTOMATION_PARENT_ONLY_TOOLS } from "@openteam/contracts";
+import { AUTOMATION_PARENT_ONLY_TOOLS, AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED } from "@openteam/contracts";
 
 /** Routine runs keep these: none of them opens a card or waits for the user. */
 const ROUTINE_MANAGEMENT_TOOLS = [
@@ -143,4 +143,11 @@ test("routine runs call plugin management and feedback directly, and keep workin
   } finally {
     server.stop(true);
   }
+});
+
+test("a routine run that calls a communication tool is told to use WakeParent instead", async () => {
+  const tools = new RuntimeTools({} as never, "http://127.0.0.1", "fixture", "/tmp", "/tmp") as any;
+  const turn = { requestSource: "automation", runtimeProfile: "agent", subagentType: null, pluginNamespaces: [], pendingSteers: [] };
+  for (const [tool, args] of [["SendToUser", { type: "text", content: "Done" }], ["ReactToMessage", { message_address: "t1", emoji: "👍" }]] as const)
+    await expect(tools.executeOpenTeamTool(turn, "call", tool, args)).rejects.toThrow(AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED);
 });

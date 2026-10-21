@@ -85,7 +85,7 @@ test.skipIf(!databaseUrl)(
             expect(input.instructions).toContain("WakeParent is the only route");
             await expect(
               call("SendToUser", { type: "text", content: "Must never appear" })
-            ).rejects.toThrow("Use WakeParent");
+            ).rejects.toThrow("Automation runs cannot mutate the visible transcript.");
             if (input.content.includes("WP_SHELL_FINISHED")) {
               final = "WP_SHELL_SILENT: background shell completed.";
             } else if (input.content.includes("WP_ROUTINE_CHILD_RESULT")) {

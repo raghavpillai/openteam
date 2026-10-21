@@ -65,6 +65,6 @@ test("routine runs manage installed plugins and send feedback without waking the
   for (const [tool, args] of allowed) await call(tool, args);
   expect(reached).toEqual(allowed.map(([tool]) => tool));
   for (const tool of ["SendToUser", "RequestUserForm", "RemapUserFormTargets", "CreateBotShareJson", "InstallPlugin", "AddMcpServer", "AuthenticateMcpServer"])
-    await expect(call(tool, {})).rejects.toThrow("Use WakeParent");
+    await expect(call(tool, {})).rejects.toThrow("Automation runs cannot mutate the visible transcript.");
   expect(reached).toHaveLength(allowed.length);
 });

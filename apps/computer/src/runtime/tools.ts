@@ -32,6 +32,7 @@ import { type AgentToolResult, defineTool } from "@earendil-works/pi-coding-agen
 import {
   AwaitShellInput,
   AUTOMATION_PARENT_ONLY_TOOLS,
+  AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED,
   CALL_DYNAMIC_TOOL_TOOL,
   CallDynamicToolInput,
   COMPUTER_USE_TOOL,
@@ -596,7 +597,7 @@ export class RuntimeTools {
     if (queuedAttachment) active.pendingDeliveryAttachments?.delete(callId);
     if (queuedCleanup) active.pendingDeliveryCleanup?.delete(callId);
     if (active.requestSource === "automation" && AUTOMATION_PARENT_ONLY_TOOLS.has(tool)) {
-      throw new Error("Use WakeParent to hand this communication to the parent agent");
+      throw new Error(AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED);
     }
     args = normalizeMainToolArguments(tool, args);
     if (workerTopLevelTools(active).includes(tool)) {

@@ -89,7 +89,7 @@ test.skipIf(!databaseUrl)(
           })
         );
       for (const tool of AUTOMATION_PARENT_ONLY_TOOLS)
-        await expect(call(run.id, tool, {})).rejects.toThrow("Use WakeParent");
+        await expect(call(run.id, tool, {})).rejects.toThrow("Automation runs cannot mutate the visible transcript.");
       // Routine runs move files through connectors, like their parent, until they hand off.
       const transferService = makeService();
       (transferService as unknown as { plugins: unknown }).plugins = {

@@ -85,7 +85,7 @@ test.skipIf(!databaseUrl)(
       expect(feedback).toEqual([expect.objectContaining({ message: "The weekly digest skipped Monday.", wantsResponse: false })]);
       // None of them posted a card or a message into the chat.
       expect(await prisma.channelMessage.count({ where: { channelId } })).toBe(0);
-      await expect(call("InstallPlugin", { plugin_id: "linear" })).rejects.toThrow("Use WakeParent");
+      await expect(call("InstallPlugin", { plugin_id: "linear" })).rejects.toThrow("Automation runs cannot mutate the visible transcript.");
     } finally {
       support.stop(true);
       process.env = environment;

@@ -7,6 +7,7 @@ import { stageAttachment } from "../attachment-staging";
 import { buildUserFormRemapReceipt } from "@openteam/contracts/reference-form-results";
 import { renderDesktopResult, renderControlResult, sendToUserFailure, todoCleanupReminder, toolErrorDetail } from "@openteam/contracts/tool-results";
 import { coerceArgumentsToJsonSchema, invalidArgumentsMessage } from "@openteam/contracts/tool-arguments";
+import { normalizeMcpArgumentsToInputSchema } from "../mcp-argument-normalization";
 import {
   describeUploadFileOutcome,
   describeDownloadFileOutcome,
@@ -1907,13 +1908,15 @@ export class RuntimeTools {
     const options = this.lookupOptions(active);
     const resolved = await this.withCatalogRefresh(active, callId, () => {
       const catalog = this.dynamicCatalog(active);
-      // String-encoded booleans, numbers and JSON become the advertised types before validation.
+      // Like the reference's CallDynamicTool: keys, enum values and envelopes are matched loosely to the
+      // advertised schema, then string-encoded booleans, numbers and JSON become its types before validation.
       const firstParty = input.namespace === "cursor"
         ? catalog.find((namespace) => namespace.name === "cursor")?.tools.find((tool) => tool.name === input.toolName)
         : undefined;
       try {
-        return resolveDynamicTool(catalog, firstParty && input.arguments && typeof input.arguments === "object"
-          ? { ...input, arguments: coerceArgumentsToJsonSchema(firstParty.inputSchema, input.arguments) as Record<string, unknown> }
+        return resolveDynamicTool(catalog, firstParty && input.arguments && typeof input.arguments === "object" && !Array.isArray(input.arguments)
+          ? { ...input, arguments: coerceArgumentsToJsonSchema(firstParty.inputSchema,
+              normalizeMcpArgumentsToInputSchema(input.arguments, firstParty.inputSchema).arguments) as Record<string, unknown> }
           : input, options);
       } catch (error) {
         const report = invalidArgumentsMessage(error);

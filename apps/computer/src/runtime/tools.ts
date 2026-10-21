@@ -684,25 +684,27 @@ export class RuntimeTools {
           return result;
         })();
       }
-      const environment =
-        active.subagentType === "computerUse"
-          ? await this.screens.commandEnvironment(active.screenBotId, active.cwd)
-          : undefined;
-      const secretEnvironment = await this.processSecrets(active, signal);
-      return this.withForegroundShell(active, (background) => this.nativeToolExecutor.shell(
-        shellInput,
-        active.cwd,
-        signal,
-        environment,
-        active.botId,
-        {
-          channelId: active.channelId,
-          secretEnvironment,
-          secrets: Object.values(secretEnvironment),
-          background,
-          ...(active.requestSource === "automation" ? { automationRunId: active.runId } : {}),
-        }
-      ));
+      return this.withForegroundShell(active, async (background) => {
+        const environment =
+          active.subagentType === "computerUse"
+            ? await this.screens.commandEnvironment(active.screenBotId, active.cwd)
+            : undefined;
+        const secretEnvironment = await this.processSecrets(active, signal);
+        return this.nativeToolExecutor.shell(
+          shellInput,
+          active.cwd,
+          signal,
+          environment,
+          active.botId,
+          {
+            channelId: active.channelId,
+            secretEnvironment,
+            secrets: Object.values(secretEnvironment),
+            background,
+            ...(active.requestSource === "automation" ? { automationRunId: active.runId } : {}),
+          }
+        );
+      });
     }
     if (tool === READ_TOOL.name) {
       const readInput = Schema.decodeUnknownSync(ReadToolInput)(args);

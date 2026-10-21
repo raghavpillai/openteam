@@ -71,7 +71,7 @@ const mainAgent = (id: string) => {
   return { messaging, profileSnapshot, memory };
 };
 
-describe("Grok-derived platform prompt integration", () => {
+describe("platform prompt integration", () => {
   test.each([true, false])("managedSkills=%s omits categorical authentication handovers", (managedSkills) => {
     const prompt = renderPlatformBaseSystemPrompt({ managedSkills });
     expect(prompt).not.toContain("At a user-only sign-in, SSO, passkey");

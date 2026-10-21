@@ -75,11 +75,13 @@ struct ComposerView: View {
         }
         #endif
       }
-      .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-        if focused { keyboardPresented = true }
+      .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
+        if focused {
+          ChatKeyboardMotion.update(note, reduceMotion: reduceMotion) { keyboardPresented = true }
+        }
       }
-      .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-        keyboardPresented = false
+      .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { note in
+        ChatKeyboardMotion.update(note, reduceMotion: reduceMotion) { keyboardPresented = false }
       }
       .animation(
         reduceMotion ? nil : .timingCurve(0.23, 1, 0.32, 1, duration: 0.24),

@@ -5,7 +5,6 @@ import { mkdir, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   type BotTranscriptView,
-  ComputerSteerRequest,
   ComputerTurnRequest,
   ScreenActionInput,
   ScreenClipboardInput,
@@ -614,17 +613,10 @@ const server = Bun.serve({
         });
       }
 
-      const steerMatch = url.pathname.match(/^\/v1\/turns\/([^/]+)\/steer$/);
-      if (request.method === "POST" && steerMatch?.[1]) {
-        const input = Schema.decodeUnknownSync(ComputerSteerRequest)(await request.json());
-        await runtime.steer(steerMatch[1], input);
-        return json({ ok: true });
-      }
-
       const cancelMatch = url.pathname.match(/^\/v1\/turns\/([^/]+)\/cancel$/);
       if (request.method === "POST" && cancelMatch?.[1]) {
         const body = await request.json().catch(() => null) as { reason?: unknown; recovery?: unknown } | null;
-        const cancelled = await runtime.cancel(cancelMatch[1], body?.reason === "user_message" ? "user_message" : undefined, { recovery: body?.recovery === true });
+        const cancelled = await runtime.cancel(cancelMatch[1], body?.reason === "user_message" || body?.reason === "parent_message" ? body.reason : undefined, { recovery: body?.recovery === true });
         return cancelled ? json({ ok: true }) : json({ ok: false, error: "run_not_dispatched" }, 409);
       }
 

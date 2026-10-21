@@ -125,17 +125,6 @@ export function routeEvent(
         if (active.initialUserClientId) active.session?.sessionManager.appendCustomEntry("openteam-input-receipt", { messageId: `input:${active.initialUserClientId}` });
         active.initialUserStarted = true;
         active.queue.push({ type: "prompt.delivered", turnId: active.turnId });
-        return;
-      }
-      const steer = active.pendingSteers.shift();
-      if (steer) {
-        active.session?.sessionManager?.appendCustomEntry("openteam-input-receipt", { messageId: `input:${steer.clientMessageId}` });
-        active.queue.push({
-          type: "input.delivered",
-          turnId: active.turnId,
-          inboxId: steer.inboxId,
-          clientMessageId: steer.clientMessageId,
-        });
       }
       return;
     }

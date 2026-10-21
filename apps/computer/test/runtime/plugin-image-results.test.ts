@@ -8,7 +8,7 @@ import { untrustedResultsExtension } from "../../src/runtime/untrusted-results";
 
 async function pluginCall(body: unknown, cwd = "/tmp") {
   const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
-  const active: any = {runId: "fixture", botId: "fixture", screenBotId: "fixture", cwd, sentMessageCount: 0, pendingSteers: [], queue: {push() {}}};
+  const active: any = {runId: "fixture", botId: "fixture", screenBotId: "fixture", cwd, sentMessageCount: 0, queue: {push() {}}};
   const originalFetch = globalThis.fetch;
   try {
     globalThis.fetch = (async () => Response.json(body)) as any;
@@ -74,7 +74,7 @@ test("a connector call is cut off by the 840-second guard with the reference tex
   const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
   expect(tools.toolCallTimeoutMs).toBe(840_000);
   tools.toolCallTimeoutMs = 20;
-  const active: any = {runId: "fixture", botId: "fixture", cwd: "/tmp", sentMessageCount: 0, pendingSteers: [], queue: {push() {}}};
+  const active: any = {runId: "fixture", botId: "fixture", cwd: "/tmp", sentMessageCount: 0, queue: {push() {}}};
   const originalFetch = globalThis.fetch;
   try {
     globalThis.fetch = ((_url: string, init: RequestInit) => new Promise((_, reject) =>
@@ -93,7 +93,7 @@ test("a connector call is cut off by the 840-second guard with the reference tex
 
 test("control-plane failures surface the server's message, not its JSON envelope", async () => {
   const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
-  const active: any = {runId: "fixture", botId: "fixture", cwd: "/tmp", sentMessageCount: 0, pendingSteers: [], queue: {push() {}}};
+  const active: any = {runId: "fixture", botId: "fixture", cwd: "/tmp", sentMessageCount: 0, queue: {push() {}}};
   const originalFetch = globalThis.fetch;
   const failWith = (status: number, body: string) => { globalThis.fetch = (async () => new Response(body, {status})) as any; };
   try {

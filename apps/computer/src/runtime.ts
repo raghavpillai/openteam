@@ -15,7 +15,6 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
   type ComputerEvent,
-  type ComputerSteerRequest,
   type ComputerTurnRequest,
   defaultServerInferenceSettings,
   formatPiModelRef,
@@ -293,8 +292,6 @@ export class ComputerRuntime {
       toolActivityAfterLastSend: false,
       initialUserStarted: false,
       initialUserClientId: request.clientMessageId,
-      pendingSteers: [],
-      acceptedSteerIds: new Set(),
       pluginNamespaces: request.dynamicNamespaces ?? [],
       pluginRuntimePackages: request.pluginRuntimePackages as import("@openteam/plugin-sdk").PluginRuntimePackage[] | undefined,
       pluginAbortController: new AbortController(),
@@ -474,14 +471,14 @@ export class ComputerRuntime {
    * reference; an undispatched run goes on and the message queues behind it, unless the
    * message carries the run's plain-text input for recovery. Returns whether it cancelled.
    */
-  async cancel(runId: string, reason?: "user_message", options: { recovery?: boolean } = {}): Promise<boolean> {
+  async cancel(runId: string, reason?: "user_message" | "parent_message", options: { recovery?: boolean } = {}): Promise<boolean> {
     const active = this.activeByRun.get(runId);
     if (!active) throw new Error("Run is not actively executing");
     if (reason === "user_message" && !active.initialUserStarted && !options.recovery) return false;
-    if (reason === "user_message") active.interruptedByUserAt ??= Date.now();
+    // A parent's message to its worker interrupts it at once; the reference words the cut-off calls the same way.
+    if (reason) active.interruptedByUserAt ??= Date.now();
     active.endTurnRequested = true;
     active.pluginAbortController?.abort();
-    this.tools.interruptShellWaits(runId);
     await active.session?.abort();
     return true;
   }
@@ -509,33 +506,6 @@ export class ComputerRuntime {
       }
       return previousStop?.(context, signal) || false;
     };
-  }
-
-  /** A parent's MessageSubagent message reaches its running worker at the next step. */
-  async steer(runId: string, request: ComputerSteerRequest): Promise<void> {
-    const active = this.activeByRun.get(runId);
-    if (!active?.session || !active.session.isStreaming || active.endTurnRequested) {
-      throw new Error("Run is not actively processing a Pi turn");
-    }
-    if (active.acceptedSteerIds.has(request.inboxId)) return;
-    const pending = {
-      inboxId: request.inboxId,
-      clientMessageId: request.clientMessageId,
-      content: request.content,
-    };
-    active.acceptedSteerIds.add(request.inboxId);
-    active.pendingSteers.push(pending);
-    this.tools.interruptShellWaits(runId);
-    try {
-      await active.session.prompt(request.content, { source: "rpc", streamingBehavior: "steer" });
-    } catch (error) {
-      active.acceptedSteerIds.delete(request.inboxId);
-      const index = active.pendingSteers.findIndex(
-        (candidate) => candidate.inboxId === request.inboxId
-      );
-      if (index >= 0) active.pendingSteers.splice(index, 1);
-      throw error;
-    }
   }
 
   async infer(request: {

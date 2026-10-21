@@ -24,7 +24,7 @@ export function graphicalProgressReminder(messages: readonly BotMessage[], activ
 }
 
 export const COMPUTER_USE_MAX_CONSECUTIVE_TOOL_FAILURES = 20;
-const REFUSED_OR_CANCELLED = /A newer instruction is queued|The turn has ended|Operation aborted|operation was aborted|AbortError/;
+const REFUSED_OR_CANCELLED = /The turn has ended|Operation aborted|operation was aborted|AbortError/;
 
 /** Refused and cancelled calls don't count; any success resets the streak. */
 export function observeGraphicalToolResult(active: ActiveTurn, failed: boolean, text: string): void {

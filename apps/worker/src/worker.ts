@@ -732,30 +732,6 @@ export class WakeWorker {
       );
     }
 
-    const orphanedSteers = await this.prisma.inboxEvent.findMany({
-      where: {
-        deliveryMode: "steer",
-        status: { in: ["pending", "processing"] },
-      },
-      distinct: ["botId"],
-      select: { botId: true },
-    });
-    for (const event of orphanedSteers) {
-      await this.prisma.$transaction(async (tx) => {
-        await tx.botRunLease.deleteMany({
-          where: { botId: event.botId, expiresAt: { lt: new Date() } },
-        });
-        const lease = await tx.botRunLease.findFirst({
-          where: { botId: event.botId, scope: "foreground" },
-        });
-        if (!lease) {
-          await this.messaging.failUndeliveredSteers(tx, { botId: event.botId },
-            "worker_recovered_orphaned_steer"
-          );
-        }
-      });
-    }
-
     const pending = await this.prisma.inboxEvent.findMany({
       where: {
         deliveryMode: "turn",
@@ -1100,7 +1076,6 @@ export class WakeWorker {
         const foregroundBusy = existingLeases.some(lease => lease.scope === "foreground");
         const automations = existingLeases.filter(lease => lease.scope.startsWith("automation:"));
         if (foregroundBusy && automations.length >= 4) return null;
-        if (!foregroundBusy) await this.messaging.failUndeliveredSteers(tx, { botId }, "orphaned_active_turn");
         const candidates = await tx.inboxEvent.findMany({
           where: {
             botId,
@@ -1466,9 +1441,6 @@ export class WakeWorker {
             });
           }
         }
-        await this.messaging.failUndeliveredSteers(tx, { runId: claimed.runId },
-          "active_turn_completed_before_delivery"
-        );
         await tx.botRunLease.deleteMany({
           where: { botId: claimed.botId, ownerId: claimed.ownerId },
         });
@@ -1577,9 +1549,6 @@ export class WakeWorker {
         return false;
       }
       await finalizeInterruptedItems(tx, claimed.runId, false);
-      await this.messaging.failUndeliveredSteers(tx, { runId: claimed.runId },
-        "active_turn_ended_before_delivery"
-      );
       await tx.botRunLease.deleteMany({
         where: { botId: claimed.botId, ownerId: claimed.ownerId },
       });
@@ -1755,9 +1724,6 @@ export class WakeWorker {
           });
         }
       }
-      await this.messaging.failUndeliveredSteers(tx, { runId: claimed.runId },
-        "active_turn_ended_before_delivery"
-      );
       await tx.botRunLease.deleteMany({
         where: { botId: claimed.botId, ownerId: claimed.ownerId },
       });

@@ -59,7 +59,6 @@ test("the computerUse breaker counts only real consecutive failures", async () =
   const { observeGraphicalToolResult, COMPUTER_USE_MAX_CONSECUTIVE_TOOL_FAILURES } = await import("../../src/runtime/graphical-completion");
   const active = { subagentType: "computerUse" } as ActiveTurn;
   for (let i = 0; i < COMPUTER_USE_MAX_CONSECUTIVE_TOOL_FAILURES - 1; i++) observeGraphicalToolResult(active, true, "net::ERR_CONNECTION_REFUSED");
-  observeGraphicalToolResult(active, true, "A newer instruction is queued. This tool action was not executed.");
   observeGraphicalToolResult(active, true, "Operation aborted");
   expect(active.toolFailureBreakerTripped).toBeUndefined();
   observeGraphicalToolResult(active, false, "Clicked");
@@ -138,7 +137,7 @@ test("a computer that fails 20 calls in a row ends the worker with the blocked r
       instructions: "Operate the desktop.", subagentType: "computerUse", requestSource: "subagent",
       userInfoMessage: null, discoveredDynamicTools: new Set(), pluginAbortController: new AbortController(),
       queue: { push: (event: any) => events.push(event), end() {} }, toolArgs: new Map(), startedItems: new Set(),
-      assistantOrdinal: 0, pendingSteers: [], attachmentTempDirectories: [], sentMessageCount: 0,
+      assistantOrdinal: 0, attachmentTempDirectories: [], sentMessageCount: 0,
     };
     const manager = SessionManager.create(root, join(root, "sessions"), { id: active.contextSessionId });
     const session = await runtime.createStandaloneSession(root, active.instructions, manager, active, active.modelRef);

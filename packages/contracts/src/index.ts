@@ -1335,14 +1335,6 @@ export const ComputerTurnRequest = Schema.Struct({
 });
 export type ComputerTurnRequest = typeof ComputerTurnRequest.Type;
 
-/** A parent's MessageSubagent steer into its running worker; typed user messages start a new turn instead. */
-export const ComputerSteerRequest = Schema.Struct({
-  inboxId: Schema.String,
-  clientMessageId: Schema.String,
-  content: Schema.String.pipe(Schema.minLength(1)),
-});
-export type ComputerSteerRequest = typeof ComputerSteerRequest.Type;
-
 export const ShellCompletionInput = Schema.Struct({
   automationRunId: Schema.optional(Schema.String),
   machineId: Schema.optional(Schema.String),
@@ -1370,12 +1362,6 @@ export type ComputerEvent =
     }
   | { type: "turn.started"; turnId: string }
   | { type: "prompt.delivered"; turnId: string }
-  | {
-      type: "input.delivered";
-      turnId: string;
-      inboxId: string;
-      clientMessageId: string;
-    }
   | { type: "item.started"; turnId: string; item: unknown }
   | { type: "agent.delta"; turnId: string; itemId: string; delta: string }
   | { type: "item.completed"; turnId: string; item: unknown }

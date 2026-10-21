@@ -153,8 +153,6 @@ for (const { handoff, batch = false } of [{ handoff: false }, { handoff: true },
         endTurnRequested: false,
         initialUserStarted: false,
         initialUserClientId: "fixture-user",
-        pendingSteers: [],
-        acceptedSteerIds: new Set(),
         queue: { push: (event: any) => acknowledged.push(event) },
       } as unknown as ActiveTurn;
       const sessions = join(root, "sessions");

@@ -2,7 +2,6 @@ import {
   ApiError,
   formatPiModelRef,
   type CheckSubagentInput,
-  type ComputerSteerRequest,
   type MessageSubagentInput,
   resolveBotAvatarMark,
   normalizePiReasoningLevel,
@@ -196,111 +195,65 @@ export class SubagentService {
     return this.inspect(subagent);
   }
 
+  /**
+   * As in the reference, a parent's message interrupts the running worker turn; the worker
+   * then runs a new turn with the message. A message that arrives while that turn is still
+   * waiting replaces it, as the reference keeps only the latest pending one.
+   */
   async message(parentBotId: string, callId: string, input: MessageSubagentInput) {
     const subagent = await this.runningOwned(parentBotId, input.subagent_id);
     if (typeof subagent === "string") return subagent;
     const currentRunId = subagent.currentRunId;
     if (subagent.status !== "running" || !currentRunId) return this.noRunningSubagentMessage(parentBotId, input.subagent_id);
+    const content = subagentSteerPrompt(input.message);
     const dispatch = await this.prisma.$transaction(async (tx) => {
-      const run = await tx.run.findUnique({
-        where: { id: currentRunId },
-        include: { conversation: true },
-      });
-      if (!run || !["running"].includes(run.status)) return null;
-      const clientMessageId = `subagent-steer:${callId}`;
-      const content = subagentSteerPrompt(input.message);
-      const duplicate = await tx.inboxEvent.findUnique({
-        where: { idempotencyKey: clientMessageId },
-      });
-      if (duplicate) {
-        if (duplicate.status === "failed") {
-          await tx.inboxEvent.update({
-            where: { id: duplicate.id },
-            data: {
-              status: "processing",
-              attempts: { increment: 1 },
-              claimedAt: new Date(),
-              completedAt: null,
-              error: Prisma.DbNull,
-            },
-          });
-          return {
-            runId: run.id,
-            inboxId: duplicate.id,
-            clientMessageId,
-            content,
-            duplicate: false,
-          };
+      const run = await tx.run.findUnique({ where: { id: currentRunId } });
+      if (!run || !["queued", "running"].includes(run.status)) return null;
+      const attempt = await tx.subagentAttempt.findUnique({ where: { childRunId: run.id } });
+      if (!attempt) return null;
+      if (run.status === "queued") {
+        const pending = await tx.inboxEvent.findFirst({ where: { runId: run.id, type: "subagent.steer", status: "pending" } });
+        if (pending) {
+          await tx.inboxEvent.update({ where: { id: pending.id }, data: { payload: { ...(pending.payload as Record<string, unknown>), content } } });
+          return { runId: run.id, interruptRunId: null };
         }
-        return { runId: run.id, inboxId: duplicate.id, clientMessageId, content, duplicate: true };
       }
-      const message = await tx.message.create({
-        data: {
-          botId: subagent.childBotId,
-          conversationId: run.conversationId,
-          runId: run.id,
-          clientId: clientMessageId,
-          role: "user",
-          content,
-          status: "completed",
-        },
+      const channelId = run.channelId;
+      if (!channelId) return null;
+      const wake = await this.messaging.enqueueWake(tx, {
+        botId: subagent.childBotId,
+        channelId,
+        origin: "agent",
+        type: "subagent.steer",
+        content,
+        wrapUserContent: false,
+        clientId: `subagent-steer:${callId}`,
+        priority: 350,
       });
-      const inbox = await tx.inboxEvent.create({
-        data: {
-          botId: subagent.childBotId,
-          conversationId: run.conversationId,
-          runId: run.id,
-          idempotencyKey: clientMessageId,
-          type: "subagent.steer",
-          deliveryMode: "steer",
-          status: "processing",
-          attempts: 1,
-          claimedAt: new Date(),
-          priority: 400,
-          payload: {
-            messageId: message.id,
-            content,
-            clientId: clientMessageId,
-            channelId: run.channelId,
-            origin: "agent",
-            deliveryMode: "steer",
-          },
-        },
-      });
+      await tx.subagentAttempt.update({ where: { id: attempt.id }, data: { childRunId: wake.run.id } });
+      await tx.subagent.update({ where: { id: subagent.id }, data: { currentRunId: wake.run.id } });
       await appendEvent(tx, "subagent.message_accepted", subagent.id, {
-        parentBotId,
-        subagentId: subagent.id,
-        runId: run.id,
-        inboxId: inbox.id,
-        callId,
+        parentBotId, subagentId: subagent.id, runId: wake.run.id, interruptedRunId: run.id, callId,
       });
-      return { runId: run.id, inboxId: inbox.id, clientMessageId, content, duplicate: false };
+      return { runId: wake.run.id, interruptRunId: run.id };
     });
     if (!dispatch) return this.noRunningSubagentMessage(parentBotId, input.subagent_id);
-    if (!dispatch.duplicate) {
-      const input = {
-        inboxId: dispatch.inboxId,
-        clientMessageId: dispatch.clientMessageId,
-        content: dispatch.content,
-      } satisfies ComputerSteerRequest;
-      const response = await this.computerFetch(COMPUTER_API_PATHS.turnSteer(dispatch.runId), {
-        method: "POST",
-        body: JSON.stringify(input),
-        signal: AbortSignal.timeout(5_000),
-      });
-      if (!response.ok) {
-        await this.prisma.inboxEvent.update({
-          where: { id: dispatch.inboxId },
-          data: {
-            status: "failed",
-            completedAt: new Date(),
-            error: { code: "steer_rejected", status: response.status },
-          },
-        });
-        throw new ApiError(409, "subagent_steer_rejected", await response.text());
-      }
-    }
+    if (dispatch.interruptRunId) await this.interruptForMessage(dispatch.interruptRunId);
     return { delivered: true, subagent_id: botSubagentId(subagent.id), run_id: dispatch.runId };
+  }
+
+  /** The worker turn a parent's message superseded stops; its cut-off calls say they were interrupted. */
+  private async interruptForMessage(runId: string): Promise<void> {
+    const run = await this.prisma.run.findUnique({ where: { id: runId }, select: { status: true } });
+    if (run?.status === "running")
+      await this.computerFetch(COMPUTER_API_PATHS.turnCancel(runId), {
+        method: "POST",
+        body: JSON.stringify({ reason: "parent_message" }),
+      }).catch(() => undefined);
+    await this.prisma.run.updateMany({
+      where: { id: runId, status: { in: ["queued", "running"] } },
+      data: { status: "cancelled", error: { code: "superseded_by_parent", message: "Steering message from the parent agent." } },
+    });
   }
 
   async stop(parentBotId: string, callId: string, input: StopSubagentInput) {

@@ -1074,15 +1074,6 @@ export class AgentMessaging {
     return { ...queued, interruptRunId };
   }
 
-  /** A worker steer belongs to its dispatched task; one its turn never took fails instead of becoming a new turn. */
-  async failUndeliveredSteers(tx: Prisma.TransactionClient, where: { runId: string } | { botId: string }, reason: string) {
-    const failed = await tx.inboxEvent.updateMany({
-      where: { ...where, deliveryMode: "steer", status: { in: ["pending", "processing"] } },
-      data: { status: "failed", completedAt: new Date(), error: json({ code: "subagent_steer_target_ended", reason }) },
-    });
-    return failed.count;
-  }
-
   async enqueueBootstrap(tx: Prisma.TransactionClient, botId: string, channelId: string) {
     // Provisioning, recovery, and the user's first message share this row lock.
     // Read onboarding/queue state only after concurrent provisioning commits.

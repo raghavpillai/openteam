@@ -44,7 +44,7 @@ const answer = (text: string) => ({
 });
 
 for (const timing of ["pending", "ready", "capacity"] as const) {
-  test(`four consecutive real Pi compactions with duplicate and ordered steers while summary ${timing}`, async () => {
+  test(`four consecutive real Pi compactions while summary ${timing}`, async () => {
     const root = await mkdtemp(join(tmpdir(), "continual-lifecycle-"));
     const store = new BotCompactionArchiveStore(join(root, "archive"));
     const coordinator = new BotCompactionCoordinator(store, 0);
@@ -157,7 +157,6 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
         },
       ],
       acknowledgeToolOutcomes: async () => {},
-      interruptShellWaits() {},
       cancelApprovals() {},
       userForms: { beginTurn: async () => {}, endTurn: async () => {} },
     };
@@ -187,8 +186,6 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
           resetSelfSummaryCount: true,
           sentMessageCount: 1,
           toolActivityAfterLastSend: false,
-          pendingSteers: [],
-          acceptedSteerIds: new Set(),
           assistantOrdinal: 0,
           startedItems: new Set(),
           toolArgs: new Map(),
@@ -220,22 +217,6 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
           releaseSummary.resolve();
           await new Promise((r) => setImmediate(r));
         }
-        const a = {
-          inboxId: `a-${round}`,
-          clientMessageId: `ma-${round}`,
-          content: `STEER-A-${round}: current value alpha-${round}`,
-        };
-        const b = {
-          inboxId: `b-${round}`,
-          clientMessageId: `mb-${round}`,
-          content: `STEER-B-${round}: current value beta-${round} supersedes alpha`,
-        };
-        await runtime.steer(active.runId, a);
-        await runtime.steer(active.runId, a);
-        await runtime.steer(active.runId, b);
-        expect(events.slice(startEvents).filter((e) => e.type === "input.delivered")).toHaveLength(
-          0
-        );
         if (timing === "capacity") {
           releaseTool.resolve();
           await capacityStarted.promise;
@@ -245,24 +226,13 @@ for (const timing of ["pending", "ready", "capacity"] as const) {
         await new Promise((r) => setImmediate(r));
         releaseTool.resolve();
         await running;
-        const delivered = events
-          .slice(startEvents)
-          .filter((e) => e.type === "input.delivered")
-          .map((e) => e.inboxId);
-        expect(delivered).toEqual([a.inboxId, b.inboxId]);
         expect(toolCalls).toBe(round);
         expect(summaryCalls).toBe(round);
         expect((await store.manifest(id)).epoch).toBe(round);
         const inputs = requests
           .filter((r) => r.round === round)
           .map((r) => JSON.stringify(r.request));
-        expect(inputs.some((s) => s.includes("summary_content") && s.includes(a.content))).toBe(
-          true
-        );
-        expect(inputs.at(-1)).toContain(b.content);
-        const firstA = inputs.findIndex((s) => s.includes(a.content)),
-          firstB = inputs.findIndex((s) => s.includes(b.content));
-        expect(firstA).toBeLessThanOrEqual(firstB);
+        expect(inputs.some((s) => s.includes("summary_content"))).toBe(true);
         expect(
           events
             .slice(startEvents)
@@ -386,7 +356,6 @@ for (const timing of ["terminal-ready", "terminal-pending"] as const) {
         },
       ],
       acknowledgeToolOutcomes: async () => {},
-      interruptShellWaits() {},
       cancelApprovals() {},
       userForms: { beginTurn: async () => {}, endTurn: async () => {} },
     };
@@ -414,8 +383,6 @@ for (const timing of ["terminal-ready", "terminal-pending"] as const) {
           resetSelfSummaryCount: true,
           sentMessageCount: 1,
           toolActivityAfterLastSend: false,
-          pendingSteers: [],
-          acceptedSteerIds: new Set(),
           assistantOrdinal: 0,
           startedItems: new Set(),
           toolArgs: new Map(),

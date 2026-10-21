@@ -86,7 +86,6 @@ const workerWith = (state: {
     }
   };
   worker.messaging = {
-    failUndeliveredSteers: async () => 0,
     scheduleTranscriptProjection: async () => {},
   };
   worker.wakeBootstrapWhenComputerReady = async (botId: string) => {

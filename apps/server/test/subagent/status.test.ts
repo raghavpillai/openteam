@@ -19,7 +19,7 @@ function fixture(runStatus = "running", linkedRun = "current") {
 
 test("failed worker calls expose bounded result text without arguments or successful output", async () => {
   const { service, db } = fixture("running");
-  const reason = "A newer instruction is queued. This tool action was not executed. Process the new instruction before choosing the next action.";
+  const reason = "Error: browser_select_option was interrupted by the user after 1200ms before it completed.";
   db.runItem.findMany = async () => [
     { title: "browser_select_option", status: "failed", createdAt: new Date(), content: {
       arguments: { private: "argument must not appear" }, result: { isError: true, content: [{ type: "text", text: reason }] },

@@ -218,58 +218,15 @@ test("external AwaitShell authenticates, uses the host wait endpoint, and parses
   }
 });
 
-test("new user input releases AwaitShell and sleep promptly without terminating a job", async () => {
+test("a stop kills a running foreground Shell and reports it as interrupted", async () => {
   const {root}=await fixture();
   const runtime=new RuntimeTools({} as ScreenBroker,"http://unused.invalid","test",root,root);
   (runtime as any).processSecrets=async()=>({});
-  const active={runId:"steered-run",runtimeProfile:"agent",botId:"bot-steer",cwd:root,pluginNamespaces:[]} as unknown as ActiveTurn;
-  const tools=testTools(runtime,active),call=tools.find(t=>t.name==="CallDynamicTool")!;
-  await tools.find(t=>t.name==="GetDynamicTools")!.execute("discover",{namespace:"cursor",toolName:"AwaitShell"});
-  const started=await tools.find(t=>t.name==="Shell")!.execute("start",{command:"sleep 0.3; printf survived",block_until_ms:0});
-  const args={namespace:"cursor",toolName:"AwaitShell",arguments:{shell_id:started.details.shellId,block_until_ms:60_000}};
-  const pending=call.execute("await",args);
-  const timer=setTimeout(()=>runtime.interruptShellWaits(active.runId),20);
-  try {
-    const released=await pending;
-    expect(released.details).toMatchObject({status:"running",released_by_user_message:true});
-    expect((released.content[0] as {text:string}).text).toMatch(/^Task still running after \d+ms\.\.\. Wait released early: a new user message is arriving\.\noutput_file_path: /);
-  }finally{clearTimeout(timer);}
-  expect((await call.execute("finish",{...args,arguments:{...args.arguments,block_until_ms:2000}})).details).toMatchObject({status:"completed",exit_code:0});
-  const sleeping=call.execute("sleep",{...args,arguments:{block_until_ms:60_000}});
-  const wake=setTimeout(()=>runtime.interruptShellWaits(active.runId),20);
-  try {
-    const slept=await sleeping;
-    expect(slept.details.status).toBe("slept");
-    expect(slept.content[0]).toEqual({type:"text",text:"Slept for 1s. Sleep released early: a new user message is arriving."});
-  }finally{clearTimeout(wake);}
-});
-
-test("new user input moves a running foreground Shell to the background; a stop kills it", async () => {
-  const {root}=await fixture();
-  const runtime=new RuntimeTools({} as ScreenBroker,"http://unused.invalid","test",root,root);
-  (runtime as any).processSecrets=async()=>({});
-  const active={runId:"steer-shell",runtimeProfile:"agent",botId:"bot-steer-shell",cwd:root,pluginNamespaces:[],discoveredDynamicTools:new Set<string>()} as unknown as ActiveTurn;
-  const shell=testTools(runtime,active).find(t=>t.name==="Shell")!;
-  const started=Date.now();
-  const pending=shell.execute("long",{command:"echo running tests; sleep 1; echo finished"});
-  const timer=setTimeout(()=>runtime.interruptShellWaits(active.runId),300);
-  let backgrounded: AgentToolResult<Record<string, unknown>>;
-  try {backgrounded=await pending;}finally{clearTimeout(timer);}
-  expect(Date.now()-started).toBeLessThan(900);
-  expect(backgrounded.details).toMatchObject({status:"running",backgroundedBy:"user_message"});
-  const text=(backgrounded.content[0] as {text:string}).text;
-  expect(text).toMatch(/^The user manually backgrounded the command after \d+ms\. Do NOT await it; either continue with other work or end your turn\.\nShell ID: \d+\nPID: \d+\nThe output is being written to .+\. Don't mention Shell ID to the user\.\n\nOutput collected before backgrounding:\n\n```\nrunning tests\n\n```$/);
-  // The command keeps running in the background and finishes normally.
-  const executor=(runtime as unknown as {nativeToolExecutor:NativeToolExecutor}).nativeToolExecutor;
-  expect((await executor.awaitShell({shell_id:String(backgrounded.details.shellId),block_until_ms:3000},undefined,active.botId)).details).toMatchObject({status:"completed",exit_code:0});
-  expect(await readFile(String(backgrounded.details.outputPath),"utf8")).toContain("running tests\nfinished\n");
-
-  // A stop marks the turn as ending first; the command is killed, not backgrounded.
-  const stopped={...active,runId:"stop-shell"} as ActiveTurn;
+  const stopped={runId:"stop-shell",runtimeProfile:"agent",botId:"bot-stop-shell",cwd:root,pluginNamespaces:[],discoveredDynamicTools:new Set<string>()} as unknown as ActiveTurn;
   const controller=new AbortController();
   const running=(runtime as unknown as {executeScopedTool(active:ActiveTurn,callId:string,tool:string,args:unknown,signal?:AbortSignal):Promise<unknown>})
     .executeScopedTool(stopped,"stop","Shell",{command:"echo partial; sleep 5"},controller.signal);
-  const stop=setTimeout(()=>{stopped.endTurnRequested=true;runtime.interruptShellWaits(stopped.runId);controller.abort();},300);
+  const stop=setTimeout(()=>{stopped.endTurnRequested=true;controller.abort();},300);
   try {await expect(running).rejects.toThrow(/^Error: Shell command was interrupted by the user after \d+ms before it completed\.\n\nOutput collected before interruption:\n\n```\npartial\n\n```$/);}
   finally{clearTimeout(stop);}
 });

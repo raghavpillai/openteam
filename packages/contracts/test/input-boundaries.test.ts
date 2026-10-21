@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Schema } from "effect";
-import { SendMessageInput, RuntimeInlineImage, ComputerSteerRequest, UpdateBotInput } from "../src";
+import { SendMessageInput, RuntimeInlineImage, UpdateBotInput } from "../src";
 import { MAX_INLINE_IMAGE_URL_LENGTH } from "../src/media-input";
 import { renderReadText, renderPdfReadText, readLimitNotice } from "../src/read-output";
 
@@ -30,8 +30,6 @@ describe("message and Read boundaries", () => {
       clientId: "input-probe-914",
     };
     expect(Schema.decodeUnknownSync(SendMessageInput)(input)).toEqual(input);
-    const steer = { inboxId: "qa-inbox", clientMessageId: "qa-message", content: input.content };
-    expect(Schema.decodeUnknownSync(ComputerSteerRequest)(steer)).toEqual(steer);
     expect(() =>
       Schema.decodeUnknownSync(SendMessageInput)({ content: "  ", clientId: input.clientId })
     ).toThrow();

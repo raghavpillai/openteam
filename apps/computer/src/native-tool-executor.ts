@@ -28,7 +28,6 @@ import {
   formatShellCompletedResult,
   formatShellStartedResult,
   shellTimedOutIntro,
-  shellUserBackgroundedIntro,
   terminalFooter,
   terminalFrontmatter,
   truncateShellOutput,
@@ -151,7 +150,7 @@ export class NativeToolExecutor {
     signal?: AbortSignal,
     environment?: NodeJS.ProcessEnv,
     scope = "",
-    routing: { channelId?: string; automationRunId?: string; secrets?: string[]; secretEnvironment?: Record<string, string>; background?: AbortSignal } = {}
+    routing: { channelId?: string; automationRunId?: string; secrets?: string[]; secretEnvironment?: Record<string, string> } = {}
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     signal?.throwIfAborted();
     const startedAt = Date.now();
@@ -293,22 +292,13 @@ export class NativeToolExecutor {
 
     const blockMs = Math.max(0, Math.min(2_147_483_647, input.block_until_ms ?? DEFAULT_BLOCK_MS));
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    let onBackground: (() => void) | undefined;
     let completed = await Promise.race([
       completion.then((exitCode) => ({ done: true as const, exitCode })),
-      new Promise<{ done: false; manual: false }>(
-        (resolveTimeout) => (timeoutId = setTimeout(() => resolveTimeout({ done: false, manual: false }), blockMs))
+      new Promise<{ done: false }>(
+        (resolveTimeout) => (timeoutId = setTimeout(() => resolveTimeout({ done: false }), blockMs))
       ),
-      // A new user message moves a running foreground command to the background.
-      new Promise<{ done: false; manual: true }>((resolveBackground) => {
-        if (!routing.background) return;
-        onBackground = () => resolveBackground({ done: false, manual: true });
-        if (routing.background.aborted) onBackground();
-        else routing.background.addEventListener("abort", onBackground, { once: true });
-      }),
     ]);
     if (timeoutId) clearTimeout(timeoutId);
-    if (onBackground) routing.background?.removeEventListener("abort", onBackground);
     // A stopped command is being killed; report its interruption, not a backgrounding.
     if (!completed.done && abortedAt !== undefined) completed = { done: true, exitCode: await completion };
     signal?.removeEventListener("abort", abort);
@@ -317,15 +307,15 @@ export class NativeToolExecutor {
       this.shellJobs.markBackground(shellId);
       void completion.catch(() => undefined);
       const details = { shellId, status: "running", outputPath };
-      if (blockMs === 0 && !completed.manual)
+      if (blockMs === 0)
         return textResult(formatShellStartedResult({ shellId, pid: child.pid, command, outputPath }), details);
       return textResult(formatShellBackgroundedResult({
-        intro: completed.manual ? shellUserBackgroundedIntro(Date.now() - startedAt) : shellTimedOutIntro(blockMs),
+        intro: shellTimedOutIntro(blockMs),
         shellId,
         pid: child.pid,
         outputPath,
         partial: output.excerpt(),
-      }), completed.manual ? { ...details, backgroundedBy: "user_message" } : details);
+      }), details);
     }
 
     const elapsedMs = Date.now() - startedAt;

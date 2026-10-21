@@ -224,7 +224,7 @@ describe("specialized subagent tool surfaces", () => {
       searches.push(query);
       return { content: [{ type: "text", text: "results" }], details: {} };
     };
-    const active = { ...workerTurn("executor"), runId: "run-1", pendingSteers: [] };
+    const active = { ...workerTurn("executor"), runId: "run-1" };
     const result = await runtime.executeOpenTeamTool(active, "call-1", "WebSearch", { search_term: "openteam" });
     expect(result.content[0].text).toBe("results");
     expect(searches).toEqual(["openteam"]);
@@ -241,7 +241,7 @@ describe("specialized subagent tool surfaces", () => {
       waits.push([input, scope]);
       return { content: [{ type: "text", text: "done" }], details: {} };
     };
-    const active = { ...workerTurn("computerUse"), botId: "worker-bot", runId: "run-1", pendingSteers: [] };
+    const active = { ...workerTurn("computerUse"), botId: "worker-bot", runId: "run-1" };
     const result = await runtime.executeOpenTeamTool(active, "call-1", "AwaitShell", { shell_id: "7", block_until_ms: 1000 });
     expect(result.content[0].text).toBe("done");
     expect(waits).toEqual([[expect.objectContaining({ shell_id: "7" }), "worker-bot"]]);
@@ -439,7 +439,7 @@ describe("durable state tools", () => {
         for (const name of namespacedStateTools) expect(cursorToolNames(runtime, active)).not.toContain(name);
       }
     }
-    const readOnly = { ...workerTurn("executor", { readOnly: true }), runId: "run-1", pendingSteers: [] };
+    const readOnly = { ...workerTurn("executor", { readOnly: true }), runId: "run-1" };
     for (const name of ["UpdateMemory", "UpdateRoutine"])
       await expect(runtime.executeOpenTeamTool(readOnly, "call-1", name, { action: "pause", id: "brief" })).rejects.toThrow("read-only");
     for (const toolName of namespacedStateTools)
@@ -453,7 +453,7 @@ describe("durable state tools", () => {
       calls.push({ tool, args });
       return { content: [], details: {} };
     };
-    const active = { ...workerTurn(null), runId: "run-1", pendingSteers: [] };
+    const active = { ...workerTurn(null), runId: "run-1" };
     await runtime.executeOpenTeamTool(active, "memory", "UpdateMemory", { target: "memory", action: "write", fact: " Prefers tea. ", type: "profile" });
     await runtime.executeOpenTeamTool(active, "routine", "UpdateRoutine", { action: "pause", id: "brief" });
     await expect(runtime.executeOpenTeamTool(active, "invalid", "UpdateMemory", { action: "create", fact: "x", type: "profile" })).rejects.toThrow(
@@ -741,14 +741,14 @@ test('Task returns the server receipt in one call, since every Task runs in the 
     return Response.json('Subagent is running in the background.');
   }) as unknown as typeof fetch;
   try {
-    const result = await runtime.callControlPlaneTool({pendingSteers:[]}, 'call', 'Task', {prompt:'long task', run_in_background:false});
+    const result = await runtime.callControlPlaneTool({}, 'call', 'Task', {prompt:'long task', run_in_background:false});
     expect(requests).toHaveLength(1);
     expect(requests[0].foregroundYield).toBeUndefined();
     expect(result.content[0].text).toContain('Subagent is running in the background.');
   } finally {globalThis.fetch=previousFetch;}
 });
 
-test('browser workers retain their parent desktop session and steering cancels only the waiting run', async () => {
+test('browser workers retain their parent desktop session', async () => {
   const tools = runtimeTools() as any;
   tools.screens.browserEndpointForAgent = async () => 'http://unused-test-endpoint';
   const used: string[] = [];
@@ -766,11 +766,7 @@ test('browser workers retain their parent desktop session and steering cancels o
   expect(tools.browserUseSessions.get('new-worker')).toBe(first);
   await tools.callBrowserUse({...turn,botId:'another-worker',screenBotId:'desktop-b'},'browser_console_messages',{});
   expect(tools.browserUseSessions.get('another-worker')).toBe(other);
-  const pending=tools.callBrowserForTurn(turn,'browser_wait_for',{time:10});
-  await new Promise(resolve=>setTimeout(resolve,0));
-  tools.interruptShellWaits('different-run'); expect(tools.shellWaits.size).toBe(1);
-  tools.interruptShellWaits('wait-run'); await expect(pending).rejects.toThrow('new user message');
-  expect(tools.shellWaits.size).toBe(0); expect(used).toEqual(['first','other','first']);
+  expect(used).toEqual(['first','other']);
 });
 
 test('Task reads subagent_type spellings as their type and reports a refused dispatch as Error: reason', async () => {
@@ -784,7 +780,7 @@ test('Task reads subagent_type spellings as their type and reports a refused dis
   try {
     const task = runtime.dynamicCatalog(workerTurn(null)).find((namespace: any) => namespace.name === 'cursor').tools.find((tool: any) => tool.name === 'Task');
     expect(task.decodeArguments({ description: 'Book', prompt: 'Book it', subagent_type: 'computer_use' }).subagent_type).toBe('computerUse');
-    const active = { ...workerTurn(null), runId: 'run-1', discoveredDynamicTools: new Set(['cursor/Task']), pendingSteers: [] };
+    const active = { ...workerTurn(null), runId: 'run-1', discoveredDynamicTools: new Set(['cursor/Task']) };
     await expect(runtime.executeOpenTeamTool(active, 'call', 'CallDynamicTool', {
       namespace: 'cursor', toolName: 'Task', arguments: { description: 'Book', prompt: 'Book it', subagent_type: 'computer_use' },
     })).rejects.toThrow(/^Error: That background subagent is still running, so it can't be resumed yet\.$/);
@@ -829,7 +825,7 @@ test('the parent-only dispatch reminder names only tools the parent has and that
 
 test('a readonly worker lists and greps with Shell on the box, reads only through read tools, and moves no files', async () => {
   const runtime = runtimeTools() as any;
-  const readonly = workerTurn('executor', { readOnly: true, runId: 'run-ro', discoveredDynamicTools: new Set(), pendingSteers: [],
+  const readonly = workerTurn('executor', { readOnly: true, runId: 'run-ro', discoveredDynamicTools: new Set(),
     pluginNamespaces: [{ name: 'gmail_work', description: 'Gmail', namespaceStatus: 'ready', tools: [
       { connectionId: 'c1', name: 'search_threads', description: '', inputSchema: { type: 'object' }, source: 'gmail/gmail' },
       { connectionId: 'c1', name: 'whoami', description: '', inputSchema: { type: 'object' }, source: 'custom/custom', readOnly: true },

@@ -3,7 +3,7 @@ import { RuntimeTools } from "../../src/runtime/tools";
 
 function fixture(response: Record<string, unknown>) {
   const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
-  const active: any = { runId: "fixture", botId: "fixture", screenBotId: "fixture", sentMessageCount: 0, toolActivityAfterLastSend: true, pendingSteers: [], queue: { push() {} } };
+  const active: any = { runId: "fixture", botId: "fixture", screenBotId: "fixture", sentMessageCount: 0, toolActivityAfterLastSend: true, queue: { push() {} } };
   const calls: any[] = [];
   tools.callControlPlaneTool = async (turn: any, id: string, name: string, args: any) => {
     const originalFetch = globalThis.fetch;

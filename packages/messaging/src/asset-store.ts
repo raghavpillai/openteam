@@ -1,4 +1,4 @@
-import { attachmentLimitForName, attachmentRejectionMessage, videoMimeForName } from "@openteam/contracts/media-input";
+import { attachmentLimitForName, attachmentRejectionMessage, missingAttachmentMessage, tooLargeAttachmentMessage, videoMimeForName } from "@openteam/contracts/media-input";
 import { createHash, randomUUID } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { createReadStream } from "node:fs";
@@ -511,6 +511,9 @@ export class AssetStore {
       const roots = await Promise.all(
         this.allowedFileRoots.map((root) => realpath(root).catch(() => resolve(root)))
       );
+      // A missing deliverable is not an access problem: say there is no file there.
+      if (!source && [...roots, ...this.allowedFileRoots].some((root) => within(root, resolve(requested))))
+        throw new ApiError(404, "attachment_missing", missingAttachmentMessage(requested));
       if (!source || !roots.some((root) => within(root, source))) {
         throw new ApiError(
           400,
@@ -528,8 +531,7 @@ export class AssetStore {
       if (!info.isFile()) throw new ApiError(400, "invalid_asset_path", "Attachment is not a file");
       const fileName = input.fileName ?? basename(source);
       const maximum = attachmentLimitForName(fileName);
-      if (info.size > maximum)
-        throw new ApiError(413, "asset_too_large", "Attachment exceeds its size limit");
+      if (info.size > maximum) throw new ApiError(413, "asset_too_large", tooLargeAttachmentMessage(fileName));
       return this.ingestStream({
         fileName,
         mimeType: input.mimeType,

@@ -19,6 +19,13 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)("delivery addresses survive
   expect((await db.channelMessage.findUniqueOrThrow({where:{id:(reply.acknowledgement as any).message_id}})).metadata).toMatchObject({replyTo:user.id,address:"t0s6"});
   await messaging().reactToMessage({...context,callId:"reaction"},{message_address:"t0u",emoji:"👍"});
   expect((await db.channelMessage.findUniqueOrThrow({where:{id:user.id}})).metadata).toMatchObject({reactions:[{by:"agent",emoji:"👍"}]});
+  // A malformed address, or one that names no user message here, is an answer rather than a failure.
+  expect(await messaging().reactToMessage({...context,callId:"reaction-bad"},{message_address:"user-1",emoji:"👍"})).toEqual({reacted:false,removed:false,
+    note:'"user-1" isn\'t a valid message address. React with the [t3u]-style tag shown on the user\'s message.'});
+  const own={reacted:false,removed:false,note:"No user message t0s0 in this chat, so nothing was reacted to."};
+  expect(await messaging().reactToMessage({...context,callId:"reaction-own"},{message_address:"t0s0",emoji:"👍"})).toEqual(own);
+  expect(await messaging().reactToMessage({...context,callId:"reaction-own"},{message_address:"t0s0",emoji:"👍"})).toEqual(own);
+  expect(await messaging().reactToMessage({...context,callId:"reaction-unknown"},{message_address:"t9u",emoji:"👍"})).toMatchObject({note:"No user message t9u in this chat, so nothing was reacted to."});
   const direct=await messaging().sendVisible({...context,channelId:groupId,callId:"private-from-group"},{type:"text",content:"Private",to:"dm"});
   expect(direct.acknowledgement).toMatchObject({channel_id:channelId,message_address:"t0s7"});
   expect(await db.$transaction(tx=>resolveMessageAddress(tx,groupId,"t0s0"))).toBeNull();

@@ -33,7 +33,7 @@ import {
   rm,
   stat,
 } from "node:fs/promises";
-import { dirname, extname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import {
   ApiError,
   BOT_MEMORY_LIST_LIMIT,
@@ -108,6 +108,7 @@ import { resolveTimeZone } from "./timestamps";
 import { MEMORY_EXTRACTION_SYSTEM_PROMPT } from "./memory-prompts";
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+const AVATAR_SIZE_REFUSAL = "the image must be under 5 MB and non-empty.";
 const AVATAR_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"] as const;
 const MEMORY_INFERENCE_DEADLINE_MS = 90_000;
 const MAX_HELD_MEMORY_EXCHANGES = 5;
@@ -1867,14 +1868,14 @@ export class AgentDataStore {
     const directory = this.botDirectory(botId);
     const canonical = await realpath(resolve(directory, supplied)).catch(() => null);
     const agentDirectory = await realpath(directory).catch(() => directory);
-    if (!canonical || !this.isInside(canonical, agentDirectory)) {
-      throw new Error(`avatar source must stay inside ${directory}`);
-    }
-    const bytes = await readBytes(canonical, MAX_AVATAR_BYTES);
-    const extension = bytes ? sniffAvatarExtension(bytes) : null;
-    if (!bytes || !extension) {
-      throw new Error("avatar must be a supported non-empty image no larger than 5 MB");
-    }
+    const unreadable = `could not read "${basename(supplied)}" from your agent directory. The avatar source must stay inside ${directory}: write or copy the image there first, then pass that path.`;
+    if (!canonical || !this.isInside(canonical, agentDirectory)) throw new Error(unreadable);
+    const bytes = await readBytes(canonical, MAX_AVATAR_BYTES).catch((error: unknown) => {
+      throw new Error(error instanceof Error && error.message.includes("is larger than") ? AVATAR_SIZE_REFUSAL : unreadable);
+    });
+    if (!bytes?.length) throw new Error(AVATAR_SIZE_REFUSAL);
+    const extension = sniffAvatarExtension(bytes);
+    if (!extension) throw new Error("that file is not a recognized image (png, jpg, webp, gif, or svg).");
     await this.clearAvatarFiles(botId);
     const destination = join(directory, `avatar${extension}`);
     await atomicWrite(destination, bytes);

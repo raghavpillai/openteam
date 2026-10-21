@@ -41,6 +41,10 @@ export class ConnectorFileTransfers {
         `${c.installation.pluginKey} (account="${c.alias}")`,
       ].includes(connectionName)
     );
+    // Several accounts of one service: name them instead of calling the service unknown.
+    if (matches.length > 1)
+      throw Object.assign(new Error("Several accounts match this connection"), {outcome:{kind:"ambiguous_connection",
+        service:matches[0]!.installation.name,candidates:matches.map((c)=>connectionNamespace(c.id,c.alias))}});
     if (matches.length !== 1)
       throw Object.assign(new Error(
         `Select one available file connection by ID: ${available.map((c) => `${c.name} account=${c.alias} id=${c.id}`).join(", ") || "none; connect Google Drive or Gmail"}`

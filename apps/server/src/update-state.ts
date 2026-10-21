@@ -34,6 +34,9 @@ const requiredText = (
   return text;
 };
 
+/** The reference's state refusal: a normal result the model reads as "Not saved: <reason>". */
+const refused = (target: string, action: string, reason: string) => ({ target, action, refused: reason });
+
 const stateError = (tool: StateToolName, action: string): never => {
   throw new ApiError(400, "state_action_invalid", `${tool} does not support action=${action}`);
 };
@@ -41,7 +44,9 @@ const stateError = (tool: StateToolName, action: string): never => {
 const PROFILE_FIELDS = ["name", "description", "title", "avatar_shape", "avatar_color"] as const;
 const SHARED_MEMORY_SHARED_CONVERSATION_REFUSAL =
   "shared_profile and shared_journal are the owner's memory across their assistants and are not written from a shared conversation.";
-const SETTINGS_FIELDS = ["hidden_from_sidebar", "notify_on_updates"] as const;
+const SETTINGS_FIELDS = ["hidden_from_sidebar", "notify_on_updates", "drafting_disabled"] as const;
+const DRAFTING_OFF_NEEDS_THE_USER =
+  'only the user can turn drafts off. Nothing was changed. Tell them to click "Disable drafts for this Bot" on a draft card.';
 
 const stateToolArguments = {
   UpdateMemory: UpdateMemoryToolInput,
@@ -86,6 +91,7 @@ export class DurableStateService {
     if (!changesSettings || PROFILE_FIELDS.every((field) => input[field] === undefined))
       return run(changesSettings ? settings : profile);
     const saved = await run(profile);
+    if (typeof saved.refused === "string") return saved;
     try {
       return { ...saved, settings: await run(settings, `${callId}:settings`) };
     } catch (error) {
@@ -243,23 +249,23 @@ export class DurableStateService {
   ): Promise<Record<string, unknown>> {
     if (input.action === "delete") {
       const id = requiredText(input.id, "id", tool, input.action);
-      const removed = await this.agentData.deleteSkill(botId, id);
-      if (!removed) {
-        throw new ApiError(404, "skill_not_found", "That skill does not belong to this bot");
-      }
+      if (!(await this.agentData.deleteSkill(botId, id)))
+        return refused("skill", "delete", `no skill with id "${id}" exists, or it is a managed or plugin skill, which cannot be deleted.`);
       return { target: "skill", action: "delete", id, deleted: true };
     }
     if (input.action !== "write") return stateError(tool, input.action);
 
-    const name = requiredText(input.name, "name", tool, input.action);
-    const description = requiredText(input.description, "description", tool, input.action);
-    const body = requiredText(input.body, "body", tool, input.action);
-    const saved = await this.agentData.writeSkill(botId, {
-      id: input.id,
-      name,
-      description,
-      body,
+    const missing = `no skill with id "${input.id}" exists, or the new fields were invalid. Managed and plugin skills cannot be edited.`;
+    const [name, description, body] = [input.name, input.description, input.body].map((value) => value?.trim());
+    if (!name || !description || !body)
+      return refused("skill", "write", input.id === undefined
+        ? "the skill could not be saved. A name, a one-line description, and a non-empty body are all required."
+        : missing);
+    const saved = await this.agentData.writeSkill(botId, { id: input.id, name, description, body }).catch((error: unknown) => {
+      if (error instanceof Error && error.message === "Skill not found") return null;
+      throw error;
     });
+    if (!saved) return refused("skill", "write", missing);
     return {
       target: "skill",
       action: "write",
@@ -276,15 +282,10 @@ export class DurableStateService {
     tool: StateToolName
   ): Promise<Record<string, unknown>> {
     if (input.action !== "set") return stateError(tool, input.action);
-    if (PROFILE_FIELDS.every((field) => input[field] === undefined)) {
-      throw new ApiError(
-        400,
-        "state_field_required",
-        `${tool} requires at least one of ${[...PROFILE_FIELDS, ...SETTINGS_FIELDS].join(", ")}`
-      );
-    }
-    const name =
-      input.name === undefined ? undefined : requiredText(input.name, "name", tool, "set");
+    if (PROFILE_FIELDS.every((field) => input[field] === undefined))
+      return refused("profile", "set", "nothing to change. Pass at least one of name, description, title, avatar_shape, or avatar_color.");
+    if (input.name !== undefined && !input.name.trim()) return refused("profile", "set", "a blank name is not allowed.");
+    const name = input.name?.trim();
     const description = input.description?.trim();
     const bot = await this.agentData.mutateBotFiles(botId, ["profile"], async (tx) => {
       const previous = await tx.bot.findUniqueOrThrow({ where: { id: botId } });
@@ -326,23 +327,22 @@ export class DurableStateService {
     tool: StateToolName
   ): Promise<Record<string, unknown>> {
     if (input.action !== "set") return stateError(tool, input.action);
-    if (SETTINGS_FIELDS.every((field) => input[field] === undefined)) {
-      throw new ApiError(
-        400,
-        "state_field_required",
-        `${tool} settings require hidden_from_sidebar and/or notify_on_updates`
-      );
-    }
+    // Drafts are turned off from a draft card by the user; the bot can only turn them back on.
+    if (input.drafting_disabled === true) return refused("settings", "set", DRAFTING_OFF_NEEDS_THE_USER);
+    if (SETTINGS_FIELDS.every((field) => input[field] === undefined))
+      return refused("settings", "set", "nothing to change. Pass at least one setting field.");
     const settings = await this.agentData.mutateBotFiles(botId, ["settings"], (tx) =>
       tx.bot.update({
         where: { id: botId },
         data: {
           hiddenFromSidebar: input.hidden_from_sidebar,
           notificationsEnabled: input.notify_on_updates,
+          draftingDisabled: input.drafting_disabled,
         },
         select: {
           hiddenFromSidebar: true,
           notificationsEnabled: true,
+          draftingDisabled: true,
         },
       })
     );
@@ -351,6 +351,7 @@ export class DurableStateService {
       action: "set",
       hidden_from_sidebar: settings.hiddenFromSidebar,
       notify_on_updates: settings.notificationsEnabled,
+      drafting_disabled: settings.draftingDisabled,
       updated: true,
     };
   }
@@ -362,6 +363,8 @@ export class DurableStateService {
   ): Promise<Record<string, unknown>> {
     if (input.action !== "disconnect") return stateError(tool, input.action);
     const platform = requiredText(input.platform, "platform", tool, input.action).toLowerCase();
+    const state = await this.prisma.botConnectorState.findUnique({ where: { botId_platform: { botId, platform } } });
+    if (!state?.connected) return { ...refused("channel", "disconnect", `${platform} is not connected.`), platform };
     const disconnectedAt = new Date();
     await this.prisma.botConnectorState.upsert({
       where: { botId_platform: { botId, platform } },
@@ -383,6 +386,8 @@ export class DurableStateService {
     tool: StateToolName
   ): Promise<Record<string, unknown>> {
     if (input.action === "clear") {
+      const bot = await this.prisma.bot.findUnique({ where: { id: botId }, select: { avatarPath: true } });
+      if (!bot?.avatarPath) return refused("avatar", "clear", "you already have the default picture.");
       await this.agentData.setAvatarFromPath(botId, null);
       return { target: "avatar", action: "clear", cleared: true };
     }
@@ -392,11 +397,7 @@ export class DurableStateService {
     try {
       saved = await this.agentData.setAvatarFromPath(botId, supplied);
     } catch (error) {
-      throw new ApiError(
-        400,
-        "avatar_path_invalid",
-        error instanceof Error ? error.message : "Avatar source is invalid"
-      );
+      return refused("avatar", "set", error instanceof Error ? error.message : "the picture could not be installed.");
     }
     return {
       target: "avatar",

@@ -302,13 +302,15 @@ export const renderTeammatesUserInfo = (input: {
   ].join("\n");
 };
 
+const PRIORITY_INTERRUPTIBLE_ORIGINS: ReadonlySet<string> = new Set(["routine", "event", "background_revival", "broadcast"]);
+
 export const directAgentAcknowledgement = (input: {
   targetName: string;
   priority: boolean;
 }): string => {
   const name = compactName(input.targetName);
   const prefix = input.priority
-    ? `Sent to ${name} as a priority message — it will interrupt their current non-user work and wake them now.`
+    ? `Sent to ${name} as a priority message — it jumps their queue and interrupts any routine or background work they are running; if they are mid-conversation with the user or handling another agent's message, it is delivered right after that.`
     : `Sent to ${name}.`;
   return `${prefix} This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now.`;
 };
@@ -366,11 +368,12 @@ export const groupAgentAcknowledgement = (
       `Note: the attached ${imageCount === 1 ? "image was" : "images were"} NOT delivered — group messages are text-only for now; send images to an agent directly.`
     );
   }
+  if (options.priority) result.push("Note: priority is 1:1 only — this post did not interrupt members.");
   return result.join(" ");
 };
 
 export const GROUP_MEMBER_TURN_MESSAGE_LIMIT_NOTICE =
-  "Not delivered — you've reached this room turn's 3-message limit. Consolidate, or wait for your next turn.";
+  "This message was not delivered. You've reached this room turn's 3-message limit. Consolidate, or wait for your next turn.";
 
 export interface GroupTurnPromptMember {
   id: string;
@@ -2344,6 +2347,8 @@ export class AgentMessaging {
 
   async sendToAgent(context: ToolContext, input: SendToAgentInput): Promise<ToolResult> {
     let groupRoundId: string | null = null;
+    // A refused send is an answer the model reads, not a tool failure.
+    const refusal = (acknowledgement: string) => ({ acknowledgement, interruptRunId: null });
     const result = await this.prisma.$transaction(async (tx) => {
       const source = await tx.bot.findUnique({
         where: { id: context.botId },
@@ -2357,15 +2362,15 @@ export class AgentMessaging {
         include: { members: true },
       });
       if (addressedChannel && addressedChannel.kind !== "group") {
-        throw new Error(`${input.target_id} is not a group chat.`);
+        return refusal(`${input.target_id} is not a group chat.`);
       }
       if (addressedChannel?.kind === "group" && addressedChannel.archivedAt) {
-        throw new Error(`No group found with id ${input.target_id}.`);
+        return refusal(`No group found with id ${input.target_id}.`);
       }
       const group = addressedChannel;
       if (group) {
         if (!group.members.some((member) => member.botId === context.botId)) {
-          throw new Error("You can only post to a group you're a member of.");
+          return refusal("You can only post to a group you're a member of.");
         }
         if (context.channelId === group.id && context.deliveryId) {
           throw new ApiError(
@@ -2386,6 +2391,7 @@ export class AgentMessaging {
           return {
             acknowledgement: groupAgentAcknowledgement(group.name, {
               imageCount: input.images?.length,
+              priority: input.priority,
             }),
             interruptRunId: null,
           };
@@ -2449,6 +2455,7 @@ export class AgentMessaging {
         return {
           acknowledgement: groupAgentAcknowledgement(group.name, {
             imageCount: input.images?.length,
+            priority: input.priority,
           }),
           interruptRunId: null,
         };
@@ -2464,7 +2471,7 @@ export class AgentMessaging {
         },
       });
       if (target?.id === source.id) {
-        throw new Error(
+        return refusal(
           "You can't message yourself with SendToAgent. Use SendToUser to talk to the user, or pick a different target id."
         );
       }
@@ -2473,7 +2480,7 @@ export class AgentMessaging {
         !["active", "provisioning"].includes(target.status) ||
         target.subagentIdentity
       ) {
-        throw new Error(`No agent found with id ${input.target_id}.`);
+        return refusal(`No agent found with id ${input.target_id}.`);
       }
       const directContent = clampAgentMessage(input.message);
       if (!directContent) {
@@ -2506,7 +2513,8 @@ export class AgentMessaging {
             include: { run: true },
           })
         : null;
-      const interruptRunId = lease && lease.run.origin !== "user" ? lease.runId : null;
+      // Priority interrupts background work only; a conversation turn finishes first.
+      const interruptRunId = lease && PRIORITY_INTERRUPTIBLE_ORIGINS.has(lease.run.origin) ? lease.runId : null;
       const occurredAt = new Date();
       const attachments = await this.attachmentsForWake({ images: input.images ?? [] });
       const { targetDmChannelId } = await this.projectDirectPeerMessage(tx, {
@@ -2563,12 +2571,13 @@ export class AgentMessaging {
     context: ToolContext,
     input: ReactToMessageInput
   ): Promise<Record<string, unknown>> {
-    const match = input.message_address.match(/^t(\d+)u$/);
-    if (!match?.[1]) {
-      throw new Error(
-        `${JSON.stringify(input.message_address)} isn't a valid message address. React with the [t3u]-style tag shown on the user's message.`
-      );
-    }
+    // A malformed or unknown address is an answer the model reads, not a tool failure.
+    if (!/^t(?:\d+u(?:a\d+)?|(?:\d+|b)[as]\d+)$/.test(input.message_address))
+      return {
+        reacted: false,
+        removed: false,
+        note: `${JSON.stringify(input.message_address)} isn't a valid message address. React with the [t3u]-style tag shown on the user's message.`,
+      };
     if (!context.channelId) throw new Error("No active chat for this reaction");
     const scope = `reaction:${context.botId}`;
     const requestHash = `${input.message_address}:${input.emoji}`;
@@ -2596,7 +2605,14 @@ export class AgentMessaging {
         where:{id:addressed.id,channel:{members:{some:{botId:context.botId}}}},
         include:{channel:{include:{members:{select:{botId:true}}}}}
       }) : null;
-      if (!message) throw new Error("The addressed user message is not visible to this bot");
+      if (!message) {
+        const result = { reacted: false, removed: false, note: `No user message ${input.message_address} in this chat, so nothing was reacted to.` };
+        await tx.idempotencyRecord.update({
+          where: { scope_key: { scope, key: context.callId } },
+          data: { status: "completed", response: json(result) },
+        });
+        return result;
+      }
       const metadata =
         message.metadata && !Array.isArray(message.metadata) && typeof message.metadata === "object"
           ? ({ ...message.metadata } as Record<string, unknown>)
@@ -2695,7 +2711,8 @@ export class AgentMessaging {
         if (normalized.status !== "message") return { acknowledgement: { sent: false, silent: true }, interruptRunId: null };
         content = normalized.content;
       }
-      if (privateDm && input.type !== "text") {
+      // A room cannot hold a draft card, so a draft from a room goes to the bot's own 1:1 chat.
+      if (privateDm && input.type !== "text" && input.type !== "external-draft") {
         throw new ApiError(
           400,
           "dm_text_only",
@@ -2777,7 +2794,9 @@ export class AgentMessaging {
         throw new ApiError(
           409,
           "awaiting_user_response",
-          "A question or secure handoff is already waiting for the user. Stop this turn and wait for them to respond."
+          ["widget", "secret-request"].includes(input.type)
+            ? "This turn already asks the user something (a question widget, a secret or credential request, or another card), and only one can be open at a time, so this one was not shown. The user's answer arrives as the next message; ask this then if it still matters."
+            : "This turn is already waiting on the user (you sent a question widget or handed the box back to them), so this message was not delivered. Wait for the user. Their response arrives as the next message. Then say this on your next turn."
         );
       }
       if (channel.kind === "group" && context.deliveryId) {

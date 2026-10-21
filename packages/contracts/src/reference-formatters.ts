@@ -5,6 +5,9 @@ function formatBytes2(bytes) {
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${bytes} bytes`;
 }
+function describeAmbiguousConnectorConnection(requested, resolution) {
+  return `${JSON.stringify(requested)} matches several connected ${resolution.service} accounts: ${resolution.candidates.join(", ")}. Pass one of those identifiers as connection (GetMcpServerStatus shows which account each one is) so the right account is used.`;
+}
 function describeUploadFileOutcome(outcome, request3) {
   switch (outcome.kind) {
     case "uploaded": {
@@ -22,6 +25,8 @@ function describeUploadFileOutcome(outcome, request3) {
       return `The ${request3.connection} connection is installed but not signed in, so nothing was uploaded. Ask the user to connect ${request3.connection} again (AuthenticateMcpServer can start that), then retry.`;
     case "unknown_connection":
       return outcome.available.length === 0 ? "No connected service can receive files this turn, so nothing was uploaded. Tell the user which service you need connected." : `${JSON.stringify(request3.connection)} is not a connection that can receive files. Use one of: ${outcome.available.join(", ")}.`;
+    case "ambiguous_connection":
+      return `${describeAmbiguousConnectorConnection(request3.connection, outcome)} Nothing was uploaded.`;
     case "source_missing":
       return `Nothing was uploaded: ${request3.sourcePath} does not exist on your computer or is not a regular file. Check the path with Shell (ls -l) and retry.`;
     case "source_refused":
@@ -60,6 +65,8 @@ function describeDownloadFileOutcome(outcome, request3) {
       return `The ${request3.connection} connection is installed but not signed in, so nothing was downloaded. Ask the user to connect ${request3.connection} again (AuthenticateMcpServer can start that), then retry.`;
     case "unknown_connection":
       return outcome.available.length === 0 ? "No connected service can serve files this turn, so nothing was downloaded. Tell the user which service you need connected." : `${JSON.stringify(request3.connection)} is not a connection that can serve files. Use one of: ${outcome.available.join(", ")}.`;
+    case "ambiguous_connection":
+      return `${describeAmbiguousConnectorConnection(request3.connection, outcome)} Nothing was downloaded.`;
     case "destination_refused":
       return `Nothing was downloaded: DownloadFile only writes under ${outcome.allowedRoots.join(" or ")}. Pass a destination.path under one of those directories, or omit it to use your downloads folder.`;
     case "not_found":

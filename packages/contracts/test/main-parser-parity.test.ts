@@ -54,3 +54,96 @@ test("parsers keep the reference arguments OpenTeam supports", async () => {
   expect(renderControlResult("StopSubagent", { stopped_all: true, stopped: [], already_finished: [], failed: [] }, { all: true }))
     .toStartWith("No background subagents are running, so there was nothing of your own to stop.");
 });
+test("SendToUser refuses fields and files it would silently drop", () => {
+  const refusal = (args: unknown) => {
+    try { normalizeMainToolArguments("SendToUser", args); } catch (error) { return (error as Error).message; }
+    throw new Error("accepted");
+  };
+  const others = 'Send every other file (PDF, document, spreadsheet, video) as its own SendToUser call with type:"attachment" and url (file:// or https://), one call per file.';
+  expect(refusal({ type: "text", content: "hi", attachments: [{ url: "file:///workspace/a.pdf" }] })).toBe(
+    `Invalid arguments:\nattachments: attachments is not a SendToUser field, so it would be silently dropped. Nothing was sent. Put images that go with your text in images on the type:text message. ${others}`
+  );
+  expect(refusal({ content: "hi", files: ["file:///workspace/a.pdf"] })).toStartWith("Invalid arguments:\nfiles: files is not a SendToUser field");
+  // Field issues still come back beside the hint.
+  expect(refusal({ type: "text", files: ["/workspace/a.pdf"] })).toBe(
+    `Invalid arguments:\nfiles: files is not a SendToUser field, so it would be silently dropped. Nothing was sent. Put images that go with your text in images on the type:text message. ${others}\ncontent: content is required when type is text`
+  );
+  expect(normalizeMainToolArguments("SendToUser", { type: "text", content: "hi", attachments: [] })).toEqual({ type: "text", content: "hi" });
+  expect(refusal({ type: "text", content: "hi", images: [{ url: "file:///workspace/report.pdf" }] })).toBe(
+    `Invalid arguments:\nimages.0.url: each images url must be a picture that goes with your text, and this one is another kind of file, so nothing was sent. ${others}`
+  );
+  for (const url of ["file:///workspace/chart.png", "https://example.com/photo.JPG?x=1", "file:///workspace/logo.svg", "https://example.com/render"])
+    expect(normalizeMainToolArguments("SendToUser", { type: "text", content: "hi", images: [{ url }] }).images).toEqual([{ url }]);
+  expect(refusal({ type: "text", content: "hi", images: [{ url: "/workspace/chart.png" }] })).toBe(
+    "Invalid arguments:\nimages.0.url: each images url must include a file:// or https:// scheme. For a file on your computer, put file:// before its absolute path (file:///workspace/chart.png) and send it again. Nothing was sent."
+  );
+  expect(refusal({ type: "attachment", url: "/workspace/report.pdf" })).toBe(
+    "Invalid arguments:\nurl: url must include a file:// or https:// scheme when type is attachment. For a file on your computer, put file:// before its absolute path (file:///workspace/report.pdf) and send it again. Nothing was sent."
+  );
+  expect(refusal({ type: "attachment", url: "file:///workspace/a.pdf", content: "here" })).toBe(
+    "Invalid arguments:\ncontent: content is only valid with type:text and cannot be sent on a type:attachment message. It would be silently dropped. Nothing was sent. Re-send as separate SendToUser calls, one per type: this field on its own properly-typed message (type:text), and any text as its own type:text message."
+  );
+});
+test("argument errors list one path and message per issue", () => {
+  expect(() => normalizeMainToolArguments("ReactToMessage", {})).toThrow(
+    "Invalid arguments:\nmessage_address: Invalid input: expected string, received undefined\nemoji: Invalid input: expected string, received undefined"
+  );
+  expect(() => normalizeMainToolArguments("UpdateMemory", { action: "write", fact: "x" })).toThrow(
+    "Invalid arguments:\ntype: UpdateMemory: pick the memory type it belongs in"
+  );
+});
+test("reference aliases and wrong-tool hints for file tools", async () => {
+  const { applyArgumentAliases } = await import("../src/reference-main-parsers");
+  const { parseConnectorTransfer } = await import("../src/connector-transfers");
+  for (const alias of ["path", "source_path", "sourcePath", "source", "local_path"])
+    expect(applyArgumentAliases("CopyToBox", { [alias]: "/Users/a/x.csv", machineId: "m1" })).toEqual({ computer_path: "/Users/a/x.csv", machineId: "m1" });
+  expect(applyArgumentAliases("CopyToBox", { computer_path: "/a", path: "/b" })).toEqual({ computer_path: "/a", path: "/b" });
+  expect(applyArgumentAliases("CopyToBox", { path: "/a", source: "/a" })).toEqual({ computer_path: "/a" });
+  expect(() => applyArgumentAliases("CopyToBox", { path: "/a", source: "/b" })).toThrow(
+    "Invalid arguments:\ncomputer_path: Pass the file's absolute path on the user's computer once, as computer_path."
+  );
+  const shape = 'Shape: {"connection": "google-drive", "source": {"fileId": "<id>"}, "destination"?: {"path": "<box path>"}}.';
+  expect(() => parseConnectorTransfer("DownloadFile", { url: "https://example.com/a.pdf" })).toThrow(
+    `Invalid arguments:\nurl: DownloadFile fetches a file from a connected Google Drive / Gmail account. For a URL use WebFetch or Shell curl; for a file already on this box use Read. ${shape}\nconnection: Invalid input: expected string, received undefined\nsource: Invalid input: expected object, received undefined`
+  );
+  expect(() => parseConnectorTransfer("DownloadFile", { file_path: "/workspace/a.pdf" })).toThrow(
+    `file_path: DownloadFile fetches a file from a connected Google Drive / Gmail account. For a file already on this box use Read; for a URL use WebFetch or Shell curl. ${shape}`
+  );
+  expect(() => parseConnectorTransfer("UploadFile", { connection: "google-drive", path: "/workspace/a.pdf" })).toThrow(
+    'Invalid arguments:\nargument: UploadFile sends a file that is already on your box into a connected Google Drive / Gmail account; sourcePath is the box path. Shape: {"connection": "google-drive", "sourcePath": "/workspace/report.pdf", "destination"?: {"path": "<folder>"} | {"folderId": "<id>"} | {"draftId": "<id>"}}.\nsourcePath: Invalid input: expected string, received undefined'
+  );
+  expect(parseConnectorTransfer("UploadFile", { connection: "google-drive", sourcePath: "/workspace/a.pdf" })).toMatchObject({ sourcePath: "/workspace/a.pdf" });
+});
+test("CheckSubagent points at the subagent's transcript by id", async () => {
+  const { renderControlResult } = await import("../src/tool-results");
+  const detail = renderControlResult("CheckSubagent", {
+    subagent_id: "sand-subagent-1", subagent_type: "executor", description: "Fix", status: "running", elapsed_seconds: 5, recent_tool_calls: [], transcript_path: "/private/run.jsonl",
+  }, { subagent_id: "sand-subagent-1" });
+  expect(detail.split("\n").at(-1)).toBe("  Full transcript: call ReadTranscript with in=sand-subagent-1 for the complete play-by-play.");
+  expect(detail).not.toContain("/private/run.jsonl");
+});
+test("a reaction that could not be placed reads as its note", async () => {
+  const { renderControlResult } = await import("../src/tool-results");
+  expect(renderControlResult("ReactToMessage", { reacted: false, removed: false, note: "No user message t9u in this chat, so nothing was reacted to." }, { message_address: "t9u", emoji: "👍" }))
+    .toBe("No user message t9u in this chat, so nothing was reacted to.");
+});
+test("SendToUser text gets real line breaks for escaped ones outside code", () => {
+  const content = (text: string) => normalizeMainToolArguments("SendToUser", { type: "text", content: text }).content;
+  expect(content("hi\\nthere")).toBe("hi\nthere");
+  expect(content("Done.\\n\\n- one\\n- two")).toBe("Done.\n\n- one\n- two");
+  expect(content('She said \\"yes\\"')).toBe('She said "yes"');
+  expect(content("Use `printf 'a\\nb'` here")).toBe("Use `printf 'a\\nb'` here");
+  expect(content("```\nline\\nkept\n```")).toBe("```\nline\\nkept\n```");
+  expect(content("Saved to C:\\new\\report.txt")).toBe("Saved to C:\\new\\report.txt");
+  expect(normalizeMainToolArguments("SendToUser", { type: "attachment", url: "file:///workspace/a\\nb.pdf" }).url).toBe("file:///workspace/a\\nb.pdf");
+});
+test("a sent local file other than a picture or video carries the snapshot note", async () => {
+  const { renderControlResult } = await import("../src/tool-results");
+  const note = " The user got a copy of the file as it is now. Later edits to the file do not reach them until you send it again; earlier copies stay in the chat unchanged.";
+  const sent = (args: Record<string, unknown>) => renderControlResult("SendToUser", { sent: true, message_address: "t2s1" }, args);
+  expect(sent({ type: "attachment", url: "file:///workspace/report.pdf" })).toBe(`Message sent to user. (id: t2s1)${note}`);
+  expect(sent({ type: "attachment", url: "file:///workspace/notes" })).toBe(`Message sent to user. (id: t2s1)${note}`);
+  for (const url of ["file:///workspace/chart.png", "file:///workspace/clip.MP4", "https://example.com/report.pdf"])
+    expect(sent({ type: "attachment", url })).toBe("Message sent to user. (id: t2s1)");
+  expect(sent({ type: "text", content: "hi", images: [{ url: "file:///workspace/a.png" }] })).toBe("Message sent to user. (id: t2s1)");
+});

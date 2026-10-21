@@ -2,9 +2,12 @@ import {expect, test} from "bun:test";
 import {parseReadTranscriptInput} from "@openteam/contracts/read-transcript";
 import {boundTranscriptValue, transcriptToolProjection} from "../src/read-transcript";
 test("strict bounded selectors and cursors", () => {
-  expect(parseReadTranscriptInput({})).toEqual({limit:30, before:undefined});
-  expect(parseReadTranscriptInput({subagent_id:" worker ",before:0,limit:200}).subagent_id).toBe("worker");
-  for(const input of [{limit:0},{limit:201},{limit:1.2},{before:-1},{before:Infinity},{agent_id:"a",session_id:"b"},{subagent_id:[]},{extra:true},{toString:1},[]]) expect(()=>parseReadTranscriptInput(input)).toThrow();
+  expect(parseReadTranscriptInput({})).toEqual({in:"this", limit:30, before:undefined});
+  expect(parseReadTranscriptInput({in:" "})).toEqual({in:"this", limit:30, before:undefined});
+  expect(parseReadTranscriptInput({in:" worker ",before:0,limit:200}).in).toBe("worker");
+  expect(()=>parseReadTranscriptInput({in:"all"})).toThrow("ReadTranscript reads one transcript at a time: pass in=this or one id.");
+  // The three retired ids are unknown fields now.
+  for(const input of [{limit:0},{limit:201},{limit:1.2},{before:-1},{before:Infinity},{agent_id:"a"},{session_id:"b"},{subagent_id:"c"},{in:[]},{extra:true},{toString:1},[]]) expect(()=>parseReadTranscriptInput(input)).toThrow();
 });
 test("projection excludes arguments, hidden fields, arbitrary details and held form results", () => {
   const result = transcriptToolProjection({tool:"CallDynamicTool",arguments:{toolName:"RequestUserForm",password:"DO_NOT_RETURN"},thinking:"PRIVATE",result:{content:[{type:"text",text:"HELD_FORM"}],details:{token:"SECRET"}}});

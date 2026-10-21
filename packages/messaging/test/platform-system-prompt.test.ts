@@ -255,6 +255,15 @@ describe("platform prompt integration", () => {
     expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toMatch(/live meeting|Outlook|Auto-review|saved send rule listed/);
   });
 
+  test("a stop request starts with StopSubagent all: true, which also reaches peers", () => {
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain(
+      "Your first tool call for it is StopSubagent with all: true; that one call stops every running child (computerUse, executor, and all other Task children, plus anything they started) and delivers a stop to every peer agent you handed work to (each then stops its own subagents the same way)"
+    );
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("Do not CheckSubagent first or stop children one by one");
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain("call CheckSubagent with no id, issue StopSubagent for every running child");
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain("cloud agent");
+  });
+
   test("the copied question-widget example passes OpenTeam's real send validation", () => {
     const example = PLATFORM_BASE_SYSTEM_PROMPT.match(
       /send a question widget instead of prose: (\{.+\})\./

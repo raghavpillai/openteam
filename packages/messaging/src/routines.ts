@@ -217,29 +217,13 @@ const routineWakeContent = (input: {
   provenance?: string;
   kind: "scheduled" | "manual" | "event";
   eventCount?: number;
-  routineStatuses?: ReadonlyArray<{ name: string; folder: string; status: string }>;
 }): string => {
   const trusted = input.provenance === "user" ? "[SAND_TRUSTED_AUTOMATION_PROMPT]" : "";
   const eventCount = input.eventCount ?? 1;
   const schedule = input.schedule ?? "scheduled routine";
   const folder = input.folder ?? input.name;
-  const routineStatuses = input.routineStatuses ?? [];
-  const reminder = routineStatuses.length
-    ? [
-        "<system_reminder>",
-        "<automation_status>",
-        "Current routine runtime status. This snapshot is authoritative for this turn and supersedes earlier routine status reminders.",
-        ...routineStatuses.map(
-          (routine) => `- ${routine.name} (folder ${routine.folder}): ${routine.status}`
-        ),
-        "</automation_status>",
-        "</system_reminder>",
-        "",
-      ]
-    : [];
   return [
     `[SAND_HIDDEN_PROMPT]${trusted}`,
-    ...reminder,
     input.kind === "event" ? `[routine] ${JSON.stringify(input.name)} (folder ${folder}) received ${eventCount === 1 ? "a matching connector event" : `${eventCount} matching connector events`} at ${input.firedAt.toISOString()}.` : input.kind === "manual"
       ? `[routine] ${JSON.stringify(input.name)} (folder ${folder}) was run on demand — ${humanSchedule(schedule)} (${schedule}), fired ${input.firedAt.toISOString()}.`
       : `[routine] ${JSON.stringify(input.name)} (folder ${folder}) is due — ${humanSchedule(schedule)} (${schedule}), fired ${input.firedAt.toISOString()}.`,
@@ -267,7 +251,6 @@ export const scheduledRoutineWakeContent = (input: {
   scheduledFor: Date;
   prompt: string;
   provenance?: string;
-  routineStatuses?: ReadonlyArray<{ name: string; folder: string; status: string }>;
 }): string =>
   routineWakeContent({
     ...input,
@@ -282,7 +265,6 @@ export const manualRoutineWakeContent = (input: {
   firedAt: Date;
   prompt: string;
   provenance: string;
-  routineStatuses?: ReadonlyArray<{ name: string; folder: string; status: string }>;
 }): string => routineWakeContent({ ...input, kind: "manual" });
 
 export const appendRoutineRunLedger = (
@@ -1116,8 +1098,10 @@ export class RoutineService {
       data: { events: jsonInput(events), coalescedKeys: { push: dedupeKey } },
     });
     if (inbox && pending.run) {
-      const wake = eventWake(routine, events, pending.scheduledFor);
-      const content = timestampUserTurn(wake.content, { occurredAt: pending.scheduledFor, timeZone: routine.timezone });
+      // A follow-up fires when it starts, not when its first event arrived.
+      const startedAt = pending.enqueuedAt ?? pending.scheduledFor;
+      const wake = eventWake(routine, events, startedAt);
+      const content = timestampUserTurn(wake.content, { occurredAt: startedAt, timeZone: routine.timezone });
       await tx.inboxEvent.update({
         where: { id: inbox.id },
         data: { payload: jsonInput({ ...(inbox.payload as Record<string, unknown>), content }) },

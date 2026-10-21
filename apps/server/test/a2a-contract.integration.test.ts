@@ -162,7 +162,7 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
       botId: string;
       conversationId: string;
       channelId: string;
-      origin: "user" | "group" | "agent" | "routine";
+      origin: "user" | "group" | "agent" | "routine" | "background_revival";
     }) =>
       app.prisma.$transaction(async (tx) => {
         const message = await tx.message.create({
@@ -197,7 +197,7 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
       });
 
     // A priority message never cuts into a conversation: a room turn or another agent's message
-    // finishes first. Only routines and other background work are interrupted.
+    // finishes first. Only background work in the foreground lane is interrupted.
     for (const origin of ["group", "agent"] as const) {
       await leaseRun({ botId: peer.id, conversationId: peer.conversationId, channelId: groupId, origin });
       const held = await app.messaging.sendToAgent(
@@ -210,11 +210,19 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
       );
       await app.prisma.botRunLease.deleteMany({ where: { botId: peer.id } });
     }
+    // A routine runs on its own automation lease, so the message runs beside it and nothing is interrupted.
+    const routineRun = await leaseRun({ botId: peer.id, conversationId: peer.conversationId, channelId: groupId, origin: "routine" });
+    await app.prisma.botRunLease.update({ where: { runId: routineRun.id }, data: { scope: `automation:${routineRun.id}` } });
+    expect((await app.messaging.sendToAgent(
+      { ...context, callId: "a2a-priority-beside-routine" },
+      { target_id: peer.id, message: "Look at this too.", priority: true }
+    )).interruptRunId).toBeNull();
+    await app.prisma.botRunLease.deleteMany({ where: { botId: peer.id } });
     const nonUserRun = await leaseRun({
       botId: peer.id,
       conversationId: peer.conversationId,
       channelId: groupId,
-      origin: "routine",
+      origin: "background_revival",
     });
     const priorityInterrupt = await app.messaging.sendToAgent(
       { ...context, callId: "a2a-priority-interrupt" },

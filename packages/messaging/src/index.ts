@@ -361,7 +361,9 @@ export const renderTeammatesUserInfo = (input: {
   ].join("\n");
 };
 
-const PRIORITY_INTERRUPTIBLE_ORIGINS: ReadonlySet<string> = new Set(["routine", "event", "background_revival", "broadcast"]);
+// Routine runs hold their own automation lease, never the foreground one, so a priority
+// message already runs beside them instead of waiting; the reference acknowledgement still names them.
+const PRIORITY_INTERRUPTIBLE_ORIGINS: ReadonlySet<string> = new Set(["event", "background_revival", "broadcast"]);
 
 export const directAgentAcknowledgement = (input: {
   targetName: string;
@@ -1840,7 +1842,6 @@ export class AgentMessaging {
         todos: { orderBy: { position: "asc" }, take: TODO_MAX_ITEMS },
       },
     });
-    const todoContext = bot.todos.map((todo) => `- [${todo.status}] ${todo.id}: ${todo.content}`);
     // The summary carrier lists todos in the reference's format.
     const todoUpdate = bot.todos.length > 0
       ? bot.todos.map((todo) => `- **${todo.status.toUpperCase()}**: ${todo.content} (id: ${todo.id})`).join("\n")

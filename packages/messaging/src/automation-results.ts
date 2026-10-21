@@ -71,8 +71,11 @@ async function pendingAutomationShells(
 }
 
 /** One saved occurrence can span several parent turns and delegated workers. Returns the
- * routine whose execution settled, so a follow-up that collected events can start. */
-export async function reconcileRoutineExecution(tx: Prisma.TransactionClient, runId: string): Promise<string | undefined> {
+ * execution that settled, for what follows it (RoutineService.afterExecution). */
+export async function reconcileRoutineExecution(
+  tx: Prisma.TransactionClient,
+  runId: string
+): Promise<{ executionId: string; routineId: string } | undefined> {
   const run = await tx.run.findUnique({
     where: { id: runId },
     include: { inboxEvents: { take: 1, select: { payload: true } } },
@@ -141,7 +144,8 @@ export async function reconcileRoutineExecution(tx: Prisma.TransactionClient, ru
     },
   });
   if (!updated.count) return;
-  return (await tx.routineExecution.findUnique({ where: { runId: rootId }, select: { routineId: true } }))?.routineId;
+  const settled = await tx.routineExecution.findUnique({ where: { runId: rootId }, select: { id: true, routineId: true } });
+  return settled ? { executionId: settled.id, routineId: settled.routineId } : undefined;
 }
 
 /** Shell and delegated-worker completions resume their owning automation. Once that

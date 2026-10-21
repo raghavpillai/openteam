@@ -749,7 +749,7 @@ export class WakeWorker {
       if (execution.runId && execution.run) {
         const updated = await this.prisma.$transaction(async tx => {
           const settled = await reconcileRoutineExecution(tx, execution.runId!);
-          if (settled) await this.routines.startEventFollowUp(tx, settled);
+          if (settled) await this.routines.afterExecution(tx, settled);
           return settled;
         });
         if (updated && execution.routine.botId) {
@@ -1384,7 +1384,7 @@ export class WakeWorker {
           data: { status: "completed", completedAt },
         });
         const settledRoutine = await reconcileRoutineExecution(tx, claimed.runId);
-        if (settledRoutine) await this.routines.startEventFollowUp(tx, settledRoutine);
+        if (settledRoutine) await this.routines.afterExecution(tx, settledRoutine);
         if (claimed.origin === "bootstrap") {
           const onboarding = await tx.bot.updateMany({
             where: { id: claimed.botId, onboardingStatus: "running" },
@@ -1616,7 +1616,7 @@ export class WakeWorker {
         data: { status: "failed", error: failureDetails, completedAt: new Date() },
       });
       const settledRoutine = await reconcileRoutineExecution(tx, claimed.runId);
-      if (settledRoutine) await this.routines.startEventFollowUp(tx, settledRoutine);
+      if (settledRoutine) await this.routines.afterExecution(tx, settledRoutine);
       if (claimed.origin === "bootstrap") {
         const onboarding = await tx.bot.updateMany({
           where: { id: claimed.botId, onboardingStatus: "running" },

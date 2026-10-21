@@ -318,7 +318,7 @@ test.skipIf(!databaseUrl)("WakeParent stops the automation's subagents and the r
     expect(woken).toMatchObject({ woken: true, automation_run_ids: [run.id] });
     expect(stopped).toEqual([[botId, "handoff", { subagent_id: `sand-subagent-${subagent.id}` }]]);
     await prisma.run.update({ where: { id: run.id }, data: { status: "completed", completedAt: new Date() } });
-    expect(await prisma.$transaction((tx) => reconcileRoutineExecution(tx, run.id))).toBe(routine.id);
+    expect(await prisma.$transaction((tx) => reconcileRoutineExecution(tx, run.id))).toEqual({ executionId: execution.id, routineId: routine.id });
     expect((await prisma.routineExecution.findUniqueOrThrow({ where: { id: execution.id } })).status).toBe("completed");
   } finally {
     await prisma.bot.deleteMany({ where: { id: { in: [botId, childBotId] } } });

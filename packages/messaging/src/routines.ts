@@ -1498,110 +1498,145 @@ export class RoutineService {
     input: RoutineMutationInput
   ) {
     const id = required(input.id, "id");
-    return this.prisma.$transaction(async (tx) => {
-      if (owner.kind === "bot") {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${owner.id}`}))`;
-      }
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine-owner:${owner.kind}:${owner.id}`}))`;
-      const current = await lockedOwnedRoutine(tx, owner, id);
-      if (input.expectedRevision !== undefined && input.expectedRevision !== current.revision) {
-        throw new ApiError(
-          409,
-          "routine_revision_conflict",
-          "This routine changed somewhere else. Reload it and try again."
-        );
-      }
-      const now = new Date();
-      const enabled = input.action === "resume";
-      const deleted = input.action === "delete";
-      if (!deleted && current.enabled === enabled) {
-        return {
-          ...view(current),
-          action: input.action,
-          paused: false,
-          resumed: false,
-          deleted: false,
-          unchanged: true,
-        };
-      }
-      const schedule = {
+    return this.prisma.$transaction((tx) => this.lifecycleIn(tx, owner, callId, runId, input, id));
+  }
+
+  private async lifecycleIn(
+    tx: Prisma.TransactionClient,
+    owner: RoutineOwner,
+    callId: string,
+    runId: string | null,
+    input: RoutineMutationInput,
+    id: string
+  ) {
+    if (owner.kind === "bot") {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${owner.id}`}))`;
+    }
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine-owner:${owner.kind}:${owner.id}`}))`;
+    const current = await lockedOwnedRoutine(tx, owner, id);
+    if (input.expectedRevision !== undefined && input.expectedRevision !== current.revision) {
+      throw new ApiError(
+        409,
+        "routine_revision_conflict",
+        "This routine changed somewhere else. Reload it and try again."
+      );
+    }
+    const now = new Date();
+    const enabled = input.action === "resume";
+    const deleted = input.action === "delete";
+    if (!deleted && current.enabled === enabled) {
+      return {
+        ...view(current),
+        action: input.action,
+        paused: false,
+        resumed: false,
+        deleted: false,
+        unchanged: true,
+      };
+    }
+    const schedule = {
+      scheduleText: current.scheduleText,
+      scheduleKind: current.scheduleKind,
+      cronExpression: current.cronExpression,
+      intervalSeconds: current.intervalSeconds,
+      timezone: current.timezone,
+    };
+    const revision = current.revision + 1;
+    const routine = await tx.routine.update({
+      where: { id: current.id },
+      data: {
+        enabled: deleted ? false : enabled,
+        revision,
+        nextRunAt:
+          enabled && schedule.scheduleKind !== "event"
+            ? nextRoutineTriggerRun(
+                current.trigger as Record<string, unknown>,
+                schedule,
+                now,
+                this.installationZone
+              )
+            : null,
+        pausedAt: enabled ? null : now,
+        deletedAt: deleted ? now : null,
+      },
+    });
+    await tx.routineRevision.create({
+      data: {
+        routineId: current.id,
+        revision,
+        name: current.name,
+        prompt: current.prompt,
         scheduleText: current.scheduleText,
         scheduleKind: current.scheduleKind,
         cronExpression: current.cronExpression,
         intervalSeconds: current.intervalSeconds,
+        timezoneMode: current.timezoneMode,
         timezone: current.timezone,
-      };
-      const revision = current.revision + 1;
-      const routine = await tx.routine.update({
-        where: { id: current.id },
-        data: {
-          enabled: deleted ? false : enabled,
-          revision,
-          nextRunAt:
-            enabled && schedule.scheduleKind !== "event"
-              ? nextRoutineTriggerRun(
-                  current.trigger as Record<string, unknown>,
-                  schedule,
-                  now,
-                  this.installationZone
-                )
-              : null,
-          pausedAt: enabled ? null : now,
-          deletedAt: deleted ? now : null,
-        },
-      });
-      await tx.routineRevision.create({
-        data: {
-          routineId: current.id,
-          revision,
-          name: current.name,
-          prompt: current.prompt,
-          scheduleText: current.scheduleText,
-          scheduleKind: current.scheduleKind,
-          cronExpression: current.cronExpression,
-          intervalSeconds: current.intervalSeconds,
-          timezoneMode: current.timezoneMode,
-          timezone: current.timezone,
-          enabled: routine.enabled,
-          source: input.source ?? "agent",
-          callId,
-          runId,
-        },
-      });
-      await tx.event.create({
-        data: {
-          topic: `routine.${input.action}d`,
-          entityId: current.id,
-          payload: {
-            routineId: current.id,
-            ownerId: owner.id,
-            ownerKind: owner.kind,
-            ...(owner.kind === "bot" ? { botId: owner.id } : { channelId: owner.id }),
-            revision,
-          },
-        },
-      });
-      await appendRoutineChangedEvent(
-        tx,
-        this.host,
-        owner,
+        enabled: routine.enabled,
+        source: input.source ?? "agent",
         callId,
-        routine,
-        deleted ? "deleted" : enabled ? "enabled" : "disabled",
-        now
-      );
-      if (owner.kind === "bot") {
-        if (deleted) await this.files?.deleteRoutine(owner.id, routine.id, tx);
-        else await this.files?.writeRoutine(owner.id, routine.id, tx);
-      }
-      return {
-        ...view(routine),
-        action: input.action,
-        paused: input.action === "pause",
-        resumed: input.action === "resume",
-        deleted,
-      };
+        runId,
+      },
     });
+    await tx.event.create({
+      data: {
+        topic: `routine.${input.action}d`,
+        entityId: current.id,
+        payload: {
+          routineId: current.id,
+          ownerId: owner.id,
+          ownerKind: owner.kind,
+          ...(owner.kind === "bot" ? { botId: owner.id } : { channelId: owner.id }),
+          revision,
+        },
+      },
+    });
+    await appendRoutineChangedEvent(
+      tx,
+      this.host,
+      owner,
+      callId,
+      routine,
+      deleted ? "deleted" : enabled ? "enabled" : "disabled",
+      now
+    );
+    if (owner.kind === "bot") {
+      if (deleted) await this.files?.deleteRoutine(owner.id, routine.id, tx);
+      else await this.files?.writeRoutine(owner.id, routine.id, tx);
+    }
+    return {
+      ...view(routine),
+      action: input.action,
+      paused: input.action === "pause",
+      resumed: input.action === "resume",
+      deleted,
+    };
+  }
+
+  /** A PR-scoped repo listener deletes its routine once a wake carrying the PR's terminal
+   * event (merged, or closed on GitHub) has finished. */
+  private async finishTerminalWatch(tx: Prisma.TransactionClient, executionId: string) {
+    const execution = await tx.routineExecution.findUnique({ where: { id: executionId }, include: { routine: true } });
+    const routine = execution?.routine;
+    if (!routine || routine.deletedAt || !Array.isArray(execution.events)) return;
+    const trigger = parseStoredTrigger(routine.trigger);
+    const listeners = (trigger.type === "group" ? trigger.listeners : [trigger]) as Array<Record<string, unknown>>;
+    const terminal = (execution.events as unknown as AutomationEvent[]).some((event) =>
+      (event.kind === "pr-merged" || (event.kind === "pr-closed" && event.source === "github")) &&
+      listeners.some((listener) =>
+        listener.pr !== undefined && Array.isArray(listener.events) && listener.events.includes(event.kind) &&
+        matchesAutomationEvent(listener, event)
+      )
+    );
+    if (!terminal) return;
+    await this.lifecycleIn(tx, routineOwnerFrom(routine), `routine-terminal:${executionId}`, null, { action: "delete", source: "agent" }, routine.id);
+  }
+
+  /** After an execution settles: a finished PR watch deletes itself, and events that arrived
+   * meanwhile start the next wake. */
+  async afterExecution(tx: Prisma.TransactionClient, settled: { executionId: string; routineId: string }) {
+    await this.finishTerminalWatch(tx, settled.executionId);
+    return this.startEventFollowUp(tx, settled.routineId);
   }
 
   async dispatchDue(now = new Date()): Promise<number> {

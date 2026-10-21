@@ -353,7 +353,8 @@ export class Mailbox {
     limit?: number;
     mode?: SearchMode;
   }) {
-    if (input.inbox_email && input.inbox_email.trim().toLowerCase() !== this.settings.address)
+    const inbox = input.inbox_email?.trim().toLowerCase();
+    if (inbox && inbox !== this.settings.address)
       throw new Error(
         `inbox_email must be one of your own addresses (see ListEmailInboxes): ${this.settings.address}`
       );

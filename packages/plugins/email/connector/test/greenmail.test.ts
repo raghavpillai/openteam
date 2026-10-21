@@ -148,7 +148,7 @@ suite("Email connector against an IMAP/SMTP server", () => {
       `No email threads match "nothing-${id}". Try different words, a wider time range, or mode "keyword" for an exact address or phrase.`
     );
     // An empty bound counts as omitted; bounds must be ordered and readable.
-    expect(await call("SearchEmailThreads", { query: id, after: "", before: " " })).toContain(`thread_id: ${message}`);
+    expect(await call("SearchEmailThreads", { query: id, inbox_email: " ", from_address: "", after: "", before: " " })).toContain(`thread_id: ${message}`);
     await expect(
       call("SearchEmailThreads", { query: id, after: "2026-10-02T00:00:00Z", before: "2026-10-01T00:00:00Z" })
     ).rejects.toThrow("after must be earlier than before.");

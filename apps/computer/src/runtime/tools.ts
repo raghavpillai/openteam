@@ -660,6 +660,7 @@ export class RuntimeTools {
               machineId: shellInput.machineId!,
               shellId: result.details.shell_id,
               outputPath: result.details.output_path,
+              title: (shellInput.description?.trim() || shellInput.command).slice(0, 4000),
             });
           }
           return result;

@@ -1351,6 +1351,8 @@ export const ShellCompletionInput = Schema.Struct({
   exitCode: Schema.NullOr(Schema.Number),
   error: Schema.optional(Schema.String.pipe(Schema.maxLength(4000))),
   channelId: Schema.optional(Schema.String),
+  /** The Shell call's description, else its (redacted) command. */
+  title: Schema.optional(Schema.String.pipe(Schema.maxLength(4000))),
 });
 export type ShellCompletionInput = typeof ShellCompletionInput.Type;
 

@@ -154,6 +154,19 @@ describe("native computer tools", () => {
     expect(await header()).toContain("status: succeeded\n");
   }, 15_000);
 
+  shellTest("a background completion carries the call's description, else its command", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openteam-native-title-"));
+    const completions: Array<{ title?: string; exitCode: number | null }> = [];
+    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token", onShellComplete: async (job) => { completions.push(job); } });
+    await executor.shell({ command: "exit 2", description: "Run the suite", block_until_ms: 0 }, root);
+    await executor.shell({ command: "true", block_until_ms: 0 }, root);
+    for (let attempt = 0; attempt < 50 && completions.length < 2; attempt++) await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+    expect(completions.map(({ title, exitCode }) => ({ title, exitCode })).sort((a, b) => a.title!.localeCompare(b.title!))).toEqual([
+      { title: "Run the suite", exitCode: 2 },
+      { title: "true", exitCode: 0 },
+    ]);
+  });
+
   test("Shell backgrounds long commands and exposes their log path", async () => {
     const root = await mkdtemp(join(tmpdir(), "openteam-native-background-"));
     const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });

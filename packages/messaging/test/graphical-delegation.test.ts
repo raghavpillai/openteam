@@ -6,6 +6,8 @@ import {
   graphicalDelegationInstructions,
   renderAgentSkillsUserInfo,
   renderSubagentRevivalPrompt,
+  renderShellCompletionPrompt,
+  SUBAGENT_REVIVAL_INSTRUCTION,
   subagentSpecializationInstructions,
 } from "../src/index";
 import { PLATFORM_BASE_SYSTEM_PROMPT } from "../src/platform-system-prompt";
@@ -132,6 +134,22 @@ describe("main-agent graphical delegation instructions", () => {
     expect(wake).toContain("tell them with a SendToUser");
     expect(wake).not.toContain("user_visible_high_level_summary");
     expect(wake).not.toContain("<response>");
+  });
+
+  test("renders a finished background shell like a finished subagent, naming the command", () => {
+    expect(renderShellCompletionPrompt({ id: "123456", scope: "bot", outputPath: "/t/123456.log", exitCode: 1, title: "npm test" })).toBe(
+      [
+        "[SAND_HIDDEN_PROMPT][A background task just completed] A background task you started has finished.",
+        "",
+        'Background task "npm test" (shell) failed:',
+        "exit_code=1",
+        "Full output: /t/123456.log",
+        "",
+        SUBAGENT_REVIVAL_INSTRUCTION,
+      ].join("\n")
+    );
+    const host = renderShellCompletionPrompt({ id: "x", hostShellId: "77", machineId: "mac", scope: "bot", outputPath: "/h/77.log", exitCode: 0 });
+    expect(host).toContain('Background task "Background command 77" (shell) finished:\nFull output: /h/77.log\nThis is on the user’s computer; use Read or AwaitShell with machineId "mac".\n');
   });
 
   test("renders an administrator broadcast as a hidden non-user wake", () => {

@@ -30,6 +30,7 @@
     "./version-compatibility": "./src/version-compatibility.ts",
     "./robot-avatar": "./src/robot-avatar.ts",
     "./plugin-management": "./src/plugin-management.ts",
+    "./plugin-namespaces": "./src/plugin-namespaces.ts",
     "./user-forms": "./src/user-forms.ts",
     "./external-draft": "./src/external-draft.ts",
     "./bot-recipe": "./src/bot-recipe.ts",

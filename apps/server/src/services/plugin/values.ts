@@ -1,6 +1,6 @@
 import { oauthCallbackMode, MANUAL_OAUTH_REDIRECT } from "../../plugins/oauth-callback";
 import { createToolValidator } from "@openteam/plugin-sdk/json-schema";
-import type { PluginConnectionView, PluginDynamicNamespace } from "@openteam/contracts";
+import type { PluginConnectionView } from "@openteam/contracts";
 import { ApiError } from "@openteam/contracts";
 import type { Prisma } from "@openteam/db";
 import { toJson } from "../service-utils";
@@ -111,13 +111,6 @@ export const publicTools = (value: unknown) =>
     description,
     risk,
   }));
-
-export const statusForRuntime = (status: string): PluginDynamicNamespace["namespaceStatus"] => {
-  if (status === "ready") return "ready";
-  if (status === "needs_auth") return "needsAuth";
-  if (status === "error") return "error";
-  return "loading";
-};
 
 export const normalizedConnectorKey = (value: string): string =>
   value.trim().toLowerCase().replaceAll("_", "-");

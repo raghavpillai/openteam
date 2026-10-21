@@ -1,5 +1,6 @@
 import { rankPluginsLexically } from "@openteam/contracts/reference-formatters";
 import { PLUGIN_WORKFLOW_HOST_CONTEXT } from "@openteam/contracts/plugin-workflows";
+import { pluginDynamicNamespaces } from "@openteam/contracts/plugin-namespaces";
 import type {
   PluginActivityView,
   PluginConnectionStatusesView,
@@ -16,7 +17,7 @@ import {
   PLUGIN_CONNECTION_STATUS_MAX_IDS,
 } from "@openteam/contracts";
 import { Prisma, type PrismaClient } from "@openteam/db";
-import { fileTransferCapabilities, type PluginDefinition } from "@openteam/plugin-sdk";
+import type { PluginDefinition } from "@openteam/plugin-sdk";
 import { loadConnectionNamespaces } from "./namespaces";
 import { serviceEffect } from "../service-utils";
 import {
@@ -31,7 +32,6 @@ import {
   jsonObject,
   namespaceName,
   publicTools,
-  statusForRuntime,
   toolSnapshot,
 } from "./values";
 import { pluginSecretOwner } from "../process-secrets";
@@ -288,20 +288,7 @@ export class PluginQueries {
       include: { installation: true },
       orderBy: { createdAt: "asc" },
     });
-    const namespaces = await loadConnectionNamespaces(this.prisma);
-    return connections.map((connection) => ({
-      name: namespaces.get(connection.id)!,
-      description: `${connection.installation.name}: ${connection.name}${connection.instructions ? `\nSaved instructions: ${connection.instructions}` : ""}`,
-      namespaceStatus: statusForRuntime(connection.status),
-      fileTransfers: fileTransferCapabilities(connection.installation.pluginKey),
-      tools: toolSnapshot(connection.toolSnapshot).map((tool) => ({
-          connectionId: connection.id,
-          name: tool.name,
-          description: tool.description,
-          inputSchema: { ...tool.inputSchema },
-          source: `${connection.installation.pluginKey}/${connection.connectorKey}`,
-        })),
-    }));
+    return pluginDynamicNamespaces(connections, await loadConnectionNamespaces(this.prisma));
   };
 
   skillInstructions = async (botId: string): Promise<string> => {

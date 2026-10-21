@@ -1,13 +1,13 @@
 import type { PluginDynamicNamespace } from "@openteam/contracts";
 import {
   connectionNamespaces,
-  fileTransferCapabilities,
   parsePluginRuntimeComponents,
   pluginWorkflowRoot,
   type PluginRuntimePackage,
   type PluginSkillAgent,
 } from "@openteam/plugin-sdk";
 import { PLUGIN_WORKFLOW_HOST_CONTEXT } from "@openteam/contracts/plugin-workflows";
+import { connectorCustomInstructionsSection, pluginDynamicNamespaces } from "@openteam/contracts/plugin-namespaces";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { PrismaClient } from "@openteam/db";
@@ -22,13 +22,6 @@ type JsonObject = Record<string, unknown>;
 
 const objectValue = (value: unknown): JsonObject =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as JsonObject) : {};
-
-const runtimeStatus = (status: string): PluginDynamicNamespace["namespaceStatus"] => {
-  if (status === "ready") return "ready";
-  if (status === "needs_auth") return "needsAuth";
-  if (status === "error") return "error";
-  return "loading";
-};
 
 type Installation = Awaited<ReturnType<PrismaClient["pluginInstallation"]["findMany"]>>[number];
 
@@ -113,33 +106,9 @@ export const pluginRuntimeContext = async (
   ]);
   const namespaces = connectionNamespaces(named);
 
-  const dynamicNamespaces: PluginDynamicNamespace[] = connections.map((connection) => ({
-    name: namespaces.get(connection.id)!,
-    description: `${connection.installation.name}: ${connection.name} (${connection.alias})${connection.instructions ? `\n${connection.instructions}` : ""}`,
-    namespaceStatus: runtimeStatus(connection.status),
-    ...(connection.status !== "ready" && connection.statusMessage
-      ? { statusMessage: connection.statusMessage.slice(0, 500) }
-      : {}),
-    fileTransfers: fileTransferCapabilities(connection.installation.pluginKey),
-    tools: Array.isArray(connection.toolSnapshot)
-      ? connection.toolSnapshot.flatMap((candidate) => {
-          const tool = objectValue(candidate);
-          if (
-            typeof tool.name !== "string"
-          )
-            return [];
-          return [
-            {
-              connectionId: connection.id,
-              name: tool.name,
-              description: typeof tool.description === "string" ? tool.description : "",
-              inputSchema: objectValue(tool.inputSchema),
-              source: `${connection.installation.pluginKey}/${connection.connectorKey}`,
-            },
-          ];
-        })
-      : [],
-  }));
+  const dynamicNamespaces = pluginDynamicNamespaces(connections, namespaces);
+  // Saved connector instructions are rules for the main agent and its routine runs, not for workers.
+  const customInstructions = agent === "main" ? connectorCustomInstructionsSection(connections, namespaces) : "";
 
   const cache = await readSkillCache();
   const pluginRuntimePackages: PluginRuntimePackage[] = [];
@@ -184,6 +153,6 @@ export const pluginRuntimeContext = async (
   return {
     dynamicNamespaces,
     pluginRuntimePackages,
-    skillInstructions: await renderSkillInstructions(prisma, botId, installations, agent),
+    skillInstructions: [customInstructions && `\n\n${customInstructions}`, await renderSkillInstructions(prisma, botId, installations, agent)].join(""),
   };
 };

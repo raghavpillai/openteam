@@ -427,8 +427,6 @@ test.each([
       customTools: () => [],
       acknowledgeToolOutcomes: async () => {},
       cancelApprovals() {},
-      refreshPrompt: async () => ({ instructions: "System fixture", userInfo: null }),
-      acknowledgePrompt: async () => {},
     };
     const activeTurn = (): ActiveTurn =>
       ({

@@ -103,8 +103,9 @@ atMost("startup bytes", result.renderer.startup.bytes, 1_200_000);
 if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure is missing");
 // noVNC's new dynamic boundary changes shared chunk layout: 1,205,086 bytes
 // versus 1,192,236 in the previous desktop. The 187 KB RFB client stays lazy.
-// Sharing the Model picker changes common chunks to 1,215,003 bytes.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_215_500);
+// Current main (69b13a34) measures 1,216,024 bytes after composer motion;
+// the shared Model/Voice notes settings bring it to 1,216,277 bytes.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_216_600);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -130,10 +131,9 @@ atMost("startup CSS bytes", startupCssBytes, 178_600);
 // and Claude, checked keys, and the model select.
 // October 20: thinking-orb loaders and the voice note glow add 72 KB / 28 KB gzip on demand.
 // With them and the server gauges: 16,425,283 bytes.
-// Main at 011a826d measures 16,438,552 after auto-review settings. The dedicated
-// lazy Model page with the shared searchable picker adds 3,643 bytes; keep
-// aggregate headroom below 0.02%.
-atMost("renderer bytes", result.renderer.bytes, 16_445_000);
+// Main at 69b13a34 measures 16,448,915 after auto-review settings and composer
+// motion. The dedicated Model/Voice notes pages add 5,358 bytes (16,454,273 total).
+atMost("renderer bytes", result.renderer.bytes, 16_455_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -141,8 +141,8 @@ atMost("renderer bytes", result.renderer.bytes, 16_445_000);
 // provider icons, 4,041,683; with the topology and the model picker, 4,046,893; with the
 // chaos fixes, 4,050,224; with the sign-in-or-key step and the model select, 4,051,639; with
 // the thinking-orb loaders, the voice note glow and the server gauges, 4,083,231.
-// Main measures 4,087,077 gzip; Model settings with search measures 4,089,485.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_090_000);
+// Current main measures 4,089,620 gzip; Model/Voice notes settings: 4,092,502.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_093_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -204,8 +204,8 @@ const lazyBudgets: Record<string, number> = {
   routineSummary: 40_000,
   // Thinking-orb loading indicators, fetched on first use so startup stays lean.
   loadingOrb: 28_000,
-  // The voice note recording bar: glow, gooey time chip and waveform (50,194 bytes).
-  voiceMemo: 52_000,
+  // Main's compact voice glow and recording bar measure 59,665 bytes; still lazy.
+  voiceMemo: 60_000,
   routineEditor: 100_000,
   newBot: 20_000,
   // The first-run wizard with its shared layout, step pictures, provider marks, and

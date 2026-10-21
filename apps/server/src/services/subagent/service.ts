@@ -45,12 +45,21 @@ export const subagentTaskWake = (input: TaskInput, type?: SubagentType) => ({
   wrapUserContent: false as const,
 });
 
+const STEER_HEADER = "[Steering message from the parent agent that dispatched you]";
+
 export const subagentSteerPrompt = (message: string): string =>
   [
-    "[Steering message from the parent agent that dispatched you]",
+    STEER_HEADER,
     message.trim(),
     "Take this into account and continue your task from where you are. Do not start over.",
   ].join("\n\n");
+
+const withEarlierInput = (earlier: string, steer: string): string => (earlier.trim() ? `${earlier}\n\n${steer}` : steer);
+/** A pending steer's content without its message, keeping undelivered input carried ahead of it. */
+const withoutLatestSteer = (content: string): string => {
+  const at = content.lastIndexOf(STEER_HEADER);
+  return at < 0 ? content : content.slice(0, at).trimEnd();
+};
 
 export const botSubagentId = (id: string): string =>
   id.startsWith("sand-subagent-") ? id : `sand-subagent-${id}`;
@@ -198,7 +207,8 @@ export class SubagentService {
   /**
    * As in the reference, a parent's message interrupts the running worker turn; the worker
    * then runs a new turn with the message. A message that arrives while that turn is still
-   * waiting replaces it, as the reference keeps only the latest pending one.
+   * waiting replaces it, as the reference keeps only the latest pending one. Input the cut-off
+   * turn never delivered to the model (the task itself, early on) goes ahead of the message.
    */
   async message(parentBotId: string, callId: string, input: MessageSubagentInput) {
     const subagent = await this.runningOwned(parentBotId, input.subagent_id);
@@ -218,13 +228,15 @@ export class SubagentService {
       if (current.count === 0) return null;
       const accepted = (runId: string, interruptedRunId: string | null) =>
         appendEvent(tx, "subagent.message_accepted", subagent.id, { parentBotId, subagentId: subagent.id, runId, interruptedRunId, callId });
-      const pending = run.status === "queued" ? await tx.inboxEvent.findFirst({ where: { runId: run.id, type: "subagent.steer", status: "pending" } }) : null;
-      if (pending) {
-        const payload = pending.payload as Prisma.JsonObject;
-        const replaced = await tx.inboxEvent.updateMany({ where: { id: pending.id, status: "pending" }, data: { payload: { ...payload, content: steer } } });
+      const undelivered = run.inputDeliveredAt ? null : await tx.inboxEvent.findFirst({ where: { runId: run.id } });
+      const payload = (undelivered?.payload ?? {}) as Record<string, unknown> & { content?: unknown; messageId?: unknown };
+      const earlier = typeof payload.content === "string" ? payload.content : "";
+      if (undelivered?.type === "subagent.steer" && undelivered.status === "pending") {
+        const content = withEarlierInput(withoutLatestSteer(earlier), steer);
+        const replaced = await tx.inboxEvent.updateMany({ where: { id: undelivered.id, status: "pending" }, data: { payload: { ...payload, content } as Prisma.InputJsonObject } });
         if (replaced.count > 0) {
           // The child's transcript shows the message the model gets.
-          if (typeof payload.messageId === "string") await tx.message.update({ where: { id: payload.messageId }, data: { content: steer } });
+          if (typeof payload.messageId === "string") await tx.message.update({ where: { id: payload.messageId }, data: { content } });
           await accepted(run.id, null);
           return { runId: run.id, interruptRunId: null };
         }
@@ -236,7 +248,7 @@ export class SubagentService {
         channelId,
         origin: "agent",
         type: "subagent.steer",
-        content: steer,
+        content: withEarlierInput(earlier, steer),
         wrapUserContent: false,
         clientId: `subagent-steer:${callId}`,
         priority: 350,

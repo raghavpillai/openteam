@@ -98,6 +98,16 @@ test("MessageSubagent interrupts the running worker turn and starts a new worker
   expect(f.locks).toEqual(["SELECT pg_advisory_xact_lock(hashtext(bot-run-claim:child-bot))", "SELECT pg_advisory_xact_lock(hashtext(bot-run-claim:child-bot))"]);
 });
 
+test("a message to a worker whose task has not reached the model yet keeps the task ahead of the message", async () => {
+  const f = fixture("running", null);
+  await f.service.message("parent", "call-1", { subagent_id: "sand-subagent-child", message: "Also check the prices." });
+  expect(f.wakes[0].content).toBe(`Compare the two plans.\n\n${subagentSteerPrompt("Also check the prices.")}`);
+  // A second message before that turn starts still replaces only the message.
+  await f.service.message("parent", "call-2", { subagent_id: "sand-subagent-child", message: "Only the first plan." });
+  expect(f.inbox[1].payload.content).toBe(`Compare the two plans.\n\n${subagentSteerPrompt("Only the first plan.")}`);
+  expect(f.messages["message-turn-2"]).toBe(f.inbox[1].payload.content);
+});
+
 test("a message that loses the race with the worker claiming the pending turn starts a new turn instead of editing the claimed one", async () => {
   const f = fixture();
   await f.service.message("parent", "call-1", { subagent_id: "sand-subagent-child", message: "First." });
@@ -107,7 +117,7 @@ test("a message that loses the race with the worker claiming the pending turn st
   const result: any = await f.service.message("parent", "call-2", { subagent_id: "sand-subagent-child", message: "Second." });
   expect(result.run_id).toBe("turn-3");
   expect(f.inbox[1].payload.content).toBe(subagentSteerPrompt("First."));
-  expect(f.wakes[1].content).toBe(subagentSteerPrompt("Second."));
+  expect(f.wakes[1].content).toBe(`${subagentSteerPrompt("First.")}\n\n${subagentSteerPrompt("Second.")}`);
   expect(f.runs["turn-2"].status).toBe("cancelled");
   expect(f.subagent.currentRunId).toBe("turn-3");
 });

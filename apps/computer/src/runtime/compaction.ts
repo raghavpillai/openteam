@@ -188,7 +188,6 @@ export function compactionExtension(
         }
         active.compactionRequestMessages = structuredClone(readPiMessages());
         messages = compactRepeatedDiscovery(messages);
-        active.dynamicDiscoveryMessages = messages;
         const fingerprint = promptFingerprint(
           active.instructions,
           textFromContent(active.userInfoMessage?.content),
@@ -424,10 +423,6 @@ export function withPendingSummaryResults(messages: readonly BotMessage[]): BotM
 }
 
 export function publishCompaction(active: ActiveTurn, adopted: BotCompactionEvent): void {
-  // Schemas removed by compaction must be discovered again. Still-visible full
-  // descriptors can be recovered from the next model projection at invocation.
-  active.discoveredDynamicTools.clear();
-  active.dynamicDiscoveryMessages = undefined;
   active.pendingCompactionMeasurement = {
     compactionId: adopted.compactionId,
     epoch: adopted.epoch,

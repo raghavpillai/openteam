@@ -49,7 +49,7 @@ test("real Pi loop spaces durable checkpoints without extra inference and keeps 
       contextSessionId: crypto.randomUUID(), runId: crypto.randomUUID(), turnId: crypto.randomUUID(),
       modelRef: { providerId: model.provider, modelId: model.id }, reasoning: "off", cwd: root,
       instructions: "Perform the graphical fixture.", subagentType: "computerUse", requestSource: "subagent",
-      userInfoMessage: null, discoveredDynamicTools: new Set(), pluginAbortController: new AbortController(),
+      userInfoMessage: null, pluginAbortController: new AbortController(),
       queue: { push() {} },
     };
     const manager = SessionManager.create(root, join(root, "sessions"), { id: active.contextSessionId });

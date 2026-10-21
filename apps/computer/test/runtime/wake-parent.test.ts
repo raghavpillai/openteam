@@ -71,7 +71,6 @@ test("a rejected WakeParent leaves the automation able to continue", async () =>
       runtimeProfile: "agent",
       subagentType: null,
       pluginNamespaces: [],
-      discoveredDynamicTools: new Set(),
       botId: "bot",
     } as unknown as ActiveTurn;
     const native = tools.customTools(turn);
@@ -126,7 +125,6 @@ test("routine runs call plugin management and feedback directly, and keep workin
       runtimeProfile: "agent",
       subagentType: null,
       pluginNamespaces: [],
-      discoveredDynamicTools: new Set(),
       pendingSteers: [],
       botId: "bot",
       runId: "routine-run",

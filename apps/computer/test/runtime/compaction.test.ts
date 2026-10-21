@@ -448,7 +448,6 @@ test.each([
         toolActivityAfterLastSend: false,
         pendingSteers: [],
         acceptedSteerIds: new Set(),
-        discoveredDynamicTools: new Set(["fixture/OldSchema"]),
         assistantOrdinal: 0,
         startedItems: new Set(),
         toolArgs: new Map(),
@@ -501,9 +500,6 @@ test.each([
     expect(JSON.stringify(requests[1])).not.toContain("Red work");
     expect((await store.manifest(contextSessionId)).epoch).toBe(1);
     expect(events.filter((event) => event.type === "compaction")).toHaveLength(1);
-    expect(second.discoveredDynamicTools.size).toBe(0);
-    expect(JSON.stringify(second.dynamicDiscoveryMessages)).toContain("summary_content");
-    expect(JSON.stringify(second.dynamicDiscoveryMessages)).not.toContain("Red work");
     expect(events.find((event) => event.type === "compaction")?.reason).toBe(
       "pending_summary_adopted"
     );
@@ -664,7 +660,6 @@ for (const scenario of [
           toolActivityAfterLastSend: false,
           pendingSteers: [],
           acceptedSteerIds: new Set(),
-          discoveredDynamicTools: new Set(["fixture/OldSchema"]),
           assistantOrdinal: 0,
           startedItems: new Set(),
           toolArgs: new Map(),

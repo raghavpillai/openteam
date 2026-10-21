@@ -160,7 +160,7 @@ describe("specialized subagent tool surfaces", () => {
         execute: unknown;
       }>;
     };
-    const executable = runtime.customTools({ subagentType: null });
+    const executable = runtime.customTools(workerTurn(null));
     const visible = modelVisibleSummaryTools(executable);
     expect(visible.map((tool) => tool.name)).toEqual(executable.map((tool) => tool.name));
     expect(visible.map((tool) => tool.description)).toEqual(
@@ -224,7 +224,7 @@ describe("specialized subagent tool surfaces", () => {
       searches.push(query);
       return { content: [{ type: "text", text: "results" }], details: {} };
     };
-    const active = { ...workerTurn("executor"), runId: "run-1", discoveredDynamicTools: new Set(), pendingSteers: [] };
+    const active = { ...workerTurn("executor"), runId: "run-1", pendingSteers: [] };
     const result = await runtime.executeOpenTeamTool(active, "call-1", "WebSearch", { search_term: "openteam" });
     expect(result.content[0].text).toBe("results");
     expect(searches).toEqual(["openteam"]);
@@ -285,8 +285,8 @@ describe("specialized subagent tool surfaces", () => {
   test("discovering RequestUserForm lists the saved vault extra keys", async () => {
     const runtime = runtimeTools() as any;
     runtime.userForms.savedExtraKeys = async () => ["ktn"];
-    const active = { ...workerTurn(null), discoveredDynamicTools: new Set<string>(), cwd: "/tmp" };
-    const text = (await runtime.getDynamicTools(active, { namespace: "cursor", toolName: "RequestUserForm" })).content[0].text;
+    const active = { ...workerTurn(null), cwd: "/tmp" };
+    const text = (await runtime.getDynamicTools(active, "lookup", { namespace: "cursor", toolName: "RequestUserForm" })).content[0].text;
     expect(text).toContain("Vault extras: reuse the exact saved extra_key");
     expect(text).toContain('- \\"ktn\\"');
     expect(text).toContain('"tool": "RequestUserForm"');
@@ -421,7 +421,7 @@ describe("durable state tools", () => {
         for (const name of namespacedStateTools) expect(cursorToolNames(runtime, active)).not.toContain(name);
       }
     }
-    const readOnly = { ...workerTurn("executor", { readOnly: true }), runId: "run-1", pendingSteers: [], discoveredDynamicTools: new Set() };
+    const readOnly = { ...workerTurn("executor", { readOnly: true }), runId: "run-1", pendingSteers: [] };
     for (const name of ["UpdateMemory", "UpdateRoutine"])
       await expect(runtime.executeOpenTeamTool(readOnly, "call-1", name, { action: "pause", id: "brief" })).rejects.toThrow("read-only");
     for (const toolName of namespacedStateTools)
@@ -435,7 +435,7 @@ describe("durable state tools", () => {
       calls.push({ tool, args });
       return { content: [], details: {} };
     };
-    const active = { ...workerTurn(null), runId: "run-1", pendingSteers: [], discoveredDynamicTools: new Set() };
+    const active = { ...workerTurn(null), runId: "run-1", pendingSteers: [] };
     await runtime.executeOpenTeamTool(active, "memory", "UpdateMemory", { target: "memory", action: "write", fact: " Prefers tea. ", type: "profile" });
     await runtime.executeOpenTeamTool(active, "routine", "UpdateRoutine", { action: "pause", id: "brief" });
     await expect(runtime.executeOpenTeamTool(active, "invalid", "UpdateMemory", { action: "create", fact: "x", type: "profile" })).rejects.toThrow(

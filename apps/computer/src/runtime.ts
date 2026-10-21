@@ -58,6 +58,7 @@ import { withAgentOutputBudget } from "./runtime/output-budget";
 import { inferenceMetricsExtension } from "./runtime/inference-metrics";
 import { IdleProviderConnections, InferenceProviderConnections } from "./runtime/provider-connections";
 import { untrustedResultsExtension } from "./runtime/untrusted-results";
+import { directDynamicToolsExtension } from "./runtime/direct-dynamic-tools";
 import { enrichUserInfo } from "./runtime/prompt-context";
 import { defaultTaskConfiguration, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 import { assertSessionPath } from "./runtime/session-path";
@@ -289,7 +290,6 @@ export class ComputerRuntime {
       initialUserClientId: request.clientMessageId,
       pendingSteers: [],
       acceptedSteerIds: new Set(),
-      discoveredDynamicTools: new Set(),
       pluginNamespaces: request.dynamicNamespaces ?? [],
       pluginRuntimePackages: request.pluginRuntimePackages as import("@openteam/plugin-sdk").PluginRuntimePackage[] | undefined,
       pluginAbortController: new AbortController(),
@@ -741,6 +741,10 @@ export class ComputerRuntime {
         inferenceMetricsExtension(active.runId),
         pluginComponentsExtension(active),
         untrustedResultsExtension(),
+        directDynamicToolsExtension({
+          registered: () => active.session?.getActiveToolNames() ?? this.tools.directToolNames(active),
+          cursor: () => this.tools.cursorToolNames(active),
+        }),
       ],
     });
     await resourceLoader.reload();

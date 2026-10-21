@@ -99,7 +99,6 @@ test("discovers and invokes AwaitShell locally across turns with bot scope", asy
     botId: "bot-1",
     cwd: root,
     pluginNamespaces: [],
-    discoveredDynamicTools: new Set<string>(),
   } as unknown as ActiveTurn;
   const custom = testTools(runtime, active);
   const shell = await custom
@@ -112,14 +111,15 @@ test("discovers and invokes AwaitShell locally across turns with bot scope", asy
     toolName: "AwaitShell",
     arguments: { shell_id: (shell.details as { shellId: string }).shellId, block_until_ms: 0 },
   };
-  await expect(call.execute("undiscovered", args)).rejects.toThrow();
+  // As in the reference, a call needs no prior schema lookup.
+  expect((await call.execute("undiscovered", args)).details).toMatchObject({ status: "completed" });
   const discovered = await get.execute("discover", { namespace: "cursor", toolName: "AwaitShell" });
   expect(JSON.stringify(discovered.content)).toContain("pattern");
   expect((await call.execute("wait", args)).details).toMatchObject({
     status: "completed",
     exit_code: 0,
   });
-  const next = testTools(runtime, { ...active, discoveredDynamicTools: new Set() });
+  const next = testTools(runtime, { ...active });
   await next
     .find((t) => t.name === "GetDynamicTools")!
     .execute("discover-next", { namespace: "cursor", toolName: "AwaitShell" });
@@ -135,10 +135,10 @@ test("discovers and invokes AwaitShell locally across turns with bot scope", asy
     runtimeProfile: "subagent",
     subagentType: "executor",
   });
-  // Executors call AwaitShell directly rather than through the cursor namespace.
-  await expect(
-    subagent.find((t) => t.name === "CallDynamicTool")!.execute("via-namespace", args)
-  ).rejects.toThrow("Unknown dynamic tool");
+  // Executors have AwaitShell directly, so the cursor form runs that tool natively.
+  expect(
+    (await subagent.find((t) => t.name === "CallDynamicTool")!.execute("via-namespace", args)).details
+  ).toMatchObject({ status: "completed" });
   await expect(
     subagent
       .find((t) => t.name === "AwaitShell")!
@@ -222,7 +222,7 @@ test("new user input releases AwaitShell and sleep promptly without terminating 
   const {root}=await fixture();
   const runtime=new RuntimeTools({} as ScreenBroker,"http://unused.invalid","test",root,root);
   (runtime as any).processSecrets=async()=>({});
-  const active={runId:"steered-run",runtimeProfile:"agent",botId:"bot-steer",cwd:root,pluginNamespaces:[],discoveredDynamicTools:new Set<string>()} as unknown as ActiveTurn;
+  const active={runId:"steered-run",runtimeProfile:"agent",botId:"bot-steer",cwd:root,pluginNamespaces:[]} as unknown as ActiveTurn;
   const tools=testTools(runtime,active),call=tools.find(t=>t.name==="CallDynamicTool")!;
   await tools.find(t=>t.name==="GetDynamicTools")!.execute("discover",{namespace:"cursor",toolName:"AwaitShell"});
   const started=await tools.find(t=>t.name==="Shell")!.execute("start",{command:"sleep 0.3; printf survived",block_until_ms:0});
@@ -248,7 +248,6 @@ test("each Shell or AwaitShell call waits at most 13 minutes, or 58 for a comput
     botId: "bot-cap",
     cwd: root,
     pluginNamespaces: [],
-    discoveredDynamicTools: new Set<string>(),
   }) as unknown as ActiveTurn;
   for (const [subagentType, capMs, minutes] of [["executor", 780_000, 13], ["computerUse", 3_480_000, 58]] as const) {
     const tools = testTools(runtime, turn(subagentType));

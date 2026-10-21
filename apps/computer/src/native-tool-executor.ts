@@ -65,6 +65,7 @@ interface ReadSource {
 
 /** A Read result the model sees verbatim and flagged as failed (no "Error: " prefix). */
 class ReadResultError extends Error {}
+const SHELL_HARD_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 /** How often a running command's terminal header refreshes `running_for_ms`. */
 const TERMINAL_HEADER_UPDATE_MS = 5_000;
 // Shell output logs are named by their numeric shell_id.
@@ -100,6 +101,7 @@ export class NativeToolExecutor {
   private readonly controlToken: string;
   private readonly serverUrl?: string;
   private readonly agentDataCanonicalRoot: string;
+  private readonly shellHardTimeoutMs: number;
 
   constructor(options: {
     agentDir: string;
@@ -108,7 +110,9 @@ export class NativeToolExecutor {
     serverUrl?: string;
     agentDataCanonicalRoot?: string;
     onShellComplete?: (job: ShellCompletion) => Promise<void>;
+    shellHardTimeoutMs?: number;
   }) {
+    this.shellHardTimeoutMs = options.shellHardTimeoutMs ?? SHELL_HARD_TIMEOUT_MS;
     this.terminalDir = resolve(options.agentDir, "terminals");
     this.shellJobs = new ShellJobRegistry({ directory: this.terminalDir, onComplete: options.onShellComplete });
     this.controlToken = options.controlToken;
@@ -223,12 +227,19 @@ export class NativeToolExecutor {
     const signalGroup = agentProcessGroupSignaler(child);
     let killTimer: ReturnType<typeof setTimeout> | undefined;
     let abortedAt: number | undefined;
-    const abort = () => {
-      abortedAt ??= Date.now();
+    const terminate = () => {
       signalGroup("SIGTERM");
       killTimer ??= setTimeout(() => signalGroup("SIGKILL"), 500);
     };
-    child.once("close", () => { if (killTimer) clearTimeout(killTimer); });
+    const abort = () => {
+      abortedAt ??= Date.now();
+      terminate();
+    };
+    // Like the reference, no Shell command outlives a day, even in the background.
+    let expired = false;
+    const hardTimer = setTimeout(() => { expired = true; terminate(); }, this.shellHardTimeoutMs);
+    hardTimer.unref();
+    child.once("close", () => { if (killTimer) clearTimeout(killTimer); clearTimeout(hardTimer); });
     signal?.addEventListener("abort", abort, { once: true });
     if (signal?.aborted) abort();
     let processError: Error | undefined;
@@ -245,10 +256,10 @@ export class NativeToolExecutor {
         clearInterval(headerTimer);
         try { exitDirectory = (await environmentCapture.persist(savedEnvironment.path, Object.keys(routing.secretEnvironment ?? {}), savedEnvironment.environment))?.PWD; }
         catch (error) { environmentError = error instanceof Error ? error : new Error("Could not persist shell environment"); }
-        await rewriteHeader(abortedAt !== undefined ? "aborted" : exitCode === 0 ? "succeeded" : "failed");
+        await rewriteHeader(abortedAt !== undefined || expired ? "aborted" : exitCode === 0 ? "succeeded" : "failed");
         // A command that ran to completion is reported as such even if its shell
         // state could not be saved; AwaitShell and the completion notice show its exit.
-        job.finish(exitCode, processError?.message);
+        job.finish(exitCode, expired ? `The command was stopped after running for ${this.shellHardTimeoutMs / 3_600_000} hours.` : processError?.message);
         resolveCompletion(exitCode);
       };
       child.once("error", (error) => {

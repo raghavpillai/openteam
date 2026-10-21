@@ -236,6 +236,15 @@ describe("native computer tools", () => {
     ]);
   });
 
+  shellTest("a background command is stopped once it reaches the hard time limit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openteam-native-expire-"));
+    const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token", shellHardTimeoutMs: 300 });
+    const started = await executor.shell({ command: "sleep 30", block_until_ms: 0 }, root);
+    const done = await executor.awaitShell({ shell_id: String(started.details.shellId), block_until_ms: 5_000 });
+    expect(done.details).toMatchObject({ status: "failed", error: expect.stringContaining("The command was stopped after running for") });
+    expect(await readFile(String(started.details.outputPath), "utf8")).toContain("status: aborted  \n");
+  });
+
   test("Shell backgrounds long commands and exposes their log path", async () => {
     const root = await mkdtemp(join(tmpdir(), "openteam-native-background-"));
     const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });

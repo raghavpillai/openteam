@@ -619,6 +619,23 @@ describe("context turn reservation", () => {
     expect(runtime.diagnostics.activeTurns).toBe(0);
   });
 
+  test("routine runs leave the once-per-episode low-disk reminder for the user's next turn", async () => {
+    const runtime = new ComputerRuntime() as any;
+    runtime.start = async () => {};
+    Object.assign(runtime.tools.userForms, { beginTurn: async () => {}, endTurn: async () => {} });
+    runtime.authenticated = true;
+    runtime.resolveModel = () => ({});
+    runtime.modelRuntime = { checkAuth: async () => ({ type: "oauth", source: "test" }), isUsingSubscription: () => true };
+    const claimed: string[] = [];
+    runtime.diskPressure = { claim: async (botId: string) => { claimed.push(botId); return 1; }, commit() {} };
+    runtime.contextState = async () => { throw new Error("stop after setup"); };
+    const botId = crypto.randomUUID();
+    await expect(runtime.run(turnRequest({ botId, requestSource: "automation" }))).rejects.toThrow("stop after setup");
+    expect(claimed).toEqual([]);
+    await expect(runtime.run(turnRequest({ botId }))).rejects.toThrow("stop after setup");
+    expect(claimed).toEqual([botId]);
+  });
+
   test("rejects an out-of-root persisted session before opening it", async () => {
     const runtime = new ComputerRuntime() as unknown as {
       authenticated: boolean;

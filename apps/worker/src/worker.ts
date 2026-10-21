@@ -32,6 +32,7 @@ import {
   PRIORITY,
   RoutineService,
   renderSubagentRevivalPrompt,
+  renderQuietSubagentRevivalPrompt,
   automationContinuationRoute,
   automationContextRunId,
   reconcileRoutineExecution,
@@ -1992,18 +1993,20 @@ export class WakeWorker {
     const source = await tx.run.findUnique({ where: { id: subagent.parentRunId }, include: { inboxEvents: { take: 1, select: { payload: true } } } });
     const sourcePayload = source?.inboxEvents[0]?.payload as { taskContextRunId?: string } | undefined;
     const room = await tx.channel.findUnique({ where: { id: subagent.parentChannelId }, select: { kind: true, name: true } });
+    // A task a routine started reports back to that routine, which nobody is waiting on.
+    const routine = route.origin === "routine" && route.automationContextRunId
+      ? (await tx.routineExecution.findUnique({ where: { runId: route.automationContextRunId }, select: { routine: { select: { name: true, slug: true } } } }))?.routine
+      : undefined;
+    const revival = { title: subagentTitle(subagent.prompt), subagentType: subagent.subagentType, status, result };
     await this.messaging.enqueueWake(tx, {
       botId: subagent.parentBotId,
       channelId: subagent.parentChannelId,
       ...route,
       taskContextRunId: sourcePayload?.taskContextRunId ?? subagent.parentRunId,
       type: `subagent.${status}`,
-      content: renderSubagentRevivalPrompt({
-        title: subagentTitle(subagent.prompt),
-        subagentType: subagent.subagentType,
-        status,
-        result,
-      }) + (room?.kind === "group" ? `\n\nThis work belongs to group room ${JSON.stringify(room.name)}. The room has not seen this result. SendToUser in this continuation delivers to that room and wakes its peers; use it once for a useful final result. Do not repeat completed work or deliver stale results after a user cancellation.` : ""),
+      content: (routine
+        ? renderQuietSubagentRevivalPrompt({ ...revival, routine: { name: routine.name, folder: routine.slug } })
+        : renderSubagentRevivalPrompt(revival)) + (room?.kind === "group" ? `\n\nThis work belongs to group room ${JSON.stringify(room.name)}. The room has not seen this result. SendToUser in this continuation delivers to that room and wakes its peers; use it once for a useful final result. Do not repeat completed work or deliver stale results after a user cancellation.` : ""),
       clientId: `subagent:${subagent.id}:${status}:${subagent.currentRunId}`,
       priority: 260,
       wrapUserContent: false,

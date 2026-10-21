@@ -1,6 +1,7 @@
 export { readTranscript } from "./read-transcript";
 export { readAgentActivity } from "./read-agent-activity";
 export { workerSkillAccess } from "./skill-access";
+export { renderQuietSubagentRevivalPrompt } from "./quiet-revival";
 import { workerSkillAccess } from "./skill-access";
 import { mediaReviewPrompt, renderWorkerBoxSection, renderWorkerTimeSection, WORKER_READONLY_LINE, WORKER_USER_IDENTITY_LINE } from "./worker-prompts";
 import { attachmentContext } from "./attachment-context";

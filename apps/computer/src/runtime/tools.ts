@@ -130,7 +130,8 @@ export class ControlPlaneError extends Error {
 const INFRASTRUCTURE_FAILURE = /prisma|DriverAdapterError|database|deadlock detected|could not serialize access|terminating connection|Timed out fetching a new connection/i;
 /** The server's message, never its JSON envelope; database failures and unreadable 5xx bodies read as the reference's retry-later sentence. */
 const controlPlaneError = (status: number, body: unknown): ControlPlaneError => {
-  const error = (body && typeof body === "object" ? (body as { error?: unknown }).error : undefined) as { code?: unknown; message?: unknown } | undefined;
+  const raw = body && typeof body === "object" ? (body as { error?: unknown }).error : undefined;
+  const error = (typeof raw === "string" ? { message: raw } : raw) as { code?: unknown; message?: unknown } | undefined;
   const code = typeof error?.code === "string" ? error.code : undefined;
   const message = typeof error?.message === "string" && error.message.trim() ? error.message : undefined;
   if (!message ? status >= 500 : status >= 500 && (!code || code === "internal_error") && INFRASTRUCTURE_FAILURE.test(message))

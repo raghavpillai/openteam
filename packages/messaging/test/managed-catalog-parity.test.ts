@@ -7,6 +7,7 @@ import managed from '../src/prompts/managed-skills.json';
 import { AgentDataStore } from '../src/agent-data';
 import { buildGroupTurnPrompt } from '../src/index';
 import { managedSkillIsForMain } from '../src/managed-skill-agents';
+import { normalizeMemoryContent } from '../src/memory-facts';
 
 const skill = (id: string) => managed.skills.find(s => s.id === id)!.content;
 const description = (id: string): string => yaml(skill(id).split('---')[1]!).description;
@@ -78,7 +79,7 @@ test('commerce skills pay in the purchases order and keep no confirmation leftov
     if (item.content.includes('When the site wants payment')) expect(item.content).toContain('as the OpenTeam-managed `purchases` skill says');
   }
   expect(managed.skills.filter(s => s.content.includes('When the site wants payment')).map(s => s.id).sort()).toEqual(
-    ['accommodation-booking', 'flight-booking', 'food-ordering', 'restaurant-booking', 'scheduling', 'shopping'],
+    ['accommodation-booking', 'flight-booking', 'food-ordering', 'grocery-shopping', 'restaurant-booking', 'scheduling', 'shopping'],
   );
   expect(skill('restaurant-booking')).toContain('Offer once to add the reservation to their calendar.');
   expect(skill('flight-booking')).toContain("through the user's mail connector (Gmail or an Email plugin inbox)");
@@ -92,8 +93,25 @@ test('shopping compares delivered offers and routes around a store that blocks a
   expect(shopping).not.toMatch(/`shopping` field|`shipment` field|CheckSubscriptionUsage|Page image:/);
 });
 
+test('grocery and post-purchase work have their own skills', () => {
+  const grocery = skill('grocery-shopping');
+  // The usual list is split because one memory fact holds at most this many characters.
+  expect(normalizeMemoryContent('x'.repeat(900)).length).toBe(500);
+  expect(grocery).toContain('One memory fact holds at most 500 characters, so a usual list takes several facts.');
+  expect(grocery).toContain('always call `RecallMemory` with the store\'s name before you build the list');
+  expect(grocery).toContain('choose no replacement for anything tied to an allergy or dietary rule');
+  expect(grocery).toContain('The routine stops at the cart');
+  const orders = skill('orders-and-returns');
+  expect(description('orders-and-returns')).toContain('wants to return, exchange, or');
+  expect(orders).toContain('"Cancellation requested" is not the same as "canceled"');
+  expect(orders).toContain('Use the return deadline the order page shows rather than computing one');
+  expect(orders).toContain('A watch is a routine.');
+  // No shipment cards and no store-alert inbox here.
+  expect(orders).not.toMatch(/shipment card|alert email/);
+});
+
 test('catalog has valid skill metadata and excludes retired workflows',()=>{
-  expect(managed.skills).toHaveLength(25);
+  expect(managed.skills).toHaveLength(27);
   expect(new Set(managed.skills.map(s=>s.id)).size).toBe(managed.skills.length);
   for(const item of managed.skills){
     const front=yaml(item.content.split('---')[1]!);

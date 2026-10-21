@@ -398,41 +398,6 @@ export class RuntimeTools {
     }));
   }
 
-  async refreshPrompt(active: ActiveTurn, epoch: number) {
-    const result = await this.callControlPlaneTool(
-      active,
-      `${active.runId}:context:${epoch}`,
-      "RefreshPromptContext",
-      {
-        contextSessionId: active.contextSessionId,
-        epoch,
-        connectorInstructions: active.connectorInstructions ?? "",
-      }
-    );
-    const content = result.content.find((part) => part.type === "text");
-    if (content?.type !== "text") throw new Error("Context refresh returned no prompt");
-    return JSON.parse(content.text) as {
-      instructions: string;
-      userInfo: string | null;
-      userInfoEpoch: number;
-      instructionsUpdate?: string | null;
-      ambientContext?: string | null;
-      acknowledgement?: unknown;
-    };
-  }
-
-  async acknowledgePrompt(active: ActiveTurn, acknowledgement: unknown) {
-    await this.callControlPlaneTool(
-      active,
-      `${active.runId}:context-ack:${crypto.randomUUID()}`,
-      "AcknowledgePromptContext",
-      {
-        contextSessionId: active.contextSessionId,
-        acknowledgement,
-      }
-    );
-  }
-
   private readonly privateBrowserValues = new Map<string, Set<string>>();
   private readonly browserUseSessions = new Map<string, BrowserUseSession>();
 

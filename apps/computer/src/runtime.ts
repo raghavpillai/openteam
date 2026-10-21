@@ -778,22 +778,6 @@ export class ComputerRuntime {
       (...args) => this.inferCompaction(...args),
       sessionManager,
       active,
-      async (epoch) => {
-        if (active.subagentType) return;
-        const refreshed = await this.tools.refreshPrompt(active, epoch);
-        active.instructions = refreshed.instructions;
-        if (active.session) active.session.agent.state.systemPrompt = refreshed.instructions;
-        active.userInfoMessage = refreshed.userInfo ? botUserInfoMessage(enrichUserInfo(refreshed.userInfo, {
-          cwd: active.cwd, transcriptPath: active.sessionPath ?? "", namespaces: this.tools.contextCatalog(active),
-          taskConfiguration: active.taskConfiguration,
-        }), refreshed.userInfoEpoch) : null;
-        const note = [refreshed.ambientContext, refreshed.instructionsUpdate].filter(Boolean).join("\n\n");
-        if (note && active.session) await active.session.sendCustomMessage({
-          customType: "openteam-context-refresh", content: `[SAND_HIDDEN_PROMPT]${note}`, display: false,
-          details: { epoch, origin: "host" },
-        }, { triggerTurn: false });
-        await this.tools.acknowledgePrompt(active, refreshed.acknowledgement);
-      },
       (messages) => this.tools.acknowledgeToolOutcomes(active, messages)
     );
   }

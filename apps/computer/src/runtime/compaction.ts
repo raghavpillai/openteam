@@ -17,7 +17,6 @@ import {
   type BotSummaryResult,
   botSummarySystemPrompt,
   botSummaryResponse,
-  replaceBotUserInfo,
   canonicalJson,
   isValidBotEarlyThreshold,
   estimateBotMeasuredContextTokens,
@@ -97,7 +96,6 @@ export function compactionExtension(
   ) => Promise<BotSummaryResult>,
   sessionManager: SessionManager,
   active: ActiveTurn,
-  refreshContext?: (epoch: number) => Promise<void>,
   acknowledgeToolOutcomes?: (messages: BotMessage[]) => Promise<void>
 ): { name: string; hidden: boolean; factory: ExtensionFactory } {
   const readPiMessages = () => sessionManager.buildSessionContext().messages as BotMessage[];
@@ -175,16 +173,11 @@ export function compactionExtension(
           ...observation,
         });
         const adopted = compaction.takeProjectedEvent(active.contextSessionId);
+        // A mid-loop summary keeps this turn's system prompt and user_info; the
+        // next user turn renders them for the new epoch, as in the reference.
         if (adopted) {
           active.compactionEarlyThreshold = undefined;
           publishCompaction(active, adopted);
-          await refreshContext?.(adopted.epoch);
-          // Refresh may append durable update notes after the projection's base
-          // was committed. Re-read that tail before acknowledging it to the model.
-          messages = replaceBotUserInfo(
-            await compaction.contextMessages(active.contextSessionId, readPiMessages()),
-            active.userInfoMessage
-          );
         }
         active.compactionRequestMessages = structuredClone(readPiMessages());
         messages = compactRepeatedDiscovery(messages);
@@ -314,7 +307,6 @@ export function compactionExtension(
         if (!adopted) return;
         active.compactionEarlyThreshold = undefined;
         publishCompaction(active, adopted);
-        await refreshContext?.(adopted.epoch);
       });
       pi.on("session_compact_failed", async () => {
         if (deferredAutomatic) {

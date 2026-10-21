@@ -8,6 +8,8 @@ public struct VoiceHoldThresholds: Equatable, Sendable {
   public var holdDelay: TimeInterval = 0.18
   /// Travel (pt) after which the dominant direction wins for the rest of the gesture.
   public var axisLock: Double = 10
+  /// Ignore small finger drift before showing cancellation tint or resistance feedback.
+  public var cancelDeadZone: Double = 14
   /// Cancelling takes a deliberate slide: `max(minimumCancel, cancelFraction × bar width)`,
   /// over a quarter of the bar on any phone.
   public var minimumCancel: Double = 80
@@ -72,6 +74,13 @@ public struct VoiceHoldTracker: Equatable, Sendable {
 
   /// 0 at rest … 1 at the full cancel distance.
   public var cancelProgress: Double { min(1, max(0, -dx / max(1, cancelDistance))) }
+  /// Visual and tactile tension after the dead zone, reaching 1 at the cancel threshold.
+  public var cancelFeedbackProgress: Double {
+    guard axis == .horizontal else { return 0 }
+    let distance = cancelDistance * thresholds.cancelArm
+    let deadZone = min(thresholds.cancelDeadZone, max(0, distance - 1))
+    return min(1, max(0, (-dx - deadZone) / max(1, distance - deadZone)))
+  }
   /// Releasing now cancels.
   public var cancelArmed: Bool { cancelProgress >= thresholds.cancelArm }
   /// 0 at rest … 1 at the lock threshold.

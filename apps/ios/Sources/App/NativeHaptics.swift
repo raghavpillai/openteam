@@ -32,16 +32,24 @@ import UIKit
       }
     }
     #if DEBUG
-      record(effect, source: source, enabled: enabled, active: active, emitted: emitted)
+      record(effect, intensity: intensity, source: source, enabled: enabled, active: active, emitted: emitted)
     #endif
   }
 
-  /// A weighty "clunk": a heavy hit, then a firm knock as it settles, like a latch catching.
-  static func lockIn(source: String) {
-    play(.heavy, source: source)
+  /// Keep the soft generator ready for the next distance-driven resistance pulse.
+  static func prepareVoiceResistance() { soft.prepare() }
+
+  static func voiceResistance(intensity: Double, source: String) {
+    play(.soft, intensity: intensity, source: source)
+    soft.prepare()
+  }
+
+  /// A crisp double click reserved for locking, distinct from cancellation’s soft resistance.
+  static func voiceLock(source: String) {
+    play(.rigid, intensity: 1, source: source)
     Task { @MainActor in
-      try? await Task.sleep(for: .milliseconds(70))
-      play(.rigid, intensity: 0.7, source: source)
+      do { try await Task.sleep(for: .milliseconds(90)) } catch { return }
+      play(.rigid, intensity: 0.65, source: source)
     }
   }
 
@@ -53,7 +61,7 @@ import UIKit
     /// Opt-in telemetry to the same loopback-only UI-test fixture. Contains only
     /// effect identifiers and gate state, never messages, account data or secrets.
     private static func record(
-      _ effect: HapticEffect, source: String, enabled: Bool, active: Bool, emitted: Bool
+      _ effect: HapticEffect, intensity: Double, source: String, enabled: Bool, active: Bool, emitted: Bool
     ) {
       let args = ProcessInfo.processInfo.arguments
       guard args.contains("--haptic-audit"), args.contains("--ui-testing"),
@@ -65,7 +73,7 @@ import UIKit
       request.httpMethod = "POST"
       request.setValue("application/json", forHTTPHeaderField: "Content-Type")
       request.httpBody = try? JSONSerialization.data(withJSONObject: [
-        "effect": effect.rawValue, "source": source, "enabled": enabled, "active": active,
+        "effect": effect.rawValue, "intensity": intensity, "source": source, "enabled": enabled, "active": active,
         "emitted": emitted, "timestamp": Date().timeIntervalSince1970,
       ])
       URLSession.shared.dataTask(with: request).resume()

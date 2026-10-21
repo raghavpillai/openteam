@@ -1,6 +1,6 @@
 {
   "key": "google-docs",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "Google Docs",
   "description": "Read, create, and edit documents.",
   "publisher": "OpenTeam",

@@ -2,13 +2,13 @@
 
 `gmail.json`, `calendar.json` and `drive.json` pin the public `tools/list` responses from:
 
-- https://gmailmcp.googleapis.com/mcp/v1, retrieved September 12, 2026
+- https://gmailmcp.googleapis.com/mcp/v1, retrieved September 12, 2026; descriptions and input schemas refreshed October 21, 2026
 - https://calendarmcp.googleapis.com/mcp/v1, refreshed October 14, 2026
 - https://drivemcp.googleapis.com/mcp/v1, retrieved September 12, 2026
 
 They contain public interface metadata, no credentials or account data. Google provides the definitions; OpenTeam implements the operations against the generally available REST APIs. Reference input names, enums and descriptions are retained, with documented compatibility aliases and local extensions. This does not make the adapters Google's official MCP servers.
 
-The Gmail plugin applies Google's later corrections (seen October 21, 2026) to three texts on top of the pin: `label:` matches display names, the `category:` tab paragraph in search_threads, and create_draft's plain-text `body` and `includeSignature`. It also serves Google's newer `update_draft` and `delete_draft`, defined in `gmail/connector/server.ts` with create_draft's pinned htmlBody and attachment texts. The rest of the pin is unchanged until a full refresh.
+The October 21, 2026 Gmail refresh covers the tools the plugin implements, including the newer `update_draft` and `delete_draft`. It was taken from Google's current definitions as a connected client received them, where HTML tags had been stripped from two texts: `htmlBody` keeps only its sentences before the stripped markup, and the attachment `inline` text stays as pinned. Annotations and output schemas still date from September 12. The plugin serves draft texts without the `viewUrl` promise, because Google's draft link format is not known; threads and messages carry Google's Gmail web `viewUrl`.
 
 Reference documentation: https://developers.google.com/workspace/gmail/api/reference/mcp , https://developers.google.com/workspace/calendar/api/v3/reference/mcp , https://developers.google.com/workspace/drive/api/reference/mcp . Google licenses documentation under CC BY 4.0 and code samples under Apache 2.0; see https://developers.google.com/terms/site-policies . Attribution and provenance must accompany exports that embed these definitions. The generate script includes this notice in Google packages.
 

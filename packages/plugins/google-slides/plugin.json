@@ -1,6 +1,6 @@
 {
   "key": "google-slides",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "Google Slides",
   "description": "Create, edit, and render presentations.",
   "publisher": "OpenTeam",

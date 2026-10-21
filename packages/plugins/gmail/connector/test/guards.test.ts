@@ -85,12 +85,12 @@ test('search coverage notes fire like the reference', () => {
 });
 
 test('search_threads adds the coverage note after the JSON result', async () => {
-  const h = harness(gmailTools, [{ resultSizeEstimate: 0 }, { threads: [{ id: 't1' }] }, { id: 't1', messages: [] }]);
+  const h = harness(gmailTools, [{ resultSizeEstimate: 0 }, { threads: [{ id: 't1' }] }, { emailAddress: 'me@example.com' }, { id: 't1', messages: [] }]);
   const empty = await h.call('search_threads', { query: 'subject:"order 1234"' });
   expect(empty).toBeInstanceOf(ToolNotes);
-  expect(empty).toMatchObject({ value: { threads: [] }, notes: [GMAIL_SEARCH_EMPTY_NOTE] });
+  expect(empty).toMatchObject({ value: {}, notes: [GMAIL_SEARCH_EMPTY_NOTE] });
   expect(h.requests[0]!.url.searchParams.get('q')).toBe('subject:"order 1234" -in:drafts');
-  expect(await h.call('search_threads', { query: 'acme' })).toEqual({ threads: [{ id: 't1', messages: [] }] });
+  expect(await h.call('search_threads', { query: 'acme' })).toEqual({ threads: [{ id: 't1', messageCount: 0, messages: [] }] });
 });
 
 test('a thread, message or draft id Gmail cannot find names the id the tool takes', async () => {
@@ -104,16 +104,20 @@ test('a thread, message or draft id Gmail cannot find names the id the tool take
   expect(await h.call('label_thread', { threadId: '18f0', labelIds: ['Label_9'] }).catch((error: Error) => error.message)).toBe('Google API 400: Invalid label: Label_9');
 });
 
-test('Gmail serves Google\'s current label:, body and includeSignature texts', () => {
+test('Gmail serves Google\'s current tool texts, with drafts promising no viewUrl', async () => {
+  const { referenceTools } = await import('../../../_shared/reference');
   const byName = Object.fromEntries(gmailTools().map((tool) => [tool.name, tool]));
   const query = byName.search_threads!.inputSchema.properties.query.description;
   expect(query).toContain('`label:` — Under a specific label, matched by its display name (the `name` from `list_labels`), for example `label:wins`. Label IDs such as `Label_123` match nothing.');
-  expect(query).not.toContain('The tool accepts label IDs');
-  expect(byName.search_threads!.description).toContain('use the `category:` operator with `primary`, `social`, `promotions`, `updates`, or `forums`');
-  expect(byName.create_draft!.description).toContain('Plain text body content can be provided in `body` (do NOT format `body` with Markdown)');
-  expect(byName.create_draft!.description).toContain('Set `includeSignature` to true to append the user\'s configured Gmail web signature to the draft.');
-  expect(byName.create_draft!.inputSchema.properties.body.description).toStartWith('Optional. The plain text body content of the email draft. Do NOT format this field with Markdown');
+  expect(byName.search_threads!.description).toContain('`messageCount` (total messages in the thread), `viewUrl`, and a subset of up to 5 related messages');
   expect(byName.create_draft!.inputSchema.properties.includeSignature).toEqual({ type: 'boolean', description: 'Optional. Whether to append the user\'s configured Gmail web signature to the draft. Defaults to false.' });
+  for (const reference of referenceTools.gmail) {
+    const served = byName[reference.name]!;
+    if (['create_draft', 'update_draft', 'get_draft'].includes(reference.name)) expect(served.description).not.toContain('viewUrl');
+    else expect([reference.name, served.description]).toEqual([reference.name, reference.description]);
+    for (const [key, property] of Object.entries(reference.inputSchema.properties)) expect(served.inputSchema.properties[key]).toEqual(property);
+  }
+  expect(byName.update_draft!.description).toEndWith('Returns a Draft object with the `id` and `threadId` fields populated.\n');
 });
 
 const savedDraft = (parts: any[]) => ({ id: 'r-1', message: { id: 'm-1', threadId: 'thread-1', payload: { mimeType: 'multipart/mixed', headers: [

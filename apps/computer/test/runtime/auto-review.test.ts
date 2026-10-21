@@ -115,7 +115,7 @@ test("only the user's own words count as trusted instructions", () => {
 });
 
 test("a classifier failure or timeout is the reference's manual-review error", async () => {
-  const reject = { kind: "reject", reason: CLASSIFIER_MANUAL_REVIEW_ERROR_REASON };
+  const reject = { kind: "reject" as const, reason: CLASSIFIER_MANUAL_REVIEW_ERROR_REASON };
   expect(await classifyAction({ complete: async () => { throw new Error("down"); }, messages: [], target: { action: "shell", arguments: {} }, errorReason: CLASSIFIER_MANUAL_REVIEW_ERROR_REASON })).toEqual(reject);
   expect(await classifyAction({ complete: async () => ({ toolCalls: [] }), messages: [], target: { action: "shell", arguments: {} }, errorReason: CLASSIFIER_MANUAL_REVIEW_ERROR_REASON })).toEqual(reject);
   expect(await classifyAction({

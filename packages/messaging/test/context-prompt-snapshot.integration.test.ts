@@ -194,3 +194,37 @@ test("profile, memory facts, and skills freeze independently per context epoch",
     await rm(temporary, { recursive: true, force: true });
   }
 });
+
+test("the routine status reminder is delivered once per change and again after a summary", async () => {
+  if (!databaseUrl) return;
+  const prisma = createPrismaClient(databaseUrl);
+  const temporary = await mkdtemp(join(tmpdir(), "openteam-automation-status-"));
+  const botId = crypto.randomUUID();
+  const conversationId = crypto.randomUUID();
+  const contextId = crypto.randomUUID();
+  const store = new AgentDataStore(prisma, { root: join(temporary, "agent-data"), workspaceRoot: temporary });
+  const status = (line: string) => `<system_reminder>\n<automation_status>\n${line}\n</automation_status>\n</system_reminder>`;
+  const prepare = (epoch: number, live: string | null) =>
+    store.preparePlatformSections(botId, contextId, epoch, { automations: "Scheduled routines:" }, undefined, live);
+  try {
+    await prisma.bot.create({ data: {
+      id: botId, name: "Status", defaultDirectory: temporary, status: "active", onboardingStatus: "completed",
+      conversation: { create: { id: conversationId } },
+      contextSessions: { create: { id: contextId, scope: "home", scopeId: conversationId } },
+    } });
+    await store.initializeBot(botId);
+    await store.promptContext(botId, contextId);
+    const first = await prepare(0, status("- Digest (folder digest): never run"));
+    expect(first.automationStatus?.note).toBe(status("- Digest (folder digest): never run"));
+    // Not delivered yet, so the next turn still carries it.
+    expect((await prepare(0, status("- Digest (folder digest): never run"))).automationStatus?.note).not.toBeNull();
+    await store.acknowledgePlatformSections(botId, contextId, [], undefined, first.automationStatus!.receipt);
+    expect((await prepare(0, status("- Digest (folder digest): never run"))).automationStatus?.note).toBeNull();
+    expect((await prepare(0, status("- Digest (folder digest): last run ok"))).automationStatus?.note).toContain("last run ok");
+    expect((await prepare(1, status("- Digest (folder digest): never run"))).automationStatus?.note).toContain("never run");
+  } finally {
+    await prisma.bot.deleteMany({ where: { id: botId } });
+    await prisma.$disconnect();
+    await rm(temporary, { recursive: true, force: true });
+  }
+});

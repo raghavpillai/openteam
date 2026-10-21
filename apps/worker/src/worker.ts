@@ -1306,7 +1306,7 @@ export class WakeWorker {
         content: turnContentWithNotes({
           origin: claimed.origin,
           runtimeProfile: claimed.runtimeProfile,
-          notes: [platformPrompt.agentProfileUpdate, platformPrompt.instructionsUpdate],
+          notes: [platformPrompt.automationStatus, platformPrompt.agentProfileUpdate, platformPrompt.instructionsUpdate],
           unfinishedTasks: await this.supersededUnfinishedRun(claimed),
         }, claimed.content),
         prependMessages: [...missedMessages, ...(platformPrompt.ambientContext ? [{

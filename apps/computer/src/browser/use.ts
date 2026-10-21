@@ -4,7 +4,7 @@ import { findPageLines } from "./find";
 import { saveLargeBrowserOutput } from "./output";
 import { BrowserUploads, uploadPayloads } from "./uploads";
 import { snapshotAcrossFrames, refHandle, frameRefsByPage, referenceFill, referenceType, editableHandle, writeTargetFrameIsHidden, WRITE_TARGET_IS_HIDDEN_FN, gotoWithRecovery, navigationNote, recoverErrorPage, settleIntoErrorPage, isChromeErrorPage, markSecretFill, SPLIT_CHAR_GROUP_FN } from "./reference-driver";
-import { resolveReferenceSelectOptions } from "./reference-select";
+import { resolveReferenceSelectOptions, selectTheOptionMatchingSecretWithoutNamingIt } from "./reference-select";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { mkdir, writeFile } from "node:fs/promises";
 import { Readable } from "node:stream";
@@ -438,11 +438,20 @@ export class BrowserUseSession {
     if (typeof value !== "string") return false;
     this.registerPrivateValues([value]);
     const secret = true; // Every submitted form value is write-only, including nonsecret fields.
+    if (field.type !== "select" && await handle.evaluate(node => node.localName === "select")) {
+      await this.verifyFormDocument(page, binding, field, handle);
+      await selectTheOptionMatchingSecretWithoutNamingIt(handle, value);
+      return true;
+    }
     if (field.type === "select") {
       await markSecretFill(handle, value);
       await this.verifyFormDocument(page, binding, field, handle);
-      await handle.selectOption(value);
-      return handle.evaluate((node, expected) => (node as HTMLSelectElement).value === expected, value);
+      // The value is one of the form's own options, which the model wrote; match it to the page's.
+      const resolved = await handle.evaluate(resolveReferenceSelectOptions, [value]);
+      if (resolved.kind === "unmatched") throw new Error(`None of the select's ${resolved.optionCount} options matched the requested value, by value or by visible label.`);
+      const chosen = resolved.kind === "matched" ? resolved.values?.[0] ?? value : value;
+      await handle.selectOption(chosen);
+      return handle.evaluate((node, expected) => (node as HTMLSelectElement).value === expected, chosen);
     }
     await referenceFill({ page, element: handle, request: { ref: field.target?.value, element: field.label, value, secret },
       beforeWrite: () => this.verifyFormDocument(page, binding, field, handle) });

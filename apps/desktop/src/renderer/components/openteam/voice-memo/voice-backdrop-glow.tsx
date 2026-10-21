@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { getAudioContext } from "voice-glow";
 
 const GLOW_PADDING = 64;
-const REGIONS = 20;
+const REGIONS = 12;
 const ENVELOPE_MS = 50;
 
 // Push the outer edge along the capsule's normals. The inner edge remains the
@@ -182,13 +182,13 @@ export function VoiceBackdropGlow({
         for (let i = 0; i < REGIONS; i++) {
           const next = current.processing ? target : (history[i * 3] ?? 0);
           const value = regions[i] ?? 0;
-          regions[i] = value + (next - value) * (1 - Math.exp(-dt / 55));
+          regions[i] = value + (next - value) * (1 - Math.exp(-dt / (next > value ? 100 : 220)));
         }
       }
       // Integrate phase across mode changes; only the palette turns, never the
       // canvas or bar. Reduced Motion keeps its current palette stationary.
       if (!current.reducedMotion && !current.exiting) {
-        angle = (angle + dt * 0.00035) % (Math.PI * 2);
+        angle = (angle + dt * 0.00018) % (Math.PI * 2);
       }
       const ratio = Math.min(2, window.devicePixelRatio || 1);
       if (element.width !== Math.round(width * ratio)) element.width = Math.round(width * ratio);
@@ -202,20 +202,20 @@ export function VoiceBackdropGlow({
       const outline = new Path2D();
       outline.roundRect(GLOW_PADDING, GLOW_PADDING, barWidth, barHeight, current.radius);
       const colors = context.createConicGradient(angle, width / 2, height / 2);
-      colors.addColorStop(0, "#a46aff");
-      colors.addColorStop(0.17, "#f47ac5");
-      colors.addColorStop(0.34, "#ffaf75");
-      colors.addColorStop(0.5, "#5fe0c5");
-      colors.addColorStop(0.7, "#65b0ff");
-      colors.addColorStop(0.86, "#9a80ff");
-      colors.addColorStop(1, "#a46aff");
+      colors.addColorStop(0, "#aa8cff");
+      colors.addColorStop(0.17, "#f694c8");
+      colors.addColorStop(0.34, "#ffc394");
+      colors.addColorStop(0.5, "#82dfce");
+      colors.addColorStop(0.7, "#85bbff");
+      colors.addColorStop(0.86, "#b0a0ff");
+      colors.addColorStop(1, "#aa8cff");
       const strength = current.dark ? 0.9 : 1;
       // Keep a small continuous base; a large uniform bloom would fill in all
       // the valleys and hide the voice-shaped silhouette above it.
       context.strokeStyle = colors;
-      context.globalAlpha = 0.55 * strength;
-      context.lineWidth = 12;
-      context.filter = "blur(9px)";
+      context.globalAlpha = 0.35 * strength;
+      context.lineWidth = 10;
+      context.filter = "blur(10px)";
       context.stroke(outline);
       const localPeak = (position: number) => {
         if (current.reducedMotion) return level * 0.45;
@@ -227,21 +227,27 @@ export function VoiceBackdropGlow({
           (regions[first] ?? 0) * (1 - blend) + (regions[(first + 1) % REGIONS] ?? 0) * blend;
         const side = (1 - Math.cos(position * Math.PI * 2)) / 2;
         const band = left * (1 - side) + right * side;
-        return Math.min(1, envelope * 1.4) ** 2.2 * (0.75 + band * 0.25);
+        return Math.min(1, envelope * 1.1) ** 1.2 * (0.75 + band * 0.25);
       };
       context.fillStyle = colors;
-      context.globalAlpha = (0.78 + level * 0.18) * strength;
-      context.filter = "blur(5px)";
-      context.fill(
-        glowRibbon(barWidth, barHeight, current.radius, outline, (t) => 8 + localPeak(t) * 42),
-        "evenodd"
-      );
-      context.globalAlpha = (0.55 + level * 0.3) * strength;
-      context.filter = "blur(4px)";
-      context.fill(
-        glowRibbon(barWidth, barHeight, current.radius, outline, (t) => 2 + localPeak(t) * 20),
-        "evenodd"
-      );
+      // Build a continuous falloff from several translucent blooms, broad and
+      // faint outside, narrower and brighter near the bar. A single opaque
+      // ribbon with a small blur looks like inflated tubing rather than light.
+      for (let layer = 0; layer < 6; layer++) {
+        const scale = 1.75 - layer * 0.28;
+        context.globalAlpha = (0.055 + layer * 0.04) * (1 + level * 0.4) * strength;
+        context.filter = `blur(${14 - layer * 2}px)`;
+        context.fill(
+          glowRibbon(
+            barWidth,
+            barHeight,
+            current.radius,
+            outline,
+            (t) => (8 + localPeak(t) * 28) * scale
+          ),
+          "evenodd"
+        );
+      }
       context.filter = "none";
       // Punch out the bar after drawing the bloom, keeping the input clear even
       // while its opaque surface and controls morph into place above this layer.

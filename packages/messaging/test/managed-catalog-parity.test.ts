@@ -53,6 +53,10 @@ test('connector skills install without asking and promise no connect card', () =
 test('the routines skill lists the trigger shapes the UpdateRoutine parser answers with', () => {
   // UpdateRoutine's trigger points the model at this list, so it must match what the parser accepts.
   expect(skill('routines')).toContain(`Trigger shapes:\n${AUTOMATION_TRIGGER_SHAPE_LINES.join('\n')}\nPrefer an event-driven trigger`);
+  // Webhook URLs are registered per bot in the server's automation webhook settings; no routine line or panel carries one.
+  expect(skill('routines')).not.toContain('ready-made link');
+  expect(skill('routines')).not.toContain('from the routine panel');
+  expect(skill('routines')).toContain("point the user at those settings rather than giving them a URL");
 });
 
 test('purchases takes the user\'s own card and keeps no card', () => {

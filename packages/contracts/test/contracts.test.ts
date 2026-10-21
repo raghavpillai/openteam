@@ -534,6 +534,13 @@ describe("API contracts", () => {
     expect(actual.inputSchema).toEqual(expected.inputSchema);
   });
 
+  test("StopSubagent all says a stopped child's own background work ends with it", () => {
+    // Stopping a child also ends the background shells it started.
+    expect(referenceTool("StopSubagent").inputSchema.properties.all.description).toContain(
+      "(computerUse, executor, and any other Task children, plus anything those children started), delivers a stop to each peer"
+    );
+  });
+
   test("declares the supported Cursor-compatible subset including AwaitShell", () => {
     expect(CURSOR_TOOL_NAMES).toEqual([
       "AwaitShell",

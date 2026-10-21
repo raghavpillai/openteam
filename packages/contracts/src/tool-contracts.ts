@@ -366,8 +366,8 @@ adaptDescription("UpdateRoutine", [
   };
 }
 
-// StopSubagent reaches this agent's subagents and the peers it messaged with priority; there are no
-// cloud agents, and a stopped child's background shell commands keep running.
+// StopSubagent reaches this agent's subagents (and the background shells they started) and the peers
+// it messaged with priority; there are no cloud agents.
 adaptDescription("StopSubagent", [
   [
     "(peers you messaged with priority and cloud agents you launched); the result says when it could not reach them.",
@@ -385,7 +385,7 @@ adaptArgument("StopSubagent", "all", [
   ],
   [
     " (computerUse, executor, and any other Task children, plus anything those children started), delivers a stop to each peer (which then stops its own subagents the same way), cancels each running cloud agent, and the result",
-    " (computerUse, executor, and any other Task children), delivers a stop to each peer (which then stops its own subagents the same way), and the result",
+    " (computerUse, executor, and any other Task children, plus anything those children started), delivers a stop to each peer (which then stops its own subagents the same way), and the result",
   ],
 ]);
 

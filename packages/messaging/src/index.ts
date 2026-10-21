@@ -354,7 +354,7 @@ export const groupAgentAcknowledgement = (
 };
 
 export const GROUP_MEMBER_TURN_MESSAGE_LIMIT_NOTICE =
-  "Not delivered — you've reached this room turn's 3-message limit. Consolidate, or wait for your next turn.";
+  "This message was not delivered. You've reached this room turn's 3-message limit. Consolidate, or wait for your next turn.";
 
 export interface GroupTurnPromptMember {
   id: string;
@@ -2558,12 +2558,13 @@ export class AgentMessaging {
     context: ToolContext,
     input: ReactToMessageInput
   ): Promise<Record<string, unknown>> {
-    const match = input.message_address.match(/^t(\d+)u$/);
-    if (!match?.[1]) {
-      throw new Error(
-        `${JSON.stringify(input.message_address)} isn't a valid message address. React with the [t3u]-style tag shown on the user's message.`
-      );
-    }
+    // A malformed or unknown address is an answer the model reads, not a tool failure.
+    if (!/^t(?:\d+u(?:a\d+)?|(?:\d+|b)[as]\d+)$/.test(input.message_address))
+      return {
+        reacted: false,
+        removed: false,
+        note: `${JSON.stringify(input.message_address)} isn't a valid message address. React with the [t3u]-style tag shown on the user's message.`,
+      };
     if (!context.channelId) throw new Error("No active chat for this reaction");
     const scope = `reaction:${context.botId}`;
     const requestHash = `${input.message_address}:${input.emoji}`;
@@ -2591,7 +2592,14 @@ export class AgentMessaging {
         where:{id:addressed.id,channel:{members:{some:{botId:context.botId}}}},
         include:{channel:{include:{members:{select:{botId:true}}}}}
       }) : null;
-      if (!message) throw new Error("The addressed user message is not visible to this bot");
+      if (!message) {
+        const result = { reacted: false, removed: false, note: `No user message ${input.message_address} in this chat, so nothing was reacted to.` };
+        await tx.idempotencyRecord.update({
+          where: { scope_key: { scope, key: context.callId } },
+          data: { status: "completed", response: json(result) },
+        });
+        return result;
+      }
       const metadata =
         message.metadata && !Array.isArray(message.metadata) && typeof message.metadata === "object"
           ? ({ ...message.metadata } as Record<string, unknown>)

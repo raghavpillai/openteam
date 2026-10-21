@@ -352,7 +352,7 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
         { type: "text", content: "Fourth room reply" }
       )
     ).rejects.toThrow(
-      "Not delivered — you've reached this room turn's 3-message limit. Consolidate, or wait for your next turn."
+      "This message was not delivered. You've reached this room turn's 3-message limit. Consolidate, or wait for your next turn."
     );
 
     expect(

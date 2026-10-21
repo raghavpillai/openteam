@@ -50,6 +50,7 @@ export function renderControlResult(
   const result = output as Record<string, any>;
   const plugin = renderPluginResult(name, result, args);
   if (plugin !== undefined) return plugin;
+  if (name === "ReactToMessage" && typeof result.note === "string") return result.note;
   if (name === "ReactToMessage" && (result.reacted || result.removed))
     return `Reacted ${args.emoji.trim()} on ${args.message_address.trim()}. (Reactions toggle: react the same emoji again to take it back.)`;
   if (name === "DraftExternalMessage" && result.sent) {

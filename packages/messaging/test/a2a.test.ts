@@ -240,7 +240,7 @@ Current routine runtime status. This snapshot is authoritative for this turn and
 
   test("uses OpenTeam's exact room-turn message-limit notice", () => {
     expect(GROUP_MEMBER_TURN_MESSAGE_LIMIT_NOTICE).toBe(
-      "Not delivered — you've reached this room turn's 3-message limit. Consolidate, or wait for your next turn."
+      "This message was not delivered. You've reached this room turn's 3-message limit. Consolidate, or wait for your next turn."
     );
   });
 

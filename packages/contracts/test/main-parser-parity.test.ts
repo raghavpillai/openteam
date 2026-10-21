@@ -122,3 +122,8 @@ test("CheckSubagent points at the subagent's transcript by id", async () => {
   expect(detail.split("\n").at(-1)).toBe("  Full transcript: call ReadTranscript with in=sand-subagent-1 for the complete play-by-play.");
   expect(detail).not.toContain("/private/run.jsonl");
 });
+test("a reaction that could not be placed reads as its note", async () => {
+  const { renderControlResult } = await import("../src/tool-results");
+  expect(renderControlResult("ReactToMessage", { reacted: false, removed: false, note: "No user message t9u in this chat, so nothing was reacted to." }, { message_address: "t9u", emoji: "👍" }))
+    .toBe("No user message t9u in this chat, so nothing was reacted to.");
+});

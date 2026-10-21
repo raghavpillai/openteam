@@ -5,7 +5,7 @@ function fixture(respond: (name: string, args: any) => Response) {
   const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
   const active: any = {
     runId: "fixture", botId: "fixture", screenBotId: "fixture", runtimeProfile: "agent", pluginNamespaces: [],
-    sentMessageCount: 0, toolActivityAfterLastSend: true, discoveredDynamicTools: new Set(), queue: { push() {} },
+    sentMessageCount: 0, toolActivityAfterLastSend: true, queue: { push() {} },
   };
   const calls: any[] = [];
   tools.callControlPlaneTool = async (turn: any, id: string, name: string, args: any) => {
@@ -16,10 +16,7 @@ function fixture(respond: (name: string, args: any) => Response) {
     } finally { globalThis.fetch = originalFetch; }
   };
   const call = (name: string, args: any) => tools.executeOpenTeamTool(active, `call-${calls.length}`, name, args);
-  const lookup = (toolName: string, args: any) => {
-    active.discoveredDynamicTools.add(`cursor/${toolName}`);
-    return call("CallDynamicTool", { namespace: "cursor", toolName, arguments: args });
-  };
+  const lookup = (toolName: string, args: any) => call("CallDynamicTool", { namespace: "cursor", toolName, arguments: args });
   return { tools, active, calls, call, lookup };
 }
 
@@ -90,7 +87,7 @@ test("CopyToBox takes the reference's computer_path aliases", async () => {
 
 test("a missing attachment is named before anything reaches the tool host", async () => {
   const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
-  const active: any = { runId: "fixture", botId: "fixture", runtimeProfile: "agent", pluginNamespaces: [], discoveredDynamicTools: new Set() };
+  const active: any = { runId: "fixture", botId: "fixture", runtimeProfile: "agent", pluginNamespaces: [] };
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => { throw new Error("the tool host must not be called"); }) as any;
   try {

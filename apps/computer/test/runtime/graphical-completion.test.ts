@@ -135,7 +135,7 @@ test("a computer that fails 20 calls in a row ends the worker with the blocked r
       contextSessionId: crypto.randomUUID(), runId: "breaker-run", turnId: "breaker-turn",
       modelRef: { providerId: model.provider, modelId: model.id }, reasoning: "off", cwd: root,
       instructions: "Operate the desktop.", subagentType: "computerUse", requestSource: "subagent",
-      userInfoMessage: null, discoveredDynamicTools: new Set(), pluginAbortController: new AbortController(),
+      userInfoMessage: null, pluginAbortController: new AbortController(),
       queue: { push: (event: any) => events.push(event), end() {} }, toolArgs: new Map(), startedItems: new Set(),
       assistantOrdinal: 0, attachmentTempDirectories: [], sentMessageCount: 0,
     };

@@ -528,7 +528,6 @@ for (const scenario of [
     const sessions: AgentSession[] = [];
     const runtime = new ComputerRuntime() as any;
     let toolExecutions = 0;
-    let refreshes = 0;
     try {
       const modelRuntime = await ModelRuntime.create({
         credentials: new InMemoryCredentialStore(),
@@ -630,13 +629,6 @@ for (const scenario of [
         ],
         acknowledgeToolOutcomes: async () => {},
         cancelApprovals() {},
-        acknowledgePrompt: async () => {
-          refreshes++;
-        },
-        refreshPrompt: async () => {
-          refreshes++;
-          return { instructions: "Refreshed system", userInfo: null, ambientContext: "Refresh note" };
-        },
       };
       const makeTurn = (): ActiveTurn =>
         ({
@@ -735,8 +727,6 @@ for (const scenario of [
       }
       // A mid-turn summary keeps the turn's prompt; the next turn renders the new epoch.
       if (scenario === "overflow-refresh") {
-        expect(refreshes).toBe(0);
-        expect(JSON.stringify(requests)).not.toContain("Refresh note");
         expect(requests.every((request: any) => JSON.stringify(request.messages[0]).includes("System fixture"))).toBe(true);
       }
     } finally {

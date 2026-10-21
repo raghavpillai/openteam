@@ -222,7 +222,7 @@ test("a stop kills a running foreground Shell and reports it as interrupted", as
   const {root}=await fixture();
   const runtime=new RuntimeTools({} as ScreenBroker,"http://unused.invalid","test",root,root);
   (runtime as any).processSecrets=async()=>({});
-  const stopped={runId:"stop-shell",runtimeProfile:"agent",botId:"bot-stop-shell",cwd:root,pluginNamespaces:[],discoveredDynamicTools:new Set<string>()} as unknown as ActiveTurn;
+  const stopped={runId:"stop-shell",runtimeProfile:"agent",botId:"bot-stop-shell",cwd:root,pluginNamespaces:[]} as unknown as ActiveTurn;
   const controller=new AbortController();
   const running=(runtime as unknown as {executeScopedTool(active:ActiveTurn,callId:string,tool:string,args:unknown,signal?:AbortSignal):Promise<unknown>})
     .executeScopedTool(stopped,"stop","Shell",{command:"echo partial; sleep 5"},controller.signal);
@@ -235,7 +235,7 @@ test("a stopped AwaitShell and invalid waits report the reference errors", async
   const {root}=await fixture();
   const runtime=new RuntimeTools({} as ScreenBroker,"http://unused.invalid","test",root,root);
   (runtime as any).processSecrets=async()=>({});
-  const active={runId:"await-errors",runtimeProfile:"subagent",subagentType:"executor",botId:"bot-await-errors",cwd:root,pluginNamespaces:[],discoveredDynamicTools:new Set<string>()} as unknown as ActiveTurn;
+  const active={runId:"await-errors",runtimeProfile:"subagent",subagentType:"executor",botId:"bot-await-errors",cwd:root,pluginNamespaces:[]} as unknown as ActiveTurn;
   const wait=testTools(runtime,active).find(t=>t.name==="AwaitShell")!;
   await expect(wait.execute("zero",{block_until_ms:0})).rejects.toThrow("Error awaiting task: Invalid arguments:\nshell_id: Required when block_until_ms is 0. Without shell_id there is nothing to check: pass the shell_id to check, or a nonzero block_until_ms to sleep.");
   await expect(wait.execute("cap",{block_until_ms:780_001})).rejects.toThrow("Error awaiting task: Invalid arguments:\nblock_until_ms: block_until_ms must be at most 780000 (13 minutes)");
@@ -291,7 +291,7 @@ test("a Read issued beside the Shell call that creates its file waits for it and
   const {root}=await fixture();
   const runtime=new RuntimeTools({} as ScreenBroker,"http://unused.invalid","test",root,root);
   (runtime as any).processSecrets=async()=>({});
-  const active={runId:"same-step",runtimeProfile:"agent",botId:"bot-same-step",cwd:root,pluginNamespaces:[],discoveredDynamicTools:new Set<string>()} as unknown as ActiveTurn;
+  const active={runId:"same-step",runtimeProfile:"agent",botId:"bot-same-step",cwd:root,pluginNamespaces:[]} as unknown as ActiveTurn;
   const tools=testTools(runtime,active);
   const shell=tools.find(t=>t.name==="Shell")!.execute("make",{command:"sleep 0.3; printf made > chart.txt"});
   const read=tools.find(t=>t.name==="Read")!.execute("read",{path:"chart.txt"});

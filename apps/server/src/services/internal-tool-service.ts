@@ -34,6 +34,7 @@ import type { SubagentService } from "./subagent/service";
 import type { TodoService } from "./todo-service";
 import type { RichMessageService } from "./rich-message-service";
 import { processEnvironment } from "./process-secrets";
+import { withConnectorDraftCardReminder } from "./connector-draft-reminder";
 
 export class InternalToolService {
   constructor(
@@ -249,7 +250,7 @@ export class InternalToolService {
         const automationChild = childIdentity && (await this.prisma.run.findUnique({
           where: { id: childIdentity.parentRunId }, select: { origin: true },
         }))?.origin === "routine";
-        return this.plugins.invoke({
+        return withConnectorDraftCardReminder(this.prisma, { connectionId: input.connectionId, toolName: input.toolName }, !childIdentity && run.origin !== "routine", await this.plugins.invoke({
           connectionId: input.connectionId,
           namespace: typeof input.namespace === "string" ? input.namespace : undefined,
           botId:
@@ -258,7 +259,7 @@ export class InternalToolService {
           callId: request.callId,
           toolName: input.toolName,
           arguments: input.arguments ?? {},
-        });
+        }));
       }
       if (isStateTool(request.tool)) {
         const result = await this.durableState.executeTool(

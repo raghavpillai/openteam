@@ -3,7 +3,7 @@ import {
   communicationReminder,
   enrichUserInfo,
   promptFingerprint,
-  EARLY_RESULT_REMINDER,
+  ACK_REMINDER,
   PROGRESS_REMINDER,
 } from "../../src/runtime/prompt-context";
 
@@ -38,7 +38,7 @@ test("runtime context describes actual tools and preserves saved skill catalog",
 test("acknowledgement reminders fire during work, with silent/worker exclusions", () => {
   const messages = [user, call("Read"), call("Shell")];
   expect(communicationReminder([user, call("Read")], active)).toBeNull();
-  expect(communicationReminder(messages, active)?.kind).toBe("ack");
+  expect(communicationReminder(messages, active)).toEqual({ kind: "ack", content: ACK_REMINDER });
   expect(communicationReminder(messages, { ...active, requestSource: "automation" })).toBeNull();
   expect(communicationReminder(messages, { ...active, subagentType: "executor" })).toBeNull();
   expect(
@@ -49,53 +49,47 @@ test("acknowledgement reminders fire during work, with silent/worker exclusions"
   ).toBeNull();
 });
 
-test("opening acknowledgement is followed by a result reminder after work", () => {
-  expect(communicationReminder([user, call("SendToUser", { type: "text" })], active)).toBeNull();
-  expect(
-    communicationReminder([user, call("SendToUser", { type: "text" }), call("Read")], active)
-  ).toEqual({ kind: "early-result", content: EARLY_RESULT_REMINDER });
-  expect(
-    communicationReminder(
-      [user, call("SendToUser", { type: "widget" }), call("Read"), call("Read")],
-      active
-    )?.kind
-  ).toBe("ack");
-});
+const reminderNote = (content: string) => ({ role: "custom", customType: "openteam-communication-reminder", content });
+/** Runs the hook before each step the way the context hook does, appending what it injects. */
+const simulate = (steps: Array<ReturnType<typeof call>>) => {
+  const messages: any[] = [user];
+  const fired: Array<{ before: number; kind: string }> = [];
+  steps.forEach((step, index) => {
+    const reminder = communicationReminder(messages, active);
+    if (reminder) {
+      fired.push({ before: index + 1, kind: reminder.kind });
+      messages.push(reminderNote(reminder.content));
+    }
+    messages.push(step, { role: "toolResult", toolCallId: `call-${index}`, content: [] });
+  });
+  return fired;
+};
 
-test("early reminders allow unfinished work; prolonged silence requires an update", () => {
-  const start = [user, call("SendToUser", { type: "text" }), call("Read")];
-  const note = {
-    role: "custom",
-    customType: "openteam-communication-reminder",
-    content: EARLY_RESULT_REMINDER,
-  };
-  expect(communicationReminder([...start, note, call("Read")], active)).toBeNull();
-  expect(
-    communicationReminder(
-      [...start, note, ...Array.from({ length: 6 }, () => call("Read"))],
-      active
-    )
-  ).toEqual({ kind: "progress", content: PROGRESS_REMINDER });
-  expect(
-    communicationReminder(
-      [...start, note, call("SendToUser", { type: "text" }), call("Read")],
-      active
-    )?.kind
-  ).toBe("early-result");
-});
-
-test("injected user-role notes do not hide a long silent streak or a newer real user turn", () => {
-  const note = {
-    role: "user",
-    content: EARLY_RESULT_REMINDER,
-    providerOptions: { cursor: { sandEarlyResultReminder: true } },
-  };
-  const start = [user, call("SendToUser", { type: "text" }), call("Read"), note];
-  expect(
-    communicationReminder([...start, ...Array.from({ length: 6 }, () => call("Read"))], active)
-      ?.kind
-  ).toBe("progress");
-  expect(communicationReminder([...start, user, call("Read"), call("Read")], active)?.kind).toBe(
-    "ack"
+test("the ack repeats every two silent calls until the user hears from the bot", () => {
+  expect(simulate(Array.from({ length: 13 }, () => call("Shell")))).toEqual(
+    [3, 5, 7, 9, 11, 13].map((before) => ({ before, kind: "ack" }))
   );
+});
+
+test("after an ack the progress reminder fires once per seven silent calls, not every step", () => {
+  expect(simulate([call("SendToUser", { type: "text" }), ...Array.from({ length: 16 }, () => call("Shell"))])).toEqual([
+    { before: 9, kind: "progress" },
+    { before: 16, kind: "progress" },
+  ]);
+});
+
+test("a reaction that went through acknowledges the user; a widget or failed reaction does not", () => {
+  const react = { role: "assistant", content: [{ type: "toolCall", id: "r", name: "ReactToMessage", arguments: { emoji: "👍" } }] };
+  const reacted = (isError: boolean) => [user, react, { role: "toolResult", toolCallId: "r", isError, content: [] }, call("Shell"), call("Shell")];
+  expect(communicationReminder(reacted(false), active)).toBeNull();
+  expect(communicationReminder(reacted(true), active)?.kind).toBe("ack");
+  expect(communicationReminder([user, call("SendToUser", { type: "widget" }), call("Read"), call("Read")], active)?.kind).toBe("ack");
+  expect(communicationReminder([user, call("SendToUser", { type: "widget" }), call("Read")], active)).toBeNull();
+});
+
+test("a newer real user message starts a new acknowledgement window", () => {
+  expect(communicationReminder([user, call("SendToUser", { type: "text" }), call("Read"), user, call("Read"), call("Read")], active)?.kind).toBe("ack");
+  // Injected reminder blocks are skipped when looking back for the ack.
+  const hold = { role: "custom", customType: "openteam-end-turn-hold", content: "<system_reminder>\nYour turn did not end.\n</system_reminder>" };
+  expect(communicationReminder([user, call("SendToUser", { type: "text" }), hold, call("Read"), call("Read")], active)).toBeNull();
 });

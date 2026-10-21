@@ -38,7 +38,8 @@ export async function loadShellEnvironment(
 // read/merge/rename sequence for each environment file.
 const pendingWrites = new Map<string, Promise<void>>();
 
-export async function persistShellEnvironment(path: string, chunks: readonly Buffer[], excludedKeys: readonly string[] = [], baseline?: NodeJS.ProcessEnv) {
+/** Returns the environment the command exited with (its PWD is the shell's final directory). */
+export async function persistShellEnvironment(path: string, chunks: readonly Buffer[], excludedKeys: readonly string[] = [], baseline?: NodeJS.ProcessEnv): Promise<Record<string, string> | undefined> {
   if (!chunks.length) return;
   const environment = Object.fromEntries(
     Buffer.concat(chunks)
@@ -85,6 +86,7 @@ export async function persistShellEnvironment(path: string, chunks: readonly Buf
   pendingWrites.set(path, write);
   try { await write; }
   finally { if (pendingWrites.get(path) === write) pendingWrites.delete(path); }
+  return environment;
 }
 
 /** A private inherited file descriptor avoids extra-pipe drain races in Bun. */
@@ -105,7 +107,7 @@ export function createShellEnvironmentCapture(directory: string) {
         if ((await stat(path)).size > 4 * 1024 * 1024)
           throw new Error("Exported shell environment exceeds 4 MiB");
         const bytes = await readFile(path);
-        if (bytes.length) await persistShellEnvironment(destination, [bytes], excludedKeys, baseline);
+        return bytes.length ? await persistShellEnvironment(destination, [bytes], excludedKeys, baseline) : undefined;
       } finally {
         await rm(path, { force: true });
       }

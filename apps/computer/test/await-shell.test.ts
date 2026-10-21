@@ -129,7 +129,7 @@ test("discovers and invokes AwaitShell locally across turns with bot scope", asy
   const other = testTools(runtime, { ...active, botId: "bot-2" });
   await expect(
     other.find((t) => t.name === "CallDynamicTool")!.execute("wait-other", args)
-  ).rejects.toThrow("Unknown or expired");
+  ).rejects.toThrow(`Error awaiting task: No shell found for id ${args.arguments.shell_id}`);
   const subagent = testTools(runtime, {
     ...active,
     runtimeProfile: "subagent",
@@ -229,11 +229,68 @@ test("new user input releases AwaitShell and sleep promptly without terminating 
   const args={namespace:"cursor",toolName:"AwaitShell",arguments:{shell_id:started.details.shellId,block_until_ms:60_000}};
   const pending=call.execute("await",args);
   const timer=setTimeout(()=>runtime.interruptShellWaits(active.runId),20);
-  try {expect((await pending).details.status).toBe("running");}finally{clearTimeout(timer);}
+  try {
+    const released=await pending;
+    expect(released.details).toMatchObject({status:"running",released_by_user_message:true});
+    expect((released.content[0] as {text:string}).text).toMatch(/^Task still running after \d+ms\.\.\. Wait released early: a new user message is arriving\.\noutput_file_path: /);
+  }finally{clearTimeout(timer);}
   expect((await call.execute("finish",{...args,arguments:{...args.arguments,block_until_ms:2000}})).details).toMatchObject({status:"completed",exit_code:0});
   const sleeping=call.execute("sleep",{...args,arguments:{block_until_ms:60_000}});
   const wake=setTimeout(()=>runtime.interruptShellWaits(active.runId),20);
-  try {expect((await sleeping).details.status).toBe("slept");}finally{clearTimeout(wake);}
+  try {
+    const slept=await sleeping;
+    expect(slept.details.status).toBe("slept");
+    expect(slept.content[0]).toEqual({type:"text",text:"Slept for 1s. Sleep released early: a new user message is arriving."});
+  }finally{clearTimeout(wake);}
+});
+
+test("new user input moves a running foreground Shell to the background; a stop kills it", async () => {
+  const {root}=await fixture();
+  const runtime=new RuntimeTools({} as ScreenBroker,"http://unused.invalid","test",root,root);
+  (runtime as any).processSecrets=async()=>({});
+  const active={runId:"steer-shell",runtimeProfile:"agent",botId:"bot-steer-shell",cwd:root,pluginNamespaces:[],discoveredDynamicTools:new Set<string>()} as unknown as ActiveTurn;
+  const shell=testTools(runtime,active).find(t=>t.name==="Shell")!;
+  const started=Date.now();
+  const pending=shell.execute("long",{command:"echo running tests; sleep 1; echo finished"});
+  const timer=setTimeout(()=>runtime.interruptShellWaits(active.runId),300);
+  let backgrounded: AgentToolResult<Record<string, unknown>>;
+  try {backgrounded=await pending;}finally{clearTimeout(timer);}
+  expect(Date.now()-started).toBeLessThan(900);
+  expect(backgrounded.details).toMatchObject({status:"running",backgroundedBy:"user_message"});
+  const text=(backgrounded.content[0] as {text:string}).text;
+  expect(text).toMatch(/^The user manually backgrounded the command after \d+ms\. Do NOT await it; either continue with other work or end your turn\.\nShell ID: \d+\nPID: \d+\nThe output is being written to .+\. Don't mention Shell ID to the user\.\n\nOutput collected before backgrounding:\n\n```\nrunning tests\n\n```$/);
+  // The command keeps running in the background and finishes normally.
+  const executor=(runtime as unknown as {nativeToolExecutor:NativeToolExecutor}).nativeToolExecutor;
+  expect((await executor.awaitShell({shell_id:String(backgrounded.details.shellId),block_until_ms:3000},undefined,active.botId)).details).toMatchObject({status:"completed",exit_code:0});
+  expect(await readFile(String(backgrounded.details.outputPath),"utf8")).toContain("running tests\nfinished\n");
+
+  // A stop marks the turn as ending first; the command is killed, not backgrounded.
+  const stopped={...active,runId:"stop-shell"} as ActiveTurn;
+  const controller=new AbortController();
+  const running=(runtime as unknown as {executeScopedTool(active:ActiveTurn,callId:string,tool:string,args:unknown,signal?:AbortSignal):Promise<unknown>})
+    .executeScopedTool(stopped,"stop","Shell",{command:"echo partial; sleep 5"},controller.signal);
+  const stop=setTimeout(()=>{stopped.endTurnRequested=true;runtime.interruptShellWaits(stopped.runId);controller.abort();},300);
+  try {await expect(running).rejects.toThrow(/^Error: Shell command was interrupted by the user after \d+ms before it completed\.\n\nOutput collected before interruption:\n\n```\npartial\n\n```$/);}
+  finally{clearTimeout(stop);}
+});
+
+test("a stopped AwaitShell and invalid waits report the reference errors", async () => {
+  const {root}=await fixture();
+  const runtime=new RuntimeTools({} as ScreenBroker,"http://unused.invalid","test",root,root);
+  (runtime as any).processSecrets=async()=>({});
+  const active={runId:"await-errors",runtimeProfile:"subagent",subagentType:"executor",botId:"bot-await-errors",cwd:root,pluginNamespaces:[],discoveredDynamicTools:new Set<string>()} as unknown as ActiveTurn;
+  const wait=testTools(runtime,active).find(t=>t.name==="AwaitShell")!;
+  await expect(wait.execute("zero",{block_until_ms:0})).rejects.toThrow("Error awaiting task: Invalid arguments:\nshell_id: Required when block_until_ms is 0. Without shell_id there is nothing to check: pass the shell_id to check, or a nonzero block_until_ms to sleep.");
+  await expect(wait.execute("cap",{block_until_ms:780_001})).rejects.toThrow("Error awaiting task: Invalid arguments:\nblock_until_ms: block_until_ms must be at most 780000 (13 minutes)");
+  await expect(wait.execute("unknown",{shell_id:"999",block_until_ms:0})).rejects.toThrow("Error awaiting task: No shell found for id 999");
+  const started=await testTools(runtime,active).find(t=>t.name==="Shell")!.execute("start",{command:"sleep 0.2",block_until_ms:0});
+  await expect(wait.execute("regex",{shell_id:started.details.shellId,pattern:"(?=a)",block_until_ms:0})).rejects.toThrow("Error awaiting task: pattern is not valid RE2 syntax: invalid or unsupported Perl syntax. RE2 has no lookahead, lookbehind or backreferences.");
+  expect((await wait.execute("finish",{shell_id:started.details.shellId,block_until_ms:5000})).details).toMatchObject({status:"completed"});
+  const controller=new AbortController();
+  const pending=(runtime as unknown as {executeScopedTool(active:ActiveTurn,callId:string,tool:string,args:unknown,signal?:AbortSignal):Promise<unknown>})
+    .executeScopedTool(active,"stopped","AwaitShell",{block_until_ms:60_000},controller.signal);
+  setTimeout(()=>controller.abort(),50);
+  await expect(pending).rejects.toThrow(/^Error: Await was interrupted by the user after \d+ms\.$/);
 });
 
 test("each Shell or AwaitShell call waits at most 13 minutes, or 58 for a computerUse worker", async () => {
@@ -272,4 +329,18 @@ test("each Shell or AwaitShell call waits at most 13 minutes, or 58 for a comput
       namespace: "cursor", toolName: "AwaitShell", arguments: { block_until_ms: 780_001 },
     })
   ).rejects.toThrow("block_until_ms must be at most 780000 (13 minutes)");
+});
+
+test("a Read issued beside the Shell call that creates its file waits for it and retries once", async () => {
+  const {root}=await fixture();
+  const runtime=new RuntimeTools({} as ScreenBroker,"http://unused.invalid","test",root,root);
+  (runtime as any).processSecrets=async()=>({});
+  const active={runId:"same-step",runtimeProfile:"agent",botId:"bot-same-step",cwd:root,pluginNamespaces:[],discoveredDynamicTools:new Set<string>()} as unknown as ActiveTurn;
+  const tools=testTools(runtime,active);
+  const shell=tools.find(t=>t.name==="Shell")!.execute("make",{command:"sleep 0.3; printf made > chart.txt"});
+  const read=tools.find(t=>t.name==="Read")!.execute("read",{path:"chart.txt"});
+  expect((await read).content[0]).toEqual({type:"text",text:"     1|made"});
+  await shell;
+  // Without an earlier writer in the step, a missing file fails at once.
+  await expect(tools.find(t=>t.name==="Read")!.execute("again",{path:"absent.txt"})).rejects.toThrow("Error: File not found");
 });

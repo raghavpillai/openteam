@@ -162,6 +162,25 @@ export const renderSubagentRevivalPrompt = (input: {
   ].join("\n");
 };
 
+/** A finished background Shell, in the revival shape used for finished subagents. */
+export const renderShellCompletionPrompt = (input: ShellCompletionInput): string => {
+  const failed = input.exitCode !== 0 || Boolean(input.error);
+  const detail = [
+    input.exitCode === null ? "" : input.exitCode !== 0 ? `exit_code=${input.exitCode}` : "",
+    input.error ?? "",
+    `Full output: ${input.outputPath}`,
+    input.machineId ? `This is on the user’s computer; use Read or AwaitShell with machineId ${JSON.stringify(input.machineId)}.` : "",
+  ].filter(Boolean);
+  return [
+    "[SAND_HIDDEN_PROMPT][A background task just completed] A background task you started has finished.",
+    "",
+    `Background task "${input.title ?? `Background command ${input.hostShellId ?? input.id}`}" (shell) ${failed ? "failed" : "finished"}:`,
+    ...detail,
+    "",
+    SUBAGENT_REVIVAL_INSTRUCTION,
+  ].join("\n");
+};
+
 export const buildAdminBroadcastWakePrompt = (message: string): string =>
   [
     "[SAND_HIDDEN_PROMPT]",
@@ -823,13 +842,7 @@ export class AgentMessaging {
       await this.enqueueWake(tx, {
         botId: bot.id, channelId: channel.id, ...route, type: "shell.completed",
         clientId, priority: 50, wrapUserContent: false,
-        content: [
-          "[SAND_HIDDEN_PROMPT][A background shell command completed]",
-          `Shell ${input.hostShellId ?? input.id} exited with code ${input.exitCode ?? "unknown"}.`,
-          `Output file: ${JSON.stringify(input.outputPath)}. ${input.machineId ? `This is on the user’s computer; use Read or AwaitShell with machineId ${JSON.stringify(input.machineId)}.` : "Read it if the result is needed."}`,
-          input.error ? `Completion diagnostic: ${input.error}` : "",
-          SUBAGENT_REVIVAL_INSTRUCTION,
-        ].filter(Boolean).join("\n\n"),
+        content: renderShellCompletionPrompt(input),
       });
       return { delivered: true };
     });

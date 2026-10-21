@@ -62,7 +62,7 @@ import {
   UPDATE_ROUTINE_TOOL,
 } from "@openteam/contracts";
 import { Schema } from "effect";
-import { parseHostAwaitShellRequest } from "@openteam/contracts/service-protocol";
+import { parseHostAwaitShellRequest, type ShellAwaitResponse } from "@openteam/contracts/service-protocol";
 import { mkdir, writeFile, realpath } from "node:fs/promises";
 import { join, basename, resolve, dirname, sep } from "node:path";
 import { Type } from "typebox";
@@ -116,7 +116,7 @@ const assertShellWait = (active: Pick<ActiveTurn, "subagentType">, args: unknown
   const capMs = shellWaitCapMs(active);
   const blockMs = (args as { block_until_ms?: unknown } | null)?.block_until_ms;
   if (typeof blockMs === "number" && blockMs > capMs)
-    throw new Error(`block_until_ms must be at most ${waitLimit(capMs, unit)}`);
+    throw new Error(`${unit ? "" : "Invalid arguments:\nblock_until_ms: "}block_until_ms must be at most ${waitLimit(capMs, unit)}`);
 };
 const boxScopedSchema = (schema: Readonly<Record<string, unknown>>): Record<string, unknown> => {
   const { machineId: _machineId, ...properties } = (schema.properties ?? {}) as Record<string, unknown>;
@@ -156,11 +156,34 @@ export const workerTopLevelTools = (
   return [];
 };
 
+/** Calls that can create a file a Read in the same step is waiting for. */
+const SAME_STEP_FILE_WRITERS: ReadonlySet<string> = new Set(["Shell", "AwaitShell", "CopyToBox"]);
+const SAME_STEP_READ_WAIT_MS = 120_000;
+
 export class RuntimeTools {
   private readonly shellWaits = new Map<string, Set<AbortController>>();
+  private readonly stepFileWriters = new Map<string, Set<Promise<unknown>>>();
+  private readonly foregroundShells = new Map<string, Set<{ active: ActiveTurn; controller: AbortController }>>();
   interruptShellWaits(runId: string) {
     for (const wait of this.shellWaits.get(runId) ?? [])
       wait.abort(new Error("A new user message arrived"));
+    // A new user message backgrounds a running foreground command so the turn can
+    // answer it. A stop (the turn is ending) kills the command instead.
+    for (const shell of this.foregroundShells.get(runId) ?? [])
+      if (!shell.active.endTurnRequested) shell.controller.abort();
+  }
+
+  private async withForegroundShell<T>(active: ActiveTurn, run: (background: AbortSignal) => Promise<T>): Promise<T> {
+    const entry = { active, controller: new AbortController() };
+    const shells = this.foregroundShells.get(active.runId) ?? new Set();
+    shells.add(entry);
+    this.foregroundShells.set(active.runId, shells);
+    try {
+      return await run(entry.controller.signal);
+    } finally {
+      shells.delete(entry);
+      if (!shells.size) this.foregroundShells.delete(active.runId);
+    }
   }
 
   private async awaitShellForTurn(
@@ -168,12 +191,26 @@ export class RuntimeTools {
     args: unknown,
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
+    const started = Date.now();
+    try {
+      return await this.awaitShellOnce(turn, args, started, signal);
+    } catch (error) {
+      if (signal?.aborted) throw new Error(`Error: Await was interrupted by the user after ${Date.now() - started}ms.`);
+      throw new Error(`Error awaiting task: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private async awaitShellOnce(
+    turn: ActiveTurn,
+    args: unknown,
+    started: number,
+    signal?: AbortSignal
+  ): Promise<AgentToolResult<Record<string, unknown>>> {
     assertShellWait(turn, args, "");
     const input = Schema.decodeUnknownSync(AwaitShellInput)(parseHostAwaitShellRequest(args));
     if (input.machineId && (turn.subagentType || turn.runtimeProfile === "subagent"))
       throw new Error("Subagents cannot target the user's local computer");
-    const controller = new AbortController(),
-      started = Date.now();
+    const controller = new AbortController();
     const waits = this.shellWaits.get(turn.runId) ?? new Set<AbortController>();
     waits.add(controller);
     this.shellWaits.set(turn.runId, waits);
@@ -190,14 +227,14 @@ export class RuntimeTools {
         );
       } catch (error) {
         if (!controller.signal.aborted || signal?.aborted) throw error;
-        if (input.shell_id) result = await execute(0, signal);
-        else {
-          const receipt = { status: "slept" as const, waited_ms: Date.now() - started };
-          result = {
-            content: [{ type: "text", text: renderShellAwaitResult(receipt) }],
-            details: receipt,
-          };
-        }
+        // Released by a new user message: report the job's state now and say why.
+        const receipt: ShellAwaitResponse = input.shell_id
+          ? ((await execute(0, signal)).details as unknown as ShellAwaitResponse)
+          : { status: "slept", waited_ms: Date.now() - started };
+        result = {
+          content: [{ type: "text", text: renderShellAwaitResult(receipt, true) }],
+          details: { ...receipt, released_by_user_message: true },
+        };
       }
       if (
         input.machineId &&
@@ -560,7 +597,20 @@ export class RuntimeTools {
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     this.assertCurrentInput(active);
-    return this.executeScopedTool(active, callId, tool, args, signal);
+    const name = tool === CALL_DYNAMIC_TOOL_TOOL.name ? (args as { toolName?: unknown } | null)?.toolName : tool;
+    if (typeof name !== "string" || !SAME_STEP_FILE_WRITERS.has(name))
+      return this.executeScopedTool(active, callId, tool, args, signal);
+    // Calls issued in one step start in order, so a later Read in the step can wait for these.
+    const run = this.executeScopedTool(active, callId, tool, args, signal);
+    const writers = this.stepFileWriters.get(active.runId) ?? new Set<Promise<unknown>>();
+    writers.add(run);
+    this.stepFileWriters.set(active.runId, writers);
+    try {
+      return await run;
+    } finally {
+      writers.delete(run);
+      if (!writers.size) this.stepFileWriters.delete(active.runId);
+    }
   }
 
   private async executeScopedTool(
@@ -628,29 +678,33 @@ export class RuntimeTools {
               machineId: shellInput.machineId!,
               shellId: result.details.shell_id,
               outputPath: result.details.output_path,
+              title: (shellInput.description?.trim() || shellInput.command).slice(0, 4000),
             });
           }
           return result;
         })();
       }
-      const environment =
-        active.subagentType === "computerUse"
-          ? await this.screens.commandEnvironment(active.screenBotId, active.cwd)
-          : undefined;
-      const secretEnvironment = await this.processSecrets(active, signal);
-      return this.nativeToolExecutor.shell(
-        shellInput,
-        active.cwd,
-        signal,
-        environment,
-        active.botId,
-        {
-          channelId: active.channelId,
-          secretEnvironment,
-          secrets: Object.values(secretEnvironment),
-          ...(active.requestSource === "automation" ? { automationRunId: active.runId } : {}),
-        }
-      );
+      return this.withForegroundShell(active, async (background) => {
+        const environment =
+          active.subagentType === "computerUse"
+            ? await this.screens.commandEnvironment(active.screenBotId, active.cwd)
+            : undefined;
+        const secretEnvironment = await this.processSecrets(active, signal);
+        return this.nativeToolExecutor.shell(
+          shellInput,
+          active.cwd,
+          signal,
+          environment,
+          active.botId,
+          {
+            channelId: active.channelId,
+            secretEnvironment,
+            secrets: Object.values(secretEnvironment),
+            background,
+            ...(active.requestSource === "automation" ? { automationRunId: active.runId } : {}),
+          }
+        );
+      });
     }
     if (tool === READ_TOOL.name) {
       const readInput = Schema.decodeUnknownSync(ReadToolInput)(args);
@@ -661,8 +715,20 @@ export class RuntimeTools {
         return (() =>
           this.nativeToolExecutor.externalRead(readInput, signal))();
       }
+      const earlierWriters = [...(this.stepFileWriters.get(active.runId) ?? [])];
       const secrets = Object.values(await this.processSecrets(active, signal));
-      const result = await this.nativeToolExecutor.read(readInput, active.cwd);
+      const read = () => this.nativeToolExecutor.read(readInput, active.cwd);
+      const result = await read().catch(async (error) => {
+        // A Read issued beside the Shell call that creates its file waits for that call, then retries once.
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT" || !earlierWriters.length) throw error;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([
+          Promise.allSettled(earlierWriters),
+          new Promise((resolveWait) => (timer = setTimeout(resolveWait, SAME_STEP_READ_WAIT_MS))),
+        ]).finally(() => clearTimeout(timer));
+        signal?.throwIfAborted();
+        return read();
+      });
       return {
         ...result,
         content: result.content.map((part) =>
@@ -674,7 +740,9 @@ export class RuntimeTools {
       return this.nativeToolExecutor.listMachines(signal);
     }
     if (tool === SCREENSHOT_TOOL.name) {
-      const frame = await this.screens.screenshot(active.botId, active.cwd, signal);
+      const frame = await this.screens.screenshot(active.botId, active.cwd, signal).catch((error) => {
+        throw signal?.aborted ? error : new Error(`Screenshot failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
       const directory = join(this.workspaceRoot, "shared", "screenshots");
       await mkdir(directory, { recursive: true });
       const path = join(directory, `${active.botId}-${Date.now()}.png`);
@@ -683,7 +751,7 @@ export class RuntimeTools {
         content: [
           {
             type: "text" as const,
-            text: `Screenshot captured from the box desktop.\nScreenshot saved to ${path} — attach this file:// path with SendToUser to show the user the box.`,
+            text: `Screenshot captured from the box desktop.\nScreenshot saved to ${path}, and to show the user the box, attach this file:// path with SendToUser.`,
           },
           {
             type: "image" as const,
@@ -731,7 +799,9 @@ export class RuntimeTools {
     const needsDesktopObservation = active.lastGraphicalSurface !== "computer" &&
       requestedActions.some(action => ["click", "move", "drag", "scroll"].includes(action.action));
     const actions = needsDesktopObservation ? [{ action: "screenshot" as const }] : requestedActions;
-    const frame = await this.screens.actComputerUse(active.screenBotId, active.cwd, actions, signal);
+    const frame = await this.screens.actComputerUse(active.screenBotId, active.cwd, actions, signal).catch((error) => {
+      throw signal?.aborted ? error : new Error(`Computer action failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
     signal?.throwIfAborted();
     active.lastGraphicalSurface = "computer";
     const directory = join(this.workspaceRoot, "shared", "screenshots");
@@ -742,7 +812,7 @@ export class RuntimeTools {
       content: [
         {
           type: "text" as const,
-          text: `${needsDesktopObservation ? "Captured the native desktop before switching coordinate spaces. The requested pointer actions were NOT executed. Read this screenshot, then issue the actions using desktop coordinates; browser viewport coordinates omit the window chrome." : "Computer action ran on the box desktop."}\nScreenshot of the resulting screen saved to ${path} — include this file:// path in your report to the parent if it should be shown to the user.`,
+          text: `${needsDesktopObservation ? "Captured the native desktop before switching coordinate spaces. The requested pointer actions were NOT executed. Read this screenshot, then issue the actions using desktop coordinates; browser viewport coordinates omit the window chrome." : "Computer action ran on the box desktop."}\nScreenshot of the resulting screen saved to ${path}, and if it should be shown to the user, include this file:// path in your report to the parent.`,
         },
         {
           type: "image" as const,

@@ -50,7 +50,12 @@ export const MAX_INLINE_IMAGE_BYTES = CLIENT_CAPABILITIES.uploads.maxRegularByte
 export const MAX_INLINE_IMAGE_URL_LENGTH = Math.ceil(MAX_INLINE_IMAGE_BYTES / 3) * 4 + 128;
 
 // Task attachments are inline model media, not general shared filesystem inputs.
-export const MAX_TASK_ATTACHMENTS = 8;
+export const MAX_TASK_ATTACHMENTS = 64;
+export const TASK_ATTACHMENT_LIMIT_MESSAGE = `A subagent can take at most ${MAX_TASK_ATTACHMENTS} images in file_attachments. Attach fewer and try again.`;
+/** Each attached image, as in the reference. */
+export const MAX_TASK_IMAGE_BYTES = 25 * 1024 * 1024;
+export const unreadableTaskImageMessage = (path: string) =>
+  `Couldn't read the attached image ${path}: it was not found or is over ${MAX_TASK_IMAGE_BYTES / 1024 / 1024} MB.`;
 export const TASK_IMAGE_MIME_TYPES: Readonly<Record<string, string>> = {
   ".gif": "image/gif", ".jpeg": "image/jpeg", ".jpg": "image/jpeg",
   ".png": "image/png", ".webp": "image/webp",

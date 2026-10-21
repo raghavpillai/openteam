@@ -44,11 +44,9 @@ export const subagentTaskWake = (input: TaskInput) => ({
 export const subagentSteerPrompt = (message: string): string =>
   [
     "[Steering message from the parent agent that dispatched you]",
-    "",
-    message,
-    "",
-    "Take this into account and continue your task from where you are — do not start over.",
-  ].join("\n");
+    message.trim(),
+    "Take this into account and continue your task from where you are. Do not start over.",
+  ].join("\n\n");
 
 export const botSubagentId = (id: string): string =>
   id.startsWith("sand-subagent-") ? id : `sand-subagent-${id}`;

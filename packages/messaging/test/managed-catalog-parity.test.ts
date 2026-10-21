@@ -68,6 +68,11 @@ test('a routine run hands a recurring auth failure to its parent', () => {
   expect(routines).toContain('the parent then calls AuthenticateMcpServer and sends the user the connection-settings link it returns.');
 });
 
+test('the in-chat-forms catalog line leaves connected credentials to autonomous sign-in', () => {
+  // Credentials and codes from connected sources are entered without a form, so the catalog line must not demand one.
+  expect(description('in-chat-forms')).toContain('REQUIRED before any typed web step whose value you cannot get from the user\'s connected sources (login, checkout address or card, phone, OTP)');
+});
+
 test('purchases takes the user\'s own card and keeps no card', () => {
   expect(description('purchases')).toContain('Always follow this when dealing with credit cards');
   const purchases = skill('purchases');

@@ -278,21 +278,19 @@ export const turnCompletionFailure = (
   return new Error(runtimeMessage ?? `Computer turn ended with status ${event.status}`);
 };
 
+/** The learner reviews every memorable turn: what the bot sent plus all its own text, even when both are empty. */
 export const resolveTurnMemoryExchange = (input: {
   visibleUser?: { content: string; createdAt: Date } | null;
   internalUser?: { content: string; createdAt: Date } | null;
   visibleAssistant: Array<{ content: string }>;
-  internalAssistant?: { content: string } | null;
+  internalAssistant: Array<{ content: string }>;
 }): { user: string; assistant: string; occurredAt: number } | null => {
   const user = input.visibleUser?.content.trim() || input.internalUser?.content.trim() || "";
-  const assistant =
-    input.visibleAssistant
-      .map((message) => message.content.trim())
-      .filter(Boolean)
-      .join("\n") ||
-    input.internalAssistant?.content.trim() ||
-    "";
-  if (!user || !assistant) return null;
+  const assistant = [...input.visibleAssistant, ...input.internalAssistant]
+    .map((message) => message.content.trim())
+    .filter(Boolean)
+    .join("\n");
+  if (!user) return null;
   return {
     user,
     assistant,
@@ -1859,9 +1857,7 @@ export class WakeWorker {
           })
         : null;
     const internalUser = messages.find((message) => message.role === "user");
-    const internalAssistant = [...messages]
-      .reverse()
-      .find((message) => message.role === "assistant");
+    const internalAssistant = messages.filter((message) => message.role === "assistant");
     const exchange = resolveTurnMemoryExchange({
       visibleUser,
       internalUser,

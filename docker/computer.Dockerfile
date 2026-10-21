@@ -95,6 +95,7 @@ RUN apt-get update \
     tesseract-ocr \
     tesseract-ocr-eng \
     tini \
+    tzdata \
     unzip \
     zip \
     websockify \
@@ -145,6 +146,7 @@ COPY --from=memory-tools /openteam-memory-init /openteam-desktop-exec /usr/local
 COPY docker/openteam-memory-setup.py /usr/local/bin/openteam-memory-setup.py
 COPY --chown=box:box docker/computer-entrypoint.sh /usr/local/bin/openteam-computer-entrypoint
 COPY --chown=box:box docker/openteam-pi-auth /usr/local/bin/openteam-pi-auth
+COPY docker/openteam-box-timezone /usr/local/bin/openteam-box-timezone
 COPY --chown=box:box docker/desktop /usr/share/openteam-desktop
 COPY --chown=box:box docker/openteam-screen-launch /usr/local/bin/openteam-screen-launch
 COPY --chown=box:box docker/openteam-browser /usr/bin/chromium
@@ -154,6 +156,7 @@ RUN chmod 0755 \
     /usr/bin/chromium \
     /usr/local/bin/openteam-computer-entrypoint \
     /usr/local/bin/openteam-pi-auth \
+    /usr/local/bin/openteam-box-timezone \
     /usr/local/bin/openteam-screen-launch
 
 # GTK/Chromium must decode native chooser filenames as UTF-8. Without a

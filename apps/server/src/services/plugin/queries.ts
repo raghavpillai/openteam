@@ -1,5 +1,6 @@
 import { rankPluginsLexically } from "@openteam/contracts/reference-formatters";
 import { PLUGIN_WORKFLOW_HOST_CONTEXT } from "@openteam/contracts/plugin-workflows";
+import { pluginDynamicNamespaces } from "@openteam/contracts/plugin-namespaces";
 import type {
   PluginActivityView,
   PluginConnectionStatusesView,
@@ -16,7 +17,8 @@ import {
   PLUGIN_CONNECTION_STATUS_MAX_IDS,
 } from "@openteam/contracts";
 import { Prisma, type PrismaClient } from "@openteam/db";
-import { connectionNamespace, fileTransferCapabilities, type PluginDefinition } from "@openteam/plugin-sdk";
+import type { PluginDefinition } from "@openteam/plugin-sdk";
+import { loadConnectionNamespaces } from "./namespaces";
 import { serviceEffect } from "../service-utils";
 import {
   catalogView,
@@ -30,7 +32,6 @@ import {
   jsonObject,
   namespaceName,
   publicTools,
-  statusForRuntime,
   toolSnapshot,
 } from "./values";
 import { pluginSecretOwner } from "../process-secrets";
@@ -181,6 +182,8 @@ export class PluginQueries {
           connectorCount: plugin.connections.length,
           skills: plugin.skills.map(({ name, description }) => ({ name, description })),
         })),
+      // Installed plugins with a signed-out account say so in the results.
+      connections: ((await this.connectionStatuses()) as { connections: unknown[] }).connections,
     };
   };
 
@@ -193,6 +196,7 @@ export class PluginQueries {
       },
     });
     if (!plugin && !installation) throw new ApiError(404, "plugin_not_found", "Plugin not found");
+    const namespaces = await loadConnectionNamespaces(this.prisma);
     return {
       plugin: plugin
         ? {
@@ -232,7 +236,7 @@ export class PluginQueries {
       connections:
         installation?.connections.map((connection) => ({
           id: connection.id,
-          server_id: connectionNamespace(connection.id,connection.alias),
+          server_id: namespaces.get(connection.id),
           name: connection.name,
           pluginKey: installation.pluginKey,
           toolCount: toolSnapshot(connection.toolSnapshot).length,
@@ -246,7 +250,9 @@ export class PluginQueries {
     };
   };
 
-  connectionStatuses = async (connectionId?: string): Promise<unknown> => ({
+  connectionStatuses = async (connectionId?: string): Promise<unknown> => {
+    const namespaces = await loadConnectionNamespaces(this.prisma);
+    return {
     connections: await this.prisma.pluginConnection
       .findMany({
         where: connectionId ? { id: connectionId } : undefined,
@@ -258,7 +264,7 @@ export class PluginQueries {
       .then((connections) =>
         connections.map((connection) => ({
           id: connection.id,
-          server_id: connectionNamespace(connection.id,connection.alias),
+          server_id: namespaces.get(connection.id),
           account_label: connection.alias,
           transport: connection.transport,
           customInstructions: connection.instructions ?? "",
@@ -272,7 +278,8 @@ export class PluginQueries {
           lastCheckedAt: connection.lastCheckedAt?.toISOString() ?? null,
         }))
       ),
-  });
+    };
+  };
 
   dynamicNamespaces = async (botId: string): Promise<PluginDynamicNamespace[]> => {
     const connections = await this.prisma.pluginConnection.findMany({
@@ -283,19 +290,7 @@ export class PluginQueries {
       include: { installation: true },
       orderBy: { createdAt: "asc" },
     });
-    return connections.map((connection) => ({
-      name: connectionNamespace(connection.id,connection.alias),
-      description: `${connection.installation.name}: ${connection.name}${connection.instructions ? `\nSaved instructions: ${connection.instructions}` : ""}`,
-      namespaceStatus: statusForRuntime(connection.status),
-      fileTransfers: fileTransferCapabilities(connection.installation.pluginKey),
-      tools: toolSnapshot(connection.toolSnapshot).map((tool) => ({
-          connectionId: connection.id,
-          name: tool.name,
-          description: tool.description,
-          inputSchema: { ...tool.inputSchema },
-          source: `${connection.installation.pluginKey}/${connection.connectorKey}`,
-        })),
-    }));
+    return pluginDynamicNamespaces(connections, await loadConnectionNamespaces(this.prisma));
   };
 
   skillInstructions = async (botId: string): Promise<string> => {

@@ -97,9 +97,9 @@ describe("host file text projection", () => {
       text: "     1|alpha\n     2|beta\n     3|gamma\n     4|",
       lines: 4,
     });
-    expect(numberText("alpha\nbeta\ngamma", 2, 1)).toEqual({ text: "... 1 lines not shown ...\n     2|beta\n... 1 lines not shown ...", lines: 1 });
+    expect(numberText("alpha\nbeta\ngamma", 2, 1)).toEqual({ text: "... 1 line not shown ...\n     2|beta\n... 1 line not shown ...", lines: 1 });
     expect(numberText("alpha\nbeta\ngamma", -2, undefined)).toEqual({
-      text: "... 1 lines not shown ...\n     2|beta\n     3|gamma",
+      text: "... 1 line not shown ...\n     2|beta\n     3|gamma",
       lines: 2,
     });
     expect(() => numberText("alpha", 99, undefined)).toThrow("Offset 99 is beyond file length (1 lines)");

@@ -17,12 +17,13 @@ try {
    if(raw.length<10*1024*1024)throw new Error('Large draft transport fixture was unexpectedly small');
    return Response.json({id:'large-draft',message:{id:'large-message',threadId:'large-thread'}});
   }
+  if(url.pathname.endsWith('/threads'))return Response.json({resultSizeEstimate:0});
   if(url.pathname.endsWith('/events'))return Response.json({items:[{id:'hiring',summary:'Recruiting discussion with hiring manager',etag:'v1'}],nextSyncToken:'sync'});
   if(url.pathname.endsWith('/files/large')&&url.searchParams.get('alt')==='media')return new Response('complete document '.repeat(10000));
   if(url.pathname.endsWith('/files/large'))return Response.json({id:'large',name:'large.txt',mimeType:'text/plain',size:'180000'});
   throw new Error('Unexpected fixture destination '+url.pathname);
  };`);
- for(const [key,expected,read] of [['gmail',27,'list_labels'],['google-calendar',10,'list_calendars'],['google-drive',23,'list_recent_files']] as const){
+ for(const [key,expected,read] of [['gmail',29,'list_labels'],['google-calendar',10,'list_calendars'],['google-drive',23,'list_recent_files']] as const){
   const root=join(directory,key),pkg=pluginCatalog.find(p=>p.key===key)!;
   for(const [path,text] of Object.entries(pkg.files??{})){await mkdir(dirname(join(root,path)),{recursive:true});await writeFile(join(root,path),text);}
   for(const [path,base64] of Object.entries(pkg.binaryFiles??{})){await mkdir(dirname(join(root,path)),{recursive:true});await writeFile(join(root,path),Buffer.from(base64,'base64'));}
@@ -43,7 +44,12 @@ try {
   try{
    await connected.connect(fixture);
    const call=async(name:string,args:any)=>{const result=await connected.callTool({name,arguments:args});assert.notEqual(result.isError,true,JSON.stringify(result));return JSON.parse((result.content as any)[0].text);};
-   if(key==='gmail')assert.equal((await call('create_draft',{subject:'Large binary transport fixture',attachments:[{filename:'large.bin',mimeType:'application/octet-stream',content:Buffer.alloc(9*1024*1024,42).toString('base64')}]})).id,'large-draft');
+   if(key==='gmail'){
+    assert.equal((await call('create_draft',{subject:'Large binary transport fixture',attachments:[{filename:'large.bin',mimeType:'application/octet-stream',content:Buffer.alloc(9*1024*1024,42).toString('base64')}]})).id,'large-draft');
+    const search=await connected.callTool({name:'search_threads',arguments:{query:'invoice acme'}}) as any;
+    assert.deepEqual(JSON.parse(search.content[0].text),{threads:[]});
+    assert.match(search.content[1].text,/^Note: no thread matched this query, and one empty search does not show the message is missing\./);
+   }
    else if(key==='google-calendar')assert.equal((await call('search_events',{query:'interviewing job candidates'})).events[0].id,'hiring');
    else{
     let page=await call('read_file_content',{fileId:'large'}),json='';assert.ok(page.resultId);

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { createPrismaClient } from "@openteam/db";
-import { AgentDataStore, AgentMessaging, saveSilentAutomationResult } from "@openteam/messaging";
+import { AgentDataStore, AgentMessaging, reconcileRoutineExecution, saveSilentAutomationResult } from "@openteam/messaging";
 import { AUTOMATION_PARENT_ONLY_TOOLS } from "@openteam/contracts";
 import { InternalToolService } from "../src/services/internal-tool-service";
 
@@ -89,7 +89,7 @@ test.skipIf(!databaseUrl)(
           })
         );
       for (const tool of AUTOMATION_PARENT_ONLY_TOOLS)
-        await expect(call(run.id, tool, {})).rejects.toThrow("Use WakeParent");
+        await expect(call(run.id, tool, {})).rejects.toThrow("Automation runs cannot mutate the visible transcript.");
       // Routine runs move files through connectors, like their parent, until they hand off.
       const transferService = makeService();
       (transferService as unknown as { plugins: unknown }).plugins = {
@@ -270,15 +270,11 @@ test.skipIf(!databaseUrl)(
       await expect(call(shellWake.runId, "TodoWrite", { todos: [] })).rejects.toThrow(
         "already handed control"
       );
-      await restarted.completeShell({ ...completion, id: "shell-after-handoff" });
+      // After the handoff, the automation's background work no longer wakes anyone.
+      expect(await restarted.completeShell({ ...completion, id: "shell-after-handoff" })).toEqual({ delivered: false, ignored: true });
       expect(
-        (
-          await prisma.inboxEvent.findUniqueOrThrow({
-            where: { idempotencyKey: `shell-completion:${botId}:shell-after-handoff` },
-            include: { run: true },
-          })
-        ).run.origin
-      ).toBe("background_revival");
+        await prisma.inboxEvent.findUnique({ where: { idempotencyKey: `shell-completion:${botId}:shell-after-handoff` } })
+      ).toBeNull();
     } finally {
       await prisma.bot.deleteMany({ where: { id: botId } });
       await prisma.channel.deleteMany({ where: { id: { in: channels } } });
@@ -288,3 +284,46 @@ test.skipIf(!databaseUrl)(
   },
   30_000
 );
+
+test.skipIf(!databaseUrl)("WakeParent stops the automation's subagents and the run settles without waiting on its background work", async () => {
+  const prisma = createPrismaClient(databaseUrl!);
+  const root = await mkdtemp(join(tmpdir(), "wake-parent-stop-"));
+  const botId = crypto.randomUUID(), childBotId = crypto.randomUUID(), conversationId = crypto.randomUUID();
+  const store = new AgentDataStore(prisma, { root: join(root, "data"), workspaceRoot: root });
+  const messaging = new AgentMessaging(prisma, { send: async () => crypto.randomUUID() } as never, store);
+  const stopped: unknown[] = [];
+  const service = new InternalToolService(prisma, messaging, {} as never, async () => {}, {} as never,
+    { stop: async (...args: unknown[]) => { stopped.push(args); return { stopped: true }; } } as never, {} as never, {} as never);
+  let channelId = "";
+  try {
+    await prisma.bot.create({ data: { id: botId, name: "Automation parent", status: "active", onboardingStatus: "completed", defaultDirectory: root, conversation: { create: { id: conversationId } } } });
+    await prisma.bot.create({ data: { id: childBotId, name: "Child", status: "active", onboardingStatus: "completed", defaultDirectory: root, conversation: { create: {} } } });
+    await store.initializeBot(botId);
+    channelId = (await prisma.channel.create({ data: { kind: "bot_dm", name: "Parent DM", directKey: `bot:${botId}`, members: { create: { botId, ordinal: 0 } } } })).id;
+    const routine = await prisma.routine.create({ data: { botId, slug: "watch", name: "Watch", prompt: "Watch it", trigger: { type: "cron", schedule: "0 8 * * *" },
+      scheduleText: "0 8 * * *", scheduleKind: "cron", cronExpression: "0 8 * * *", timezone: "UTC" } });
+    const revision = await prisma.routineRevision.create({ data: { routineId: routine.id, revision: 1, name: "Watch", prompt: "Watch it",
+      scheduleText: "0 8 * * *", scheduleKind: "cron", cronExpression: "0 8 * * *", timezone: "UTC", timezoneMode: "installation", enabled: true, source: "agent" } });
+    const run = await prisma.run.create({ data: { botId, conversationId, channelId, origin: "routine", userMessageId: crypto.randomUUID(), status: "running" } });
+    const execution = await prisma.routineExecution.create({ data: { routineId: routine.id, routineRevisionId: revision.id, runId: run.id, kind: "scheduled", status: "running", dedupeKey: crypto.randomUUID(), scheduledFor: new Date() } });
+    const subagent = await prisma.subagent.create({ data: { parentBotId: botId, childBotId, parentRunId: run.id, parentChannelId: channelId, launchCallId: "launch",
+      description: "Long check", prompt: "Check", subagentType: "executor", status: "running", outputPath: "/tmp/child.jsonl" } });
+    await prisma.subagentAttempt.create({ data: { subagentId: subagent.id, parentRunId: run.id, parentChannelId: channelId, parentToolCallId: "launch",
+      description: "Long check", prompt: "Check", status: "running" } });
+    await prisma.runItem.create({ data: { runId: run.id, kind: "command", status: "completed", title: "sleep 600",
+      content: { shellKind: "background", result: { details: { status: "running", outputPath: "/tmp/long.log" } } } } });
+
+    const woken = await Effect.runPromise(service.execute({ botId, conversationId, channelId, deliveryId: null, runId: run.id, tool: "WakeParent",
+      arguments: { message: "Found the change; tell the user." }, callId: "handoff" }));
+    expect(woken).toMatchObject({ woken: true, automation_run_ids: [run.id] });
+    expect(stopped).toEqual([[botId, "handoff", { subagent_id: `sand-subagent-${subagent.id}` }]]);
+    await prisma.run.update({ where: { id: run.id }, data: { status: "completed", completedAt: new Date() } });
+    expect(await prisma.$transaction((tx) => reconcileRoutineExecution(tx, run.id))).toEqual({ executionId: execution.id, routineId: routine.id });
+    expect((await prisma.routineExecution.findUniqueOrThrow({ where: { id: execution.id } })).status).toBe("completed");
+  } finally {
+    await prisma.bot.deleteMany({ where: { id: { in: [botId, childBotId] } } });
+    if (channelId) await prisma.channel.deleteMany({ where: { id: channelId } });
+    await prisma.$disconnect();
+    await rm(root, { recursive: true, force: true });
+  }
+}, 30_000);

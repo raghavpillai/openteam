@@ -486,6 +486,10 @@ model RoutineExecution {
   completedAt       DateTime?
   skipReason        String?
   error             Json?
+  // Listener events this execution's wake delivers, and the delivery keys it absorbed
+  // while an earlier execution was queued or running.
+  events            Json?
+  coalescedKeys     String[]               @default([])
   createdAt         DateTime               @default(now())
   updatedAt         DateTime               @updatedAt
 

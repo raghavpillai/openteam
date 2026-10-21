@@ -1,6 +1,7 @@
 import reference from "./tool-reference.json";
 import native from "./native-tools.json";
 import { APP_SETTINGS_ANCHORS } from "./app-deep-links";
+import { ROBOT_AVATAR_SHAPES } from "./robot-avatar";
 import { defaultTaskConfiguration, taskTypeNames, type TaskConfiguration } from "./task-configuration";
 
 export interface ToolContract {
@@ -57,11 +58,6 @@ contracts.RequestUserForm!.description = editReference("RequestUserForm", contra
   [
     "Show the user the Secure Form for a step where a page needs THEM to type something, such as a login, a checkout address, or a phone number.",
     "Show the user a native in-chat form when they need to supply missing input. If credentials or a verification code are already available through the user's connected sources, enter them with browser_type or browser_fill_form instead.",
-  ],
-  // The host fills same-origin frames only and refuses a cross-origin target.
-  [
-    "Fields inside iframes (cross-origin ones included) and shadow roots are reachable: send the form for them instead of predicting a failure.",
-    "Fields inside same-origin iframes and open shadow roots are reachable: send the form for them instead of predicting a failure. Fields inside a cross-origin iframe or a closed shadow root are not.",
   ],
   [
     "Use this instead of asking for credentials in chat, and instead of request_box_help when the step is just typing; the box handoff stays for",
@@ -139,13 +135,13 @@ const transferConnection: [RegExp, string] = [
 const otherProviders = ["OneDrive", "Outlook", "SharePoint"].map(
   (provider): [RegExp, string] => [new RegExp(`\\n- ${provider}:[^\\n]*`), ""]
 );
-// The Gmail connection only creates drafts, so a draft carrying a file waits for the user to send it.
+// The Gmail connection cannot send, so a draft carrying a file waits for the user to send it.
 contracts.UploadFile!.description = editReference("UploadFile", contracts.UploadFile!.description, [
   transferConnection,
   ...otherProviders,
   [
     /- Gmail: destination\.draftId[^\n]*/,
-    "- Gmail: destination.draftId is the id create_draft returned (or one from list_drafts); the file is attached and the id stays the same. Attach last: finish recipients, subject and body with create_draft before calling UploadFile, because the Gmail connection cannot edit a draft afterwards. It cannot send one either, so the draft waits unsent in the user's Gmail Drafts; tell them it is there. A DraftExternalMessage card cannot carry this file. A Gmail draft here carries a file; it is not how you draft for review. The draft with its attachments must stay under 25 MB.",
+    "- Gmail: destination.draftId is the id create_draft returned (or one from list_drafts); the file is attached and the id stays the same. Attach last: Gmail's update_draft removes every attachment it is not handed again, so finish recipients, subject and body before calling UploadFile, and never call update_draft on a draft that already has an attachment (make a new draft and attach again instead). The Gmail connection cannot send a draft, so it waits unsent in the user's Gmail Drafts; tell them it is there. A DraftExternalMessage card cannot carry this file. A Gmail draft here carries a file; it is not how you draft for review. The draft with its attachments must stay under 25 MB.",
   ],
 ]);
 contracts.DownloadFile!.description = editReference("DownloadFile", contracts.DownloadFile!.description, [
@@ -196,6 +192,23 @@ const adaptArgument = (tool: string, path: string, edits: Edits) => {
   const property = path.split(".").reduce((schema: any, key) => schema.properties[key], contracts[tool]!.inputSchema);
   property.description = edited(`${tool} ${path}`, property.description, edits);
 };
+
+// Saved skills form one library that every assistant shares; managed and plugin skills are read-only.
+adaptDescription("UpdateSkill", [
+  ["one of your reusable skills.", "one of your reusable skills. Skills are a shared library: every assistant can use a saved skill, and deleting one removes it for all of them."],
+  ["Cursor-managed skills can't be changed.", "Managed and plugin skills can't be changed."],
+]);
+// The picture is installed from the bot's own agent directory; other paths are refused.
+adaptArgument("UpdateAvatar", "path", [[
+  "on your box (under /workspace is fine) or the user's computer.",
+  "inside your own agent directory (a relative path starts there). Write or copy the image there with Shell first.",
+]]);
+// Stdio MCP servers run on the bot's box.
+adaptArgument("AddMcpServer", "command", [["on OpenTeam's computer", "on your computer (the box)"]]);
+// Bots are drawn as robots, so the default mark is one of the robot shapes the apps render;
+// any other shape would silently fall back to the default robot.
+contracts.UpdateProfile!.inputSchema.properties.avatar_shape.enum = [...ROBOT_AVATAR_SHAPES];
+adaptArgument("UpdateProfile", "avatar_shape", [["Your default mark,", "Your default robot,"]]);
 
 // Local commands and reads run directly; there is no local-tool approval.
 adaptDescription("Shell", [["require the user's local-tool approval.", "execute directly."]]);
@@ -339,13 +352,37 @@ contracts.SendFeedback!.inputSchema.properties.wantsResponse = {
 };
 contracts.SendFeedback!.inputSchema.required = [...contracts.SendFeedback!.inputSchema.required, "wantsResponse"];
 
-// Routine writes apply directly; there is no confirmation card.
 adaptDescription("UpdateRoutine", [
+  // The routine list lives in the frozen prompt section, not a per-turn reminder.
   [
-    "\nCreating or changing a routine may ask the user to confirm, since it's the one change that acts while they're away. If it does, they'll see a card and you'll get their answer back as the tool result; don't ask first, and don't retry a denied write.",
-    "",
+    "are in the latest <automation_status> reminder, which shows no prompts.",
+    "are listed under Scheduled routines in your prompt, which shows no prompts.",
+  ],
+  // There are no meeting tools.
+  [", except joining a meeting or saving what to do in one (JoinMeeting or UpdateMeeting).", "."],
+  ["Read the Cursor-managed `routines` skill", "Read the managed `routines` skill"],
+  // There is no timing field; get returns the saved schedule with the trigger.
+  ["returns the saved prompt, trigger, and timing.", "returns the saved prompt and trigger."],
+  // A clock time the user names is saved as named (decided for self-hosted installs).
+  [
+    'at least 5 minutes apart; take the minute from the latest <timestamp>, never :00 or :30 unless the user named it.',
+    'at least 5 minutes apart. A clock time the user names is saved as named ("8am" is "0 8 * * *"); only an ask that names no time takes the minute from the latest <timestamp>.',
+  ],
+  // Routine writes apply directly; there is no confirmation card, but a refused write stays refused.
+  [
+    "A change may ask the user to confirm on a card; don't ask first, and don't retry a denied write.",
+    "Don't ask first, and don't retry a denied write.",
   ],
 ]);
+// The runtime checks arguments against the advertised schema, so the bare-array group
+// shorthand the parser accepts is advertised beside the compact listener object.
+{
+  const { description, ...listener } = contracts.UpdateRoutine!.inputSchema.properties.trigger;
+  contracts.UpdateRoutine!.inputSchema.properties.trigger = {
+    anyOf: [listener, { type: "array", items: listener, minItems: 1 }],
+    description,
+  };
+}
 
 // StopSubagent reaches this agent's own subagents only; there are no cloud agents.
 adaptDescription("StopSubagent", [
@@ -377,11 +414,8 @@ adaptDescription("GetDynamicTools", [
     'a namespace whose namespaceStatus is "needsAuth" or "needsGrant" stays unusable until the user connects it or grants you access.',
     'a namespace whose namespaceStatus is "needsAuth" stays unusable until the user connects it.',
   ],
-  // First-party tools run without approvals, and user_info is rebuilt every turn.
-  [
-    "(their names are listed with that namespace in <user_info>, or in the most recent <user_info_catalog_update> block on a later user turn). Discover their schemas here, then invoke them via CallDynamicTool; they run natively with their own approvals and rendering.",
-    "(their names are listed with that namespace in <user_info>). Discover their schemas here, then invoke them via CallDynamicTool; they run natively with their own rendering.",
-  ],
+  // First-party tools run without approvals.
+  ["they run natively with their own approvals and rendering.", "they run natively with their own rendering."],
 ]);
 // No call reviewer or approval card consumes MCP call details.
 delete contracts.CallDynamicTool!.inputSchema.properties.mcpDetails;
@@ -401,12 +435,7 @@ adaptDescription("request_box_help", [
   [" It is the last step of the `sign-in` skill.", ""],
   [
     "one-time code you cannot read from an inbox goes to RequestUserForm first when it is among your tools, embedded and cross-origin fields included; entering the card itself is the Secure Form.",
-    "one-time code you cannot get from the user's connected sources goes to RequestUserForm first when it is among your tools, fields in same-origin frames included.",
-  ],
-  // The form host refuses a cross-origin frame, so that field comes here directly.
-  [
-    "Hand off only when that tool is not offered, the step is not a typed field, or the host",
-    "Hand off only when that tool is not offered, the step is not a typed field, the field is inside a cross-origin iframe, or the host",
+    "one-time code you cannot get from the user's connected sources goes to RequestUserForm first when it is among your tools, embedded and cross-origin fields included; entering the card itself is that form.",
   ],
 ]);
 adaptArgument("request_box_help", "reason", [['"auth" for any sign-in step (login, SSO, passkey, 2FA),', '"auth" for a sign-in step,']]);
@@ -500,7 +529,7 @@ for (const key of ["meetingId", "mailbox", "htmlBody", "proposedRule", "proposed
 draft.required = ["platform", "providerIdentifier", "body"];
 draft.properties.providerIdentifier.description = edited("DraftExternalMessage providerIdentifier", draft.properties.providerIdentifier.description, [["Required for email/Slack. ", ""]]);
 draft.properties.from.description = edited("DraftExternalMessage from", draft.properties.from.description, [
-  ["Email only. The plain address", "Required when platform is email. The plain address"],
+  ["Email only. The plain address", "Required for email. The plain address"],
   [
     /On Gmail, omit it to send from the account's default address; only \S+ REST Gmail connector can also send from a verified send-as alias\. Required for Outlook: get_me's mail field\./,
     "If you don't already know it, read it from the mailbox first: the Gmail connector's get_profile returns it as emailAddress (a Gmail Send mail as address also works), and an Email plugin inbox's address comes from ListEmailInboxes.",
@@ -578,5 +607,42 @@ export function withReferenceContract<
     : tool;
 }
 
-export const FIRST_PARTY_NAMESPACE_DESCRIPTION =
-  "Native OpenTeam tools for this session. These are highly recommended and useful tools that you should use when the right situation arises. Don't be afraid to look at one if it seems relevant, even if you don't end up using it. You MUST read the tool schemas before calling them.\n\nHere are some crucial instructions:\n- AuthenticateMcpServer: Start authentication for a connector that needs auth.\n- AwaitShell: Use to sleep and check shell progress. Never sleep using shell.\n- CheckSubagent: Inspect a running background subagent's status and recent actions.\n- CopyFromBox: Copy a file from your box onto the user's computer.\n- CopyToBox: Copy a file from the user's computer onto your box.\n- DisconnectChannel: Disconnect one of your connected channels.\n- DownloadFile: Fetch a Drive or Gmail file onto your box. Not URLs (WebFetch, curl) or box files (Read).\n- MessageSubagent: Send a new instruction into a running background subagent.\n- RemapUserFormTargets: Only after a RequestUserForm receipt says a field's value is HELD: remap its new target.\n- RequestUserForm: Show the user an in-chat form; the host fills the box browser with their answers.\n- SearchPlugins: Search installable plugins/connectors when a task needs a service.\n- SendFeedback: Send the user's product feedback to the OpenTeam maintainers when they ask. Ask whether they want a reply unless they already said.\n- StopSubagent: Abort a running background subagent.\n- TodoWrite: Use this tool to manage complex multi-step tasks.\n- UpdateAvatar: Set or clear your profile picture.\n- UpdateProfile: Change your name, description, title, default mark, or sidebar and notification settings.\n- UpdateSkill: Save, rewrite, or delete your reusable skills.\n- UploadFile: Send a box file to Google Drive or Gmail.";
+const FIRST_PARTY_CATALOG_HEADER =
+  "First-party tools built into you, listed first: they are trusted and core to your job, so prefer one over an external namespace that covers the same need. Read a tool's schema with GetDynamicTools, then call it with CallDynamicTool in the cursor namespace.";
+/** One-line cues for the cursor namespace, as in the reference's concise static contexts. */
+const FIRST_PARTY_HINTS: Readonly<Record<string, string>> = {
+  AuthenticateMcpServer: "Start authentication for a connector that needs auth.",
+  AwaitShell: "Use to sleep and check shell progress. Never sleep using shell.",
+  CheckSubagent: "Inspect a running background subagent's status and recent actions.",
+  CopyFromBox: "Copy a file from your box onto the user's computer.",
+  CopyToBox: "Copy a file from the user's computer onto your box.",
+  DisconnectChannel: "Disconnect one of your connected channels.",
+  // OpenTeam transfers files with Google Drive and Gmail only.
+  DownloadFile: "Fetch a Drive or Gmail file onto your box. Not URLs (WebFetch, curl) or box files (Read).",
+  MessageSubagent: "Send a new instruction into a running background subagent.",
+  ReadAgentActivity: "Summarize what the user's other bots did lately: last messages, open todos, unanswered questions.",
+  ReadTranscript: "Read your full transcript, a subagent's, or another owned agent's, with tool calls.",
+  RemapUserFormTargets: "Only after a RequestUserForm receipt says a field's value is HELD: remap its new target.",
+  request_box_help: "Hand your box's desktop to the user for a sign-in or manual step.",
+  RequestUserForm: "Show the user an in-chat form; the host fills the box browser with their answers.",
+  SearchPlugins: "Search installable plugins/connectors when a task needs a service.",
+  SendFeedback: "Send the user's product feedback to the OpenTeam maintainers when they ask. Ask whether they want a reply unless they already said.",
+  StopSubagent: "Abort a running background subagent.",
+  // No cloud subagents in OpenTeam.
+  Task: "Spawn subagents natively.",
+  TodoWrite: "Use this tool to manage complex multi-step tasks.",
+  UpdateAvatar: "Set or clear your profile picture.",
+  UpdateProfile: "Change your name, description, title, default mark, or sidebar, notification, and drafting settings.",
+  UpdateSkill: "Save, rewrite, or delete your reusable skills.",
+  UploadFile: "Send a box file to Google Drive or Gmail.",
+};
+
+/** The cursor namespace's instructions, with a cue only for tools this agent actually has. */
+export function firstPartyNamespaceDescription(toolNames: readonly string[]): string {
+  const lines = [...toolNames]
+    .sort((a, b) => a.localeCompare(b))
+    .flatMap((name) => (FIRST_PARTY_HINTS[name] ? [`- ${name}: ${FIRST_PARTY_HINTS[name]}`] : []));
+  return lines.length
+    ? [FIRST_PARTY_CATALOG_HEADER, "", "Here are some crucial instructions:", ...lines].join("\n")
+    : FIRST_PARTY_CATALOG_HEADER;
+}

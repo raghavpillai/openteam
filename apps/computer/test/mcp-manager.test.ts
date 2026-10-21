@@ -34,3 +34,13 @@ test("pending login is shared; passive probes, failures, exits, and cancellation
   expect(stderr).toBe("");
   expect(exitCode).toBe(0);
 }, 15_000);
+
+test("one malformed tool definition is repaired or left out instead of losing the server", async () => {
+  const child = Bun.spawn({
+    cmd: [process.execPath, join(import.meta.dir, "fixtures", "sloppy-tools-smoke.ts")],
+    cwd: join(import.meta.dir, "../../.."), stdout: "pipe", stderr: "pipe",
+  });
+  const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  expect(stderr).toBe("");
+  expect(exitCode).toBe(0);
+}, 15_000);

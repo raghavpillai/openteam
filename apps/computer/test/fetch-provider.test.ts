@@ -238,11 +238,15 @@ test("oversized extraction spills redacted full content to an actual file", asyn
       validate
     );
     const result = await new WebTools(new SearchProviderClient(), client).fetch(url, cwd);
-    expect(result.content[0]!.text).toContain("Content written to file:");
     expect(result.content[0]!.text).toContain("source: unknown");
     const outputPath = "outputPath" in result.details ? result.details.outputPath : undefined;
     expect(outputPath).toBeDefined();
+    // The first 100,000 characters stay inline, then the reference marker and a pointer to the whole page.
+    const inline = result.content[0]!.text;
+    expect(inline).toContain(`\n\nStart\n${"text ".repeat(19_998)}text\n\n...[2 lines truncated]\n\nFull page saved to ${outputPath}.`);
+    expect(inline.endsWith(`Full page saved to ${outputPath}.`)).toBe(true);
     const full = await readFile(outputPath!, "utf8");
+    expect(full.startsWith("Start\n")).toBe(true);
     expect(full).toContain("End");
     expect(full).toContain("[redacted]");
     expect(full).not.toContain(key);

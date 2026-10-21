@@ -64,9 +64,9 @@ const syncCache = async (): Promise<PluginSkillCache> => {
   return JSON.parse(await readFile(join(root, "plugin-skills/cache.json"), "utf8"));
 };
 
-const catalogPath = (catalog: string, entry: string): string => {
-  const match = catalog.match(new RegExp(`^- ${entry}\\n  Path: (.+/SKILL\\.md)$`, "m"));
-  if (!match?.[1]) throw new Error(`Missing catalog entry: ${entry}\n${catalog}`);
+const catalogPath = (catalog: string, description: string): string => {
+  const match = catalog.match(new RegExp(`^<agent_skill fullPath="(/[^"]+/SKILL\\.md)">${description}</agent_skill>$`, "m"));
+  if (!match?.[1]) throw new Error(`Missing catalog entry: ${description}\n${catalog}`);
   return match[1];
 };
 
@@ -77,13 +77,13 @@ test("the main agent's catalog lists each plugin skill with the path of its SKIL
   for (const body of ["Main agent workflow.", "Shared sign-in workflow.", "Private workflow."])
     expect(catalog).not.toContain(body);
   expect(catalog).not.toContain("desktop-only");
-  const mainOnly = catalogPath(catalog, "main-only \\(plugin:fixture\\): Main");
+  const mainOnly = catalogPath(catalog, "Main");
   expect(await readFile(mainOnly, "utf8")).toContain("Main agent workflow.");
   expect(await readFile(join(mainOnly, "../reference.md"), "utf8")).toBe("Reference notes.");
-  expect(await readFile(catalogPath(catalog, "sign-in \\(plugin:fixture\\): Sign in"), "utf8")).toContain(
+  expect(await readFile(catalogPath(catalog, "Sign in"), "utf8")).toContain(
     "Shared sign-in workflow."
   );
-  expect(await readFile(catalogPath(catalog, "Private \\(private\\): Private"), "utf8")).toContain(
+  expect(await readFile(catalogPath(catalog, "Private"), "utf8")).toContain(
     "Private workflow."
   );
 });
@@ -119,7 +119,7 @@ test("the agent prompt's skill catalog includes installed plugin skills", async 
   expect(rendered).toBe(
     renderPluginSkillCatalog(pluginSkillsForAgent(await syncCache(), [installation], [privateSkill], "main"))
   );
-  expect(rendered).toContain("- main-only (plugin:fixture): Main\n  Path: ");
+  expect(rendered).toMatch(/^<agent_skill fullPath="\/[^"]+\/main-only\/SKILL\.md">Main<\/agent_skill>$/m);
 
   await rm(join(root, "plugin-skills/cache.json"));
   expect(await (store(prisma) as any).renderPluginSkills("bot")).toBe("");

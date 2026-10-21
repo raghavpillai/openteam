@@ -31,7 +31,7 @@ test('managed workflows omit categorical authentication and transaction handover
     'Any payment confirmation the site asks for goes to the user',
     'Hand off provider-required bank authentication, CVC or 3DS steps',
     'is a sign-up the user does; hand it over',
-    'REQUIRED before any typed web step',
+    'look fillable and hand off when they do not',
   ]) expect(workflows).not.toContain(legacy);
 });
 
@@ -57,8 +57,9 @@ test('purchases takes the user\'s own card and keeps no card', () => {
     'OpenTeam does not keep cards',
     'verify whether the order went through (confirmation page, order history, email) before retrying',
   ]) expect(purchases).toContain(rule);
-  // The form host cannot reach cross-origin card frames, so those go to the screen handoff.
-  expect(purchases).toContain('Card inputs inside a cross-origin frame');
+  // The form host reaches card inputs embedded from a payment provider, so those get the form too.
+  expect(purchases).toContain("Card inputs embedded from the payment provider's own site still get the form. Only when the host refuses it or its receipt says a card field failed, hand over the screen");
+  expect(purchases).not.toContain("out of the form's reach");
 });
 
 test('commerce skills pay in the purchases order and keep no confirmation leftovers', () => {
@@ -77,7 +78,10 @@ test('commerce skills pay in the purchases order and keep no confirmation leftov
     }
     if (item.id === 'routines' || item.id === 'box-desktop') continue;
     expect(item.content).not.toMatch(/site playbook|A dismissed widget is a no|confirm with a widget|RequestVirtualCard|Stripe Link|Outlook|GetMcpTools/i);
-    if (item.content.includes('When the site wants payment')) expect(item.content).toContain('as the OpenTeam-managed `purchases` skill says');
+    if (item.content.includes('When the site wants payment')) {
+      expect(item.content).toContain('as the OpenTeam-managed `purchases` skill says');
+      expect(item.content).toContain("never tell them you can't take their card, and never predict that the form can't reach card inputs embedded from a payment provider. Last, when the host refuses the form");
+    }
   }
   expect(managed.skills.filter(s => s.content.includes('When the site wants payment')).map(s => s.id).sort()).toEqual(
     ['accommodation-booking', 'flight-booking', 'food-ordering', 'grocery-shopping', 'restaurant-booking', 'scheduling', 'shopping'],
@@ -114,10 +118,13 @@ test('grocery and post-purchase work have their own skills', () => {
 test('forms, sending, skill and template skills follow the tools as they work here', () => {
   const forms = skill('in-chat-forms');
   expect(forms).toContain('A value the user already sent in chat needs no form');
-  // The form host reaches same-origin frames only; keep the skill in step with RequestUserForm.
-  expect(referenceTool('RequestUserForm').description).toContain('Fields inside a cross-origin iframe or a closed shadow root are not.');
-  expect(forms).toContain('or when the field sits inside a cross-origin iframe');
-  expect(forms).not.toContain('cross-origin ones included');
+  // The form host reaches iframes, cross-origin ones included, and shadow roots; the skill and RequestUserForm say the same.
+  expect(referenceTool('RequestUserForm').description).toContain('Fields inside iframes (cross-origin ones included) and shadow roots are reachable: send the form for them instead of predicting a failure.');
+  expect(description('in-chat-forms')).toContain('send RequestUserForm for the fields, embedded card frames included,');
+  expect(forms).toContain("Fields inside iframes (cross-origin ones included, such as a checkout's Shopify or Stripe card frame) and inside shadow roots count; the host reaches them.");
+  expect(forms).toContain('Snapshots and fill targets pierce shadow roots and iframes, including cross-origin ones');
+  expect(forms).toContain('Never predict that a form cannot reach fields because they are embedded, iframed, served from another site, or inside a custom element.');
+  expect(managed.skills.filter(s => /same-origin|sits inside a cross-origin|in a cross-origin frame|out of the form's reach|which the host cannot reach/.test(s.content)).map(s => s.id)).toEqual([]);
   const send = skill('send-on-behalf');
   expect(send).toContain('## Choosing and reporting the sending account');
   expect(send).toContain('each connected Gmail account and each connected Email plugin inbox');
@@ -201,7 +208,7 @@ test.each(['cached', 'missing', 'disabled'] as const)('retires cached skills wit
     const cache = JSON.parse(await readFile(join(data, 'managed-skills', 'cache.json'), 'utf8'));
     expect(cache.skills.map((skill: { id: string }) => skill.id)).toEqual(state === 'disabled' ? [] : managed.skills.map(skill => skill.id));
     const rendered = await (store as any).renderManagedSkills();
-    expect(rendered).not.toContain('managed:sign-in');
+    expect(rendered).not.toContain('/sign-in/SKILL.md');
     expect(rendered).not.toContain('site-playbooks-');
   } finally {
     if (previous === undefined) delete process.env.OPENTEAM_MANAGED_SKILLS;
@@ -224,7 +231,7 @@ test('active skills materialize and appear in metadata without injecting full bo
       expect(await readFile(entry.filePath,'utf8')).toBe(skill.content);
     }
     const rendered=await (store as any).renderManagedSkills();
-    for(const skill of managed.skills.filter(managedSkillIsForMain))expect(rendered).toContain(`managed:${skill.id}`);
+    for(const skill of managed.skills.filter(managedSkillIsForMain))expect(rendered).toContain(`<agent_skill fullPath="${join(root,'data/managed-skills',skill.id,'SKILL.md')}">`);
     expect(rendered).not.toContain('function tfs(');
   }finally{await rm(root,{recursive:true,force:true});}
 });

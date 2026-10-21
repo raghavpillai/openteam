@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@openteam/db";
 
-/** Recently active conversations, newest first, that ReadTranscript can open by session_id. */
+/** Recently active conversations, newest first, that ReadTranscript can open by their session_id. */
 const ACTIVE_CONVERSATION_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1_000;
 const ACTIVE_CONVERSATIONS_LISTED = 8;
 
@@ -42,7 +42,7 @@ export function renderOtherActiveConversations(threads: readonly SiblingThread[]
   return [
     "## Other active conversations",
     "Other active conversations: this agent also has separate conversations running in parallel.",
-    "Use ReadTranscript with a session_id to inspect another conversation's transcript when you need cross-conversation context.",
+    "Use ReadTranscript with in=<session_id> to inspect another conversation's transcript when you need cross-conversation context.",
     ...listed.map(thread => `- ${thread.name}, session_id: ${thread.sessionId} (${thread.kind}, last active ${thread.lastActivityAt.toISOString().slice(0, 10)})`),
     ...(omitted > 0 ? [`(${omitted} older conversation${omitted === 1 ? "" : "s"} not listed.)`] : []),
   ].join("\n");

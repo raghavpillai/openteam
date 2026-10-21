@@ -4,7 +4,7 @@ import { findPageLines } from "./find";
 import { saveLargeBrowserOutput } from "./output";
 import { BrowserUploads, uploadPayloads } from "./uploads";
 import { snapshotAcrossFrames, refHandle, frameRefsByPage, referenceFill, referenceType, editableHandle, writeTargetFrameIsHidden, WRITE_TARGET_IS_HIDDEN_FN, gotoWithRecovery, navigationNote, recoverErrorPage, settleIntoErrorPage, isChromeErrorPage, markSecretFill, SPLIT_CHAR_GROUP_FN } from "./reference-driver";
-import { resolveReferenceSelectOptions } from "./reference-select";
+import { resolveReferenceSelectOptions, selectTheOptionMatchingSecretWithoutNamingIt } from "./reference-select";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { mkdir, writeFile } from "node:fs/promises";
 import { Readable } from "node:stream";
@@ -70,13 +70,28 @@ export const truncateAriaSnapshot = (snapshot: string, maxDepth: number): string
   return kept.join("\n").trim();
 };
 
-export const sameOriginFrame = (pageUrl: string, frameUrl: string): boolean => {
-  if (frameUrl === "about:blank" || frameUrl === "about:srcdoc") return true;
-  try {
-    return new URL(pageUrl).origin === new URL(frameUrl).origin;
-  } catch {
-    return false;
-  }
+const LOOPBACK_FORM_HOSTS = ["localhost", "127.0.0.1", "[::1]", "::1"];
+const parseFrameUrl = (url: string) => { try { return new URL(url.startsWith("blob:") ? url.slice(5) : url); } catch { return null; } };
+/** The reference driver's write-frame rule: the top page is on the consented site, and the control's
+ * frame is https (any site, so embedded card frames count) or on that site. Loopback sites take http. */
+export const formWriteFrameAllowed = (consentedHost: string, topUrl: string, controlFrameUrl: string): boolean => {
+  const consented = consentedHost.trim().toLowerCase();
+  const loopback = LOOPBACK_FORM_HOSTS.includes(consented);
+  const apex = consented.replace(/^www\./, "");
+  const domains = loopback ? LOOPBACK_FORM_HOSTS : [apex.includes(".") ? apex : consented];
+  const onSite = (url: string) => {
+    const parsed = parseFrameUrl(url);
+    if (!parsed || !(parsed.protocol === "https:" || (parsed.protocol === "http:" && loopback))) return false;
+    const host = parsed.hostname.toLowerCase();
+    return domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+  };
+  return parseFrameUrl(controlFrameUrl)?.protocol === "https:" || onSite(controlFrameUrl) ? onSite(topUrl) : false;
+};
+const FORM_FRAME_READ_MS = 4_000;
+const withinFormFrameRead = async <T>(read: Promise<T>): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try { return await Promise.race([read, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("The frame could not be read in time")), FORM_FRAME_READ_MS); })]); }
+  finally { clearTimeout(timer); }
 };
 
 export class BrowserUseSession {
@@ -339,38 +354,53 @@ export class BrowserUseSession {
     throw Object.assign(new Error("The form tab is no longer available"), {kind:"page_moved"});
   }
 
-  private async formHandle(page: Page, field: UserFormField): Promise<ElementHandle<HTMLElement>> {
+  private async formHandle(page: Page, field: UserFormField, domain: string): Promise<ElementHandle<HTMLElement>> {
     const target = field.target; if (!target) throw new Error("No fill target");
-    let handle: ElementHandle<HTMLElement> | null = null;
+    let handle: ElementHandle<HTMLElement>;
     if (target.kind === "ref") {
       try {handle = await this.requireRef(page, target.value.replace(/^\[?ref=|\]$/g, ""));}
       catch {
         // A stale ref can recover only by this field's own label, on the same consented page.
-        const candidates=[];
-        for(const frame of page.frames())if(sameOriginFrame(page.url(),frame.url())){
-          const locator=frame.getByLabel(field.label,{exact:true});
-          const count = await locator.count();
-          if (count > 1) throw Object.assign(new Error("The form label is ambiguous"), { kind: "target_missing" });
-          if(count===1){const candidate=await locator.elementHandle();if(candidate)candidates.push(candidate);}
-        }
-        if(candidates.length!==1)throw Object.assign(new Error("The form control was replaced and its label is no longer unambiguous"),{kind:"page_moved"});
-        handle=candidates[0] as ElementHandle<HTMLElement>;
+        const { matches } = await this.formTargetsInFrames(page, (frame) => frame.getByLabel(field.label, { exact: true }));
+        if(matches.length!==1)throw Object.assign(new Error("The form control was replaced and its label is no longer unambiguous"),{kind:"page_moved"});
+        handle=matches[0]!;
       }
     } else {
-      const matches: ElementHandle<HTMLElement>[] = [];
-      for (const frame of page.frames()) {
-        if (!sameOriginFrame(page.url(), frame.url())) continue;
-        const locator = target.kind === "selector" ? frame.locator(target.value) : frame.getByLabel(target.value, { exact: true });
-        const count = await locator.count();
-        if (count > 1) throw new Error("The fill target is ambiguous");
-        if (count === 1) { const candidate = await locator.elementHandle(); if (candidate) matches.push(candidate as ElementHandle<HTMLElement>); }
-      }
-      if (matches.length !== 1) throw new Error("The fill target is missing or ambiguous");
+      const { matches, unreadable } = await this.formTargetsInFrames(page, (frame) => target.kind === "selector" ? frame.locator(target.value) : frame.getByLabel(target.value, { exact: true }));
+      if (matches.length !== 1) throw Object.assign(new Error("The fill target is missing or ambiguous"), { kind: !matches.length && unreadable ? "in_unreachable_frame" : "target_missing" });
       handle = matches[0]!;
     }
-    const frame = await handle.ownerFrame();
-    if (!frame || !sameOriginFrame(page.url(), frame.url())) throw Object.assign(new Error("Cross-origin form target refused"),{kind:"in_unreachable_frame"});
+    await this.refuseForeignFormFrame(page, handle, domain);
     return handle;
+  }
+
+  // Every frame counts, cross-origin ones included. A frame that cannot be read in time is
+  // counted, so a miss can say the field may sit inside it.
+  private async formTargetsInFrames(page: Page, locate: (frame: Frame) => Locator) {
+    const matches: ElementHandle<HTMLElement>[] = []; let unreadable = 0;
+    for (const frame of page.frames()) {
+      if (frame.isDetached()) continue;
+      const locator = locate(frame);
+      const count = await withinFormFrameRead(locator.count()).catch(() => undefined);
+      if (count === undefined) { unreadable++; continue; }
+      if (count > 1) throw Object.assign(new Error("The fill target is ambiguous"), { kind: "target_missing" });
+      if (count === 1) {
+        const candidate = await withinFormFrameRead(locator.elementHandle()).catch(() => null);
+        if (candidate) matches.push(candidate as ElementHandle<HTMLElement>);
+      }
+    }
+    return { matches, unreadable };
+  }
+
+  // The reference driver's guard: read the URL inside the control's document (an about: frame
+  // inherits its parent's), and write only under formWriteFrameAllowed.
+  private async refuseForeignFormFrame(page: Page, handle: ElementHandle, domain: string) {
+    const href = (frame: Frame) => withinFormFrameRead(frame.evaluate(() => location.href)).catch(() => "");
+    let frame = await handle.ownerFrame().catch(() => null);
+    let url = frame ? await href(frame) : "";
+    while (frame && url.startsWith("about:")) { frame = frame.parentFrame(); url = frame ? await href(frame) : ""; }
+    if (frame && formWriteFrameAllowed(domain, await href(page.mainFrame()), url)) return;
+    throw Object.assign(new Error(`Frame origin refused ${JSON.stringify(parseFrameUrl(url)?.origin ?? "unknown")}: the page is not on the consented site or the control's frame is not secure, so the value was not written.`), { kind: "frame_origin_refused" });
   }
 
   // Stored in the encrypted host binding, never an ElementHandle. A reconnect
@@ -409,7 +439,7 @@ export class BrowserUseSession {
     binding.fieldDocuments = {};
     for (const field of form.fields) if (field.target) {
       try {
-        const handle = await editableHandle(await this.formHandle(page, field)) as ElementHandle<HTMLElement>;
+        const handle = await editableHandle(await this.formHandle(page, field, binding.domain)) as ElementHandle<HTMLElement>;
         if (await handle.evaluate(WRITE_TARGET_IS_HIDDEN_FN) || await writeTargetFrameIsHidden(page,handle)) failureKinds[field.id]="hidden_target";
         else if (await handle.evaluate((node) => node.isConnected && !node.hasAttribute("disabled") && !node.hasAttribute("readonly") && (node.matches("input,textarea,select") || node.isContentEditable))) {
           const owner = await handle.ownerFrame();
@@ -426,7 +456,7 @@ export class BrowserUseSession {
 
   async fillForm(binding: FormPageBinding, field: UserFormField, value: string | boolean): Promise<boolean> {
     const page = await this.formPage(binding);
-    const handle = await editableHandle(await this.formHandle(page, field)) as ElementHandle<HTMLElement>;
+    const handle = await editableHandle(await this.formHandle(page, field, binding.domain)) as ElementHandle<HTMLElement>;
     if (await handle.evaluate(WRITE_TARGET_IS_HIDDEN_FN) || await writeTargetFrameIsHidden(page, handle)) throw new Error("target_hidden");
     if (!await handle.evaluate(node => node.isConnected && !node.hasAttribute("disabled") && !node.hasAttribute("readonly"))) throw new Error("target_unavailable");
     await this.verifyFormDocument(page, binding, field, handle);
@@ -438,11 +468,20 @@ export class BrowserUseSession {
     if (typeof value !== "string") return false;
     this.registerPrivateValues([value]);
     const secret = true; // Every submitted form value is write-only, including nonsecret fields.
+    if (field.type !== "select" && await handle.evaluate(node => node.localName === "select")) {
+      await this.verifyFormDocument(page, binding, field, handle);
+      await selectTheOptionMatchingSecretWithoutNamingIt(handle, value);
+      return true;
+    }
     if (field.type === "select") {
       await markSecretFill(handle, value);
       await this.verifyFormDocument(page, binding, field, handle);
-      await handle.selectOption(value);
-      return handle.evaluate((node, expected) => (node as HTMLSelectElement).value === expected, value);
+      // The value is one of the form's own options, which the model wrote; match it to the page's.
+      const resolved = await handle.evaluate(resolveReferenceSelectOptions, [value]);
+      if (resolved.kind === "unmatched") throw new Error(`None of the select's ${resolved.optionCount} options matched the requested value, by value or by visible label.`);
+      const chosen = resolved.kind === "matched" ? resolved.values?.[0] ?? value : value;
+      await handle.selectOption(chosen);
+      return handle.evaluate((node, expected) => (node as HTMLSelectElement).value === expected, chosen);
     }
     await referenceFill({ page, element: handle, request: { ref: field.target?.value, element: field.label, value, secret },
       beforeWrite: () => this.verifyFormDocument(page, binding, field, handle) });
@@ -450,7 +489,7 @@ export class BrowserUseSession {
   }
 
   async formCanSave(binding: FormPageBinding, field: UserFormField): Promise<boolean> {
-    const handle = await this.formHandle(await this.formPage(binding), field);
+    const handle = await this.formHandle(await this.formPage(binding), field, binding.domain);
     return handle.evaluate((node) => {
       const attributes = ["type", "autocomplete", "name", "id", "aria-label"].map((key) => node.getAttribute(key) ?? "").join(" ");
       return node.isConnected && node.getAttribute("maxlength") !== "1" && !/password|one-time|cc-|card|cvv|cvc|ssn|secret|token|passcode|credential|api.?key/i.test(attributes);
@@ -458,8 +497,9 @@ export class BrowserUseSession {
   }
 
   async submitForm(binding: FormPageBinding, field: UserFormField): Promise<boolean> {
-    const page = await this.formPage(binding); const handle = await this.formHandle(page, field);
-    if (!(await handle.evaluate((node, domain) => node.isConnected && location.hostname.toLowerCase() === domain, binding.domain))) return false;
+    // formPage holds the tab to the consented host and formHandle the control's frame, which may be cross-origin.
+    const page = await this.formPage(binding); const handle = await this.formHandle(page, field, binding.domain);
+    if (!(await handle.evaluate((node) => node.isConnected))) return false;
     await this.verifyFormDocument(page, binding, field, handle);
     await handle.press("Enter"); return true;
   }

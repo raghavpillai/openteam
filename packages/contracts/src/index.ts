@@ -4,7 +4,7 @@ import { withReferenceContract, referenceTool } from "./tool-contracts";
 import { Schema } from "effect";
 import { BOT_AVATAR_COLOR_NAMES } from "./bot-avatar";
 export { validateProcessSecretName } from "./process-secrets";
-import { MAX_INLINE_IMAGE_URL_LENGTH, MAX_TASK_ATTACHMENTS, isTaskMediaPath } from "./media-input";
+import { MAX_INLINE_IMAGE_URL_LENGTH, MAX_TASK_ATTACHMENTS, TASK_ATTACHMENT_LIMIT_MESSAGE, isTaskMediaPath } from "./media-input";
 import cursorToolsDocument from "./cursor-tools.json";
 export * from "./user-forms";
 export { formatUserFormReceipt } from "./user-form-receipts";
@@ -384,7 +384,7 @@ export const TaskInput = Schema.Struct({
   file_attachments: Schema.optional(Schema.Array(Schema.String.pipe(Schema.filter(isTaskMediaPath, {
     message: () => "Task file_attachments accepts supported images or videos only. For ZIPs, PDFs and other files, put the shared filesystem path in the Task prompt and omit file_attachments.",
   }))).pipe(Schema.maxItems(MAX_TASK_ATTACHMENTS, {
-    message: () => `Task accepts at most ${MAX_TASK_ATTACHMENTS} file_attachments. Split the media across separate tasks.`,
+    message: () => TASK_ATTACHMENT_LIMIT_MESSAGE,
   }))),
   run_in_background: Schema.optional(Schema.Boolean),
   read_only: Schema.optional(Schema.Boolean),
@@ -1110,6 +1110,7 @@ export const UpdateStateInput = Schema.Struct({
     "write",
     "forget",
     "create",
+    "get",
     "update",
     "pause",
     "resume",
@@ -1133,6 +1134,7 @@ export const UpdateStateInput = Schema.Struct({
   body: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   hidden_from_sidebar: Schema.optional(Schema.Boolean),
   notify_on_updates: Schema.optional(Schema.Boolean),
+  drafting_disabled: Schema.optional(Schema.Boolean),
   platform: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   path: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
 });
@@ -1148,7 +1150,7 @@ export const UpdateMemoryToolInput = Schema.Struct({
 export type UpdateMemoryToolInput = typeof UpdateMemoryToolInput.Type;
 
 export const UpdateRoutineToolInput = Schema.Struct({
-  action: Schema.Literal("create", "update", "pause", "resume", "delete"),
+  action: Schema.Literal("create", "get", "update", "pause", "resume", "delete"),
   id: optionalText,
   name: optionalText,
   prompt: optionalText,
@@ -1175,6 +1177,7 @@ export const UpdateProfileToolInput = Schema.Struct({
   avatar_color: UpdateStateInput.fields.avatar_color,
   hidden_from_sidebar: Schema.optional(Schema.Boolean),
   notify_on_updates: Schema.optional(Schema.Boolean),
+  drafting_disabled: Schema.optional(Schema.Boolean),
 });
 export type UpdateProfileToolInput = typeof UpdateProfileToolInput.Type;
 
@@ -1353,6 +1356,8 @@ export const ShellCompletionInput = Schema.Struct({
   exitCode: Schema.NullOr(Schema.Number),
   error: Schema.optional(Schema.String.pipe(Schema.maxLength(4000))),
   channelId: Schema.optional(Schema.String),
+  /** The Shell call's description, else its (redacted) command. */
+  title: Schema.optional(Schema.String.pipe(Schema.maxLength(4000))),
 });
 export type ShellCompletionInput = typeof ShellCompletionInput.Type;
 

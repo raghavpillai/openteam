@@ -1,19 +1,18 @@
-import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
+import { applyArgumentAliases, normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { onlyPendingBackgroundWork } from "./background-status";
 import { spoolFile } from "@openteam/plugin-sdk/file-spool";
 import { agentReadStream, agentWriteStream } from "../agent-file-stream";
 import { stageAttachment } from "../attachment-staging";
-import {
-  describeOutputLocation,
-  buildUserFormRemapReceipt,
-} from "@openteam/contracts/reference-formatters";
-import { renderDesktopResult, renderControlResult } from "@openteam/contracts/tool-results";
+import { buildUserFormRemapReceipt } from "@openteam/contracts/reference-form-results";
+import { renderDesktopResult, renderControlResult, sendToUserFailure, toolErrorDetail } from "@openteam/contracts/tool-results";
+import { coerceArgumentsToJsonSchema, invalidArgumentsMessage } from "@openteam/contracts/tool-arguments";
 import {
   describeUploadFileOutcome,
   describeDownloadFileOutcome,
   formatChromeCookieImportOutcome,
 } from "@openteam/contracts/reference-formatters";
 import { parseReferenceArguments } from "@openteam/contracts/reference-parsers";
+import { parseDraftExternalMessage } from "@openteam/contracts/external-draft-body";
 import { HostShellCompletions } from "../host-shell-completions";
 import { expandPluginAgent } from "./plugin-components";
 import { skillTool } from "./skill-tool";
@@ -27,18 +26,19 @@ import {
 import { createHash } from "node:crypto";
 import { DESKTOP_CAPABILITY_TOOLS } from "@openteam/contracts/desktop-capabilities";
 import { agentFileIO } from "../agent-file-io";
+import { connectorResultParts, spillConnectorText } from "./connector-results";
 import { boundToolImage } from "./image-input";
 import { redactSecrets } from "@openteam/shell-jobs";
-import { validateProcessSecretName } from "@openteam/contracts";
+import { validateProcessSecretName, WAKE_PARENT_TOOL } from "@openteam/contracts";
 import { type AgentToolResult, defineTool } from "@earendil-works/pi-coding-agent";
 import {
   AwaitShellInput,
   AUTOMATION_PARENT_ONLY_TOOLS,
+  AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED,
   CALL_DYNAMIC_TOOL_TOOL,
   CallDynamicToolInput,
   COMPUTER_USE_TOOL,
   CURSOR_TOOLS,
-  parseExternalDraft,
   parseUserForm,
   parseFormRemap,
   formatUserFormReceipt,
@@ -64,15 +64,16 @@ import {
   UPDATE_ROUTINE_TOOL,
 } from "@openteam/contracts";
 import { Schema } from "effect";
-import { parseHostAwaitShellRequest } from "@openteam/contracts/service-protocol";
+import { parseHostAwaitShellRequest, type ShellAwaitResponse } from "@openteam/contracts/service-protocol";
 import { mkdir, writeFile, realpath } from "node:fs/promises";
 import { join, basename, resolve, dirname, sep } from "node:path";
 import { Type } from "typebox";
 import { BROWSER_USE_TOOLS, BrowserUseSession } from "../browser/use";
 import {
   discoverDynamicTools,
+  DynamicLookupMiss,
   renderDynamicDiscovery,
-  retainedDynamicTools,
+  type DynamicLookupOptions,
   type DynamicNamespaceDefinition,
   resolveDynamicTool,
   decodeDynamicArguments,
@@ -83,7 +84,7 @@ import {
 } from "../native-tool-executor";
 import type { ScreenBroker } from "../screen-broker";
 import { dynamicCatalog } from "./dynamic-catalog";
-import { taskToolContract } from "@openteam/contracts/tool-contracts";
+import { firstPartyNamespaceDescription, taskToolContract } from "@openteam/contracts/tool-contracts";
 import { subagentUsesParentConnectors, taskToolEnabled } from "@openteam/contracts/task-configuration";
 import { WebTools } from "../web-tools";
 import { SearchProviderClient } from "../search-provider";
@@ -103,13 +104,72 @@ export const GRAPHICAL_WORKER_SHELL_DESCRIPTION = [
 export const GRAPHICAL_WORKER_READ_DESCRIPTION =
   "Reads a file on the box, the same filesystem Shell acts on.\n\nText files include line numbers and support offset/limit paging. Image files (jpeg/jpg, png, gif, webp) are returned inline so you can see them. PDF files are converted to text.";
 
-const taskErrorReason = (error: unknown): string => {
+/** The reference's per-call guard: its 15-minute tier less a minute of headroom. */
+export const TOOL_CALL_TIMEOUT_MS = 840_000;
+/** Tools that wait on the user or a whole subagent run rather than on a service. */
+const USER_PACED_CONTROL_TOOLS: ReadonlySet<string> = new Set([
+  "Task",
+  "SendFeedback",
+  "InstallPlugin",
+  "UninstallPlugin",
+  "AddMcpServer",
+  "UninstallMcpServer",
+  "AuthenticateMcpServer",
+  "RestartMcpServers",
+  "RemoveMcpAccount",
+  "RenameMcpAccount",
+  "SetMcpInstructions",
+]);
+export const toolCallTimedOutMessage = (tool: string, timeoutMs: number) =>
+  `The ${tool} tool call timed out after ${Math.round(timeoutMs / 1000)} seconds and was terminated. The execution environment may be unresponsive, or the operation needs longer than the per-call time limit.`;
+
+/** A failed control-plane call, carrying the server's error code for callers that act on it. */
+export class ControlPlaneError extends Error {
+  constructor(message: string, readonly code: string | undefined, readonly status: number) {
+    super(message);
+  }
+}
+const INFRASTRUCTURE_FAILURE = /prisma|DriverAdapterError|database|deadlock detected|could not serialize access|terminating connection|Timed out fetching a new connection/i;
+/** The server's message, never its JSON envelope; database failures and unreadable 5xx bodies read as the reference's retry-later sentence. */
+const controlPlaneError = (status: number, body: unknown): ControlPlaneError => {
+  const raw = body && typeof body === "object" ? (body as { error?: unknown }).error : undefined;
+  const error = (typeof raw === "string" ? { message: raw } : raw) as { code?: unknown; message?: unknown } | undefined;
+  const code = typeof error?.code === "string" ? error.code : undefined;
+  const message = typeof error?.message === "string" && error.message.trim() ? error.message : undefined;
+  if (!message ? status >= 500 : status >= 500 && (!code || code === "internal_error") && INFRASTRUCTURE_FAILURE.test(message))
+    return new ControlPlaneError("Couldn't finish due to a temporary server issue.", code, status);
+  return new ControlPlaneError(message ?? `OpenTeam tool host rejected the call (${status})`, code, status);
+};
+
+const CONNECTOR_AUTH_FAILURES = new Set(["plugin_auth_required", "plugin_auth_failed"]);
+/** Classified connector failures keep their message; anything else is the reference's "Tool execution error". */
+const connectorCallError = (
+  error: unknown,
+  namespace: DynamicNamespaceDefinition,
+  toolName: string,
+  options: DynamicLookupOptions
+): Error => {
+  if (!(error instanceof ControlPlaneError)) return error instanceof Error ? error : new Error(String(error));
+  if (CONNECTOR_AUTH_FAILURES.has(error.code ?? "")) {
+    const guidance = options.unavailableGuidance?.({ ...namespace, namespaceStatus: "needsAuth" });
+    return new Error(`${error.message}${guidance ? ` ${guidance}` : ""}`);
+  }
+  if (/MCP error -32(?:602|600|700)\b/.test(error.message))
+    return new Error(`${error.message}\n\n<system_reminder>\nThe namespace rejected these arguments as invalid. Before retrying, call GetDynamicTools with ${JSON.stringify({ namespace: namespace.name, toolName })} and rebuild the arguments from the returned input schema.\n</system_reminder>`);
+  if (!error.code || ["internal_error", "stdio_mcp_failed"].includes(error.code))
+    return new Error(`Tool execution error. ${error.message}`);
+  return error;
+};
+
+const AUTHENTICATE_GUIDANCE =
+  "Call AuthenticateMcpServer on it instead of refetching this descriptor; it is already installed, so never propose installing it.";
+
+/** GetDynamicTools and CallDynamicTool failures read `Error: <message>`, as the reference renders them. */
+const referenceError = (error: unknown): never => {
   const message = error instanceof Error ? error.message : String(error);
-  try {
-    const envelope = JSON.parse(message) as { message?: unknown } | null;
-    if (envelope && typeof envelope.message === "string") return envelope.message;
-  } catch {}
-  return message.replace(/^Error: /, "");
+  const wrapped = new Error(message.startsWith("Error: ") ? message : `Error: ${message}`, { cause: error });
+  if (error instanceof Error) wrapped.name = error.name;
+  throw wrapped;
 };
 
 /** How long a handoff waits for the box browser to show the step's page. */
@@ -127,7 +187,7 @@ const assertShellWait = (active: Pick<ActiveTurn, "subagentType">, args: unknown
   const capMs = shellWaitCapMs(active);
   const blockMs = (args as { block_until_ms?: unknown } | null)?.block_until_ms;
   if (typeof blockMs === "number" && blockMs > capMs)
-    throw new Error(`block_until_ms must be at most ${waitLimit(capMs, unit)}`);
+    throw new Error(`${unit ? "" : "Invalid arguments:\nblock_until_ms: "}block_until_ms must be at most ${waitLimit(capMs, unit)}`);
 };
 const boxScopedSchema = (schema: Readonly<Record<string, unknown>>): Record<string, unknown> => {
   const { machineId: _machineId, ...properties } = (schema.properties ?? {}) as Record<string, unknown>;
@@ -160,21 +220,45 @@ export const SUBAGENT_PRIVATE_NATIVE_TOOLS: ReadonlySet<string> = new Set([
   SCREENSHOT_TOOL.name,
 ]);
 
-/** First-party tools a worker calls directly instead of looking them up with GetDynamicTools. */
+/** First-party tools a worker or routine run calls directly instead of looking them up with GetDynamicTools. */
 export const workerTopLevelTools = (
-  active: Pick<ActiveTurn, "subagentType" | "readOnly">
+  active: Pick<ActiveTurn, "subagentType" | "readOnly"> & Partial<Pick<ActiveTurn, "requestSource" | "runtimeProfile">>
 ): readonly string[] => {
+  if (active.requestSource === "automation" && active.runtimeProfile !== "subagent") return [WAKE_PARENT_TOOL.name];
   if (active.subagentType === "executor" || active.subagentType === "knowledgeWork")
     return active.readOnly ? ["AwaitShell", "WebSearch", "WebFetch"] : ["AwaitShell", "WebSearch", "WebFetch", "UploadFile", "DownloadFile"];
   if (active.subagentType === "computerUse") return ["AwaitShell"];
   return [];
 };
 
+/** Calls that can create a file a Read in the same step is waiting for. */
+const SAME_STEP_FILE_WRITERS: ReadonlySet<string> = new Set(["Shell", "AwaitShell", "CopyToBox"]);
+const SAME_STEP_READ_WAIT_MS = 120_000;
+
 export class RuntimeTools {
   private readonly shellWaits = new Map<string, Set<AbortController>>();
+  private readonly stepFileWriters = new Map<string, Set<Promise<unknown>>>();
+  private readonly foregroundShells = new Map<string, Set<{ active: ActiveTurn; controller: AbortController }>>();
   interruptShellWaits(runId: string) {
     for (const wait of this.shellWaits.get(runId) ?? [])
       wait.abort(new Error("A new user message arrived"));
+    // A new user message backgrounds a running foreground command so the turn can
+    // answer it. A stop (the turn is ending) kills the command instead.
+    for (const shell of this.foregroundShells.get(runId) ?? [])
+      if (!shell.active.endTurnRequested) shell.controller.abort();
+  }
+
+  private async withForegroundShell<T>(active: ActiveTurn, run: (background: AbortSignal) => Promise<T>): Promise<T> {
+    const entry = { active, controller: new AbortController() };
+    const shells = this.foregroundShells.get(active.runId) ?? new Set();
+    shells.add(entry);
+    this.foregroundShells.set(active.runId, shells);
+    try {
+      return await run(entry.controller.signal);
+    } finally {
+      shells.delete(entry);
+      if (!shells.size) this.foregroundShells.delete(active.runId);
+    }
   }
 
   private async awaitShellForTurn(
@@ -182,12 +266,26 @@ export class RuntimeTools {
     args: unknown,
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
+    const started = Date.now();
+    try {
+      return await this.awaitShellOnce(turn, args, started, signal);
+    } catch (error) {
+      if (signal?.aborted) throw new Error(`Error: Await was interrupted by the user after ${Date.now() - started}ms.`);
+      throw new Error(`Error awaiting task: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private async awaitShellOnce(
+    turn: ActiveTurn,
+    args: unknown,
+    started: number,
+    signal?: AbortSignal
+  ): Promise<AgentToolResult<Record<string, unknown>>> {
     assertShellWait(turn, args, "");
     const input = Schema.decodeUnknownSync(AwaitShellInput)(parseHostAwaitShellRequest(args));
     if (input.machineId && (turn.subagentType || turn.runtimeProfile === "subagent"))
       throw new Error("Subagents cannot target the user's local computer");
-    const controller = new AbortController(),
-      started = Date.now();
+    const controller = new AbortController();
     const waits = this.shellWaits.get(turn.runId) ?? new Set<AbortController>();
     waits.add(controller);
     this.shellWaits.set(turn.runId, waits);
@@ -204,14 +302,14 @@ export class RuntimeTools {
         );
       } catch (error) {
         if (!controller.signal.aborted || signal?.aborted) throw error;
-        if (input.shell_id) result = await execute(0, signal);
-        else {
-          const receipt = { status: "slept" as const, waited_ms: Date.now() - started };
-          result = {
-            content: [{ type: "text", text: renderShellAwaitResult(receipt) }],
-            details: receipt,
-          };
-        }
+        // Released by a new user message: report the job's state now and say why.
+        const receipt: ShellAwaitResponse = input.shell_id
+          ? ((await execute(0, signal)).details as unknown as ShellAwaitResponse)
+          : { status: "slept", waited_ms: Date.now() - started };
+        result = {
+          content: [{ type: "text", text: renderShellAwaitResult(receipt, true) }],
+          details: { ...receipt, released_by_user_message: true },
+        };
       }
       if (
         input.machineId &&
@@ -324,6 +422,7 @@ export class RuntimeTools {
   private readonly webTools: WebTools;
   readonly userForms: UserFormHost;
   private readonly mutationTails = new Map<string, Promise<unknown>>();
+  private readonly toolCallTimeoutMs = TOOL_CALL_TIMEOUT_MS;
   private readonly browserSessionScreens = new Map<string, string>();
 
   async recoverFormOutcomes(active: ActiveTurn) {
@@ -389,9 +488,10 @@ export class RuntimeTools {
   }
 
   contextCatalog(active: ActiveTurn) {
-    return this.dynamicCatalog(active).map(({ name, description, tools }) => ({
+    return this.dynamicCatalog(active).map(({ name, description, namespaceStatus, tools }) => ({
       name,
       description,
+      namespaceStatus,
       tools: tools.map(({ name }) => ({ name })),
     }));
   }
@@ -455,6 +555,12 @@ export class RuntimeTools {
         tool = { ...tool, ...taskToolContract(active.taskConfiguration) };
         description = tool.description;
       }
+      // Workers and routine runs cannot start a sign-in; they report a signed-out connector instead.
+      if (tool.name === GET_DYNAMIC_TOOLS_TOOL.name && !this.cursorToolNames(active).includes("AuthenticateMcpServer"))
+        description = description.replace(
+          AUTHENTICATE_GUIDANCE,
+          `You cannot do that from here, so report the status ${active.requestSource === "automation" ? "with WakeParent" : "in your result"} instead of retrying.`
+        );
       const visibleDescription = description;
       return defineTool({
         name: tool.name,
@@ -516,18 +622,24 @@ export class RuntimeTools {
               this.callComputerUse(active, args, signal)
             ),
         });
-    const topLevelTools = () => workerTopLevelTools(active).map((name) => {
-      const tool = this.firstPartyTool(active, name);
-      return defineTool({
+    // UploadFile and DownloadFile exist only while a connection can take or give files.
+    const topLevelTools = () => {
+      const firstParty = this.fullDynamicCatalog(active).find((namespace) => namespace.name === "cursor")?.tools ?? [];
+      return workerTopLevelTools(active).flatMap((name) => {
+      const tool = firstParty.find((candidate) => candidate.name === name);
+      if (!tool) return [];
+      return [defineTool({
         name,
         label: name,
         description: graphical ? tool.description.replace(MACHINE_ROUTING_AWAIT_SENTENCE, "") : tool.description,
         parameters: Type.Unsafe<Record<string, unknown>>(graphical ? boxScopedSchema(tool.inputSchema) : tool.inputSchema),
-        executionMode: "parallel",
+        // WakeParent ends the run, so nothing runs beside it.
+        executionMode: name === WAKE_PARENT_TOOL.name ? "sequential" : "parallel",
         execute: (callId: string, args: unknown, signal?: AbortSignal) =>
           this.executeOpenTeamTool(active, callId, name, args, signal),
+      })];
       });
-    });
+    };
     const browserTools = () => BROWSER_USE_TOOLS.map((tool) =>
           defineTool({
             name: tool.name,
@@ -573,7 +685,31 @@ export class RuntimeTools {
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     this.assertCurrentInput(active);
-    return this.executeScopedTool(active, callId, tool, args, signal);
+    const name = tool === CALL_DYNAMIC_TOOL_TOOL.name ? (args as { toolName?: unknown } | null)?.toolName : tool;
+    const run = this.executeScopedTool(active, callId, tool, args, signal);
+    // Calls issued in one step start in order, so a later Read in the step can wait for these.
+    const writers = typeof name === "string" && SAME_STEP_FILE_WRITERS.has(name)
+      ? this.stepFileWriters.get(active.runId) ?? new Set<Promise<unknown>>()
+      : undefined;
+    if (writers) {
+      writers.add(run);
+      this.stepFileWriters.set(active.runId, writers);
+    }
+    try {
+      return await run;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      const report = invalidArgumentsMessage(error);
+      // Every SendToUser failure reads as one sentence saying the send failed and why.
+      if (tool === SEND_TO_USER_TOOL.name)
+        throw new Error(sendToUserFailure(report ?? toolErrorDetail(error)));
+      throw report ? new Error(report) : error;
+    } finally {
+      if (writers) {
+        writers.delete(run);
+        if (!writers.size) this.stepFileWriters.delete(active.runId);
+      }
+    }
   }
 
   private async executeScopedTool(
@@ -607,7 +743,7 @@ export class RuntimeTools {
     if (queuedAttachment) active.pendingDeliveryAttachments?.delete(callId);
     if (queuedCleanup) active.pendingDeliveryCleanup?.delete(callId);
     if (active.requestSource === "automation" && AUTOMATION_PARENT_ONLY_TOOLS.has(tool)) {
-      throw new Error("Use WakeParent to hand this communication to the parent agent");
+      throw new Error(AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED);
     }
     args = normalizeMainToolArguments(tool, args);
     if (workerTopLevelTools(active).includes(tool)) {
@@ -641,29 +777,33 @@ export class RuntimeTools {
               machineId: shellInput.machineId!,
               shellId: result.details.shell_id,
               outputPath: result.details.output_path,
+              title: (shellInput.description?.trim() || shellInput.command).slice(0, 4000),
             });
           }
           return result;
         })();
       }
-      const environment =
-        active.subagentType === "computerUse"
-          ? await this.screens.commandEnvironment(active.screenBotId, active.cwd)
-          : undefined;
-      const secretEnvironment = await this.processSecrets(active, signal);
-      return this.nativeToolExecutor.shell(
-        shellInput,
-        active.cwd,
-        signal,
-        environment,
-        active.botId,
-        {
-          channelId: active.channelId,
-          secretEnvironment,
-          secrets: Object.values(secretEnvironment),
-          ...(active.requestSource === "automation" ? { automationRunId: active.runId } : {}),
-        }
-      );
+      return this.withForegroundShell(active, async (background) => {
+        const environment =
+          active.subagentType === "computerUse"
+            ? await this.screens.commandEnvironment(active.screenBotId, active.cwd)
+            : undefined;
+        const secretEnvironment = await this.processSecrets(active, signal);
+        return this.nativeToolExecutor.shell(
+          shellInput,
+          active.cwd,
+          signal,
+          environment,
+          active.botId,
+          {
+            channelId: active.channelId,
+            secretEnvironment,
+            secrets: Object.values(secretEnvironment),
+            background,
+            ...(active.requestSource === "automation" ? { automationRunId: active.runId } : {}),
+          }
+        );
+      });
     }
     if (tool === READ_TOOL.name) {
       const readInput = Schema.decodeUnknownSync(ReadToolInput)(args);
@@ -674,8 +814,20 @@ export class RuntimeTools {
         return (() =>
           this.nativeToolExecutor.externalRead(readInput, signal))();
       }
+      const earlierWriters = [...(this.stepFileWriters.get(active.runId) ?? [])];
       const secrets = Object.values(await this.processSecrets(active, signal));
-      const result = await this.nativeToolExecutor.read(readInput, active.cwd);
+      const read = () => this.nativeToolExecutor.read(readInput, active.cwd);
+      const result = await read().catch(async (error) => {
+        // A Read issued beside the Shell call that creates its file waits for that call, then retries once.
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT" || !earlierWriters.length) throw error;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([
+          Promise.allSettled(earlierWriters),
+          new Promise((resolveWait) => (timer = setTimeout(resolveWait, SAME_STEP_READ_WAIT_MS))),
+        ]).finally(() => clearTimeout(timer));
+        signal?.throwIfAborted();
+        return read();
+      });
       return {
         ...result,
         content: result.content.map((part) =>
@@ -687,7 +839,9 @@ export class RuntimeTools {
       return this.nativeToolExecutor.listMachines(signal);
     }
     if (tool === SCREENSHOT_TOOL.name) {
-      const frame = await this.screens.screenshot(active.botId, active.cwd, signal);
+      const frame = await this.screens.screenshot(active.botId, active.cwd, signal).catch((error) => {
+        throw signal?.aborted ? error : new Error(`Screenshot failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
       const directory = join(this.workspaceRoot, "shared", "screenshots");
       await mkdir(directory, { recursive: true });
       const path = join(directory, `${active.botId}-${Date.now()}.png`);
@@ -696,7 +850,7 @@ export class RuntimeTools {
         content: [
           {
             type: "text" as const,
-            text: `Screenshot captured from the box desktop.\nScreenshot saved to ${path} — attach this file:// path with SendToUser to show the user the box.`,
+            text: `Screenshot captured from the box desktop.\nScreenshot saved to ${path}, and to show the user the box, attach this file:// path with SendToUser.`,
           },
           {
             type: "image" as const,
@@ -708,16 +862,16 @@ export class RuntimeTools {
       };
     }
     if (tool === GET_DYNAMIC_TOOLS_TOOL.name) {
-      return this.getDynamicTools(active, Schema.decodeUnknownSync(GetDynamicToolsInput)(args));
+      return this.getDynamicTools(active, callId, Schema.decodeUnknownSync(GetDynamicToolsInput)(args), signal)
+        .catch(referenceError);
     }
     if (tool === CALL_DYNAMIC_TOOL_TOOL.name) {
-      return this.callDynamicTool(
-        active,
-        callId,
-        Schema.decodeUnknownSync(CallDynamicToolInput)(args),
-        signal,
-        finishCleanup
-      );
+      const input = Schema.decodeUnknownSync(CallDynamicToolInput)(args);
+      // A first-party tool this agent already has directly runs natively, as in the reference.
+      if (input.namespace === "cursor" && input.toolName !== GET_DYNAMIC_TOOLS_TOOL.name && input.toolName !== CALL_DYNAMIC_TOOL_TOOL.name &&
+          this.directToolNames(active).includes(input.toolName))
+        return this.executeScopedTool(active, callId, input.toolName, decodeDynamicArguments(input.arguments), signal).catch(referenceError);
+      return this.callDynamicTool(active, callId, input, signal, finishCleanup).catch(referenceError);
     }
 
     return this.callControlPlaneTool(active, callId, tool, args, signal);
@@ -744,7 +898,9 @@ export class RuntimeTools {
     const needsDesktopObservation = active.lastGraphicalSurface !== "computer" &&
       requestedActions.some(action => ["click", "move", "drag", "scroll"].includes(action.action));
     const actions = needsDesktopObservation ? [{ action: "screenshot" as const }] : requestedActions;
-    const frame = await this.screens.actComputerUse(active.screenBotId, active.cwd, actions, signal);
+    const frame = await this.screens.actComputerUse(active.screenBotId, active.cwd, actions, signal).catch((error) => {
+      throw signal?.aborted ? error : new Error(`Computer action failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
     signal?.throwIfAborted();
     active.lastGraphicalSurface = "computer";
     const directory = join(this.workspaceRoot, "shared", "screenshots");
@@ -755,7 +911,7 @@ export class RuntimeTools {
       content: [
         {
           type: "text" as const,
-          text: `${needsDesktopObservation ? "Captured the native desktop before switching coordinate spaces. The requested pointer actions were NOT executed. Read this screenshot, then issue the actions using desktop coordinates; browser viewport coordinates omit the window chrome." : "Computer action ran on the box desktop."}\nScreenshot of the resulting screen saved to ${path} — include this file:// path in your report to the parent if it should be shown to the user.`,
+          text: `${needsDesktopObservation ? "Captured the native desktop before switching coordinate spaces. The requested pointer actions were NOT executed. Read this screenshot, then issue the actions using desktop coordinates; browser viewport coordinates omit the window chrome." : "Computer action ran on the box desktop."}\nScreenshot of the resulting screen saved to ${path}, and if it should be shown to the user, include this file:// path in your report to the parent.`,
         },
         {
           type: "image" as const,
@@ -1260,55 +1416,42 @@ export class RuntimeTools {
     signal?: AbortSignal,
     foregroundYield = false
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const timeout = AbortSignal.timeout(
-      [
-        "Task",
-        "SendFeedback",
-        "InstallPlugin",
-        "UninstallPlugin",
-        "AddMcpServer",
-        "UninstallMcpServer",
-        "AuthenticateMcpServer",
-        "RestartMcpServers",
-        "RemoveMcpAccount",
-        "RenameMcpAccount",
-        "SetMcpInstructions",
-      ].includes(tool)
-        ? 24 * 60 * 60_000
-        : tool === "SendToUser"
-          ? 5 * 60_000
-          : ["RequestUserForm", "DraftExternalMessage"].includes(tool)
-            ? 120_000
-            : 30_000
-    );
+    const timeoutMs = USER_PACED_CONTROL_TOOLS.has(tool) ? 24 * 60 * 60_000 : this.toolCallTimeoutMs;
+    const timeout = AbortSignal.timeout(timeoutMs);
     const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
-    const response = await fetch(`${this.serverUrl}/api/v0/internal/tools/call`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${this.controlToken}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        ...(foregroundYield ? {foregroundYield: true} : {}),
-        runId: active.runId,
-        botId: active.botId,
-        conversationId: active.conversationId,
-        channelId: active.channelId,
-        deliveryId: active.deliveryId,
-        tool,
-        arguments: args,
-        callId,
-      }),
-      signal: requestSignal,
-    });
-    const body = (await response.json()) as unknown;
-    if (!response.ok) {
-      const message =
-        body && typeof body === "object" && "error" in body
-          ? JSON.stringify((body as { error: unknown }).error)
-          : `OpenTeam tool host rejected the call (${response.status})`;
-      throw new Error(message);
+    let response: Response, body: unknown;
+    try {
+      response = await fetch(`${this.serverUrl}/api/v0/internal/tools/call`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${this.controlToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          ...(foregroundYield ? {foregroundYield: true} : {}),
+          runId: active.runId,
+          botId: active.botId,
+          conversationId: active.conversationId,
+          channelId: active.channelId,
+          deliveryId: active.deliveryId,
+          tool,
+          arguments: args,
+          callId,
+        }),
+        signal: requestSignal,
+        // Bun's fetch otherwise gives up after 300 seconds, inside the per-call guard.
+        timeout: false,
+      } as RequestInit);
+      const text = await response.text();
+      try { body = JSON.parse(text) as unknown; } catch { if (response.ok) throw new Error("OpenTeam tool host returned an unreadable result"); }
+    } catch (error) {
+      if (timeout.aborted && !signal?.aborted) {
+        const name = NATIVE_TOOLS.some((native) => native.name === tool) ? tool : CALL_DYNAMIC_TOOL_TOOL.name;
+        throw new Error(`${name === CALL_DYNAMIC_TOOL_TOOL.name ? "Tool execution error. " : ""}${toolCallTimedOutMessage(name, timeoutMs)}`);
+      }
+      throw error;
     }
+    if (!response.ok) throw controlPlaneError(response.status, body);
     if (
       tool === "Task" &&
       body &&
@@ -1350,8 +1493,12 @@ export class RuntimeTools {
       body &&
       typeof body === "object" &&
       (body as Record<string, unknown>).woken === true
-    )
+    ) {
       active.endTurnRequested = true;
+      // The handoff ends the automation, so its background commands stop with it.
+      const runs = (body as Record<string, unknown>).automation_run_ids;
+      this.nativeToolExecutor.stopAutomationShells(Array.isArray(runs) ? runs.filter((id): id is string => typeof id === "string") : [active.runId]);
+    }
     // A reaction can be the whole reply: with end_turn, a successful one delivers and ends the turn.
     if (
       tool === REACT_TO_MESSAGE_TOOL.name &&
@@ -1392,22 +1539,21 @@ export class RuntimeTools {
         active.endTurnRequested = true;
       }
     }
-    // A plugin's MCP image content reaches the model as images, like native screenshots,
-    // instead of base64 text inside the rendered JSON.
-    const content = tool === "PluginCall" && body && typeof body === "object" && Array.isArray((body as Record<string, unknown>).content)
-      ? ((body as Record<string, unknown>).content as unknown[]) : [];
-    const images = content.filter((part): part is { type: "image"; data: string; mimeType: string } =>
-      !!part && typeof part === "object" && (part as any).type === "image" && typeof (part as any).data === "string" && typeof (part as any).mimeType === "string");
-    const rendered = images.length
-      ? { ...(body as Record<string, unknown>), content: content.map(part => images.includes(part as any) ? { type: "image", mimeType: (part as any).mimeType, attachedBelow: true } : part) }
-      : body;
+    if (tool === "PluginCall") {
+      const { parts, isError } = connectorResultParts(body);
+      const spilled = await spillConnectorText(parts, active.cwd, (path, data) => agentFileIO("write", path, undefined, data));
+      return {
+        content: spilled.parts,
+        details: { tool, ...(isError ? { isError: true } : {}), ...(spilled.outputPath ? { outputPath: spilled.outputPath } : {}) },
+        ...(active.endTurnRequested ? { terminate: true } : {}),
+      };
+    }
     return {
       content: [
         {
           type: "text" as const,
-          text: renderControlResult(tool, rendered, args as Record<string, any>),
+          text: renderControlResult(tool, body, args as Record<string, any>),
         },
-        ...images.map(image => ({ type: "image" as const, data: image.data, mimeType: image.mimeType })),
       ],
       details: {
         tool,
@@ -1426,11 +1572,7 @@ export class RuntimeTools {
     args: TaskInput,
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    return this.callControlPlaneTool(active, callId, TASK_TOOL.name, args, signal).catch((error: unknown) => {
-      if (signal?.aborted) throw error;
-      // A refused dispatch reads as the reference's "Error: <reason>", not the host's error envelope.
-      throw new Error(`Error: ${taskErrorReason(error)}`);
-    });
+    return this.callControlPlaneTool(active, callId, TASK_TOOL.name, args, signal);
   }
 
   private async executeTodoWrite(
@@ -1478,11 +1620,11 @@ export class RuntimeTools {
     active: ActiveTurn
   ): Array<DynamicNamespaceDefinition<RuntimeDynamicTool>> {
     const topLevel = workerTopLevelTools(active);
-    return this.fullDynamicCatalog(active).map((namespace) =>
-      namespace.name === "cursor" && topLevel.length
-        ? { ...namespace, tools: namespace.tools.filter((tool) => !topLevel.includes(tool.name)) }
-        : namespace
-    );
+    return this.fullDynamicCatalog(active).map((namespace) => {
+      if (namespace.name !== "cursor" || !topLevel.length) return namespace;
+      const tools = namespace.tools.filter((tool) => !topLevel.includes(tool.name));
+      return { ...namespace, tools, description: firstPartyNamespaceDescription(tools.map((tool) => tool.name)) };
+    });
   }
 
   private firstPartyTool(active: ActiveTurn, name: string): RuntimeDynamicTool {
@@ -1544,8 +1686,11 @@ export class RuntimeTools {
                   description: definition.description,
                   inputSchema: definition.inputSchema,
                   source: "first-party",
+                  // The captured schema words each argument problem first; then the stored shape and body checks.
                   decodeArguments:
-                    name === "DraftExternalMessage" ? parseExternalDraft : (input) => input,
+                    name === "DraftExternalMessage"
+                      ? (input) => parseDraftExternalMessage(normalizeMainToolArguments(name, input))
+                      : (input) => input,
                   execute: (turn, callId, args, signal) =>
                     this.callControlPlaneTool(turn, callId, name, args, signal),
                 };
@@ -1661,7 +1806,7 @@ export class RuntimeTools {
                 inputSchema: definition.inputSchema,
                 source: "first-party",
                 decodeArguments: (args) => {
-                  const value = args as Record<string, unknown>;
+                  const value = applyArgumentAliases(name, args) as Record<string, unknown>;
                   const required = name === "CopyToBox" ? "computer_path" : "box_path";
                   if (
                     !value ||
@@ -1699,15 +1844,52 @@ export class RuntimeTools {
     );
   }
 
+  /** Tool names this agent calls directly, outside the cursor namespace. */
+  directToolNames(active: ActiveTurn): string[] {
+    return this.customTools(active).map((tool) => tool.name);
+  }
+
+  /** First-party tools this agent reaches only through CallDynamicTool. */
+  cursorToolNames(active: ActiveTurn): string[] {
+    return this.dynamicCatalog(active).find((namespace) => namespace.name === "cursor")?.tools.map((tool) => tool.name) ?? [];
+  }
+
+  private lookupOptions(active: ActiveTurn): DynamicLookupOptions {
+    const canAuthenticate = this.cursorToolNames(active).includes("AuthenticateMcpServer");
+    const report = active.requestSource === "automation" && active.runtimeProfile !== "subagent" ? "with WakeParent" : "in your result";
+    return {
+      directTools: this.directToolNames(active),
+      unavailableGuidance: (namespace) =>
+        !canAuthenticate
+          ? `You cannot do that from here, so report the status ${report} instead of retrying.`
+          : namespace.namespaceStatus === "needsAuth"
+            ? `Call AuthenticateMcpServer with server_id "${namespace.name}" to show the user its sign-in, then finish unrelated work and end your turn. Don't reach the service another way meanwhile.`
+            : "",
+    };
+  }
+
+  /** A namespace or tool can appear mid-turn (a reconnect, a tool-list change): look once more before failing. */
+  private async withCatalogRefresh<T>(active: ActiveTurn, callId: string, lookup: () => T, signal?: AbortSignal): Promise<T> {
+    try {
+      return lookup();
+    } catch (error) {
+      if (!(error instanceof DynamicLookupMiss)) throw error;
+      const fresh = await this.privateControl(active, `${callId}:catalog`, "RefreshToolCatalog", {}, signal).catch(() => null);
+      if (!fresh) throw error;
+      active.pluginNamespaces = fresh.namespaces;
+      return lookup();
+    }
+  }
+
   private async getDynamicTools(
     active: ActiveTurn,
-    input: GetDynamicToolsInput
+    callId: string,
+    input: GetDynamicToolsInput,
+    signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const result = discoverDynamicTools(
-      this.dynamicCatalog(active),
-      active.discoveredDynamicTools,
-      input
-    );
+    const options = this.lookupOptions(active);
+    const result = await this.withCatalogRefresh(active, callId, () =>
+      discoverDynamicTools(this.dynamicCatalog(active), input, options), signal);
     const form = result.namespaces
       .flatMap((namespace) => namespace.tools)
       .find((tool) => tool.name === "RequestUserForm");
@@ -1719,34 +1901,9 @@ export class RuntimeTools {
           ? "Saved extra keys:\n" + keys.map((key) => `- ${JSON.stringify(key)}`).join("\n")
           : "No saved extra keys yet.");
     }
-    const text = JSON.stringify(renderDynamicDiscovery(result, input), null, 2);
-    if (!input.toolName && Buffer.byteLength(text) > 12_000) {
-      const outputPath = join(
-        active.cwd,
-        ".openteam",
-        "dynamic-tools",
-        `${crypto.randomUUID()}.json`
-      );
-      await agentFileIO("write", outputPath, undefined, Buffer.from(text));
-      return {
-        content: [
-          {
-            type: "text",
-            text: describeOutputLocation(
-              {
-                filePath: outputPath,
-                sizeBytes: Buffer.byteLength(text),
-                lineCount: text.split("\n").length,
-              },
-              {}
-            ),
-          },
-        ],
-        details: { namespaceCount: result.namespaces.length, outputPath },
-      };
-    }
+    // Always inline, as the reference answers in production regardless of size.
     return {
-      content: [{ type: "text", text }],
+      content: [{ type: "text", text: JSON.stringify(renderDynamicDiscovery(result, input), null, 2) }],
       details: { namespaceCount: result.namespaces.length },
     };
   }
@@ -1766,11 +1923,22 @@ export class RuntimeTools {
             namespace.tools.some((tool) => tool.name === input.toolName && isReadonlyConnectorRead(tool))))
     )
       throw new Error("This tool is unavailable to a read-only plugin agent");
-    const catalog = this.dynamicCatalog(active);
-    const receipts = active.discoveredDynamicTools.has(`${input.namespace}/${input.toolName}`)
-      ? active.discoveredDynamicTools
-      : new Set([...active.discoveredDynamicTools, ...retainedDynamicTools(catalog, active.dynamicDiscoveryMessages ?? [])]);
-    const resolved = resolveDynamicTool(catalog, receipts, input);
+    const options = this.lookupOptions(active);
+    const resolved = await this.withCatalogRefresh(active, callId, () => {
+      const catalog = this.dynamicCatalog(active);
+      // String-encoded booleans, numbers and JSON become the advertised types before validation.
+      const firstParty = input.namespace === "cursor"
+        ? catalog.find((namespace) => namespace.name === "cursor")?.tools.find((tool) => tool.name === input.toolName)
+        : undefined;
+      try {
+        return resolveDynamicTool(catalog, firstParty && input.arguments && typeof input.arguments === "object"
+          ? { ...input, arguments: coerceArgumentsToJsonSchema(firstParty.inputSchema, input.arguments) as Record<string, unknown> }
+          : input, options);
+      } catch (error) {
+        const report = invalidArgumentsMessage(error);
+        throw report ? new Error(report) : error;
+      }
+    }, signal);
     const invoke = async () => {
       signal?.throwIfAborted();
       if (finishCleanup) {
@@ -1779,7 +1947,10 @@ export class RuntimeTools {
       }
       if (active.endTurnRequested && !finishCleanup)
         throw new Error("The turn has ended; wait for the next user message");
-      const result = await resolved.tool.execute(active, callId, resolved.arguments, signal);
+      const result = resolved.namespace.kind === "mcp"
+        ? await resolved.tool.execute(active, callId, resolved.arguments, signal)
+            .catch((error) => { throw connectorCallError(error, resolved.namespace, input.toolName, options); })
+        : await resolved.tool.execute(active, callId, resolved.arguments, signal);
       return finishCleanup && !("isError" in result && result.isError)
         ? {...result, details: {...result.details, deliveryCleanup: true}}
         : result;

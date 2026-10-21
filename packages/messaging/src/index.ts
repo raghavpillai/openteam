@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { publishChannelNotification, publishMessageNotification } from "./notifications";
 export { publishChannelNotification, publishMessageNotification, channelNotificationStates } from "./notifications";
 import { messagePreviewText } from "@openteam/contracts/message-preview";
-import { defaultTaskConfiguration, taskUserInfo, type TaskConfiguration } from "@openteam/contracts/task-configuration";
+import { defaultTaskConfiguration, type TaskConfiguration } from "@openteam/contracts/task-configuration";
 import { combinedGraphicalWorkerPrompt, EXECUTION_VERIFICATION_INSTRUCTIONS } from "./graphical-worker-prompts";
 import {
   type AdminBroadcastInput,
@@ -55,7 +55,8 @@ import {
   renderPlatformBaseSystemPrompt,
   renderPlatformRuntimeInstructions,
 } from "./platform-system-prompt";
-import { resolveTimeZone, timestampUserTurn } from "./timestamps";
+import { formatFriendlyDate, resolveTimeZone, timestampUserTurn } from "./timestamps";
+import { renderAgentSkillsSection } from "./skill-catalog";
 import type { MemoryContextReceipt, PromptSectionReceipt } from "./prompt-sections";
 import { renderMemoryContextBlock } from "./memory-rendering";
 
@@ -132,16 +133,17 @@ export interface PlatformPrompt {
   };
 }
 
-export const renderAgentSkillsUserInfo = (skillRender: string, memoryContext?: string, teammates?: string | null): string =>
+/** The main agent's user_info message in the reference's order. The computer adds its
+ * environment lines above the date and the subagent types after memory. */
+export const renderAgentSkillsUserInfo = (skillRender: string, memoryContext?: string, teammates?: string | null, todaysDate?: string): string =>
   [
-    "<user_info>",
-    ...(memoryContext ? [memoryContext, ""] : []),
-    ...(teammates ? [teammates] : []),
-    "<agent_skills>",
-    skillRender || "No saved skills are currently installed for you.",
-    "</agent_skills>",
-    "</user_info>",
-  ].join("\n");
+    ["<user_info>", ...(todaysDate ? [`Today's date: ${todaysDate}`] : []), "</user_info>"].join("\n"),
+    memoryContext,
+    teammates,
+    skillRender ? renderAgentSkillsSection(skillRender) : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
 export const SUBAGENT_REVIVAL_INSTRUCTION =
   'Pick the work back up: review the result(s), then either keep going or wrap up. If this result is genuinely new and relevant to the user, or the user asked to be told when this finished, tell them with a SendToUser. Lead with the concrete thing that finished, not a bare pronoun like "That" (they cannot see the background task). If it is stale, irrelevant, already handled, or a duplicate, and the user was not waiting on it, just stay silent and end the turn with no SendToUser rather than narrating it. Keep your status current, and clear it once everything is done and you\'re idle.';
@@ -161,6 +163,70 @@ export const renderSubagentRevivalPrompt = (input: {
     "",
     "When reporting this result, distinguish eventual completion from an error-free run. Preserve reported failed actions, user interventions and material fallbacks. Successful recovery does not erase them; summarize them accurately without repeating the work.",
     SUBAGENT_REVIVAL_INSTRUCTION,
+  ].join("\n");
+};
+
+/** One finished background task as a revival lists it. A wake keeps its block so that
+ * completions ready at the same time reach the agent as one prompt. */
+export interface RevivalCompletion {
+  block: string;
+  subagentType: string;
+  /** Trailing context the single prompt adds, such as the group-room delivery note. */
+  note?: string;
+}
+
+export const subagentRevivalBlock = (input: { title: string; subagentType: string; status: "completed" | "failed"; result: string }): string =>
+  `Background task "${input.title}" (${input.subagentType}) ${input.status === "completed" ? "finished" : "failed"}:\n${input.result.trim()}`;
+
+export const shellCompletionBlock = (input: ShellCompletionInput): string => {
+  const failed = input.exitCode !== 0 || Boolean(input.error);
+  return [
+    `Background task "${input.title ?? `Background command ${input.hostShellId ?? input.id}`}" (shell) ${failed ? "failed" : "finished"}:`,
+    input.exitCode === null ? "" : input.exitCode !== 0 ? `exit_code=${input.exitCode}` : "",
+    input.error ?? "",
+    `Full output: ${input.outputPath}`,
+    input.machineId ? `This is on the user’s computer; use Read or AwaitShell with machineId ${JSON.stringify(input.machineId)}.` : "",
+  ].filter(Boolean).join("\n");
+};
+
+/** A finished background Shell, in the revival shape used for finished subagents. */
+export const renderShellCompletionPrompt = (input: ShellCompletionInput): string =>
+  [
+    "[SAND_HIDDEN_PROMPT][A background task just completed] A background task you started has finished.",
+    "",
+    shellCompletionBlock(input),
+    "",
+    SUBAGENT_REVIVAL_INSTRUCTION,
+  ].join("\n");
+
+/** A completion that waited at least this long for the agent to be free is marked late. */
+export const REVIVAL_HELD_AFTER_MS = 60_000;
+export const HELD_REVIVAL_NOTE =
+  "Some of these results were held back and arrive late; each one says how long it waited. Judge each by its age: act on it only if it is still current, and skip it if it is stale, already handled, or overtaken by a newer result. Never fold a held result into a reply about something else the user asked.";
+
+export const describeHeldDuration = (heldForMs: number): string => {
+  const minutes = Math.max(1, Math.round(heldForMs / 60_000));
+  if (minutes < 90) return minutes === 1 ? "1 minute" : `${minutes} minutes`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `${hours} hours` : `${Math.round(hours / 24)} days`;
+};
+
+/** Completions delivered in one turn, as the reference batches them; a late one says how long it waited. */
+export const renderRevivalBatchPrompt = (completions: ReadonlyArray<RevivalCompletion & { heldForMs?: number }>): string => {
+  const held = completions.some((completion) => completion.heldForMs !== undefined);
+  const notes = [...new Set(completions.flatMap((completion) => (completion.note ? [completion.note] : [])))];
+  return [
+    `[SAND_HIDDEN_PROMPT][A background task just completed] ${completions.length === 1 ? "A background task you started has finished." : `${completions.length} background tasks you started have finished.`}`,
+    "",
+    completions
+      .map(({ block, heldForMs }) =>
+        heldForMs === undefined ? block : `${block}\n(This finished about ${describeHeldDuration(heldForMs)} ago and reached you only now, so it may be out of date.)`
+      )
+      .join("\n\n"),
+    "",
+    SUBAGENT_REVIVAL_INSTRUCTION,
+    ...(held ? [HELD_REVIVAL_NOTE] : []),
+    ...notes.map((note) => `\n${note}`),
   ].join("\n");
 };
 
@@ -189,6 +255,9 @@ const TRANSCRIPT_PROJECTION_DEBOUNCE_SECONDS = 1;
 
 const compactName = (value: string): string => value.replace(/\s+/g, " ").trim().slice(0, 160);
 
+/** The reference adds that @Name renders a chip in the user's chat; our clients render no chips in bot messages. */
+export const TEAMMATE_MENTION_RULE =
+  "Writing @ and a teammate's exact name in your private chat does not reach the teammate; use SendToAgent.";
 /** The <teammates> block lists at most this many agents and group chats; the agent folders hold the rest. */
 export const PLATFORM_PROMPT_PEER_LIMIT = 40;
 export const PLATFORM_PROMPT_RELATED_PEER_LIMIT = 20;
@@ -259,7 +328,7 @@ export const renderTeammatesUserInfo = (input: {
   const root = input.agentsRoot;
   return [
     "<teammates>",
-    'Each teammate is its own assistant with its own chat, persona, and memory, and the user may not know you can reach them. When looping one in would genuinely help, offer it ("want me to ask your research agent?"), and treat "@ that agent", "tell my other agent\u2026", or "ask the group" as a request to send.',
+    `Each teammate is its own assistant with its own chat, persona, and memory, and the user may not know you can reach them. When looping one in would genuinely help, offer it ("want me to ask @Name?"), and treat "@ that agent", "tell my other agent\u2026", or "ask the group" as a request to send. ${TEAMMATE_MENTION_RULE}`,
     `Discovering agents is file-based. Every agent (yours included) is a sibling folder under ${root}. Read ${root}/<agentId>/profile.json (name, description) for any agent, and <agentId>/group.json ({ memberIds }) to see a group's members, with Shell. That is the full, fresh source when the lists below aren't enough.`,
     ...(peers.length
       ? [
@@ -285,13 +354,15 @@ export const renderTeammatesUserInfo = (input: {
   ].join("\n");
 };
 
+const PRIORITY_INTERRUPTIBLE_ORIGINS: ReadonlySet<string> = new Set(["routine", "event", "background_revival", "broadcast"]);
+
 export const directAgentAcknowledgement = (input: {
   targetName: string;
   priority: boolean;
 }): string => {
   const name = compactName(input.targetName);
   const prefix = input.priority
-    ? `Sent to ${name} as a priority message — it will interrupt their current non-user work and wake them now.`
+    ? `Sent to ${name} as a priority message — it jumps their queue and interrupts any routine or background work they are running; if they are mid-conversation with the user or handling another agent's message, it is delivered right after that.`
     : `Sent to ${name}.`;
   return `${prefix} This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now.`;
 };
@@ -349,11 +420,12 @@ export const groupAgentAcknowledgement = (
       `Note: the attached ${imageCount === 1 ? "image was" : "images were"} NOT delivered — group messages are text-only for now; send images to an agent directly.`
     );
   }
+  if (options.priority) result.push("Note: priority is 1:1 only — this post did not interrupt members.");
   return result.join(" ");
 };
 
 export const GROUP_MEMBER_TURN_MESSAGE_LIMIT_NOTICE =
-  "Not delivered — you've reached this room turn's 3-message limit. Consolidate, or wait for your next turn.";
+  "This message was not delivered. You've reached this room turn's 3-message limit. Consolidate, or wait for your next turn.";
 
 export interface GroupTurnPromptMember {
   id: string;
@@ -645,6 +717,7 @@ export interface WakeInput {
   automationContextRunId?: string;
   taskContextRunId?: string;
   includeAttachmentPaths?: boolean;
+  revival?: RevivalCompletion;
 }
 
 export interface ToolContext {
@@ -812,16 +885,12 @@ export class AgentMessaging {
         : await tx.channel.findUnique({ where: { directKey: `bot:${bot.id}` } });
       if (!channel || channel.archivedAt) return { delivered: false, ignored: true };
       const route = input.automationRunId ? await automationContinuationRoute(tx, bot.id, input.automationRunId) : { origin: "background_revival" as const };
+      if (!route) return { delivered: false, ignored: true };
       await this.enqueueWake(tx, {
         botId: bot.id, channelId: channel.id, ...route, type: "shell.completed",
         clientId, priority: 50, wrapUserContent: false,
-        content: [
-          "[SAND_HIDDEN_PROMPT][A background shell command completed]",
-          `Shell ${input.hostShellId ?? input.id} exited with code ${input.exitCode ?? "unknown"}.`,
-          `Output file: ${JSON.stringify(input.outputPath)}. ${input.machineId ? `This is on the user’s computer; use Read or AwaitShell with machineId ${JSON.stringify(input.machineId)}.` : "Read it if the result is needed."}`,
-          input.error ? `Completion diagnostic: ${input.error}` : "",
-          SUBAGENT_REVIVAL_INSTRUCTION,
-        ].filter(Boolean).join("\n\n"),
+        content: renderShellCompletionPrompt(input),
+        revival: { block: shellCompletionBlock(input), subagentType: "shell" },
       });
       return { delivered: true };
     });
@@ -902,6 +971,7 @@ export class AgentMessaging {
           automationTrigger: input.automationTrigger,
           automationContextRunId: input.automationContextRunId,
           taskContextRunId: input.taskContextRunId,
+          revival: input.revival,
         }),
         priority: input.priority,
         availableAt: input.availableAt,
@@ -2220,20 +2290,16 @@ export class AgentMessaging {
       mcp_instructions: connectorInstructions,
     }, agentPrompt.memory);
     const siblings = await listSiblingThreads(this.prisma, botId, contextSessionId);
+    // The reference order: identity first; the sibling digest after memory and connector
+    // instructions after the directory, so per-turn changes sit late in the cached prefix.
     const instructions = [
-      frozen.sections.mcp_instructions,
       renderPlatformBaseSystemPrompt({ feedback: process.env.OPENTEAM_FEEDBACK_ALLOW_AGENT === "true" }),
-      renderOtherActiveConversations(siblings),
       agentPrompt.profileSection,
       frozen.sections.agent_instructions,
       "Use GetDynamicTools with namespace cursor to discover SendToAgent, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, CreateChannel/UpdateChannel, and UpdateSkill/UpdateProfile/UpdateAvatar/DisconnectChannel. Invoke discovered tools with CallDynamicTool.",
       A2A_PLATFORM_INSTRUCTIONS,
       graphicalDelegationInstructions(taskConfiguration),
-      taskUserInfo(taskConfiguration),
       "Subagents run in the background by default. Set run_in_background:false to wait for the result. Background completion is delivered after your turn ends; continue other work or end your turn instead of polling. Installed plugin agent templates are listed separately when available.",
-      todoContext.length > 0
-        ? `Durable task queue (reconcile it with TodoWrite on each wake):\n${todoContext.join("\n")}`
-        : "The durable task queue is empty.",
       "In a room wake, speak only when you add something useful. Finishing without SendToUser is a valid silent turn.",
       "Use UpdateMemory for durable memory and UpdateRoutine for scheduled routines. Skills, profile and settings, avatars, and connector disconnects have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, and DisconnectChannel.",
       renderPlatformRuntimeInstructions({
@@ -2242,11 +2308,12 @@ export class AgentMessaging {
         workingDirectory: bot.defaultDirectory,
         timeZone: this.defaultTimeZone,
       }),
-      `Your effective settings are hiddenFromSidebar=${bot.hiddenFromSidebar} and notifyOnAgentUpdates=${bot.notificationsEnabled}.`,
       `Use cursor.ReadTranscript for task-relevant saved conversation history or a dispatched worker’s observable activity. Transcript files are private runtime storage; do not open them with Read.`,
       frozen.sections.agent_directory,
       agentPrompt.memory.policy,
+      renderOtherActiveConversations(siblings),
       frozen.sections.automations,
+      frozen.sections.mcp_instructions,
       disconnected.length > 0
         ? `Disconnected connector platforms: ${disconnected.map(({ platform }) => platform).join(", ")}`
         : "No connector platform is marked disconnected.",
@@ -2259,14 +2326,15 @@ export class AgentMessaging {
     const userInfo = renderAgentSkillsUserInfo(
       agentPrompt.skillRender,
       frozen.memory ? renderMemoryContextBlock(frozen.memory.facts) : undefined,
-      teammates
+      teammates,
+      formatFriendlyDate(new Date(), this.defaultTimeZone)
     );
     const automationResults = !automation && channelId !== undefined ? await this.prisma.automationResult.findMany({
       where: { wakeRunId: null, acknowledgedAt: null, run: { botId, channelId } },
       orderBy: { createdAt: "asc" }, take: 20,
     }) : [];
     return {
-      instructions: automation ? `${instructions}\n\n${AUTOMATION_RUN_INSTRUCTIONS}\n\nUse cursor.ReadTranscript with agent_id="${botId}" only when the saved task needs earlier conversation detail; the parent conversation has deliberately not been copied into this automation context.` : instructions,
+      instructions: automation ? `${instructions}\n\n${AUTOMATION_RUN_INSTRUCTIONS}\n\nUse cursor.ReadTranscript with in="${botId}" only when the saved task needs earlier conversation detail; the parent conversation has deliberately not been copied into this automation context.` : instructions,
       instructionsUpdate: [frozen.update, frozen.memory?.update].filter(Boolean).join("\n\n") || null,
       ambientContext: automation ? null : [
         dismissedWidgetPrompts.length > 0 ? buildDismissedQuestionsNote(dismissedWidgetPrompts) : "",
@@ -2321,6 +2389,8 @@ export class AgentMessaging {
 
   async sendToAgent(context: ToolContext, input: SendToAgentInput): Promise<ToolResult> {
     let groupRoundId: string | null = null;
+    // A refused send is an answer the model reads, not a tool failure.
+    const refusal = (acknowledgement: string) => ({ acknowledgement, interruptRunId: null });
     const result = await this.prisma.$transaction(async (tx) => {
       const source = await tx.bot.findUnique({
         where: { id: context.botId },
@@ -2334,15 +2404,15 @@ export class AgentMessaging {
         include: { members: true },
       });
       if (addressedChannel && addressedChannel.kind !== "group") {
-        throw new Error(`${input.target_id} is not a group chat.`);
+        return refusal(`${input.target_id} is not a group chat.`);
       }
       if (addressedChannel?.kind === "group" && addressedChannel.archivedAt) {
-        throw new Error(`No group found with id ${input.target_id}.`);
+        return refusal(`No group found with id ${input.target_id}.`);
       }
       const group = addressedChannel;
       if (group) {
         if (!group.members.some((member) => member.botId === context.botId)) {
-          throw new Error("You can only post to a group you're a member of.");
+          return refusal("You can only post to a group you're a member of.");
         }
         if (context.channelId === group.id && context.deliveryId) {
           throw new ApiError(
@@ -2363,6 +2433,7 @@ export class AgentMessaging {
           return {
             acknowledgement: groupAgentAcknowledgement(group.name, {
               imageCount: input.images?.length,
+              priority: input.priority,
             }),
             interruptRunId: null,
           };
@@ -2426,6 +2497,7 @@ export class AgentMessaging {
         return {
           acknowledgement: groupAgentAcknowledgement(group.name, {
             imageCount: input.images?.length,
+            priority: input.priority,
           }),
           interruptRunId: null,
         };
@@ -2441,7 +2513,7 @@ export class AgentMessaging {
         },
       });
       if (target?.id === source.id) {
-        throw new Error(
+        return refusal(
           "You can't message yourself with SendToAgent. Use SendToUser to talk to the user, or pick a different target id."
         );
       }
@@ -2450,7 +2522,7 @@ export class AgentMessaging {
         !["active", "provisioning"].includes(target.status) ||
         target.subagentIdentity
       ) {
-        throw new Error(`No agent found with id ${input.target_id}.`);
+        return refusal(`No agent found with id ${input.target_id}.`);
       }
       const directContent = clampAgentMessage(input.message);
       if (!directContent) {
@@ -2483,7 +2555,8 @@ export class AgentMessaging {
             include: { run: true },
           })
         : null;
-      const interruptRunId = lease && lease.run.origin !== "user" ? lease.runId : null;
+      // Priority interrupts background work only; a conversation turn finishes first.
+      const interruptRunId = lease && PRIORITY_INTERRUPTIBLE_ORIGINS.has(lease.run.origin) ? lease.runId : null;
       const occurredAt = new Date();
       const attachments = await this.attachmentsForWake({ images: input.images ?? [] });
       const { targetDmChannelId } = await this.projectDirectPeerMessage(tx, {
@@ -2540,12 +2613,13 @@ export class AgentMessaging {
     context: ToolContext,
     input: ReactToMessageInput
   ): Promise<Record<string, unknown>> {
-    const match = input.message_address.match(/^t(\d+)u$/);
-    if (!match?.[1]) {
-      throw new Error(
-        `${JSON.stringify(input.message_address)} isn't a valid message address. React with the [t3u]-style tag shown on the user's message.`
-      );
-    }
+    // A malformed or unknown address is an answer the model reads, not a tool failure.
+    if (!/^t(?:\d+u(?:a\d+)?|(?:\d+|b)[as]\d+)$/.test(input.message_address))
+      return {
+        reacted: false,
+        removed: false,
+        note: `${JSON.stringify(input.message_address)} isn't a valid message address. React with the [t3u]-style tag shown on the user's message.`,
+      };
     if (!context.channelId) throw new Error("No active chat for this reaction");
     const scope = `reaction:${context.botId}`;
     const requestHash = `${input.message_address}:${input.emoji}`;
@@ -2573,7 +2647,14 @@ export class AgentMessaging {
         where:{id:addressed.id,channel:{members:{some:{botId:context.botId}}}},
         include:{channel:{include:{members:{select:{botId:true}}}}}
       }) : null;
-      if (!message) throw new Error("The addressed user message is not visible to this bot");
+      if (!message) {
+        const result = { reacted: false, removed: false, note: `No user message ${input.message_address} in this chat, so nothing was reacted to.` };
+        await tx.idempotencyRecord.update({
+          where: { scope_key: { scope, key: context.callId } },
+          data: { status: "completed", response: json(result) },
+        });
+        return result;
+      }
       const metadata =
         message.metadata && !Array.isArray(message.metadata) && typeof message.metadata === "object"
           ? ({ ...message.metadata } as Record<string, unknown>)
@@ -2672,7 +2753,8 @@ export class AgentMessaging {
         if (normalized.status !== "message") return { acknowledgement: { sent: false, silent: true }, interruptRunId: null };
         content = normalized.content;
       }
-      if (privateDm && input.type !== "text") {
+      // A room cannot hold a draft card, so a draft from a room goes to the bot's own 1:1 chat.
+      if (privateDm && input.type !== "text" && input.type !== "external-draft") {
         throw new ApiError(
           400,
           "dm_text_only",
@@ -2754,7 +2836,9 @@ export class AgentMessaging {
         throw new ApiError(
           409,
           "awaiting_user_response",
-          "A question or secure handoff is already waiting for the user. Stop this turn and wait for them to respond."
+          ["widget", "secret-request"].includes(input.type)
+            ? "This turn already asks the user something (a question widget, a secret or credential request, or another card), and only one can be open at a time, so this one was not shown. The user's answer arrives as the next message; ask this then if it still matters."
+            : "This turn is already waiting on the user (you sent a question widget or handed the box back to them), so this message was not delivered. Wait for the user. Their response arrives as the next message. Then say this on your next turn."
         );
       }
       if (channel.kind === "group" && context.deliveryId) {

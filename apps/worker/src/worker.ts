@@ -33,6 +33,10 @@ import {
   RoutineService,
   renderSubagentRevivalPrompt,
   renderQuietSubagentRevivalPrompt,
+  renderRevivalBatchPrompt,
+  subagentRevivalBlock,
+  REVIVAL_HELD_AFTER_MS,
+  type RevivalCompletion,
   automationContinuationRoute,
   automationContextRunId,
   reconcileRoutineExecution,
@@ -214,6 +218,45 @@ export const wakeResetsSelfSummaryCount = (inboxType: string): boolean =>
     "subagent.cancelled",
     "timeline.event",
   ].includes(inboxType);
+
+const REVIVAL_WAKES = new Set(["subagent.completed", "subagent.failed", "shell.completed"]);
+
+/** The delivery note a background result started from a group room carries. */
+export const groupRoomRevivalNote = (roomName: string): string =>
+  `This work belongs to group room ${JSON.stringify(roomName)}. The room has not seen this result. SendToUser in this continuation delivers to that room and wakes its peers; use it once for a useful final result. Do not repeat completed work or deliver stale results after a user cancellation.`;
+
+interface RevivalWake {
+  id: string;
+  type: string;
+  status: string;
+  createdAt: Date;
+  payload: unknown;
+  run: { origin: RunOrigin; channelId: string | null };
+}
+
+const revivalOf = (wake: RevivalWake): RevivalCompletion | null => {
+  if (!REVIVAL_WAKES.has(wake.type) || wake.status !== "pending" || wake.run.origin !== "background_revival") return null;
+  const revival = (wake.payload as { revival?: RevivalCompletion } | null)?.revival;
+  return typeof revival?.block === "string" ? revival : null;
+};
+
+/**
+ * Background results ready in the same channel when the agent becomes free reach it
+ * as one revival, as in the reference; a result that waited says how long. Null keeps
+ * the claimed wake's own prompt.
+ */
+export const revivalBatch = <T extends RevivalWake>(claimed: T, pending: readonly T[], now = Date.now()): { content: string; folded: T[] } | null => {
+  if (!revivalOf(claimed)) return null;
+  const folded = pending.filter((wake) => wake.id !== claimed.id && wake.run.channelId === claimed.run.channelId && revivalOf(wake));
+  const completions = [claimed, ...folded]
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+    .map((wake) => {
+      const heldForMs = now - wake.createdAt.getTime();
+      return { ...revivalOf(wake)!, ...(heldForMs >= REVIVAL_HELD_AFTER_MS ? { heldForMs } : {}) };
+    });
+  if (completions.length === 1 && completions[0]!.heldForMs === undefined) return null;
+  return { content: renderRevivalBatchPrompt(completions), folded };
+};
 
 export const turnContentWithProfileUpdate = (
   profileUpdate: string | null,
@@ -749,7 +792,11 @@ export class WakeWorker {
     });
     for (const execution of executions) {
       if (execution.runId && execution.run) {
-        const updated = await this.prisma.$transaction(tx => reconcileRoutineExecution(tx, execution.runId!));
+        const updated = await this.prisma.$transaction(async tx => {
+          const settled = await reconcileRoutineExecution(tx, execution.runId!);
+          if (settled) await this.routines.afterExecution(tx, settled);
+          return settled;
+        });
         if (updated && execution.routine.botId) {
           await this.syncRoutineRunFile(execution.routine.botId, execution.runId);
         }
@@ -759,6 +806,14 @@ export class WakeWorker {
         await this.recoverGroupRoutineExecution(execution.id, execution.channelMessageId);
       }
     }
+    // A follow-up holding coalesced events has no wake until the run before it settles.
+    const followUps = await this.prisma.routineExecution.findMany({
+      where: { status: "queued", runId: null, channelMessageId: null, routine: { bot: { status: "active" } } },
+      select: { routineId: true },
+      take: 100,
+    });
+    for (const { routineId } of followUps)
+      await this.prisma.$transaction(tx => this.routines.startEventFollowUp(tx, routineId));
   }
 
   private async recoverGroupRoutineExecution(
@@ -1113,6 +1168,19 @@ export class WakeWorker {
             attempts: { increment: 1 },
           },
         });
+        const batch = revivalBatch(inbox, candidates);
+        if (batch) {
+          const settledAt = new Date();
+          const folded = batch.folded.map((wake) => wake.id);
+          await tx.inboxEvent.updateMany({ where: { id: { in: folded } }, data: { status: "completed", claimedAt: settledAt, completedAt: settledAt } });
+          await tx.run.updateMany({ where: { id: { in: batch.folded.map((wake) => wake.runId) } }, data: { status: "completed", startedAt: settledAt, completedAt: settledAt } });
+          for (const wake of batch.folded)
+            await tx.event.create({ data: { topic: "inbox.completed", entityId: wake.id, payload: { inboxId: wake.id, runId: wake.runId, batchedIntoRunId: inbox.runId } } });
+          // The claimed wake carries the whole batch from now on, also if it is claimed again.
+          await tx.inboxEvent.update({ where: { id: inbox.id }, data: { payload: { ...(inbox.payload as Prisma.JsonObject), content: batch.content } } });
+          const messageId = (inbox.payload as { messageId?: unknown }).messageId;
+          if (typeof messageId === "string") await tx.message.update({ where: { id: messageId }, data: { content: batch.content } });
+        }
         if (inbox.run.deliveryId) {
           const delivery = await tx.channelDelivery.update({
             where: { id: inbox.run.deliveryId },
@@ -1205,7 +1273,7 @@ export class WakeWorker {
           ...runtimeOwners,
           conversationId: inbox.conversationId,
           ownerId,
-          content: payload.content,
+          content: batch?.content ?? payload.content,
           automationTrigger:
             typeof payload.automationTrigger === "string" ? payload.automationTrigger : null,
           images: await this.messaging.assets.runtimeImages(assetRefs(payload.attachments)),
@@ -1373,7 +1441,8 @@ export class WakeWorker {
           where: { id: claimed.inboxId },
           data: { status: "completed", completedAt },
         });
-        await reconcileRoutineExecution(tx, claimed.runId);
+        const settledRoutine = await reconcileRoutineExecution(tx, claimed.runId);
+        if (settledRoutine) await this.routines.afterExecution(tx, settledRoutine);
         if (claimed.origin === "bootstrap") {
           const onboarding = await tx.bot.updateMany({
             where: { id: claimed.botId, onboardingStatus: "running" },
@@ -1604,7 +1673,8 @@ export class WakeWorker {
         where: { id: claimed.inboxId },
         data: { status: "failed", error: failureDetails, completedAt: new Date() },
       });
-      await reconcileRoutineExecution(tx, claimed.runId);
+      const settledRoutine = await reconcileRoutineExecution(tx, claimed.runId);
+      if (settledRoutine) await this.routines.afterExecution(tx, settledRoutine);
       if (claimed.origin === "bootstrap") {
         const onboarding = await tx.bot.updateMany({
           where: { id: claimed.botId, onboardingStatus: "running" },
@@ -1990,9 +2060,11 @@ export class WakeWorker {
     // Delegated work belongs to the automation that launched it. Resume that
     // context unless it already handed responsibility to the main agent.
     const route = await automationContinuationRoute(tx, subagent.parentBotId, subagent.parentRunId);
+    if (!route) return;
     const source = await tx.run.findUnique({ where: { id: subagent.parentRunId }, include: { inboxEvents: { take: 1, select: { payload: true } } } });
     const sourcePayload = source?.inboxEvents[0]?.payload as { taskContextRunId?: string } | undefined;
     const room = await tx.channel.findUnique({ where: { id: subagent.parentChannelId }, select: { kind: true, name: true } });
+    const note = room?.kind === "group" ? groupRoomRevivalNote(room.name) : undefined;
     // A task a routine started reports back to that routine, which nobody is waiting on.
     const routine = route.origin === "routine" && route.automationContextRunId
       ? (await tx.routineExecution.findUnique({ where: { runId: route.automationContextRunId }, select: { routine: { select: { name: true, slug: true } } } }))?.routine
@@ -2006,7 +2078,12 @@ export class WakeWorker {
       type: `subagent.${status}`,
       content: (routine
         ? renderQuietSubagentRevivalPrompt({ ...revival, routine: { name: routine.name, folder: routine.slug } })
-        : renderSubagentRevivalPrompt(revival)) + (room?.kind === "group" ? `\n\nThis work belongs to group room ${JSON.stringify(room.name)}. The room has not seen this result. SendToUser in this continuation delivers to that room and wakes its peers; use it once for a useful final result. Do not repeat completed work or deliver stale results after a user cancellation.` : ""),
+        : renderSubagentRevivalPrompt(revival)) + (note ? `\n\n${note}` : ""),
+      revival: {
+        block: subagentRevivalBlock(revival),
+        subagentType: subagent.subagentType,
+        ...(note ? { note } : {}),
+      },
       clientId: `subagent:${subagent.id}:${status}:${subagent.currentRunId}`,
       priority: 260,
       wrapUserContent: false,

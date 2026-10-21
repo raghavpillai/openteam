@@ -6,9 +6,17 @@ import {
   graphicalDelegationInstructions,
   renderAgentSkillsUserInfo,
   renderSubagentRevivalPrompt,
+  renderShellCompletionPrompt,
+  renderRevivalBatchPrompt,
+  shellCompletionBlock,
+  subagentRevivalBlock,
+  describeHeldDuration,
+  HELD_REVIVAL_NOTE,
+  SUBAGENT_REVIVAL_INSTRUCTION,
   subagentSpecializationInstructions,
 } from "../src/index";
 import { PLATFORM_BASE_SYSTEM_PROMPT } from "../src/platform-system-prompt";
+import { omittedSkillsNotice } from "../src/skill-catalog";
 
 describe("main-agent graphical delegation instructions", () => {
   test("the graphical worker omits categorical handover instructions", () => {
@@ -153,6 +161,49 @@ describe("main-agent graphical delegation instructions", () => {
     expect(wake).not.toContain("<response>");
   });
 
+  test("renders a finished background shell like a finished subagent, naming the command", () => {
+    expect(renderShellCompletionPrompt({ id: "123456", scope: "bot", outputPath: "/t/123456.log", exitCode: 1, title: "npm test" })).toBe(
+      [
+        "[SAND_HIDDEN_PROMPT][A background task just completed] A background task you started has finished.",
+        "",
+        'Background task "npm test" (shell) failed:',
+        "exit_code=1",
+        "Full output: /t/123456.log",
+        "",
+        SUBAGENT_REVIVAL_INSTRUCTION,
+      ].join("\n")
+    );
+    const host = renderShellCompletionPrompt({ id: "x", hostShellId: "77", machineId: "mac", scope: "bot", outputPath: "/h/77.log", exitCode: 0 });
+    expect(host).toContain('Background task "Background command 77" (shell) finished:\nFull output: /h/77.log\nThis is on the user’s computer; use Read or AwaitShell with machineId "mac".\n');
+  });
+
+  test("batches completions that are ready together and dates the late ones", () => {
+    const report = subagentRevivalBlock({ title: "Find flights", subagentType: "executor", status: "completed", result: "Two nonstops found.\n" });
+    const shell = shellCompletionBlock({ id: "9", scope: "bot", outputPath: "/t/9.log", exitCode: 2, title: "npm test" });
+    expect(report).toBe('Background task "Find flights" (executor) finished:\nTwo nonstops found.');
+    expect(renderRevivalBatchPrompt([
+      { block: report, subagentType: "executor" },
+      { block: shell, subagentType: "shell", heldForMs: 7 * 60_000 + 10_000 },
+    ])).toBe([
+      "[SAND_HIDDEN_PROMPT][A background task just completed] 2 background tasks you started have finished.",
+      "",
+      'Background task "Find flights" (executor) finished:\nTwo nonstops found.',
+      "",
+      'Background task "npm test" (shell) failed:\nexit_code=2\nFull output: /t/9.log\n(This finished about 7 minutes ago and reached you only now, so it may be out of date.)',
+      "",
+      SUBAGENT_REVIVAL_INSTRUCTION,
+      HELD_REVIVAL_NOTE,
+    ].join("\n"));
+    expect(HELD_REVIVAL_NOTE).toBe("Some of these results were held back and arrive late; each one says how long it waited. Judge each by its age: act on it only if it is still current, and skip it if it is stale, already handled, or overtaken by a newer result. Never fold a held result into a reply about something else the user asked.");
+    const room = "This work belongs to group room \"Launch\".";
+    const single = renderRevivalBatchPrompt([{ block: report, subagentType: "executor", note: room, heldForMs: 2 * 3_600_000 }]);
+    expect(single).toStartWith("[SAND_HIDDEN_PROMPT][A background task just completed] A background task you started has finished.\n");
+    expect(single).toContain("(This finished about 2 hours ago and reached you only now");
+    expect(single).toEndWith(`${HELD_REVIVAL_NOTE}\n\n${room}`);
+    expect([30_000, 60_000, 89 * 60_000, 90 * 60_000, 47 * 3_600_000, 50 * 3_600_000].map(describeHeldDuration))
+      .toEqual(["1 minute", "1 minute", "89 minutes", "2 hours", "47 hours", "2 days"]);
+  });
+
   test("renders an administrator broadcast as a hidden non-user wake", () => {
     const wake = buildAdminBroadcastWakePrompt("The local runtime will restart tonight.");
     expect(wake).toContain("[SAND_HIDDEN_PROMPT]");
@@ -162,12 +213,27 @@ describe("main-agent graphical delegation instructions", () => {
     expect(wake).toContain("Use SendToUser");
   });
 
-  test("renders saved-skill metadata in a bounded user-info section", () => {
-    const userInfo = renderAgentSkillsUserInfo(
-      "- Verify release: Checks deployment state.\n  Path: /agent/skills/verify/SKILL.md"
-    );
-    expect(userInfo).toStartWith("<user_info>\n<agent_skills>");
-    expect(userInfo).toContain("/agent/skills/verify/SKILL.md");
-    expect(userInfo).toEndWith("</agent_skills>\n</user_info>");
+  test("renders the main skill catalog after user_info with the reference preamble", () => {
+    const item = '<agent_skill fullPath="/agent/skills/verify/SKILL.md">Checks deployment state.</agent_skill>';
+    const userInfo = renderAgentSkillsUserInfo(item, "<memory_context>\nfacts\n</memory_context>", "<teammates>\nroster\n</teammates>", "Wednesday Oct 21, 2026");
+    expect(userInfo).toBe([
+      "<user_info>\nToday's date: Wednesday Oct 21, 2026\n</user_info>",
+      "<memory_context>\nfacts\n</memory_context>",
+      "<teammates>\nroster\n</teammates>",
+      [
+        "<agent_skills>",
+        "When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively. Skills provide specialized capabilities and domain knowledge. To use a skill, read the skill file at the provided absolute path using the Read tool, then follow the instructions within. When a skill is relevant, read and follow it IMMEDIATELY as your first action. NEVER just announce or mention a skill without actually reading and following it. Only use skills listed below.",
+        "",
+        "",
+        '<available_skills description="Skills the agent can use. Use the Read tool with the provided absolute path to fetch full contents.">',
+        item,
+        "</available_skills>",
+        "</agent_skills>",
+      ].join("\n"),
+    ].join("\n\n"));
+    expect(renderAgentSkillsUserInfo("")).toBe("<user_info>\n</user_info>");
+    const omitted = renderAgentSkillsUserInfo(`${item}\n\n${omittedSkillsNotice(3, ["/agent/workflows"])}`);
+    expect(omitted).toContain("NEVER just announce or mention a skill without actually reading and following it. Use the skills listed below. If a later task specifically requires discovering more skills, additional skills may exist in the directories shown in the skills section.");
+    expect(omitted).toContain(`${item}\n\nAdditional skills omitted from this initial list (3). Directories containing omitted skills: /agent/workflows.\n</available_skills>`);
   });
 });

@@ -113,6 +113,20 @@ describe("GrokBot input parity at the runtime boundary", () => {
     ).toThrow();
   });
 
+  test("sends GIF images to the model as PNG, on both the upload and tool paths", async () => {
+    // A 1x1 GIF89a.
+    const gif = Buffer.from("R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs=", "base64");
+    const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    for (const result of [await resizeImageForModel(gif), await resizeImageForModel(gif, { preserveDimensions: true })]) {
+      expect(result.mimeType).toBe("image/png");
+      expect(result.data.subarray(0, 4)).toEqual(pngSignature);
+      expect(dimensions(result.data)).toEqual([1, 1]);
+    }
+    const user = await prepareUserImages([{ type: "image", data: gif.toString("base64"), mimeType: "image/gif" }]);
+    expect(user.images[0]?.mimeType).toBe("image/png");
+    expect(await boundToolImage(gif, "image/gif")).toMatchObject({ type: "image", mimeType: "image/png" });
+  });
+
   test("reports malformed tool and user images without forwarding invalid bytes", async () => {
     const invalid = Buffer.from("not an image");
     const tool = await boundToolImage(invalid, "image/png");
@@ -154,10 +168,11 @@ describe("GrokBot input parity at the runtime boundary", () => {
     const success = await executor.read({ path: equal }, root);
     expect(success.details).toMatchObject({ exceededLimit: false });
     expect(success.content[0]).toEqual({ type: "text", text: `     1|${"a".repeat(100_000)}` });
-    const failure = await executor.read({ path: over }, root);
-    expect(failure.details).toMatchObject({ exceededLimit: true });
-    expect(JSON.stringify(failure.content)).toContain("Please use offset and limit parameters");
-    expect(JSON.stringify(failure.content)).not.toContain("aaaa");
+    // Over the limit is a failed call that reports the file's size, as in the reference.
+    const failure = await executor.read({ path: over }, root).then(() => undefined, (error: Error) => error.message);
+    expect(failure).toBe(
+      "Requested content exceeds maximum allowed characters (100000 characters). The file is 100011 bytes.\nPlease use offset and limit parameters to read specific portions of the file, or use the 'grep' tool to search for specific content."
+    );
     expect((await executor.read({ path: over, offset: 1, limit: 1 }, root)).content[0]).toEqual({
       type: "text",
       text: "     1|BEGIN\n... 2 lines not shown ...",
@@ -175,7 +190,7 @@ describe("GrokBot input parity at the runtime boundary", () => {
     const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
     expect((await executor.read({ path: file, offset: 1, limit: 1 }, root)).content[0]).toEqual({
       type: "text",
-      text: "     1|BEGIN\n... 1 lines not shown ...",
+      text: "     1|BEGIN\n... 1 line not shown ...",
     });
   });
 

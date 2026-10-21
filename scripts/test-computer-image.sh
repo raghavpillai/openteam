@@ -13,10 +13,12 @@ docker run -d --name "$container" --network none --cap-add ALL \
   --security-opt systempaths=unconfined --device /dev/net/tun:/dev/net/tun \
   -e OPENTEAM_CONTROL_TOKEN=capabilities-test-only \
   -e OPENTEAM_COMPUTER_TEST_URL=http://127.0.0.1:8790 \
+  -e OPENTEAM_TIME_ZONE=Asia/Kolkata \
   --mount "type=bind,source=$repo_root/apps/computer/test/task-capabilities.integration.test.ts,target=/tmp/task-capabilities.integration.test.ts,readonly" \
+  --mount "type=bind,source=$repo_root/apps/computer/test/box-clock.integration.test.ts,target=/tmp/box-clock.integration.test.ts,readonly" \
   "$image" >/dev/null
 
-if ! docker exec "$container" bun test /tmp/task-capabilities.integration.test.ts; then
+if ! docker exec "$container" bun test /tmp/task-capabilities.integration.test.ts /tmp/box-clock.integration.test.ts; then
   docker logs --tail 50 "$container"
   exit 1
 fi

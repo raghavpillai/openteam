@@ -7,6 +7,25 @@ import {
   truncationNotice,
 } from "./reference-formatters";
 
+const SEND_TO_USER_FAILED = "Failed to send the message to the user";
+
+/** The reference's SendToUser failure: the reason follows one fixed lead-in. */
+export const sendToUserFailure = (detail: string): string => {
+  const reason = detail.trim();
+  if (reason.startsWith(SEND_TO_USER_FAILED)) return reason;
+  return reason ? `${SEND_TO_USER_FAILED}: ${reason}` : `${SEND_TO_USER_FAILED}.`;
+};
+
+/** A failed tool call's reason: the tool host's error message rather than its JSON envelope. */
+export const toolErrorDetail = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : String(error);
+  try {
+    const envelope = JSON.parse(message) as { message?: unknown } | null;
+    if (envelope && typeof envelope.message === "string") return envelope.message;
+  } catch {}
+  return message;
+};
+
 /** Keep private transport receipts structured; format only at the model boundary. */
 export function renderDesktopResult(
   name: string,
@@ -31,22 +50,28 @@ export function renderControlResult(
   const result = output as Record<string, any>;
   const plugin = renderPluginResult(name, result, args);
   if (plugin !== undefined) return plugin;
+  if (name === "ReactToMessage" && typeof result.note === "string") return result.note;
   if (name === "ReactToMessage" && (result.reacted || result.removed))
     return `Reacted ${args.emoji.trim()} on ${args.message_address.trim()}. (Reactions toggle: react the same emoji again to take it back.)`;
   if (name === "DraftExternalMessage" && result.sent) {
     const where =
       args.platform === "email"
-        ? `email to ${(args.to ?? []).join(", ")}`
+        ? `email from ${args.from} to ${[args.to ?? []].flat().join(", ")}`
         : `Slack message to ${result.target ?? args.target}`;
     const id = result.message_id ? ` (id: ${result.message_id})` : "";
     // The user's approval settings can send a card at once; the server says how that went.
     if (result.delivery === "sent") return `Sent the ${where}${id}. ${result.note}`;
     if (result.delivery === "unknown")
       return `The ${where} was sent without review, but delivery is unconfirmed${id}. ${result.note}`;
-    if (result.delivery === "pending")
-      return `Draft ${where} is now an editable card in the chat${id}. ${result.note}`;
-    return `Draft ${where} is now an editable card in the chat${id}. Nothing has been sent; the user reviews, may edit, and sends or discards it from the card.`;
+    const card = result.in_dm
+      ? `is now an editable card in your own 1:1 chat with the user, not in this room (a room cannot hold draft cards); tell the room where it is${id}.`
+      : `is now an editable card in the chat${id}.`;
+    if (result.delivery === "pending") return `Draft ${where} ${card} ${result.note}`;
+    return `Draft ${where} ${card} Nothing has been sent; the user reviews, may edit, and sends or discards it from the card.`;
   }
+  if (name === "RequestUserForm" && result.sent)
+    return "Showed the form to the user; your turn is over. When they submit, the host fills the browser and resumes you with a per-field receipt (fill statuses only, never the submitted values). If they dismiss it, you'll be resumed with that outcome. If they choose to do the step on the screen instead, the host hands them the box directly (same as request_box_help) and you'll be resumed when they hand it back."
+      + (typeof result.preflightNote === "string" ? `\n\n${result.preflightNote}` : "");
   if (isStateTool(name)) {
     const labels: Record<string, string> = {
       name: "name",
@@ -55,13 +80,19 @@ export function renderControlResult(
       avatar_shape: "avatar shape",
       avatar_color: "avatar color",
     };
+    const settingNames: Record<string, string> = {
+      hidden_from_sidebar: "hiddenFromSidebar",
+      notify_on_updates: "notifyOnAgentUpdates",
+      drafting_disabled: "draftingDisabled",
+    };
     const settingsText = () =>
-      `Updated your settings: ${["hidden_from_sidebar", "notify_on_updates"]
+      `Updated your settings: ${Object.keys(settingNames)
         .filter((key) => args[key] !== undefined)
-        .map((key) =>
-          key === "hidden_from_sidebar" ? "hiddenFromSidebar" : "notifyOnAgentUpdates"
-        )
+        .map((key) => settingNames[key])
         .join(", ")}.`;
+    // A refused state change or read is an ordinary result, not a tool failure.
+    if (typeof result.refused === "string")
+      return `${result.target === "routine" && args.action === "get" ? "Not read" : "Not saved"}: ${result.refused}`;
     // UpdateProfile saves its settings fields as a second update beside the profile.
     if (result.target === "profile" && result.updated)
       return [
@@ -70,6 +101,7 @@ export function renderControlResult(
           .map((key) => labels[key])
           .join(", ")}.`,
         ...(result.settings?.updated ? [settingsText()] : []),
+        ...(typeof result.settings?.refused === "string" ? [`Settings not saved: ${result.settings.refused}`] : []),
         ...(typeof result.settings_error === "string" ? [`Settings not saved: ${result.settings_error}`] : []),
       ].join("\n");
     if (result.target === "settings" && result.updated) return settingsText();
@@ -80,25 +112,38 @@ export function renderControlResult(
     if (result.target === "channel" && result.disconnected)
       return `Disconnected ${result.platform}. The connector closes the live connection within a few seconds.`;
     if (result.target === "avatar" && result.updated)
-      return `Updated your picture (${result.path?.split("/").pop()}). Source ${result.resolved_path?.split("/").pop()} can be deleted if you no longer need it.`;
+      return `Updated your picture (${result.resolved_path?.split("/").pop()}). Source ${result.path?.split("/").pop()} can be deleted if you no longer need it.`;
+    if (result.target === "routine" && args.action === "get")
+      return [
+        `Routine "${result.name}" (folder ${result.folder}), ${result.enabled ? "enabled" : "paused"}.`,
+        `Trigger: ${describeTrigger(result.trigger)}`,
+        result.trigger?.type === "cron"
+          ? `schedule: ${JSON.stringify(result.trigger.schedule)} (leave it out of an update unless the time itself changes)`
+          : `trigger: ${JSON.stringify(result.trigger)}`,
+        "Saved prompt:",
+        result.prompt,
+      ].join("\n");
     if (result.target === "routine") {
+      // Resuming saves the routine again, so it reads like any other update.
       const verb = (
         {
           pause: "Paused",
-          resume: "Resumed",
+          resume: "Updated",
           delete: "Deleted",
           create: "Saved",
           update: "Updated",
         } as Record<string, string>
       )[args.action];
       const owner = result.owner?.kind === "group" ? ` Owner: group "${result.owner.name ?? result.owner.id}" (${result.owner.id}).` : "";
-      const summary = `${verb} routine "${result.name}" (folder ${result.folder ?? args.id})${["create", "update"].includes(args.action) ? ` — ${describeTrigger(result.trigger ?? {type:"cron",schedule:result.schedule})}${result.enabled ? "" : ", paused"}` : ""}.${owner}`;
-      if (typeof result.next_run_at === "string") return `${summary}\nNext scheduled occurrence: ${result.next_run_at}. Use this saved timestamp if reporting the next run; do not calculate or guess a different time.`;
-      if (result.next_run_at === null) return `${summary}\nNext scheduled occurrence: none${result.enabled === false ? " (paused)" : ""}.`;
-      return summary;
+      const summary = `${verb} routine "${result.name}" (folder ${result.folder ?? args.id})${["create", "update", "resume"].includes(args.action) ? `: ${describeTrigger(result.trigger ?? {type:"cron",schedule:result.schedule})}${result.enabled ? "" : ", paused"}` : ""}.${owner}`;
+      const next = args.action === "delete" ? ""
+        : typeof result.next_run_at === "string" ? `\nNext scheduled occurrence: ${localTime(result.next_run_at, result.timezone)}. Use this saved time if reporting the next run; do not calculate or guess a different time.`
+        : result.next_run_at === null ? `\nNext scheduled occurrence: none${result.enabled === false ? " (paused)" : ""}.`
+        : "";
+      return `${summary}${next}${result.delivery_nudge ? "\nGive the user a concise summary of what this routine does and where its result goes." : ""}`;
     }
     if (result.target === "avatar" && result.cleared)
-      return "Cleared your picture — back to the default.";
+      return "Cleared your picture. It is back to the default.";
   }
   if (name === "CreateBotShareJson" && result.published)
     return `Published bot template version ${result.version}. Verify the returned artifact before sharing it.`;
@@ -130,10 +175,12 @@ export function renderControlResult(
   if (name === "SendToUser" && result.sent)
     if (result.queued) return `Message queued for the room when this turn completes. (id: ${result.message_address ?? result.message_id})`;
   if (name === "SendToUser" && result.silent) return "No room message delivered (silent turn).";
+  if (name === "SendToUser" && result.delivery_failed)
+    return `Message to ${result.channel} was not delivered${result.reason ? `: ${result.reason}` : "."}${result.reason && !/[.!?]$/.test(result.reason) ? "." : ""} Tell the user it did not go through.`;
   if (name === "SendToUser" && result.sent)
-    return result.message_address || result.message_id
+    return `${result.message_address || result.message_id
       ? `Message sent to user. (id: ${result.message_address ?? result.message_id})`
-      : "Message sent to user.";
+      : "Message sent to user."}${sendsLocalFileSnapshot(args) ? ` ${FILE_SNAPSHOT_NOTE}` : ""}`;
   if (name === "MessageSubagent" && result.delivered)
     return `Message delivered to subagent ${args.subagent_id}. It will interrupt what it's doing, take your message into account, and keep working. You'll be revived with its result when it finishes, so don't wait on it.`;
   if (name === "StopSubagent" && result.stopped_all) return renderStopAllSubagents(result);
@@ -164,7 +211,7 @@ export function renderControlResult(
         }));
         if (sub.transcript_path)
           lines.push(
-            `  Private transcript reference: ${sub.transcript_path}. Use cursor.ReadTranscript with this subagent_id for observable history; do not open the path with Read.`
+            `  Full transcript: call ReadTranscript with in=${sub.subagent_id} for the complete play-by-play.`
           );
       }
       return lines.join("\n");
@@ -179,6 +226,31 @@ export function renderControlResult(
     if (result.subagent_id) return describe(result, true);
   }
   return JSON.stringify(output);
+}
+
+// The reference adds that the Library lists only the latest copy per path; OpenTeam has no Library.
+const FILE_SNAPSHOT_NOTE =
+  "The user got a copy of the file as it is now. Later edits to the file do not reach them until you send it again; earlier copies stay in the chat unchanged.";
+const PICTURE_OR_VIDEO = /\.(?:avif|bmp|gif|ico|jpe?g|png|svg|webp|heic|heif|m4v|mov|mp4|ogv|webm)$/i;
+
+/** A local file other than a picture or video is delivered as a copy of how it is now. */
+function sendsLocalFileSnapshot(args: Record<string, any>): boolean {
+  if (args.type !== "attachment" || typeof args.url !== "string" || !/^file:/i.test(args.url.trim())) return false;
+  let path = args.url.trim();
+  try {
+    path = decodeURIComponent(new URL(path).pathname);
+  } catch {}
+  return !PICTURE_OR_VIDEO.test(path);
+}
+
+/** A saved time in the routine's zone, labeled with that zone. */
+function localTime(iso: string, timeZone: unknown): string {
+  const options = { timeZoneName: "short" } as const;
+  try {
+    return new Date(iso).toLocaleString("en-US", typeof timeZone === "string" && timeZone ? { ...options, timeZone } : options);
+  } catch {
+    return new Date(iso).toLocaleString("en-US", options);
+  }
 }
 
 const PEERS_NOT_STOPPED =

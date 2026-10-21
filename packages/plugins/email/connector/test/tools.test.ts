@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createToolValidator } from "@openteam/plugin-sdk/json-schema";
-import { tools } from "../server";
+import { defaultInvalidArguments, tools } from "../server";
 
 const ours = Object.fromEntries(tools("account-1").map((tool) => [tool.name, tool]));
 const valid = (name: string, args: Record<string, unknown>) =>
@@ -44,6 +44,16 @@ describe("Email tool contracts", () => {
     expect(valid("SearchEmailThreads", { query: "x", mode: "fuzzy" })).toBe(false);
     expect(valid("ReadEmailThread", { thread_id: "INBOX:42", body_max_chars: 50001 })).toBe(false);
     expect(valid("ReadEmailThread", {})).toBe(false);
+  });
+
+  test("out-of-range numbers and modes fall back to their defaults, like the reference", () => {
+    const search = defaultInvalidArguments(ours.SearchEmailThreads!);
+    expect(search({ query: "x", limit: 26, mode: "fuzzy" })).toEqual({ query: "x" });
+    expect(search({ query: "x", limit: 25, mode: "keyword" })).toEqual({ query: "x", limit: 25, mode: "keyword" });
+    const read = defaultInvalidArguments(ours.ReadEmailThread!);
+    expect(read({ thread_id: "INBOX:42", max_messages: 0, body_max_chars: 50001 })).toEqual({ thread_id: "INBOX:42" });
+    expect(read({ thread_id: "" })).toEqual({ thread_id: "" });
+    expect(valid("SearchEmailThreads", search({ query: "x", limit: 2.5 }))).toBe(true);
   });
 
   test("outbound mail goes only through review cards", () => {

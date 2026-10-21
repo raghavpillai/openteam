@@ -64,3 +64,27 @@ test("explicit browser operation retains intentional launch path", async () => {
   expect(await runtime.privateBrowser({screenBotId:"owner",cwd:"/workspace"})).toBe(browser);
   expect(events).toEqual(["launch","new-endpoint"]);
 });
+
+test("Screenshot and Computer results use the reference sentences and prefix failures", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "native-wording-"));
+  const frame = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4AWP4////fwAJ+wP92PZgeAAAAABJRU5ErkJggg==", "base64");
+  let fail = false;
+  const runtime: any = Object.create(RuntimeTools.prototype);
+  Object.assign(runtime, {
+    workspaceRoot: workspace,
+    screens: {
+      actComputerUse: async () => { if (fail) throw new Error("display unavailable"); return frame; },
+      screenshot: async () => { if (fail) throw new Error("display unavailable"); return frame; },
+    },
+  });
+  const active = { botId: "worker", screenBotId: "owner", cwd: workspace, lastGraphicalSurface: "computer" };
+  try {
+    const action = await runtime.callComputerUse(active, { action: "click", x: 1, y: 1 });
+    expect(action.content[0].text).toBe(`Computer action ran on the box desktop.\nScreenshot of the resulting screen saved to ${action.details.path}, and if it should be shown to the user, include this file:// path in your report to the parent.`);
+    const shot = await runtime.executeScopedTool({ ...active, runtimeProfile: "agent" }, "shot", "Screenshot", {});
+    expect(shot.content[0].text).toBe(`Screenshot captured from the box desktop.\nScreenshot saved to ${shot.details.path}, and to show the user the box, attach this file:// path with SendToUser.`);
+    fail = true;
+    await expect(runtime.callComputerUse(active, { action: "click", x: 1, y: 1 })).rejects.toThrow("Computer action failed: display unavailable");
+    await expect(runtime.executeScopedTool({ ...active, runtimeProfile: "agent" }, "shot", "Screenshot", {})).rejects.toThrow("Screenshot failed: display unavailable");
+  } finally { await rm(workspace, { recursive: true, force: true }); }
+});

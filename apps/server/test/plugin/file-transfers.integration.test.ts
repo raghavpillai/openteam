@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { createPrismaClient } from "@openteam/db";
 import { ConnectorFileTransfers } from "../../src/services/plugin/file-transfers";
+import { describeUploadFileOutcome } from "@openteam/contracts/reference-formatters";
 import { createHash } from "node:crypto";
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 test.skipIf(!databaseUrl)(
@@ -106,6 +107,17 @@ test.skipIf(!databaseUrl)(
         await expect(service().execute(failedContext,{...raw,bytesBase64:bytes.toString("base64")})).rejects.toThrow("uncertain");
         expect(writes).toBe(before);
       }
+      // Two accounts of one service: the short name names both instead of calling the service unknown.
+      const second = await db.pluginConnection.create({ data: {
+        installationId, connectorKey: "drive", name: "Fixture Drive", alias: "home", transport: "stdio", authType: "oauth", status: "ready", configuration: {}, credentials: {},
+      } });
+      const ambiguous = await service().prepare({ ...context, callId: crypto.randomUUID() }, { ...raw, input: { ...raw.input, connection: "google-drive" } });
+      expect(ambiguous).toMatchObject({ outcome: { kind: "ambiguous_connection", service: "File fixture" } });
+      expect(describeUploadFileOutcome((ambiguous as any).outcome, { connection: "google-drive", sourcePath: "/workspace/file.bin" })).toBe(
+        `"google-drive" matches several connected File fixture accounts: ${(ambiguous as any).outcome.candidates.join(", ")}. Pass one of those identifiers as connection (GetMcpServerStatus shows which account each one is) so the right account is used. Nothing was uploaded.`
+      );
+      expect((ambiguous as any).outcome.candidates).toHaveLength(2);
+      await db.pluginConnection.delete({where:{id:second.id}});
       await db.pluginConnection.delete({where:{id:connection.id}});
       expect(await service().prepare({ ...context, callId: crypto.randomUUID() }, raw))
         .toMatchObject({outcome:{kind:"unknown_connection",available:[]}});

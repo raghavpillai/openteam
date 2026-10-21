@@ -2,7 +2,7 @@ import { READ_TRANSCRIPT_TOOL, parseReadTranscriptInput } from "@openteam/contra
 import { READ_AGENT_ACTIVITY_TOOL, parseReadAgentActivityInput } from "@openteam/contracts/read-agent-activity";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { withCanonicalSubagentType } from "@openteam/contracts/subagent-dispatch";
-import { withReferenceContract, taskToolContract, FIRST_PARTY_NAMESPACE_DESCRIPTION } from "@openteam/contracts/tool-contracts";
+import { withReferenceContract, taskToolContract, firstPartyNamespaceDescription } from "@openteam/contracts/tool-contracts";
 import pluginToolSchemas from "../plugin-tool-schemas.json";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import {
@@ -46,6 +46,7 @@ import { Schema } from "effect";
 import { parseHostAwaitShellRequest } from "@openteam/contracts/service-protocol";
 import type { DynamicNamespaceDefinition } from "../dynamic-tool-gateway";
 import { objectToolSchema } from "../tool-schema";
+import { connectorArguments } from "../mcp-argument-normalization";
 import type { ActiveTurn, RuntimeDynamicTool, RuntimeDynamicToolCaller } from "./types";
 
 export const PLUGIN_MANAGEMENT_TOOLS = [
@@ -227,12 +228,12 @@ export function dynamicCatalog(
             inputSchema: pluginToolSchemas.GetPlugin,
             source: "first-party" as const,
             decodeArguments: (args: unknown) => {
-              const pluginKey =
-                args && typeof args === "object"
-                  ? ((args as Record<string, unknown>).plugin_id ?? (args as Record<string, unknown>).pluginKey)
-                  : undefined;
-              if (typeof pluginKey !== "string") throw new Error("pluginKey is required");
-              return { pluginKey: pluginKey.trim() };
+              const input = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
+              // The reference accepts id and pluginId for plugin_id.
+              const spellings = [input.plugin_id, input.pluginKey, input.pluginId, input.id].filter((value) => value !== undefined);
+              if (new Set(spellings).size > 1) throw new Error("Pass the plugin's id once, as plugin_id (from SearchPlugins).");
+              if (typeof spellings[0] !== "string" || !spellings[0].trim()) throw new Error("plugin_id is required: the stable plugin id from SearchPlugins.");
+              return { pluginKey: spellings[0].trim() };
             },
             execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
               callControlPlaneTool(turn, callId, "GetPlugin", args, signal),
@@ -305,7 +306,7 @@ export function dynamicCatalog(
         description: tool.description,
         inputSchema: tool.inputSchema,
         source: tool.source,
-        decodeArguments: (args: unknown) => args,
+        decodeArguments: (args: unknown) => connectorArguments(tool.name, args as Record<string, unknown>, tool.inputSchema),
         execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal,) =>
           callControlPlaneTool(
             turn,
@@ -321,23 +322,24 @@ export function dynamicCatalog(
           ),
       })),
     }));
+  const firstPartyTools = (active.requestSource === "automation"
+    ? cursorTools.filter((tool) => !AUTOMATION_PARENT_ONLY_TOOLS.has(tool.name))
+    : cursorTools).map(withReferenceContract).flatMap(tool => {
+      if (tool.name === "Task") return [{ ...tool, ...taskToolContract(active.taskConfiguration) }];
+      if (tool.name !== "UploadFile" && tool.name !== "DownloadFile") return [tool];
+      // Offered only when a connected service can receive or serve files.
+      const operation = tool.name === "UploadFile" ? "upload" : "download";
+      const connections = active.pluginNamespaces.filter(namespace => namespace.fileTransfers?.[operation]);
+      if (!connections.length) return [];
+      return [{ ...tool, description: tool.description + "\n\nAvailable file connections this turn:\n" + connections.map(namespace => `- ${namespace.name}${namespace.namespaceStatus === "ready" ? "" : " (authentication or connection recovery required)"}`).join("\n") }];
+    });
   return [
     {
       name: "cursor",
-      description:
-        FIRST_PARTY_NAMESPACE_DESCRIPTION,
+      description: firstPartyNamespaceDescription(firstPartyTools.map((tool) => tool.name)),
       kind: "first-party",
       namespaceStatus: "ready",
-      tools: (active.requestSource === "automation"
-        ? cursorTools.filter((tool) => !AUTOMATION_PARENT_ONLY_TOOLS.has(tool.name))
-        : cursorTools).map(withReferenceContract).map(tool => {
-          if (tool.name === "Task") return { ...tool, ...taskToolContract(active.taskConfiguration) };
-          if (tool.name !== "UploadFile" && tool.name !== "DownloadFile") return tool;
-          const operation = tool.name === "UploadFile" ? "upload" : "download";
-          const connections = active.pluginNamespaces.filter(namespace => namespace.fileTransfers?.[operation]);
-          if (!connections.length) return tool;
-          return { ...tool, description: tool.description + "\n\nAvailable file connections this turn:\n" + connections.map(namespace => `- ${namespace.name}${namespace.namespaceStatus === "ready" ? "" : " (authentication or connection recovery required)"}`).join("\n") };
-        }),
+      tools: firstPartyTools,
     },
     ...pluginNamespaces,
   ];

@@ -1,6 +1,6 @@
 import { oauthCallbackMode, MANUAL_OAUTH_REDIRECT } from "../../plugins/oauth-callback";
 import { createToolValidator } from "@openteam/plugin-sdk/json-schema";
-import type { PluginConnectionView, PluginDynamicNamespace } from "@openteam/contracts";
+import type { PluginConnectionView } from "@openteam/contracts";
 import { ApiError } from "@openteam/contracts";
 import type { Prisma } from "@openteam/db";
 import { toJson } from "../service-utils";
@@ -112,13 +112,6 @@ export const publicTools = (value: unknown) =>
     risk,
   }));
 
-export const statusForRuntime = (status: string): PluginDynamicNamespace["namespaceStatus"] => {
-  if (status === "ready") return "ready";
-  if (status === "needs_auth") return "needsAuth";
-  if (status === "error") return "error";
-  return "loading";
-};
-
 export const normalizedConnectorKey = (value: string): string =>
   value.trim().toLowerCase().replaceAll("_", "-");
 
@@ -210,17 +203,19 @@ export const canonicalJson = (value: unknown): string => {
 };
 
 const MAX_PLUGIN_IMAGE_BASE64 = 2 * 1024 * 1024;
+/** A transport ceiling only: the computer writes text over 40 KB to a file the agent reads selectively. */
+export const PLUGIN_RESULT_TEXT_LIMIT = 4_000_000;
 
 export const boundPluginResult = (
   value: unknown,
   depth = 0,
-  budget = { remaining: 200_000 }
+  budget = { remaining: PLUGIN_RESULT_TEXT_LIMIT }
 ): unknown => {
   if (budget.remaining <= 0) return "[result limit reached]";
   budget.remaining -= 20;
   if (depth >= 8) return "[nested value omitted]";
   if (typeof value === "string") {
-    const limit = Math.max(0, Math.min(100_000, budget.remaining));
+    const limit = Math.max(0, Math.min(PLUGIN_RESULT_TEXT_LIMIT, budget.remaining));
     budget.remaining -= Math.min(value.length, limit);
     return value.length > limit ? `${value.slice(0, limit)}… [truncated]` : value;
   }

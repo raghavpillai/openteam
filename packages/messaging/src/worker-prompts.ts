@@ -1,4 +1,5 @@
 import type { SubagentType } from "@openteam/contracts";
+import { formatTimeZoneWithOffset, resolveTimeZone } from "./timestamps";
 
 // The reference's worker prompt sections, adapted where they name what this computer lacks.
 
@@ -8,28 +9,12 @@ export const WORKER_USER_IDENTITY_LINE =
 
 export const WORKER_READONLY_LINE = "Operate in readonly mode: do not modify anything.";
 
-const utcOffset = (timeZone: string, now: Date): string | null => {
-  try {
-    const raw = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "shortOffset" })
-      .formatToParts(now)
-      .find((part) => part.type === "timeZoneName")?.value;
-    if (raw === undefined) return null;
-    const offset = raw.replace(/^GMT/, "");
-    return `UTC${offset || "+0"}`;
-  } catch {
-    return null;
-  }
-};
-
 /** The executor and knowledgeWork Time section; the box clock runs in the user's zone. */
-export const renderWorkerTimeSection = (timeZone: string, now = new Date()): string => {
-  const offset = utcOffset(timeZone, now);
-  const zone = offset ? `${timeZone} (currently ${offset})` : timeZone;
-  return [
+export const renderWorkerTimeSection = (timeZone: string, now = new Date()): string =>
+  [
     "## Time",
-    `The user lives in ${zone}, and the box clock is set to that zone, so \`date\`, file mtimes, and other box-local times already read in the user's time. Report every time to them in that zone with a short label naming that zone. A timestamp that carries its own zone is not box-local. Examples are a gh or API value ending in Z or an explicit UTC offset, a git log line with its own offset, and a log line marked UTC. Convert such a timestamp to the user's zone before reporting it rather than parroting it back.`,
+    `The user lives in ${formatTimeZoneWithOffset(resolveTimeZone(timeZone), now)}, and the box clock is set to that zone, so \`date\`, file mtimes, and other box-local times already read in the user's time. Report every time to them in that zone with a short label naming that zone. A timestamp that carries its own zone is not box-local. Examples are a gh or API value ending in Z or an explicit UTC offset, a git log line with its own offset, and a log line marked UTC. Convert such a timestamp to the user's zone before reporting it rather than parroting it back.`,
   ].join("\n");
-};
 
 const BOX_INTRO = (registered: boolean) =>
   `${registered ? "Alongside the user's registered computers you have the box" : "You have the box"}, with structured file reads (Read), a shell (Shell), and your own desktop with a browser. The box is ONE persistent Linux machine shared by all of this user's agents, with the same filesystem and machine state, so a file, installed tool, or browser login set up by any agent is there for every agent. The desktop is per-agent. Each agent gets its own screen and browser window on that shared machine, and none sees or drives another's. ${registered ? "Keep the machine and desktop apart" : "Keep the two apart"} when explaining how this works: agents share the computer; they do not share desktops (never claim each agent has its own machine). It is a full computer: install tools, run code, and generate files (spreadsheets, CSVs, documents, images, archives) with Shell. Nothing on it touches ${registered ? "any registered user computer's" : "the user's"} filesystem, sessions, or accounts, and anything set up there persists across turns, including files, installed tools, and especially browser logins. The user can open your desktop to watch or help.`;

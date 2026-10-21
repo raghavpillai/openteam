@@ -50,28 +50,20 @@ export async function readTranscript(db: PrismaClient, context: {botId: string; 
     let botId = context.botId;
     let channelIds: string[] = [];
     let worker = false;
-    if (input.subagent_id) {
-      const id = input.subagent_id.replace(/^sand-subagent-/, "");
-      if (!uuid.test(id)) throw unavailable();
-      const child = await tx.subagent.findFirst({where: {id, parentBotId: context.botId}, select: {childBotId: true}});
-      if (!child) throw unavailable();
+    // An id is tried as a dispatched subagent, then one of this agent's conversations, then an owned agent.
+    const id = input.in === "this" ? undefined : input.in.replace(/^sand-subagent-/, "");
+    if (id !== undefined && !uuid.test(id)) throw unavailable();
+    const child = id && await tx.subagent.findFirst({where: {id, parentBotId: context.botId}, select: {childBotId: true}});
+    if (child) {
       botId = child.childBotId;
       worker = true;
     } else {
-      if (input.agent_id) {
-        if (!uuid.test(input.agent_id)) throw unavailable();
-        const bot = await tx.bot.findFirst({where: {id: input.agent_id, status: "active", subagentIdentity: {is: null}}, select: {id: true}});
-        if (!bot) throw unavailable();
-        botId = bot.id;
-      }
-      let channelId = input.agent_id ? undefined : context.channelId;
-      if (input.session_id) {
-        if (!uuid.test(input.session_id)) throw unavailable();
-        const session = await tx.contextSession.findFirst({where: {id: input.session_id, botId, scope: "channel"}, select: {scopeId: true}});
-        if (!session) throw unavailable();
-        channelId = session.scopeId;
-      }
-      if (!input.agent_id && !channelId) throw unavailable();
+      const session = id && await tx.contextSession.findFirst({where: {id, botId, scope: "channel"}, select: {scopeId: true}});
+      const agent = id && !session ? await tx.bot.findFirst({where: {id, status: "active", subagentIdentity: {is: null}}, select: {id: true}}) : null;
+      if (id && !session && !agent) throw unavailable();
+      if (agent) botId = agent.id;
+      const channelId = agent ? undefined : session ? session.scopeId : context.channelId;
+      if (!agent && !channelId) throw unavailable();
       const channels = await tx.channel.findMany({where: {
         ...(channelId ? {id: channelId} : {}), archivedAt: null,
         kind: {not: "agent_dm"}, members: {some: {botId}},

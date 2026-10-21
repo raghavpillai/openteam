@@ -17,6 +17,7 @@ import { managedSkillAgents, managedSkillIsForMain } from "./managed-skill-agent
 import { safePackagePath } from "@openteam/plugin-sdk";
 import { originalSkillMarkdown } from "@openteam/plugin-sdk/skill-markdown";
 import { pluginSkillsForAgent, renderPluginSkillCatalog, type PluginSkillCache } from "./plugin-skill-catalog";
+import { agentSkillItem, omittedSkillsNotice, renderAgentSkillsSection } from "./skill-catalog";
 import { createHash, randomUUID } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
@@ -33,7 +34,7 @@ import {
   rm,
   stat,
 } from "node:fs/promises";
-import { dirname, extname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import {
   ApiError,
   BOT_MEMORY_LIST_LIMIT,
@@ -109,6 +110,7 @@ import { type CatalogSkill, renderSkillToolCatalog } from "@openteam/contracts/s
 import { MEMORY_EXTRACTION_SYSTEM_PROMPT } from "./memory-prompts";
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+const AVATAR_SIZE_REFUSAL = "the image must be under 5 MB and non-empty.";
 const AVATAR_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"] as const;
 const MEMORY_INFERENCE_DEADLINE_MS = 90_000;
 const MAX_HELD_MEMORY_EXCHANGES = 5;
@@ -1868,14 +1870,14 @@ export class AgentDataStore {
     const directory = this.botDirectory(botId);
     const canonical = await realpath(resolve(directory, supplied)).catch(() => null);
     const agentDirectory = await realpath(directory).catch(() => directory);
-    if (!canonical || !this.isInside(canonical, agentDirectory)) {
-      throw new Error(`avatar source must stay inside ${directory}`);
-    }
-    const bytes = await readBytes(canonical, MAX_AVATAR_BYTES);
-    const extension = bytes ? sniffAvatarExtension(bytes) : null;
-    if (!bytes || !extension) {
-      throw new Error("avatar must be a supported non-empty image no larger than 5 MB");
-    }
+    const unreadable = `could not read "${basename(supplied)}" from your agent directory. The avatar source must stay inside ${directory}: write or copy the image there first, then pass that path.`;
+    if (!canonical || !this.isInside(canonical, agentDirectory)) throw new Error(unreadable);
+    const bytes = await readBytes(canonical, MAX_AVATAR_BYTES).catch((error: unknown) => {
+      throw new Error(error instanceof Error && error.message.includes("is larger than") ? AVATAR_SIZE_REFUSAL : unreadable);
+    });
+    if (!bytes?.length) throw new Error(AVATAR_SIZE_REFUSAL);
+    const extension = sniffAvatarExtension(bytes);
+    if (!extension) throw new Error("that file is not a recognized image (png, jpg, webp, gif, or svg).");
     await this.clearAvatarFiles(botId);
     const destination = join(directory, `avatar${extension}`);
     await atomicWrite(destination, bytes);
@@ -2548,7 +2550,8 @@ export class AgentDataStore {
     }
     // Installed capabilities can change between turns without compaction.
     // Keep user workflows frozen, but never freeze a missing managed or plugin catalog.
-    skillRender = [skillRender, await this.renderManagedSkills(), await this.renderPluginSkills(botId)]
+    // The reference lists managed skills first, then plugin, then the user's own.
+    skillRender = [await this.renderManagedSkills(), await this.renderPluginSkills(botId), skillRender]
       .filter(Boolean)
       .join("\n\n");
     return {
@@ -2795,7 +2798,7 @@ export class AgentDataStore {
             typeof skill.description !== "string") continue;
         const path = join(this.managedSkillsDirectory(), skill.id, "SKILL.md");
         if (!(await stat(path).catch(() => null))?.isFile()) continue;
-        blocks.push(`- ${skill.name} (managed:${skill.id}): ${skill.description}\n  Path: ${path}`);
+        blocks.push(agentSkillItem(path, skill.description));
       }
       return blocks.join("\n\n");
     } catch { return ""; }
@@ -2855,18 +2858,12 @@ export class AgentDataStore {
       }),
       this.prisma.savedSkill.count(),
     ]);
-    const blocks = skills.map(
-      (skill) =>
-        `- ${skill.name} (${skill.slug}): ${skill.description}\n  Path: ${join(
-          this.workflowsDirectory(),
-          skill.slug,
-          "SKILL.md"
-        )}`
+    const blocks = skills.map((skill) =>
+      agentSkillItem(join(this.workflowsDirectory(), skill.slug, "SKILL.md"), skill.description)
     );
     const omitted = Math.max(0, total - blocks.length);
-    return `${blocks.join("\n\n")}${
-      omitted > 0 ? `\n\n[${omitted} additional skills omitted by the catalog budget]` : ""
-    }`.trim();
+    if (omitted > 0) blocks.push(omittedSkillsNotice(omitted, [this.workflowsDirectory()]));
+    return blocks.join("\n\n");
   }
 
   async loadRootSettings(): Promise<{

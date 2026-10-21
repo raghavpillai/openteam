@@ -54,7 +54,7 @@ for (const scenario of ["cancelled", "steered", "widget", "failed", "next-respon
 const stop = {namespace: "cursor", toolName: "StopSubagent", arguments: {subagent_id: "worker"}};
 function cleanupFixture() {
   const f = fixture();
-  Object.assign(f.active, {toolArgs: new Map(), pluginNamespaces: [], discoveredDynamicTools: new Set(["cursor/StopSubagent"])});
+  Object.assign(f.active, {toolArgs: new Map(), pluginNamespaces: []});
   f.batch([{type: "toolCall", name: "CallDynamicTool", id: "stop", arguments: stop}]);
   const execute = async (args = stop, id = "stop") => {
     routeEvent(undefined, f.active, {type: "tool_execution_start", toolName: "CallDynamicTool", toolCallId: id, args} as any);
@@ -78,7 +78,7 @@ test("queued worker cleanup completes after closing text without creating anothe
   expect(active.toolActivityAfterLastSend).toBe(true);
 });
 
-for (const scenario of ["changed", "new", "failed", "cancelled", "steered", "widget", "later", "prior-activity", "undiscovered", "read-only"] as const) {
+for (const scenario of ["changed", "new", "failed", "cancelled", "steered", "widget", "later", "prior-activity", "read-only"] as const) {
   test(`worker cleanup grace respects ${scenario}`, async () => {
     const {active, call, execute, tools, batch} = cleanupFixture();
     if (scenario === "widget") await tools.callControlPlaneTool(active, "summary", "SendToUser", {type: "widget"});
@@ -86,7 +86,6 @@ for (const scenario of ["changed", "new", "failed", "cancelled", "steered", "wid
     if (scenario === "failed") tools.callControlPlaneTool = async () => {throw new Error("stop failed");};
     if (scenario === "steered") active.pendingSteers.push({content: "new instruction"});
     if (scenario === "cancelled") { active.pluginAbortController = new AbortController(); active.pluginAbortController.abort(); }
-    if (scenario === "undiscovered") active.discoveredDynamicTools.clear();
     if (scenario === "read-only") active.readOnly = true;
     if (scenario === "later") batch([{type: "toolCall", name: "CallDynamicTool", id: "later", arguments: stop}]);
     if (scenario === "prior-activity") {

@@ -6,6 +6,7 @@ import { createPrismaClient } from '@openteam/db';
 import { AgentDataStore, AgentMessaging } from '@openteam/messaging';
 import { Effect } from 'effect';
 import { ExternalDraftService } from '../src/services/external-draft-service';
+import { loadConnectionNamespaces } from '../src/services/plugin/namespaces';
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
 /** A Bot chat plus a connector account that declares reviewed sending. */
@@ -74,27 +75,46 @@ test('connectors that declare reviewed sending verify, edit and send each card a
   expect(await f.card(retry.message_id)).toMatchObject({ cardState: 'sent' });
   expect((await f.card(retry.message_id)).sendError).toBeUndefined();
 
+  // An unconfirmed send or a discarded card does not wake the Bot; it reads the outcome on its next turn.
+  const wakes = () => f.prisma.inboxEvent.count({ where: { botId: f.botId, type: 'draft.response' } });
+  const wakesBefore = await wakes();
   const interrupted = await service.create(f.context('reply-c'), draft) as { message_id: string };
   failSend = 'after';
-  expect((await Effect.runPromise(service.mutate(interrupted.message_id, { action: 'send' }))).message.metadata).toMatchObject({ cardState: 'unknown' });
+  expect((await Effect.runPromise(service.mutate(interrupted.message_id, { action: 'send' }))).message.metadata).toMatchObject({ cardState: 'unknown', outcomeEchoed: false });
+  expect((await f.card(interrupted.message_id)).outcomeText).toStartWith('A send of your draft did not confirm. It may or may not have gone out. Do not send that message yourself (including via CallDynamicTool or any connector send tool). Check the destination before drafting or sending it again.\n\nFrom: Me@Example.com');
   const before = calls.length;
   await Effect.runPromise(service.mutate(interrupted.message_id, { action: 'send' }));
   expect(calls).toHaveLength(before);
   failSend = null;
+  const discarded = await service.create(f.context('reply-x'), draft) as { message_id: string };
+  await Effect.runPromise(service.mutate(discarded.message_id, { action: 'cancel' }));
+  expect(await f.card(discarded.message_id)).toMatchObject({ cardState: 'dismissed', outcomeEchoed: false });
+  expect((await f.card(discarded.message_id)).outcomeText).toStartWith('The user discarded your draft without sending. They refused to send it. Do not send that message yourself (including via CallDynamicTool or any connector send tool). Treat the draft as rejected; only draft or send again if the user explicitly asks.');
+  expect(await wakes()).toBe(wakesBefore);
+  const nextTurn = await f.messaging.platformPrompt(f.botId, undefined as never, '', null);
+  expect(JSON.stringify(nextTurn)).toContain('The user discarded your draft without sending.');
 
   const stale = await service.create(f.context('reply-d'), draft) as { message_id: string };
   identity = 'someone-else@example.com';
   expect((await Effect.runPromise(service.mutate(stale.message_id, { action: 'send' }))).message.metadata).toMatchObject({ cardState: 'failed' });
-  await expect(service.create(f.context('reply-e'), { ...draft, from: 'nobody@example.com' })).rejects.toThrow('does not match the draft From address');
+  await expect(service.create(f.context('reply-e'), { ...draft, from: 'nobody@example.com' })).rejects.toThrow(
+   'Draft refused: from (nobody@example.com) is not the address this account really sends as (someone-else@example.com, me@example.com, alias@example.com). Nothing was drafted. Call this tool again with from: someone-else@example.com or one of the other addresses listed.'
+  );
+  failSend = 'before';
+  await expect(service.create(f.context('reply-z'), draft)).rejects.toThrow('Draft refused: the routing could not be verified through the connector (');
+  failSend = null;
   await expect(service.create(f.context('reply-f'), { ...draft, providerIdentifier: 'not-a-connection' })).rejects.toThrow("can't send reviewed email");
   // GetMcpServerStatus lists accounts by namespace; drafts accept that form too.
   identity = 'me@example.com';
-  const namespaced = await service.create(f.context('reply-g'), { ...draft, providerIdentifier: `plugin_${f.connection.id.replaceAll('-', '_')}` }) as { message_id: string };
+  const namespace = (await loadConnectionNamespaces(f.prisma)).get(f.connection.id)!;
+  expect(namespace).toStartWith('mail');
+  const namespaced = await service.create(f.context('reply-g'), { ...draft, providerIdentifier: namespace }) as { message_id: string };
   expect(calls.at(-1)).toMatchObject({ connectionId: f.connection.id, toolName: 'send_reviewed_email' });
   await Effect.runPromise(service.mutate(namespaced.message_id, { action: 'send' }));
   expect(await f.card(namespaced.message_id)).toMatchObject({ cardState: 'sent' });
   expect(calls.at(-1)).toMatchObject({ connectionId: f.connection.id, arguments: { action: 'send' } });
-  await expect(service.create(f.context('reply-h'), { ...draft, providerIdentifier: `plugin_${f.connection.id.replaceAll('-', '_')}__776f726b` })).rejects.toThrow('renamed');
+  // A renamed account's old namespace names no connection.
+  await expect(service.create(f.context('reply-h'), { ...draft, providerIdentifier: `${namespace}--work` })).rejects.toThrow("can't send reviewed email");
  } finally { await f.cleanup(); }
 });
 
@@ -150,4 +170,24 @@ test('the approval menu lets a Bot email allowed recipients, or everyone, withou
   expect(await f.prisma.bot.findUniqueOrThrow({ where: { id: f.botId }, select: { draftingDisabled: true, draftAllowedRecipients: true } })).toEqual({ draftingDisabled: false, draftAllowedRecipients: ['bob@example.com'] });
   await expect(Effect.runPromise(service.mutate(anyone.message_id, { action: 'approval', mode: 'sometimes' }))).rejects.toThrow('Choose always-allow');
  } finally { await f.cleanup(); }
+});
+
+test('a draft made in a room becomes a card in the 1:1 chat', async () => {
+ if (!databaseUrl) return;
+ const f = await fixture('draft-room');
+ const plugins = { invoke: async (input: any) => input.arguments.action === 'verify' ? { identity: 'me@example.com' } : { id: 'sent' } };
+ const service = new ExternalDraftService(f.prisma, f.messaging, plugins as never);
+ const room = await f.prisma.channel.create({ data: { kind: 'group', name: 'Room', members: { create: { botId: f.botId, ordinal: 0 } } } });
+ try {
+  const draft = { platform: 'email', providerIdentifier: f.connection.id, from: 'me@example.com', to: ['ann@example.com'], subject: 'Hello', body: 'Hi Ann' };
+  const card = await service.create({ ...f.context('room-draft'), channelId: room.id }, draft) as Record<string, any>;
+  expect(card).toMatchObject({ in_dm: true });
+  const message = await f.prisma.channelMessage.findUniqueOrThrow({ where: { id: card.message_id } });
+  expect(message.channelId).not.toBe(room.id);
+  expect((await f.prisma.channel.findUniqueOrThrow({ where: { id: message.channelId } })).kind).toBe('bot_dm');
+  const { renderControlResult } = await import('@openteam/contracts/tool-results');
+  expect(renderControlResult('DraftExternalMessage', card, draft)).toBe(
+   `Draft email from me@example.com to ann@example.com is now an editable card in your own 1:1 chat with the user, not in this room (a room cannot hold draft cards); tell the room where it is (id: ${card.message_id}). Nothing has been sent; the user reviews, may edit, and sends or discards it from the card.`
+  );
+ } finally { await f.prisma.channel.deleteMany({ where: { id: room.id } }); await f.cleanup(); }
 });

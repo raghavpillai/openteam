@@ -142,7 +142,8 @@ test("profile, memory facts, and skills freeze independently per context epoch",
     expect(refreshedGroupFacts).toContain(
       "A later global fact waits for the next compaction epoch."
     );
-    expect(refreshedGroup.skillRender).toContain("Epoch skill");
+    // The catalog lists a skill by its path and description, as the reference does.
+    expect(refreshedGroup.skillRender).toContain("/workflows/epoch-skill/SKILL.md\">appears only after a context summary refresh</agent_skill>");
     expect(refreshedGroup.skillRender).not.toContain("PRIVATE_SKILL_BODY_SHOULD_NOT_BE_CATALOGUED");
     expect(stillFrozenHome.profileSection).toContain("Snapshot Original");
     expect(await pinned(homeContextId)).toBe("No shared facts recorded yet.\n\nNo facts recorded yet.");
@@ -155,7 +156,7 @@ test("profile, memory facts, and skills freeze independently per context epoch",
     const refreshedHome = await store.promptContext(botId, homeContextId);
     expect(refreshedHome.profileSection).toContain("Snapshot Renamed");
     expect(await pinned(homeContextId)).toBe(refreshedGroupFacts);
-    expect(refreshedHome.skillRender).toContain("Epoch skill");
+    expect(refreshedHome.skillRender).toContain("/workflows/epoch-skill/SKILL.md");
 
     const snapshots = await prisma.contextPromptSnapshot.findMany({
       where: { contextSessionId: { in: [homeContextId, groupContextId] } },

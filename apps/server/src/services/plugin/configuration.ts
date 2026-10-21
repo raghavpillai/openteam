@@ -7,7 +7,6 @@ import {
 import type { PrismaClient } from "@openteam/db";
 import {
   applySecretEdits,
-  connectionNamespace,
   assertComputerMcpRuntime,
   fieldsForConnector,
   isSecretKey,
@@ -15,6 +14,7 @@ import {
   type PluginField,
 } from "@openteam/plugin-sdk";
 import { serviceEffect, toJson } from "../service-utils";
+import { loadConnectionNamespaces } from "./namespaces";
 import {
   definitionFromManifest,
   connectionConfigured,
@@ -76,7 +76,7 @@ export class PluginConfiguration {
       };
       return {
         connectionId: id,
-        namespace: connectionNamespace(id,connection.alias),
+        namespace: (await loadConnectionNamespaces(this.prisma)).get(id)!,
         endpoint: connection.endpoint,
         command: typeof config.command === "string" ? config.command : null,
         runtime: "computer",

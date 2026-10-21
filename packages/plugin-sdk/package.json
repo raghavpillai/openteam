@@ -11,7 +11,8 @@
     "./json-schema": "./src/json-schema.ts",
     "./skill-markdown": "./src/skill-markdown.ts",
     "./templates": "./src/templates.ts",
-    "./file-spool": "./src/file-spool.ts"
+    "./file-spool": "./src/file-spool.ts",
+    "./email-body": "./src/email-body.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target browser",

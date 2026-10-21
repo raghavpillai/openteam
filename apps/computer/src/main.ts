@@ -179,7 +179,7 @@ const server = Bun.serve({
   hostname: "0.0.0.0",
   port,
   idleTimeout: 255,
-  async fetch(request) {
+  async fetch(request, requestServer) {
     const url = new URL(request.url);
     if (url.pathname === "/health" || url.pathname === "/health/authenticated") {
       if (url.pathname === "/health/authenticated" && !authorized(request))
@@ -467,9 +467,9 @@ const server = Bun.serve({
         if (action === "prepare") {
           try { return json(await runtime.userForms.prepare(botId!, formId!, input.form)); }
           catch (error) {
-            const kinds = error instanceof FormPreparationError ? error.failureKinds : [(error as { kind?: string })?.kind];
-            const safe = [...new Set(kinds.filter(kind => typeof kind === "string" && Object.hasOwn(FORM_PREPARATION_FAILURE_MESSAGES, kind)))];
-            return json({ error: "form_preflight_failed", failureKinds: safe }, 400);
+            if (error instanceof FormPreparationError) return json(error.body, 400);
+            const kind = (error as { kind?: unknown } | undefined)?.kind;
+            return json({ error: "form_preflight_failed", failureKinds: typeof kind === "string" && Object.hasOwn(FORM_PREPARATION_FAILURE_MESSAGES, kind) ? [kind] : [] }, 400);
           }
         }
         if (action === "prefill") return json(await runtime.userForms.prefill(botId!, formId!));
@@ -572,6 +572,8 @@ const server = Bun.serve({
           runtimeGeneration?: number;
         };
         if (typeof body.toolName !== "string") return json({ error: "toolName is required" }, 400);
+        // A connector call may outlast the idle timeout; it has its own budget.
+        requestServer.timeout(request, 0);
         return json({
           result: await stdioMcp.call(
             mcpCallMatch[1],

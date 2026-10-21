@@ -4,7 +4,7 @@ import { Value } from "typebox/value";
 import {
   BROWSER_USE_TOOLS,
   BrowserUseSession,
-  sameOriginFrame,
+  formWriteFrameAllowed,
   truncateAriaSnapshot,
 } from "../../src/browser/use";
 
@@ -48,16 +48,22 @@ describe("browser-use tool surface", () => {
     expect(JSON.stringify(BROWSER_USE_TOOLS)).not.toContain("viewId");
   });
 
-  test("applies snapshot depth and same-origin frame rules", () => {
+  test("applies snapshot depth and the form write-frame rule", () => {
     expect(
       truncateAriaSnapshot(
         '- document:\n  - navigation "Primary":\n    - link "Home"\n      - text: nested',
         2
       )
     ).toBe('- document:\n  - navigation "Primary":\n    - … deeper structure omitted');
-    expect(sameOriginFrame("https://example.com/app", "https://example.com/frame")).toBe(true);
-    expect(sameOriginFrame("https://example.com/app", "about:srcdoc")).toBe(true);
-    expect(sameOriginFrame("https://example.com/app", "https://accounts.example.net/")).toBe(false);
+    // Embedded https frames from another site are written, like a checkout's card frame.
+    expect(formWriteFrameAllowed("shop.example", "https://shop.example/pay", "https://js.payments.example/card")).toBe(true);
+    expect(formWriteFrameAllowed("www.shop.example", "https://checkout.shop.example/", "blob:https://shop.example/1")).toBe(true);
+    expect(formWriteFrameAllowed("shop.example", "https://shop.example/pay", "http://cards.example/")).toBe(false);
+    expect(formWriteFrameAllowed("shop.example", "http://shop.example/pay", "https://shop.example/pay")).toBe(false);
+    expect(formWriteFrameAllowed("shop.example", "https://evil.example/", "https://shop.example/")).toBe(false);
+    expect(formWriteFrameAllowed("127.0.0.1", "http://127.0.0.1:3000/", "http://localhost:4000/card")).toBe(true);
+    expect(formWriteFrameAllowed("127.0.0.1", "http://127.0.0.1:3000/", "http://pay.example:4000/card")).toBe(false);
+    expect(formWriteFrameAllowed("shop.example", "https://shop.example/", "data:text/html,x")).toBe(false);
   });
 
   test("keeps concurrent browser workers inside independent tab leases", async () => {

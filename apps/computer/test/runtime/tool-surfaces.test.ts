@@ -65,10 +65,13 @@ const turnRequest = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+/** A connected Drive account: UploadFile and DownloadFile are offered only beside one. */
+const driveNamespace = { name: "google-drive", description: "Google Drive (default)", namespaceStatus: "ready", tools: [], fileTransfers: { upload: true, download: true } };
+
 const workerTurn = (subagentType: string | null, overrides: Record<string, unknown> = {}) => ({
   subagentType,
   runtimeProfile: subagentType ? "subagent" : "agent",
-  pluginNamespaces: [],
+  pluginNamespaces: [driveNamespace],
   ...overrides,
 }) as any;
 
@@ -157,7 +160,7 @@ describe("specialized subagent tool surfaces", () => {
         execute: unknown;
       }>;
     };
-    const executable = runtime.customTools({ subagentType: null });
+    const executable = runtime.customTools(workerTurn(null));
     const visible = modelVisibleSummaryTools(executable);
     expect(visible.map((tool) => tool.name)).toEqual(executable.map((tool) => tool.name));
     expect(visible.map((tool) => tool.description)).toEqual(
@@ -221,7 +224,7 @@ describe("specialized subagent tool surfaces", () => {
       searches.push(query);
       return { content: [{ type: "text", text: "results" }], details: {} };
     };
-    const active = { ...workerTurn("executor"), runId: "run-1", discoveredDynamicTools: new Set(), pendingSteers: [] };
+    const active = { ...workerTurn("executor"), runId: "run-1", pendingSteers: [] };
     const result = await runtime.executeOpenTeamTool(active, "call-1", "WebSearch", { search_term: "openteam" });
     expect(result.content[0].text).toBe("results");
     expect(searches).toEqual(["openteam"]);
@@ -244,10 +247,29 @@ describe("specialized subagent tool surfaces", () => {
     expect(waits).toEqual([[expect.objectContaining({ shell_id: "7" }), "worker-bot"]]);
   });
 
+  test("the cursor namespace cues only the tools each agent has, under the reference header", () => {
+    const runtime = runtimeTools() as any;
+    const cursor = (active: Record<string, unknown>) => runtime.dynamicCatalog(active).find((namespace: any) => namespace.name === "cursor");
+    const header = "First-party tools built into you, listed first: they are trusted and core to your job, so prefer one over an external namespace that covers the same need. Read a tool's schema with GetDynamicTools, then call it with CallDynamicTool in the cursor namespace.\n\nHere are some crucial instructions:\n";
+    const main = cursor(workerTurn(null)).description;
+    expect(main).toStartWith(header);
+    for (const line of ["- ReadAgentActivity: Summarize", "- ReadTranscript: Read your full transcript", "- request_box_help: Hand your box's desktop", "- Task: Spawn subagents natively.", "- UploadFile: Send a box file to Google Drive or Gmail."])
+      expect(main).toContain(line);
+    expect(main.indexOf("- request_box_help:")).toBeLessThan(main.indexOf("- RequestUserForm:"));
+    // An executor calls its file tools directly, so its cursor namespace has nothing to cue.
+    expect(cursor(workerTurn("executor")).description).toBe(header.split("\n\n")[0]);
+    // With nothing to send files to or fetch them from, neither tool is offered.
+    const bare = cursor(workerTurn(null, { pluginNamespaces: [{ ...driveNamespace, name: "linear", fileTransfers: undefined }] }));
+    expect(bare.tools.map((tool: any) => tool.name)).not.toContain("UploadFile");
+    expect(bare.tools.map((tool: any) => tool.name)).not.toContain("DownloadFile");
+    expect(bare.description).not.toContain("UploadFile");
+    expect(cursor(workerTurn("executor", { pluginNamespaces: [] }))).toMatchObject({ tools: [], description: header.split("\n\n")[0] });
+  });
+
   test("routine runs and connector workers upload and download files; graphical and media workers cannot", () => {
     const runtime = runtimeTools() as any;
     const cursor = (overrides: Record<string, unknown>) =>
-      runtime.dynamicCatalog({ pluginNamespaces: [], ...overrides }).find((namespace: any) => namespace.name === "cursor").tools.map((tool: any) => tool.name);
+      runtime.dynamicCatalog({ pluginNamespaces: [driveNamespace], ...overrides }).find((namespace: any) => namespace.name === "cursor").tools.map((tool: any) => tool.name);
     expect(cursor({ runtimeProfile: "agent", requestSource: "automation" })).toEqual(expect.arrayContaining(["UploadFile", "DownloadFile"]));
     // Executors and knowledgeWork call them directly, like the reference's statically offered tools.
     for (const subagentType of ["executor", "knowledgeWork"])
@@ -266,8 +288,8 @@ describe("specialized subagent tool surfaces", () => {
   test("discovering RequestUserForm lists the saved vault extra keys", async () => {
     const runtime = runtimeTools() as any;
     runtime.userForms.savedExtraKeys = async () => ["ktn"];
-    const active = { ...workerTurn(null), discoveredDynamicTools: new Set<string>(), cwd: "/tmp" };
-    const text = (await runtime.getDynamicTools(active, { namespace: "cursor", toolName: "RequestUserForm" })).content[0].text;
+    const active = { ...workerTurn(null), cwd: "/tmp" };
+    const text = (await runtime.getDynamicTools(active, "lookup", { namespace: "cursor", toolName: "RequestUserForm" })).content[0].text;
     expect(text).toContain("Vault extras: reuse the exact saved extra_key");
     expect(text).toContain('- \\"ktn\\"');
     expect(text).toContain('"tool": "RequestUserForm"');
@@ -275,11 +297,11 @@ describe("specialized subagent tool surfaces", () => {
 
   test("workers get no memory or history tools; the main agent keeps them", () => {
     const runtime = runtimeTools() as unknown as {
-      dynamicCatalog(active: { runtimeProfile: "agent" | "subagent"; subagentType?: string; pluginNamespaces: [] }): Array<{ name: string; tools: Array<{ name: string; description: string }> }>;
+      dynamicCatalog(active: { runtimeProfile: "agent" | "subagent"; subagentType?: string; pluginNamespaces: unknown[] }): Array<{ name: string; tools: Array<{ name: string; description: string }> }>;
       customTools(active: unknown): Array<{ name: string }>;
     };
     const cursor = (runtimeProfile: "agent" | "subagent", subagentType?: string) =>
-      runtime.dynamicCatalog({ runtimeProfile, subagentType, pluginNamespaces: [] }).find((namespace) => namespace.name === "cursor")?.tools ?? [];
+      runtime.dynamicCatalog({ runtimeProfile, subagentType, pluginNamespaces: [driveNamespace] }).find((namespace) => namespace.name === "cursor")?.tools ?? [];
     for (const subagentType of ["executor", "knowledgeWork", "computerUse"]) {
       const names = [...cursor("subagent", subagentType), ...runtime.customTools(workerTurn(subagentType))].map((tool) => tool.name);
       for (const name of ["RecallMemory", "ReadTranscript", "ReadAgentActivity"]) expect(names, subagentType).not.toContain(name);
@@ -289,7 +311,7 @@ describe("specialized subagent tool surfaces", () => {
     }
     const main = cursor("agent");
     expect(main.map((tool) => tool.name)).toEqual(expect.arrayContaining(["ReadTranscript", "ReadAgentActivity"]));
-    expect(main.find((tool) => tool.name === "ReadTranscript")!.description).toContain("Pass subagent_id for a Task subagent you dispatched");
+    expect(main.find((tool) => tool.name === "ReadTranscript")!.description).toContain("Pass in=<id> for a Task subagent you dispatched");
     expect(runtime.customTools(workerTurn(null)).map((tool) => tool.name)).toContain("RecallMemory");
   });
 
@@ -359,6 +381,21 @@ describe("specialized subagent tool surfaces", () => {
     expect(calls).toEqual([{ tool: "StopSubagent", args: { all: true } }]);
   });
 
+  test("DraftExternalMessage refuses HTML email bodies and sends the server an unwrapped body", () => {
+    const runtime = runtimeTools() as unknown as {
+      dynamicCatalog(active: { runtimeProfile: "agent"; pluginNamespaces: [] }): Array<{
+        name: string;
+        tools: Array<{ name: string; decodeArguments(args: unknown): unknown }>;
+      }>;
+    };
+    const draft = runtime.dynamicCatalog({ runtimeProfile: "agent", pluginNamespaces: [] })
+      .find((namespace) => namespace.name === "cursor")!.tools.find((tool) => tool.name === "DraftExternalMessage")!;
+    const email = { platform: "email", providerIdentifier: "p", from: "me@example.com", to: ["ann@example.com"], subject: "Hi" };
+    expect(draft.decodeArguments({ ...email, body: "We reviewed the contract terms with legal on Monday and they asked us to\nadd a clause about data retention before anything gets signed.\n\nBest,\nAnn" }))
+      .toMatchObject({ body: "We reviewed the contract terms with legal on Monday and they asked us to add a clause about data retention before anything gets signed.\n\nBest,\nAnn" });
+    expect(() => draft.decodeArguments({ ...email, body: "Hello<br>See you" })).toThrow("body is plain text, so <br> would reach the recipient as literal text. Nothing was drafted.");
+  });
+
   test("normal agents expose the complete plugin lifecycle management surface", () => {
     expect(dynamicToolNames("cursor")).toEqual(
       expect.arrayContaining([
@@ -402,7 +439,7 @@ describe("durable state tools", () => {
         for (const name of namespacedStateTools) expect(cursorToolNames(runtime, active)).not.toContain(name);
       }
     }
-    const readOnly = { ...workerTurn("executor", { readOnly: true }), runId: "run-1", pendingSteers: [], discoveredDynamicTools: new Set() };
+    const readOnly = { ...workerTurn("executor", { readOnly: true }), runId: "run-1", pendingSteers: [] };
     for (const name of ["UpdateMemory", "UpdateRoutine"])
       await expect(runtime.executeOpenTeamTool(readOnly, "call-1", name, { action: "pause", id: "brief" })).rejects.toThrow("read-only");
     for (const toolName of namespacedStateTools)
@@ -416,7 +453,7 @@ describe("durable state tools", () => {
       calls.push({ tool, args });
       return { content: [], details: {} };
     };
-    const active = { ...workerTurn(null), runId: "run-1", pendingSteers: [], discoveredDynamicTools: new Set() };
+    const active = { ...workerTurn(null), runId: "run-1", pendingSteers: [] };
     await runtime.executeOpenTeamTool(active, "memory", "UpdateMemory", { target: "memory", action: "write", fact: " Prefers tea. ", type: "profile" });
     await runtime.executeOpenTeamTool(active, "routine", "UpdateRoutine", { action: "pause", id: "brief" });
     await expect(runtime.executeOpenTeamTool(active, "invalid", "UpdateMemory", { action: "create", fact: "x", type: "profile" })).rejects.toThrow(
@@ -759,11 +796,11 @@ test('Task reads subagent_type spellings as their type and reports a refused dis
   }) as unknown as typeof fetch;
   try {
     const task = runtime.dynamicCatalog(workerTurn(null)).find((namespace: any) => namespace.name === 'cursor').tools.find((tool: any) => tool.name === 'Task');
-    const args = task.decodeArguments({ description: 'Book', prompt: 'Book it', subagent_type: 'computer_use' });
-    expect(args.subagent_type).toBe('computerUse');
-    await expect(task.execute({ ...workerTurn(null), pendingSteers: [] }, 'call', args)).rejects.toThrow(
-      "Error: That background subagent is still running, so it can't be resumed yet."
-    );
+    expect(task.decodeArguments({ description: 'Book', prompt: 'Book it', subagent_type: 'computer_use' }).subagent_type).toBe('computerUse');
+    const active = { ...workerTurn(null), runId: 'run-1', discoveredDynamicTools: new Set(['cursor/Task']), pendingSteers: [] };
+    await expect(runtime.executeOpenTeamTool(active, 'call', 'CallDynamicTool', {
+      namespace: 'cursor', toolName: 'Task', arguments: { description: 'Book', prompt: 'Book it', subagent_type: 'computer_use' },
+    })).rejects.toThrow(/^Error: That background subagent is still running, so it can't be resumed yet\.$/);
     expect(sent[0].subagent_type).toBe('computerUse');
   } finally { globalThis.fetch = previousFetch; }
 });

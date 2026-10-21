@@ -175,7 +175,7 @@
   },
   "ReactToMessage": {
     "name": "ReactToMessage",
-    "description": "React to one of the user's messages with a single emoji tapback, shown as a small pill on their message. Use it rarely and mirror the user: if they don't use emoji, almost never react. It suits something funny, good news, or a moment where a quick 👍 beats a sentence, never a request you haven't answered and never just to seem friendly. Reacting with the same emoji again removes it.",
+    "description": "React to one of the user's messages with a single emoji tapback, shown as a small pill on their message. Reactions are an everyday part of your voice: expect to react in most conversations, wherever a person in a chat would tap one instead of typing, though not on every message. Use 👍 or ❤️ for thanks or agreement, 🎉 for good news, 😂 for something funny, and ✅ when a small request is done and the result is already visible. Don't follow a reaction with a message saying the same thing. A reaction never replaces a reply the user needs: an answer, a result, a link, or the opening acknowledgement before longer work. At most one per message, and hold back when the conversation is formal or tense or the user is frustrated. Reacting with the same emoji again removes it.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -234,7 +234,7 @@
   },
   "UpdateMemory": {
     "name": "UpdateMemory",
-    "description": "Change your durable memory. Pick the memory type that fits:\n- profile: Lasting facts about the user and how to work with them, kept in mind every turn. Keep it small.\n- journal: Dated history. Only the latest entries stay in view.\n- shared_profile: Lasting facts about the user that every assistant they run keeps in mind, such as their name and time zone.\n- shared_journal: Dated history every assistant the user runs should know.\nwrite saves a fact (deduped); forget drops one by its exact recorded text (find it with RecallMemory), so pair it with a write to correct a fact. Save without asking and mention it in passing. Routines have their own UpdateRoutine tool. Skills, profile and settings, picture, and channels have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.",
+    "description": "Change your durable memory. Each memory type below holds one kind of fact. Save a fact to the type meant for it, and leave out a fact no type is meant for:\n- profile: Lasting facts about the user and how to work with them, kept in mind every turn. Keep it small.\n- journal: Dated history. Only the latest entries stay in view.\n- shared_profile: Lasting facts about the user that every assistant they run keeps in mind, such as their name and time zone.\n- shared_journal: Dated history every assistant the user runs should know.\nwrite saves a fact (deduped); forget drops one by its exact recorded text (find it with RecallMemory), so pair it with a write to correct a fact. Save without asking and mention it in passing. Routines have their own UpdateRoutine tool. Skills, profile and settings, picture, and channels have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -269,7 +269,7 @@
   },
   "UpdateRoutine": {
     "name": "UpdateRoutine",
-    "description": "Create or change your routines: saved prompts that fire on a schedule or when an outside event arrives, even while the user is away. Your current routines and their folder ids are listed under Scheduled routines in your prompt.\nBe proactive: when an ask is recurring, time-based, or \"tell me when X\", create a routine (or offer one when unsure it's wanted) instead of doing it once. Read the managed `routines` skill before creating or changing one; it has the full recipe, including every trigger shape.\n- create: name, prompt, and schedule or trigger. update: id plus only the fields to change; omitted fields keep their current values and the routine keeps its history. pause (disarm one the user wants back later), resume (rearm it), delete (remove a finite watch as soon as it has done its job): id.\nschedule: 5-field cron in the user's local time (or @hourly/@daily/@weekly/@monthly/\"@every 2h\"), at least 5 minutes apart. A clock time the user names is saved as named (\"8am\" is \"0 8 * * *\"); only an ask that names no time takes the minute from the latest <timestamp>.\nCreating or changing a routine may ask the user to confirm, since it's the one change that acts while they're away. If it does, they'll see a card and you'll get their answer back as the tool result; don't ask first, and don't retry a denied write.",
+    "description": "Read, create, or change your routines: saved prompts that fire on a schedule or when an outside event arrives, even while the user is away. Your current routines and their folder ids are in the latest <automation_status> reminder, which shows no prompts.\nBe proactive: when an ask is recurring, time-based, or \"tell me when X\", create a routine (or offer one when unsure it's wanted) instead of doing it once, except joining a meeting or saving what to do in one (JoinMeeting or UpdateMeeting). Read the Cursor-managed `routines` skill before creating or changing one; it has the full recipe, including every trigger shape.\n- create: name, prompt, and schedule or trigger. get: id; returns the saved prompt, trigger, and timing. update: id plus only the fields to change. pause, resume, delete: id.\nBefore you change a routine's prompt or describe what it does, get it and work from the saved text, not from memory.\nschedule: 5-field cron in the user's local time (or @hourly/@daily/@weekly/\"@every 2h\"), at least 5 minutes apart; take the minute from the latest <timestamp>, never :00 or :30 unless the user named it.\nA change may ask the user to confirm on a card; don't ask first, and don't retry a denied write.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -277,6 +277,7 @@
           "type": "string",
           "enum": [
             "create",
+            "get",
             "update",
             "pause",
             "resume",
@@ -291,567 +292,47 @@
         "name": {
           "type": "string",
           "minLength": 1,
-          "description": "Required on create. On update, omit to keep the current name."
+          "description": "Required on create."
         },
         "prompt": {
           "type": "string",
           "minLength": 1,
-          "description": "What you should do each time it fires, written to your future self. Write it as an INTENT, not a frozen tool recipe: a connector's schema can change between fires, so describe the goal and let each run look the tool up. Required on create; on update, omit to keep the current prompt."
+          "description": "What to do each time it fires, written to your future self as an intent, not a frozen tool recipe. Required on create."
         },
         "schedule": {
           "type": "string",
           "minLength": 1,
-          "description": "Shorthand for a cron trigger — \"0 7 * * *\", \"@daily\", \"@every 2h\" — interpreted in the user's local time. Calendar shorthands take their clock fields from the routine's creation time, and unphased @every intervals anchor to creation. A clock time the user names is saved as named, so \"8am\" is \"0 8 * * *\" and \"daily at 2\" is \"0 2 * * *\"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 \"hourly\" is \"32 * * * *\". Use this OR trigger, never both. On update, omit (with trigger) to keep the current fire condition."
+          "description": "See the description. Never with trigger."
         },
         "trigger": {
-          "anyOf": [
-            {
-              "anyOf": [
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "cron"
-                    },
-                    "schedule": {
-                      "$ref": "#/properties/schedule",
-                      "description": "A 5-field cron expression in the user's local time (\"0 7 * * *\"), or a shorthand (@hourly/@daily/@weekly/@monthly, \"@every 30m\"). Calendar shorthands take their clock fields from the routine's creation time, and unphased @every intervals anchor to creation. A clock time the user names is saved as named, so \"8am\" is \"0 8 * * *\" and \"daily at 2\" is \"0 2 * * *\"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 \"hourly\" is \"32 * * * *\"."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "schedule"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "slack"
-                    },
-                    "channel": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "A channel (\"#eng\"), a DM (\"@dana\"), or \"*\" for anywhere."
-                    },
-                    "match": {
-                      "anyOf": [
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "mention"
-                            }
-                          },
-                          "required": [
-                            "kind"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "keyword"
-                            },
-                            "keyword": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "keyword"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "message"
-                            }
-                          },
-                          "required": [
-                            "kind"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "reaction"
-                            },
-                            "emoji": {
-                              "type": "array",
-                              "items": {
-                                "type": "string",
-                                "minLength": 1
-                              },
-                              "description": "Normalized short names without colons (\"eyes\", \"white_check_mark\"). Absent or empty means any emoji."
-                            },
-                            "bySelf": {
-                              "type": "boolean",
-                              "description": "When true, only the user's own reactions fire it — not a colleague's."
-                            }
-                          },
-                          "required": [
-                            "kind"
-                          ]
-                        }
-                      ],
-                      "description": "What makes a message count as a match."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "channel",
-                    "match"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "github"
-                    },
-                    "repo": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "One concrete \"owner/name\" repo. No wildcards; omit pr for repo-wide events."
-                    },
-                    "events": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "enum": [
-                          "pr-opened",
-                          "pr-pushed",
-                          "pr-merged",
-                          "pr-closed",
-                          "review-requested",
-                          "review-approved",
-                          "review-changes-requested",
-                          "review-commented",
-                          "pr-comment",
-                          "inline-review-comment",
-                          "review-thread-resolved",
-                          "review-thread-unresolved",
-                          "issue-assigned",
-                          "ci-passed",
-                          "ci-failed"
-                        ]
-                      },
-                      "minItems": 1,
-                      "description": "Which GitHub events fire this routine. For a PR babysitter, use [\"review-requested\", \"review-approved\", \"review-changes-requested\", \"review-commented\", \"pr-comment\", \"inline-review-comment\", \"review-thread-resolved\", \"review-thread-unresolved\", \"pr-pushed\", \"pr-merged\", \"pr-closed\", \"ci-passed\", \"ci-failed\"]."
-                    },
-                    "pr": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0,
-                      "description": "Optional pull request number. When set, only events for that PR fire; a listener containing pr-merged or pr-closed deletes itself after that terminal wake finishes."
-                    },
-                    "userAllowlist": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "description": "Git usernames that may fire this listener (\"alice\", \"@bob\"). Absent or empty means anyone. Does not apply to ci-passed/ci-failed — CI is never user-gated."
-                    },
-                    "ciBranch": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "REQUIRED when repo-wide events includes ci-passed or ci-failed: the one branch whose settled checks fire them (\"main\"). Omit it when pr is set; that PR scopes CI instead."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "repo",
-                    "events"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "origin"
-                    },
-                    "repo": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "One concrete native Origin \"owner/name\" repo. Mirrored repos are rejected; no wildcards."
-                    },
-                    "events": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "enum": [
-                          "pr-opened",
-                          "pr-pushed",
-                          "pr-merged",
-                          "review-requested",
-                          "review-approved",
-                          "review-changes-requested",
-                          "review-commented",
-                          "pr-comment",
-                          "inline-review-comment",
-                          "review-thread-resolved",
-                          "review-thread-unresolved",
-                          "ci-passed",
-                          "ci-failed"
-                        ]
-                      },
-                      "minItems": 1,
-                      "description": "Which Origin events fire this routine. For a PR babysitter, use [\"review-requested\", \"review-approved\", \"review-changes-requested\", \"review-commented\", \"pr-comment\", \"inline-review-comment\", \"review-thread-resolved\", \"review-thread-unresolved\", \"pr-pushed\", \"pr-merged\", \"ci-passed\", \"ci-failed\"]."
-                    },
-                    "pr": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0,
-                      "description": "Optional Origin pull request number. Required for ci-passed/ci-failed; a listener containing pr-merged deletes itself after that merged wake finishes."
-                    },
-                    "userAllowlist": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "description": "Origin actor IDs in either user-facing or internal numeric form. PR/comment events gate the PR owner; review/reviewer/thread events require both actor and PR owner; CI ignores this list. Missing required identities fail closed."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "repo",
-                    "events"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "microsoftTeams"
-                    },
-                    "tenantId": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "The Microsoft Entra tenant ID."
-                    },
-                    "teamId": {
-                      "type": "string",
-                      "description": "One Microsoft Teams Graph API team ID. At least one of teamId or teamIds is required."
-                    },
-                    "teamIds": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Microsoft Teams Graph API team IDs. At least one of teamId or teamIds is required."
-                    },
-                    "channelIds": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Optional channel filter using Microsoft Teams Graph API channel IDs. Empty or absent means every channel."
-                    },
-                    "messageContains": {
-                      "type": "string",
-                      "description": "Optional message text filter. Empty or absent means any message."
-                    },
-                    "messageContainsIsRegex": {
-                      "type": "boolean",
-                      "description": "Whether messageContains is a regular expression."
-                    },
-                    "blockUnauthenticatedTeamsUsers": {
-                      "type": "boolean",
-                      "description": "When true, messages from unauthenticated Microsoft Teams users do not fire it."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "tenantId"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "linear"
-                    },
-                    "event": {
-                      "anyOf": [
-                        {
-                          "type": "object",
-                          "properties": {
-                            "case": {
-                              "type": "string",
-                              "const": "issueCreated",
-                              "description": "Fire when a Linear issue is created."
-                            }
-                          },
-                          "required": [
-                            "case"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "case": {
-                              "type": "string",
-                              "const": "statusChanged",
-                              "description": "Fire when a Linear issue changes status."
-                            },
-                            "statusIds": {
-                              "type": "array",
-                              "items": {
-                                "type": "string"
-                              },
-                              "description": "Optional narrowing filter using Linear status UUIDs. Empty or absent means any status."
-                            }
-                          },
-                          "required": [
-                            "case"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "case": {
-                              "type": "string",
-                              "const": "endOfCycle",
-                              "description": "Fire when a Linear cycle ends."
-                            },
-                            "cycleIds": {
-                              "type": "array",
-                              "items": {
-                                "type": "string"
-                              },
-                              "description": "Optional narrowing filter using Linear cycle UUIDs. Empty or absent means any cycle."
-                            }
-                          },
-                          "required": [
-                            "case"
-                          ]
-                        }
-                      ],
-                      "description": "Which Linear event fires this routine."
-                    },
-                    "projectIds": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Optional narrowing filter using Linear project UUIDs. Empty or absent means any project."
-                    },
-                    "teamIds": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Optional narrowing filter using Linear team UUIDs. Empty or absent means any team."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "event"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "sentry"
-                    },
-                    "event": {
-                      "type": "object",
-                      "properties": {
-                        "case": {
-                          "type": "string",
-                          "enum": [
-                            "issueCreated",
-                            "issueResolved",
-                            "issueAssigned",
-                            "issueArchived",
-                            "issueUnresolved",
-                            "issueAny"
-                          ],
-                          "description": "Which Sentry issue event fires the routine."
-                        }
-                      },
-                      "required": [
-                        "case"
-                      ],
-                      "description": "The Sentry event to watch."
-                    },
-                    "projectIds": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Optional project ID filter. Empty or absent means any Sentry project."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "event"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "pagerduty"
-                    },
-                    "event": {
-                      "type": "object",
-                      "properties": {
-                        "case": {
-                          "type": "string",
-                          "enum": [
-                            "incidentTriggered",
-                            "incidentAcknowledged",
-                            "incidentResolved",
-                            "incidentEscalated",
-                            "incidentAny"
-                          ],
-                          "description": "Which PagerDuty incident event fires the routine."
-                        }
-                      },
-                      "required": [
-                        "case"
-                      ],
-                      "description": "The PagerDuty event to watch."
-                    },
-                    "serviceIds": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Optional service ID filter. Empty or absent means any PagerDuty service."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "event"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "email"
-                    },
-                    "inbox": {
-                      "type": "string",
-                      "description": "One of the user's connected Email plugin inbox addresses (ListEmailInboxes)."
-                    },
-                    "from": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Optional sender addresses. Omit for any sender."
-                    },
-                    "requireAuthPass": {
-                      "type": "boolean",
-                      "description": "Default true; false also wakes on mail that failed SPF/DKIM/DMARC."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "inbox"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "webhook"
-                    }
-                  },
-                  "required": [
-                    "type"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "group"
-                    },
-                    "listeners": {
-                      "type": "array",
-                      "items": {
-                        "anyOf": [
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/0"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/1"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/2"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/3"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/4"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/5"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/6"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/7"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/8"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/9"
-                          }
-                        ]
-                      },
-                      "minItems": 1,
-                      "description": "Any one of these fires the same prompt. Origin may mix with cron, Slack, or GitHub, but not with server-only listener types."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "listeners"
-                  ]
-                }
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "slack",
+                "github",
+                "origin",
+                "microsoftTeams",
+                "linear",
+                "sentry",
+                "pagerduty",
+                "email",
+                "webhook",
+                "cron",
+                "group"
               ]
-            },
-            {
-              "type": "array",
-              "items": {
-                "$ref": "#/properties/trigger/anyOf/0/anyOf/10/properties/listeners/items"
-              },
-              "minItems": 1,
-              "description": "Bare-array shorthand for the group form: any one member fires the prompt."
             }
+          },
+          "required": [
+            "type"
           ],
-          "description": "What fires the routine. Prefer an event listener (Slack, GitHub, Origin, Microsoft Teams, Linear, Sentry, PagerDuty, email) over polling on a cron when the event you care about is one of the listed shapes; never pass both this and the schedule argument."
+          "additionalProperties": {},
+          "description": "An event listener instead of schedule. Fields depend on type; see Trigger shapes in the routines skill."
         },
         "enabled": {
           "type": "boolean",
-          "description": "On create, defaults to true. On update, omit to leave the current arming alone (use pause/resume to toggle)."
+          "description": "Defaults to true on create. On update, omit it and use pause or resume."
         }
       },
       "required": [
@@ -1425,7 +906,7 @@
   },
   "DraftExternalMessage": {
     "name": "DraftExternalMessage",
-    "description": "Draft an email or Slack message for the user to review as an editable composer card in the chat. This is how every email and Slack message leaves under the user's name, including when they ask you to send it (\"send X to Y\"): the card is where they confirm, and pressing Send is what sends. Use the connector's own send tools directly only when the user explicitly said not to draft or preview this message (\"just send it\"), or a standing permission they granted in this conversation or a saved send rule listed in your instructions covers it (see the system prompt's rules). You write the draft in the user's voice; they can edit the card's fields, then send or discard it. Sand sends it when they click Send, so NEVER follow this call with the connector's own send/draft tools for the same message unless the user tells you in chat to send this card, then send it unchanged. A connector create_draft is not this card: use it only to keep a draft in their mailbox (\"leave it in my drafts\") or carry a file attachment. You must also provide the routing the send will use, which the user cannot edit: providerIdentifier; for Slack, channelId (plus threadTs for a thread reply); for email, from, mailbox outlook for an Outlook connector (plus replyToMessageId for a thread reply). Sand verifies the routing (sending address, channel, reply target) through the connector before the card appears, shows those facts on it, and refuses the draft when verification fails or from is not the account's address. Drafting sends nothing and does not end your turn. If the user sends the card, you are resumed with what actually went out (edits included); if they discard it, with a short note. Treat a discard as a decline; don't redraft unasked.",
+    "description": "Draft an email or Slack message for the user to review as an editable composer card in the chat. This is how every email and Slack message leaves under the user's name, including when they ask you to send it (\"send X to Y\"): the card is where they confirm, and pressing Send is what sends. Use the connector's own send tools directly only when the user explicitly said not to draft or preview this message (\"just send it\"), or a standing permission they granted in this conversation or a saved send rule listed in your instructions covers it (see the system prompt's rules). You write the draft in the user's voice; they can edit the card's fields, then send or discard it. Sand sends it when they click Send, so NEVER follow this call with the connector's own send/draft tools for the same message unless the user tells you in chat to send this card, then send it unchanged. A connector create_draft is not this card: use it only to keep a draft in their mailbox (\"leave it in my drafts\") or carry a file attachment. You must also provide the routing the send will use, which the user cannot edit: providerIdentifier; for Slack, channelId (plus threadTs for a thread reply); for email, from, mailbox outlook for an Outlook connector (plus replyToMessageId for a thread reply). Sand verifies the routing (sending address, channel, reply target) before the card appears, shows it on the card, and refuses the draft when verification fails or from is not the account's address. Drafting sends nothing and does not end your turn. If the user sends the card, you are resumed with what actually went out (edits included); if they discard it, with a short note. Treat a discard as a decline; don't redraft unasked.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1474,7 +955,7 @@
             "type": "string",
             "minLength": 1
           },
-          "description": "Required when platform is email. The recipient(s), each a plain address like \"user@example.com\", not \"Name <user@example.com>\"."
+          "description": "Required for email. The recipient(s), each a plain address like \"user@example.com\", not \"Name <user@example.com>\"."
         },
         "cc": {
           "type": "array",
@@ -1486,19 +967,19 @@
         },
         "subject": {
           "type": "string",
-          "description": "Required when platform is email. The subject line."
+          "description": "Required for email. The subject line."
         },
         "replyToMessageId": {
           "type": "string",
-          "description": "Optional, email only. The provider's id of the message being replied to; this is the ONLY reply key the send uses, so set it whenever the draft replies within an existing thread and omit it for a fresh email."
+          "description": "Optional, email only. The provider's id of the message being replied to, the ONLY key a reply threads on; omit it for a fresh email."
         },
         "target": {
           "type": "string",
-          "description": "Required when platform is slack. Where the message goes, as the user reads it: a channel (\"#general\") or a person (\"Ariel Chen\")."
+          "description": "Required for Slack. Where the message goes, as the user reads it: a channel (\"#general\") or a person (\"Ariel Chen\")."
         },
         "channelId": {
           "type": "string",
-          "description": "Required when platform is slack. The channel or DM conversation id the send is addressed to (e.g. C0123456789), resolved with the connector's search tools, never guessed."
+          "description": "Required for Slack. The channel or DM conversation id the send is addressed to (e.g. C0123456789), resolved with the connector's search tools, never guessed."
         },
         "threadTs": {
           "type": "string",
@@ -2219,7 +1700,7 @@
   },
   "UpdateSkill": {
     "name": "UpdateSkill",
-    "description": "Save, rewrite, or delete one of your reusable skills. Skills are a shared library: every assistant can use a saved skill, and deleting one removes it for all of them. A skill has no trigger; a saved task that runs on a schedule is a routine. Managed and plugin skills can't be changed.",
+    "description": "Save, rewrite, or delete one of your reusable skills. A skill has no trigger; a saved task that runs on a schedule is a routine. Cursor-managed skills can't be changed.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2264,7 +1745,7 @@
         "name": {
           "type": "string",
           "minLength": 1,
-          "description": "Your name, the chat title the user sees in the sidebar and header."
+          "description": "Your name, the chat title the user sees."
         },
         "description": {
           "type": "string",
@@ -2272,7 +1753,7 @@
         },
         "title": {
           "type": "string",
-          "description": "Short role label beside your name (\"Designer\"), not the chat title; \"\" clears it."
+          "description": "Short role label beside your name (\"Designer\"); \"\" clears it."
         },
         "avatar_shape": {
           "type": "string",
@@ -2294,7 +1775,14 @@
             "arch",
             "cloud",
             "teardrop",
-            "leaf"
+            "leaf",
+            "square",
+            "sparkle",
+            "clover",
+            "flower",
+            "heart",
+            "house",
+            "star"
           ],
           "description": "Your default mark, hidden while a custom picture is installed."
         },
@@ -2312,23 +1800,26 @@
             "violet",
             "magenta",
             "gray"
-          ],
-          "description": "The color of your default mark."
+          ]
         },
         "hidden_from_sidebar": {
           "type": "boolean",
-          "description": "Hides your sidebar row without deleting your conversation or scheduled work; you stay reachable through Cmd-K and the Hidden chats manager."
+          "description": "Hides your sidebar row; you stay reachable through Cmd-K and Hidden chats."
         },
         "notify_on_updates": {
           "type": "boolean",
           "description": "The \"Notify me about this assistant\" toggle."
+        },
+        "drafting_disabled": {
+          "type": "boolean",
+          "description": "Pass false to turn draft cards back on when the user asks. You can't turn them off; tell the user to click \"Disable drafts for this Bot\" on a draft card. Owner only."
         }
       }
     }
   },
   "UpdateAvatar": {
     "name": "UpdateAvatar",
-    "description": "Set or clear your profile picture. Write or download the image first; clear restores the default picture.",
+    "description": "Set or clear your profile picture. Write or download the image first.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2342,7 +1833,7 @@
         "path": {
           "type": "string",
           "minLength": 1,
-          "description": "set only. Absolute path to an image you already have (write or download it first, with Shell on your own computer or Shell using the user's computer's machineId, then install it here). A path on your box under /workspace is fine — no CopyFromBox needed. png/jpg/webp/gif/svg under 5 MB."
+          "description": "set only. Absolute path to a png/jpg/webp/gif/svg under 5 MB, on your box (under /workspace is fine) or the user's computer."
         }
       },
       "required": [
@@ -2352,14 +1843,13 @@
   },
   "DisconnectChannel": {
     "name": "DisconnectChannel",
-    "description": "Disconnect one of your channels; the connector closes the live connection within a few seconds.",
+    "description": "Disconnect one of your channels; the live connection closes within seconds.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "platform": {
           "type": "string",
-          "minLength": 1,
-          "description": "The platform to disconnect."
+          "minLength": 1
         }
       },
       "required": [
@@ -3462,21 +2952,13 @@
   },
   "ReadTranscript": {
     "name": "ReadTranscript",
-    "description": "Read a full transcript: every user message, your replies, your reasoning, and each tool call with its input and result, one JSON object per line, oldest first. With no id it reads this conversation, including what was compacted out of your context, so use it to explain what you did in an earlier turn or routine run. Pass subagent_id for a Task subagent you dispatched, agent_id for another agent the same user owns, or session_id for another of your conversations. Returns the newest messages first; page back with `before`.",
+    "description": "Read a full transcript: every user message, your replies, your reasoning, and each tool call with its input and result, one JSON object per line, oldest first. With no in it reads this conversation, including what was compacted out of your context, so use it to explain what you did in an earlier turn or routine run. Pass in=<id> for a Task subagent you dispatched, another agent the same user owns, or another of your conversations. Returns the newest messages first; page back with `before`.",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "session_id": {
+        "in": {
           "type": "string",
-          "description": "Read another of your conversations (a session_id from the other active conversations list)."
-        },
-        "agent_id": {
-          "type": "string",
-          "description": "Read another agent owned by the same user (an agent id from your agent directory)."
-        },
-        "subagent_id": {
-          "type": "string",
-          "description": "Read a background subagent you dispatched with Task, running or finished (the Agent ID from the Task result)."
+          "description": "Which transcript to read: \"this\" (the default) for this conversation, or the id of another of your conversations (a session_id from the other active conversations list), of another agent the same user owns (from your agent directory), or of a background subagent you dispatched with Task (the Agent ID from its result)."
         },
         "limit": {
           "type": "integer",

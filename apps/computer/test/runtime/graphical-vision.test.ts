@@ -93,7 +93,7 @@ test("a Computer screenshot reaches the model request through the real Pi tool l
       runId: crypto.randomUUID(), turnId: crypto.randomUUID(),
       modelRef: { providerId: model.provider, modelId: model.id }, reasoning: "off", cwd: root,
       instructions: "Inspect the native desktop", subagentType: "computerUse", requestSource: "subagent",
-      userInfoMessage: null, discoveredDynamicTools: new Set(), pluginAbortController: new AbortController(),
+      userInfoMessage: null, pluginAbortController: new AbortController(),
       queue: { push() {} },
     };
     const manager = SessionManager.create(root, join(root, "sessions"), { id: active.contextSessionId });

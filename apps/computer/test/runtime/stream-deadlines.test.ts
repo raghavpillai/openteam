@@ -198,3 +198,24 @@ test("Pi retries a stalled first call and the turn goes on", async () => {
     await rm(root, { recursive: true, force: true });
   }
 }, 20_000);
+
+test("a finished model call leaves no abort listener on the run's signal", async () => {
+  const clock = manualClock();
+  const deadlines = streamDeadlines(clock.timers);
+  const provider = scripted();
+  const wrapped = deadlines.wrap(provider.stream);
+  const run = new AbortController();
+  const listeners = new Set<unknown>();
+  const add = run.signal.addEventListener.bind(run.signal);
+  const remove = run.signal.removeEventListener.bind(run.signal);
+  run.signal.addEventListener = ((type: string, listener: any, options?: any) => { if (type === "abort") listeners.add(listener); add(type, listener, options); }) as any;
+  run.signal.removeEventListener = ((type: string, listener: any, options?: any) => { if (type === "abort") listeners.delete(listener); remove(type, listener, options); }) as any;
+  deadlines.observe({ type: "agent_start" });
+  for (let call = 0; call < 3; call++) {
+    const done = drain(wrapped(model, {} as any, { signal: run.signal }) as any);
+    await Bun.sleep(0);
+    provider.streams[call]!.push({ type: "done", reason: "stop", message: message([{ type: "text", text: "ok" }]) });
+    await done;
+  }
+  expect(listeners.size).toBe(0);
+});

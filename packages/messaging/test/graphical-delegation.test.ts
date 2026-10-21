@@ -154,7 +154,8 @@ describe("main-agent graphical delegation instructions", () => {
       result: "Release checks passed.",
     });
     expect(wake).toContain("[A background task just completed]");
-    expect(wake).toContain('Background task "Check release" (executor) finished:');
+    expect(wake).toContain('Background task "Check release" (executor) finished:\nRelease checks passed.\n\nPick the work back up:');
+    expect(wake).not.toContain("distinguish eventual completion");
     expect(wake).toContain("they cannot see the background task");
     expect(wake).toContain("tell them with a SendToUser");
     expect(wake).not.toContain("user_visible_high_level_summary");

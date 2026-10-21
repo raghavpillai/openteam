@@ -85,11 +85,16 @@ export const resizeImageForModel = async (
   }
   const image = await Jimp.read(bytes);
   const originalMime = image.mime ?? "image/png";
-  const mimeType = ["image/png", "image/jpeg", "image/gif"].includes(originalMime) ? originalMime : "image/png";
+  // As in the reference, everything but PNG and JPEG (GIF, BMP, TIFF) goes to the model as PNG.
+  const mimeType = originalMime === "image/jpeg" ? "image/jpeg" : "image/png";
   // Pointer tools consume coordinates in the screenshot's original pixel space.
   // Resizing only the model input silently moves every subsequent click.
   if (options.preserveDimensions) {
-    if (bytes.length <= MODEL_IMAGE_BYTE_TARGET) return { data: bytes, mimeType };
+    if (bytes.length <= MODEL_IMAGE_BYTE_TARGET && mimeType === originalMime) return { data: bytes, mimeType };
+    if (mimeType !== originalMime) {
+      const data = await image.getBuffer("image/png");
+      if (data.length <= MODEL_IMAGE_BYTE_TARGET) return { data, mimeType };
+    }
     for (const quality of [85, 65, 45, 25]) {
       const data = await image.getBuffer("image/jpeg", { quality });
       if (data.length <= MODEL_IMAGE_BYTE_TARGET) return { data, mimeType: "image/jpeg" };

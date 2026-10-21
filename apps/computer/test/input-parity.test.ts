@@ -113,6 +113,20 @@ describe("GrokBot input parity at the runtime boundary", () => {
     ).toThrow();
   });
 
+  test("sends GIF images to the model as PNG, on both the upload and tool paths", async () => {
+    // A 1x1 GIF89a.
+    const gif = Buffer.from("R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs=", "base64");
+    const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    for (const result of [await resizeImageForModel(gif), await resizeImageForModel(gif, { preserveDimensions: true })]) {
+      expect(result.mimeType).toBe("image/png");
+      expect(result.data.subarray(0, 4)).toEqual(pngSignature);
+      expect(dimensions(result.data)).toEqual([1, 1]);
+    }
+    const user = await prepareUserImages([{ type: "image", data: gif.toString("base64"), mimeType: "image/gif" }]);
+    expect(user.images[0]?.mimeType).toBe("image/png");
+    expect(await boundToolImage(gif, "image/gif")).toMatchObject({ type: "image", mimeType: "image/png" });
+  });
+
   test("reports malformed tool and user images without forwarding invalid bytes", async () => {
     const invalid = Buffer.from("not an image");
     const tool = await boundToolImage(invalid, "image/png");

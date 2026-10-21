@@ -723,7 +723,7 @@ export class ComputerRuntime {
         keepRecentTokens: 1,
       },
       retry: { enabled: true, maxRetries: 3 },
-      steeringMode: "one-at-a-time",
+      steeringMode: "all",
       followUpMode: "one-at-a-time",
     });
     const resourceLoader = new DefaultResourceLoader({

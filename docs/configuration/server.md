@@ -9,7 +9,7 @@ Guided setup covers most installations. This page shows where to change each set
 | Model provider | **Settings → Model** on desktop or iPhone, or `openteam model` (sign in first with `openteam provider login`) |
 | Model and reasoning level | **Settings → Model** on desktop or iPhone, or `openteam model` |
 | Web search and page fetching | **Settings → Providers** on desktop or iPhone |
-| Voice transcription | Desktop **Settings → Server**, or `openteam model` |
+| Voice transcription | **Settings → Voice notes** on desktop or iPhone, or `openteam model` |
 | Connection mode, including Tailscale HTTPS | `openteam setup` |
 | Tailscale HTTPS enable, status, disable | `openteam tailscale` or desktop Settings → Server → Remote access |
 | API port, time zone, and tasks at once | `openteam setup --advanced` |

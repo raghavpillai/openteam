@@ -19,11 +19,11 @@ Check names, numbers, and instructions in the transcript before sending, especia
 
 Voice notes need a transcription service. Set it up once on the server and it works in all your apps.
 
-1. In the desktop app, open **Settings → Server → Transcription**. On iPhone, open **Settings → Voice notes**. Or run `openteam model` on the server host and select the **Transcription** tab.
+1. On desktop or iPhone, open **Settings → Voice notes**. Or run `openteam model` on the server host and select the **Transcription** tab.
 2. Choose **OpenAI**, **Deepgram**, or **Custom / OpenAI-compatible**.
 3. For OpenAI or Deepgram, enter that service's API key; the base URL and model are filled in (`gpt-transcribe` for OpenAI, `nova-3` for Deepgram). For another service, enter its base URL, model, and API key if it needs one. Leave **Language** blank to detect it automatically. Deepgram also accepts `multi` for supported languages mixed within one recording.
 4. Turn on **Voice notes**.
-5. Choose **Save transcription**, then **Test connection**. In `openteam model`, the button is **Test saved connection**.
+5. Choose **Save**, then **Test connection**. In `openteam model`, use **Save transcription** and **Test saved connection**.
 6. Record a short note to check that it works.
 
 Transcription uses its own API key. A ChatGPT or Claude sign-in for chat doesn't cover it. Changing the default model for new selections does not migrate an existing saved model.
@@ -42,4 +42,4 @@ The bundled local MLX / Parakeet service is configured under **Custom / OpenAI-c
 - **The microphone button is unavailable:** transcription is turned off or not set up on the server.
 - **Recording doesn't start:** check that OpenTeam has microphone permission in your device's settings.
 - **No speech was detected:** check the selected microphone, connection, mute control, and system input volume. Use your system’s sound settings to check whether the input meter moves while you speak. An allowed permission status does not verify that the microphone captures sound.
-- **Transcription fails:** choose **Test connection** in **Settings → Server → Transcription** (or **Test saved connection** in `openteam model`), then try a short recording. If a note fails, retry or discard it; it wasn't sent.
+- **Transcription fails:** choose **Test connection** in **Settings → Voice notes** (or **Test saved connection** in `openteam model`), then try a short recording. If a note fails, retry or discard it; it wasn't sent.

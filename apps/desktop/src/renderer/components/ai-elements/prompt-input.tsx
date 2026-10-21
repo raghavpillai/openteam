@@ -992,12 +992,12 @@ export function PromptInput({
                         aria-label={
                           voice.available
                             ? "Record voice note"
-                            : "Set up transcription in Server settings to use voice notes"
+                            : "Set up transcription in Voice notes settings to use voice notes"
                         }
                         title={
                           voice.available
                             ? `Click or hold ${/Mac/.test(navigator.platform) ? "⌘D" : "Ctrl+D"} to dictate`
-                            : "Set up transcription in Server settings"
+                            : "Set up transcription in Voice notes settings"
                         }
                         className={VOICE_ACTION_CLASS}
                         disabled={!voice.available || blocked}
@@ -1016,11 +1016,11 @@ export function PromptInput({
                           ? "Send message"
                           : voice.available
                             ? "Record voice note"
-                            : "Set up transcription in Server settings to use voice notes"
+                            : "Set up transcription in Voice notes settings to use voice notes"
                       }
                       title={
                         !hasPayload && !voice.available
-                          ? "Set up transcription in Server settings"
+                          ? "Set up transcription in Voice notes settings"
                           : !hasPayload
                             ? `Click or hold ${/Mac/.test(navigator.platform) ? "⌘D" : "Ctrl+D"} to dictate`
                             : undefined

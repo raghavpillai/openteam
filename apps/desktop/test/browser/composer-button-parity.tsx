@@ -5,7 +5,7 @@ import "../../src/renderer/styles.css";
 
 const root = createRoot(document.getElementById("root")!);
 const wait = () => new Promise((resolve) => setTimeout(resolve, 250));
-const setupLabel = "Set up transcription in Server settings to use voice notes";
+const setupLabel = "Set up transcription in Voice notes settings to use voice notes";
 const theme = new URLSearchParams(location.search).get("theme") === "dark" ? "dark" : "light";
 function draw(theme: "light" | "dark", configured: boolean) {
   document.documentElement.dataset.theme = theme;

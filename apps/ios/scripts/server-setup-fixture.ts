@@ -195,7 +195,14 @@ export class ServerSetupFixture {
             : apiKey === null
               ? false
               : same && this.voice.hasApiKey;
-        this.voice = { ...settings, hasApiKey, configured: settings.enabled && hasApiKey };
+        this.voice = {
+          ...settings,
+          hasApiKey,
+          configured:
+            settings.enabled &&
+            Boolean(settings.baseUrl && settings.model) &&
+            (settings.provider === "openai-compatible" || hasApiKey),
+        };
         return Response.json(this.voice);
       }
       return Response.json({ message: "Use PUT to save voice settings." }, { status: 405 });

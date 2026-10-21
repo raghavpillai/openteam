@@ -98,7 +98,7 @@ window.fetch = (input, init) => {
   await pause(2100);
   await render();
   assert(
-    button("Set up transcription in Server settings to use voice notes")?.disabled,
+    button("Set up transcription in Voice notes settings to use voice notes")?.disabled,
     "Unconfigured microphone is enabled"
   );
   reports.push("server runtime disables the microphone when transcription is off");

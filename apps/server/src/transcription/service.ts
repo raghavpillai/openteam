@@ -105,13 +105,13 @@ const providerFailure = (status: number) =>
     status === 429 ? 429 : 502,
     "transcription_provider_error",
     status === 401 || status === 403
-      ? "The transcription provider rejected the API key. Check Server settings."
+      ? "The transcription provider rejected the API key. Check Voice notes settings."
       : status === 404
-        ? "The transcription endpoint or model was not found. Check the base URL and model in Server settings."
+        ? "The transcription endpoint or model was not found. Check the base URL and model in Voice notes settings."
         : status === 429
           ? "The transcription provider is busy or its quota has been reached. Try again later."
           : status === 400 || status === 415 || status === 422
-            ? "The transcription provider rejected this recording or model. Check its supported audio formats and Server settings."
+            ? "The transcription provider rejected this recording or model. Check its supported audio formats and Voice notes settings."
             : `The transcription provider failed (HTTP ${status}). Try again later.`
   );
 
@@ -170,14 +170,14 @@ export class TranscriptionService {
         level: "warn",
         status: "missing",
         detail:
-          "Not configured; voice notes are disabled. Set up Transcription in Server settings.",
+          "Not configured; voice notes are disabled. Set up transcription in Voice notes settings.",
       };
     if (status === "invalid")
       return {
         level: "fail",
         status: "invalid",
         detail:
-          "Saved transcription settings or credentials are invalid. Save them again in Server settings.",
+          "Saved transcription settings or credentials are invalid. Save them again in Voice notes settings.",
       };
     try {
       const settings = await this.store.credentials();
@@ -357,7 +357,7 @@ export class TranscriptionService {
       throw new ApiError(
         502,
         "transcription_unavailable",
-        "Transcription failed. Check the provider connection in Server settings and try again."
+        "Transcription failed. Check the provider connection in Voice notes settings and try again."
       );
     } finally {
       this.active--;

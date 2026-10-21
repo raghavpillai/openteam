@@ -34,7 +34,7 @@ struct VoiceNotesSettingsView: View {
             .accessibilityIdentifier("voice-enabled")
         } footer: {
           SettingsFooter(
-            "Record a message, then let your server transcribe it. Applies to desktop and iPhone.")
+            "Turn recordings into text you can review before sending. Shared by all apps connected to this server.")
         }
         Section {
           HStack(spacing: 12) {
@@ -54,18 +54,17 @@ struct VoiceNotesSettingsView: View {
                 })
             ) {
               ForEach(TranscriptionSettings.Provider.allCases) { Text($0.title).tag($0) }
-            }.pickerStyle(.segmented).accessibilityIdentifier("voice-provider")
+            }.pickerStyle(.menu).accessibilityIdentifier("voice-provider")
           }
           .animation(.snappy, value: draft.settings.provider)
-          LabeledContent("Base URL") {
-            TextField("http://audio-server:8000/v1", text: $draft.settings.baseUrl)
-              .multilineTextAlignment(.trailing).keyboardType(.URL)
-              .textInputAutocapitalization(.never).autocorrectionDisabled()
-              .disabled(draft.settings.provider != .compatible)
-              .foregroundStyle(
-                draft.settings.provider == .compatible ? NativePalette.text : NativePalette.muted)
-              .focused($focused, equals: .baseUrl)
-              .accessibilityIdentifier("voice-base-url")
+          if draft.settings.provider == .compatible {
+            LabeledContent("Base URL") {
+              TextField("http://audio-server:8000/v1", text: $draft.settings.baseUrl)
+                .multilineTextAlignment(.trailing).keyboardType(.URL)
+                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                .focused($focused, equals: .baseUrl)
+                .accessibilityIdentifier("voice-base-url")
+            }
           }
           LabeledContent("Model") {
             TextField("Model ID", text: $draft.settings.model)
@@ -75,9 +74,12 @@ struct VoiceNotesSettingsView: View {
               .accessibilityIdentifier("voice-model")
           }
         } header: {
-          SettingsHeader("Service")
+          SettingsHeader("Transcription service")
         } footer: {
-          SettingsFooter("The address your OpenTeam server uses to reach the audio service.")
+          SettingsFooter(
+            draft.settings.provider == .compatible
+              ? "Use an OpenAI-compatible audio service reachable from your OpenTeam server."
+              : "Choose the transcription model for recorded messages.")
         }
         Section {
           SecureField(hasSavedKey ? "Key saved" : "API key", text: $draft.apiKey)
@@ -96,7 +98,7 @@ struct VoiceNotesSettingsView: View {
           SettingsFooter(
             hasSavedKey
               ? "A key is saved. Leave blank to keep it."
-              : "Required for OpenAI and Deepgram; optional for private services.")
+              : "Separate from chat sign-in. Keys stay on your server.")
         }
         Section {
           TextField("Automatic", text: $draft.settings.language)
@@ -152,8 +154,15 @@ struct VoiceNotesSettingsView: View {
         }
       }
     }
+    .disabled(operation.busy || checking)
     .navigationTitle("Voice notes").navigationBarTitleDisplayMode(.inline)
     .scrollDismissesKeyboard(.interactively)
+    .onChange(of: draft.apiKey) { _, value in
+      if !value.isEmpty { draft.removeKey = false }
+    }
+    .onChange(of: draft.removeKey) { _, value in
+      if value { draft.apiKey = "" }
+    }
     .onChange(of: draft) { _, _ in
       check = nil
       operation.success = nil

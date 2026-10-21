@@ -240,10 +240,10 @@ const lazyBudgets: Record<string, number> = {
   skillImport: 100_000,
   search: 100_000,
   groupAvatarEditor: 10_000,
-  // Main: 40,967 with auto-review settings; shared Model navigation measures 42,086.
-  settingsInitial: 42_500,
-  // Sharing the searchable picker changes the common Radix chunk (10,025 bytes).
-  settingsShell: 10_200,
+  // Model and Voice notes navigation with the shared Radix chunks: 42,789 bytes.
+  settingsInitial: 43_000,
+  // The Voice notes entry and microphone icon bring the settings shell to 10,728.
+  settingsShell: 10_900,
   settingsAbout: 10_000,
   // Main already measures 33,930 with auto-review rules.
   settingsGeneral: 34_000,
@@ -253,8 +253,9 @@ const lazyBudgets: Record<string, number> = {
   settingsModel: 54_000,
   // Activity and Remote access stay in Server; measured 10,389 after extraction.
   settingsServer: 11_000,
-  // Shares the select menu with Model. Measured October closure: 33,236.
-  settingsTranscription: 34_000,
+  // Dedicated Voice notes page: load retry, provider marks, busy indicators and
+  // responsive fields. Still lazy; its measured closure is 40,488 bytes.
+  settingsTranscription: 40_800,
   // Search and Fetch pages with inlined 40 px WebP logos (~10 KB of the total).
   settingsProviders: 30_000,
   // Shares lucide's triangle-alert chunk with Providers. The signed-out

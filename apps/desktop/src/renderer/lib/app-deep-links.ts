@@ -3,7 +3,7 @@ import { APP_SETTINGS_ANCHORS } from "@openteam/contracts/app-deep-links";
 export const SETTINGS_ANCHORS = APP_SETTINGS_ANCHORS;
 
 export type SettingsAnchor = (typeof SETTINGS_ANCHORS)[number];
-export type SettingsView = "general" | "computer" | "model" | "server" | "providers" | "updates";
+export type SettingsView = "general" | "computer" | "model" | "voice" | "server" | "providers" | "updates";
 export const OPENTEAM_DEEP_LINK_EVENT = "openteam:deep-link";
 
 const settingsAnchorSet = new Set<string>(SETTINGS_ANCHORS);

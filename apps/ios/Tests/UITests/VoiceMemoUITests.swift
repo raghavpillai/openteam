@@ -36,12 +36,12 @@ import XCTest
     add(image)
   }
 
-  private func launch(appearance: String = "dark") async throws -> XCUIApplication {
+  private func launch(appearance: String = "dark", arguments: [String] = []) async throws -> XCUIApplication {
     continueAfterFailure = false
     try await fixture("/__qa/reset")
     let app = XCUIApplication()
     app.launchArguments = ["--ui-testing", "--server", base, "--appearance", appearance,
-      "--open-channel", "channel-research", "--qa-synthetic-voice", "--haptic-audit", "--qa-session", UUID().uuidString]
+      "--open-channel", "channel-research", "--qa-synthetic-voice", "--haptic-audit", "--qa-session", UUID().uuidString] + arguments
     app.launch()
     XCTAssertTrue(app.buttons["chat-back"].waitForExistence(timeout: 20))
     let loading = app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
@@ -95,6 +95,11 @@ import XCTest
     let send = app.buttons["Send voice note"]
     XCTAssertTrue(send.waitForExistence(timeout: 3), "A tap starts a hands-free recording")
     XCTAssertTrue(app.buttons["Discard recording"].exists)
+    let bars = app.descendants(matching: .any).matching(identifier: "voice-memo-bar")
+    XCTAssertEqual(bars.count, 1, "Recording must have one expanded message bar")
+    XCTAssertEqual(bars.firstMatch.frame.height, 64, accuracy: 1)
+    XCTAssertEqual(send.frame.midY, app.buttons["Discard recording"].frame.midY, accuracy: 1,
+      "Morphed actions must stay centred in the expanded bar")
     XCTAssertEqual(app.descendants(matching: .any)["voice-clock"].label, "Recording voice note")
     capture("tap-locked", app)
     app.buttons["Discard recording"].tap()
@@ -200,6 +205,39 @@ import XCTest
     try await Task.sleep(for: .seconds(1.2))
     app.buttons["Send voice note"].tap()
     try await waitForMessage(app, "Draft intro. " + transcript)
+  }
+
+  func testReducedMotionRecordingSendsAndRestoresComposer() async throws {
+    let app = try await launch(appearance: "light", arguments: ["--qa-reduce-motion"])
+    mic(app).tap()
+    XCTAssertTrue(app.buttons["Send voice note"].waitForExistence(timeout: 5))
+    let bars = app.descendants(matching: .any).matching(identifier: "voice-memo-bar")
+    XCTAssertEqual(bars.count, 1)
+    XCTAssertEqual(bars.firstMatch.frame.height, 64, accuracy: 1)
+    app.buttons["Send voice note"].tap()
+    try await waitForMessage(app, transcript)
+    XCTAssertTrue(mic(app).waitForExistence(timeout: 5))
+  }
+
+  func testMultilineDraftSurvivesRecordingAndDiscard() async throws {
+    let app = try await launch(appearance: "light")
+    let field = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    field.tap()
+    field.typeText("Keep the first line.\nAnd the second line.\nAnd the third line.")
+    let value = field.value as? String
+    app.buttons["attach-button"].tap()
+    XCTAssertTrue(app.buttons["Record voice note"].waitForExistence(timeout: 5))
+    app.buttons["Record voice note"].tap()
+    XCTAssertTrue(app.buttons["Discard recording"].waitForExistence(timeout: 5))
+    let bars = app.descendants(matching: .any).matching(identifier: "voice-memo-bar")
+    XCTAssertEqual(bars.count, 1)
+    XCTAssertEqual(bars.firstMatch.frame.height, 64, accuracy: 1)
+    app.buttons["Discard recording"].tap()
+    XCTAssertTrue(app.buttons["send-button"].waitForExistence(timeout: 5))
+    XCTAssertEqual(field.value as? String, value, "The complete multiline draft must survive")
+    XCTAssertTrue(field.isHittable, "The restored draft must be visible and usable")
+    let count = try await uploads()
+    XCTAssertEqual(count, 0)
   }
 
   func testFailedTranscriptionKeepsTheRecordingForRetry() async throws {

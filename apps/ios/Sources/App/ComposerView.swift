@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 struct ComposerView: View {
   @Environment(AppStore.self) private var store
   @Environment(\.scenePhase) private var scenePhase
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @VoiceMotionPreference private var reduceMotion
   let channel: Channel
   var draftKey: String? = nil
   var threadRootID: String? = nil
@@ -188,14 +188,12 @@ struct ComposerView: View {
       NativeAttachmentMenu(
         enabled: !uploading,
         attachmentsEnabled: attachmentCount < 6,
-        color: NativePalette.text,
+        // SwiftUI draws the persistent + → trash symbol below. UIKit keeps the menu target.
+        color: .clear,
         photos: { photoLibrary = true }, files: { files = true }, camera: { camera = true },
         voice: (!draft.text.isEmpty || attachmentCount > 0) && transcriptionConfigured
           ? { startLockedRecording() } : nil
-      ).frame(width: 44, height: 44).nativeChatGlass(regularInLightMode: true)
-        // While recording, the gooey surface below draws the + merging into the bar.
-        .opacity(bar ? 0 : 1)
-        .animation(glassFade(bar), value: bar)
+      ).frame(width: 44, height: 44)
         .allowsHitTesting(!bar).accessibilityHidden(bar)
       VStack(spacing: 0) {
         if !focusedReply, let reply = draft.replyTo {
@@ -291,30 +289,29 @@ struct ComposerView: View {
       }
       // The draft stays mounted under the recording bar, so cancelling restores it untouched.
       .opacity(bar ? 0 : 1)
-      // The draft clears out before the surface merges and returns once it has split again.
+      // Reveal the draft as the glass opens; the shared mask keeps every line
+      // inside it instead of leaving an empty expanded capsule during a delay.
       .animation(reduceMotion ? .easeInOut(duration: 0.2)
-        : bar ? .easeOut(duration: 0.1) : .easeIn(duration: 0.18).delay(0.32), value: bar)
+        : bar ? .easeOut(duration: 0.1) : .easeIn(duration: 0.18), value: bar)
       .allowsHitTesting(!bar).accessibilityHidden(bar)
       .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
         if !memo.showsBar { pillHeight = height }
       }
+      .clipShape(VoiceComposerShape(progress: bar ? 1 : 0, pillHeight: Double(pillHeight), contentInset: 54))
       .frame(height: bar ? VoiceBar.height : nil, alignment: .bottom)
-      .nativeChatGlass(radius: 22, regularInLightMode: true).foregroundStyle(NativePalette.text)
-      .opacity(bar ? 0 : 1)
-      .animation(glassFade(bar), value: bar)
+      .foregroundStyle(NativePalette.text)
     }
     .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { memo.barWidth = Double($0) }
-    // The + and the pill merge (gooey) into one bar, then split back on the way out.
+    // One persistent glass effect owns the message capsule in every phase. Fading
+    // between separate glass effects leaves two refractive rims, even at rest.
     .background(alignment: .bottom) {
-      VoiceBarSurface(progress: reduceMotion || bar ? 1 : 0, pillHeight: Double(pillHeight))
-        // Merging: a soft spring that overshoots, so the bar stretches and settles like jelly.
-        .animation(reduceMotion ? nil : bar ? .spring(response: 0.75, dampingFraction: 0.6).delay(0.05)
-          : .spring(response: 0.5, dampingFraction: 0.74), value: bar)
-        .opacity(bar ? 1 : 0)
-        .animation(reduceMotion ? .easeInOut(duration: 0.2)
-          : bar ? .linear(duration: 0.06) : .easeOut(duration: 0.14).delay(0.36), value: bar)
+      VoiceBarSurface(progress: bar ? 1 : 0, pillHeight: Double(pillHeight))
     }
-    .overlay(alignment: .bottom) { VoiceBarContent(memo: memo) }
+    .overlay(alignment: .bottom) {
+      VoiceBarContent(memo: memo)
+        .clipShape(VoiceComposerShape(progress: bar ? 1 : 0, pillHeight: Double(pillHeight)))
+    }
+    .overlay(alignment: .bottomLeading) { VoiceAttachmentMorph(memo: memo) }
     .overlay(alignment: .top) {
       ZStack {
         if memo.phase == .holding {
@@ -337,7 +334,7 @@ struct ComposerView: View {
               : .opacity.combined(with: .scale(scale: 0.6, anchor: .bottom)).combined(with: .offset(y: 10)))
         }
       }
-      .animation(.spring(response: 0.3, dampingFraction: 0.8), value: memo.lockFlash)
+      .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: memo.lockFlash)
     }
     .overlay(alignment: .bottomTrailing) {
       VoiceKnob(memo: memo, available: !hasContent, enabled: transcriptionConfigured && !uploading)
@@ -357,10 +354,6 @@ struct ComposerView: View {
     // Voice phases change without withAnimation (see VoiceMemoController.transition);
     // the whole composer morphs here instead.
     .animation(VoiceMemoController.motion(reduceMotion: reduceMotion), value: memo.phase)
-  }
-  /// The idle glass hands over to the gooey surface at once and returns after it has split.
-  private func glassFade(_ bar: Bool) -> Animation {
-    reduceMotion ? .easeInOut(duration: 0.2) : bar ? .linear(duration: 0.08) : .easeIn(duration: 0.14).delay(0.3)
   }
   private var focusPadding: some View {
     Color.clear.contentShape(Rectangle()).onTapGesture { focused = true }
@@ -463,7 +456,7 @@ struct ComposerView: View {
 /// The reference dims the entire send pill during a press, including its fill.
 /// Keeping that feedback on the label avoids fading the surrounding glass.
 private struct ComposerSendStyle: ButtonStyle {
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @VoiceMotionPreference private var reduceMotion
   func makeBody(configuration: Configuration) -> some View {
     configuration.label.opacity(configuration.isPressed ? 0.75 : 1)
       .animation(

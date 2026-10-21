@@ -8,14 +8,18 @@ import {
   firstCronSchedule,
   parseStoredTrigger,
   triggerIdentity,
+  unboundedRepoListenerRefusal,
 } from "./automation-trigger";
 import { uniqueSlug } from "./file-state";
 import { type AutomationChangedAction, appendAgentTimelineEvent } from "./timeline-events";
 import { timestampUserTurn } from "./timestamps";
 
 const MIN_INTERVAL_SECONDS = 5 * 60;
-const MAX_INTERVAL_SECONDS = 30 * 24 * 60 * 60;
+// The interval is stored in a 32-bit column.
+const MAX_INTERVAL_SECONDS = 2_147_483_647;
 const MAX_ROUTINES_PER_OWNER = 50;
+const TOO_FREQUENT = () =>
+  new ApiError(400, "routine_schedule_too_frequent", "routine schedules must be at least 5 minutes apart.");
 
 export type RoutineOwner = { kind: "bot"; id: string } | { kind: "group"; id: string };
 
@@ -361,6 +365,7 @@ export const normalizeRoutineSchedule = (
   try {
     return parseRoutineSchedule(original, installationZone, options);
   } catch (error) {
+    if (error instanceof ApiError) throw error;
     // Only schedule parsing is a client error; persistence and execution failures
     // must retain their original error classification.
     throw new ApiError(
@@ -382,17 +387,9 @@ const parseRoutineSchedule = (
     const intervalMs = durationMilliseconds(interval[1]);
     const phaseMs = interval[2] ? durationMilliseconds(interval[2], true) : 0;
     const minimumMs = options.enforceMinimum === false ? 1_000 : MIN_INTERVAL_SECONDS * 1_000;
-    if (
-      intervalMs === null ||
-      phaseMs === null ||
-      phaseMs >= intervalMs ||
-      intervalMs < minimumMs ||
-      intervalMs > MAX_INTERVAL_SECONDS * 1_000
-    ) {
-      throw new Error(
-        `Routine intervals must be between ${minimumMs === 1_000 ? "1 second" : "5 minutes"} and 30 days and use a phase shorter than the interval`
-      );
-    }
+    if (intervalMs === null || phaseMs === null || phaseMs >= intervalMs || intervalMs > MAX_INTERVAL_SECONDS * 1_000)
+      throw new Error("Schedule must be a valid cron expression or @every interval.");
+    if (intervalMs < minimumMs) throw TOO_FREQUENT();
     const intervalSeconds = Math.ceil(intervalMs / 1_000);
     return {
       scheduleText,
@@ -426,7 +423,7 @@ const parseRoutineSchedule = (
       return previous !== undefined && time - previous < MIN_INTERVAL_SECONDS * 1_000;
     })
   ) {
-    throw new Error("Routine cron schedules may not run more often than every 5 minutes");
+    throw TOO_FREQUENT();
   }
   return {
     scheduleText,
@@ -466,12 +463,16 @@ export const normalizeRoutineMutationTrigger = (
       );
     }
   };
+  if (input.schedule !== undefined && input.trigger !== undefined)
+    throw new ApiError(400, "invalid_routine_trigger", "pass either 'schedule' (a cron routine) or 'trigger' (an event-driven one), never both.");
   const trigger =
     input.schedule !== undefined
       ? { type: "cron", schedule: required(input.schedule, "schedule") }
       : input.trigger
         ? parseTrigger(input.trigger)
         : { type: "cron", schedule: required(input.schedule, "schedule") };
+  const unbounded = unboundedRepoListenerRefusal(trigger);
+  if (unbounded) throw new ApiError(400, "invalid_routine_trigger", unbounded);
 
   const cronSchedule = firstCronSchedule(trigger);
   if (cronSchedule !== null) {

@@ -190,6 +190,18 @@ databaseTest("a routine run reads and changes only its own routine, and may paus
     );
     expect(await call({ action: "create", name: "Allowed", prompt: "x", schedule: "0 9 * * *" }, turn.id)).toMatchObject({ created: true, delivery_nudge: true });
     expect(await call({ action: "pause", id: String(own.folder) }, turn.id)).not.toHaveProperty("delivery_nudge");
+    // Reference wording for an unknown folder and for a schedule below the floor.
+    await expect(call({ action: "update", id: "missing", prompt: "x" }, turn.id)).rejects.toThrow(
+      'no routine with folder "missing" exists. List the automations folder, then pass its id.'
+    );
+    for (const action of ["pause", "delete"])
+      expect(await call({ action, id: "missing" }, turn.id)).toEqual({ target: "routine", action, refused: 'no routine with folder "missing" exists.' });
+    expect(await call({ action: "update", id: String(own.folder), schedule: "*/2 * * * *" }, turn.id)).toEqual({
+      target: "routine", action: "update", refused: "routine schedules must be at least 5 minutes apart.",
+    });
+    await expect(call({ action: "create", name: "Both", prompt: "x", schedule: "0 9 * * *", trigger: { type: "webhook" } }, turn.id)).rejects.toThrow(
+      "pass either 'schedule' (a cron routine) or 'trigger' (an event-driven one), never both."
+    );
   } finally {
     if (botId) {
       await prisma.idempotencyRecord.deleteMany({ where: { scope: `state:${botId}` } });

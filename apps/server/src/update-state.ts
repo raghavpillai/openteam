@@ -208,7 +208,16 @@ export class DurableStateService {
           schedule: input.schedule,
           trigger: input.trigger,
           enabled: input.enabled,
+        }).catch((error: unknown) => {
+          if (!(error instanceof ApiError)) throw error;
+          if (error.code === "routine_schedule_too_frequent")
+            return { target: "routine", action: input.action, refused: error.message };
+          if (error.code !== "routine_not_found") throw error;
+          if (input.action === "pause" || input.action === "delete")
+            return { target: "routine", action: input.action, refused: `no routine with folder "${input.id}" exists.` };
+          throw new ApiError(404, "routine_not_found", `no routine with folder "${input.id}" exists. List the automations folder, then pass its id.`);
         });
+        if (typeof routine.refused === "string") return routine;
         return {
           ...routine,
           owner: { ...owner, ...(group ? { name: group.name } : {}) },

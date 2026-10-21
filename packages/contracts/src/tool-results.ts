@@ -189,24 +189,15 @@ export function renderControlResult(
       seconds < 90
         ? `${seconds}s`
         : `${Math.floor(seconds / 60)}m${seconds % 60 ? ` ${seconds % 60}s` : ""}`;
-    // The reference words a call as pending until it ends, then done or failed.
-    const activity = (status: unknown) =>
-      status === "completed" ? "done" : status === "failed" || status === "cancelled" ? "failed" : "pending";
+    // Only running subagents are listed, so the reference always says "running".
     const describe = (sub: any, detailed: boolean) => {
-      const calls = sub.recent_tool_calls ?? [];
-      const status = typeof sub.status === "string" ? sub.status : "running";
+      const activity: string[] = sub.recent_activity ?? [];
       const lines = [
-        `- ${sub.subagent_id} [${sub.subagent_type}] "${sub.title}": ${status} for ${elapsed(sub.elapsed_seconds)}, ${sub.tool_call_count ?? calls.length} tool call(s)`,
+        `- ${sub.subagent_id} [${sub.subagent_type}] "${sub.title}": running for ${elapsed(sub.elapsed_seconds)}, ${sub.tool_call_count} tool call(s)`,
       ];
       if (detailed) {
-        lines.push(
-          calls.length ? "  Recent activity (oldest first):" : "  No tool activity recorded yet."
-        );
-        lines.push(...[...calls].reverse().map((call: any) => {
-          const error = call.status === "failed" && typeof call.error === "string" && call.error
-            ? ` — error: ${JSON.stringify(call.error.slice(0, 500))}` : "";
-          return `    [${activity(call.status)}] ${call.tool}${error}`;
-        }));
+        lines.push(activity.length ? "  Recent activity (oldest first):" : "  No tool activity recorded yet.");
+        lines.push(...activity.map((entry) => `    ${entry}`));
         if (sub.transcript_path)
           lines.push(
             `  Full transcript: call ReadTranscript with in=${sub.subagent_id} for the complete play-by-play.`

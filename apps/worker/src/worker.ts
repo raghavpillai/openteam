@@ -816,14 +816,16 @@ export class WakeWorker {
         await this.recoverGroupRoutineExecution(execution.id, execution.channelMessageId);
       }
     }
-    // A follow-up holding coalesced events has no wake until the run before it settles.
+    // A follow-up holding coalesced events has no wake or room turn until the run before it settles.
     const followUps = await this.prisma.routineExecution.findMany({
-      where: { status: "queued", runId: null, channelMessageId: null, routine: { bot: { status: "active" } } },
+      where: {
+        status: "queued", runId: null, channelMessageId: null,
+        routine: { OR: [{ bot: { status: "active" } }, { channel: { kind: "group", archivedAt: null } }] },
+      },
       select: { routineId: true },
       take: 100,
     });
-    for (const { routineId } of followUps)
-      await this.prisma.$transaction(tx => this.routines.startEventFollowUp(tx, routineId));
+    for (const { routineId } of followUps) await this.routines.runEventFollowUp(routineId);
   }
 
   private async recoverGroupRoutineExecution(

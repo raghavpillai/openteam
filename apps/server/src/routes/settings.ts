@@ -13,6 +13,10 @@ export async function settingsRoutes(context: RouteContext): Promise<Response | 
     if (request.method === "GET") return json(await run(app.taskSettings()));
     if (request.method === "PATCH") return json(await run(app.updateTaskSettings(await request.json().catch(() => null))));
   }
+  if (path === "/api/server-settings/auto-review") {
+    if (request.method === "GET") return json(await run(app.autoReviewSettings()));
+    if (request.method === "PATCH") return json(await run(app.updateAutoReviewSettings(await request.json().catch(() => null))));
+  }
   if (path === "/api/machines/enroll" && request.method === "POST") {
     return json(await app.machines.enroll(await request.json(), context.authenticatedSessionId));
   }

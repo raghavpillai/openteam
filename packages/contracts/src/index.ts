@@ -7,6 +7,7 @@ export { validateProcessSecretName } from "./process-secrets";
 import { MAX_INLINE_IMAGE_URL_LENGTH, MAX_TASK_ATTACHMENTS, TASK_ATTACHMENT_LIMIT_MESSAGE, isTaskMediaPath } from "./media-input";
 import cursorToolsDocument from "./cursor-tools.json";
 export * from "./user-forms";
+export * from "./auto-review";
 export { formatUserFormReceipt } from "./user-form-receipts";
 import nativeToolsDocument from "./native-tools.json";
 import type { ClientCapabilities } from "./capabilities";
@@ -624,6 +625,9 @@ export const ShellToolInput = Schema.Struct({
   description: Schema.optional(Schema.String),
   working_directory: Schema.optional(Schema.String),
   machineId: Schema.optional(Schema.String),
+  // Auto-review's approval retry, offered while Auto-review is on.
+  request_smart_mode_approval: Schema.optional(Schema.Boolean),
+  smart_mode_block_reason: Schema.optional(Schema.String),
 });
 export type ShellToolInput = typeof ShellToolInput.Type;
 
@@ -654,6 +658,11 @@ export const CallDynamicToolInput = Schema.Struct({
   namespace: Schema.String,
   toolName: Schema.String,
   arguments: Schema.optional(Schema.Union(Schema.Record({ key: Schema.String, value: Schema.Unknown }), Schema.String)),
+  mcpDetails: Schema.optional(Schema.Struct({
+    description: Schema.optional(Schema.String),
+    requestSmartModeApproval: Schema.optional(Schema.Boolean),
+    smartModeBlockReason: Schema.optional(Schema.String),
+  })),
 });
 export type CallDynamicToolInput = typeof CallDynamicToolInput.Type;
 

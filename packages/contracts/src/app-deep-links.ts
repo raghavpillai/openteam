@@ -12,4 +12,6 @@ export const APP_SETTINGS_ANCHORS = [
   "automatic-updates",
   "web-search-provider",
   "web-fetch-provider",
+  "auto-review",
+  "auto-review-rules",
 ] as const;

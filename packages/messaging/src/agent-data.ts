@@ -22,6 +22,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import { defaultTaskConfiguration, parseTaskConfiguration, type TaskConfiguration } from "@openteam/contracts/task-configuration";
+import { DEFAULT_AUTO_REVIEW_SETTINGS, type AutoReviewSettings } from "@openteam/contracts/auto-review";
 import {
   appendFile,
   chmod,
@@ -2973,6 +2974,22 @@ export class AgentDataStore {
   async loadTaskConfiguration(): Promise<TaskConfiguration> {
     const row = await this.prisma.taskSettings.findUnique({ where: { id: "global" } });
     return row ? parseTaskConfiguration(row.configuration) : defaultTaskConfiguration();
+  }
+
+  async loadAutoReviewSettings(): Promise<AutoReviewSettings> {
+    const row = await this.prisma.autoReviewSettings.findUnique({ where: { id: "global" } });
+    return row
+      ? { enabled: row.enabled, allowRules: row.allowRules, askFirstRules: row.askFirstRules }
+      : { ...DEFAULT_AUTO_REVIEW_SETTINGS };
+  }
+
+  async writeAutoReviewSettings(input: Partial<AutoReviewSettings>): Promise<AutoReviewSettings> {
+    const row = await this.prisma.autoReviewSettings.upsert({
+      where: { id: "global" },
+      create: { id: "global", ...DEFAULT_AUTO_REVIEW_SETTINGS, ...input },
+      update: input,
+    });
+    return { enabled: row.enabled, allowRules: row.allowRules, askFirstRules: row.askFirstRules };
   }
 
   async writeTaskConfiguration(input: unknown): Promise<TaskConfiguration> {

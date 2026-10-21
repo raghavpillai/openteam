@@ -497,6 +497,7 @@ export class AppService {
   sharedTemplateRecipe = (id: string, publicOnly = false) =>
     this.richMessages.sharedTemplates.recipe(id, publicOnly);
   mutateExternalDraft = forwardServiceMethod(() => this.richMessages.externalDrafts.mutate);
+  answerApproval = forwardServiceMethod(() => this.richMessages.approvals.answer);
   submitUserForm = forwardServiceMethod(() => this.richMessages.submitUserForm);
   userFormPrefill = forwardServiceMethod(() => this.richMessages.formPrefill);
 
@@ -517,6 +518,8 @@ export class AppService {
   serverSettings = forwardServiceMethod(() => this.settings.serverSettings);
   taskSettings = forwardServiceMethod(() => this.settings.taskSettings);
   updateTaskSettings = forwardServiceMethod(() => this.settings.updateTaskSettings);
+  autoReviewSettings = forwardServiceMethod(() => this.settings.autoReviewSettings);
+  updateAutoReviewSettings = forwardServiceMethod(() => this.settings.updateAutoReviewSettings);
 
   updateInferenceSettings = forwardServiceMethod(() => this.settings.updateInferenceSettings);
   testInference = forwardServiceMethod(() => this.settings.testInference);

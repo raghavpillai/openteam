@@ -7,6 +7,7 @@
   "exports": {
     "./agent-file-access": "./src/agent-file-access.ts",
     "./app-deep-links": "./src/app-deep-links.ts",
+    "./auto-review": "./src/auto-review.ts",
     ".": "./src/index.ts",
     "./bot-avatar": "./src/bot-avatar.ts",
     "./capabilities": "./src/capabilities.ts",

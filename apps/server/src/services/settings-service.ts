@@ -9,6 +9,7 @@ import {
 import type { AgentDataStore } from "@openteam/messaging";
 import { COMPUTER_API_PATHS } from "@openteam/contracts/service-protocol";
 import { parseTaskConfiguration } from "@openteam/contracts/task-configuration";
+import { parseAutoReviewSettingsUpdate } from "@openteam/contracts/auto-review";
 import { serviceEffect } from "./service-utils";
 const CONNECTION_CHECK_TIMEOUT_MS = 60_000;
 
@@ -43,6 +44,15 @@ export class SettingsService {
   rootSettings = () => serviceEffect(() => this.agentData.loadRootSettingsForClient());
 
   taskSettings = () => serviceEffect(() => this.agentData.loadTaskConfiguration());
+
+  autoReviewSettings = () => serviceEffect(() => this.agentData.loadAutoReviewSettings());
+
+  updateAutoReviewSettings = (input: unknown) =>
+    serviceEffect(async () => {
+      const parsed = parseAutoReviewSettingsUpdate(input);
+      if (!parsed.ok) throw new ApiError(400, "invalid_auto_review_settings", parsed.message);
+      return this.agentData.writeAutoReviewSettings(parsed.value);
+    });
 
   updateTaskSettings = (input: unknown) =>
     serviceEffect(async () => {

@@ -1188,6 +1188,15 @@ model TaskSettings {
   updatedAt DateTime @updatedAt
 }
 
+/// Auto-review: whether risky actions get a safety check and the user's Allow / Ask first rules.
+model AutoReviewSettings {
+  id            String   @id @default("global")
+  enabled       Boolean  @default(true)
+  allowRules    String[] @default([])
+  askFirstRules String[] @default([])
+  updatedAt     DateTime @updatedAt
+}
+
 /// Selected search provider; null means search is off. Credentials live in WebToolProvider.
 model WebSearchSettings {
   id        String   @id @default("global")

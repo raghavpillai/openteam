@@ -142,9 +142,8 @@ export class NativeToolExecutor {
   /** A routine run that handed off to its parent stops the background commands it started. */
   stopAutomationShells(automationRunIds: readonly string[]): number {
     const running = this.shellJobs.runningForAutomation(new Set(automationRunIds));
-    for (const job of running) {
-      try { process.kill(-job.pid, "SIGTERM"); } catch { /* It already exited. */ }
-    }
+    // The same stop as an interrupted call: TERM, then KILL, and the log records an abort.
+    for (const job of running) this.liveShells.get(job.id)?.stop();
     return running.length;
   }
 

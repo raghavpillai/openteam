@@ -67,6 +67,24 @@ test("a routine handoff stops the background commands its runs started, and only
   }
 });
 
+test("a routine handoff ends TERM-trapping background commands and records them as aborted", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openteam-shell-handoff-trap-"));
+  await chmod(root, 0o755);
+  const executor = new NativeToolExecutor({agentDir: root, controlToken: "fixture"});
+  const result = await executor.shell({command: "trap '' TERM; echo READY; sleep 30 & wait", block_until_ms: 0}, root, undefined, undefined, "scope", {automationRunId: "routine-run"});
+  const { shellId, outputPath } = result.details as { shellId: string; outputPath: string };
+  try {
+    for (let i = 0; i < 200 && !(await readFile(outputPath, "utf8")).includes("READY"); i++) await Bun.sleep(10);
+    expect(executor.stopAutomationShells(["routine-run"])).toBe(1);
+    expect((await executor.awaitShell({shell_id: shellId, block_until_ms: 3000}, undefined, "scope")).details.status).toBe("completed");
+    expect(await readFile(outputPath, "utf8")).toContain("\nstatus: aborted  \n");
+  } finally {
+    executor.stopBackgroundShells("scope");
+    await executor.awaitShell({shell_id: shellId, block_until_ms: 5000}, undefined, "scope").catch(() => undefined);
+    await rm(root, {recursive: true, force: true});
+  }
+});
+
 test("stopping a subagent ends its background commands, TERM-trapping ones too, and leaves other agents' running", async () => {
   const root = await mkdtemp(join(tmpdir(), "openteam-shell-subagent-stop-"));
   await chmod(root, 0o755);

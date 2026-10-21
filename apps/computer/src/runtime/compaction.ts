@@ -28,6 +28,7 @@ import type { RuntimeTools } from "./tools";
 import type { ActiveTurn } from "./types";
 import { communicationReminder, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder, promptFingerprint } from "./prompt-context";
 import { compactRepeatedDiscovery } from "./discovery-context";
+import { DISK_PRESSURE_REMINDER } from "./disk-pressure";
 import { graphicalProgressReminder } from "./graphical-completion";
 
 export const modelVisibleSummaryTools = (
@@ -142,6 +143,14 @@ export function compactionExtension(
               display: false,
               details: { origin: "host" },
             },
+            { triggerTurn: false }
+          );
+          event.messages = [...event.messages, active.session.messages.at(-1)!];
+        }
+        if (active.diskPressureEpisode != null && !active.diskPressureReminded && active.session) {
+          active.diskPressureReminded = true;
+          await active.session.sendCustomMessage(
+            { customType: "openteam-disk-pressure", content: DISK_PRESSURE_REMINDER, display: false, details: { episode: active.diskPressureEpisode, origin: "host" } },
             { triggerTurn: false }
           );
           event.messages = [...event.messages, active.session.messages.at(-1)!];

@@ -60,6 +60,7 @@ import { inferenceMetricsExtension } from "./runtime/inference-metrics";
 import { IdleProviderConnections, InferenceProviderConnections } from "./runtime/provider-connections";
 import { untrustedResultsExtension } from "./runtime/untrusted-results";
 import { enrichUserInfo, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder } from "./runtime/prompt-context";
+import { DiskPressureMonitor } from "./runtime/disk-pressure";
 import { defaultTaskConfiguration, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 import { assertSessionPath } from "./runtime/session-path";
 import { RuntimeTools } from "./runtime/tools";
@@ -95,6 +96,7 @@ export class ComputerRuntime {
   );
   private inferenceSettings = defaultServerInferenceSettings();
   private readonly workspaceRoot = resolve(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace");
+  private readonly diskPressure = new DiskPressureMonitor(this.workspaceRoot);
 
   private modelRuntime: ModelRuntime | null = null;
   private readonly inferenceProviders = new InferenceProviderService(
@@ -306,6 +308,7 @@ export class ComputerRuntime {
         throw new Error(`Pi inference provider ${modelRef.providerId} is not configured`);
       }
       if (!active.subagentType && active.requestSource !== "automation") await this.tools.userForms.beginTurn(active.botId, active.runId);
+      if (!active.subagentType) active.diskPressureEpisode = await this.diskPressure.claim(active.botId).catch(() => null);
       await this.botStore?.openForWake(active.botId);
       await this.botStore?.recordRequestId(active.botId, active.runId);
       await this.botStore?.appendConversationEnvelope(active.botId, {
@@ -880,6 +883,9 @@ export class ComputerRuntime {
         });
       }
     } finally {
+      // A turn that saw the low-disk reminder and finished has told the user; others try again.
+      if (status === "completed" && active.diskPressureReminded && active.diskPressureEpisode != null)
+        this.diskPressure.commit(active.botId, active.diskPressureEpisode);
       this.compaction.parkBackground(active.contextSessionId);
       attachSession(active);
       if (this.botStore) {

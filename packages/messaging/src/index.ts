@@ -1,8 +1,6 @@
 export { readTranscript } from "./read-transcript";
 export { readAgentActivity } from "./read-agent-activity";
-export { workerSkillAccess } from "./skill-access";
 export { renderQuietSubagentRevivalPrompt } from "./quiet-revival";
-import { workerSkillAccess } from "./skill-access";
 import { mediaReviewPrompt, renderWorkerBoxSection, renderWorkerTimeSection, WORKER_READONLY_LINE, WORKER_USER_IDENTITY_LINE } from "./worker-prompts";
 import { attachmentContext } from "./attachment-context";
 import { listSiblingThreads, renderOtherActiveConversations } from "./sibling-threads";
@@ -2085,8 +2083,8 @@ export class AgentMessaging {
       ]
         .filter(Boolean)
         .join("\n\n");
-      // Only knowledgeWork carries skills of its own; its user_info lists them for the Skill tool.
-      const workerSkills = workerSkillAccess(type) === "tool" ? await this.agentData.renderWorkerSkillCatalog(type) : "";
+      // Only knowledgeWork carries skills of its own; like the main agent, it Reads them at the paths its catalog lists.
+      const workerSkills = type === "knowledgeWork" ? await this.agentData.renderWorkerSkillCatalog(type) : "";
       return {
         instructions,
         userInfo: workerSkills ? ["<user_info>", workerSkills, "</user_info>"].join("\n") : null,

@@ -3,7 +3,6 @@ import {
   turnOwesReplyReminder,
   turnSystemReminder,
   withTurnSystemReminder,
-  workerSkillAccess,
 } from "@openteam/messaging";
 import { createHash } from "node:crypto";
 import type {
@@ -1396,7 +1395,6 @@ export class WakeWorker {
         deliveryId: claimed.deliveryId,
         runtimeProfile: claimed.runtimeProfile,
         subagentType: claimed.subagentType ?? undefined,
-        skillAccess: workerSkillAccess(claimed.subagentType),
         taskConfiguration,
         readOnly: claimed.readOnly,
         model: formatPiModelRef(selectedInference),

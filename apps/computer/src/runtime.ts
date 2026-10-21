@@ -296,7 +296,6 @@ export class ComputerRuntime {
       pluginRuntimePackages: request.pluginRuntimePackages as import("@openteam/plugin-sdk").PluginRuntimePackage[] | undefined,
       pluginAbortController: new AbortController(),
       readOnly: request.readOnly ?? false,
-      skillAccess: request.skillAccess ?? "read",
       attachmentTempDirectories: [],
     };
     this.activeByRun.set(active.runId, active);

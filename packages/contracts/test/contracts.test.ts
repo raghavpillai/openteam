@@ -563,7 +563,7 @@ describe("API contracts", () => {
       "UpdateAgent",
       "UpdateChannel",
       "UpdateSkill", "UpdateProfile", "UpdateAvatar", "DisconnectChannel",
-      "CopyToBox", "CopyFromBox", "WebSearch", "WebFetch", "RequestUserForm", "RemapUserFormTargets", "DraftExternalMessage", "SendFeedback", "CreateBotShareJson",
+      "CopyToBox", "CopyFromBox", "WebSearch", "WebFetch", "RequestUserForm", "RemapUserFormTargets", "DraftExternalMessage", "CreateBotShareJson",
       "WakeParent",
     ]);
     for (const tool of CURSOR_TOOLS) {

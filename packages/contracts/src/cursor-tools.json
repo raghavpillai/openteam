@@ -914,29 +914,6 @@
       }
     },
     {
-      "tool": "SendFeedback",
-      "description": "Send the user’s explicit product feedback and reply preference directly to configured OpenTeam support. Deployment privacy settings and a five-minute rate limit apply. Do not automatically retry an uncertain delivery or include credentials and unrelated connector content.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "message": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 4000,
-            "description": "The user's feedback, in their own words."
-          },
-          "wantsResponse": {
-            "type": "boolean",
-            "description": "Whether the user explicitly asked for a human reply. Ask unless already stated; never guess. Requires a configured support reply address."
-          }
-        },
-        "required": [
-          "message",
-          "wantsResponse"
-        ]
-      }
-    },
-    {
       "tool": "CreateBotShareJson",
       "description": "Publish the reusable bot recipe requested by the user directly as a versioned template. Direct chat only. Include reusable profile/log memories, skills, routines, marketplace plugin references, visibility and getting-started text. Exclude credentials, private account data and personal identifiers. Verify the published receipt. Import creates a fresh isolated bot and requires its own provider sign-ins.",
       "inputSchema": {

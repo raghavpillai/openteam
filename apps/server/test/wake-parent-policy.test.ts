@@ -31,8 +31,7 @@ const policyService = (options: { origin: string; subagentType?: string }) => {
     fileTransfers: { prepare: async (_context: unknown, args: { tool: string }) => (reached.push(args.tool), { prepared: args.tool }) },
     requestAction: async (input: { action: string; origin: string }) => (reached.push(input.action), origins.push(input.origin), { completed: true }),
   };
-  const richMessages = { feedback: { send: async () => (reached.push("SendFeedback"), { feedbackStatus: "sent" }) } };
-  const service = new InternalToolService(prisma as never, {} as never, {} as never, async () => {}, {} as never, {} as never, {} as never, plugins as never, richMessages as never);
+  const service = new InternalToolService(prisma as never, {} as never, {} as never, async () => {}, {} as never, {} as never, {} as never, plugins as never);
   const call = (tool: string, args: unknown) =>
     Effect.runPromise(service.execute({ runId: "current", botId: "bot", conversationId: "conversation", channelId: "channel", deliveryId: null, callId: crypto.randomUUID(), tool, arguments: args }));
   return { call, reached, origins };
@@ -52,10 +51,9 @@ test("workers on the parent's connectors transfer files both ways; graphical and
   }
 });
 
-test("routine runs manage installed plugins and send feedback without waking the parent", async () => {
+test("routine runs manage installed plugins without waking the parent", async () => {
   const { call, reached } = policyService({ origin: "routine" });
   const allowed: Array<[string, Record<string, unknown>]> = [
-    ["SendFeedback", { message: "The weekly digest skipped Monday.", wantsResponse: false }],
     ["UninstallPlugin", { plugin_id: "linear" }],
     ["UninstallMcpServer", { server_id: "plugin_custom" }],
     ["RestartMcpServers", {}],

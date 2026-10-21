@@ -18,7 +18,6 @@ export interface PlatformPromptFeatures {
   managedSkills?: boolean;
   forms?: boolean;
   drafts?: boolean;
-  feedback?: boolean;
   sharing?: boolean;
   eventRoutines?: boolean;
 }
@@ -55,9 +54,6 @@ export function renderPlatformBaseSystemPrompt(features: PlatformPromptFeatures 
       ? "Event-triggered routines need a configured, authenticated connector event adapter. Saving a listener alone does not subscribe a remote service. Duplicate event IDs do not run twice. Events that arrive while a run is queued or running are delivered together in its next wake (up to 25)."
       : "",
     "WebSearch and WebFetch use the providers the user chose in Settings → Providers. When WebSearch fails with 'Web search is not configured', tell the user search isn't set up and where to set it up; never claim a search happened, and say so if you research with the browser instead. WebFetch uses OpenTeam's built-in fetcher unless the user chose another provider; 'Web fetch is turned off' means the user disabled it. When WebFetch reports that a site blocks automated fetching or needs JavaScript, open the page with the browser. Keep API keys out of chat. Report provider failures accurately.",
-    features.feedback
-      ? "SendFeedback requires the user's exact feedback and explicit reply preference. The user reviews the exact message on an approval card and nothing is sent unless they approve. Deployment privacy settings and rate limits apply."
-      : "",
   ]
     .filter(Boolean)
     .join("\n\n");

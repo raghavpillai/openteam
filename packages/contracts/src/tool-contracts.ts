@@ -16,7 +16,6 @@ const adaptText = (text: string) =>
   text
     .replaceAll("Grok Bot", "OpenTeam")
     .replaceAll("grokbot://", "openteam://")
-    .replaceAll("SpaceXAI team", "OpenTeam maintainers")
     .replaceAll("Cursor account", "OpenTeam account")
     .replaceAll("Cursor desktop IDE", "OpenTeam connection settings")
     .replaceAll("other Cursor surfaces", "other bots in this deployment")
@@ -319,20 +318,6 @@ adaptArgument("SendToAgent", "priority", [[
 adaptArgument("SendToAgent", "target_id", [["Use an id from your teammates list, ListAgents, or ListGroups, not a name.", "Use an id from your teammates list, not a name."]]);
 contracts.SendToAgent!.inputSchema.required = contracts.SendToAgent!.inputSchema.required.filter((key: string) => key !== "priority");
 
-// Feedback goes to the deployment's configured destination, which can reply when asked.
-adaptDescription("SendFeedback", [
-  ["Send product feedback to the OpenTeam maintainers on the user's behalf.", "Send product feedback to the configured OpenTeam support destination on the user's behalf."],
-  [
-    /Feedback filed with this tool is read as product feedback but never receives a support response\. Do not ask whether the user wants a reply and do not promise one\. If they need help from support, tell them to email \S+\. The user reviews the exact message on an approval card and nothing is sent unless they approve\./,
-    "Set wantsResponse to whether they want a reply: ask unless they already said, and do not promise one. Deployment privacy settings apply. The user reviews the exact message on an approval card and nothing is sent unless they approve.",
-  ],
-]);
-contracts.SendFeedback!.inputSchema.properties.wantsResponse = {
-  type: "boolean",
-  description: "Whether the user wants a reply from the support destination: true if they want one, false if not. Ask first unless they already said. Never omit this and never guess.",
-};
-contracts.SendFeedback!.inputSchema.required = [...contracts.SendFeedback!.inputSchema.required, "wantsResponse"];
-
 adaptDescription("UpdateRoutine", [
   // The routine list lives in the frozen prompt section, not a per-turn reminder.
   [
@@ -575,7 +560,6 @@ const FIRST_PARTY_HINTS: Readonly<Record<string, string>> = {
   request_box_help: "Hand your box's desktop to the user for a sign-in or manual step.",
   RequestUserForm: "Show the user an in-chat form; the host fills the box browser with their answers.",
   SearchPlugins: "Search installable plugins/connectors when a task needs a service.",
-  SendFeedback: "Send the user's product feedback to the OpenTeam maintainers when they ask. Ask whether they want a reply unless they already said.",
   StopSubagent: "Abort a running background subagent.",
   // No cloud subagents in OpenTeam.
   Task: "Spawn subagents natively.",

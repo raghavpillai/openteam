@@ -48,7 +48,7 @@ describe("captured tool contract wiring", () => {
       expect((runtime as any).dynamicCatalog(worker).flatMap((namespace: any) => namespace.tools).some((tool: any) => tool.name === "Task")).toBe(false);
     }
   });
-  test("exposes the 82 active shared contracts through the actual model-facing profiles", () => {
+  test("exposes the 81 active shared contracts through the actual model-facing profiles", () => {
     const runtime = new RuntimeTools({} as never, "http://unused.invalid", "test", "/tmp", "/tmp");
     // File transfers are offered beside a connected file service.
     const drive = { name: "google-drive", description: "Google Drive (default)", namespaceStatus: "ready", tools: [], fileTransfers: { upload: true, download: true } };
@@ -65,7 +65,7 @@ describe("captured tool contract wiring", () => {
         ? (runtime as any).dynamicCatalog(active).flatMap((n: any) => n.tools)
         : []),
     ]);
-    expect(Object.keys(reference)).toHaveLength(84);
+    expect(Object.keys(reference)).toHaveLength(83);
     // The saved-login desktop tools are retired.
     const retired = ["ListCredentials", "GetCredentialProviderStatus"];
     for (const name of Object.keys(reference).filter((name) => !retired.includes(name))) {

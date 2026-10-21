@@ -58,6 +58,10 @@ BEGIN
       FROM jsonb_array_elements("manifest"->'skills') WITH ORDINALITY AS skills(skill, position)))
     WHERE "manifest" @> '{"skills":[{"agents":["browserUse"]}]}';
   END IF;
+  IF to_regclass('"IdempotencyRecord"') IS NOT NULL THEN
+    -- Receipts of the removed SendFeedback tool.
+    DELETE FROM "IdempotencyRecord" WHERE "scope" = 'feedback-send';
+  END IF;
   IF EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
       WHERE t.typnamespace = current_schema()::regnamespace AND t.typname = 'MemoryScope'
         AND e.enumlabel NOT IN ('agent', 'user')) THEN

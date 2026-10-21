@@ -1410,8 +1410,6 @@ export class WakeWorker {
         subagentType: claimed.subagentType ?? undefined,
         taskConfiguration,
         readOnly: claimed.readOnly,
-        // As in the reference, SendFeedback is offered only with somewhere to send it; privacy settings refuse it before any card.
-        ...(process.env.OPENTEAM_FEEDBACK_URL ? { feedback: process.env.OPENTEAM_FEEDBACK_ALLOW_AGENT === "true" ? "available" as const : "privacy" as const } : {}),
         model: formatPiModelRef(selectedInference),
         reasoning: selectedInference.reasoning,
         fileAttachments: claimed.fileAttachments,

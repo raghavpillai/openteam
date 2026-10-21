@@ -55,7 +55,6 @@ const IDENTIFIER_SHAPED = /^[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*$/;
 // tools the parent has here and the child lacks. Tools a child holds, here or in the reference, are not listed.
 const TALK = "Only the parent talks to the user; a Task subagent reports back in its final message.";
 const CONNECTORS = "Installing or changing connectors and plugins is the user's call, made through the parent.";
-const FEEDBACK = "Plan usage and product feedback are questions the user asks the parent directly.";
 const WAKE_PARENT = "Only an automation run wakes its parent; every other agent reports back in its final message.";
 const CONNECTOR_CHANGES = ["SearchPlugins", "GetPlugin", "GetMcpServerStatus", "UninstallPlugin", "UninstallMcpServer", "RestartMcpServers", "RenameMcpAccount", "RemoveMcpAccount", "SetMcpInstructions"];
 const MESSAGES_READS = ["FindContacts", "FindIMessageChats", "ChatItems", "SearchIMessages", "FetchIMessageAttachment", "CheckIMessagePermissions"];
@@ -78,7 +77,6 @@ const TASK_CHILD_REASONS = reasons([
   ["Messages under the user's name need approval that only the parent can collect.", AS_THE_USER],
   [CONNECTORS, CONNECTOR_CHANGES],
   ["The parent passes along the facts a task needs; Task subagents don't browse the user's private messages.", MESSAGES_READS],
-  [FEEDBACK, ["SendFeedback"]],
   [WAKE_PARENT, ["WakeParent"]],
 ]);
 
@@ -93,7 +91,6 @@ const COMPUTER_USE_REASONS = reasons([
   ["computerUse never acts toward other people as the user; the parent does, with approval.", AS_THE_USER],
   [CONNECTORS, CONNECTOR_CHANGES],
   ["computerUse works on the page in front of it; the parent passes any facts it needs.", MESSAGES_READS],
-  [FEEDBACK, ["SendFeedback"]],
   ["computerUse browses in the box browser it drives; search and fetch belong to the parent.", ["WebFetch", "WebSearch"]],
   [WAKE_PARENT, ["WakeParent"]],
 ]);
@@ -101,7 +98,7 @@ const COMPUTER_USE_REASONS = reasons([
 const MEDIA_REVIEW_REASONS = reasons([
   ["Media review is a single review pass over the media it is handed and holds no tools.", [
     ...USER_FACING, "RequestUserForm", "RemapUserFormTargets", ...HISTORY, ...TEAM_CHANGES, ...STATE_WRITES, ...FAN_OUT, ...AS_THE_USER,
-    ...CONNECTOR_CHANGES, ...MESSAGES_READS, "SendFeedback", "WakeParent",
+    ...CONNECTOR_CHANGES, ...MESSAGES_READS, "WakeParent",
     "ListMachines", "AwaitShell", "UploadFile", "DownloadFile", "WebFetch", "WebSearch", "CopyToBox", "CopyFromBox",
   ]],
 ]);

@@ -5,7 +5,6 @@ import { AUTOMATION_PARENT_ONLY_TOOLS, AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED
 
 /** Routine runs keep these: none of them opens a card or waits for the user. */
 const ROUTINE_MANAGEMENT_TOOLS = [
-  "SendFeedback",
   "UninstallPlugin",
   "UninstallMcpServer",
   "RestartMcpServers",
@@ -21,7 +20,6 @@ test("automation calls WakeParent directly and keeps work tools, with all commun
     runtimeProfile: "agent",
     subagentType: null,
     pluginNamespaces: [],
-    feedback: "available",
   } as unknown as ActiveTurn;
   const names = [
     ...tools.customTools(turn).map((tool) => tool.name),
@@ -87,7 +85,7 @@ test("a rejected WakeParent leaves the automation able to continue", async () =>
   }
 });
 
-test("routine runs call plugin management directly and feedback after its approval card, and keep working afterwards", async () => {
+test("routine runs call plugin management directly and keep working afterwards", async () => {
   const calls: Array<{ tool: string; arguments: unknown }> = [];
   const server = Bun.serve({
     port: 0,
@@ -96,11 +94,6 @@ test("routine runs call plugin management directly and feedback after its approv
       const body = (await request.json()) as { tool: string; arguments: unknown };
       calls.push(body);
       if (body.tool === "RefreshToolCatalog") return Response.json({ namespaces: [] });
-      // Feedback goes out only after the user approves its card.
-      if (body.tool === "RequestApproval") return Response.json({ status: "pending", approvalId: "card" });
-      if (body.tool === "AwaitApproval") return Response.json({ status: "approved", approvalId: "card" });
-      if (body.tool === "SendFeedback")
-        return Response.json({ feedbackStatus: "sent", wantsResponse: false, outcome: "Accepted." });
       return Response.json({ status: "completed", completed: true, actionResult: {}, connections: [] });
     },
   });
@@ -113,13 +106,11 @@ test("routine runs call plugin management directly and feedback after its approv
       pluginNamespaces: [],
       botId: "bot",
       runId: "routine-run",
-      feedback: "available",
     } as unknown as ActiveTurn;
     const native = tools.customTools(turn);
     const get = native.find((tool) => tool.name === "GetDynamicTools")!;
     const invoke = native.find((tool) => tool.name === "CallDynamicTool")!;
     const args: Record<string, Record<string, unknown>> = {
-      SendFeedback: { message: "The weekly digest skipped Monday.", wantsResponse: false },
       UninstallPlugin: { plugin_id: "linear" },
       UninstallMcpServer: { server_id: "plugin_custom" },
       RestartMcpServers: {},
@@ -138,9 +129,9 @@ test("routine runs call plugin management directly and feedback after its approv
       );
       expect(result.content[0]!.type).toBe("text");
     }
-    expect(calls.filter((call) => call.tool !== "RefreshToolCatalog").map((call) => call.tool)).toEqual(["RequestApproval", "AwaitApproval", ...ROUTINE_MANAGEMENT_TOOLS]);
+    expect(calls.filter((call) => call.tool !== "RefreshToolCatalog").map((call) => call.tool)).toEqual(ROUTINE_MANAGEMENT_TOOLS);
     // Each completed plugin change refreshes the routine's own tool catalog.
-    expect(calls.filter((call) => call.tool === "RefreshToolCatalog")).toHaveLength(ROUTINE_MANAGEMENT_TOOLS.length - 1);
+    expect(calls.filter((call) => call.tool === "RefreshToolCatalog")).toHaveLength(ROUTINE_MANAGEMENT_TOOLS.length);
     expect(turn.endTurnRequested).not.toBe(true);
   } finally {
     server.stop(true);

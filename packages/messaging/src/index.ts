@@ -2025,7 +2025,7 @@ export class AgentMessaging {
     // The reference order: identity first; the sibling digest after memory and connector
     // instructions after the directory, so per-turn changes sit late in the cached prefix.
     const instructions = [
-      renderPlatformBaseSystemPrompt({ feedback: Boolean(process.env.OPENTEAM_FEEDBACK_URL) }),
+      renderPlatformBaseSystemPrompt(),
       agentPrompt.profileSection,
       frozen.sections.agent_instructions,
       "Use GetDynamicTools with namespace cursor to discover SendToAgent, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, CreateChannel/UpdateChannel, and UpdateSkill/UpdateProfile/UpdateAvatar/DisconnectChannel. Invoke discovered tools with CallDynamicTool.",

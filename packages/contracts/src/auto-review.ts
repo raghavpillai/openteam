@@ -15,7 +15,7 @@ export interface AutoReviewSettings {
 /** The reference's production modes are server-side; its shipped app and prompt treat Auto-review as on. */
 export const DEFAULT_AUTO_REVIEW_SETTINGS: AutoReviewSettings = { enabled: true, allowRules: [], askFirstRules: [] };
 
-export const AUTO_REVIEW_SURFACES = ["host_shell", "box_shell", "mcp", "computer", "automation_write", "feedback"] as const;
+export const AUTO_REVIEW_SURFACES = ["host_shell", "box_shell", "mcp", "computer", "automation_write"] as const;
 export type AutoReviewSurface = (typeof AUTO_REVIEW_SURFACES)[number];
 export type AutoReviewExpiryPolicy = "park" | "ttl";
 export type ApprovalCardState = "pending" | "approved" | "always" | "denied" | "expired";
@@ -142,8 +142,6 @@ export function approvalCardTitle(surface: AutoReviewSurface, summaryCopy: Appro
       return `Allow ${bot} to use its computer?`;
     case "automation_write":
       return `Allow ${bot} to save a routine?`;
-    case "feedback":
-      return `Allow ${bot} to send feedback?`;
   }
 }
 

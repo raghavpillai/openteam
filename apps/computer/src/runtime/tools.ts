@@ -94,7 +94,6 @@ import { serverSearchConfiguration, serverFetchConfiguration } from "../search-s
 import { UserFormHost, type FormBrowser, type FormPageBinding } from "../user-form-host";
 import { boxHelpPage } from "../box-help-page";
 import { AutoReviewGate, withApprovalRetryParameters } from "./auto-review";
-import { APPROVAL_EXPIRED, FEEDBACK_APPROVAL_UNAVAILABLE_MESSAGE, FEEDBACK_NOT_APPROVED_MESSAGE, FEEDBACK_PRIVACY_MODE_MESSAGE, USER_DECLINED } from "../auto-review/texts";
 import type { ActiveTurn, RuntimeDynamicTool } from "./types";
 import { renderShellAwaitResult } from "@openteam/shell-jobs";
 
@@ -112,7 +111,6 @@ export const TOOL_CALL_TIMEOUT_MS = 840_000;
 /** Tools that wait on the user or a whole subagent run rather than on a service. */
 const USER_PACED_CONTROL_TOOLS: ReadonlySet<string> = new Set([
   "Task",
-  "SendFeedback",
   "InstallPlugin",
   "UninstallPlugin",
   "AddMcpServer",
@@ -1421,7 +1419,6 @@ export class RuntimeTools {
         REQUEST_BOX_HELP_TOOL.name,
         "RequestUserForm",
         "DraftExternalMessage",
-        "SendFeedback",
         "CreateBotShareJson",
       ].includes(tool) &&
       body &&
@@ -1435,7 +1432,7 @@ export class RuntimeTools {
         input.end_turn === true ||
         input.type === "widget" ||
         input.type === "secret-request" ||
-        [REQUEST_BOX_HELP_TOOL.name, "RequestUserForm", "SendFeedback"].includes(tool)
+        [REQUEST_BOX_HELP_TOOL.name, "RequestUserForm"].includes(tool)
       ) {
         if (tool === SEND_TO_USER_TOOL.name && input.type === "text" && input.end_turn === true)
           active.finishDeliveryAttachments = true;
@@ -1581,7 +1578,7 @@ export class RuntimeTools {
             )),
         ...(active.runtimeProfile === "subagent"
           ? []
-          : ["DraftExternalMessage", ...(active.feedback ? ["SendFeedback"] : []), "CreateBotShareJson"].map(
+          : ["DraftExternalMessage", "CreateBotShareJson"].map(
               (name): RuntimeDynamicTool => {
                 const definition = CURSOR_TOOLS.find((tool) => tool.tool === name)!;
                 return {
@@ -1594,23 +1591,7 @@ export class RuntimeTools {
                     name === "DraftExternalMessage"
                       ? (input) => parseDraftExternalMessage(normalizeMainToolArguments(name, input))
                       : (input) => input,
-                  execute: async (turn, callId, args, signal) => {
-                    if (name === "SendFeedback") {
-                      if (turn.feedback === "privacy") return { content: [{ type: "text", text: FEEDBACK_PRIVACY_MODE_MESSAGE }], details: { tool: name } };
-                      const message = typeof (args as { message?: unknown })?.message === "string" ? (args as { message: string }).message : "";
-                      const approval = await this.autoReview.requestFeedbackApproval(turn, callId, message, signal).catch((error: unknown) => {
-                        if (signal?.aborted) throw error;
-                        return { approved: false as const, reason: FEEDBACK_APPROVAL_UNAVAILABLE_MESSAGE };
-                      });
-                      // A denial or an expired card is "not approved"; a card that could not be shown says why.
-                      if (!approval.approved)
-                        return {
-                          content: [{ type: "text", text: approval.reason === USER_DECLINED || approval.reason === APPROVAL_EXPIRED ? FEEDBACK_NOT_APPROVED_MESSAGE : approval.reason }],
-                          details: { tool: name },
-                        };
-                    }
-                    return this.callControlPlaneTool(turn, callId, name, args, signal);
-                  },
+                  execute: (turn, callId, args, signal) => this.callControlPlaneTool(turn, callId, name, args, signal),
                 };
               }
             )),

@@ -136,7 +136,7 @@ export class InternalToolService {
         return this.richMessages.recordFormRemap(request.botId, request.arguments as import("@openteam/contracts").UserFormReceipt);
       }
       const parentOnlyTools = new Set([
-        "DraftExternalMessage", "SendFeedback", "CreateBotShareJson",
+        "DraftExternalMessage", "CreateBotShareJson",
         "RequestUserForm",
         "RemapUserFormTargets",
         "RecallMemory",
@@ -174,11 +174,9 @@ export class InternalToolService {
       if (request.tool === "RecallMemory") {
         return this.messaging.agentData.recallMemory(request.botId, request.arguments, run.channelId);
       }
-      if (request.tool === "SendFeedback" || request.tool === "CreateBotShareJson") {
+      if (request.tool === "CreateBotShareJson") {
         if (!this.richMessages) throw new Error("Review service unavailable");
-        return request.tool === "SendFeedback"
-          ? this.richMessages.feedback.send(context, request.arguments, signal)
-          : this.richMessages.sharedTemplates.publish(context, request.arguments);
+        return this.richMessages.sharedTemplates.publish(context, request.arguments);
       }
       if (request.tool === "DraftExternalMessage") {
         if (!this.richMessages) throw new Error("Draft service unavailable");

@@ -31,8 +31,6 @@ import {
   COMPUTER_ACTION_CANCELLED,
   COMPUTER_CLASSIFIER_ERROR_REASON,
   COMPUTER_DESCRIPTION_REQUIRED,
-  FEEDBACK_APPROVAL_REASON,
-  FEEDBACK_APPROVAL_SUMMARY,
   mcpBlockedText,
   PENDING_APPROVAL_REASON,
   SEQUENCE_TOO_LONG_FOR_CARD_REASON,
@@ -402,17 +400,6 @@ export class AutoReviewGate {
       fullRequest: spec.prompt,
     }, signal);
     return outcome.approved ? undefined : outcome.reason;
-  }
-
-  /** SendFeedback always asks: the user approves the exact text on a card (the reference's ask_human). */
-  requestFeedbackApproval(active: ActiveTurn, callId: string, message: string, signal?: AbortSignal) {
-    return this.requestApproval(active, callId, {
-      surface: "feedback",
-      fingerprint: fingerprint({ surface: "feedback", conversationId: active.conversationId, message }),
-      summary: FEEDBACK_APPROVAL_SUMMARY,
-      reason: FEEDBACK_APPROVAL_REASON,
-      command: message,
-    }, signal);
   }
 
   /** Runtime-only state for a context that ended. */

@@ -147,10 +147,6 @@ export function renderControlResult(
   }
   if (name === "CreateBotShareJson" && result.staged)
     return `Staged unpublished version ${result.version} of "${result.name}". It is not public until you confirm it.`;
-  if (name === "SendFeedback" && result.feedbackStatus) {
-    if (result.feedbackStatus === "sent") return `Feedback sent to the configured OpenTeam support destination. They ${result.wantsResponse ? "asked for a reply" : "did not ask for a reply"}. Confirm to the user that it went through.`;
-    return String(result.outcome ?? "Feedback could not be confirmed. Do not retry automatically.");
-  }
   if (name === "TodoWrite" && Array.isArray(result.todos)) {
     let text =
       "Successfully updated TODOs. Make sure to follow and update your TODO list as you make progress. Cancel and add new TODO tasks as needed when the user makes a correction or follow-up request.";

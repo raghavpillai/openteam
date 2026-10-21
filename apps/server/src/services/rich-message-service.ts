@@ -1,6 +1,5 @@
 import type { BotService } from "./bot-service";
 import { storeProcessSecret } from "./process-secrets";
-import { FeedbackService } from "./feedback-service";
 import { SharedTemplateService } from "./shared-template-service";
 import {
   ApiError,
@@ -108,7 +107,6 @@ export const dismissMoveOnWidgets = async (
 
 export class RichMessageService {
   readonly sharedTemplates: SharedTemplateService;
-  readonly feedback: FeedbackService;
   readonly externalDrafts: ExternalDraftService;
   readonly approvals: ApprovalCardService;
   constructor(
@@ -117,7 +115,7 @@ export class RichMessageService {
     private readonly plugins: PluginService,
     private readonly screens: ScreenService,
     bots?: BotService
-  ) { this.externalDrafts = new ExternalDraftService(prisma, messaging, plugins); this.sharedTemplates = new SharedTemplateService(prisma, messaging, bots); this.feedback = new FeedbackService(prisma); this.approvals = new ApprovalCardService(prisma, messaging); }
+  ) { this.externalDrafts = new ExternalDraftService(prisma, messaging, plugins); this.sharedTemplates = new SharedTemplateService(prisma, messaging, bots); this.approvals = new ApprovalCardService(prisma, messaging); }
 
   private recovering: Promise<void> | null = null;
   recoverPendingDeliveries(): Promise<void> {

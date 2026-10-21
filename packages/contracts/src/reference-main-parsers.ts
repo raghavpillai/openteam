@@ -1153,15 +1153,6 @@ var reactToMessageParameters = external_exports.object({
   )
 });
 
-var FEEDBACK_MESSAGE_MAX_CHARS = 4e3;
-
-var sendFeedbackParameters = external_exports.object({
-  message: external_exports.string().trim().min(1).max(FEEDBACK_MESSAGE_MAX_CHARS).describe("The user's feedback, in their own words."),
-  wantsResponse: external_exports.boolean().describe(
-    "Whether the user wants a human reply from the SpaceXAI team. Same choice as the Send Feedback form checkbox 'I would like a response from the support team on this feedback'. Ask first unless they already said. true if they want a reply; false if they do not. Never omit this and never guess."
-  )
-});
-
 var requestBoxHelpParameters = external_exports.object({
   instruction: external_exports.string().trim().min(1).describe(
     'A short instruction shown over the box and in chat, addressed to the user (e.g. "Sign in to your Google account", "Approve the 2FA prompt"). Keep it to one line; no explanatory paragraph.'
@@ -1959,7 +1950,7 @@ function describeTrigger(trigger2) {
 const adaptedProfileParameters = profileParameters.extend({
   avatar_shape: external_exports.enum(ROBOT_AVATAR_SHAPES).optional(),
 });
-const schemas={"UpdateMemory":memoryParameters,"UpdateRoutine":routineParameters,"UpdateSkill":skillParameters,"UpdateProfile":adaptedProfileParameters,"UpdateAvatar":avatarParameters,"DisconnectChannel":channelParameters,"Computer":computerActionParameters,"SendToUser":sendMessageParameters,"ReactToMessage":reactToMessageParameters,"SendFeedback":sendFeedbackParameters,"request_box_help":requestBoxHelpParameters,"DraftExternalMessage":draftExternalMessageParameters,"CheckSubagent":checkSubagentParameters,"MessageSubagent":messageSubagentParameters,"StopSubagent":stopSubagentParameters,"SendToAgent":sendToAgentLenientParameters,"CreateAgent":createAgentParameters,"UpdateAgent":updateAgentParameters,"CreateChannel":createChannelParameters,"UpdateChannel":updateChannelParameters,"CopyToBox":withArgumentAlias(copyToBoxParameters, COPY_TO_BOX_COMPUTER_PATH_ALIAS),"CopyFromBox":copyFromBoxParameters,"RecallMemory":recallMemoryParameters};
+const schemas={"UpdateMemory":memoryParameters,"UpdateRoutine":routineParameters,"UpdateSkill":skillParameters,"UpdateProfile":adaptedProfileParameters,"UpdateAvatar":avatarParameters,"DisconnectChannel":channelParameters,"Computer":computerActionParameters,"SendToUser":sendMessageParameters,"ReactToMessage":reactToMessageParameters,"request_box_help":requestBoxHelpParameters,"DraftExternalMessage":draftExternalMessageParameters,"CheckSubagent":checkSubagentParameters,"MessageSubagent":messageSubagentParameters,"StopSubagent":stopSubagentParameters,"SendToAgent":sendToAgentLenientParameters,"CreateAgent":createAgentParameters,"UpdateAgent":updateAgentParameters,"CreateChannel":createChannelParameters,"UpdateChannel":updateChannelParameters,"CopyToBox":withArgumentAlias(copyToBoxParameters, COPY_TO_BOX_COMPUTER_PATH_ALIAS),"CopyFromBox":copyFromBoxParameters,"RecallMemory":recallMemoryParameters};
 // Explicit deployment extensions: connector secrets and personal environment scope.
 // Keep the captured refinements for every other SendToUser field.
 const localSecretSchema = sendMessageObjectSchema.shape.secret.unwrap().extend({

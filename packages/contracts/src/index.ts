@@ -1332,8 +1332,6 @@ export const ComputerTurnRequest = Schema.Struct({
   subagentType: Schema.optional(SubagentType),
   taskConfiguration: Schema.optional(Schema.Unknown),
   readOnly: Schema.optional(Schema.Boolean),
-  /** Omitted when the deployment has no support destination; "privacy" when its privacy settings keep agents from sending. */
-  feedback: Schema.optional(Schema.Literal("available", "privacy")),
   /** Auto-review settings for the turn; scopeBotId is the user's bot whose cards share the one-pending limit. */
   autoReview: Schema.optional(Schema.Struct({
     enabled: Schema.Boolean,

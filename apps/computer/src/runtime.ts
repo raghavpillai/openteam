@@ -299,7 +299,6 @@ export class ComputerRuntime {
       pluginRuntimePackages: request.pluginRuntimePackages as import("@openteam/plugin-sdk").PluginRuntimePackage[] | undefined,
       pluginAbortController: new AbortController(),
       readOnly: request.readOnly ?? false,
-      ...(request.feedback ? { feedback: request.feedback } : {}),
       attachmentTempDirectories: [],
       ...(request.autoReview
         ? {

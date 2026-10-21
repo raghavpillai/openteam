@@ -2,7 +2,7 @@
 // Pure captured reference input schemas and trigger rendering. No host entrypoints.
 import { z as external_exports } from "zod";
 import { refineDraftBody } from "./external-draft-body";
-import { formatArgumentIssues } from "./tool-arguments";
+import { parseToolArguments } from "./tool-arguments";
 import { ROBOT_AVATAR_SHAPES } from "./robot-avatar";
 const invariant=(value,message)=>{if(!value)throw new Error(message);};
 class SandToolInputError extends Error {}
@@ -1384,6 +1384,27 @@ var copyToBoxParameters = external_exports.object({
   )
 });
 
+var COPY_TO_BOX_COMPUTER_PATH_ALIAS = {
+  field: "computer_path",
+  aliases: ["path", "source_path", "sourcePath", "source", "local_path"],
+  conflictMessage: "Pass the file's absolute path on the user's computer once, as computer_path."
+};
+
+// A lone alias becomes the field; aliases that disagree are refused rather than guessed between.
+function withArgumentAlias(schema, spec) {
+  return external_exports.preprocess((value, ctx) => {
+    if (!isUnknownRecord2(value) || value[spec.field] !== void 0) return value;
+    const aliases = spec.aliases.filter((key) => value[key] !== void 0);
+    if (aliases.length === 0) return value;
+    const sent = aliases.map((key) => value[key]);
+    if (new Set(sent).size > 1) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: [spec.field], message: spec.conflictMessage });
+      return value;
+    }
+    return { ...Object.fromEntries(Object.entries(value).filter(([key]) => !aliases.includes(key))), [spec.field]: sent[0] };
+  }, schema);
+}
+
 var copyFromBoxParameters = external_exports.object({
   box_path: external_exports.string().trim().min(1).describe(
     "Path of the file in your box to push out. Absolute (e.g. /workspace/report.pdf) or relative to /workspace. Any file type and any size; copied verbatim. Expand any glob in Shell first and pass a concrete path."
@@ -1856,7 +1877,7 @@ function describeTrigger(trigger2) {
 const adaptedProfileParameters = profileParameters.extend({
   avatar_shape: external_exports.enum(ROBOT_AVATAR_SHAPES).optional(),
 });
-const schemas={"UpdateMemory":memoryParameters,"UpdateRoutine":routineParameters,"UpdateSkill":skillParameters,"UpdateProfile":adaptedProfileParameters,"UpdateAvatar":avatarParameters,"DisconnectChannel":channelParameters,"Computer":computerActionParameters,"SendToUser":sendMessageParameters,"ReactToMessage":reactToMessageParameters,"SendFeedback":sendFeedbackParameters,"request_box_help":requestBoxHelpParameters,"DraftExternalMessage":draftExternalMessageParameters,"CheckSubagent":checkSubagentParameters,"MessageSubagent":messageSubagentParameters,"StopSubagent":stopSubagentParameters,"SendToAgent":sendToAgentLenientParameters,"CreateAgent":createAgentParameters,"UpdateAgent":updateAgentParameters,"CreateChannel":createChannelParameters,"UpdateChannel":updateChannelParameters,"CopyToBox":copyToBoxParameters,"CopyFromBox":copyFromBoxParameters,"RecallMemory":recallMemoryParameters};
+const schemas={"UpdateMemory":memoryParameters,"UpdateRoutine":routineParameters,"UpdateSkill":skillParameters,"UpdateProfile":adaptedProfileParameters,"UpdateAvatar":avatarParameters,"DisconnectChannel":channelParameters,"Computer":computerActionParameters,"SendToUser":sendMessageParameters,"ReactToMessage":reactToMessageParameters,"SendFeedback":sendFeedbackParameters,"request_box_help":requestBoxHelpParameters,"DraftExternalMessage":draftExternalMessageParameters,"CheckSubagent":checkSubagentParameters,"MessageSubagent":messageSubagentParameters,"StopSubagent":stopSubagentParameters,"SendToAgent":sendToAgentLenientParameters,"CreateAgent":createAgentParameters,"UpdateAgent":updateAgentParameters,"CreateChannel":createChannelParameters,"UpdateChannel":updateChannelParameters,"CopyToBox":withArgumentAlias(copyToBoxParameters, COPY_TO_BOX_COMPUTER_PATH_ALIAS),"CopyFromBox":copyFromBoxParameters,"RecallMemory":recallMemoryParameters};
 // Explicit deployment extensions: connector secrets and personal environment scope.
 // Keep the captured refinements for every other SendToUser field.
 const localSecretSchema = sendMessageObjectSchema.shape.secret.unwrap().extend({
@@ -1892,15 +1913,12 @@ export function normalizeMainToolArguments(name:string, raw:unknown):Record<stri
     return value;
   }
   const schema = name === "DraftExternalMessage" ? adaptedDraftSchema : name === "SendToUser" ? adaptedSendSchema : schemas[name];
-  if (!schema) return raw as Record<string,any>;
-  const parsed = schema.safeParse(raw, { errorMap: referenceTypeMessages });
-  if (parsed.success) return parsed.data;
-  throw new Error(formatArgumentIssues(parsed.error.issues));
+  return schema ? parseToolArguments(schema, raw) : raw as Record<string,any>;
 }
-// The reference's zod reports a wrong or missing value as "Invalid input: expected X, received Y";
-// a schema's own message for the field still wins.
-const referenceTypeMessages = (issue, ctx) =>
-  issue.code === "invalid_type" && (ctx.defaultError === "Required" || /^Expected .+, received .+$/.test(ctx.defaultError))
-    ? { message: `Invalid input: expected ${issue.expected}, received ${issue.received}` }
-    : { message: ctx.defaultError };
+const ARGUMENT_ALIASES={"CopyToBox":COPY_TO_BOX_COMPUTER_PATH_ALIAS};
+/** The reference's argument aliases alone, for tools whose arguments are otherwise decoded elsewhere. */
+export function applyArgumentAliases(name:string, raw:unknown):unknown{
+  const spec = ARGUMENT_ALIASES[name];
+  return spec ? parseToolArguments(withArgumentAlias(external_exports.any(), spec), raw) : raw;
+}
 export { describeTrigger };

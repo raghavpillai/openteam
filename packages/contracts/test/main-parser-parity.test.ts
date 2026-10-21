@@ -92,3 +92,25 @@ test("argument errors list one path and message per issue", () => {
     "Invalid arguments:\ntype: UpdateMemory: pick the memory type it belongs in"
   );
 });
+test("reference aliases and wrong-tool hints for file tools", async () => {
+  const { applyArgumentAliases } = await import("../src/reference-main-parsers");
+  const { parseConnectorTransfer } = await import("../src/connector-transfers");
+  for (const alias of ["path", "source_path", "sourcePath", "source", "local_path"])
+    expect(applyArgumentAliases("CopyToBox", { [alias]: "/Users/a/x.csv", machineId: "m1" })).toEqual({ computer_path: "/Users/a/x.csv", machineId: "m1" });
+  expect(applyArgumentAliases("CopyToBox", { computer_path: "/a", path: "/b" })).toEqual({ computer_path: "/a", path: "/b" });
+  expect(applyArgumentAliases("CopyToBox", { path: "/a", source: "/a" })).toEqual({ computer_path: "/a" });
+  expect(() => applyArgumentAliases("CopyToBox", { path: "/a", source: "/b" })).toThrow(
+    "Invalid arguments:\ncomputer_path: Pass the file's absolute path on the user's computer once, as computer_path."
+  );
+  const shape = 'Shape: {"connection": "google-drive", "source": {"fileId": "<id>"}, "destination"?: {"path": "<box path>"}}.';
+  expect(() => parseConnectorTransfer("DownloadFile", { url: "https://example.com/a.pdf" })).toThrow(
+    `Invalid arguments:\nurl: DownloadFile fetches a file from a connected Google Drive / Gmail account. For a URL use WebFetch or Shell curl; for a file already on this box use Read. ${shape}\nconnection: Invalid input: expected string, received undefined\nsource: Invalid input: expected object, received undefined`
+  );
+  expect(() => parseConnectorTransfer("DownloadFile", { file_path: "/workspace/a.pdf" })).toThrow(
+    `file_path: DownloadFile fetches a file from a connected Google Drive / Gmail account. For a file already on this box use Read; for a URL use WebFetch or Shell curl. ${shape}`
+  );
+  expect(() => parseConnectorTransfer("UploadFile", { connection: "google-drive", path: "/workspace/a.pdf" })).toThrow(
+    'Invalid arguments:\nargument: UploadFile sends a file that is already on your box into a connected Google Drive / Gmail account; sourcePath is the box path. Shape: {"connection": "google-drive", "sourcePath": "/workspace/report.pdf", "destination"?: {"path": "<folder>"} | {"folderId": "<id>"} | {"draftId": "<id>"}}.\nsourcePath: Invalid input: expected string, received undefined'
+  );
+  expect(parseConnectorTransfer("UploadFile", { connection: "google-drive", sourcePath: "/workspace/a.pdf" })).toMatchObject({ sourcePath: "/workspace/a.pdf" });
+});

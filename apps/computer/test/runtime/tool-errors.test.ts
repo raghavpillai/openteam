@@ -20,7 +20,7 @@ function fixture(respond: (name: string, args: any) => Response) {
     active.discoveredDynamicTools.add(`cursor/${toolName}`);
     return call("CallDynamicTool", { namespace: "cursor", toolName, arguments: args });
   };
-  return { calls, call, lookup };
+  return { tools, active, calls, call, lookup };
 }
 
 test("SendToUser failures name the send and give the reason, not an error envelope", async () => {
@@ -43,5 +43,17 @@ test("first-party lookups coerce string-encoded values and report decode failure
   await expect(lookup("Task", { description: "x", subagent_type: "executor" })).rejects.toThrow(/^Invalid arguments:\nprompt: /);
   await expect(lookup("UpdateAgent", { name: "x" })).rejects.toThrow(
     /^Invalid arguments:\nagent_id: Invalid input: expected string, received undefined$/
+  );
+});
+
+test("CopyToBox takes the reference's computer_path aliases", async () => {
+  const { tools, active, lookup } = fixture(() => Response.json({}));
+  active.cwd = "/workspace";
+  const copies: unknown[] = [];
+  tools.nativeToolExecutor.copyFile = async (_direction: string, args: unknown) => { copies.push(args); return { content: [], details: {} }; };
+  await lookup("CopyToBox", { local_path: "/Users/a/x.csv", machineId: "m1" });
+  expect(copies).toEqual([{ machineId: "m1", computer_path: "/Users/a/x.csv" }]);
+  await expect(lookup("CopyToBox", { path: "/Users/a/x.csv", source: "/Users/a/y.csv", machineId: "m1" })).rejects.toThrow(
+    "Invalid arguments:\ncomputer_path: Pass the file's absolute path on the user's computer once, as computer_path."
   );
 });

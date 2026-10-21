@@ -1,5 +1,5 @@
 import { ParseResult } from "effect";
-import { ZodError } from "zod";
+import { ZodError, type ZodErrorMap, type ZodType } from "zod";
 
 /** The reference's argument report: one `path: message` line per issue, "argument" for the root. */
 export const formatArgumentIssues = (
@@ -14,6 +14,20 @@ export function invalidArgumentsMessage(error: unknown): string | undefined {
   if (error instanceof ZodError) return formatArgumentIssues(error.issues);
   if (ParseResult.isParseError(error)) return formatArgumentIssues(ParseResult.ArrayFormatter.formatErrorSync(error));
   return undefined;
+}
+
+// The reference's zod reports a wrong or missing value as "Invalid input: expected X, received Y";
+// a schema's own message for the field still wins.
+const referenceTypeMessages: ZodErrorMap = (issue, ctx) =>
+  issue.code === "invalid_type" && (ctx.defaultError === "Required" || /^Expected .+, received .+$/.test(ctx.defaultError))
+    ? { message: `Invalid input: expected ${issue.expected}, received ${issue.received}` }
+    : { message: ctx.defaultError };
+
+/** Parse model arguments with a captured schema; failures throw the reference's argument report. */
+export function parseToolArguments<T>(schema: ZodType<T, any, any>, raw: unknown): T {
+  const parsed = schema.safeParse(raw, { errorMap: referenceTypeMessages });
+  if (parsed.success) return parsed.data;
+  throw new Error(formatArgumentIssues(parsed.error.issues));
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

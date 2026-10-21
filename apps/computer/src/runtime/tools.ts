@@ -1,4 +1,4 @@
-import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
+import { applyArgumentAliases, normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { onlyPendingBackgroundWork } from "./background-status";
 import { spoolFile } from "@openteam/plugin-sdk/file-spool";
 import { agentReadStream, agentWriteStream } from "../agent-file-stream";
@@ -1656,7 +1656,7 @@ export class RuntimeTools {
                 inputSchema: definition.inputSchema,
                 source: "first-party",
                 decodeArguments: (args) => {
-                  const value = args as Record<string, unknown>;
+                  const value = applyArgumentAliases(name, args) as Record<string, unknown>;
                   const required = name === "CopyToBox" ? "computer_path" : "box_path";
                   if (
                     !value ||

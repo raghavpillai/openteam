@@ -78,10 +78,18 @@ test('commerce skills pay in the purchases order and keep no confirmation leftov
     if (item.content.includes('When the site wants payment')) expect(item.content).toContain('as the OpenTeam-managed `purchases` skill says');
   }
   expect(managed.skills.filter(s => s.content.includes('When the site wants payment')).map(s => s.id).sort()).toEqual(
-    ['accommodation-booking', 'flight-booking', 'food-ordering', 'restaurant-booking', 'scheduling'],
+    ['accommodation-booking', 'flight-booking', 'food-ordering', 'restaurant-booking', 'scheduling', 'shopping'],
   );
   expect(skill('restaurant-booking')).toContain('Offer once to add the reservation to their calendar.');
   expect(skill('flight-booking')).toContain("through the user's mail connector (Gmail or an Email plugin inbox)");
+});
+
+test('shopping compares delivered offers and routes around a store that blocks agents', () => {
+  expect(description('shopping')).toContain('Read it as well as the purchases skill, which covers only how to pay.');
+  const shopping = skill('shopping');
+  for (const part of ['## Comparing offers', '## Sizes and preferences', 'Match on the model number or UPC, not the title', 'the model number and UPC or EAN', "It must not use the browser's reload"]) expect(shopping).toContain(part);
+  // Product cards, plan usage and the WebFetch page-image line do not exist here.
+  expect(shopping).not.toMatch(/`shopping` field|`shipment` field|CheckSubscriptionUsage|Page image:/);
 });
 
 test('catalog has valid skill metadata and excludes retired workflows',()=>{

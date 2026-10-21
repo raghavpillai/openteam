@@ -14,7 +14,6 @@ import type { TaskConfiguration } from "@openteam/contracts/task-configuration";
 export type TurnStatus = "completed" | "failed" | "interrupted";
 
 export interface ActiveTurn {
-  runtimeStartedAt?: number;
   taskConfiguration?: TaskConfiguration;
   pluginRuntimePackages?: readonly import("@openteam/plugin-sdk").PluginRuntimePackage[];
   pluginAbortController?: AbortController;

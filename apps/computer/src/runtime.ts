@@ -246,7 +246,6 @@ export class ComputerRuntime {
 
     const queue = new ComputerEventQueue();
     const active: ActiveTurn = {
-      runtimeStartedAt: Date.now(),
       taskConfiguration: request.taskConfiguration === undefined ? defaultTaskConfiguration() : parseTaskConfiguration(request.taskConfiguration),
       runId: request.runId,
       botId: request.botId,

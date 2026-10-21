@@ -63,7 +63,7 @@ try {
     page.setDefaultTimeout(15_000);
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto(`${base}test/browser/model-onboarding.html?theme=${mode}`);
+    await page.goto(`${base}test/browser/model-onboarding.html?theme=${mode}&createFails=1`);
     const title = (value: string) =>
       page.getByRole("heading", { name: value, exact: true }).waitFor();
     const button = (name: string) => page.getByRole("button", { name, exact: true });
@@ -106,9 +106,25 @@ try {
     await title("Create your first bot");
     await page.waitForFunction(() => !document.documentElement.dataset.setupDirection);
     await page.screenshot({ path: join(output, `${mode}.png`), animations: "disabled" });
+    await page.getByRole("textbox", { name: "Bot name" }).fill("My QA bot");
+    await button("Create My QA bot").click();
+    await page
+      .getByRole("alert")
+      .filter({ hasText: "The server couldn't create the bot." })
+      .waitFor();
+    await page.evaluate(() => {
+      (window as unknown as { openteamQA: { addBot: (name: string) => void } }).openteamQA.addBot(
+        "Other QA bot"
+      );
+    });
+    await title("Other QA bot is already here");
+    assert.equal(await page.getByRole("alert").count(), 0);
+    await page.screenshot({ path: join(output, `${mode}-arrival.png`), animations: "disabled" });
+    await button("Open it").click();
+    await page.getByText("Opened bot: Other QA bot", { exact: true }).waitFor();
     assert.deepEqual(errors, []);
     console.log(
-      `${mode}: saved AI Back/Esc, refused alternative, voice key reset, PUT save/rollback/retry passed`
+      `${mode}: saved AI Back/Esc, refused alternative, voice key reset, PUT save/rollback/retry, bot error recovery passed`
     );
     await page.close();
   }

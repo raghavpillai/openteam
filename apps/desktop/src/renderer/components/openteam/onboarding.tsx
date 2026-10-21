@@ -1524,6 +1524,10 @@ function BotScreen({
     ? undefined
     : arrivals.find((bot) => !answered.has(bot.id) && !sent.current.has(profileKey(bot)));
 
+  // An arrival changes the offered action. A failed create (or opening a different
+  // arrival) must not leave its error on the new bot's screen.
+  useEffect(() => setError(null), [elsewhere?.id]);
+
   // Setup finishes only once the bot exists; a failure stays here so it can be retried.
   const create = async () => {
     if (creating || opening) return;

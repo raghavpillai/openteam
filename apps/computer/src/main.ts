@@ -628,6 +628,10 @@ const server = Bun.serve({
         return json({ ok: true });
       }
 
+      const backgroundShellsMatch = url.pathname.match(/^\/v1\/bots\/([^/]+)\/background-shells\/stop$/);
+      if (request.method === "POST" && backgroundShellsMatch?.[1])
+        return json({ stopped: runtime.stopBackgroundShells(decodeURIComponent(backgroundShellsMatch[1])) });
+
       const contextSessionMatch = url.pathname.match(/^\/v1\/context-sessions\/([^/]+)$/);
       if (request.method === "GET" && contextSessionMatch?.[1]) {
         return json(await runtime.contextState(contextSessionMatch[1]));

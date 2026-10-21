@@ -105,6 +105,9 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
       if (request.method === "POST" && /^\/v1\/turns\/[^/]+\/cancel$/.test(url.pathname)) {
         return Response.json({ ok: true });
       }
+      if (request.method === "POST" && /^\/v1\/bots\/[^/]+\/background-shells\/stop$/.test(url.pathname)) {
+        return Response.json({ stopped: 0 });
+      }
       if (request.method === "POST" && url.pathname === "/v1/turns") {
         const input = (await request.json()) as TurnInput;
         turns.push(input);

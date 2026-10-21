@@ -255,6 +255,9 @@ export class RuntimeTools {
   private readonly shellWaits = new Map<string, Set<AbortController>>();
   private readonly stepFileWriters = new Map<string, Set<Promise<unknown>>>();
   private readonly foregroundShells = new Map<string, Set<{ active: ActiveTurn; controller: AbortController }>>();
+  /** Box shells a stopped subagent left running in the background end with it. */
+  stopBackgroundShells(botId: string) { return this.nativeToolExecutor.stopBackgroundShells(botId); }
+
   interruptShellWaits(runId: string) {
     for (const wait of this.shellWaits.get(runId) ?? [])
       wait.abort(new Error("A new user message arrived"));
@@ -1769,9 +1772,9 @@ export class RuntimeTools {
                 throw new Error(`${key} must be a nonempty string of at most 16000 characters`);
               return value.trim();
             },
-            execute: (turn, _callId, args, signal) =>
+            execute: (_turn, _callId, args, signal) =>
               name === "WebFetch"
-                ? this.webTools.fetch(args as string, turn.cwd, signal)
+                ? this.webTools.fetch(args as string, signal)
                 : this.webTools.search(args as string, signal),
           };
         }),

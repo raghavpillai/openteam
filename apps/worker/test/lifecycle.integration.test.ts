@@ -109,6 +109,9 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       if (request.method === "POST" && /^\/v1\/turns\/[^/]+\/cancel$/.test(url.pathname)) {
         return Response.json({ ok: true });
       }
+      if (request.method === "POST" && /^\/v1\/bots\/[^/]+\/background-shells\/stop$/.test(url.pathname)) {
+        return Response.json({ stopped: 0 });
+      }
       const contextStateMatch = url.pathname.match(/^\/v1\/context-sessions\/([^/]+)$/);
       if (request.method === "GET" && contextStateMatch?.[1]) {
         preflightContexts.push(contextStateMatch[1]);

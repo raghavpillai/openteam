@@ -271,7 +271,7 @@ function renderStopAllSubagents(result: Record<string, any>): string {
     return "No background subagents are running and no work is out with other agents, so there was nothing to stop. Background shell commands you started yourself are not subagents: terminate those with their reported PIDs.";
   return [
     ...(total === 0 ? ["No background subagents of your own are running."] : []),
-    ...(stopped.length ? [`Stopped ${stopped.length} of ${total} running subagent(s). They are torn down and will not report back:`, ...stopped.map(listed)] : []),
+    ...(stopped.length ? [`Stopped ${stopped.length} of ${total} running subagent(s). They are torn down, will not report back, and anything they dispatched or ran inside their own turn ends with them:`, ...stopped.map(listed)] : []),
     ...(finished.length ? [`${finished.length} had already finished before the stop reached them (you are revived with a finished subagent's result separately):`, ...finished.map(listed)] : []),
     ...(failed.length ? [`${failed.length} could NOT be stopped and may still be running. Retry each with StopSubagent and its id; if it still fails, tell the user which work may still be running:`, ...failed.map((entry) => `${listed(entry)}: ${entry.error}`)] : []),
     ...(delegated.length

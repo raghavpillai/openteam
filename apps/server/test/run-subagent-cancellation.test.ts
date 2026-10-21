@@ -14,7 +14,7 @@ function fixture() {
       childRunId: "child",
       runInBackground: false,
       status: "running",
-      subagent: { id: "sub", currentRunId: "child", status: "running" },
+      subagent: { id: "sub", childBotId: "sub-bot", currentRunId: "child", status: "running" },
     },
     {
       id: "background-attempt",
@@ -22,10 +22,11 @@ function fixture() {
       childRunId: "background",
       runInBackground: true,
       status: "running",
-      subagent: { id: "bg", currentRunId: "background", status: "running" },
+      subagent: { id: "bg", childBotId: "bg-bot", currentRunId: "background", status: "running" },
     },
   ];
   const calls: string[] = [];
+  const shellStops: string[] = [];
   const events: any[] = [];
   const inbox: any[] = [];
   let queueRace = false;
@@ -90,6 +91,10 @@ function fixture() {
   let fetchImpl = async (_id: string) => new Response("{}", { status: 200 });
   const service = new RunService(db, async (path: string) => {
     const id = path.split("/")[3]!;
+    if (path.endsWith("/background-shells/stop")) {
+      shellStops.push(id);
+      return new Response('{"stopped":1}');
+    }
     calls.push(id);
     return fetchImpl(id);
   });
@@ -98,6 +103,7 @@ function fixture() {
     runs,
     children,
     calls,
+    shellStops,
     events,
     inbox,
     setFetch: (f: typeof fetchImpl) => (fetchImpl = f),
@@ -126,6 +132,8 @@ test("retrying cancelled parent retries failed child and preserves background wo
   expect(f.children[0].status).toBe("stopped");
   expect(f.children[1].status).toBe("running");
   expect(f.runs.background.status).toBe("running");
+  // The stopped foreground worker's background shells end with it; the background worker's keep running.
+  expect(f.shellStops).toEqual(["sub-bot"]);
 });
 test("queued-to-running race dispatches cancellation instead of reporting queued success", async () => {
   const f = fixture();
@@ -181,7 +189,7 @@ test("all independent children attempted when one fails", async () => {
     childRunId: "second",
     runInBackground: false,
     status: "running",
-    subagent: { id: "second-sub", currentRunId: "second", status: "running" },
+    subagent: { id: "second-sub", childBotId: "second-bot", currentRunId: "second", status: "running" },
   });
   f.setFetch(async (id) => new Response("{}", { status: id === "child" ? 503 : 200 }));
   await expect(Effect.runPromise(f.service.cancel("parent"))).rejects.toThrow();
@@ -189,4 +197,5 @@ test("all independent children attempted when one fails", async () => {
   expect(f.runs.child.status).toBe("running");
   expect(f.runs.second.status).toBe("cancelled");
   expect(f.children[2].status).toBe("stopped");
+  expect(f.shellStops).toEqual(["second-bot"]);
 });

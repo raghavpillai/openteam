@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmod, mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NativeToolExecutor } from "../src/native-tool-executor";
@@ -41,6 +41,49 @@ test("a routine handoff stops the background commands its runs started, and only
     expect(await status(parent, 0)).toBe("running");
   } finally {
     for (const id of started) await status(id, 5000).catch(() => undefined);
+    await rm(root, {recursive: true, force: true});
+  }
+});
+
+test("stopping a subagent ends its background commands, TERM-trapping ones too, and leaves other agents' running", async () => {
+  const root = await mkdtemp(join(tmpdir(), "openteam-shell-subagent-stop-"));
+  await chmod(root, 0o755);
+  const executor = new NativeToolExecutor({agentDir: root, controlToken: "fixture"});
+  const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code !== "ESRCH"; } };
+  const started: Array<{ id: string; scope: string; path: string }> = [];
+  const start = async (scope: string, command: string) => {
+    const result = await executor.shell({command, block_until_ms: 0}, root, undefined, undefined, scope);
+    const details = result.details as { shellId: string; outputPath: string };
+    started.push({ id: details.shellId, scope, path: details.outputPath });
+    return details;
+  };
+  const pidOf = async (path: string) => {
+    for (let i = 0; i < 200; i++) {
+      const match = /^PID=(\d+)$/m.exec(await readFile(path, "utf8"));
+      if (match) return Number(match[1]);
+      await Bun.sleep(10);
+    }
+    throw new Error("command did not start");
+  };
+  try {
+    const plain = await start("child-bot", "echo PID=$$; exec sleep 30");
+    const stubborn = await start("child-bot", "trap '' TERM; echo PID=$$; sleep 30 & wait");
+    const other = await start("parent-bot", "echo PID=$$; exec sleep 30");
+    const [plainPid, stubbornPid, otherPid] = await Promise.all([pidOf(plain.outputPath), pidOf(stubborn.outputPath), pidOf(other.outputPath)]);
+    expect(executor.stopBackgroundShells("child-bot")).toBe(2);
+    for (const pid of [plainPid, stubbornPid]) {
+      for (let i = 0; i < 300 && alive(pid); i++) await Bun.sleep(10);
+      expect(alive(pid)).toBe(false);
+    }
+    for (const shell of [plain, stubborn]) {
+      expect((await executor.awaitShell({shell_id: shell.shellId, block_until_ms: 5000}, undefined, "child-bot")).details.status).toBe("completed");
+      expect(await readFile(shell.outputPath, "utf8")).toContain("\nstatus: aborted  \n");
+    }
+    expect(alive(otherPid)).toBe(true);
+    expect(executor.stopBackgroundShells("child-bot")).toBe(0);
+  } finally {
+    for (const shell of started) if (shell.scope === "parent-bot") executor.stopBackgroundShells("parent-bot");
+    for (const shell of started) await executor.awaitShell({shell_id: shell.id, block_until_ms: 5000}, undefined, shell.scope).catch(() => undefined);
     await rm(root, {recursive: true, force: true});
   }
 });

@@ -864,6 +864,22 @@ describe("renamed first-party tools", () => {
     expect(referenceTool("RemapUserFormTargets").description).toContain("right after a RequestUserForm receipt");
   });
 
+  test("plugin management keeps the reference's widget confirmations; sign-in stays autonomous", () => {
+    const description = (name: string) => referenceTool(name).description;
+    expect(description("AddMcpServer")).toContain("Only call this after the user agrees to add it. Confirm with a question widget first, since it changes the user's account configuration and the server can run commands or reach external services on their behalf.");
+    expect(description("AddMcpServer")).toContain("That command also runs in this user's other agents, so say so when you confirm.");
+    expect(description("UninstallMcpServer")).toContain("which signs the user out of it, so confirm with the user via a question widget first.");
+    expect(description("UninstallMcpServer")).toContain("Use UninstallPlugin for those so the confirmation can disclose the full scope.");
+    expect(description("UninstallPlugin")).toContain("so confirm with the user via a question widget first, and your confirmation must disclose that full scope (list what goes).");
+    expect(description("UninstallPlugin")).not.toContain("team");
+    expect(description("RemoveMcpAccount")).toContain("This is destructive. Confirm with the user via a question widget before calling it.");
+    expect(description("RenameMcpAccount")).toEndWith("Confirm with a question widget first.");
+    expect(description("RestartMcpServers")).toEndWith("Confirm with the user first if a server is mid-task.");
+    expect(description("InstallPlugin")).toContain("without asking. Ask in one widget first only when the user named no service and several plugins fit (Gmail or the Email plugin), or the plugin has no connector.");
+    const auth = JSON.stringify(referenceTool("AuthenticateMcpServer"));
+    expect(auth).not.toMatch(/question widget|ask whether to sign the server out|confirm with the user/);
+  });
+
   test("old snake_case names format nothing and parse nothing", () => {
     expect(renderControlResult("create_bot_share_json", { published: true, version: 2 }, {})).toBe(JSON.stringify({ published: true, version: 2 }));
     expect(renderControlResult("CreateBotShareJson", { published: true, version: 2 }, {})).toContain("version 2");

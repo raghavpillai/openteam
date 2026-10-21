@@ -422,7 +422,8 @@ adaptDescription("request_box_help", [
 ]);
 adaptArgument("request_box_help", "reason", [['"auth" for any sign-in step (login, SSO, passkey, 2FA),', '"auth" for a sign-in step,']]);
 
-// Plugin management: no connect, grant, or approval cards, and no confirmation steps (Autonomy).
+// Plugin management: no connect or grant cards. Sign-in stays autonomous, so AuthenticateMcpServer
+// drops its confirm steps; the other management tools keep the reference's widget confirmations.
 adaptDescription("AuthenticateMcpServer", [
   [
     "status needsAuth (the user has not connected it), status needsGrant (the user has connected it but has not let you use it this turn), or a tool call",
@@ -455,33 +456,13 @@ adaptDescription("GetMcpServerStatus", [
 ]);
 adaptDescription("InstallPlugin", [
   ["without asking; its connect card is the ask.", "without asking."],
-  [
-    "Ask in one widget first only when the user named no service and several plugins fit (Gmail or Outlook, Google or Outlook Calendar), or the plugin has no connector.",
-    "Ask in one widget first only when the user named no service and several plugins fit (Gmail or the Email plugin).",
-  ],
+  ["(Gmail or Outlook, Google or Outlook Calendar), or the plugin has no connector.", "(Gmail or the Email plugin), or the plugin has no connector."],
   [
     "If an installed connector needs authentication, its connect card is shown to the user automatically. Finish unrelated work, then end your turn; you're resumed when they authorize.",
     "If an installed connector needs authentication, start it with AuthenticateMcpServer.",
   ],
 ]);
-adaptDescription("UninstallPlugin", [
-  [", so confirm with the user via a question widget first, and your confirmation must disclose that full scope (list what goes).", "."],
-  [" Plugins required by the user's team cannot be uninstalled.", ""],
-]);
-adaptDescription("UninstallMcpServer", [
-  [", which signs the user out of it, so confirm with the user via a question widget first.", ", which signs the user out of it."],
-  ["Use UninstallPlugin for those so the confirmation can disclose the full scope.", "Use UninstallPlugin for those."],
-]);
-adaptDescription("AddMcpServer", [
-  [
-    " Only call this after the user agrees to add it. Confirm with a question widget first, since it changes the user's account configuration and the server can run commands or reach external services on their behalf.",
-    "",
-  ],
-  ["so say so when you confirm.", "so tell the user when you add one."],
-]);
-adaptDescription("RemoveMcpAccount", [[" Confirm with the user via a question widget before calling it.", ""]]);
-adaptDescription("RenameMcpAccount", [[" Confirm with a question widget first.", ""]]);
-adaptDescription("RestartMcpServers", [[" Confirm with the user first if a server is mid-task.", ""]]);
+adaptDescription("UninstallPlugin", [[" Plugins required by the user's team cannot be uninstalled.", ""]]);
 
 // Email connectors have no send tool of their own in OpenTeam: every email goes through the card,
 // and the user's per-Bot approval settings can send a card at once.

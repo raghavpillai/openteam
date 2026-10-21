@@ -25,6 +25,11 @@ test('the group-chat-turns trigger names the tag a room turn starts with', () =>
   expect(skill('channels')).toContain('ask a multiple-choice question as plain text with the options as a numbered list and tell them to reply with their choice.');
 });
 
+test('the routines skill ends its intent rule at the discovery tool, as the reference does', () => {
+  expect(skill('routines')).toContain('let each run look the tool up with your MCP discovery tool (GetMcpTools, or GetDynamicTools when that is the one you hold).');
+  expect(skill('routines')).not.toContain('Store communication intent rather than names such as');
+});
+
 test('managed workflows omit categorical authentication and transaction handovers', () => {
   const workflows = managed.skills.map(skill => skill.content).join('\n');
   for (const legacy of [

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { equalOAuthState, validateDesktopCallback, parseManualCallback, oauthCallbackMode, MANUAL_OAUTH_REDIRECT, type PluginOAuthDesktopContext } from "../plugins/oauth-callback";
 import type { PluginOAuthCallbackInput } from "@openteam/contracts/plugin-management";
 import { pluginToolArguments } from "./plugin/tool-arguments";
-import { connectionNamespace } from "@openteam/plugin-sdk";
+import { connectionNamespaces } from "@openteam/plugin-sdk";
 import type { ConfigurePluginConnectionInput, PluginTestInput } from "@openteam/contracts";
 import { ApiError } from "@openteam/contracts";
 import type { Prisma, PrismaClient } from "@openteam/db";
@@ -373,7 +373,8 @@ export class PluginService {
     if (!args.server_id) return args;
     if (typeof args.server_id !== "string") throw new ApiError(400, "server_id_invalid", "server_id must be a string");
     const connections = await this.prisma.pluginConnection.findMany({ include: { installation: true } });
-    const matches = connections.filter(c => c.id === args.server_id || connectionNamespace(c.id,c.alias) === args.server_id || c.installation.pluginKey === args.server_id);
+    const namespaces = connectionNamespaces(connections);
+    const matches = connections.filter(c => c.id === args.server_id || namespaces.get(c.id) === args.server_id || c.installation.pluginKey === args.server_id);
     if (!matches.length) throw new ApiError(404, "connection_not_found", "Server not found; use GetMcpServerStatus");
     const groups = new Set(matches.map(c => `${c.installationId}/${c.connectorKey}`));
     if (groups.size !== 1) throw new ApiError(409, "account_ambiguous", "Use a server identifier from GetMcpServerStatus");

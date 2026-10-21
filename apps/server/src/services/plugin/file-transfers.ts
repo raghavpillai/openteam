@@ -1,7 +1,7 @@
 import { spoolFile, type StagedFile } from "@openteam/plugin-sdk/file-spool";
 import { createHash } from "node:crypto";
 import type { PrismaClient } from "@openteam/db";
-import { connectionNamespace } from "@openteam/plugin-sdk";
+import { loadConnectionNamespaces } from "./namespaces";
 import {
   parseConnectorTransfer,
   CONNECTOR_TRANSFER_MAX_BYTES,
@@ -32,11 +32,12 @@ export class ConnectorFileTransfers {
       include: { installation: true },
     });
     const available = connections.filter((c) => providers.has(c.installation.pluginKey));
+    const namespaces = await loadConnectionNamespaces(this.db);
     const matches = available.filter((c) =>
       [
         c.id,
         c.name,
-        connectionNamespace(c.id,c.alias),
+        namespaces.get(c.id),
         c.installation.pluginKey,
         `${c.installation.pluginKey} (account="${c.alias}")`,
       ].includes(connectionName)

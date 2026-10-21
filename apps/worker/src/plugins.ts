@@ -1,6 +1,6 @@
 import type { PluginDynamicNamespace } from "@openteam/contracts";
 import {
-  connectionNamespace,
+  connectionNamespaces,
   fileTransferCapabilities,
   parsePluginRuntimeComponents,
   pluginWorkflowRoot,
@@ -29,9 +29,6 @@ const runtimeStatus = (status: string): PluginDynamicNamespace["namespaceStatus"
   if (status === "error") return "error";
   return "loading";
 };
-
-const namespaceName = (pluginKey: string, alias: string): string =>
-  `${pluginKey.replaceAll("-", "_")}_${alias.replace(/[^A-Za-z0-9_]+/g, "_")}`;
 
 type Installation = Awaited<ReturnType<PrismaClient["pluginInstallation"]["findMany"]>>[number];
 
@@ -104,17 +101,20 @@ export const pluginRuntimeContext = async (
   skillInstructions: string;
   pluginRuntimePackages: PluginRuntimePackage[];
 }> => {
-  const [connections, installations] = await Promise.all([
+  const [connections, installations, named] = await Promise.all([
     prisma.pluginConnection.findMany({
       where: { status: { in: ["ready", "needs_auth", "error"] },
         installation: { status: "installed" } },
       include: { installation: true }, orderBy: { createdAt: "asc" },
     }),
     prisma.pluginInstallation.findMany({where:{status:"installed"}}),
+    // Named from every connection, as the server names them.
+    prisma.pluginConnection.findMany({ select: { id: true, name: true, alias: true, createdAt: true } }),
   ]);
+  const namespaces = connectionNamespaces(named);
 
   const dynamicNamespaces: PluginDynamicNamespace[] = connections.map((connection) => ({
-    name: connectionNamespace(connection.id, connection.alias),
+    name: namespaces.get(connection.id)!,
     description: `${connection.installation.name}: ${connection.name} (${connection.alias})${connection.instructions ? `\n${connection.instructions}` : ""}`,
     namespaceStatus: runtimeStatus(connection.status),
     ...(connection.status !== "ready" && connection.statusMessage

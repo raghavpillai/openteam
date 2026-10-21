@@ -13,7 +13,7 @@ import {
 } from "@openteam/contracts";
 import { type PrismaClient } from "@openteam/db";
 import { type AgentMessaging, type ToolContext, PRIORITY } from "@openteam/messaging";
-import { connectionNamespace } from "@openteam/plugin-sdk";
+import { loadConnectionNamespaces } from "./plugin/namespaces";
 import type { PluginService } from "./plugin-service";
 import { definitionFromManifest } from "./plugin/values";
 import { appendEvent, metadataRecord, serviceEffect, toJson } from "./service-utils";
@@ -90,12 +90,13 @@ export class ExternalDraftService {
   ) {}
   /**
    * The connection behind a draft's providerIdentifier: its UUID, or the namespace
-   * (`plugin_<uuid>`) GetMcpServerStatus lists. Includes the declared reviewed-send tool, if any.
+   * GetMcpServerStatus lists. Includes the declared reviewed-send tool, if any.
    */
   private async connection(draft: ExternalDraft) {
     const identifier = draft.providerIdentifier;
-    const parts = /^plugin_([0-9a-f]{8})_([0-9a-f]{4})_([0-9a-f]{4})_([0-9a-f]{4})_([0-9a-f]{12})(?:__[0-9a-f]+)?$/i.exec(identifier);
-    const id = UUID.test(identifier) ? identifier : parts ? parts.slice(1).join("-") : undefined;
+    const id = UUID.test(identifier)
+      ? identifier
+      : [...(await loadConnectionNamespaces(this.prisma))].find(([, namespace]) => namespace === identifier)?.[0];
     const connection = id
       ? await this.prisma.pluginConnection.findUnique({
           where: { id },
@@ -103,8 +104,6 @@ export class ExternalDraftService {
         })
       : null;
     if (!connection) return undefined;
-    if (parts && connectionNamespace(connection.id, connection.alias) !== identifier)
-      return fail("This account was renamed. Re-run GetMcpServerStatus and draft again.");
     const drafts = definitionFromManifest(connection.installation.manifest)?.connections.find(
       (connector) => connector.key === connection.connectorKey
     )?.drafts;

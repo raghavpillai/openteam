@@ -1,7 +1,8 @@
 import { ApiError } from "@openteam/contracts";
-import { connectionNamespace, connectorHostTools } from "@openteam/plugin-sdk";
+import { connectorHostTools } from "@openteam/plugin-sdk";
 import type { PrismaClient } from "@openteam/db";
 import { appendEvent, toJson } from "../service-utils";
+import { loadConnectionNamespaces } from "./namespaces";
 import type { PluginTransport } from "./transport";
 import {
   canonicalJson,
@@ -44,7 +45,7 @@ export class PluginInvocations {
     }
     if (
       request.namespace &&
-      request.namespace !== connectionNamespace(connection.id, connection.alias)
+      request.namespace !== (await loadConnectionNamespaces(this.prisma)).get(connection.id)
     )
       throw new ApiError(
         409,

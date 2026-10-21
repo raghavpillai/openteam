@@ -49,6 +49,7 @@ import {
 } from "../src";
 import { describeTrigger, normalizeMainToolArguments } from "../src/reference-main-parsers";
 import { renderControlResult } from "../src/tool-results";
+import { PLUGIN_WORKFLOW_HOST_CONTEXT } from "../src/plugin-workflows";
 import { ROBOT_AVATAR_SHAPES } from "../src/robot-avatar";
 import { parseUserForm, userFormPreparationRefusal } from "../src/user-forms";
 import cursorToolsDocument from "../src/cursor-tools.json";
@@ -532,6 +533,19 @@ describe("API contracts", () => {
     const actual = referenceTool("SendToUser");
     expect(actual.description).toBe(expected.description);
     expect(actual.inputSchema).toEqual(expected.inputSchema);
+  });
+
+  test("plugin host context keeps a workflow's confirmation steps", () => {
+    // The main prompt asks first before consequential actions; plugin skills must not be told otherwise.
+    expect(PLUGIN_WORKFLOW_HOST_CONTEXT).not.toMatch(/extra action approvals do not apply|Carry out the user's requested work directly|Ask only for information or authentication/);
+    expect(PLUGIN_WORKFLOW_HOST_CONTEXT).toContain("A workflow's confirmation steps apply, alongside your own rules on asking first.");
+  });
+
+  test("StopSubagent all says a stopped child's own background work ends with it", () => {
+    // Stopping a child also ends the background shells it started.
+    expect(referenceTool("StopSubagent").inputSchema.properties.all.description).toContain(
+      "(computerUse, executor, and any other Task children, plus anything those children started), delivers a stop to each peer"
+    );
   });
 
   test("declares the supported Cursor-compatible subset including AwaitShell", () => {

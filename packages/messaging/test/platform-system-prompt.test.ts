@@ -79,6 +79,13 @@ describe("platform prompt integration", () => {
     expect(prompt).not.toContain("a human-only step");
   });
 
+  test("the inline workflows promise no connect card and draft by default", () => {
+    const prompt = renderPlatformBaseSystemPrompt({ managedSkills: false });
+    expect(prompt).not.toMatch(/install\/connect card|Let the card handle authentication|connection in the card|should use the authorized service's send path/);
+    expect(prompt).toContain("OpenTeam shows no connect card: AuthenticateMcpServer starts sign-in, and when its result hands you a connection-settings link, send that link to the user.");
+    expect(prompt).toContain('Outgoing email and messages follow the "Never send email or messages unasked" section: asking you to send is not asking you to skip the draft.');
+  });
+
   test("live tool descriptions retain help without categorical handover rules", () => {
     expect(REQUEST_BOX_HELP_TOOL.description).toContain("then your turn ends");
     expect(REQUEST_BOX_HELP_TOOL.description).not.toContain("such as login, SSO");
@@ -253,6 +260,15 @@ describe("platform prompt integration", () => {
     ]) expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain(line);
     // No meetings, Outlook connector, or Auto-review here.
     expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toMatch(/live meeting|Outlook|Auto-review|saved send rule listed/);
+  });
+
+  test("a stop request starts with StopSubagent all: true, which also reaches peers", () => {
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain(
+      "Your first tool call for it is StopSubagent with all: true; that one call stops every running child (computerUse, executor, and all other Task children, plus anything they started) and delivers a stop to every peer agent you handed work to (each then stops its own subagents the same way)"
+    );
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("Do not CheckSubagent first or stop children one by one");
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain("call CheckSubagent with no id, issue StopSubagent for every running child");
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain("cloud agent");
   });
 
   test("the copied question-widget example passes OpenTeam's real send validation", () => {

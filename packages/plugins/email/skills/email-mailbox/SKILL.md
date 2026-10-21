@@ -28,7 +28,7 @@ Mail from this inbox goes out through a review card, including replies a routine
 
 1. Call DraftExternalMessage with `platform: "email"`, `providerIdentifier` from ListEmailInboxes's description, `from` set to the inbox address, plain-address `to`, a `subject`, and the `body`. To reply in a conversation, also pass `replyToMessageId` with the message's `message_id` (for example `INBOX:42`), send to the sender, or to the `Reply-To` address when ReadEmailThread shows one, and use "Re: " plus the original subject.
 2. The card shows the draft in chat. The user can edit it and presses Send; OpenTeam then sends it from this inbox, threaded under the original. Never send the same message another way afterwards.
-3. If the user has allowed every recipient for this Bot, or turned its drafts off, the card sends at once and DraftExternalMessage's result says whether it went out. Only the user changes that, from the card's approval menu.
+3. If the user has allowed every recipient for this Bot, or turned its drafts off, the card sends at once and DraftExternalMessage's result says whether it went out. Only the user can turn drafts off or allow recipients; you can turn drafts back on with UpdateProfile drafting_disabled: false when they ask.
 4. A routine run can't post the card itself. Read the mail, write the reply, and call WakeParent with everything the card needs (providerIdentifier, from, to, subject, body, and replyToMessageId) and ask the parent to post it as a DraftExternalMessage card. The reply then waits on that card until the user sends or discards it, unless the user allowed the recipient.
 
 There is no other way to send from this inbox.

@@ -9,6 +9,7 @@ import { buildGroupTurnPrompt } from '../src/index';
 import { managedSkillIsForMain } from '../src/managed-skill-agents';
 import { normalizeMemoryContent } from '../src/memory-facts';
 import { referenceTool } from '@openteam/contracts/tool-contracts';
+import { AUTOMATION_TRIGGER_SHAPE_LINES } from '@openteam/contracts/reference-main-parsers';
 
 const skill = (id: string) => managed.skills.find(s => s.id === id)!.content;
 const description = (id: string): string => yaml(skill(id).split('---')[1]!).description;
@@ -44,7 +45,7 @@ test('managed workflows omit categorical authentication and transaction handover
 
 test('connector skills install without asking and promise no connect card', () => {
   // OpenTeam has no connect cards: InstallPlugin installs, AuthenticateMcpServer starts sign-in.
-  for (const item of managed.skills.filter(s => s.id !== 'routines')) {
+  for (const item of managed.skills) {
     expect(item.content).not.toMatch(/connect card (is the ask|appears|handles|is shown)/);
     expect(item.content).not.toContain('once the user agrees, install it');
   }
@@ -52,6 +53,35 @@ test('connector skills install without asking and promise no connect card', () =
   expect(skill('no-connector-fallback')).toContain('a row reading needsAuth is a connector, so call AuthenticateMcpServer and never open the box for that service');
   expect(skill('add-connector')).toContain('**Only related plugins match**');
   expect(skill('add-connector')).toContain('You are not resumed when sign-in finishes.');
+});
+
+test('the routines skill lists the trigger shapes the UpdateRoutine parser answers with', () => {
+  // UpdateRoutine's trigger points the model at this list, so it must match what the parser accepts.
+  expect(skill('routines')).toContain(`Trigger shapes:\n${AUTOMATION_TRIGGER_SHAPE_LINES.join('\n')}\nPrefer an event-driven trigger`);
+  // Webhook URLs are registered per bot in the server's automation webhook settings; no routine line or panel carries one.
+  expect(skill('routines')).not.toContain('ready-made link');
+  expect(skill('routines')).not.toContain('from the routine panel');
+  expect(skill('routines')).toContain("point the user at those settings rather than giving them a URL");
+});
+
+test('a routine run hands a recurring auth failure to its parent', () => {
+  // SendToUser and AuthenticateMcpServer are parent-only in a run, and there are no connect cards.
+  const routines = skill('routines');
+  expect(routines).not.toContain('connect card');
+  expect(routines).not.toContain('SendToUser, SendToUser');
+  expect(routines).toContain('A run cannot reach the user or start a sign-in itself, so call WakeParent naming exactly what needs reconnecting');
+  expect(routines).toContain('the parent then calls AuthenticateMcpServer and sends the user the connection-settings link it returns.');
+});
+
+test('the in-chat-forms catalog line leaves connected credentials to autonomous sign-in', () => {
+  // Credentials and codes from connected sources are entered without a form, so the catalog line must not demand one.
+  expect(description('in-chat-forms')).toContain('REQUIRED before any typed web step whose value you cannot get from the user\'s connected sources (login, checkout address or card, phone, OTP)');
+});
+
+test('no-connector-fallback points logins at the Authentication section, not a missing skill', () => {
+  // The sign-in skill is not in the catalog; logins follow the Authentication section.
+  expect(skill('no-connector-fallback')).not.toContain("that skill's typed-login path");
+  expect(skill('no-connector-fallback')).toContain('then sign in as the Authentication section of your instructions says when it reaches the login.');
 });
 
 test('purchases takes the user\'s own card and keeps no card', () => {
@@ -182,7 +212,7 @@ test('every tool a managed skill names exists under that name', async () => {
     'PagerDuty', 'PartName', 'PowerPoint', 'PptxGenJS', 'SaaS', 'TheFork', 'WhatsApp', 'YouTube',
     // Prompt blocks, stock states and routine wake blocks, not tools.
     'user_info', 'agent_skills', 'in_stock', 'out_of_stock', 'made_to_order', 'github_event', 'linear_event', 'microsoft_teams_message',
-    'origin_event', 'pagerduty_event', 'sentry_event', 'slack_message', 'webhook_event',
+    'origin_event', 'pagerduty_event', 'sentry_event', 'slack_message', 'webhook_event', 'email_received',
   ]);
   const unknown: string[] = [];
   for (const item of managed.skills) {
@@ -193,8 +223,7 @@ test('every tool a managed skill names exists under that name', async () => {
     for (const name of new Set(names))
       if (!words.has(name) && !tool(name) && !connectorTools.has(name) && !argumentNames.has(name)) unknown.push(`${item.id}: ${name}`);
   }
-  // The routines skill belongs to another change and still names the reference's GetMcpTools.
-  expect(unknown).toEqual(['routines: GetMcpTools']);
+  expect(unknown).toEqual([]);
 });
 
 test('catalog has valid skill metadata and excludes retired workflows',()=>{

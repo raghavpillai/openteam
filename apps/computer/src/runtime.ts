@@ -501,6 +501,7 @@ export class ComputerRuntime {
     };
   }
 
+  /** A parent's MessageSubagent message reaches its running worker at the next step. */
   async steer(runId: string, request: ComputerSteerRequest): Promise<void> {
     const active = this.activeByRun.get(runId);
     if (!active?.session || !active.session.isStreaming || active.endTurnRequested) {
@@ -516,13 +517,7 @@ export class ComputerRuntime {
     active.pendingSteers.push(pending);
     this.tools.interruptShellWaits(runId);
     try {
-      const prepared = await prepareUserImages(decodeInlineImages(request.images ?? []));
-      const images = prepared.images;
-      await active.session.prompt([request.content, prepared.notice].filter(Boolean).join("\n"), {
-        source: "rpc",
-        streamingBehavior: "steer",
-        ...(images.length ? { images } : {}),
-      });
+      await active.session.prompt(request.content, { source: "rpc", streamingBehavior: "steer" });
     } catch (error) {
       active.acceptedSteerIds.delete(request.inboxId);
       const index = active.pendingSteers.findIndex(

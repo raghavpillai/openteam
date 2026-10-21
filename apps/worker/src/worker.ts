@@ -749,9 +749,7 @@ export class WakeWorker {
           where: { botId: event.botId, scope: "foreground" },
         });
         if (!lease) {
-          await this.messaging.promoteOrphanedSteers(
-            tx,
-            event.botId,
+          await this.messaging.failUndeliveredSteers(tx, { botId: event.botId },
             "worker_recovered_orphaned_steer"
           );
         }
@@ -1102,7 +1100,7 @@ export class WakeWorker {
         const foregroundBusy = existingLeases.some(lease => lease.scope === "foreground");
         const automations = existingLeases.filter(lease => lease.scope.startsWith("automation:"));
         if (foregroundBusy && automations.length >= 4) return null;
-        if (!foregroundBusy) await this.messaging.promoteOrphanedSteers(tx, botId, "orphaned_active_turn");
+        if (!foregroundBusy) await this.messaging.failUndeliveredSteers(tx, { botId }, "orphaned_active_turn");
         const candidates = await tx.inboxEvent.findMany({
           where: {
             botId,
@@ -1340,8 +1338,9 @@ export class WakeWorker {
       const platformPrompt = await this.messaging.platformPrompt(claimed.botId, claimed.contextSessionId,
         pluginContext.skillInstructions, claimed.runChannelId, taskConfiguration);
       // Replay failed user inputs whose durable-session delivery was never
-      // acknowledged. Runtime message IDs prevent duplication after a lost ack.
-      const missed = claimed.runtimeProfile === "agent" && claimed.origin !== "routine" ? await this.prisma.inboxEvent.findMany({ where: { botId: claimed.botId, conversationId: claimed.conversationId, deliveryMode: "turn", runId: { not: claimed.runId }, run: { channelId: claimed.channelId, origin: "user", status: { in: ["failed", "interrupted"] }, inputDeliveredAt: null } }, orderBy: { createdAt: "asc" }, take: 20 }) : [];
+      // acknowledged, including a turn a typed message superseded before its input
+      // reached the model. Runtime message IDs prevent duplication after a lost ack.
+      const missed = claimed.runtimeProfile === "agent" && claimed.origin !== "routine" ? await this.prisma.inboxEvent.findMany({ where: { botId: claimed.botId, conversationId: claimed.conversationId, deliveryMode: "turn", runId: { not: claimed.runId }, run: { channelId: claimed.channelId, origin: "user", inputDeliveredAt: null, OR: [{ status: { in: ["failed", "interrupted"] } }, { status: "cancelled", error: { path: ["code"], equals: "priority_peer_interrupt" } }] } }, orderBy: { createdAt: "asc" }, take: 20 }) : [];
       const missedMessages = await Promise.all(missed.flatMap((event) => {
         const payload = event.payload as { content?: string; clientId?: string; attachments?: unknown };
         if (!payload.content || !payload.clientId) return [];
@@ -1467,9 +1466,7 @@ export class WakeWorker {
             });
           }
         }
-        await this.messaging.promoteUndeliveredSteers(
-          tx,
-          claimed.runId,
+        await this.messaging.failUndeliveredSteers(tx, { runId: claimed.runId },
           "active_turn_completed_before_delivery"
         );
         await tx.botRunLease.deleteMany({
@@ -1580,9 +1577,7 @@ export class WakeWorker {
         return false;
       }
       await finalizeInterruptedItems(tx, claimed.runId, false);
-      await this.messaging.promoteUndeliveredSteers(
-        tx,
-        claimed.runId,
+      await this.messaging.failUndeliveredSteers(tx, { runId: claimed.runId },
         "active_turn_ended_before_delivery"
       );
       await tx.botRunLease.deleteMany({
@@ -1642,14 +1637,14 @@ export class WakeWorker {
     }
   }
 
-  /** The run this typed message superseded was cut off rather than finished. */
+  /** The run this typed message superseded had dispatched (its input reached the model) and was cut off, as the reference requires. */
   private async supersededUnfinishedRun(claimed: Claimed): Promise<boolean> {
     if (!claimed.interruptedRunId) return false;
     const run = await this.prisma.run.findFirst({
       where: { id: claimed.interruptedRunId, botId: claimed.botId },
-      select: { status: true },
+      select: { status: true, inputDeliveredAt: true },
     });
-    return Boolean(run && ["cancelled", "interrupted"].includes(run.status));
+    return Boolean(run?.inputDeliveredAt && ["cancelled", "interrupted"].includes(run.status));
   }
 
   /** A wake cut off by a typed or priority message runs again after it, a bounded number of times. */
@@ -1759,9 +1754,7 @@ export class WakeWorker {
           });
         }
       }
-      await this.messaging.promoteUndeliveredSteers(
-        tx,
-        claimed.runId,
+      await this.messaging.failUndeliveredSteers(tx, { runId: claimed.runId },
         "active_turn_ended_before_delivery"
       );
       await tx.botRunLease.deleteMany({

@@ -258,8 +258,8 @@ export class RuntimeTools {
   interruptShellWaits(runId: string) {
     for (const wait of this.shellWaits.get(runId) ?? [])
       wait.abort(new Error("A new user message arrived"));
-    // A new user message backgrounds a running foreground command so the turn can
-    // answer it. A stop (the turn is ending) kills the command instead.
+    // A worker steer backgrounds a running foreground command so the worker can read
+    // it. A cancel (a stop, or a typed message superseding the turn) kills it, as in the reference.
     for (const shell of this.foregroundShells.get(runId) ?? [])
       if (!shell.active.endTurnRequested) shell.controller.abort();
   }
@@ -317,8 +317,8 @@ export class RuntimeTools {
           signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
         );
       } catch (error) {
-        if (!controller.signal.aborted || signal?.aborted) throw error;
-        // Released by a new user message: report the job's state now and say why.
+        if (!controller.signal.aborted || signal?.aborted || turn.endTurnRequested) throw error;
+        // Released by a steer: report the job's state now and say why.
         const receipt: ShellAwaitResponse = input.shell_id
           ? ((await execute(0, signal)).details as unknown as ShellAwaitResponse)
           : { status: "slept", waited_ms: Date.now() - started };
@@ -664,10 +664,7 @@ export class RuntimeTools {
     const name = tool === CALL_DYNAMIC_TOOL_TOOL.name ? (args as { toolName?: unknown } | null)?.toolName : tool;
     // Pi starts a parallel batch in call order, so chaining sends here delivers them in call order.
     const run = tool === SEND_TO_USER_TOOL.name
-      ? (active.sendChain ?? Promise.resolve()).then(() => {
-          this.assertCurrentInput(active);
-          return this.executeScopedTool(active, callId, tool, args, signal);
-        })
+      ? (active.sendChain ?? Promise.resolve()).then(() => this.executeScopedTool(active, callId, tool, args, signal))
       : this.executeScopedTool(active, callId, tool, args, signal);
     if (tool === SEND_TO_USER_TOOL.name) active.sendChain = run.catch(() => undefined);
     // Calls issued in one step start in order, so a later Read in the step can wait for these.
@@ -1432,6 +1429,10 @@ export class RuntimeTools {
         const name = NATIVE_TOOLS.some((native) => native.name === tool) ? tool : CALL_DYNAMIC_TOOL_TOOL.name;
         throw new Error(`${name === CALL_DYNAMIC_TOOL_TOOL.name ? "Tool execution error. " : ""}${toolCallTimedOutMessage(name, timeoutMs)}`);
       }
+      // A typed message superseded the turn while it waited on a foreground worker: the
+      // worker carries on in the background and reports back, as the reference's Tasks do.
+      if (tool === "Task" && !foregroundYield && signal?.aborted && active.interruptedByUserAt !== undefined)
+        return this.callControlPlaneToolRequest(active, callId, tool, args, undefined, true);
       throw error;
     }
     if (!response.ok) throw controlPlaneError(response.status, body);
@@ -1441,9 +1442,6 @@ export class RuntimeTools {
       typeof body === "object" &&
       (body as Record<string, unknown>).foregroundPending === true
     ) {
-      if (active.pendingSteers.length > 0) {
-        return this.callControlPlaneToolRequest(active, callId, tool, args, requestSignal, true);
-      }
       return this.callControlPlaneTool(active, callId, tool, args, requestSignal);
     }
     if (

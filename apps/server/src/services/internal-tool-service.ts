@@ -395,6 +395,11 @@ export class InternalToolService {
             };
           } catch (error) {
             if(error instanceof ApiError&&error.code==="external_file_review_required")throw error;
+            // Nothing left the box for these, so refuse now with the reason.
+            if (error instanceof ApiError && error.code === "connected_channel_address_invalid")
+              throw new ApiError(400, error.code, `"${input.channel}" is not a valid channel address, so nothing was sent. An address is shaped platform:chat.`);
+            if (error instanceof ApiError && ["connected_channel_unavailable", "connected_channel_ambiguous", "connected_channel_delivery_unsupported"].includes(error.code))
+              throw new ApiError(error.status, error.code, `${error.message}. Nothing was sent.`);
             const recoveryRunId = await this.messaging.enqueueChannelDeliveryFailure(
               context,
               input.channel,
@@ -405,6 +410,7 @@ export class InternalToolService {
                 sent: false,
                 channel: input.channel,
                 delivery_failed: true,
+                reason: (error instanceof Error ? error.message : String(error)).slice(0, 2_000),
                 recovery_run_id: recoveryRunId,
               },
               interruptRunId: null,

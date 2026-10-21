@@ -156,6 +156,8 @@ export function renderControlResult(
   if (name === "SendToUser" && result.sent)
     if (result.queued) return `Message queued for the room when this turn completes. (id: ${result.message_address ?? result.message_id})`;
   if (name === "SendToUser" && result.silent) return "No room message delivered (silent turn).";
+  if (name === "SendToUser" && result.delivery_failed)
+    return `Message to ${result.channel} was not delivered${result.reason ? `: ${result.reason}` : "."}${result.reason && !/[.!?]$/.test(result.reason) ? "." : ""} Tell the user it did not go through.`;
   if (name === "SendToUser" && result.sent)
     return result.message_address || result.message_id
       ? `Message sent to user. (id: ${result.message_address ?? result.message_id})`

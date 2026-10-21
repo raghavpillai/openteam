@@ -2292,7 +2292,7 @@ export class AgentMessaging {
       orderBy: { createdAt: "asc" }, take: 20,
     }) : [];
     return {
-      instructions: automation ? `${instructions}\n\n${AUTOMATION_RUN_INSTRUCTIONS}\n\nUse cursor.ReadTranscript with agent_id="${botId}" only when the saved task needs earlier conversation detail; the parent conversation has deliberately not been copied into this automation context.` : instructions,
+      instructions: automation ? `${instructions}\n\n${AUTOMATION_RUN_INSTRUCTIONS}\n\nUse cursor.ReadTranscript with in="${botId}" only when the saved task needs earlier conversation detail; the parent conversation has deliberately not been copied into this automation context.` : instructions,
       instructionsUpdate: [frozen.update, frozen.memory?.update].filter(Boolean).join("\n\n") || null,
       ambientContext: automation ? null : [
         dismissedWidgetPrompts.length > 0 ? buildDismissedQuestionsNote(dismissedWidgetPrompts) : "",

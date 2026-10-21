@@ -8,7 +8,7 @@ import {
   describeOutputLocation,
   buildUserFormRemapReceipt,
 } from "@openteam/contracts/reference-formatters";
-import { renderDesktopResult, renderControlResult } from "@openteam/contracts/tool-results";
+import { renderDesktopResult, renderControlResult, todoCleanupReminder } from "@openteam/contracts/tool-results";
 import {
   describeUploadFileOutcome,
   describeDownloadFileOutcome,
@@ -1381,7 +1381,7 @@ export class RuntimeTools {
         tool,
         ...(tool === "CheckSubagent" ? {pendingBackgroundWork: onlyPendingBackgroundWork(body)} : {}),
         ...(tool === "TodoWrite" && body && typeof body === "object" && "todos" in body
-          ? { todos: body.todos }
+          ? { todos: body.todos, ...(todoCleanupReminder(body.todos) ? { systemReminders: [todoCleanupReminder(body.todos)] } : {}) }
           : {}),
       },
       ...(active.endTurnRequested ? { terminate: true } : {}),

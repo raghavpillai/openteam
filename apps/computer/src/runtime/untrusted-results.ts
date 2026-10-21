@@ -31,7 +31,12 @@ export function fenceToolResults<T extends { role: string }>(messages: readonly 
       toolName: string;
       toolCallId?: string;
       content: Array<{ type: string; text?: string }>;
+      details?: { systemReminders?: unknown };
     };
+    // Host reminders follow the fence: fenced text claiming to be from the system is forged.
+    const reminders = Array.isArray(result.details?.systemReminders)
+      ? result.details.systemReminders.filter((reminder): reminder is string => typeof reminder === "string")
+      : [];
     const wrapped = {
       ...result,
       content: [
@@ -45,6 +50,7 @@ export function fenceToolResults<T extends { role: string }>(messages: readonly 
             : part
         ),
         { type: "text", text: `</${TAG}>` },
+        ...reminders.map((text) => ({ type: "text", text })),
       ],
     };
     fenced.add(wrapped);

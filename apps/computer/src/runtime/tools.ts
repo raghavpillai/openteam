@@ -94,7 +94,7 @@ import { serverSearchConfiguration, serverFetchConfiguration } from "../search-s
 import { UserFormHost, type FormBrowser, type FormPageBinding } from "../user-form-host";
 import { boxHelpPage } from "../box-help-page";
 import { AutoReviewGate, withApprovalRetryParameters } from "./auto-review";
-import { FEEDBACK_APPROVAL_UNAVAILABLE_MESSAGE, FEEDBACK_NOT_APPROVED_MESSAGE, USER_DECLINED } from "../auto-review/texts";
+import { APPROVAL_EXPIRED, FEEDBACK_APPROVAL_UNAVAILABLE_MESSAGE, FEEDBACK_NOT_APPROVED_MESSAGE, USER_DECLINED } from "../auto-review/texts";
 import type { ActiveTurn, RuntimeDynamicTool } from "./types";
 import { renderShellAwaitResult } from "@openteam/shell-jobs";
 
@@ -1694,9 +1694,10 @@ export class RuntimeTools {
                         if (signal?.aborted) throw error;
                         return { approved: false as const, reason: FEEDBACK_APPROVAL_UNAVAILABLE_MESSAGE };
                       });
+                      // A denial or an expired card is "not approved"; a card that could not be shown says why.
                       if (!approval.approved)
                         return {
-                          content: [{ type: "text", text: approval.reason === USER_DECLINED ? FEEDBACK_NOT_APPROVED_MESSAGE : approval.reason === FEEDBACK_APPROVAL_UNAVAILABLE_MESSAGE ? approval.reason : FEEDBACK_NOT_APPROVED_MESSAGE }],
+                          content: [{ type: "text", text: approval.reason === USER_DECLINED || approval.reason === APPROVAL_EXPIRED ? FEEDBACK_NOT_APPROVED_MESSAGE : approval.reason }],
                           details: { tool: name },
                         };
                     }

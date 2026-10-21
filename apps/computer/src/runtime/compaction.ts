@@ -270,6 +270,9 @@ export function compactionExtension(
         ) {
           active.compactionEarlyThreshold = early;
         }
+        // Launch only over settled history, as the reference does at step start: a
+        // response with calls waits for the next context hook, after its results.
+        if (Array.isArray(message.content) && message.content.some((part) => part?.type === "toolCall")) return;
         await compaction.observe({
           ...observation,
           infer,

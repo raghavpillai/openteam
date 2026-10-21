@@ -852,3 +852,23 @@ test("summary serialization repairs an in-flight tool exchange and ignores retur
   });
   expect(JSON.stringify(sent.messages.at(-1).content)).toContain("<summary_request>");
 });
+
+test("a background summary never launches over a response whose calls have no results yet", async () => {
+  const observed: BotMessage[][] = [];
+  const coordinator = {
+    observe: async (input: { piMessages: BotMessage[] }) => { observed.push(input.piMessages); },
+  } as unknown as BotCompactionCoordinator;
+  const messages: BotMessage[] = [{ role: "user", content: "Check blue" }];
+  const active = {
+    contextSessionId: crypto.randomUUID(), instructions: "System", modelRef, reasoning: "off", userInfoMessage: null, cwd: "/tmp",
+    session: { messages, model, getContextUsage: () => ({ tokens: 10, contextWindow: model.contextWindow }), getAllTools: () => [], getActiveToolNames: () => [] },
+    queue: { push() {} },
+  } as unknown as ActiveTurn;
+  const handlers: Record<string, (event: any) => Promise<any>> = {};
+  compactionExtension(coordinator, async () => ({ text: "Ready" }), { buildSessionContext: () => ({ messages }) } as unknown as SessionManager, active)
+    .factory({ on: (name: string, handler: any) => { handlers[name] = handler; } } as never);
+  await handlers.message_end!({ message: { ...answer(""), content: [{ type: "toolCall", id: "c", name: "Read", arguments: {} }], stopReason: "toolUse" } });
+  expect(observed).toHaveLength(0);
+  await handlers.message_end!({ message: answer("Blue is fine.") });
+  expect(observed).toHaveLength(1);
+});

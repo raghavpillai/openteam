@@ -90,3 +90,20 @@ test("a connector call is cut off by the 840-second guard with the reference tex
     await expect(stopped).rejects.toThrow("stopped");
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test("control-plane failures surface the server's message, not its JSON envelope", async () => {
+  const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
+  const active: any = {runId: "fixture", botId: "fixture", cwd: "/tmp", sentMessageCount: 0, pendingSteers: [], queue: {push() {}}};
+  const originalFetch = globalThis.fetch;
+  const failWith = (status: number, body: string) => { globalThis.fetch = (async () => new Response(body, {status})) as any; };
+  try {
+    failWith(404, JSON.stringify({error: {code: "subagent_not_running", message: "That subagent is not running."}}));
+    await expect(tools.callControlPlaneToolRequest(active, "a", "MessageSubagent", {})).rejects.toThrow(new Error("That subagent is not running."));
+    failWith(500, JSON.stringify({error: {code: "internal_error", message: "\nInvalid `prisma.run.findUnique()` invocation: Can't reach database server"}}));
+    await expect(tools.callControlPlaneToolRequest(active, "b", "CheckSubagent", {})).rejects.toThrow(new Error("Couldn't finish due to a temporary server issue."));
+    failWith(502, "<html>Bad gateway</html>");
+    await expect(tools.callControlPlaneToolRequest(active, "c", "CheckSubagent", {})).rejects.toThrow(new Error("Couldn't finish due to a temporary server issue."));
+    failWith(500, JSON.stringify({error: {code: "internal_error", message: "MCP error -32603: upstream exploded"}}));
+    await expect(tools.callControlPlaneToolRequest(active, "d", "PluginCall", {})).rejects.toMatchObject({message: "MCP error -32603: upstream exploded", code: "internal_error"});
+  } finally { globalThis.fetch = originalFetch; }
+});

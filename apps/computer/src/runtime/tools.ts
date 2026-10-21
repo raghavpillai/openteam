@@ -121,6 +121,44 @@ const USER_PACED_CONTROL_TOOLS: ReadonlySet<string> = new Set([
 export const toolCallTimedOutMessage = (tool: string, timeoutMs: number) =>
   `The ${tool} tool call timed out after ${Math.round(timeoutMs / 1000)} seconds and was terminated. The execution environment may be unresponsive, or the operation needs longer than the per-call time limit.`;
 
+/** A failed control-plane call, carrying the server's error code for callers that act on it. */
+export class ControlPlaneError extends Error {
+  constructor(message: string, readonly code: string | undefined, readonly status: number) {
+    super(message);
+  }
+}
+const INFRASTRUCTURE_FAILURE = /prisma|DriverAdapterError|database|deadlock detected|could not serialize access|terminating connection|Timed out fetching a new connection/i;
+/** The server's message, never its JSON envelope; database failures and unreadable 5xx bodies read as the reference's retry-later sentence. */
+const controlPlaneError = (status: number, body: unknown): ControlPlaneError => {
+  const error = (body && typeof body === "object" ? (body as { error?: unknown }).error : undefined) as { code?: unknown; message?: unknown } | undefined;
+  const code = typeof error?.code === "string" ? error.code : undefined;
+  const message = typeof error?.message === "string" && error.message.trim() ? error.message : undefined;
+  if (!message ? status >= 500 : status >= 500 && (!code || code === "internal_error") && INFRASTRUCTURE_FAILURE.test(message))
+    return new ControlPlaneError("Couldn't finish due to a temporary server issue.", code, status);
+  return new ControlPlaneError(message ?? `OpenTeam tool host rejected the call (${status})`, code, status);
+};
+
+const CONNECTOR_AUTH_FAILURES = new Set(["plugin_auth_required", "plugin_auth_failed"]);
+const CONNECTOR_ARGUMENT_FAILURES = new Set(["plugin_arguments_invalid"]);
+/** Classified connector failures keep their message; anything else is the reference's "Tool execution error". */
+const connectorCallError = (
+  error: unknown,
+  namespace: DynamicNamespaceDefinition,
+  toolName: string,
+  options: DynamicLookupOptions
+): Error => {
+  if (!(error instanceof ControlPlaneError)) return error instanceof Error ? error : new Error(String(error));
+  if (CONNECTOR_AUTH_FAILURES.has(error.code ?? "")) {
+    const guidance = options.unavailableGuidance?.({ ...namespace, namespaceStatus: "needsAuth" });
+    return new Error(`${error.message}${guidance ? ` ${guidance}` : ""}`);
+  }
+  if (CONNECTOR_ARGUMENT_FAILURES.has(error.code ?? "") || /MCP error -32(?:602|600|700)\b/.test(error.message))
+    return new Error(`${error.message}\n\n<system_reminder>\nThe namespace rejected these arguments as invalid. Before retrying, call GetDynamicTools with ${JSON.stringify({ namespace: namespace.name, toolName })} and rebuild the arguments from the returned input schema.\n</system_reminder>`);
+  if (!error.code || ["internal_error", "stdio_mcp_failed"].includes(error.code))
+    return new Error(`Tool execution error. ${error.message}`);
+  return error;
+};
+
 const AUTHENTICATE_GUIDANCE =
   "Call AuthenticateMcpServer on it instead of refetching this descriptor; it is already installed, so never propose installing it.";
 
@@ -1312,19 +1350,16 @@ export class RuntimeTools {
         // Bun's fetch otherwise gives up after 300 seconds, inside the per-call guard.
         timeout: false,
       } as RequestInit);
-      body = (await response.json()) as unknown;
+      const text = await response.text();
+      try { body = JSON.parse(text) as unknown; } catch { if (response.ok) throw new Error("OpenTeam tool host returned an unreadable result"); }
     } catch (error) {
-      if (timeout.aborted && !signal?.aborted)
-        throw new Error(toolCallTimedOutMessage(NATIVE_TOOLS.some((native) => native.name === tool) ? tool : CALL_DYNAMIC_TOOL_TOOL.name, timeoutMs));
+      if (timeout.aborted && !signal?.aborted) {
+        const name = NATIVE_TOOLS.some((native) => native.name === tool) ? tool : CALL_DYNAMIC_TOOL_TOOL.name;
+        throw new Error(`${name === CALL_DYNAMIC_TOOL_TOOL.name ? "Tool execution error. " : ""}${toolCallTimedOutMessage(name, timeoutMs)}`);
+      }
       throw error;
     }
-    if (!response.ok) {
-      const message =
-        body && typeof body === "object" && "error" in body
-          ? JSON.stringify((body as { error: unknown }).error)
-          : `OpenTeam tool host rejected the call (${response.status})`;
-      throw new Error(message);
-    }
+    if (!response.ok) throw controlPlaneError(response.status, body);
     if (
       tool === "Task" &&
       body &&
@@ -1806,7 +1841,10 @@ export class RuntimeTools {
       }
       if (active.endTurnRequested && !finishCleanup)
         throw new Error("The turn has ended; wait for the next user message");
-      const result = await resolved.tool.execute(active, callId, resolved.arguments, signal);
+      const result = resolved.namespace.kind === "mcp"
+        ? await resolved.tool.execute(active, callId, resolved.arguments, signal)
+            .catch((error) => { throw connectorCallError(error, resolved.namespace, input.toolName, options); })
+        : await resolved.tool.execute(active, callId, resolved.arguments, signal);
       return finishCleanup && !("isError" in result && result.isError)
         ? {...result, details: {...result.details, deliveryCleanup: true}}
         : result;

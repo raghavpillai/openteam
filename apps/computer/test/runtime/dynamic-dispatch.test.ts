@@ -106,3 +106,24 @@ test("a first-party dynamic tool called by its bare name is run through CallDyna
   expect((await end({ message: missing })).message.content).toEqual([{ type: "text", text: "Tool not found: Nope. Available tools: Shell, CallDynamicTool, TodoWrite, Task" }]);
   expect(await end({ message: { ...missing, isError: false } })).toBeUndefined();
 });
+
+test("connector call failures are classified like the reference's", async () => {
+  const tools = runtimeTools();
+  const original = globalThis.fetch;
+  const respond = (status: number, error: Record<string, string>) => { globalThis.fetch = (async () => Response.json({ error }, { status })) as any; };
+  const call = (active: any, id: string) => tools.executeOpenTeamTool(active, id, "CallDynamicTool", { namespace: "gmail", toolName: "search_threads", arguments: {} });
+  try {
+    respond(401, { code: "plugin_auth_required", message: "Authorization expired or was revoked. Sign in to this account again." });
+    await expect(call(turn({ pluginNamespaces: [connector()] }), "a")).rejects.toThrow(
+      'Error: Authorization expired or was revoked. Sign in to this account again. Call AuthenticateMcpServer with server_id "gmail" to show the user its sign-in, then finish unrelated work and end your turn.'
+    );
+    respond(500, { code: "internal_error", message: "socket hang up" });
+    await expect(call(turn({ pluginNamespaces: [connector()] }), "b")).rejects.toThrow(new Error("Error: Tool execution error. socket hang up"));
+    respond(400, { code: "plugin_arguments_invalid", message: "Invalid tool arguments: data must have required property 'query'" });
+    await expect(call(turn({ pluginNamespaces: [connector()] }), "c")).rejects.toThrow(
+      `Invalid tool arguments: data must have required property 'query'\n\n<system_reminder>\nThe namespace rejected these arguments as invalid. Before retrying, call GetDynamicTools with {"namespace":"gmail","toolName":"search_threads"} and rebuild the arguments from the returned input schema.\n</system_reminder>`
+    );
+    respond(409, { code: "plugin_identifier_stale", message: "This account was renamed. Re-run GetMcpServerStatus or GetDynamicTools before calling its tools again." });
+    await expect(call(turn({ pluginNamespaces: [connector()] }), "d")).rejects.toThrow(new Error("Error: This account was renamed. Re-run GetMcpServerStatus or GetDynamicTools before calling its tools again."));
+  } finally { globalThis.fetch = original; }
+});

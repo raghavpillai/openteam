@@ -1,13 +1,19 @@
 export { readTranscript } from "./read-transcript";
 export { readAgentActivity } from "./read-agent-activity";
-export { renderQuietSubagentRevivalPrompt } from "./quiet-revival";
+export {
+  automationContextRoutine,
+  quietRoutineOriginNote,
+  renderQuietRevivalBatchPrompt,
+  renderQuietSubagentRevivalPrompt,
+} from "./quiet-revival";
+import { automationContextRoutine, quietRoutineOriginNote, renderQuietRevivalBatchPrompt } from "./quiet-revival";
 import { mediaReviewPrompt, renderWorkerBoxSection, renderWorkerTimeSection, WORKER_READONLY_LINE, WORKER_USER_IDENTITY_LINE } from "./worker-prompts";
 import { attachmentContext } from "./attachment-context";
 import { listSiblingThreads, renderOtherActiveConversations } from "./sibling-threads";
 import { nextMessageAddress, resolveMessageAddress } from "./message-address";
 export { nextMessageAddress, resolveMessageAddress } from "./message-address";
 export { parseAutomationEvent, matchesAutomationEvent, type AutomationEvent } from "./automation-events";
-export { wakeAutomationParent, saveSilentAutomationResult, automationContinuationRoute, automationContextRunId, reconcileRoutineExecution } from "./automation-results";
+export { wakeAutomationParent, saveSilentAutomationResult, automationBackgroundWorkRunning, automationContinuationRoute, automationContextRunId, reconcileRoutineExecution } from "./automation-results";
 import { AUTOMATION_RUN_INSTRUCTIONS, automationContinuationRoute } from "./automation-results";
 import { join } from "node:path";
 import { publishChannelNotification, publishMessageNotification } from "./notifications";
@@ -819,11 +825,14 @@ export class AgentMessaging {
       if (!channel || channel.archivedAt) return { delivered: false, ignored: true };
       const route = input.automationRunId ? await automationContinuationRoute(tx, bot.id, input.automationRunId) : { origin: "background_revival" as const };
       if (!route) return { delivered: false, ignored: true };
+      // A shell a routine started reports back to that routine, quietly, as its tasks do.
+      const routine = route.automationContextRunId ? await automationContextRoutine(tx, route.automationContextRunId) : undefined;
+      const block = routine ? `${shellCompletionBlock(input)}\n${quietRoutineOriginNote(routine)}` : shellCompletionBlock(input);
       await this.enqueueWake(tx, {
         botId: bot.id, channelId: channel.id, ...route, type: "shell.completed",
         clientId, priority: 50, wrapUserContent: false,
-        content: renderShellCompletionPrompt(input),
-        revival: { block: shellCompletionBlock(input), subagentType: "shell" },
+        content: routine ? renderQuietRevivalBatchPrompt([block]) : renderShellCompletionPrompt(input),
+        revival: { block, subagentType: "shell" },
       });
       return { delivered: true };
     });
@@ -1554,7 +1563,11 @@ export class AgentMessaging {
     return round;
   }
 
+  /** Called once a room transaction has settled a group routine's run (wired to RoutineService). */
+  onGroupRoutineSettled?: (settled: { executionId: string; routineId: string }) => Promise<unknown>;
+
   async advanceRound(roundId: string): Promise<void> {
+    let settledRoutine: { executionId: string; routineId: string } | undefined;
     try {
       const shouldAdvanceAgain = await this.prisma.$transaction(async (tx) => {
         await lockGroupRound(tx, roundId);
@@ -1615,6 +1628,7 @@ export class AgentMessaging {
                 ...(failed ? { error: { code: "group_routine_delivery_failed" } } : {}),
               },
             });
+            settledRoutine = { executionId: execution.id, routineId: execution.routineId };
             await tx.routine.update({
               where: { id: execution.routineId },
               data: {
@@ -1840,6 +1854,7 @@ export class AgentMessaging {
         });
         return null;
       });
+      if (settledRoutine) await this.onGroupRoutineSettled?.(settledRoutine);
       if (shouldAdvanceAgain) await this.advanceRound(shouldAdvanceAgain);
     } catch (error) {
       if ((error as { code?: string }).code !== "P2002") throw error;

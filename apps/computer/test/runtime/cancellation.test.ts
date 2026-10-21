@@ -34,6 +34,7 @@ test("calls cut off because a typed message superseded the run say the user inte
   const active = {
     runId: "wake", session: null, pluginAbortController: controller, requestSource: "agent", subagentType: null,
     readOnly: false, pluginRuntimePackages: [], pluginNamespaces: [], skillAccess: "read", pendingSteers: [], sentMessageCount: 0,
+    initialUserStarted: true,
   } as unknown as ActiveTurn;
   internals.activeByRun.set("wake", active);
   const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
@@ -57,4 +58,21 @@ test("calls cut off because a typed message superseded the run say the user inte
   const stop = tools.customTools(stopped).find((tool: any) => tool.name === "RecallMemory").execute("call-2", { query: "tea" }, plain.signal);
   plain.abort();
   expect((await stop.catch((caught: Error) => caught)).message).toBe("The operation was aborted.");
+});
+
+test("a typed message leaves a run whose input has not reached the model running, unless it carries that input for recovery", async () => {
+  const runtime = new ComputerRuntime();
+  const internals = runtime as unknown as { activeByRun: Map<string, ActiveTurn>; tools: { interruptShellWaits: (id: string) => void } };
+  internals.tools.interruptShellWaits = () => {};
+  const setup = { session: null, pluginAbortController: new AbortController(), initialUserStarted: false } as unknown as ActiveTurn;
+  internals.activeByRun.set("setup", setup);
+  expect(await runtime.cancel("setup", "user_message")).toBe(false);
+  expect(setup.pluginAbortController!.signal.aborted).toBe(false);
+  expect(setup.endTurnRequested).toBeUndefined();
+  expect(await runtime.cancel("setup", "user_message", { recovery: true })).toBe(true);
+  expect(setup.pluginAbortController!.signal.aborted).toBe(true);
+  // A stop cancels it either way.
+  const stopped = { session: null, pluginAbortController: new AbortController(), initialUserStarted: false } as unknown as ActiveTurn;
+  internals.activeByRun.set("stopped", stopped);
+  expect(await runtime.cancel("stopped")).toBe(true);
 });

@@ -30,8 +30,9 @@ export interface StreamTimers {
   set(callback: () => void, ms: number): unknown;
   clear(handle: unknown): void;
 }
+/** A pending deadline never keeps the process alive. */
 const systemTimers: StreamTimers = {
-  set: (callback, ms) => setTimeout(callback, ms),
+  set: (callback, ms) => setTimeout(callback, ms).unref(),
   clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
@@ -85,6 +86,8 @@ export function streamDeadlines(timers: StreamTimers = systemTimers) {
           cuts += 1;
           fail(cuts === 1 ? wallClockCutMessage() : wallClockLimitMessage());
         };
+        // A stop ends the call through the provider's own abort; its deadlines go with it.
+        options?.signal?.addEventListener("abort", clear, { once: true });
         if (!outputProduced) stall = timers.set(() => fail(firstOutputStallMessage(deadlineMs)), deadlineMs);
         wall = timers.set(cut, MODEL_STREAM_WALL_CLOCK_LIMIT_MS);
         void (async () => {

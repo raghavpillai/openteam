@@ -1707,7 +1707,8 @@ export class WakeWorker {
           ? (current.error as Prisma.InputJsonObject)
           : null;
       // The typed message may land before the server records the cancel; its wake names this run.
-      const supersededByUser = await tx.inboxEvent.findFirst({
+      // A run cut off before dispatch is not superseded (the reference lets it go on) unless the server recorded it.
+      const supersededByUser = current?.inputDeliveredAt && await tx.inboxEvent.findFirst({
         where: { botId: claimed.botId, payload: { path: ["interruptedRunId"], equals: claimed.runId } },
         select: { id: true },
       });

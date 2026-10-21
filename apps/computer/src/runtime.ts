@@ -469,14 +469,21 @@ export class ComputerRuntime {
     );
   }
 
-  async cancel(runId: string, reason?: "user_message"): Promise<void> {
+  /**
+   * A typed message supersedes only a run whose input has reached the model, as in the
+   * reference; an undispatched run goes on and the message queues behind it, unless the
+   * message carries the run's plain-text input for recovery. Returns whether it cancelled.
+   */
+  async cancel(runId: string, reason?: "user_message", options: { recovery?: boolean } = {}): Promise<boolean> {
     const active = this.activeByRun.get(runId);
     if (!active) throw new Error("Run is not actively executing");
+    if (reason === "user_message" && !active.initialUserStarted && !options.recovery) return false;
     if (reason === "user_message") active.interruptedByUserAt ??= Date.now();
     active.endTurnRequested = true;
     active.pluginAbortController?.abort();
     this.tools.interruptShellWaits(runId);
     await active.session?.abort();
+    return true;
   }
 
   async deleteContextSession(contextSessionId: string, sessionPath?: string): Promise<void> {

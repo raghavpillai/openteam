@@ -623,9 +623,9 @@ const server = Bun.serve({
 
       const cancelMatch = url.pathname.match(/^\/v1\/turns\/([^/]+)\/cancel$/);
       if (request.method === "POST" && cancelMatch?.[1]) {
-        const body = await request.json().catch(() => null) as { reason?: unknown } | null;
-        await runtime.cancel(cancelMatch[1], body?.reason === "user_message" ? "user_message" : undefined);
-        return json({ ok: true });
+        const body = await request.json().catch(() => null) as { reason?: unknown; recovery?: unknown } | null;
+        const cancelled = await runtime.cancel(cancelMatch[1], body?.reason === "user_message" ? "user_message" : undefined, { recovery: body?.recovery === true });
+        return cancelled ? json({ ok: true }) : json({ ok: false, error: "run_not_dispatched" }, 409);
       }
 
       const contextSessionMatch = url.pathname.match(/^\/v1\/context-sessions\/([^/]+)$/);

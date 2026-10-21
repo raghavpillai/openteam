@@ -1539,8 +1539,11 @@ export class RuntimeTools {
                   description: definition.description,
                   inputSchema: definition.inputSchema,
                   source: "first-party",
+                  // The captured schema words each argument problem first; then the stored shape and body checks.
                   decodeArguments:
-                    name === "DraftExternalMessage" ? parseDraftExternalMessage : (input) => input,
+                    name === "DraftExternalMessage"
+                      ? (input) => parseDraftExternalMessage(normalizeMainToolArguments(name, input))
+                      : (input) => input,
                   execute: (turn, callId, args, signal) =>
                     this.callControlPlaneTool(turn, callId, name, args, signal),
                 };

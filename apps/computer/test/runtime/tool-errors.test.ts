@@ -69,3 +69,14 @@ test("a missing attachment is named before anything reaches the tool host", asyn
     );
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test("DraftExternalMessage argument problems are named per field and a lone recipient is a list", async () => {
+  const { calls, lookup } = fixture(() => Response.json({ sent: true, message_id: "m1" }));
+  const draft = { platform: "email", providerIdentifier: "gmail", subject: "Hi", body: "Hello" };
+  await expect(lookup("DraftExternalMessage", { ...draft, to: ["ann@example.com"] })).rejects.toThrow(
+    /^Invalid arguments:\nfrom: from is required when platform is email$/
+  );
+  const result = await lookup("DraftExternalMessage", { ...draft, from: "me@example.com", to: "ann@example.com" });
+  expect(calls.at(-1)).toMatchObject({ name: "DraftExternalMessage", args: { to: ["ann@example.com"] } });
+  expect(result.content[0].text).toStartWith("Draft email from me@example.com to ann@example.com is now an editable card in the chat (id: m1).");
+});

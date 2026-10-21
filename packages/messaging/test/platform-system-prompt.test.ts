@@ -79,6 +79,13 @@ describe("platform prompt integration", () => {
     expect(prompt).not.toContain("a human-only step");
   });
 
+  test("the inline workflows promise no connect card and draft by default", () => {
+    const prompt = renderPlatformBaseSystemPrompt({ managedSkills: false });
+    expect(prompt).not.toMatch(/install\/connect card|Let the card handle authentication|connection in the card|should use the authorized service's send path/);
+    expect(prompt).toContain("OpenTeam shows no connect card: AuthenticateMcpServer starts sign-in, and when its result hands you a connection-settings link, send that link to the user.");
+    expect(prompt).toContain('Outgoing email and messages follow the "Never send email or messages unasked" section: asking you to send is not asking you to skip the draft.');
+  });
+
   test("live tool descriptions retain help without categorical handover rules", () => {
     expect(REQUEST_BOX_HELP_TOOL.description).toContain("then your turn ends");
     expect(REQUEST_BOX_HELP_TOOL.description).not.toContain("such as login, SSO");

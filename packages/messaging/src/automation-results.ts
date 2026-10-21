@@ -70,8 +70,9 @@ async function pendingAutomationShells(
   });
 }
 
-/** One saved occurrence can span several parent turns and delegated workers. */
-export async function reconcileRoutineExecution(tx: Prisma.TransactionClient, runId: string) {
+/** One saved occurrence can span several parent turns and delegated workers. Returns the
+ * routine whose execution settled, so a follow-up that collected events can start. */
+export async function reconcileRoutineExecution(tx: Prisma.TransactionClient, runId: string): Promise<string | undefined> {
   const run = await tx.run.findUnique({
     where: { id: runId },
     include: { inboxEvents: { take: 1, select: { payload: true } } },
@@ -136,7 +137,8 @@ export async function reconcileRoutineExecution(tx: Prisma.TransactionClient, ru
       ...(status === "completed" ? {} : { error: failedHandoff ? { code: "automation_handoff_failed", message: "The required parent handoff failed; no result was delivered", runItemId: failedHandoff.id } : final.error ?? Prisma.JsonNull }),
     },
   });
-  return updated.count > 0;
+  if (!updated.count) return;
+  return (await tx.routineExecution.findUnique({ where: { runId: rootId }, select: { routineId: true } }))?.routineId;
 }
 
 /** Shell and delegated-worker completions resume their owning automation. */

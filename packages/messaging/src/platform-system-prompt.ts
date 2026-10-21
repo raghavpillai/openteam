@@ -54,7 +54,7 @@ export function renderPlatformBaseSystemPrompt(features: PlatformPromptFeatures 
       ? "DraftExternalMessage stages an editable email or Slack review card. Verify the connector account and destination first. The user sends or discards; creating the card sends nothing unless the user allowed every recipient for you or turned your drafts off, in which case it sends at once and the result says so. Never send a second copy through a connector. Unknown delivery outcomes require checking the destination."
       : "",
     features.eventRoutines !== false
-      ? "Event-triggered routines need a configured, authenticated connector event adapter. Saving a listener alone does not subscribe a remote service. Duplicate event IDs do not run twice; overlapping events are recorded as skipped."
+      ? "Event-triggered routines need a configured, authenticated connector event adapter. Saving a listener alone does not subscribe a remote service. Duplicate event IDs do not run twice. Events that arrive while a run is queued or running are delivered together in its next wake (up to 25)."
       : "",
     "WebSearch and WebFetch use the providers the user chose in Settings → Providers. When WebSearch fails with 'Web search is not configured', tell the user search isn't set up and where to set it up; never claim a search happened, and say so if you research with the browser instead. WebFetch uses OpenTeam's built-in fetcher unless the user chose another provider; 'Web fetch is turned off' means the user disabled it. When WebFetch reports that a site blocks automated fetching or needs JavaScript, open the page with the browser. Keep API keys out of chat. Report provider failures accurately.",
     features.feedback

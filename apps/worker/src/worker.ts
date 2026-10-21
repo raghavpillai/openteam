@@ -747,7 +747,11 @@ export class WakeWorker {
     });
     for (const execution of executions) {
       if (execution.runId && execution.run) {
-        const updated = await this.prisma.$transaction(tx => reconcileRoutineExecution(tx, execution.runId!));
+        const updated = await this.prisma.$transaction(async tx => {
+          const settled = await reconcileRoutineExecution(tx, execution.runId!);
+          if (settled) await this.routines.startEventFollowUp(tx, settled);
+          return settled;
+        });
         if (updated && execution.routine.botId) {
           await this.syncRoutineRunFile(execution.routine.botId, execution.runId);
         }
@@ -757,6 +761,14 @@ export class WakeWorker {
         await this.recoverGroupRoutineExecution(execution.id, execution.channelMessageId);
       }
     }
+    // A follow-up holding coalesced events has no wake until the run before it settles.
+    const followUps = await this.prisma.routineExecution.findMany({
+      where: { status: "queued", runId: null, channelMessageId: null, routine: { bot: { status: "active" } } },
+      select: { routineId: true },
+      take: 100,
+    });
+    for (const { routineId } of followUps)
+      await this.prisma.$transaction(tx => this.routines.startEventFollowUp(tx, routineId));
   }
 
   private async recoverGroupRoutineExecution(
@@ -1371,7 +1383,8 @@ export class WakeWorker {
           where: { id: claimed.inboxId },
           data: { status: "completed", completedAt },
         });
-        await reconcileRoutineExecution(tx, claimed.runId);
+        const settledRoutine = await reconcileRoutineExecution(tx, claimed.runId);
+        if (settledRoutine) await this.routines.startEventFollowUp(tx, settledRoutine);
         if (claimed.origin === "bootstrap") {
           const onboarding = await tx.bot.updateMany({
             where: { id: claimed.botId, onboardingStatus: "running" },
@@ -1602,7 +1615,8 @@ export class WakeWorker {
         where: { id: claimed.inboxId },
         data: { status: "failed", error: failureDetails, completedAt: new Date() },
       });
-      await reconcileRoutineExecution(tx, claimed.runId);
+      const settledRoutine = await reconcileRoutineExecution(tx, claimed.runId);
+      if (settledRoutine) await this.routines.startEventFollowUp(tx, settledRoutine);
       if (claimed.origin === "bootstrap") {
         const onboarding = await tx.bot.updateMany({
           where: { id: claimed.botId, onboardingStatus: "running" },

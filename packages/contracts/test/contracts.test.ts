@@ -716,7 +716,10 @@ describe("renamed first-party tools", () => {
     expect(share.description).toStartWith("Publish a new version of this bot's template");
     expect(share.description).not.toMatch(/Stage a draft|stays private|New templates are PUBLIC|fill-in placeholders|live geometric avatar/);
     const form = referenceTool("RequestUserForm");
-    expect(form.description).toContain("Fields inside a cross-origin iframe or a closed shadow root are not.");
+    expect(form.description).toContain("Fields inside iframes (cross-origin ones included) and shadow roots are reachable: send the form for them instead of predicting a failure.");
+    const boxHelp = referenceTool("request_box_help").description;
+    expect(boxHelp).toContain("goes to RequestUserForm first when it is among your tools, embedded and cross-origin fields included; entering the card itself is that form. Hand off only when that tool is not offered, the step is not a typed field, or the host refused the form or reported a failed fill");
+    expect(boxHelp).not.toContain("Secure Form");
     expect(form.description).not.toContain("Secure Form");
     expect(form.inputSchema.properties.fields.items.properties).not.toHaveProperty("default_value");
     expect(referenceTool("RemapUserFormTargets").description).toContain("right after a RequestUserForm receipt");

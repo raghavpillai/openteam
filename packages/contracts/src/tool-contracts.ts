@@ -58,11 +58,6 @@ contracts.RequestUserForm!.description = editReference("RequestUserForm", contra
     "Show the user the Secure Form for a step where a page needs THEM to type something, such as a login, a checkout address, or a phone number.",
     "Show the user a native in-chat form when they need to supply missing input. If credentials or a verification code are already available through the user's connected sources, enter them with browser_type or browser_fill_form instead.",
   ],
-  // The host fills same-origin frames only and refuses a cross-origin target.
-  [
-    "Fields inside iframes (cross-origin ones included) and shadow roots are reachable: send the form for them instead of predicting a failure.",
-    "Fields inside same-origin iframes and open shadow roots are reachable: send the form for them instead of predicting a failure. Fields inside a cross-origin iframe or a closed shadow root are not.",
-  ],
   [
     "Use this instead of asking for credentials in chat, and instead of request_box_help when the step is just typing; the box handoff stays for",
     "Use this when the user needs to supply a value and the page fields are fillable; request_box_help is available when the tools cannot complete the step, such as",
@@ -401,12 +396,7 @@ adaptDescription("request_box_help", [
   [" It is the last step of the `sign-in` skill.", ""],
   [
     "one-time code you cannot read from an inbox goes to RequestUserForm first when it is among your tools, embedded and cross-origin fields included; entering the card itself is the Secure Form.",
-    "one-time code you cannot get from the user's connected sources goes to RequestUserForm first when it is among your tools, fields in same-origin frames included.",
-  ],
-  // The form host refuses a cross-origin frame, so that field comes here directly.
-  [
-    "Hand off only when that tool is not offered, the step is not a typed field, or the host",
-    "Hand off only when that tool is not offered, the step is not a typed field, the field is inside a cross-origin iframe, or the host",
+    "one-time code you cannot get from the user's connected sources goes to RequestUserForm first when it is among your tools, embedded and cross-origin fields included; entering the card itself is that form.",
   ],
 ]);
 adaptArgument("request_box_help", "reason", [['"auth" for any sign-in step (login, SSO, passkey, 2FA),', '"auth" for a sign-in step,']]);

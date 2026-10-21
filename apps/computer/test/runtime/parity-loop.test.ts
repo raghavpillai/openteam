@@ -155,7 +155,6 @@ for (const { withSteer, handoff, batch = false, lateSteer = false } of [{ withSt
         requestSource: handoff ? "automation" : "turn",
         subagentType: null,
         pluginNamespaces: [],
-        discoveredDynamicTools: new Set(),
         sentMessageCount: 0,
         reasoning: "off",
         cwd: root,

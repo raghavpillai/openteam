@@ -6,6 +6,7 @@ import { createPrismaClient } from '@openteam/db';
 import { AgentDataStore, AgentMessaging } from '@openteam/messaging';
 import { Effect } from 'effect';
 import { ExternalDraftService } from '../src/services/external-draft-service';
+import { loadConnectionNamespaces } from '../src/services/plugin/namespaces';
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
 /** A Bot chat plus a connector account that declares reviewed sending. */
@@ -105,12 +106,15 @@ test('connectors that declare reviewed sending verify, edit and send each card a
   await expect(service.create(f.context('reply-f'), { ...draft, providerIdentifier: 'not-a-connection' })).rejects.toThrow("can't send reviewed email");
   // GetMcpServerStatus lists accounts by namespace; drafts accept that form too.
   identity = 'me@example.com';
-  const namespaced = await service.create(f.context('reply-g'), { ...draft, providerIdentifier: `plugin_${f.connection.id.replaceAll('-', '_')}` }) as { message_id: string };
+  const namespace = (await loadConnectionNamespaces(f.prisma)).get(f.connection.id)!;
+  expect(namespace).toStartWith('mail');
+  const namespaced = await service.create(f.context('reply-g'), { ...draft, providerIdentifier: namespace }) as { message_id: string };
   expect(calls.at(-1)).toMatchObject({ connectionId: f.connection.id, toolName: 'send_reviewed_email' });
   await Effect.runPromise(service.mutate(namespaced.message_id, { action: 'send' }));
   expect(await f.card(namespaced.message_id)).toMatchObject({ cardState: 'sent' });
   expect(calls.at(-1)).toMatchObject({ connectionId: f.connection.id, arguments: { action: 'send' } });
-  await expect(service.create(f.context('reply-h'), { ...draft, providerIdentifier: `plugin_${f.connection.id.replaceAll('-', '_')}__776f726b` })).rejects.toThrow('renamed');
+  // A renamed account's old namespace names no connection.
+  await expect(service.create(f.context('reply-h'), { ...draft, providerIdentifier: `${namespace}--work` })).rejects.toThrow("can't send reviewed email");
  } finally { await f.cleanup(); }
 });
 

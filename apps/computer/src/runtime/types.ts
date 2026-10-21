@@ -70,9 +70,6 @@ export interface ActiveTurn {
     content: string;
   }>;
   acceptedSteerIds: Set<string>;
-  discoveredDynamicTools: Set<string>;
-  /** Exact projection sent to the current model call, before result fencing. */
-  dynamicDiscoveryMessages?: readonly BotMessage[];
   pluginNamespaces: readonly PluginDynamicNamespace[];
   attachmentTempDirectories: string[];
   lastPromptFingerprint?: string;

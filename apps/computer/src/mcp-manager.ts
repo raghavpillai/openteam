@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
-import { discoverAllTools, objectValue, scopedProcessEnvironment } from "@openteam/plugin-sdk";
+import { ResultSchema, ToolListChangedNotificationSchema, ToolSchema } from "@modelcontextprotocol/sdk/types.js";
+import { discoverAllTools, MCP_TOOL_CALL_TIMEOUT_MS, objectValue, repairedToolsPage, scopedProcessEnvironment } from "@openteam/plugin-sdk";
 import { join } from "node:path";
 import { PluginPackageCache } from "./plugin-package-cache";
 import { SecretRedactor } from "@openteam/shell-jobs";
@@ -107,7 +107,7 @@ export class StdioMcpManager {
             : {},
       },
       undefined,
-      { timeout: 60_000 }
+      { timeout: MCP_TOOL_CALL_TIMEOUT_MS }
     );
   }
 
@@ -252,9 +252,13 @@ export class StdioMcpManager {
 
   private async refreshTools(managed: ManagedStdioClient): Promise<unknown[]> {
     if (managed.discovery) return managed.discovery;
-    const pending = discoverAllTools((cursor) =>
-      managed.client.listTools({ cursor }, { timeout: 30_000, signal: managed.abort.signal })
-    );
+    const options = { timeout: 30_000, signal: managed.abort.signal };
+    const pending = discoverAllTools((cursor) => repairedToolsPage(
+      () => managed.client.listTools({ cursor }, options),
+      () => managed.client.request({ method: "tools/list", params: cursor ? { cursor } : {} }, ResultSchema, options),
+      (tool) => { const parsed = ToolSchema.safeParse(tool); return parsed.success ? parsed.data : undefined; },
+      (name) => console.warn(`[stdio-mcp] Left out an MCP tool whose definition is invalid: ${name}`)
+    ));
     managed.discovery = pending;
     try {
       return (managed.tools = await pending);

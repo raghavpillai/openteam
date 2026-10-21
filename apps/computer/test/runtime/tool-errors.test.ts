@@ -40,9 +40,9 @@ test("first-party lookups coerce string-encoded values and report decode failure
   const { calls, lookup } = fixture(() => Response.json({ stopped_all: true, stopped: [], already_finished: [], failed: [] }));
   await lookup("StopSubagent", { all: "true" });
   expect(calls[0]).toEqual({ name: "StopSubagent", args: { all: true } });
-  await expect(lookup("Task", { description: "x", subagent_type: "executor" })).rejects.toThrow(/^Invalid arguments:\nprompt: /);
+  await expect(lookup("Task", { description: "x", subagent_type: "executor" })).rejects.toThrow(/^Error: Invalid arguments:\nprompt: /);
   await expect(lookup("UpdateAgent", { name: "x" })).rejects.toThrow(
-    /^Invalid arguments:\nagent_id: Invalid input: expected string, received undefined$/
+    /^Error: Invalid arguments:\nagent_id: Invalid input: expected string, received undefined$/
   );
 });
 
@@ -74,7 +74,7 @@ test("DraftExternalMessage argument problems are named per field and a lone reci
   const { calls, lookup } = fixture(() => Response.json({ sent: true, message_id: "m1" }));
   const draft = { platform: "email", providerIdentifier: "gmail", subject: "Hi", body: "Hello" };
   await expect(lookup("DraftExternalMessage", { ...draft, to: ["ann@example.com"] })).rejects.toThrow(
-    /^Invalid arguments:\nfrom: from is required when platform is email$/
+    /^Error: Invalid arguments:\nfrom: from is required when platform is email$/
   );
   const result = await lookup("DraftExternalMessage", { ...draft, from: "me@example.com", to: "ann@example.com" });
   expect(calls.at(-1)).toMatchObject({ name: "DraftExternalMessage", args: { to: ["ann@example.com"] } });

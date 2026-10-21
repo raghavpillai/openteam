@@ -1,7 +1,7 @@
 import { spoolFile, type StagedFile } from "@openteam/plugin-sdk/file-spool";
 import { createHash } from "node:crypto";
 import type { PrismaClient } from "@openteam/db";
-import { connectionNamespace } from "@openteam/plugin-sdk";
+import { loadConnectionNamespaces } from "./namespaces";
 import {
   parseConnectorTransfer,
   CONNECTOR_TRANSFER_MAX_BYTES,
@@ -32,11 +32,12 @@ export class ConnectorFileTransfers {
       include: { installation: true },
     });
     const available = connections.filter((c) => providers.has(c.installation.pluginKey));
+    const namespaces = await loadConnectionNamespaces(this.db);
     const matches = available.filter((c) =>
       [
         c.id,
         c.name,
-        connectionNamespace(c.id,c.alias),
+        namespaces.get(c.id),
         c.installation.pluginKey,
         `${c.installation.pluginKey} (account="${c.alias}")`,
       ].includes(connectionName)
@@ -44,7 +45,7 @@ export class ConnectorFileTransfers {
     // Several accounts of one service: name them instead of calling the service unknown.
     if (matches.length > 1)
       throw Object.assign(new Error("Several accounts match this connection"), {outcome:{kind:"ambiguous_connection",
-        service:matches[0]!.installation.name,candidates:matches.map((c)=>connectionNamespace(c.id,c.alias))}});
+        service:matches[0]!.installation.name,candidates:matches.map((c)=>namespaces.get(c.id) ?? c.id)}});
     if (matches.length !== 1)
       throw Object.assign(new Error(
         `Select one available file connection by ID: ${available.map((c) => `${c.name} account=${c.alias} id=${c.id}`).join(", ") || "none; connect Google Drive or Gmail"}`

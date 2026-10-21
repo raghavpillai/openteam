@@ -414,11 +414,8 @@ adaptDescription("GetDynamicTools", [
     'a namespace whose namespaceStatus is "needsAuth" or "needsGrant" stays unusable until the user connects it or grants you access.',
     'a namespace whose namespaceStatus is "needsAuth" stays unusable until the user connects it.',
   ],
-  // First-party tools run without approvals, and user_info is rebuilt every turn.
-  [
-    "(their names are listed with that namespace in <user_info>, or in the most recent <user_info_catalog_update> block on a later user turn). Discover their schemas here, then invoke them via CallDynamicTool; they run natively with their own approvals and rendering.",
-    "(their names are listed with that namespace in <user_info>). Discover their schemas here, then invoke them via CallDynamicTool; they run natively with their own rendering.",
-  ],
+  // First-party tools run without approvals.
+  ["they run natively with their own approvals and rendering.", "they run natively with their own rendering."],
 ]);
 // No call reviewer or approval card consumes MCP call details.
 delete contracts.CallDynamicTool!.inputSchema.properties.mcpDetails;
@@ -610,5 +607,42 @@ export function withReferenceContract<
     : tool;
 }
 
-export const FIRST_PARTY_NAMESPACE_DESCRIPTION =
-  "Native OpenTeam tools for this session. These are highly recommended and useful tools that you should use when the right situation arises. Don't be afraid to look at one if it seems relevant, even if you don't end up using it. You MUST read the tool schemas before calling them.\n\nHere are some crucial instructions:\n- AuthenticateMcpServer: Start authentication for a connector that needs auth.\n- AwaitShell: Use to sleep and check shell progress. Never sleep using shell.\n- CheckSubagent: Inspect a running background subagent's status and recent actions.\n- CopyFromBox: Copy a file from your box onto the user's computer.\n- CopyToBox: Copy a file from the user's computer onto your box.\n- DisconnectChannel: Disconnect one of your connected channels.\n- DownloadFile: Fetch a Drive or Gmail file onto your box. Not URLs (WebFetch, curl) or box files (Read).\n- MessageSubagent: Send a new instruction into a running background subagent.\n- RemapUserFormTargets: Only after a RequestUserForm receipt says a field's value is HELD: remap its new target.\n- RequestUserForm: Show the user an in-chat form; the host fills the box browser with their answers.\n- SearchPlugins: Search installable plugins/connectors when a task needs a service.\n- SendFeedback: Send the user's product feedback to the OpenTeam maintainers when they ask. Ask whether they want a reply unless they already said.\n- StopSubagent: Abort a running background subagent.\n- TodoWrite: Use this tool to manage complex multi-step tasks.\n- UpdateAvatar: Set or clear your profile picture.\n- UpdateProfile: Change your name, description, title, default mark, or sidebar, notification, and drafting settings.\n- UpdateSkill: Save, rewrite, or delete your reusable skills.\n- UploadFile: Send a box file to Google Drive or Gmail.";
+const FIRST_PARTY_CATALOG_HEADER =
+  "First-party tools built into you, listed first: they are trusted and core to your job, so prefer one over an external namespace that covers the same need. Read a tool's schema with GetDynamicTools, then call it with CallDynamicTool in the cursor namespace.";
+/** One-line cues for the cursor namespace, as in the reference's concise static contexts. */
+const FIRST_PARTY_HINTS: Readonly<Record<string, string>> = {
+  AuthenticateMcpServer: "Start authentication for a connector that needs auth.",
+  AwaitShell: "Use to sleep and check shell progress. Never sleep using shell.",
+  CheckSubagent: "Inspect a running background subagent's status and recent actions.",
+  CopyFromBox: "Copy a file from your box onto the user's computer.",
+  CopyToBox: "Copy a file from the user's computer onto your box.",
+  DisconnectChannel: "Disconnect one of your connected channels.",
+  // OpenTeam transfers files with Google Drive and Gmail only.
+  DownloadFile: "Fetch a Drive or Gmail file onto your box. Not URLs (WebFetch, curl) or box files (Read).",
+  MessageSubagent: "Send a new instruction into a running background subagent.",
+  ReadAgentActivity: "Summarize what the user's other bots did lately: last messages, open todos, unanswered questions.",
+  ReadTranscript: "Read your full transcript, a subagent's, or another owned agent's, with tool calls.",
+  RemapUserFormTargets: "Only after a RequestUserForm receipt says a field's value is HELD: remap its new target.",
+  request_box_help: "Hand your box's desktop to the user for a sign-in or manual step.",
+  RequestUserForm: "Show the user an in-chat form; the host fills the box browser with their answers.",
+  SearchPlugins: "Search installable plugins/connectors when a task needs a service.",
+  SendFeedback: "Send the user's product feedback to the OpenTeam maintainers when they ask. Ask whether they want a reply unless they already said.",
+  StopSubagent: "Abort a running background subagent.",
+  // No cloud subagents in OpenTeam.
+  Task: "Spawn subagents natively.",
+  TodoWrite: "Use this tool to manage complex multi-step tasks.",
+  UpdateAvatar: "Set or clear your profile picture.",
+  UpdateProfile: "Change your name, description, title, default mark, or sidebar, notification, and drafting settings.",
+  UpdateSkill: "Save, rewrite, or delete your reusable skills.",
+  UploadFile: "Send a box file to Google Drive or Gmail.",
+};
+
+/** The cursor namespace's instructions, with a cue only for tools this agent actually has. */
+export function firstPartyNamespaceDescription(toolNames: readonly string[]): string {
+  const lines = [...toolNames]
+    .sort((a, b) => a.localeCompare(b))
+    .flatMap((name) => (FIRST_PARTY_HINTS[name] ? [`- ${name}: ${FIRST_PARTY_HINTS[name]}`] : []));
+  return lines.length
+    ? [FIRST_PARTY_CATALOG_HEADER, "", "Here are some crucial instructions:", ...lines].join("\n")
+    : FIRST_PARTY_CATALOG_HEADER;
+}

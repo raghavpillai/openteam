@@ -3,7 +3,6 @@ import { onlyPendingBackgroundWork } from "./background-status";
 import { spoolFile } from "@openteam/plugin-sdk/file-spool";
 import { agentReadStream, agentWriteStream } from "../agent-file-stream";
 import { stageAttachment } from "../attachment-staging";
-import { describeOutputLocation } from "@openteam/contracts/reference-formatters";
 import { buildUserFormRemapReceipt } from "@openteam/contracts/reference-form-results";
 import { renderDesktopResult, renderControlResult, sendToUserFailure, toolErrorDetail } from "@openteam/contracts/tool-results";
 import { coerceArgumentsToJsonSchema, invalidArgumentsMessage } from "@openteam/contracts/tool-arguments";
@@ -25,6 +24,7 @@ import {
 import { createHash } from "node:crypto";
 import { DESKTOP_CAPABILITY_TOOLS } from "@openteam/contracts/desktop-capabilities";
 import { agentFileIO } from "../agent-file-io";
+import { connectorResultParts, spillConnectorText } from "./connector-results";
 import { boundToolImage } from "./image-input";
 import { redactSecrets } from "@openteam/shell-jobs";
 import { validateProcessSecretName, WAKE_PARENT_TOOL } from "@openteam/contracts";
@@ -69,8 +69,9 @@ import { Type } from "typebox";
 import { BROWSER_USE_TOOLS, BrowserUseSession } from "../browser/use";
 import {
   discoverDynamicTools,
+  DynamicLookupMiss,
   renderDynamicDiscovery,
-  retainedDynamicTools,
+  type DynamicLookupOptions,
   type DynamicNamespaceDefinition,
   resolveDynamicTool,
   decodeDynamicArguments,
@@ -81,7 +82,7 @@ import {
 } from "../native-tool-executor";
 import type { ScreenBroker } from "../screen-broker";
 import { dynamicCatalog } from "./dynamic-catalog";
-import { taskToolContract } from "@openteam/contracts/tool-contracts";
+import { firstPartyNamespaceDescription, taskToolContract } from "@openteam/contracts/tool-contracts";
 import { subagentUsesParentConnectors, taskToolEnabled } from "@openteam/contracts/task-configuration";
 import { WebTools } from "../web-tools";
 import { SearchProviderClient } from "../search-provider";
@@ -100,6 +101,74 @@ export const GRAPHICAL_WORKER_SHELL_DESCRIPTION = [
 
 export const GRAPHICAL_WORKER_READ_DESCRIPTION =
   "Reads a file on the box, the same filesystem Shell acts on.\n\nText files include line numbers and support offset/limit paging. Image files (jpeg/jpg, png, gif, webp) are returned inline so you can see them. PDF files are converted to text.";
+
+/** The reference's per-call guard: its 15-minute tier less a minute of headroom. */
+export const TOOL_CALL_TIMEOUT_MS = 840_000;
+/** Tools that wait on the user or a whole subagent run rather than on a service. */
+const USER_PACED_CONTROL_TOOLS: ReadonlySet<string> = new Set([
+  "Task",
+  "SendFeedback",
+  "InstallPlugin",
+  "UninstallPlugin",
+  "AddMcpServer",
+  "UninstallMcpServer",
+  "AuthenticateMcpServer",
+  "RestartMcpServers",
+  "RemoveMcpAccount",
+  "RenameMcpAccount",
+  "SetMcpInstructions",
+]);
+export const toolCallTimedOutMessage = (tool: string, timeoutMs: number) =>
+  `The ${tool} tool call timed out after ${Math.round(timeoutMs / 1000)} seconds and was terminated. The execution environment may be unresponsive, or the operation needs longer than the per-call time limit.`;
+
+/** A failed control-plane call, carrying the server's error code for callers that act on it. */
+export class ControlPlaneError extends Error {
+  constructor(message: string, readonly code: string | undefined, readonly status: number) {
+    super(message);
+  }
+}
+const INFRASTRUCTURE_FAILURE = /prisma|DriverAdapterError|database|deadlock detected|could not serialize access|terminating connection|Timed out fetching a new connection/i;
+/** The server's message, never its JSON envelope; database failures and unreadable 5xx bodies read as the reference's retry-later sentence. */
+const controlPlaneError = (status: number, body: unknown): ControlPlaneError => {
+  const raw = body && typeof body === "object" ? (body as { error?: unknown }).error : undefined;
+  const error = (typeof raw === "string" ? { message: raw } : raw) as { code?: unknown; message?: unknown } | undefined;
+  const code = typeof error?.code === "string" ? error.code : undefined;
+  const message = typeof error?.message === "string" && error.message.trim() ? error.message : undefined;
+  if (!message ? status >= 500 : status >= 500 && (!code || code === "internal_error") && INFRASTRUCTURE_FAILURE.test(message))
+    return new ControlPlaneError("Couldn't finish due to a temporary server issue.", code, status);
+  return new ControlPlaneError(message ?? `OpenTeam tool host rejected the call (${status})`, code, status);
+};
+
+const CONNECTOR_AUTH_FAILURES = new Set(["plugin_auth_required", "plugin_auth_failed"]);
+/** Classified connector failures keep their message; anything else is the reference's "Tool execution error". */
+const connectorCallError = (
+  error: unknown,
+  namespace: DynamicNamespaceDefinition,
+  toolName: string,
+  options: DynamicLookupOptions
+): Error => {
+  if (!(error instanceof ControlPlaneError)) return error instanceof Error ? error : new Error(String(error));
+  if (CONNECTOR_AUTH_FAILURES.has(error.code ?? "")) {
+    const guidance = options.unavailableGuidance?.({ ...namespace, namespaceStatus: "needsAuth" });
+    return new Error(`${error.message}${guidance ? ` ${guidance}` : ""}`);
+  }
+  if (/MCP error -32(?:602|600|700)\b/.test(error.message))
+    return new Error(`${error.message}\n\n<system_reminder>\nThe namespace rejected these arguments as invalid. Before retrying, call GetDynamicTools with ${JSON.stringify({ namespace: namespace.name, toolName })} and rebuild the arguments from the returned input schema.\n</system_reminder>`);
+  if (!error.code || ["internal_error", "stdio_mcp_failed"].includes(error.code))
+    return new Error(`Tool execution error. ${error.message}`);
+  return error;
+};
+
+const AUTHENTICATE_GUIDANCE =
+  "Call AuthenticateMcpServer on it instead of refetching this descriptor; it is already installed, so never propose installing it.";
+
+/** GetDynamicTools and CallDynamicTool failures read `Error: <message>`, as the reference renders them. */
+const referenceError = (error: unknown): never => {
+  const message = error instanceof Error ? error.message : String(error);
+  const wrapped = new Error(message.startsWith("Error: ") ? message : `Error: ${message}`, { cause: error });
+  if (error instanceof Error) wrapped.name = error.name;
+  throw wrapped;
+};
 
 /** How long a handoff waits for the box browser to show the step's page. */
 const BOX_HELP_PAGE_TIMEOUT_MS = 12_000;
@@ -348,6 +417,7 @@ export class RuntimeTools {
   private readonly webTools: WebTools;
   readonly userForms: UserFormHost;
   private readonly mutationTails = new Map<string, Promise<unknown>>();
+  private readonly toolCallTimeoutMs = TOOL_CALL_TIMEOUT_MS;
   private readonly browserSessionScreens = new Map<string, string>();
 
   async recoverFormOutcomes(active: ActiveTurn) {
@@ -413,9 +483,10 @@ export class RuntimeTools {
   }
 
   contextCatalog(active: ActiveTurn) {
-    return this.dynamicCatalog(active).map(({ name, description, tools }) => ({
+    return this.dynamicCatalog(active).map(({ name, description, namespaceStatus, tools }) => ({
       name,
       description,
+      namespaceStatus,
       tools: tools.map(({ name }) => ({ name })),
     }));
   }
@@ -479,6 +550,12 @@ export class RuntimeTools {
         tool = { ...tool, ...taskToolContract(active.taskConfiguration) };
         description = tool.description;
       }
+      // Workers and routine runs cannot start a sign-in; they report a signed-out connector instead.
+      if (tool.name === GET_DYNAMIC_TOOLS_TOOL.name && !this.cursorToolNames(active).includes("AuthenticateMcpServer"))
+        description = description.replace(
+          AUTHENTICATE_GUIDANCE,
+          `You cannot do that from here, so report the status ${active.requestSource === "automation" ? "with WakeParent" : "in your result"} instead of retrying.`
+        );
       const visibleDescription = description;
       return defineTool({
         name: tool.name,
@@ -776,16 +853,16 @@ export class RuntimeTools {
       };
     }
     if (tool === GET_DYNAMIC_TOOLS_TOOL.name) {
-      return this.getDynamicTools(active, Schema.decodeUnknownSync(GetDynamicToolsInput)(args));
+      return this.getDynamicTools(active, callId, Schema.decodeUnknownSync(GetDynamicToolsInput)(args), signal)
+        .catch(referenceError);
     }
     if (tool === CALL_DYNAMIC_TOOL_TOOL.name) {
-      return this.callDynamicTool(
-        active,
-        callId,
-        Schema.decodeUnknownSync(CallDynamicToolInput)(args),
-        signal,
-        finishCleanup
-      );
+      const input = Schema.decodeUnknownSync(CallDynamicToolInput)(args);
+      // A first-party tool this agent already has directly runs natively, as in the reference.
+      if (input.namespace === "cursor" && input.toolName !== GET_DYNAMIC_TOOLS_TOOL.name && input.toolName !== CALL_DYNAMIC_TOOL_TOOL.name &&
+          this.directToolNames(active).includes(input.toolName))
+        return this.executeScopedTool(active, callId, input.toolName, decodeDynamicArguments(input.arguments), signal).catch(referenceError);
+      return this.callDynamicTool(active, callId, input, signal, finishCleanup).catch(referenceError);
     }
 
     return this.callControlPlaneTool(active, callId, tool, args, signal);
@@ -1330,55 +1407,42 @@ export class RuntimeTools {
     signal?: AbortSignal,
     foregroundYield = false
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const timeout = AbortSignal.timeout(
-      [
-        "Task",
-        "SendFeedback",
-        "InstallPlugin",
-        "UninstallPlugin",
-        "AddMcpServer",
-        "UninstallMcpServer",
-        "AuthenticateMcpServer",
-        "RestartMcpServers",
-        "RemoveMcpAccount",
-        "RenameMcpAccount",
-        "SetMcpInstructions",
-      ].includes(tool)
-        ? 24 * 60 * 60_000
-        : tool === "SendToUser"
-          ? 5 * 60_000
-          : ["RequestUserForm", "DraftExternalMessage"].includes(tool)
-            ? 120_000
-            : 30_000
-    );
+    const timeoutMs = USER_PACED_CONTROL_TOOLS.has(tool) ? 24 * 60 * 60_000 : this.toolCallTimeoutMs;
+    const timeout = AbortSignal.timeout(timeoutMs);
     const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
-    const response = await fetch(`${this.serverUrl}/api/v0/internal/tools/call`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${this.controlToken}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        ...(foregroundYield ? {foregroundYield: true} : {}),
-        runId: active.runId,
-        botId: active.botId,
-        conversationId: active.conversationId,
-        channelId: active.channelId,
-        deliveryId: active.deliveryId,
-        tool,
-        arguments: args,
-        callId,
-      }),
-      signal: requestSignal,
-    });
-    const body = (await response.json()) as unknown;
-    if (!response.ok) {
-      const message =
-        body && typeof body === "object" && "error" in body
-          ? JSON.stringify((body as { error: unknown }).error)
-          : `OpenTeam tool host rejected the call (${response.status})`;
-      throw new Error(message);
+    let response: Response, body: unknown;
+    try {
+      response = await fetch(`${this.serverUrl}/api/v0/internal/tools/call`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${this.controlToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          ...(foregroundYield ? {foregroundYield: true} : {}),
+          runId: active.runId,
+          botId: active.botId,
+          conversationId: active.conversationId,
+          channelId: active.channelId,
+          deliveryId: active.deliveryId,
+          tool,
+          arguments: args,
+          callId,
+        }),
+        signal: requestSignal,
+        // Bun's fetch otherwise gives up after 300 seconds, inside the per-call guard.
+        timeout: false,
+      } as RequestInit);
+      const text = await response.text();
+      try { body = JSON.parse(text) as unknown; } catch { if (response.ok) throw new Error("OpenTeam tool host returned an unreadable result"); }
+    } catch (error) {
+      if (timeout.aborted && !signal?.aborted) {
+        const name = NATIVE_TOOLS.some((native) => native.name === tool) ? tool : CALL_DYNAMIC_TOOL_TOOL.name;
+        throw new Error(`${name === CALL_DYNAMIC_TOOL_TOOL.name ? "Tool execution error. " : ""}${toolCallTimedOutMessage(name, timeoutMs)}`);
+      }
+      throw error;
     }
+    if (!response.ok) throw controlPlaneError(response.status, body);
     if (
       tool === "Task" &&
       body &&
@@ -1466,22 +1530,21 @@ export class RuntimeTools {
         active.endTurnRequested = true;
       }
     }
-    // A plugin's MCP image content reaches the model as images, like native screenshots,
-    // instead of base64 text inside the rendered JSON.
-    const content = tool === "PluginCall" && body && typeof body === "object" && Array.isArray((body as Record<string, unknown>).content)
-      ? ((body as Record<string, unknown>).content as unknown[]) : [];
-    const images = content.filter((part): part is { type: "image"; data: string; mimeType: string } =>
-      !!part && typeof part === "object" && (part as any).type === "image" && typeof (part as any).data === "string" && typeof (part as any).mimeType === "string");
-    const rendered = images.length
-      ? { ...(body as Record<string, unknown>), content: content.map(part => images.includes(part as any) ? { type: "image", mimeType: (part as any).mimeType, attachedBelow: true } : part) }
-      : body;
+    if (tool === "PluginCall") {
+      const { parts, isError } = connectorResultParts(body);
+      const spilled = await spillConnectorText(parts, active.cwd, (path, data) => agentFileIO("write", path, undefined, data));
+      return {
+        content: spilled.parts,
+        details: { tool, ...(isError ? { isError: true } : {}), ...(spilled.outputPath ? { outputPath: spilled.outputPath } : {}) },
+        ...(active.endTurnRequested ? { terminate: true } : {}),
+      };
+    }
     return {
       content: [
         {
           type: "text" as const,
-          text: renderControlResult(tool, rendered, args as Record<string, any>),
+          text: renderControlResult(tool, body, args as Record<string, any>),
         },
-        ...images.map(image => ({ type: "image" as const, data: image.data, mimeType: image.mimeType })),
       ],
       details: {
         tool,
@@ -1550,11 +1613,11 @@ export class RuntimeTools {
     active: ActiveTurn
   ): Array<DynamicNamespaceDefinition<RuntimeDynamicTool>> {
     const topLevel = workerTopLevelTools(active);
-    return this.fullDynamicCatalog(active).map((namespace) =>
-      namespace.name === "cursor" && topLevel.length
-        ? { ...namespace, tools: namespace.tools.filter((tool) => !topLevel.includes(tool.name)) }
-        : namespace
-    );
+    return this.fullDynamicCatalog(active).map((namespace) => {
+      if (namespace.name !== "cursor" || !topLevel.length) return namespace;
+      const tools = namespace.tools.filter((tool) => !topLevel.includes(tool.name));
+      return { ...namespace, tools, description: firstPartyNamespaceDescription(tools.map((tool) => tool.name)) };
+    });
   }
 
   private firstPartyTool(active: ActiveTurn, name: string): RuntimeDynamicTool {
@@ -1774,15 +1837,52 @@ export class RuntimeTools {
     );
   }
 
+  /** Tool names this agent calls directly, outside the cursor namespace. */
+  directToolNames(active: ActiveTurn): string[] {
+    return this.customTools(active).map((tool) => tool.name);
+  }
+
+  /** First-party tools this agent reaches only through CallDynamicTool. */
+  cursorToolNames(active: ActiveTurn): string[] {
+    return this.dynamicCatalog(active).find((namespace) => namespace.name === "cursor")?.tools.map((tool) => tool.name) ?? [];
+  }
+
+  private lookupOptions(active: ActiveTurn): DynamicLookupOptions {
+    const canAuthenticate = this.cursorToolNames(active).includes("AuthenticateMcpServer");
+    const report = active.requestSource === "automation" && active.runtimeProfile !== "subagent" ? "with WakeParent" : "in your result";
+    return {
+      directTools: this.directToolNames(active),
+      unavailableGuidance: (namespace) =>
+        !canAuthenticate
+          ? `You cannot do that from here, so report the status ${report} instead of retrying.`
+          : namespace.namespaceStatus === "needsAuth"
+            ? `Call AuthenticateMcpServer with server_id "${namespace.name}" to show the user its sign-in, then finish unrelated work and end your turn. Don't reach the service another way meanwhile.`
+            : "",
+    };
+  }
+
+  /** A namespace or tool can appear mid-turn (a reconnect, a tool-list change): look once more before failing. */
+  private async withCatalogRefresh<T>(active: ActiveTurn, callId: string, lookup: () => T, signal?: AbortSignal): Promise<T> {
+    try {
+      return lookup();
+    } catch (error) {
+      if (!(error instanceof DynamicLookupMiss)) throw error;
+      const fresh = await this.privateControl(active, `${callId}:catalog`, "RefreshToolCatalog", {}, signal).catch(() => null);
+      if (!fresh) throw error;
+      active.pluginNamespaces = fresh.namespaces;
+      return lookup();
+    }
+  }
+
   private async getDynamicTools(
     active: ActiveTurn,
-    input: GetDynamicToolsInput
+    callId: string,
+    input: GetDynamicToolsInput,
+    signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const result = discoverDynamicTools(
-      this.dynamicCatalog(active),
-      active.discoveredDynamicTools,
-      input
-    );
+    const options = this.lookupOptions(active);
+    const result = await this.withCatalogRefresh(active, callId, () =>
+      discoverDynamicTools(this.dynamicCatalog(active), input, options), signal);
     const form = result.namespaces
       .flatMap((namespace) => namespace.tools)
       .find((tool) => tool.name === "RequestUserForm");
@@ -1794,34 +1894,9 @@ export class RuntimeTools {
           ? "Saved extra keys:\n" + keys.map((key) => `- ${JSON.stringify(key)}`).join("\n")
           : "No saved extra keys yet.");
     }
-    const text = JSON.stringify(renderDynamicDiscovery(result, input), null, 2);
-    if (!input.toolName && Buffer.byteLength(text) > 12_000) {
-      const outputPath = join(
-        active.cwd,
-        ".openteam",
-        "dynamic-tools",
-        `${crypto.randomUUID()}.json`
-      );
-      await agentFileIO("write", outputPath, undefined, Buffer.from(text));
-      return {
-        content: [
-          {
-            type: "text",
-            text: describeOutputLocation(
-              {
-                filePath: outputPath,
-                sizeBytes: Buffer.byteLength(text),
-                lineCount: text.split("\n").length,
-              },
-              {}
-            ),
-          },
-        ],
-        details: { namespaceCount: result.namespaces.length, outputPath },
-      };
-    }
+    // Always inline, as the reference answers in production regardless of size.
     return {
-      content: [{ type: "text", text }],
+      content: [{ type: "text", text: JSON.stringify(renderDynamicDiscovery(result, input), null, 2) }],
       details: { namespaceCount: result.namespaces.length },
     };
   }
@@ -1845,24 +1920,22 @@ export class RuntimeTools {
         ].includes(input.toolName))
     )
       throw new Error("This tool is unavailable to a read-only plugin agent");
-    const catalog = this.dynamicCatalog(active);
-    const receipts = active.discoveredDynamicTools.has(`${input.namespace}/${input.toolName}`)
-      ? active.discoveredDynamicTools
-      : new Set([...active.discoveredDynamicTools, ...retainedDynamicTools(catalog, active.dynamicDiscoveryMessages ?? [])]);
-    // String-encoded booleans, numbers and JSON become the advertised types before validation.
-    const firstParty = input.namespace === "cursor"
-      ? catalog.find((namespace) => namespace.name === "cursor")?.tools.find((tool) => tool.name === input.toolName)
-      : undefined;
-    const resolved = (() => {
+    const options = this.lookupOptions(active);
+    const resolved = await this.withCatalogRefresh(active, callId, () => {
+      const catalog = this.dynamicCatalog(active);
+      // String-encoded booleans, numbers and JSON become the advertised types before validation.
+      const firstParty = input.namespace === "cursor"
+        ? catalog.find((namespace) => namespace.name === "cursor")?.tools.find((tool) => tool.name === input.toolName)
+        : undefined;
       try {
-        return resolveDynamicTool(catalog, receipts, firstParty && input.arguments && typeof input.arguments === "object"
+        return resolveDynamicTool(catalog, firstParty && input.arguments && typeof input.arguments === "object"
           ? { ...input, arguments: coerceArgumentsToJsonSchema(firstParty.inputSchema, input.arguments) as Record<string, unknown> }
-          : input);
+          : input, options);
       } catch (error) {
         const report = invalidArgumentsMessage(error);
         throw report ? new Error(report) : error;
       }
-    })();
+    }, signal);
     const invoke = async () => {
       signal?.throwIfAborted();
       if (finishCleanup) {
@@ -1871,7 +1944,10 @@ export class RuntimeTools {
       }
       if (active.endTurnRequested && !finishCleanup)
         throw new Error("The turn has ended; wait for the next user message");
-      const result = await resolved.tool.execute(active, callId, resolved.arguments, signal);
+      const result = resolved.namespace.kind === "mcp"
+        ? await resolved.tool.execute(active, callId, resolved.arguments, signal)
+            .catch((error) => { throw connectorCallError(error, resolved.namespace, input.toolName, options); })
+        : await resolved.tool.execute(active, callId, resolved.arguments, signal);
       return finishCleanup && !("isError" in result && result.isError)
         ? {...result, details: {...result.details, deliveryCleanup: true}}
         : result;

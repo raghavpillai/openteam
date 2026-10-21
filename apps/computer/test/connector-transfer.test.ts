@@ -52,7 +52,6 @@ test("discovered file tools move real box bytes over the private bridge and retu
       {name:"eligible-drive",description:"Fixture",namespaceStatus:"ready",tools:[],fileTransfers:{upload:true,download:true}},
       {name:"denied-drive",description:"Fixture",namespaceStatus:"ready",tools:[],fileTransfers:{upload:false,download:false}},
     ],
-    discoveredDynamicTools: new Set<string>(),
   } as any;
   const tools = runtime.customTools(active) as any[];
   const get = tools.find((tool) => tool.name === "GetDynamicTools");
@@ -92,7 +91,6 @@ test("discovered file tools move real box bytes over the private bridge and retu
     active.runtimeProfile = "subagent";
     for (const subagentType of ["executor", "knowledgeWork"]) {
       active.subagentType = subagentType;
-      active.discoveredDynamicTools = new Set<string>();
       for (const name of ["UploadFile", "DownloadFile"])
         expect(JSON.stringify(await get.execute(`${subagentType}-discover-${name}`, { namespace: "cursor", toolName: name }))).toContain("eligible-drive");
       const workerUpload = await invoke.execute(`${subagentType}-upload`, {
@@ -111,9 +109,8 @@ test("discovered file tools move real box bytes over the private bridge and retu
     expect(calls).toHaveLength(12);
     for (const subagentType of ["computerUse", "videoReview", "watchVideo"]) {
       active.subagentType = subagentType;
-      active.discoveredDynamicTools = new Set<string>();
       for (const name of ["UploadFile", "DownloadFile"])
-        await expect(get.execute(`${subagentType}-discover-${name}`, { namespace: "cursor", toolName: name })).rejects.toThrow(`not found: cursor/${name}`);
+        await expect(get.execute(`${subagentType}-discover-${name}`, { namespace: "cursor", toolName: name })).rejects.toThrow(`Error: Tool "${name}" not found in namespace "cursor".`);
     }
     expect(calls).toHaveLength(12);
   } finally {

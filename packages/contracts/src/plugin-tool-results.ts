@@ -1,4 +1,5 @@
 import {
+  describeInstalled,
   describeInstalledList,
   describePluginDetail,
   describePluginSummary,
@@ -33,6 +34,10 @@ const plugin = (p: Row, installed = p.installed, connections: Row[] = []) => ({
   servers: connections.map(server),
 });
 
+/** The plugin id a call names; GetPlugin, InstallPlugin and UninstallPlugin accept the reference's aliases. */
+const pluginId = (args: Row) => args.plugin_id ?? args.pluginKey ?? args.pluginId ?? args.id;
+const noPlugin = (id: unknown) => `No plugin with id "${id}". Ids come from SearchPlugins. Run it and use the id it lists.`;
+
 /** Receipts only: authorization URLs, setup secrets and private configuration never become tool text. */
 export function renderPluginResult(name: string, r: Row, args: Row): string | undefined {
   const listing = () => describeInstalledList((r.connections ?? []).map(server));
@@ -47,14 +52,21 @@ export function renderPluginResult(name: string, r: Row, args: Row): string | un
       query
         ? `${rows.length} plugin(s) matching "${query}" (best first):`
         : `${rows.length} plugin(s) available:`,
-      ...rows.map((p: Row) => describePluginSummary(plugin(p))),
+      ...rows.map((p: Row) => describePluginSummary(plugin(p), (r.connections ?? []).map(server))),
     ].join("\n");
   }
   if (name === "GetPlugin")
     return r.plugin
-      ? describePluginDetail(plugin(r.plugin, r.installed, r.connections))
-      : `No plugin with id "${args.plugin_id}". Ids come from SearchPlugins — run it and use the id it lists.`;
-  if (name === "GetMcpServerStatus") return listing();
+      ? describePluginDetail(plugin(r.plugin, r.installed, r.connections), "omitted")
+      : noPlugin(pluginId(args));
+  if (name === "GetMcpServerStatus") {
+    const id = typeof args.server_id === "string" ? args.server_id.trim() : "";
+    if (!id) return listing();
+    const rows = (r.connections ?? []).map(server);
+    return rows.length
+      ? rows.map(describeInstalled).join("\n")
+      : `No installed MCP server "${id}". Omit server_id to list every server with its identifier.`;
+  }
   if (
     ![
       "InstallPlugin",
@@ -77,13 +89,13 @@ export function renderPluginResult(name: string, r: Row, args: Row): string | un
   if (name === "InstallPlugin") {
     const detail = r.detail;
     if (!detail?.installed)
-      return `The install request for "${args.plugin_id}" completed, but the plugin does not read as installed yet. Re-check with GetPlugin before relying on it.`;
-    return `Installed ${detail.plugin.name} (plugin ${detail.plugin.plugin_id}).\n${describePluginDetail(plugin(detail.plugin, true, detail.connections))}`;
+      return `The install request for "${detail?.plugin?.name ?? pluginId(args)}" completed, but the plugin does not read as installed yet. Re-check with GetPlugin before relying on it.`;
+    return `Installed ${detail.plugin.name} (plugin ${detail.plugin.plugin_id}).\n${describePluginDetail(plugin(detail.plugin, true, detail.connections), "live")}`;
   }
   if (name === "UninstallPlugin" && outcome.uninstalled)
-    return `Uninstalled ${outcome.pluginName ?? args.plugin_id} (plugin ${args.plugin_id}) — its install record and every connector it added are gone.`;
+    return `Uninstalled ${outcome.pluginName ?? pluginId(args)} (plugin ${pluginId(args)}). Its install record and every connector it added are gone, and the user is signed out of those connectors.`;
   if (name === "UninstallMcpServer" && outcome.uninstalled)
-    return `Removed MCP server ${args.server_id}.\n${listing()}`;
+    return `Removed MCP server ${outcome.name ? `${outcome.name} (${args.server_id})` : args.server_id}.\n${listing()}`;
   if (name === "AddMcpServer") return `Added "${args.name}".\n${listing()}`;
   if (name === "RestartMcpServers") {
     const failures = (outcome.servers ?? []).filter((s: Row) => s.error);
@@ -96,7 +108,7 @@ export function renderPluginResult(name: string, r: Row, args: Row): string | un
     ].join("\n");
   }
   if (name === "SetMcpInstructions")
-    return `${args.instructions ? "Updated" : "Cleared"} custom instructions for MCP server ${args.server_id}.\n${listing()}`;
+    return `${String(args.instructions ?? "").trim() ? "Updated" : "Cleared"} custom instructions for MCP server ${args.server_id}.\n${listing()}`;
   if (name === "RemoveMcpAccount" && outcome.removed)
     return `Removed account "${args.account_label}" from MCP server ${args.server_id}.\n${listing()}`;
   if (name === "RenameMcpAccount")

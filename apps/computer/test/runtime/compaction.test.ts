@@ -277,7 +277,6 @@ test("streamed input usage starts a summary before assistant completion and ever
     reasoning: "off",
     userInfoMessage: null,
     todoUpdate: "Current todo",
-    automationTrigger: "<automation_trigger>clock</automation_trigger>",
     isRootProject: true,
     cwd: root,
     sessionPath: "/fixture/transcript",
@@ -323,7 +322,6 @@ test("streamed input usage starts a summary before assistant completion and ever
     expect(compactionObservation(active)).toMatchObject({
       todoUpdate: "Current todo",
       isRootProject: true,
-      automationTrigger: "<automation_trigger>clock</automation_trigger>",
       transcriptPath: "/fixture/transcript",
     });
     usedTokens = 60_000;
@@ -333,11 +331,14 @@ test("streamed input usage starts a summary before assistant completion and ever
     const rendered = JSON.stringify(projected);
     for (const value of [
       "Current todo",
-      "automation_trigger",
       "Project root:",
-      "fixture/transcript",
+      "cursor.ReadTranscript and no id",
     ])
       expect(rendered).toContain(value);
+    // The session file is private runtime storage; the carrier names no path or automation trigger.
+    expect(rendered).not.toContain("fixture/transcript");
+    expect(rendered).not.toContain("automation_trigger");
+    expect(compactionObservation({ ...active, subagentType: "executor" } as ActiveTurn).transcriptPath).toBeUndefined();
     await handlers.message_start!({ message: { role: "assistant" } });
     expect(active.compactionEarlyThreshold).toBeUndefined();
   } finally {
@@ -426,8 +427,6 @@ test.each([
       customTools: () => [],
       acknowledgeToolOutcomes: async () => {},
       cancelApprovals() {},
-      refreshPrompt: async () => ({ instructions: "System fixture", userInfo: null }),
-      acknowledgePrompt: async () => {},
     };
     const activeTurn = (): ActiveTurn =>
       ({
@@ -446,9 +445,6 @@ test.each([
         resetSelfSummaryCount: true,
         sentMessageCount: 1,
         toolActivityAfterLastSend: false,
-        pendingSteers: [],
-        acceptedSteerIds: new Set(),
-        discoveredDynamicTools: new Set(["fixture/OldSchema"]),
         assistantOrdinal: 0,
         startedItems: new Set(),
         toolArgs: new Map(),
@@ -501,9 +497,6 @@ test.each([
     expect(JSON.stringify(requests[1])).not.toContain("Red work");
     expect((await store.manifest(contextSessionId)).epoch).toBe(1);
     expect(events.filter((event) => event.type === "compaction")).toHaveLength(1);
-    expect(second.discoveredDynamicTools.size).toBe(0);
-    expect(JSON.stringify(second.dynamicDiscoveryMessages)).toContain("summary_content");
-    expect(JSON.stringify(second.dynamicDiscoveryMessages)).not.toContain("Red work");
     expect(events.find((event) => event.type === "compaction")?.reason).toBe(
       "pending_summary_adopted"
     );
@@ -636,12 +629,6 @@ for (const scenario of [
         ],
         acknowledgeToolOutcomes: async () => {},
         cancelApprovals() {},
-        acknowledgePrompt: async () => {},
-        refreshPrompt: async (_active: unknown, epoch: number) => ({
-          instructions: "System fixture",
-          userInfo: null,
-          ambientContext: scenario === "overflow-refresh" ? `Refresh epoch ${epoch}` : undefined,
-        }),
       };
       const makeTurn = (): ActiveTurn =>
         ({
@@ -662,9 +649,6 @@ for (const scenario of [
           sentMessageCount: 1,
           endTurnRequested: true,
           toolActivityAfterLastSend: false,
-          pendingSteers: [],
-          acceptedSteerIds: new Set(),
-          discoveredDynamicTools: new Set(["fixture/OldSchema"]),
           assistantOrdinal: 0,
           startedItems: new Set(),
           toolArgs: new Map(),
@@ -741,8 +725,10 @@ for (const scenario of [
           )
         ).toBe(true);
       }
-      if (scenario === "overflow-refresh")
-        expect(JSON.stringify(requests.at(-1)).match(/Refresh epoch 1/g)).toHaveLength(1);
+      // A mid-turn summary keeps the turn's prompt; the next turn renders the new epoch.
+      if (scenario === "overflow-refresh") {
+        expect(requests.every((request: any) => JSON.stringify(request.messages[0]).includes("System fixture"))).toBe(true);
+      }
     } finally {
       coordinator.discardBackground(contextSessionId);
       for (const session of sessions) session.dispose();
@@ -844,4 +830,45 @@ test("summary serialization repairs an in-flight tool exchange and ignores retur
     tool_call_id: "pending-read",
   });
   expect(JSON.stringify(sent.messages.at(-1).content)).toContain("<summary_request>");
+});
+
+test("a background summary never launches over a response whose calls have no results yet", async () => {
+  const observed: BotMessage[][] = [];
+  const coordinator = {
+    observe: async (input: { piMessages: BotMessage[] }) => { observed.push(input.piMessages); },
+  } as unknown as BotCompactionCoordinator;
+  const messages: BotMessage[] = [{ role: "user", content: "Check blue" }];
+  const active = {
+    contextSessionId: crypto.randomUUID(), instructions: "System", modelRef, reasoning: "off", userInfoMessage: null, cwd: "/tmp",
+    session: { messages, model, getContextUsage: () => ({ tokens: 10, contextWindow: model.contextWindow }), getAllTools: () => [], getActiveToolNames: () => [] },
+    queue: { push() {} },
+  } as unknown as ActiveTurn;
+  const handlers: Record<string, (event: any) => Promise<any>> = {};
+  compactionExtension(coordinator, async () => ({ text: "Ready" }), { buildSessionContext: () => ({ messages }) } as unknown as SessionManager, active)
+    .factory({ on: (name: string, handler: any) => { handlers[name] = handler; } } as never);
+  await handlers.message_end!({ message: { ...answer(""), content: [{ type: "toolCall", id: "c", name: "Read", arguments: {} }], stopReason: "toolUse" } });
+  expect(observed).toHaveLength(0);
+  await handlers.message_end!({ message: answer("Blue is fine.") });
+  expect(observed).toHaveLength(1);
+});
+
+test("a too-many-images error is recovered as an overflow, labeled as an image-limit summary", async () => {
+  const { isContextOverflow } = await import("@earendil-works/pi-ai");
+  const forced: string[] = [];
+  const coordinator = { forceReason: (_id: string, reason: string) => forced.push(reason), observe: async () => {} } as unknown as BotCompactionCoordinator;
+  const messages: BotMessage[] = [{ role: "user", content: "Look at these" }];
+  const active = {
+    contextSessionId: crypto.randomUUID(), instructions: "System", modelRef, reasoning: "off", userInfoMessage: null, cwd: "/tmp",
+    session: { messages, model, getContextUsage: () => undefined, getAllTools: () => [], getActiveToolNames: () => [] },
+    queue: { push() {} },
+  } as unknown as ActiveTurn;
+  const handlers: Record<string, (event: any) => Promise<any>> = {};
+  compactionExtension(coordinator, async () => ({ text: "" }), { buildSessionContext: () => ({ messages }) } as unknown as SessionManager, active)
+    .factory({ on: (name: string, handler: any) => { handlers[name] = handler; } } as never);
+  const failed = { ...answer(""), stopReason: "error", errorMessage: "400 Request contained too many images or documents (max 100)" };
+  const replaced = await handlers.message_end!({ message: failed });
+  expect(forced).toEqual(["approaching_image_limit"]);
+  expect(isContextOverflow(replaced.message, model.contextWindow)).toBe(true);
+  expect(isContextOverflow(failed as never, model.contextWindow)).toBe(false);
+  expect(await handlers.message_end!({ message: { ...failed, errorMessage: "500 server error" } })).toBeUndefined();
 });

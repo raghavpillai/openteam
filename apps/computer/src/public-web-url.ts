@@ -14,13 +14,13 @@ export function publicWebUrl(value: string): URL {
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password)
     throw new Error("WebFetch requires an unauthenticated HTTP(S) URL");
   const host = url.hostname.replace(/^\[|\]$/g, "");
-  if (
-    !host ||
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host.endsWith(".local") ||
-    (ipaddr.isValid(host) && !isPublicAddress(host))
-  )
+  // The reference's wording for literal local and private hosts.
+  const display = url.port ? `${url.hostname.toLowerCase()}:${url.port}` : url.hostname.toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost") || (ipaddr.isValid(host) && ipaddr.process(host).range() === "loopback"))
+    throw new Error(`Cannot fetch from localhost (${display}) because this tool runs from an isolated server.`);
+  if (ipaddr.isValid(host) && !isPublicAddress(host))
+    throw new Error(`Cannot fetch from private IP (${display}) because this tool runs from an isolated server.`);
+  if (!host || host.endsWith(".local"))
     throw new Error("Private and local network destinations are not allowed");
   return url;
 }

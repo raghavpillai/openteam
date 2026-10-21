@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { resolve } from "node:path";
+import { rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { countdownKey, renderSetupCountdown, waitForAutomaticSetup } from "../src/setup-countdown";
 import { terminalTextWidth } from "../src/terminal";
@@ -42,6 +44,7 @@ describe.skipIf(!python || process.platform === "win32")("real terminal countdow
     "resize",
     "dumb",
   ])("%s restores terminal state and completes once", async (scenario) => {
+    const resultPath = join(tmpdir(), `openteam-countdown-${crypto.randomUUID()}.json`);
     const child = Bun.spawn(
       [
         python!,
@@ -56,6 +59,7 @@ describe.skipIf(!python || process.platform === "win32")("real terminal countdow
           ...process.env,
           TERM: scenario === "dumb" ? "dumb" : "xterm-256color",
           NO_COLOR: "1",
+          COUNTDOWN_RESULT_PATH: resultPath,
         },
         stdout: "pipe",
         stderr: "pipe",
@@ -68,13 +72,16 @@ describe.skipIf(!python || process.platform === "win32")("real terminal countdow
     ]);
     expect(code).toBe(0);
     expect(error).toBe("");
+    // Read the machine result independently of PTY rendering, as ConPTY does.
+    // The assertions below still cover terminal output and restoration.
+    const result = await Bun.file(resultPath)
+      .json()
+      .finally(() => rm(resultPath, { force: true }));
     const cleaned = stripVTControlCharacters(output);
     const results = cleaned
       .split(/[\r\n]+/)
       .filter((line) => line.startsWith("{"))
       .map((line) => JSON.parse(line));
-    const result = results.find((row) => "proceed" in row);
-    expect(result).toBeDefined();
     expect(result.rawRestored).toBe(true);
     expect(result.listenersRestored).toBe(true);
     expect(results.find((row) => "terminalRestored" in row).terminalRestored).toBe(true);

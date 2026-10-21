@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { equalOAuthState, validateDesktopCallback, parseManualCallback, oauthCallbackMode, MANUAL_OAUTH_REDIRECT, type PluginOAuthDesktopContext } from "../plugins/oauth-callback";
 import type { PluginOAuthCallbackInput } from "@openteam/contracts/plugin-management";
-import { pluginToolArguments } from "./plugin/tool-arguments";
-import { connectionNamespace } from "@openteam/plugin-sdk";
-import type { ConfigurePluginConnectionInput, PluginTestInput } from "@openteam/contracts";
+import { normalizeAccountLabel, pluginToolArguments } from "./plugin/tool-arguments";
+import { connectionNamespaces } from "@openteam/plugin-sdk";
+import type { ConfigurePluginConnectionInput, PluginTestInput, RunOrigin } from "@openteam/contracts";
 import { ApiError } from "@openteam/contracts";
 import type { Prisma, PrismaClient } from "@openteam/db";
 import type { AgentDataStore } from "@openteam/messaging";
@@ -57,6 +57,15 @@ const runAuthentication = async <A>(effect: Effect.Effect<A, Error>): Promise<A>
   if (Either.isLeft(result)) throw result.left;
   return result.right;
 };
+
+/** Typed user turns; wakes from revivals, agents, events, routines and channels are not the user asking. */
+const USER_STARTED_RUN_ORIGINS: ReadonlySet<RunOrigin> = new Set(["user"]);
+
+export const describeInstallNotUserTurn = (displayName: string, origin?: RunOrigin) =>
+  origin === "group"
+    // Adapted: a user can start a room turn, so the reference's "did not start this turn" would be false there.
+    ? `Nothing was installed: this is a group-room turn, and installing adds ${displayName} to your user's account, which happens only when they ask for it in their own 1:1 chat with you. If your user wants ${displayName}, ask them to continue in your 1:1 chat (pass "to":"dm" on SendToUser to reach it) or to add it themselves in OpenTeam.`
+    : `Nothing was installed: the user did not start this turn, and installing adds ${displayName} to their account. Only install when the user asks for it in their own chat with you, never on a turn a routine, another agent, or a Slack or Teams message started. Tell the user this needs ${displayName}, which they can add themselves in OpenTeam.`;
 
 export class PluginService {
   readonly fileTransfers: ConnectorFileTransfers;
@@ -230,6 +239,7 @@ export class PluginService {
     callId: string;
     action: string;
     arguments: unknown;
+    origin: RunOrigin;
   }, signal?: AbortSignal): Promise<unknown> => {
     signal?.throwIfAborted();
     const scope = "plugin-action";
@@ -255,6 +265,10 @@ export class PluginService {
     const existing = await this.prisma.idempotencyRecord.findUnique({ where });
     if (existing) return replay(existing);
     const args = await this.resolveToolArguments(request.action, request.arguments);
+    if (request.action === "InstallPlugin" && !USER_STARTED_RUN_ORIGINS.has(request.origin)) {
+      const detail = await this.catalogDetail(String(args.pluginKey)) as { plugin?: { name?: string } };
+      return describeInstallNotUserTurn(detail.plugin?.name ?? String(args.pluginKey), request.origin);
+    }
     signal?.throwIfAborted();
     try {
       await this.prisma.idempotencyRecord.create({ data: {
@@ -324,13 +338,14 @@ export class PluginService {
     if (action === "UninstallMcpServer") {
       const connection = await this.connectionOrThrow(connectionId);
       if (!connection.installation.pluginKey.startsWith("custom-mcp-")) {
+        const plugin = connection.installation.pluginKey;
         throw new ApiError(
           409,
           "marketplace_plugin_required",
-          "Marketplace MCP servers must be removed by uninstalling their plugin"
+          `${connection.name} was installed from marketplace plugin ${plugin}, so removing it removes that whole plugin, every connector and skill it added, not just this server. Use UninstallPlugin with plugin id ${plugin} instead, and disclose that full scope to the user first.`
         );
       }
-      return Effect.runPromise(this.uninstall(connection.installation.pluginKey));
+      return { ...(await Effect.runPromise(this.uninstall(connection.installation.pluginKey))), name: connection.name };
     }
     if (action === "AuthenticateMcpServer") {
       if (typeof args.createAccountLabel === "string") {
@@ -363,6 +378,16 @@ export class PluginService {
     const args = pluginToolArguments(action, value);
     for (const key of ["connectionIds", "createAccountLabel", "createAccountId", "createServerId"]) if (key in args)
       throw new ApiError(400, "private_plugin_argument", `${key} is assigned by the action service`);
+    if ((action === "InstallPlugin" || action === "UninstallPlugin") && typeof args.pluginKey === "string") {
+      const detail = await this.catalogDetail(args.pluginKey).catch((error: unknown) => {
+        if (error instanceof ApiError && error.code === "plugin_not_found") return null;
+        throw error;
+      }) as { installed?: boolean; plugin?: { name?: string } } | null;
+      if (!detail)
+        throw new ApiError(404, "plugin_not_found", `No plugin with id "${args.pluginKey}". Ids come from SearchPlugins. Run it and use the id it lists.`);
+      if (action === "UninstallPlugin" && !detail.installed)
+        throw new ApiError(404, "plugin_not_installed", `${detail.plugin?.name ?? args.pluginKey} (plugin ${args.pluginKey}) is not installed, so there is nothing to uninstall.`);
+    }
     if (action === "AddMcpServer") args.createServerId = crypto.randomUUID();
     if (action === "RestartMcpServers" && !args.connectionId && !args.server_id) {
       args.connectionIds = (await this.prisma.pluginConnection.findMany({
@@ -373,17 +398,22 @@ export class PluginService {
     if (!args.server_id) return args;
     if (typeof args.server_id !== "string") throw new ApiError(400, "server_id_invalid", "server_id must be a string");
     const connections = await this.prisma.pluginConnection.findMany({ include: { installation: true } });
-    const matches = connections.filter(c => c.id === args.server_id || connectionNamespace(c.id,c.alias) === args.server_id || c.installation.pluginKey === args.server_id);
-    if (!matches.length) throw new ApiError(404, "connection_not_found", "Server not found; use GetMcpServerStatus");
+    const namespaces = connectionNamespaces(connections);
+    const matches = connections.filter(c => c.id === args.server_id || namespaces.get(c.id) === args.server_id || c.installation.pluginKey === args.server_id);
+    if (!matches.length) throw new ApiError(404, "connection_not_found", `No installed MCP server "${args.server_id}". Run GetMcpServerStatus to list every server with its identifier.`);
     const groups = new Set(matches.map(c => `${c.installationId}/${c.connectorKey}`));
     if (groups.size !== 1) throw new ApiError(409, "account_ambiguous", "Use a server identifier from GetMcpServerStatus");
     const source = matches[0]!;
     const accounts = connections.filter(c => c.installationId === source.installationId && c.connectorKey === source.connectorKey);
-    const selected = typeof args.account_label === "string" ? accounts.filter(c => c.alias === args.account_label) : matches;
-    if (!selected.length && action === "AuthenticateMcpServer" && typeof args.account_label === "string") {
-      args.createAccountLabel = args.account_label;
+    const label = typeof args.account_label === "string" ? normalizeAccountLabel(args.account_label) : undefined;
+    const selected = label !== undefined ? accounts.filter(c => normalizeAccountLabel(c.alias) === label) : matches;
+    if (!selected.length && action === "AuthenticateMcpServer" && label !== undefined) {
+      args.createAccountLabel = label;
       args.createAccountId = crypto.randomUUID();
     } else if (selected.length !== 1) throw new ApiError(409, "account_ambiguous", "Select one account_label from GetMcpServerStatus");
+    if (action === "RenameMcpAccount" && typeof args.accountLabel === "string" &&
+        accounts.some(c => c.id !== selected[0]!.id && normalizeAccountLabel(c.alias) === args.accountLabel))
+      throw new ApiError(409, "connection_alias_exists", "That account alias already exists");
     const id = (selected[0] ?? source).id;
     if (args.connectionId && args.connectionId !== id) throw new ApiError(400, "account_ambiguous", "Conflicting connectionId and server_id");
     args.connectionId = id;

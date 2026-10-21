@@ -156,13 +156,12 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
           scopeId: f.channel.id,
           compactionEpoch: 4,
           runtimeSessionId: crypto.randomUUID(),
-        },
-      });
-      await prisma.agentPromptSnapshot.create({
-        data: {
-          botId: f.source.id,
-          profileSection: "OLD_PROMPT_MARKER",
-          promptSections: { memory: { render: "FROZEN_MEMORY_MARKER", compactionEpoch: 4 } },
+          promptSnapshot: {
+            create: {
+              profileSection: "OLD_PROMPT_MARKER",
+              promptSections: { memory: { render: "FROZEN_MEMORY_MARKER", compactionEpoch: 4 } },
+            },
+          },
         },
       });
       const group = await prisma.channel.create({
@@ -248,7 +247,6 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
           channelMemberships: true,
           routines: { include: { revisions: true, executions: true } },
           contextSessions: true,
-          promptSnapshot: true,
         },
       });
       expect(stored).toMatchObject({
@@ -257,7 +255,6 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
         runtimeSessionId: null,
         runtimeSessionPath: null,
         contextSessions: [],
-        promptSnapshot: null,
         conversation: { continuity: "empty", compactionEpoch: 0 },
       });
       expect(stored.channelMemberships.map((entry) => entry.channelId)).toEqual([
@@ -309,7 +306,10 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
         ).toEqual([]);
       }
       await prisma.bot.update({ where: { id: duplicate.id }, data: { status: "active" } });
-      const context = await f.store.promptContext(duplicate.id);
+      const duplicateContext = await prisma.contextSession.create({
+        data: { botId: duplicate.id, scope: "home", scopeId: duplicate.conversationId },
+      });
+      const context = await f.store.promptContext(duplicate.id, duplicateContext.id);
       expect(context.memory.facts).not.toContain("BOT_LOCAL_MEMORY_MARKER");
       expect(context.memory.facts).not.toContain("FROZEN_MEMORY_MARKER");
       expect(context.skillRender).toContain(skill.slug);

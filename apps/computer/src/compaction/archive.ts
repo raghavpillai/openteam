@@ -1,3 +1,4 @@
+import { externalSummaryMessage } from "./external";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, open, readdir, readFile, rename, rm, stat, unlink } from "node:fs/promises";
@@ -196,6 +197,7 @@ export class BotCompactionArchiveStore {
         (!Array.isArray(blob.durableBlocks) ||
           blob.durableBlocks.some((block) => typeof block !== "string"))) ||
       (blob.summarizedMessages !== undefined && !Array.isArray(blob.summarizedMessages)) ||
+      (blob.flavor !== undefined && blob.flavor !== "external") ||
       !isNonNegativeInteger(blob.selfSummaryCount) ||
       blob.selfSummaryCount < 1 ||
       blob.selfSummaryCount > blob.sequence ||
@@ -281,6 +283,13 @@ export class BotCompactionArchiveStore {
       ...archivedPrefix,
       ...latest.preservedTailMessages,
     ]);
+    if (latest.flavor === "external")
+      return [
+        ...(latest.userInfoMessage ? [structuredClone(latest.userInfoMessage)] : []),
+        externalSummaryMessage(latest.summary, latest.durableBlocks ?? [], new Date(latest.completedAt).getTime()),
+        ...preservedTail,
+        ...appendedMessages,
+      ];
     return [
       ...(latest.userInfoMessage ? [structuredClone(latest.userInfoMessage)] : []),
       structuredClone(latest.lastUserMessage),

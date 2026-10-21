@@ -109,7 +109,7 @@ test("plugin install, connection, discovery, direct call, and removal lifecycle"
     await Effect.runPromise(service.uninstall("lifecycle-skills-fixture"));
     expect((await Effect.runPromise(service.settings())).installs).toHaveLength(0);
 
-    const actionRequest={runId,botId,callId:"plugin-action-install-1",action:"InstallPlugin",arguments:{pluginKey:"lifecycle-skills-fixture"}};
+    const actionRequest={runId,botId,callId:"plugin-action-install-1",action:"InstallPlugin",arguments:{pluginKey:"lifecycle-skills-fixture"},origin:"user" as const};
     expect(await service.requestAction(actionRequest)).toMatchObject({status:"completed",completed:true,actionResult:{installed:true}});
     expect(await service.requestAction(actionRequest)).toMatchObject({completed:true,detail:{installed:true}});
     await Effect.runPromise(service.uninstall("lifecycle-skills-fixture"));

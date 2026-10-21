@@ -7,9 +7,8 @@ import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
 import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { BotCompactionArchiveStore, BotCompactionCoordinator } from "../../src/bot-compaction";
 import { ComputerRuntime } from "../../src/runtime";
-import { verifyGraphicalTaskCompletion } from "../../src/runtime/graphical-completion";
 
-test("real Pi loop adds no host progress notes and keeps full schema evidence", async () => {
+test("real Pi loop spaces durable checkpoints without extra inference and keeps full schema evidence", async () => {
   const root = await mkdtemp(join(tmpdir(), "graphical-progress-"));
   const requests: any[] = [];
   const model: Model<"openai-completions"> = {
@@ -49,25 +48,30 @@ test("real Pi loop adds no host progress notes and keeps full schema evidence", 
       contextSessionId: crypto.randomUUID(), runId: crypto.randomUUID(), turnId: crypto.randomUUID(),
       modelRef: { providerId: model.provider, modelId: model.id }, reasoning: "off", cwd: root,
       instructions: "Perform the graphical fixture.", subagentType: "computerUse", requestSource: "subagent",
-      userInfoMessage: null, discoveredDynamicTools: new Set(), pluginAbortController: new AbortController(),
-      queue: { push() {} },
+      userInfoMessage: null, pluginAbortController: new AbortController(),
+      queue: { push() {} }, runtimeStartedAt: Date.now(),
     };
     const manager = SessionManager.create(root, join(root, "sessions"), { id: active.contextSessionId });
     session = await runtime.createStandaloneSession(root, active.instructions, manager, active, active.modelRef);
     active.session = session;
     await session.prompt("Perform all twenty-five fixture steps.");
     expect(requests).toHaveLength(26);
-    expect(requests.every(request => !JSON.stringify(request).includes("Host execution status"))).toBe(true);
+    // The model sees no host clock or tool-receipt notes appended to its requests.
+    expect(requests.some(request => /Host execution clock|Host tool receipts/.test(JSON.stringify(request)))).toBe(false);
+    const checkpoint = "Host execution status: this graphical worker is still active";
+    expect(requests.slice(0, 12).every(request => !JSON.stringify(request).includes(checkpoint))).toBe(true);
+    expect(JSON.stringify(requests[12])).toContain(checkpoint);
+    const checkpointsIn = (request: any) => JSON.stringify(request).split(checkpoint).length - 1;
+    expect(checkpointsIn(requests[13])).toBe(1);
+    expect(checkpointsIn(requests[23])).toBe(1);
+    expect(checkpointsIn(requests[24])).toBe(2);
+    expect(checkpointsIn(requests[25])).toBe(2);
     const raw = manager.buildSessionContext().messages;
-    expect(raw.filter((m: any) => m.customType === "openteam-graphical-progress")).toHaveLength(0);
+    expect(raw.filter((m: any) => m.customType === "openteam-graphical-progress")).toHaveLength(2);
     expect(raw.filter((m: any) => m.role === "toolResult" && JSON.stringify(m).includes("FULL-SCHEMA-EVIDENCE"))).toHaveLength(25);
     const visibleResults = requests[25].messages.filter((m: any) => m.role === "tool");
     expect(visibleResults.filter((m: any) => JSON.stringify(m).includes("FULL-SCHEMA-EVIDENCE"))).toHaveLength(1);
     expect(visibleResults.filter((m: any) => JSON.stringify(m).includes("schemaSourceToolCallId"))).toHaveLength(24);
-    // Completion verification remains available.
-    await verifyGraphicalTaskCompletion(active);
-    expect(requests).toHaveLength(27);
-    expect(JSON.stringify(requests[26])).toContain("Before returning this graphical task");
   } finally {
     session?.dispose();
     await rm(root, { recursive: true, force: true });

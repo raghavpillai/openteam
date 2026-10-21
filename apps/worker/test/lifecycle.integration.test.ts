@@ -28,24 +28,17 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     userInfoEpoch?: number;
     cwd: string;
   }
-  interface SteerInput {
-    inboxId: string;
-    clientMessageId: string;
-    content: string;
-    images?: Array<{ url: string }>;
-  }
   const seenTurns: TurnInput[] = [];
   const preflightContexts: string[] = [];
-  const seenSteers: Array<SteerInput & { runId: string }> = [];
-  const deliveredSteers = new Map<string, SteerInput[]>();
+  const cancelled: Array<{ runId: string; reason?: string }> = [];
   const releaseTurn = new Map<string, () => void>();
-  let steerDisposition: "deliver" | "drop" = "deliver";
   let turnNumber = 0;
   let onTurn: (input: TurnInput) => Promise<void> = async () => {};
   const inlineImage = {
     url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   };
   const turnBody = (content: string) => {
+    content = content.replace(/^<system_reminder>\n[\s\S]*?\n<\/system_reminder>\n/, "");
     const body =
       content.match(
         /^<timestamp>[^\n]+<\/timestamp>\n<user_query>\n([\s\S]*?)\n<\/user_query>(?:\n\n[\s\S]*)?$/
@@ -94,20 +87,15 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       if (request.method === "PUT" && url.pathname.startsWith("/v1/transcripts/")) {
         return Response.json({ ok: true });
       }
-      const steerMatch = url.pathname.match(/^\/v1\/turns\/([^/]+)\/steer$/);
-      if (request.method === "POST" && steerMatch?.[1]) {
-        const input = (await request.json()) as SteerInput;
-        seenSteers.push({ ...input, runId: steerMatch[1] });
-        if (steerDisposition === "deliver") {
-          const queued = deliveredSteers.get(steerMatch[1]) ?? [];
-          queued.push(input);
-          deliveredSteers.set(steerMatch[1], queued);
-        }
-        releaseTurn.get(steerMatch[1])?.();
+      const cancelMatch = url.pathname.match(/^\/v1\/turns\/([^/]+)\/cancel$/);
+      if (request.method === "POST" && cancelMatch?.[1]) {
+        const body = (await request.json().catch(() => ({}))) as { reason?: string };
+        cancelled.push({ runId: cancelMatch[1], reason: body.reason });
+        releaseTurn.get(cancelMatch[1])?.();
         return Response.json({ ok: true });
       }
-      if (request.method === "POST" && /^\/v1\/turns\/[^/]+\/cancel$/.test(url.pathname)) {
-        return Response.json({ ok: true });
+      if (request.method === "POST" && /^\/v1\/bots\/[^/]+\/background-shells\/stop$/.test(url.pathname)) {
+        return Response.json({ stopped: 0 });
       }
       const contextStateMatch = url.pathname.match(/^\/v1\/context-sessions\/([^/]+)$/);
       if (request.method === "GET" && contextStateMatch?.[1]) {
@@ -146,12 +134,6 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
             archives: [],
           },
           { type: "turn.started", turnId },
-          ...(deliveredSteers.get(input.runId) ?? []).map((steer) => ({
-            type: "input.delivered",
-            turnId,
-            inboxId: steer.inboxId,
-            clientMessageId: steer.clientMessageId,
-          })),
           {
             type: "runtime.error",
             turnId,
@@ -371,105 +353,41 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       )
     ).toMatchObject([{ status: "completed" }]);
 
+    // A typed message during a running turn supersedes it and runs as a new turn, as in the reference.
     onTurn = async (input) => {
-      if (turnBody(input.content) !== "steering base task") return;
+      if (turnBody(input.content) !== "superseded base task") return;
       await new Promise<void>((resolve) => releaseTurn.set(input.runId, resolve));
       releaseTurn.delete(input.runId);
     };
-    const steeringBase = (await Effect.runPromise(
+    const supersededBase = (await Effect.runPromise(
       app.sendMessage(conversationId, {
-        content: "steering base task",
-        clientId: "client-steering-base-0003",
+        content: "superseded base task",
+        clientId: "client-superseded-base-0003",
       })
     )) as { run: { id: string } };
     await waitUntil(
-      async () => releaseTurn.has(steeringBase.run.id),
-      "active user turn ready for steering"
+      async () => releaseTurn.has(supersededBase.run.id),
+      "active user turn ready to be superseded"
     );
     const redirected = (await Effect.runPromise(
       app.sendMessage(conversationId, {
         content: "redirect the active task",
-        clientId: "client-steering-inline-0004",
+        clientId: "client-superseding-0004",
         attachments: [uploadedImage],
       })
     )) as { run: { id: string } };
-    expect(redirected.run.id).toBe(steeringBase.run.id);
-    await waitFor(steeringBase.run.id);
-    expect(
-      seenTurns.filter(
-        (turn) =>
-          turnBody(turn.content) === "steering base task" ||
-          turnBody(turn.content) === "redirect the active task"
-      )
-    ).toHaveLength(1);
-    expect(seenSteers.at(-1)).toMatchObject({
-      runId: steeringBase.run.id,
-      clientMessageId: "client-steering-inline-0004",
-    });
-    expect(turnBody(seenSteers.at(-1)?.content ?? "")).toBe("redirect the active task");
-    expect(seenSteers.at(-1)?.images).toEqual([inlineImage]);
-    const deliveredSteer = await app.prisma.inboxEvent.findUniqueOrThrow({
-      where: { idempotencyKey: "client-steering-inline-0004" },
-    });
-    const deliveredMessage = await app.prisma.message.findUniqueOrThrow({
-      where: {
-        conversationId_clientId: {
-          conversationId,
-          clientId: "client-steering-inline-0004",
-        },
-      },
-    });
-    expect(deliveredSteer).toMatchObject({
-      runId: steeringBase.run.id,
-      deliveryMode: "steer",
-      status: "completed",
-    });
-    expect(deliveredMessage.runId).toBe(steeringBase.run.id);
-
-    steerDisposition = "drop";
-    onTurn = async (input) => {
-      if (turnBody(input.content) !== "fallback base task") return;
-      await new Promise<void>((resolve) => releaseTurn.set(input.runId, resolve));
-      releaseTurn.delete(input.runId);
-    };
-    const fallbackBase = (await Effect.runPromise(
-      app.sendMessage(conversationId, {
-        content: "fallback base task",
-        clientId: "client-fallback-base-0005",
-      })
-    )) as { run: { id: string } };
+    expect(redirected.run.id).not.toBe(supersededBase.run.id);
     await waitUntil(
-      async () => releaseTurn.has(fallbackBase.run.id),
-      "active user turn ready for fallback"
+      async () => cancelled.some((cancel) => cancel.runId === supersededBase.run.id),
+      "superseded turn cancelled"
     );
-    const fallbackAccepted = (await Effect.runPromise(
-      app.sendMessage(conversationId, {
-        content: "recover this undelivered instruction",
-        clientId: "client-fallback-steer-0006",
-      })
-    )) as { run: { id: string } };
-    expect(fallbackAccepted.run.id).toBe(fallbackBase.run.id);
+    expect(cancelled.find((cancel) => cancel.runId === supersededBase.run.id)?.reason).toBe("user_message");
     await waitUntil(
-      async () =>
-        seenTurns.some((turn) => turnBody(turn.content) === "recover this undelivered instruction"),
-      "undelivered steer fallback turn"
+      async () => seenTurns.some((turn) => turnBody(turn.content) === "redirect the active task"),
+      "superseding turn"
     );
-    const recoveredSteer = await app.prisma.inboxEvent.findUniqueOrThrow({
-      where: { idempotencyKey: "client-fallback-steer-0006" },
-    });
-    const recoveredMessage = await app.prisma.message.findUniqueOrThrow({
-      where: {
-        conversationId_clientId: {
-          conversationId,
-          clientId: "client-fallback-steer-0006",
-        },
-      },
-    });
-    expect(recoveredSteer.deliveryMode).toBe("turn");
-    expect(recoveredSteer.runId).not.toBe(fallbackBase.run.id);
-    expect(recoveredMessage.runId).toBe(recoveredSteer.runId);
-    await waitFor(recoveredSteer.runId);
-    steerDisposition = "deliver";
+    const redirectedTurn = seenTurns.find((turn) => turnBody(turn.content) === "redirect the active task")!;
+    expect(redirectedTurn.images).toEqual([inlineImage]);
     onTurn = async () => {};
 
     let peerId = "";
@@ -655,7 +573,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       await app.prisma.inboxEvent.findUniqueOrThrow({
         where: { idempotencyKey: "client-cancel-queued-0007" },
       })
-    ).toMatchObject({ status: "completed", deliveryMode: "turn" });
+    ).toMatchObject({ status: "completed" });
 
     const group = await Effect.runPromise(
       app.createGroup({
@@ -813,8 +731,8 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     expect(
       groupTurns.every(
         (turn) =>
-          turn.userInfo?.startsWith("<user_info>\n<agent_skills>") &&
-          turn.userInfo.endsWith("</agent_skills>\n</user_info>") &&
+          turn.userInfo?.startsWith("<user_info>\nToday's date: ") &&
+          turn.userInfo.endsWith("</available_skills>\n</agent_skills>") &&
           turn.userInfoEpoch === 0
       )
     ).toBe(true);

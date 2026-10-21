@@ -13,8 +13,13 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)("pending cards stop their o
     await db.run.create({ data: { id: runId, botId, channelId, conversationId, userMessageId: input.id, status: "running", origin: "user" } });
     const form = await db.channelMessage.create({ data: { channelId, sender: "agent", senderBotId: botId, sourceRunId: runId, content: "Sign in", metadata: { type: "user-form", cardState: "pending" } } });
     const context = { botId, channelId, conversationId, runId, deliveryId: null, origin: "user" as const, isFork: false, replyToMessageId: null };
-    await expect(messaging.sendVisible({ ...context, callId: "pending" }, { type: "text", content: "Follow up" })).rejects.toThrow("This turn is already waiting on the user");
-    await expect(messaging.sendVisible({ ...context, callId: "pending-question" }, { type: "widget", widget: { prompt: "Which account?", options: [{ label: "Work", value: "work" }] } })).rejects.toThrow("only one can be open at a time");
+    await expect(messaging.sendVisible({ ...context, callId: "pending" }, { type: "text", content: "Follow up" })).rejects.toThrow(
+      "This turn is already waiting on the user (you sent a question widget or handed the box back to them), so this message was not delivered."
+    );
+    await expect(messaging.sendVisible({ ...context, callId: "second-question" }, { type: "widget", widget: { prompt: "Which one?", options: [{ label: "A" }] } } as never)).rejects.toThrow(
+      "This turn already asks the user something (a question widget, a secret or credential request, or another card), and only one can be open at a time, so this one was not shown."
+    );
+
     await db.channelMessage.update({ where: { id: form.id }, data: { metadata: { type: "user-form", cardState: "escalated", outcomeEchoed: true } } });
     expect((await messaging.sendVisible({ ...context, callId: "escalated" }, { type: "text", content: "The form moved to the screen." })).acknowledgement).toMatchObject({ sent: true });
     await db.channelMessage.update({ where: { id: form.id }, data: { metadata: { type: "user-form", cardState: "pending" } } });

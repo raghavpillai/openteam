@@ -81,10 +81,10 @@ test("installed managed catalog is discoverable without including disabled or mi
   try {
     await store.ensureRuntimeDirectories();
     const rendered=await (store as any).renderManagedSkills();
-    expect(rendered).toContain("managed:routines");
-    expect(rendered).toContain(join(root,"managed-skills/routines/SKILL.md"));
+    const routines=`<agent_skill fullPath="${join(root,"managed-skills/routines/SKILL.md")}">`;
+    expect(rendered).toContain(routines);
     await rm(join(root,"managed-skills/routines/SKILL.md"));
-    expect(await (store as any).renderManagedSkills()).not.toContain("managed:routines");
+    expect(await (store as any).renderManagedSkills()).not.toContain(routines);
     await chmod(join(root,"managed-skills/cache.json"),0o644);
     await writeFile(join(root,"managed-skills/cache.json"),'{"version":"disabled","skills":[]}');
     expect(await (store as any).renderManagedSkills()).toBe("");

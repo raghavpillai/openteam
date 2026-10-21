@@ -3,11 +3,10 @@ import { Effect } from "effect";
 import { createPrismaClient } from "@openteam/db";
 import { InternalToolService } from "../../src/services/internal-tool-service";
 import { PluginService } from "../../src/services/plugin-service";
-import { FeedbackService } from "../../src/services/feedback-service";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 test.skipIf(!databaseUrl)(
-  "a routine run manages installed plugins and sends feedback with nobody watching",
+  "a routine run manages installed plugins with nobody watching",
   async () => {
     const prisma = createPrismaClient(databaseUrl!);
     const plugins = new PluginService(prisma);
@@ -16,20 +15,6 @@ test.skipIf(!databaseUrl)(
     Object.assign(plugins, {
       restart: (connectionId: string) => (restarted.push(connectionId), Effect.succeed({ id: connectionId, status: "ready" })),
     });
-    const feedback: unknown[] = [];
-    const support = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      // Other local processes may probe an open port; only the feedback POST counts.
-      fetch: async (request) => {
-        if (request.method !== "POST") return new Response(null, { status: 404 });
-        feedback.push(await request.json());
-        return new Response(null, { status: 202 });
-      },
-    });
-    const environment = { ...process.env };
-    process.env.OPENTEAM_FEEDBACK_ALLOW_AGENT = "true";
-    process.env.OPENTEAM_FEEDBACK_URL = support.url.href;
     const botId = crypto.randomUUID();
     const conversationId = crypto.randomUUID();
     const installations: string[] = [];
@@ -52,8 +37,7 @@ test.skipIf(!databaseUrl)(
         data: { botId, conversationId, channelId, origin: "routine", userMessageId: crypto.randomUUID(), status: "running" },
       });
       const service = new InternalToolService(
-        prisma, {} as never, {} as never, async () => {}, {} as never, {} as never, {} as never, plugins,
-        { feedback: new FeedbackService(prisma) } as never
+        prisma, {} as never, {} as never, async () => {}, {} as never, {} as never, {} as never, plugins
       );
       const call = (tool: string, args: Record<string, unknown>) =>
         Effect.runPromise(service.execute({
@@ -81,16 +65,12 @@ test.skipIf(!databaseUrl)(
       const installed = await prisma.pluginInstallation.findMany({ where: { id: { in: installations } }, select: { status: true } });
       expect(installed.every((installation) => installation.status !== "installed")).toBe(true);
 
-      expect(await call("SendFeedback", { message: "The weekly digest skipped Monday.", wantsResponse: false })).toMatchObject({ feedbackStatus: "sent" });
-      expect(feedback).toEqual([expect.objectContaining({ message: "The weekly digest skipped Monday.", wantsResponse: false })]);
       // None of them posted a card or a message into the chat.
       expect(await prisma.channelMessage.count({ where: { channelId } })).toBe(0);
-      await expect(call("InstallPlugin", { plugin_id: "linear" })).rejects.toThrow("Use WakeParent");
+      await expect(call("InstallPlugin", { plugin_id: "linear" })).rejects.toThrow("Automation runs cannot mutate the visible transcript.");
     } finally {
-      support.stop(true);
-      process.env = environment;
       await plugins.close();
-      await prisma.idempotencyRecord.deleteMany({ where: { scope: { in: ["plugin-action", "feedback-send"] } } });
+      await prisma.idempotencyRecord.deleteMany({ where: { scope: "plugin-action" } });
       await prisma.pluginInstallation.deleteMany({ where: { id: { in: installations } } });
       await prisma.bot.deleteMany({ where: { id: botId } });
       if (channelId) await prisma.channel.deleteMany({ where: { id: channelId } });

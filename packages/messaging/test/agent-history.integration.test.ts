@@ -51,9 +51,9 @@ test.skipIf(!url)("workers read no transcripts; activity covers the user's other
     // The parent passes a worker what it needs; workers read no transcripts, not even their own run or a peer's.
     for (const child of [knowledge, executor, graphical]) {
       await expect(readTranscript(db, { botId: child.id, channelId: null }, {})).rejects.toThrow("not available");
-      await expect(readTranscript(db, { botId: child.id, channelId: null }, { agent_id: peer.id })).rejects.toThrow("not available");
+      await expect(readTranscript(db, { botId: child.id, channelId: null }, { in: peer.id })).rejects.toThrow("not available");
     }
-    expect(JSON.stringify(await readTranscript(db, { botId: parent.id, channelId: null }, { agent_id: peer.id }))).toContain("PEER_VISIBLE");
+    expect(JSON.stringify(await readTranscript(db, { botId: parent.id, channelId: null }, { in: peer.id }))).toContain("PEER_VISIBLE");
 
     // Activity covers the user's other bots, not the asking bot, and only recent ones.
     const activity = await readAgentActivity(db, { botId: parent.id }, { since_hours: 72 });

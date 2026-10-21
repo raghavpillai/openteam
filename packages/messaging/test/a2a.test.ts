@@ -8,7 +8,6 @@ import {
   GROUP_MEMBER_TURN_MESSAGE_LIMIT_NOTICE,
   groupAgentAcknowledgement,
   normalizeGroupAgentMessage,
-  routineRuntimeStatus,
 } from "../src";
 
 describe("agent-to-agent protocol", () => {
@@ -17,13 +16,13 @@ describe("agent-to-agent protocol", () => {
       "Sent to Researcher. This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now."
     );
     expect(directAgentAcknowledgement({ targetName: "Researcher", priority: true })).toBe(
-      "Sent to Researcher as a priority message — it will interrupt their current non-user work and wake them now. This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now."
+      "Sent to Researcher as a priority message — it jumps their queue and interrupts any routine or background work they are running; if they are mid-conversation with the user or handling another agent's message, it is delivered right after that. This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now."
     );
     expect(groupAgentAcknowledgement("Launch Room", { imageCount: 1 })).toBe(
       'Posted to "Launch Room". Its members will see it and reply on their own turns. Note: the attached image was NOT delivered — group messages are text-only for now; send images to an agent directly.'
     );
     expect(groupAgentAcknowledgement("Launch Room", { priority: true })).toBe(
-      'Posted to "Launch Room". Its members will see it and reply on their own turns.'
+      'Posted to "Launch Room". Its members will see it and reply on their own turns. Note: priority is 1:1 only — this post did not interrupt members.'
     );
     expect(groupAgentAcknowledgement("Launch Room", { imageCount: 2 })).toBe(
       'Posted to "Launch Room". Its members will see it and reply on their own turns. Note: the attached images were NOT delivered — group messages are text-only for now; send images to an agent directly.'
@@ -181,36 +180,16 @@ It's your turn, Bot. Reply in character with SendToUser if you have something wo
     expect(prompt).not.toContain("x".repeat(8_001));
   });
 
-  test("prepends the exact OpenTeam automation status reminder", () => {
+  test("carries no routine status; that rides on the turn's own reminder", () => {
     const wake = directAgentWake({
       senderId: "57d95f5a-e68f-48a0-bba0-409b086f5da8",
       senderName: "a2a",
       message: "BOT_A2A_REF — reply with exactly ACK BOT_A2A_REF",
       priority: false,
       interrupted: false,
-      routineStatuses: [
-        {
-          name: "parity-probe-handwritten",
-          folder: "parity-probe-handwritten",
-          status: "never run",
-        },
-        {
-          name: "parity-probe-harmless",
-          folder: "parity-probe-harmless",
-          status: "never run",
-        },
-      ],
     });
-    expect(wake).toStartWith(`[SAND_HIDDEN_PROMPT]<system_reminder>
-<automation_status>
-Current routine runtime status. This snapshot is authoritative for this turn and supersedes earlier routine status reminders.
-- parity-probe-handwritten (folder parity-probe-handwritten): never run
-- parity-probe-harmless (folder parity-probe-harmless): never run
-</automation_status>
-</system_reminder>
-
-[agent] A message just arrived from another of your user's agents: a2a`);
-    expect(wake).not.toEndWith("[SAND_HIDDEN_PROMPT]");
+    expect(wake).toStartWith("[SAND_HIDDEN_PROMPT][agent] A message just arrived from another of your user's agents: a2a");
+    expect(wake).not.toContain("<automation_status>");
     expect(wake).not.toContain("<peer_message_json>");
   });
 
@@ -240,45 +219,8 @@ Current routine runtime status. This snapshot is authoritative for this turn and
 
   test("uses OpenTeam's exact room-turn message-limit notice", () => {
     expect(GROUP_MEMBER_TURN_MESSAGE_LIMIT_NOTICE).toBe(
-      "Not delivered — you've reached this room turn's 3-message limit. Consolidate, or wait for your next turn."
+      "This message was not delivered. You've reached this room turn's 3-message limit. Consolidate, or wait for your next turn."
     );
-  });
-
-  test("renders routine runtime states deterministically", () => {
-    expect(routineRuntimeStatus({ runLedger: [], lastRunAt: null }, "UTC")).toBe("never run");
-    expect(
-      routineRuntimeStatus(
-        {
-          runLedger: [{ status: "running", startedAt: Date.parse("2026-08-27T19:00:00.000Z") }],
-          lastRunAt: "2026-08-27T19:00:00.000Z",
-        },
-        "UTC"
-      )
-    ).toBe("last run 8/27/2026, 7:00:00 PM (running)");
-    expect(
-      routineRuntimeStatus(
-        {
-          runLedger: [
-            {
-              status: "ok",
-              startedAt: Date.parse("2026-08-27T19:00:00.000Z"),
-              finishedAt: Date.parse("2026-08-27T19:00:05.000Z"),
-            },
-          ],
-          lastRunAt: "2026-08-27T19:00:00.000Z",
-        },
-        "UTC"
-      )
-    ).toBe("last run 8/27/2026, 7:00:05 PM (succeeded)");
-    expect(
-      routineRuntimeStatus(
-        {
-          runLedger: [{ status: "error", startedAt: Date.parse("2026-08-27T19:00:00.000Z") }],
-          lastRunAt: "2026-08-27T19:00:00.000Z",
-        },
-        "UTC"
-      )
-    ).toBe("last run 8/27/2026, 7:00:00 PM (failed)");
   });
 
   test("platform instructions forbid polling, reply misuse, and unsolicited fan-out", () => {

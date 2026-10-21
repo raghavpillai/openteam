@@ -40,7 +40,7 @@ struct RichMessageCard: View {
   private var supported: Bool {
     return [
       "widget", "secret-request", "computer-handoff", "user-form", "external-draft",
-      "bot-template",
+      "bot-template", "approval",
     ].contains(type)
   }
   var body: some View {
@@ -54,10 +54,11 @@ struct RichMessageCard: View {
         case "user-form": form
         case "external-draft": externalDraft
         case "bot-template": sharedTemplate
+        case "approval": approval
         default: EmptyView()
         }
-      }.padding(type == "widget" ? 14 : type == "external-draft" ? 12 : 16).background(
-        NativePalette.surface, in: RoundedRectangle(cornerRadius: type == "external-draft" ? 16 : 18)
+      }.padding(type == "widget" ? 14 : type == "external-draft" || type == "approval" ? 12 : 16).background(
+        NativePalette.surface, in: RoundedRectangle(cornerRadius: type == "external-draft" || type == "approval" ? 16 : 18)
       )
       .animation(type == "widget" && !reduceMotion ? .easeOut(duration: 0.24) : nil,
         value: meta["respondedValue"])
@@ -562,11 +563,76 @@ struct RichMessageCard: View {
     Text(template["recipe"]["profile"]["description"].string)
     DisclosureGroup("Complete template") { Text(template["recipe"].pretty).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
     ShareLink("Export template", item: template["recipe"].pretty)
-    Text(meta["outcomeText"].string.isEmpty ? state.capitalized : meta["outcomeText"].string)
+    Text(meta["outcomeText"].string.isEmpty ? (state == "draft" ? "Unpublished" : state.capitalized) : meta["outcomeText"].string)
+    if state == "draft" {
+      Text("Draft: only you can see it until you publish").font(.footnote).foregroundStyle(NativePalette.muted)
+      Button(busy ? "Publishing…" : "Publish") { templateAction("publish") }
+    }
     if state == "published" {
       Button("Create a bot from this template") { templateAction("import") }
       Button("Unpublish") { templateAction("unpublish") }
     }
+  }
+  /// The Auto-review approval card: the action, why it needs approval, and Allow / Deny until answered.
+  @ViewBuilder var approval: some View {
+    let presentation = meta["presentation"]
+    let pending = state == "pending"
+    let rule = meta["proposedRule"].string
+    let askFirst = meta["appliedRules"].array.first { $0["effect"].string == "ask_first" }?["text"].string ?? ""
+    let botName = store.bots.first(where: { $0.id == message.senderBotId })?.name ?? "OpenTeam"
+    HStack(spacing: 6) {
+      Image(systemName: ApprovalCardText.icon(presentation["sourceIcon"].string)).font(.system(size: 12))
+      Text(presentation["source"].string).font(.system(size: 12, weight: .medium))
+    }.foregroundStyle(DraftPalette.tertiary)
+    HStack(alignment: .firstTextBaseline, spacing: 8) {
+      Text(presentation["title"].string).font(.system(size: 15, weight: .medium)).kerning(-0.15)
+        .foregroundStyle(DraftPalette.text).fixedSize(horizontal: false, vertical: true)
+      Spacer(minLength: 0)
+      Text(pending ? "Needs approval" : ApprovalCardText.status(state)).font(.system(size: 12, weight: .medium))
+        .foregroundStyle(DraftPalette.secondary).padding(.horizontal, 8).padding(.vertical, 2)
+        .background(DraftPalette.fillFaint, in: Capsule())
+    }
+    Text(presentation["line"].string).font(.system(size: 15)).foregroundStyle(DraftPalette.secondary)
+      .fixedSize(horizontal: false, vertical: true)
+    if !presentation["quote"].string.isEmpty {
+      Text("“" + presentation["quote"].string + "”").font(.system(size: 15)).foregroundStyle(DraftPalette.secondary)
+        .padding(.leading, 10).overlay(alignment: .leading) { Rectangle().fill(DraftPalette.divider).frame(width: 2) }
+    }
+    if pending, !presentation["caution"].string.isEmpty {
+      Text(presentation["caution"].string).font(.system(size: 13)).foregroundStyle(DraftPalette.yellow)
+    }
+    if pending, !askFirst.isEmpty {
+      Text("Paused by your Ask first rule: " + askFirst).font(.system(size: 13)).foregroundStyle(DraftPalette.tertiary)
+    }
+    DisclosureGroup("View the full request") {
+      VStack(alignment: .leading, spacing: 8) {
+        Text(meta["reason"].string).font(.system(size: 13)).foregroundStyle(DraftPalette.secondary)
+        let detail = meta["command"].string.isEmpty ? meta["fullRequest"].string : meta["command"].string
+        if !detail.isEmpty {
+          Text(ApprovalCardText.detail(detail)).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+        }
+      }.frame(maxWidth: .infinity, alignment: .leading).padding(10)
+        .background(DraftPalette.panel, in: RoundedRectangle(cornerRadius: 10))
+    }.font(.system(size: 13)).tint(DraftPalette.tertiary)
+    if pending {
+      if !rule.isEmpty {
+        Text("Always allow saves: " + rule).font(.system(size: 13)).foregroundStyle(DraftPalette.tertiary)
+      }
+      HStack(spacing: 8) {
+        if !rule.isEmpty {
+          Button("Always allow") { answerApproval("always") }.buttonStyle(DraftButtonStyle(primary: false, sending: false))
+        }
+        Button(rule.isEmpty ? "Allow" : "Allow once") { answerApproval("approved") }
+          .buttonStyle(DraftButtonStyle(primary: true, sending: false))
+        Button("Deny") { answerApproval("denied") }.buttonStyle(DraftButtonStyle(primary: false, sending: false))
+          .accessibilityHint("Deny once")
+      }
+    } else if let note = ApprovalCardText.settledNote(state, savedRule: meta["savedRule"].string, botName: botName) {
+      Text(note).font(.system(size: 13)).foregroundStyle(DraftPalette.tertiary)
+    }
+  }
+  func answerApproval(_ decision: String) {
+    act("approval", body: ["decision": .string(decision)])
   }
   func templateAction(_ action: String) {
     act("bot-template", body: ["action": .string(action), "clientId": .string(importID)])
@@ -630,7 +696,7 @@ struct RichMessageCard: View {
           store.persist()
         }
         // A draft reports its outcome in the returned card (sent, reopened with an error, unchanged).
-        guard suffix == "external-draft"
+        guard suffix == "external-draft" || suffix == "approval"
           || WidgetMutationReceipt.accepted(result, action: suffix, clientID: payload["clientId"]?.string ?? "", value: payload["value"] ?? .null) else {
           NativeHaptics.play(.error, source: "rich-action.result")
           failure = "This action is no longer available. The card has been refreshed."
@@ -811,5 +877,42 @@ struct DraftStatusBadge: View {
 private struct WidgetSubmitStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
     configuration.label.opacity(configuration.isPressed ? 0.8 : 1)
+  }
+}
+
+/// The approval card's fixed wording, as the reference app shows it.
+enum ApprovalCardText {
+  static func icon(_ name: String) -> String {
+    switch name {
+    case "terminal": "terminal"
+    case "computer": "laptopcomputer"
+    case "plug": "powerplug"
+    default: "checkmark.shield"
+    }
+  }
+  static func status(_ state: String) -> String {
+    switch state {
+    case "approved": "Allowed once"
+    case "always": "Always allowed"
+    case "denied": "Denied"
+    case "expired": "Expired"
+    default: "Needs approval"
+    }
+  }
+  static func settledNote(_ state: String, savedRule: String, botName: String) -> String? {
+    switch state {
+    case "always":
+      savedRule.isEmpty ? "Saved to Custom Rules"
+        : "Allowed from now on: " + savedRule.replacingOccurrences(of: "[.!?]+$", with: "", options: .regularExpression)
+    case "denied": botName + " won't do this"
+    case "expired": "No answer in time, so " + botName + " didn't do this"
+    default: nil
+    }
+  }
+  /// The card shows the first 340 characters of a long request.
+  static func detail(_ text: String) -> String {
+    guard text.count > 340 else { return text }
+    let omitted = text.count - 340
+    return String(text.prefix(340)) + "...[\(omitted) " + (omitted == 1 ? "char" : "chars") + " omitted]"
   }
 }

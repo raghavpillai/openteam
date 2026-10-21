@@ -1,4 +1,5 @@
 import { withDefaultScheme } from "@openteam/client-core/http";
+import type { SystemVersionView } from "@openteam/contracts";
 import { Bot, Check, Copy, Server, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -47,8 +48,8 @@ const serverVersion = async (baseUrl: string): Promise<string | null> => {
     const response = await fetch(`${baseUrl}/api/system/version`, {
       signal: AbortSignal.timeout(3_000),
     });
-    const body = (await response.json()) as { releaseVersion?: unknown };
-    return typeof body.releaseVersion === "string" ? body.releaseVersion : null;
+    if (!response.ok) return null;
+    return ((await response.json()) as SystemVersionView).releaseVersion;
   } catch {
     return null;
   }

@@ -16,6 +16,10 @@ chmod 0440 /etc/sudoers.d/openteam-runner
 
 umask 0022
 
+# The box clock runs in the user's configured zone. Changing the setting
+# recreates this container, so applying it at start follows every change.
+openteam-box-timezone apply "${OPENTEAM_TIME_ZONE:-UTC}" || echo "box-timezone: could not set the box clock" >&2
+
 # One-off provider login/import commands also use this image without a running
 # computer or helper. They do not launch desktops and must remain usable.
 if [ "${1:-}" = bun ] && [ "${2:-}" = /app/apps/computer/dist/main.js ]; then

@@ -1,12 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   manualRoutineWakeContent,
-  scheduledRoutineTriggerContext,
   scheduledRoutineWakeContent,
 } from "../src/routines";
 
 describe("scheduled routine wake content", () => {
-  test("keeps the durable trigger separate from the ordinary wake text", () => {
+  test("carries no trigger block, only the ordinary wake text", () => {
     const content = scheduledRoutineWakeContent({
       name: "Daily audit",
       folder: "daily-audit",
@@ -25,14 +24,7 @@ describe("scheduled routine wake content", () => {
       "If the instruction mentions a skill (e.g. @Some skill), read that skill file from your workflows folder with Read and run it as part of this. The mention is a pointer, not a copy.",
       "If the saved instruction spells out a specific MCP tool call, treat its arguments as possibly stale, since this routine may have been written long ago, and confirm the current schema with your MCP tool-discovery tool before relying on them.",
     ].join("\n"));
-    expect(
-      scheduledRoutineTriggerContext({
-        name: "Daily audit",
-        scheduledFor: new Date("2026-08-28T11:00:00.000Z"),
-      })
-    ).toBe(
-      "<automation_trigger_info>\n[OpenTeam routine: Daily audit]\nScheduled occurrence: 2026-08-28T11:00:00.000Z\n</automation_trigger_info>"
-    );
+
   });
 
   test("names a dated cron as the one-off it is, and gives the fire time in the routine's zone", () => {
@@ -67,24 +59,6 @@ describe("scheduled routine wake content", () => {
       })
     ).toStartWith(
       '[SAND_HIDDEN_PROMPT][SAND_TRUSTED_AUTOMATION_PROMPT]\n[routine] "Daily audit" (folder daily-audit) was run on demand. Trigger: Every day at 12:00 AM (0 0 * * *), started 8/28/2026, 11:00:00 AM UTC.\nThe user pressed Run now on this routine in the app; this is that run, not a message they typed.'
-    );
-  });
-
-  test("places the authoritative routine status reminder above the firing body", () => {
-    const content = manualRoutineWakeContent({
-      name: "Daily audit",
-      folder: "daily-audit",
-      schedule: "0 0 * * *",
-      firedAt: new Date("2026-08-28T11:00:00.000Z"),
-      prompt: "Inspect the queue.",
-      provenance: "user",
-      routineStatuses: [
-        { name: "Daily audit", folder: "daily-audit", status: "never run" },
-        { name: "Weekly recap", folder: "weekly-recap", status: "last run status unknown" },
-      ],
-    });
-    expect(content).toStartWith(
-      "[SAND_HIDDEN_PROMPT][SAND_TRUSTED_AUTOMATION_PROMPT]\n<system_reminder>\n<automation_status>\nCurrent routine runtime status. This snapshot is authoritative for this turn and supersedes earlier routine status reminders.\n- Daily audit (folder daily-audit): never run\n- Weekly recap (folder weekly-recap): last run status unknown\n</automation_status>\n</system_reminder>\n\n[routine]"
     );
   });
 });

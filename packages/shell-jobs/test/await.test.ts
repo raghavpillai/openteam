@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ShellJobRegistry, validateShellWait, renderShellAwaitResult } from "../src";
+import { ShellJobRegistry, validateShellWait, renderShellAwaitResult, terminalFooter } from "../src";
 import { parseHostAwaitShellRequest } from "@openteam/contracts/service-protocol";
 
 const roots: string[] = [];
@@ -48,21 +48,22 @@ test("matches earlier multiline output but never headers or footers", async () =
 
 test("validates waits and rejects unknown, cross-scope, and path-like handles", async () => {
   const { registry } = await fixture();
-  for (const input of [
-    { block_until_ms: 0 },
-    { block_until_ms: Infinity },
-    { block_until_ms: 7_140_001 },
-    { shell_id: "job", pattern: "[" },
-    { shell_id: "", block_until_ms: 0 },
-  ])
+  for (const input of [{ block_until_ms: Infinity }, { block_until_ms: 7_140_001 }])
     await expect(registry.await(input, "bot-1")).rejects.toThrow("AwaitShell");
+  for (const input of [{ block_until_ms: 0 }, { shell_id: "", block_until_ms: 0 }])
+    await expect(registry.await(input, "bot-1")).rejects.toThrow(
+      "Invalid arguments:\nshell_id: Required when block_until_ms is 0. Without shell_id there is nothing to check: pass the shell_id to check, or a nonzero block_until_ms to sleep."
+    );
+  await expect(registry.await({ shell_id: "job", pattern: "[" }, "bot-1")).rejects.toThrow(
+    "pattern is not valid RE2 syntax: missing closing ]. RE2 has no lookahead, lookbehind or backreferences."
+  );
   for (const id of ["unknown", "../job", "/tmp/job"]) {
     await expect(registry.await({ shell_id: id, block_until_ms: 0 }, "bot-1")).rejects.toThrow(
-      "Unknown or expired"
+      `No shell found for id ${id}`
     );
   }
   await expect(registry.await({ shell_id: "job", block_until_ms: 0 }, "bot-2")).rejects.toThrow(
-    "Unknown or expired"
+    "No shell found for id job"
   );
 });
 
@@ -124,13 +125,13 @@ test("restart recovers an in-flight terminal and retries completion delivery onc
   let attempts = 0;
   const recovered = new ShellJobRegistry({ directory: root, onComplete: async (receipt) => { expect(receipt.automationRunId).toBe("automation-run"); if (++attempts === 1) throw new Error("offline"); } });
   try {
-    await writeFile(outputPath, "header\nready\n\n\nstatus: completed\nexit_code: 3\nelapsed_ms: 100\n");
+    await writeFile(outputPath, `header\nready\n${terminalFooter(3, 100)}`);
     await recovered.flushCompletions(); await recovered.flushCompletions(); await recovered.flushCompletions();
     expect(attempts).toBe(2);
     expect(await recovered.await({ shell_id: "700", block_until_ms: 0 }, "bot")).toMatchObject({ status: "completed", exit_code: 3 });
     const again = new ShellJobRegistry({ directory: root, onComplete: async () => { attempts++; } });
     try { await again.flushCompletions(); expect(attempts).toBe(2); } finally { again.dispose(); }
-    await expect(recovered.await({ shell_id: "700", block_until_ms: 0 }, "another-bot")).rejects.toThrow("Unknown or expired");
+    await expect(recovered.await({ shell_id: "700", block_until_ms: 0 }, "another-bot")).rejects.toThrow("No shell found for id 700");
   } finally { recovered.dispose(); }
 });
 
@@ -171,7 +172,7 @@ test("bounds completed handle retention while keeping running jobs", async () =>
       .finish(0);
   }
   await expect(registry.await({ shell_id: "done-0", block_until_ms: 0 }, "bot-1")).rejects.toThrow(
-    "expired"
+    "No shell found for id done-0"
   );
   expect((await registry.await({ shell_id: "done-256", block_until_ms: 0 }, "bot-1")).status).toBe(
     "completed"

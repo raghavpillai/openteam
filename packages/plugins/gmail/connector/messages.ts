@@ -1,5 +1,6 @@
 import { convert } from 'html-to-text';
-import { base64Bytes, compact } from '../../_shared/reference';
+import { compact } from '../../_shared/reference';
+import { decodeAttachment } from './guards';
 import type { Args } from '../../_shared/google';
 
 export const plainHtml = (html: string) => convert(html, { wordwrap: false, selectors: [{ selector: 'img', format: 'skip' }] });
@@ -14,6 +15,15 @@ export function decodeHeader(value = ''): string {
 }
 export const headersOf = (message: any): Record<string, string> => Object.fromEntries((message.payload?.headers ?? []).map((h: any) => [String(h.name).toLowerCase(), decodeHeader(h.value)]));
 const recipients = (value = '') => value.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(v => v.match(/<([^>]+)>/)?.[1] ?? v.trim()).filter(Boolean);
+// Google omits empty recipient lists.
+const listed = (value?: string) => { const list = recipients(value); return list.length ? list : undefined; };
+const webId = (id: unknown) => typeof id === 'string' && /^[0-9a-f]{1,16}$/i.test(id) ? BigInt(`0x${id}`).toString() : undefined;
+/** Gmail web's address for a thread or one of its messages, as Google's viewUrl gives it: the decimal form of the hex ids. */
+export function gmailViewUrl(account: string | undefined, threadId: unknown, messageId?: unknown): string | undefined {
+  const thread = webId(threadId), message = messageId === undefined ? '' : webId(messageId);
+  if (!account || !thread || message === undefined) return undefined;
+  return `https://mail.google.com/mail/?authuser=${account}#all/thread-f:${thread}${message ? `|msg-f:${message}` : ''}`;
+}
 export function normalizeMessage(message: any, format = 'FULL_CONTENT'): any {
   if (format === 'MESSAGE_FORMAT_UNSPECIFIED') format = 'FULL_CONTENT';
   const h = headersOf(message);
@@ -40,7 +50,7 @@ export function normalizeMessage(message: any, format = 'FULL_CONTENT'): any {
   return compact({
     id: message.id, threadId: message.threadId, labelIds: message.labelIds,
     historyId: message.historyId, internalDate: message.internalDate, sizeEstimate: message.sizeEstimate,
-    sender: h.from, toRecipients: recipients(h.to), ccRecipients: recipients(h.cc), bccRecipients: recipients(h.bcc),
+    sender: h.from, toRecipients: listed(h.to), ccRecipients: listed(h.cc), bccRecipients: listed(h.bcc),
     date: Number.isFinite(time) ? new Date(time).toISOString() : undefined,
     subject: metadata ? undefined : h.subject, snippet: metadata ? undefined : message.snippet,
     plaintextBody: full ? (text.join('\n') || (html.length ? plainHtml(html.join('\n')) : '')) : undefined,
@@ -80,6 +90,10 @@ export function draftMime(args: Args, original?: any) {
     const quote = `On ${originalHeaders.date ?? 'the previous message'}, ${originalHeaders.from ?? 'the sender'} wrote:`;
     if (body !== undefined || html === undefined) body = `${body ?? ''}\n\n${quote}\n${(normalized.plaintextBody ?? '').split('\n').map((line: string) => `> ${line}`).join('\n')}`;
     if (html !== undefined) html = `${html}<br><br>${escapeHtml(quote)}<blockquote>${normalized.htmlBody ?? escapeHtml(normalized.plaintextBody ?? '').replaceAll('\n', '<br>')}</blockquote>`;
+  } else if (args.inReplyTo) {
+    // A rewritten reply draft keeps its thread headers.
+    headers.push(`In-Reply-To: ${safeHeader(args.inReplyTo)}`);
+    headers.push(`References: ${safeHeader(args.references || args.inReplyTo)}`);
   }
   const texts = [];
   if (body !== undefined || html === undefined) texts.push(textPart(body ?? '', 'text/plain'));
@@ -88,7 +102,8 @@ export function draftMime(args: Args, original?: any) {
   let size = 0;
   const inline: string[] = [], regular: string[] = [];
   for (const attachment of args.attachments ?? []) {
-    const bytes = base64Bytes(attachment.content);
+    const bytes = decodeAttachment(attachment.content);
+    if (!bytes) throw new Error('Attachment content must be base64');
     size += bytes.length;
     if (size > 25 * 1024 * 1024) throw new Error('Combined attachments exceed 25 MB. Use a Drive link for larger files.');
     const name = safeHeader(attachment.filename ?? 'attachment');

@@ -1,7 +1,7 @@
 {
   "SendToUser": {
     "name": "SendToUser",
-    "description": "Say something to the user in the Grok Bot chat. This is your only voice. The user only ever sees the content of SendToUser calls; your plain assistant text is invisible to them (it is just your private scratchpad), so a reply counts only once it is inside SendToUser, including short, casual, or social replies like \"Hey\" or \"Doing good, you?\". Finish a turn where someone is waiting on you without calling SendToUser and they see total silence and assume you ignored them; the lone exception is a scheduled routine (a [routine] run) whose saved instruction says to stay quiet when there's nothing to report, where ending with no SendToUser is correct rather than filler like \"(no change.)\". Keep the user posted along the way, not just at the end: post an update for a real result, decision, blocker, or change of plan, and batch or omit routine mechanics, retries, and minor snags rather than narrating each one; prefer fewer, higher-signal updates over a play-by-play. Still, never vanish into a long silent run on something the user is waiting on. This also covers results: output the user is waiting on counts as delivered only inside a SendToUser, so an opening acknowledgement does not discharge it (ack ≠ delivery). Say \"done\" only when the requested end state is verified; otherwise name the exact state (drafted, sent, waiting, blocked). Before the final send, check that it delivers everything the user explicitly asked for, in the form they asked for it, and nothing they would have to strip out; include the result itself, or say plainly that it is unavailable, rather than \"done\", a pointer to an earlier message, or process notes. If you ran something for the user, send the actual result before you yield. Use {\"type\":\"text\",\"content\":\"...\"} for normal messages; use actual newline characters for paragraph or list breaks, not literal backslash-n text. A voice memo (whatever they call it: voice note, voice message, audio note) is type:text with voice_memo: true. Write the words to speak in content, as complete spoken sentences with no numbered lists, headers, or markdown. A requested list is spoken as first / next / last, not digits. Start with the thing they asked to hear; never “hit play.” The client plays those words as a pellet. When they asked to receive a memo, send only that one message: no status ack, no ordinary-text copy of the answer, and no audio file (.m4a, .mp3). Silence until then is correct. Set voice_memo: true only on those spoken words (the answer). After that memo, later SendToUser calls stay ordinary text unless they ask for another memo. In text content you can point back at an earlier message with [label](sand-msg:<address>), e.g. \"Covered in [my earlier breakdown](sand-msg:t2s1)\". It renders as a chip that jumps there. Addresses match reply_to (a user [t3u] tag, or the id a send hands back) but never thread. Use only when pointing back helps; write the label as the sentence needs; never a bare address. These links only work in the in-app chat; do not use them in Slack or other outside channels. During a local group-chat turn, SendToUser delivers to that room; pass \"to\":\"dm\" to instead deliver a text message privately to your own user's 1:1 chat (the room never sees it). That is useful when someone in a room asks you to tell your user something, or when a result is for your user alone. Use {\"type\":\"attachment\",\"url\":\"file:///absolute/path/to/file.png\"} for actual files or standalone media; https:// file/media URLs are also accepted. A requested voice memo is not an audio attachment; never attach .m4a or .mp3 for one. The rule for images: if image(s) belong WITH what you're saying, attach them to the text message itself. {\"type\":\"text\",\"content\":\"...\",\"images\":[{\"url\":\"file:///absolute/path/to/shot.png\",\"alt\":\"...\"}]} renders them inside the same chat bubble, below your text (one image full width, several as a compact gallery). Use {\"type\":\"attachment\"} only when the image IS the whole message, with no accompanying text; videos and non-image files always go as attachments. Never embed images as markdown ![](...) in content. Use {\"type\":\"cursor-agent\",\"bcId\":\"bc-...\"} to reference a Cursor cloud agent: it renders as a card the user can click to open that agent in Cursor. Always use this instead of pasting a cloud agent's URL or bcId as text. In your own text call it a \"cloud agent\" or by its name; \"card\" is only how this attachment renders, never a word you write to the user (no \"(card)\" label). Use {\"type\":\"widget\",\"widget\":{...}} to ask the user a question with selectable options instead of asking in plain text, but ask rarely. By default decide and proceed (see Autonomy), reserving a widget for a consequential or destructive go/no-go, true ambiguity you cannot resolve by looking it up, or something only the user knows. Do not use a widget to confirm a tool that already opens its own review UI (an editor or an approval card); call that tool instead, because a widget ends the turn and blocks the UI. Every option must be a real, verified choice, never invented, guessed, or a plausible-looking placeholder; if you do not know the real options, look them up first (search the relevant connector, tool, or directory) rather than presenting fakes. Use {\"type\":\"secret-request\",\"secret\":{\"label\":\"...\",\"name\":\"CRM_API_TOKEN\"}} to ask for a credential (an API token, key, or secret). They get a masked secure input, the value is saved where this bot can use it, and you are told where once they submit; a plain secret is then available as process.env.NAME in new processes. For a secret `${VAR}` setup field of a plugin (GetPlugin lists the field as secret), add \"plugin_id\" (the plugin's id) and pass the field key as \"name\"; one secret-request per key, after the plugin is installed. If secret-request is not available in this chat, the tool says so and who should continue where; tell them that in text. NEVER ask anyone to paste a token, key, or password into the chat. You only learn that they provided it. Sending a secret-request ends your turn; you are resumed once they submit. When a task needs access the operating system gates behind a consent dialog (reading a protected folder like Documents/Desktop/Downloads, screen recording, the microphone, the camera, ...), just attempt the action directly. The OS surfaces its own permission dialog naturally when it is required, and the user grants there. Do NOT announce it first, invent a permission card or click-path, or promise that \"your system will ask\". Attempt the action and let the real dialog appear. (A sign-in, one-time code, or captcha on your box's desktop follows the `sign-in` skill instead.) The user picks an option and its value comes back to you as their reply. In the chat, the resolved card keeps your question and shows their selection checked under it, so phrase the prompt as a natural conversational question (never a menu instruction like \"Pick one of the following\") and give every option a value that reads like a reply the user would actually send. The user can also dismiss the question without answering; you'll be told on your next turn. Treat that as a decline and don't re-ask. Example: {\"type\":\"widget\",\"widget\":{\"prompt\":\"Deploy to production?\",\"options\":[{\"label\":\"Deploy\",\"value\":\"Yes, deploy now\",\"style\":\"primary\"},{\"label\":\"Cancel\",\"value\":\"No, hold off\",\"style\":\"danger\"}]}}. When you do genuinely need a decision or confirmation, this widget is how you ask, not plain text. Sending a widget ends your turn; make it your last action and stop, and the user's selection arrives as the next message. The chat renders Grok Bot deep links as pills that open the target. Write [Update Track](grokbot://app/v1/settings?id=update-channel), not \"Settings, Updates, Update Track\". A settings row is [label](grokbot://app/v1/settings?id=<anchor>), where <anchor> is one of: account, theme, accent, language, spell-check, microphone, hardware-acceleration, hardware-acceleration-restart, network-debugger, notification-sound-enabled, notification-sound, timezone, local-execution, computers, auto-review, auto-review-rules, security-keys, usage, plan, cancel-trial, on-demand, billing, update-status, update-channel, automatic-updates, update-computer, reset-computer. Stuck or reset? Link update-computer first, then reset-computer. Never write your own plugin link: InstallPlugin if missing, AuthenticateMcpServer if needsAuth. A Bot template is [label](grokbot://app/v1/bot-template?id=<share id>). Set label to the Bot's real name, never \"Bot template\" or its share id. Use real target names as labels. Labels are loading, hover, and plain-text fallbacks. Use only listed anchors in Grok Bot chat, never through a connector. A teammate is [label](grokbot://app/v1/agent?id=<id>). Your tab is [label](grokbot://app/v1/sidebar?tab=<overview|routines|media|computer|members>). Set end_turn to true on your final SendToUser call when your reply is complete. A successful send completes the turn without another assistant message. Omit it or set false for acknowledgements and progress updates when you still need to work. Send all required results and attachments before the final call. Do not parallelize the final call with work you still need. You can end your turn while subagents are working as long as you are done for now.",
+    "description": "Send a message to the user. Follow \"How a turn works\" in your instructions for when to reply, update, and finish, and \"Autonomy\" and \"Asking for decisions\" before asking the user anything. Say \"done\" only once the end state is verified; otherwise name the actual state (drafted, sent, waiting, blocked). The final send delivers everything asked for, in the form asked: the result itself or a plain statement that it is unavailable, never a pointer to an earlier message or process notes. For an OS permission (a protected folder, screen recording, microphone, camera), just attempt the action and let the OS show its own dialog; don't announce it or invent a permission card. A box-desktop step only the user can do (SSO, a passkey, 2FA, a captcha the subagent could not get past, a payment confirmation, a login you can't fill) goes to request_box_help. Secret requests: The value is saved where this bot can use it and you are told where after submit: a plain secret as process.env.NAME, or with plugin_id a plugin's secret setup field (one request per key, after the plugin is installed). If this chat can't take one, the tool says who should continue where; relay that in text. In-app links: Link app places as pills, e.g. [Update Track](grokbot://app/v1/settings?id=update-channel), never a click-path. Settings: [label](grokbot://app/v1/settings?id=<anchor>), <anchor> one of: account, theme, accent, language, spell-check, microphone, hardware-acceleration, hardware-acceleration-restart, network-debugger, notification-sound-enabled, notification-sound, timezone, local-execution, computers, auto-review, auto-review-rules, security-keys, usage, plan, cancel-trial, on-demand, billing, update-status, update-channel, automatic-updates, update-computer, reset-computer. When stuck, link update-computer before reset-computer. Never write plugin links: InstallPlugin if missing, AuthenticateMcpServer if needsAuth. Bot template: [label](grokbot://app/v1/bot-template?id=<share id>). Label each link with its target's real name. Use only these links, only in Grok Bot chat, never through a connector. Another bot: [label](grokbot://app/v1/agent?id=<id>). Your tab: [label](grokbot://app/v1/sidebar?tab=<overview|routines|media|computer|members>).",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -14,15 +14,15 @@
             "cursor-agent",
             "secret-request"
           ],
-          "description": "text for chat messages (default), attachment for actual files or standalone media, widget for an interactive question with selectable options, cursor-agent to reference a Cursor cloud agent by its bcId (renders as a card that opens the agent in Cursor on click), secret-request to ask the user for a credential through a secure masked input (never a chat paste)."
+          "description": "text (default); attachment: a file or standalone media; widget: a question with options; cursor-agent: a cloud agent card; secret-request: a masked input for a token, key, or password."
         },
         "content": {
           "type": "string",
-          "description": "Required when type is text. The message to show to the user. Use actual newline characters for paragraph or list breaks, not literal backslash-n text. Only valid with type:text."
+          "description": "Required for type:text. Markdown with real newlines, not literal \\n. In the in-app chat only, you may link an earlier message as [words](sand-msg:<address>); never a bare address, and never in Slack or other outside channels."
         },
         "url": {
           "type": "string",
-          "description": "Required when type is attachment. Use file:// for local files or https:// for remote files and standalone media. Do not attach an audio file for a requested voice memo."
+          "description": "Required for type:attachment. A file:// or https:// file, video, or image sent alone, such as file:///workspace/report.pdf."
         },
         "images": {
           "type": "array",
@@ -32,41 +32,41 @@
               "url": {
                 "type": "string",
                 "minLength": 1,
-                "description": "file:// or https:// URL of the image."
+                "description": "file:// or https:// URL, such as file:///workspace/chart.png."
               },
               "alt": {
                 "type": "string",
-                "description": "Optional short description of this image, shown on hover and as its fullscreen caption."
+                "description": "Shown on hover and as the fullscreen caption."
               }
             },
             "required": [
               "url"
             ]
           },
-          "description": "Optional, only for type:text. Image(s) that belong with this message; they render inside the same chat bubble, below your text. One image renders full width, and several render as a compact gallery. Use whenever you're showing something you're talking about; use type:attachment only for an image that IS the whole message."
+          "description": "type:text. Images shown in the same bubble, below the text; use type:attachment only when an image is the whole message. Never embed ![](…) in content."
         },
         "alt": {
           "type": "string",
-          "description": "Optional. A short description (alt text) of what the image shows, for type:attachment. Shown to the user on hover and in the fullscreen viewer."
+          "description": "type:attachment. Image description, shown on hover and fullscreen."
         },
         "reply_to": {
           "type": "string",
-          "description": "Optional. Address of a prior message to reply under (for example, t3u or t3s1). If the current user message was sent through Reply, omit this to reply under the same message automatically. Otherwise, omitting it posts normally in the main chat. Set it only to choose a different prior message."
+          "description": "Address of an earlier message to thread under (e.g. t3u, t3s1). A message sent through Reply is answered in its thread without it."
         },
         "channel": {
           "type": "string",
-          "description": "Optional. A connected messaging channel address to deliver this to instead of the in-app Grok Bot chat, shaped platform:chat, the address shown to you in an [inbound] wake. On Slack a channel thread is slack:<channel id>:<thread ts>, a person is slack:<user id>, and a bare slack:<channel id> starts a new top-level post in a channel the bot has been added to (only when asked for one; answer messages in their thread). Omit to send to the in-app chat (the default). Only valid with type:text or type:attachment."
+          "description": "type:text or attachment. Deliver to a connected channel instead of this chat, as platform:chat from an [inbound] wake. Slack: slack:<channel id>:<thread ts> for a thread, slack:<user id> for a person, bare slack:<channel id> for a new top-level post only when asked for one."
         },
         "to": {
           "type": "string",
           "enum": [
             "dm"
           ],
-          "description": "Optional, only meaningful during a local group-chat turn. Pass \"dm\" to deliver this message privately to YOUR OWN user's 1:1 chat instead of the room; the room never sees it. Only valid with type:text. Outside a group-chat turn it is ignored because your user is already the audience."
+          "description": "type:text in a group-chat turn. \"dm\" delivers privately to your own user's 1:1 chat instead of the room."
         },
         "voice_memo": {
           "type": "boolean",
-          "description": "A voice memo (whatever they call it: voice note, voice message, audio note) is type:text with voice_memo: true. Write the words to speak in content, as complete spoken sentences with no numbered lists, headers, or markdown. A requested list is spoken as first / next / last, not digits. Start with the thing they asked to hear; never “hit play.” The client plays those words as a pellet. When they asked to receive a memo, send only that one message: no status ack, no ordinary-text copy of the answer, and no audio file (.m4a, .mp3). Silence until then is correct. Optional, only for type:text with no images or channel. Set it only on that spoken answer. Later SendToUser calls stay ordinary text unless they ask for another memo."
+          "description": "type:text without images or channel. Speaks content as a voice memo; follow the voice memo rules in your instructions."
         },
         "widget": {
           "type": "object",
@@ -91,7 +91,7 @@
                   "value": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "Text sent back to you when this option is picked. Defaults to the label. Make it read like something the user would naturally say in reply."
+                    "description": "Reply text returned when picked; defaults to label."
                   },
                   "description": {
                     "type": "string",
@@ -115,26 +115,26 @@
             },
             "multiSelect": {
               "type": "boolean",
-              "description": "When true, several options may apply. The user toggles any subset, then submits once. Picked values return in one reply, one per line."
+              "description": "Allow several picks, returned one per line."
             },
             "allowCustom": {
               "type": "boolean",
-              "description": "When true, the user can type a custom free-text answer instead of choosing one of the options."
+              "description": "Allow a typed answer."
             },
             "dismissOnMoveOn": {
               "type": "boolean",
-              "description": "When true, this widget auto-dismisses (becomes inert, shows a muted Dismissed state) once the user sends a newer message without answering it. Omit/false to keep the question live and answerable indefinitely. Set true only for low-stakes questions that become moot if the user moves on; keep it off for real decisions you still need answered."
+              "description": "Auto-dismiss once the user sends a newer message without answering."
             }
           },
           "required": [
             "prompt",
             "options"
           ],
-          "description": "Required when type is widget. A question with one-line options: { prompt, options: [{ label, value?, style? }], multiSelect?, allowCustom?, dismissOnMoveOn? }. The user picks one option; its value comes back as their reply, and the chat shows the resolved card with their selection checked under your prompt, so phrase the prompt as a natural question, not a menu instruction. The user can also dismiss the question without answering; you'll be told on your next turn, so treat that as a decline and don't re-ask. Only valid with type:widget."
+          "description": "Required for type:widget. A question with options; the picked value returns as the user's reply."
         },
         "bcId": {
           "type": "string",
-          "description": "Required when type is cursor-agent. The bcId of the Cursor cloud agent to reference (e.g. bc-xxxxxxxx-...)."
+          "description": "Required for type:cursor-agent. The cloud agent's bcId (bc-…); it renders as a card that opens the agent. In text, call it a cloud agent or by its name, never a card."
         },
         "secret": {
           "type": "object",
@@ -142,40 +142,40 @@
             "label": {
               "type": "string",
               "minLength": 1,
-              "description": "What credential to ask for, shown as the card title and echoed in the field placeholder (\"Paste your …\"), e.g. \"Slack bot token\"."
+              "description": "Card title, e.g. \"Slack bot token\"."
             },
             "description": {
               "type": "string",
-              "description": "Optional short help shown under the label."
+              "description": "Short help under the label."
             },
             "name": {
               "type": "string",
               "minLength": 1,
               "maxLength": 128,
-              "description": "The environment variable name new box processes will read, e.g. \"CRM_API_TOKEN\". With plugin_id, the plugin's `${VAR}` setup field key instead, exactly as GetPlugin lists it."
+              "description": "Environment variable name, e.g. \"CRM_API_TOKEN\"; with plugin_id, the plugin's `${VAR}` setup field key exactly as GetPlugin lists it."
             },
             "plugin_id": {
               "type": "string",
               "pattern": "^[1-9]\\d*$",
-              "description": "Only on a shared team bot, and only for a secret `${VAR}` setup field of a plugin already on the bot: the plugin's STABLE id (from SearchPlugins / GetPlugin). The value is saved as that plugin's team variable `name` on the bot, never as a bot secret or a box environment variable."
+              "description": "Team bots only: the plugin's id from SearchPlugins or GetPlugin, when name is one of its secret `${VAR}` setup fields."
             }
           },
           "required": [
             "label",
             "name"
           ],
-          "description": "Required when type is secret-request. Asks for a credential through a masked secure input. The value never reaches you or the chat. You only learn that it was provided, and where it was saved. Do not ask anyone to paste a token, key, or password."
+          "description": "Required for type:secret-request. Asks for a single token, key, or password (one field; use RequestUserForm for multi-field asks like logins) through a masked input and ends your turn; you resume once it is submitted, and the value never reaches you or the chat."
         },
         "end_turn": {
           "type": "boolean",
-          "description": "Set end_turn to true on your final SendToUser call when your reply is complete. A successful send completes the turn without another assistant message. Omit it or set false for acknowledgements and progress updates when you still need to work. Send all required results and attachments before the final call. Do not parallelize the final call with work you still need. You can end your turn while subagents are working as long as you are done for now."
+          "description": "True ends the turn once this send succeeds."
         }
       }
     }
   },
   "ReactToMessage": {
     "name": "ReactToMessage",
-    "description": "React to one of the user's messages with a single emoji tapback, shown as a small pill on their message. Use it rarely and mirror the user: if they don't use emoji, almost never react. It suits something funny, good news, or a moment where a quick 👍 beats a sentence, never a request you haven't answered and never just to seem friendly. Reacting with the same emoji again removes it.",
+    "description": "React to one of the user's messages with a single emoji tapback, shown as a small pill on their message. Reactions are an everyday part of your voice: expect to react in most conversations, wherever a person in a chat would tap one instead of typing, though not on every message. Use 👍 or ❤️ for thanks or agreement, 🎉 for good news, 😂 for something funny, and ✅ when a small request is done and the result is already visible. Don't follow a reaction with a message saying the same thing. A reaction never replaces a reply the user needs: an answer, a result, a link, or the opening acknowledgement before longer work. At most one per message, and hold back when the conversation is formal or tense or the user is frustrated. Reacting with the same emoji again removes it.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -234,7 +234,7 @@
   },
   "UpdateMemory": {
     "name": "UpdateMemory",
-    "description": "Change your durable memory. Pick the memory type that fits:\n- profile: Lasting facts about the user and how to work with them, kept in mind every turn. Keep it small.\n- journal: Dated history. Only the latest entries stay in view.\n- shared_profile: Lasting facts about the user that every assistant they run keeps in mind, such as their name and time zone.\n- shared_journal: Dated history every assistant the user runs should know.\nwrite saves a fact (deduped); forget drops one by its exact recorded text (find it with RecallMemory), so pair it with a write to correct a fact. Save without asking and mention it in passing. Routines have their own UpdateRoutine tool. Skills, profile and settings, picture, and channels have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.",
+    "description": "Change your durable memory. Each memory type below holds one kind of fact. Save a fact to the type meant for it, and leave out a fact no type is meant for:\n- profile: Lasting facts about the user and how to work with them, kept in mind every turn. Keep it small.\n- journal: Dated history. Only the latest entries stay in view.\n- shared_profile: Lasting facts about the user that every assistant they run keeps in mind, such as their name and time zone.\n- shared_journal: Dated history every assistant the user runs should know.\nwrite saves a fact (deduped); forget drops one by its exact recorded text (find it with RecallMemory), so pair it with a write to correct a fact. Save without asking and mention it in passing. Routines have their own UpdateRoutine tool. Skills, profile and settings, picture, and channels have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -269,7 +269,7 @@
   },
   "UpdateRoutine": {
     "name": "UpdateRoutine",
-    "description": "Create or change your routines: saved prompts that fire on a schedule or when an outside event arrives, even while the user is away. Your current routines and their folder ids are listed under Scheduled routines in your prompt.\nBe proactive: when an ask is recurring, time-based, or \"tell me when X\", create a routine (or offer one when unsure it's wanted) instead of doing it once. Read the managed `routines` skill before creating or changing one; it has the full recipe, including every trigger shape.\n- create: name, prompt, and schedule or trigger. update: id plus only the fields to change; omitted fields keep their current values and the routine keeps its history. pause (disarm one the user wants back later), resume (rearm it), delete (remove a finite watch as soon as it has done its job): id.\nschedule: 5-field cron in the user's local time (or @hourly/@daily/@weekly/@monthly/\"@every 2h\"), at least 5 minutes apart. A clock time the user names is saved as named (\"8am\" is \"0 8 * * *\"); only an ask that names no time takes the minute from the latest <timestamp>.\nCreating or changing a routine may ask the user to confirm, since it's the one change that acts while they're away. If it does, they'll see a card and you'll get their answer back as the tool result; don't ask first, and don't retry a denied write.",
+    "description": "Read, create, or change your routines: saved prompts that fire on a schedule or when an outside event arrives, even while the user is away. Your current routines and their folder ids are in the latest <automation_status> reminder, which shows no prompts.\nBe proactive: when an ask is recurring, time-based, or \"tell me when X\", create a routine (or offer one when unsure it's wanted) instead of doing it once, except joining a meeting or saving what to do in one (JoinMeeting or UpdateMeeting). Read the Cursor-managed `routines` skill before creating or changing one; it has the full recipe, including every trigger shape.\n- create: name, prompt, and schedule or trigger. get: id; returns the saved prompt, trigger, and timing. update: id plus only the fields to change. pause, resume, delete: id.\nBefore you change a routine's prompt or describe what it does, get it and work from the saved text, not from memory.\nschedule: 5-field cron in the user's local time (or @hourly/@daily/@weekly/\"@every 2h\"), at least 5 minutes apart; take the minute from the latest <timestamp>, never :00 or :30 unless the user named it.\nA change may ask the user to confirm on a card; don't ask first, and don't retry a denied write.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -277,6 +277,7 @@
           "type": "string",
           "enum": [
             "create",
+            "get",
             "update",
             "pause",
             "resume",
@@ -291,567 +292,47 @@
         "name": {
           "type": "string",
           "minLength": 1,
-          "description": "Required on create. On update, omit to keep the current name."
+          "description": "Required on create."
         },
         "prompt": {
           "type": "string",
           "minLength": 1,
-          "description": "What you should do each time it fires, written to your future self. Write it as an INTENT, not a frozen tool recipe: a connector's schema can change between fires, so describe the goal and let each run look the tool up. Required on create; on update, omit to keep the current prompt."
+          "description": "What to do each time it fires, written to your future self as an intent, not a frozen tool recipe. Required on create."
         },
         "schedule": {
           "type": "string",
           "minLength": 1,
-          "description": "Shorthand for a cron trigger — \"0 7 * * *\", \"@daily\", \"@every 2h\" — interpreted in the user's local time. Calendar shorthands take their clock fields from the routine's creation time, and unphased @every intervals anchor to creation. A clock time the user names is saved as named, so \"8am\" is \"0 8 * * *\" and \"daily at 2\" is \"0 2 * * *\"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 \"hourly\" is \"32 * * * *\". Use this OR trigger, never both. On update, omit (with trigger) to keep the current fire condition."
+          "description": "See the description. Never with trigger."
         },
         "trigger": {
-          "anyOf": [
-            {
-              "anyOf": [
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "cron"
-                    },
-                    "schedule": {
-                      "$ref": "#/properties/schedule",
-                      "description": "A 5-field cron expression in the user's local time (\"0 7 * * *\"), or a shorthand (@hourly/@daily/@weekly/@monthly, \"@every 30m\"). Calendar shorthands take their clock fields from the routine's creation time, and unphased @every intervals anchor to creation. A clock time the user names is saved as named, so \"8am\" is \"0 8 * * *\" and \"daily at 2\" is \"0 2 * * *\"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 \"hourly\" is \"32 * * * *\"."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "schedule"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "slack"
-                    },
-                    "channel": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "A channel (\"#eng\"), a DM (\"@dana\"), or \"*\" for anywhere."
-                    },
-                    "match": {
-                      "anyOf": [
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "mention"
-                            }
-                          },
-                          "required": [
-                            "kind"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "keyword"
-                            },
-                            "keyword": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "keyword"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "message"
-                            }
-                          },
-                          "required": [
-                            "kind"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "reaction"
-                            },
-                            "emoji": {
-                              "type": "array",
-                              "items": {
-                                "type": "string",
-                                "minLength": 1
-                              },
-                              "description": "Normalized short names without colons (\"eyes\", \"white_check_mark\"). Absent or empty means any emoji."
-                            },
-                            "bySelf": {
-                              "type": "boolean",
-                              "description": "When true, only the user's own reactions fire it — not a colleague's."
-                            }
-                          },
-                          "required": [
-                            "kind"
-                          ]
-                        }
-                      ],
-                      "description": "What makes a message count as a match."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "channel",
-                    "match"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "github"
-                    },
-                    "repo": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "One concrete \"owner/name\" repo. No wildcards; omit pr for repo-wide events."
-                    },
-                    "events": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "enum": [
-                          "pr-opened",
-                          "pr-pushed",
-                          "pr-merged",
-                          "pr-closed",
-                          "review-requested",
-                          "review-approved",
-                          "review-changes-requested",
-                          "review-commented",
-                          "pr-comment",
-                          "inline-review-comment",
-                          "review-thread-resolved",
-                          "review-thread-unresolved",
-                          "issue-assigned",
-                          "ci-passed",
-                          "ci-failed"
-                        ]
-                      },
-                      "minItems": 1,
-                      "description": "Which GitHub events fire this routine. For a PR babysitter, use [\"review-requested\", \"review-approved\", \"review-changes-requested\", \"review-commented\", \"pr-comment\", \"inline-review-comment\", \"review-thread-resolved\", \"review-thread-unresolved\", \"pr-pushed\", \"pr-merged\", \"pr-closed\", \"ci-passed\", \"ci-failed\"]."
-                    },
-                    "pr": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0,
-                      "description": "Optional pull request number. When set, only events for that PR fire; a listener containing pr-merged or pr-closed deletes itself after that terminal wake finishes."
-                    },
-                    "userAllowlist": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "description": "Git usernames that may fire this listener (\"alice\", \"@bob\"). Absent or empty means anyone. Does not apply to ci-passed/ci-failed — CI is never user-gated."
-                    },
-                    "ciBranch": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "REQUIRED when repo-wide events includes ci-passed or ci-failed: the one branch whose settled checks fire them (\"main\"). Omit it when pr is set; that PR scopes CI instead."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "repo",
-                    "events"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "origin"
-                    },
-                    "repo": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "One concrete native Origin \"owner/name\" repo. Mirrored repos are rejected; no wildcards."
-                    },
-                    "events": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "enum": [
-                          "pr-opened",
-                          "pr-pushed",
-                          "pr-merged",
-                          "review-requested",
-                          "review-approved",
-                          "review-changes-requested",
-                          "review-commented",
-                          "pr-comment",
-                          "inline-review-comment",
-                          "review-thread-resolved",
-                          "review-thread-unresolved",
-                          "ci-passed",
-                          "ci-failed"
-                        ]
-                      },
-                      "minItems": 1,
-                      "description": "Which Origin events fire this routine. For a PR babysitter, use [\"review-requested\", \"review-approved\", \"review-changes-requested\", \"review-commented\", \"pr-comment\", \"inline-review-comment\", \"review-thread-resolved\", \"review-thread-unresolved\", \"pr-pushed\", \"pr-merged\", \"ci-passed\", \"ci-failed\"]."
-                    },
-                    "pr": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0,
-                      "description": "Optional Origin pull request number. Required for ci-passed/ci-failed; a listener containing pr-merged deletes itself after that merged wake finishes."
-                    },
-                    "userAllowlist": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "description": "Origin actor IDs in either user-facing or internal numeric form. PR/comment events gate the PR owner; review/reviewer/thread events require both actor and PR owner; CI ignores this list. Missing required identities fail closed."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "repo",
-                    "events"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "microsoftTeams"
-                    },
-                    "tenantId": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "The Microsoft Entra tenant ID."
-                    },
-                    "teamId": {
-                      "type": "string",
-                      "description": "One Microsoft Teams Graph API team ID. At least one of teamId or teamIds is required."
-                    },
-                    "teamIds": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Microsoft Teams Graph API team IDs. At least one of teamId or teamIds is required."
-                    },
-                    "channelIds": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Optional channel filter using Microsoft Teams Graph API channel IDs. Empty or absent means every channel."
-                    },
-                    "messageContains": {
-                      "type": "string",
-                      "description": "Optional message text filter. Empty or absent means any message."
-                    },
-                    "messageContainsIsRegex": {
-                      "type": "boolean",
-                      "description": "Whether messageContains is a regular expression."
-                    },
-                    "blockUnauthenticatedTeamsUsers": {
-                      "type": "boolean",
-                      "description": "When true, messages from unauthenticated Microsoft Teams users do not fire it."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "tenantId"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "linear"
-                    },
-                    "event": {
-                      "anyOf": [
-                        {
-                          "type": "object",
-                          "properties": {
-                            "case": {
-                              "type": "string",
-                              "const": "issueCreated",
-                              "description": "Fire when a Linear issue is created."
-                            }
-                          },
-                          "required": [
-                            "case"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "case": {
-                              "type": "string",
-                              "const": "statusChanged",
-                              "description": "Fire when a Linear issue changes status."
-                            },
-                            "statusIds": {
-                              "type": "array",
-                              "items": {
-                                "type": "string"
-                              },
-                              "description": "Optional narrowing filter using Linear status UUIDs. Empty or absent means any status."
-                            }
-                          },
-                          "required": [
-                            "case"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "case": {
-                              "type": "string",
-                              "const": "endOfCycle",
-                              "description": "Fire when a Linear cycle ends."
-                            },
-                            "cycleIds": {
-                              "type": "array",
-                              "items": {
-                                "type": "string"
-                              },
-                              "description": "Optional narrowing filter using Linear cycle UUIDs. Empty or absent means any cycle."
-                            }
-                          },
-                          "required": [
-                            "case"
-                          ]
-                        }
-                      ],
-                      "description": "Which Linear event fires this routine."
-                    },
-                    "projectIds": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Optional narrowing filter using Linear project UUIDs. Empty or absent means any project."
-                    },
-                    "teamIds": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Optional narrowing filter using Linear team UUIDs. Empty or absent means any team."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "event"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "sentry"
-                    },
-                    "event": {
-                      "type": "object",
-                      "properties": {
-                        "case": {
-                          "type": "string",
-                          "enum": [
-                            "issueCreated",
-                            "issueResolved",
-                            "issueAssigned",
-                            "issueArchived",
-                            "issueUnresolved",
-                            "issueAny"
-                          ],
-                          "description": "Which Sentry issue event fires the routine."
-                        }
-                      },
-                      "required": [
-                        "case"
-                      ],
-                      "description": "The Sentry event to watch."
-                    },
-                    "projectIds": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Optional project ID filter. Empty or absent means any Sentry project."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "event"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "pagerduty"
-                    },
-                    "event": {
-                      "type": "object",
-                      "properties": {
-                        "case": {
-                          "type": "string",
-                          "enum": [
-                            "incidentTriggered",
-                            "incidentAcknowledged",
-                            "incidentResolved",
-                            "incidentEscalated",
-                            "incidentAny"
-                          ],
-                          "description": "Which PagerDuty incident event fires the routine."
-                        }
-                      },
-                      "required": [
-                        "case"
-                      ],
-                      "description": "The PagerDuty event to watch."
-                    },
-                    "serviceIds": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Optional service ID filter. Empty or absent means any PagerDuty service."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "event"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "email"
-                    },
-                    "inbox": {
-                      "type": "string",
-                      "description": "One of the user's connected Email plugin inbox addresses (ListEmailInboxes)."
-                    },
-                    "from": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Optional sender addresses. Omit for any sender."
-                    },
-                    "requireAuthPass": {
-                      "type": "boolean",
-                      "description": "Default true; false also wakes on mail that failed SPF/DKIM/DMARC."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "inbox"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "webhook"
-                    }
-                  },
-                  "required": [
-                    "type"
-                  ]
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "group"
-                    },
-                    "listeners": {
-                      "type": "array",
-                      "items": {
-                        "anyOf": [
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/0"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/1"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/2"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/3"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/4"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/5"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/6"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/7"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/8"
-                          },
-                          {
-                            "$ref": "#/properties/trigger/anyOf/0/anyOf/9"
-                          }
-                        ]
-                      },
-                      "minItems": 1,
-                      "description": "Any one of these fires the same prompt. Origin may mix with cron, Slack, or GitHub, but not with server-only listener types."
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "listeners"
-                  ]
-                }
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "slack",
+                "github",
+                "origin",
+                "microsoftTeams",
+                "linear",
+                "sentry",
+                "pagerduty",
+                "email",
+                "webhook",
+                "cron",
+                "group"
               ]
-            },
-            {
-              "type": "array",
-              "items": {
-                "$ref": "#/properties/trigger/anyOf/0/anyOf/10/properties/listeners/items"
-              },
-              "minItems": 1,
-              "description": "Bare-array shorthand for the group form: any one member fires the prompt."
             }
+          },
+          "required": [
+            "type"
           ],
-          "description": "What fires the routine. Prefer an event listener (Slack, GitHub, Origin, Microsoft Teams, Linear, Sentry, PagerDuty, email) over polling on a cron when the event you care about is one of the listed shapes; never pass both this and the schedule argument."
+          "additionalProperties": {},
+          "description": "An event listener instead of schedule. Fields depend on type; see Trigger shapes in the routines skill."
         },
         "enabled": {
           "type": "boolean",
-          "description": "On create, defaults to true. On update, omit to leave the current arming alone (use pause/resume to toggle)."
+          "description": "Defaults to true on create. On update, omit it and use pause or resume."
         }
       },
       "required": [
@@ -1425,7 +906,7 @@
   },
   "DraftExternalMessage": {
     "name": "DraftExternalMessage",
-    "description": "Draft an email or Slack message for the user to review as an editable composer card in the chat. This is how every email and Slack message leaves under the user's name, including when they ask you to send it (\"send X to Y\"): the card is where they confirm, and pressing Send is what sends. Use the connector's own send tools directly only when the user explicitly said not to draft or preview this message (\"just send it\"), or a standing permission they granted in this conversation or a saved send rule listed in your instructions covers it (see the system prompt's rules). You write the draft in the user's voice; they can edit the card's fields, then send or discard it. Sand sends it when they click Send, so NEVER follow this call with the connector's own send/draft tools for the same message unless the user tells you in chat to send this card, then send it unchanged. A connector create_draft is not this card: use it only to keep a draft in their mailbox (\"leave it in my drafts\") or carry a file attachment. You must also provide the routing the send will use, which the user cannot edit: providerIdentifier; for Slack, channelId (plus threadTs for a thread reply); for email, from, mailbox outlook for an Outlook connector (plus replyToMessageId for a thread reply). Sand verifies the routing (sending address, channel, reply target) through the connector before the card appears, shows those facts on it, and refuses the draft when verification fails or from is not the account's address. Drafting sends nothing and does not end your turn. If the user sends the card, you are resumed with what actually went out (edits included); if they discard it, with a short note. Treat a discard as a decline; don't redraft unasked.",
+    "description": "Draft an email or Slack message for the user to review as an editable composer card in the chat. This is how every email and Slack message leaves under the user's name, including when they ask you to send it (\"send X to Y\"): the card is where they confirm, and pressing Send is what sends. Use the connector's own send tools directly only when the user explicitly said not to draft or preview this message (\"just send it\"), or a standing permission they granted in this conversation or a saved send rule listed in your instructions covers it (see the system prompt's rules). You write the draft in the user's voice; they can edit the card's fields, then send or discard it. Sand sends it when they click Send, so NEVER follow this call with the connector's own send/draft tools for the same message unless the user tells you in chat to send this card, then send it unchanged. A connector create_draft is not this card: use it only to keep a draft in their mailbox (\"leave it in my drafts\") or carry a file attachment. You must also provide the routing the send will use, which the user cannot edit: providerIdentifier; for Slack, channelId (plus threadTs for a thread reply); for email, from, mailbox outlook for an Outlook connector (plus replyToMessageId for a thread reply). Sand verifies the routing (sending address, channel, reply target) before the card appears, shows it on the card, and refuses the draft when verification fails or from is not the account's address. Drafting sends nothing and does not end your turn. If the user sends the card, you are resumed with what actually went out (edits included); if they discard it, with a short note. Treat a discard as a decline; don't redraft unasked.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1474,7 +955,7 @@
             "type": "string",
             "minLength": 1
           },
-          "description": "Required when platform is email. The recipient(s), each a plain address like \"user@example.com\", not \"Name <user@example.com>\"."
+          "description": "Required for email. The recipient(s), each a plain address like \"user@example.com\", not \"Name <user@example.com>\"."
         },
         "cc": {
           "type": "array",
@@ -1486,19 +967,19 @@
         },
         "subject": {
           "type": "string",
-          "description": "Required when platform is email. The subject line."
+          "description": "Required for email. The subject line."
         },
         "replyToMessageId": {
           "type": "string",
-          "description": "Optional, email only. The provider's id of the message being replied to; this is the ONLY reply key the send uses, so set it whenever the draft replies within an existing thread and omit it for a fresh email."
+          "description": "Optional, email only. The provider's id of the message being replied to, the ONLY key a reply threads on; omit it for a fresh email."
         },
         "target": {
           "type": "string",
-          "description": "Required when platform is slack. Where the message goes, as the user reads it: a channel (\"#general\") or a person (\"Ariel Chen\")."
+          "description": "Required for Slack. Where the message goes, as the user reads it: a channel (\"#general\") or a person (\"Ariel Chen\")."
         },
         "channelId": {
           "type": "string",
-          "description": "Required when platform is slack. The channel or DM conversation id the send is addressed to (e.g. C0123456789), resolved with the connector's search tools, never guessed."
+          "description": "Required for Slack. The channel or DM conversation id the send is addressed to (e.g. C0123456789), resolved with the connector's search tools, never guessed."
         },
         "threadTs": {
           "type": "string",
@@ -1922,24 +1403,6 @@
       }
     }
   },
-  "SendFeedback": {
-    "name": "SendFeedback",
-    "description": "Send product feedback to the SpaceXAI team on the user's behalf. Use this ONLY when the user explicitly asks to file, send, or pass along feedback about Grok Bot. Summarize their feedback faithfully in their own words; never invent feedback and never send it unprompted. Never include code, credentials, file contents, or content drawn from connectors unless the user dictated it as part of their feedback. Feedback filed with this tool is read as product feedback but never receives a support response. Do not ask whether the user wants a reply and do not promise one. If they need help from support, tell them to email support@x.ai. The user reviews the exact message on an approval card and nothing is sent unless they approve. If the result says you were rate-limited, tell the user when to retry instead of retrying yourself.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "message": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4000,
-          "description": "The user's feedback, in their own words."
-        }
-      },
-      "required": [
-        "message"
-      ]
-    }
-  },
   "SendToAgent": {
     "name": "SendToAgent",
     "description": "Send a message to ANOTHER of your user's agents, OR post into a GROUP chat you belong to, by its id (not the user, whom you reach with SendToUser). This is FIRE-AND-FORGET and asynchronous, like texting: it returns a delivery acknowledgement right away. priority is REQUIRED and decides how a 1:1 message reaches its recipient. priority=true wakes them now. Use it when they should act on the message or someone is waiting on their reply (a task, a question you or the user needs answered, a handoff, a STOP or change of plan). priority=false does NOT wake them. The message is held for the start of their next turn, possibly much later. Use it for anything informational: a status update, FYI, acknowledgement, thanks, or a reply nobody is waiting for. When in doubt whether someone is waiting, use true. Group posts always land immediately. It does NOT return their reply, and you must not wait or poll for one in this turn. Send it and move on. Any reply arrives later as its own message. A priority reply wakes you on a fresh turn, and an informational one is handed to you at your next turn. Get agent ids from your teammates list or ListAgents, and group ids from ListGroups. To include image(s), such as a screenshot, chart, or photo the other agent needs, pass images: [{\"url\":\"file:///absolute/path/to/shot.png\",\"alt\":\"...\"}] (file:// or https://). Never paste an image as a markdown ![](...) in the message text. Use it deliberately and sparingly. Waking another agent or a whole group is a real side effect, so treat it like messaging on the user's behalf. Message someone or post to a group only when it truly serves the user's goal, not because one was mentioned or complained about, and don't spam a group. Never relay the user's private or unfiltered words (especially a complaint or criticism) verbatim; if relaying is warranted, paraphrase the actionable point diplomatically, not their tone. If you're unsure the user wants this sent, handle it yourself or ask first. Keep the message purposeful, professional, and minimal. One clearly relevant recipient can be normal work; messaging SEVERAL agents about the same effort (or posting it to a group) is a fan-out that wakes every recipient, and their replies land back in the user's chats and rooms, so fan out only when the user explicitly asked you to contact those agents. Otherwise propose it first with a question widget and wait for a yes, and never fan out \"meanwhile\" while you're waiting on the user for data or a decision.",
@@ -2219,7 +1682,7 @@
   },
   "UpdateSkill": {
     "name": "UpdateSkill",
-    "description": "Save, rewrite, or delete one of your reusable skills. Skills are a shared library: every assistant can use a saved skill, and deleting one removes it for all of them. A skill has no trigger; a saved task that runs on a schedule is a routine. Managed and plugin skills can't be changed.",
+    "description": "Save, rewrite, or delete one of your reusable skills. A skill has no trigger; a saved task that runs on a schedule is a routine. Cursor-managed skills can't be changed.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2264,7 +1727,7 @@
         "name": {
           "type": "string",
           "minLength": 1,
-          "description": "Your name, the chat title the user sees in the sidebar and header."
+          "description": "Your name, the chat title the user sees."
         },
         "description": {
           "type": "string",
@@ -2272,7 +1735,7 @@
         },
         "title": {
           "type": "string",
-          "description": "Short role label beside your name (\"Designer\"), not the chat title; \"\" clears it."
+          "description": "Short role label beside your name (\"Designer\"); \"\" clears it."
         },
         "avatar_shape": {
           "type": "string",
@@ -2294,7 +1757,14 @@
             "arch",
             "cloud",
             "teardrop",
-            "leaf"
+            "leaf",
+            "square",
+            "sparkle",
+            "clover",
+            "flower",
+            "heart",
+            "house",
+            "star"
           ],
           "description": "Your default mark, hidden while a custom picture is installed."
         },
@@ -2312,23 +1782,26 @@
             "violet",
             "magenta",
             "gray"
-          ],
-          "description": "The color of your default mark."
+          ]
         },
         "hidden_from_sidebar": {
           "type": "boolean",
-          "description": "Hides your sidebar row without deleting your conversation or scheduled work; you stay reachable through Cmd-K and the Hidden chats manager."
+          "description": "Hides your sidebar row; you stay reachable through Cmd-K and Hidden chats."
         },
         "notify_on_updates": {
           "type": "boolean",
           "description": "The \"Notify me about this assistant\" toggle."
+        },
+        "drafting_disabled": {
+          "type": "boolean",
+          "description": "Pass false to turn draft cards back on when the user asks. You can't turn them off; tell the user to click \"Disable drafts for this Bot\" on a draft card. Owner only."
         }
       }
     }
   },
   "UpdateAvatar": {
     "name": "UpdateAvatar",
-    "description": "Set or clear your profile picture. Write or download the image first; clear restores the default picture.",
+    "description": "Set or clear your profile picture. Write or download the image first.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2342,7 +1815,7 @@
         "path": {
           "type": "string",
           "minLength": 1,
-          "description": "set only. Absolute path to an image you already have (write or download it first, with Shell on your own computer or Shell using the user's computer's machineId, then install it here). A path on your box under /workspace is fine — no CopyFromBox needed. png/jpg/webp/gif/svg under 5 MB."
+          "description": "set only. Absolute path to a png/jpg/webp/gif/svg under 5 MB, on your box (under /workspace is fine) or the user's computer."
         }
       },
       "required": [
@@ -2352,14 +1825,13 @@
   },
   "DisconnectChannel": {
     "name": "DisconnectChannel",
-    "description": "Disconnect one of your channels; the connector closes the live connection within a few seconds.",
+    "description": "Disconnect one of your channels; the live connection closes within seconds.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "platform": {
           "type": "string",
-          "minLength": 1,
-          "description": "The platform to disconnect."
+          "minLength": 1
         }
       },
       "required": [
@@ -3462,21 +2934,13 @@
   },
   "ReadTranscript": {
     "name": "ReadTranscript",
-    "description": "Read a full transcript: every user message, your replies, your reasoning, and each tool call with its input and result, one JSON object per line, oldest first. With no id it reads this conversation, including what was compacted out of your context, so use it to explain what you did in an earlier turn or routine run. Pass subagent_id for a Task subagent you dispatched, agent_id for another agent the same user owns, or session_id for another of your conversations. Returns the newest messages first; page back with `before`.",
+    "description": "Read a full transcript: every user message, your replies, your reasoning, and each tool call with its input and result, one JSON object per line, oldest first. With no in it reads this conversation, including what was compacted out of your context, so use it to explain what you did in an earlier turn or routine run. Pass in=<id> for a Task subagent you dispatched, another agent the same user owns, or another of your conversations. Returns the newest messages first; page back with `before`.",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "session_id": {
+        "in": {
           "type": "string",
-          "description": "Read another of your conversations (a session_id from the other active conversations list)."
-        },
-        "agent_id": {
-          "type": "string",
-          "description": "Read another agent owned by the same user (an agent id from your agent directory)."
-        },
-        "subagent_id": {
-          "type": "string",
-          "description": "Read a background subagent you dispatched with Task, running or finished (the Agent ID from the Task result)."
+          "description": "Which transcript to read: \"this\" (the default) for this conversation, or the id of another of your conversations (a session_id from the other active conversations list), of another agent the same user owns (from your agent directory), or of a background subagent you dispatched with Task (the Agent ID from its result)."
         },
         "limit": {
           "type": "integer",

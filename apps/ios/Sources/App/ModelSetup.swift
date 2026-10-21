@@ -235,7 +235,7 @@ import SwiftUI
   @discardableResult func runTest(_ candidate: InferenceSelection? = nil) async -> Bool {
     test = .running
     testFailure = nil
-    // No body tests the saved model; the server reads `{}` as an incomplete choice.
+    // No body tests the saved model.
     let body = candidate.flatMap { try? JSON.encode($0) }
     var retried = false
     while true {

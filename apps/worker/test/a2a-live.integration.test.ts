@@ -105,6 +105,9 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
       if (request.method === "POST" && /^\/v1\/turns\/[^/]+\/cancel$/.test(url.pathname)) {
         return Response.json({ ok: true });
       }
+      if (request.method === "POST" && /^\/v1\/bots\/[^/]+\/background-shells\/stop$/.test(url.pathname)) {
+        return Response.json({ stopped: 0 });
+      }
       if (request.method === "POST" && url.pathname === "/v1/turns") {
         const input = (await request.json()) as TurnInput;
         turns.push(input);
@@ -338,17 +341,17 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
     expect(peerTurns.map((turn) => turn.botId)).toEqual([probeId, sourceId]);
     const probeTurn = peerTurns.find((turn) => turn.botId === probeId);
     const sourceTurn = peerTurns.find((turn) => turn.botId === sourceId);
-    expect(probeTurn?.content).toContain(`[SAND_HIDDEN_PROMPT]<system_reminder>
+    // Routine status is a turn note in the reminder block ahead of the query, in the installation zone.
+    expect(probeTurn?.content).toStartWith(`<system_reminder>
 <automation_status>
 Current routine runtime status. This snapshot is authoritative for this turn and supersedes earlier routine status reminders.
 - parity-probe-handwritten (folder parity-probe-handwritten): never run
-- parity-probe-harmless (folder parity-probe-harmless): last run 8/27/2026, 10:51:57 PM (succeeded)
-</automation_status>
-</system_reminder>
-
-[agent] A message just arrived from another of your user's agents: Source (id: ${sourceId}).`);
-    expect(probeTurn?.content).toStartWith("<timestamp>");
-    expect(probeTurn?.content).toContain("</timestamp>\n<user_query>\n[SAND_HIDDEN_PROMPT]");
+- parity-probe-harmless (folder parity-probe-harmless): last run 8/27/2026, 7:51:55 PM UTC (succeeded)
+</automation_status>`);
+    expect(probeTurn?.content).toContain("</system_reminder>\n<timestamp>");
+    expect(probeTurn?.content).toContain(
+      `</timestamp>\n<user_query>\n[SAND_HIDDEN_PROMPT][agent] A message just arrived from another of your user's agents: Source (id: ${sourceId}).`
+    );
     expect(probeTurn?.content).toContain(`${parityImageUrl} — Parity pixel`);
     expect(probeTurn?.content).toContain(
       "Local image files are shown to you alongside this message."

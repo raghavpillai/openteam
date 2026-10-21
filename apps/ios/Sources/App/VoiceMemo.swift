@@ -10,11 +10,18 @@ import VoiceGlowKit
 // The + button and the message pill merge (gooey) into one recording bar, and a voice glow
 // rises from the bottom of the screen behind it. The draft stays untouched underneath.
 
+/// Uses the device preference in production and the same code path for
+/// deterministic reduced-motion simulator audits.
+@propertyWrapper struct VoiceMotionPreference: DynamicProperty {
+  @Environment(\.accessibilityReduceMotion) private var systemReducedMotion
+  var wrappedValue: Bool { systemReducedMotion || VoiceMemoController.previewsReducedMotion }
+}
+
 /// Shared geometry of the recording bar.
 enum VoiceBar {
-  static let height: CGFloat = 50
-  static let inset: CGFloat = 6
-  static let button: CGFloat = 38
+  static let height: CGFloat = 64
+  static let inset: CGFloat = 10
+  static let button: CGFloat = 44
   /// The send (or cancel) button's centre, from the composer's bottom-trailing corner.
   static let sendCenter = CGPoint(x: -(inset + button / 2), y: -height / 2)
 }
@@ -44,6 +51,7 @@ final class VoiceMemoController: ObservableObject {
   @Published private(set) var phase: Phase = .idle
   let recorder = VoiceRecorder()
   @Published private(set) var tracker = VoiceHoldTracker(barWidth: 0)
+  private var cancelResistance = VoiceCancelResistanceFeedback()
   @Published private(set) var hint: String?
   /// Bumped whenever a trash animation should play.
   @Published private(set) var trashes = 0
@@ -64,6 +72,7 @@ final class VoiceMemoController: ObservableObject {
   private var touchPhase: Phase = .idle
   private var holdStart: Date?
   private var processingStart = Date()
+  private var lastGlowMotion: VoiceGlowMotion = .rest
   private var holdTask: Task<Void, Never>?
   private var startTask: Task<Void, Never>?
   private var hintTask: Task<Void, Never>?
@@ -79,11 +88,23 @@ final class VoiceMemoController: ObservableObject {
   var glowActive: Bool { phase == .holding || phase == .locked || phase == .transcribing }
 
   /// The composer animates phase changes with `.animation(motion, value: phase)`.
-  static let morph = Animation.spring(response: 0.3, dampingFraction: 0.84)
+  // One spring owns the surface, layout and both controls. Independent springs
+  // let the leading control outrun its glass in intermediate frames.
+  static let morph = Animation.spring(response: 0.42, dampingFraction: 0.86)
   static func motion(reduceMotion: Bool) -> Animation {
     reduceMotion ? .easeInOut(duration: 0.2) : morph
   }
-  private var reduceMotion: Bool { UIAccessibility.isReduceMotionEnabled }
+  /// Deterministic accessibility preview for simulator audits; release builds
+  /// always follow the device setting.
+  nonisolated static var previewsReducedMotion: Bool {
+    #if DEBUG
+      ProcessInfo.processInfo.arguments.contains("--ui-testing")
+        && ProcessInfo.processInfo.arguments.contains("--qa-reduce-motion")
+    #else
+      false
+    #endif
+  }
+  private var reduceMotion: Bool { UIAccessibility.isReduceMotionEnabled || Self.previewsReducedMotion }
 
   /// Groups one transition's changes. Deliberately not `withAnimation`: it first flushes
   /// pending changes (the meter updates the recorder every 100 ms), and a view re-evaluated by
@@ -97,6 +118,8 @@ final class VoiceMemoController: ObservableObject {
     touchPhase = phase
     touchStart = point
     guard phase == .idle, enabled else { return }
+    cancelResistance = VoiceCancelResistanceFeedback()
+    NativeHaptics.prepareVoiceResistance()
     holdStart = nil
     hintTask?.cancel()
     transition {
@@ -129,21 +152,17 @@ final class VoiceMemoController: ObservableObject {
       }
       lock { tracker = next }
     case nil:
+      let resistance = cancelResistance.move(next.cancelFeedbackProgress,
+        time: ProcessInfo.processInfo.systemUptime)
       if next.cancelArmed != wasArmed {
-        // Armed: the latch catches. Backing off: a soft release.
+        // A soft catch at full stretch, then a lighter release on backing off.
         if next.cancelArmed {
-          NativeHaptics.lockIn(source: "composer.voice-cancel-arm")
+          NativeHaptics.voiceResistance(intensity: 0.65, source: "composer.voice-cancel-arm")
         } else {
-          NativeHaptics.play(.soft, intensity: 0.5, source: "composer.voice-cancel-disarm")
+          NativeHaptics.voiceResistance(intensity: 0.22, source: "composer.voice-cancel-disarm")
         }
-      } else if !next.cancelArmed {
-        // Detents on the way there, each a little heavier: suspense before the catch.
-        let detent = Int(next.cancelProgress / next.thresholds.cancelArm * 4)
-        let previous = Int(tracker.cancelProgress / tracker.thresholds.cancelArm * 4)
-        if detent > previous, (1...3).contains(detent) {
-          NativeHaptics.play(.soft, intensity: 0.25 + 0.2 * Double(detent),
-            source: "composer.voice-cancel-detent")
-        }
+      } else if !next.cancelArmed, let resistance {
+        NativeHaptics.voiceResistance(intensity: resistance, source: "composer.voice-cancel-detent")
       }
       if starting { beginHolding { tracker = next } } else { tracker = next }
     }
@@ -227,7 +246,7 @@ final class VoiceMemoController: ObservableObject {
   }
 
   private func lock(_ alongside: () -> Void) {
-    NativeHaptics.play(.rigid, source: "composer.voice-lock")
+    NativeHaptics.voiceLock(source: "composer.voice-lock")
     transition {
       alongside()
       lockFlash = true
@@ -407,11 +426,16 @@ final class VoiceMemoController: ObservableObject {
 
   /// The processing sweep while transcribing; the voice glow at rest otherwise.
   func glowMotion() -> VoiceGlowMotion {
-    guard phase == .transcribing else { return .rest }
+    // Preserve the last geometry while presence fades. Resetting offset/gather
+    // on the first idle frame throws the fading beam across the phone.
+    guard glowActive else { return lastGlowMotion }
+    guard phase == .transcribing else { lastGlowMotion = .rest; return .rest }
     let frame = VoiceProcessingSweep.frame(elapsed: Date().timeIntervalSince(processingStart),
       reduceMotion: reduceMotion)
-    return VoiceGlowMotion(gather: frame.gather, offset: frame.offset, stretch: frame.stretch,
+    let motion = VoiceGlowMotion(gather: frame.gather, offset: frame.offset, stretch: frame.stretch,
       heldLevel: frame.heldLevel)
+    lastGlowMotion = motion
+    return motion
   }
 }
 
@@ -506,6 +530,8 @@ final class VoiceRecorder: ObservableObject {
     guard attempt == generation, !Task.isCancelled else { return }
     let session = AVAudioSession.sharedInstance()
     try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+    // Recording suppresses UIKit feedback unless the audio session opts in.
+    try session.setAllowHapticsAndSystemSoundsDuringRecording(true)
     try session.setActive(true)
     let url = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString + ".m4a")
@@ -650,7 +676,7 @@ struct VoiceKnob: View {
   /// The mic is offered (empty draft).
   let available: Bool
   let enabled: Bool
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @VoiceMotionPreference private var reduceMotion
   /// UIKit-bridged gestures ignore `.disabled`, so the composer's own state is checked here
   /// (ChatView disables it until history is positioned).
   @Environment(\.isEnabled) private var environmentEnabled
@@ -682,13 +708,15 @@ struct VoiceKnob: View {
     }
   }
 
-  private var visible: Bool { memo.phase != .idle && memo.phase != .cancelling || available }
+  private var visible: Bool { memo.phase != .cancelling && (memo.phase != .idle || available) }
 
   var body: some View {
     // Not rendered while Send owns the slot: an invisible element would still be announced
     // and found by UI tests. No press can be in flight then (the mic needs an empty draft).
     if visible {
-      knob.transition(.opacity)
+      // Discard owns the slot until its animation completes; don't flash a mic
+      // behind the falling trash or leave a fading interactive Send behind.
+      knob.transition(.identity)
     }
   }
 
@@ -703,6 +731,7 @@ struct VoiceKnob: View {
         .font(.system(size: look.iconSize, weight: look.symbol == "mic.fill" ? .regular : .semibold))
         .foregroundStyle(look.ink)
         .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace))
+        .frame(width: 24, height: 24).clipped()
     }
     // Discord greys Send out while a release would cancel.
     .opacity(armed ? 0.35 : 1)
@@ -764,7 +793,7 @@ private struct KnobAccessibility: ViewModifier {
 /// lock, then leaves.
 struct VoiceLockCapsule: View {
   @ObservedObject var memo: VoiceMemoController
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @VoiceMotionPreference private var reduceMotion
 
   var body: some View {
     let locked = memo.phase == .locked || memo.phase == .review
@@ -821,7 +850,9 @@ struct VoiceReleaseLabel: View {
       .font(.subheadline.weight(.medium))
       .foregroundStyle(armed ? Color(uiColor: .systemRed) : NativePalette.chatMuted)
       .contentTransition(.opacity)
-      .fixedSize()
+      // Keep large accessibility text clear of the lock above the trailing end.
+      .lineLimit(1).minimumScaleFactor(0.7)
+      .frame(maxWidth: .infinity).padding(.horizontal, 56)
       .accessibilityIdentifier("voice-release-label")
   }
 }
@@ -832,7 +863,7 @@ struct VoiceReleaseLabel: View {
 struct VoiceBarContent: View {
   @ObservedObject var memo: VoiceMemoController
   @Namespace private var shared
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @VoiceMotionPreference private var reduceMotion
 
   /// The controls arrive once the goo has mostly formed the bar, and leave before it splits.
   private var fade: AnyTransition {
@@ -860,19 +891,15 @@ struct VoiceBarContent: View {
     }
     .frame(height: VoiceBar.height)
     .frame(maxWidth: .infinity)
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("voice-memo-bar")
   }
 
   private var recording: some View {
-    let slide = memo.phase == .holding ? memo.tracker.cancelProgress : 0
+    let slide = memo.phase == .holding ? memo.tracker.cancelFeedbackProgress : 0
     return HStack(spacing: 8) {
-      VoiceTrashButton(
-        progress: memo.phase == .holding ? memo.tracker.cancelProgress / memo.tracker.thresholds.cancelArm : 0,
-        armed: memo.phase == .holding && memo.tracker.cancelArmed
-      ) {
-        memo.discardRecording()
-      }
-      .allowsHitTesting(memo.phase != .holding)
-      .matchedGeometryEffect(id: "lead", in: shared)
+      // The attachment control above the surface owns the persistent + → trash morph.
+      Color.clear.frame(width: VoiceBar.button)
       VoiceClock(recorder: memo.recorder, live: memo.isRecording)
       VoiceWaveform(recorder: memo.recorder, live: memo.isRecording)
         .frame(height: 26).frame(maxWidth: .infinity)
@@ -881,11 +908,27 @@ struct VoiceBarContent: View {
     .padding(.horizontal, VoiceBar.inset)
     .frame(height: VoiceBar.height)
     .background {
-      // A slight red wash spreads from the trash as the slide builds toward cancel.
+      // A translucent red wash travels left to right, with a broad feather back into
+      // the glass. The dead zone keeps small finger drift completely clear.
       LinearGradient(
-        colors: [Color(uiColor: .systemRed).opacity(0.3 * slide), Color(uiColor: .systemRed).opacity(0)],
-        startPoint: .leading, endPoint: UnitPoint(x: 0.2 + 0.55 * slide, y: 0.5)
+        stops: [
+          .init(color: Color(uiColor: .systemRed).opacity(0.52), location: 0),
+          .init(color: Color(uiColor: .systemRed).opacity(0.24), location: 0.45),
+          .init(color: Color(uiColor: .systemRed).opacity(0.025), location: 1),
+        ],
+        startPoint: .leading, endPoint: .trailing
       )
+      .opacity(slide)
+      .mask {
+        GeometryReader { bar in
+          LinearGradient(stops: [
+            .init(color: .white, location: 0),
+            .init(color: .white.opacity(0.45), location: 0.45),
+            .init(color: .clear, location: 1),
+          ], startPoint: .leading, endPoint: .trailing)
+          .frame(width: bar.size.width * slide * 1.35)
+        }
+      }
       .clipShape(RoundedRectangle(cornerRadius: VoiceBar.height / 2, style: .continuous))
       .allowsHitTesting(false)
     }
@@ -895,7 +938,8 @@ struct VoiceBarContent: View {
     HStack(spacing: 10) {
       LoadingOrb(size: 22, label: "Transcribing")
         .matchedGeometryEffect(id: "lead", in: shared)
-      Text("Transcribing…").font(.body).foregroundStyle(NativePalette.chatMuted)
+      Text("Transcribing…").font(.body).lineLimit(1).minimumScaleFactor(0.5)
+        .foregroundStyle(NativePalette.chatMuted)
         .accessibilityHidden(true)
       Spacer(minLength: 0)
       Color.clear.frame(width: VoiceBar.button)
@@ -904,31 +948,42 @@ struct VoiceBarContent: View {
   }
 }
 
-/// Plain trash while recording; a filled red square once releasing would cancel.
-struct VoiceTrashButton: View {
-  /// How far the slide toward cancel has come (0…1); the background reddens with it.
-  let progress: Double
-  let armed: Bool
-  let action: () -> Void
+/// One symbol and one target survive the idle → recording transition. The menu's
+/// UIKit button remains underneath at rest; this target only handles recorded takes.
+struct VoiceAttachmentMorph: View {
+  @ObservedObject var memo: VoiceMemoController
+  @VoiceMotionPreference private var reduceMotion
+
   var body: some View {
-    let red = min(1, progress)
-    Button(action: action) {
+    let bar = memo.showsBar
+    let recording = memo.phase == .holding || memo.phase == .locked || memo.phase == .review
+    let red = memo.phase == .holding ? memo.tracker.cancelFeedbackProgress : 0
+    let armed = memo.phase == .holding && memo.tracker.cancelArmed
+    Button { memo.discardRecording() } label: {
       ZStack {
-        Circle().fill(NativePalette.text.opacity(0.08 * (1 - red)))
+        Circle().fill(NativePalette.text.opacity(recording ? 0.08 * (1 - red) : 0))
         Circle().fill(Color(uiColor: .systemRed)).opacity(red)
-        Image(systemName: armed ? "trash.fill" : "trash")
-          .font(.system(size: 16, weight: .medium))
-          .foregroundStyle(red > 0.5 ? Color.white : NativePalette.chatMuted)
-          .contentTransition(.symbolEffect(.replace))
+        Image(systemName: recording ? (armed ? "trash.fill" : "trash") : "plus")
+          .font(.system(size: 16, weight: recording ? .medium : .regular))
+          .foregroundStyle(red > 0.5 ? Color.white : recording ? NativePalette.chatMuted : NativePalette.text)
+          .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace))
+          .frame(width: 22, height: 22).clipped()
       }
-      .frame(width: 36, height: 36)
+      // Inset the backplate from the glass throughout the merge; the 44 pt
+      // interaction target stays unchanged.
+      .frame(width: recording ? 36 : 40, height: recording ? 36 : 40)
       .scaleEffect(armed ? 1.1 : 1 + 0.06 * red)
-      .frame(width: VoiceBar.button, height: VoiceBar.button)
+      .frame(width: 44, height: 44)
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .animation(.interactiveSpring(response: 0.18, dampingFraction: 0.86), value: red)
-    .animation(.spring(response: 0.26, dampingFraction: 0.55), value: armed)
+    .offset(x: bar ? VoiceBar.inset + VoiceBar.button / 2 - 22 : 0,
+      y: bar ? -(VoiceBar.height / 2 - 22) : 0)
+    .opacity(!bar || recording ? 1 : 0)
+    .allowsHitTesting(recording && memo.phase != .holding)
+    .accessibilityHidden(!recording || memo.phase == .holding)
+    .animation(reduceMotion ? nil : .interactiveSpring(response: 0.18, dampingFraction: 0.86), value: red)
+    .animation(reduceMotion ? nil : .spring(response: 0.26, dampingFraction: 0.55), value: armed)
     .accessibilityLabel("Discard recording")
     .accessibilityIdentifier("voice-discard-button")
   }
@@ -938,7 +993,7 @@ struct VoiceTrashButton: View {
 struct VoiceClock: View {
   @ObservedObject var recorder: VoiceRecorder
   let live: Bool
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @VoiceMotionPreference private var reduceMotion
 
   var body: some View {
     HStack(spacing: 7) {
@@ -1004,7 +1059,7 @@ struct VoiceWaveform: View {
 /// The cancel animation: the red mic hops up and drops into a trash can whose lid closes.
 struct VoiceTrashDrop: View {
   let replay: Int
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @VoiceMotionPreference private var reduceMotion
   @State private var play = false
 
   private struct Frame {
@@ -1120,59 +1175,43 @@ private struct TrashLid: Shape {
 
 // MARK: - Gooey surface
 
-/// The composer's liquid silhouette while it turns into the recording bar. The + circle and
-/// the message pill are drawn into one Canvas, blurred and alpha-thresholded, so they bridge
-/// and merge like metaballs as the circle slides in and the pill widens over it. It only
-/// masks the bar's fill: the controls on top stay crisp.
-struct VoiceGooeyShape: View, @preconcurrency Animatable {
-  /// 0: the idle + circle and pill. 1: one bar. A spring overshoot stretches the bar a little.
+/// The attachment circle and message capsule share a single glass effect. The
+/// boolean union removes the overlapping interior boundaries as they merge.
+/// The same path clips content throughout the morph.
+struct VoiceComposerShape: Shape {
   var progress: Double
-  /// The idle pill's height (taller with a reply or attachments).
   var pillHeight: Double
+  /// Draft content starts after the attachment slot; use the same path in its coordinates.
+  var contentInset: CGFloat = 0
   var animatableData: Double {
     get { progress }
     set { progress = newValue }
   }
 
-  /// Room around the composer for the blur and the overshoot.
-  static let margin: CGFloat = 24
-  /// Below roughly half the 10 pt gap between the + and the pill, so they stay apart at rest.
-  private static let blur: CGFloat = 5
-
-  var body: some View {
-    Canvas { context, size in
-      let m = Self.margin
-      let width = size.width - 2 * m
-      let bottom = size.height - m
-      let p = progress
-      let q = min(1, max(0, p))
-      let stretch = max(0, p - 1)
-      func mix(_ a: CGFloat, _ b: CGFloat, _ t: Double) -> CGFloat { a + (b - a) * CGFloat(t) }
-      // The threshold eats about a point of a blurred edge; draw a point larger.
-      let grow: CGFloat = 1
-      // The + slides right into the bar and shrinks as it is absorbed.
-      let radius = mix(22, 18, q) + grow
-      let center = CGPoint(x: m + mix(22, 44, q), y: bottom - mix(22, VoiceBar.height / 2, q))
-      // The pill widens over it; past 1 the bar overshoots left and stretches up, then settles.
-      let left = m + mix(54, 0, p) - stretch * 10
-      let height = mix(CGFloat(pillHeight), VoiceBar.height, q) + stretch * 26
-      let pill = CGRect(x: left - grow, y: bottom - height - grow,
-        width: m + width - left + 2 * grow, height: height + 2 * grow)
-      context.addFilter(.alphaThreshold(min: 0.5, color: .white))
-      context.addFilter(.blur(radius: Self.blur))
-      context.drawLayer { layer in
-        layer.fill(Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius,
-          width: radius * 2, height: radius * 2)), with: .color(.white))
-        layer.fill(Path(roundedRect: pill, cornerRadius: min(pill.height / 2, 22 + grow), style: .continuous),
-          with: .color(.white))
-      }
-    }
+  func path(in bounds: CGRect) -> Path {
+    let rect = CGRect(x: bounds.minX - contentInset, y: bounds.minY,
+      width: bounds.width + contentInset, height: bounds.height)
+    let q = min(1, max(0, progress))
+    func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * q }
+    let height = mix(CGFloat(pillHeight), VoiceBar.height)
+    let left = mix(54, 0)
+    let pill = CGRect(x: rect.minX + left, y: rect.maxY - height,
+      width: max(0, rect.width - left), height: height)
+    // Multiline drafts keep their 22 pt corners; using half their full height
+    // cuts into the first/last lines of text before recording starts.
+    let corner = mix(min(CGFloat(pillHeight) / 2, 22), VoiceBar.height / 2)
+    let capsule = RoundedRectangle(cornerRadius: corner, style: .continuous).path(in: pill)
+    let radius = mix(22, 20)
+    let center = CGPoint(x: rect.minX + mix(22, VoiceBar.inset + VoiceBar.button / 2),
+      y: rect.maxY - mix(22, VoiceBar.height / 2))
+    let attachment = Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius,
+      width: 2 * radius, height: 2 * radius))
+    return Path(capsule.cgPath.union(attachment.cgPath))
   }
 }
 
-/// The recording bar's surface. On iOS 26 it is liquid glass: the + circle and the pill are
-/// two glass shapes in one container, so the system melts them together as the circle slides
-/// in and the pill widens. Earlier systems keep the gooey mask over the idle glass colour.
+/// A persistent surface: no idle/recording handoff, no second rim, and no
+/// unattached control while the capsule expands over the attachment circle.
 struct VoiceBarSurface: View, @preconcurrency Animatable {
   var progress: Double
   let pillHeight: Double
@@ -1181,82 +1220,33 @@ struct VoiceBarSurface: View, @preconcurrency Animatable {
     set { progress = newValue }
   }
   @Environment(\.colorScheme) private var scheme
+  private var shape: VoiceComposerShape {
+    VoiceComposerShape(progress: progress, pillHeight: pillHeight)
+  }
 
   var body: some View {
+    surface
+      .allowsHitTesting(false)
+      .accessibilityHidden(true)
+  }
+
+  @ViewBuilder private var surface: some View {
     if #available(iOS 26, *) {
-      glass
+      Color.clear.glassEffect(material, in: shape)
+        // Only the glass leaf suppresses implicit interpolation. The enclosing
+        // Animatable view must keep sampling the actual shared spring.
+        .transaction { $0.animation = nil }
     } else {
-      solid
+      shape.fill(.regularMaterial)
+        .shadow(color: .black.opacity(scheme == .dark ? 0 : 0.08), radius: 10, y: 3)
     }
   }
 
-  @available(iOS 26, *)
-  private var glass: some View {
-    GeometryReader { proxy in
-      let shapes = Self.shapes(progress: progress, pillHeight: CGFloat(pillHeight), size: proxy.size)
-      let width = proxy.size.width
-      let bottom = proxy.size.height
-      let radius = shapes.circle.width / 2
-      let center = CGPoint(x: shapes.circle.midX, y: shapes.circle.midY)
-      let pill = shapes.pill
-      GlassEffectContainer(spacing: 18) {
-        ZStack(alignment: .topLeading) {
-          Color.clear
-            .frame(width: radius * 2, height: radius * 2)
-            .glassEffect(material, in: Circle())
-            .offset(x: center.x - radius, y: center.y - radius)
-          Color.clear
-            .frame(width: pill.width, height: pill.height)
-            .glassEffect(material, in: RoundedRectangle(cornerRadius: min(pill.height / 2, 25), style: .continuous))
-            .offset(x: pill.minX, y: pill.minY)
-        }
-        .frame(width: width, height: bottom, alignment: .topLeading)
-      }
-    }
-    .shadow(color: .black.opacity(scheme == .dark ? 0 : 0.08), radius: 12, y: 3)
-    .allowsHitTesting(false)
-    .accessibilityHidden(true)
-  }
-
-  /// Same path as the gooey mask: the + slides right into the bar and shrinks while the pill
-  /// widens over it, overshooting a little before it settles.
-  private static func shapes(progress p: Double, pillHeight: CGFloat, size: CGSize)
-    -> (circle: CGRect, pill: CGRect)
-  {
-    let q = min(1, max(0, p))
-    let stretch = CGFloat(max(0, p - 1))
-    func mix(_ a: CGFloat, _ b: CGFloat, _ t: Double) -> CGFloat { a + (b - a) * CGFloat(t) }
-    let bottom = size.height
-    let radius = mix(22, 16, q)
-    let center = CGPoint(x: mix(22, 44, q), y: bottom - mix(22, VoiceBar.height / 2, q))
-    let left = mix(54, 0, p) - stretch * 10
-    let height = mix(pillHeight, VoiceBar.height, q) + stretch * 26
-    return (
-      CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2),
-      CGRect(x: left, y: bottom - height, width: size.width - left, height: height)
-    )
-  }
-
-  /// The idle composer's own glass, so the hand-over from the pill is seamless.
   @available(iOS 26, *)
   private var material: Glass {
     scheme == .dark
       ? Glass.clear.tint(Color(white: 55 / 255).opacity(0.5))
       : Glass.regular.tint(.black.opacity(0.025))
-  }
-
-  private var solid: some View {
-    let dark = scheme == .dark
-    // Sampled from the idle composer glass: #2F2F2F over the dark canvas, #F8F8F8 in light.
-    return (dark ? Color(white: 47 / 255) : Color(white: 248 / 255))
-      .opacity(dark ? 0.94 : 0.96)
-      .mask { VoiceGooeyShape(progress: progress, pillHeight: pillHeight) }
-      // Antialias the thresholded edge.
-      .blur(radius: 0.35)
-      .shadow(color: .black.opacity(dark ? 0 : 0.1), radius: 10, y: 3)
-      .padding(-VoiceGooeyShape.margin)
-      .allowsHitTesting(false)
-      .accessibilityHidden(true)
   }
 }
 
@@ -1266,12 +1256,7 @@ struct VoiceBarSurface: View, @preconcurrency Animatable {
 /// It rises with the voice and sweeps while transcribing.
 struct VoiceGlowBackdrop: View {
   @ObservedObject var memo: VoiceMemoController
-  /// Tall enough for the glow to fade on its own rather than meet a hard edge.
-  static let height: CGFloat = 260
-  /// The glow is gone by this height above the bottom edge, below "Release to Send".
-  static let fadeTop: CGFloat = 100
-  static let fadeBottom: CGFloat = 50
-
+  @VoiceMotionPreference private var reduceMotion
   /// The level is already normalised like the waveform's bars, so no extra gain: the glow
   /// rises and falls with the same syllables instead of pinning at full.
   private static let options: VoiceGlowOptions = {
@@ -1281,25 +1266,15 @@ struct VoiceGlowBackdrop: View {
     options.attack = 0.08
     options.release = 0.3
     options.idle = 0.12
-    options.reach = 1.2
     return options
   }()
 
   var body: some View {
+    // Use the phone-sized host and the mobile preset’s natural reach and falloff.
     Color.clear
-      .frame(height: Self.height)
       // `.mobile` is tuned for the bottom of a phone screen; 55 pt matches its corners.
       .voiceGlow(type: .mobile, levelProvider: { memo.glowLevel() }, motion: { memo.glowMotion() },
-        active: memo.glowActive, cornerRadius: 55, options: Self.options)
-      // Fade the top out so the glow sits behind the bar and ends under the label.
-      .mask {
-        LinearGradient(stops: [
-          .init(color: .clear, location: 0),
-          .init(color: .clear, location: 1 - Self.fadeTop / Self.height),
-          .init(color: .black, location: 1 - Self.fadeBottom / Self.height),
-          .init(color: .black, location: 1),
-        ], startPoint: .top, endPoint: .bottom)
-      }
+        active: memo.glowActive && !reduceMotion, cornerRadius: 55, options: Self.options)
       .allowsHitTesting(false)
       .accessibilityHidden(true)
   }

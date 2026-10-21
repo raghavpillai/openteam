@@ -1,4 +1,4 @@
-import { MAX_INLINE_IMAGE_BYTES, MAX_TASK_ATTACHMENTS, TASK_IMAGE_MIME_TYPES, TASK_VIDEO_EXTENSIONS } from "@openteam/contracts/media-input";
+import { MAX_INLINE_IMAGE_BYTES, MAX_TASK_ATTACHMENTS, MAX_TASK_IMAGE_BYTES, TASK_ATTACHMENT_LIMIT_MESSAGE, TASK_IMAGE_MIME_TYPES, TASK_VIDEO_EXTENSIONS, unreadableTaskImageMessage } from "@openteam/contracts/media-input";
 import type { RuntimeInlineImage } from "@openteam/contracts";
 import { chown, mkdtemp, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -63,22 +63,22 @@ export async function loadAttachmentImages(
   fileAttachments: readonly string[],
   ownerBotId?: string
 ): Promise<{ images: RuntimeImage[]; tempDirectories: string[] }> {
-  if (fileAttachments.length > MAX_TASK_ATTACHMENTS) {
-    throw new Error(`Task accepts at most ${MAX_TASK_ATTACHMENTS} file_attachments. Split the media across separate tasks.`);
-  }
+  if (fileAttachments.length > MAX_TASK_ATTACHMENTS) throw new Error(TASK_ATTACHMENT_LIMIT_MESSAGE);
   const images: RuntimeImage[] = [];
   const tempDirectories: string[] = [];
   try {
     for (const [attachmentIndex, value] of fileAttachments.entries()) {
-      const path = await attachmentPath(cwd, value, attachmentRoots(ownerBotId), process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/home/box/agent-data");
-      const details = await stat(path);
+      const missingImage = (error: unknown) => {
+        throw IMAGE_MIME_TYPES[extname(value).toLowerCase()] && (error as NodeJS.ErrnoException).code === "ENOENT"
+          ? new Error(unreadableTaskImageMessage(value)) : error;
+      };
+      const path = await attachmentPath(cwd, value, attachmentRoots(ownerBotId), process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/home/box/agent-data").catch(missingImage);
+      const details = await stat(path).catch(missingImage);
       if (!details.isFile()) throw new Error(`Subagent attachment is not a file: ${value}`);
       const extension = extname(path).toLowerCase();
       const imageMimeType = IMAGE_MIME_TYPES[extension];
       if (imageMimeType) {
-        if (details.size > 20 * 1024 * 1024) {
-          throw new Error(`Subagent image attachment exceeds 20 MB: ${value}`);
-        }
+        if (details.size > MAX_TASK_IMAGE_BYTES) throw new Error(unreadableTaskImageMessage(value));
         images.push({
           type: "image",
           data: Buffer.from(await readFile(path)).toString("base64"),
@@ -136,7 +136,7 @@ export async function loadAttachmentImages(
       if (frames.length === 0) throw new Error(`Video attachment produced no frames: ${value}`);
       // Reserve one image for every remaining attachment. A final slice would
       // silently remove later screenshots or entire clips from the model input.
-      const frameBudget = Math.min(frames.length, 16 - images.length - (fileAttachments.length - attachmentIndex - 1));
+      const frameBudget = Math.min(frames.length, MAX_TASK_ATTACHMENTS - images.length - (fileAttachments.length - attachmentIndex - 1));
       const selectedFrames = Array.from({ length: frameBudget }, (_, index) =>
         frames[frameBudget === 1 ? 0 : Math.round(index * (frames.length - 1) / (frameBudget - 1))]!
       );

@@ -205,10 +205,11 @@ struct NativeMessageList: UIViewControllerRepresentable {
           guard frame.intersects(viewport) else { return nil }
           return ["id": item.scrollID, "y": frame.minY, "height": frame.height]
         }.sorted { ($0["y"] as? CGFloat ?? 0) < ($1["y"] as? CGFloat ?? 0) }
-        let value: [String: Any] = ["rows": rows, "mounted": self.displayedIDs.count,
+        var value: [String: Any] = ["rows": rows, "mounted": self.displayedIDs.count,
           "offset": self.table.contentOffset.y, "following": self.following,
           "viewportTop": viewport.minY, "viewportBottom": viewport.maxY,
           "moving": self.table.isDragging || self.table.isDecelerating || self.positioning || self.updating || self.scrollingToTarget]
+        if self.tracesFrames { value["motion"] = Array(self.frameTrace.suffix(240)) }
         guard let data = try? JSONSerialization.data(withJSONObject: value) else { return nil }
         return String(data: data, encoding: .utf8)
       }

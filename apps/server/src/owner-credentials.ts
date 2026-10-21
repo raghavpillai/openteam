@@ -18,6 +18,13 @@ const validUsername = (value: unknown): { username: string; name: string } => {
   return { username: usernameKey(value), name: value.trim() };
 };
 
+const currentUsername = (
+  owner: { username: string | null; name: string } | null
+): { username: string; name: string } => {
+  if (!owner?.username) throw new Error("OpenTeam owner credentials have not been set up yet");
+  return { username: owner.username, name: owner.name };
+};
+
 const validPassword = (value: unknown): string => {
   if (typeof value !== "string" || value.length < 8 || value.length > 128) {
     throw new Error("Password must be between 8 and 128 characters");
@@ -43,7 +50,7 @@ export const setOwnerCredentials = async (
   const { username, name } =
     input.operation === "setup" || input.username !== undefined
       ? validUsername(input.username)
-      : { username: existing?.username ?? "", name: existing?.name ?? existing?.username ?? "" };
+      : currentUsername(existing);
   const password =
     input.operation === "setup" || input.operation === "reset" || input.password !== undefined
       ? validPassword(input.password)

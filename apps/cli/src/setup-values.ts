@@ -111,6 +111,8 @@ const singleLine = (label: string, value: string): string => {
 export const validateTimeZone = (value: string): string => {
   const normalized = singleLine("Time zone", value);
   try {
+    // The box clock is set from the zone database, which has no "+05:30"-style offsets.
+    if (!/^[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)*$/.test(normalized)) throw new Error("not a zone name");
     new Intl.DateTimeFormat("en-US", { timeZone: normalized }).format();
     return normalized;
   } catch {
@@ -237,15 +239,8 @@ export const configuredAccessMode = (
   current: ReadonlyMap<string, string>,
   fresh: boolean
 ): AccessMode => {
-  const stored = current.get("OPENTEAM_ACCESS_MODE");
-  if (stored && ACCESS_MODES.includes(stored as AccessMode)) {
-    if (!fresh) return stored as AccessMode;
-  }
-  if (fresh) return "private";
-  const publicUrl = current.get("OPENTEAM_PUBLIC_URL") || "";
-  if (publicUrl.startsWith("https://")) return "https";
-  if (current.get("OPENTEAM_BIND_HOST") === "127.0.0.1") return "local";
-  return "private";
+  const stored = current.get("OPENTEAM_ACCESS_MODE") as AccessMode | undefined;
+  return !fresh && stored && ACCESS_MODES.includes(stored) ? stored : "private";
 };
 
 const hostFromPublicUrl = (value: string | undefined): string | null => {

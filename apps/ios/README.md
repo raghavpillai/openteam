@@ -67,6 +67,8 @@ checks; optional live-server tests require their own isolated backend. For an
 isolated `FunctionalFlowUITests` rerun, set
 `TEST_RUNNER_FUNCTIONAL_FLOW_SERVER=http://127.0.0.1:<fixture-port>` when invoking
 `xcodebuild`; the default remains port 19992.
+For an isolated `ChatMotionUITests` run, set
+`TEST_RUNNER_CHAT_MOTION_SERVER=http://127.0.0.1:<fixture-port>`; the default is 20070.
 
 For keyboard latency investigations, add `--trace-composer-latency` to a DEBUG
 chat launch. After a real tap it saves `Documents/composer-latency.json` in the

@@ -1,11 +1,13 @@
 import { open, stat } from "node:fs/promises";
 import { existsSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { RE2JS } from "re2js";
+import { RE2JS, RE2JSSyntaxException } from "re2js";
 import { parseHostAwaitShellRequest } from "@openteam/contracts/service-protocol";
 import type { ShellAwaitRequest, ShellAwaitResponse } from "@openteam/contracts/service-protocol";
 export { createShellEnvironmentCapture, loadShellEnvironment, persistShellEnvironment, SHELL_ENVIRONMENT_CAPTURE } from "./environment";
 export { SecretRedactor, redactSecrets } from "./redaction";
+export * from "./format";
+import { TERMINAL_FOOTER } from "./format";
 
 const MAX_PATTERN_BYTES = 64 * 1024 * 1024;
 const MAX_COMPLETED_JOBS = 256;
@@ -26,12 +28,14 @@ interface Job {
   notified?: boolean;
   channelId?: string;
   automationRunId?: string;
+  title?: string;
 }
 
 export interface ShellCompletion {
   id: string; scope: string; outputPath: string; exitCode: number | null; error?: string;
   channelId?: string;
   automationRunId?: string;
+  title?: string;
 }
 
 export function validateShellWait(input: ShellAwaitRequest): number {
@@ -44,7 +48,7 @@ export function validateShellWait(input: ShellAwaitRequest): number {
     throw new Error("AwaitShell shell_id must be a nonempty string");
   }
   if (!input.shell_id && blockMs === 0) {
-    throw new Error("AwaitShell shell_id is required with block_until_ms: 0");
+    throw new Error("Invalid arguments:\nshell_id: Required when block_until_ms is 0. Without shell_id there is nothing to check: pass the shell_id to check, or a nonzero block_until_ms to sleep.");
   }
   if (input.pattern !== undefined) {
     if (typeof input.pattern !== "string") {
@@ -52,8 +56,9 @@ export function validateShellWait(input: ShellAwaitRequest): number {
     }
     try {
       RE2JS.compile(input.pattern, RE2JS.MULTILINE);
-    } catch {
-      throw new Error("AwaitShell pattern must be a valid RE2 regular expression (lookarounds and backreferences are unsupported)");
+    } catch (error) {
+      if (!(error instanceof RE2JSSyntaxException)) throw error;
+      throw new Error(`pattern is not valid RE2 syntax: ${error.getDescription()}. RE2 has no lookahead, lookbehind or backreferences.`);
     }
   }
   return blockMs;
@@ -125,10 +130,10 @@ export class ShellJobRegistry {
       const size = (await file.stat()).size;
       const tail = Buffer.alloc(Math.min(2048, size));
       await file.read(tail, 0, tail.length, size - tail.length);
-      const footer = tail.toString("utf8").match(/\n\nstatus: ([^\n]+)\nexit_code: (-?\d+|null)\nelapsed_ms: (\d+)\n$/);
+      const footer = tail.toString("utf8").match(TERMINAL_FOOTER);
       job.outputBytes = Math.max(0, size - job.outputOffset - (footer ? Buffer.byteLength(footer[0]) : 0));
       if (footer) {
-        job.outcome = { exitCode: footer[2] === "null" ? null : Number(footer[2]), finishedAt: job.startedAt + Number(footer[3]), ...(footer[1] === "completed" ? {} : { error: footer[1] }) };
+        job.outcome = { exitCode: footer[1] === "unknown" ? null : Number(footer[1]), finishedAt: job.startedAt + Number(footer[2]) };
         this.persist(job);
       } else if (job.pid) {
         try { process.kill(job.pid, 0); }
@@ -140,6 +145,15 @@ export class ShellJobRegistry {
         }
       }
     } finally { await file.close(); }
+  }
+
+  /** Background jobs still running that one of these automation runs started in this process. */
+  runningForAutomation(automationRunIds: ReadonlySet<string>): Array<{ id: string; pid: number }> {
+    return [...this.jobs.values()].flatMap((job) =>
+      job.background && !job.outcome && !job.recovered && job.pid !== undefined &&
+      job.automationRunId !== undefined && automationRunIds.has(job.automationRunId)
+        ? [{ id: job.id, pid: job.pid }] : []
+    );
   }
 
   markBackground(id: string) {
@@ -158,7 +172,7 @@ export class ShellJobRegistry {
       try {
         await this.refresh(job);
         if (!job.outcome || job.notified) continue;
-        await this.options.onComplete({ id: job.id, scope: job.scope, outputPath: job.outputPath, channelId: job.channelId, ...(job.automationRunId ? { automationRunId: job.automationRunId } : {}), ...job.outcome });
+        await this.options.onComplete({ id: job.id, scope: job.scope, outputPath: job.outputPath, channelId: job.channelId, ...(job.automationRunId ? { automationRunId: job.automationRunId } : {}), ...(job.title ? { title: job.title } : {}), ...job.outcome });
         job.notified = true;
         this.persist(job);
       } catch { /* Retry after restart or a transient control-plane outage. */ }
@@ -183,7 +197,8 @@ export class ShellJobRegistry {
       finish: (exitCode: number | null, error?: string) => {
         if (job.outcome) return;
         job.outcome = { exitCode, error, finishedAt: Date.now() };
-        this.persist(job);
+        // A lost receipt only costs restart recovery; it must never stall the caller.
+        try { this.persist(job); } catch { /* The terminal directory was removed. */ }
         notify();
         void this.flushCompletions();
         this.prune();
@@ -207,11 +222,7 @@ export class ShellJobRegistry {
     this.prune();
     const directory = this.options.directory ?? (isAbsolute(scope) ? scope : undefined);
     const job = this.jobs.get(input.shell_id) ?? (directory ? this.restore(input.shell_id, directory) : undefined);
-    if (!job || job.scope !== scope) {
-      throw new Error(
-        "Unknown or expired shell_id. Use a Shell ID from this runtime and the same machine; use Read for older logs."
-      );
-    }
+    if (!job || job.scope !== scope) throw new Error(`No shell found for id ${input.shell_id}`);
     const deadline = waitedAt + blockMs;
     let scannedBytes = -1;
     let regexMatch: string | null = null;
@@ -312,7 +323,9 @@ export function compileToolSearchPattern(source: string): { test(text: string): 
 }
 
 export function renderShellAwaitResult(result: ShellAwaitResponse): string {
-  if (result.status === "slept") return result.waited_ms <= 0 ? "Slept briefly." : `Slept for ${Math.max(1, Math.ceil(result.waited_ms / 1000))}s.`;
+  if (result.status === "slept") {
+    return result.waited_ms <= 0 ? "Slept briefly." : `Slept for ${Math.max(1, Math.ceil(result.waited_ms / 1000))}s.`;
+  }
   if (result.status === "failed") return `Error awaiting task: ${result.error ?? "Unknown error"}`;
   const status = result.status === "running"
     ? `Task still running after ${result.elapsed_ms ?? result.waited_ms}ms...`

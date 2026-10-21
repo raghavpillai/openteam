@@ -133,7 +133,8 @@ for (const scenario of ["background", "default-background", "foreground", "faile
     runtime.compaction = {beginUserQuery: async () => {}, settleAtTurnEnd: async () => null, parkBackground() {}};
     runtime.cleanup = async () => {};
     await runtime.execute(active, "fixture", []);
-    const running = ["background", "default-background"].includes(scenario);
+    // Task always runs in the background; the retired flag cannot make it foreground.
+    const running = ["background", "default-background", "foreground"].includes(scenario);
     expect(events.find(e => e.type === "turn.completed").status).toBe(running ? "completed" : "failed");
     expect(calls).toBe(running ? 1 : 2);
   });

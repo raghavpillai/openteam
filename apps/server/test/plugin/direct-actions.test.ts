@@ -18,11 +18,11 @@ function fixture() {
   const service = new PluginService(db as any);
   Object.assign(service, {
     connectionStatuses: async () => ({}),
-    catalogDetail: async () => ({installed:true}),
+    catalogDetail: async () => ({installed:true,plugin:{name:"Fixture"}}),
     resolveToolArguments: async (_:string,args:unknown) => args,
     executeAction: async () => {executions++;await Promise.resolve();return {installed:true};},
   });
-  const request = {runId:"run",botId:"bot",callId:"call",action:"InstallPlugin",arguments:{pluginKey:"fixture"}};
+  const request = {runId:"run",botId:"bot",callId:"call",action:"InstallPlugin",arguments:{pluginKey:"fixture"},origin:"user" as const};
   return {service,request,records,executions:()=>executions};
 }
 
@@ -50,5 +50,38 @@ describe("plugin management without review", () => {
     Object.assign(service,{executeAction:async()=>{throw new Error("Connection lost after starting");}});
     await expect(service.requestAction(request)).rejects.toThrow("Connection lost");
     await expect(service.requestAction(request)).rejects.toThrow("already started");
+  });
+});
+
+describe("plugin installs on turns the user did not start", () => {
+  test("only typed user turns install; every other wake gets the refusal and installs nothing", async () => {
+    for (const origin of ["bootstrap","agent","routine","event","connector","background_revival","handoff_resume","broadcast"] as const) {
+      const {service,request,records,executions} = fixture();
+      expect(await service.requestAction({...request,origin})).toBe(
+        "Nothing was installed: the user did not start this turn, and installing adds Fixture to their account. Only install when the user asks for it in their own chat with you, never on a turn a routine, another agent, or a Slack or Teams message started. Tell the user this needs Fixture, which they can add themselves in OpenTeam.",
+      );
+      expect(executions()).toBe(0);
+      expect(records.size).toBe(0);
+    }
+    const {service,request,executions} = fixture();
+    expect(await service.requestAction(request)).toMatchObject({completed:true,actionResult:{installed:true}});
+    expect(executions()).toBe(1);
+  });
+
+  test("a group-room turn is refused as a room turn, pointing to the 1:1 chat", async () => {
+    const {service,request,records,executions} = fixture();
+    expect(await service.requestAction({...request,origin:"group"})).toBe(
+      'Nothing was installed: this is a group-room turn, and installing adds Fixture to your user\'s account, which happens only when they ask for it in their own 1:1 chat with you. If your user wants Fixture, ask them to continue in your 1:1 chat (pass "to":"dm" on SendToUser to reach it) or to add it themselves in OpenTeam.',
+    );
+    expect(executions()).toBe(0);
+    expect(records.size).toBe(0);
+  });
+
+  test("the refusal leaves other plugin actions alone and still reports unknown plugins first", async () => {
+    const {service,request,executions} = fixture();
+    expect(await service.requestAction({...request,callId:"uninstall",action:"UninstallPlugin",origin:"background_revival"})).toMatchObject({completed:true});
+    expect(executions()).toBe(1);
+    Object.assign(service,{resolveToolArguments:async()=>{throw new Error('No plugin with id "nope".');}});
+    await expect(service.requestAction({...request,callId:"missing",origin:"agent"})).rejects.toThrow("No plugin with id");
   });
 });

@@ -67,16 +67,14 @@ public struct TranscriptionSettingsView: Codable, Sendable, Equatable {
   }
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
-    let provider =
-      TranscriptionSettings.Provider(
-        rawValue: try c.decodeIfPresent(String.self, forKey: .provider) ?? "") ?? .compatible
     settings = TranscriptionSettings(
-      enabled: try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false, provider: provider,
-      baseUrl: try c.decodeIfPresent(String.self, forKey: .baseUrl) ?? "",
-      model: try c.decodeIfPresent(String.self, forKey: .model) ?? "",
-      language: try c.decodeIfPresent(String.self, forKey: .language) ?? "")
-    hasApiKey = try c.decodeIfPresent(Bool.self, forKey: .hasApiKey) ?? false
-    configured = try c.decodeIfPresent(Bool.self, forKey: .configured) ?? false
+      enabled: try c.decode(Bool.self, forKey: .enabled),
+      provider: try c.decode(TranscriptionSettings.Provider.self, forKey: .provider),
+      baseUrl: try c.decode(String.self, forKey: .baseUrl),
+      model: try c.decode(String.self, forKey: .model),
+      language: try c.decode(String.self, forKey: .language))
+    hasApiKey = try c.decode(Bool.self, forKey: .hasApiKey)
+    configured = try c.decode(Bool.self, forKey: .configured)
   }
   public func encode(to encoder: Encoder) throws {
     var c = encoder.container(keyedBy: CodingKeys.self)
@@ -133,7 +131,7 @@ public struct TranscriptionDraft: Equatable, Sendable {
     guard let saved else { return true }
     return !apiKey.isEmpty || removeKey || saved.settings != settings
   }
-  /// The PATCH body: omitting `apiKey` keeps the saved key; null removes it.
+  /// The PUT body: omitting `apiKey` keeps the saved key; null removes it.
   public var body: JSON {
     var fields: [String: JSON] = [
       "enabled": .bool(settings.enabled), "provider": .string(settings.provider.rawValue),
@@ -162,8 +160,7 @@ public enum TranscriptionRequest {
   }
 }
 
-/// `runtime` in client-bootstrap and client-runtime. Unknown or missing values on
-/// older servers are reported as nil, never as a problem.
+/// `runtime` in client-bootstrap and client-runtime. Empty until the first snapshot.
 public struct RuntimeStatus: Equatable, Sendable {
   public struct Check: Equatable, Sendable, Identifiable {
     public let key: String
@@ -179,7 +176,7 @@ public struct RuntimeStatus: Equatable, Sendable {
     }
   }
   public init(values: [String: String]) { self.values = values }
-  /// ready, missing, invalid or unavailable; nil on servers that don't report it.
+  /// ready, missing, invalid or unavailable; nil before the first snapshot.
   public var inference: String? { values["inference"] }
   /// The server checks onboarding's first step shows, in desktop's order.
   public static let serverChecks: [(key: String, label: String)] = [

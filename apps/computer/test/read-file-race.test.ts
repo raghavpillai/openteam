@@ -30,7 +30,7 @@ test('Read allows an ordinary atomic replacement and recovers after missing old 
   expect(JSON.stringify(result)).toContain('café 日本語');
   expect(result.details.fileSize).toBe(Buffer.byteLength('café 日本語\r\nNEW'));
   const renamed=root+'/résumé 日本語 #1.txt';await rename(target,renamed);
-  expect((await ex.read({path:target},root) as any).isError).toBe(true);
+  await expect(ex.read({path:target},root)).rejects.toThrow('Error: File not found');
   expect(JSON.stringify(await ex.read({path:renamed},root))).toContain('NEW');
  }finally{await rm(root,{recursive:true,force:true})}
 });
@@ -60,7 +60,7 @@ test('Read rejects a regular file replaced by a FIFO without waiting for a write
    const method=terminal?'assertProtectedReadPath':'assertAgentReadable';
    const check=(ex as any)[method].bind(ex);let swapped=false;
    (ex as any)[method]=async(path:string)=>{await check(path);if(!swapped){swapped=true;await rm(target);execFileSync('mkfifo',[target])}};
-   await expect(ex.read({path:target},root)).rejects.toThrow(/regular file|Not a file/);
+   await expect(ex.read({path:target},root)).rejects.toThrow(/regular file|neither a file nor a directory/);
    await expect(agentFileIO('read',target)).rejects.toThrow('regular file');
   }
  }finally{await rm(root,{recursive:true,force:true})}

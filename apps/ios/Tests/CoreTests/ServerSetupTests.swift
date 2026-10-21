@@ -218,10 +218,10 @@ final class InferenceSettingsTests: XCTestCase {
   func testStartsOnTheRecommendedModelWhenTheCatalogMarksOne() throws {
     let json = #"""
       {"inference":{"providerId":"openai-codex","modelId":"","reasoning":"medium"},
-       "providers":[{"id":"openrouter","name":"OpenRouter","connected":true}],
+       "providers":[{"id":"openrouter","name":"OpenRouter","authMethods":[{"type":"api_key","label":"API key","subscription":false}],"connected":true,"authType":"api_key","authSource":null,"custom":false,"modelCount":2}],
        "models":[
-         {"providerId":"openrouter","modelId":"anthropic/claude-sonnet-4.5","name":"Anthropic: Claude Sonnet 4.5"},
-         {"providerId":"openrouter","modelId":"openrouter/auto","name":"Auto Router","recommended":true}
+         {"providerId":"openrouter","modelId":"anthropic/claude-sonnet-4.5","name":"Anthropic: Claude Sonnet 4.5","reasoning":true,"reasoningLevels":["low","medium","high"],"defaultReasoningLevel":"medium","contextWindow":200000,"maxTokens":64000},
+         {"providerId":"openrouter","modelId":"openrouter/auto","name":"Auto Router","reasoning":false,"reasoningLevels":["off"],"defaultReasoningLevel":"off","contextWindow":2000000,"maxTokens":128000,"recommended":true}
        ],
        "modelProviderId":"openrouter"}
       """#
@@ -403,7 +403,7 @@ final class ServerSetupTests: XCTestCase {
     XCTAssertEqual(ModelStatusBanner(inference: "invalid")?.action, "Connect a model")
     XCTAssertEqual(ModelStatusBanner(inference: "unavailable")?.action, "Open settings")
     XCTAssertNil(ModelStatusBanner(inference: "ready"))
-    XCTAssertNil(ModelStatusBanner(inference: nil), "Older servers don't report a model")
+    XCTAssertNil(ModelStatusBanner(inference: nil), "Nothing to show before the server answers")
     XCTAssertTrue(OnboardingDecision.needed(bots: 0, runtime: RuntimeStatus(values: ["inference": "ready"])))
     XCTAssertTrue(OnboardingDecision.needed(bots: 3, runtime: runtime))
     XCTAssertFalse(OnboardingDecision.needed(bots: 3, runtime: RuntimeStatus(values: ["inference": "invalid"])))

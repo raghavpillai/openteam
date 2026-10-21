@@ -4,7 +4,7 @@ import { RuntimeTools } from "../src/runtime/tools";
 import type { ActiveTurn } from "../src/runtime/types";
 import { objectToolSchema } from "../src/tool-schema";
 import reference from "../../../packages/contracts/src/tool-reference.json";
-import { referenceTool, SEND_TO_USER_BATCH_GUIDANCE } from "@openteam/contracts/tool-contracts";
+import { referenceTool } from "@openteam/contracts/tool-contracts";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { Type } from "typebox";
 import { Schema } from "effect";
@@ -35,7 +35,7 @@ describe("captured tool contract wiring", () => {
     const active = { runtimeProfile: "agent", pluginNamespaces: [], taskConfiguration } as unknown as ActiveTurn;
     const task = (runtime as any).dynamicCatalog(active).flatMap((namespace: any) => namespace.tools).find((tool: any) => tool.name === "Task");
     expect(task.inputSchema).toEqual(taskToolContract(taskConfiguration).inputSchema);
-    const userInfo = enrichUserInfo("<user_info></user_info>", { cwd: "/tmp", transcriptPath: "/tmp/transcript", namespaces: [], taskConfiguration });
+    const userInfo = enrichUserInfo("<user_info></user_info>", { cwd: "/tmp", transcriptPath: "/tmp/transcript", catalog: null, taskConfiguration });
     expect(userInfo).toContain("computerUse: Delegate a self-contained browser or desktop task");
     // Worker inference is server-controlled; profiles are not model-selectable.
     expect(userInfo).not.toContain("quick: Small jobs");
@@ -48,9 +48,11 @@ describe("captured tool contract wiring", () => {
       expect((runtime as any).dynamicCatalog(worker).flatMap((namespace: any) => namespace.tools).some((tool: any) => tool.name === "Task")).toBe(false);
     }
   });
-  test("exposes the 82 active shared contracts through the actual model-facing profiles", () => {
+  test("exposes the 81 active shared contracts through the actual model-facing profiles", () => {
     const runtime = new RuntimeTools({} as never, "http://unused.invalid", "test", "/tmp", "/tmp");
-    const base = { runtimeProfile: "agent", pluginNamespaces: [] } as unknown as ActiveTurn;
+    // File transfers are offered beside a connected file service.
+    const drive = { name: "google-drive", description: "Google Drive (default)", namespaceStatus: "ready", tools: [], fileTransfers: { upload: true, download: true } };
+    const base = { runtimeProfile: "agent", pluginNamespaces: [drive] } as unknown as ActiveTurn;
     const catalog = [
       base,
       { ...base, requestSource: "automation" },
@@ -63,7 +65,7 @@ describe("captured tool contract wiring", () => {
         ? (runtime as any).dynamicCatalog(active).flatMap((n: any) => n.tools)
         : []),
     ]);
-    expect(Object.keys(reference)).toHaveLength(84);
+    expect(Object.keys(reference)).toHaveLength(83);
     // The saved-login desktop tools are retired.
     const retired = ["ListCredentials", "GetCredentialProviderStatus"];
     for (const name of Object.keys(reference).filter((name) => !retired.includes(name))) {
@@ -72,7 +74,7 @@ describe("captured tool contract wiring", () => {
       // Beside the browser tools, Computer's captured text gains their guidance and nothing else.
       const description = name === "Computer"
         ? visible.description.replace(/(scroll, and wait\.) For anything inside a web page.*then BackSpace\./, "$1")
-        : visible.description;
+        : visible.description.replace(/\n\nAvailable file connections this turn:\n[\s\S]*$/, "");
       expect(description, name).toBe(referenceTool(name).description);
       expect(visible.inputSchema, name).toEqual(referenceTool(name).inputSchema);
     }
@@ -90,31 +92,28 @@ describe("captured tool contract wiring", () => {
     expect(reference.Computer.inputSchema.properties.holdDurationMs.maximum).toBe(30_000);
   });
 
-  test("SendToUser keeps the captured instructions, drops features OpenTeam lacks, and lists the app's real links", () => {
+  test("SendToUser keeps the captured concise instructions, drops features OpenTeam lacks, and lists the app's real links", () => {
     const actual = referenceTool("SendToUser");
     const captured = reference.SendToUser.description;
-    expect(actual.description).toStartWith("Say something to the user in the OpenTeam chat. This is your only voice.");
+    expect(actual.description).toStartWith('Send a message to the user. Follow "How a turn works" in your instructions');
     for (const kept of [
-      "so an opening acknowledgement does not discharge it (ack ≠ delivery).",
-      'Say "done" only when the requested end state is verified; otherwise name the exact state (drafted, sent, waiting, blocked).',
-      "In text content you can point back at an earlier message with [label](sand-msg:<address>)",
-      'pass "to":"dm" to instead deliver a text message privately to your own user\'s 1:1 chat (the room never sees it).',
-      "The rule for images: if image(s) belong WITH what you're saying, attach them to the text message itself.",
-      "Every option must be a real, verified choice, never invented, guessed, or a plausible-looking placeholder;",
-      "NEVER ask anyone to paste a token, key, or password into the chat.",
-      "Treat that as a decline and don't re-ask.",
-      "Never write your own plugin link: InstallPlugin if missing, AuthenticateMcpServer if needsAuth.",
-      "Set end_turn to true on your final SendToUser call when your reply is complete.",
+      '"Autonomy" and "Asking for decisions" before asking the user anything.',
+      'Say "done" only once the end state is verified; otherwise name the actual state (drafted, sent, waiting, blocked).',
+      "never a pointer to an earlier message or process notes.",
+      "just attempt the action and let the OS show its own dialog; don't announce it or invent a permission card.",
+      "a login you can't fill) goes to request_box_help.",
+      "If this chat can't take one, the tool says who should continue where; relay that in text.",
+      "Never write plugin links: InstallPlugin if missing, AuthenticateMcpServer if needsAuth.",
+      "Label each link with its target's real name.",
     ]) {
       expect(captured, kept).toContain(kept);
       expect(actual.description, kept).toContain(kept);
     }
-    // No voice memos, cloud agents, team-bot plugin secrets, sign-in skill, approval cards, or missing app pages.
-    for (const absent of ["voice memo", "voice_memo", "cursor-agent", "cloud agent", "plugin_id", "`sign-in`", "approval card", "go/no-go", "bot-template", "app/v1/agent", "app/v1/sidebar", "update-channel", "reset-computer"])
+    // No voice memos, cloud agents, team-bot plugin secrets, categorical sign-in handovers, or missing app pages.
+    for (const absent of ["voice memo", "voice_memo", "cursor-agent", "cloud agent", "plugin_id", "SSO", "2FA", "bot-template", "app/v1/agent", "app/v1/sidebar", "update-channel", "reset-computer"])
       expect(actual.description, absent).not.toContain(absent);
-    expect(actual.description).toContain('For a connector credential, pass "connector" and "field" instead of "name"');
-    expect(actual.description.endsWith(SEND_TO_USER_BATCH_GUIDANCE)).toBe(true);
-    const anchors = /where <anchor> is one of: ([^.]+)\./.exec(actual.description)![1]!.split(", ");
+    expect(actual.description).toContain("or with connector and field instead of name, that connector's credential file.");
+    const anchors = /<anchor> one of: ([^.]+)\./.exec(actual.description)![1]!.split(", ");
     expect(anchors).toEqual([...APP_SETTINGS_ANCHORS]);
     expect(anchors).toEqual([...SETTINGS_ANCHORS]);
     expect(actual.description).toContain(`settings?id=${anchors.find((anchor) => anchor === "web-search-provider")})`);
@@ -124,6 +123,8 @@ describe("captured tool contract wiring", () => {
     expect(actual.inputSchema.properties.secret.properties).not.toHaveProperty("plugin_id");
     expect(actual.inputSchema.properties.url.description).not.toContain("voice memo");
     expect(actual.inputSchema.properties.channel.description).not.toContain("thread ts");
+    expect(actual.inputSchema.properties.content.description).toContain("[words](sand-msg:<address>)");
+    expect(actual.inputSchema.properties.end_turn.description).toBe("True ends the turn once this send succeeds.");
     // The advertised default type is what the parser applies.
     expect(actual.inputSchema.required).toBeUndefined();
     expect(normalizeMainToolArguments("SendToUser", { content: "Hi" })).toMatchObject({ type: "text", content: "Hi" });

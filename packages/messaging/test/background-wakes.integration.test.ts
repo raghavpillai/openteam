@@ -92,7 +92,6 @@ test("administrator broadcasts tap every requested active top-level Bot exactly 
       expect(run.inboxEvents[0]).toMatchObject({
         type: "admin.broadcast",
         priority: 275,
-        deliveryMode: "turn",
       });
       expect(run.inboxEvents[0]?.payload).toMatchObject({ origin: "broadcast" });
     }

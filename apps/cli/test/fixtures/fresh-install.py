@@ -35,7 +35,7 @@ for i,arg in enumerate(args):
  if arg.startswith('https://'):
   name='latest.json' if arg.endswith('/releases/latest') else arg.rsplit('/',1)[-1]
   if os.environ.get('FRESH_BAD_CHECKSUM') and name=='SHA256SUMS': name='bad-checksums'
-  if os.environ.get('FRESH_RAW_ONLY') and name.endswith('.gz'): sys.exit(22)
+  if os.environ.get('FRESH_MISSING_GZIP') and name.endswith('.gz'): sys.exit(22)
   path=Path('/fixtures/assets')/name
   if not path.is_file(): sys.exit(22)
   args[i]=path.as_uri()
@@ -127,19 +127,22 @@ def record(name, output):
     passed.append(name)
     print(f'PASS {name}\n{ansi.sub("", output).strip()}\n', flush=True)
 
-def bootstrap(name, env_options=None, terminal=False, raw=False, bad=False, columns=80):
+def bootstrap(name, env_options=None, terminal=False, missing_gzip=False, bad=False, columns=80):
     directory, env = environment(name, **(env_options or {}))
-    if raw: env['FRESH_RAW_ONLY'] = '1'
+    if missing_gzip: env['FRESH_MISSING_GZIP'] = '1'
     if bad: env['FRESH_BAD_CHECKSUM'] = '1'
     installation = directory / 'installation'
     code, output = execute(['/bin/sh', '/fixtures/install.sh', '--dir', str(installation)], env, terminal, columns)
     check(not re.search(r'\\u[0-9a-fA-F]{4}', output), 'Bundled installer printed literal Unicode escapes', output)
-    if not bad:
+    if not bad and not missing_gzip:
         check('✓ Download verified' in ansi.sub('', output), 'Installer status glyph did not render', output)
     cli = directory / 'bin/openteam'
-    check(code == (1 if bad else 2), 'Wrong bootstrap exit code', output)
+    check(code == (1 if bad or missing_gzip else 2), 'Wrong bootstrap exit code', output)
     flat = ' '.join(ansi.sub('', output).split())
-    if bad:
+    if missing_gzip:
+        check(not cli.exists() and 'could not download ' + binary_asset.name + '.gz' in output,
+              'A release without its gzip asset must fail instead of using a legacy raw download', output)
+    elif bad:
         check(not cli.exists() and 'checksum did not match' in output, 'Bad binary was installed', output)
     else:
         check(cli.is_file() and os.access(cli, os.X_OK), 'CLI was not installed', output)
@@ -159,7 +162,7 @@ def bootstrap(name, env_options=None, terminal=False, raw=False, bad=False, colu
 
 directory, env, cli = bootstrap('missing-docker-piped')
 bootstrap('missing-docker-tty-40', terminal=True, columns=40)
-bootstrap('raw-download-fallback', raw=True)
+bootstrap('missing-gzip-rejected', missing_gzip=True)
 bootstrap('checksum-mismatch', bad=True)
 for command in ['--version', '--help']:
     code, output = execute([str(cli), command], env)

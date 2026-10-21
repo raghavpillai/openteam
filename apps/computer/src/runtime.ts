@@ -15,7 +15,6 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
   type ComputerEvent,
-  type ComputerSteerRequest,
   type ComputerTurnRequest,
   defaultServerInferenceSettings,
   formatPiModelRef,
@@ -27,8 +26,8 @@ import {
   SEND_TO_USER_REPLY_NUDGE_PROMPT,
   type ServerInferenceSettings,
 } from "@openteam/contracts";
-import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { BotAgentStore } from "./bot-agent-store";
 import {
@@ -39,6 +38,7 @@ import {
   type BotSummaryRequest,
   type BotSummaryResult,
   botUserInfoMessage,
+  RESUME_RECORDED_INPUT_PROMPT,
 } from "./bot-compaction";
 import { ComputerEventQueue } from "./computer-event-queue";
 import { InferenceProviderService } from "./inference-providers";
@@ -51,17 +51,23 @@ import {
   publishCompaction,
 } from "./runtime/compaction";
 import { textFromContent } from "./runtime/content";
-import { attachSession, routeEvent } from "./runtime/events";
-import { verifyGraphicalTaskCompletion } from "./runtime/graphical-completion";
+import { graphicalFinalReport } from "./runtime/graphical-completion";
+import { attachSession, routeEvent, startAgentMessage } from "./runtime/events";
 import { inferenceReasoningOptions, reasoningExtension } from "./runtime/reasoning";
 import { withAgentOutputBudget } from "./runtime/output-budget";
 import { inferenceMetricsExtension } from "./runtime/inference-metrics";
 import { IdleProviderConnections, InferenceProviderConnections } from "./runtime/provider-connections";
 import { untrustedResultsExtension } from "./runtime/untrusted-results";
-import { END_TURN_HOLD_REMINDER, enrichUserInfo } from "./runtime/prompt-context";
+import { retryFirstOutputStalls, streamDeadlines, type StreamTimers } from "./runtime/stream-deadlines";
+import { directDynamicToolsExtension } from "./runtime/direct-dynamic-tools";
+import { END_TURN_HOLD_REMINDER, enrichUserInfo, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder } from "./runtime/prompt-context";
+import { pinDynamicToolCatalog } from "./runtime/catalog-snapshot";
+import { DiskPressureMonitor, diskPressureReminderStepPersisted } from "./runtime/disk-pressure";
+
 import { defaultTaskConfiguration, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
-import { assertSessionPath } from "./runtime/session-path";
+import { assertSessionPath, existingContextSessionPath } from "./runtime/session-path";
 import { RuntimeTools } from "./runtime/tools";
+import { classifierCompletion } from "./runtime/auto-review";
 import { pluginComponentsExtension } from "./runtime/plugin-components";
 import type { ActiveTurn, RuntimeImage, TurnStatus } from "./runtime/types";
 import { ScreenBroker } from "./screen-broker";
@@ -80,6 +86,7 @@ export const isDeliveryOwed = (
 export class ComputerRuntime {
   private readonly tools: RuntimeTools;
   get userForms() { return this.tools.userForms; }
+  stopBackgroundShells(botId: string) { return this.tools.stopBackgroundShells(botId); }
 
   private readonly activeByRun = new Map<string, ActiveTurn>();
   private readonly activeByContext = new Map<string, ActiveTurn>();
@@ -97,6 +104,8 @@ export class ComputerRuntime {
   );
   private inferenceSettings = defaultServerInferenceSettings();
   private readonly workspaceRoot = resolve(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace");
+  // The reference watches its workspace, data and temp volumes and keeps its ledger in its data root.
+  private readonly diskPressure = new DiskPressureMonitor([this.workspaceRoot, this.agentDir, tmpdir()], join(this.agentDir, "disk-pressure-reminders.json"));
 
   private modelRuntime: ModelRuntime | null = null;
   private readonly inferenceProviders = new InferenceProviderService(
@@ -108,6 +117,8 @@ export class ComputerRuntime {
   private authenticated = false;
   private authentication: { type: "api_key" | "oauth"; source?: string } | undefined;
   private started = false;
+  /** Model stream deadline clock; tests replace it. */
+  private readonly streamTimers?: StreamTimers;
 
   constructor(
     private readonly screens = new ScreenBroker(),
@@ -250,7 +261,6 @@ export class ComputerRuntime {
 
     const queue = new ComputerEventQueue();
     const active: ActiveTurn = {
-      runtimeStartedAt: Date.now(),
       taskConfiguration: request.taskConfiguration === undefined ? defaultTaskConfiguration() : parseTaskConfiguration(request.taskConfiguration),
       runId: request.runId,
       botId: request.botId,
@@ -270,7 +280,6 @@ export class ComputerRuntime {
         ? botUserInfoMessage(request.userInfo, request.userInfoEpoch ?? 0)
         : null,
       todoUpdate: request.todoUpdate ?? null,
-      automationTrigger: request.automationTrigger ?? null,
       resetSelfSummaryCount: request.resetSelfSummaryCount !== false,
       requestSource: request.requestSource ?? "turn",
       turnId: request.runId,
@@ -290,15 +299,20 @@ export class ComputerRuntime {
       toolActivityAfterLastSend: false,
       initialUserStarted: false,
       initialUserClientId: request.clientMessageId,
-      pendingSteers: [],
-      acceptedSteerIds: new Set(),
-      discoveredDynamicTools: new Set(),
       pluginNamespaces: request.dynamicNamespaces ?? [],
       pluginRuntimePackages: request.pluginRuntimePackages as import("@openteam/plugin-sdk").PluginRuntimePackage[] | undefined,
       pluginAbortController: new AbortController(),
       readOnly: request.readOnly ?? false,
-      skillAccess: request.skillAccess ?? "read",
       attachmentTempDirectories: [],
+      ...(request.autoReview
+        ? {
+            autoReview: { ...request.autoReview, allowRules: [...request.autoReview.allowRules], askFirstRules: [...request.autoReview.askFirstRules] },
+            autoReviewComplete: classifierCompletion((context, signal) => {
+              const model = this.resolveModel(modelRef);
+              return this.requireModelRuntime().completeSimple(model, context as never, { signal, ...inferenceReasoningOptions(model, "low") }) as never;
+            }),
+          }
+        : {}),
     };
     this.activeByRun.set(active.runId, active);
     this.activeByContext.set(active.contextSessionId, active);
@@ -309,7 +323,11 @@ export class ComputerRuntime {
       if (!authentication) {
         throw new Error(`Pi inference provider ${modelRef.providerId} is not configured`);
       }
-      if (!active.subagentType && active.requestSource !== "automation") await this.tools.userForms.beginTurn(active.botId, active.runId);
+      // Routine runs can't message the user, so they neither own forms nor use up the low-disk reminder.
+      if (!active.subagentType && active.requestSource !== "automation") {
+        await this.tools.userForms.beginTurn(active.botId, active.runId);
+        active.diskPressureEpisode = await this.diskPressure.claim(active.botId).catch(() => null);
+      }
       await this.botStore?.openForWake(active.botId);
       await this.botStore?.recordRequestId(active.botId, active.runId);
       await this.botStore?.appendConversationEnvelope(active.botId, {
@@ -335,9 +353,11 @@ export class ComputerRuntime {
       // Reserve the run/context before the first asynchronous setup operation.
       // Otherwise two requests can both pass the checks above and open the same
       // append-only Pi session concurrently.
+      // A turn sent right after a cancelled first turn can arrive before the server
+      // recorded that turn's session; it continues the file rather than starting a second.
       const sessionPath = request.sessionPath
         ? assertSessionPath(this.sessionsDir, request.sessionPath)
-        : null;
+        : await existingContextSessionPath(this.sessionsDir, active.contextSessionId);
       const contextState = await this.contextState(active.contextSessionId);
       await this.compactionArchive.enforceSizeLimit(active.contextSessionId, sessionPath);
       const uploaded = await prepareUserImages(decodeInlineImages(request.images ?? []));
@@ -353,13 +373,19 @@ export class ComputerRuntime {
       active.session = session;
       this.bindTurnStop(active, session);
       active.sessionPath = openedSessionPath;
-      if (request.userInfo) active.userInfoMessage = botUserInfoMessage(enrichUserInfo(request.userInfo, {
-        cwd: active.cwd,
-        transcriptPath: openedSessionPath,
-        namespaces: this.tools.contextCatalog(active),
-        taskConfiguration: active.taskConfiguration,
-        subagent: Boolean(active.subagentType),
-      }), request.userInfoEpoch ?? 0);
+      if (request.userInfo) {
+        const pinned = pinDynamicToolCatalog(session.sessionManager, request.userInfoEpoch ?? 0, this.tools.contextCatalog(active));
+        active.userInfoMessage = botUserInfoMessage(enrichUserInfo(request.userInfo, {
+          cwd: active.cwd,
+          transcriptPath: openedSessionPath,
+          catalog: pinned.catalog,
+          taskConfiguration: active.taskConfiguration,
+          subagent: Boolean(active.subagentType),
+        }), request.userInfoEpoch ?? 0);
+        if (pinned.update) await session.sendCustomMessage({
+          customType: "openteam-catalog-update", content: pinned.update, display: false, details: { origin: "host" },
+        }, { triggerTurn: false });
+      }
       active.unsubscribe = session.subscribe((event) => this.routeEvent(active, event));
       const recordedInputIds = new Set(session.sessionManager.getEntries().flatMap((entry) => entry.type === "custom" && entry.customType === "openteam-input-receipt" && typeof (entry.data as { messageId?: unknown })?.messageId === "string" ? [(entry.data as { messageId: string }).messageId] : []));
       for (const message of request.prependMessages ?? []) {
@@ -385,7 +411,7 @@ export class ComputerRuntime {
       queue.push(contextState);
       queue.push({ type: "turn.started", turnId: active.turnId });
       const images = [...uploaded.images, ...attachments.images];
-      const content = recordedInputIds.has(`input:${request.clientMessageId}`) ? "[SAND_HIDDEN_PROMPT]Resume work on the previously recorded user input. Its original content is already in the session; avoid repeating completed actions." : request.content;
+      const content = recordedInputIds.has(`input:${request.clientMessageId}`) ? RESUME_RECORDED_INPUT_PROMPT : request.content;
       void this.execute(active, [content, uploaded.notice].filter(Boolean).join("\n"), images);
       return queue;
     } catch (error) {
@@ -428,21 +454,11 @@ export class ComputerRuntime {
   private async recoverStagedCompaction(contextSessionId: string): Promise<void> {
     const stagedId = await this.compaction.stagedId(contextSessionId);
     if (!stagedId) return;
-    if (!existsSync(this.sessionsDir)) {
+    const sessionPath = await existingContextSessionPath(this.sessionsDir, contextSessionId);
+    if (!sessionPath) {
       await this.compaction.recoverStaged(contextSessionId, 0, []);
       return;
     }
-    const suffix = `_${contextSessionId}.jsonl`;
-    const candidates = (await readdir(this.sessionsDir)).filter((name) => name.endsWith(suffix));
-    if (candidates.length > 1) {
-      throw new Error(`Multiple Pi sessions exist for context ${contextSessionId}`);
-    }
-    const candidate = candidates[0];
-    if (!candidate) {
-      await this.compaction.recoverStaged(contextSessionId, 0, []);
-      return;
-    }
-    const sessionPath = assertSessionPath(this.sessionsDir, join(this.sessionsDir, candidate));
     const manager = SessionManager.open(sessionPath, this.sessionsDir);
     const persistedCompactionIds = manager.getBranch().flatMap((entry) => {
       if (entry.type !== "compaction" || !entry.details || typeof entry.details !== "object") {
@@ -460,13 +476,21 @@ export class ComputerRuntime {
     );
   }
 
-  async cancel(runId: string): Promise<void> {
+  /**
+   * A typed message supersedes only a run whose input has reached the model, as in the
+   * reference; an undispatched run goes on and the message queues behind it, unless the
+   * message carries the run's plain-text input for recovery. Returns whether it cancelled.
+   */
+  async cancel(runId: string, reason?: "user_message" | "parent_message", options: { recovery?: boolean } = {}): Promise<boolean> {
     const active = this.activeByRun.get(runId);
     if (!active) throw new Error("Run is not actively executing");
+    if (reason === "user_message" && !active.initialUserStarted && !options.recovery) return false;
+    // A parent's message to its worker interrupts it at once; the reference words the cut-off calls the same way.
+    if (reason) active.interruptedByUserAt ??= Date.now();
     active.endTurnRequested = true;
     active.pluginAbortController?.abort();
-    this.tools.interruptShellWaits(runId);
     await active.session?.abort();
+    return true;
   }
 
   async deleteContextSession(contextSessionId: string, sessionPath?: string): Promise<void> {
@@ -484,11 +508,15 @@ export class ComputerRuntime {
     const previousStop = session.agent.shouldStopAfterTurn;
     session.agent.shouldStopAfterTurn = async (context, signal) => {
       if (active.endTurnRequested) {
+        // A closing send covers its successful sibling calls even when parallel
+        // execution started them before the send reached the host.
+        active.toolActivityAfterLastSend = Boolean(active.failedResponseCalls?.length) ||
+          [...(active.responseActivity ?? [])].some((index) => !Number.isFinite(index));
         // A call alongside a delivered closing reply failed. Keep the turn open
         // so the model sees that result; the reply itself already went out.
         // A turn that asked the user something waits for them instead.
         if (active.finishResponseCalls && !active.awaitingUser && active.failedResponseCalls?.length &&
-            (active.endTurnHolds ?? 0) < END_TURN_HOLD_LIMIT && active.pendingSteers.length === 0 &&
+            (active.endTurnHolds ?? 0) < END_TURN_HOLD_LIMIT &&
             !signal?.aborted && !active.pluginAbortController?.signal.aborted) {
           active.endTurnHolds = (active.endTurnHolds ?? 0) + 1;
           active.endTurnHeld = true;
@@ -509,43 +537,12 @@ export class ComputerRuntime {
         // Pi's post-run loop otherwise drains queued steering even after its
         // inner loop stops. Leave these inputs unacknowledged in the durable
         // server inbox so they are promoted into a separate user turn.
+
         session.clearQueue();
         return true;
       }
       return previousStop?.(context, signal) || false;
     };
-  }
-
-  async steer(runId: string, request: ComputerSteerRequest): Promise<void> {
-    const active = this.activeByRun.get(runId);
-    if (!active?.session || !active.session.isStreaming || active.endTurnRequested) {
-      throw new Error("Run is not actively processing a Pi turn");
-    }
-    if (active.acceptedSteerIds.has(request.inboxId)) return;
-    const pending = {
-      inboxId: request.inboxId,
-      clientMessageId: request.clientMessageId,
-      content: request.content,
-    };
-    active.acceptedSteerIds.add(request.inboxId);
-    active.pendingSteers.push(pending);
-    this.tools.interruptShellWaits(runId);
-    try {
-      const prepared = await prepareUserImages(decodeInlineImages(request.images ?? []));
-      const images = prepared.images;
-      await active.session.prompt([request.content, prepared.notice].filter(Boolean).join("\n"), {
-        source: "rpc",
-        streamingBehavior: "steer",
-        ...(images.length ? { images } : {}),
-      });
-    } catch (error) {
-      active.acceptedSteerIds.delete(request.inboxId);
-      const index = active.pendingSteers.findIndex(
-        (candidate) => candidate.inboxId === request.inboxId
-      );
-      if (index >= 0) active.pendingSteers.splice(index, 1);
-      throw error;
-    }
   }
 
   async infer(request: {
@@ -667,7 +664,6 @@ export class ComputerRuntime {
     }
   }
 
-
   private async refreshAuthentication(): Promise<void> {
     let settings;
     try {
@@ -698,11 +694,7 @@ export class ComputerRuntime {
     active: ActiveTurn
   ): Promise<AgentSession> {
     const manager = request.sessionPath
-      ? SessionManager.open(
-          assertSessionPath(this.sessionsDir, request.sessionPath),
-          this.sessionsDir,
-          request.cwd
-        )
+      ? SessionManager.open(request.sessionPath, this.sessionsDir, request.cwd)
       : SessionManager.create(request.cwd, this.sessionsDir, {
           id: request.contextSessionId,
         });
@@ -749,7 +741,7 @@ export class ComputerRuntime {
         keepRecentTokens: 1,
       },
       retry: { enabled: true, maxRetries: 3 },
-      steeringMode: "one-at-a-time",
+      steeringMode: "all",
       followUpMode: "one-at-a-time",
     });
     const resourceLoader = new DefaultResourceLoader({
@@ -766,6 +758,10 @@ export class ComputerRuntime {
         inferenceMetricsExtension(active.runId),
         pluginComponentsExtension(active),
         untrustedResultsExtension(),
+        directDynamicToolsExtension({
+          registered: () => active.session?.getActiveToolNames() ?? this.tools.directToolNames(active),
+          cursor: () => this.tools.cursorToolNames(active),
+        }),
       ],
     });
     await resourceLoader.reload();
@@ -786,11 +782,14 @@ export class ComputerRuntime {
     // Pi's request timeout covers headers. Its CLI also installs a body-idle
     // dispatcher, but embedded sessions need their own response-body guard.
     const stream = session.agent.streamFunction;
-    session.agent.streamFunction = (model, context, options) => stream(model, context,
+    const deadlines = streamDeadlines(this.streamTimers);
+    session.agent.streamFunction = deadlines.wrap((model, context, options) => stream(model, context,
       model.api === "openai-completions" ? {
         ...options,
         fetch: providerIdleFetch(options?.fetch ?? fetch, settingsManager.getHttpIdleTimeoutMs()),
-      } : options);
+      } : options));
+    session.subscribe((event) => deadlines.observe(event));
+    retryFirstOutputStalls(session);
     return session;
   }
 
@@ -803,22 +802,6 @@ export class ComputerRuntime {
       (...args) => this.inferCompaction(...args),
       sessionManager,
       active,
-      async (epoch) => {
-        if (active.subagentType) return;
-        const refreshed = await this.tools.refreshPrompt(active, epoch);
-        active.instructions = refreshed.instructions;
-        if (active.session) active.session.agent.state.systemPrompt = refreshed.instructions;
-        active.userInfoMessage = refreshed.userInfo ? botUserInfoMessage(enrichUserInfo(refreshed.userInfo, {
-          cwd: active.cwd, transcriptPath: active.sessionPath ?? "", namespaces: this.tools.contextCatalog(active),
-          taskConfiguration: active.taskConfiguration,
-        }), refreshed.userInfoEpoch) : null;
-        const note = [refreshed.ambientContext, refreshed.instructionsUpdate].filter(Boolean).join("\n\n");
-        if (note && active.session) await active.session.sendCustomMessage({
-          customType: "openteam-context-refresh", content: `[SAND_HIDDEN_PROMPT]${note}`, display: false,
-          details: { epoch, origin: "host" },
-        }, { triggerTurn: false });
-        await this.tools.acknowledgePrompt(active, refreshed.acknowledgement);
-      },
       (messages) => this.tools.acknowledgeToolOutcomes(active, messages)
     );
   }
@@ -854,7 +837,21 @@ export class ComputerRuntime {
       if (!session) throw new Error("Pi session is not attached");
       await this.compaction.beginUserQuery(active.contextSessionId, active.resetSelfSummaryCount);
       await active.session?.prompt(content, { source: "rpc", images });
-      await verifyGraphicalTaskCompletion(active);
+      // A reply cut off at the output limit (or the turn's first wall-clock cut) ends the loop; continue it once.
+      if (owesOutputLimitReminder(session.messages as BotMessage[], active) && !active.endTurnRequested &&
+          !active.pluginAbortController?.signal.aborted) {
+        active.outputLimitReminded = true;
+        await session.prompt(OUTPUT_LIMIT_REMINDER, { source: "rpc", expandPromptTemplates: false });
+      }
+      const graphicalReport = graphicalFinalReport(active, active.compactionReadPiMessages?.() ?? (session.messages as BotMessage[]));
+      if (graphicalReport) {
+        startAgentMessage(active, graphicalReport.id);
+        active.queue.push({
+          type: "item.completed",
+          turnId: active.turnId,
+          item: { type: "agentMessage", id: graphicalReport.id, text: graphicalReport.text, status: "completed" },
+        });
+      }
       if (isDeliveryOwed(active.requestSource) && !active.endTurnRequested && !active.endTurnHeld &&
           !active.pluginAbortController?.signal.aborted &&
           !["aborted", "error"].includes(active.lastStopReason ?? "")) {
@@ -907,6 +904,9 @@ export class ComputerRuntime {
         });
       }
     } finally {
+      if (active.diskPressureReminded && active.diskPressureEpisode != null && active.session &&
+        diskPressureReminderStepPersisted(active.session.messages as Array<{ role: string }>))
+        await this.diskPressure.commit(active.botId, active.diskPressureEpisode);
       this.compaction.parkBackground(active.contextSessionId);
       attachSession(active);
       if (this.botStore) {

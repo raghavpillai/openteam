@@ -1,10 +1,11 @@
 import { readAgentActivity, readTranscript } from "@openteam/messaging";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
-import { parseTaskConfiguration, subagentUsesParentConnectors } from "@openteam/contracts/task-configuration";
+import { subagentUsesParentConnectors } from "@openteam/contracts/task-configuration";
 import {
   AgentSendToUserInput,
   validateProcessSecretName,
   AUTOMATION_PARENT_ONLY_TOOLS,
+  AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED,
   WakeParentInput,
   ApiError,
   CheckSubagentInput,
@@ -30,10 +31,11 @@ import { formatMemoryToolResult } from "../memory-tool-result";
 import type { AdministrationService } from "./administration-service";
 import type { PluginService } from "./plugin-service";
 import { serviceEffect } from "./service-utils";
-import type { SubagentService } from "./subagent/service";
+import { botSubagentId, type SubagentService } from "./subagent/service";
 import type { TodoService } from "./todo-service";
 import type { RichMessageService } from "./rich-message-service";
 import { processEnvironment } from "./process-secrets";
+import { withConnectorDraftCardReminder } from "./connector-draft-reminder";
 
 export class InternalToolService {
   constructor(
@@ -92,14 +94,21 @@ export class InternalToolService {
       if (request.tool === "RefreshToolCatalog") return {namespaces:await this.plugins.dynamicNamespaces(childIdentity?.parentBotId ?? request.botId)};
       if (request.tool === "ReadProcessSecrets") return { environment: await processEnvironment(this.prisma, request.botId) };
       if (run.origin === "routine" && AUTOMATION_PARENT_ONLY_TOOLS.has(request.tool)) {
-        throw new ApiError(403, "automation_tool_forbidden", "Use WakeParent to hand this communication or review to the parent agent");
+        throw new ApiError(403, "automation_tool_forbidden", AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED);
       }
       request={...request,arguments:normalizeMainToolArguments(request.tool,request.arguments)};
       if (request.tool === "WakeParent") {
         if (childIdentity) throw new ApiError(403, "wake_parent_unavailable", "Only the automation itself can wake its parent");
-        return wakeAutomationParent(this.messaging, context, Schema.decodeUnknownSync(WakeParentInput)(request.arguments));
+        const woken = await wakeAutomationParent(this.messaging, context, Schema.decodeUnknownSync(WakeParentInput)(request.arguments));
+        // The handoff ends the automation, so the subagents it started stop with it.
+        const children = await this.prisma.subagent.findMany({
+          where: { parentBotId: request.botId, parentRunId: { in: woken.automation_run_ids }, status: { in: ["provisioning", "queued", "running"] } },
+          select: { id: true },
+        });
+        await Promise.allSettled(children.map((child) => this.subagents.stop(request.botId, request.callId, { subagent_id: botSubagentId(child.id) })));
+        return woken;
       }
-      if (run.origin === "routine" && !["RefreshPromptContext", "AcknowledgePromptContext", "AcknowledgeCardOutcomes"].includes(request.tool) &&
+      if (run.origin === "routine" && request.tool !== "AcknowledgeCardOutcomes" &&
         (await this.prisma.automationResult.findUnique({ where: { runId: automationContextRunId(run.id, inboxPayload) }, select: { wakeRunId: true } }))?.wakeRunId) {
         throw new ApiError(409, "automation_turn_ended", "This automation already handed control to its parent");
       }
@@ -109,6 +118,16 @@ export class InternalToolService {
           throw new ApiError(403, "parent_transfer_required", "This file transfer must be performed by the parent bot");
         return request.tool === "PrepareConnectorTransfer" ? this.plugins.fileTransfers.prepare(context, args) : this.plugins.fileTransfers.execute(context, args, signal, transfer);
       }
+      // Auto-review approval cards: private supervisor operations, never in a model catalog.
+      if (request.tool === "RequestApproval" || request.tool === "AwaitApproval" || request.tool === "CancelApproval") {
+        if (!this.richMessages) throw new Error("Approval service unavailable");
+        const approvals = this.richMessages.approvals;
+        return request.tool === "RequestApproval"
+          ? approvals.request(context, request.arguments)
+          : request.tool === "AwaitApproval"
+            ? approvals.wait(context, request.arguments, signal)
+            : approvals.cancel(context, request.arguments);
+      }
       if (request.tool === "AcknowledgeCardOutcomes") {
         await this.messaging.acknowledgeCardOutcomes(request.botId, (request.arguments as { receipts: Array<{ messageId: string; outcomeId: string }> }).receipts);
         return { acknowledged: true };
@@ -116,25 +135,8 @@ export class InternalToolService {
       if (request.tool === "RecordUserFormRemap" && !childIdentity && this.richMessages) {
         return this.richMessages.recordFormRemap(request.botId, request.arguments as import("@openteam/contracts").UserFormReceipt);
       }
-      if (["RefreshPromptContext", "AcknowledgePromptContext"].includes(request.tool)) {
-        const args = request.arguments as { contextSessionId?: string; epoch?: number; connectorInstructions?: string; acknowledgement?: unknown };
-        const session = await this.prisma.contextSession.findFirst({ where: { id: args.contextSessionId, botId: request.botId } });
-        if (!session || !args.contextSessionId) throw new ApiError(403, "context_unavailable", "Context does not belong to this bot");
-        if (request.tool === "AcknowledgePromptContext") {
-          await this.messaging.acknowledgePlatformPrompt(request.botId, session.id, {
-            acknowledgement: args.acknowledgement,
-          } as Parameters<AgentMessaging["acknowledgePlatformPrompt"]>[2]);
-          return { acknowledged: true };
-        }
-        if (!Number.isSafeInteger(args.epoch) || args.epoch! < session.compactionEpoch || args.epoch! > session.compactionEpoch + 1) {
-          throw new ApiError(409, "context_epoch_invalid", "Context epoch is not the current or next summary");
-        }
-        await this.prisma.contextSession.updateMany({ where: { id: session.id, compactionEpoch: { lt: args.epoch! } }, data: { compactionEpoch: args.epoch } });
-        return this.messaging.platformPrompt(request.botId, session.id, args.connectorInstructions ?? "", run.channelId,
-          run.taskConfiguration ? parseTaskConfiguration(run.taskConfiguration) : undefined, run.origin);
-      }
       const parentOnlyTools = new Set([
-        "DraftExternalMessage", "SendFeedback", "CreateBotShareJson",
+        "DraftExternalMessage", "CreateBotShareJson",
         "RequestUserForm",
         "RemapUserFormTargets",
         "RecallMemory",
@@ -172,11 +174,9 @@ export class InternalToolService {
       if (request.tool === "RecallMemory") {
         return this.messaging.agentData.recallMemory(request.botId, request.arguments, run.channelId);
       }
-      if (request.tool === "SendFeedback" || request.tool === "CreateBotShareJson") {
+      if (request.tool === "CreateBotShareJson") {
         if (!this.richMessages) throw new Error("Review service unavailable");
-        return request.tool === "SendFeedback"
-          ? this.richMessages.feedback.send(context, request.arguments, signal)
-          : this.richMessages.sharedTemplates.publish(context, request.arguments);
+        return this.richMessages.sharedTemplates.publish(context, request.arguments);
       }
       if (request.tool === "DraftExternalMessage") {
         if (!this.richMessages) throw new Error("Draft service unavailable");
@@ -214,7 +214,12 @@ export class InternalToolService {
           request.arguments && typeof request.arguments === "object"
             ? (request.arguments as Record<string, unknown>)
             : {};
-        const resolved = await this.plugins.resolveToolArguments(request.tool, input);
+        const resolved = await this.plugins.resolveToolArguments(request.tool, input).catch((error) => {
+          // An unknown server_id is answered by the listing formatter, as in the reference.
+          if (error instanceof ApiError && error.code === "connection_not_found") return null;
+          throw error;
+        });
+        if (!resolved) return { connections: [] };
         return this.plugins.connectionStatuses(typeof resolved.connectionId === "string" ? resolved.connectionId : undefined);
       }
       if (
@@ -236,6 +241,7 @@ export class InternalToolService {
           callId: request.callId,
           action: request.tool,
           arguments: request.arguments,
+          origin: run.origin,
         }, signal);
       }
       if (request.tool === "PluginCall") {
@@ -249,7 +255,7 @@ export class InternalToolService {
         const automationChild = childIdentity && (await this.prisma.run.findUnique({
           where: { id: childIdentity.parentRunId }, select: { origin: true },
         }))?.origin === "routine";
-        return this.plugins.invoke({
+        return withConnectorDraftCardReminder(this.prisma, { connectionId: input.connectionId, toolName: input.toolName }, !childIdentity && run.origin !== "routine", await this.plugins.invoke({
           connectionId: input.connectionId,
           namespace: typeof input.namespace === "string" ? input.namespace : undefined,
           botId:
@@ -258,7 +264,7 @@ export class InternalToolService {
           callId: request.callId,
           toolName: input.toolName,
           arguments: input.arguments ?? {},
-        });
+        }));
       }
       if (isStateTool(request.tool)) {
         const result = await this.durableState.executeTool(
@@ -284,7 +290,7 @@ export class InternalToolService {
         );
       }
       if (request.tool === "Task") {
-        return this.subagents.task(context, Schema.decodeUnknownSync(TaskInput)(request.arguments), signal, request.foregroundYield === true);
+        return this.subagents.task(context, Schema.decodeUnknownSync(TaskInput)(request.arguments));
       }
       if (request.tool === "CheckSubagent") {
         return this.subagents.check(
@@ -394,6 +400,11 @@ export class InternalToolService {
             };
           } catch (error) {
             if(error instanceof ApiError&&error.code==="external_file_review_required")throw error;
+            // Nothing left the box for these, so refuse now with the reason.
+            if (error instanceof ApiError && error.code === "connected_channel_address_invalid")
+              throw new ApiError(400, error.code, `"${input.channel}" is not a valid channel address, so nothing was sent. An address is shaped platform:chat.`);
+            if (error instanceof ApiError && ["connected_channel_unavailable", "connected_channel_ambiguous", "connected_channel_delivery_unsupported"].includes(error.code))
+              throw new ApiError(error.status, error.code, `${error.message}. Nothing was sent.`);
             const recoveryRunId = await this.messaging.enqueueChannelDeliveryFailure(
               context,
               input.channel,
@@ -404,6 +415,7 @@ export class InternalToolService {
                 sent: false,
                 channel: input.channel,
                 delivery_failed: true,
+                reason: (error instanceof Error ? error.message : String(error)).slice(0, 2_000),
                 recovery_run_id: recoveryRunId,
               },
               interruptRunId: null,

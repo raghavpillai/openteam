@@ -64,7 +64,7 @@ describe("bounded teammates roster", () => {
     })!;
     expect(block.split("\n")).toEqual([
       "<teammates>",
-      expect.stringContaining("Each teammate is its own assistant"),
+      'Each teammate is its own assistant with its own chat, persona, and memory, and the user may not know you can reach them. When looping one in would genuinely help, offer it ("want me to ask @Name?"), and treat "@ that agent", "tell my other agent\u2026", or "ask the group" as a request to send. Writing @ and a teammate\'s exact name in your private chat does not reach the teammate; use SendToAgent.',
       expect.stringContaining("Every agent (yours included) is a sibling folder under /agent-data/agents."),
       "Teammates you can message right now:",
       "- Archivist (id: a-agent) (hidden from the user's sidebar, but reachable)",
@@ -104,7 +104,7 @@ describe("bounded teammates roster", () => {
           profileSnapshot: null,
           identityAnnouncement: "",
           memory: { policy: "## Memory\nMemory policy.", facts: "No facts recorded yet." },
-          skillRender: "",
+          skillRender: '<agent_skill fullPath="/agent-data/workflows/x/SKILL.md">X</agent_skill>',
           warnings: [],
         }),
         loadInferenceSettings: async () => ({
@@ -116,7 +116,7 @@ describe("bounded teammates roster", () => {
       },
       prisma: {
         $queryRaw: async () => [],
-        contextSession: { findMany: async () => [] },
+        contextSession: { findMany: async () => [], findFirst: async () => null },
         bot: {
           findUniqueOrThrow: async (args: Record<string, unknown>) => {
             queryArgs.bot = args;
@@ -149,7 +149,9 @@ describe("bounded teammates roster", () => {
 
     const prompt = await AgentMessaging.prototype.platformPrompt.call(
       messaging as unknown as AgentMessaging,
-      "main"
+      "main",
+      "main-context",
+      ""
     );
     expect(queryArgs.bot).toMatchObject({ include: { todos: { take: 64 } } });
     expect(queryArgs.peers).toMatchObject({ take: PLATFORM_PROMPT_PEER_LIMIT + 1 });

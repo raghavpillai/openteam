@@ -3,6 +3,31 @@ import XCTest
 @testable import OpenTeamCore
 
 final class VoiceMemoGestureTests: XCTestCase {
+  func testCancellationFeedbackHasADeadZoneAndRewindsWithoutChangingCancelDistance() {
+    var hold = VoiceHoldTracker(barWidth: 342)
+    hold.move(dx: -9, dy: 0)
+    XCTAssertEqual(hold.cancelFeedbackProgress, 0)
+    hold.move(dx: -14, dy: 0)
+    XCTAssertEqual(hold.axis, .horizontal)
+    XCTAssertEqual(hold.cancelFeedbackProgress, 0)
+    hold.move(dx: -15, dy: 0)
+    XCTAssertGreaterThan(hold.cancelFeedbackProgress, 0)
+    hold.move(dx: -(14 + (95.76 - 14) / 2), dy: 0)
+    XCTAssertEqual(hold.cancelFeedbackProgress, 0.5, accuracy: 0.001)
+    XCTAssertFalse(hold.cancelArmed)
+    hold.move(dx: -96, dy: 0)
+    XCTAssertEqual(hold.cancelFeedbackProgress, 1)
+    XCTAssertTrue(hold.cancelArmed)
+    hold.move(dx: -12, dy: 0)
+    XCTAssertEqual(hold.cancelFeedbackProgress, 0)
+    XCTAssertFalse(hold.cancelArmed)
+
+    var vertical = VoiceHoldTracker(barWidth: 342)
+    vertical.move(dx: -8, dy: -20)
+    vertical.move(dx: -100, dy: -30)
+    XCTAssertEqual(vertical.cancelFeedbackProgress, 0, "Sliding toward lock never reddens the bar")
+  }
+
   func testCancelTakesOverAQuarterOfTheBar() {
     let t = VoiceHoldThresholds()
     XCTAssertEqual(t.cancelDistance(barWidth: 342), 95.76, accuracy: 0.001)

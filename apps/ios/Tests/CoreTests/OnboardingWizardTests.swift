@@ -88,10 +88,6 @@ final class OnboardingWizardTests: XCTestCase {
     XCTAssertEqual(ServerAddressText.authority(" not a URL "), "not a URL")
     XCTAssertEqual(ServerAddressText.host("http://192.168.1.20:8787"), "192.168.1.20")
     XCTAssertEqual(ServerAddressText.host("box.tail1234.ts.net:8788"), "box.tail1234.ts.net")
-    XCTAssertEqual(
-      ServerAddressText.releaseVersion(.object(["releaseVersion": .string("0.0.5")])), "0.0.5")
-    XCTAssertNil(ServerAddressText.releaseVersion(.object(["releaseVersion": .string(" ")])))
-    XCTAssertNil(ServerAddressText.releaseVersion(.null))
     XCTAssertEqual(ServerAddressText.found(version: "0.0.5"), "Found OpenTeam 0.0.5")
     XCTAssertEqual(ServerAddressText.found(version: nil), "Found OpenTeam")
   }

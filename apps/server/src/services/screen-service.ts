@@ -1,4 +1,4 @@
-import { formPreparationFailureMessage } from "@openteam/contracts";
+import { formPreparationFailureMessage, userFormPreparationRefusal, type UserForm } from "@openteam/contracts";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { extname, join, relative, sep } from "node:path";
 import { ApiError, type ScreenActionInput, type ScreenClipboardInput, type ScreenClipboardView, type ScreenStatusView } from "@openteam/contracts";
@@ -40,6 +40,9 @@ export const screenViewerUrl = (
   const credential = new URLSearchParams({ password: viewerPassword });
   return `http://${host}:${viewerPort}/openteam.html?${query}#${credential}`;
 };
+
+/** The host refused to show a form; the message is the model-facing, status-only result. */
+export class UserFormRefusal extends Error {}
 
 export class ScreenService {
   constructor(
@@ -85,7 +88,11 @@ export class ScreenService {
       }
     );
     if (!response.ok) {
-      const diagnostic = action === "prepare" ? formPreparationFailureMessage(await response.json().catch(() => undefined)) : undefined;
+      const body = action === "prepare" ? await response.json().catch(() => undefined) : undefined;
+      const form = action === "prepare" ? (input as { form?: UserForm } | undefined)?.form : undefined;
+      const refusal = form && userFormPreparationRefusal(form, body);
+      if (refusal) throw new UserFormRefusal(refusal);
+      const diagnostic = formPreparationFailureMessage(body);
       throw new ApiError(
         409,
         diagnostic ? "form_preflight_failed" : "form_host_unavailable",

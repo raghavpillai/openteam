@@ -7,6 +7,25 @@ import {
   truncationNotice,
 } from "./reference-formatters";
 
+const SEND_TO_USER_FAILED = "Failed to send the message to the user";
+
+/** The reference's SendToUser failure: the reason follows one fixed lead-in. */
+export const sendToUserFailure = (detail: string): string => {
+  const reason = detail.trim();
+  if (reason.startsWith(SEND_TO_USER_FAILED)) return reason;
+  return reason ? `${SEND_TO_USER_FAILED}: ${reason}` : `${SEND_TO_USER_FAILED}.`;
+};
+
+/** A failed tool call's reason: the tool host's error message rather than its JSON envelope. */
+export const toolErrorDetail = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : String(error);
+  try {
+    const envelope = JSON.parse(message) as { message?: unknown } | null;
+    if (envelope && typeof envelope.message === "string") return envelope.message;
+  } catch {}
+  return message;
+};
+
 /** Keep private transport receipts structured; format only at the model boundary. */
 export function renderDesktopResult(
   name: string,
@@ -31,22 +50,28 @@ export function renderControlResult(
   const result = output as Record<string, any>;
   const plugin = renderPluginResult(name, result, args);
   if (plugin !== undefined) return plugin;
+  if (name === "ReactToMessage" && typeof result.note === "string") return result.note;
   if (name === "ReactToMessage" && (result.reacted || result.removed))
     return `Reacted ${args.emoji.trim()} on ${args.message_address.trim()}. (Reactions toggle: react the same emoji again to take it back.)`;
   if (name === "DraftExternalMessage" && result.sent) {
     const where =
       args.platform === "email"
-        ? `email to ${(args.to ?? []).join(", ")}`
+        ? `email from ${args.from} to ${[args.to ?? []].flat().join(", ")}`
         : `Slack message to ${result.target ?? args.target}`;
     const id = result.message_id ? ` (id: ${result.message_id})` : "";
     // The user's approval settings can send a card at once; the server says how that went.
     if (result.delivery === "sent") return `Sent the ${where}${id}. ${result.note}`;
     if (result.delivery === "unknown")
       return `The ${where} was sent without review, but delivery is unconfirmed${id}. ${result.note}`;
-    if (result.delivery === "pending")
-      return `Draft ${where} is now an editable card in the chat${id}. ${result.note}`;
-    return `Draft ${where} is now an editable card in the chat${id}. Nothing has been sent; the user reviews, may edit, and sends or discards it from the card.`;
+    const card = result.in_dm
+      ? `is now an editable card in your own 1:1 chat with the user, not in this room (a room cannot hold draft cards); tell the room where it is${id}.`
+      : `is now an editable card in the chat${id}.`;
+    if (result.delivery === "pending") return `Draft ${where} ${card} ${result.note}`;
+    return `Draft ${where} ${card} Nothing has been sent; the user reviews, may edit, and sends or discards it from the card.`;
   }
+  if (name === "RequestUserForm" && result.sent)
+    return "Showed the form to the user; your turn is over. When they submit, the host fills the browser and resumes you with a per-field receipt (fill statuses only, never the submitted values). If they dismiss it, you'll be resumed with that outcome. If they choose to do the step on the screen instead, the host hands them the box directly (same as request_box_help) and you'll be resumed when they hand it back."
+      + (typeof result.preflightNote === "string" ? `\n\n${result.preflightNote}` : "");
   if (isStateTool(name)) {
     const labels: Record<string, string> = {
       name: "name",
@@ -55,13 +80,19 @@ export function renderControlResult(
       avatar_shape: "avatar shape",
       avatar_color: "avatar color",
     };
+    const settingNames: Record<string, string> = {
+      hidden_from_sidebar: "hiddenFromSidebar",
+      notify_on_updates: "notifyOnAgentUpdates",
+      drafting_disabled: "draftingDisabled",
+    };
     const settingsText = () =>
-      `Updated your settings: ${["hidden_from_sidebar", "notify_on_updates"]
+      `Updated your settings: ${Object.keys(settingNames)
         .filter((key) => args[key] !== undefined)
-        .map((key) =>
-          key === "hidden_from_sidebar" ? "hiddenFromSidebar" : "notifyOnAgentUpdates"
-        )
+        .map((key) => settingNames[key])
         .join(", ")}.`;
+    // A refused state change or read is an ordinary result, not a tool failure.
+    if (typeof result.refused === "string")
+      return `${result.target === "routine" && args.action === "get" ? "Not read" : "Not saved"}: ${result.refused}`;
     // UpdateProfile saves its settings fields as a second update beside the profile.
     if (result.target === "profile" && result.updated)
       return [
@@ -70,6 +101,7 @@ export function renderControlResult(
           .map((key) => labels[key])
           .join(", ")}.`,
         ...(result.settings?.updated ? [settingsText()] : []),
+        ...(typeof result.settings?.refused === "string" ? [`Settings not saved: ${result.settings.refused}`] : []),
         ...(typeof result.settings_error === "string" ? [`Settings not saved: ${result.settings_error}`] : []),
       ].join("\n");
     if (result.target === "settings" && result.updated) return settingsText();
@@ -80,32 +112,41 @@ export function renderControlResult(
     if (result.target === "channel" && result.disconnected)
       return `Disconnected ${result.platform}. The connector closes the live connection within a few seconds.`;
     if (result.target === "avatar" && result.updated)
-      return `Updated your picture (${result.path?.split("/").pop()}). Source ${result.resolved_path?.split("/").pop()} can be deleted if you no longer need it.`;
+      return `Updated your picture (${result.resolved_path?.split("/").pop()}). Source ${result.path?.split("/").pop()} can be deleted if you no longer need it.`;
+    if (result.target === "routine" && args.action === "get")
+      return [
+        `Routine "${result.name}" (folder ${result.folder}), ${result.enabled ? "enabled" : "paused"}.`,
+        `Trigger: ${describeTrigger(result.trigger)}`,
+        result.trigger?.type === "cron"
+          ? `schedule: ${JSON.stringify(result.trigger.schedule)} (leave it out of an update unless the time itself changes)`
+          : `trigger: ${JSON.stringify(result.trigger)}`,
+        "Saved prompt:",
+        result.prompt,
+      ].join("\n");
     if (result.target === "routine") {
+      // Resuming saves the routine again, so it reads like any other update.
       const verb = (
         {
           pause: "Paused",
-          resume: "Resumed",
+          resume: "Updated",
           delete: "Deleted",
           create: "Saved",
           update: "Updated",
         } as Record<string, string>
       )[args.action];
       const owner = result.owner?.kind === "group" ? ` Owner: group "${result.owner.name ?? result.owner.id}" (${result.owner.id}).` : "";
-      const summary = `${verb} routine "${result.name}" (folder ${result.folder ?? args.id})${["create", "update"].includes(args.action) ? ` — ${describeTrigger(result.trigger ?? {type:"cron",schedule:result.schedule})}${result.enabled ? "" : ", paused"}` : ""}.${owner}`;
-      if (typeof result.next_run_at === "string") return `${summary}\nNext scheduled occurrence: ${result.next_run_at}. Use this saved timestamp if reporting the next run; do not calculate or guess a different time.`;
-      if (result.next_run_at === null) return `${summary}\nNext scheduled occurrence: none${result.enabled === false ? " (paused)" : ""}.`;
-      return summary;
+      const summary = `${verb} routine "${result.name}" (folder ${result.folder ?? args.id})${["create", "update", "resume"].includes(args.action) ? `: ${describeTrigger(result.trigger ?? {type:"cron",schedule:result.schedule})}${result.enabled ? "" : ", paused"}` : ""}.${owner}`;
+      const next = args.action === "delete" ? ""
+        : typeof result.next_run_at === "string" ? `\nNext scheduled occurrence: ${localTime(result.next_run_at, result.timezone)}. Use this saved time if reporting the next run; do not calculate or guess a different time.`
+        : result.next_run_at === null ? `\nNext scheduled occurrence: none${result.enabled === false ? " (paused)" : ""}.`
+        : "";
+      return `${summary}${next}${result.delivery_nudge ? "\nGive the user a concise summary of what this routine does and where its result goes." : ""}`;
     }
     if (result.target === "avatar" && result.cleared)
-      return "Cleared your picture — back to the default.";
+      return "Cleared your picture. It is back to the default.";
   }
-  if (name === "CreateBotShareJson" && result.published)
-    return `Published bot template version ${result.version}. Verify the returned artifact before sharing it.`;
-  if (name === "SendFeedback" && result.feedbackStatus) {
-    if (result.feedbackStatus === "sent") return `Feedback sent to the configured OpenTeam support destination. They ${result.wantsResponse ? "asked for a reply" : "did not ask for a reply"}. Confirm to the user that it went through.`;
-    return String(result.outcome ?? "Feedback could not be confirmed. Do not retry automatically.");
-  }
+  if (name === "CreateBotShareJson" && result.staged)
+    return `Staged unpublished version ${result.version} of "${result.name}". It is not public until you confirm it.`;
   if (name === "TodoWrite" && Array.isArray(result.todos)) {
     let text =
       "Successfully updated TODOs. Make sure to follow and update your TODO list as you make progress. Cancel and add new TODO tasks as needed when the user makes a correction or follow-up request.";
@@ -114,9 +155,7 @@ export function renderControlResult(
       result.todos.every((t: any) => t.status !== "in_progress")
     )
       text += " No TODOs are marked in-progress, make sure to mark them before starting the next.";
-    if (result.todos.filter((t: any) => ["completed", "cancelled"].includes(t.status)).length > 20)
-      text +=
-        "\n\n<system_reminder>You have many finished todos. Consider cleaning up old ones.</system_reminder>";
+    // The finished-todos cleanup reminder rides after the fenced result (todoCleanupReminder).
     return (
       text +
       "\n\nHere are the latest contents of your todo list:\n" +
@@ -130,12 +169,14 @@ export function renderControlResult(
   if (name === "SendToUser" && result.sent)
     if (result.queued) return `Message queued for the room when this turn completes. (id: ${result.message_address ?? result.message_id})`;
   if (name === "SendToUser" && result.silent) return "No room message delivered (silent turn).";
+  if (name === "SendToUser" && result.delivery_failed)
+    return `Message to ${result.channel} was not delivered${result.reason ? `: ${result.reason}` : "."}${result.reason && !/[.!?]$/.test(result.reason) ? "." : ""} Tell the user it did not go through.`;
   if (name === "SendToUser" && result.sent)
-    return result.message_address || result.message_id
+    return `${result.message_address || result.message_id
       ? `Message sent to user. (id: ${result.message_address ?? result.message_id})`
-      : "Message sent to user.";
+      : "Message sent to user."}${sendsLocalFileSnapshot(args) ? ` ${FILE_SNAPSHOT_NOTE}` : ""}`;
   if (name === "MessageSubagent" && result.delivered)
-    return `Message delivered to subagent ${args.subagent_id}. It will interrupt what it's doing, take your message into account, and keep working. You'll be revived with its result when it finishes — don't wait on it.`;
+    return `Message delivered to subagent ${args.subagent_id}. It will interrupt what it's doing, take your message into account, and keep working. You'll be revived with its result when it finishes, so don't wait on it.`;
   if (name === "StopSubagent" && result.stopped_all) return renderStopAllSubagents(result);
   if (name === "StopSubagent" && result.stopped)
     return `Stopping subagent ${args.subagent_id}. It will be torn down and won't report back.`;
@@ -144,27 +185,18 @@ export function renderControlResult(
       seconds < 90
         ? `${seconds}s`
         : `${Math.floor(seconds / 60)}m${seconds % 60 ? ` ${seconds % 60}s` : ""}`;
+    // Only running subagents are listed, so the reference always says "running".
     const describe = (sub: any, detailed: boolean) => {
-      const calls = sub.recent_tool_calls ?? [];
-      const status = typeof sub.status === "string" ? sub.status : "status unavailable";
-      const runStatus = typeof sub.run_status === "string" ? `; run: ${sub.run_status}` : "";
+      const activity: string[] = sub.recent_activity ?? [];
       const lines = [
-        `- ${sub.subagent_id} [${sub.subagent_type}] "${sub.description}" — ${status}${runStatus}; elapsed ${elapsed(sub.elapsed_seconds)}, ${sub.tool_call_count ?? calls.length} tool call(s)`,
+        `- ${sub.subagent_id} [${sub.subagent_type}] "${sub.title}": running for ${elapsed(sub.elapsed_seconds)}, ${sub.tool_call_count} tool call(s)`,
       ];
       if (detailed) {
-        lines.push(
-          calls.length ? "  Recent activity (oldest → newest):" : "  No tool activity recorded yet."
-        );
-        // Admission/start is not completion: preserve the persisted state so a
-        // pending or failed call cannot read like a completed worker action.
-        lines.push(...[...calls].reverse().map((call: any) => {
-          const error = call.status === "failed" && typeof call.error === "string" && call.error
-            ? ` — error: ${JSON.stringify(call.error.slice(0, 500))}` : "";
-          return `    [${typeof call.status === "string" && call.status ? call.status : "status unavailable"}] ${call.tool}${error}`;
-        }));
+        lines.push(activity.length ? "  Recent activity (oldest first):" : "  No tool activity recorded yet.");
+        lines.push(...activity.map((entry) => `    ${entry}`));
         if (sub.transcript_path)
           lines.push(
-            `  Private transcript reference: ${sub.transcript_path}. Use cursor.ReadTranscript with this subagent_id for observable history; do not open the path with Read.`
+            `  Full transcript: call ReadTranscript with in=${sub.subagent_id} for the complete play-by-play.`
           );
       }
       return lines.join("\n");
@@ -181,21 +213,63 @@ export function renderControlResult(
   return JSON.stringify(output);
 }
 
-const PEERS_NOT_STOPPED =
-  "Peer agents you handed work to are not reached from here, so none of them was stopped. If any may still be working, message each with SendToAgent priority: true to stop, and tell the user what may still be running.";
+// The reference adds that the Library lists only the latest copy per path; OpenTeam has no Library.
+const FILE_SNAPSHOT_NOTE =
+  "The user got a copy of the file as it is now. Later edits to the file do not reach them until you send it again; earlier copies stay in the chat unchanged.";
+const PICTURE_OR_VIDEO = /\.(?:avif|bmp|gif|ico|jpe?g|png|svg|webp|heic|heif|m4v|mov|mp4|ogv|webm)$/i;
 
-/** The stop-everything receipt: exactly which subagents stopped, had finished, or could not be stopped. */
+/** A local file other than a picture or video is delivered as a copy of how it is now. */
+function sendsLocalFileSnapshot(args: Record<string, any>): boolean {
+  if (args.type !== "attachment" || typeof args.url !== "string" || !/^file:/i.test(args.url.trim())) return false;
+  let path = args.url.trim();
+  try {
+    path = decodeURIComponent(new URL(path).pathname);
+  } catch {}
+  return !PICTURE_OR_VIDEO.test(path);
+}
+
+/** A saved time in the routine's zone, labeled with that zone. */
+function localTime(iso: string, timeZone: unknown): string {
+  const options = { timeZoneName: "short" } as const;
+  try {
+    return new Date(iso).toLocaleString("en-US", typeof timeZone === "string" && timeZone ? { ...options, timeZone } : options);
+  } catch {
+    return new Date(iso).toLocaleString("en-US", options);
+  }
+}
+
+const SHELLS_NOT_COVERED = "Background shell commands you started yourself are not covered: terminate those with their reported PIDs.";
+
+/** What happened to one peer this agent handed work to with a priority message. */
+function describeDelegatedWork(peer: Record<string, any>): string {
+  const label = `${peer.name} (agent ${peer.id})`;
+  if (peer.result === "stopped") return `- ${label}: stop delivered; its turn is cancelled and its own subagents are being torn down.`;
+  if (peer.result === "not_running") return `- ${label}: already idle, nothing to stop.`;
+  return `- ${label}: stop failed${peer.detail ? ` (${peer.detail})` : ""}. Retry StopSubagent with all: true; if it fails again, tell the user it may still be working.`;
+}
+
+/** The stop-everything receipt: exactly which subagents stopped, had finished, or could not be stopped, and what happened to each peer. */
 function renderStopAllSubagents(result: Record<string, any>): string {
-  const listed = (entry: any) => `- ${entry.subagent_id} [${entry.subagent_type}] "${entry.description}"`;
+  const listed = (entry: any) => `- ${entry.subagent_id} [${entry.subagent_type}] "${entry.title}"`;
   const stopped: any[] = result.stopped ?? [], finished: any[] = result.already_finished ?? [], failed: any[] = result.failed ?? [];
+  const delegated: any[] = result.delegated ?? [];
   const total = stopped.length + finished.length + failed.length;
-  if (total === 0)
-    return `No background subagents are running, so there was nothing of your own to stop. ${PEERS_NOT_STOPPED} Background shell commands you started yourself are not subagents: terminate those with their reported PIDs.`;
+  if (total === 0 && delegated.length === 0)
+    return "No background subagents are running and no work is out with other agents, so there was nothing to stop. Background shell commands you started yourself are not subagents: terminate those with their reported PIDs.";
   return [
-    ...(stopped.length ? [`Stopped ${stopped.length} of ${total} running subagent(s). They are torn down and will not report back:`, ...stopped.map(listed)] : []),
+    ...(total === 0 ? ["No background subagents of your own are running."] : []),
+    ...(stopped.length ? [`Stopped ${stopped.length} of ${total} running subagent(s). They are torn down, will not report back, and anything they dispatched or ran inside their own turn ends with them:`, ...stopped.map(listed)] : []),
     ...(finished.length ? [`${finished.length} had already finished before the stop reached them (you are revived with a finished subagent's result separately):`, ...finished.map(listed)] : []),
     ...(failed.length ? [`${failed.length} could NOT be stopped and may still be running. Retry each with StopSubagent and its id; if it still fails, tell the user which work may still be running:`, ...failed.map((entry) => `${listed(entry)}: ${entry.error}`)] : []),
-    PEERS_NOT_STOPPED,
-    "Do not resume, redispatch, or continue the stopped work unless the user asks again. Background shell commands you started yourself are not covered: terminate those with their reported PIDs.",
+    ...(delegated.length
+      ? [`Work you handed to other agents (${delegated.filter((peer) => peer.result === "stopped").length} of ${delegated.length} stopped):`, ...delegated.map(describeDelegatedWork)]
+      : []),
+    `Do not resume, redispatch, or continue the stopped work unless the user asks again. ${SHELLS_NOT_COVERED}`,
   ].join("\n");
 }
+
+/** Appended after a TodoWrite result, outside its data fence, when many finished todos remain. */
+export const todoCleanupReminder = (todos: unknown): string | null =>
+  Array.isArray(todos) && todos.filter((todo: any) => ["completed", "cancelled"].includes(todo?.status)).length > 20
+    ? "<system_reminder>\nYou have many finished todos. Consider cleaning up old ones.\n</system_reminder>"
+    : null;

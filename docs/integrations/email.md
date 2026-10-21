@@ -24,7 +24,8 @@ Outlook.com and Microsoft 365 can't be used: Microsoft only lets mail apps sign 
 1. In **Marketplace**, choose **Add** on **Email**.
 2. Open the plugin's account settings and enter the **Email address** and the **App password**.
 3. Leave **IMAP server** and **SMTP server** set to `auto`. OpenTeam finds them from the address, including custom domains hosted by Google, iCloud or Fastmail. For your own server or Proton Mail Bridge, enter them as `host:port`, or `imap://host:port` and `smtp://host:port` for a local bridge without TLS.
-4. Choose **Connect**. OpenTeam signs in to check the password. A wrong password or blocked app password shows as an error on the account.
+4. Optionally, list the addresses you'll email the bot from under **Your own addresses**, separated by commas. Mail from them that passes the sender check (DMARC) is marked as coming from you, so the bot treats it as your request. All other mail is marked as outside information.
+5. Choose **Connect**. OpenTeam signs in to check the password. A wrong password or blocked app password shows as an error on the account.
 
 To connect more mailboxes, add another account with a new name. Every bot can use every connected mailbox.
 

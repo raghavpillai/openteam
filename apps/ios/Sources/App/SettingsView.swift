@@ -69,6 +69,16 @@ struct SettingsView: View {
           Text("Server").font(.system(size: 13)).foregroundStyle(NativePalette.faint)
         }
         Section {
+          NavigationLink {
+            AutoReviewRulesView()
+          } label: {
+            VStack(alignment: .leading, spacing: 3) {
+              Text("Auto-review").font(.body)
+              Text("Set rules for which actions OpenTeam can take automatically").font(.system(size: 13))
+                .foregroundStyle(NativePalette.muted)
+            }.padding(.vertical, 1).frame(maxWidth: .infinity, alignment: .leading)
+              .contentShape(Rectangle())
+          }.accessibilityIdentifier("auto-review-settings")
           NavigationLink("Bot notifications") { notificationSettings }
           NavigationLink("Hidden conversations") { HiddenConversationsView() }
         } header: {
@@ -98,9 +108,6 @@ struct SettingsView: View {
         Section {
           NavigationLink("More preferences") { NativePreferencesView() }
           Link("Help Center", destination: URL(string: "https://github.com/raghavpillai/openteam#readme")!)
-          ShareLink(
-            item: "OpenTeam feedback\nVersion \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")\niOS \(UIDevice.current.systemVersion)"
-          ) { Text("Send Feedback") }
         }
         Section {
           NavigationLink("Server status") { ServerStatusView() }

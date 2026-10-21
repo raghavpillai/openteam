@@ -1,6 +1,5 @@
 import type { BotService } from "./bot-service";
 import { storeProcessSecret } from "./process-secrets";
-import { FeedbackService } from "./feedback-service";
 import { SharedTemplateService } from "./shared-template-service";
 import {
   ApiError,
@@ -19,11 +18,13 @@ import { Prisma, type PrismaClient } from "@openteam/db";
 import { type AgentMessaging, type ToolContext, PRIORITY } from "@openteam/messaging";
 import { Effect } from "effect";
 import type { PluginService } from "./plugin-service";
-import type { ScreenService } from "./screen-service";
+import { UserFormRefusal, type ScreenService } from "./screen-service";
+import { buildUserFormUnsupportedTurnResult } from "@openteam/contracts/reference-form-results";
 import { appendEvent, metadataRecord, serviceEffect, toJson } from "./service-utils";
 import { toChannelMessageView as messageView } from "./view-mappers";
 
 import { ExternalDraftService } from "./external-draft-service";
+import { ApprovalCardService } from "./approval-card-service";
 
 type Metadata = Record<string, unknown>;
 
@@ -106,15 +107,15 @@ export const dismissMoveOnWidgets = async (
 
 export class RichMessageService {
   readonly sharedTemplates: SharedTemplateService;
-  readonly feedback: FeedbackService;
   readonly externalDrafts: ExternalDraftService;
+  readonly approvals: ApprovalCardService;
   constructor(
     private readonly prisma: PrismaClient,
     private readonly messaging: AgentMessaging,
     private readonly plugins: PluginService,
     private readonly screens: ScreenService,
     bots?: BotService
-  ) { this.externalDrafts = new ExternalDraftService(prisma, messaging, plugins); this.sharedTemplates = new SharedTemplateService(prisma, messaging, bots); this.feedback = new FeedbackService(prisma); }
+  ) { this.externalDrafts = new ExternalDraftService(prisma, messaging, plugins); this.sharedTemplates = new SharedTemplateService(prisma, messaging, bots); this.approvals = new ApprovalCardService(prisma, messaging); }
 
   private recovering: Promise<void> | null = null;
   recoverPendingDeliveries(): Promise<void> {
@@ -125,14 +126,20 @@ export class RichMessageService {
         const service = this.externalDrafts;
         await Effect.runPromise(service.mutate(message.id, { action: "refresh" }));
       }
+      await this.approvals.sweep();
     })().finally(() => { this.recovering = null; });
     return this.recovering;
   }
 
   async createUserForm(context: ToolContext, raw: unknown) {
     const form = parseUserForm(raw);
+    // Form cards are only shown in the private chat, so a room turn is told before any preflight.
+    const channel = await this.prisma.channel.findUnique({ where: { id: context.channelId }, select: { kind: true } });
+    if (channel?.kind === "group") return buildUserFormUnsupportedTurnResult(form, "room");
     const id = createHash("sha256").update(`${context.botId}:${context.callId}`).digest("hex");
-    const prepared = await this.screens.userFormAction(context.botId, id, "prepare", { form });
+    let prepared: unknown;
+    try { prepared = await this.screens.userFormAction(context.botId, id, "prepare", { form }); }
+    catch (error) { if (error instanceof UserFormRefusal) return error.message; throw error; }
     const result = await this.messaging.sendVisible(context, { type: "user-form", form: { ...parseUserForm(prepared), id }, end_turn: true });
     return {...result.acknowledgement as Record<string,unknown>,...(typeof metadataRecord(prepared).preflightNote === "string" ? {preflightNote:metadataRecord(prepared).preflightNote} : {})};
   }

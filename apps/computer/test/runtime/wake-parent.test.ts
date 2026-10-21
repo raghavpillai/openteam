@@ -1,11 +1,10 @@
 import { expect, test } from "bun:test";
 import { RuntimeTools } from "../../src/runtime/tools";
 import type { ActiveTurn } from "../../src/runtime/types";
-import { AUTOMATION_PARENT_ONLY_TOOLS } from "@openteam/contracts";
+import { AUTOMATION_PARENT_ONLY_TOOLS, AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED } from "@openteam/contracts";
 
 /** Routine runs keep these: none of them opens a card or waits for the user. */
 const ROUTINE_MANAGEMENT_TOOLS = [
-  "SendFeedback",
   "UninstallPlugin",
   "UninstallMcpServer",
   "RestartMcpServers",
@@ -14,7 +13,7 @@ const ROUTINE_MANAGEMENT_TOOLS = [
   "RemoveMcpAccount",
 ];
 
-test("automation discovers WakeParent and work tools, with all communication surfaces removed", () => {
+test("automation calls WakeParent directly and keeps work tools, with all communication surfaces removed", () => {
   const tools = new RuntimeTools({} as never, "http://127.0.0.1", "fixture", "/tmp", "/tmp");
   const turn = {
     requestSource: "automation",
@@ -26,7 +25,8 @@ test("automation discovers WakeParent and work tools, with all communication sur
     ...tools.customTools(turn).map((tool) => tool.name),
     ...tools.contextCatalog(turn).flatMap((namespace) => namespace.tools.map((tool) => tool.name)),
   ];
-  expect(names).toContain("WakeParent");
+  expect(tools.customTools(turn).map((tool) => tool.name)).toContain("WakeParent");
+  expect(tools.contextCatalog(turn).flatMap((namespace) => namespace.tools.map((tool) => tool.name))).not.toContain("WakeParent");
   for (const name of AUTOMATION_PARENT_ONLY_TOOLS) expect(names).not.toContain(name);
   for (const name of [
     "Shell",
@@ -52,9 +52,11 @@ test("automation discovers WakeParent and work tools, with all communication sur
   for (const profile of [
     { requestSource: "turn", runtimeProfile: "agent", subagentType: null },
     { requestSource: "agent", runtimeProfile: "subagent", subagentType: "executor" },
+    { requestSource: "automation", runtimeProfile: "subagent", subagentType: "executor" },
   ]) {
-    const catalog = tools.contextCatalog({ ...turn, ...profile } as ActiveTurn);
-    expect(catalog.flatMap((ns) => ns.tools.map((tool) => tool.name))).not.toContain("WakeParent");
+    const other = { ...turn, ...profile } as ActiveTurn;
+    expect(tools.contextCatalog(other).flatMap((ns) => ns.tools.map((tool) => tool.name))).not.toContain("WakeParent");
+    expect(tools.customTools(other).map((tool) => tool.name)).not.toContain("WakeParent");
   }
 });
 
@@ -71,33 +73,11 @@ test("a rejected WakeParent leaves the automation able to continue", async () =>
       runtimeProfile: "agent",
       subagentType: null,
       pluginNamespaces: [],
-      discoveredDynamicTools: new Set(),
       botId: "bot",
     } as unknown as ActiveTurn;
-    const native = tools.customTools(turn);
-    await native
-      .find((tool) => tool.name === "GetDynamicTools")!
-      .execute(
-        "discover",
-        { namespace: "cursor", toolName: "WakeParent" },
-        undefined,
-        undefined,
-        {} as never
-      );
+    const wake = tools.customTools(turn).find((tool) => tool.name === "WakeParent")!;
     await expect(
-      native
-        .find((tool) => tool.name === "CallDynamicTool")!
-        .execute(
-          "wake",
-          {
-            namespace: "cursor",
-            toolName: "WakeParent",
-            arguments: { message: "Complete report" },
-          },
-          undefined,
-          undefined,
-          {} as never
-        )
+      wake.execute("wake", { message: "Complete report" }, undefined, undefined, {} as never)
     ).rejects.toThrow("storage unavailable");
     expect(turn.endTurnRequested).not.toBe(true);
   } finally {
@@ -105,7 +85,7 @@ test("a rejected WakeParent leaves the automation able to continue", async () =>
   }
 });
 
-test("routine runs call plugin management and feedback directly, and keep working afterwards", async () => {
+test("routine runs call plugin management directly and keep working afterwards", async () => {
   const calls: Array<{ tool: string; arguments: unknown }> = [];
   const server = Bun.serve({
     port: 0,
@@ -114,8 +94,6 @@ test("routine runs call plugin management and feedback directly, and keep workin
       const body = (await request.json()) as { tool: string; arguments: unknown };
       calls.push(body);
       if (body.tool === "RefreshToolCatalog") return Response.json({ namespaces: [] });
-      if (body.tool === "SendFeedback")
-        return Response.json({ feedbackStatus: "sent", wantsResponse: false, outcome: "Accepted." });
       return Response.json({ status: "completed", completed: true, actionResult: {}, connections: [] });
     },
   });
@@ -126,8 +104,6 @@ test("routine runs call plugin management and feedback directly, and keep workin
       runtimeProfile: "agent",
       subagentType: null,
       pluginNamespaces: [],
-      discoveredDynamicTools: new Set(),
-      pendingSteers: [],
       botId: "bot",
       runId: "routine-run",
     } as unknown as ActiveTurn;
@@ -135,7 +111,6 @@ test("routine runs call plugin management and feedback directly, and keep workin
     const get = native.find((tool) => tool.name === "GetDynamicTools")!;
     const invoke = native.find((tool) => tool.name === "CallDynamicTool")!;
     const args: Record<string, Record<string, unknown>> = {
-      SendFeedback: { message: "The weekly digest skipped Monday.", wantsResponse: false },
       UninstallPlugin: { plugin_id: "linear" },
       UninstallMcpServer: { server_id: "plugin_custom" },
       RestartMcpServers: {},
@@ -156,9 +131,16 @@ test("routine runs call plugin management and feedback directly, and keep workin
     }
     expect(calls.filter((call) => call.tool !== "RefreshToolCatalog").map((call) => call.tool)).toEqual(ROUTINE_MANAGEMENT_TOOLS);
     // Each completed plugin change refreshes the routine's own tool catalog.
-    expect(calls.filter((call) => call.tool === "RefreshToolCatalog")).toHaveLength(ROUTINE_MANAGEMENT_TOOLS.length - 1);
+    expect(calls.filter((call) => call.tool === "RefreshToolCatalog")).toHaveLength(ROUTINE_MANAGEMENT_TOOLS.length);
     expect(turn.endTurnRequested).not.toBe(true);
   } finally {
     server.stop(true);
   }
+});
+
+test("a routine run that calls a communication tool is told to use WakeParent instead", async () => {
+  const tools = new RuntimeTools({} as never, "http://127.0.0.1", "fixture", "/tmp", "/tmp") as any;
+  const turn = { requestSource: "automation", runtimeProfile: "agent", subagentType: null, pluginNamespaces: [] };
+  for (const [tool, args] of [["SendToUser", { type: "text", content: "Done" }], ["ReactToMessage", { message_address: "t1", emoji: "👍" }]] as const)
+    await expect(tools.executeOpenTeamTool(turn, "call", tool, args)).rejects.toThrow(AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED);
 });

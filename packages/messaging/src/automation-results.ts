@@ -63,15 +63,41 @@ async function pendingAutomationShells(
       )
     )
       return false;
+    // A completion's block names its output on its own line, also once batched into another wake.
     return !receipts.some((receipt) => {
-      const payload = receipt.payload as { content?: string };
-      return payload.content?.includes(`Output file: ${JSON.stringify(path)}.`);
+      const payload = receipt.payload as { content?: string; revival?: { block?: string } };
+      return (payload.revival?.block ?? payload.content ?? "").split("\n").includes(`Full output: ${path}`);
     });
   });
 }
 
-/** One saved occurrence can span several parent turns and delegated workers. */
-export async function reconcileRoutineExecution(tx: Prisma.TransactionClient, runId: string) {
+/** Whether background work an automation context started (background subagents, or background
+ * shells nothing has reported yet) is still running; its results wait until all of it is done. */
+export async function automationBackgroundWorkRunning(
+  tx: Prisma.TransactionClient,
+  botId: string,
+  rootId: string
+): Promise<boolean> {
+  const family = (await tx.run.findMany({
+    where: {
+      botId,
+      origin: "routine",
+      OR: [{ id: rootId }, { inboxEvents: { some: { payload: { path: ["automationContextRunId"], equals: rootId } } } }],
+    },
+    select: { id: true },
+  })).map((entry) => entry.id);
+  if (await tx.subagentAttempt.count({
+    where: { parentRunId: { in: family }, status: { in: ["provisioning", "queued", "running"] } },
+  })) return true;
+  return pendingAutomationShells(tx, botId, family);
+}
+
+/** One saved occurrence can span several parent turns and delegated workers. Returns the
+ * execution that settled, for what follows it (RoutineService.afterExecution). */
+export async function reconcileRoutineExecution(
+  tx: Prisma.TransactionClient,
+  runId: string
+): Promise<{ executionId: string; routineId: string } | undefined> {
   const run = await tx.run.findUnique({
     where: { id: runId },
     include: { inboxEvents: { take: 1, select: { payload: true } } },
@@ -99,25 +125,28 @@ export async function reconcileRoutineExecution(tx: Prisma.TransactionClient, ru
   });
   if (family.some((entry) => ["queued", "running"].includes(entry.status)))
     return;
+  const handoff = await tx.automationResult.findUnique({ where: { runId: rootId }, select: { wakeRunId: true } });
+  // A handoff ends the automation; background work it started no longer reports to it.
   if (
-    await tx.subagentAttempt.count({
+    !handoff?.wakeRunId &&
+    (await tx.subagentAttempt.count({
       where: {
         parentRunId: { in: family.map((entry) => entry.id) },
         status: { in: ["provisioning", "queued", "running"] },
       },
-    })
+    }))
   )
     return;
   if (
-    await pendingAutomationShells(
+    !handoff?.wakeRunId &&
+    (await pendingAutomationShells(
       tx,
       root.botId,
       family.map((entry) => entry.id)
-    )
+    ))
   )
     return;
   const final = family[0]!;
-  const handoff = await tx.automationResult.findUnique({ where: { runId: rootId }, select: { wakeRunId: true } });
   const failedHandoff = !handoff?.wakeRunId && await tx.runItem.findFirst({ where: {
     runId: { in: family.map(entry => entry.id) }, status: "failed", kind: "tool",
     OR: [{ title: "WakeParent" }, { content: { path: ["arguments", "toolName"], equals: "WakeParent" } }],
@@ -136,15 +165,18 @@ export async function reconcileRoutineExecution(tx: Prisma.TransactionClient, ru
       ...(status === "completed" ? {} : { error: failedHandoff ? { code: "automation_handoff_failed", message: "The required parent handoff failed; no result was delivered", runItemId: failedHandoff.id } : final.error ?? Prisma.JsonNull }),
     },
   });
-  return updated.count > 0;
+  if (!updated.count) return;
+  const settled = await tx.routineExecution.findUnique({ where: { runId: rootId }, select: { id: true, routineId: true } });
+  return settled ? { executionId: settled.id, routineId: settled.routineId } : undefined;
 }
 
-/** Shell and delegated-worker completions resume their owning automation. */
+/** Shell and delegated-worker completions resume their owning automation. Once that
+ * automation handed off to its parent, they are dropped (null). */
 export async function automationContinuationRoute(
   tx: Prisma.TransactionClient,
   botId: string,
   sourceRunId: string
-): Promise<Pick<WakeInput, "origin" | "automationContextRunId" | "automationTrigger">> {
+): Promise<Pick<WakeInput, "origin" | "automationContextRunId"> | null> {
   const source = await tx.run.findFirst({
     where: { id: sourceRunId, botId },
     include: { inboxEvents: { take: 1, select: { payload: true } } },
@@ -156,16 +188,8 @@ export async function automationContinuationRoute(
     where: { runId: rootId },
     select: { wakeRunId: true },
   });
-  if (handoff?.wakeRunId) return { origin: "background_revival" };
-  const trigger =
-    payload && typeof payload === "object" && !Array.isArray(payload)
-      ? payload.automationTrigger
-      : null;
-  return {
-    origin: "routine",
-    automationContextRunId: rootId,
-    ...(typeof trigger === "string" ? { automationTrigger: trigger } : {}),
-  };
+  if (handoff?.wakeRunId) return null;
+  return { origin: "routine", automationContextRunId: rootId };
 }
 
 export const AUTOMATION_RUN_INSTRUCTIONS = [
@@ -173,8 +197,8 @@ export const AUTOMATION_RUN_INSTRUCTIONS = [
   "You are running an automation as a fresh subagent with the parent agent's work capabilities. Complete the saved instruction autonomously.",
   "- You can't change the visible transcript, message the user or another agent, react, ask a question, or surface a form, handoff, connector, draft, or share card.",
   "- Older saved instructions may name SendMessage or SendToUser; neither exists in this run. Treat either as a request for user-visible communication and call WakeParent with the full payload instead.",
-  // WakeParent is reached through the cursor namespace in a run.
-  "- WakeParent is the only way to reach the user or another agent from this run; discover cursor.WakeParent with GetDynamicTools and invoke it with CallDynamicTool. Call it when the saved instruction asks you to ping, remind, tell, notify, ask, or say something to the user, even when the work succeeded, and when the parent must message an agent, make a decision, or take over a blocker. It ends your turn immediately, so include the complete outcome and what the parent should say or do.",
+  // WakeParent is a direct tool in an automation run.
+  "- WakeParent is the only way to reach the user or another agent from this run; call WakeParent directly. Call it when the saved instruction asks you to ping, remind, tell, notify, ask, or say something to the user, even when the work succeeded, and when the parent must message an agent, make a decision, or take over a blocker. It ends your turn immediately, so include the complete outcome and what the parent should say or do.",
   "- Stay quiet by default: no acknowledgements, progress narration, or unsolicited offers. Guidance elsewhere to acknowledge, post updates, or ask with a widget doesn't apply here.",
   "- Email or messages to anyone but the user go out only when the saved instruction names that message and those recipients. Otherwise tell the parent to call DraftExternalMessage, and do not create the draft in the source app with Gmail create_draft or another connector draft tool. Put that ask in WakeParent when you have it, and in your final message otherwise. Include the recipient, the channel or connector, the thread or other context, the proposed text, and why it should go out. The only exception is an email draft that the user asked to keep in their mailbox, or that must carry a file attachment: save it in their mailbox, with the email connector's create_draft or the mail app's own UI, send nothing, and do not ask the parent to draft it. Reading mail is not answering it.",
   "- When the result can wait for the parent's next natural stopping point, skip WakeParent and end with a complete final assistant message in plain text; it is saved silently as the automation result. Earlier assistant messages are not included.",
@@ -229,8 +253,19 @@ export async function wakeAutomationParent(
         "Automation context does not belong to this run"
       );
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`automation-result:${rootId}`}))`;
+    // The caller stops the background work these runs started.
+    const automation_run_ids = (await tx.run.findMany({
+      where: {
+        botId: run.botId,
+        channelId: run.channelId,
+        origin: "routine",
+        OR: [{ id: rootId }, { inboxEvents: { some: { payload: { path: ["automationContextRunId"], equals: rootId } } } }],
+      },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    })).map((entry) => entry.id);
     const existing = await tx.automationResult.findUnique({ where: { runId: rootId } });
-    if (existing?.wakeRunId) return { woken: true, run_id: existing.wakeRunId };
+    if (existing?.wakeRunId) return { woken: true, run_id: existing.wakeRunId, automation_run_ids };
     const wake = await messaging.enqueueWake(tx, {
       botId: run.botId,
       channelId: context.channelId,
@@ -250,7 +285,7 @@ export async function wakeAutomationParent(
       create: { runId: rootId, message: input.message, wakeRunId: wake.run.id },
       update: { message: input.message, wakeRunId: wake.run.id },
     });
-    return { woken: true, run_id: wake.run.id };
+    return { woken: true, run_id: wake.run.id, automation_run_ids };
   });
 }
 

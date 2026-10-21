@@ -237,9 +237,39 @@ private struct FadingTopBar<Bar: View>: ViewModifier {
 // The share extension compiles this file; app-only pieces use UIApplication.shared or
 // the app's gestures, which it cannot.
 #if !SHARE_EXTENSION
+/// Share one keyboard transition between viewport avoidance and composer spacing.
+/// Use a spring for the system keyboard curve and preserve standard curves.
+/// iOS can report zero duration on tap-to-dismiss while the keyboard still moves;
+/// give that path a short transition too, unless Reduce Motion is enabled.
+enum ChatKeyboardMotion {
+  static func update(_ notification: Notification, reduceMotion: Bool, _ changes: () -> Void) {
+    let info = notification.userInfo
+    let suppliedDuration = info?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0
+    let duration = suppliedDuration > 0 ? suppliedDuration : 0.25
+    guard !reduceMotion else {
+      var transaction = Transaction(animation: nil)
+      transaction.disablesAnimations = true
+      withTransaction(transaction, changes)
+      return
+    }
+    let curve = (info?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int)
+      .flatMap(UIView.AnimationCurve.init(rawValue:))
+    let animation: Animation
+    switch curve {
+    case .easeInOut: animation = .easeInOut(duration: duration)
+    case .easeIn: animation = .easeIn(duration: duration)
+    case .easeOut: animation = .easeOut(duration: duration)
+    case .linear: animation = .linear(duration: duration)
+    default: animation = .interpolatingSpring(duration: duration, bounce: 0)
+    }
+    withAnimation(animation, changes)
+  }
+}
+
 private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
   var top: Top
   var bottom: Bottom
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var keyboardFrame = CGRect.null
   func body(content: Content) -> some View {
     GeometryReader { viewport in
@@ -290,24 +320,16 @@ private struct ChatFloatingBars<Top: View, Bottom: View>: ViewModifier {
           .padding(.bottom, keyboardInset)
       }
     }
-    // The reference puts the editor in its typing position immediately, while
-    // UIKit presents the keyboard. Automatic avoidance instead gives the bar a
-    // second ~0.4-second slide on every tap. Keep dismissal/interactive changes
-    // animated, and reserve only the space covered by a docked keyboard.
+    // Own keyboard avoidance once so the composer and transcript share the
+    // same animated inset. Automatic avoidance here would apply a second lift.
+    // Floating/hardware keyboards reserve no space.
     .ignoresSafeArea(.keyboard, edges: .bottom)
     .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
       guard let screenFrame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
       let window = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         .flatMap(\.windows).first(where: \.isKeyWindow)
       let frame = window.map { $0.convert(screenFrame, from: $0.screen.coordinateSpace) } ?? screenFrame
-      let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0
-      if !keyboardFrame.isNull && frame.minY > keyboardFrame.minY && duration > 0 {
-        withAnimation(.interpolatingSpring(duration: duration, bounce: 0)) { keyboardFrame = frame }
-      } else {
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { keyboardFrame = frame }
-      }
+      ChatKeyboardMotion.update(note, reduceMotion: reduceMotion) { keyboardFrame = frame }
     }
   }
 }

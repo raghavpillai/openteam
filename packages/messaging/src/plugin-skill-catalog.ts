@@ -1,5 +1,6 @@
 import { skillIsForAgent, type PluginSkillAgent } from "@openteam/plugin-sdk";
 import { digest } from "./file-state";
+import { agentSkillItem } from "./skill-catalog";
 
 type JsonObject = Record<string, unknown>;
 
@@ -121,14 +122,6 @@ export const pluginSkillsForAgent = (
   return entries;
 };
 
-/** Catalog lines in the agent_skills format used for managed and saved skills. */
+/** Catalog items in the agent_skills format used for managed and saved skills. */
 export const renderPluginSkillCatalog = (entries: readonly PluginSkillEntry[]): string =>
-  entries
-    .flatMap((entry) =>
-      entry.path
-        ? [
-            `- ${entry.name} (${entry.pluginName === null ? "private" : `plugin:${entry.pluginId}`}): ${entry.description}\n  Path: ${entry.path}`,
-          ]
-        : []
-    )
-    .join("\n\n");
+  entries.flatMap((entry) => (entry.path ? [agentSkillItem(entry.path, entry.description)] : [])).join("\n\n");

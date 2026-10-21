@@ -1,6 +1,6 @@
 {
   "key": "google-sheets",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "Google Sheets",
   "description": "Read, write, and format spreadsheets.",
   "publisher": "OpenTeam",

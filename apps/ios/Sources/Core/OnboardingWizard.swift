@@ -253,11 +253,6 @@ public enum ServerAddressText {
     URL(string: API.withDefaultScheme(server))?.host
       ?? server.trimmingCharacters(in: .whitespacesAndNewlines)
   }
-  /// `GET /api/system/version`'s release, such as "0.0.5". Nil when missing or blank.
-  public static func releaseVersion(_ json: JSON) -> String? {
-    let value = json["releaseVersion"].string.trimmingCharacters(in: .whitespacesAndNewlines)
-    return value.isEmpty ? nil : value
-  }
   public static func found(version: String?) -> String {
     version.map { "Found OpenTeam " + $0 } ?? "Found OpenTeam"
   }

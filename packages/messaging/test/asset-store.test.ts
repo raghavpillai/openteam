@@ -7,6 +7,7 @@ import {
   readFile,
   rm,
   symlink,
+  truncate,
   utimes,
   writeFile,
 } from "node:fs/promises";
@@ -385,6 +386,19 @@ describe("content-addressed attachment store", () => {
     await expect(
       store.ingestSource({ url: pathToFileURL(join(outside, "secret.txt")).toString() })
     ).rejects.toMatchObject({ code: "asset_path_outside_store" });
+    // A missing file inside an allowed root is named as missing, not as outside the store.
+    await mkdir(join(root, "allowed"));
+    await expect(store.ingestSource({ url: pathToFileURL(join(root, "allowed", "nope.pdf")).toString() })).rejects.toMatchObject({
+      code: "attachment_missing",
+      message: `No file at ${join(root, "allowed", "nope.pdf")} on your box, so nothing was sent. Attachments come from the box. For a file on one of the user's computers, copy it to the box with CopyToBox and attach the box path it returns; otherwise check the path and send again.`,
+    });
+    await expect(store.ingestSource({ url: pathToFileURL(join(outside, "nope.pdf")).toString() })).rejects.toMatchObject({ code: "asset_path_outside_store" });
+    await writeFile(join(root, "allowed", "big.pdf"), "");
+    await truncate(join(root, "allowed", "big.pdf"), 26_214_401);
+    await expect(store.ingestSource({ url: pathToFileURL(join(root, "allowed", "big.pdf")).toString() })).rejects.toMatchObject({
+      code: "asset_too_large",
+      message: "big.pdf is over the 25 MB attachment limit, so nothing was sent. Compress, shrink, or split it on the box and attach the smaller file.",
+    });
   });
 
   test("resolves symlinks before accepting file sources", async () => {

@@ -53,17 +53,18 @@ export class AdministrationService {
       })
     );
     if (input.section_id) await this.agentData.assignAgentSection(bot.id, input.section_id);
-    return `Created agent "${bot.name}" (id: ${bot.id}). Message it with SendToAgent using that id.`;
+    return `Created agent "${bot.name}" (id: ${bot.id})${input.section_id ? ` in sidebar section ${input.section_id}` : ""}.`;
   }
 
   async updateAgent(parentBotId: string, callId: string, input: UpdateAgentInput) {
+    // An empty field counts as not provided, so nothing is ever cleared.
+    const name = input.name?.trim() || undefined, description = input.description?.trim() || undefined;
+    if (!name && !description) return "Nothing to update: provide a new name and/or description.";
     const target = await this.prisma.bot.findUnique({
       where: { id: input.agent_id },
       include: { subagentIdentity: { select: { id: true } } },
     });
-    if (!target || target.status === "archived" || target.subagentIdentity) {
-      throw new ApiError(404, "agent_not_found", "Agent not found");
-    }
+    if (!target || target.status === "archived" || target.subagentIdentity) return `No agent found with id ${input.agent_id}.`;
     if (target.id === parentBotId) {
       throw new ApiError(
         400,
@@ -71,22 +72,8 @@ export class AdministrationService {
         "UpdateAgent is only for other agents; update your own profile with UpdateProfile"
       );
     }
-    if (input.name !== undefined && input.name.trim().length === 0) {
-      throw new ApiError(400, "agent_name_required", "An agent name cannot be cleared");
-    }
-    if (input.description !== undefined && input.description.trim().length === 0) {
-      throw new ApiError(
-        400,
-        "agent_description_required",
-        "An agent description cannot be cleared"
-      );
-    }
     const bot = await Effect.runPromise(
-      this.bots.update(input.agent_id, {
-        name: input.name,
-        description: input.description,
-        instructions: input.description,
-      })
+      this.bots.update(input.agent_id, { name, description, instructions: description })
     );
     await this.prisma.$transaction((tx) =>
       appendEvent(tx, "agent.profile_updated_by_agent", bot.id, {
@@ -99,21 +86,17 @@ export class AdministrationService {
   }
 
   async createChannel(parentBotId: string, callId: string, input: CreateChannelInput) {
-    const memberIds = [...new Set(input.member_ids)];
-    if (memberIds.length > GROUP_MAX_MEMBERS) {
-      throw new ApiError(400, "channel_too_large", "A channel can have at most six members");
-    }
-    const active = await this.prisma.bot.findMany({
-      where: {
-        id: { in: memberIds },
-        status: "active",
-        subagentIdentity: { is: null },
-      },
-      select: { id: true, name: true },
-    });
-    if (active.length !== memberIds.length) {
-      throw new ApiError(400, "invalid_channel_members", "Every channel member must be an agent");
-    }
+    const requested = [...new Set(input.member_ids)];
+    const nested = await this.prisma.channel.count({ where: { id: { in: requested }, kind: "group" } });
+    if (nested)
+      throw new ApiError(400, "channel_member_is_channel", `A channel can only contain individual agents, not other channels. Remove the channel${nested === 1 ? "" : "s"} from the member list.`);
+    // Like the reference, stale ids are dropped and the channel is capped rather than refused.
+    const active = new Set((await this.prisma.bot.findMany({
+      where: { id: { in: requested }, status: "active", subagentIdentity: { is: null } },
+      select: { id: true },
+    })).map(({ id }) => id));
+    const memberIds = requested.filter((id) => active.has(id)).slice(0, GROUP_MAX_MEMBERS);
+    if (!memberIds.length) throw new ApiError(400, "invalid_channel_members", "A channel needs at least one existing member agent.");
     const scope = `channel-tool:create:${parentBotId}`;
     const requestHash = hashRequest(input);
     const previous = await this.prisma.idempotencyRecord.findUnique({
@@ -238,9 +221,8 @@ export class AdministrationService {
         },
         include: { members: { orderBy: { ordinal: "asc" } } },
       });
-      if (!channel) {
-        throw new ApiError(404, "channel_not_found", channelNotFoundMessage(input.channel_id));
-      }
+      if (!channel)
+        return { acknowledgement: channelNotFoundMessage(input.channel_id), memberIds: [], affectedBotIds: [], changed: false };
 
       if (!(input.add_member_ids?.length || input.remove_member_ids?.length)) {
         return {

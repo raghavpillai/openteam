@@ -1,6 +1,7 @@
 import reference from "./tool-reference.json";
 import native from "./native-tools.json";
 import { APP_SETTINGS_ANCHORS } from "./app-deep-links";
+import { ROBOT_AVATAR_SHAPES } from "./robot-avatar";
 import { defaultTaskConfiguration, taskTypeNames, type TaskConfiguration } from "./task-configuration";
 
 export interface ToolContract {
@@ -15,7 +16,6 @@ const adaptText = (text: string) =>
   text
     .replaceAll("Grok Bot", "OpenTeam")
     .replaceAll("grokbot://", "openteam://")
-    .replaceAll("SpaceXAI team", "OpenTeam maintainers")
     .replaceAll("Cursor account", "OpenTeam account")
     .replaceAll("Cursor desktop IDE", "OpenTeam connection settings")
     .replaceAll("other Cursor surfaces", "other bots in this deployment")
@@ -58,11 +58,6 @@ contracts.RequestUserForm!.description = editReference("RequestUserForm", contra
     "Show the user the Secure Form for a step where a page needs THEM to type something, such as a login, a checkout address, or a phone number.",
     "Show the user a native in-chat form when they need to supply missing input. If credentials or a verification code are already available through the user's connected sources, enter them with browser_type or browser_fill_form instead.",
   ],
-  // The host fills same-origin frames only and refuses a cross-origin target.
-  [
-    "Fields inside iframes (cross-origin ones included) and shadow roots are reachable: send the form for them instead of predicting a failure.",
-    "Fields inside same-origin iframes and open shadow roots are reachable: send the form for them instead of predicting a failure. Fields inside a cross-origin iframe or a closed shadow root are not.",
-  ],
   [
     "Use this instead of asking for credentials in chat, and instead of request_box_help when the step is just typing; the box handoff stays for",
     "Use this when the user needs to supply a value and the page fields are fillable; request_box_help is available when the tools cannot complete the step, such as",
@@ -90,11 +85,10 @@ cookies.inputSchema.properties.origins.description = editReference("RequestCooki
   ["Pass one or more entries to open the approval dialog and wait.", "Pass one or more entries to import those cookies directly."],
 ]);
 
-// Templates publish at once from the bot's direct chat, team-visible unless the
-// deployment enables public sharing. Imports keep routines as unscheduled proposals.
+// Templates are staged from the bot's direct chat and published by the owner on the card, team-visible
+// unless the deployment enables public sharing. Imports keep routines as unscheduled proposals.
 const share = contracts.CreateBotShareJson!;
 share.description = editReference("CreateBotShareJson", share.description, [
-  ["Stage a draft version of this bot from the reusable recipe.", "Publish a new version of this bot's template from the reusable recipe."],
   [' selected according to the scope guidance below ("public" for a new template).', " selected according to the scope guidance below."],
   [
     "Omit avatars; the host copies the source bot's live geometric avatar when one exists and uses recipe avatars only as a fallback.",
@@ -121,7 +115,7 @@ share.description = editReference("CreateBotShareJson", share.description, [
   ["; per the export skill, add a kind:log memory", "; add a kind:log memory"],
   [
     "The version stays private until the owner publishes it.",
-    "Call it from this bot's direct chat with the user; elsewhere it is refused. Each call publishes a new version at once and replaces the previously published one; a template card in the chat shows it, and the user can unpublish it there. Verify the published receipt. This does not change the source bot. Importing creates a fresh isolated bot with its own provider sign-ins.",
+    "The version stays private until the owner publishes it. Call it from this bot's direct chat with the user; elsewhere it is refused. The template card in the chat shows the draft with a Publish button; publishing replaces the previously published version, and the user can unpublish it there. This does not change the source bot. Importing creates a fresh isolated bot with its own provider sign-ins.",
   ],
 ]);
 
@@ -139,13 +133,13 @@ const transferConnection: [RegExp, string] = [
 const otherProviders = ["OneDrive", "Outlook", "SharePoint"].map(
   (provider): [RegExp, string] => [new RegExp(`\\n- ${provider}:[^\\n]*`), ""]
 );
-// The Gmail connection only creates drafts, so a draft carrying a file waits for the user to send it.
+// The Gmail connection cannot send, so a draft carrying a file waits for the user to send it.
 contracts.UploadFile!.description = editReference("UploadFile", contracts.UploadFile!.description, [
   transferConnection,
   ...otherProviders,
   [
     /- Gmail: destination\.draftId[^\n]*/,
-    "- Gmail: destination.draftId is the id create_draft returned (or one from list_drafts); the file is attached and the id stays the same. Attach last: finish recipients, subject and body with create_draft before calling UploadFile, because the Gmail connection cannot edit a draft afterwards. It cannot send one either, so the draft waits unsent in the user's Gmail Drafts; tell them it is there. A DraftExternalMessage card cannot carry this file. A Gmail draft here carries a file; it is not how you draft for review. The draft with its attachments must stay under 25 MB.",
+    "- Gmail: destination.draftId is the id create_draft returned (or one from list_drafts); the file is attached and the id stays the same. Attach last: Gmail's update_draft removes every attachment it is not handed again, so finish recipients, subject and body before calling UploadFile, and never call update_draft on a draft that already has an attachment (make a new draft and attach again instead). The Gmail connection cannot send a draft, so it waits unsent in the user's Gmail Drafts; tell them it is there. A DraftExternalMessage card cannot carry this file. A Gmail draft here carries a file; it is not how you draft for review. The draft with its attachments must stay under 25 MB.",
   ],
 ]);
 contracts.DownloadFile!.description = editReference("DownloadFile", contracts.DownloadFile!.description, [
@@ -197,6 +191,23 @@ const adaptArgument = (tool: string, path: string, edits: Edits) => {
   property.description = edited(`${tool} ${path}`, property.description, edits);
 };
 
+// Saved skills form one library that every assistant shares; managed and plugin skills are read-only.
+adaptDescription("UpdateSkill", [
+  ["one of your reusable skills.", "one of your reusable skills. Skills are a shared library: every assistant can use a saved skill, and deleting one removes it for all of them."],
+  ["Cursor-managed skills can't be changed.", "Managed and plugin skills can't be changed."],
+]);
+// The picture is installed from the bot's own agent directory; other paths are refused.
+adaptArgument("UpdateAvatar", "path", [[
+  "on your box (under /workspace is fine) or the user's computer.",
+  "inside your own agent directory (a relative path starts there). Write or copy the image there with Shell first.",
+]]);
+// Stdio MCP servers run on the bot's box.
+adaptArgument("AddMcpServer", "command", [["on OpenTeam's computer", "on your computer (the box)"]]);
+// Bots are drawn as robots, so the default mark is one of the robot shapes the apps render;
+// any other shape would silently fall back to the default robot.
+contracts.UpdateProfile!.inputSchema.properties.avatar_shape.enum = [...ROBOT_AVATAR_SHAPES];
+adaptArgument("UpdateProfile", "avatar_shape", [["Your default mark,", "Your default robot,"]]);
+
 // Local commands and reads run directly; there is no local-tool approval.
 adaptDescription("Shell", [["require the user's local-tool approval.", "execute directly."]]);
 adaptDescription("Read", [["requires the user's local-tool approval.", "executes directly."]]);
@@ -217,59 +228,42 @@ adaptArgument("CopyToBox", "computer_path", [["Any file type, up to 100 MiB;", "
 adaptDescription("CopyFromBox", [["Any type, up to 100 MiB;", "Any type or size;"]]);
 adaptArgument("CopyFromBox", "box_path", [["Any file type, up to 100 MiB;", "Any file type and any size;"]]);
 
+// SendToUser is the reference's concise variant, which its main agent gets: the description defers to the
+// "How a turn works", "Autonomy" and "Asking for decisions" prompt sections. Only the main agent has
+// SendToUser (workers and routine runs never do), so the long variant is not needed.
 const send = contracts.SendToUser!;
-export const SEND_TO_USER_BATCH_GUIDANCE =
-  "When several separate text replies to the same conversation are fully ready, emit their SendToUser calls together in one assistant response, in display order, instead of waiting for a model round trip between messages. Keep end_turn false until the final call. Do not batch messages whose content depends on a preceding tool result, or user input.";
 // There are no cloud agents, so the cursor-agent card is not offered.
 send.inputSchema.properties.type.enum = send.inputSchema.properties.type.enum.filter((type: string) => type !== "cursor-agent");
 delete send.inputSchema.properties.bcId;
-adaptArgument("SendToUser", "type", [[/cursor-agent to reference a \S+ cloud agent by its bcId \([^)]*\), /, ""]]);
+adaptArgument("SendToUser", "type", [["cursor-agent: a cloud agent card; ", ""]]);
 // There is no text-to-speech, so voice memos are not offered.
 delete send.inputSchema.properties.voice_memo;
-adaptArgument("SendToUser", "url", [[" Do not attach an audio file for a requested voice memo.", ""]]);
 // Channel delivery passes the chat address through as one destination; it has no Slack thread syntax.
 adaptArgument("SendToUser", "channel", [[
-  " On Slack a channel thread is slack:<channel id>:<thread ts>, a person is slack:<user id>, and a bare slack:<channel id> starts a new top-level post in a channel the bot has been added to (only when asked for one; answer messages in their thread).",
+  " Slack: slack:<channel id>:<thread ts> for a thread, slack:<user id> for a person, bare slack:<channel id> for a new top-level post only when asked for one.",
   "",
 ]]);
 send.description = edited("SendToUser", send.description, [
-  // No text-to-speech.
-  [
-    "A voice memo (whatever they call it: voice note, voice message, audio note) is type:text with voice_memo: true. Write the words to speak in content, as complete spoken sentences with no numbered lists, headers, or markdown. A requested list is spoken as first / next / last, not digits. Start with the thing they asked to hear; never “hit play.” The client plays those words as a pellet. When they asked to receive a memo, send only that one message: no status ack, no ordinary-text copy of the answer, and no audio file (.m4a, .mp3). Silence until then is correct. Set voice_memo: true only on those spoken words (the answer). After that memo, later SendToUser calls stay ordinary text unless they ask for another memo. ",
-    "",
-  ],
-  ["A requested voice memo is not an audio attachment; never attach .m4a or .mp3 for one. ", ""],
-  // No cloud agents.
-  [/Use \{"type":"cursor-agent"[\s\S]*?(?=Use \{"type":"widget")/, ""],
-  // Autonomy here allows no confirmation steps, and there are no approval cards.
-  [
-    "reserving a widget for a consequential or destructive go/no-go, true ambiguity you cannot resolve by looking it up, or something only the user knows.",
-    "reserving a widget for true ambiguity you cannot resolve by looking it up, or something only the user knows. Do not add confirmation widgets before actions.",
-  ],
-  ["(an editor or an approval card)", "(an editor such as a draft card)"],
-  ["When you do genuinely need a decision or confirmation,", "When you do genuinely need a decision,"],
+  // Sign-ins are completed with the available tools first (the Authentication section), so SSO and
+  // 2FA are not handed over by category.
+  ["(SSO, a passkey, 2FA, a captcha", "(a passkey, a captcha"],
   // Plugin setup secrets are team-bot only; connector credentials and personal scope are supported instead.
   [
-    'For a secret `${VAR}` setup field of a plugin (GetPlugin lists the field as secret), add "plugin_id" (the plugin\'s id) and pass the field key as "name"; one secret-request per key, after the plugin is installed.',
-    'For a connector credential, pass "connector" and "field" instead of "name"; the value is written to that connector\'s credential file. A named secret takes "scope": "bot" (the default) or "personal".',
+    "or with plugin_id a plugin's secret setup field (one request per key, after the plugin is installed).",
+    'or with connector and field instead of name, that connector\'s credential file. A named secret takes scope "bot" (the default) or "personal".',
   ],
-  // Sign-in steps follow the Authentication section; there is no sign-in skill.
-  ["follows the `sign-in` skill instead.)", "follows the Authentication section of your instructions instead.)"],
   // The app's deep links: settings anchors only, plus the plugin links tools return.
   [
-    'Write [Update Track](openteam://app/v1/settings?id=update-channel), not "Settings, Updates, Update Track".',
-    'Write [Web search provider](openteam://app/v1/settings?id=web-search-provider), not "Settings, Providers, Search".',
+    "e.g. [Update Track](openteam://app/v1/settings?id=update-channel)",
+    "e.g. [Web search provider](openteam://app/v1/settings?id=web-search-provider)",
   ],
   [
-    "account, theme, accent, language, spell-check, microphone, hardware-acceleration, hardware-acceleration-restart, network-debugger, notification-sound-enabled, notification-sound, timezone, local-execution, computers, auto-review, auto-review-rules, security-keys, usage, plan, cancel-trial, on-demand, billing, update-status, update-channel, automatic-updates, update-computer, reset-computer. Stuck or reset? Link update-computer first, then reset-computer.",
+    "account, theme, accent, language, spell-check, microphone, hardware-acceleration, hardware-acceleration-restart, network-debugger, notification-sound-enabled, notification-sound, timezone, local-execution, computers, auto-review, auto-review-rules, security-keys, usage, plan, cancel-trial, on-demand, billing, update-status, update-channel, automatic-updates, update-computer, reset-computer. When stuck, link update-computer before reset-computer.",
     `${APP_SETTINGS_ANCHORS.join(", ")}.`,
   ],
+  [" Bot template: [label](openteam://app/v1/bot-template?id=<share id>).", ""],
   [
-    ' A Bot template is [label](openteam://app/v1/bot-template?id=<share id>). Set label to the Bot\'s real name, never "Bot template" or its share id.',
-    "",
-  ],
-  [
-    " A teammate is [label](openteam://app/v1/agent?id=<id>). Your tab is [label](openteam://app/v1/sidebar?tab=<overview|routines|media|computer|members>).",
+    " Another bot: [label](openteam://app/v1/agent?id=<id>). Your tab: [label](openteam://app/v1/sidebar?tab=<overview|routines|media|computer|members>).",
     "",
   ],
 ]);
@@ -285,7 +279,7 @@ send.inputSchema.properties.secret = {
     name: {
       ...secretProperties.name,
       description: edited("SendToUser secret.name", secretProperties.name.description, [
-        [" With plugin_id, the plugin's `${VAR}` setup field key instead, exactly as GetPlugin lists it.", ""],
+        ["; with plugin_id, the plugin's `${VAR}` setup field key exactly as GetPlugin lists it.", "."],
       ]),
     },
     ...Object.fromEntries(
@@ -303,7 +297,6 @@ send.inputSchema.properties.secret = {
     { required: ["connector", "field"], not: { required: ["name"] } },
   ],
 };
-send.description += ` ${SEND_TO_USER_BATCH_GUIDANCE}`;
 
 // Peer priority marks urgency; every message still wakes its recipient.
 adaptDescription("SendToAgent", [
@@ -325,52 +318,54 @@ adaptArgument("SendToAgent", "priority", [[
 adaptArgument("SendToAgent", "target_id", [["Use an id from your teammates list, ListAgents, or ListGroups, not a name.", "Use an id from your teammates list, not a name."]]);
 contracts.SendToAgent!.inputSchema.required = contracts.SendToAgent!.inputSchema.required.filter((key: string) => key !== "priority");
 
-// Feedback goes to the deployment's configured destination, which can reply when asked; there is no approval card.
-adaptDescription("SendFeedback", [
-  ["Send product feedback to the OpenTeam maintainers on the user's behalf.", "Send product feedback to the configured OpenTeam support destination on the user's behalf."],
-  [
-    /Feedback filed with this tool is read as product feedback but never receives a support response\. Do not ask whether the user wants a reply and do not promise one\. If they need help from support, tell them to email \S+\. The user reviews the exact message on an approval card and nothing is sent unless they approve\./,
-    "Set wantsResponse to whether they want a reply: ask unless they already said, and do not promise one. Deployment privacy settings apply.",
-  ],
-]);
-contracts.SendFeedback!.inputSchema.properties.wantsResponse = {
-  type: "boolean",
-  description: "Whether the user wants a reply from the support destination: true if they want one, false if not. Ask first unless they already said. Never omit this and never guess.",
-};
-contracts.SendFeedback!.inputSchema.required = [...contracts.SendFeedback!.inputSchema.required, "wantsResponse"];
-
-// Routine writes apply directly; there is no confirmation card.
-// A clock time the user names is saved as named ("8am" is 8:00) here and in the routines skill. The
-// reference moves a named hour onto the request's minute to spread load across a shared fleet; a
-// single-user deployment has no such load, and the exact time is what the user asked for.
 adaptDescription("UpdateRoutine", [
+  // The routine list lives in the frozen prompt section, not a per-turn reminder.
   [
-    "\nCreating or changing a routine may ask the user to confirm, since it's the one change that acts while they're away. If it does, they'll see a card and you'll get their answer back as the tool result; don't ask first, and don't retry a denied write.",
-    "",
+    "are in the latest <automation_status> reminder, which shows no prompts.",
+    "are listed under Scheduled routines in your prompt, which shows no prompts.",
+  ],
+  // There are no meeting tools.
+  [", except joining a meeting or saving what to do in one (JoinMeeting or UpdateMeeting).", "."],
+  ["Read the Cursor-managed `routines` skill", "Read the managed `routines` skill"],
+  // There is no timing field; get returns the saved schedule with the trigger.
+  ["returns the saved prompt, trigger, and timing.", "returns the saved prompt and trigger."],
+  // A clock time the user names is saved as named (decided for self-hosted installs).
+  [
+    'at least 5 minutes apart; take the minute from the latest <timestamp>, never :00 or :30 unless the user named it.',
+    'at least 5 minutes apart. A clock time the user names is saved as named ("8am" is "0 8 * * *"); only an ask that names no time takes the minute from the latest <timestamp>.',
   ],
 ]);
+// The runtime checks arguments against the advertised schema, so the bare-array group
+// shorthand the parser accepts is advertised beside the compact listener object.
+{
+  const { description, ...listener } = contracts.UpdateRoutine!.inputSchema.properties.trigger;
+  contracts.UpdateRoutine!.inputSchema.properties.trigger = {
+    anyOf: [listener, { type: "array", items: listener, minItems: 1 }],
+    description,
+  };
+}
 
-// StopSubagent reaches this agent's own subagents only; there are no cloud agents.
+// StopSubagent reaches this agent's subagents (and the background shells they started) and the peers
+// it messaged with priority; there are no cloud agents.
 adaptDescription("StopSubagent", [
   [
-    "Pass all: true instead to stop everything at once: every running subagent, plus, where this host can reach them, the other agents you handed work to (peers you messaged with priority and cloud agents you launched); the result says when it could not reach them.",
-    "Pass all: true instead to stop every running subagent at once. Peers you messaged are not reached from here; the result reminds you to message them.",
+    "(peers you messaged with priority and cloud agents you launched); the result says when it could not reach them.",
+    "(peers you messaged with priority); the result says when it could not reach them.",
   ],
   [
     "which could not be stopped, and what happened to each peer and cloud agent)",
-    "and which could not be stopped)",
+    "which could not be stopped, and what happened to each peer)",
   ],
 ]);
 adaptArgument("StopSubagent", "all", [
   [
-    ", and with them, where this host can reach them, every other agent you handed work to: peers you messaged with priority and cloud agents you launched (the result says when it could not).",
-    ".",
+    "every other agent you handed work to: peers you messaged with priority and cloud agents you launched (the result says when it could not).",
+    "every other agent you handed work to: peers you messaged with priority (the result says when it could not).",
   ],
   [
     " (computerUse, executor, and any other Task children, plus anything those children started), delivers a stop to each peer (which then stops its own subagents the same way), cancels each running cloud agent, and the result",
-    " (computerUse, executor, and any other Task children), and the result",
+    " (computerUse, executor, and any other Task children, plus anything those children started), delivers a stop to each peer (which then stops its own subagents the same way), and the result",
   ],
-  [" Do not combine with subagent_id.", " Peers you messaged are not stopped. Do not combine with subagent_id."],
 ]);
 
 // Connections are ready, need sign-in, or failed; there are no per-turn grants.
@@ -380,17 +375,6 @@ adaptDescription("GetDynamicTools", [
     'a namespace whose namespaceStatus is "needsAuth" or "needsGrant" stays unusable until the user connects it or grants you access.',
     'a namespace whose namespaceStatus is "needsAuth" stays unusable until the user connects it.',
   ],
-  // First-party tools run without approvals, and user_info is rebuilt every turn.
-  [
-    "(their names are listed with that namespace in <user_info>, or in the most recent <user_info_catalog_update> block on a later user turn). Discover their schemas here, then invoke them via CallDynamicTool; they run natively with their own approvals and rendering.",
-    "(their names are listed with that namespace in <user_info>). Discover their schemas here, then invoke them via CallDynamicTool; they run natively with their own rendering.",
-  ],
-]);
-// No call reviewer or approval card consumes MCP call details.
-delete contracts.CallDynamicTool!.inputSchema.properties.mcpDetails;
-adaptDescription("CallDynamicTool", [
-  [" Set mcpDetails only for tools from external MCP namespaces; omit it for first-party tools in the cursor namespace.", ""],
-  ['  "mcpDetails": { "description": "Search the public docs for the example API" },\n', ""],
 ]);
 
 // Sign-ins are completed with the available tools first (the Authentication section), so no sign-in
@@ -404,17 +388,13 @@ adaptDescription("request_box_help", [
   [" It is the last step of the `sign-in` skill.", ""],
   [
     "one-time code you cannot read from an inbox goes to RequestUserForm first when it is among your tools, embedded and cross-origin fields included; entering the card itself is the Secure Form.",
-    "one-time code you cannot get from the user's connected sources goes to RequestUserForm first when it is among your tools, fields in same-origin frames included.",
-  ],
-  // The form host refuses a cross-origin frame, so that field comes here directly.
-  [
-    "Hand off only when that tool is not offered, the step is not a typed field, or the host",
-    "Hand off only when that tool is not offered, the step is not a typed field, the field is inside a cross-origin iframe, or the host",
+    "one-time code you cannot get from the user's connected sources goes to RequestUserForm first when it is among your tools, embedded and cross-origin fields included; entering the card itself is that form.",
   ],
 ]);
 adaptArgument("request_box_help", "reason", [['"auth" for any sign-in step (login, SSO, passkey, 2FA),', '"auth" for a sign-in step,']]);
 
-// Plugin management: no connect, grant, or approval cards, and no confirmation steps (Autonomy).
+// Plugin management: no connect or grant cards. Sign-in stays autonomous, so AuthenticateMcpServer
+// drops its confirm steps; the other management tools keep the reference's widget confirmations.
 adaptDescription("AuthenticateMcpServer", [
   [
     "status needsAuth (the user has not connected it), status needsGrant (the user has connected it but has not let you use it this turn), or a tool call",
@@ -447,33 +427,13 @@ adaptDescription("GetMcpServerStatus", [
 ]);
 adaptDescription("InstallPlugin", [
   ["without asking; its connect card is the ask.", "without asking."],
-  [
-    "Ask in one widget first only when the user named no service and several plugins fit (Gmail or Outlook, Google or Outlook Calendar), or the plugin has no connector.",
-    "Ask in one widget first only when the user named no service and several plugins fit (Gmail or the Email plugin).",
-  ],
+  ["(Gmail or Outlook, Google or Outlook Calendar), or the plugin has no connector.", "(Gmail or the Email plugin), or the plugin has no connector."],
   [
     "If an installed connector needs authentication, its connect card is shown to the user automatically. Finish unrelated work, then end your turn; you're resumed when they authorize.",
     "If an installed connector needs authentication, start it with AuthenticateMcpServer.",
   ],
 ]);
-adaptDescription("UninstallPlugin", [
-  [", so confirm with the user via a question widget first, and your confirmation must disclose that full scope (list what goes).", "."],
-  [" Plugins required by the user's team cannot be uninstalled.", ""],
-]);
-adaptDescription("UninstallMcpServer", [
-  [", which signs the user out of it, so confirm with the user via a question widget first.", ", which signs the user out of it."],
-  ["Use UninstallPlugin for those so the confirmation can disclose the full scope.", "Use UninstallPlugin for those."],
-]);
-adaptDescription("AddMcpServer", [
-  [
-    " Only call this after the user agrees to add it. Confirm with a question widget first, since it changes the user's account configuration and the server can run commands or reach external services on their behalf.",
-    "",
-  ],
-  ["so say so when you confirm.", "so tell the user when you add one."],
-]);
-adaptDescription("RemoveMcpAccount", [[" Confirm with the user via a question widget before calling it.", ""]]);
-adaptDescription("RenameMcpAccount", [[" Confirm with a question widget first.", ""]]);
-adaptDescription("RestartMcpServers", [[" Confirm with the user first if a server is mid-task.", ""]]);
+adaptDescription("UninstallPlugin", [[" Plugins required by the user's team cannot be uninstalled.", ""]]);
 
 // Email connectors have no send tool of their own in OpenTeam: every email goes through the card,
 // and the user's per-Bot approval settings can send a card at once.
@@ -503,7 +463,7 @@ for (const key of ["meetingId", "mailbox", "htmlBody", "proposedRule", "proposed
 draft.required = ["platform", "providerIdentifier", "body"];
 draft.properties.providerIdentifier.description = edited("DraftExternalMessage providerIdentifier", draft.properties.providerIdentifier.description, [["Required for email/Slack. ", ""]]);
 draft.properties.from.description = edited("DraftExternalMessage from", draft.properties.from.description, [
-  ["Email only. The plain address", "Required when platform is email. The plain address"],
+  ["Email only. The plain address", "Required for email. The plain address"],
   [
     /On Gmail, omit it to send from the account's default address; only \S+ REST Gmail connector can also send from a verified send-as alias\. Required for Outlook: get_me's mail field\./,
     "If you don't already know it, read it from the mailbox first: the Gmail connector's get_profile returns it as emailAddress (a Gmail Send mail as address also works), and an Email plugin inbox's address comes from ListEmailInboxes.",
@@ -581,5 +541,41 @@ export function withReferenceContract<
     : tool;
 }
 
-export const FIRST_PARTY_NAMESPACE_DESCRIPTION =
-  "Native OpenTeam tools for this session. These are highly recommended and useful tools that you should use when the right situation arises. Don't be afraid to look at one if it seems relevant, even if you don't end up using it. You MUST read the tool schemas before calling them.\n\nHere are some crucial instructions:\n- AuthenticateMcpServer: Start authentication for a connector that needs auth.\n- AwaitShell: Use to sleep and check shell progress. Never sleep using shell.\n- CheckSubagent: Inspect a running background subagent's status and recent actions.\n- CopyFromBox: Copy a file from your box onto the user's computer.\n- CopyToBox: Copy a file from the user's computer onto your box.\n- DisconnectChannel: Disconnect one of your connected channels.\n- DownloadFile: Fetch a Drive or Gmail file onto your box. Not URLs (WebFetch, curl) or box files (Read).\n- MessageSubagent: Send a new instruction into a running background subagent.\n- RemapUserFormTargets: Only after a RequestUserForm receipt says a field's value is HELD: remap its new target.\n- RequestUserForm: Show the user an in-chat form; the host fills the box browser with their answers.\n- SearchPlugins: Search installable plugins/connectors when a task needs a service.\n- SendFeedback: Send the user's product feedback to the OpenTeam maintainers when they ask. Ask whether they want a reply unless they already said.\n- StopSubagent: Abort a running background subagent.\n- TodoWrite: Use this tool to manage complex multi-step tasks.\n- UpdateAvatar: Set or clear your profile picture.\n- UpdateProfile: Change your name, description, title, default mark, or sidebar and notification settings.\n- UpdateSkill: Save, rewrite, or delete your reusable skills.\n- UploadFile: Send a box file to Google Drive or Gmail.";
+const FIRST_PARTY_CATALOG_HEADER =
+  "First-party tools built into you, listed first: they are trusted and core to your job, so prefer one over an external namespace that covers the same need. Read a tool's schema with GetDynamicTools, then call it with CallDynamicTool in the cursor namespace.";
+/** One-line cues for the cursor namespace, as in the reference's concise static contexts. */
+const FIRST_PARTY_HINTS: Readonly<Record<string, string>> = {
+  AuthenticateMcpServer: "Start authentication for a connector that needs auth.",
+  AwaitShell: "Use to sleep and check shell progress. Never sleep using shell.",
+  CheckSubagent: "Inspect a running background subagent's status and recent actions.",
+  CopyFromBox: "Copy a file from your box onto the user's computer.",
+  CopyToBox: "Copy a file from the user's computer onto your box.",
+  DisconnectChannel: "Disconnect one of your connected channels.",
+  // OpenTeam transfers files with Google Drive and Gmail only.
+  DownloadFile: "Fetch a Drive or Gmail file onto your box. Not URLs (WebFetch, curl) or box files (Read).",
+  MessageSubagent: "Send a new instruction into a running background subagent.",
+  ReadAgentActivity: "Summarize what the user's other bots did lately: last messages, open todos, unanswered questions.",
+  ReadTranscript: "Read your full transcript, a subagent's, or another owned agent's, with tool calls.",
+  RemapUserFormTargets: "Only after a RequestUserForm receipt says a field's value is HELD: remap its new target.",
+  request_box_help: "Hand your box's desktop to the user for a sign-in or manual step.",
+  RequestUserForm: "Show the user an in-chat form; the host fills the box browser with their answers.",
+  SearchPlugins: "Search installable plugins/connectors when a task needs a service.",
+  StopSubagent: "Abort a running background subagent.",
+  // No cloud subagents in OpenTeam.
+  Task: "Spawn subagents natively.",
+  TodoWrite: "Use this tool to manage complex multi-step tasks.",
+  UpdateAvatar: "Set or clear your profile picture.",
+  UpdateProfile: "Change your name, description, title, default mark, or sidebar, notification, and drafting settings.",
+  UpdateSkill: "Save, rewrite, or delete your reusable skills.",
+  UploadFile: "Send a box file to Google Drive or Gmail.",
+};
+
+/** The cursor namespace's instructions, with a cue only for tools this agent actually has. */
+export function firstPartyNamespaceDescription(toolNames: readonly string[]): string {
+  const lines = [...toolNames]
+    .sort((a, b) => a.localeCompare(b))
+    .flatMap((name) => (FIRST_PARTY_HINTS[name] ? [`- ${name}: ${FIRST_PARTY_HINTS[name]}`] : []));
+  return lines.length
+    ? [FIRST_PARTY_CATALOG_HEADER, "", "Here are some crucial instructions:", ...lines].join("\n")
+    : FIRST_PARTY_CATALOG_HEADER;
+}

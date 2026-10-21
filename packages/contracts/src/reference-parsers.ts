@@ -1,6 +1,7 @@
 // @ts-nocheck
 // Generated from the September 12 tool source: schema construction and pure normalization only.
 import { z as external_exports } from "zod";
+import { parseToolArguments } from "./tool-arguments";
 import * as import_node_path165 from "node:path";
 const import_node_path166 = import_node_path165;
 class SandToolInputError extends Error {}
@@ -130,6 +131,33 @@ const downloadFileParameters = external_exports.object({
     )
   }).default({}).describe("Where the file lands on your computer.")
 });
+// A call shaped for another tool gets the reference's redirect beside the field issues.
+// OpenTeam transfers with Google Drive and Gmail only, and downloads by fileId.
+const isRecordValue = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+const DOWNLOAD_FILE_URL_KEYS = ["url", "href"];
+const DOWNLOAD_FILE_BOX_PATH_KEYS = ["file_path", "filePath", "path", "targetPath"];
+function explainWrongDownloadFileCall(value, ctx) {
+  if (!isRecordValue(value) || value.connection !== void 0 || value.source !== void 0) return value;
+  const urlKey = DOWNLOAD_FILE_URL_KEYS.find((key) => value[key] !== void 0);
+  const boxPathKey = urlKey === void 0 ? DOWNLOAD_FILE_BOX_PATH_KEYS.find((key) => value[key] !== void 0) : void 0;
+  const redirect = boxPathKey === void 0 ? "For a URL use WebFetch or Shell curl; for a file already on this box use Read." : "For a file already on this box use Read; for a URL use WebFetch or Shell curl.";
+  const wrongKey = urlKey ?? boxPathKey;
+  ctx.addIssue({
+    code: "custom",
+    path: wrongKey === void 0 ? [] : [wrongKey],
+    message: `DownloadFile fetches a file from a connected Google Drive / Gmail account. ${redirect} Shape: {"connection": "google-drive", "source": {"fileId": "<id>"}, "destination"?: {"path": "<box path>"}}.`
+  });
+  return value;
+}
+function explainMissingUploadSourcePath(value, ctx) {
+  if (isRecordValue(value) && value.sourcePath === void 0)
+    ctx.addIssue({
+      code: "custom",
+      path: [],
+      message: 'UploadFile sends a file that is already on your box into a connected Google Drive / Gmail account; sourcePath is the box path. Shape: {"connection": "google-drive", "sourcePath": "/workspace/report.pdf", "destination"?: {"path": "<folder>"} | {"folderId": "<id>"} | {"draftId": "<id>"}}.'
+    });
+  return value;
+}
 function nonEmpty2(value) {
   return value === void 0 || value.length === 0 ? void 0 : value;
 }
@@ -213,10 +241,10 @@ function normalizeDestinationPath(raw) {
   }
   return normalized;
 }
-const schemas = { FindContacts:findContactsParameters, FindIMessageChats:findChatsParameters, ChatItems:chatItemsParameters, SearchIMessages:searchParameters, IMessageActivity:activityParameters, FetchIMessageAttachment:fetchAttachmentParameters, SendIMessage:sendParameters, CheckIMessagePermissions:checkPermissionsParameters, RequestCookieOriginApproval:chromeCookieImportParameters, UploadFile:uploadFileParameters, DownloadFile:downloadFileParameters };
+const schemas = { FindContacts:findContactsParameters, FindIMessageChats:findChatsParameters, ChatItems:chatItemsParameters, SearchIMessages:searchParameters, IMessageActivity:activityParameters, FetchIMessageAttachment:fetchAttachmentParameters, SendIMessage:sendParameters, CheckIMessagePermissions:checkPermissionsParameters, RequestCookieOriginApproval:chromeCookieImportParameters, UploadFile:external_exports.preprocess(explainMissingUploadSourcePath, uploadFileParameters), DownloadFile:external_exports.preprocess(explainWrongDownloadFileCall, downloadFileParameters) };
 export function parseReferenceArguments(name: string, raw: unknown): Record<string, any> {
  const schema = schemas[name]; if(!schema) throw new Error('No reference parser: '+name);
- const args = schema.parse(raw);
+ const args = parseToolArguments(schema, raw);
  if(name==='UploadFile')return {...args,sourcePath:normalizeSourcePath(args.sourcePath),destination:normalizeDestination(args.destination)};
  if(name==='DownloadFile')return {...args,source:normalizeSource(args.source),destination:{...args.destination,path:normalizeDestinationPath(args.destination.path)}};
  return args;

@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@openteam/db";
-import { type AgentMessaging, renderSubagentRevivalPrompt } from "@openteam/messaging";
+import { type AgentMessaging, renderSubagentRevivalPrompt, subagentRevivalBlock } from "@openteam/messaging";
+import { subagentTitle } from "@openteam/contracts/subagent-dispatch";
 import type { PgBoss } from "pg-boss";
 import type { ComputerFetch } from "./service-utils";
 import { appendEvent } from "./service-utils";
@@ -95,7 +96,7 @@ export async function recover(
         parentToolCallId: attempt?.parentToolCallId,
         ...error,
       });
-      if ((attempt?.runInBackground ?? subagent.runInBackground) && attempt) {
+      if (attempt) {
         const parent = await tx.bot.findUnique({
           where: { id: subagent.parentBotId },
           select: { status: true },
@@ -107,11 +108,15 @@ export async function recover(
             origin: "background_revival",
             type: "subagent.failed",
             content: renderSubagentRevivalPrompt({
-              title: attempt.description,
+              title: subagentTitle(attempt.prompt),
               subagentType: subagent.subagentType,
               status: "failed",
               result: error.message,
             }),
+            revival: {
+              block: subagentRevivalBlock({ title: subagentTitle(attempt.prompt), subagentType: subagent.subagentType, status: "failed", result: error.message }),
+              subagentType: subagent.subagentType,
+            },
             clientId: `subagent:${subagent.id}:failed:${subagent.currentRunId}`,
             priority: 260,
             wrapUserContent: false,
@@ -194,7 +199,6 @@ export async function recover(
     await tx.botRunLease.deleteMany({ where: { expiresAt: { lt: now } } });
     await tx.inboxEvent.updateMany({
       where: {
-        deliveryMode: "turn",
         status: "processing",
         claimedAt: { lt: new Date(now.getTime() - 15 * 60_000) },
       },
@@ -248,7 +252,6 @@ export async function recover(
   }
   const pendingBots = await prisma.inboxEvent.findMany({
     where: {
-      deliveryMode: "turn",
       status: "pending",
       availableAt: { lte: now },
       bot: { status: "active" },

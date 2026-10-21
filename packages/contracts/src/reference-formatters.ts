@@ -5,6 +5,9 @@ function formatBytes2(bytes) {
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${bytes} bytes`;
 }
+function describeAmbiguousConnectorConnection(requested, resolution) {
+  return `${JSON.stringify(requested)} matches several connected ${resolution.service} accounts: ${resolution.candidates.join(", ")}. Pass one of those identifiers as connection (GetMcpServerStatus shows which account each one is) so the right account is used.`;
+}
 function describeUploadFileOutcome(outcome, request3) {
   switch (outcome.kind) {
     case "uploaded": {
@@ -22,6 +25,8 @@ function describeUploadFileOutcome(outcome, request3) {
       return `The ${request3.connection} connection is installed but not signed in, so nothing was uploaded. Ask the user to connect ${request3.connection} again (AuthenticateMcpServer can start that), then retry.`;
     case "unknown_connection":
       return outcome.available.length === 0 ? "No connected service can receive files this turn, so nothing was uploaded. Tell the user which service you need connected." : `${JSON.stringify(request3.connection)} is not a connection that can receive files. Use one of: ${outcome.available.join(", ")}.`;
+    case "ambiguous_connection":
+      return `${describeAmbiguousConnectorConnection(request3.connection, outcome)} Nothing was uploaded.`;
     case "source_missing":
       return `Nothing was uploaded: ${request3.sourcePath} does not exist on your computer or is not a regular file. Check the path with Shell (ls -l) and retry.`;
     case "source_refused":
@@ -60,6 +65,8 @@ function describeDownloadFileOutcome(outcome, request3) {
       return `The ${request3.connection} connection is installed but not signed in, so nothing was downloaded. Ask the user to connect ${request3.connection} again (AuthenticateMcpServer can start that), then retry.`;
     case "unknown_connection":
       return outcome.available.length === 0 ? "No connected service can serve files this turn, so nothing was downloaded. Tell the user which service you need connected." : `${JSON.stringify(request3.connection)} is not a connection that can serve files. Use one of: ${outcome.available.join(", ")}.`;
+    case "ambiguous_connection":
+      return `${describeAmbiguousConnectorConnection(request3.connection, outcome)} Nothing was downloaded.`;
     case "destination_refused":
       return `Nothing was downloaded: DownloadFile only writes under ${outcome.allowedRoots.join(" or ")}. Pass a destination.path under one of those directories, or omit it to use your downloads folder.`;
     case "not_found":
@@ -158,7 +165,7 @@ function describeInstalled(server) {
     server.disabledToolCount != null && server.disabledToolCount > 0 ? `tools=${server.toolCount}/${server.toolCount + server.disabledToolCount} enabled` : `tools=${server.toolCount}`
   ];
   if (server.pluginId != null) {
-    parts.push(`plugin=${server.pluginId} (remove via UninstallPlugin \u2014 removes the whole plugin)`);
+    parts.push(`plugin=${server.pluginId} (remove via UninstallPlugin, which removes the whole plugin)`);
   }
   if (server.statusDetail != null && server.statusDetail.length > 0) {
     parts.push(`detail="${server.statusDetail}"`);
@@ -190,15 +197,32 @@ function describePluginIncludes(plugin) {
   }
   return parts.length > 0 ? parts.join(", ") : "no primitives";
 }
-function describePluginSummary(plugin) {
+function describePluginSignIn(plugin, installed) {
+  if (!plugin.isInstalled) return null;
+  const rows = installed.filter((server) => server.pluginId === plugin.pluginId);
+  // OpenTeam lists a signed-in account as ready where the reference says connected.
+  const connectedServerIds = new Set(
+    rows.filter((server) => server.status === "connected" || server.status === "ready").map((server) => server.serverIdentifier)
+  );
+  const signedOut = rows.filter(
+    (server) => server.status === "needsAuth" && !connectedServerIds.has(server.serverIdentifier)
+  );
+  if (signedOut.length === 0) return null;
+  return signedOut.map(
+    (server) => `  ${server.serverIdentifier} (account=${encodeMcpAccountLabelForListing(server.accountKey)}) needs sign-in; call AuthenticateMcpServer with its server_id when the task needs it.`
+  ).join("\n");
+}
+function describePluginSummary(plugin, installed = []) {
   const parts = [
-    `- ${plugin.pluginId}: ${plugin.displayName} \u2014 ${plugin.description}`,
+    `- ${plugin.pluginId}: ${plugin.displayName}. ${plugin.description}`,
     `  (${[
       describePluginInstallState(plugin),
       `includes: ${describePluginIncludes(plugin)}`,
       `category=${plugin.category}`
     ].join("; ")})`
   ];
+  const signIn = describePluginSignIn(plugin, installed);
+  if (signIn != null) parts.push(signIn);
   const guidance = getDefaultMcpCustomInstruction(plugin.displayName);
   if (guidance.length > 0) {
     parts.push(`  usage guidance: ${guidance}`);
@@ -210,15 +234,33 @@ function describePluginFields(detail) {
   const lines2 = detail.fields.map((field) => {
     const flags = [
       field.isRequired ? "required" : "optional",
-      ...field.isSecret ? ["secret \u2014 ask the user, never guess"] : []
+      ...field.isSecret ? ["secret, so ask the user and never guess"] : []
     ].join(", ");
     return `  - ${field.key} (${field.label}; ${flags})`;
   });
   return ["Setup fields (pass in InstallPlugin values):", ...lines2].join("\n");
 }
-function describePluginDetail(detail) {
+function describePluginServer(server) {
+  return [
+    `- ${server.serverIdentifier}: ${server.name}`,
+    `account=${encodeMcpAccountLabelForListing(server.accountKey)}`,
+    `transport=${server.transport}`
+  ].join(" \xB7 ");
+}
+/** "live" lists full status rows (after an install); "omitted" leaves status to GetDynamicTools. */
+function describePluginServers(detail, statuses) {
+  if (detail.servers.length === 0) return null;
+  if (statuses === "live") {
+    return ["Its installed MCP server(s):", ...detail.servers.map((server) => describeInstalled(server))].join("\n");
+  }
+  return [
+    "Its installed MCP server(s); GetDynamicTools lists their live status and tools:",
+    ...detail.servers.map(describePluginServer)
+  ].join("\n");
+}
+function describePluginDetail(detail, statuses = "omitted") {
   const sections = [
-    `${detail.pluginId}: ${detail.displayName} \u2014 ${detail.description}`,
+    `${detail.pluginId}: ${detail.displayName}. ${detail.description}`,
     `${describePluginInstallState(detail)} \xB7 includes: ${describePluginIncludes(detail)} \xB7 category=${detail.category}`
   ];
   if (detail.skills.length > 0) {
@@ -226,23 +268,17 @@ function describePluginDetail(detail) {
       [
         "Skills:",
         ...detail.skills.map(
-          (skill) => `  - ${skill.name}${skill.description.length > 0 ? ` \u2014 ${truncateOneLine(skill.description, 140)}` : ""}`
+          (skill) => `  - ${skill.name}${skill.description.length > 0 ? `: ${truncateOneLine(skill.description, 140)}` : ""}`
         )
       ].join("\n")
     );
   }
   const fields2 = describePluginFields(detail);
   if (fields2 != null) sections.push(fields2);
-  if (detail.servers.length > 0) {
-    sections.push(
-      [
-        "Its installed MCP server(s) \u2014 statuses live in GetMcpServerStatus:",
-        ...detail.servers.map(describeInstalled)
-      ].join("\n")
-    );
-  }
+  const servers = describePluginServers(detail, statuses);
+  if (servers != null) sections.push(servers);
   if (detail.isInstalled && detail.installMode === "team-required") {
-    sections.push("Required by the user's team \u2014 it cannot be uninstalled.");
+    sections.push("It is required by the user's team, so it cannot be uninstalled.");
   }
   return sections.join("\n");
 }
@@ -288,48 +324,4 @@ function describeOutputLocation(loc, opts) {
   return `${lead} written to file: ${loc.filePath}
 Size: ${formatOutputLocationSize(loc.sizeBytes)}, ${loc.lineCount} lines`;
 }
-const SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME = "RemapUserFormTargets";
-const SAND_REMAP_USER_FORM_TARGETS_CALL_HINT = `CallDynamicTool with namespace "cursor", toolName "${SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME}", and arguments { "targets": [{ "fieldId": "<held id>", "target": { "kind": "ref" | "selector" | "label", "value": "<ref, selector, or label>" } }] } (GetDynamicTools on that namespace shows the schema)`;
-const REMAP_FAILED_STATUS_BY_KIND = {
-  driver_unavailable: "NOT FILLED: the host could not reach the box browser, so nothing was written",
-  target_gone: "NOT FILLED: the new ref no longer resolves \u2014 the page re-rendered since that snapshot",
-  target_missing: "NOT FILLED: nothing on the live page matched the new target",
-  in_unreachable_frame: "NOT FILLED: the new target sits in a frame the host cannot enter (cross-origin iframe)",
-  in_closed_shadow: "NOT FILLED: the new target sits behind a closed shadow root the host cannot reach",
-  fill_op_failed: "NOT FILLED: the new target resolved to a live element but the write errored",
-  hidden_target: "REFUSED: the new target resolved, but it is a control the user cannot see (display:none, zero-size, or aria-hidden) \u2014 a hidden twin, honeypot, or not-yet-revealed step. The host never writes into a hidden control",
-  page_moved: "NOT FILLED: the live tab moved to a different page or step before this write, so the host stopped"
-};
-function buildUserFormRemapReceipt(outcome) {
-  if (outcome.kind === "no_hold") {
-    return `Nothing to remap: the host holds no submitted values for this agent. A remap is offered on a fill receipt and is spent by the first ${SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME} call or by the end of that turn. If a field still needs filling, re-ask with a new RequestUserForm or hand the user the screen with request_box_help.`;
-  }
-  if (outcome.kind === "unknown_fields") {
-    return `Nothing was written: ${outcome.unknownFieldIds.map((id) => `"${id}"`).join(", ")} ${outcome.unknownFieldIds.length === 1 ? "is not a field" : "are not fields"} the host holds a value for. The held field ids are ${outcome.heldFieldIds.map((id) => `"${id}"`).join(", ")} \u2014 call again via ${SAND_REMAP_USER_FORM_TARGETS_CALL_HINT} with only those (the hold stands until this turn ends).`;
-  }
-  const lines2 = outcome.outcomes.map((fieldOutcome) => {
-    const kind = outcome.fillFailureKinds?.[fieldOutcome.id];
-    let status = "NOT FILLED (the write was refused)";
-    if (fieldOutcome.filled) {
-      status = "filled into the page with the value the user submitted";
-    } else if (kind !== void 0) {
-      status = REMAP_FAILED_STATUS_BY_KIND[kind];
-    }
-    return `- ${fieldOutcome.id}: ${status}`;
-  });
-  const notRemapped = outcome.notRemappedFieldIds.map(
-    (id) => `- ${id}: not remapped \u2014 its held value was discarded`
-  );
-  const mismatch = outcome.domainMismatch != null ? [
-    `The host REFUSED to write: the live page (${outcome.domainMismatch.liveHost != null ? `host ${outcome.domainMismatch.liveHost}` : "host unknown"}) is not the host the user consented to. Nothing was written.`
-  ] : [];
-  const anyFailed = outcome.outcomes.some((fieldOutcome) => !fieldOutcome.filled) || notRemapped.length > 0;
-  return [
-    "[Remap result \u2014 the host wrote the values the user already submitted; no value is returned to you:",
-    ...mismatch,
-    ...lines2,
-    ...notRemapped,
-    `The held values for this form are now discarded (one remap per form).${anyFailed ? " For a field that did not land, do NOT immediately re-issue a form for it: the user already typed it once. Continue the task if the page moved on, or hand the user the screen with request_box_help; re-ask with a new RequestUserForm only if the step cannot proceed any other way." : ""} Take a fresh page SNAPSHOT (not a screenshot) before the next action, and click the site's submit control yourself.]`
-  ].join("\n");
-}
-export { formatBytes2, describeUploadFileOutcome, formatBytes, describeDownloadFileOutcome, describeCookieOriginRequestEntry, describeGrants, formatChromeCookieImportOutcome, truncationNotice, renderContactsResult, MCP_LABEL_HOSTILE_CHARS, encodeMcpAccountLabelForListing, DEFAULT_MCP_CONNECTOR_INSTRUCTIONS, getDefaultMcpCustomInstruction, truncateOneLine, describeInstalled, describeInstalledList, describePluginInstallState, describePluginIncludes, describePluginSummary, describePluginFields, describePluginDetail, PLUGIN_QUERY_MIN_TOKEN_LENGTH, tokenizePluginQuery, scorePluginForToken, rankPluginsLexically, formatOutputLocationSize, describeOutputLocation, SAND_REMAP_USER_FORM_TARGETS_TOOL_NAME, SAND_REMAP_USER_FORM_TARGETS_CALL_HINT, REMAP_FAILED_STATUS_BY_KIND, buildUserFormRemapReceipt };
+export { formatBytes2, describeUploadFileOutcome, formatBytes, describeDownloadFileOutcome, describeCookieOriginRequestEntry, describeGrants, formatChromeCookieImportOutcome, truncationNotice, renderContactsResult, MCP_LABEL_HOSTILE_CHARS, encodeMcpAccountLabelForListing, DEFAULT_MCP_CONNECTOR_INSTRUCTIONS, getDefaultMcpCustomInstruction, truncateOneLine, describeInstalled, describeInstalledList, describePluginInstallState, describePluginIncludes, describePluginSummary, describePluginFields, describePluginDetail, PLUGIN_QUERY_MIN_TOKEN_LENGTH, tokenizePluginQuery, scorePluginForToken, rankPluginsLexically, formatOutputLocationSize, describeOutputLocation };

@@ -621,7 +621,7 @@
     },
     {
       "tool": "WebFetch",
-      "description": "Fetch a public HTTP(S) URL using the configured provider: built-in HTTP (no key), Exa Contents, or Tavily Extract. Returns source text/Markdown, a source URL, and a box file for content over 100000 characters. Private/local URLs and embedded URL credentials are rejected. Built-in HTTP pins redirects to public IPs and does not run JavaScript; remote extraction uses the provider’s crawler. No authenticated browser state is used. Responses are limited to 5 MiB. Report missing keys and extraction failures accurately; there is no silent provider fallback.",
+      "description": "Fetch a public HTTP(S) URL using the configured provider: built-in HTTP (no key), Exa Contents, or Tavily Extract. Returns source text/Markdown and a source URL; content over 100000 characters is cut there. Private/local URLs and embedded URL credentials are rejected. Built-in HTTP pins redirects to public IPs and does not run JavaScript; remote extraction uses the provider’s crawler. No authenticated browser state is used. Responses are limited to 5 MiB. Report missing keys and extraction failures accurately; there is no silent provider fallback.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -910,29 +910,6 @@
           "platform",
           "providerIdentifier",
           "body"
-        ]
-      }
-    },
-    {
-      "tool": "SendFeedback",
-      "description": "Send the user’s explicit product feedback and reply preference directly to configured OpenTeam support. Deployment privacy settings and a five-minute rate limit apply. Do not automatically retry an uncertain delivery or include credentials and unrelated connector content.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "message": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 4000,
-            "description": "The user's feedback, in their own words."
-          },
-          "wantsResponse": {
-            "type": "boolean",
-            "description": "Whether the user explicitly asked for a human reply. Ask unless already stated; never guess. Requires a configured support reply address."
-          }
-        },
-        "required": [
-          "message",
-          "wantsResponse"
         ]
       }
     },

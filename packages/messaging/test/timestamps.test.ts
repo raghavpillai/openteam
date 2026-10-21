@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatTurnTimestamp, resolveTimeZone, timestampUserTurn } from "../src/timestamps";
+import { formatFriendlyDate, formatTimeZoneWithOffset, formatTurnTimestamp, resolveTimeZone, timestampUserTurn } from "../src/timestamps";
 
 describe("model turn timestamps", () => {
   test("formats the user's local wall clock and UTC offset", () => {
@@ -24,5 +24,16 @@ describe("model turn timestamps", () => {
 
   test("falls back safely when a client sends an invalid zone", () => {
     expect(resolveTimeZone("not/a-zone")).toBe("UTC");
+  });
+
+  test("labels the zone with its current offset and the date as the reference does", () => {
+    const summer = new Date("2026-07-01T12:00:00Z");
+    expect(formatTimeZoneWithOffset("Europe/Paris", summer)).toBe("Europe/Paris (currently UTC+2)");
+    expect(formatTimeZoneWithOffset("Europe/Paris", new Date("2026-12-01T12:00:00Z"))).toBe("Europe/Paris (currently UTC+1)");
+    expect(formatTimeZoneWithOffset("America/Los_Angeles", summer)).toBe("America/Los_Angeles (currently UTC-7)");
+    expect(formatTimeZoneWithOffset("Asia/Kolkata", summer)).toBe("Asia/Kolkata (currently UTC+5:30)");
+    expect(formatTimeZoneWithOffset("UTC", summer)).toBe("UTC (currently UTC+0)");
+    expect(formatFriendlyDate(new Date("2026-10-21T22:30:00Z"), "Asia/Tokyo")).toBe("Thursday Oct 22, 2026");
+    expect(formatFriendlyDate(new Date("2026-10-01T12:00:00Z"), "UTC")).toBe("Thursday Oct 1, 2026");
   });
 });

@@ -5,7 +5,6 @@ import { mkdir, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   type BotTranscriptView,
-  ComputerSteerRequest,
   ComputerTurnRequest,
   ScreenActionInput,
   ScreenClipboardInput,
@@ -179,7 +178,7 @@ const server = Bun.serve({
   hostname: "0.0.0.0",
   port,
   idleTimeout: 255,
-  async fetch(request) {
+  async fetch(request, requestServer) {
     const url = new URL(request.url);
     if (url.pathname === "/health" || url.pathname === "/health/authenticated") {
       if (url.pathname === "/health/authenticated" && !authorized(request))
@@ -467,9 +466,9 @@ const server = Bun.serve({
         if (action === "prepare") {
           try { return json(await runtime.userForms.prepare(botId!, formId!, input.form)); }
           catch (error) {
-            const kinds = error instanceof FormPreparationError ? error.failureKinds : [(error as { kind?: string })?.kind];
-            const safe = [...new Set(kinds.filter(kind => typeof kind === "string" && Object.hasOwn(FORM_PREPARATION_FAILURE_MESSAGES, kind)))];
-            return json({ error: "form_preflight_failed", failureKinds: safe }, 400);
+            if (error instanceof FormPreparationError) return json(error.body, 400);
+            const kind = (error as { kind?: unknown } | undefined)?.kind;
+            return json({ error: "form_preflight_failed", failureKinds: typeof kind === "string" && Object.hasOwn(FORM_PREPARATION_FAILURE_MESSAGES, kind) ? [kind] : [] }, 400);
           }
         }
         if (action === "prefill") return json(await runtime.userForms.prefill(botId!, formId!));
@@ -572,6 +571,8 @@ const server = Bun.serve({
           runtimeGeneration?: number;
         };
         if (typeof body.toolName !== "string") return json({ error: "toolName is required" }, 400);
+        // A connector call may outlast the idle timeout; it has its own budget.
+        requestServer.timeout(request, 0);
         return json({
           result: await stdioMcp.call(
             mcpCallMatch[1],
@@ -612,18 +613,16 @@ const server = Bun.serve({
         });
       }
 
-      const steerMatch = url.pathname.match(/^\/v1\/turns\/([^/]+)\/steer$/);
-      if (request.method === "POST" && steerMatch?.[1]) {
-        const input = Schema.decodeUnknownSync(ComputerSteerRequest)(await request.json());
-        await runtime.steer(steerMatch[1], input);
-        return json({ ok: true });
-      }
-
       const cancelMatch = url.pathname.match(/^\/v1\/turns\/([^/]+)\/cancel$/);
       if (request.method === "POST" && cancelMatch?.[1]) {
-        await runtime.cancel(cancelMatch[1]);
-        return json({ ok: true });
+        const body = await request.json().catch(() => null) as { reason?: unknown; recovery?: unknown } | null;
+        const cancelled = await runtime.cancel(cancelMatch[1], body?.reason === "user_message" || body?.reason === "parent_message" ? body.reason : undefined, { recovery: body?.recovery === true });
+        return cancelled ? json({ ok: true }) : json({ ok: false, error: "run_not_dispatched" }, 409);
       }
+
+      const backgroundShellsMatch = url.pathname.match(/^\/v1\/bots\/([^/]+)\/background-shells\/stop$/);
+      if (request.method === "POST" && backgroundShellsMatch?.[1])
+        return json({ stopped: runtime.stopBackgroundShells(decodeURIComponent(backgroundShellsMatch[1])) });
 
       const contextSessionMatch = url.pathname.match(/^\/v1\/context-sessions\/([^/]+)$/);
       if (request.method === "GET" && contextSessionMatch?.[1]) {

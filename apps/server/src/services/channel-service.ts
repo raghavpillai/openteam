@@ -1,7 +1,6 @@
 import { nextMessageAddress, lockGroupExecution, supersedeGroupUserTurns } from "@openteam/messaging";
 import {
   ApiError,
-  type ComputerSteerRequest,
   type ReactToChannelMessageInput,
   type RenameChannelInput,
   type SendMessageInput,
@@ -13,7 +12,6 @@ import {
   type AgentMessaging,
   type AssetStore,
   PRIORITY,
-  type SteerDispatch,
 } from "@openteam/messaging";
 import { cancelSkippedBootstrap } from "./channel/delivery";
 import { renameDirectChannel } from "./channel/direct-profile";
@@ -34,6 +32,15 @@ import {
   toJson,
 } from "./service-utils";
 import { toChannelMessageView as channelMessageView, serialize } from "./view-mappers";
+
+/**
+ * The reference may cut off a run before its input reached the model only when that input
+ * is a plain typed message, which the next turn replays: no attachments, reply or thread.
+ */
+const recoveryShaped = (run: { origin: string; inboxEvents: Array<{ payload: unknown }> }): boolean => {
+  const payload = (run.inboxEvents[0]?.payload ?? {}) as { attachments?: unknown[]; replyToMessageId?: unknown; isFork?: unknown };
+  return run.origin === "user" && !payload.attachments?.length && !payload.replyToMessageId && payload.isFork !== true;
+};
 
 export class ChannelService {
   private readonly groups: GroupAdministration;
@@ -246,15 +253,14 @@ export class ChannelService {
         return {
           response: serialize(response),
           bootstrapRunId,
-          steer: delivery.steer,
           interruptRunId: delivery.interruptRunId,
         };
       });
       this.afterDurableAcceptance("direct message follow-up", async () => {
         if (accepted.bootstrapRunId)
           await cancelSkippedBootstrap(this.computerFetch, this.prisma, accepted.bootstrapRunId);
-        if (accepted.interruptRunId) await this.interruptNonUserRun(accepted.interruptRunId);
-        if (accepted.steer) await this.dispatchSteer(accepted.steer);
+        // A thread message carries no recovery of the run it supersedes, as in the reference.
+        if (accepted.interruptRunId) await this.interruptRun(accepted.interruptRunId, true, input.isFork !== true);
       });
       return accepted.response;
     });
@@ -514,11 +520,18 @@ export class ChannelService {
     });
   }
 
-  async interruptNonUserRun(runId: string): Promise<void> {
-    const run = await this.prisma.run.findUnique({ where: { id: runId } });
+  /**
+   * A priority message supersedes a run that no user started; a typed message (byUser)
+   * supersedes any run, as in the reference, and its cut-off calls say the user interrupted them.
+   */
+  async interruptRun(runId: string, byUser = false, carriesRecovery = false): Promise<void> {
+    const run = await this.prisma.run.findUnique({
+      where: { id: runId },
+      include: { inboxEvents: { select: { payload: true }, take: 1 } },
+    });
     if (
       !run ||
-      run.origin === "user" ||
+      (run.origin === "user" && !byUser) ||
       !["queued", "running"].includes(run.status)
     ) {
       return;
@@ -526,20 +539,21 @@ export class ChannelService {
     try {
       const response = await this.computerFetch(COMPUTER_API_PATHS.turnCancel(runId), {
         method: "POST",
+        ...(byUser ? { body: JSON.stringify({ reason: "user_message", recovery: carriesRecovery && recoveryShaped(run) }) } : {}),
       });
       if (!response.ok) return;
       await this.prisma.$transaction(async (tx) => {
         const interrupted = await tx.run.updateMany({
           where: {
             id: runId,
-            origin: { not: "user" },
+            ...(byUser ? {} : { origin: { not: "user" } }),
             status: { in: ["queued", "running"] },
           },
           data: {
             status: "cancelled",
             error: {
               code: "priority_peer_interrupt",
-              message: "superseded by a priority agent message",
+              message: byUser ? "superseded by a new user message" : "superseded by a priority agent message",
             },
           },
         });
@@ -560,30 +574,6 @@ export class ChannelService {
       throw new ApiError(503, "asset_store_unavailable", "Attachments are temporarily unavailable");
     }
     return { ...input, attachments: await assets.normalizeRefs(input.attachments) };
-  }
-
-  private async dispatchSteer(steer: SteerDispatch): Promise<void> {
-    let fallbackReason = "active_turn_unavailable";
-    try {
-      const input = {
-        inboxId: steer.inboxId,
-        clientMessageId: steer.clientMessageId,
-        content: steer.content,
-        images: steer.images,
-      } satisfies ComputerSteerRequest;
-      const response = await this.computerFetch(COMPUTER_API_PATHS.turnSteer(steer.activeRunId), {
-        method: "POST",
-        body: JSON.stringify(input),
-        signal: AbortSignal.timeout(5_000),
-      });
-      if (response.ok) return;
-      fallbackReason = `computer_rejected_${response.status}`;
-    } catch (error) {
-      fallbackReason = error instanceof Error ? error.message.slice(0, 160) : String(error);
-    }
-    await this.prisma.$transaction((tx) =>
-      this.messaging.promoteSteerToWake(tx, steer.inboxId, fallbackReason)
-    );
   }
 }
 

@@ -1,0 +1,63 @@
+/* Auto-review approval card, on the draft card's surface and buttons. */
+.approval-source {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--draft-text-tertiary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+.approval-source-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--draft-icon-secondary);
+}
+.approval-title {
+  white-space: normal;
+}
+.approval-line,
+.approval-quote {
+  color: var(--draft-text-secondary);
+  font-size: 14px;
+  line-height: 22px;
+  letter-spacing: -0.15px;
+  overflow-wrap: anywhere;
+}
+.approval-quote {
+  padding-left: 10px;
+  border-left: 2px solid var(--draft-divider);
+}
+.approval-caution {
+  color: var(--draft-yellow);
+  font-size: 13px;
+  line-height: 18px;
+}
+.approval-disclosure .draft-toggle {
+  margin: 0;
+}
+.approval-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--draft-panel);
+}
+.approval-reason {
+  color: var(--draft-text-secondary);
+  font-size: 13px;
+  line-height: 18px;
+}
+.approval-command {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  color: var(--draft-text);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 18px;
+}

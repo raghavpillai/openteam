@@ -49,8 +49,8 @@ test("Gmail search pagination, Unicode drafts and label mutations map to public 
     addLabelIds: ["SPAM"],
     removeLabelIds: ["INBOX"],
   });
-  // 25 Bot tools plus the host-only send_reviewed_email.
-  expect(h.tools).toHaveLength(26);
+  // 27 Bot tools plus the host-only send_reviewed_email.
+  expect(h.tools).toHaveLength(28);
   expect(h.tools.find((t) => t.name === "trash_message")!.annotations.destructiveHint).toBe(true);
 });
 
@@ -136,6 +136,6 @@ test("Google connectors are standalone MCP executables with argument validation 
     const child = Bun.spawn([process.execPath, join(import.meta.dir, "fixtures/google-mcp-smoke.ts"), report], { stdout: "pipe", stderr: "pipe" });
     const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
     expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
-    expect(await Bun.file(report).json()).toEqual({ plugins: 3, schemas: 60, offlineSemanticSearch: true, pagedResult: true });
+    expect(await Bun.file(report).json()).toEqual({ plugins: 3, schemas: 62, offlineSemanticSearch: true, pagedResult: true });
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 30_000);

@@ -17,7 +17,7 @@ test("other active conversations list recent sessions for ReadTranscript, bounde
   expect(rendered.slice(0, 3)).toEqual([
     "## Other active conversations",
     "Other active conversations: this agent also has separate conversations running in parallel.",
-    "Use ReadTranscript with a session_id to inspect another conversation's transcript when you need cross-conversation context.",
+    "Use ReadTranscript with in=<session_id> to inspect another conversation's transcript when you need cross-conversation context.",
   ]);
   // The eight most recent, listed by session id; the two older ones are counted, the stale one dropped.
   expect(rendered.slice(3, 11)).toEqual(["s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9"].map((id) =>
@@ -44,8 +44,8 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)("other conversations list v
     for(let i=1;i<=3;i++)await db.channelMessage.create({data:{channelId:ids[1]!,sender:i%2?"user":"agent",senderBotId:i%2?null:botId,content:`Visible row ${i}`,createdAt:new Date(sentAt+i)}});
     const listed=await listSiblingThreads(db,botId,current.id);
     expect(listed).toEqual([{sessionId:sibling.id,channelId:ids[1]!,name:`Room ${ids[1]}`,kind:"group chat",lastActivityAt:expect.any(Date)}]);
-    // The listed session is readable by session_id; the transcript tool replaced the sibling reader.
-    const read=await readTranscript(db,{botId,channelId:ids[0]!},{session_id:sibling.id});
+    // The listed session is readable by its session_id; the transcript tool replaced the sibling reader.
+    const read=await readTranscript(db,{botId,channelId:ids[0]!},{in:sibling.id});
     expect(read.rows.map(row=>row.content)).toEqual(["Visible row 1","Visible row 2","Visible row 3"]);
     await db.channel.update({where:{id:ids[1]},data:{archivedAt:new Date()}});
     expect(await listSiblingThreads(db,botId,current.id)).toEqual([]);

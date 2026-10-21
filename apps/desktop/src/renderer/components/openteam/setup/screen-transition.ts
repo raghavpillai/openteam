@@ -36,6 +36,10 @@ export function entrance(
 let camera = 0;
 const CAMERA_RANGE = 30;
 
+// The latest screen change. One that starts during another skips it, and the skipped one's
+// clean-up must not strip the marks the newer one just set.
+let latest: ViewTransition | null = null;
+
 /**
  * Changes setup screens as a view transition: the stage, its picture, the progress bar,
  * the title and the primary button carry over between screens (named in setup.css) while
@@ -69,9 +73,11 @@ export function changeScreen(update: () => void, direction: "forward" | "back" =
     // After the old screen was captured, so the new stage drifts on from where it was.
     moveCamera();
   });
+  latest = transition;
   settleTransition(transition);
   const cleanUp = () => {
-    if (root.dataset.setupDirection !== direction) return;
+    if (latest !== transition) return;
+    latest = null;
     delete root.dataset.setupDirection;
     delete root.dataset.setupVisual;
     delete root.dataset.setupStage;

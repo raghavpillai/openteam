@@ -22,7 +22,7 @@ struct VoiceNotesSettingsView: View {
           if loadFailed {
             InlineFailure(
               message:
-                "Could not load transcription settings. Check the server connection and version."
+                "Could not load transcription settings. Check the server connection."
             ) { Task { await load() } }
           } else {
             LoadingOrbLabel(title: "Loading…")
@@ -178,7 +178,7 @@ struct VoiceNotesSettingsView: View {
     var message: String?
     await operation.run {
       let value = try await store.request(
-        TranscriptionRequest.path, method: "PATCH", body: draft.body
+        TranscriptionRequest.path, method: "PUT", body: draft.body
       ).decode(TranscriptionSettingsView.self)
       saved = value
       draft = TranscriptionDraft(value)

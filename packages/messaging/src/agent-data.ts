@@ -17,10 +17,12 @@ import { managedSkillAgents, managedSkillIsForMain } from "./managed-skill-agent
 import { safePackagePath } from "@openteam/plugin-sdk";
 import { originalSkillMarkdown } from "@openteam/plugin-sdk/skill-markdown";
 import { pluginSkillsForAgent, renderPluginSkillCatalog, type PluginSkillCache } from "./plugin-skill-catalog";
+import { agentSkillItem, type CatalogItem, omittedSkillDirectories, omittedSkillsNotice, renderSkillCatalog } from "./skill-catalog";
 import { createHash, randomUUID } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import { defaultTaskConfiguration, parseTaskConfiguration, type TaskConfiguration } from "@openteam/contracts/task-configuration";
+import { DEFAULT_AUTO_REVIEW_SETTINGS, type AutoReviewSettings } from "@openteam/contracts/auto-review";
 import {
   appendFile,
   chmod,
@@ -33,7 +35,7 @@ import {
   rm,
   stat,
 } from "node:fs/promises";
-import { dirname, extname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import {
   ApiError,
   BOT_MEMORY_LIST_LIMIT,
@@ -83,15 +85,19 @@ import {
 import { deleteSkillFolder, parseSkillFile, renderSkillFile, writeSkillFile } from "./skill-files";
 import type { AgentTimelineEvent } from "./timeline-events";
 import {
+  acknowledgeAutomationStatus,
   acknowledgeMemoryContext,
   acknowledgePromptSections,
   parsePromptSections,
+  prepareAutomationStatus,
   prepareMemoryContext,
   preparePromptSections,
+  type AutomationStatusReceipt,
   type MemoryContextLive,
   type MemoryContextReceipt,
   type PromptSectionReceipt,
 } from "./prompt-sections";
+import { AUTOMATION_STATUS_CLEARED } from "./automation-status";
 import { parseRecallInput, recallMemoryResult } from "./recall-memory";
 import {
   buildExtractionUserPrompt,
@@ -108,6 +114,7 @@ import { resolveTimeZone } from "./timestamps";
 import { MEMORY_EXTRACTION_SYSTEM_PROMPT } from "./memory-prompts";
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+const AVATAR_SIZE_REFUSAL = "the image must be under 5 MB and non-empty.";
 const AVATAR_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"] as const;
 const MEMORY_INFERENCE_DEADLINE_MS = 90_000;
 const MAX_HELD_MEMORY_EXCHANGES = 5;
@@ -1867,14 +1874,14 @@ export class AgentDataStore {
     const directory = this.botDirectory(botId);
     const canonical = await realpath(resolve(directory, supplied)).catch(() => null);
     const agentDirectory = await realpath(directory).catch(() => directory);
-    if (!canonical || !this.isInside(canonical, agentDirectory)) {
-      throw new Error(`avatar source must stay inside ${directory}`);
-    }
-    const bytes = await readBytes(canonical, MAX_AVATAR_BYTES);
-    const extension = bytes ? sniffAvatarExtension(bytes) : null;
-    if (!bytes || !extension) {
-      throw new Error("avatar must be a supported non-empty image no larger than 5 MB");
-    }
+    const unreadable = `could not read "${basename(supplied)}" from your agent directory. The avatar source must stay inside ${directory}: write or copy the image there first, then pass that path.`;
+    if (!canonical || !this.isInside(canonical, agentDirectory)) throw new Error(unreadable);
+    const bytes = await readBytes(canonical, MAX_AVATAR_BYTES).catch((error: unknown) => {
+      throw new Error(error instanceof Error && error.message.includes("is larger than") ? AVATAR_SIZE_REFUSAL : unreadable);
+    });
+    if (!bytes?.length) throw new Error(AVATAR_SIZE_REFUSAL);
+    const extension = sniffAvatarExtension(bytes);
+    if (!extension) throw new Error("that file is not a recognized image (png, jpg, webp, gif, or svg).");
     await this.clearAvatarFiles(botId);
     const destination = join(directory, `avatar${extension}`);
     await atomicWrite(destination, bytes);
@@ -2255,7 +2262,6 @@ export class AgentDataStore {
       const { count } = await tx.memoryFact.deleteMany({ where: { namespace, ...(memoryId ? { logicalId: memoryId } : {}) } });
       if (count > 0) await tx.event.create({ data: { topic: "memory.changed", entityId: botId, payload: { botId } } });
       // The owner's deletion reaches the bot at once: unpin memory in every conversation, even on an idempotent clear.
-      await tx.$executeRaw`UPDATE "AgentPromptSnapshot" SET "promptSections" = "promptSections" - 'memory' WHERE "botId" = ${botId}::uuid`;
       await tx.$executeRaw`UPDATE "ContextPromptSnapshot" SET "promptSections" = "promptSections" - 'memory' WHERE "contextSessionId" IN (SELECT "id" FROM "ContextSession" WHERE "botId" = ${botId}::uuid)`;
       return this.managedMemoryList(tx, botId);
     }, { maxWait: 10_000, timeout: 60_000 });
@@ -2460,20 +2466,15 @@ export class AgentDataStore {
     await this.withFileMutation(botId, `routine:${id}`, remove);
   }
 
-  async promptContext(botId: string, contextSessionId?: string, channelId?: string | null): Promise<AgentPromptContext> {
+  async promptContext(botId: string, contextSessionId: string, channelId?: string | null): Promise<AgentPromptContext> {
     const reconciliation = await this.reconcileBot(botId);
-    const bot = await this.prisma.bot.findUniqueOrThrow({
-      where: { id: botId },
-      include: { conversation: true },
+    const bot = await this.prisma.bot.findUniqueOrThrow({ where: { id: botId } });
+    const contextSession = await this.prisma.contextSession.findFirstOrThrow({
+      where: { id: contextSessionId, botId },
     });
-    const contextSession = contextSessionId
-      ? await this.prisma.contextSession.findFirstOrThrow({
-          where: { id: contextSessionId, botId },
-        })
-      : null;
-    const epoch = contextSession?.compactionEpoch ?? bot.conversation?.compactionEpoch ?? 0;
-    const announcementKey = `${botId}:${contextSessionId ?? "legacy"}`;
-    // OpenTeam keeps a title separate from the name, so it gets its own line.
+    const epoch = contextSession.compactionEpoch;
+    const announcementKey = `${botId}:${contextSessionId}`;
+
     const liveProfile = [
       "Agent profile:",
       `Your agent name is "${bot.name}". If the user asks for your name, answer with "${bot.name}".`,
@@ -2481,10 +2482,9 @@ export class AgentDataStore {
       bot.description ? `Description: ${bot.description}` : "",
     ]
       .filter(Boolean)
-      .join("\n");
-    let snapshot = contextSessionId
-      ? await this.prisma.contextPromptSnapshot.findUnique({ where: { contextSessionId } })
-      : await this.prisma.agentPromptSnapshot.findUnique({ where: { botId } });
+      .join("\n\n");
+    let snapshot = await this.prisma.contextPromptSnapshot.findUnique({ where: { contextSessionId } });
+
     let profileSection: string;
     let identityAnnouncement = "";
     if (!snapshot || snapshot.profileEpoch !== epoch) {
@@ -2496,17 +2496,11 @@ export class AgentDataStore {
         announcedName: bot.name,
         announcedDescription: bot.description,
       };
-      snapshot = contextSessionId
-        ? await this.prisma.contextPromptSnapshot.upsert({
-            where: { contextSessionId },
-            create: { contextSessionId, ...snapshotData },
-            update: snapshotData,
-          })
-        : await this.prisma.agentPromptSnapshot.upsert({
-            where: { botId },
-            create: { botId, ...snapshotData },
-            update: snapshotData,
-          });
+      snapshot = await this.prisma.contextPromptSnapshot.upsert({
+        where: { contextSessionId },
+        create: { contextSessionId, ...snapshotData },
+        update: snapshotData,
+      });
       profileSection = liveProfile;
       this.pendingIdentityAnnouncements.delete(announcementKey);
     } else {
@@ -2541,15 +2535,12 @@ export class AgentDataStore {
       const liveSkills = await this.renderSkills(botId);
       skillRender = liveSkills;
       const data = { skillEpoch: epoch, skillRender: liveSkills };
-      if (contextSessionId) {
-        await this.prisma.contextPromptSnapshot.update({ where: { contextSessionId }, data });
-      } else {
-        await this.prisma.agentPromptSnapshot.update({ where: { botId }, data });
-      }
+      await this.prisma.contextPromptSnapshot.update({ where: { contextSessionId }, data });
     }
     // Installed capabilities can change between turns without compaction.
     // Keep user workflows frozen, but never freeze a missing managed or plugin catalog.
-    skillRender = [skillRender, await this.renderManagedSkills(), await this.renderPluginSkills(botId)]
+    // The reference lists managed skills first, then plugin, then the user's own.
+    skillRender = [await this.renderManagedSkills(), await this.renderPluginSkills(botId), skillRender]
       .filter(Boolean)
       .join("\n\n");
     return {
@@ -2578,21 +2569,23 @@ export class AgentDataStore {
 
   async preparePlatformSections(
     botId: string,
-    contextSessionId: string | undefined,
+    contextSessionId: string,
     epoch: number,
     live: Record<string, string>,
-    memory?: MemoryContextLive
+    memory?: MemoryContextLive,
+    /** The live <automation_status> reminder (null with no routines); undefined skips it. */
+    automationStatus?: string | null
   ) {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`prompt-sections:${contextSessionId ?? botId}`}))`;
-      const snapshot = contextSessionId
-        ? await tx.contextPromptSnapshot.findUniqueOrThrow({ where: { contextSessionId } })
-        : await tx.agentPromptSnapshot.findUniqueOrThrow({ where: { botId } });
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`prompt-sections:${contextSessionId}`}))`;
+      const snapshot = await tx.contextPromptSnapshot.findUniqueOrThrow({ where: { contextSessionId } });
       const result = preparePromptSections(snapshot.promptSections, epoch, live);
       const pinned = memory ? prepareMemoryContext(result.snapshots, epoch, memory) : undefined;
+      const status = automationStatus === undefined
+        ? undefined
+        : prepareAutomationStatus(result.snapshots, epoch, automationStatus, AUTOMATION_STATUS_CLEARED);
       const data = { promptSections: JSON.parse(JSON.stringify(result.snapshots)) as Prisma.InputJsonValue };
-      if (contextSessionId) await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
-      else await tx.agentPromptSnapshot.update({ where: { botId }, data });
+      await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
       return {
         ...result,
         memory: pinned && {
@@ -2600,40 +2593,38 @@ export class AgentDataStore {
           update: pinned.changed ? renderOtherAssistantMemoryUpdate(memory?.otherAgents?.render ?? "") : null,
           receipt: pinned.receipt,
         },
+        automationStatus: status,
       };
     });
   }
 
   async acknowledgePlatformSections(
     botId: string,
-    contextSessionId: string | undefined,
+    contextSessionId: string,
     receipts: readonly PromptSectionReceipt[],
-    memory?: MemoryContextReceipt
+    memory?: MemoryContextReceipt,
+    automationStatus?: AutomationStatusReceipt
   ) {
-    if (!receipts.length && !memory) return;
+    if (!receipts.length && !memory && !automationStatus) return;
     await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`prompt-sections:${contextSessionId ?? botId}`}))`;
-      const snapshot = contextSessionId
-        ? await tx.contextPromptSnapshot.findUniqueOrThrow({ where: { contextSessionId } })
-        : await tx.agentPromptSnapshot.findUniqueOrThrow({ where: { botId } });
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`prompt-sections:${contextSessionId}`}))`;
+      const snapshot = await tx.contextPromptSnapshot.findUniqueOrThrow({ where: { contextSessionId } });
       const acknowledged = acknowledgePromptSections(snapshot.promptSections, receipts);
-      const sections = memory ? acknowledgeMemoryContext(acknowledged, memory) : acknowledged;
+      const remembered = memory ? acknowledgeMemoryContext(acknowledged, memory) : acknowledged;
+      const sections = automationStatus ? acknowledgeAutomationStatus(remembered, automationStatus) : remembered;
       const data = { promptSections: JSON.parse(JSON.stringify(sections)) as Prisma.InputJsonValue };
-      if (contextSessionId) await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
-      else await tx.agentPromptSnapshot.update({ where: { botId }, data });
+      await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
     });
   }
 
-  async acknowledgeIdentityAnnouncement(botId: string, contextSessionId?: string, receipt?: PendingIdentityAnnouncement): Promise<void> {
-    const announcementKey = `${botId}:${contextSessionId ?? "legacy"}`;
+  async acknowledgeIdentityAnnouncement(botId: string, contextSessionId: string, receipt?: PendingIdentityAnnouncement): Promise<void> {
+    const announcementKey = `${botId}:${contextSessionId}`;
     const pending = receipt ?? this.pendingIdentityAnnouncements.get(announcementKey);
     if (!pending) return;
     try {
       await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`identity-announcement:${botId}`}))`;
-        const snapshot = contextSessionId
-          ? await tx.contextPromptSnapshot.findUnique({ where: { contextSessionId } })
-          : await tx.agentPromptSnapshot.findUnique({ where: { botId } });
+        const snapshot = await tx.contextPromptSnapshot.findUnique({ where: { contextSessionId } });
         if (
           !snapshot ||
           snapshot.profileEpoch !== pending.epoch ||
@@ -2649,11 +2640,7 @@ export class AgentDataStore {
           announcedName: pending.announcedName,
           announcedDescription: pending.announcedDescription,
         };
-        if (contextSessionId) {
-          await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
-        } else {
-          await tx.agentPromptSnapshot.update({ where: { botId }, data });
-        }
+        await tx.contextPromptSnapshot.update({ where: { contextSessionId }, data });
       });
     } finally {
       if (this.pendingIdentityAnnouncements.get(announcementKey) === pending) {
@@ -2796,7 +2783,7 @@ export class AgentDataStore {
             typeof skill.description !== "string") continue;
         const path = join(this.managedSkillsDirectory(), skill.id, "SKILL.md");
         if (!(await stat(path).catch(() => null))?.isFile()) continue;
-        blocks.push(`- ${skill.name} (managed:${skill.id}): ${skill.description}\n  Path: ${path}`);
+        blocks.push(agentSkillItem(path, skill.description));
       }
       return blocks.join("\n\n");
     } catch { return ""; }
@@ -2834,48 +2821,33 @@ export class AgentDataStore {
     } catch {
       return "";
     }
-    const entries: string[] = [];
+    const skills: CatalogItem[] = [];
     for (const record of records) {
       const skill = record as Record<string, unknown>;
       if (!Array.isArray(skill.agents) || !skill.agents.includes(agent)) continue;
       if (typeof skill.filePath !== "string" || typeof skill.description !== "string") continue;
       if (!(await stat(skill.filePath).catch(() => null))?.isFile()) continue;
-      entries.push(`<agent_skill fullPath="${skill.filePath}">${skill.description}</agent_skill>`);
+      skills.push({ fullPath: skill.filePath, description: skill.description });
     }
-    if (!entries.length) return "";
-    return [
-      "<agent_skills>",
-      "When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively. Skills provide specialized capabilities and domain knowledge. To use a skill, read the skill file at the provided absolute path using the Read tool, then follow the instructions within. When a skill is relevant, read and follow it IMMEDIATELY as your first action. NEVER just announce or mention a skill without actually reading and following it. Only use skills listed below.",
-      "",
-      "",
-      '<available_skills description="Skills the agent can use. Use the Read tool with the provided absolute path to fetch full contents.">',
-      entries.join("\n\n"),
-      "</available_skills>",
-      "</agent_skills>",
-    ].join("\n");
+    // Read mode, as in the reference: the worker opens a skill with Read at its listed path.
+    return renderSkillCatalog(skills);
   }
 
   private async renderSkills(botId: string): Promise<string> {
     void botId;
+    // Five past the cap name the folders of the first omitted skills, as the reference's notice does.
     const [skills, total] = await Promise.all([
       this.prisma.savedSkill.findMany({
         orderBy: { updatedAt: "desc" },
-        take: MAX_SAVED_SKILLS,
+        take: MAX_SAVED_SKILLS + 5,
       }),
       this.prisma.savedSkill.count(),
     ]);
-    const blocks = skills.map(
-      (skill) =>
-        `- ${skill.name} (${skill.slug}): ${skill.description}\n  Path: ${join(
-          this.workflowsDirectory(),
-          skill.slug,
-          "SKILL.md"
-        )}`
-    );
+    const path = (slug: string) => join(this.workflowsDirectory(), slug, "SKILL.md");
+    const blocks = skills.slice(0, MAX_SAVED_SKILLS).map((skill) => agentSkillItem(path(skill.slug), skill.description));
     const omitted = Math.max(0, total - blocks.length);
-    return `${blocks.join("\n\n")}${
-      omitted > 0 ? `\n\n[${omitted} additional skills omitted by the catalog budget]` : ""
-    }`.trim();
+    if (omitted > 0) blocks.push(omittedSkillsNotice(omitted, omittedSkillDirectories(skills.slice(MAX_SAVED_SKILLS).map((skill) => path(skill.slug)))));
+    return blocks.join("\n\n");
   }
 
   async loadRootSettings(): Promise<{
@@ -2975,6 +2947,22 @@ export class AgentDataStore {
   async loadTaskConfiguration(): Promise<TaskConfiguration> {
     const row = await this.prisma.taskSettings.findUnique({ where: { id: "global" } });
     return row ? parseTaskConfiguration(row.configuration) : defaultTaskConfiguration();
+  }
+
+  async loadAutoReviewSettings(): Promise<AutoReviewSettings> {
+    const row = await this.prisma.autoReviewSettings.findUnique({ where: { id: "global" } });
+    return row
+      ? { enabled: row.enabled, allowRules: row.allowRules, askFirstRules: row.askFirstRules }
+      : { ...DEFAULT_AUTO_REVIEW_SETTINGS };
+  }
+
+  async writeAutoReviewSettings(input: Partial<AutoReviewSettings>): Promise<AutoReviewSettings> {
+    const row = await this.prisma.autoReviewSettings.upsert({
+      where: { id: "global" },
+      create: { id: "global", ...DEFAULT_AUTO_REVIEW_SETTINGS, ...input },
+      update: input,
+    });
+    return { enabled: row.enabled, allowRules: row.allowRules, askFirstRules: row.askFirstRules };
   }
 
   async writeTaskConfiguration(input: unknown): Promise<TaskConfiguration> {

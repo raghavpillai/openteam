@@ -117,13 +117,13 @@ test.skipIf(!databaseUrl)(
           expect(await app.prisma.routine.findUniqueOrThrow({ where: { id } })).toEqual(original);
         }
 
-        for (const schedule of [
-          "@every 1m",
-          "@every 31d",
-          "@every 5m/5m",
-          "61 9 * * *",
-          "CRON_TZ=Not/A_Zone @daily",
-        ]) {
+        for (const [schedule, code] of [
+          ["@every 1m", "routine_schedule_too_frequent"],
+          ["*/2 * * * *", "routine_schedule_too_frequent"],
+          ["@every 5m/5m", "invalid_routine_schedule"],
+          ["61 9 * * *", "invalid_routine_schedule"],
+          ["CRON_TZ=Not/A_Zone @daily", "invalid_routine_schedule"],
+        ] as const) {
           for (const [method, target] of [
             ["POST", path],
             ["PATCH", `/api/routines/${id}`],
@@ -134,9 +134,7 @@ test.skipIf(!databaseUrl)(
               schedule,
             });
             expect(rejected.status).toBe(400);
-            expect(await rejected.json()).toMatchObject({
-              error: { code: "invalid_routine_schedule" },
-            });
+            expect(await rejected.json()).toMatchObject({ error: { code } });
           }
           expect(await app.prisma.routine.count()).toBe(initialCount);
           expect(await app.prisma.routine.findUniqueOrThrow({ where: { id } })).toEqual(original);

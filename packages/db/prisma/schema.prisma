@@ -128,11 +128,6 @@ enum InboxStatus {
   failed
 }
 
-enum InboxDeliveryMode {
-  turn
-  steer
-}
-
 enum OutboxStatus {
   pending
   delivering
@@ -271,7 +266,6 @@ model Bot {
   writtenMemoryFacts MemoryFact[]      @relation("MemoryFactWriter")
   savedSkills      SavedSkill[]
   routines         Routine[]
-  promptSnapshot   AgentPromptSnapshot?
   fileStates       AgentFileState[]
   connectorStates  BotConnectorState[]
   todos            TodoItem[]
@@ -319,7 +313,6 @@ model Subagent {
   reasoning        String?
   taskConfiguration Json?
   fileAttachments  Json           @default("[]")
-  runInBackground  Boolean        @default(true)
   readOnly         Boolean        @default(false)
   status           SubagentStatus @default(provisioning)
   result           String?
@@ -348,7 +341,6 @@ model SubagentAttempt {
   description       String
   prompt            String
   fileAttachments   Json           @default("[]")
-  runInBackground   Boolean        @default(true)
   status            SubagentStatus @default(provisioning)
   result            String?
   error             Json?
@@ -486,6 +478,10 @@ model RoutineExecution {
   completedAt       DateTime?
   skipReason        String?
   error             Json?
+  // Listener events this execution's wake delivers, and the delivery keys it absorbed
+  // while an earlier execution was queued or running.
+  events            Json?
+  coalescedKeys     String[]               @default([])
   createdAt         DateTime               @default(now())
   updatedAt         DateTime               @updatedAt
 
@@ -702,22 +698,6 @@ model ContextPromptSnapshot {
   updatedAt              DateTime       @updatedAt
 }
 
-model AgentPromptSnapshot {
-  botId                 String   @id @db.Uuid
-  bot                   Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
-  profileEpoch          Int      @default(-1)
-  profileSection        String   @default("")
-  systemName            String   @default("")
-  systemDescription     String   @default("")
-  announcedName         String   @default("")
-  announcedDescription  String   @default("")
-  skillEpoch            Int      @default(-1)
-  skillRender           String   @default("")
-  promptSections        Json     @default("{}")
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-}
-
 model AgentFileState {
   path          String   @id
   botId         String?  @db.Uuid
@@ -817,7 +797,6 @@ model InboxEvent {
   idempotencyKey String       @unique
   type           String       
   payload        Json
-  deliveryMode   InboxDeliveryMode @default(turn)
   status         InboxStatus  @default(pending)
   priority       Int          @default(0)
   attempts       Int          @default(0)
@@ -829,7 +808,7 @@ model InboxEvent {
   updatedAt      DateTime     @updatedAt
 
   @@index([botId, status, priority, availableAt, createdAt])
-  @@index([botId, deliveryMode, status])
+  @@index([botId, status])
 }
 
 model BotRunLease {
@@ -1182,6 +1161,15 @@ model TaskSettings {
   id String @id @default("global")
   configuration Json
   updatedAt DateTime @updatedAt
+}
+
+/// Auto-review: whether risky actions get a safety check and the user's Allow / Ask first rules.
+model AutoReviewSettings {
+  id            String   @id @default("global")
+  enabled       Boolean  @default(true)
+  allowRules    String[] @default([])
+  askFirstRules String[] @default([])
+  updatedAt     DateTime @updatedAt
 }
 
 /// Selected search provider; null means search is off. Credentials live in WebToolProvider.

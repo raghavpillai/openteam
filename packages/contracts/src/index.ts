@@ -4,9 +4,10 @@ import { withReferenceContract, referenceTool } from "./tool-contracts";
 import { Schema } from "effect";
 import { BOT_AVATAR_COLOR_NAMES } from "./bot-avatar";
 export { validateProcessSecretName } from "./process-secrets";
-import { MAX_INLINE_IMAGE_URL_LENGTH, MAX_TASK_ATTACHMENTS, isTaskMediaPath } from "./media-input";
+import { MAX_INLINE_IMAGE_URL_LENGTH, MAX_TASK_ATTACHMENTS, TASK_ATTACHMENT_LIMIT_MESSAGE, isTaskMediaPath } from "./media-input";
 import cursorToolsDocument from "./cursor-tools.json";
 export * from "./user-forms";
+export * from "./auto-review";
 export { formatUserFormReceipt } from "./user-form-receipts";
 import nativeToolsDocument from "./native-tools.json";
 import type { ClientCapabilities } from "./capabilities";
@@ -384,7 +385,7 @@ export const TaskInput = Schema.Struct({
   file_attachments: Schema.optional(Schema.Array(Schema.String.pipe(Schema.filter(isTaskMediaPath, {
     message: () => "Task file_attachments accepts supported images or videos only. For ZIPs, PDFs and other files, put the shared filesystem path in the Task prompt and omit file_attachments.",
   }))).pipe(Schema.maxItems(MAX_TASK_ATTACHMENTS, {
-    message: () => `Task accepts at most ${MAX_TASK_ATTACHMENTS} file_attachments. Split the media across separate tasks.`,
+    message: () => TASK_ATTACHMENT_LIMIT_MESSAGE,
   }))),
   run_in_background: Schema.optional(Schema.Boolean),
   read_only: Schema.optional(Schema.Boolean),
@@ -624,6 +625,9 @@ export const ShellToolInput = Schema.Struct({
   description: Schema.optional(Schema.String),
   working_directory: Schema.optional(Schema.String),
   machineId: Schema.optional(Schema.String),
+  // Auto-review's approval retry, offered while Auto-review is on.
+  request_smart_mode_approval: Schema.optional(Schema.Boolean),
+  smart_mode_block_reason: Schema.optional(Schema.String),
 });
 export type ShellToolInput = typeof ShellToolInput.Type;
 
@@ -654,6 +658,11 @@ export const CallDynamicToolInput = Schema.Struct({
   namespace: Schema.String,
   toolName: Schema.String,
   arguments: Schema.optional(Schema.Union(Schema.Record({ key: Schema.String, value: Schema.Unknown }), Schema.String)),
+  mcpDetails: Schema.optional(Schema.Struct({
+    description: Schema.optional(Schema.String),
+    requestSmartModeApproval: Schema.optional(Schema.Boolean),
+    smartModeBlockReason: Schema.optional(Schema.String),
+  })),
 });
 export type CallDynamicToolInput = typeof CallDynamicToolInput.Type;
 
@@ -663,6 +672,8 @@ export const PluginToolDescriptor = Schema.Struct({
   description: Schema.String,
   inputSchema: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
   source: Schema.String,
+  /** The server declares that the tool only reads. */
+  readOnly: Schema.optional(Schema.Boolean),
 });
 export type PluginToolDescriptor = typeof PluginToolDescriptor.Type;
 
@@ -1108,6 +1119,7 @@ export const UpdateStateInput = Schema.Struct({
     "write",
     "forget",
     "create",
+    "get",
     "update",
     "pause",
     "resume",
@@ -1131,6 +1143,7 @@ export const UpdateStateInput = Schema.Struct({
   body: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   hidden_from_sidebar: Schema.optional(Schema.Boolean),
   notify_on_updates: Schema.optional(Schema.Boolean),
+  drafting_disabled: Schema.optional(Schema.Boolean),
   platform: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   path: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
 });
@@ -1146,7 +1159,7 @@ export const UpdateMemoryToolInput = Schema.Struct({
 export type UpdateMemoryToolInput = typeof UpdateMemoryToolInput.Type;
 
 export const UpdateRoutineToolInput = Schema.Struct({
-  action: Schema.Literal("create", "update", "pause", "resume", "delete"),
+  action: Schema.Literal("create", "get", "update", "pause", "resume", "delete"),
   id: optionalText,
   name: optionalText,
   prompt: optionalText,
@@ -1173,6 +1186,7 @@ export const UpdateProfileToolInput = Schema.Struct({
   avatar_color: UpdateStateInput.fields.avatar_color,
   hidden_from_sidebar: Schema.optional(Schema.Boolean),
   notify_on_updates: Schema.optional(Schema.Boolean),
+  drafting_disabled: Schema.optional(Schema.Boolean),
 });
 export type UpdateProfileToolInput = typeof UpdateProfileToolInput.Type;
 
@@ -1282,8 +1296,6 @@ export const COMPUTER_TOOL = {
 export const COMPUTER_USE_TOOL = { type: "function", ...referenceTool("Computer") };
 
 export const DynamicToolCallRequest = Schema.Struct({
-  // Runtime-only handoff; not a model-visible Task argument.
-  foregroundYield: Schema.optional(Schema.Boolean),
   runId: Schema.String,
   botId: Schema.String,
   conversationId: Schema.String,
@@ -1312,7 +1324,6 @@ export const ComputerTurnRequest = Schema.Struct({
   connectorInstructions: Schema.optional(Schema.String),
   agentProfileSnapshot: Schema.optional(Schema.Unknown),
   todoUpdate: Schema.optional(Schema.NullOr(Schema.String)),
-  automationTrigger: Schema.optional(Schema.NullOr(Schema.String)),
   resetSelfSummaryCount: Schema.optional(Schema.Boolean),
   requestSource: Schema.optional(RuntimeRequestSource),
   channelId: Schema.String,
@@ -1321,8 +1332,13 @@ export const ComputerTurnRequest = Schema.Struct({
   subagentType: Schema.optional(SubagentType),
   taskConfiguration: Schema.optional(Schema.Unknown),
   readOnly: Schema.optional(Schema.Boolean),
-  /** "tool" gives a worker that carries skills of its own the Skill tool; "read" (default) has it Read them by path. */
-  skillAccess: Schema.optional(Schema.Literal("read", "tool")),
+  /** Auto-review settings for the turn; scopeBotId is the user's bot whose cards share the one-pending limit. */
+  autoReview: Schema.optional(Schema.Struct({
+    enabled: Schema.Boolean,
+    allowRules: Schema.Array(Schema.String),
+    askFirstRules: Schema.Array(Schema.String),
+    scopeBotId: Schema.String,
+  })),
   model: Schema.String,
   reasoning: Schema.Literal(...PI_REASONING_LEVELS),
   fileAttachments: Schema.optional(Schema.Array(Schema.String)),
@@ -1332,14 +1348,6 @@ export const ComputerTurnRequest = Schema.Struct({
   pluginRuntimePackages: Schema.optional(Schema.Array(Schema.Unknown)),
 });
 export type ComputerTurnRequest = typeof ComputerTurnRequest.Type;
-
-export const ComputerSteerRequest = Schema.Struct({
-  inboxId: Schema.String,
-  clientMessageId: Schema.String,
-  content: Schema.String.pipe(Schema.minLength(1)),
-  images: Schema.optional(Schema.Array(RuntimeInlineImage).pipe(Schema.maxItems(6))),
-});
-export type ComputerSteerRequest = typeof ComputerSteerRequest.Type;
 
 export const ShellCompletionInput = Schema.Struct({
   automationRunId: Schema.optional(Schema.String),
@@ -1351,6 +1359,8 @@ export const ShellCompletionInput = Schema.Struct({
   exitCode: Schema.NullOr(Schema.Number),
   error: Schema.optional(Schema.String.pipe(Schema.maxLength(4000))),
   channelId: Schema.optional(Schema.String),
+  /** The Shell call's description, else its (redacted) command. */
+  title: Schema.optional(Schema.String.pipe(Schema.maxLength(4000))),
 });
 export type ShellCompletionInput = typeof ShellCompletionInput.Type;
 
@@ -1366,12 +1376,6 @@ export type ComputerEvent =
     }
   | { type: "turn.started"; turnId: string }
   | { type: "prompt.delivered"; turnId: string }
-  | {
-      type: "input.delivered";
-      turnId: string;
-      inboxId: string;
-      clientMessageId: string;
-    }
   | { type: "item.started"; turnId: string; item: unknown }
   | { type: "agent.delta"; turnId: string; itemId: string; delta: string }
   | { type: "item.completed"; turnId: string; item: unknown }
@@ -1671,7 +1675,6 @@ export interface SubagentActivityView {
   currentRunId: string | null;
   description: string;
   subagentType: SubagentType;
-  runInBackground: boolean;
   status: "provisioning" | "queued" | "running" | "completed" | "failed" | "stopped";
   /** Sanitized completion candidate. It is never inserted into chat automatically. */
   summary: string | null;

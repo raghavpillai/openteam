@@ -12,20 +12,19 @@ function fixture() {
       id: "attempt",
       parentRunId: "parent",
       childRunId: "child",
-      runInBackground: false,
       status: "running",
-      subagent: { id: "sub", currentRunId: "child", status: "running" },
+      subagent: { id: "sub", childBotId: "sub-bot", currentRunId: "child", status: "running" },
     },
     {
       id: "background-attempt",
       parentRunId: "parent",
       childRunId: "background",
-      runInBackground: true,
       status: "running",
-      subagent: { id: "bg", currentRunId: "background", status: "running" },
+      subagent: { id: "bg", childBotId: "bg-bot", currentRunId: "background", status: "running" },
     },
   ];
   const calls: string[] = [];
+  const shellStops: string[] = [];
   const events: any[] = [];
   const inbox: any[] = [];
   let queueRace = false;
@@ -90,6 +89,10 @@ function fixture() {
   let fetchImpl = async (_id: string) => new Response("{}", { status: 200 });
   const service = new RunService(db, async (path: string) => {
     const id = path.split("/")[3]!;
+    if (path.endsWith("/background-shells/stop")) {
+      shellStops.push(id);
+      return new Response('{"stopped":1}');
+    }
     calls.push(id);
     return fetchImpl(id);
   });
@@ -98,34 +101,32 @@ function fixture() {
     runs,
     children,
     calls,
+    shellStops,
     events,
     inbox,
     setFetch: (f: typeof fetchImpl) => (fetchImpl = f),
     race: () => (queueRace = true),
   };
 }
-test("HTTP failure leaves child active and returns failure", async () => {
+test("a stop leaves the parent's subagents running, since every Task runs in the background", async () => {
   const f = fixture();
+  await Effect.runPromise(f.service.cancel("parent"));
+  expect(f.runs.parent.status).toBe("cancelled");
+  expect(f.calls).toEqual([]);
+  expect(f.children.map((child: any) => child.status)).toEqual(["running", "running"]);
+  f.runs.parent.status = "running";
+  await Effect.runPromise(f.service.cancel("parent"));
+  expect(f.calls).toEqual(["parent"]);
+  expect(f.runs.child.status).toBe("running");
+  // Their background shells keep running too; only StopSubagent ends a child's shells.
+  expect(f.shellStops).toEqual([]);
+});
+test("HTTP failure on a running parent returns failure", async () => {
+  const f = fixture();
+  f.runs.parent.status = "running";
   f.setFetch(async () => new Response("unavailable", { status: 503 }));
   await expect(Effect.runPromise(f.service.cancel("parent"))).rejects.toThrow();
-  expect(f.runs.parent.status).toBe("cancelled");
-  expect(f.runs.child.status).toBe("running");
-  expect(f.children[0].status).toBe("running");
-  expect(f.children[0].subagent.status).toBe("running");
-});
-test("retrying cancelled parent retries failed child and preserves background worker", async () => {
-  const f = fixture();
-  f.setFetch(async () => {
-    throw new Error("transport timeout");
-  });
-  await Effect.runPromise(f.service.cancel("parent")).catch(() => {});
-  f.setFetch(async () => new Response("{}"));
-  await Effect.runPromise(f.service.cancel("parent"));
-  expect(f.calls).toEqual(["child", "child"]);
-  expect(f.runs.child.status).toBe("cancelled");
-  expect(f.children[0].status).toBe("stopped");
-  expect(f.children[1].status).toBe("running");
-  expect(f.runs.background.status).toBe("running");
+  expect(f.runs.parent.status).toBe("running");
 });
 test("queued-to-running race dispatches cancellation instead of reporting queued success", async () => {
   const f = fixture();
@@ -135,58 +136,4 @@ test("queued-to-running race dispatches cancellation instead of reporting queued
   expect(f.calls).toEqual(["parent"]);
   expect(f.runs.parent.status).toBe("cancelled");
   expect(f.inbox).toHaveLength(0);
-});
-test("child stays active until acknowledgement", async () => {
-  const f = fixture();
-  let release!: () => void;
-  const gate = new Promise<void>((r) => (release = r));
-  f.setFetch(async () => {
-    await gate;
-    return new Response("{}");
-  });
-  const pending = Effect.runPromise(f.service.cancel("parent"));
-  await new Promise((r) => setTimeout(r, 10));
-  const before = f.children[0].status;
-  release();
-  await pending;
-  expect(before).toBe("running");
-  expect(f.children[0].status).toBe("stopped");
-});
-test("completion during network failure is accepted without changing completed run", async () => {
-  const f = fixture();
-  f.setFetch(async () => {
-    f.runs.child.status = "completed";
-    throw new Error("socket closed");
-  });
-  await Effect.runPromise(f.service.cancel("parent"));
-  expect(f.runs.child.status).toBe("completed");
-  expect(f.children[0].status).toBe("stopped");
-});
-test("new child attempt is not overwritten by an old acknowledgement", async () => {
-  const f = fixture();
-  f.setFetch(async () => {
-    f.children[0].subagent.currentRunId = "new-run";
-    return new Response("{}");
-  });
-  await Effect.runPromise(f.service.cancel("parent"));
-  expect(f.children[0].subagent.status).toBe("running");
-  expect(f.children[0].subagent.currentRunId).toBe("new-run");
-});
-test("all independent children attempted when one fails", async () => {
-  const f = fixture();
-  f.runs.second = { id: "second", status: "running" };
-  f.children.push({
-    id: "second-attempt",
-    parentRunId: "parent",
-    childRunId: "second",
-    runInBackground: false,
-    status: "running",
-    subagent: { id: "second-sub", currentRunId: "second", status: "running" },
-  });
-  f.setFetch(async (id) => new Response("{}", { status: id === "child" ? 503 : 200 }));
-  await expect(Effect.runPromise(f.service.cancel("parent"))).rejects.toThrow();
-  expect(f.calls.sort()).toEqual(["child", "second"]);
-  expect(f.runs.child.status).toBe("running");
-  expect(f.runs.second.status).toBe("cancelled");
-  expect(f.children[2].status).toBe("stopped");
 });

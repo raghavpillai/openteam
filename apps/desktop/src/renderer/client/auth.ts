@@ -135,7 +135,7 @@ export const clearAuthToken = (expectedToken?: string | null): void => {
 
 const rememberServerSignOut = () => {
   const user = readCachedUser();
-  serverSignOut = { username: user?.username ?? user?.name ?? "" };
+  serverSignOut = { username: user?.username ?? "" };
 };
 
 /** A request was refused as signed out: sign in again, to the same server and account. */

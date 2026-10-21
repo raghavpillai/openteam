@@ -1,0 +1,134 @@
+{
+ "unwrap": [
+  {
+   "body": "Hi Dana,\n\nThanks for sending over the revised proposal yesterday. I went through\nthe pricing section with the team this morning and we are aligned on\nthe overall structure, but we would like to revisit the onboarding fee\nbefore we sign.\n\nBest,\nRaghav",
+   "expected": "Hi Dana,\n\nThanks for sending over the revised proposal yesterday. I went through the pricing section with the team this morning and we are aligned on the overall structure, but we would like to revisit the onboarding fee before we sign.\n\nBest,\nRaghav"
+  },
+  {
+   "body": "Hi team,\r\n\r\nHere is the plan for next week. We will start with the migration and\r\nthen move on to the cleanup work once the data has been verified by\r\nthe on-call engineer.\r\n\r\n- Monday: freeze writes and take the final snapshot of the database,\r\n  then run the migration script against staging\r\n- Tuesday: production cutover\r\n\r\nOrder: 12345\r\nStatus: confirmed\r\n\r\n-- \r\nRaghav Pillai\r\nOpenTeam",
+   "expected": "Hi team,\n\nHere is the plan for next week. We will start with the migration and then move on to the cleanup work once the data has been verified by the on-call engineer.\n\n- Monday: freeze writes and take the final snapshot of the database, then run the migration script against staging\n- Tuesday: production cutover\n\nOrder: 12345\nStatus: confirmed\n\n-- \nRaghav Pillai\nOpenTeam"
+  },
+  {
+   "body": "Hi,\n\nSee you at 3.\nThanks!\nR",
+   "expected": "Hi,\n\nSee you at 3.\nThanks!\nR"
+  },
+  {
+   "body": "Address:\n1 Main Street\nSpringfield\n\nThanks",
+   "expected": "Address:\n1 Main Street\nSpringfield\n\nThanks"
+  },
+  {
+   "body": "Quick note on the report you sent over this afternoon, before I forget\nthe details:\n\n> On Monday, Ann wrote: the numbers in the second table do not add up\n> once you include the refunds from last quarter.\n\n```\nconst x = 1; // this line is code and should stay exactly as it was written\nconst y = 2;\n```\n\n| a | b |\n| 1 | 2 |\n\nhttps://example.com/a/very/long/link/that/should/stay/on/its/own/line/forever\nand that is all I wanted to say about the report, thanks a lot.",
+   "expected": "Quick note on the report you sent over this afternoon, before I forget the details:\n\n> On Monday, Ann wrote: the numbers in the second table do not add up\n> once you include the refunds from last quarter.\n\n```\nconst x = 1; // this line is code and should stay exactly as it was written\nconst y = 2;\n```\n\n| a | b |\n| 1 | 2 |\n\nhttps://example.com/a/very/long/link/that/should/stay/on/its/own/line/forever\nand that is all I wanted to say about the report, thanks a lot."
+  },
+  {
+   "body": "Ünïcödé prose that is long enough to look like a wrapped email line, with\naccents and émojis 🙂 continuing on the next line in lowercase as models do\nwhen they wrap at seventy-two characters.",
+   "expected": "Ünïcödé prose that is long enough to look like a wrapped email line, with accents and émojis 🙂 continuing on the next line in lowercase as models do when they wrap at seventy-two characters."
+  },
+  {
+   "body": "1. First item that runs long enough to wrap onto a second line in the body,\n   which continues here in lowercase\n2. Second item",
+   "expected": "1. First item that runs long enough to wrap onto a second line in the body, which continues here in lowercase\n2. Second item"
+  },
+  {
+   "body": "This first paragraph was wrapped at a fairly wide column of about ninety five chars so\nthat it keeps going on the next line here and then it finally ends right about now.\n\nThe second paragraph is wrapped at sixty columns\nand it continues on this line until it ends.",
+   "expected": "This first paragraph was wrapped at a fairly wide column of about ninety five chars so that it keeps going on the next line here and then it finally ends right about now.\n\nThe second paragraph is wrapped at sixty columns\nand it continues on this line until it ends."
+  },
+  {
+   "body": "I wanted to check\nwhether you are free\non Thursday afternoon.",
+   "expected": "I wanted to check\nwhether you are free\non Thursday afternoon."
+  },
+  {
+   "body": "We confirmed the booking for the whole team this morning and the details are\nReference: ABC123 for the hotel near the conference venue downtown",
+   "expected": "We confirmed the booking for the whole team this morning and the details are\nReference: ABC123 for the hotel near the conference venue downtown"
+  },
+  {
+   "body": "Thank you again for taking the time to meet with us yesterday afternoon and\nfor walking us through the new roadmap, it was really helpful for us all\nJane Doe",
+   "expected": "Thank you again for taking the time to meet with us yesterday afternoon and for walking us through the new roadmap, it was really helpful for us all\nJane Doe"
+  },
+  {
+   "body": "Here is the command you asked me for earlier today when we spoke on the phone\n  git rebase --onto main feature-branch-with-a-very-long-name-here\nand then push it.",
+   "expected": "Here is the command you asked me for earlier today when we spoke on the phone\n  git rebase --onto main feature-branch-with-a-very-long-name-here\nand then push it."
+  },
+  {
+   "body": "~~~\nfenced line that is long enough to be joined if it were prose text, really\nthis continues in lowercase but sits inside the fence\n~~~\n--\nSignature line one that is fairly long and ends without punctuation here\nsignature line two in lowercase",
+   "expected": "~~~\nfenced line that is long enough to be joined if it were prose text, really\nthis continues in lowercase but sits inside the fence\n~~~\n--\nSignature line one that is fairly long and ends without punctuation here\nsignature line two in lowercase"
+  },
+  {
+   "body": "This line is deliberately made longer than one hundred characters so that it never counts as a wrapped line at all\nand this one continues in lowercase.",
+   "expected": "This line is deliberately made longer than one hundred characters so that it never counts as a wrapped line at all\nand this one continues in lowercase."
+  },
+  {
+   "body": "We reviewed the contract terms with legal on Monday and they asked us to\nadd a clause about data retention before anything gets signed by anyone.\nThat is all for now.",
+   "expected": "We reviewed the contract terms with legal on Monday and they asked us to add a clause about data retention before anything gets signed by anyone. That is all for now."
+  },
+  {
+   "body": "* A starred item that is long enough to have been wrapped by the model at\nseventy columns, continuing here\n• A bullet item that is also long enough to have been wrapped by the model\n  at seventy columns with indentation",
+   "expected": "* A starred item that is long enough to have been wrapped by the model at seventy columns, continuing here\n• A bullet item that is also long enough to have been wrapped by the model at seventy columns with indentation"
+  },
+  {
+   "body": "   \n\n  ",
+   "expected": "   \n\n  "
+  },
+  {
+   "body": "The quarterly numbers look much better than we expected at the start of   \nthe year, so the board is happy and wants to keep the current plan.",
+   "expected": "The quarterly numbers look much better than we expected at the start of the year, so the board is happy and wants to keep the current plan."
+  },
+  {
+   "body": "Please review the document linked below before our meeting tomorrow morning\n<https://docs.example.com/document/d/1234567890/edit>\nthanks in advance for reading it.",
+   "expected": "Please review the document linked below before our meeting tomorrow morning\n<https://docs.example.com/document/d/1234567890/edit>\nthanks in advance for reading it."
+  },
+  {
+   "body": "Name\tRole\tStart\nAnn\tEngineer\tMonday and then a long trailing description here",
+   "expected": "Name\tRole\tStart\nAnn\tEngineer\tMonday and then a long trailing description here"
+  },
+  {
+   "body": "1) The first numbered item uses a parenthesis marker and is long enough to\nwrap onto a lowercase continuation line here\n2) Second",
+   "expected": "1) The first numbered item uses a parenthesis marker and is long enough to wrap onto a lowercase continuation line here\n2) Second"
+  }
+ ],
+ "htmlTag": [
+  {
+   "body": "<p>Hello Dana,</p>",
+   "expected": "</p>"
+  },
+  {
+   "body": "Hi<br>there",
+   "expected": "<br>"
+  },
+  {
+   "body": "Hi<br/>there",
+   "expected": "<br/>"
+  },
+  {
+   "body": "a <b>bold</b> move",
+   "expected": "</b>"
+  },
+  {
+   "body": "x < y and y > z",
+   "expected": null
+  },
+  {
+   "body": "<div>no close",
+   "expected": null
+  },
+  {
+   "body": "</H2 >",
+   "expected": "</H2 >"
+  },
+  {
+   "body": "<span>a</span>",
+   "expected": "</span>"
+  },
+  {
+   "body": "Use <em>this</em>",
+   "expected": "</em>"
+  },
+  {
+   "body": "</a>",
+   "expected": "</a>"
+  },
+  {
+   "body": "plain text",
+   "expected": null
+  }
+ ]
+}

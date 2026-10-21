@@ -13,7 +13,6 @@ const claimed = {
   conversationId: "conversation",
   ownerId: "owner",
   content: "[OpenTeam first start]",
-  automationTrigger: null,
   images: [],
   clientId: "bot:bot:bootstrap:v1",
   cwd: "/workspace",
@@ -87,7 +86,6 @@ const workerWith = (state: {
     }
   };
   worker.messaging = {
-    promoteUndeliveredSteers: async () => 0,
     scheduleTranscriptProjection: async () => {},
   };
   worker.wakeBootstrapWhenComputerReady = async (botId: string) => {
@@ -214,8 +212,10 @@ describe("execute tells a computer outage from a reported failure", () => {
     worker.prisma = {
       pluginInstallation: { findMany: async () => [] },
       run: { update: async () => ({}), findUnique: async () => ({ status: "running" }) },
+      subagent: { findUnique: async () => null },
     };
     worker.agentData = {
+      loadAutoReviewSettings: async () => ({ enabled: true, allowRules: [], askFirstRules: [] }),
       loadInferenceSettings: async () => ({
         providerId: "openai",
         modelId: "gpt-5",

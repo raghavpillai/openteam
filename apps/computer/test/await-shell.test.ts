@@ -99,7 +99,6 @@ test("discovers and invokes AwaitShell locally across turns with bot scope", asy
     botId: "bot-1",
     cwd: root,
     pluginNamespaces: [],
-    discoveredDynamicTools: new Set<string>(),
   } as unknown as ActiveTurn;
   const custom = testTools(runtime, active);
   const shell = await custom
@@ -112,14 +111,15 @@ test("discovers and invokes AwaitShell locally across turns with bot scope", asy
     toolName: "AwaitShell",
     arguments: { shell_id: (shell.details as { shellId: string }).shellId, block_until_ms: 0 },
   };
-  await expect(call.execute("undiscovered", args)).rejects.toThrow();
+  // As in the reference, a call needs no prior schema lookup.
+  expect((await call.execute("undiscovered", args)).details).toMatchObject({ status: "completed" });
   const discovered = await get.execute("discover", { namespace: "cursor", toolName: "AwaitShell" });
   expect(JSON.stringify(discovered.content)).toContain("pattern");
   expect((await call.execute("wait", args)).details).toMatchObject({
     status: "completed",
     exit_code: 0,
   });
-  const next = testTools(runtime, { ...active, discoveredDynamicTools: new Set() });
+  const next = testTools(runtime, { ...active });
   await next
     .find((t) => t.name === "GetDynamicTools")!
     .execute("discover-next", { namespace: "cursor", toolName: "AwaitShell" });
@@ -129,16 +129,16 @@ test("discovers and invokes AwaitShell locally across turns with bot scope", asy
   const other = testTools(runtime, { ...active, botId: "bot-2" });
   await expect(
     other.find((t) => t.name === "CallDynamicTool")!.execute("wait-other", args)
-  ).rejects.toThrow("Unknown or expired");
+  ).rejects.toThrow(`Error awaiting task: No shell found for id ${args.arguments.shell_id}`);
   const subagent = testTools(runtime, {
     ...active,
     runtimeProfile: "subagent",
     subagentType: "executor",
   });
-  // Executors call AwaitShell directly rather than through the cursor namespace.
-  await expect(
-    subagent.find((t) => t.name === "CallDynamicTool")!.execute("via-namespace", args)
-  ).rejects.toThrow("Unknown dynamic tool");
+  // Executors have AwaitShell directly, so the cursor form runs that tool natively.
+  expect(
+    (await subagent.find((t) => t.name === "CallDynamicTool")!.execute("via-namespace", args)).details
+  ).toMatchObject({ status: "completed" });
   await expect(
     subagent
       .find((t) => t.name === "AwaitShell")!
@@ -218,22 +218,36 @@ test("external AwaitShell authenticates, uses the host wait endpoint, and parses
   }
 });
 
-test("new user input releases AwaitShell and sleep promptly without terminating a job", async () => {
+test("a stop kills a running foreground Shell and reports it as interrupted", async () => {
   const {root}=await fixture();
   const runtime=new RuntimeTools({} as ScreenBroker,"http://unused.invalid","test",root,root);
   (runtime as any).processSecrets=async()=>({});
-  const active={runId:"steered-run",runtimeProfile:"agent",botId:"bot-steer",cwd:root,pluginNamespaces:[],discoveredDynamicTools:new Set<string>()} as unknown as ActiveTurn;
-  const tools=testTools(runtime,active),call=tools.find(t=>t.name==="CallDynamicTool")!;
-  await tools.find(t=>t.name==="GetDynamicTools")!.execute("discover",{namespace:"cursor",toolName:"AwaitShell"});
-  const started=await tools.find(t=>t.name==="Shell")!.execute("start",{command:"sleep 0.3; printf survived",block_until_ms:0});
-  const args={namespace:"cursor",toolName:"AwaitShell",arguments:{shell_id:started.details.shellId,block_until_ms:60_000}};
-  const pending=call.execute("await",args);
-  const timer=setTimeout(()=>runtime.interruptShellWaits(active.runId),20);
-  try {expect((await pending).details.status).toBe("running");}finally{clearTimeout(timer);}
-  expect((await call.execute("finish",{...args,arguments:{...args.arguments,block_until_ms:2000}})).details).toMatchObject({status:"completed",exit_code:0});
-  const sleeping=call.execute("sleep",{...args,arguments:{block_until_ms:60_000}});
-  const wake=setTimeout(()=>runtime.interruptShellWaits(active.runId),20);
-  try {expect((await sleeping).details.status).toBe("slept");}finally{clearTimeout(wake);}
+  const stopped={runId:"stop-shell",runtimeProfile:"agent",botId:"bot-stop-shell",cwd:root,pluginNamespaces:[]} as unknown as ActiveTurn;
+  const controller=new AbortController();
+  const running=(runtime as unknown as {executeScopedTool(active:ActiveTurn,callId:string,tool:string,args:unknown,signal?:AbortSignal):Promise<unknown>})
+    .executeScopedTool(stopped,"stop","Shell",{command:"echo partial; sleep 5"},controller.signal);
+  const stop=setTimeout(()=>{stopped.endTurnRequested=true;controller.abort();},300);
+  try {await expect(running).rejects.toThrow(/^Error: Shell command was interrupted by the user after \d+ms before it completed\.\n\nOutput collected before interruption:\n\n```\npartial\n\n```$/);}
+  finally{clearTimeout(stop);}
+});
+
+test("a stopped AwaitShell and invalid waits report the reference errors", async () => {
+  const {root}=await fixture();
+  const runtime=new RuntimeTools({} as ScreenBroker,"http://unused.invalid","test",root,root);
+  (runtime as any).processSecrets=async()=>({});
+  const active={runId:"await-errors",runtimeProfile:"subagent",subagentType:"executor",botId:"bot-await-errors",cwd:root,pluginNamespaces:[]} as unknown as ActiveTurn;
+  const wait=testTools(runtime,active).find(t=>t.name==="AwaitShell")!;
+  await expect(wait.execute("zero",{block_until_ms:0})).rejects.toThrow("Error awaiting task: Invalid arguments:\nshell_id: Required when block_until_ms is 0. Without shell_id there is nothing to check: pass the shell_id to check, or a nonzero block_until_ms to sleep.");
+  await expect(wait.execute("cap",{block_until_ms:780_001})).rejects.toThrow("Error awaiting task: Invalid arguments:\nblock_until_ms: block_until_ms must be at most 780000 (13 minutes)");
+  await expect(wait.execute("unknown",{shell_id:"999",block_until_ms:0})).rejects.toThrow("Error awaiting task: No shell found for id 999");
+  const started=await testTools(runtime,active).find(t=>t.name==="Shell")!.execute("start",{command:"sleep 0.2",block_until_ms:0});
+  await expect(wait.execute("regex",{shell_id:started.details.shellId,pattern:"(?=a)",block_until_ms:0})).rejects.toThrow("Error awaiting task: pattern is not valid RE2 syntax: invalid or unsupported Perl syntax. RE2 has no lookahead, lookbehind or backreferences.");
+  expect((await wait.execute("finish",{shell_id:started.details.shellId,block_until_ms:5000})).details).toMatchObject({status:"completed"});
+  const controller=new AbortController();
+  const pending=(runtime as unknown as {executeScopedTool(active:ActiveTurn,callId:string,tool:string,args:unknown,signal?:AbortSignal):Promise<unknown>})
+    .executeScopedTool(active,"stopped","AwaitShell",{block_until_ms:60_000},controller.signal);
+  setTimeout(()=>controller.abort(),50);
+  await expect(pending).rejects.toThrow(/^Error: Await was interrupted by the user after \d+ms\.$/);
 });
 
 test("each Shell or AwaitShell call waits at most 13 minutes, or 58 for a computerUse worker", async () => {
@@ -248,7 +262,6 @@ test("each Shell or AwaitShell call waits at most 13 minutes, or 58 for a comput
     botId: "bot-cap",
     cwd: root,
     pluginNamespaces: [],
-    discoveredDynamicTools: new Set<string>(),
   }) as unknown as ActiveTurn;
   for (const [subagentType, capMs, minutes] of [["executor", 780_000, 13], ["computerUse", 3_480_000, 58]] as const) {
     const tools = testTools(runtime, turn(subagentType));
@@ -272,4 +285,18 @@ test("each Shell or AwaitShell call waits at most 13 minutes, or 58 for a comput
       namespace: "cursor", toolName: "AwaitShell", arguments: { block_until_ms: 780_001 },
     })
   ).rejects.toThrow("block_until_ms must be at most 780000 (13 minutes)");
+});
+
+test("a Read issued beside the Shell call that creates its file waits for it and retries once", async () => {
+  const {root}=await fixture();
+  const runtime=new RuntimeTools({} as ScreenBroker,"http://unused.invalid","test",root,root);
+  (runtime as any).processSecrets=async()=>({});
+  const active={runId:"same-step",runtimeProfile:"agent",botId:"bot-same-step",cwd:root,pluginNamespaces:[]} as unknown as ActiveTurn;
+  const tools=testTools(runtime,active);
+  const shell=tools.find(t=>t.name==="Shell")!.execute("make",{command:"sleep 0.3; printf made > chart.txt"});
+  const read=tools.find(t=>t.name==="Read")!.execute("read",{path:"chart.txt"});
+  expect((await read).content[0]).toEqual({type:"text",text:"     1|made"});
+  await shell;
+  // Without an earlier writer in the step, a missing file fails at once.
+  await expect(tools.find(t=>t.name==="Read")!.execute("again",{path:"absent.txt"})).rejects.toThrow("Error: File not found");
 });

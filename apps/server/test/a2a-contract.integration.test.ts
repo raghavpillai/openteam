@@ -92,24 +92,26 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
       isFork: false,
     };
 
-    await expect(
-      app.messaging.sendToAgent(context, { target_id: source.id, message: "self" })
-    ).rejects.toThrow(
-      "You can't message yourself with SendToAgent. Use SendToUser to talk to the user, or pick a different target id."
-    );
+    // Refusals are answers the model reads, not tool failures.
+    expect(
+      await app.messaging.sendToAgent(context, { target_id: source.id, message: "self" })
+    ).toEqual({
+      acknowledgement: "You can't message yourself with SendToAgent. Use SendToUser to talk to the user, or pick a different target id.",
+      interruptRunId: null,
+    });
     const missingId = crypto.randomUUID();
-    await expect(
-      app.messaging.sendToAgent(
+    expect(
+      await app.messaging.sendToAgent(
         { ...context, callId: "a2a-missing" },
         { target_id: missingId, message: "missing" }
       )
-    ).rejects.toThrow(`No agent found with id ${missingId}.`);
-    await expect(
-      app.messaging.sendToAgent(
+    ).toEqual({ acknowledgement: `No agent found with id ${missingId}.`, interruptRunId: null });
+    expect(
+      await app.messaging.sendToAgent(
         { ...context, callId: "a2a-not-group" },
         { target_id: source.dmChannelId, message: "not a group" }
       )
-    ).rejects.toThrow(`${source.dmChannelId} is not a group chat.`);
+    ).toEqual({ acknowledgement: `${source.dmChannelId} is not a group chat.`, interruptRunId: null });
 
     const createAck = await app.administration.createChannel(source.id, "create-contract-room", {
       name: "Contract room",
@@ -160,7 +162,7 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
       botId: string;
       conversationId: string;
       channelId: string;
-      origin: "user" | "group";
+      origin: "user" | "group" | "agent" | "routine" | "background_revival";
     }) =>
       app.prisma.$transaction(async (tx) => {
         const message = await tx.message.create({
@@ -194,11 +196,33 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
         return run;
       });
 
+    // A priority message never cuts into a conversation: a room turn or another agent's message
+    // finishes first. Only background work in the foreground lane is interrupted.
+    for (const origin of ["group", "agent"] as const) {
+      await leaseRun({ botId: peer.id, conversationId: peer.conversationId, channelId: groupId, origin });
+      const held = await app.messaging.sendToAgent(
+        { ...context, callId: `a2a-priority-${origin}-lane` },
+        { target_id: peer.id, message: "Look at this next.", priority: true }
+      );
+      expect(held.interruptRunId).toBeNull();
+      expect(held.acknowledgement).toBe(
+        "Sent to Peer as a priority message — it jumps their queue and interrupts any routine or background work they are running; if they are mid-conversation with the user or handling another agent's message, it is delivered right after that. This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now."
+      );
+      await app.prisma.botRunLease.deleteMany({ where: { botId: peer.id } });
+    }
+    // A routine runs on its own automation lease, so the message runs beside it and nothing is interrupted.
+    const routineRun = await leaseRun({ botId: peer.id, conversationId: peer.conversationId, channelId: groupId, origin: "routine" });
+    await app.prisma.botRunLease.update({ where: { runId: routineRun.id }, data: { scope: `automation:${routineRun.id}` } });
+    expect((await app.messaging.sendToAgent(
+      { ...context, callId: "a2a-priority-beside-routine" },
+      { target_id: peer.id, message: "Look at this too.", priority: true }
+    )).interruptRunId).toBeNull();
+    await app.prisma.botRunLease.deleteMany({ where: { botId: peer.id } });
     const nonUserRun = await leaseRun({
       botId: peer.id,
       conversationId: peer.conversationId,
       channelId: groupId,
-      origin: "group",
+      origin: "background_revival",
     });
     const priorityInterrupt = await app.messaging.sendToAgent(
       { ...context, callId: "a2a-priority-interrupt" },
@@ -235,8 +259,8 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
       await app.prisma.botRunLease.findUniqueOrThrow({ where: { botId_scope: { botId: outsider.id, scope: "foreground" } } })
     ).toMatchObject({ runId: userRun.id });
 
-    await expect(
-      app.messaging.sendToAgent(
+    expect(
+      await app.messaging.sendToAgent(
         {
           ...context,
           runId: outsiderTurn.run.id,
@@ -247,7 +271,7 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
         },
         { target_id: groupId, message: "not seated" }
       )
-    ).rejects.toThrow("You can only post to a group you're a member of.");
+    ).toMatchObject({ acknowledgement: "You can only post to a group you're a member of." });
 
     expect(
       await app.messaging.sendToAgent(
@@ -275,7 +299,7 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
     );
     expect(posted).toMatchObject({
       acknowledgement:
-        'Posted to "Contract room". Its members will see it and reply on their own turns. Note: the attached image was NOT delivered — group messages are text-only for now; send images to an agent directly.',
+        'Posted to "Contract room". Its members will see it and reply on their own turns. Note: the attached image was NOT delivered — group messages are text-only for now; send images to an agent directly. Note: priority is 1:1 only — this post did not interrupt members.',
       interruptRunId: null,
     });
     const groupRow = await app.prisma.channelMessage.findFirstOrThrow({
@@ -336,7 +360,7 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
         { type: "text", content: "Fourth room reply" }
       )
     ).rejects.toThrow(
-      "Not delivered — you've reached this room turn's 3-message limit. Consolidate, or wait for your next turn."
+      "This message was not delivered. You've reached this room turn's 3-message limit. Consolidate, or wait for your next turn."
     );
 
     expect(
@@ -358,12 +382,35 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
         remove_member_ids: [peer.id],
       })
     ).toBe(`Updated channel "Contract room" (id: ${groupId}). Members: Source.`);
-    await expect(
-      app.administration.updateChannel(outsider.id, "channel-not-found", {
+    expect(
+      await app.administration.updateChannel(outsider.id, "channel-not-found", {
         channel_id: groupId,
         add_member_ids: [outsider.id],
       })
-    ).rejects.toThrow(`No channel found with id ${groupId}.`);
+    ).toBe(`No channel found with id ${groupId}.`);
+    // Stale ids are dropped, a channel id is refused, and nothing left is refused.
+    const staleAck = await app.administration.createChannel(source.id, "create-stale-room", {
+      name: "Stale room", member_ids: [source.id, crypto.randomUUID()],
+    });
+    expect(staleAck).toMatch(/^Channel "Stale room" is ready \(id: [^)]+\)\. Members: Source\. /);
+    await expect(app.administration.createChannel(source.id, "create-nested-room", { name: "Nested", member_ids: [source.id, groupId] })).rejects.toThrow(
+      "A channel can only contain individual agents, not other channels. Remove the channel from the member list."
+    );
+    await expect(app.administration.createChannel(source.id, "create-empty-room", { name: "Empty", member_ids: [crypto.randomUUID()] })).rejects.toThrow(
+      "A channel needs at least one existing member agent."
+    );
+    expect(await app.administration.createAgent(source.id, "agent-create", { name: "Helper", description: "Helps." })).toMatch(
+      /^Created agent "Helper" \(id: [0-9a-f-]{36}\)\.$/
+    );
+    // UpdateAgent: empty fields are omitted, and an unknown id is an answer.
+    expect(await app.administration.updateAgent(source.id, "agent-noop", { agent_id: peer.id, name: " ", description: "" })).toBe(
+      "Nothing to update: provide a new name and/or description."
+    );
+    const unknownAgent = crypto.randomUUID();
+    expect(await app.administration.updateAgent(source.id, "agent-unknown", { agent_id: unknownAgent, name: "X" })).toBe(`No agent found with id ${unknownAgent}.`);
+    expect(await app.administration.updateAgent(source.id, "agent-rename", { agent_id: peer.id, name: "Peer", description: "" })).toBe(
+      `Updated agent "Peer" (id: ${peer.id}).`
+    );
   } finally {
     await Effect.runPromise(app.close());
     fakeComputer.stop(true);

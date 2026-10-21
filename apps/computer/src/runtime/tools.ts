@@ -139,7 +139,6 @@ const controlPlaneError = (status: number, body: unknown): ControlPlaneError => 
 };
 
 const CONNECTOR_AUTH_FAILURES = new Set(["plugin_auth_required", "plugin_auth_failed"]);
-const CONNECTOR_ARGUMENT_FAILURES = new Set(["plugin_arguments_invalid"]);
 /** Classified connector failures keep their message; anything else is the reference's "Tool execution error". */
 const connectorCallError = (
   error: unknown,
@@ -152,7 +151,7 @@ const connectorCallError = (
     const guidance = options.unavailableGuidance?.({ ...namespace, namespaceStatus: "needsAuth" });
     return new Error(`${error.message}${guidance ? ` ${guidance}` : ""}`);
   }
-  if (CONNECTOR_ARGUMENT_FAILURES.has(error.code ?? "") || /MCP error -32(?:602|600|700)\b/.test(error.message))
+  if (/MCP error -32(?:602|600|700)\b/.test(error.message))
     return new Error(`${error.message}\n\n<system_reminder>\nThe namespace rejected these arguments as invalid. Before retrying, call GetDynamicTools with ${JSON.stringify({ namespace: namespace.name, toolName })} and rebuild the arguments from the returned input schema.\n</system_reminder>`);
   if (!error.code || ["internal_error", "stdio_mcp_failed"].includes(error.code))
     return new Error(`Tool execution error. ${error.message}`);

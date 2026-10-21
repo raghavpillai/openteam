@@ -45,6 +45,7 @@ import { Schema } from "effect";
 import { parseHostAwaitShellRequest } from "@openteam/contracts/service-protocol";
 import type { DynamicNamespaceDefinition } from "../dynamic-tool-gateway";
 import { objectToolSchema } from "../tool-schema";
+import { connectorArguments } from "../mcp-argument-normalization";
 import type { ActiveTurn, RuntimeDynamicTool, RuntimeDynamicToolCaller } from "./types";
 
 export const PLUGIN_MANAGEMENT_TOOLS = [
@@ -304,7 +305,7 @@ export function dynamicCatalog(
         description: tool.description,
         inputSchema: tool.inputSchema,
         source: tool.source,
-        decodeArguments: (args: unknown) => args,
+        decodeArguments: (args: unknown) => connectorArguments(tool.name, args as Record<string, unknown>, tool.inputSchema),
         execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal,) =>
           callControlPlaneTool(
             turn,

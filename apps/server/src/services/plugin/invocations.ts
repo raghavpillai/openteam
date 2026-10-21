@@ -10,7 +10,6 @@ import {
   jsonObject,
   redact,
   toolSnapshot,
-  validateJsonSchema,
 } from "./values";
 
 export class PluginInvocations {
@@ -60,7 +59,8 @@ export class PluginInvocations {
         (candidate) => candidate.name === request.toolName
       );
       if (!tool) throw new ApiError(404, "plugin_tool_not_found", "Plugin tool not found");
-      validateJsonSchema(tool.inputSchema, request.arguments);
+      // As in the reference, the agent's runtime repairs arguments against the schema and the
+      // connector judges them; a strict local check would refuse calls the server accepts.
     } else if (
       connection.transport !== "stdio" ||
       !connectorHostTools(

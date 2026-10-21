@@ -119,9 +119,9 @@ test("connector call failures are classified like the reference's", async () => 
     );
     respond(500, { code: "internal_error", message: "socket hang up" });
     await expect(call(turn({ pluginNamespaces: [connector()] }), "b")).rejects.toThrow(new Error("Error: Tool execution error. socket hang up"));
-    respond(400, { code: "plugin_arguments_invalid", message: "Invalid tool arguments: data must have required property 'query'" });
+    respond(500, { code: "internal_error", message: "MCP error -32602: Invalid arguments for tool search_threads" });
     await expect(call(turn({ pluginNamespaces: [connector()] }), "c")).rejects.toThrow(
-      `Invalid tool arguments: data must have required property 'query'\n\n<system_reminder>\nThe namespace rejected these arguments as invalid. Before retrying, call GetDynamicTools with {"namespace":"gmail","toolName":"search_threads"} and rebuild the arguments from the returned input schema.\n</system_reminder>`
+      `Error: MCP error -32602: Invalid arguments for tool search_threads\n\n<system_reminder>\nThe namespace rejected these arguments as invalid. Before retrying, call GetDynamicTools with {"namespace":"gmail","toolName":"search_threads"} and rebuild the arguments from the returned input schema.\n</system_reminder>`
     );
     respond(409, { code: "plugin_identifier_stale", message: "This account was renamed. Re-run GetMcpServerStatus or GetDynamicTools before calling its tools again." });
     await expect(call(turn({ pluginNamespaces: [connector()] }), "d")).rejects.toThrow(new Error("Error: This account was renamed. Re-run GetMcpServerStatus or GetDynamicTools before calling its tools again."));

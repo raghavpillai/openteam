@@ -1771,9 +1771,9 @@ export class RuntimeTools {
                 throw new Error(`${key} must be a nonempty string of at most 16000 characters`);
               return value.trim();
             },
-            execute: (turn, _callId, args, signal) =>
+            execute: (_turn, _callId, args, signal) =>
               name === "WebFetch"
-                ? this.webTools.fetch(args as string, turn.cwd, signal)
+                ? this.webTools.fetch(args as string, signal)
                 : this.webTools.search(args as string, signal),
           };
         }),

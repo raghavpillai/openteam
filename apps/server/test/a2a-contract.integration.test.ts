@@ -160,7 +160,7 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
       botId: string;
       conversationId: string;
       channelId: string;
-      origin: "user" | "group";
+      origin: "user" | "group" | "agent" | "routine";
     }) =>
       app.prisma.$transaction(async (tx) => {
         const message = await tx.message.create({
@@ -194,11 +194,25 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
         return run;
       });
 
+    // A priority message never cuts into a conversation: a room turn or another agent's message
+    // finishes first. Only routines and other background work are interrupted.
+    for (const origin of ["group", "agent"] as const) {
+      await leaseRun({ botId: peer.id, conversationId: peer.conversationId, channelId: groupId, origin });
+      const held = await app.messaging.sendToAgent(
+        { ...context, callId: `a2a-priority-${origin}-lane` },
+        { target_id: peer.id, message: "Look at this next.", priority: true }
+      );
+      expect(held.interruptRunId).toBeNull();
+      expect(held.acknowledgement).toBe(
+        "Sent to Peer as a priority message — it jumps their queue and interrupts any routine or background work they are running; if they are mid-conversation with the user or handling another agent's message, it is delivered right after that. This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now."
+      );
+      await app.prisma.botRunLease.deleteMany({ where: { botId: peer.id } });
+    }
     const nonUserRun = await leaseRun({
       botId: peer.id,
       conversationId: peer.conversationId,
       channelId: groupId,
-      origin: "group",
+      origin: "routine",
     });
     const priorityInterrupt = await app.messaging.sendToAgent(
       { ...context, callId: "a2a-priority-interrupt" },

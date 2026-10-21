@@ -283,13 +283,15 @@ export const renderTeammatesUserInfo = (input: {
   ].join("\n");
 };
 
+const PRIORITY_INTERRUPTIBLE_ORIGINS: ReadonlySet<string> = new Set(["routine", "event", "background_revival", "broadcast"]);
+
 export const directAgentAcknowledgement = (input: {
   targetName: string;
   priority: boolean;
 }): string => {
   const name = compactName(input.targetName);
   const prefix = input.priority
-    ? `Sent to ${name} as a priority message — it will interrupt their current non-user work and wake them now.`
+    ? `Sent to ${name} as a priority message — it jumps their queue and interrupts any routine or background work they are running; if they are mid-conversation with the user or handling another agent's message, it is delivered right after that.`
     : `Sent to ${name}.`;
   return `${prefix} This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now.`;
 };
@@ -2493,7 +2495,8 @@ export class AgentMessaging {
             include: { run: true },
           })
         : null;
-      const interruptRunId = lease && lease.run.origin !== "user" ? lease.runId : null;
+      // Priority interrupts background work only; a conversation turn finishes first.
+      const interruptRunId = lease && PRIORITY_INTERRUPTIBLE_ORIGINS.has(lease.run.origin) ? lease.runId : null;
       const occurredAt = new Date();
       const attachments = await this.attachmentsForWake({ images: input.images ?? [] });
       const { targetDmChannelId } = await this.projectDirectPeerMessage(tx, {

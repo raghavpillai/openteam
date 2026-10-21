@@ -62,7 +62,7 @@ test('purchases takes the user\'s own card and keeps no card', () => {
   expect(purchases).not.toContain("out of the form's reach");
 });
 
-test('commerce skills pay in the purchases order and keep no confirmation leftovers', () => {
+test('commerce skills pay in the purchases order and confirm with the reference widgets', () => {
   for (const item of managed.skills) {
     const lines = item.content.split('\n');
     const long = lines.filter(line => line.length > 40);
@@ -77,15 +77,43 @@ test('commerce skills pay in the purchases order and keep no confirmation leftov
       next = step + 1;
     }
     if (item.id === 'routines' || item.id === 'box-desktop') continue;
-    expect(item.content).not.toMatch(/site playbook|A dismissed widget is a no|confirm with a widget|RequestVirtualCard|Stripe Link|Outlook|GetMcpTools/i);
+    expect(item.content).not.toMatch(/site playbook|RequestVirtualCard|Stripe Link|Outlook|GetMcpTools|`order` card|tapping Pay/i);
     if (item.content.includes('When the site wants payment')) {
       expect(item.content).toContain('as the OpenTeam-managed `purchases` skill says');
+      expect(item.content).toContain('when several are saved, ask which one in the confirmation widget.');
       expect(item.content).toContain("never tell them you can't take their card, and never predict that the form can't reach card inputs embedded from a payment provider. Last, when the host refuses the form");
     }
   }
   expect(managed.skills.filter(s => s.content.includes('When the site wants payment')).map(s => s.id).sort()).toEqual(
     ['accommodation-booking', 'flight-booking', 'food-ordering', 'grocery-shopping', 'restaurant-booking', 'scheduling', 'shopping'],
   );
+  // The reference's confirmations: a widget yes before anything is bought, booked, submitted, or changed.
+  for (const [id, line] of [
+    ['shopping', '12. Get the yes, pay, and place the order (see Paying and confirming).'],
+    ['shopping', 'Then send one question widget whose prompt names the total and the delivery date ("Place the $84.17 order, arriving Tue, Oct 20?")'],
+    ['shopping', '- Place the order only after the widget\'s yes, and only the order that widget read back.'],
+    ['shopping', '- A yes to a ready-to-buy widget sent before the latest one is a no for that order, so do not place it.'],
+    ['food-ordering', 'The cart summary is confirmed with a question widget before you place it, and the yes places exactly the cart that widget read back.'],
+    ['food-ordering', '- The place-order confirmation is the one widget every order needs.'],
+    ['grocery-shopping', '12. Place the order only after a yes to the widget that names the total on the final checkout page'],
+    ['grocery-shopping', 'A routine run counts as asking only when it sends the widget and gets that yes.'],
+    ['flight-booking', '- Before payment, send one question widget that restates the full itinerary, passenger names, fare, and total.'],
+    ['flight-booking', '- Then hand the confirm or pay click to the user with `request_box_help` and one instruction ("Confirm the payment for your Delta booking").'],
+    ['accommodation-booking', '- Never book, request to book, or pay without that yes.'],
+    ['accommodation-booking', '- Then hand the confirm or pay click to the user with `request_box_help` and one instruction ("Confirm and pay for your Airbnb stay").'],
+    ['restaurant-booking', 'so the one confirmation you owe them is the go/no-go before you place it.'],
+    ['job-search', '- Never submit an application, send a connection request, or message a recruiter without that yes.'],
+    ['orders-and-returns', '4. Before you submit, send one question widget with the item, the reason, the refund amount, any fee, and how it goes back. A dismissed widget is a no.'],
+    ['orders-and-returns', 'Before you click cancel, send a question widget with the item and the order number.'],
+    ['scheduling', 'Changing an event that already has attendees is load-bearing. Fetch it, read who is on it, and confirm with a widget before writing.'],
+    ['purchases', 'You never spend on your own: nothing is created or charged unless they approve that exact purchase, and each purchase needs its own approval.'],
+    ['skill-authoring', 'Deleting is global (every assistant loses it), so confirm with the user first.'],
+    ['add-connector', 'you can add it directly: confirm with a question widget, then call AddMcpServer'],
+    ['no-connector-fallback', 'confirm with a question widget first; never remove a plugin without an explicit yes.'],
+  ] as const) expect([id, skill(id)]).toEqual([id, expect.stringContaining(line)]);
+  // Sign-in, 2FA and bank or 3DS steps stay autonomous: no categorical handoff of them.
+  expect(skill('rideshare')).not.toContain('Any payment confirmation the site asks for');
+  expect(managed.skills.filter(s => /any 2FA, 3DS|only they can do/.test(s.content)).map(s => s.id)).toEqual([]);
   expect(skill('restaurant-booking')).toContain('Offer once to add the reservation to their calendar.');
   expect(skill('flight-booking')).toContain("through the user's mail connector (Gmail or an Email plugin inbox)");
 });

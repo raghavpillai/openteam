@@ -27,9 +27,9 @@ const offset = (date: Date, timeZone = zone!) => {
 
 test.skipIf(inImage)("the computer image sets its clock from the configured zone at start", async () => {
   const file = (path: string) => Bun.file(new URL(`../../../${path}`, import.meta.url)).text();
-  const [dockerfile, entrypoint, compose, devCompose] = await Promise.all(
-    ["docker/computer.Dockerfile", "docker/computer-entrypoint.sh", "deploy/compose.yaml", "docker-compose.yml"].map(file)
-  );
+  const [dockerfile, entrypoint, compose, devCompose] = await Promise.all([
+    file("docker/computer.Dockerfile"), file("docker/computer-entrypoint.sh"), file("deploy/compose.yaml"), file("docker-compose.yml"),
+  ]);
   expect(dockerfile).toMatch(/apt-get install[\s\S]*?\btzdata\b/);
   expect(dockerfile).toContain("COPY docker/openteam-box-timezone /usr/local/bin/openteam-box-timezone");
   expect(entrypoint).toContain('openteam-box-timezone apply "${OPENTEAM_TIME_ZONE:-UTC}"');

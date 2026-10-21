@@ -1,8 +1,12 @@
 import {expect,test} from 'bun:test';
 import {Effect} from 'effect';
 import {SubagentService} from '../../src/services/subagent/service';
-function fixture(cancel:()=>Promise<void>, runStatus='running') {
- const child:any={id:'child',parentBotId:'parent',currentRunId:'run',status:'running',prompt:'Check the page'};
+const shellStops=(stops:string[], ok=()=>true)=>async(path:string,init:RequestInit)=>{
+ expect(init.method).toBe('POST');stops.push(path);return new Response(ok()?'{"stopped":1}':'computer unavailable',{status:ok()?200:503});
+};
+function fixture(cancel:()=>Promise<void>, runStatus='running', shellsOk=()=>true) {
+ const child:any={id:'child',childBotId:'child-bot',parentBotId:'parent',currentRunId:'run',status:'running',prompt:'Check the page'};
+ const stops:string[]=[];
  const events:any[]=[];
  const db:any={
   subagent:{findFirst:async()=>({...child}),findUnique:async()=>({...child}),findMany:async()=>[],update:async({data}:any)=>Object.assign(child,data),updateMany:async({where,data}:any)=>{
@@ -12,19 +16,25 @@ function fixture(cancel:()=>Promise<void>, runStatus='running') {
   event:{create:async({data}:any)=>events.push(data)}
  };
  db.$transaction=async(fn:any)=>fn(db);
- const service=new SubagentService(db,{} as never,{cancel:()=>Effect.tryPromise(cancel)} as never,'/workspace',{} as never,{} as never);
- return {service,child,events};
+ const service=new SubagentService(db,{} as never,{cancel:()=>Effect.tryPromise(cancel)} as never,'/workspace',shellStops(stops,shellsOk) as never,{} as never);
+ return {service,child,events,stops};
 }
 test('failed cancellation leaves worker active and retryable, never reports stopped',async()=>{
  const f=fixture(async()=>{throw new Error('computer connection timeout')});
  await expect(f.service.stop('parent','call',{subagent_id:'child'})).rejects.toThrow();
- expect(f.child.status).toBe('running');expect(f.events).toHaveLength(0);
+ expect(f.child.status).toBe('running');expect(f.events).toHaveLength(0);expect(f.stops).toEqual([]);
 });
 test('stop does not announce completion while cancellation is pending',async()=>{
  let release!:()=>void;const pending=new Promise<void>(r=>release=r);const f=fixture(()=>pending);
  const result=f.service.stop('parent','call',{subagent_id:'child'});
  await new Promise(r=>setTimeout(r,10));expect(f.child.status).toBe('running');expect(f.events).toHaveLength(0);
  release();expect(await result).toMatchObject({stopped:true,status:'stopped'});expect(f.child.status).toBe('stopped');
+ expect(f.stops).toEqual(['/v1/bots/child-bot/background-shells/stop']);
+});
+test('stopping a subagent ends its background shells, and a failure to end them leaves it running and retryable',async()=>{
+ const f=fixture(async()=>{},'running',()=>false);
+ await expect(f.service.stop('parent','call',{subagent_id:'child'})).rejects.toThrow("The subagent's background commands could not be stopped");
+ expect(f.stops).toEqual(['/v1/bots/child-bot/background-shells/stop']);expect(f.child.status).toBe('running');expect(f.events).toHaveLength(0);
 });
 test('terminal run racing with failed cancellation can settle stopped',async()=>{
  const f=fixture(async()=>{throw new Error('already finished')},'completed');
@@ -42,6 +52,7 @@ test('new attempt is not stopped by acknowledgement for an older attempt',async(
 });
 function stopAllFixture(children: any[], cancel: (runId: string) => Promise<void>) {
  const events: any[] = [];
+ const stops: string[] = [];
  const db: any = {
   channelMessage: { findMany: async () => [] },
   subagent: {
@@ -58,11 +69,11 @@ function stopAllFixture(children: any[], cancel: (runId: string) => Promise<void
   event: { create: async ({ data }: any) => events.push(data) },
  };
  db.$transaction = async (fn: any) => fn(db);
- const service = new SubagentService(db, {} as never, { cancel: (runId: string) => Effect.tryPromise({ try: () => cancel(runId), catch: (error) => error }) } as never, '/workspace', {} as never, {} as never);
- return { service, events };
+ const service = new SubagentService(db, {} as never, { cancel: (runId: string) => Effect.tryPromise({ try: () => cancel(runId), catch: (error) => error }) } as never, '/workspace', shellStops(stops) as never, {} as never);
+ return { service, events, stops };
 }
 const worker = (id: string, extra: Record<string, unknown> = {}) =>
- ({ id, parentBotId: 'parent', currentRunId: `run-${id}`, status: 'running', subagentType: 'executor', prompt: `Worker ${id}`, ...extra });
+ ({ id, childBotId: `bot-${id}`, parentBotId: 'parent', currentRunId: `run-${id}`, status: 'running', subagentType: 'executor', prompt: `Worker ${id}`, ...extra });
 test('stop all stops each running subagent on its own and reports every outcome', async () => {
  const children = [worker('a'), worker('b', { subagentType: 'computerUse' }), worker('c'), worker('d', { parentBotId: 'other' }), worker('e', { status: 'completed' })];
  const f = stopAllFixture(children, async (runId) => {
@@ -78,6 +89,8 @@ test('stop all stops each running subagent on its own and reports every outcome'
  });
  expect(children.map((child) => child.status)).toEqual(['stopped', 'running', 'completed', 'running', 'completed']);
  expect(f.events).toHaveLength(1);
+ // The stopped worker's background shells end with it; one whose run would not cancel keeps running.
+ expect(f.stops.sort()).toEqual(['/v1/bots/bot-a/background-shells/stop', '/v1/bots/bot-c/background-shells/stop']);
 });
 test('stop all with nothing running reports an empty receipt', async () => {
  const f = stopAllFixture([worker('a', { status: 'completed' })], async () => {});
@@ -115,4 +128,5 @@ test('stop all cancels the turn a priority message started for a peer, with that
  ]);
  expect(cancelled).toEqual(['peer-run-1', 'run-peer-child']);
  expect(children[0]!.status).toBe('stopped');
+ expect(f.stops).toEqual(['/v1/bots/bot-peer-child/background-shells/stop']);
 });

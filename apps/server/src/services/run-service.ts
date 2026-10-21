@@ -5,7 +5,7 @@ import { COMPUTER_API_PATHS } from "@openteam/contracts/service-protocol";
 import type { PrismaClient } from "@openteam/db";
 import { Effect } from "effect";
 import type { AgentMessaging } from "@openteam/messaging";
-import { appendEvent, type ComputerFetch, serviceEffect } from "./service-utils";
+import { appendEvent, type ComputerFetch, serviceEffect, stopSubagentShells } from "./service-utils";
 
 export class RunService {
   constructor(
@@ -90,7 +90,7 @@ export class RunService {
       select: {
         id: true,
         childRunId: true,
-        subagent: { select: { id: true, currentRunId: true } },
+        subagent: { select: { id: true, currentRunId: true, childBotId: true } },
       },
     });
     const results = await Promise.allSettled(
@@ -98,6 +98,7 @@ export class RunService {
         // Use the same checked cancellation path for queued and running children.
         // Do not claim the attempt stopped when its runtime did not acknowledge it.
         if (child.childRunId) await Effect.runPromise(this.cancel(child.childRunId));
+        await stopSubagentShells(this.computerFetch, child.subagent.childBotId);
         const stoppedAt = new Date();
         await this.prisma.$transaction(async (tx) => {
           const updated = await tx.subagentAttempt.updateMany({

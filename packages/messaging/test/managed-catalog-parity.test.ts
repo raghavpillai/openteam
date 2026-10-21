@@ -9,6 +9,7 @@ import { buildGroupTurnPrompt } from '../src/index';
 import { managedSkillIsForMain } from '../src/managed-skill-agents';
 import { normalizeMemoryContent } from '../src/memory-facts';
 import { referenceTool } from '@openteam/contracts/tool-contracts';
+import { AUTOMATION_TRIGGER_SHAPE_LINES } from '@openteam/contracts/reference-main-parsers';
 
 const skill = (id: string) => managed.skills.find(s => s.id === id)!.content;
 const description = (id: string): string => yaml(skill(id).split('---')[1]!).description;
@@ -47,6 +48,11 @@ test('connector skills install without asking and promise no connect card', () =
   expect(skill('no-connector-fallback')).toContain('a row reading needsAuth is a connector, so call AuthenticateMcpServer and never open the box for that service');
   expect(skill('add-connector')).toContain('**Only related plugins match**');
   expect(skill('add-connector')).toContain('You are not resumed when sign-in finishes.');
+});
+
+test('the routines skill lists the trigger shapes the UpdateRoutine parser answers with', () => {
+  // UpdateRoutine's trigger points the model at this list, so it must match what the parser accepts.
+  expect(skill('routines')).toContain(`Trigger shapes:\n${AUTOMATION_TRIGGER_SHAPE_LINES.join('\n')}\nPrefer an event-driven trigger`);
 });
 
 test('purchases takes the user\'s own card and keeps no card', () => {
@@ -177,7 +183,7 @@ test('every tool a managed skill names exists under that name', async () => {
     'PagerDuty', 'PartName', 'PowerPoint', 'PptxGenJS', 'SaaS', 'TheFork', 'WhatsApp', 'YouTube',
     // Prompt blocks, stock states and routine wake blocks, not tools.
     'user_info', 'agent_skills', 'in_stock', 'out_of_stock', 'made_to_order', 'github_event', 'linear_event', 'microsoft_teams_message',
-    'origin_event', 'pagerduty_event', 'sentry_event', 'slack_message', 'webhook_event',
+    'origin_event', 'pagerduty_event', 'sentry_event', 'slack_message', 'webhook_event', 'email_received',
   ]);
   const unknown: string[] = [];
   for (const item of managed.skills) {

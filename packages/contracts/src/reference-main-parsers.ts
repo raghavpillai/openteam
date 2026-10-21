@@ -2005,4 +2005,4 @@ export function applyArgumentAliases(name:string, raw:unknown):unknown{
   const spec = ARGUMENT_ALIASES[name];
   return spec ? parseToolArguments(withArgumentAlias(external_exports.any(), spec), raw) : raw;
 }
-export { describeTrigger };
+export { describeTrigger, AUTOMATION_TRIGGER_SHAPE_LINES };

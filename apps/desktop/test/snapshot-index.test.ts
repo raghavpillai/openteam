@@ -107,7 +107,6 @@ function fixture(): ClientSnapshot {
         currentRunId: "child-run-1",
         description: "Inspect release state",
         subagentType: "executor",
-        runInBackground: true,
         status: "running",
         summary: null,
         errorMessage: null,

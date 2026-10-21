@@ -888,7 +888,6 @@ export class AgentMessaging {
         runId,
         idempotencyKey: input.clientId,
         type: input.type,
-        deliveryMode: "turn",
         payload: json({
           messageId,
           content: runtimeContent,
@@ -899,7 +898,6 @@ export class AgentMessaging {
           origin: input.origin,
           replyToMessageId: input.replyToMessageId ?? null,
           isFork: input.isFork === true,
-          deliveryMode: "turn",
           timeZone: resolveTimeZone(input.timeZone ?? this.defaultTimeZone),
           automationContextRunId: input.automationContextRunId,
           taskContextRunId: input.taskContextRunId,
@@ -921,7 +919,6 @@ export class AgentMessaging {
           botId: bot.id,
           channelId: input.channelId,
           origin: input.origin,
-          deliveryMode: "turn",
         }),
       },
     });
@@ -1078,15 +1075,6 @@ export class AgentMessaging {
       ...(interruptRunId ? { interruptedRunId: interruptRunId } : {}),
     }, preparedAttachmentPaths);
     return { ...queued, interruptRunId };
-  }
-
-  /** A worker steer belongs to its dispatched task; one its turn never took fails instead of becoming a new turn. */
-  async failUndeliveredSteers(tx: Prisma.TransactionClient, where: { runId: string } | { botId: string }, reason: string) {
-    const failed = await tx.inboxEvent.updateMany({
-      where: { ...where, deliveryMode: "steer", status: { in: ["pending", "processing"] } },
-      data: { status: "failed", completedAt: new Date(), error: json({ code: "subagent_steer_target_ended", reason }) },
-    });
-    return failed.count;
   }
 
   async enqueueBootstrap(tx: Prisma.TransactionClient, botId: string, channelId: string) {
@@ -2031,7 +2019,7 @@ export class AgentMessaging {
       "Use GetDynamicTools with namespace cursor to discover SendToAgent, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, CreateChannel/UpdateChannel, and UpdateSkill/UpdateProfile/UpdateAvatar/DisconnectChannel. Invoke discovered tools with CallDynamicTool.",
       A2A_PLATFORM_INSTRUCTIONS,
       graphicalDelegationInstructions(taskConfiguration),
-      "Subagents run in the background by default. Set run_in_background:false to wait for the result. Background completion is delivered after your turn ends; continue other work or end your turn instead of polling. Installed plugin agent templates are listed separately when available.",
+      "Subagents run in the background. Background completion is delivered after your turn ends; continue other work or end your turn instead of polling. Installed plugin agent templates are listed separately when available.",
       "In a room wake, speak only when you add something useful. Finishing without SendToUser is a valid silent turn.",
       "Use UpdateMemory for durable memory and UpdateRoutine for scheduled routines. Skills, profile and settings, avatars, and connector disconnects have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, and DisconnectChannel.",
       renderPlatformRuntimeInstructions({

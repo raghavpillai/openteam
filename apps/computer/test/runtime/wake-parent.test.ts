@@ -107,7 +107,6 @@ test("routine runs call plugin management and feedback directly, and keep workin
       runtimeProfile: "agent",
       subagentType: null,
       pluginNamespaces: [],
-      pendingSteers: [],
       botId: "bot",
       runId: "routine-run",
     } as unknown as ActiveTurn;
@@ -145,7 +144,7 @@ test("routine runs call plugin management and feedback directly, and keep workin
 
 test("a routine run that calls a communication tool is told to use WakeParent instead", async () => {
   const tools = new RuntimeTools({} as never, "http://127.0.0.1", "fixture", "/tmp", "/tmp") as any;
-  const turn = { requestSource: "automation", runtimeProfile: "agent", subagentType: null, pluginNamespaces: [], pendingSteers: [] };
+  const turn = { requestSource: "automation", runtimeProfile: "agent", subagentType: null, pluginNamespaces: [] };
   for (const [tool, args] of [["SendToUser", { type: "text", content: "Done" }], ["ReactToMessage", { message_address: "t1", emoji: "👍" }]] as const)
     await expect(tools.executeOpenTeamTool(turn, "call", tool, args)).rejects.toThrow(AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED);
 });

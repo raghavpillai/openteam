@@ -153,10 +153,6 @@ test("AwaitShell renders running, pattern, sleep and error receipts in the refer
   expect(renderShellAwaitResult({status:"running",waited_ms:25,elapsed_ms:120,pattern_matched:true,regex_match:"ready",output_path:"/tmp/test",output_length:30})).toContain("120ms... Pattern matched: ready\n");
   expect(renderShellAwaitResult({status:"slept",waited_ms:1500})).toBe("Slept for 2s.");
   expect(renderShellAwaitResult({status:"failed",waited_ms:0,error:"failed to start"})).toBe("Error awaiting task: failed to start");
-  // A new user message released the wait early: the reason goes before any pattern text.
-  expect(renderShellAwaitResult({status:"slept",waited_ms:1200},true)).toBe("Slept for 2s. Sleep released early: a new user message is arriving.");
-  expect(renderShellAwaitResult({status:"running",waited_ms:25,elapsed_ms:30500,pattern_matched:false,output_path:"/t/123.txt",output_length:999},true)).toBe("Task still running after 30500ms... Wait released early: a new user message is arriving. Pattern did NOT match.\noutput_file_path: /t/123.txt\noutput_length: 999");
-  expect(renderShellAwaitResult({status:"completed",waited_ms:25,elapsed_ms:120,exit_code:0,output_path:"/t/1.txt",output_length:3},true)).toBe("Task completed in 120ms with exit code: 0.\noutput_file_path: /t/1.txt\noutput_length: 3");
   const { registry } = await fixture("x".repeat(1200));
   const result = await registry.await({shell_id:"job",pattern:"x+",block_until_ms:0},"bot-1");
   expect(result.regex_match).toBe("x".repeat(500)+"..."+"x".repeat(500));

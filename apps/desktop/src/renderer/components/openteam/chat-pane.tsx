@@ -1364,7 +1364,6 @@ export const ChatPane = memo(function ChatPane({
         (task) =>
           task.parentChannelId === channel.id &&
           task.parentBotId === selectedBot?.id &&
-          task.runInBackground &&
           ACTIVE_ASYNC_TASK_STATUSES.has(task.status)
       ),
     [channel.id, channel.kind, selectedBot?.id, subagents]

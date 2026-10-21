@@ -9,7 +9,7 @@ test("completion delivers the worker's own final report without a tool-failure d
   worker.notifySubagentParent = async (...args: any[]) => { delivered = args[3]; };
   const tx = {
     subagent: { findFirst: async () => ({ id: "child", status: "running" }), update: async (arg: any) => writes.push(arg) },
-    subagentAttempt: { findUnique: async () => ({ id: "attempt", status: "running" }), update: async (arg: any) => { writes.push(arg); return { runInBackground: true }; } },
+    subagentAttempt: { findUnique: async () => ({ id: "attempt", status: "running" }), update: async (arg: any) => { writes.push(arg); return {}; } },
     message: { findFirst: async () => ({ content: "  Done. The first click missed, the retry worked.\n" }) },
     runItem: { findMany: async () => { failureQuery = true; return [{ kind: "tool", content: { tool: "browser_click", result: { content: [{ type: "text", text: "Target detached" }] } } }]; } },
     event: { create: async () => {} },

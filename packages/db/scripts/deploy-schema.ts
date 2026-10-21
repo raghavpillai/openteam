@@ -84,6 +84,19 @@ ALTER TABLE IF EXISTS "AgentPromptSnapshot" DROP COLUMN IF EXISTS "memoryEpoch",
   DROP COLUMN IF EXISTS "memoryRender", DROP COLUMN IF EXISTS "memoryHasFacts",
   DROP COLUMN IF EXISTS "memoryAudienceKey";
 ALTER TABLE IF EXISTS "Subagent" DROP COLUMN IF EXISTS "combinedComputerUse";
+-- Every Task runs in the background, and typed or parent messages start new turns instead of
+-- steering a running one, so neither the foreground flag nor the steer inbox is stored anymore.
+ALTER TABLE IF EXISTS "Subagent" DROP COLUMN IF EXISTS "runInBackground";
+ALTER TABLE IF EXISTS "SubagentAttempt" DROP COLUMN IF EXISTS "runInBackground";
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+      AND table_name = 'InboxEvent' AND column_name = 'deliveryMode') THEN
+    DELETE FROM "InboxEvent" WHERE "deliveryMode"::text = 'steer';
+    ALTER TABLE "InboxEvent" DROP COLUMN "deliveryMode";
+  END IF;
+END $$;
+DROP TYPE IF EXISTS "InboxDeliveryMode";
 `;
 
 const retireUnusedStorage = async () => {

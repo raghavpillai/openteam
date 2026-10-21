@@ -1287,8 +1287,6 @@ export const COMPUTER_TOOL = {
 export const COMPUTER_USE_TOOL = { type: "function", ...referenceTool("Computer") };
 
 export const DynamicToolCallRequest = Schema.Struct({
-  // Runtime-only handoff when a typed message supersedes the parent; not a model-visible Task argument.
-  foregroundYield: Schema.optional(Schema.Boolean),
   runId: Schema.String,
   botId: Schema.String,
   conversationId: Schema.String,
@@ -1335,14 +1333,6 @@ export const ComputerTurnRequest = Schema.Struct({
 });
 export type ComputerTurnRequest = typeof ComputerTurnRequest.Type;
 
-/** A parent's MessageSubagent steer into its running worker; typed user messages start a new turn instead. */
-export const ComputerSteerRequest = Schema.Struct({
-  inboxId: Schema.String,
-  clientMessageId: Schema.String,
-  content: Schema.String.pipe(Schema.minLength(1)),
-});
-export type ComputerSteerRequest = typeof ComputerSteerRequest.Type;
-
 export const ShellCompletionInput = Schema.Struct({
   automationRunId: Schema.optional(Schema.String),
   machineId: Schema.optional(Schema.String),
@@ -1370,12 +1360,6 @@ export type ComputerEvent =
     }
   | { type: "turn.started"; turnId: string }
   | { type: "prompt.delivered"; turnId: string }
-  | {
-      type: "input.delivered";
-      turnId: string;
-      inboxId: string;
-      clientMessageId: string;
-    }
   | { type: "item.started"; turnId: string; item: unknown }
   | { type: "agent.delta"; turnId: string; itemId: string; delta: string }
   | { type: "item.completed"; turnId: string; item: unknown }
@@ -1675,7 +1659,6 @@ export interface SubagentActivityView {
   currentRunId: string | null;
   description: string;
   subagentType: SubagentType;
-  runInBackground: boolean;
   status: "provisioning" | "queued" | "running" | "completed" | "failed" | "stopped";
   /** Sanitized completion candidate. It is never inserted into chat automatically. */
   summary: string | null;

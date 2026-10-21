@@ -78,8 +78,6 @@ export function formatShellCompletedResult(result: {
 
 export const shellTimedOutIntro = (blockMs: number) =>
   `The command did not complete in ${blockMs}ms and was sent to the background.`;
-export const shellUserBackgroundedIntro = (elapsedMs: number) =>
-  `The user manually backgrounded the command after ${elapsedMs}ms. Do NOT await it; either continue with other work or end your turn.`;
 
 export function formatShellBackgroundedResult(result: {
   intro: string;

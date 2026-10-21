@@ -4,7 +4,7 @@ import { ComputerRuntime } from "../../src/runtime";
 const runtimeTools = () => (new ComputerRuntime() as any).tools;
 const turn = (overrides: Record<string, unknown> = {}): any => ({
   runId: "run", botId: "bot", contextSessionId: crypto.randomUUID(), cwd: "/tmp", runtimeProfile: "agent", subagentType: null,
-  requestSource: "turn", pendingSteers: [], sentMessageCount: 0, queue: { push() {} }, pluginNamespaces: [], ...overrides,
+  requestSource: "turn", sentMessageCount: 0, queue: { push() {} }, pluginNamespaces: [], ...overrides,
 });
 const connector = (namespaceStatus = "ready") => ({
   name: "gmail", description: "Gmail (default)", namespaceStatus,

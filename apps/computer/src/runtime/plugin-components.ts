@@ -94,9 +94,6 @@ export function expandPluginAgent(
     ...args,
     prompt: `${PLUGIN_WORKFLOW_HOST_CONTEXT}\n\nPackage files: ${pkg!.installPath}\n\n${agent.body}\n\nTask from the parent:\n${String(input.prompt ?? "")}`,
     ...(agent.readonly ? { read_only: true, subagent_type: "executor" } : {}),
-    ...(input.run_in_background === undefined
-      ? { run_in_background: agent.background ?? false }
-      : {}),
   };
 }
 
@@ -318,11 +315,9 @@ export function pluginComponentsExtension(
             ? ["afterShellExecution" as const]
             : event.toolName === "CallDynamicTool"
               ? ["afterMCPExecution" as const]
-              : event.toolName === "Task" && event.input.run_in_background === false
-                ? ["subagentStop" as const]
-                : ["Edit", "Write"].includes(event.toolName)
-                  ? ["afterFileEdit" as const]
-                  : []),
+              : ["Edit", "Write"].includes(event.toolName)
+                ? ["afterFileEdit" as const]
+                : []),
         ];
         for (const name of events) {
           const result = await run(name, data);

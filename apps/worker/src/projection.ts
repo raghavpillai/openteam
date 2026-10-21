@@ -215,30 +215,6 @@ export class Projection {
           }
         });
         break;
-      case "input.delivered":
-        await this.prisma.$transaction(async (tx) => {
-          const delivered = await tx.inboxEvent.updateMany({
-            where: {
-              id: event.inboxId,
-              runId,
-              deliveryMode: "steer",
-              status: "processing",
-            },
-            data: {
-              status: "completed",
-              completedAt: new Date(),
-            },
-          });
-          if (delivered.count > 0) {
-            await this.event(tx, "input.steer_delivered", event.inboxId, {
-              runId,
-              inboxId: event.inboxId,
-              clientMessageId: event.clientMessageId,
-              turnId: event.turnId,
-            });
-          }
-        });
-        break;
       case "agent.delta":
         // item.started already created the RunItem. Keep the hot token path to
         // one atomic statement: wrapping it in a transaction and re-upserting

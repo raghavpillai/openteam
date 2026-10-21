@@ -45,13 +45,11 @@ test.skipIf(!databaseUrl)("a wake cut off by a typed message runs again after it
       botId, channelId, content: "Stop, look at this instead.", clientId: "typed-1",
     }));
     expect(typed.interruptRunId).toBe(agent.runId);
-    // The cancel has not been recorded yet: the typed message's wake alone marks the run superseded.
+    // The cancel has not been recorded yet: the typed message's wake alone marks the dispatched run superseded.
+    await db.run.update({ where: { id: agent.runId }, data: { inputDeliveredAt: new Date() } });
     await worker.fail(agent, new Error("Computer turn ended with status interrupted"));
     const typedClaim = await claimedFor(typed.inbox.id, "user-worker");
     expect(typedClaim.interruptedRunId).toBe(agent.runId);
-    // As in the reference, only a run that had dispatched leaves unfinished tasks behind.
-    expect(await worker.supersededUnfinishedRun(typedClaim)).toBe(false);
-    await db.run.update({ where: { id: agent.runId }, data: { inputDeliveredAt: new Date() } });
     expect(await worker.supersededUnfinishedRun(typedClaim)).toBe(true);
     await db.run.update({ where: { id: typedClaim.runId }, data: { status: "completed" } });
     await db.botRunLease.deleteMany({ where: { botId } });

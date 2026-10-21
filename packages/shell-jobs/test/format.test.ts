@@ -7,7 +7,6 @@ import {
   formatShellCompletedResult,
   formatShellStartedResult,
   shellTimedOutIntro,
-  shellUserBackgroundedIntro,
   terminalFooter,
   terminalFrontmatter,
   truncateShellOutput,
@@ -71,8 +70,8 @@ test("backgrounded results keep the output collected so far", () => {
   expect(formatShellBackgroundedResult({ ...common, intro: shellTimedOutIntro(30_000), partial: truncateShellOutput("starting\n") })).toBe(
     "The command did not complete in 30000ms and was sent to the background.\nShell ID: 123456\nPID: 4242\nThe output is being written to /t/123456.log. Don't mention Shell ID to the user.\n\nOutput collected before backgrounding:\n\n```\nstarting\n\n```"
   );
-  expect(formatShellBackgroundedResult({ ...common, intro: shellUserBackgroundedIntro(4100), partial: truncateShellOutput("") })).toBe(
-    "The user manually backgrounded the command after 4100ms. Do NOT await it; either continue with other work or end your turn.\nShell ID: 123456\nPID: 4242\nThe output is being written to /t/123456.log. Don't mention Shell ID to the user.\n\nNo output was collected before backgrounding."
+  expect(formatShellBackgroundedResult({ ...common, intro: shellTimedOutIntro(1), partial: truncateShellOutput("") })).toContain(
+    "No output was collected before backgrounding."
   );
   expect(formatShellBackgroundedResult({ ...common, intro: shellTimedOutIntro(1), partial: truncateShellOutput("z".repeat(20_001)) })).toContain(
     "Output collected before backgrounding (truncated):\n\n```\n"

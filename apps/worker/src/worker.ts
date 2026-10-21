@@ -752,33 +752,8 @@ export class WakeWorker {
       );
     }
 
-    const orphanedSteers = await this.prisma.inboxEvent.findMany({
-      where: {
-        deliveryMode: "steer",
-        status: { in: ["pending", "processing"] },
-      },
-      distinct: ["botId"],
-      select: { botId: true },
-    });
-    for (const event of orphanedSteers) {
-      await this.prisma.$transaction(async (tx) => {
-        await tx.botRunLease.deleteMany({
-          where: { botId: event.botId, expiresAt: { lt: new Date() } },
-        });
-        const lease = await tx.botRunLease.findFirst({
-          where: { botId: event.botId, scope: "foreground" },
-        });
-        if (!lease) {
-          await this.messaging.failUndeliveredSteers(tx, { botId: event.botId },
-            "worker_recovered_orphaned_steer"
-          );
-        }
-      });
-    }
-
     const pending = await this.prisma.inboxEvent.findMany({
       where: {
-        deliveryMode: "turn",
         status: "pending",
         availableAt: { lte: new Date() },
         bot: { status: "active" },
@@ -973,7 +948,6 @@ export class WakeWorker {
         const pending = await tx.inboxEvent.count({
           where: {
             botId,
-            deliveryMode: "turn",
             status: "pending",
             availableAt: { lte: new Date() },
           },
@@ -1051,7 +1025,7 @@ export class WakeWorker {
                 },
               });
             }
-            if (attempt?.runInBackground) {
+            if (attempt) {
               await this.notifySubagentParent(
                 tx,
                 {
@@ -1124,11 +1098,9 @@ export class WakeWorker {
         const foregroundBusy = existingLeases.some(lease => lease.scope === "foreground");
         const automations = existingLeases.filter(lease => lease.scope.startsWith("automation:"));
         if (foregroundBusy && automations.length >= 4) return null;
-        if (!foregroundBusy) await this.messaging.failUndeliveredSteers(tx, { botId }, "orphaned_active_turn");
         const candidates = await tx.inboxEvent.findMany({
           where: {
             botId,
-            deliveryMode: "turn",
             OR: [
               { status: "pending" },
               { status: "processing", claimedAt: { lt: staleAt } },
@@ -1370,7 +1342,7 @@ export class WakeWorker {
       // Replay failed user inputs whose durable-session delivery was never
       // acknowledged, including a turn a typed message superseded before its input
       // reached the model. Runtime message IDs prevent duplication after a lost ack.
-      const missed = claimed.runtimeProfile === "agent" && claimed.origin !== "routine" ? await this.prisma.inboxEvent.findMany({ where: { botId: claimed.botId, conversationId: claimed.conversationId, deliveryMode: "turn", runId: { not: claimed.runId }, run: { channelId: claimed.channelId, origin: "user", inputDeliveredAt: null, OR: [{ status: { in: ["failed", "interrupted"] } }, { status: "cancelled", error: { path: ["code"], equals: "priority_peer_interrupt" } }] } }, orderBy: { createdAt: "asc" }, take: 20 }) : [];
+      const missed = claimed.runtimeProfile === "agent" && claimed.origin !== "routine" ? await this.prisma.inboxEvent.findMany({ where: { botId: claimed.botId, conversationId: claimed.conversationId, runId: { not: claimed.runId }, run: { channelId: claimed.channelId, origin: "user", inputDeliveredAt: null, OR: [{ status: { in: ["failed", "interrupted"] } }, { status: "cancelled", error: { path: ["code"], equals: "priority_peer_interrupt" } }] } }, orderBy: { createdAt: "asc" }, take: 20 }) : [];
       const missedMessages = await Promise.all(missed.flatMap((event) => {
         const payload = event.payload as { content?: string; clientId?: string; attachments?: unknown };
         if (!payload.content || !payload.clientId) return [];
@@ -1495,9 +1467,6 @@ export class WakeWorker {
             });
           }
         }
-        await this.messaging.failUndeliveredSteers(tx, { runId: claimed.runId },
-          "active_turn_completed_before_delivery"
-        );
         await tx.botRunLease.deleteMany({
           where: { botId: claimed.botId, ownerId: claimed.ownerId },
         });
@@ -1606,9 +1575,6 @@ export class WakeWorker {
         return false;
       }
       await finalizeInterruptedItems(tx, claimed.runId, false);
-      await this.messaging.failUndeliveredSteers(tx, { runId: claimed.runId },
-        "active_turn_ended_before_delivery"
-      );
       await tx.botRunLease.deleteMany({
         where: { botId: claimed.botId, ownerId: claimed.ownerId },
       });
@@ -1736,7 +1702,8 @@ export class WakeWorker {
           ? (current.error as Prisma.InputJsonObject)
           : null;
       // The typed message may land before the server records the cancel; its wake names this run.
-      const supersededByUser = await tx.inboxEvent.findFirst({
+      // A run cut off before dispatch is not superseded (the reference lets it go on) unless the server recorded it.
+      const supersededByUser = current?.inputDeliveredAt && await tx.inboxEvent.findFirst({
         where: { botId: claimed.botId, payload: { path: ["interruptedRunId"], equals: claimed.runId } },
         select: { id: true },
       });
@@ -1783,9 +1750,6 @@ export class WakeWorker {
           });
         }
       }
-      await this.messaging.failUndeliveredSteers(tx, { runId: claimed.runId },
-        "active_turn_ended_before_delivery"
-      );
       await tx.botRunLease.deleteMany({
         where: { botId: claimed.botId, ownerId: claimed.ownerId },
       });
@@ -1999,7 +1963,7 @@ export class WakeWorker {
         completedAt: new Date(),
       },
     });
-    const settledAttempt = await tx.subagentAttempt.update({
+    await tx.subagentAttempt.update({
       where: { id: attempt.id },
       data: {
         status: "completed",
@@ -2022,20 +1986,18 @@ export class WakeWorker {
         },
       },
     });
-    if (settledAttempt.runInBackground) {
-      await this.notifySubagentParent(
-        tx,
-        {
-          ...subagent,
-          parentRunId: attempt.parentRunId,
-          parentChannelId: attempt.parentChannelId,
-          description: attempt.description,
-          currentRunId: attempt.childRunId,
-        },
-        "completed",
-        result
-      );
-    }
+    await this.notifySubagentParent(
+      tx,
+      {
+        ...subagent,
+        parentRunId: attempt.parentRunId,
+        parentChannelId: attempt.parentChannelId,
+        description: attempt.description,
+        currentRunId: attempt.childRunId,
+      },
+      "completed",
+      result
+    );
   }
 
   private async failSubagent(
@@ -2064,7 +2026,7 @@ export class WakeWorker {
       where: { id: subagent.id },
       data: { status: "failed", error: details, result, completedAt: new Date() },
     });
-    const settledAttempt = await tx.subagentAttempt.update({
+    await tx.subagentAttempt.update({
       where: { id: attempt.id },
       data: { status: "failed", error: details, result, completedAt: new Date() },
     });
@@ -2083,20 +2045,18 @@ export class WakeWorker {
         },
       },
     });
-    if (settledAttempt.runInBackground) {
-      await this.notifySubagentParent(
-        tx,
-        {
-          ...subagent,
-          parentRunId: attempt.parentRunId,
-          parentChannelId: attempt.parentChannelId,
-          description: attempt.description,
-          currentRunId: attempt.childRunId,
-        },
-        "failed",
-        result
-      );
-    }
+    await this.notifySubagentParent(
+      tx,
+      {
+        ...subagent,
+        parentRunId: attempt.parentRunId,
+        parentChannelId: attempt.parentChannelId,
+        description: attempt.description,
+        currentRunId: attempt.childRunId,
+      },
+      "failed",
+      result
+    );
   }
 
   private async notifySubagentParent(

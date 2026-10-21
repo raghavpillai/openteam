@@ -322,15 +322,13 @@ export function compileToolSearchPattern(source: string): { test(text: string): 
   return { test: (text) => expression.matcher(text).find() };
 }
 
-/** `released`: a new user message ended the wait early (the reference's context-injection wake). */
-export function renderShellAwaitResult(result: ShellAwaitResponse, released = false): string {
+export function renderShellAwaitResult(result: ShellAwaitResponse): string {
   if (result.status === "slept") {
-    const slept = result.waited_ms <= 0 ? "Slept briefly." : `Slept for ${Math.max(1, Math.ceil(result.waited_ms / 1000))}s.`;
-    return released ? `${slept} Sleep released early: a new user message is arriving.` : slept;
+    return result.waited_ms <= 0 ? "Slept briefly." : `Slept for ${Math.max(1, Math.ceil(result.waited_ms / 1000))}s.`;
   }
   if (result.status === "failed") return `Error awaiting task: ${result.error ?? "Unknown error"}`;
   const status = result.status === "running"
-    ? `Task still running after ${result.elapsed_ms ?? result.waited_ms}ms...${released ? " Wait released early: a new user message is arriving." : ""}`
+    ? `Task still running after ${result.elapsed_ms ?? result.waited_ms}ms...`
     : `Task completed in ${result.elapsed_ms}ms with exit code: ${result.exit_code ?? "unknown"}.`;
   const pattern = result.pattern_matched === undefined ? "" : result.regex_match ? ` Pattern matched: ${result.regex_match}`.trimEnd() : " Pattern did NOT match.";
   return `${status}${pattern}\noutput_file_path: ${result.output_path}\noutput_length: ${result.output_length}`;

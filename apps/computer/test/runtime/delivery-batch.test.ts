@@ -5,7 +5,7 @@ import { routeEvent } from "../../src/runtime/events";
 const attachment = {type: "attachment", url: "https://example.invalid/report.zip"};
 function fixture() {
   const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
-  const active: any = {runId: "fixture", botId: "fixture", screenBotId: "fixture", sentMessageCount: 0, pendingSteers: [], queue: {push() {}}};
+  const active: any = {runId: "fixture", botId: "fixture", screenBotId: "fixture", sentMessageCount: 0, queue: {push() {}}};
   const calls: any[] = [];
   // Keep the real delivery response handling; only replace the transport/staging.
   tools.callControlPlaneTool = async (turn: any, id: string, name: string, args: any) => {
@@ -35,7 +35,7 @@ test("closing text preserves an already-issued attachment, once, without allowin
   expect(calls.map(x => x.id)).toEqual(["summary", "zip"]);
 });
 
-for (const scenario of ["cancelled", "steered", "widget", "failed", "next-response"] as const) {
+for (const scenario of ["cancelled", "widget", "failed", "next-response"] as const) {
   test(`delivery grace respects ${scenario}`, async () => {
     const {active, calls, call, tools, batch} = fixture();
     if (scenario === "next-response") batch([]);
@@ -43,7 +43,6 @@ for (const scenario of ["cancelled", "steered", "widget", "failed", "next-respon
     else await call("summary", {type: "text", content: "Done", end_turn: true});
     const controller = new AbortController();
     if (scenario === "cancelled") controller.abort(new Error("stopped"));
-    if (scenario === "steered") active.pendingSteers.push({content: "stop"});
     if (scenario === "failed") tools.callControlPlaneTool = async () => {throw new Error("delivery failed");};
     await expect(call("zip", attachment, "SendToUser", controller.signal)).rejects.toThrow();
     if (scenario === "failed") await expect(call("zip", attachment)).rejects.toThrow("turn has ended");
@@ -78,13 +77,12 @@ test("queued worker cleanup completes after closing text without creating anothe
   expect(active.toolActivityAfterLastSend).toBe(true);
 });
 
-for (const scenario of ["changed", "new", "failed", "cancelled", "steered", "widget", "later", "prior-activity", "read-only"] as const) {
+for (const scenario of ["changed", "new", "failed", "cancelled", "widget", "later", "prior-activity", "read-only"] as const) {
   test(`worker cleanup grace respects ${scenario}`, async () => {
     const {active, call, execute, tools, batch} = cleanupFixture();
     if (scenario === "widget") await tools.callControlPlaneTool(active, "summary", "SendToUser", {type: "widget"});
     else await call("summary", {type: "text", content: "Done", end_turn: true});
     if (scenario === "failed") tools.callControlPlaneTool = async () => {throw new Error("stop failed");};
-    if (scenario === "steered") active.pendingSteers.push({content: "new instruction"});
     if (scenario === "cancelled") { active.pluginAbortController = new AbortController(); active.pluginAbortController.abort(); }
     if (scenario === "read-only") active.readOnly = true;
     if (scenario === "later") batch([{type: "toolCall", name: "CallDynamicTool", id: "later", arguments: stop}]);
@@ -99,15 +97,14 @@ for (const scenario of ["changed", "new", "failed", "cancelled", "steered", "wid
   });
 }
 
-for (const reason of ["steer", "cancel"] as const) test(`queued cleanup rechecks ${reason} after mutation wait`, async () => {
+test("queued cleanup rechecks cancel after mutation wait", async () => {
   const {active, call, execute, tools, calls} = cleanupFixture();
   active.contextSessionId = "queued-fixture";
   let release!: () => void;
   tools.mutationTails.set(active.contextSessionId, new Promise<void>(resolve => {release = resolve;}));
   await call("summary", {type: "text", content: "Done", end_turn: true});
   const pending = execute();
-  if (reason === "steer") active.pendingSteers.push({content: "stop"});
-  else { active.pluginAbortController = new AbortController(); active.pluginAbortController.abort(); }
+  active.pluginAbortController = new AbortController(); active.pluginAbortController.abort();
   release();
   await expect(pending).rejects.toThrow();
   expect(calls.map(c => c.name)).toEqual(["SendToUser"]);

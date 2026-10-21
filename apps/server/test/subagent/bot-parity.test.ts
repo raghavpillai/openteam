@@ -4,7 +4,6 @@ import {
   assertSubagentCapacity,
   SubagentService,
   subagentBackgroundResult,
-  subagentForegroundResult,
   subagentSteerPrompt,
   subagentTaskContent,
   subagentTaskWake,
@@ -45,9 +44,6 @@ describe("OpenTeam-compatible subagent launch semantics", () => {
   test("returns Bot's background result with a resumable external id", () => {
     expect(subagentBackgroundResult("278ef2fe-2d3f-4689-bfa5-b506254f1cc3")).toBe(
       "Subagent is running in the background. When you end your turn, you will be automatically sent the subagent's final response upon its completion, so do not wait for it - either end your turn or work on something else.\n\nAgent ID: sand-subagent-278ef2fe-2d3f-4689-bfa5-b506254f1cc3 (can be used with the `resume` parameter to send a follow-up after it completes)"
-    );
-    expect(subagentForegroundResult("1", "Found 3 flights.")).toBe(
-      "This is the output of the subagent:\n\nresponse:\n<response>\nFound 3 flights.\n</response>\n\nAgent ID: sand-subagent-1 (can be used with the `resume` parameter to send a follow-up after it completes)"
     );
   });
 

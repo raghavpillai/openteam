@@ -23,7 +23,7 @@ const failWorker = async (details: Record<string, unknown>, interrupted: boolean
   worker.notifySubagentParent = async (...args: any[]) => { delivered = args[3]; };
   const tx = {
     subagent: { findFirst: async () => ({ id: "child", status: "running" }), update: async (arg: any) => writes.push(arg) },
-    subagentAttempt: { findUnique: async () => ({ id: "attempt", status: "running", runInBackground: true }), update: async (arg: any) => { writes.push(arg); return {runInBackground:true}; } },
+    subagentAttempt: { findUnique: async () => ({ id: "attempt", status: "running" }), update: async (arg: any) => { writes.push(arg); return {}; } },
     runItem: { findMany: async () => [pending, completed] },
     event: { create: async () => {} },
   };

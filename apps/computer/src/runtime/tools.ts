@@ -252,33 +252,9 @@ const interruptibleByUser = <T extends { name: string; execute: (...args: any[])
 });
 
 export class RuntimeTools {
-  private readonly shellWaits = new Map<string, Set<AbortController>>();
   private readonly stepFileWriters = new Map<string, Set<Promise<unknown>>>();
-  private readonly foregroundShells = new Map<string, Set<{ active: ActiveTurn; controller: AbortController }>>();
   /** Box shells a stopped subagent left running in the background end with it. */
   stopBackgroundShells(botId: string) { return this.nativeToolExecutor.stopBackgroundShells(botId); }
-
-  interruptShellWaits(runId: string) {
-    for (const wait of this.shellWaits.get(runId) ?? [])
-      wait.abort(new Error("A new user message arrived"));
-    // A worker steer backgrounds a running foreground command so the worker can read
-    // it. A cancel (a stop, or a typed message superseding the turn) kills it, as in the reference.
-    for (const shell of this.foregroundShells.get(runId) ?? [])
-      if (!shell.active.endTurnRequested) shell.controller.abort();
-  }
-
-  private async withForegroundShell<T>(active: ActiveTurn, run: (background: AbortSignal) => Promise<T>): Promise<T> {
-    const entry = { active, controller: new AbortController() };
-    const shells = this.foregroundShells.get(active.runId) ?? new Set();
-    shells.add(entry);
-    this.foregroundShells.set(active.runId, shells);
-    try {
-      return await run(entry.controller.signal);
-    } finally {
-      shells.delete(entry);
-      if (!shells.size) this.foregroundShells.delete(active.runId);
-    }
-  }
 
   private async awaitShellForTurn(
     turn: ActiveTurn,
@@ -304,43 +280,16 @@ export class RuntimeTools {
     const input = Schema.decodeUnknownSync(AwaitShellInput)(parseHostAwaitShellRequest(args));
     if (input.machineId && (turn.subagentType || turn.runtimeProfile === "subagent"))
       throw new Error("Subagents cannot target the user's local computer");
-    const controller = new AbortController();
-    const waits = this.shellWaits.get(turn.runId) ?? new Set<AbortController>();
-    waits.add(controller);
-    this.shellWaits.set(turn.runId, waits);
-    const execute = (block_until_ms: number | undefined, waitSignal?: AbortSignal) =>
-      input.machineId
-        ? this.nativeToolExecutor.externalAwaitShell({ ...input, block_until_ms }, waitSignal)
-        : this.nativeToolExecutor.awaitShell({ ...input, block_until_ms }, waitSignal, turn.botId);
-    try {
-      let result: AgentToolResult<Record<string, unknown>>;
-      try {
-        result = await execute(
-          input.block_until_ms,
-          signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
-        );
-      } catch (error) {
-        if (!controller.signal.aborted || signal?.aborted || turn.endTurnRequested) throw error;
-        // Released by a steer: report the job's state now and say why.
-        const receipt: ShellAwaitResponse = input.shell_id
-          ? ((await execute(0, signal)).details as unknown as ShellAwaitResponse)
-          : { status: "slept", waited_ms: Date.now() - started };
-        result = {
-          content: [{ type: "text", text: renderShellAwaitResult(receipt, true) }],
-          details: { ...receipt, released_by_user_message: true },
-        };
-      }
-      if (
-        input.machineId &&
-        input.shell_id &&
-        ["completed", "failed"].includes(String(result.details.status))
-      )
-        await this.hostShellCompletions.observe(turn.botId, input.machineId, input.shell_id);
-      return result;
-    } finally {
-      waits.delete(controller);
-      if (!waits.size) this.shellWaits.delete(turn.runId);
-    }
+    const result = input.machineId
+      ? await this.nativeToolExecutor.externalAwaitShell(input, signal)
+      : await this.nativeToolExecutor.awaitShell(input, signal, turn.botId);
+    if (
+      input.machineId &&
+      input.shell_id &&
+      ["completed", "failed"].includes(String(result.details.status))
+    )
+      await this.hostShellCompletions.observe(turn.botId, input.machineId, input.shell_id);
+    return result;
   }
   private readonly turnSecrets = new WeakMap<ActiveTurn, Record<string, string>>();
 
@@ -518,17 +467,6 @@ export class RuntimeTools {
   private readonly privateBrowserValues = new Map<string, Set<string>>();
   private readonly browserUseSessions = new Map<string, BrowserUseSession>();
 
-  private assertCurrentInput(active: ActiveTurn): void {
-    // Pi drains steering after the current tool batch. If a correction arrived
-    // during inference, do not execute that response's now-stale tool calls first.
-    // Leave the queue intact so Pi records the correction before regenerating.
-    if (active.pendingSteers?.length) {
-      throw new Error(
-        "A newer instruction is queued. This tool action was not executed. Process the new instruction before choosing the next action."
-      );
-    }
-  }
-
   customTools(active: ActiveTurn) {
     return this.definedTools(active).map((tool) => interruptibleByUser(active, tool));
   }
@@ -628,7 +566,7 @@ export class RuntimeTools {
             executionMode: "sequential",
             execute: (callId, args, signal) =>
               this.executeGraphicalAction(active, signal, () =>
-                this.callBrowserForTurn(active, tool.name, args, signal)
+                this.callBrowserUse(active, tool.name, args, signal)
               ),
           })
         );
@@ -661,7 +599,6 @@ export class RuntimeTools {
     args: unknown,
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    this.assertCurrentInput(active);
     const name = tool === CALL_DYNAMIC_TOOL_TOOL.name ? (args as { toolName?: unknown } | null)?.toolName : tool;
     // Pi starts a parallel batch in call order, so chaining sends here delivers them in call order.
     const run = tool === SEND_TO_USER_TOOL.name
@@ -764,7 +701,7 @@ export class RuntimeTools {
           return result;
         })();
       }
-      return this.withForegroundShell(active, async (background) => {
+      return (async () => {
         const environment =
           active.subagentType === "computerUse"
             ? await this.screens.commandEnvironment(active.screenBotId, active.cwd)
@@ -780,11 +717,10 @@ export class RuntimeTools {
             channelId: active.channelId,
             secretEnvironment,
             secrets: Object.values(secretEnvironment),
-            background,
             ...(active.requestSource === "automation" ? { automationRunId: active.runId } : {}),
           }
         );
-      });
+      })();
     }
     if (tool === READ_TOOL.name) {
       const readInput = Schema.decodeUnknownSync(ReadToolInput)(args);
@@ -860,7 +796,6 @@ export class RuntimeTools {
 
   private async executeGraphicalAction<T>(active: ActiveTurn, signal: AbortSignal | undefined, execute: () => Promise<T>): Promise<T> {
     signal?.throwIfAborted();
-    this.assertCurrentInput(active);
     if (active.endTurnRequested) throw new Error("The turn has ended");
     return execute();
   }
@@ -909,20 +844,6 @@ export class RuntimeTools {
         ...(needsDesktopObservation ? { requestedActionsSkipped: true } : {}),
       },
     };
-  }
-
-  private async callBrowserForTurn(active: ActiveTurn, name: string, args: unknown, signal?: AbortSignal) {
-    if (name !== "browser_wait_for" && name !== "browser_run_code") return this.callBrowserUse(active, name, args, signal);
-    const controller = new AbortController();
-    const waits = this.shellWaits.get(active.runId) ?? new Set<AbortController>();
-    waits.add(controller);
-    this.shellWaits.set(active.runId, waits);
-    try {
-      return await this.callBrowserUse(active, name, args, signal ? AbortSignal.any([signal, controller.signal]) : controller.signal);
-    } finally {
-      waits.delete(controller);
-      if (!waits.size) this.shellWaits.delete(active.runId);
-    }
   }
 
   private async callBrowserUse(
@@ -1394,8 +1315,7 @@ export class RuntimeTools {
     callId: string,
     tool: string,
     args: unknown,
-    signal?: AbortSignal,
-    foregroundYield = false
+    signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     const timeoutMs = USER_PACED_CONTROL_TOOLS.has(tool) ? 24 * 60 * 60_000 : this.toolCallTimeoutMs;
     const timeout = AbortSignal.timeout(timeoutMs);
@@ -1409,7 +1329,6 @@ export class RuntimeTools {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          ...(foregroundYield ? {foregroundYield: true} : {}),
           runId: active.runId,
           botId: active.botId,
           conversationId: active.conversationId,
@@ -1430,21 +1349,9 @@ export class RuntimeTools {
         const name = NATIVE_TOOLS.some((native) => native.name === tool) ? tool : CALL_DYNAMIC_TOOL_TOOL.name;
         throw new Error(`${name === CALL_DYNAMIC_TOOL_TOOL.name ? "Tool execution error. " : ""}${toolCallTimedOutMessage(name, timeoutMs)}`);
       }
-      // A typed message superseded the turn while it waited on a foreground worker: the
-      // worker carries on in the background and reports back, as the reference's Tasks do.
-      if (tool === "Task" && !foregroundYield && signal?.aborted && active.interruptedByUserAt !== undefined)
-        return this.callControlPlaneToolRequest(active, callId, tool, args, undefined, true);
       throw error;
     }
     if (!response.ok) throw controlPlaneError(response.status, body);
-    if (
-      tool === "Task" &&
-      body &&
-      typeof body === "object" &&
-      (body as Record<string, unknown>).foregroundPending === true
-    ) {
-      return this.callControlPlaneTool(active, callId, tool, args, requestSignal);
-    }
     if (
       body &&
       typeof body === "object" &&
@@ -1923,10 +1830,7 @@ export class RuntimeTools {
     }, signal);
     const invoke = async () => {
       signal?.throwIfAborted();
-      if (finishCleanup) {
-        this.assertCurrentInput(active);
-        active.pluginAbortController?.signal.throwIfAborted();
-      }
+      if (finishCleanup) active.pluginAbortController?.signal.throwIfAborted();
       if (active.endTurnRequested && !finishCleanup)
         throw new Error("The turn has ended; wait for the next user message");
       const result = resolved.namespace.kind === "mcp"

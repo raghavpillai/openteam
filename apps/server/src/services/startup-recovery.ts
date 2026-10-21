@@ -96,7 +96,7 @@ export async function recover(
         parentToolCallId: attempt?.parentToolCallId,
         ...error,
       });
-      if ((attempt?.runInBackground ?? subagent.runInBackground) && attempt) {
+      if (attempt) {
         const parent = await tx.bot.findUnique({
           where: { id: subagent.parentBotId },
           select: { status: true },
@@ -199,7 +199,6 @@ export async function recover(
     await tx.botRunLease.deleteMany({ where: { expiresAt: { lt: now } } });
     await tx.inboxEvent.updateMany({
       where: {
-        deliveryMode: "turn",
         status: "processing",
         claimedAt: { lt: new Date(now.getTime() - 15 * 60_000) },
       },
@@ -253,7 +252,6 @@ export async function recover(
   }
   const pendingBots = await prisma.inboxEvent.findMany({
     where: {
-      deliveryMode: "turn",
       status: "pending",
       availableAt: { lte: now },
       bot: { status: "active" },

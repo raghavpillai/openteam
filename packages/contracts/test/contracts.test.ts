@@ -8,7 +8,6 @@ import {
   CALL_DYNAMIC_TOOL_TOOL,
   COMPUTER_TOOL,
   COMPUTER_USE_TOOL,
-  ComputerSteerRequest,
   ComputerTurnRequest,
   ComputerUseInput,
   CreateBotInput,
@@ -269,19 +268,6 @@ describe("API contracts", () => {
     ).toThrow();
   });
 
-  test("validates a live steering delivery", () => {
-    expect(
-      Schema.decodeUnknownSync(ComputerSteerRequest)({
-        inboxId: "inbox-1",
-        clientMessageId: "message-1",
-        content: "Redirect the current work",
-      })
-    ).toEqual({
-      inboxId: "inbox-1",
-      clientMessageId: "message-1",
-      content: "Redirect the current work",
-    });
-  });
 
   test("carries subagent runtime profiles and media attachments to the computer", () => {
     expect(

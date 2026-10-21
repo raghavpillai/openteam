@@ -67,12 +67,6 @@ export interface ActiveTurn {
   sendChain?: Promise<unknown>;
   initialUserStarted: boolean;
   initialUserClientId?: string;
-  pendingSteers: Array<{
-    inboxId: string;
-    clientMessageId: string;
-    content: string;
-  }>;
-  acceptedSteerIds: Set<string>;
   pluginNamespaces: readonly PluginDynamicNamespace[];
   attachmentTempDirectories: string[];
   lastPromptFingerprint?: string;

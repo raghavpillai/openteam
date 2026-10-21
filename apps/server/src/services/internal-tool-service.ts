@@ -282,7 +282,7 @@ export class InternalToolService {
         );
       }
       if (request.tool === "Task") {
-        return this.subagents.task(context, Schema.decodeUnknownSync(TaskInput)(request.arguments), signal, request.foregroundYield === true);
+        return this.subagents.task(context, Schema.decodeUnknownSync(TaskInput)(request.arguments));
       }
       if (request.tool === "CheckSubagent") {
         return this.subagents.check(

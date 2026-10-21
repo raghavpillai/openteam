@@ -17,7 +17,6 @@ export const COMPUTER_API_PATHS = {
   agentStores: "/v1/agent-stores",
   reconcileAgentStores: "/v1/agent-stores/reconcile",
   turnCancel: (runId: string) => `/v1/turns/${encodeURIComponent(runId)}/cancel`,
-  turnSteer: (runId: string) => `/v1/turns/${encodeURIComponent(runId)}/steer`,
   backgroundShellsStop: (botId: string) => `/v1/bots/${encodeURIComponent(botId)}/background-shells/stop`,
   agentStore: (ownerId: string) => `/v1/agent-stores/${encodeURIComponent(ownerId)}`,
 } as const;
@@ -104,11 +103,6 @@ export const parseComputerEvent = (value: unknown): ComputerEvent => {
     case "turn.started":
     case "prompt.delivered":
       requiredString(value.turnId, "turnId");
-      break;
-    case "input.delivered":
-      for (const field of ["turnId", "inboxId", "clientMessageId"] as const) {
-        requiredString(value[field], field);
-      }
       break;
     case "item.started":
     case "item.completed":

@@ -1,7 +1,7 @@
 import type { OAuthClientInformationMixed } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { ApiError } from "@openteam/contracts";
-import { connectorHostTools, type PluginToolDefinition } from "@openteam/plugin-sdk";
+import { connectorHostTools, MCP_TOOL_CALL_TIMEOUT_MS, type PluginToolDefinition } from "@openteam/plugin-sdk";
 import type { Prisma, PrismaClient } from "@openteam/db";
 import type { McpHttpClientManager } from "../../plugins/mcp-client-manager";
 import { OpenTeamOAuthProvider, type StoredOAuthState } from "../../plugins/oauth-provider";
@@ -505,8 +505,8 @@ export class PluginTransport {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
       // Startup can wait for browser consent. Keep the RPC alive through the
-      // computer's five-minute startup and tool-discovery budgets.
-      signal: AbortSignal.timeout(path.endsWith("/discover") ? 360_000 : 65_000),
+      // computer's five-minute startup and tool-discovery budgets, and a call through its own.
+      signal: AbortSignal.timeout(path.endsWith("/discover") ? 360_000 : path.endsWith("/call") ? MCP_TOOL_CALL_TIMEOUT_MS + 60_000 : 65_000),
     });
     const value = await response.json().catch(() => ({}));
     if (!response.ok) {

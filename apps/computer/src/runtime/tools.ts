@@ -102,6 +102,25 @@ export const GRAPHICAL_WORKER_SHELL_DESCRIPTION = [
 export const GRAPHICAL_WORKER_READ_DESCRIPTION =
   "Reads a file on the box, the same filesystem Shell acts on.\n\nText files include line numbers and support offset/limit paging. Image files (jpeg/jpg, png, gif, webp) are returned inline so you can see them. PDF files are converted to text.";
 
+/** The reference's per-call guard: its 15-minute tier less a minute of headroom. */
+export const TOOL_CALL_TIMEOUT_MS = 840_000;
+/** Tools that wait on the user or a whole subagent run rather than on a service. */
+const USER_PACED_CONTROL_TOOLS: ReadonlySet<string> = new Set([
+  "Task",
+  "SendFeedback",
+  "InstallPlugin",
+  "UninstallPlugin",
+  "AddMcpServer",
+  "UninstallMcpServer",
+  "AuthenticateMcpServer",
+  "RestartMcpServers",
+  "RemoveMcpAccount",
+  "RenameMcpAccount",
+  "SetMcpInstructions",
+]);
+export const toolCallTimedOutMessage = (tool: string, timeoutMs: number) =>
+  `The ${tool} tool call timed out after ${Math.round(timeoutMs / 1000)} seconds and was terminated. The execution environment may be unresponsive, or the operation needs longer than the per-call time limit.`;
+
 /** How long a handoff waits for the box browser to show the step's page. */
 const BOX_HELP_PAGE_TIMEOUT_MS = 12_000;
 
@@ -311,6 +330,7 @@ export class RuntimeTools {
   private readonly webTools: WebTools;
   readonly userForms: UserFormHost;
   private readonly mutationTails = new Map<string, Promise<unknown>>();
+  private readonly toolCallTimeoutMs = TOOL_CALL_TIMEOUT_MS;
   private readonly browserSessionScreens = new Map<string, string>();
 
   async recoverFormOutcomes(active: ActiveTurn) {
@@ -1248,48 +1268,36 @@ export class RuntimeTools {
     signal?: AbortSignal,
     foregroundYield = false
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const timeout = AbortSignal.timeout(
-      [
-        "Task",
-        "SendFeedback",
-        "InstallPlugin",
-        "UninstallPlugin",
-        "AddMcpServer",
-        "UninstallMcpServer",
-        "AuthenticateMcpServer",
-        "RestartMcpServers",
-        "RemoveMcpAccount",
-        "RenameMcpAccount",
-        "SetMcpInstructions",
-      ].includes(tool)
-        ? 24 * 60 * 60_000
-        : tool === "SendToUser"
-          ? 5 * 60_000
-          : ["RequestUserForm", "DraftExternalMessage"].includes(tool)
-            ? 120_000
-            : 30_000
-    );
+    const timeoutMs = USER_PACED_CONTROL_TOOLS.has(tool) ? 24 * 60 * 60_000 : this.toolCallTimeoutMs;
+    const timeout = AbortSignal.timeout(timeoutMs);
     const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
-    const response = await fetch(`${this.serverUrl}/api/v0/internal/tools/call`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${this.controlToken}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        ...(foregroundYield ? {foregroundYield: true} : {}),
-        runId: active.runId,
-        botId: active.botId,
-        conversationId: active.conversationId,
-        channelId: active.channelId,
-        deliveryId: active.deliveryId,
-        tool,
-        arguments: args,
-        callId,
-      }),
-      signal: requestSignal,
-    });
-    const body = (await response.json()) as unknown;
+    let response: Response, body: unknown;
+    try {
+      response = await fetch(`${this.serverUrl}/api/v0/internal/tools/call`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${this.controlToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          ...(foregroundYield ? {foregroundYield: true} : {}),
+          runId: active.runId,
+          botId: active.botId,
+          conversationId: active.conversationId,
+          channelId: active.channelId,
+          deliveryId: active.deliveryId,
+          tool,
+          arguments: args,
+          callId,
+        }),
+        signal: requestSignal,
+      });
+      body = (await response.json()) as unknown;
+    } catch (error) {
+      if (timeout.aborted && !signal?.aborted)
+        throw new Error(toolCallTimedOutMessage(NATIVE_TOOLS.some((native) => native.name === tool) ? tool : CALL_DYNAMIC_TOOL_TOOL.name, timeoutMs));
+      throw error;
+    }
     if (!response.ok) {
       const message =
         body && typeof body === "object" && "error" in body

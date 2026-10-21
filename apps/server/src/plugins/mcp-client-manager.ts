@@ -2,7 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { auth, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { discoverAllTools, type PluginToolDefinition } from "@openteam/plugin-sdk";
+import { discoverAllTools, MCP_TOOL_CALL_TIMEOUT_MS, type PluginToolDefinition } from "@openteam/plugin-sdk";
 
 export interface HttpMcpConnectionOptions {
   endpoint: string;
@@ -67,7 +67,7 @@ export class McpHttpClientManager {
             : {},
       },
       undefined,
-      { signal, timeout: 60_000 }
+      { signal, timeout: MCP_TOOL_CALL_TIMEOUT_MS }
     );
   }
 

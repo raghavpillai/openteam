@@ -1,3 +1,6 @@
+/** A connector call's own budget; the agent's per-call guard (14 minutes) gives up first, as in the reference. */
+export const MCP_TOOL_CALL_TIMEOUT_MS = 60 * 60_000;
+
 /** Follow all MCP pages, rejecting broken cursors and bounding a server's catalog. */
 export async function discoverAllTools<T extends { name: string }>(
   list: (cursor?: string) => Promise<{ tools: T[]; nextCursor?: string }>

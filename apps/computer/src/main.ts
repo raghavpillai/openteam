@@ -179,7 +179,7 @@ const server = Bun.serve({
   hostname: "0.0.0.0",
   port,
   idleTimeout: 255,
-  async fetch(request) {
+  async fetch(request, requestServer) {
     const url = new URL(request.url);
     if (url.pathname === "/health" || url.pathname === "/health/authenticated") {
       if (url.pathname === "/health/authenticated" && !authorized(request))
@@ -572,6 +572,8 @@ const server = Bun.serve({
           runtimeGeneration?: number;
         };
         if (typeof body.toolName !== "string") return json({ error: "toolName is required" }, 400);
+        // A connector call may outlast the idle timeout; it has its own budget.
+        requestServer.timeout(request, 0);
         return json({
           result: await stdioMcp.call(
             mcpCallMatch[1],

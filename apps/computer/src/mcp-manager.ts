@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
-import { discoverAllTools, objectValue, scopedProcessEnvironment } from "@openteam/plugin-sdk";
+import { discoverAllTools, MCP_TOOL_CALL_TIMEOUT_MS, objectValue, scopedProcessEnvironment } from "@openteam/plugin-sdk";
 import { join } from "node:path";
 import { PluginPackageCache } from "./plugin-package-cache";
 import { SecretRedactor } from "@openteam/shell-jobs";
@@ -107,7 +107,7 @@ export class StdioMcpManager {
             : {},
       },
       undefined,
-      { timeout: 60_000 }
+      { timeout: MCP_TOOL_CALL_TIMEOUT_MS }
     );
   }
 

@@ -69,3 +69,24 @@ test("a failed spill keeps a 40 KB head with the reference truncation notice", a
   expect(Buffer.byteLength(inline)).toBeLessThanOrEqual(40_000);
   expect(inline).toEndWith("\n\n[Output truncated: the full MCP tool output was 50000 bytes, which exceeds the inline limit of 40000 bytes, and could not be written to a file. The remainder was discarded; do not retry the same call expecting the full output.]");
 });
+
+test("a connector call is cut off by the 840-second guard with the reference text", async () => {
+  const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
+  expect(tools.toolCallTimeoutMs).toBe(840_000);
+  tools.toolCallTimeoutMs = 20;
+  const active: any = {runId: "fixture", botId: "fixture", cwd: "/tmp", sentMessageCount: 0, pendingSteers: [], queue: {push() {}}};
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = ((_url: string, init: RequestInit) => new Promise((_, reject) =>
+      init.signal!.addEventListener("abort", () => reject(init.signal!.reason)))) as any;
+    await expect(tools.callControlPlaneToolRequest(active, "call", "PluginCall", {connectionId: "c", toolName: "get_call", arguments: {wait_seconds: 30}}))
+      .rejects.toThrow("The CallDynamicTool tool call timed out after 0 seconds and was terminated. The execution environment may be unresponsive, or the operation needs longer than the per-call time limit.");
+    await expect(tools.callControlPlaneToolRequest(active, "send", "SendToUser", {type: "text", content: "hi"}))
+      .rejects.toThrow("The SendToUser tool call timed out");
+    // A turn stop is not a timeout.
+    const stop = new AbortController();
+    const stopped = tools.callControlPlaneToolRequest(active, "stop", "PluginCall", {}, stop.signal);
+    stop.abort(new Error("stopped"));
+    await expect(stopped).rejects.toThrow("stopped");
+  } finally { globalThis.fetch = originalFetch; }
+});

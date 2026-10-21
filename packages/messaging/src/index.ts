@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { publishChannelNotification, publishMessageNotification } from "./notifications";
 export { publishChannelNotification, publishMessageNotification, channelNotificationStates } from "./notifications";
 import { messagePreviewText } from "@openteam/contracts/message-preview";
-import { defaultTaskConfiguration, subagentUsesParentConnectors, taskUserInfo, type TaskConfiguration } from "@openteam/contracts/task-configuration";
+import { defaultTaskConfiguration, subagentUsesParentConnectors, type TaskConfiguration } from "@openteam/contracts/task-configuration";
 import { COMBINED_GRAPHICAL_WORKER_PROMPT, EXECUTION_VERIFICATION_INSTRUCTIONS } from "./graphical-worker-prompts";
 import {
   type AdminBroadcastInput,
@@ -2245,20 +2245,16 @@ export class AgentMessaging {
       mcp_instructions: connectorInstructions,
     }, agentPrompt.memory);
     const siblings = await listSiblingThreads(this.prisma, botId, contextSessionId);
+    // The reference order: identity first; the sibling digest after memory and connector
+    // instructions after the directory, so per-turn changes sit late in the cached prefix.
     const instructions = [
-      frozen.sections.mcp_instructions,
       renderPlatformBaseSystemPrompt({ feedback: process.env.OPENTEAM_FEEDBACK_ALLOW_AGENT === "true" }),
-      renderOtherActiveConversations(siblings),
       agentPrompt.profileSection,
       frozen.sections.agent_instructions,
       "Use GetDynamicTools with namespace cursor to discover SendToAgent, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, CreateChannel/UpdateChannel, and UpdateSkill/UpdateProfile/UpdateAvatar/DisconnectChannel. Invoke discovered tools with CallDynamicTool.",
       A2A_PLATFORM_INSTRUCTIONS,
       graphicalDelegationInstructions(taskConfiguration),
-      taskUserInfo(taskConfiguration),
       "Subagents run in the background by default. Set run_in_background:false to wait for the result. Background completion is delivered after your turn ends; continue other work or end your turn instead of polling. Installed plugin agent templates are listed separately when available.",
-      todoContext.length > 0
-        ? `Durable task queue (reconcile it with TodoWrite on each wake):\n${todoContext.join("\n")}`
-        : "The durable task queue is empty.",
       "In a room wake, speak only when you add something useful. Finishing without SendToUser is a valid silent turn.",
       "Use UpdateMemory for durable memory and UpdateRoutine for scheduled routines. Skills, profile and settings, avatars, and connector disconnects have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, and DisconnectChannel.",
       renderPlatformRuntimeInstructions({
@@ -2267,11 +2263,12 @@ export class AgentMessaging {
         workingDirectory: bot.defaultDirectory,
         timeZone: this.defaultTimeZone,
       }),
-      `Your effective settings are hiddenFromSidebar=${bot.hiddenFromSidebar} and notifyOnAgentUpdates=${bot.notificationsEnabled}.`,
       `Use cursor.ReadTranscript for task-relevant saved conversation history or a dispatched worker’s observable activity. Transcript files are private runtime storage; do not open them with Read.`,
       frozen.sections.agent_directory,
       agentPrompt.memory.policy,
+      renderOtherActiveConversations(siblings),
       frozen.sections.automations,
+      frozen.sections.mcp_instructions,
       disconnected.length > 0
         ? `Disconnected connector platforms: ${disconnected.map(({ platform }) => platform).join(", ")}`
         : "No connector platform is marked disconnected.",

@@ -132,7 +132,9 @@ describe("Grok-derived platform prompt integration", () => {
         },
       ],
     });
-    expect(prompt.instructions).toContain("Browser and desktop workers are unavailable on this computer.");
+    expect(prompt.instructions).toContain("Browser and desktop workers are unavailable. Do not request graphical Tasks");
+    // The subagent roster lives only in user_info.
+    expect(prompt.instructions).not.toContain("<available_subagent_types>");
     expect(prompt.instructions).not.toContain("quick: Small jobs");
     expect(prompt.instructions).not.toContain("<available_subagent_models>");
     expect(prompt.instructions).not.toContain("computerUse: browser and desktop work");
@@ -185,6 +187,23 @@ describe("Grok-derived platform prompt integration", () => {
       );
       expect(prompt.agentProfileSnapshot).toBe(fixture.profileSnapshot);
     }
+  });
+
+  test("the system prompt opens with identity and keeps per-turn state late or out", async () => {
+    const { messaging } = mainAgent("alpha");
+    const prisma = (messaging as unknown as { prisma: Record<string, any> }).prisma;
+    const bot = await prisma.bot.findUniqueOrThrow();
+    prisma.bot.findUniqueOrThrow = async () => ({ ...bot, todos: [{ id: "t1", status: "pending", content: "Book flights" }] });
+    prisma.contextSession.findMany = async () => [{ id: "s2", scopeId: "c2", updatedAt: new Date() }];
+    prisma.channel.findMany = async (args: { where?: { kind?: unknown } }) =>
+      args.where?.kind === "group" ? [] : [{ id: "c2", name: "Trip planning", kind: "bot_dm" }];
+    const prompt = await messaging.platformPrompt("alpha", "alpha-context", "\n\n## Installed plugin skills\n\nPlugin skill text");
+    const text = prompt.instructions;
+    expect(text).toStartWith(`${renderPlatformBaseSystemPrompt()}\n\nYou are alpha.`);
+    const order = ["alpha's memory policy.", "## Other active conversations", "You have no scheduled routines.", "## Installed plugin skills"].map((part) => text.indexOf(part));
+    expect(order.every((at, index) => at > (order[index - 1] ?? 0))).toBe(true);
+    for (const gone of ["<available_subagent_types>", "task queue", "Book flights", "hiddenFromSidebar="]) expect(text).not.toContain(gone);
+    expect(prompt.todoUpdate).toBe("- [pending] t1: Book flights");
   });
 
   test("does not instruct the model to use unsupported capture-specific mechanics", () => {

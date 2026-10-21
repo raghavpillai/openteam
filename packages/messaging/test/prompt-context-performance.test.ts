@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { AgentDataStore } from "../src/agent-data";
 
 const snapshot = (overrides: Record<string, unknown> = {}) => ({
-  botId: "bot-1",
+  contextSessionId: "context-1",
   profileEpoch: 7,
   profileSection: "Frozen profile",
   systemName: "Bot",
@@ -27,10 +27,10 @@ const promptStore = (snapshotValue: ReturnType<typeof snapshot>) => {
         title: "",
         description: "Description",
         instructions: "",
-        conversation: { compactionEpoch: 7 },
       }),
     },
-    agentPromptSnapshot: {
+    contextSession: { findFirstOrThrow: async () => ({ id: "context-1", botId: "bot-1", compactionEpoch: 7 }) },
+    contextPromptSnapshot: {
       findUnique: async () => snapshotValue,
       update: async ({ data }: { data: Record<string, unknown> }) => {
         calls.updates.push(data);
@@ -59,7 +59,7 @@ const promptStore = (snapshotValue: ReturnType<typeof snapshot>) => {
 describe("prompt-context frozen epoch fast path", () => {
   test("renders live memory for the facts pin while retaining the frozen skill prefix", async () => {
     const fixture = promptStore(snapshot());
-    const context = await fixture.store.promptContext("bot-1");
+    const context = await fixture.store.promptContext("bot-1", "context-1");
     expect(fixture.calls).toEqual({ memory: 1, skills: 0, updates: [] });
     expect(context.memory).toEqual({ policy: "Memory policy", facts: "Live facts" });
     expect(context.skillRender).toBe("Frozen skills");
@@ -68,10 +68,10 @@ describe("prompt-context frozen epoch fast path", () => {
   test("existing frozen sessions receive installed skills without resetting the user workflow snapshot", async () => {
     const fixture = promptStore(snapshot({skillRender: ""}));
     Object.assign(fixture.store, { renderManagedSkills: async () => "- Routines: /installed/routines/SKILL.md" });
-    expect((await fixture.store.promptContext("bot-1")).skillRender).toContain("/installed/routines/SKILL.md");
+    expect((await fixture.store.promptContext("bot-1", "context-1")).skillRender).toContain("/installed/routines/SKILL.md");
     expect(fixture.calls.skills).toBe(0);
     Object.assign(fixture.store, { renderManagedSkills: async () => "" });
-    expect((await fixture.store.promptContext("bot-1")).skillRender).toBe("");
+    expect((await fixture.store.promptContext("bot-1", "context-1")).skillRender).toBe("");
   });
 
   test("limits skill rows in SQL while preserving the exact omitted count", async () => {

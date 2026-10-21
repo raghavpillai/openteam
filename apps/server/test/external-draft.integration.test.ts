@@ -12,13 +12,13 @@ const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 /** A Bot chat plus a connector account that declares reviewed sending. */
 async function fixture(name: string) {
  const prisma = createPrismaClient(databaseUrl!); const root = await mkdtemp(join(tmpdir(), `${name}-`));
- const botId = crypto.randomUUID(), conversationId = crypto.randomUUID(), channelId = crypto.randomUUID(), runId = crypto.randomUUID();
+ const botId = crypto.randomUUID(), conversationId = crypto.randomUUID(), contextId = crypto.randomUUID(), channelId = crypto.randomUUID(), runId = crypto.randomUUID();
  const pluginKey = `mail-${crypto.randomUUID().slice(0, 8)}`;
  const data = new AgentDataStore(prisma, { root: join(root, 'data'), workspaceRoot: root });
  const messaging = new AgentMessaging(prisma, { send: async () => crypto.randomUUID(), sendDebounced: async () => crypto.randomUUID() } as never, data);
  const installation = await prisma.pluginInstallation.create({ data: { pluginKey, version: '1.0.0', name: 'Mail', publisher: 'Test', manifest: { key: pluginKey, name: 'Mail', skills: [], connections: [{ key: 'email', transport: 'stdio', drafts: { platform: 'email', tool: 'send_reviewed_email' } }] } } });
  const connection = await prisma.pluginConnection.create({ data: { installationId: installation.id, connectorKey: 'email', name: 'Mail', transport: 'stdio', authType: 'none', status: 'ready' } });
- await prisma.bot.create({ data: { id: botId, name: `${name} fixture`, defaultDirectory: root, status: 'active', onboardingStatus: 'completed', conversation: { create: { id: conversationId } } } });
+ await prisma.bot.create({ data: { id: botId, name: `${name} fixture`, defaultDirectory: root, status: 'active', onboardingStatus: 'completed', conversation: { create: { id: conversationId } }, contextSessions: { create: { id: contextId, scope: 'home', scopeId: conversationId } } } });
  await prisma.channel.create({ data: { id: channelId, kind: 'bot_dm', directKey: `bot:${botId}`, name: `${name} fixture`, members: { create: { botId, ordinal: 0 } } } });
  const user = await prisma.message.create({ data: { botId, conversationId, role: 'user', content: 'Draft an email', clientId: 'fixture', status: 'completed' } });
  await prisma.run.create({ data: { id: runId, botId, conversationId, channelId, userMessageId: user.id, status: 'running', origin: 'user' } });
@@ -26,7 +26,7 @@ async function fixture(name: string) {
  const context = (callId: string) => ({ runId, botId, conversationId, channelId, deliveryId: null, origin: 'user' as const, callId, isFork: false, replyToMessageId: null });
  const card = async (id: string) => (await prisma.channelMessage.findUniqueOrThrow({ where: { id } })).metadata as any;
  const cleanup = async () => { await prisma.bot.deleteMany({ where: { id: botId } }); await prisma.channel.deleteMany({ where: { id: channelId } }); await prisma.pluginInstallation.deleteMany({ where: { pluginKey } }); await prisma.$disconnect(); await rm(root, { recursive: true, force: true }); };
- return { prisma, messaging, botId, connection, context, card, cleanup };
+ return { prisma, messaging, botId, contextId, connection, context, card, cleanup };
 }
 
 test('connectors that declare reviewed sending verify, edit and send each card at most once', async () => {
@@ -91,7 +91,7 @@ test('connectors that declare reviewed sending verify, edit and send each card a
   expect(await f.card(discarded.message_id)).toMatchObject({ cardState: 'dismissed', outcomeEchoed: false });
   expect((await f.card(discarded.message_id)).outcomeText).toStartWith('The user discarded your draft without sending. They refused to send it. Do not send that message yourself (including via CallDynamicTool or any connector send tool). Treat the draft as rejected; only draft or send again if the user explicitly asks.');
   expect(await wakes()).toBe(wakesBefore);
-  const nextTurn = await f.messaging.platformPrompt(f.botId, undefined as never, '', null);
+  const nextTurn = await f.messaging.platformPrompt(f.botId, f.contextId, '', null);
   expect(JSON.stringify(nextTurn)).toContain('The user discarded your draft without sending.');
 
   const stale = await service.create(f.context('reply-d'), draft) as { message_id: string };

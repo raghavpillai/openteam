@@ -266,7 +266,6 @@ model Bot {
   writtenMemoryFacts MemoryFact[]      @relation("MemoryFactWriter")
   savedSkills      SavedSkill[]
   routines         Routine[]
-  promptSnapshot   AgentPromptSnapshot?
   fileStates       AgentFileState[]
   connectorStates  BotConnectorState[]
   todos            TodoItem[]
@@ -697,22 +696,6 @@ model ContextPromptSnapshot {
   promptSections        Json           @default("{}")
   createdAt              DateTime       @default(now())
   updatedAt              DateTime       @updatedAt
-}
-
-model AgentPromptSnapshot {
-  botId                 String   @id @db.Uuid
-  bot                   Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
-  profileEpoch          Int      @default(-1)
-  profileSection        String   @default("")
-  systemName            String   @default("")
-  systemDescription     String   @default("")
-  announcedName         String   @default("")
-  announcedDescription  String   @default("")
-  skillEpoch            Int      @default(-1)
-  skillRender           String   @default("")
-  promptSections        Json     @default("{}")
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
 }
 
 model AgentFileState {

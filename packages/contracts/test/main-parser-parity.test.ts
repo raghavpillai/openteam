@@ -138,7 +138,7 @@ test("reference aliases and wrong-tool hints for file tools", async () => {
 test("CheckSubagent points at the subagent's transcript by id", async () => {
   const { renderControlResult } = await import("../src/tool-results");
   const detail = renderControlResult("CheckSubagent", {
-    subagent_id: "sand-subagent-1", subagent_type: "executor", description: "Fix", status: "running", elapsed_seconds: 5, recent_tool_calls: [], transcript_path: "/private/run.jsonl",
+    subagent_id: "sand-subagent-1", subagent_type: "executor", description: "Fix", status: "running", elapsed_seconds: 5, tool_call_count: 0, recent_activity: [], transcript_path: "/private/run.jsonl",
   }, { subagent_id: "sand-subagent-1" });
   expect(detail.split("\n").at(-1)).toBe("  Full transcript: call ReadTranscript with in=sand-subagent-1 for the complete play-by-play.");
   expect(detail).not.toContain("/private/run.jsonl");
@@ -211,14 +211,20 @@ test("CheckSubagent and MessageSubagent results read as the reference words them
   const child = {
     subagent_id: "sand-subagent-1", title: "Find the three cheapest nonstop flights", subagent_type: "executor", status: "running",
     elapsed_seconds: 125, tool_call_count: 3, transcript_path: "/home/box/agent-data/agent-transcripts/c/c.jsonl",
-    recent_tool_calls: [{ tool: "WebSearch", status: "running" }, { tool: "Shell", status: "completed" }, { tool: "Read", status: "cancelled" }],
+    recent_activity: ["[pending] Shell", "[done] Shell", "[pending] WebSearch", "[failed] WebSearch"],
   };
-  expect(renderControlResult("CheckSubagent", child, { subagent_id: "sand-subagent-1" }).split("\n").slice(0, 5)).toEqual([
+  expect(renderControlResult("CheckSubagent", child, { subagent_id: "sand-subagent-1" })).toBe([
     '- sand-subagent-1 [executor] "Find the three cheapest nonstop flights": running for 2m 5s, 3 tool call(s)',
     "  Recent activity (oldest first):",
-    "    [failed] Read",
+    "    [pending] Shell",
     "    [done] Shell",
     "    [pending] WebSearch",
+    "    [failed] WebSearch",
+    "  Full transcript: call ReadTranscript with in=sand-subagent-1 for the complete play-by-play.",
+  ].join("\n"));
+  expect(renderControlResult("CheckSubagent", { ...child, status: "queued", recent_activity: [] }, { subagent_id: "sand-subagent-1" }).split("\n").slice(0, 2)).toEqual([
+    '- sand-subagent-1 [executor] "Find the three cheapest nonstop flights": running for 2m 5s, 3 tool call(s)',
+    "  No tool activity recorded yet.",
   ]);
   expect(renderControlResult("CheckSubagent", { subagents: [{ ...child, elapsed_seconds: 42 }] }, {})).toBe(
     '1 subagent(s) running:\n- sand-subagent-1 [executor] "Find the three cheapest nonstop flights": running for 42s, 3 tool call(s)\nPass a subagent_id to see its recent activity and transcript path.'

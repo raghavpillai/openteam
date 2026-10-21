@@ -112,13 +112,6 @@ export const renameDirectChannel = (
           data: { name: requestedName, updatedAt: occurredAt },
           include: { members: { orderBy: { ordinal: "asc" } } },
         });
-        await tx.agentPromptSnapshot.updateMany({
-          where: { botId: member.botId },
-          data: {
-            announcedName: requestedName,
-            announcedDescription: member.bot.description,
-          },
-        });
         await tx.channelMessage.create({
           data: {
             channelId: channel.id,

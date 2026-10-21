@@ -24,16 +24,22 @@ const ACTIVE_STATUSES = ["provisioning", "queued", "running"] as const;
 const A2A_OUTGOING_PREFIX = "a2a:out:";
 const DELEGATED_WORK_WINDOW_MS = 24 * 60 * 60_000;
 
-// Parent-visible execution evidence, not authorization. Keep the observed
-// error separate from tool arguments, successful output, and image payloads.
-const failedToolError = (status: string, content: unknown): string | undefined => {
-  if (status !== "failed" || !content || typeof content !== "object" || Array.isArray(content)) return;
-  const result = (content as { result?: unknown }).result;
-  if (!result || typeof result !== "object" || Array.isArray(result)) return;
-  const parts = (result as { content?: unknown }).content;
-  if (!Array.isArray(parts)) return;
-  const text = parts.find((part) => part && typeof part === "object" && part.type === "text" && typeof part.text === "string" && part.text.trim());
-  return text ? text.text.slice(0, 500) : undefined;
+// The reference's activity log: a call adds "[pending] Name" when it starts and "[done]" or
+// "[failed]" when it ends, repeats collapse, and only the newest 24 entries are kept.
+const ACTIVITY_ENTRIES = 24;
+const FINISHED_ITEM_STATUSES = ["completed", "failed", "cancelled"] as const;
+type ActivityItem = { title: string | null; kind: string; status: string; startedAt?: Date | null; createdAt: Date; completedAt?: Date | null; updatedAt?: Date };
+export const subagentActivity = (items: ActivityItem[]): string[] => {
+  const events = items.flatMap((item) => {
+    const name = item.title ?? item.kind;
+    const started = { at: (item.startedAt ?? item.createdAt).getTime(), line: `[pending] ${name}` };
+    if (!(FINISHED_ITEM_STATUSES as readonly string[]).includes(item.status)) return [started];
+    const ended = (item.completedAt ?? item.updatedAt ?? item.createdAt).getTime();
+    return [started, { at: Math.max(ended, started.at), line: `[${item.status === "completed" ? "done" : "failed"}] ${name}` }];
+  }).sort((left, right) => left.at - right.at);
+  const lines: string[] = [];
+  for (const { line } of events) if (lines.at(-1) !== line) lines.push(line);
+  return lines.slice(-ACTIVITY_ENTRIES);
 };
 
 /** A browser task that names a site with known pitfalls carries that site's notes. */
@@ -668,11 +674,11 @@ export class SubagentService {
         { title: { not: "promptFingerprint" } },
       ],
     };
-    const recentToolCalls = currentRun
+    const recentItems = currentRun
       ? await this.prisma.runItem.findMany({
           where: activityWhere,
           orderBy: { createdAt: "desc" },
-          take: 8,
+          take: ACTIVITY_ENTRIES,
         })
       : [];
     const end = subagent.completedAt ?? subagent.stoppedAt ?? new Date();
@@ -686,13 +692,9 @@ export class SubagentService {
         0,
         Math.round((end.getTime() - (subagent.startedAt ?? subagent.createdAt).getTime()) / 1_000)
       ),
-      tool_call_count: currentRun ? await this.prisma.runItem.count({ where: activityWhere }) : 0,
-      recent_tool_calls: recentToolCalls.map((item) => ({
-        tool: item.title ?? item.kind,
-        status: item.status,
-        error: failedToolError(item.status, item.content),
-        at: item.createdAt.toISOString(),
-      })),
+      // Like the reference, the count covers calls that have finished.
+      tool_call_count: currentRun ? await this.prisma.runItem.count({ where: { AND: [activityWhere, { status: { in: [...FINISHED_ITEM_STATUSES] } }] } }) : 0,
+      recent_activity: subagentActivity(recentItems),
       transcript_path: subagent.outputPath,
       result: subagent.result,
       error: subagent.error,

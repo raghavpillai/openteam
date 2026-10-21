@@ -44,14 +44,8 @@ export class WebTools {
       ({ text: content, url: resultUrl, note } = provided);
       source = provided.provenance.source;
     }
-    const retrievedAt = new Date().toISOString();
-    const provenance = `Retrieval: ${provided.provider}; source: ${source}; retrieved at: ${retrievedAt}.`;
-    const freshness = source === "cached"
-      ? "Cached content; crawl time is unavailable. This does not verify current prices, availability or shipping. Use the browser to verify time-sensitive facts in the requested region."
-      : source === "unknown"
-        ? "The provider did not report whether this content was cached or freshly crawled."
-        : "Fetched during this request; page content can still be stale or location-dependent.";
-    const header = `# Content from ${resultUrl}\n\n${provenance} ${freshness}\n\n${note ? `Note: ${note}\n\n` : ""}`;
+    // The reference heads the page with the URL it was asked for, not the one redirects ended on.
+    const header = `# Content from ${url}\n\n`;
     // Like the reference, a long page is cut inline at 100,000 characters; nothing is written to disk.
     return {
       content: [{ type: "text" as const, text: header + truncateWebContent(content) }],
@@ -61,7 +55,6 @@ export class WebTools {
         url: resultUrl,
         requestedUrl: url,
         source,
-        retrievedAt,
         characters: content.length,
         ...(note ? { note } : {}),
         ...(retriedWithBrowserHeaders ? { retriedWithBrowserHeaders } : {}),

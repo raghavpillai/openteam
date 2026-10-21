@@ -116,7 +116,7 @@ describe("bounded teammates roster", () => {
       },
       prisma: {
         $queryRaw: async () => [],
-        contextSession: { findMany: async () => [] },
+        contextSession: { findMany: async () => [], findFirst: async () => null },
         bot: {
           findUniqueOrThrow: async (args: Record<string, unknown>) => {
             queryArgs.bot = args;
@@ -149,7 +149,9 @@ describe("bounded teammates roster", () => {
 
     const prompt = await AgentMessaging.prototype.platformPrompt.call(
       messaging as unknown as AgentMessaging,
-      "main"
+      "main",
+      "main-context",
+      ""
     );
     expect(queryArgs.bot).toMatchObject({ include: { todos: { take: 64 } } });
     expect(queryArgs.peers).toMatchObject({ take: PLATFORM_PROMPT_PEER_LIMIT + 1 });

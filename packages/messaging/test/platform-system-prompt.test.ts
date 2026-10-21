@@ -231,12 +231,20 @@ describe("Grok-derived platform prompt integration", () => {
     expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain("image-generation tools");
     expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain("do not assume a separate search tool");
     expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain("Respect each computer's local permission setting");
-    expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("Do not add permission requests, approval cards, or confirmation steps");
+    // The reference's ask-first policy: confirm consequential actions, but logging in stays autonomous.
+    for (const line of [
+      "Ask first only when:\n- a wrong guess has real consequences: deleting, sending messages, submitting forms (logging in is fine), purchasing, and similar,",
+      "offer it in one sentence and wait for a yes. Never start it on your own",
+      "## Security\nDon't change, post, delete, or send anything on the user's behalf without explicit confirmation in chat.",
+      "A dismissed widget is a decline: don't re-ask. Don't send a widget to confirm a tool that opens its own review UI; call the tool.",
+      "Ask again only to pick between connectors or accounts, or take a consequential action.",
+    ]) expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain(line);
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toMatch(/Do not add permission requests|Do not use it as an action approval|## Initiative|either just do it/);
   });
 
   test("the copied question-widget example passes OpenTeam's real send validation", () => {
     const example = PLATFORM_BASE_SYSTEM_PROMPT.match(
-      /send a question widget rather than prose: (\{.+\})\./
+      /send a question widget instead of prose: (\{.+\})\./
     )?.[1];
     expect(example).toBeDefined();
     const input = JSON.parse(example!);
